@@ -303,3 +303,54 @@ def test_command_exits_1_when_the_usd_cap_is_reached(tmp_path, monkeypatch, caps
         _run(monkeypatch, [str(_skill(tmp_path)), str(_evals(tmp_path)), "--max-usd", "0.5"], EXTRACT, MAP)
     assert exc.value.code == 1
     assert "--max-usd cap was reached" in capsys.readouterr().err
+
+
+def test_command_refuses_an_out_over_the_skill_md_read_from_a_skill_directory(tmp_path, monkeypatch):
+    skill = _skill(tmp_path)
+    with pytest.raises(InputError, match="would overwrite an input"):
+        _run(monkeypatch, [str(skill.parent), str(_evals(tmp_path)), "--out", str(skill)], EXTRACT, MAP)
+    assert skill.read_text(encoding="utf-8").startswith("# Skill")
+
+
+def test_command_refuses_an_out_over_a_task_check_file_before_any_call(tmp_path, monkeypatch):
+    root = tmp_path / "tasks"
+    _task(root, "t1", {"test_answer.py": "def test_flag():\n    assert True\n"})
+    check = root / "t1" / "tests" / "test_answer.py"
+    with pytest.raises(InputError, match="would overwrite an input"):
+        _run(monkeypatch, [str(_skill(tmp_path)), str(root), "--out", str(check)], EXTRACT, MAP)
+    assert check.read_text(encoding="utf-8").startswith("def test_flag")
+
+
+def test_command_refuses_an_out_that_is_a_directory_before_any_paid_call(tmp_path, monkeypatch):
+    from dokimi.commands import skill_coverage as cmd
+
+    def no_client(args):
+        raise AssertionError("a paid call was made before the --out check")
+
+    monkeypatch.setattr(cmd, "_client", no_client)
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+    with pytest.raises(InputError, match="cannot write"):
+        _run(monkeypatch, [str(_skill(tmp_path)), str(_evals(tmp_path)), "--out", str(out_dir)])
+
+
+def test_a_requirement_with_null_or_non_string_text_is_not_usable(tmp_path):
+    reply = json.dumps({"requirements": [
+        {"section": "must_hold", "text": None},
+        {"section": "must_hold", "text": 3},
+        {"section": "must_hold", "text": "Use the -x flag"},
+    ]})
+    client, _ = _client(reply)
+    reqs, dropped = sc.extract_requirements(sc.read_skill(_skill(tmp_path)), client)
+    assert [r.text for r in reqs] == ["Use the -x flag"]
+    assert dropped == 0
+    client, _ = _client('{"requirements": [{"section": "must_hold", "text": null}]}')
+    with pytest.raises(sc.SkillCoverageError, match="no usable requirement list"):
+        sc.extract_requirements(sc.read_skill(_skill(tmp_path)), client)
+
+
+def test_read_skill_names_the_skill_for_a_relative_file_and_a_dot_directory(tmp_path, monkeypatch):
+    skill = _skill(tmp_path)
+    monkeypatch.chdir(skill.parent)
+    assert sc.read_skill(Path("SKILL.md")).name == "demo"
+    assert sc.read_skill(Path(".")).name == "demo"

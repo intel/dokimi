@@ -94,7 +94,7 @@ def read_skill(path: Path) -> SkillDoc:
         raise ValueError(f"{target}: cannot read the skill ({exc})") from exc
     if len(text) > MAX_SKILL_CHARS:
         raise ValueError(f"{target}: {len(text)} characters, over the {MAX_SKILL_CHARS} one mapping call takes")
-    name = target.parent.name if target.name == "SKILL.md" else target.stem
+    name = target.resolve().parent.name if target.name == "SKILL.md" else target.stem
     return SkillDoc(path=str(target), name=name, text=text,
                     sha256=hashlib.sha256(text.encode("utf-8")).hexdigest())
 
@@ -120,6 +120,13 @@ def _evals_checks(root: Path) -> list[tuple[str, str, str]]:
             body = {k: v for k, v in row.items() if k not in _SKIPPED_ROW_FIELDS}
             out.append((eid, eid, _clip(json.dumps(body, ensure_ascii=False, indent=1))))
     return out
+
+
+def check_files(root: Path) -> list[Path]:
+    """The task test files :func:`load_checks` reads under a tasks root, resolved (an ``--out`` must not name one)."""
+    if not root.is_dir():
+        return []
+    return [p.resolve() for task in root.iterdir() if _is_task(task) for p in (task / "tests").glob("*.py")]
 
 
 def _task_checks(root: Path) -> list[tuple[str, str, str]]:
@@ -171,7 +178,8 @@ def _flat(text: str) -> str:
 
 
 def _usable_row(row: Any) -> bool:
-    return isinstance(row, dict) and row.get("section") in SECTIONS and bool(_flat(row.get("text", "")))
+    return (isinstance(row, dict) and row.get("section") in SECTIONS and isinstance(row.get("text"), str)
+            and bool(_flat(row["text"])))
 
 
 def _has_requirements(reply: dict[str, Any]) -> bool:
@@ -218,7 +226,7 @@ def extract_requirements(skill: SkillDoc, client: LLMClient) -> tuple[list[Requi
     out: list[Requirement] = []
     dropped = 0
     for row in reply.get("requirements") or []:
-        if not isinstance(row, dict) or row.get("section") not in SECTIONS or not _flat(row.get("text", "")):
+        if not _usable_row(row):
             continue
         if len(out) >= MAX_REQUIREMENTS:
             dropped += 1

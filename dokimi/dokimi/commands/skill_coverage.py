@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import math
+import os
 import sys
 from pathlib import Path
 
@@ -61,11 +62,22 @@ def _refuse_out_over_input(out: str, inputs: list[Path]) -> None:
         raise InputError(f"cannot resolve {out}: {exc}") from exc
     if clobbers:
         raise InputError(f"--out would overwrite an input file: {out}")
+    # Refused here, before the paid calls: save_artifact would fail on these after both have run.
+    if Path(out).is_dir() or not os.access(Path(out).parent, os.W_OK):
+        raise InputError(f"cannot write {out}: it is a directory, or its folder is missing or not writable")
+
+
+def _guard_inputs(skill: Path, evals: Path) -> list[Path]:
+    """Every file the command reads: the SKILL.md (inside a skill directory), the eval inputs and the check files."""
+    from dokimi.eval_coverage import input_files
+    from dokimi.skill_coverage import check_files
+
+    target = skill / "SKILL.md" if skill.is_dir() else skill
+    return [target, *input_files(evals), *check_files(evals)]
 
 
 def cmd_eval_skill_coverage(args: argparse.Namespace) -> None:
     from dokimi.artifacts import save_artifact
-    from dokimi.eval_coverage import input_files
     from dokimi.novelty.client import SpendCapReached
     from dokimi.skill_coverage import (
         SkillCoverageError, check_budget, coverage_report, extract_requirements, load_checks, map_requirements,
@@ -85,7 +97,7 @@ def cmd_eval_skill_coverage(args: argparse.Namespace) -> None:
         raise InputError(str(exc)) from exc
     if args.out:
         try:
-            inputs = [Path(args.skill), *input_files(evals)]
+            inputs = _guard_inputs(Path(args.skill), evals)
         except (OSError, RuntimeError, ValueError) as exc:
             raise InputError(f"cannot resolve the eval inputs under {evals}: {exc}") from exc
         _refuse_out_over_input(args.out, inputs)
