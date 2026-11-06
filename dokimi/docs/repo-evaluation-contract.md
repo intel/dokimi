@@ -1647,7 +1647,10 @@ its value: `branch pattern of no-commit-to-branch (.pre-commit-config.yaml:17)`,
 `branch of no-commit-to-branch (.pre-commit-config.yaml:19)` or `branch filter of
 on.push (.github/workflows/ci.yml:3)`. A file that is missing, not read or does not parse, an
 `args` that is not a list, a value that is not a string, an invalid regex, another hook's `args` and a name only in a `run:` script give no branch, and the
-claim keeps its path verdict. A link or path into a submodule is `unresolved`. A
+claim keeps its path verdict. When `.pre-commit-config.yaml` or one of those
+workflows was not read, the reason of a claim that stays `unresolved` here also
+names it, as `<file> was not read (<why>)` after the rest, in tree order and once
+even when the Action note above names it too. A link or path into a submodule is `unresolved`. A
 blob or tree link to `source.url` holds `<ref>/<path>` and the ref may contain
 slashes. A default branch, a commit or a version tag is one segment; any other
 ref is tried at each slash, shortest first, and the link is `ok` if some

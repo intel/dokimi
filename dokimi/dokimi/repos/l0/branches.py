@@ -80,8 +80,25 @@ def _extensions(scan: Scan) -> set[str]:
     return scan.cached("file_extensions", lambda: {posixpath.splitext(f)[1] for f in scan.files} - {""})
 
 
+def unread_files(scan: Scan) -> dict[str, str]:
+    """The ``.pre-commit-config.yaml`` and workflows the branch reading did not read (too big, binary, a dangling link)
+    -> why, in tree order."""
+    return _read(scan)[1]
+
+
 def _sources(scan: Scan) -> list[Source]:
-    return scan.cached("branch_sources", lambda: [*_hook_sources(scan), *_filter_sources(scan)])
+    return _read(scan)[0]
+
+
+def _read(scan: Scan) -> tuple[list[Source], dict[str, str]]:
+    return scan.cached("branch_sources", lambda: _read_sources(scan))
+
+
+def _read_sources(scan: Scan) -> tuple[list[Source], dict[str, str]]:
+    flows = workflows.runnable(scan)
+    skipped: dict[str, str] = {}
+    scan.preload([PRE_COMMIT, *flows], skipped)
+    return [*_hook_sources(scan), *_filter_sources(scan, flows)], {f: skipped[f] for f in scan.files if f in skipped}
 
 
 def _load(scan: Scan, path: str) -> Any:
@@ -139,10 +156,8 @@ def _hook_source(opt: str, value: str, line: int) -> Source | None:
         return None
 
 
-def _filter_sources(scan: Scan) -> list[Source]:
+def _filter_sources(scan: Scan, flows: list[str]) -> list[Source]:
     """The ``branches`` and ``branches-ignore`` globs of ``on.push`` and ``on.pull_request``, workflow by workflow."""
-    flows = workflows.runnable(scan)
-    scan.preload(flows)
     out: list[Source] = []
     for path in flows:
         doc = _load(scan, path)

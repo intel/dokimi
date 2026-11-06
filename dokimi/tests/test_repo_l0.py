@@ -15,7 +15,7 @@ from dokimi.artifacts import load_artifact
 from dokimi.cli import build_parser
 from dokimi.repos import parse_manifest
 from dokimi.repos.l0 import branches, scan_repo
-from dokimi.repos.source import GitTree, WorkTree
+from dokimi.repos.source import READ_MANY_LIMIT, GitTree, WorkTree
 
 MANIFEST = {
     "schema": "repo_manifest.v1",
@@ -441,6 +441,15 @@ def test_a_path_like_claim_no_branch_source_names_keeps_its_path_verdict(tmp_pat
 def test_a_branch_filter_names_only_a_path_that_would_be_unresolved(tmp_path, guide, claim, held, verdict):
     """A `fail` or `ok_suffix` found the path's directory, or the path below another one: `release/**` does not wave it through."""
     assert _path_verdict(tmp_path, claim, {held: "", **_PUSH}, guide) == verdict
+
+
+def test_a_branch_source_the_scan_does_not_read_is_named_in_the_reason(tmp_path):
+    """A binary `.pre-commit-config.yaml` and a workflow over the read limit could hold `maintenance/*`: the reason says so."""
+    big = "on: {push: {branches: ['maintenance/**']}}\n" + "#" * READ_MANY_LIMIT + "\n"
+    files = {".pre-commit-config.yaml": _pre_commit(_DPNP)[".pre-commit-config.yaml"] + "\0", ".github/workflows/ci.yml": big}
+    assert _path_verdict(tmp_path, "maintenance/*", files) == (
+        "unresolved", _NO_GLOB.format("maintenance/*") + f"; .github/workflows/ci.yml was not read ({len(big)} bytes, "
+        "over the 2 MB read limit); .pre-commit-config.yaml was not read (binary (a NUL byte))")
 
 
 def test_a_backslash_in_a_branch_filter_escapes_the_next_character():

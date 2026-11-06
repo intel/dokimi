@@ -8,4 +8,5 @@
   `branches` / `branches-ignore` filter of `on.push` or `on.pull_request` in a workflow, names
   it, and the reason gives the source and its line (`branch pattern of no-commit-to-branch
   (.pre-commit-config.yaml:17)`). A claim ending in a file extension the tree uses
-  (`release/CHANGELOG.md`) matches only a name or pattern equal to it.
+  (`release/CHANGELOG.md`) matches only a name or pattern equal to it. A claim left
+  `unresolved` names each of those files the scan did not read (`<file> was not read (<why>)`).

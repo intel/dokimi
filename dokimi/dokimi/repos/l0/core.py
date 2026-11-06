@@ -342,11 +342,15 @@ class Scan:
 
         Only ``unresolved``: a ``fail`` or ``ok_suffix`` found the path's directory or the path itself. A name
         whose first directory the tree holds at the root (``tools/old/x`` beside ``tools/``) is a path.
+        Left ``unresolved``, its reason also names each file the branch reading skipped, once.
         """
         if verdict[0] != "unresolved" or name.split("/")[0] in self.dir_set:
             return verdict
         branch = branches.branch_of(self, name, [_fill(name, f) for f in _FILLS])
-        return ("ok", branch) if branch else verdict
+        if branch:
+            return "ok", branch
+        notes = [f"; {f} was not read ({why})" for f, why in branches.unread_files(self).items()]
+        return verdict[0], verdict[1] + "".join(n for n in notes if n not in verdict[1])  # the Action note may have it
 
     def _reads_as_action(self, name: str, cands: list[str]) -> bool:
         """``name`` has an Action's shape, no candidate holds it and its directory is not one at the root."""
