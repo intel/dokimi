@@ -336,6 +336,19 @@ def pinned_claude_version(job: dict) -> str | None:
     return None
 
 
+def drop_pin_without_pinned_claude(name: str, job: tuple[str, dict], step: dict[str, Any],
+                                   step_env: dict[str, str]) -> None:
+    """Unset a PINNED_CLAUDE var when the claude on PATH is not the version the job pins."""
+    var = PINNED_CLAUDE.get((job[0], step.get("name")))
+    if not var or var not in step_env:
+        return
+    pinned, have = pinned_claude_version(job[1]), claude_on_path_version()
+    if have != pinned:
+        print(f"NOTICE: {name}: claude on PATH is {have or 'missing'}, CI pins "
+              f"{pinned}: {var} unset, the pinned-client tests skip")
+        del step_env[var]
+
+
 def run(args: argparse.Namespace) -> int:
     py = f"{sys.version_info.major}.{sys.version_info.minor}"
     want = set(args.jobs.split(",")) if args.jobs else None
@@ -428,12 +441,7 @@ def run(args: argparse.Namespace) -> int:
                     except KeyError as e:
                         record(name, f"skip (unknown expression {e})")
                         continue
-                    if (var := PINNED_CLAUDE.get((job_id, step.get("name")))) and var in step_env:
-                        pinned, have = pinned_claude_version(job), claude_on_path_version()
-                        if have != pinned:
-                            print(f"NOTICE: {name}: claude on PATH is {have or 'missing'}, CI pins "
-                                  f"{pinned}: {var} unset, the pinned-client tests skip")
-                            del step_env[var]
+                    drop_pin_without_pinned_claude(name, (job_id, job), step, step_env)
                     cwd = root / step.get("working-directory", wd)
                     print(f"\n=== {name}  (cwd {cwd.relative_to(root)})", flush=True)
                     t0 = time.monotonic()
