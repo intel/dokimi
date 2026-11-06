@@ -1033,9 +1033,9 @@ version in its symbol changes).
 sha256}`) and `gold.json` (`answer_key`, `gold`, `exclude`: the defining files
 for references, `accepted`: right answers not required, such as a class's
 second defining file (a `.pyi` next to its `.py`); a person may add more;
-`distinct`: for function answers, the other functions of a gold file whose
-last name is a gold item's, so a bare name that fits one of them names no
-gold item). The
+`distinct`: the other functions (for function answers) or classes (for class
+answers) of a gold file whose last name is a gold item's, so a bare name that
+fits one of them names no gold item). The
 manifest needs `entry_points: {}` when every task uses a built-in grader. A
 task directory that has a `task.json` is kept and printed as `kept <id>`;
 `--force` rewrites it.

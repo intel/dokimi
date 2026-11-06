@@ -66,7 +66,7 @@ class Candidate:
     gold: tuple[str, ...]
     accepted: tuple[str, ...]  # right answers outside the gold: neither a hit nor a false positive
     same_name: int  # targets of this kind with this name; above 1 the prompt says which one counts
-    distinct: tuple[str, ...] = ()  # other functions of a gold file with a gold item's last name: never a hit
+    distinct: tuple[str, ...] = ()  # other functions or classes of a gold file with a gold item's last name
 
     @property
     def ambiguous(self) -> bool:
@@ -336,6 +336,7 @@ def _derives(index: CodeIndex, repo_path: dict[str, str], sep: str, opts: Option
         named = _name(s, sep)
         if named:
             same[named[0]] = same.get(named[0], 0) + 1
+    by_last = _classes_by_last_name(index, classes, repo_path, names)
     out = []
     for base, children in sorted(subs.items()):
         named = _name(base, sep)
@@ -351,8 +352,25 @@ def _derives(index: CodeIndex, repo_path: dict[str, str], sep: str, opts: Option
         accepted = {x for i in items if i for x in i[1:]}
         for other in set(listed.get(base, ())) - set(children):
             accepted.update(_listed_items(index, other, repo_path, names))
+        distinct = {x for g in gold for x in by_last.get(_file_and_last(g), ())} - gold - accepted
         out.append(Candidate("derives", (base,), named[0], named[1], defined, tuple(sorted(gold)),
-                             tuple(sorted(accepted - gold)), same.get(named[0], 1)))
+                             tuple(sorted(accepted - gold)), same.get(named[0], 1), tuple(sorted(distinct))))
+    return out
+
+
+def _file_and_last(item: str) -> tuple[str, str]:
+    path, _, name = item.partition("::")
+    return path, name.rpartition(".")[2]
+
+
+def _classes_by_last_name(index: CodeIndex, classes: list[str], repo_path: dict[str, str],
+                          names: dict[str, str | None]) -> dict[tuple[str, str], set[str]]:
+    """``path::Class`` of every class, keyed by its file and last name: a gold file's other class of a gold
+    item's last name is ``distinct``, so a bare ``Child`` does not name gold ``Outer.Child``."""
+    out: dict[tuple[str, str], set[str]] = {}
+    for k in classes:
+        for item in _listed_items(index, k, repo_path, names):
+            out.setdefault(_file_and_last(item), set()).add(item)
     return out
 
 

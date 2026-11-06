@@ -621,3 +621,27 @@ def test_an_over_qualified_answer_names_the_longest_known_item(tmp_path):
     assert _grade(tmp_path, fence({"functions": ["a.py::run"]}), two)["n_false_positive"] == 1  # still ambiguous
     nested = {"answer_key": "functions", "gold": ["a.py::run"], "distinct": ["a.py::Outer.Impl.run"]}
     assert _grade(tmp_path, fence({"functions": ["a.py::Impl.run"]}), nested)["n_false_positive"] == 1
+
+
+# ------------------------------------------------------------------ review round 3 (PR #399)
+
+@pytest.mark.parametrize("tool, base, sub, other, second, path", [
+    ("scip-python 0.6.8", _cls("Base"), _cls("Outer#Child", mod="kids"), _cls("Child", mod="kids"),
+     _cls("Second", mod="kids"), "src/kids.py"),
+    ("scip-clang 0.4.0", "cxx . . $ Base#", "cxx . . $ ns1/Child#", "cxx . . $ ns2/Child#", "cxx . . $ Second#",
+     "src/kids.h"),
+])
+def test_a_same_named_class_of_a_gold_file_that_does_not_derive_is_distinct(tmp_path, tool, base, sub, other,
+                                                                            second, path):
+    docs = {"src/base.py": [_occ("src/base.py", 0, base, True)],
+            path: [_occ(path, 0, sub, True), _occ(path, 5, other, True), _occ(path, 9, second, True)]}
+    p = plan(_index(docs, {sub: (base,), second: (base,)}, tool=tool), list(docs), _opts(tmp_path, references=0))
+    (o,) = p.outcomes
+    (wrong,) = o.candidate.distinct
+    assert "namespace or class" in graph_tasks._prompt(o.candidate, "classes")
+    write(p, _opts(tmp_path), {"tool": tool, "sha256": "0" * 64})
+    gold = json.loads((tmp_path / "tasks" / o.task / "gold.json").read_text())
+    assert gold["distinct"] == [wrong] and wrong not in gold["gold"]
+    r = graph.grade({"id": "t", "gold": "gold.json"}, tmp_path / "tasks" / o.task,
+                    fence({"classes": [f"{path}::Child", f"{path}::Second"]}))
+    assert r["n_false_positive"] == 1 and r["f1"] < 1.0
