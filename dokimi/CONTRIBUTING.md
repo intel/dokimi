@@ -169,6 +169,20 @@ asserts the value the mutant changes. Some survivors are equivalent (the mutant
 computes the same result, e.g. a `<` that differs only at a value no input
 reaches); leave those alone. `mutants/` is scratch and git-ignored.
 
+**Fuzzing.** [atheris](https://github.com/google/atheris) fuzzes the parsers
+that read untrusted text: judge and agent replies (`llm_json`, the YES/NO, A/B
+and retention verdicts, `parse_json`) and Markdown frontmatter. Each target in
+`fuzz/targets.py` asserts the parser's contract: its documented return type, or
+its documented error, for any input. The `fuzz` workflow runs them for 60 s on a
+pull request that touches those parsers and 10 minutes weekly, and uploads a
+crashing input; `tests/test_fuzz_targets.py` replays `fuzz/corpus/` and
+Hypothesis text through the same targets in every test run. Locally (Linux
+x86_64, CPython 3.12+): `pip install --require-hashes -r
+requirements-fuzz.lock.txt`, then `python fuzz/fuzz_parsers.py fuzz/corpus
+-max_total_time=60`, and `python fuzz/fuzz_parsers.py crash-<sha1>` to replay a
+crash. A new parser of untrusted text gets a target and seeds (byte 0 is the
+target's index in sorted `TARGETS`, byte 1 is `0`, then ASCII text).
+
 Dependencies install from `requirements.lock.txt`; the docs build's from
 `requirements-docs.lock.txt` on top of it, and the tools CI, `make dev`, the
 release job and the eval image use (`requirements-ci.txt`) from
@@ -176,8 +190,9 @@ release job and the eval image use (`requirements-ci.txt`) from
 package-smoke and the release job build with `python -m build --no-isolation`,
 so the published sdist and wheel are not built by a backend resolved fresh from
 PyPI. The mutation workflow adds mutmut's closure
-(`requirements-mutation.txt`) from `requirements-mutation.lock.txt`, which
-nothing else installs, and pip-audit audits with the others. When you change a range in
+(`requirements-mutation.txt`) from `requirements-mutation.lock.txt`, and the
+fuzz workflow atheris from `requirements-fuzz.lock.txt` (compiled for Linux
+x86_64: atheris has no sdist), which nothing else installs, and pip-audit audits with the others. When you change a range in
 `requirements*.txt`, regenerate the lock with the command in its header: run it
 from `dokimi/`, and add `--upgrade` to pick up new versions (without it, uv
 keeps the current pins). The main and tools lock headers pass
@@ -186,7 +201,8 @@ against litellm's declared cap, and so every install of `requirements.lock.txt`
 passes `--no-deps` (`SECURITY.md` says why). The command's `--exclude-newer=P7D` skips releases
 less than 7 days old; if a security fix is newer than that, its vulnerability PR
 fails to resolve, so regenerate the lock by hand without the flag. The docs lock
-and the tools locks (`requirements-ci.lock.txt`, `requirements-mutation.lock.txt`) are constrained to the main one,
+and the tools locks (`requirements-ci.lock.txt`, `requirements-mutation.lock.txt`,
+`requirements-fuzz.lock.txt`) are constrained to the main one,
 so regenerate them (command in each header) after the main lock changes too;
 `tests/test_dependency_locks.py` fails while a pin they share differs.
 

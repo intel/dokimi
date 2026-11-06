@@ -10,26 +10,40 @@ import re
 
 
 def extract_json_object(text: str) -> dict:
-    """Extract a JSON object from LLM output, handling markdown fences and leading text."""
+    """Extract a JSON object from LLM output, handling markdown fences and leading text.
+
+    Always a ``dict``: a reply that parses to another JSON value (``7``, ``[...]``,
+    ``"x"``) is not an object, and raises ``ValueError`` like any unusable reply, so
+    callers that retry on ``ValueError`` retry it instead of failing at a ``.get``.
+    """
     text = (text or "").strip()
     if not text:
         raise ValueError("LLM returned empty response")
     # Direct parse
     try:
-        return json.loads(text)
+        result = json.loads(text)
+        if isinstance(result, dict):
+            return result
     except Exception:
         pass
     # Markdown fence
     fence = re.search(r"```(?:json)?\s*([\s\S]*?)```", text)
     if fence:
         try:
-            return json.loads(fence.group(1).strip())
+            result = json.loads(fence.group(1).strip())
+            if isinstance(result, dict):
+                return result
         except Exception:
             pass
     # First { ... } block
     m = re.search(r"\{[\s\S]*\}", text)
     if m:
-        return json.loads(m.group(0))
+        try:
+            result = json.loads(m.group(0))
+        except RecursionError as exc:
+            raise ValueError(f"JSON in LLM response is nested too deeply: {text[:200]!r}") from exc
+        if isinstance(result, dict):
+            return result
     raise ValueError(f"No JSON object found in LLM response: {text[:200]!r}")
 
 

@@ -1,0 +1,80 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+name: fuzz
+
+# atheris over the parsers that read model replies and Markdown frontmatter
+# (dokimi/fuzz/targets.py). A pull request that touches them gets a short run; the
+# weekly run goes longer. A crash fails the job and uploads the input that caused
+# it (replay: python fuzz/fuzz_parsers.py crash-<sha1>). The same targets replay
+# the seed corpus in every test run (tests/test_fuzz_targets.py).
+on:
+  pull_request:
+    paths:
+      - 'dokimi/fuzz/**'
+      - 'dokimi/dokimi/llm_json.py'
+      - 'dokimi/dokimi/utils.py'
+      - 'dokimi/dokimi/eval/checklist.py'
+      - 'dokimi/dokimi/eval/pairwise.py'
+      - 'dokimi/dokimi/eval/reference_checks.py'
+      - 'dokimi/dokimi/novelty/retention.py'
+      - 'dokimi/dokimi/novelty/client.py'
+      - 'dokimi/requirements-fuzz.lock.txt'
+      - '.github/workflows/fuzz.yml'
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: "Fuzzing time in seconds"
+        required: false
+        default: "600"
+  schedule:
+    - cron: '41 4 * * 2'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: dokimi
+
+jobs:
+  atheris:
+    name: atheris (parsers)
+    runs-on: ${{ github.repository_owner == 'intel' && 'intel-ubuntu-latest' || 'ubuntu-latest' }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: |
+            dokimi/requirements.lock.txt
+            dokimi/requirements-fuzz.lock.txt
+      - name: Install deps
+        run: |
+          pip install --no-deps --require-hashes -r requirements.lock.txt -r requirements-fuzz.lock.txt
+          pip install --no-deps --no-build-isolation -e .
+      - name: Fuzz
+        env:
+          # 60 s on a pull request, 600 s weekly, or what a manual run asks for.
+          SECONDS_BUDGET: ${{ github.event_name == 'pull_request' && '60' || inputs.seconds || '600' }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/corpus" "$RUNNER_TEMP/crashes"
+          cp fuzz/corpus/* "$RUNNER_TEMP/corpus/"
+          python fuzz/fuzz_parsers.py "$RUNNER_TEMP/corpus" \
+            -max_total_time="$SECONDS_BUDGET" -rss_limit_mb=4096 -timeout=10 \
+            -artifact_prefix="$RUNNER_TEMP/crashes/"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        if: failure()
+        with:
+          name: fuzz-crashes
+          path: ${{ runner.temp }}/crashes/
+          if-no-files-found: ignore
+          retention-days: 30
