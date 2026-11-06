@@ -8,8 +8,12 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from dokimi.exit_codes import EXIT_USAGE
+
+if TYPE_CHECKING:
+    from dokimi.repos.graph_tasks import Plan
 
 SOURCES = ("graph",)
 SOURCE_HELP = ("Repository source pinned at the revision the index was built from: <dir>@<rev> or "
@@ -41,9 +45,7 @@ def cmd_eval_tasks_generate(args: argparse.Namespace) -> None:
     if not p.documents_in_tree:
         print(f"✗ no document of the code index {args.index} is a file of {tree.label}", file=sys.stderr)
         sys.exit(EXIT_USAGE)
-    print(f"{p.documents_in_tree}/{p.documents} index documents in the tree"
-          + (f" under {p.root_prefix}" if p.root_prefix else "")
-          + f"; {p.granularity}; candidates: {p.candidates['references']} references, {p.candidates['derives']} derives")
+    _print_coverage(p)
     if not args.dry_run:
         try:
             write(p, opts, {"tool": index.tool, "sha256": _sha256(args.index)})
@@ -64,6 +66,15 @@ def cmd_eval_tasks_generate(args: argparse.Namespace) -> None:
     if not p.outcomes:
         print("✗ no target of the index has a gold list of the allowed size", file=sys.stderr)
         sys.exit(1)
+
+
+def _print_coverage(p: Plan) -> None:
+    print(f"{p.documents_in_tree}/{p.documents} index documents in the tree"
+          + (f" under {p.root_prefix}" if p.root_prefix else "")
+          + f"; {p.granularity}; candidates: {p.candidates['references']} references, {p.candidates['derives']} derives")
+    if p.unindexed:
+        print(f"⚠ {len(p.unindexed)} tree file(s) of the indexed kinds are not in the index (first: "
+              f"{p.unindexed[0]}): a reference in one is in no gold; index the whole tree", file=sys.stderr)
 
 
 def _sha256(path: str) -> str:

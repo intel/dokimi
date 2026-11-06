@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import posixpath
 import random
 import re
 from dataclasses import dataclass, field
@@ -90,6 +91,7 @@ class Plan:
     documents_in_tree: int
     candidates: dict[str, int] = field(default_factory=dict)
     outcomes: list[Outcome] = field(default_factory=list)
+    unindexed: list[str] = field(default_factory=list)  # tree files of the indexed kinds the index lacks
 
 
 def _every_function_ranged(index: CodeIndex) -> bool:
@@ -116,6 +118,9 @@ def plan(index: CodeIndex, tree_files: list[str], opts: Options) -> Plan:
     chosen = _choose(references, opts.references, rng, used) + _choose(derives, opts.derives, rng, used)
     out = Plan(granularity, prefix, len(documents), len(repo_path),
                {"references": len(references), "derives": len(derives)})
+    kinds = {posixpath.splitext(p)[1] for p in repo_path.values()} - {""}
+    out.unindexed = sorted(f for f in in_tree - set(repo_path.values())
+                           if f.startswith(prefix) and posixpath.splitext(f)[1] in kinds)
     out.outcomes = [Outcome(task_id(c), "kept" if (opts.out / task_id(c) / "task.json").exists() and not opts.force
                             else "written", c) for c in chosen]
     return out

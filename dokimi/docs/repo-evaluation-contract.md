@@ -1019,7 +1019,10 @@ test nor generated; dunder methods and C++ operators are never targets. A
 target with a reference (or, for derives, a subclass) outside the tree's files
 or defined only in a test is dropped, since the gold would be incomplete. The
 gold size must be between 5 and 40 (derives: 2 to 40 subclasses). The index
-paths are mapped onto the tree as `repo inspect --index` does (§8.1).
+paths are mapped onto the tree as `repo inspect --index` does (§8.1). A tree
+file under the index's root, of an extension the indexed files have, that the
+index lacks (a test file too) holds references no gold has: the command prints
+a warning with their count and the first one.
 
 **Choice.** Seeded (`--seed`): about half the tasks of each kind have a name
 other targets share (the prompt says how many and which one counts), since

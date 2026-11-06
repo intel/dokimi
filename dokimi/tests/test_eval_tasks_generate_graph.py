@@ -674,3 +674,21 @@ def test_a_header_prototype_is_gold_and_the_scip_clang_prompt_counts_a_declarati
     write(p, _opts(tmp_path), {"tool": tool, "sha256": "0" * 64})
     prompt = json.loads((tmp_path / "tasks" / o.task / "task.json").read_text())["prompt"]
     assert ("a declaration such as a header prototype" in prompt) is told
+
+
+def test_tree_files_of_the_indexed_kinds_that_the_index_lacks_are_listed(tmp_path):
+    assert plan(_index(_callers_docs()), TREE, _opts(tmp_path)).unindexed == []
+    tree = [*TREE, "tests/test_cli.py", "docs/notes.txt"]
+    assert plan(_index(_callers_docs()), tree, _opts(tmp_path)).unindexed == ["tests/test_cli.py"]
+
+
+def test_cli_warns_when_the_index_lacks_a_tree_file(tmp_path, capsys):
+    root, _ = _toy(tmp_path)
+    write_file(root, "tests/test_core.py", "x = 1\n")
+    git(root, "add", "-A")
+    git(root, "commit", "-qm", "test")
+    _scip(tmp_path / "index.scip")
+    _run(["eval", "tasks", "generate", f"{root}@HEAD", "--from", "graph", "--index", str(tmp_path / "index.scip"),
+          "--out", str(tmp_path / "tasks")])
+    err = capsys.readouterr().err
+    assert "1 tree file(s) of the indexed kinds are not in the index (first: tests/test_core.py)" in err
