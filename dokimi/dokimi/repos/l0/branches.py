@@ -6,7 +6,7 @@
 The path rule (:mod:`.core`) takes a path-like claim one of them names for a branch, not a path:
 ``maintenance/*`` beside a ``no-commit-to-branch`` hook with ``--pattern maintenance/.*``. Read from the
 ``args`` of that hook in the root ``.pre-commit-config.yaml``, and from the ``branches`` and
-``branches-ignore`` filters of ``on.push`` and ``on.pull_request`` in the workflows GitHub runs.
+``branches-ignore`` filters of the events that take them (``on.push``, ``on.pull_request``, ...) in the workflows GitHub runs.
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 PRE_COMMIT = ".pre-commit-config.yaml"
 HOOK = "no-commit-to-branch"
 _OPTIONS = {"--branch": "--branch", "-b": "--branch", "--pattern": "--pattern", "-p": "--pattern"}
-_EVENTS = ("push", "pull_request")
+_EVENTS = ("push", "pull_request", "pull_request_target", "merge_group", "workflow_run")
 _FILTERS = ("branches", "branches-ignore")
 
 
@@ -157,7 +157,7 @@ def _hook_source(opt: str, value: str, line: int) -> Source | None:
 
 
 def _filter_sources(scan: Scan, flows: list[str]) -> list[Source]:
-    """The ``branches`` and ``branches-ignore`` globs of ``on.push`` and ``on.pull_request``, workflow by workflow."""
+    """The ``branches`` and ``branches-ignore`` globs of each event of ``_EVENTS``, workflow by workflow."""
     out: list[Source] = []
     for path in flows:
         doc = _load(scan, path)

@@ -368,6 +368,12 @@ _PUSH = {".github/workflows/ci.yml": 'name: ci\non:\n  push:\n    branches: [mai
      "branch of no-commit-to-branch (.pre-commit-config.yaml:17)"),
     ("dependabot/*", {".github/workflows/pr.yaml": "on:\n  pull_request:\n    branches-ignore:\n      - 'dependabot/**'\n"},
      "branch filter of on.pull_request (.github/workflows/pr.yaml:4)"),
+    ("release/*", {".github/workflows/pr.yml": "on:\n  pull_request_target:\n    branches: ['release/**']\n"},
+     "branch filter of on.pull_request_target (.github/workflows/pr.yml:3)"),
+    ("release/*", {".github/workflows/after.yml": "on: {workflow_run: {workflows: [ci], branches: ['release/**']}}\n"},
+     "branch filter of on.workflow_run (.github/workflows/after.yml:1)"),
+    ("release/*", {".github/workflows/queue.yml": "on: {merge_group: {branches: ['release/**']}}\n"},
+     "branch filter of on.merge_group (.github/workflows/queue.yml:1)"),
     ("release/v*", {".github/workflows/ci.yml": '"on": {push: {branches: ["release/v*"]}}\n'},
      "branch filter of on.push (.github/workflows/ci.yml:1)"),
     # GitHub's `[...]`, `+` and `?`: one character of a set, one or more and zero or one of the one before

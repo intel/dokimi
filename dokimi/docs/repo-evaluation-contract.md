@@ -1628,7 +1628,8 @@ repository configures it as a branch (a `fail`, `ok_suffix` or other verdict
 stays): a `--branch` (`-b`, `--branch=`) name or a `--pattern`
 (`-p`, `--pattern=`) regex in the `args` of a `no-commit-to-branch` hook of the
 root `.pre-commit-config.yaml`, or a `branches` or `branches-ignore` filter of
-`on.push` or `on.pull_request` in the same workflows. The claim matches when it
+`on.push`, `on.pull_request`, `on.pull_request_target`, `on.merge_group` or
+`on.workflow_run` in the same workflows. The claim matches when it
 equals the name or pattern, or when the pattern starts (after a leading `^` or
 `!`) with the claim's first directory and a slash, and matches the claim with each
 wildcard filled in: a hook pattern as the hook reads it (`re.match`, so
