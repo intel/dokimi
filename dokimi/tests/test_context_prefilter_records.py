@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""`context prefilter`: which rows are claims, which records are the user's words, and when user_overrides fires."""
+"""`trace prefilter`: which rows are claims, which records are the user's words, and when user_overrides fires."""
 
 from __future__ import annotations
 

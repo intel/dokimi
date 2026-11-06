@@ -123,7 +123,7 @@ def register(sub, positive_int) -> None:
     lib_list_p = library_sub.add_parser("list", help="List products in the registry")
     lib_list_p.add_argument("--registry", default=None, help="Path to custom products.yaml")
     lib_list_p.add_argument("--intents", default=None, help=intents_help)
-    lib_list_p.add_argument("--domain", default=None, help="Filter by intent domain (see `library intents`)")
+    lib_list_p.add_argument("--domain", default=None, help="Filter by intent domain (see `catalog intents`)")
     lib_list_p.set_defaults(func=cmd_library_list)
 
     lib_show_p = library_sub.add_parser("show", help="Show details for a product")
@@ -132,8 +132,12 @@ def register(sub, positive_int) -> None:
     lib_show_p.add_argument("--intents", default=None, help=intents_help)
     lib_show_p.set_defaults(func=cmd_library_show)
 
-    lib_intents_p = library_sub.add_parser(
+
+
+def add_intents(catalog_sub) -> None:
+    """Add `catalog intents` (#94 M2: it was `library intents`)."""
+    intents_p = catalog_sub.add_parser(
         "intents", help="List intent domains (problem space) and their products"
     )
-    lib_intents_p.add_argument("--intents", default=None, help=intents_help)
-    lib_intents_p.set_defaults(func=cmd_library_intents)
+    intents_p.add_argument("--intents", default=None, help="Path to custom intents.yaml")
+    intents_p.set_defaults(func=cmd_library_intents)

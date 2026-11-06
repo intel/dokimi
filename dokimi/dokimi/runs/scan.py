@@ -23,6 +23,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Mapping
 
+from dokimi.artifacts import INPUT_KINDS, is_run_id
 from dokimi.runs.kinds import FIELDS, VERSION_KINDS, read_field
 from dokimi.utils import InputError
 
@@ -72,6 +73,7 @@ class Artifact:
 
     path: Path  # relative to the root
     schema_version: str
+    run_id: str | None  # the envelope's (#277); None in a file saved before it, or not a run id
     subjects: tuple[str, ...]
     models: tuple[str, ...]
     generated_at: str | None
@@ -102,8 +104,8 @@ class Artifact:
             return None
 
     def to_json(self) -> dict:
-        """The ``--json`` row. ``run_id`` is ``None``: no artifact records one yet (#277)."""
-        return {"schema_version": self.schema_version, "kind": self.kind, "run_id": None,
+        """The ``--json`` row."""
+        return {"schema_version": self.schema_version, "kind": self.kind, "run_id": self.run_id,
                 "subject": self.subject, "model": self.model, "generated_at": self.generated_at,
                 "path": self.path.as_posix(), "size_bytes": self.size_bytes}
 
@@ -187,9 +189,12 @@ def read_artifact(root: Path, path: Path, version: str, data: dict | None = None
     """
     stat = path.stat()
     data = load_document(path, version) if data is None else data
-    fields = FIELDS[VERSION_KINDS[version]]
+    kind = VERSION_KINDS[version]
+    fields = FIELDS[kind]
     times = read_field(data, fields.time)
+    run_id = None if kind in INPUT_KINDS else data.get("run_id")  # an input kind has no envelope
     return Artifact(path=path.relative_to(root), schema_version=version,
+                    run_id=run_id if is_run_id(run_id) else None,
                     subjects=read_field(data, fields.subject),
                     models=read_field(data, fields.model),
                     generated_at=times[0] if times else None,

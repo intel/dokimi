@@ -43,7 +43,7 @@
 --competitors
 --context
 --context7-id
---contract  # context consistency (#155) adds it: no registry concept yet; a F1b migration names it
+--contract  # trace consistency (#155) adds it: no registry concept yet; a F1b migration names it
 --count
 --custom-questions
 --debug-retrieval
@@ -140,7 +140,7 @@
 --only
 --out-json
 --out-md
---outcomes  # context consistency (#155) adds it: no registry concept yet; a F1b migration names it
+--outcomes  # trace consistency (#155) adds it: no registry concept yet; a F1b migration names it
 --output
 --output-dir
 --pairwise
@@ -188,7 +188,7 @@
 --sealed  # catalog trigger-probe (#217) adds it: no registry concept yet
 --sequential
 --session-turns
---shell  # context consistency (#155) adds it: no registry concept yet; a F1b migration names it
+--shell  # trace consistency (#155) adds it: no registry concept yet; a F1b migration names it
 --sim-threshold
 --skip-work
 --source-dir
@@ -234,9 +234,9 @@
 --work-output-dir
 --work-repeats
 -o
---min-sessions  # context prefilter threshold: no registry concept yet
---rare-max  # context prefilter threshold: no registry concept yet
---in-use-rate  # context prefilter threshold: no registry concept yet
+--min-sessions  # trace prefilter threshold: no registry concept yet
+--rare-max  # trace prefilter threshold: no registry concept yet
+--in-use-rate  # trace prefilter threshold: no registry concept yet
 --catalogue  # repo skill-reach: the skill_fixtures.v1 YAML of SKILL.md placements; no registry concept covers a fixture catalogue
 --ceiling  # eval headroom (#279) adds it: no registry concept yet; a F1b migration names it
 --floor  # eval headroom (#279) adds it: no registry concept yet; a F1b migration names it

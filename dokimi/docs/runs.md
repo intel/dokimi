@@ -72,9 +72,15 @@ skipped: 1 JSON with no leading schema_version, 1 JSON of an unknown schema_vers
   records, `evaluated_at` for an eval; `null` when none), `path` (relative to
   the root) and `size_bytes`.
 
-**What it does not show yet.** No artifact records a `run_id` yet
-([#277](https://github.com/intel/dokimi/issues/277)), so rows are not grouped
-into runs and `run_id` is `null`. Files outside the root are not listed:
+**The `run_id`** is the run envelope's
+([#277](https://github.com/intel/dokimi/issues/277), see
+[the envelope](benchmarking-and-comparison.md#the-run-envelope)): the files one
+process writes share it. It is `null` for a file saved before the envelope,
+for an input kind such as a question set, and for a `run_id` that is not a run id
+(`runs show` lists the schema error).
+
+**What it does not show yet.** Rows are not grouped into runs by `run_id`.
+Files outside the root are not listed:
 
 - `repo run` writes its batches to `repo-runs/`, and its files carry no
   `schema_version`;
@@ -95,7 +101,7 @@ schema:     valid
 subject:    onetbb
 model:      gpt-6.1-sol
 time:       2026-10-29T14:02:11Z
-run_id:     - (no artifact records one yet)
+run_id:     20261029T140211Z-3f9a0c1e
 size:       3,503 bytes
 contents:   arms: 4, answers: 0
 next to it: onetbb.md, plugin_delta.json (plugin_delta.v1)
@@ -107,7 +113,9 @@ too if it lies inside the root once symlinks are resolved: neither command
 reads anything outside the root. The artifact is checked against the schema of
 the version it declares. An artifact that fails the check prints
 `schema: invalid, N errors` and each error, and the command still exits 0:
-`runs show` reads, it does not gate. `contents` gives the length of the lists
+`runs show` reads, it does not gate. A file with no `run_id` shows
+`- (saved before the envelope)`, `- (an input kind: no envelope)`, or
+`- (not a run id: see the schema errors)`. `contents` gives the length of the lists
 the kind holds, and `next to it` the first 20 entries of the artifact's
 directory. `--json` prints the fields of a `runs list` row plus `root`,
 `schema`, `schema_valid`, `schema_errors`, `contents`, `siblings`,
