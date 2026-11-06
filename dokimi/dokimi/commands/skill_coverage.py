@@ -63,7 +63,8 @@ def _refuse_out_over_input(out: str, inputs: list[Path]) -> None:
     if clobbers:
         raise InputError(f"--out would overwrite an input file: {out}")
     # Refused here, before the paid calls: save_artifact would fail on these after both have run.
-    if Path(out).is_dir() or not os.access(Path(out).parent, os.W_OK):
+    path = Path(out)
+    if (os.path.lexists(path) and not path.is_file()) or not os.access(path.parent, os.W_OK):
         raise InputError(f"cannot write {out}: it is a directory, or its folder is missing or not writable")
 
 

@@ -372,3 +372,16 @@ def test_names_filed_under_an_unknown_requirement_id_are_dropped_and_counted(tmp
     links = sc.map_requirements(reqs, checks, client)
     assert links.by_requirement == {"mh-01": ("e2",)}
     assert links.dropped_names == 2
+
+
+def test_command_refuses_a_dangling_symlink_as_out_before_any_paid_call(tmp_path, monkeypatch):
+    from dokimi.commands import skill_coverage as cmd
+
+    def no_client(args):
+        raise AssertionError("a paid call was made before the --out check")
+
+    monkeypatch.setattr(cmd, "_client", no_client)
+    link = tmp_path / "coverage.json"
+    link.symlink_to(tmp_path / "missing" / "coverage.json")
+    with pytest.raises(InputError, match="cannot write"):
+        _run(monkeypatch, [str(_skill(tmp_path)), str(_evals(tmp_path)), "--out", str(link)])
