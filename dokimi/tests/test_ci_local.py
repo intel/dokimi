@@ -179,6 +179,13 @@ def test_fidelity_requires_the_pin_only_when_the_claude_on_path_is_it(
     assert ("DOKIMI_FIDELITY_REQUIRED" in env["calls"][-1]["env"]) is required
 
 
+def test_an_unreadable_pin_drops_the_requirement(env: dict[str, Any], monkeypatch: Any) -> None:
+    (cl.WORKFLOWS / "x.yml").write_text(_fidelity_wf().replace("@2.1.318", "@latest-x").replace("@latest-x", ""))
+    monkeypatch.setattr(cl, "claude_on_path_version", lambda: None)
+    cl.run(ns(jobs="fidelity"))
+    assert "DOKIMI_FIDELITY_REQUIRED" not in env["calls"][-1]["env"]
+
+
 def test_pinned_claude_entries_match_real_steps() -> None:
     steps = {(job_id, step.get("name")): (job, step) for _, wf in cl.load_workflows()
              for job_id, job in wf["jobs"].items() for step in job.get("steps", [])}

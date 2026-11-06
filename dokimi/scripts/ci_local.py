@@ -324,8 +324,12 @@ def claude_on_path_version() -> str | None:
     binary = shutil.which("claude")
     if not binary:
         return None
-    out = subprocess.run([binary, "--version"], capture_output=True, text=True, timeout=60, check=False)
-    return (out.stdout.split() or [None])[0]
+    try:
+        out = subprocess.run([binary, "--version"], capture_output=True, text=True, timeout=60, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    words = out.stdout.split()
+    return words[0] if words else None
 
 
 def pinned_claude_version(job: dict) -> str | None:
@@ -339,11 +343,11 @@ def pinned_claude_version(job: dict) -> str | None:
 def drop_pin_without_pinned_claude(name: str, job: tuple[str, dict], step: dict[str, Any],
                                    step_env: dict[str, str]) -> None:
     """Unset a PINNED_CLAUDE var when the claude on PATH is not the version the job pins."""
-    var = PINNED_CLAUDE.get((job[0], step.get("name")))
+    var = PINNED_CLAUDE.get((job[0], str(step.get("name"))))
     if not var or var not in step_env:
         return
     pinned, have = pinned_claude_version(job[1]), claude_on_path_version()
-    if have != pinned:
+    if pinned is None or have != pinned:
         print(f"NOTICE: {name}: claude on PATH is {have or 'missing'}, CI pins "
               f"{pinned}: {var} unset, the pinned-client tests skip")
         del step_env[var]
