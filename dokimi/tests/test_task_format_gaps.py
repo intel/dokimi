@@ -75,6 +75,14 @@ def test_custom_scorer_without_a_docstring_stays_unsupported(tmp_path):
     assert "scorer `bare` has no translation" in imp.lossy
 
 
+def test_documented_function_without_the_scorer_decorator_stays_unsupported(tmp_path):
+    text = _SCORER_TASK.replace("@scorer(metrics=[accuracy()])\n", "")
+    task = _write(tmp_path / "t.py", text.format(name="helper", doc='"""Exact match on the number."""\n'))
+    imp = import_path(task, fmt="inspect-task")
+    assert _checks(imp) == [{"type": "unsupported", "native": "helper"}]
+    assert "scorer `helper` has no translation" in imp.lossy
+
+
 # --- (b) hf_dataset ---------------------------------------------------------------------------
 
 
