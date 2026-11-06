@@ -230,6 +230,25 @@ $ echo $?
 0
 ```
 
+A large catalog is easier to scan one skill at a time:
+
+- `--per-skill` reviews each skill alone. The four cross-catalog checks
+  (`duplicate`, `name-conflict`, `mirror-drift`, `description-near-duplicate`)
+  compare a skill with the others, so they do not run in this mode; every other
+  check does.
+- A `SKILL.md` inside another skill's directory is marked with `nested_in`
+  (the enclosing skill's path) in JSON and with a `note` in text. It is counted
+  by default; `--skip-nested` leaves it out of the scan.
+- `--jsonl PATH` writes one JSON row per skill as it is reviewed and prints only
+  the counts. `--jobs N` reviews N skills in parallel. `--resume` keeps the rows
+  already in PATH and reviews only the skills without one (a half-written last
+  line from a killed run is dropped). Without `--resume`, PATH is replaced.
+
+`--jsonl`, `--jobs` and `--resume` need `--per-skill`, and `--jsonl` does not
+combine with `--format json`; any other misuse exits 2. From Python,
+`dokimi.external.review_skill_dir(path)` returns the `SkillReview` of the one
+skill in `path`.
+
 ## 2. The awareness half: question sets
 
 A question set is `<questions-root>/<product_key>_golden.json`, in the format

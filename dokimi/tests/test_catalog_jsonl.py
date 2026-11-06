@@ -1,0 +1,147 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+"""``catalog scan --per-skill --jsonl``: one row per skill as it is reviewed, with ``--jobs`` and ``--resume``."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from dokimi.cli import build_parser
+
+
+def _skill(root: Path, name: str) -> None:
+    skill_dir = root / "skills" / name
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        f"---\nname: {name}\ndescription: Use when {name} runs.\n---\n# {name}\n", encoding="utf-8"
+    )
+
+
+def _catalog(root: Path) -> None:
+    """Three good skills, then delta, which has no description and does not load."""
+    for name in ("alpha", "bravo", "charlie"):
+        _skill(root, name)
+    delta = root / "skills" / "delta"
+    delta.mkdir(parents=True)
+    (delta / "SKILL.md").write_text("---\nname: delta\n---\n# no description\n", encoding="utf-8")
+
+
+def _args(argv: list[str]):
+    return build_parser().parse_args(["catalog", "scan", "--kind", "skills", *argv])
+
+
+def _run(argv: list[str], capsys) -> tuple[str, int]:
+    """stdout and the exit code of a scan; 0 when it returns normally."""
+    args = _args(argv)
+    try:
+        args.func(args)
+    except SystemExit as exc:
+        return capsys.readouterr().out, int(exc.code or 0)
+    return capsys.readouterr().out, 0
+
+
+def _rows(path: Path) -> list[dict]:
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
+
+
+def test_writes_one_row_per_skill_in_catalog_order_and_prints_only_the_counts(tmp_path, capsys):
+    _catalog(tmp_path)
+    out_path = tmp_path / "out.jsonl"
+
+    out, code = _run(["--root", str(tmp_path), "--per-skill", "--jsonl", str(out_path)], capsys)
+
+    assert [row["relpath"] for row in _rows(out_path)] == [
+        "skills/alpha", "skills/bravo", "skills/charlie", "skills/delta"
+    ]
+    assert "# skills (4 declared" in out
+    assert "skills/alpha" not in out  # per-skill lines go to the file, not to stdout
+    assert code == 1  # delta does not load
+
+
+def test_more_jobs_write_the_same_rows_in_the_same_order(tmp_path, capsys):
+    _catalog(tmp_path)
+    one = tmp_path / "jobs1.jsonl"
+    many = tmp_path / "jobs3.jsonl"
+
+    _run(["--root", str(tmp_path), "--per-skill", "--jsonl", str(one), "--jobs", "1"], capsys)
+    _run(["--root", str(tmp_path), "--per-skill", "--jsonl", str(many), "--jobs", "3"], capsys)
+
+    assert _rows(many) == _rows(one)
+
+
+def test_resume_reviews_only_the_skills_without_a_row(tmp_path, capsys):
+    _catalog(tmp_path)
+    out_path = tmp_path / "resume.jsonl"
+    _run(["--root", str(tmp_path), "--per-skill", "--jsonl", str(out_path)], capsys)
+    rows = _rows(out_path)
+    rows[0]["sentinel"] = "kept"  # a row that is reviewed again would lose this mark
+    # A killed run: bravo has no row, and the last line is cut short.
+    kept = [row for row in rows if row["relpath"] != "skills/bravo"]
+    out_path.write_text("".join(json.dumps(row) + "\n" for row in kept) + '{"name": "cha', encoding="utf-8")
+
+    out, code = _run(["--root", str(tmp_path), "--per-skill", "--jsonl", str(out_path), "--resume"], capsys)
+
+    resumed = _rows(out_path)
+    assert [row["relpath"] for row in resumed] == [
+        "skills/alpha", "skills/charlie", "skills/delta", "skills/bravo"
+    ]
+    assert resumed[0]["sentinel"] == "kept"
+    assert "3 resumed" in out
+    assert code == 1
+
+
+def test_resume_keeps_the_exit_code_of_a_load_error_it_skips(tmp_path, capsys):
+    _catalog(tmp_path)
+    out_path = tmp_path / "resume-fail.jsonl"
+    _run(["--root", str(tmp_path), "--per-skill", "--jsonl", str(out_path)], capsys)
+
+    _, code = _run(["--root", str(tmp_path), "--per-skill", "--jsonl", str(out_path), "--resume"], capsys)
+
+    assert code == 1
+    assert len(_rows(out_path)) == 4
+
+
+def test_without_resume_an_existing_jsonl_file_is_replaced(tmp_path, capsys):
+    _catalog(tmp_path)
+    out_path = tmp_path / "replace.jsonl"
+    out_path.write_text('{"name": "stale"}\n', encoding="utf-8")
+
+    _run(["--root", str(tmp_path), "--per-skill", "--jsonl", str(out_path)], capsys)
+
+    assert [row["name"] for row in _rows(out_path)] == ["alpha", "bravo", "charlie", "delta"]
+
+
+@pytest.mark.parametrize(
+    ("flags", "message"),
+    [
+        (["--jsonl", "x.jsonl"], "need --per-skill"),
+        (["--jobs", "2"], "need --per-skill"),
+        (["--per-skill", "--resume"], "needs --jsonl"),
+        (["--per-skill", "--jsonl", "x.jsonl", "--format", "json"], "drop --format json"),
+    ],
+)
+def test_flag_combinations_the_scan_cannot_honour_exit_2(tmp_path, flags, message):
+    _catalog(tmp_path)
+
+    args = _args(["--root", str(tmp_path), *flags])
+    with pytest.raises(SystemExit) as exc_info:
+        args.func(args)
+
+    assert exc_info.value.code == 2
+    assert message in str(exc_info.value)
+
+
+def test_an_unwritable_jsonl_path_exits_2_and_names_the_flag(tmp_path):
+    _catalog(tmp_path)
+    bad = tmp_path / "no-such-dir" / "out.jsonl"
+
+    with pytest.raises(SystemExit) as exc_info:
+        args = _args(["--root", str(tmp_path), "--per-skill", "--jsonl", str(bad)])
+        args.func(args)
+
+    assert exc_info.value.code == 2
+    assert "cannot write --jsonl" in str(exc_info.value)
