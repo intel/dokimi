@@ -237,7 +237,8 @@ def test_all_vs_all_drops_the_queries_of_a_spec_error_skill_and_runs_the_rest(tm
     assert payload["result"]["n_queries"] == 2
     assert set(payload["result"]["lexical"]["confusion"]) == {"cache", "queue"}
     assert payload["field"]["dropped_queries"] == [
-        {"skill": "db", "reason": "invalid", "keep_flag": "--include-invalid", "queries": 2}]
+        {"skill": "db", "reasons": ["invalid"], "keep_flags": ["--include-invalid"],
+         "queries": 2}]
 
 
 def test_all_vs_all_names_the_flag_that_keeps_each_dropped_skill(tmp_path, capsys):
@@ -496,3 +497,24 @@ def test_a_keep_copies_under_that_resolves_no_conflict_says_so(tmp_path, capsys)
     catalog_competitors(str(root), set(), notes, keep_copies_under="skills")
     assert any("--keep-copies-under skills kept no copy: under it, 'review' still has 2 contents"
                in note for note in notes)
+
+
+def test_dropped_queries_counts_a_skill_dropped_for_two_reasons_once(tmp_path, capsys):
+    # Thread: PRRT_kwDOVBg7g860LibN
+    root = tmp_path / "catalog"
+    _skill(root, "skills", "cache", "cache slow lookups")
+    _skill(root, "skills", "queue", "queue background jobs")
+    both = root / "skills" / "Both"
+    both.mkdir(parents=True)
+    (both / "SKILL.md").write_text("---\nname: Both\ndescription: both reasons\n"
+                                   "disable-model-invocation: true\n---\n\n# B\n", encoding="utf-8")
+    queries = _queries(tmp_path, {"cache": ["cache my lookups"], "queue": ["queue my jobs"],
+                                  "Both": ["one", "two", "three"]})
+    out = tmp_path / "o.json"
+    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
+                  "--queries-by-skill", str(queries), "--out", str(out))
+    args.func(args)
+    records = json.loads(out.read_text(encoding="utf-8"))["field"]["dropped_queries"]
+    assert [r["skill"] for r in records] == ["Both"]
+    assert sum(r["queries"] for r in records) == 3
+    assert set(records[0]["reasons"]) == {"disabled", "invalid"}

@@ -731,7 +731,7 @@ with any failed model call writes the result and exits non-zero. The saved file 
 field rule under `field` (`include_disabled`, `include_invalid`, `keep_copies_under`, the `competitors` and what was
 `left_out`, which also names each skill left out for a conflicting name or a spec error); a single-artifact run records
 it too. An all-vs-all run also lists in `field.dropped_queries` each skill whose queries it dropped, as
-`{skill, reason, keep_flag, queries}`, with `reason` `disabled`, `invalid` or `conflict`. A query for a catalog skill
+`{skill, reasons, keep_flags, queries}`, one record per skill, with each reason `disabled`, `invalid` or `conflict`. A query for a catalog skill
 that failed to load refuses the run and names the load error. It takes no `--artifact`, `--queries` or `--queries-from-headings`. `--estimate-only` prints the calls and the
 list-price cost of the whole run as JSON, in the shape of a single-artifact estimate, with no client built and
 no query sent; it needs no `--out`. `--repeats` needs `--model`

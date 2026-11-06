@@ -494,7 +494,7 @@ def test_queries_for_a_skill_the_field_left_out_are_dropped_with_a_warning_namin
     err = capsys.readouterr().err
     assert "WARNING" in err and "`db`" in err and says in err
     assert json.loads(out.read_text(encoding="utf-8"))["field"]["dropped_queries"] == [
-        {"skill": "db", "reason": reason, "keep_flag": keep_flag, "queries": 1}]
+        {"skill": "db", "reasons": [reason], "keep_flags": [keep_flag], "queries": 1}]
     assert set(json.loads(out.read_text(encoding="utf-8"))["result"]["lexical"]["confusion"]) == {
         "cache", "queue"}
 

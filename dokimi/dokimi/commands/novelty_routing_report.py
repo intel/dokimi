@@ -254,8 +254,8 @@ def drop_queries_left_out(queries_by_skill: dict[str, list[str]], field: list[Ca
     A name the field left out for a rule (``dropped``) loses its queries; the run goes on with the
     rest. A name no rule explains is refused: a catalog skill that failed to load says why, and any
     other name is more likely a misspelling. Refused too when no query is left to route. Returns the
-    kept queries and one record per skill and reason it was dropped for, for the saved field record:
-    ``{"skill", "reason", "keep_flag", "queries"}``.
+    kept queries and one record per dropped skill, for the saved field record:
+    ``{"skill", "reasons", "keep_flags", "queries"}``, so ``queries`` sums to the dropped count.
     """
     names = {c.name for c in field}
     # a name with a copy that failed to load is refused even when a rule also left a copy out
@@ -270,10 +270,10 @@ def drop_queries_left_out(queries_by_skill: dict[str, list[str]], field: list[Ca
         count = len(queries_by_skill[name])
         print(f"WARNING: dropped {count} {'query' if count == 1 else 'queries'} of `{name}`: the "
               f"field leaves it out, since it {why}; {keep}", file=sys.stderr)
-        for reason in _LEFT_OUT:
-            if reason in dropped.get(name, ()):
-                records.append({"skill": name, "reason": reason,
-                                "keep_flag": _LEFT_OUT[reason][1], "queries": count})
+        reasons = [reason for reason in _LEFT_OUT if reason in dropped.get(name, ())]
+        records.append({"skill": name, "reasons": reasons,
+                        "keep_flags": [_LEFT_OUT[reason][1] for reason in reasons],
+                        "queries": count})
     if not kept:
         why = ("" if not queries_by_skill else ": the queries name only skills the field leaves "
                f"out ({_left_out_list(_left_out_only(dropped, field))})")
