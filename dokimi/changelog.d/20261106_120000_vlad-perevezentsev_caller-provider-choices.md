@@ -8,4 +8,5 @@
   and `benchmark preflight` passed a plan `benchmark run` refuses. argparse now
   refuses it (exit 2) before anything runs. The commands that call the model
   through `dokimi.llm` directly (`arms`, `subjects run`, `skill novelty`,
-  `eval questions analyze|review`, `eval score panel`, `tools preference`) keep it.
+  `skill shorten`, `novelty routing`, `eval questions analyze|review`,
+  `eval score panel`, `tools preference`) keep it.
