@@ -15,11 +15,10 @@ from hypothesis import strategies as st
 FUZZ = Path(__file__).resolve().parents[1] / "fuzz"
 sys.path.insert(0, str(FUZZ))
 
-from targets import TARGETS  # noqa: E402
+from targets import NAMES, TARGETS, decode, run  # noqa: E402
 
 from dokimi.llm_json import extract_json_object  # noqa: E402
 
-NAMES = sorted(TARGETS)
 SEEDS = sorted((FUZZ / "corpus").iterdir())
 
 
@@ -29,11 +28,10 @@ def test_every_target_has_seeds() -> None:
 
 @pytest.mark.parametrize("seed", SEEDS, ids=lambda p: p.name)
 def test_seed(seed: Path) -> None:
-    # The harness layout: byte 0 picks the target in sorted order, byte 1 (even)
-    # makes the rest ASCII text.
+    # The same decoding the atheris harness uses: the seed reaches the target it is named for.
     data = seed.read_bytes()
-    assert NAMES[data[0]] == seed.name.split("-")[0]
-    TARGETS[NAMES[data[0]]](data[2:].decode("ascii"))
+    assert decode(data)[0] == seed.name.split("-")[0]
+    run(data)
 
 
 @pytest.mark.parametrize("name", NAMES)
@@ -53,3 +51,18 @@ def test_extract_json_object_refuses_a_non_object(reply: str) -> None:
 
 def test_extract_json_object_finds_the_object_after_a_non_object() -> None:
     assert extract_json_object('[1] then {"a": 1}') == {"a": 1}
+
+
+def test_decode_wraps_the_target_byte_and_replaces_bad_utf8() -> None:
+    assert decode(b"") == (NAMES[0], "")
+    assert decode(bytes([len(NAMES) + 1]) + b"a\xffb") == (NAMES[1], "a\ufffdb")
+
+
+def test_deep_nesting_is_a_parse_error_not_a_crash() -> None:
+    # The JSON extractors read model replies; their callers retry on ValueError only.
+    from dokimi.llm_json import extract_json_array
+
+    with pytest.raises(ValueError):
+        extract_json_array("x " + "[" * 100000 + "]" * 100000)
+    with pytest.raises(ValueError):
+        extract_json_object("x " + "{\"a\":" * 100000 + "1" + "}" * 100000)

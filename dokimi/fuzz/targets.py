@@ -4,9 +4,10 @@
 
 A judge or agent reply is untrusted text, so each parser here must, for any
 input, return a value of its documented type or raise its documented error, and
-nothing else. Every target takes one ``str`` and asserts that contract; it is
-shared by the atheris harness (``fuzz_parsers.py``) and the corpus replay in
-``tests/test_fuzz_targets.py``, so plain CI runs the same checks.
+nothing else. Every target takes one ``str`` and asserts that contract.
+:func:`run` maps one fuzz input to a target and its text; the atheris harness
+(``fuzz_parsers.py``) and the corpus replay in ``tests/test_fuzz_targets.py``
+both call it, so a seed reaches the same target in either.
 """
 from __future__ import annotations
 
@@ -58,7 +59,12 @@ def json_array(text: str) -> None:
 
 
 def frontmatter(text: str) -> None:
-    meta, body = parse_frontmatter(text)
+    # Nesting past the interpreter's limit raises RecursionError from both parsers on
+    # purpose: the novelty commands catch it and name the file (tests/test_novelty_cli.py).
+    try:
+        meta, body = parse_frontmatter(text)
+    except RecursionError:
+        return
     assert isinstance(meta, dict) and isinstance(body, str)
     try:
         strict = parse_frontmatter_strict(text)
@@ -76,3 +82,18 @@ TARGETS: dict[str, Callable[[str], None]] = {
     "json_array": json_array,
     "frontmatter": frontmatter,
 }
+
+NAMES = sorted(TARGETS)
+
+
+def decode(data: bytes) -> tuple[str, str]:
+    """``(target name, text)`` of a fuzz input: byte 0 picks the target (modulo the
+    number of targets, by sorted name), the rest is UTF-8 with bad bytes replaced."""
+    if not data:
+        return NAMES[0], ""
+    return NAMES[data[0] % len(NAMES)], data[1:].decode("utf-8", errors="replace")
+
+
+def run(data: bytes) -> None:
+    name, text = decode(data)
+    TARGETS[name](text)

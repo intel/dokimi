@@ -1,6 +1,6 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
-"""atheris harness over fuzz/targets.py: the first input byte picks the target.
+"""atheris harness over fuzz/targets.py (``targets.run`` decodes the input).
 
     python fuzz/fuzz_parsers.py fuzz/corpus -max_total_time=60
 
@@ -15,19 +15,11 @@ import atheris
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 with atheris.instrument_imports(include=["dokimi", "targets"]):
-    from targets import TARGETS
-
-_NAMES = sorted(TARGETS)
-
-
-def test_one_input(data: bytes) -> None:
-    fdp = atheris.FuzzedDataProvider(data)
-    target = TARGETS[_NAMES[fdp.ConsumeIntInRange(0, len(_NAMES) - 1)]]
-    target(fdp.ConsumeUnicodeNoSurrogates(len(data)))
+    from targets import run
 
 
 def main() -> None:
-    atheris.Setup(sys.argv, test_one_input)
+    atheris.Setup(sys.argv, run)
     atheris.Fuzz()
 
 

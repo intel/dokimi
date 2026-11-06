@@ -41,6 +41,7 @@ HASHED_LOCKS = (
     "requirements-ci.lock.txt",
     "requirements-docs.lock.txt",
     "requirements-mutation.lock.txt",
+    "requirements-fuzz.lock.txt",
 )
 # Where the stacked locks are installed: CI's Pythons, and make dev on any OS.
 ENVIRONMENTS = [
@@ -131,7 +132,7 @@ def test_lock_is_compiled_with_hashes(name: str) -> None:
     assert "--generate-hashes" in compile_command(name).split(), name
 
 
-@pytest.mark.parametrize("name", ("requirements-ci.lock.txt", "requirements-mutation.lock.txt"))
+@pytest.mark.parametrize("name", ("requirements-ci.lock.txt", "requirements-mutation.lock.txt", "requirements-fuzz.lock.txt"))
 def test_tools_lock_is_constrained_to_main_lock(name: str) -> None:
     """The tools locks are compiled against the main lock, so shared pins cannot drift."""
     assert "--constraint=requirements.lock.txt" in header_command(name)

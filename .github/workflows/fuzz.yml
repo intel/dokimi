@@ -19,6 +19,8 @@ on:
       - 'dokimi/dokimi/eval/reference_checks.py'
       - 'dokimi/dokimi/novelty/retention.py'
       - 'dokimi/dokimi/novelty/client.py'
+      - 'dokimi/requirements.lock.txt'
+      - 'dokimi/requirements-fuzz.txt'
       - 'dokimi/requirements-fuzz.lock.txt'
       - '.github/workflows/fuzz.yml'
   workflow_dispatch:
@@ -58,11 +60,10 @@ jobs:
             dokimi/requirements.lock.txt
             dokimi/requirements-fuzz.lock.txt
       - name: Install deps
-        run: |
-          pip install --no-deps --require-hashes -r requirements.lock.txt -r requirements-fuzz.lock.txt
-          pip install --no-deps --no-build-isolation -e .
+        run: pip install --no-deps --require-hashes -r requirements.lock.txt -r requirements-fuzz.lock.txt
       - name: Fuzz
         env:
+          PYTHONPATH: .  # dokimi from the checkout, like mutation.yml
           # 60 s on a pull request, 600 s weekly, or what a manual run asks for.
           SECONDS_BUDGET: ${{ github.event_name == 'pull_request' && '60' || inputs.seconds || '600' }}
         run: |

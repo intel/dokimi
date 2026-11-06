@@ -4,7 +4,8 @@
   that parsed to another JSON value (`7`, `[1, 2]`, `"x"`, `null`) came back as
   that value, so the judge's retry on a malformed reply never saw it and the
   call failed with an `AttributeError` at `.keys()`. It now raises `ValueError`
-  like any reply with no JSON object, and is retried. Found by the new fuzzing.
+  like any reply with no JSON object, and is retried; so does JSON nested past
+  the recursion limit, in `extract_json_array` too. Found by the new fuzzing.
 
 ### Added
 
