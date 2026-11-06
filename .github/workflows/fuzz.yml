@@ -3,11 +3,8 @@
 
 name: fuzz
 
-# atheris over the parsers that read model replies and Markdown frontmatter
-# (dokimi/fuzz/targets.py). A pull request that touches them gets a short run; the
-# weekly run goes longer. A crash fails the job and uploads the input that caused
-# it (replay: python fuzz/fuzz_parsers.py crash-<sha1>). The same targets replay
-# the seed corpus in every test run (tests/test_fuzz_targets.py).
+# atheris over the reply and frontmatter parsers (dokimi/fuzz/targets.py); a crash
+# uploads its input. Usage and replay: CONTRIBUTING.md, "Fuzzing".
 on:
   pull_request:
     paths:
