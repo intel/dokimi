@@ -407,7 +407,7 @@ def cmd_eval_cross_judge(args: argparse.Namespace) -> None:
         scored_answers(records)  # refuse a blank question before the probe call
     _check_judge_temperature([(m, p) for p, _, m in (s.partition("/") for s in specs) if m and p in JUDGE_PROVIDERS],
                              args.judge_temperature)
-    for spec in specs:
+    for spec in dict.fromkeys(specs):
         provider, _, model = spec.partition("/")
         if not model or provider not in JUDGE_PROVIDERS:
             print(f"Error: --judges entry '{spec}' must be provider/model, provider in {JUDGE_PROVIDERS}",
