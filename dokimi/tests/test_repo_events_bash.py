@@ -495,6 +495,8 @@ def test_a_failed_timed_or_activated_read_of_one_file_is_no_read(command):
     "f() { cd sub; }; time f; cat AGENTS.md", "f() { case $1 in a) cd sub;; esac; }; f a; cat AGENTS.md",
     "f() { cd sub; }; case x in x) f;; esac; cat AGENTS.md", 'f() { "cd" sub; }; X=1 f; cat AGENTS.md',
     "f() { g() { cd sub; }; }; f; cat AGENTS.md", "f() { { cd sub; }; }; f; cat AGENTS.md",
+    r"f() { find . -exec true {} \; ; cd sub; }; f; cat AGENTS.md",
+    "f() { find . -exec true {} +; cd sub; }; f; cat AGENTS.md", "f() { echo x | xargs -I{} echo {}; cd sub; }; f; cat AGENTS.md",
 ])
 def test_a_call_of_a_function_that_names_a_directory_builtin_loses_the_directory(command):
     # the call runs the body's cd in this shell, as an eval may (#374)
@@ -504,7 +506,8 @@ def test_a_call_of_a_function_that_names_a_directory_builtin_loses_the_directory
 @pytest.mark.parametrize("command", ["g() { echo hi; }; g; cat AGENTS.md", "f() { cd sub; }; f | cat; cat AGENTS.md",
                                      "f() { cd sub; }; f & cat AGENTS.md", "f() { cd sub; }; env f; cat AGENTS.md",
                                      "f() { cd sub; }; command f; cat AGENTS.md", "f() { cd sub; }; cat AGENTS.md",
-                                     "g() { echo hi; }; f() { cd sub; }; g; cat AGENTS.md"])
+                                     "g() { echo hi; }; f() { cd sub; }; g; cat AGENTS.md",
+                                     "g() { find . -exec true {} +; }; g; cat AGENTS.md"])
 def test_a_function_naming_no_directory_builtin_or_called_in_a_subshell_moves_nothing(command):
     assert shell_walk(command) == (["AGENTS.md"], False, 0)
 

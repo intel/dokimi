@@ -23,7 +23,8 @@ _DEF = re.compile(r"(?<![^\s;&|(){}])(?:function\s+([^\s(){};&|<>]+)(?:\s*\(\s*\
 # runs in a subshell; ``function f() (`` matches at ``f``; group 1 or 2 is the name
 _SUBSHELL_DEF = re.compile(r"(?<![^\s;&|(){}])(?:function\s+([^\s(){};&|<>]+)\s*\((?!\s*\))"
                            r"|([^\s(){};&|<>=$`]+)\s*\(\s*\)\s*\()")
-_BRACE = re.compile(r"(?<![^\s;&|(){}])(?:\{(?=\s|$)|\}(?=[\s;&|)]|$))")  # a brace group's ``{`` or ``}`` as a word
+# a brace group's ``{`` or ``}`` as a word; the ``{}`` of ``find -exec cmd {} +`` or ``xargs -I{}`` is neither
+_BRACE = re.compile(r"(?<![^\s;&|(){}])\{(?=\s|$)|(?<![^\s;&|()}])\}(?=[\s;&|)]|$)")
 _BREAK = re.compile(r"[\s;&|()<>`{}$]+")
 _COMMAND_END = re.compile(r"[;&|()`{}\n]")  # where a command of a body ends, outside quotes: the next one may start
 _SOURCES = frozenset({"source", "."})  # named by a body only as a command's word
