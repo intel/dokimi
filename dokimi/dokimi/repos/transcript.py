@@ -94,7 +94,8 @@ def relative_path(path: str, workdir: str | None) -> str:
 def _from_cwd(path: str, cwd: str) -> str:
     """A tool's relative ``path`` joined to ``cwd``, the workspace-relative directory the CLI started in."""
     win = PureWindowsPath(path)
-    # a drive-relative path (C:foo) is relative to that drive's current directory, not to cwd
+    # read as a Windows CLI means it, whatever OS converts the trace: a drive-relative path (C:foo) has a
+    # drive but is not absolute, and is relative to that drive's current directory, not to cwd
     if not cwd or path.startswith("/") or win.is_absolute() or win.drive:
         return path
     # a Windows CLI separates with backslashes, which posixpath keeps as part of a name
