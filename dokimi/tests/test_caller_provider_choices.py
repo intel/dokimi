@@ -34,7 +34,8 @@ CALLER_FLAGS = [
 #: ``chat_completion``, the novelty client).
 LLM_FLAGS = [
     "eval questions analyze", "eval questions review", "eval score panel", "arms run",
-    "arms matrix-run", "subjects run", "skill novelty analyze", "tools preference",
+    "arms matrix-run", "subjects run", "skill novelty analyze", "skill novelty atoms",
+    "skill novelty probe", "skill shorten", "novelty routing", "tools preference",
 ]
 
 
@@ -45,6 +46,11 @@ def _provider_choices(parser, path=()):
                 yield from _provider_choices(sub, path + (name,))
         elif action.dest == "provider" and action.choices:
             yield " ".join(path), tuple(action.choices)
+
+
+def test_every_provider_flag_is_one_of_the_two_kinds():
+    # A new --provider has to be put in a list: one that builds a caller needs CALLER_CHOICES.
+    assert sorted(dict(_provider_choices(build_parser()))) == sorted(CALLER_FLAGS + LLM_FLAGS)
 
 
 def test_the_commands_that_build_a_caller_offer_only_what_it_takes():
