@@ -21,11 +21,11 @@ Non-inferiority: the treatment is non-inferior when the lower bound of the inter
 (0..1 for pass rates). The nominal lower bound of a two-sided 95% interval corresponds to the
 one-sided 97.5% bound non-inferiority trials use, but the percentile bootstrap is too narrow with
 few clusters (see :func:`dokimi.eval.stats.bootstrap_ci`): simulated at a true delta equal to
-``-margin``, it reads ``noninferior`` about 15% of the time at 10 binary clusters and about 30% at
-5-6. :data:`MIN_CLUSTERS` is a floor below which no interval is reported, not a power calculation,
+``-margin``, it reads ``noninferior`` about 8% of the time at 10 binary clusters, about 15% at 5-6 and
+about 2% at 20. :data:`MIN_CLUSTERS` is a floor below which no interval is reported, not a power calculation,
 and a ``noninferior`` verdict near the floor is a screening signal, not a trial-grade claim. An
-interval of zero width (every cluster has the same delta) carries no spread estimate and reads
-``inconclusive``.
+interval of zero width (every cluster has the same delta) carries no spread estimate: it never
+reads ``noninferior`` (``inferior`` when it lies below ``-margin``, else ``inconclusive``).
 """
 
 from __future__ import annotations
@@ -81,11 +81,11 @@ def paired_cluster_difference(
         ``ci_confidence``.
     ``noninferiority``
         ``noninferior`` when ``ci_lo > -margin``, ``inferior`` when ``ci_hi < -margin``, else
-        ``inconclusive`` (also for a zero-width interval); ``None`` without a margin or when the
+        ``inconclusive`` (a zero-width interval is never ``noninferior``); ``None`` without a margin or when the
         interval is not measured. ``margin=0`` makes it a superiority check.
     ``n_clusters`` / ``n_cells`` / ``n_excluded``
-        Clusters with a usable outcome in both arms, usable outcomes in those clusters (both
-        arms), and outcomes left out (missing, non-finite, or in a cluster missing one arm).
+        Clusters with a usable outcome in both arms, usable outcomes in those clusters (counted
+        per arm, so a complete paired cell counts 2), and outcomes left out (missing, non-finite, or in a cluster missing one arm).
     ``unit`` / ``margin`` / ``ci_confidence`` / ``seed`` / ``method``
         Echo of the inputs; ``min_clusters`` too when the status is ``insufficient_clusters``.
     """
@@ -181,10 +181,9 @@ def _verdict(lo: float, hi: float, margin: Optional[float]) -> Optional[str]:
     """Non-inferiority status of the interval ``[lo, hi]`` against ``-margin``."""
     if margin is None:
         return None
-    if hi - lo <= _EPS:
-        return "inconclusive"
-    if lo > -margin + _EPS:
-        return "noninferior"
     if hi < -margin - _EPS:
         return "inferior"
+    # A zero-width interval has no spread estimate, so it cannot show non-inferiority.
+    if lo > -margin + _EPS and hi - lo > _EPS:
+        return "noninferior"
     return "inconclusive"

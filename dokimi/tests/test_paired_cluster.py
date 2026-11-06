@@ -188,3 +188,26 @@ def test_a_string_is_not_a_sequence_of_cluster_ids():
 def test_an_interval_needs_at_least_two_clusters_in_its_floor():
     with pytest.raises(ValueError, match="min_clusters must be >= 2"):
         paired_cluster_difference(["a", "b"], [1, 0], [0, 1], min_clusters=1)
+
+
+def test_every_cluster_losing_by_the_same_amount_is_inferior():
+    # Zero-width interval at -1: no spread, but it lies wholly below -margin.
+    res = paired_cluster_difference(list(range(N)), [0] * N, [1] * N, margin=0.05)
+    assert (res["ci_lo"], res["ci_hi"], res["noninferiority"]) == (-1.0, -1.0, "inferior")
+
+
+def test_an_upper_bound_exactly_at_minus_margin_is_inconclusive():
+    res = paired_cluster_difference(list(range(N)), [0.0] * N, [0.1] * N, margin=0.1)
+    assert res["noninferiority"] == "inconclusive"
+
+
+def test_a_missing_outcome_can_change_the_verdict():
+    # Scored 0, the failed treatment repeats drag it below the margin; as None they drop out.
+    clusters = list(range(N))
+    control = [1] * N
+    failed = paired_cluster_difference(clusters, [0] * N, control, margin=0.1)
+    not_run = paired_cluster_difference(clusters + clusters, [None] * N + [1] * N, control + control,
+                                        margin=0.1)
+    assert failed["noninferiority"] == "inferior"
+    assert not_run["noninferiority"] == "inconclusive"
+    assert not_run["n_excluded"] == N
