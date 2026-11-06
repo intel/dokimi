@@ -3,8 +3,8 @@
 
 """A command refuses bad input by raising InputError; cli.main prints it and exits 2.
 
-An exit with code 2 in the frontend (a literal, ``os._exit``, ``exit``, or a constant holding 2
-such as ``EXIT_USAGE``) is that refusal written the old way: its message is printed by hand, with
+An exit with code 2 in the frontend (a literal, ``os._exit``, ``exit``, a constant holding 2
+such as ``EXIT_USAGE``, or a ``usage_exit(...)`` call) is that refusal written the old way: its message is printed by hand, with
 no ``Error:`` prefix from one place. The ratchet caps the remaining sites per module; each entry in
 EXIT2_BASELINE says why it stays, or that it is not converted yet.
 """
@@ -19,23 +19,30 @@ import pytest
 PACKAGE = Path(__file__).resolve().parents[1] / "dokimi"
 
 #: Exits with 2 that stay: the handler, a dependency, a documented exit, and the
-#: ``EXIT_USAGE`` refusals not yet converted (#275 follow-up). Lower a count when a site converts.
+#: ``EXIT_USAGE`` and ``usage_exit`` refusals not yet converted (#275 follow-up). Lower a count when a site converts.
 _UNCONVERTED = "EXIT_USAGE refusal written by hand, not an InputError yet (#275 follow-up)"
+_UNCONVERTED_USAGE_EXIT = "usage_exit() refusal, not an InputError yet (#275 follow-up)"
 EXIT2_BASELINE: dict[str, tuple[int, str]] = {
     "dokimi.cli": (1, "the handler: prints InputError as 'Error: ...' and exits 2"),
     "dokimi.commands._output": (1, "write_text_or_exit: shared writer that exits 2 by hand (#275 follow-up)"),
     "dokimi.commands.answers": (8, _UNCONVERTED),
     "dokimi.commands.arms": (11, _UNCONVERTED),
     "dokimi.commands.baseline": (4, _UNCONVERTED),
+    "dokimi.commands.baseline_regression": (2, _UNCONVERTED_USAGE_EXIT),
     "dokimi.commands.benchmark": (5, _UNCONVERTED),
+    "dokimi.commands.catalog": (18, _UNCONVERTED_USAGE_EXIT),
+    "dokimi.commands.catalog_eval": (2, _UNCONVERTED_USAGE_EXIT),
+    "dokimi.commands.catalog_probe": (1, _UNCONVERTED_USAGE_EXIT),
     "dokimi.commands.dashboard": (2, _UNCONVERTED),
     "dokimi.commands.eval_coverage": (7, _UNCONVERTED),
     "dokimi.commands.evaluate": (5, "typed scorer: ImportError (a missing backend) shares the except with ValueError; "
                                     "4 EXIT_USAGE refusals not yet converted"),
-    "dokimi.commands.explore": (1, _UNCONVERTED),
+    "dokimi.commands.explore": (9, _UNCONVERTED),
     "dokimi.commands.ingest": (1, "Docling not installed: a missing optional dependency, not an input"),
+    "dokimi.commands.inputs": (2, _UNCONVERTED_USAGE_EXIT),
     "dokimi.commands.judge_reliability": (2, _UNCONVERTED),
     "dokimi.commands.library": (4, _UNCONVERTED),
+    "dokimi.commands.novelty_atoms_file": (1, _UNCONVERTED_USAGE_EXIT),
     "dokimi.commands.orchestrate": (3, _UNCONVERTED),
     "dokimi.commands.personas": (9, _UNCONVERTED),
     "dokimi.commands.questions": (14, _UNCONVERTED),
@@ -46,9 +53,10 @@ EXIT2_BASELINE: dict[str, tuple[int, str]] = {
     "dokimi.commands.repo_skill_reach": (1, _UNCONVERTED),
     "dokimi.commands.report": (13, _UNCONVERTED),
     "dokimi.commands.run": (5, _UNCONVERTED),
-    "dokimi.commands.subjects": (7, _UNCONVERTED),
-    "dokimi.commands.tools": (5, "'run incomplete' exit (2 literal) documented in docs/quickstart.md, not a refusal; "
-                                 "3 EXIT_USAGE refusals not yet converted"),
+    "dokimi.commands.subjects": (17, _UNCONVERTED),
+    "dokimi.commands.tasks": (14, _UNCONVERTED_USAGE_EXIT),
+    "dokimi.commands.tools": (8, "'run incomplete' exit (2 literal) documented in docs/quickstart.md, not a refusal; "
+                                 "3 EXIT_USAGE and 3 usage_exit refusals not yet converted"),
 }
 
 
@@ -101,18 +109,27 @@ def _code_value(arg: ast.expr, consts: dict[str, int]) -> object:
     return consts.get(arg.id) if isinstance(arg, ast.Name) else None
 
 
+def _is_usage_exit(func: ast.expr) -> bool:
+    """``usage_exit(...)`` (dokimi.exit_codes): prints the message by hand and exits 2."""
+    name = func.attr if isinstance(func, ast.Attribute) else func.id if isinstance(func, ast.Name) else None
+    return name == "usage_exit"
+
+
 def literal_exit_2_lines(source: str) -> list[int]:
     """The lines of an exit call whose code is 2: the literal, or a module-level name that holds 2.
 
-    Covers ``sys.exit``, ``os._exit``, ``exit``/``quit``, ``SystemExit`` (raised or not). Not resolved:
+    Covers ``sys.exit``, ``os._exit``, ``exit``/``quit``, ``SystemExit`` (raised or not), and
+    ``usage_exit(...)``, which always exits 2. Not resolved:
     attribute access (``exit_codes.EXIT_USAGE``) and names bound inside a function or an ``if``.
     """
     tree = ast.parse(source)
     consts = _module_int_constants(tree)
     return sorted(
         node.lineno for node in ast.walk(tree)
-        if isinstance(node, ast.Call) and _is_exit(node.func) and node.args
-        and _code_value(node.args[0], consts) == 2
+        if isinstance(node, ast.Call) and (
+            _is_usage_exit(node.func)
+            or (_is_exit(node.func) and node.args and _code_value(node.args[0], consts) == 2)
+        )
     )
 
 
@@ -159,10 +176,12 @@ def test_baseline_entries_are_explained_and_name_real_modules():
         ("import sys\nsys.exit(code)\n", []),
         ("import sys\nCODE = 3\nsys.exit(CODE)\n", []),
         ("error = SystemExit(3)\n", []),
+        ("from dokimi.exit_codes import usage_exit\nusage_exit(\"Error: x\")\n", [2]),
+        ("from dokimi import exit_codes\nexit_codes.usage_exit(\"Error: x\")\n", [2]),
     ],
     ids=["sys-exit", "system-exit-from-none", "builtin-exit", "os-exit", "module-constant",
          "annotated-module-constant", "imported-exit-usage", "relative-import-alias", "exit-1-by-name",
-         "variable", "other-constant", "other-code"],
+         "variable", "other-constant", "other-code", "usage-exit", "usage-exit-attribute"],
 )
 def test_the_ratchet_counts_every_spelling_of_exit_2(source, lines):
     assert literal_exit_2_lines(source) == lines
