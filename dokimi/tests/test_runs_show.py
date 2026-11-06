@@ -530,3 +530,31 @@ def test_a_run_names_the_files_that_could_not_be_read(monkeypatch, capsys, runs)
 
     assert lines[2] == ("unreadable: 1 file under the root, which may belong to it "
                         "(first: broken.json: not valid JSON: Expecting value at line 1)")
+
+
+def test_the_kinds_of_a_run_are_sorted(monkeypatch, capsys, runs):
+    monkeypatch.setenv("DOKIMI_RUN_ID", "nightly-5")
+    save_artifact("eval", {**_fixture("eval.v1"), "evaluated_at": "2026-11-02T10:00:00Z"},
+                  runs / "e5.json")
+    save_artifact("arms", {**_fixture("arms.v1"), "generated_at": "2026-11-02T08:00:00Z"},
+                  runs / "a5.json")
+
+    lines = _show(monkeypatch, capsys, "nightly-5").out.splitlines()
+
+    assert lines[1] == "artifacts:  2 (arms: 1, eval: 1)"
+    assert [row.split()[-1] for row in lines[4:]] == ["e5.json", "a5.json"]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows file names cannot hold control characters")
+def test_a_run_names_the_first_unreadable_file_escaped_and_json_lists_them_all(
+        monkeypatch, capsys, runs):
+    for name in ("a\nbad.json", "b-bad.json"):
+        (runs / name).write_text('{"schema_version": "eval.v1", "x": [', encoding="utf-8")
+
+    lines = _show(monkeypatch, capsys, "nightly-2").out.splitlines()
+    assert lines[2].startswith("unreadable: 2 files under the root, which may belong to it "
+                               "(first: a\\nbad.json: not valid JSON")
+
+    data = json.loads(_show(monkeypatch, capsys, "nightly-2", "--json").out)
+    assert [u["path"] for u in data["unreadable"]] == ["a\nbad.json", "b-bad.json"]
+    assert data["unreadable"][0]["schema_version"] == "eval.v1"

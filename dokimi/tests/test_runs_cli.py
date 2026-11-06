@@ -296,3 +296,25 @@ def test_a_filter_groups_only_the_rows_it_keeps(monkeypatch, capsys, two_runs):
     assert data["runs"] == []
     out = _list(monkeypatch, capsys, "--kind", "questions").out
     assert out.split("\n\n")[1].splitlines()[1] == "runs: 0; no run_id: 1 (runs show PATH says why)"
+
+
+def test_artifacts_with_no_run_id_each_stand_in_their_own_place(monkeypatch, capsys, root):
+    """Two pre-envelope artifacts around a run: grouped together, they would move the run."""
+    def save(name, at, run=None):
+        if run:
+            monkeypatch.setenv("DOKIMI_RUN_ID", run)
+        data = save_artifact("eval", {**_fixture("eval.v1"), "evaluated_at": at}, root / name)
+        if not run:
+            data = {k: v for k, v in data.items() if k not in ("run_id", "dokimi_version")}
+            (root / name).write_text(json.dumps(data), encoding="utf-8")
+        monkeypatch.delenv("DOKIMI_RUN_ID", raising=False)
+
+    save("x.json", "2026-11-01T10:00:00Z")
+    save("r.json", "2026-11-01T09:00:00Z", run="r")
+    save("y.json", "2026-11-01T08:00:00Z")
+
+    out = _list(monkeypatch, capsys).out
+
+    assert _paths(out) == ["x.json", "r.json", "y.json"]
+    assert out.split("\n\n")[1].splitlines()[1] == (
+        "runs: 1 (1 artifact); no run_id: 2 (runs show PATH says why)")
