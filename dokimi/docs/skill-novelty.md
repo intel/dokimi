@@ -259,7 +259,7 @@ for what each output means.
 ### 1. Whole-artifact triage
 
 ```bash
-python cli.py novelty analyze --artifact skill:path/to/skill \
+python cli.py skill novelty analyze --artifact skill:path/to/skill \
     --model claude-opus-5-5 --provider anthropic \
     --judge-model gpt-6.1-sol --judge-provider openai [--include-resources]
 ```
@@ -282,7 +282,7 @@ protected), and the control arms.
 Read it in this order:
 
 1. **`routing` first.** If the artifact is not selected, content work is unrecoverable
-   spend. In the study six of thirteen skills routed below 0.50, one at 0.146. `novelty
+   spend. In the study six of thirteen skills routed below 0.50, one at 0.146. `skill novelty
    analyze` holds the frontmatter fixed so the two are never confounded — selection is its
    own command, [below](#can-the-artifact-be-selected-at-all).
 2. **`harmful_conflicting` next.** Conflicts are the only category that can make the artifact worse
@@ -347,7 +347,7 @@ the highlight is load-bearing. Three measured constraints ship with it:
 ### 3. Shortening, with five separate scores
 
 ```bash
-python cli.py novelty shorten --artifact skill:path/to/skill --atoms atoms.json --budgets 0.75 0.5
+python cli.py skill shorten --artifact skill:path/to/skill --atoms atoms.json --budgets 0.75 0.5
 ```
 
 Never one "retention" number, because a single score hides the one failure that matters. A measured
@@ -504,7 +504,7 @@ entry point alone would judge that skill on 1.2% of itself, and its "dead tokens
 would be dominated by spans whose only job is to name a file nobody read.
 
 ```bash
-python cli.py novelty analyze --artifact skill:path/to/skill --model M --judge-model J \
+python cli.py skill novelty analyze --artifact skill:path/to/skill --model M --judge-model J \
     --include-resources                       # measure the bundle
     # --resource-roles reference pattern      # or only some of it
     # --max-file-words 4000 --max-resource-words 20000
@@ -634,7 +634,7 @@ catalog skills with the same name and different content are both skipped, with a
 names every path of that name: the rest of the field stays. Only the copies the field lists count:
 a disabled copy (unless `--include-disabled`) or a spec-error copy (unless `--include-invalid`) is
 left out first, so it does not make its name a conflict. Rename one, or delete the copy you do
-not mean to route against, to route the name. `dokimi catalog scan` lists the same names as
+not mean to route against, to route the name. `dokimi catalog check` lists the same names as
 `name-conflict` warnings, for the copies it lists. A skill with a spec error (for example a description over 1024 characters, or a
 name that is not kebab-case or not its directory name) is also left out, with a warning naming the error; pass
 `--include-invalid` to keep it, as a harness that refuses to list such a skill would not. A `skill:`
@@ -799,10 +799,10 @@ containing the item correlates it with itself, which at three respondents is eno
 report a perfect `r` on no evidence.
 
 ```bash
-python cli.py novelty probe --artifact skill:s --atoms atoms.json --model M1 --out m1.json
-python cli.py novelty probe --artifact skill:s --atoms atoms.json --model M2 --out m2.json
-python cli.py novelty probe --artifact skill:s --atoms atoms.json --model M3 --out m3.json
-python cli.py novelty items --probes m1.json m2.json m3.json
+python cli.py skill novelty probe --artifact skill:s --atoms atoms.json --model M1 --out m1.json
+python cli.py skill novelty probe --artifact skill:s --atoms atoms.json --model M2 --out m2.json
+python cli.py skill novelty probe --artifact skill:s --atoms atoms.json --model M3 --out m3.json
+python cli.py skill novelty items --probes m1.json m2.json m3.json
 ```
 
 Three **distinct models** is the minimum; below that — including three runs of one model,
@@ -875,7 +875,7 @@ being asked at all.
 
 A novelty run is attached to a subject run, not produced by one — the measurement is
 `atoms × probes × arms × (answer + grade)` and would dominate a subject's cost. Produce it with
-`novelty analyze`, then name the artifacts by path:
+`skill novelty analyze`, then name the artifacts by path:
 
 ```bash
 python cli.py subjects run subject.toml \
@@ -925,8 +925,8 @@ content, not on the tier.
 | `study` | 120 | direct + paraphrase + reversal | all | **1,078** |
 
 ```bash
-python cli.py novelty analyze --artifact skill:s --tier triage          # ~10x cheaper
-python cli.py novelty analyze --artifact skill:s --tier study --estimate-only
+python cli.py skill novelty analyze --artifact skill:s --tier triage          # ~10x cheaper
+python cli.py skill novelty analyze --artifact skill:s --tier study --estimate-only
 ```
 
 `--estimate-only` prints the projected bill and exits without constructing a client, so
@@ -989,8 +989,8 @@ reply lists a batch's atoms in its own order; it is stable, so atoms citing the 
 that order, and with M ≤ n nothing is sorted and every atom is probed in extraction order. A
 stride needs no seed: the same extracted atom list gives the same sample. A fresh extraction is new model calls, so the
 same text can give other atoms and so another sample; to probe identical atoms across runs or
-models, extract once with `novelty atoms` and pass its `atoms.json` to `novelty probe --atoms`
-(and `novelty shorten --atoms`), which measure the sample it records without sampling again. The input
+models, extract once with `skill novelty atoms` and pass its `atoms.json` to `skill novelty probe --atoms`
+(and `skill shorten --atoms`), which measure the sample it records without sampling again. The input
 is the text that was segmented: the entry point, plus on a bundle run the files its roles and
 budgets selected, in that order. The stride runs over the concatenated atom list of those
 files, so a file's expected share of the probes is its share of the atoms, but a file with few
@@ -1010,7 +1010,7 @@ those (a stride of 12.5 atoms in document order; 25 of the input's spans were no
 extraction.unread_span_ids): ...`. The `novelty.md` header says the same, and the headline's
 `coverage:` line says the words went into the input and the cap probed 25 of the input's 61
 atoms, or of the atoms extracted from the spans that were read (the warning under that line,
-when half or less of the words went in, says "went into the input" too). `novelty atoms` prints
+when half or less of the words went in, says "went into the input" too). `skill novelty atoms` prints
 the same warning on stderr and records the same sample in `atoms.json`; `probe` and `shorten`,
 which read it, do not repeat the warning.
 
@@ -1021,13 +1021,13 @@ shortening oracle run on the n sampled atoms, so the bill stays at the cap. The 
 dead weight, sole carriers and shortening's structure come from all M: a span whose atoms fell
 outside the sample reads `unscored` (or `protected`), not `empty`. `atoms.json` holds all M atoms,
 the ones outside the sample with `faithfulness: "unchecked"`, and `sampled_atom_ids` lists the
-sample's ids in probe order (`null` when the cap kept every atom). `novelty probe` and `novelty
+sample's ids in probe order (`null` when the cap kept every atom). `skill novelty probe` and `skill
 shorten` measure only those atoms by default, say so on stderr (`NOTE probe measures the 60 atoms
 atoms.json records as the cap's sample, of its 200`), and index spans from all of them;
 `--all-atoms` measures every atom in the file, reusing the extraction instead of paying for a new
 one. Those outside the sample were never checked for faithfulness, so when any of them reads
-`unchecked`, `--all-atoms` prints a `WARNING` with how many, and that `novelty atoms --all-atoms`
-(a new, uncapped extraction) verifies every atom it extracts. On a bundle, `novelty shorten` keeps only the entry point's atoms; when none of the sample is
+`unchecked`, `--all-atoms` prints a `WARNING` with how many, and that `skill novelty atoms --all-atoms`
+(a new, uncapped extraction) verifies every atom it extracts. On a bundle, `skill shorten` keeps only the entry point's atoms; when none of the sample is
 among them it would score nothing, so it exits 2 and asks for `--all-atoms`.
 `novelty view` colours spans from every atom. An `atoms.json` with no `sampled_atom_ids`,
 written before the record existed, held only the atoms its run probed, and is read as all of them
@@ -1035,9 +1035,9 @@ sampled; one whose `sampled_atom_ids` names an atom the file does not hold, or n
 is refused (exit 2).
 When such an older file's record shows a cap that bound (`extraction.sampled` set, or `cap` set
 with any `extraction.reached` object, which a document-order cap wrote only when it bound),
-`novelty probe`, `novelty shorten` and `novelty view` print a `WARNING` on stderr: the file holds
+`skill novelty probe`, `skill shorten` and `novelty view` print a `WARNING` on stderr: the file holds
 only the atoms its run probed, so spans whose atoms fell outside them read as carrying nothing and
-a shortening can cut them; re-run `novelty atoms` to index every atom. A document-order cap whose
+a shortening can cut them; re-run `skill novelty atoms` to index every atom. A document-order cap whose
 `reached` is the input's last span (`spans` equal to `of`) may still have cut atoms from that last
 reply, so the warning says the file *may* hold only the atoms its run probed. A file from before
 `extraction.reached` existed (#299), with `cap` set, no `reached` key and at least `cap` atoms, gets
@@ -1060,10 +1060,10 @@ Two further savings are orthogonal to the tier. Atoms are model-independent, so 
 amortizes across models:
 
 ```bash
-python cli.py novelty atoms --artifact skill:path/to/skill --extract-model E \
+python cli.py skill novelty atoms --artifact skill:path/to/skill --extract-model E \
     [--include-resources] --out atoms.json        # once
-python cli.py novelty probe --artifact skill:path/to/skill --atoms atoms.json --model M1
-python cli.py novelty probe --artifact skill:path/to/skill --atoms atoms.json --model M2
+python cli.py skill novelty probe --artifact skill:path/to/skill --atoms atoms.json --model M1
+python cli.py skill novelty probe --artifact skill:path/to/skill --atoms atoms.json --model M2
 ```
 
 `atoms.json` records which files it was extracted from, and `probe` rebuilds exactly that

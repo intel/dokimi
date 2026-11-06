@@ -7,7 +7,7 @@
   missing parent directory is still created. Pass a file path.
 - **A `SKILL.md` with broken frontmatter reports the YAML error** — the message
   names the file line and says to quote a value containing `: `, in place of
-  "missing a 'description'". It shows in `catalog scan` and in `novelty routing`
+  "missing a 'description'". It shows in `catalog check` and in `novelty routing`
   (`--artifact`, `--competitors`, `--catalog`).
 - **`novelty routing --estimate-only` prices the reply it measured** — output
   tokens are 65 a call (the average of a measured run, 23.3k over 360 calls), not

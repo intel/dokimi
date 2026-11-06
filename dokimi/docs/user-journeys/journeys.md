@@ -71,7 +71,7 @@ handed to another journey with its own scope.
 
 **Today.** The pieces exist per subject type: `python cli.py repo scan` for a
 repository, `python cli.py novelty routing` and
-`python cli.py novelty analyze --estimate-only` for a skill. A single entry
+`python cli.py skill novelty analyze --estimate-only` for a skill. A single entry
 that picks among them, and the costed plan, are **proposed**.
 
 **Connections.** Leads to J2, J3, J4, J5 or J7.
@@ -102,13 +102,13 @@ use; the budget.
 1. Check the skill can be selected at all: does the agent route to it for the
    queries it is for (`python cli.py novelty routing`)?
 2. Estimate what the diagnosis costs before running it
-   (`python cli.py novelty analyze --estimate-only`).
+   (`python cli.py skill novelty analyze --estimate-only`).
 3. Diagnose: which parts of the skill add knowledge the model lacks, which
    repeat what it knows, which conflict with it
-   (`python cli.py novelty analyze`, then `python cli.py novelty view`).
+   (`python cli.py skill novelty analyze`, then `python cli.py novelty view`).
 4. Form hypotheses: cut what adds nothing, protect what carries routing and
    negative constraints, add what the tasks need and the skill lacks.
-5. Change the skill (`python cli.py novelty shorten` proposes cuts with the
+5. Change the skill (`python cli.py skill shorten` proposes cuts with the
    protected parts pinned).
 6. Re-measure the edited skill against the same probes, and on the tasks it is
    meant to help with, against the unedited one.
@@ -119,7 +119,7 @@ use; the budget.
 - *No tasks for the skill.* Novelty can still be measured, but it does not show
   task impact; hand to J7 for tasks, or state the gap.
 - *Budget too small for the probes.* The cheaper tier
-  (`python cli.py novelty analyze --tier triage`) records what it gave up.
+  (`python cli.py skill novelty analyze --tier triage`) records what it gave up.
 - *No improvement.* The change is rejected with its measurement; that is a
   valid outcome.
 - *Edited skill no longer matches its extracted inventory.* Probing an
@@ -361,7 +361,7 @@ with no testable task stay unverified and are listed as such.
 **Outputs.** Evidence per claim, problems found, where it applies, and the limits
 of the assessment.
 
-**Today.** Catalog scanning (`python cli.py catalog scan`), routing and
+**Today.** Catalog scanning (`python cli.py catalog check`), routing and
 novelty exist. A per-claim assessment report is **proposed**.
 
 **Connections.** Usually continues as J6.
@@ -372,7 +372,7 @@ novelty exist. A per-claim assessment report is **proposed**.
 
 - **AC-J05-001** The assessment lists each claim with its evidence or with "not verified", and does not certify general usefulness from structure checks.
 - **AC-J05-002** The assessment states the models, tasks and probe sets it covered and what it did not cover. *Manual.*
-- **AC-J05-003** A catalog scan reports each skill's Agent Skills specification violations as findings, and fails on them only in strict mode. *Proposed.*
+- **AC-J05-003** A catalog check reports each skill's Agent Skills specification violations as findings, and fails on them only in strict mode. *Proposed.*
 
 ---
 
@@ -789,11 +789,11 @@ the settings that produced it, the spend, and the stated limits.
 
 | Operation | Command | Notes |
 |---|---|---|
-| Content novelty of a skill | `python cli.py novelty analyze` | Estimate with `--estimate-only`; cap with `--max-usd`; output `novelty.json` |
+| Content novelty of a skill | `python cli.py skill novelty analyze` | Estimate with `--estimate-only`; cap with `--max-usd`; output `novelty.json` |
 | Re-render saved novelty | `python cli.py novelty view` | No model calls |
 | Skill routing | `python cli.py novelty routing` | Free without `--model` |
 | Guidance reach | `python cli.py repo reach` | Plan with `--dry-run`; cap with `--budget` |
-| Context window of a run | `python cli.py context trace` | Reads an existing trace |
+| Context window of a run | `python cli.py trace inspect` | Reads an existing trace |
 | Judge calibration | `python cli.py eval judge validate` | Sequential stopping with `--sequential` |
 | Tool-choice probe | `python cli.py tools preference` | Cap with `--max-cost-usd` |
 
@@ -805,8 +805,8 @@ the settings that produced it, the spend, and the stated limits.
 
 The narrow novelty workflow: input is the skill bundle (`--artifact skill:<path>`)
 and a model; the estimate comes first; the run writes `novelty.json`, and
-extraction and probing can be run as separate steps (`python cli.py novelty atoms`,
-`python cli.py novelty probe`) whose saved output is reused; spend is capped
+extraction and probing can be run as separate steps (`python cli.py skill novelty atoms`,
+`python cli.py skill novelty probe`) whose saved output is reused; spend is capped
 per run. Its limits are those in
 [the novelty limits](../skill-novelty.md#limits-to-state-when-quoting-these-numbers):
 a novelty figure is a property of the pair (skill, model), it says nothing about
@@ -858,7 +858,7 @@ for; which other problems of the same kind it should help with; the budget.
    ([J7](#j7--create-or-improve-evals) for the graders and the self-check).
 2. Write the skill from the transcript: by hand, by the agent, or both.
 3. Check what the draft adds over what the model already knows
-   (`python cli.py novelty analyze --artifact skill:<path>`). Content the model
+   (`python cli.py skill novelty analyze --artifact skill:<path>`). Content the model
    already knows is a reason to shorten, and a skill that adds nothing is a
    reason to stop.
 4. Check the skill is selected for the requests it is for

@@ -189,8 +189,8 @@ def test_min_detectable_effect_arithmetic():
     assert min_detectable(0.222, 26) == pytest.approx(min_detectable(0.444, 104), rel=0.05)
 
 
-def test_min_detectable_uses_the_t_quantiles_of_the_interval_at_small_n():
-    # four tasks: the interval is a t interval at df 3 (t(0.975, 3) = 3.182, t(0.80, 3) = 0.978), not normal ones
+def test_min_detectable_uses_t_quantiles_at_small_n():
+    # four tasks: the planning figure takes t at df 3 (t(0.975, 3) = 3.182, t(0.80, 3) = 0.978), not normal ones
     assert min_detectable(0.456435, 4) == pytest.approx(0.949594, abs=1e-6)
 
 
@@ -219,15 +219,15 @@ def test_an_interval_across_zero_is_inconclusive_with_its_mde(tmp_path):
     assert _row(one, "score")["mde"] is None and "inconclusive" not in format_compare(one)
 
 
-@pytest.mark.parametrize("deltas,changed,floor", [
-    ([0.5, -0.5, 0.25, -0.25], 4, "0.125"),  # four tasks, sample SD 0.456435: a t power figure would say ±0.950
-    ([0.5, -0.5, 0.25, -0.25, 0.5, 0.0], 5, "0.0625"),  # six tasks, one tied: five changed
+@pytest.mark.parametrize("deltas,changed,floor,ends", [
+    ([0.5, -0.5, 0.25, -0.25], 4, "0.125", (None, None)),  # four tasks, SD 0.456435: a t power figure says ±0.950
+    ([0.5, -0.5, 0.25, -0.25, 0.5, 0.0], 5, "0.0625", (-0.5, 0.5)),  # six tasks, one tied: five changed
 ])
-def test_no_mde_where_the_sign_flip_p_cannot_reach_005(tmp_path, deltas, changed, floor):
+def test_no_mde_where_the_sign_flip_p_cannot_reach_005(tmp_path, deltas, changed, floor, ends):
     _score_tasks(tmp_path / "b", deltas, 0.5)
     s = compare([tmp_path / "b"], "guidance:none")
     score = _row(s, "score")
-    assert score["mde"] is None and score["delta"]["lo"] < 0 < score["delta"]["hi"]
+    assert score["mde"] is None and (score["delta"]["lo"], score["delta"]["hi"]) == ends
     assert (f"  score inconclusive: the interval includes 0; with {changed} changed tasks the sign-flip p cannot "
             f"go below {floor}: no effect can reach p < 0.05 here") in format_compare(s).splitlines()
     assert "80% power" not in format_compare(s)
@@ -279,21 +279,23 @@ def test_a_gate_row_of_two_changed_tasks_has_no_mde(tmp_path):
         _cell(b, task, "guidance:raw", 1)
     s = compare([b], "guidance:none")
     gate = _row(s, "gate")
-    assert gate["p"] == 0.5 and gate["delta"]["lo"] == 0.0 and gate["mde"] is None
+    assert gate["p"] == 0.5 and (gate["delta"]["lo"], gate["delta"]["hi"]) == (None, None) and gate["mde"] is None
     assert ("  gate inconclusive: the interval includes 0; with 2 changed tasks the sign-flip p cannot go below "
             "0.5: no effect can reach p < 0.05 here") in format_compare(s).splitlines()
 
 
-def test_a_bootstrap_interval_that_excludes_zero_against_p_025_is_flagged(tmp_path):
+def test_the_issue_score_row_now_includes_zero_as_its_p_says(tmp_path):
+    # the 6-task score row of #292: a percentile bootstrap gave [+0.028, +0.250] against p 0.25
     _score_tasks(tmp_path / "b", [0.0, 0.0, 0.333, 0.167, 0.0, 0.333], 0.0)
     s = compare([tmp_path / "b"], "guidance:none")
     score = _row(s, "score")
-    assert score["delta"]["lo"] > 0 and score["p"] == 0.25  # three non-zero deltas, all positive: p cannot go lower
-    assert score["interval_p_disagree"] is True
-    notes = [line for line in format_compare(s).splitlines() if line.startswith("  score")]
-    assert notes[-1].startswith(f"  score: the interval [{score['delta']['lo']:+.3f}, +0.250] excludes 0 but "
-                                "p_holm 0.25 is ≥ 0.05; they come from two methods, a percentile bootstrap")
-    assert notes[-1].endswith("; read p_holm") and not any("inconclusive" in line for line in notes)
+    assert score["p"] == 0.25 and score["interval_p_disagree"] is False  # three changed deltas: p cannot go lower
+    # bounded at six tasks: a shift below 0 puts all six on one side (p 2/64), so 0 itself is the lower end
+    assert (score["delta"]["mean"], score["delta"]["lo"], score["delta"]["hi"]) == (0.1388, 0.0, 0.333)
+    lines = format_compare(s).splitlines()
+    assert ("  score inconclusive: the interval includes 0; with 3 changed tasks the sign-flip p cannot go below "
+            "0.25: no effect can reach p < 0.05 here") in lines
+    assert not any(line.startswith("  score: the interval") for line in lines)
 
 
 def _six_of_seven_up(b: Path, treatments: tuple[str, ...]) -> None:
@@ -313,23 +315,34 @@ def test_a_gate_interval_against_p_holm_is_flagged(tmp_path):
         assert gate["delta"]["lo"] > 0 and gate["p"] == pytest.approx(2 / 64) and gate["p_holm"] == 0.0625
         assert gate["interval_p_disagree"] is True
     notes = [line for line in format_compare(s).splitlines() if line.startswith("  gate: the interval")]
-    assert len(notes) == 2 and all("excludes 0 but p_holm 0.0625 is ≥ 0.05" in n and n.endswith("; read p_holm")
-                                   for n in notes)
+    assert notes == ["  gate: the interval [+0.500, +1.000] excludes 0 but p_holm 0.0625 is ≥ 0.05: the interval is "
+                     "uncorrected; p_holm decides this row"] * 2
 
 
-def test_an_interval_across_zero_against_a_raw_p_below_005_is_not_flagged_when_p_holm_is_not(tmp_path, monkeypatch):
-    # the mirror: an interval that includes 0 against p 0.031, which Holm takes to 0.0625: the two agree
-    monkeypatch.setattr("dokimi.repos.compare.bootstrap_ci",
-                        lambda deltas, seed=0: {"mean": round(sum(deltas) / len(deltas), 4), "lo": -0.1, "hi": 1.0})
-    _six_of_seven_up(tmp_path / "two", ("guidance:raw", "guidance:other"))
-    two = compare([tmp_path / "two"], "guidance:none")
-    gate = _row(two, "gate")
-    assert gate["p"] == pytest.approx(2 / 64) and gate["p_holm"] == 0.0625 and gate["interval_p_disagree"] is False
-    assert "gate: the interval" not in format_compare(two)
-    _six_of_seven_up(tmp_path / "one", ("guidance:raw",))  # a family of one: p_holm is p, below 0.05
+def test_a_small_interval_against_p_holm_prints_its_ends_off_zero(tmp_path):
+    # six score deltas of +0.0002 per treatment: both ends +0.0002, which 3 decimals would print as +0.000
+    b = tmp_path / "b"
+    for i in range(6):
+        _cell(b, f"t{i}", "guidance:none", 1, score=0.5)
+        for arm in ("guidance:raw", "guidance:other"):
+            _cell(b, f"t{i}", arm, 1, score=0.5002)
+    s = compare([b], "guidance:none")
+    assert _row(s, "score")["delta"]["lo"] > 0 and _row(s, "score")["p_holm"] == 0.0625
+    lines = format_compare(s).splitlines()
+    assert [line.split()[4:7] for line in lines if line.startswith("  score  ")] == [
+        ["+0.000", "[+0.0002,", "+0.0002]"]] * 2  # the mean column stays at 3 decimals
+    assert [line for line in lines if line.startswith("  score: the interval")] == [
+        "  score: the interval [+0.0002, +0.0002] excludes 0 but p_holm 0.0625 is ≥ 0.05: the interval is "
+        "uncorrected; p_holm decides this row"] * 2
+
+
+def test_a_family_of_one_has_nothing_to_disagree_with(tmp_path):
+    # p_holm is the raw p 0.031 there, and the interval agrees with the raw p: no note
+    _six_of_seven_up(tmp_path / "one", ("guidance:raw",))
     one = compare([tmp_path / "one"], "guidance:none")
-    assert _row(one, "gate")["interval_p_disagree"] is True
-    assert "includes 0 but p_holm 0.0312 is < 0.05" in format_compare(one)
+    gate = _row(one, "gate")
+    assert gate["p_holm"] == 0.0312 and gate["delta"]["lo"] > 0 and gate["interval_p_disagree"] is False
+    assert "gate: the interval" not in format_compare(one)
 
 
 def test_a_descriptive_p_below_005_is_named_as_uncorrected(tmp_path):
@@ -339,11 +352,10 @@ def test_a_descriptive_p_below_005_is_named_as_uncorrected(tmp_path):
         _cell(b, f"fix_{i}", "guidance:raw", 1, turns=turns)
     s = compare([b], "guidance:none")
     turns = _row(s, "turns")
-    assert turns["p"] == pytest.approx(2 / 64) and turns["delta"]["lo"] < 0 < turns["delta"]["hi"]
-    assert turns["interval_p_disagree"] is True and _row(s, "gate")["interval_p_disagree"] is False
+    # the interval excludes 0 as p does (a t interval included it): a descriptive row cannot disagree now
+    assert turns["p"] == pytest.approx(2 / 64) and (turns["delta"]["lo"], turns["delta"]["hi"]) == (1.0, 20.0)
+    assert turns["interval_p_disagree"] is False and _row(s, "gate")["interval_p_disagree"] is False
     lines = format_compare(s).splitlines()
-    disagree = [line for line in lines if line.startswith("  turns: the interval")]
-    assert len(disagree) == 1 and "includes 0 but p 0.03125 is < 0.05" in disagree[0]
-    assert "a t interval and a sign-flip test" in disagree[0] and "read p" not in disagree[0]
+    assert not any(line.startswith("  turns: the interval") for line in lines)
     assert ("  p < 0.05 on turns: descriptive rows, their p uncorrected and outside Holm's family, which covers "
             "gate and score only") in lines

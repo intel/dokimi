@@ -507,7 +507,7 @@ Claude. `subagent_calls` counts the parent's and subagents' `Agent`/`Task`
 calls; `null` when the harness wrote no result record.
 `first_prompt_tokens` is what the first main-thread model call was sent
 (`input + cache_creation + cache_read` tokens of that call, counted once per
-message id, as `context trace` reads it): everything start-up loaded plus the
+message id, as `trace inspect` reads it): everything start-up loaded plus the
 task, so two arms that differ only in guidance differ there by what start-up
 loaded of it. It is `null` when the trace has no main-thread call with
 `usage`, and for a trace format that carries none (`text`).
@@ -2063,10 +2063,21 @@ python cli.py repo hits judge repo-runs/replay --judge openai/gpt-5.1 --labels l
   task's cells that observed the first useful result, §4.1), `first_useful_rate` (the share of a task's
   declared cells with a verdict that observed one), each `--metric` from `grade.json`, and each `process` count a
   compared cell reports as `process:<key>` or `counter:<name>`) it gives the mean per-task
-  delta against the baseline with a 95% interval over tasks (a bootstrap for
-  gate and score, a t interval for the descriptive measures, `-` for a single
-  task), the tasks up, down and tied, and a two-sided sign-flip permutation p (exact up to 16
-  changed tasks; at one cell per task and arm it equals McNemar's exact test).
+  delta against the baseline with a 95% interval over tasks, the tasks up, down and tied, and a two-sided
+  sign-flip permutation p (exact up to 16 changed tasks, Monte Carlo above with a fixed seed; at one cell per
+  task and arm it equals McNemar's exact test). Every measure's interval inverts that test
+  (`dokimi/repos/compare_interval.py`; `delta.method` is `sign_flip_inversion` in `--json`): it is every
+  shift theta at which the test on the per-task deltas minus theta does not reject at the uncorrected two-sided
+  5% level, each end found by bisection between the mean and a far bound. It excludes 0 exactly when p is below
+  0.05: the row's own p places 0, and above 16 changed tasks the interval's Monte Carlo draws are those of p, drawn
+  once from the seed and reused at every theta, so the ends do not move between runs. Under a shift every task
+  counts, the tied ones included (their delta becomes -theta), and the smallest p over n tasks is `2 / 2^n`, so
+  both ends are bounded from 6 tasks on, whatever the ties, and open (`null` in `--json`, `-inf` / `+inf` in the
+  text) at 5 or fewer, one task included. The test stays exact, with no mid-p: p(theta) is a step function and the
+  ends are its step points, so an end can be a delta itself, or 0. The text prints an end at 3 decimals, and a
+  non-zero end that would print as `0.000` at 2 significant digits (`+0.0002`), so it keeps its side of 0.
+  `delta.mean` (4 places) stays inside those ends: six deltas of `4e-5` give a mean of `0.0001`, not `0.0`, as
+  both ends are `0.0001`.
   A `process` count, `first_prompt_tokens` or `first_useful_*` only one arm reports for the shared tasks of a
   (treatment, model) is not compared; a warning names it. When neither arm
   reports it (a batch run before `repo run` recorded it), the row is absent.
@@ -2093,12 +2104,11 @@ python cli.py repo hits judge repo-runs/replay --judge openai/gpt-5.1 --labels l
   0.05, `mde` is `null` and the note names Holm instead (`with Holm over 2
   rows, p_holm cannot go below 0.0625 here: no effect can reach p_holm <
   0.05`); a family of one row is the raw rule. `p_holm_floor` decides only
-  whether `mde` is given, not its size. A row whose interval and p disagree (the
-  interval excludes 0 while p is 0.05 or more, or includes 0 while p is below
-  0.05; for gate and score that p is `p_holm`, the one that decides them, and the
-  note quotes it) has `interval_p_disagree` `true` and a note: they come from two
-  methods, and for gate and score `p_holm` is the one to read, since a percentile
-  bootstrap runs narrow over few tasks; the inconclusive note gives way to
+  whether `mde` is given, not its size. A gate or score row whose interval
+  excludes 0 while its `p_holm` is 0.05 or more (Holm's correction lifted its p
+  across 0.05; the interval agrees with the raw p, and Holm's step-down has no
+  interval to match) has `interval_p_disagree` `true` and a note: the interval
+  is uncorrected; `p_holm` decides this row. The inconclusive note gives way to
   it. Descriptive rows with p below 0.05 are named on one line: their p is
   uncorrected and outside Holm's family. `--task ID` (repeatable) compares only
   those tasks: an id no finished cell of the batches has is refused, the tasks

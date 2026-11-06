@@ -81,7 +81,7 @@ implicit default that points at a sibling checkout:
 
 | Flag | What it names | Commands |
 |---|---|---|
-| `--root` | a whole content checkout to scan | `catalog scan` |
+| `--root` | a whole content checkout to scan | `catalog check` |
 | `--questions-root` | directory holding `<product_key>_golden.json` | `benchmark preflight/run/batch`, `evaluate`, `coverage`, `config_check` |
 | `--tasks-root` | directory of executable task dirs (each with `task.toml` or a BenchFlow `task.md`), or of exploration task YAML files | `eval tasks list`/`tasks run`, `explore list/run`, `coverage`, `config_check` |
 | `--repo-root` | the source tree an exploration task is scored against | `explore run` |
@@ -138,19 +138,19 @@ In the second shape `name` must be a single directory name. An entry without
 ```
 
  A checkout that puts tasks somewhere other than
-`evaluation/harbor/tasks` can be scanned with `catalog scan --tasks-subdir
+`evaluation/harbor/tasks` can be scanned with `catalog check --tasks-subdir
 <relative-path>`; the run commands take the full path as `--tasks-root`
 regardless of layout.
 
 ## 1. Scan the checkout before you spend anything
 
-`catalog scan` is a pre-flight: it reads the manifests, resolves each declared
+`catalog check` is a pre-flight: it reads the manifests, resolves each declared
 entry on disk, and reports one line per entry. It never calls a model, so it
 costs nothing and is the cheapest way to find out that a suite you were about
 to pay to run is half-declared.
 
 ```console
-$ python cli.py catalog scan --root C:/Users/Public/content-repo
+$ python cli.py catalog check --root C:/Users/Public/content-repo
 # skills (2 declared under C:\Users\Public\content-repo; 1 ok, 0 warn, 1 error)
 demo-skill      published       C:\Users\Public\content-repo\skills\demo-skill  ok
 not-written-yet planned C:\Users\Public\content-repo\skills\not-written-yet      ERROR: Skill path does not exist: C:\Users\Public\content-repo\skills\not-written-yet
@@ -171,7 +171,7 @@ Read that output as three outcomes, not two:
   drive (`answer-quality` entries are question-set material, not Docker tasks).
 - `ERROR` — an entry that should have worked and did not.
 
-Only load errors change the exit code, so `catalog scan` exiting 0 means
+Only load errors change the exit code, so `catalog check` exiting 0 means
 "everything declared as runnable is runnable". A spec error (below) changes it
 only under `--strict`. A root with no `SKILL.md` at all (and no skills.yaml entry)
 prints `no SKILL.md found under <root>` to stderr and exits 1. With `--kind all`, a
@@ -214,14 +214,14 @@ the skill (and in its `findings` in JSON); the row's main line and its JSON
 `error` field say the frontmatter has invalid YAML, with the line, not that the
 skill is missing a `description`.
 
-`--strict` makes `catalog scan` a gate on the spec as well as on loading. The
+`--strict` makes `catalog check` a gate on the spec as well as on loading. The
 text output and `--format json` (one object: `state`, `findings`,
 `content_sha256`, `duplicate_of`, for a script or a CI gate) are the same either way.
 
 Restrict the scan with `--kind`:
 
 ```console
-$ python cli.py catalog scan --root C:/Users/Public/content-repo --kind tasks
+$ python cli.py catalog check --root C:/Users/Public/content-repo --kind tasks
 # tasks (3 declared under C:\Users\Public\content-repo)
 demo-widget     published       executable      ok
 demo-quiz       published       answer-quality  skipped: no task.toml or task.md under C:\Users\Public\content-repo\evaluation\harbor\tasks\demo-quiz (manifest status='published')
@@ -468,8 +468,8 @@ Worth knowing before you read a suspiciously clean result:
 
 | Command | Root missing | Exit |
 |---|---|---|
-| `catalog scan --root <missing>` | `--root is not a directory: <path>` | 2 |
-| `catalog scan --root <no SKILL.md> --kind skills` | `no SKILL.md found under <path>` | 1 |
+| `catalog check --root <missing>` | `--root is not a directory: <path>` | 2 |
+| `catalog check --root <no SKILL.md> --kind skills` | `no SKILL.md found under <path>` | 1 |
 | `tasks run --tasks-root <missing>` | `--tasks-root is not a directory: <path>` | 2 |
 | `eval tasks list --tasks-root <missing>` | `--tasks-root is not a directory: <path>` | 2 |
 | `explore list --tasks-root <missing>` | `--tasks-root is not a directory: <path>` | 2 |

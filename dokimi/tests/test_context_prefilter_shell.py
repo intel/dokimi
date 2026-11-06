@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""`context prefilter` on shell text: quoted brackets, comments, here-strings, redirections and heredocs."""
+"""`trace prefilter` on shell text: quoted brackets, comments, here-strings, redirections and heredocs."""
 
 from __future__ import annotations
 
