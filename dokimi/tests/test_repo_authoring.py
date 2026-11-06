@@ -11,16 +11,19 @@ command on this host: the manifest's ``test`` entry point is this interpreter's 
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
 import yaml
 
 from dokimi.cli import build_parser
+from dokimi.repos import selfcheck
+from dokimi.repos.container import ContainerError
 from dokimi.repos.graders import hidden_tests, main
-from dokimi.repos.grading import _stage_hidden
+from dokimi.repos.grading import EvalContext, _run_hidden_tests, _stage_hidden
 from dokimi.repos.manifest import ManifestError, grade_problems, parse_manifest, TaskSummary
-from dokimi.repos.replay import authoring_prompt
+from dokimi.repos.replay import History, authoring_prompt
 from dokimi.repos.replay.authoring import family, is_test_file, is_test_path
 from dokimi.repos.workspace import Task
 from repo_eval_fixture import FakeRunner, git, write
@@ -137,10 +140,10 @@ def _pages(*prs):
             {"data": {"search": {"pageInfo": {"hasNextPage": False, "endCursor": None}, "nodes": list(prs[:1])}}}]
 
 
-def _authoring(root: Path, doc, out: Path, *extra: str, raw: str | None = None) -> None:
+def _authoring(root: Path, doc, out: Path, *extra: str, raw: str | None = None, source: str | None = None) -> None:
     path = root.parent / "prs.json"
     path.write_text(raw if raw is not None else json.dumps(doc), encoding="utf-8")
-    args = build_parser().parse_args(["repo", "tasks", "authoring", str(root), "--prs", str(path),
+    args = build_parser().parse_args(["repo", "tasks", "authoring", source or str(root), "--prs", str(path),
                                       "--out", str(out), *extra])
     args.func(args)
 
@@ -188,6 +191,16 @@ def test_the_prompt_drops_quoted_code_change_links_and_lines_naming_a_hidden_tes
     assert prompt.endswith(authoring_prompt.DEFAULT_INSTRUCTION)
 
 
+def test_the_prompt_drops_a_diff_and_change_links_and_keeps_other_links_and_hex_words():
+    body = ("```diff\nsmall\n```\n\n```\n@@ -1 +1 @@\n```\n\n"
+            "See [the docs](https://example.invalid/docs) and https://example.invalid/wiki.\n"
+            "Compare https://example.invalid/compare/a...b, build deadbeef1, commit abcdef12.")
+    prompt = authoring_prompt.build("T", body, names=[], changed_lines=set(), number=9, commits=["abcdef1234"])
+    assert prompt.dropped == {"test_lines": 0, "code_blocks": 2, "links": 2}
+    assert prompt.text.split("\n\n")[1] == ("See [the docs](https://example.invalid/docs) and "
+                                            "https://example.invalid/wiki.\nCompare  build deadbeef1, commit .")
+
+
 def test_a_prompt_file_replaces_the_instruction_and_an_empty_one_exits_1(toy, tmp_path, capsys):
     out, instr = tmp_path / "tasks", tmp_path / "instr.txt"
     instr.write_text("Do it with no new dependency.\n", encoding="utf-8")
@@ -222,6 +235,67 @@ def test_prs_without_a_task_say_why(toy, tmp_path, capsys):
                  "1 task(s) written, 0 kept, 5 pull request(s) skipped"):
         assert line in printed, line
     assert sorted(p.name for p in (tmp_path / "tasks").iterdir()) == ["authoring_pr1"]
+
+
+def _off_base(toy, name: str, files: dict[str, str | None], link: str | None = None) -> str:
+    """A PR head on ``c0``, the parent of ``m1``, so that its base is ``c0``; ``link`` is made a link to calc.py."""
+    root = toy["root"]
+    git(root, "checkout", "-q", toy["c0"])
+    git(root, "checkout", "-qb", name)
+    for rel, text in files.items():
+        if text is None:
+            (root / rel).unlink()
+        else:
+            write(root, rel, text)
+    if link:
+        (root / link).symlink_to("calc.py")
+    head = _commit(root, name)
+    git(root, "checkout", "-q", toy["main"])
+    return head
+
+
+def test_prs_whose_diff_gives_no_task_say_why(toy, tmp_path, capsys):
+    t, root, test = toy, toy["root"], {"tests/test_x.py": "def test_x():\n    pass\n"}
+    empty = git(root, "commit-tree", f"{t['c0']}^{{tree}}", "-p", t["c0"], "-m", "nothing")
+    unrelated = git(root, "commit-tree", f"{t['h1']}^{{tree}}", "-m", "no parent")
+    heads = {20: empty, 21: _off_base(t, "guidance", {"AGENTS.md": "# more\n", ".agent-eval/n.md": "n\n"}),
+             22: _off_base(t, "link", test, link="src/link.py"),
+             23: _off_base(t, "bytes", {**test, os.fsdecode(b"src/\xff.py"): "x = 1\n"}), 24: unrelated}
+    _authoring(root, [_pr(n, head, t["m1"]) for n, head in heads.items()] + [_pr1(t)], tmp_path / "tasks")
+    printed = capsys.readouterr().out
+    for line in (f"PR 20: skipped: {empty[:12]} changes nothing against its base {t['c0'][:12]}",
+                 "PR 21: skipped: it changes only guidance files or files under eval_dir",
+                 "PR 22: skipped: it makes src/link.py a symbolic link or a submodule, which a task copies no file for",
+                 f"PR 23: skipped: src/�.py is not in {heads[23][:12]}",  # a path git gives that is not UTF-8
+                 f"PR 24: skipped: its headRefOid {unrelated[:12]} shares no history with the base branch"):
+        assert line in printed, line
+    assert sorted(p.name for p in (tmp_path / "tasks").iterdir()) == ["authoring_pr1"]
+
+
+def test_a_deleted_file_is_in_reference_deleted_and_a_quote_of_a_removed_line_is_dropped(toy, tmp_path):
+    head = _off_base(toy, "move", {"src/calc.py": None, "src/plus.py": "def add(a, b):\n    return sum((a, b))\n",
+                                   "tests/test_plus.py": "from src.plus import add\n\n\ndef test_add():\n"
+                                                         "    assert add(1, 2) == 3\n"})
+    body = "Moves add.\n\n```\nreturn a + b\n```\n\nThe old line goes."
+    _authoring(toy["root"], [_pr(30, head, toy["m1"], body=body)], tmp_path / "tasks")
+    task, d = _task(tmp_path / "tasks", 30), tmp_path / "tasks/authoring_pr30"
+    assert task["reference_deleted"] == ["src/calc.py"] and not (d / "reference/src/calc.py").exists()
+    assert task["prompt_dropped"]["code_blocks"] == 1 and "return a + b" not in task["prompt"]
+    assert "The old line goes." in task["prompt"]
+
+
+def test_a_remote_source_fetches_the_prs_head_by_sha(toy, tmp_path):
+    """A clone holds the branches, not refs/pull/*: the PR's head is fetched from origin by SHA."""
+    _authoring(toy["root"], [_pr1(toy)], tmp_path / "local")
+    _authoring(toy["root"], [_pr1(toy)], tmp_path / "remote", "--cache-dir", str(tmp_path / "cache"),
+               source=f"file://{toy['root']}@HEAD")
+    assert _task(tmp_path / "remote", 1) == _task(tmp_path / "local", 1)
+
+
+def test_n_lines_changed_of_no_path_is_zero_not_the_whole_diff(toy):
+    h = History(toy["root"] / ".git")
+    assert h.n_lines_changed(toy["c0"], toy["m1"], []) == 0
+    assert h.n_lines_changed(toy["c0"], toy["m1"], ["src/calc.py"]) == 4
 
 
 def test_max_lines_skips_a_pr_whose_diff_outside_the_tests_is_larger(toy, tmp_path, capsys):
@@ -341,6 +415,24 @@ def test_a_task_whose_two_oracle_runs_differ_is_flaky_not_ok(toy, tmp_path, monk
     assert "0/1 ok" in capsys.readouterr().out
 
 
+def test_a_second_run_that_cannot_run_makes_the_task_flaky_and_reads_not_graded(toy, tmp_path, monkeypatch):
+    root = toy["root"]
+    _authoring(root, [_pr1(toy)], root / ".agent-eval/tasks")
+    _commit(root, "authoring tasks")
+    run_entry = selfcheck.run_entry
+
+    def fails_the_second_oracle(ctx, kind, task, rd, *rest):
+        if rd.name.endswith("__oracle2"):
+            raise ContainerError("the daemon went away")
+        return run_entry(ctx, kind, task, rd, *rest)
+
+    monkeypatch.setattr(selfcheck, "run_entry", fails_the_second_oracle)
+    res = _check(root, tmp_path / "chk", monkeypatch, "authoring_pr1")
+    assert res["verdict"] == "flaky" and res["oracle"]["pass"] is True and res["oracle_again"] is None
+    assert res["problems"] == ["flaky: the two oracle runs differ: graded, pass True (n_passed 1, n_failed 0, "
+                               "n_errors 0, n_skipped 0) then not graded"]
+
+
 def test_repo_validate_finds_a_hidden_file_the_task_lacks(toy, tmp_path, capsys):
     root = toy["root"]
     _authoring(root, [_pr1(toy)], root / ".agent-eval/tasks")
@@ -414,6 +506,45 @@ def test_a_staging_problem_or_a_bad_task_is_a_grader_error(tmp_path):
     assert "hidden_tests must be a non-empty list" in main.grade("hidden_tests", tmp_path, rd)["errors"][0]
 
 
+@pytest.mark.parametrize(("record", "error"), [
+    (None, f"ValueError: no {hidden_tests.RUN_RECORD}: the test command did not run"),
+    ("[]", f"ValueError: {hidden_tests.RUN_RECORD} is not an object"),
+])
+def test_a_missing_or_malformed_run_record_is_a_grader_error(tmp_path, record, error):
+    rd = _run_dir(tmp_path, _junit("passed"))
+    if record is None:
+        (rd / hidden_tests.RUN_RECORD).unlink()
+    else:
+        (rd / hidden_tests.RUN_RECORD).write_text(record)
+    doc = main.grade("hidden_tests", tmp_path, rd)
+    assert doc["pass"] is None and doc["errors"][0] == error
+
+
+def test_a_report_over_the_size_limit_fails_the_run(tmp_path, monkeypatch):
+    report = _junit("passed")
+    monkeypatch.setattr(hidden_tests, "MAX_REPORT_BYTES", len(report) - 1)
+    doc = main.grade("hidden_tests", tmp_path, _run_dir(tmp_path, report))
+    assert doc["pass"] is False and doc["details"]["report"] == f"{hidden_tests.REPORT} is over {len(report) - 1} bytes"
+    monkeypatch.setattr(hidden_tests, "MAX_REPORT_BYTES", len(report))
+    assert main.grade("hidden_tests", tmp_path, tmp_path / "run")["pass"] is True
+
+
+def test_hidden_paths_must_be_distinct_and_the_tests_among_the_hidden_files():
+    assert hidden_tests.task_problems({"hidden_tests": ["tests/test_a.py", "tests/./test_a.py"]}) == [
+        "hidden_tests must be distinct after normalising"]
+    assert hidden_tests.task_problems({"hidden_tests": ["tests/test_a.py", "tests/test_b.py"],
+                                       "hidden_files": ["tests/test_a.py"]}) == [
+        "hidden_tests not in hidden_files: tests/test_b.py"]
+
+
+def test_the_oracle_refuses_a_bad_task_and_writes_nothing(tmp_path):
+    rd = _run_dir(tmp_path, None, hidden_tests=[])
+    write(tmp_path / "task", "reference/src/new.py", "new\n")
+    with pytest.raises(ValueError, match="hidden_tests must be a non-empty list"):
+        main.oracle("hidden_tests", tmp_path / "task", rd)
+    assert not (rd / "workspace/src/new.py").exists()
+
+
 def test_the_oracle_copies_the_reference_and_deletes_what_the_change_deletes(tmp_path):
     rd = _run_dir(tmp_path, None, reference_deleted=["src/old.py", "src/gone.py"])
     write(rd / "workspace", "src/old.py", "old\n")
@@ -453,6 +584,41 @@ def test_staging_replaces_a_link_and_refuses_a_linked_directory(tmp_path):
     (tmp_path / "elsewhere").mkdir()
     assert "tests in the workspace is a symbolic link" in (_stage_hidden(task, ws2) or "")
     assert not (tmp_path / "elsewhere/test_a.py").exists()
+
+
+def test_staging_refuses_a_bad_task_and_a_workspace_that_is_no_directory(tmp_path):
+    task = _hidden_task(tmp_path)
+    bad = Task(id=task.id, raw={**task.raw, "hidden_tests": ["../x.py"]}, dir=task.dir)
+    (tmp_path / "ws").mkdir()
+    assert _stage_hidden(bad, tmp_path / "ws") == ("hidden_tests must be a non-empty list of workspace-relative "
+                                                   "file paths")
+    (tmp_path / "file").write_text("")
+    (tmp_path / "linked").symlink_to(tmp_path / "ws", target_is_directory=True)
+    assert [_stage_hidden(task, tmp_path / w) for w in ("file", "linked")] == ["the workspace is not a directory"] * 2
+    assert not (tmp_path / "ws/tests").exists()
+
+
+def _ctx(tmp_path: Path, runner: FakeRunner, **entry_points) -> EvalContext:
+    return EvalContext(manifest=parse_manifest(_manifest(**entry_points)), git_dir=tmp_path,
+                       content_dir=tmp_path / "content", image="img", runner=runner)
+
+
+def test_a_hidden_tests_grade_without_a_test_entry_point_cannot_start(tmp_path):
+    (tmp_path / "rd").mkdir()
+    with pytest.raises(ContainerError, match="the manifest declares no `test` entry point"):
+        _run_hidden_tests(_ctx(tmp_path, FakeRunner(), grade="x"), _hidden_task(tmp_path), tmp_path / "rd", "none",
+                          [], None)
+
+
+def test_a_staging_problem_is_recorded_without_running_the_tests_and_stale_outputs_go(tmp_path):
+    rd, runner = tmp_path / "rd", FakeRunner()
+    (rd / "workspace/tests/test_a.py").mkdir(parents=True)  # a directory where the hidden test goes
+    (rd / hidden_tests.REPORT).mkdir()
+    (rd / "test.log").write_text("an earlier run\n")
+    _run_hidden_tests(_ctx(tmp_path, runner, test=TEST_CMD), _hidden_task(tmp_path), rd, "none", [], None)
+    assert json.loads((rd / hidden_tests.RUN_RECORD).read_text()) == {
+        "problem": "hidden file tests/test_a.py: the workspace has a directory there"}
+    assert runner.specs == [] and not (rd / hidden_tests.REPORT).exists() and not (rd / "test.log").exists()
 
 
 # ------------------------------------------------------------------ the manifest's test entry point
