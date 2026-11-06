@@ -6,7 +6,9 @@
 from __future__ import annotations
 
 import argparse
+import errno
 import os
+import stat
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -30,7 +32,8 @@ def checked_out_path(out: str | None, command: str, default: str | None = None) 
 
     Raises:
         InputError: ``--out`` is missing (and no default), is a directory, sits under a path that is not a
-            directory, is a symlink into a missing directory, or is not writable.
+            directory, is a symlink into a missing directory or a symlink loop, is not a regular
+            file (a FIFO, a device), or is not writable.
     """
     if not out and not default:
         raise InputError(f"{command} needs --out <file>")
@@ -40,6 +43,15 @@ def checked_out_path(out: str | None, command: str, default: str | None = None) 
     if path.is_dir():
         fix = f"pass a file path, e.g. {path / 'routing.json'}" if out else "pass --out <file>"
         raise InputError(f"{label} is a directory: {fix}")
+    # A FIFO or device would block or swallow the write, and a symlink loop cannot be opened.
+    try:
+        mode = os.stat(path).st_mode
+    except OSError as exc:
+        if exc.errno == errno.ELOOP:
+            raise InputError(f"{label} is a symlink loop, so the file cannot be written{hint}") from exc
+        mode = None  # missing, or under a non-directory: the checks below name it
+    if mode is not None and not stat.S_ISREG(mode):
+        raise InputError(f"{label} is not a regular file, so the results cannot be written to it{hint}")
     # realpath follows a symlink even when it dangles, so the checks below see the file that is written.
     target = Path(os.path.realpath(path))
     if path.is_symlink() and not target.parent.exists():

@@ -397,3 +397,22 @@ def test_a_refused_default_out_names_the_default_and_asks_for_out(tmp_path):
     assert message.startswith(f"the default output {default} is a directory")
     assert "pass --out <file>" in message
     assert "routing.json/routing.json" not in message
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="no FIFOs here")
+def test_a_fifo_out_is_refused_before_the_call(tmp_path):
+    from dokimi.commands.novelty_routing_inputs import checked_out_path
+    fifo = tmp_path / "routing.json"
+    os.mkfifo(fifo)
+    with pytest.raises(InputError, match="not a regular file"):
+        checked_out_path(str(fifo), "routing")
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="symlinks need privileges on Windows")
+def test_an_out_symlink_loop_is_refused_before_the_call(tmp_path):
+    from dokimi.commands.novelty_routing_inputs import checked_out_path
+    a, b = tmp_path / "a.json", tmp_path / "b.json"
+    a.symlink_to(b)
+    b.symlink_to(a)
+    with pytest.raises(InputError, match="symlink loop"):
+        checked_out_path(str(a), "routing")
