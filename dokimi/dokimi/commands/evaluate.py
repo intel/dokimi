@@ -267,10 +267,9 @@ def _validity_judges(args: argparse.Namespace) -> list[tuple[str, str]]:
     """``(model, provider)`` of the judge, then of the escalation judge; none for a typed scorer."""
     if args.scorer != "judge":  # a typed scorer reads the answer and calls no judge
         return []
-    judges = [(args.judge_model, args.judge_provider)]
-    if args.escalate_model:
-        judges.append((args.escalate_model, getattr(args, "escalate_provider", None) or args.judge_provider))
-    return judges
+    from dokimi.commands.judge_reliability import _pairwise_judges
+
+    return _pairwise_judges(args)  # the judges pairwise_judge(args) builds; one copy of the escalation default
 
 
 def cmd_eval_judge_validity(args: argparse.Namespace) -> None:
