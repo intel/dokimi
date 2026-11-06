@@ -53,7 +53,8 @@ def resolve_kept_copies(listed: list[tuple[Skill, str]], root: str, keep_copies_
     A name is resolved when the copies under the directory have one content between them. The
     others of that name are left out, with a note naming each. Names whose copies all share one
     content are untouched, and so is a name with no copy under the directory or with two contents
-    under it: that one is left for :func:`routing._conflicting_names`.
+    under it: that one is left for :func:`routing._conflicting_names`. When no name is resolved,
+    a note says so for each name whose copies still differ.
     """
     if keep_copies_under is None:
         return listed
@@ -71,5 +72,13 @@ def resolve_kept_copies(listed: list[tuple[Skill, str]], root: str, keep_copies_
                                           if not under(skill.path, prefix)))
                 notes.append(f"kept catalog skill {name!r} under {keep_copies_under}; left out its "
                              f"other copies: {others}")
+    if not resolved and notes is not None:
+        for name, copies in sorted(by_name.items()):
+            if len({digest for _, digest in copies}) > 1:
+                n = len({digest for skill, digest in copies if under(skill.path, prefix)})
+                notes.append(f"--keep-copies-under {keep_copies_under} kept no copy: under it, "
+                             f"{name!r} still has {n} contents" if n else
+                             f"--keep-copies-under {keep_copies_under} kept no copy: no copy of "
+                             f"{name!r} is under it")
     return [(skill, digest) for skill, digest in listed
             if skill.name not in resolved or under(skill.path, prefix)]

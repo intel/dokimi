@@ -485,3 +485,14 @@ def test_the_hint_gives_the_ways_out_per_name_when_two_names_conflict(tmp_path):
     assert "`lint`: copies sit under c and under d" in message
     assert "--keep-copies-under a or --keep-copies-under b." in message
     assert "one run resolves only the names" in message
+
+
+def test_a_keep_copies_under_that_resolves_no_conflict_says_so(tmp_path, capsys):
+    # Thread: PRRT_kwDOVBg7g860LibD
+    root = tmp_path / "catalog"
+    _skill(root, "skills", "review", "review a change")
+    _skill(root, "skills/legacy", "review", "review a change, the legacy copy")
+    notes: list[str] = []
+    catalog_competitors(str(root), set(), notes, keep_copies_under="skills")
+    assert any("--keep-copies-under skills kept no copy: under it, 'review' still has 2 contents"
+               in note for note in notes)
