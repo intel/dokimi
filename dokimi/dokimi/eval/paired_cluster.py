@@ -10,34 +10,40 @@ the clusters instead (the caveat :mod:`dokimi.eval.binary_stats` states for McNe
 resample clusters).
 
 Each cell is one paired observation: the outcome under ``treatment`` and under ``control`` for the
-same prompt or repeat, with the cluster (prompt id or task id) it belongs to. The estimate is the
-mean over clusters of each cluster's mean paired difference, so a cluster counts once however many
-repeats it has. The interval is the percentile bootstrap of that cluster mean
+same prompt or repeat, with the cluster (prompt id or task id) it belongs to. Within a cluster each
+arm is averaged over its usable cells, and the cluster's delta is ``mean(treatment) - mean(control)``,
+so a cluster counts once however many repeats it has, the order of the repeats does not matter, and
+a missing outcome on one side does not discard the other side's. The interval is the percentile bootstrap of that cluster mean
 (:func:`dokimi.eval.stats.bootstrap_ci` on the per-cluster deltas), deterministic for a ``seed``.
 
 Non-inferiority: the treatment is non-inferior when the lower bound of the interval is above
 ``-margin``, the largest drop the caller accepts, fixed before the run and on the outcome's scale
-(0..1 for pass rates). The lower bound of a two-sided 95% interval is the one-sided 97.5% bound
-that non-inferiority trials conventionally use. A p-value above 0.05 does not show equality; the
-interval does.
-
-The percentile interval is too narrow with few clusters (see :func:`dokimi.eval.stats.bootstrap_ci`),
-so :data:`MIN_CLUSTERS` is a floor below which no interval is reported, not a power calculation.
+(0..1 for pass rates). The nominal lower bound of a two-sided 95% interval corresponds to the
+one-sided 97.5% bound non-inferiority trials use, but the percentile bootstrap is too narrow with
+few clusters (see :func:`dokimi.eval.stats.bootstrap_ci`): simulated at a true delta equal to
+``-margin``, it reads ``noninferior`` about 15% of the time at 10 binary clusters and about 30% at
+5-6. :data:`MIN_CLUSTERS` is a floor below which no interval is reported, not a power calculation,
+and a ``noninferior`` verdict near the floor is a screening signal, not a trial-grade claim. An
+interval of zero width (every cluster has the same delta) carries no spread estimate and reads
+``inconclusive``.
 """
 
 from __future__ import annotations
 
 import math
 from collections.abc import Hashable, Sequence
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from dokimi.eval.stats import bootstrap_ci
 
 #: Fewest clusters with a usable pair before an interval is reported at all.
-MIN_CLUSTERS = 5
+MIN_CLUSTERS = 10
 
 #: Bootstrap resamples; the same default as :func:`dokimi.eval.stats.bootstrap_ci`.
 DEFAULT_RESAMPLES = 10_000
+
+#: Tolerance for comparing a bound with ``-margin``, so float noise does not flip a verdict.
+_EPS = 1e-9
 
 #: Display precision of the delta and its bounds; the status is decided on unrounded values.
 DISPLAY_DIGITS = 4
@@ -57,9 +63,10 @@ def paired_cluster_difference(
     """Mean paired difference ``treatment - control`` over clusters, with a cluster-bootstrap CI.
 
     ``clusters[i]``, ``treatment[i]`` and ``control[i]`` describe one paired cell: the same prompt
-    or repeat answered under both arms. A cell with a missing (``None``) or non-finite outcome on
-    either side is left out and counted in ``n_excluded``; a cluster left with no usable cell does
-    not count toward ``n_clusters``.
+    or repeat answered under both arms. A missing (``None``) or non-finite outcome is left out of its
+    arm's cluster mean and counted in ``n_excluded``; a cluster needs a usable outcome in each arm to
+    count toward ``n_clusters``. ``None`` means "not run": score a failed run as 0, not ``None``, or
+    it drops out instead of counting against its arm.
 
     ``margin``, when given, sets the non-inferiority check. ``seed`` fixes the bootstrap, so the same
     inputs and seed reproduce the interval exactly.
@@ -74,34 +81,20 @@ def paired_cluster_difference(
         ``ci_confidence``.
     ``noninferiority``
         ``noninferior`` when ``ci_lo > -margin``, ``inferior`` when ``ci_hi < -margin``, else
-        ``inconclusive``; ``None`` without a margin or when the interval is not measured.
+        ``inconclusive`` (also for a zero-width interval); ``None`` without a margin or when the
+        interval is not measured. ``margin=0`` makes it a superiority check.
     ``n_clusters`` / ``n_cells`` / ``n_excluded``
-        Clusters with a usable cell, usable cells, and cells left out.
+        Clusters with a usable outcome in both arms, usable outcomes in those clusters (both
+        arms), and outcomes left out (missing, non-finite, or in a cluster missing one arm).
+    ``unit`` / ``margin`` / ``ci_confidence`` / ``seed`` / ``method``
+        Echo of the inputs; ``min_clusters`` too when the status is ``insufficient_clusters``.
     """
-    if len(clusters) != len(treatment) or len(clusters) != len(control):
-        raise ValueError(
-            "clusters, treatment and control must be one per cell: "
-            f"got {len(clusters)}, {len(treatment)} and {len(control)}"
-        )
-    if margin is not None and margin < 0:
-        raise ValueError(f"margin must be >= 0 (the largest accepted drop), got {margin}")
-    if min_clusters < 2:
-        raise ValueError(f"min_clusters must be >= 2 for an interval, got {min_clusters}")
-
-    per_cluster: Dict[Hashable, List[float]] = {}
-    n_excluded = 0
-    for cluster, t, c in zip(clusters, treatment, control, strict=True):
-        # Booleans pass as 0/1; a missing or non-finite outcome leaves the cell out of the pairing.
-        if t is None or c is None or not (math.isfinite(t) and math.isfinite(c)):
-            n_excluded += 1
-            continue
-        per_cluster.setdefault(cluster, []).append(t - c)
-
-    cluster_deltas = [sum(cells) / len(cells) for cells in per_cluster.values()]
+    _validate(clusters, treatment, control, margin, confidence, n_resamples, min_clusters)
+    cluster_deltas, n_cells, n_excluded = _cluster_deltas(clusters, treatment, control)
     out: Dict[str, Any] = {
         "unit": "cluster",
         "n_clusters": len(cluster_deltas),
-        "n_cells": sum(len(cells) for cells in per_cluster.values()),
+        "n_cells": n_cells,
         "n_excluded": n_excluded,
         "margin": margin,
         "ci_confidence": confidence,
@@ -124,11 +117,74 @@ def paired_cluster_difference(
     out["delta"] = round(est["mean"], DISPLAY_DIGITS)
     out["ci_lo"] = round(est["lo"], DISPLAY_DIGITS)
     out["ci_hi"] = round(est["hi"], DISPLAY_DIGITS)
-    if margin is not None:
-        if est["lo"] > -margin:
-            out["noninferiority"] = "noninferior"
-        elif est["hi"] < -margin:
-            out["noninferiority"] = "inferior"
-        else:
-            out["noninferiority"] = "inconclusive"
+    out["noninferiority"] = _verdict(est["lo"], est["hi"], margin)
     return out
+
+
+def _validate(
+    clusters: Sequence[Hashable],
+    treatment: Sequence[Optional[float]],
+    control: Sequence[Optional[float]],
+    margin: Optional[float],
+    confidence: float,
+    n_resamples: int,
+    min_clusters: int,
+) -> None:
+    if isinstance(clusters, (str, bytes)):
+        raise TypeError("clusters must be a sequence of ids, not a string")
+    if len(clusters) != len(treatment) or len(clusters) != len(control):
+        raise ValueError(
+            "clusters, treatment and control must be one per cell: "
+            f"got {len(clusters)}, {len(treatment)} and {len(control)}"
+        )
+    if margin is not None and not (math.isfinite(margin) and margin >= 0):
+        raise ValueError(f"margin must be finite and >= 0 (the largest accepted drop), got {margin}")
+    if not 0 < confidence < 1:
+        raise ValueError(f"confidence must be in (0, 1), got {confidence}")
+    if n_resamples < 1:
+        raise ValueError(f"n_resamples must be >= 1, got {n_resamples}")
+    if min_clusters < 2:
+        raise ValueError(f"min_clusters must be >= 2 for an interval, got {min_clusters}")
+
+
+def _cluster_deltas(
+    clusters: Sequence[Hashable],
+    treatment: Sequence[Optional[float]],
+    control: Sequence[Optional[float]],
+) -> Tuple[List[float], int, int]:
+    """Per-cluster ``mean(treatment) - mean(control)``, usable outcomes, and outcomes left out."""
+    arms: Dict[Hashable, Tuple[List[float], List[float]]] = {}
+    n_excluded = 0
+    for cluster, t, c in zip(clusters, treatment, control, strict=True):
+        if cluster is None or (isinstance(cluster, float) and math.isnan(cluster)):
+            raise ValueError("cluster ids must not be None or NaN")
+        t_list, c_list = arms.setdefault(cluster, ([], []))
+        # Booleans pass as 0/1; a missing or non-finite outcome leaves only that side's value out.
+        for value, bucket in ((t, t_list), (c, c_list)):
+            if value is None or not math.isfinite(value):
+                n_excluded += 1
+            else:
+                bucket.append(float(value))
+
+    cluster_deltas: List[float] = []
+    n_cells = 0
+    for t_list, c_list in arms.values():
+        if t_list and c_list:
+            cluster_deltas.append(sum(t_list) / len(t_list) - sum(c_list) / len(c_list))
+            n_cells += len(t_list) + len(c_list)
+        else:
+            n_excluded += len(t_list) + len(c_list)
+    return cluster_deltas, n_cells, n_excluded
+
+
+def _verdict(lo: float, hi: float, margin: Optional[float]) -> Optional[str]:
+    """Non-inferiority status of the interval ``[lo, hi]`` against ``-margin``."""
+    if margin is None:
+        return None
+    if hi - lo <= _EPS:
+        return "inconclusive"
+    if lo > -margin + _EPS:
+        return "noninferior"
+    if hi < -margin - _EPS:
+        return "inferior"
+    return "inconclusive"

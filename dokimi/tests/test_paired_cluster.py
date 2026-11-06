@@ -5,8 +5,10 @@
 
 import pytest
 
-from dokimi.eval.paired_cluster import paired_cluster_difference
+from dokimi.eval.paired_cluster import MIN_CLUSTERS, paired_cluster_difference
 from dokimi.eval.stats import bootstrap_ci
+
+N = MIN_CLUSTERS
 
 
 def test_each_cluster_counts_once_however_many_repeats_it_has():
@@ -16,12 +18,23 @@ def test_each_cluster_counts_once_however_many_repeats_it_has():
         ["a", "a", "a", "b"], [True, True, True, False], [False, False, False, True], min_clusters=2,
     )
     assert res["delta"] == 0.0
-    assert (res["n_clusters"], res["n_cells"], res["n_excluded"]) == (2, 4, 0)
+    assert (res["n_clusters"], res["n_cells"], res["n_excluded"]) == (2, 8, 0)
 
 
-def test_a_missing_or_non_finite_outcome_leaves_its_cell_out():
-    # The second "a" cell has no treatment outcome, cluster "z" has no usable cell at all, and the
-    # last cell's control is NaN. Only "a" (one cell) and "b" (one cell) remain.
+def test_the_order_of_repeats_inside_a_cluster_does_not_change_the_delta():
+    # Cluster 0 has a missing treatment repeat. Its control repeats [1, 0] and [0, 1] are the same
+    # data in two orders: each arm is averaged per cluster, so both give 1 - 0.5 = 0.5 for it.
+    clusters = [0, 0, 1, 2, 3, 4]
+    treatment = [1, None, 1, 1, 1, 1]
+    one = paired_cluster_difference(clusters, treatment, [1, 0, 1, 1, 1, 1], min_clusters=2)
+    other = paired_cluster_difference(clusters, treatment, [0, 1, 1, 1, 1, 1], min_clusters=2)
+    assert one["delta"] == other["delta"] == 0.1
+    assert one["n_excluded"] == other["n_excluded"] == 1
+
+
+def test_a_missing_outcome_drops_only_its_own_side():
+    # "a": treatment [1], control [0, 0] -> +1. "b": +1. "z": no treatment at all, so its control
+    # is dropped too. "y": NaN control, no usable control, dropped with its treatment.
     res = paired_cluster_difference(
         ["a", "a", "b", "z", "y"],
         [1, None, 1, None, 1.0],
@@ -29,14 +42,21 @@ def test_a_missing_or_non_finite_outcome_leaves_its_cell_out():
         min_clusters=2,
     )
     assert res["delta"] == 1.0
-    assert (res["n_clusters"], res["n_cells"], res["n_excluded"]) == (2, 2, 3)
+    # usable outcomes: a 1+2, b 1+1 = 5; excluded: None, None, NaN, z's control, y's treatment = 5.
+    assert (res["n_clusters"], res["n_cells"], res["n_excluded"]) == (2, 5, 5)
 
 
 def test_too_few_clusters_reports_no_interval():
-    res = paired_cluster_difference(["a", "b", "c", "d"], [1, 1, 1, 1], [0, 0, 0, 0])
+    res = paired_cluster_difference(list(range(N - 1)), [1] * (N - 1), [0] * (N - 1))
     assert res["status"] == "insufficient_clusters"
-    assert res["min_clusters"] == 5
+    assert res["min_clusters"] == N
     assert (res["delta"], res["ci_lo"], res["ci_hi"], res["noninferiority"]) == (None, None, None, None)
+
+
+def test_exactly_the_floor_of_clusters_is_measured():
+    res = paired_cluster_difference(list(range(N)), [1, 0] * (N // 2), [0] * N)
+    assert res["status"] == "measured"
+    assert res["n_clusters"] == N
 
 
 def test_the_interval_resamples_clusters_so_repeats_widen_it():
@@ -46,7 +66,7 @@ def test_the_interval_resamples_clusters_so_repeats_widen_it():
     clusters = [p for p in range(6) for _ in range(4)]
     treatment = [d for d in prompt_deltas for _ in range(4)]
     control = [0] * 24
-    res = paired_cluster_difference(clusters, treatment, control, seed=0)
+    res = paired_cluster_difference(clusters, treatment, control, seed=0, min_clusters=6)
     cell = bootstrap_ci([float(t) for t in treatment], seed=0, ndigits=None)
     assert res["status"] == "measured"
     assert (res["ci_hi"] - res["ci_lo"]) > 1.5 * (cell["hi"] - cell["lo"])
@@ -78,34 +98,50 @@ def test_a_narrower_confidence_gives_a_narrower_interval():
     assert wide["ci_lo"] < narrow["ci_lo"] <= narrow["ci_hi"] < wide["ci_hi"]
 
 
-def test_no_difference_is_noninferior_for_any_margin():
-    res = paired_cluster_difference(list(range(6)), [1] * 6, [1] * 6, margin=0.05)
-    assert (res["delta"], res["noninferiority"]) == (0.0, "noninferior")
+def test_a_zero_width_interval_is_inconclusive_not_noninferior():
+    # Every cluster ties: the bootstrap has no spread to estimate, so it is no evidence.
+    res = paired_cluster_difference(list(range(N)), [1] * N, [1] * N, margin=0.05)
+    assert (res["delta"], res["ci_lo"], res["ci_hi"]) == (0.0, 0.0, 0.0)
+    assert res["noninferiority"] == "inconclusive"
+
+
+def test_a_small_loss_well_inside_the_margin_is_noninferior():
+    treatment = [1] * 9 + [0]
+    control = [1] * 10
+    res = paired_cluster_difference(list(range(10)), treatment, control, margin=0.5)
+    assert res["noninferiority"] == "noninferior"
 
 
 def test_a_clear_loss_beyond_the_margin_is_inferior():
-    res = paired_cluster_difference(list(range(6)), [0] * 6, [1] * 6, margin=0.05)
-    assert (res["ci_lo"], res["ci_hi"], res["noninferiority"]) == (-1.0, -1.0, "inferior")
+    treatment = [0] * 9 + [1]
+    control = [1] * 10
+    res = paired_cluster_difference(list(range(10)), treatment, control, margin=0.05)
+    assert res["noninferiority"] == "inferior"
 
 
 def test_a_point_estimate_at_zero_is_not_enough_for_noninferiority():
-    # The mean difference is 0, but the interval runs from about -0.67 to +0.67: the lower bound
-    # decides, so the result is inconclusive rather than noninferior.
-    treatment = [1, 0, 1, 0, 1, 0]
-    control = [0, 1, 0, 1, 0, 1]
-    res = paired_cluster_difference(list(range(6)), treatment, control, margin=0.05)
+    # The mean difference is 0, but the interval is wide: the lower bound decides.
+    treatment = [1, 0] * (N // 2)
+    control = [0, 1] * (N // 2)
+    res = paired_cluster_difference(list(range(N)), treatment, control, margin=0.05)
     assert res["delta"] == 0.0
     assert res["noninferiority"] == "inconclusive"
 
 
-def test_the_noninferiority_bound_is_strict():
-    # A zero margin needs the lower bound above 0; a zero difference has its lower bound at 0.
-    res = paired_cluster_difference(list(range(6)), [1] * 6, [1] * 6, margin=0.0)
-    assert res["noninferiority"] == "inconclusive"
+def test_a_bound_equal_to_the_margin_up_to_float_noise_is_inconclusive():
+    # 0.2 - 0.3 and 0.1 - 0.2 are both -0.1 up to rounding; neither side of -margin may win.
+    for t, c in ((0.2, 0.3), (0.1, 0.2)):
+        treatment = [t] * (N - 1) + [t + 0.5]
+        control = [c] * N
+        res = paired_cluster_difference(
+            list(range(N)), treatment, control, margin=0.1, confidence=0.5, seed=1,
+        )
+        if abs(res["ci_lo"] + 0.1) < 1e-6:
+            assert res["noninferiority"] == "inconclusive"
 
 
 def test_no_margin_means_no_noninferiority_verdict():
-    res = paired_cluster_difference(list(range(6)), [1] * 6, [1] * 6)
+    res = paired_cluster_difference(list(range(N)), [1] * N, [1] * N)
     assert res["status"] == "measured"
     assert res["noninferiority"] is None
     assert res["margin"] is None
@@ -123,9 +159,30 @@ def test_the_three_sequences_must_be_the_same_length(kwargs, message):
         paired_cluster_difference(["a", "b", "c"], **kwargs)
 
 
-def test_a_negative_margin_is_rejected():
-    with pytest.raises(ValueError, match="margin must be >= 0"):
-        paired_cluster_difference(list(range(6)), [1] * 6, [1] * 6, margin=-0.1)
+@pytest.mark.parametrize("margin", [-0.1, float("nan"), float("inf")])
+def test_a_negative_or_non_finite_margin_is_rejected(margin):
+    with pytest.raises(ValueError, match="margin must be finite and >= 0"):
+        paired_cluster_difference(list(range(N)), [1] * N, [1] * N, margin=margin)
+
+
+@pytest.mark.parametrize(
+    "kwargs,message",
+    [({"confidence": 2}, "confidence must be in"), ({"n_resamples": 0}, "n_resamples must be")],
+)
+def test_bad_arguments_raise_even_with_too_few_clusters(kwargs, message):
+    with pytest.raises(ValueError, match=message):
+        paired_cluster_difference(["a"], [1], [0], **kwargs)
+
+
+def test_none_or_nan_cluster_ids_are_rejected():
+    for bad in (None, float("nan")):
+        with pytest.raises(ValueError, match="cluster ids"):
+            paired_cluster_difference(["a", bad], [1, 1], [0, 0], min_clusters=2)
+
+
+def test_a_string_is_not_a_sequence_of_cluster_ids():
+    with pytest.raises(TypeError, match="not a string"):
+        paired_cluster_difference("ab", [1, 1], [0, 0], min_clusters=2)
 
 
 def test_an_interval_needs_at_least_two_clusters_in_its_floor():
