@@ -367,7 +367,9 @@ next release.
   what its `--task` selection keeps; `dokimi/repos/compare_reach.py` how small
   an effect a row can find (`mde`, an uncorrected t-based estimate, and the
   lowest `p_holm` Holm's family leaves it); `dokimi/repos/compare_judged.py`
-  reads `--metric judge:recall_judged` from each cell's `hits_judged.json`.
+  reads `--metric judge:recall_judged` from each cell's `hits_judged.json`;
+  `dokimi/repos/compare_leak.py` which replay tasks a `guidance:rev:` arm may
+  have seen.
 - `dokimi/repos/ledger.py` — `repo compare --ledger`: loads a `repo_ledger.v1`
   file (rules with their hypothesis, arm, linked cases and review date) and gives
   each rule a verdict from `repo compare` over its own cases, Holm-corrected
