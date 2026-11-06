@@ -722,7 +722,7 @@ def review_skills(entries: Sequence[SkillCatalogEntry]) -> list[Optional[SkillRe
             if not hidden:
                 review.findings += _description_findings(skill)
             review.content_sha256 = _skill_digest(skill)
-        except OSError as exc:
+        except (OSError, UnicodeDecodeError, RuntimeError, ValueError) as exc:
             unreadable = Finding("error", "unreadable", f"SKILL.md cannot be read: {exc}")
             reviews.append(SkillReview(findings=[unreadable]))
             continue
