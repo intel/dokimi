@@ -622,6 +622,19 @@ def test_keep_copies_under_still_refuses_a_broken_copy_under_it(tmp_path):
         args.func(args)
 
 
+def test_keep_copies_under_refuses_a_broken_copy_under_it_beside_one_outside(tmp_path):
+    # Thread: PRRT_kwDOVBg7g860e7DM
+    # Review: PRR_kwDOVBg7g88AAAABWatPBw#1
+    root = tmp_path / "catalog"
+    _skill(root, "skills", "cache", "cache slow lookups")
+    _skill(root, "skills", "review", "review a change for bugs")
+    _broken(root, "skills/legacy", "review")
+    _broken(root, ".openclaw/skills", "review")
+    args = _keep_run(root, tmp_path, "--keep-copies-under", "skills")
+    with pytest.raises(InputError, match="failed to load"):
+        args.func(args)
+
+
 def test_keep_copies_under_refuses_a_broken_copy_when_no_field_copy_is_under_it(tmp_path):
     root = tmp_path / "catalog"
     _skill(root, "skills", "cache", "cache slow lookups")
