@@ -179,3 +179,20 @@ def test_validate_with_a_typed_scorer_does_not_warn(tmp_path, monkeypatch):
     with pytest.raises(SystemExit):
         args.func(args)
     assert calls == []
+
+
+def test_questions_review_on_an_answers_file_does_not_take_the_answer_model_as_generator(tmp_path, monkeypatch):
+    from dokimi.commands import questions
+
+    seen = []
+
+    def stop(data, judges, context, **_):
+        seen.append(data)
+        raise Stop
+
+    monkeypatch.setattr(questions, "warn_recorded_self_judge", stop)
+    args = parse_args(["eval", "questions", "review", "--questions", str(_arms_file(tmp_path)),
+                       "--product", "L", "--output", str(tmp_path / "o.json")])
+    with pytest.raises(Stop):
+        args.func(args)
+    assert not seen[0].get("model")

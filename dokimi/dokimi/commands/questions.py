@@ -77,6 +77,8 @@ def cmd_questions_panel_review(args: argparse.Namespace) -> None:
         sys.exit(EXIT_USAGE)
 
     questions_data = _load_questions_json(args.questions)
+    # The model an answers file records answered the questions; it did not write them.
+    recorded = questions_data
 
     # Extract question strings from various JSON shapes. Prefer explicit keys by
     # presence (not truthiness) so an existing-but-empty list isn't overridden.
@@ -93,6 +95,7 @@ def cmd_questions_panel_review(args: argparse.Namespace) -> None:
                 print(f"Error: {exc}", file=sys.stderr)
                 sys.exit(EXIT_USAGE)
             raw = [{"question": r.question_text} for r in answers]
+            recorded = {}
         else:
             raw = list(questions_data.values())
     else:
@@ -110,7 +113,7 @@ def cmd_questions_panel_review(args: argparse.Namespace) -> None:
     n_eff = min(len(questions), args.limit) if args.limit else len(questions)
     print(f"Panel review: {n_eff} questions × {len(reviewers)} reviewers → {n_eff * len(reviewers)} LLM calls")
     print(f"Reviewers: {', '.join(reviewers)} | Model: {args.provider}/{args.model}\n")
-    warn_recorded_self_judge(questions_data, [(args.model, args.provider)], "eval questions review",
+    warn_recorded_self_judge(recorded, [(args.model, args.provider)], "eval questions review",
                              roles=("generator", "reviewer"))
 
     reviewer = QuestionPanelReviewer(
