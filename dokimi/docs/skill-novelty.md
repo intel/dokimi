@@ -650,7 +650,8 @@ A name that conflicts with another catalog skill leaves the field, and the error
 copy and suggests `--catalog <dir>` for one of them, or `--keep-copies-under <dir>`. `--keep-copies-under <dir>`
 keeps only the copies under `<dir>`, a directory relative to `--catalog`, and only for a name whose copies differ
 and that have one content under `<dir>`; the others of that name are named on stderr and left out, and the rest of
-the field is unchanged (unlike `--catalog <dir>`, which leaves out every skill outside that directory). An absolute
+the field is unchanged (unlike `--catalog <dir>`, which leaves out every skill outside that directory). A copy of that name outside `<dir>` that fails to load is left out too, with a
+note, once a copy under `<dir>` is in the field. An absolute
 path, a path that leaves `--catalog` (`../`), a file, or an empty value is refused with exit 2. A skill directory
 directly beneath the catalog (`review/SKILL.md`) is kept by its own name, `--keep-copies-under review`, since
 `--catalog` has no directory to point at for it. A `SKILL.md` in the catalog root itself cannot be picked by

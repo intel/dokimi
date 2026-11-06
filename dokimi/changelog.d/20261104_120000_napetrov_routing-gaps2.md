@@ -5,7 +5,7 @@ SPDX-License-Identifier: Apache-2.0
 
 ### Added
 
-- **`novelty routing --keep-copies-under <dir>`**: keeps only the copies under `<dir>` (a directory relative to `--catalog`) of a same-name catalog skill whose copies differ, when the copies under it agree. A value that is empty, absolute, leaves `--catalog`, or is not a directory is refused with exit 2. `--all-vs-all --estimate-only`: prices every call the run would make, as the single-artifact `--estimate-only` does, with no client built and no query sent.
+- **`novelty routing --keep-copies-under <dir>`**: keeps only the copies under `<dir>` (a directory relative to `--catalog`) of a same-name catalog skill whose copies differ, when the copies under it agree; a copy of that name outside `<dir>` that fails to load is left out too. A value that is empty, absolute, leaves `--catalog`, or is not a directory is refused with exit 2. `--all-vs-all --estimate-only`: prices every call the run would make, as the single-artifact `--estimate-only` does, with no client built and no query sent.
 - **`novelty routing --all-vs-all` saved field**: records `keep_copies_under`, and lists each skill whose queries were dropped in `field.dropped_queries` (one record per skill: `skill`, `reasons`, `keep_flags`, `queries`).
 
 ### Fixed

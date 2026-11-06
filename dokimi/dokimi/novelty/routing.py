@@ -44,7 +44,7 @@ from typing import TYPE_CHECKING
 from dokimi.skills import Skill
 from dokimi.utils import InputError, parse_frontmatter
 
-from .catalog_keep import check_keep_copies_under, resolve_kept_copies
+from .catalog_keep import check_keep_copies_under, keep_past_broken_copies, resolve_kept_copies
 from .client import LLMClient, parse_json_object
 
 if TYPE_CHECKING:
@@ -639,11 +639,13 @@ def _eligible_catalog_skills(root: str, exclude: set[str], notes: list[str] | No
     entries = read_skill_manifest(Path(root), notes)
     reviews = review_skills(entries)
     loaded: list[tuple[Skill, str, SkillReview]] = []
+    broken: dict[str, list[Path | None]] = {}
     for entry, review in zip(entries, reviews, strict=True):
         skill = entry.skill
         if skill is None or not entry.loaded or review is None:
             if unloaded is not None and entry.name not in exclude:
                 unloaded[entry.name] = entry.error or "it did not load"
+                broken.setdefault(entry.name, []).append(entry.path)
             if notes is not None:
                 notes.append(f"skipped catalog entry {entry.name!r}: {entry.error}")
             continue
@@ -658,7 +660,9 @@ def _eligible_catalog_skills(root: str, exclude: set[str], notes: list[str] | No
             listed.append((skill, digest))
     listed = resolve_kept_copies(listed, root, keep_copies_under, notes)
     conflicting = _conflicting_names(listed, notes, dropped, conflicts)
-    return [(skill, digest) for skill, digest in listed if skill.name not in conflicting]
+    field = [(skill, digest) for skill, digest in listed if skill.name not in conflicting]
+    keep_past_broken_copies(field, root, keep_copies_under, broken, unloaded, notes)
+    return field
 
 
 def _left_out_by_flag(skill: Skill, review: SkillReview, include_disabled: bool,

@@ -82,3 +82,24 @@ def resolve_kept_copies(listed: list[tuple[Skill, str]], root: str, keep_copies_
                              f"{name!r} is under it")
     return [(skill, digest) for skill, digest in listed
             if skill.name not in resolved or under(skill.path, prefix)]
+
+
+def keep_past_broken_copies(field: list[tuple[Skill, str]], root: str,
+                            keep_copies_under: str | None, broken: dict[str, list[Path | None]],
+                            unloaded: dict[str, str] | None, notes: list[str] | None) -> None:
+    """Clear a name's load error when its field copy is under the directory and no broken one is.
+
+    The user named the copy to measure, so a broken copy outside the directory is left out like
+    any other copy there, with a note. A broken copy under it, or one with no path, still refuses.
+    """
+    if keep_copies_under is None or unloaded is None:
+        return
+    prefix = (Path(root) / keep_copies_under).resolve()
+    for name, paths in sorted(broken.items()):
+        if (name in unloaded and all(p is not None and not under(p, prefix) for p in paths)
+                and any(skill.name == name and under(skill.path, prefix) for skill, _ in field)):
+            del unloaded[name]
+            if notes is not None:
+                notes.append(f"kept catalog skill {name!r} under {keep_copies_under}; left out its "
+                             "copies that failed to load: "
+                             + ", ".join(sorted(p.as_posix() for p in paths if p is not None)))

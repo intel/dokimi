@@ -580,3 +580,44 @@ def test_all_vs_all_routes_an_explicit_competitor_beside_a_broken_catalog_copy(t
     args.func(args)
     estimate = json.loads(capsys.readouterr().out)
     assert estimate["n_candidates"] == 2 and estimate["n_queries"] == 2
+
+
+def _keep_run(root, tmp_path, *keep):
+    queries = _queries(tmp_path, {"cache": ["cache my lookups"], "review": ["review my change"]})
+    return _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root), *keep,
+                  "--queries-by-skill", str(queries), "--estimate-only")
+
+
+def test_keep_copies_under_leaves_out_a_broken_copy_outside_it(tmp_path, capsys):
+    root = tmp_path / "catalog"
+    _skill(root, "skills", "cache", "cache slow lookups")
+    _skill(root, "skills", "review", "review a change for bugs")
+    _broken(root, ".openclaw/skills", "review")
+    args = _keep_run(root, tmp_path)
+    with pytest.raises(InputError, match="failed to load beside one that loaded.*`review`"):
+        args.func(args)
+    args = _keep_run(root, tmp_path, "--keep-copies-under", "skills")
+    args.func(args)
+    out, err = capsys.readouterr()
+    assert json.loads(out)["n_queries"] == 2
+    assert "left out its copies that failed to load" in err and ".openclaw/skills/review" in err
+
+
+def test_keep_copies_under_still_refuses_a_broken_copy_under_it(tmp_path):
+    root = tmp_path / "catalog"
+    _skill(root, "skills", "cache", "cache slow lookups")
+    _skill(root, "skills", "review", "review a change for bugs")
+    _broken(root, "skills/legacy", "review")
+    args = _keep_run(root, tmp_path, "--keep-copies-under", "skills")
+    with pytest.raises(InputError, match="failed to load beside one that loaded.*`review`"):
+        args.func(args)
+
+
+def test_keep_copies_under_refuses_a_broken_copy_when_no_field_copy_is_under_it(tmp_path):
+    root = tmp_path / "catalog"
+    _skill(root, "skills", "cache", "cache slow lookups")
+    _skill(root, "skills", "review", "review a change for bugs")
+    _broken(root, ".openclaw/skills", "review")
+    args = _keep_run(root, tmp_path, "--keep-copies-under", "skills/cache")
+    with pytest.raises(InputError, match="failed to load beside one that loaded.*`review`"):
+        args.func(args)
