@@ -1625,8 +1625,9 @@ read file uses keeps its `unresolved` (`tried ...`) or `fail` (`<dir>/ exists bu
 (<why>)`, joined with `; `. A path or glob the rules above leave `unresolved`,
 whose first directory is not one at the repository root, is `ok` when the
 repository configures it as a branch (a `fail`, `ok_suffix` or other verdict
-stays): a `--branch` (`-b`, `--branch=`) name or a `--pattern`
-(`-p`, `--pattern=`) regex in the `args` of a `no-commit-to-branch` hook of the
+stays): a `--branch` name or a `--pattern` regex, in each form the hook's
+argparse reads (`-b X`, `-bX`, `-b=X`, `--branch=X`, a prefix such as `--bra X`;
+the same of `-p`), in the `args` of a `no-commit-to-branch` hook of the
 root `.pre-commit-config.yaml`, or a `branches` or `branches-ignore` filter of
 `on.push`, `on.pull_request`, `on.pull_request_target`, `on.merge_group` or
 `on.workflow_run` in the same workflows. The claim matches when it

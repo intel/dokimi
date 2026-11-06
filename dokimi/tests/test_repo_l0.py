@@ -355,6 +355,11 @@ _PUSH = {".github/workflows/ci.yml": 'name: ci\non:\n  push:\n    branches: [mai
 @pytest.mark.parametrize("claim, files, why", [
     ("maintenance/*", _pre_commit(_DPNP), "branch pattern of no-commit-to-branch (.pre-commit-config.yaml:17)"),
     ("maintenance/*", _pre_commit("[--pattern=maintenance/.*]"), "branch pattern of no-commit-to-branch (.pre-commit-config.yaml:17)"),
+    # what the hook's argparse also reads: a value attached to `-p`/`-b`, and a prefix of the long option
+    ("maintenance/*", _pre_commit("[-pmaintenance/.*]"), "branch pattern of no-commit-to-branch (.pre-commit-config.yaml:17)"),
+    ("maintenance/*", _pre_commit("[--pat, maintenance/.*]"), "branch pattern of no-commit-to-branch (.pre-commit-config.yaml:17)"),
+    ("release/1.x", _pre_commit("[--bra=release/1.x]"), "branch of no-commit-to-branch (.pre-commit-config.yaml:17)"),
+    ("release/1.x", _pre_commit("[-b=release/1.x]"), "branch of no-commit-to-branch (.pre-commit-config.yaml:17)"),
     # an arg that is not a string, and an option whose value is not one, are passed over
     ("maintenance/*", _pre_commit("[7, -b, 8, --pattern, 'maintenance/.*']"),
      "branch pattern of no-commit-to-branch (.pre-commit-config.yaml:17)"),
@@ -410,6 +415,8 @@ _NO_GLOB = "glob {} matches nothing in the tree; a build may create it"
      ("fail", "maintenance/ exists but nothing in it matches *.zzz")),
     ("maintenance/*", _pre_commit(_DPNP, hook="forbid-new-submodules"), ("unresolved", _NO_GLOB.format("maintenance/*"))),
     ("maintenance/*", _pre_commit("--pattern maintenance/.*"), ("unresolved", _NO_GLOB.format("maintenance/*"))),
+    # `--patterns` is no prefix of `--pattern`, and `-x` takes no value of the hook's
+    ("maintenance/*", _pre_commit("[--patterns, maintenance/.*, -xmaintenance/.*]"), ("unresolved", _NO_GLOB.format("maintenance/*"))),
     ("maintenance/*", _pre_commit("[--pattern, 'maintenance/(.*']"), ("unresolved", _NO_GLOB.format("maintenance/*"))),
     ("maintenance/*", {".pre-commit-config.yaml": "repos: [{hooks: [{id: no-commit-to-branch, args: [-p, 'maintenance/.*']\n"},
      ("unresolved", _NO_GLOB.format("maintenance/*"))),

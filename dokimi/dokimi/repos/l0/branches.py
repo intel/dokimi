@@ -25,7 +25,8 @@ if TYPE_CHECKING:
 
 PRE_COMMIT = ".pre-commit-config.yaml"
 HOOK = "no-commit-to-branch"
-_OPTIONS = {"--branch": "--branch", "-b": "--branch", "--pattern": "--pattern", "-p": "--pattern"}
+_LONG = ("--branch", "--pattern")
+_SHORT = {"-b": "--branch", "-p": "--pattern"}
 _EVENTS = ("push", "pull_request", "pull_request_target", "merge_group", "workflow_run")
 _FILTERS = ("branches", "branches-ignore")
 
@@ -131,18 +132,30 @@ def _list(x: Any) -> list[Any]:
 
 
 def _option_values(args: list[Any]) -> list[tuple[str, str, int]]:
-    """``(option, value, line)`` for each ``--branch X``, ``-b X``, ``--branch=X`` and the same of ``--pattern``/``-p``."""
+    """``(option, value, line)`` for each ``--branch``/``-b`` and ``--pattern``/``-p`` value, in each form :func:`_option` reads."""
     out = []
     for i, arg in enumerate(args):
-        if not isinstance(arg, str):
-            continue
-        opt, eq, value = arg.partition("=")
+        opt, value = _option(arg) if isinstance(arg, str) else (None, None)
         nxt = args[i + 1] if i + 1 < len(args) else None
-        if eq and opt in ("--branch", "--pattern"):
+        if opt and value is not None:
             out.append((opt, value, getattr(arg, "line", 0)))
-        elif arg in _OPTIONS and isinstance(nxt, str) and not nxt.startswith("-"):
-            out.append((_OPTIONS[arg], str(nxt), getattr(nxt, "line", 0)))
+        elif opt and isinstance(nxt, str) and not nxt.startswith("-"):
+            out.append((opt, str(nxt), getattr(nxt, "line", 0)))
     return out
+
+
+def _option(arg: str) -> tuple[str | None, str | None]:
+    """The long option ``arg`` is, as the hook's argparse reads it, and the value it holds (None: the next arg).
+
+    ``-b X``, ``-bX``, ``-b=X``, ``--branch X``, ``--branch=X`` and a prefix of the long option (``--bra X``); the same of ``-p``.
+    """
+    if arg.startswith("--"):
+        name, eq, value = arg.partition("=")
+        opt = next((o for o in _LONG if len(name) > 2 and o.startswith(name)), None)
+        return opt, value if eq else None
+    if arg[:2] in _SHORT:
+        return _SHORT[arg[:2]], arg[2:].removeprefix("=") if len(arg) > 2 else None
+    return None, None
 
 
 def _hook_source(opt: str, value: str, line: int) -> Source | None:
