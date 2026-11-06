@@ -8,7 +8,7 @@ recording server, in a clean container by default, and writes the normalized req
 ``tests/fixtures/fidelity/claude-code-<version>/<case>.json``. No model is called.
 
     python3 scripts/refresh_fidelity_golden.py                 # clean container, pinned version
-    python3 scripts/refresh_fidelity_golden.py --host          # this host (not a golden source)
+    python3 scripts/refresh_fidelity_golden.py --host --out D  # this host (not a golden source)
     python3 scripts/refresh_fidelity_golden.py --binary PATH   # another local build (check the version)
 
 Read tests/fixtures/fidelity/README.md before committing a refreshed golden.
@@ -53,8 +53,12 @@ def main(argv: list[str] | None = None) -> int:
         print(f"refusing: {binary} is Claude Code {version}, the golden pins {PINNED_CLAUDE_VERSION}; "
               f"pass --out to take a golden for another version", file=sys.stderr)
         return 2
+    if args.host and not args.out:
+        print("refusing: a --host capture is not a golden source; pass --out DIR", file=sys.stderr)
+        return 2
     out = args.out or ROOT / "tests" / "fixtures" / "fidelity" / f"claude-code-{version}"
     image = None if args.host else args.image
+    requests = {}
     for case in CASES:
         scratch = Path(tempfile.mkdtemp(prefix=f"fidelity-{case}-"))
         # The container's uid and gid matter only for a container capture (Unix only).
@@ -68,6 +72,9 @@ def main(argv: list[str] | None = None) -> int:
         if dirty:
             print(f"{case}: residue left after normalization: {dirty[:5]}", file=sys.stderr)
             return 1
+        requests[case] = request
+    # Both cases first, then both files: a failed case leaves the old pair, not a mixed one.
+    for case, request in requests.items():
         write_golden(out / f"{case}.json", request, version=version, case=case)
         print(f"wrote {out / (case + '.json')} ({len(request.get('tools', []))} tools)")
     return 0
