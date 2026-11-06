@@ -245,7 +245,7 @@ def test_suites_manifest_with_the_wrong_shape_is_a_problem(tmp_path):
 
 
 def test_suites_manifest_counts_the_tasks_it_names(tmp_path):
-    report = detect(_write(tmp_path / "suites.json", json.dumps(
+    report = detect(_write(tmp_path / "evaluation" / "harbor" / "suites.json", json.dumps(
         {"suites": [{"skill": "a", "tasks": [{"name": "x"}, {"name": "y"}]}, {"skill": "b"}]})))
     assert (report.format, report.items, report.problems) == ("harbor-suites", 2, [])
 
@@ -522,3 +522,108 @@ def test_openai_modelgraded_spec_without_a_usable_prompt_gives_no_criterion(tmp_
     data = _jsonl(tmp_path / "data" / "s.jsonl", [{"input": "What is 2+2?"}])
     imp = import_path(data, fmt="openai-evals", grader=str(grader))
     assert _checks(imp) == [{"type": "unsupported", "native": "modelgraded:fact-blank"}]
+
+
+# --- round 2 of review: Inspect's own hf_dataset options, local paths, docstrings, spec slots ----
+
+
+def _hf_task(tmp_path, call):
+    return _write(tmp_path / "d" / "t.py", f"@task\ndef t():\n    return Task(dataset={call}, scorer=match())\n")
+
+
+def test_hf_dataset_builder_without_files_is_refused_not_read_from_the_cwd(tmp_path, monkeypatch):
+    # Thread PRRT_kwDOVBg7g860Mhbp
+    seen = _capture_hf_load(monkeypatch)
+    elsewhere = tmp_path / "cwd"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+    with pytest.raises(ValueError, match="names no data_files= or data_dir="):
+        import_path(_hf_task(tmp_path, "hf_dataset('json', split='train')"), fmt="inspect-task")
+    assert seen == []
+
+
+@pytest.mark.parametrize("opts", ["shuffle=True, seed=3", "auto_id=True", "shuffle_choices=True", "cached=False",
+                                  "trust=False"])
+def test_hf_dataset_inspect_only_options_are_not_loader_arguments(tmp_path, monkeypatch, opts):
+    # Thread PRRT_kwDOVBg7g860Mhbv
+    seen = _capture_hf_load(monkeypatch)
+    imp = import_path(_hf_task(tmp_path, f"hf_dataset('json', data_files='s.jsonl', split='train', {opts})"),
+                      fmt="inspect-task")
+    assert set(seen[0][1]) == {"split", "data_files"}
+    if "shuffle" in opts:
+        assert any("shuffle" in n for n in imp.lossy)
+
+
+def test_hf_dataset_positional_split_and_trust_true(tmp_path, monkeypatch):
+    # Thread PRRT_kwDOVBg7g860Mhbv
+    seen = _capture_hf_load(monkeypatch)
+    import_path(_hf_task(tmp_path, "hf_dataset('json', 'train', data_files='s.jsonl')"), fmt="inspect-task")
+    assert seen[0][0] == ["json"] and seen[0][1]["split"] == "train"
+    with pytest.raises(ValueError, match="trust=True or trust_remote_code= would run"):
+        import_path(_hf_task(tmp_path, "hf_dataset('org/ds', split='train', trust=True)"), fmt="inspect-task")
+
+
+def test_hf_dataset_url_and_hub_data_files_are_left_as_they_are(tmp_path, monkeypatch):
+    # Thread PRRT_kwDOVBg7g860Mhb0
+    seen = _capture_hf_load(monkeypatch)
+    import_path(_hf_task(tmp_path, "hf_dataset('json', data_files='https://host/x.jsonl', split='train')"),
+                fmt="inspect-task")
+    import_path(_hf_task(tmp_path, "hf_dataset('org/ds', data_files={'test': 'data/test-*.parquet'}, split='test')"),
+                fmt="inspect-task")
+    assert seen[0][1]["data_files"] == "https://host/x.jsonl"
+    assert seen[1][1]["data_files"] == {"test": "data/test-*.parquet"}
+    with pytest.raises(ValueError, match="outside the task's directory"):
+        import_path(_hf_task(tmp_path, "hf_dataset('org/ds', data_files='../x.jsonl', split='test')"),
+                    fmt="inspect-task")
+
+
+def test_hf_dataset_builders_come_from_the_installed_datasets(tmp_path, monkeypatch):
+    # Thread PRRT_kwDOVBg7g860MhcD
+    pytest.importorskip("datasets")
+    from datasets.packaged_modules import _PACKAGED_DATASETS_MODULES
+    from dokimi.task_formats.imports import inspect_ai
+    monkeypatch.setitem(_PACKAGED_DATASETS_MODULES, "fasta-like", ("x", ""))
+    assert "fasta-like" in inspect_ai._hf_builders()
+    seen = _capture_hf_load(monkeypatch)
+    monkeypatch.chdir(tmp_path)
+    import_path(_hf_task(tmp_path, "hf_dataset('fasta-like', data_dir='seqs', split='train')"), fmt="inspect-task")
+    assert seen[0][1]["data_dir"] == str((tmp_path / "d" / "seqs").resolve())
+
+
+def test_custom_scorer_criterion_is_the_docstrings_first_paragraph(tmp_path):
+    # Thread PRRT_kwDOVBg7g860MhcI
+    doc = ('"""Scorer for GSM8K.\n\n    Args:\n        tolerance: absolute tolerance.\n\n'
+           '    Returns:\n        Scorer: a scorer.\n    """\n')
+    imp = import_path(_write(tmp_path / "t.py", _SCORER_TASK.format(name="gsm", doc=doc)), fmt="inspect-task")
+    assert _checks(imp)[0]["criterion"] == "Scorer for GSM8K."
+    doc = '"""Grades the number.\n    Args:\n        tolerance: absolute tolerance.\n    """\n'
+    imp = import_path(_write(tmp_path / "u.py", _SCORER_TASK.format(name="g2", doc=doc)), fmt="inspect-task")
+    assert _checks(imp)[0]["criterion"] == "Grades the number."
+
+
+def test_suites_json_outside_evaluation_harbor_is_not_a_harbor_manifest(tmp_path):
+    # Thread PRRT_kwDOVBg7g860MhcO
+    report = detect(_write(tmp_path / "tests" / "suites.json", '{"suites": []}'))
+    assert report is None or report.format != "harbor-suites"
+
+
+def test_field_spec_column_that_is_not_a_string_is_noted(tmp_path, monkeypatch):
+    # Thread PRRT_kwDOVBg7g860MhcS
+    _capture_hf_load(monkeypatch)
+    imp = import_path(_hf_task(tmp_path, "hf_dataset('json', data_files='s.jsonl', split='train', "
+                                         "sample_fields=FieldSpec(input='input', metadata=['level', 'type']))"),
+                      fmt="inspect-task")
+    assert any("FieldSpec metadata=" in n for n in imp.lossy)
+
+
+@pytest.mark.parametrize("prompt", ["Compare {completion} with [Expert]: {ideal}.",
+                                    "Does {completion} meet {criteria}?", "Grade {completion} for {topic}."])
+def test_openai_modelgraded_spec_prompt_with_an_unfilled_slot_is_not_used(tmp_path, prompt):
+    # Thread PRRT_kwDOVBg7g860Mhb7
+    reg = tmp_path / "registry"
+    _write(reg / "modelgraded" / "fact.yaml", f"fact:\n  prompt: '{prompt}'\n  choice_strings: AB\n")
+    grader = _write(reg / "evals" / "f.yaml", "f:\n  id: f\n  class: modelgraded.classify:ModelBasedClassify\n"
+                                              "  args:\n    modelgraded_spec: fact\n")
+    imp = import_path(_jsonl(tmp_path / "data" / "s.jsonl", [{"input": "What is 2+2?"}]),
+                      fmt="openai-evals", grader=str(grader))
+    assert _checks(imp) == [{"type": "unsupported", "native": "modelgraded:fact"}]
