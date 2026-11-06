@@ -7,10 +7,11 @@ SPDX-License-Identifier: Apache-2.0
 
 - **`dokimi runs list` lists the artifacts under the runs root** — the root is
   `results/` in the working directory, or `DOKIMI_RUNS_DIR`. One row per artifact:
-  its `schema_version`, subject, model, recorded time and path, newest first;
+  its `schema_version`, subject, model, recorded time and path, newest first (and,
+  since the run envelope, one run's artifacts together);
   `--kind` (repeatable) and `--subject` (an exact match) filter the rows, and
-  `--json` prints them with the fields `schema_version`, `kind`, `run_id` (always
-  `null` until artifacts carry one), `subject`, `model`, `generated_at`, `path`
+  `--json` prints them with the fields `schema_version`, `kind`, `run_id` (`null`
+  in a file saved before the run envelope), `subject`, `model`, `generated_at`, `path`
   and `size_bytes`. A file is an artifact when its first 256 bytes open with
   the `schema_version` of a registered kind, as `save_artifact` writes it; every other file is counted by why it
   was skipped, and a file that cannot be read is listed with its reason. A

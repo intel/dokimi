@@ -16,4 +16,6 @@ SPDX-License-Identifier: Apache-2.0
   `runs list` rows, and the files under the root that could not be read, since one may belong
   to the run. An artifact file of that name still wins (under the root, or from the working
   directory and inside the root); a directory of that name, such as the run's own, does not. A
-  run id that no artifact has exits 2.
+  run id that no artifact has exits 2, as a missing file did; so a missing file whose name could
+  be a run id (`missing.json`) now says "no file missing.json under the runs root results/, and
+  no artifact there has that run_id".
