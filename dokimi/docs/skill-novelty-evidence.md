@@ -36,8 +36,8 @@ models someone would deploy today.
 | span map | 4796 spans, atom ↔ span index, protection flags |
 | probes | 19524 graded probe runs over 10 models and 6 arms |
 | shortening | 462 candidate scorings, 15 candidates × 4 skills |
-| behaviour | 104 generated tasks (66 discriminating), 651 task runs |
-| routing | 891 routing decisions over 3 menu seeds |
+| behaviour | 104 generated tasks (66 discriminating); 651 task runs over 31 of them in 4 skills |
+| routing | 891 routing decisions over 2 menu seeds (not 3 seeds; see §6) |
 
 Four constraints shaped the design, and each was verified rather than assumed:
 
@@ -129,8 +129,13 @@ The `no_skill` column is §2's K0 lenient, not a rate over §3's paired cells: t
   `grok-4.6` (0.104 vs 0.352) and `claude-haiku-4-5` (0.130 vs 0.340): irrelevant context actively
   damages those models, so the `full` gain is not a prompt-length artifact. On `claude-opus-5` and
   `gpt-5.6-luna` placebo ≈ `no_skill` — they ignore irrelevant context instead of being hurt by it.
-- **`shuffled`** keeps the same spans and destroys their order. It scores *at least as high* as
-  `full` on four of five models. Ordering and narrative are not carrying knowledge in this corpus.
+- **`shuffled`** was meant to keep the same spans and destroy their order, and it scores *at least
+  as high* as `full` on four of five models. **Correction:** the study's shuffled arm was built from
+  every file but `evals/` and `scripts/`, while `full` read `SKILL.md` and `references/` only, so in
+  three skills (performance-patterns, linux-perf, model-config-recommend) shuffled saw content
+  `full` never did (4,076 vs 59,633 mean context tokens on performance-patterns). On the other ten
+  skills the paired shuffled − full score is +0.002, +0.008, −0.010, +0.018 and −0.065: level, and
+  below `full` for nemotron-nano. dokimi's `shuffled` arm permutes the `full` text itself.
   A probe cannot punish a scrambled document, so this was retested behaviourally on the tasks whose
   graded requirements name an ordering: the two arms stay level there too (§10.12).
 
@@ -155,6 +160,9 @@ robust number in the table, and it is also the largest.
 
 88 atoms were flagged as internally contradictory or contradicting a sibling skill, concentrated in
 one skill (30 of 88).
+
+The shares above are of all 2,422 atoms. Of the 1,475 that are not scaffolding: novel_useful 48.7%,
+known_useful 22.4%, novel_inert 17.4%, harmful_conflicting 6.6%, known_inert 4.9%.
 
 ## 5. Per-skill results
 
@@ -233,7 +241,9 @@ relevance. The behavioural results below stand as measured; the label on the str
 ## 7. Behaviour and routing
 
 Generated suite: 104 tasks, 102 usable, 66 discriminating, balanced across correctness (22),
-debugging (21), integration (21), selection (19), performance (19). 651 graded runs, 0 failures.
+debugging (21), integration (21), selection (19), performance (19). 651 graded runs, 0 failures,
+over **31 of the 104 tasks** in 4 skills (7 arms; 93 = 31 tasks x 3 models): the graded sweep did
+not run every generated task.
 
 | skill | model | no_skill | root | full | best shortened |
 |---|---|---|---|---|---|
@@ -253,8 +263,10 @@ other model/arm cell had ≤2 abstentions, except `claude-opus-5 / no_skill` (12
 ignorance.
 
 **Routing.** All 33 real descriptions as a menu; the correct skill must be chosen per task.
-Accuracy: 166/306, 168/306, 160/306 across three menu-order seeds — a ±1.3-point sensitivity,
-measured rather than assumed. Shortened candidates are routing-invariant by construction
+Accuracy: 166/306, 168/306, 160/306 across three menu-order seeds was reported here. **Correction:**
+the stored decisions (`routing_results.jsonl`, 891 rows) hold only two menu seeds; seed 2's `full`
+arm gives 160/306 (102 tasks x 3 models), and 166/306 and 168/306 cannot be reproduced from them, so
+the ±1.3-point seed sensitivity is unverified. Shortened candidates are routing-invariant by construction
 (frontmatter is pinned) and measured as such. **Shortening does not threaten routing; the
 descriptions were already the weak part.**
 
@@ -444,29 +456,28 @@ Three readings, and they are the most directly actionable result in the study:
    53 cells) yet the artifact only lifts it to 0.321. Supplying the fact is not the same as the model
    being able to use it; that is a behaviour question, not a knowledge one (§7).
 
-### 10.2 Loading the artifact makes reversal resistance *worse*, paired
+### 10.2 Loading the artifact makes reversal resistance *better*, paired (corrected)
 
 §2 noted that strong models resist planted inversions least. The arm means could not settle whether
-the artifact itself changes resistance, because the arms have different `n`. Pairing each inversion
-probe with itself across arms and sign-testing the change:
+the artifact itself changes resistance, because the arms have different `n`, so each inversion probe
+was paired with itself across arms.
 
-| model | n paired | mean Δ resistance (`full` − `no_skill`) | worse / better / unchanged | sign p |
-|---|---|---|---|---|
-| claude-opus-5 | 26 | −0.092 | 8 / 2 / 16 | 0.109 |
-| gpt-5.6-luna | 47 | −0.060 | 12 / 5 / 30 | 0.143 |
-| grok-4.6 | 13 | −0.162 | 5 / 1 / 7 | 0.219 |
-| claude-haiku-4-5 | 23 | −0.087 | 6 / 1 / 16 | 0.125 |
-| nemotron-nano-12b | 53 | −0.068 | 14 / 5 / 34 | 0.064 |
-| **pooled** | 162 | — | **45 / 14 / 103** | **7e-05** |
+**Correction.** This section first reported the opposite (pooled 45 worse / 14 better / 103
+unchanged over 162 pairs, sign p 7e-05). That analysis selected rows on the grader's per-answer
+`contradicts_key` flag rather than on the probe being a planted inversion, and scored resistance
+as 1 − score, which inverts the sign: a refusal of the false premise scores 1.0. Recomputed on the
+planted-inversion probes (`adversarial`), `full` against `no_skill`, paired by probe and model:
 
-No single model reaches significance; **all five point the same way**, and the pooled sign test is
-decisive. The pooled `p` assumes probes are independent across models, which they are not — the same
-planted inversions are reused — so read the *direction and the consistency*, not the p-value.
+- On the graded score, **49 pairs worse and 367 better**, a mean gain of +0.21 to +0.37 per model.
+- On "not reversed" (verdict other than `wrong_reversed`), **31 worse and 96 better** (sign p 6e-9).
 
-The mechanism is not mysterious: an in-context artifact raises the model's willingness to commit,
-and a reversed premise in the question gets committed to along with everything else. **Anything
-loaded into context is a lever on confidence, so content correctness must be gated before content
-volume.** It also sharpens §5: `mkl-extension-advisor` has 33 conflicting atoms and routes at 0.810.
+Read the direction and its consistency; the pooled p treats probes as independent across models,
+and the same inversions are reused. A correct in-context artifact helps a model refuse a false
+premise in the question. dokimi reports this pairing as `controls.reversal_paired` (resisted only
+with, only without), next to `reversal_resisted` per arm.
+
+Wrong content is a separate risk (§10.20): `mkl-extension-advisor` has 33 conflicting atoms and
+routes at 0.810, so it loads reliably.
 
 ### 10.3 How many probes are enough (open question O4) — the answer is "more, not fewer"
 
@@ -1310,8 +1321,8 @@ MiniCheck's model MIT; nli-deberta, SummaC Apache-2.0; AlignScore MIT). MiniChec
 
 ### 10.20 If the artifact is wrong, does the model repeat it? (open question O9 follow-up, open question O16)
 
-§10.2 established that loading an artifact makes a model *less* able to resist a reversed premise in
-the question, and concluded that content correctness gates before content volume. It did not measure
+§10.2, as corrected, finds that loading a correct artifact makes a model *more* able to resist a
+reversed premise in the question. It did not measure
 the case the gate actually has to cover: the premise being wrong **inside the artifact**. Every other
 measurement in this document asks what an artifact adds. This one asks what it costs when it is wrong.
 
