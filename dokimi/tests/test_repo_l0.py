@@ -355,6 +355,9 @@ _PUSH = {".github/workflows/ci.yml": 'name: ci\non:\n  push:\n    branches: [mai
 @pytest.mark.parametrize("claim, files, why", [
     ("maintenance/*", _pre_commit(_DPNP), "branch pattern of no-commit-to-branch (.pre-commit-config.yaml:17)"),
     ("maintenance/*", _pre_commit("[--pattern=maintenance/.*]"), "branch pattern of no-commit-to-branch (.pre-commit-config.yaml:17)"),
+    # an arg that is not a string, and an option whose value is not one, are passed over
+    ("maintenance/*", _pre_commit("[7, -b, 8, --pattern, 'maintenance/.*']"),
+     "branch pattern of no-commit-to-branch (.pre-commit-config.yaml:17)"),
     # `maintenance/\w+` matches `maintenance/*` only once its `*` is filled in
     ("maintenance/*", _pre_commit("[-p, 'maintenance/\\w+']"), "branch pattern of no-commit-to-branch (.pre-commit-config.yaml:17)"),
     ("release/1.x", _pre_commit("\n        -   --branch\n        -   release/1.x"),
