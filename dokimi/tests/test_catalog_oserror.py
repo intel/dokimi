@@ -13,6 +13,8 @@ import errno
 import os
 from pathlib import Path
 
+import pytest
+
 from dokimi.external import read_skill_manifest, review_skills
 
 
@@ -45,18 +47,19 @@ def test_load_error_on_a_sibling_is_an_error_row(tmp_path, monkeypatch):
     assert "File name too long" in entries["sib"].error
 
 
-def test_digest_read_error_on_a_loaded_skill_is_an_error_review(tmp_path, monkeypatch):
+@pytest.mark.parametrize("method", ["read_text", "read_bytes"])
+def test_read_error_on_a_loaded_skill_is_an_error_review(tmp_path, monkeypatch, method):
     _skill(tmp_path, "good")
     _skill(tmp_path, "sib")
-    real_read_bytes = Path.read_bytes
+    entries = read_skill_manifest(tmp_path)  # both load; the failure comes after
+    real = getattr(Path, method)
 
-    def read_bytes(self):
+    def fail_for_sib(self, *args, **kwargs):
         if self.parent.name == "sib":
             raise _too_long(self)
-        return real_read_bytes(self)
+        return real(self, *args, **kwargs)
 
-    monkeypatch.setattr(Path, "read_bytes", read_bytes)
-    entries = read_skill_manifest(tmp_path)
+    monkeypatch.setattr(Path, method, fail_for_sib)
     reviews = dict(zip((e.name for e in entries), review_skills(entries), strict=True))
 
     assert reviews["good"].state == "ok"

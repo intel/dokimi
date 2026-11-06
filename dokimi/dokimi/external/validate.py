@@ -713,16 +713,16 @@ def review_skills(entries: Sequence[SkillCatalogEntry]) -> list[Optional[SkillRe
             reviews.append(_unloaded_review(entry))
             continue
         skill = entry.skill
-        findings, hidden = _frontmatter_findings(
-            skill, at_root=skill.path.parent.resolve() == entry.source_root.resolve()
-        )
-        review = SkillReview(findings=findings, disable_model_invocation=hidden)
-        review.findings += _bundle_findings(skill, entry.source_root)
-        if not hidden:
-            review.findings += _description_findings(skill)
-        try:
+        try:  # any read of SKILL.md after it loaded: an error row, not a crash
+            findings, hidden = _frontmatter_findings(
+                skill, at_root=skill.path.parent.resolve() == entry.source_root.resolve()
+            )
+            review = SkillReview(findings=findings, disable_model_invocation=hidden)
+            review.findings += _bundle_findings(skill, entry.source_root)
+            if not hidden:
+                review.findings += _description_findings(skill)
             review.content_sha256 = _skill_digest(skill)
-        except OSError as exc:  # unreadable after it loaded: an error row, not a crash
+        except OSError as exc:
             unreadable = Finding("error", "unreadable", f"SKILL.md cannot be read: {exc}")
             reviews.append(SkillReview(findings=[unreadable]))
             continue
