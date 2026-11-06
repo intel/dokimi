@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
 """Placebo gating, the noise floor, atom-clustered CIs and context framing."""
 
 import json

@@ -828,14 +828,15 @@ only when its arm ran, so a two-arm run reads exactly as before.
   placebo text. A gain the placebo also gets is a context effect, not knowledge.
 - **Noise floor** (`noise_floor`, needs the `no_artifact_repeat` arm). That arm asks every
   baseline question again as a new sample (a new cache `draw`). Its flips against the
+
   baseline are what `added` and `degraded` would be if the artifact did nothing.
-  - `added_net_of_noise` subtracts the floor's `added` from the measured one.
-  - `degraded_within_noise` is `true` when `degraded` is no larger than the floor's own
-    `degraded`. Do not report such a `degraded` as a defect.
-  - In the review rerun the floor was 5–10% in each direction, and every model's
-    `degraded` fell inside it.
-  - Both are point estimates; the floor carries its own `ci95_added` to read them against.
-    The floor is only as wide as the answerer's sampling: at temperature 0 it can read 0.
+    - `added_net_of_noise` subtracts the floor's `added` from the measured one.
+    - `degraded_within_noise` is `true` when `degraded` is no larger than the floor's own
+      `degraded`. Do not report such a `degraded` as a defect.
+    - In the review rerun the floor was 5–10% in each direction, and every model's
+      `degraded` fell inside it.
+    - Both are point estimates; the floor carries its own `ci95_added` to read them against.
+      The floor is only as wide as the answerer's sampling: at temperature 0 it can read 0.
     An injected transport is not given the `draw`, so there the repeat is no new sample.
 - **Atom-clustered interval.** The paraphrases of one atom succeed or fail together, so
   `ci95_added` (and the placebo-gated `ci95`) resamples atoms, not probes

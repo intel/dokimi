@@ -2602,7 +2602,7 @@
               "nargs": null,
               "position": 0,
               "required": true,
-              "type": "pathlib._local.Path#661d9498960e"
+              "type": "pathlib.Path#683f66497b37"
             },
             {
               "action": "_StoreAction",
@@ -2650,7 +2650,7 @@
               "nargs": null,
               "position": null,
               "required": true,
-              "type": "pathlib._local.Path#661d9498960e"
+              "type": "pathlib.Path#683f66497b37"
             },
             {
               "action": "_StoreAction",
@@ -9221,6 +9221,25 @@
               "type": "dokimi.cli.build_parser.<locals>.positive_int#faf57db5ff9f"
             },
             {
+              "action": "_StoreAction",
+              "choices": [
+                "'neutral'",
+                "'reference'"
+              ],
+              "const": null,
+              "default": "reference",
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": false,
+              "key": "--context-framing",
+              "kind": "option",
+              "nargs": null,
+              "position": null,
+              "required": false,
+              "type": null
+            },
+            {
               "action": "_StoreTrueAction",
               "choices": null,
               "const": true,
@@ -10220,6 +10239,25 @@
               "position": null,
               "required": false,
               "type": "dokimi.cli.build_parser.<locals>.positive_int#faf57db5ff9f"
+            },
+            {
+              "action": "_StoreAction",
+              "choices": [
+                "'neutral'",
+                "'reference'"
+              ],
+              "const": null,
+              "default": "reference",
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": false,
+              "key": "--context-framing",
+              "kind": "option",
+              "nargs": null,
+              "position": null,
+              "required": false,
+              "type": null
             },
             {
               "action": "_StoreAction",

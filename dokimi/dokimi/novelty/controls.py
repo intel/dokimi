@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
 """Controls that bound the novelty 2x2: placebo gating, a noise floor, atom-clustered CIs.
 
 Each answers a reviewer question the raw ``added`` rate cannot: is the gain just context
