@@ -29,6 +29,14 @@ def _skill(root, rel, name, description, body="# B\n\n## A section here\n"):
         f"---\nname: {name}\ndescription: {description}\n---\n\n{body}", encoding="utf-8")
 
 
+def _misnamed(root, rel, name):
+    """A skill named ``name`` in a directory of that name, which is a spec error: not kebab-case."""
+    skill_dir = root / rel / name
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    (skill_dir / "SKILL.md").write_text(
+        f"---\nname: {name}\ndescription: tune databases\n---\n\n# B\n", encoding="utf-8")
+
+
 def _ponytail(root):
     """ponytail's shape: every name in skills/ and .openclaw/skills/, with different content."""
     _skill(root, "skills", "review", "review a change for correctness")
@@ -224,21 +232,21 @@ def test_all_vs_all_drops_the_queries_of_a_spec_error_skill_and_runs_the_rest(tm
     root = tmp_path / "catalog"
     _skill(root, "skills", "cache", "cache slow lookups")
     _skill(root, "skills", "queue", "queue background jobs")
-    _skill(root, "skills", "db", "x" * 1100)  # over 1024 characters: a spec error
+    _misnamed(root, "skills", "db_tools")  # a name that is not kebab-case: a spec error
     queries = _queries(tmp_path, {"cache": ["cache my lookups"], "queue": ["queue my jobs"],
-                                  "db": ["tune my database", "index my tables"]})
+                                  "db_tools": ["tune my database", "index my tables"]})
     out = tmp_path / "o.json"
     args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
                   "--queries-by-skill", str(queries), "--out", str(out))
     args.func(args)
     err = capsys.readouterr().err
-    assert "WARNING" in err and "`db`" in err and "--include-invalid" in err
+    assert "WARNING" in err and "`db_tools`" in err and "--include-invalid" in err
     assert "dropped 2 queries of" in err
     payload = json.loads(out.read_text(encoding="utf-8"))
     assert payload["result"]["n_queries"] == 2
     assert set(payload["result"]["lexical"]["confusion"]) == {"cache", "queue"}
     assert payload["field"]["dropped_queries"] == [
-        {"skill": "db", "reasons": ["invalid"], "keep_flags": ["--include-invalid"],
+        {"skill": "db_tools", "reasons": ["invalid"], "keep_flags": ["--include-invalid"],
          "queries": 2}]
 
 
@@ -266,8 +274,8 @@ def test_all_vs_all_refuses_only_when_no_query_remains(tmp_path):
     root = tmp_path / "catalog"
     _skill(root, "skills", "cache", "cache slow lookups")
     _skill(root, "skills", "queue", "queue background jobs")
-    _skill(root, "skills", "db", "x" * 1100)
-    queries = _queries(tmp_path, {"db": ["tune my database"]})
+    _misnamed(root, "skills", "db_tools")
+    queries = _queries(tmp_path, {"db_tools": ["tune my database"]})
     args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
                   "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"))
     with pytest.raises(InputError, match="no skill in the field has queries.*--include-invalid"):
@@ -377,13 +385,13 @@ def test_all_vs_all_estimate_drops_left_out_queries_like_the_run(tmp_path, capsy
     root = tmp_path / "catalog"
     _skill(root, "skills", "cache", "cache slow lookups")
     _skill(root, "skills", "queue", "queue background jobs")
-    _skill(root, "skills", "db", "x" * 1100)
-    queries = _queries(tmp_path, {"db": ["tune my database"]})
+    _misnamed(root, "skills", "db_tools")
+    queries = _queries(tmp_path, {"db_tools": ["tune my database"]})
     args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
                   "--queries-by-skill", str(queries), "--estimate-only")
     with pytest.raises(InputError, match="no skill in the field has queries"):
         args.func(args)
-    queries = _queries(tmp_path, {"cache": ["cache my lookups"], "db": ["x"]})
+    queries = _queries(tmp_path, {"cache": ["cache my lookups"], "db_tools": ["x"]})
     args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
                   "--queries-by-skill", str(queries), "--estimate-only")
     args.func(args)
@@ -541,17 +549,17 @@ def test_no_query_left_names_only_the_queried_skills_the_field_left_out(tmp_path
     root = tmp_path / "catalog"
     _skill(root, "skills", "cache", "cache slow lookups")
     _skill(root, "skills", "queue", "queue background jobs")
-    _skill(root, "skills", "db", "x" * 1100)
+    _misnamed(root, "skills", "db_tools")
     off = root / "skills" / "off"
     off.mkdir(parents=True)
     (off / "SKILL.md").write_text("---\nname: off\ndescription: an off skill\n"
                                   "disable-model-invocation: true\n---\n\n# B\n", encoding="utf-8")
-    queries = _queries(tmp_path, {"db": ["tune my database"]})
+    queries = _queries(tmp_path, {"db_tools": ["tune my database"]})
     args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
                   "--queries-by-skill", str(queries), "--estimate-only")
     with pytest.raises(InputError, match="no skill in the field has queries") as exc:
         args.func(args)
-    assert "`db`" in str(exc.value) and "`off`" not in str(exc.value)
+    assert "`db_tools`" in str(exc.value) and "`off`" not in str(exc.value)
 
 
 def test_a_missing_catalog_is_named_before_the_keep_copies_under_value(tmp_path):
