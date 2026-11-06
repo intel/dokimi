@@ -2174,7 +2174,9 @@ python cli.py repo hits judge repo-runs/replay --judge openai/gpt-5.1 --labels l
   `repo hits judge <batch> --judge PROVIDER/MODEL` first. `hits_judged.json`
   carries no calibration, so compare cannot tell whether a person's labels
   backed the judge: the text adds one note, that the figure is a judge's
-  labels of the credited pairs, at most `recall`, and uncalibrated unless
+  labels of the credited pairs, at most each read cell's `recall` (the
+  `recall` row also averages the cells not read, so the two rows cover
+  different cells when a per-arm line is printed), and uncalibrated unless
   `repo hits judge --labels` reported agreement for these arms. `--ledger`
   passes no `--metric` to its rule verdicts. Tasks left out are listed as
   unpaired with the reason: no cells in one arm, a task that is gated in one

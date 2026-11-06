@@ -249,7 +249,9 @@ these, in order, before writing what it showed (the fields:
   `recall_judged` ([§9](repo-evaluation-contract.md#9-running)), and
   `dokimi repo compare <batch> --baseline guidance:none --metric recall --metric judge:recall_judged`
   puts its per-task delta next to `recall`'s (a cell regraded since judging,
-  or with an unjudged pair, is left out and counted). That figure
+  or with an unjudged pair, is left out and counted, while `recall`'s row
+  keeps it: the two deltas cover the same cells only when no per-arm
+  `cells read` line is printed). That figure
   is uncalibrated until a person labels a sample (`repo hits sheet`, then
   `--labels`) and `uncalibrated_rows` is empty, and `repo compare` cannot tell:
   quote it only next to a calibration. It narrows which pairs to

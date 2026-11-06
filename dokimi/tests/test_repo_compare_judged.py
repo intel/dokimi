@@ -71,7 +71,8 @@ def test_judged_recall_is_compared_next_to_recall_per_task(tmp_path):
     text = format_compare(s).splitlines()
     assert not [line for line in text if "cells read" in line]  # every cell read: no line per arm
     assert [line for line in text if line.startswith("note: ")] == [
-        "note: judge:recall_judged is a judge's labels of the credited pairs, at most recall; it is uncalibrated "
+        "note: judge:recall_judged is a judge's labels of the credited pairs, at most each read cell's recall "
+        "(recall's row also keeps the cells an arm line above leaves out); it is uncalibrated "
         "unless repo hits judge --labels reported agreement for these arms (contract §9)"]
 
 

@@ -168,5 +168,6 @@ def judged_lines(judged: dict[str, Any] | None) -> list[str]:
     lines = [f"{name}, {text}: {c['read']} of {c['cells']} cells read ({_reasons(c)})"
              + ("; run repo hits judge again" if _rerun(c) else "")
              for text, c in judged["arms"].items() if c["read"] < c["cells"]]
-    return lines + [f"note: {name} is a judge's labels of the credited pairs, at most recall; it is uncalibrated "
+    return lines + [f"note: {name} is a judge's labels of the credited pairs, at most each read cell's recall "
+                    "(recall's row also keeps the cells an arm line above leaves out); it is uncalibrated "
                     "unless repo hits judge --labels reported agreement for these arms (contract §9)"]
