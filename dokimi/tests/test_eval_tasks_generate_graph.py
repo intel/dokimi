@@ -645,3 +645,19 @@ def test_a_same_named_class_of_a_gold_file_that_does_not_derive_is_distinct(tmp_
     r = graph.grade({"id": "t", "gold": "gold.json"}, tmp_path / "tasks" / o.task,
                     fence({"classes": [f"{path}::Child", f"{path}::Second"]}))
     assert r["n_false_positive"] == 1 and r["f1"] < 1.0
+
+
+def test_a_method_of_a_gold_function_s_name_is_distinct_and_a_false_positive(tmp_path):
+    target = _fn("target", mod="core")
+    docs = {"src/core.py": [_occ("src/core.py", 0, target, True, (0, 3))]}
+    for i in range(3):
+        f = f"src/u{i}.py"
+        docs[f] = [_occ(f, 0, _fn("run", mod=f"u{i}"), True, (0, 3)), _occ(f, 2, target),
+                   _occ(f, 5, _fn("Impl#run", mod=f"u{i}"), True, (5, 8))]
+    p = plan(_index(docs), list(docs), _opts(tmp_path))
+    (o,) = [o for o in p.outcomes if o.candidate.symbols == (target,)]
+    assert o.candidate.distinct == tuple(f"src/u{i}.py::Impl.run" for i in range(3))
+    write(p, _opts(tmp_path), {"tool": "scip-python", "sha256": "0" * 64})
+    r = graph.grade({"id": "t", "gold": "gold.json"}, tmp_path / "tasks" / o.task,
+                    fence({"functions": [f"src/u{i}.py::Impl.run" for i in range(3)]}))
+    assert r["f1"] == 0.0 and r["n_false_positive"] == 3
