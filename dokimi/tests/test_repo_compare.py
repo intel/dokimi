@@ -113,22 +113,18 @@ def test_sign_flip_monte_carlo_counts_the_observed_pattern_and_follows_its_seed(
     assert sign_flip_p(d18, seed=1) == sign_flip_p(d18, seed=1)
 
 
-def test_seed_reaches_the_bootstrap_and_the_sign_flip(tmp_path, monkeypatch):
+def test_seed_reaches_the_interval_and_the_sign_flip(tmp_path, monkeypatch):
     seen = []
-
-    def spy(name, result):
-        return lambda deltas, seed, **_: seen.append((name, seed)) or result
-
-    monkeypatch.setattr(compare_mod, "bootstrap_ci", spy("bootstrap", {"mean": 0.0, "lo": -1.0, "hi": 1.0}))
-    monkeypatch.setattr(compare_mod, "mean_ci", spy("t", {"mean": 0.0, "lo": -1.0, "hi": 1.0}))
-    monkeypatch.setattr(compare_mod, "sign_flip_p", spy("p", 1.0))
+    monkeypatch.setattr(compare_mod, "sign_flip_interval",
+                        lambda deltas, p, seed, **_: seen.append(("interval", seed, p)) or (-1.0, 1.0))
+    monkeypatch.setattr(compare_mod, "sign_flip_p", lambda deltas, seed, **_: seen.append(("p", seed, None)) or 0.5)
     b = tmp_path / "b1"
     for task in ("fix_a", "fix_b"):
         _cell(b, task, "guidance:none", 1, success=False)
         _cell(b, task, "guidance:raw", 1)
     compare([b], "guidance:none", seed=7)
-    assert {name for name, _ in seen} == {"bootstrap", "t", "p"}
-    assert {seed for _, seed in seen} == {7}
+    assert {name for name, _, _ in seen} == {"interval", "p"} and {seed for _, seed, _ in seen} == {7}
+    assert {p for name, _, p in seen if name == "interval"} == {0.5}  # the row's own p places 0
 
 
 def test_a_small_but_real_delta_is_not_a_tie():
@@ -477,7 +473,7 @@ def test_up_down_and_tied_count_each_task_once(tmp_path):
     assert (gate["up"], gate["down"], gate["tied"]) == (2, 1, 1)
 
 
-def test_one_task_has_no_interval(tmp_path):
+def test_one_task_has_an_interval_open_at_both_ends(tmp_path):
     b = tmp_path / "b1"
     _cell(b, "fix_a", "guidance:none", 1, success=False, turns=10)
     _cell(b, "fix_a", "guidance:raw", 1, success=True, turns=30)
@@ -486,24 +482,19 @@ def test_one_task_has_no_interval(tmp_path):
         delta = _row(s, measure)["delta"]
         assert delta["mean"] is not None and delta["lo"] is None and delta["hi"] is None
     text = format_compare(s)
-    assert "+1.000 -" in text and "+20.000 -" in text and "[+1.000, +1.000]" not in text
+    assert "+1.000 [-inf, +inf]" in text and "+20.000 [-inf, +inf]" in text and "[+1.000, +1.000]" not in text
 
 
-def test_continuous_measures_get_a_t_interval_and_shares_the_bootstrap(tmp_path):
-    from dokimi.eval.stats import bootstrap_ci, mean_ci
-
+def test_every_measure_gets_the_inverted_sign_flip_interval(tmp_path):
+    # seven tasks, one turn count far down: a t interval would be wide and a bootstrap narrow; these are the
+    # shifts the sign-flip test (p 2/64 at 0) does not reject, for the gate share and the turns alike
     b = tmp_path / "b1"
-    for task, extra in (("fix_a", 10), ("fix_b", 12), ("fix_c", 11)):
-        _cell(b, task, "guidance:none", 1, success=False, turns=10)
-        _cell(b, task, "guidance:raw", 1, success=True, turns=10 + extra)
+    for i, extra in enumerate((10, 12, 11, 9, 13, 10, -2)):
+        _cell(b, f"fix_{i}", "guidance:none", 1, success=i == 6, turns=10)
+        _cell(b, f"fix_{i}", "guidance:raw", 1, success=True, turns=10 + extra)
     s = compare([b], "guidance:none")
-    turns, gate = _row(s, "turns")["delta"], _row(s, "gate")["delta"]
-    t = mean_ci([10, 12, 11])
-    assert (turns["lo"], turns["hi"]) == (t["lo"], t["hi"])
-    if t.get("method") == "student_t":  # SciPy present
-        assert (turns["lo"], turns["hi"]) == pytest.approx((8.52, 13.48), abs=0.01)
-    boot = bootstrap_ci([1.0, 1.0, 1.0])
-    assert (gate["lo"], gate["hi"]) == (boot["lo"], boot["hi"])
+    assert _row(s, "turns")["delta"] == {"mean": 9.0, "lo": 4.0, "hi": 12.0, "method": "sign_flip_inversion"}
+    assert _row(s, "gate")["delta"] == {"mean": 0.8571, "lo": 0.5, "hi": 1.0, "method": "sign_flip_inversion"}
 
 
 def test_two_selectors_of_the_same_cells_are_refused(tmp_path):
