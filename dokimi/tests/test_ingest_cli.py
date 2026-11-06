@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""`ingest docling`: an unusable --out-dir exits 2 with a message, not a traceback."""
+"""`data import docling`: an unusable --out-dir exits 2 with a message, not a traceback."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ def fake_docling(monkeypatch):
 
 def _ingest(src, out_dir):
     args = build_parser().parse_args(
-        ["ingest", "docling", "--input", str(src), "--out-dir", str(out_dir)])
+        ["data", "import", "docling", "--input", str(src), "--out-dir", str(out_dir)])
     args.func(args)
 
 

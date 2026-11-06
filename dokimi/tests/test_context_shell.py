@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""`context consistency` reads one Bash call as the commands it runs (dokimi.context.shell)."""
+"""`trace consistency` reads one Bash call as the commands it runs (dokimi.context.shell)."""
 
 from __future__ import annotations
 

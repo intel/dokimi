@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""What `novelty probe`, `shorten` and `view` say about the ``atoms.json`` they read, and which
+"""What `skill novelty probe`, `shorten` and `view` say about the ``atoms.json`` they read, and which
 of its atoms `probe` and `shorten` measure."""
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from dokimi.exit_codes import usage_exit
 def warn_unread(spans: list, consequence: str) -> None:
     """Say on stderr that ``atoms.json`` records spans extraction never read.
 
-    The record is the only trace of them after ``novelty atoms``, so each stage that
+    The record is the only trace of them after ``skill novelty atoms``, so each stage that
     reads the file repeats it, with what it means for that stage.
     """
     unread = [span for span in spans if span.unread]
@@ -75,22 +75,22 @@ def warn_capped_sample(saved: dict, path) -> None:
              "last span and may have cut that reply)" if reached
              else "it may hold only the atoms its run probed (it records no `extraction.reached`, "
              "so whether its cap bound is unknown)")
-    print(f"WARNING: {path} was written by a capped `novelty atoms` run before atoms files "
+    print(f"WARNING: {path} was written by a capped `skill novelty atoms` run before atoms files "
           f"recorded their sample (`sampled_atom_ids`): {holds}, so spans whose atoms fell "
           "outside them read as carrying nothing and a shortening can cut them; re-run "
-          "`novelty atoms` to index every atom", file=sys.stderr)
+          "`skill novelty atoms` to index every atom", file=sys.stderr)
 
 
 def _warn_unchecked(atoms: list, sample: list, stage: str, path) -> None:
     """Say on stderr how many atoms ``--all-atoms`` adds that were never checked for
-    faithfulness: ``novelty atoms`` verifies only the cap's sample (#371)."""
+    faithfulness: ``skill novelty atoms`` verifies only the cap's sample (#371)."""
     sampled = {atom.id for atom in sample}
     added = [atom for atom in atoms if atom.id not in sampled]
     unchecked = sum(1 for atom in added if atom.faithfulness == "unchecked")
     if unchecked:
         print(f"WARNING: {stage} --all-atoms measures {len(added)} atom(s) outside the sample "
               f"{path} records, {unchecked} of them with faithfulness \"unchecked\": their answer "
-              "key was never checked against the text. To check every atom, re-run `novelty "
+              "key was never checked against the text. To check every atom, re-run `skill novelty "
               "atoms --all-atoms`, a new uncapped extraction that verifies each atom it extracts",
               file=sys.stderr)
 

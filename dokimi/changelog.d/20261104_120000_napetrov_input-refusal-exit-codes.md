@@ -6,8 +6,9 @@ SPDX-License-Identifier: Apache-2.0
 ### Changed
 
 - **Input refusals print `Error: <message>` on stderr and exit 2 through one path** — more
-  refusals in `eval`, `headroom`, `judge`, `redteam`, `answers`, `answer-formats`, `dataset`,
-  `run` and `baseline` now raise `InputError`, which `cli.main` turns into the same
+  refusals in `eval score`, `eval judge`, `eval headroom`, `eval redteam`, `eval import`,
+  `answers generate`, `data export`, `data import docling`, `run` and `baseline compare` now
+  raise `InputError`, which `cli.main` turns into the same
   `Error: ...` line and exit 2, so a message that used to be printed and exited with
   `sys.exit(2)` reads the same and no traceback escapes. A cross-judge run with several
   stored-material problems prints one `Error:` line, with the problems below it.

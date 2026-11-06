@@ -497,12 +497,8 @@ def evaluate_novelty(artifact: dict, thresholds: dict[str, Any] | None = None) -
 
     # ── 3d. Do an atom's probe kinds agree, or is the outcome a wording? ────
     agreement_block = ((artifact.get("items") or {}).get("kind_agreement") or {})
-    # Both arms matter, and for different reasons: in the artifact arm a disagreement makes
-    # `added` wording-dependent, in the baseline arm it makes `redundant` wording-matched
-    # recall rather than prior knowledge. The check takes the worse of the two and names it.
-    # `novelty items --out` writes the same field keyed by source file rather than by arm;
-    # each row carries its own `arm`, so read that and ignore the key. Several files can
-    # share an arm (two seeds of one model); the worse row per arm is kept, not the last.
+    # A disagreement makes `added` wording-dependent (artifact arm) and `redundant` wording
+    # recall (baseline arm). Each row's own `arm` is read, not the file key; the worse row wins.
     measured_arms: dict[str, Any] = {}
     for key, row in agreement_block.items():
         if (row or {}).get("agreement") is None:

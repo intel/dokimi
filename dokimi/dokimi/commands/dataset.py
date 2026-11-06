@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""dataset subcommand group: export artifacts to shareable dataset files."""
+"""Export artifacts to shareable dataset files: ``data export`` (#94 M2)."""
 
 from __future__ import annotations
 
@@ -28,11 +28,9 @@ def cmd_dataset_export(args: argparse.Namespace) -> None:
     print(f"   Dataset card: {Path(args.out_dir) / 'README.md'}")
 
 
-def register(sub, positive_int) -> None:
-    dataset_p = sub.add_parser("dataset", help="Export artifacts to shareable datasets")
-    dataset_sub = dataset_p.add_subparsers(dest="dataset_cmd", required=True)
-
-    export_p = dataset_sub.add_parser("export", help="Export an artifact to JSONL/Parquet/HF")
+def add_export(data_sub) -> None:
+    """Add `data export` (#94 M2: it was `dataset export`)."""
+    export_p = data_sub.add_parser("export", help="Export an artifact to JSONL/Parquet/HF")
     export_p.add_argument("--kind", required=True,
                           choices=["questions", "answers", "eval", "arms", "task_runs"])
     export_p.add_argument("--input", required=True, help="Path to the artifact JSON")

@@ -14,6 +14,7 @@ from dokimi.cli import build_parser
 from dokimi.commands import novelty as novelty_cmd
 from dokimi.metrics.usage import UsageRecord
 from dokimi.novelty.client import LLMClient, SpendCap, SpendCapReached
+from tests.cli_paths import novelty_argv
 
 
 def _parse(*argv):
@@ -56,21 +57,21 @@ def test_an_uncapped_client_ignores_missing_prices():
 
 @pytest.mark.outcome("cjm-novelty-spend-cap")
 def test_every_role_shares_one_cap():
-    args = _parse("novelty", "analyze", "--artifact", "skill:x", "--max-usd", "2")
+    args = _parse("skill", "novelty", "analyze", "--artifact", "skill:x", "--max-usd", "2")
     caps = {id(client.cap) for client in novelty_cmd._clients(args)}
     assert len(caps) == 1
     assert novelty_cmd._clients(args)[0].cap.limit_usd == 2.0
 
 
 def test_without_the_flag_there_is_no_cap():
-    args = _parse("novelty", "analyze", "--artifact", "skill:x")
+    args = _parse("skill", "novelty", "analyze", "--artifact", "skill:x")
     assert all(client.cap is None for client in novelty_cmd._clients(args))
 
 
 @pytest.mark.parametrize("value", ["0", "-1", "nan", "inf"])
 def test_a_cap_that_could_never_trip_is_refused(value):
     with pytest.raises(SystemExit):
-        _parse("novelty", "analyze", "--artifact", "skill:x", "--max-usd", value)
+        _parse("skill", "novelty", "analyze", "--artifact", "skill:x", "--max-usd", value)
 
 
 @pytest.mark.parametrize("sub", ["analyze", "atoms", "probe", "shorten", "routing"])
@@ -78,7 +79,7 @@ def test_a_cap_that_could_never_trip_is_refused(value):
 def test_every_command_that_calls_a_model_takes_the_flag(sub):
     extra = {"probe": ["--atoms", "a.json"], "shorten": ["--atoms", "a.json"],
              "routing": ["--competitors", "skill:y"]}.get(sub, [])
-    args = _parse("novelty", sub, "--artifact", "skill:x", *extra, "--max-usd", "3")
+    args = _parse(*novelty_argv(sub), "--artifact", "skill:x", *extra, "--max-usd", "3")
     assert args.max_usd == 3.0
 
 
@@ -104,7 +105,7 @@ def test_the_cap_gets_through_a_stage_that_absorbs_failed_calls(tmp_path, monkey
     monkeypatch.setattr(novelty_cmd, "_client", lambda model, provider, role, args: replace(
         real_client(model, provider, role, args), transport=transport))
     out = tmp_path / "atoms.json"
-    args = _parse("novelty", "atoms", "--artifact", f"skill:{skill}", "--out", str(out),
+    args = _parse("skill", "novelty", "atoms", "--artifact", f"skill:{skill}", "--out", str(out),
                   "--max-usd", "1")
     with pytest.raises(SystemExit, match="spend cap reached"):
         args.func(args)
@@ -117,7 +118,7 @@ def test_the_estimate_points_at_the_cap(tmp_path, capsys):
     skill = tmp_path / "s" / "SKILL.md"
     skill.parent.mkdir(parents=True)
     skill.write_text("---\nname: s\ndescription: d\n---\n\n# H\n\nText.\n", encoding="utf-8")
-    args = _parse("novelty", "analyze", "--artifact", f"skill:{skill}", "--estimate-only")
+    args = _parse("skill", "novelty", "analyze", "--artifact", f"skill:{skill}", "--estimate-only")
     args.func(args)
     assert "--max-usd" in capsys.readouterr().err
 

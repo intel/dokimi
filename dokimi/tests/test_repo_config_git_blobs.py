@@ -1,16 +1,22 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""skill_sha and suite_hash hash what git stores: blob ids, no ignored paths, no nested ``.git``."""
+"""skill_sha and suite_hash hash what git stores: blob ids, no ignored paths (a nested repository's too), no nested
+``.git``."""
 
 from __future__ import annotations
 
+import hashlib
 import os
+import shutil
 import subprocess
 import time
 from pathlib import Path
 
-from dokimi.repo_config import load_repo_config
+import pytest
+
+from dokimi import utils
+from dokimi.repo_config import ConfigError, load_repo_config
 from dokimi.utils import git_tree, tree_digest
 
 HEADER = "schema_version: dokimi_config.v1\n"
@@ -59,6 +65,124 @@ def test_a_nested_git_directory_does_not_move_skill_sha(tmp_path):
     before = _hashes(root)
     _git(root / "skills" / "a", "init", "-q")  # a nested repository's own .git holds no content of the skill
     assert _hashes(root)[0] == before[0]
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
+def test_a_file_a_nested_repository_ignores_does_not_move_the_hash(tmp_path):
+    root = _repo(tmp_path / "r", FILES)
+    inner = root / "skills/a/vendor"
+    inner.mkdir()
+    _git(inner, "init", "-q")
+    (inner / ".gitignore").write_text("*.pyc\n")
+    (inner / "lib.py").write_text("x = 1\n")
+    _git(inner, "add", "-A")
+    _git(inner, "commit", "-q", "-m", "inner")
+    before = _hashes(root)
+    (inner / "lib.pyc").write_bytes(b"\0compiled\n")  # the inner repository's .gitignore excludes it
+    assert subprocess.run(["git", "-C", str(inner), "status", "--porcelain"], capture_output=True,
+                          text=True, check=True).stdout == ""
+    assert _hashes(root) == before
+    (inner / "lib.py").write_text("x = 2\n")  # its tracked files still count
+    assert _hashes(root)[0] != before[0]
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
+def test_a_file_the_top_tracks_counts_under_a_nested_ignore_when_git_status_fails(tmp_path):
+    root = _repo(tmp_path / "r", {**FILES, "skills/a/vendor/lib.pyc": "one\n"})
+    inner = root / "skills/a/vendor"
+    _git(inner, "init", "-q")
+    (inner / ".gitignore").write_text("*.pyc\n")
+    ref = (root / ".git/HEAD").read_text().split()[1]
+    (root / ".git" / ref).write_text("1" * 40 + "\n")  # HEAD names a missing commit: status fails, ls-files works
+    before = _hashes(root)
+    (inner / "lib.pyc").write_text("two\n")
+    assert _hashes(root)[0] != before[0]
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
+@pytest.mark.parametrize("rel", ["lib.pyc", "build/out.txt"])
+def test_a_file_the_top_tracks_counts_though_a_nested_repository_ignores_it(tmp_path, rel):
+    root = _repo(tmp_path / "r", {**FILES, f"skills/a/vendor/{rel}": "one\n"})
+    inner = root / "skills/a/vendor"
+    _git(inner, "init", "-q")
+    (inner / ".gitignore").write_text("*.pyc\nbuild/\n")
+    (inner / "build").mkdir(exist_ok=True)
+    before = _hashes(root)
+    (inner / "build/new.txt").write_text("new\n")  # the top does not track it: the inner rules leave it out
+    assert _hashes(root) == before
+    (inner / rel).write_text("two\n")  # the top's index tracks it: git stores the edit
+    assert _hashes(root)[0] != before[0]
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
+def test_a_nested_repository_git_cannot_read_fails_the_hash(tmp_path):
+    root = _repo(tmp_path / "r", FILES)
+    inner = root / "skills/a/vendor"
+    inner.mkdir()
+    _git(inner, "init", "-q")
+    (inner / ".gitignore").write_text("*.log\n")
+    (inner / "x.log").write_text("log\n")
+    (inner / ".git/index").write_bytes(b"garbage")  # git sees a repository here, but cannot read it
+    with pytest.raises(ConfigError, match="vendor: git cannot read this nested repository"):
+        _hashes(root)
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
+def test_a_top_repository_git_cannot_list_hashes_the_bytes_on_disk(tmp_path):
+    root = _repo(tmp_path / "r", FILES)
+    (root / "skills/a/__pycache__").mkdir()
+    (root / "skills/a/__pycache__/x.pyc").write_bytes(b"ignored\n")
+    (root / ".git/index").write_bytes(b"garbage")  # git still finds the top, but cannot list what it ignores
+    assert git_tree(root) is None
+    assert tree_digest(root / "skills/a", git=True) == tree_digest(root / "skills/a", git=None)
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
+@pytest.mark.skipif(os.name == "nt", reason="Windows file names cannot hold a newline, a quote or a CR")
+@pytest.mark.parametrize("name", ["we\nird.txt", '"quoted.txt', "cr.txt\r"])
+def test_a_name_git_stdin_misreads_digests_the_same_edited_and_committed(tmp_path, name):
+    root = _repo(tmp_path / "r", {**FILES, name: "one\n"})  # at the top: git reads a top-relative name
+    (root / name).write_text("two\n")
+    edited = tree_digest(root, git=True)
+    _git(root, "commit", "-qam", "two")
+    assert tree_digest(root, git=True) == edited  # the same content: the blob id both ways, not raw bytes once edited
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
+@pytest.mark.skipif(os.name == "nt", reason="Windows file names cannot hold a newline")
+def test_odd_names_beyond_one_command_line_digest_the_same_edited_and_committed(tmp_path, monkeypatch):
+    monkeypatch.setattr("dokimi.utils._ARG_BUDGET", 120)  # a few names per git call: several batches
+    names = {f"we\nird{i}.txt": "one\n" for i in range(12)}
+    root = _repo(tmp_path / "r", {**FILES, **names})
+    for name in names:
+        (root / name).write_text("two\n")
+    edited = tree_digest(root, git=True)
+    _git(root, "commit", "-qam", "two")
+    assert tree_digest(root, git=True) == edited
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
+@pytest.mark.skipif(os.name == "nt", reason="Windows file names cannot hold a newline")
+def test_a_failed_batch_of_odd_names_hashes_their_bytes(tmp_path, monkeypatch):
+    monkeypatch.setattr("dokimi.utils._ARG_BUDGET", 30)
+    root = _repo(tmp_path / "r", {**FILES, **{f"we\nird{i}.txt": "one\n" for i in range(4)}})
+    odd = [p for p in root.iterdir() if "\n" in p.name]
+    for path in odd:
+        path.write_text("two\n")  # edited: git's index no longer holds the blob id
+    tree = git_tree(root)
+    real = utils._hash_objects
+    calls = []
+
+    def second_fails(top, rels, *, as_args):
+        calls.append(as_args)
+        if as_args and calls.count(True) == 2:
+            return None
+        return real(top, rels, as_args=as_args)
+
+    monkeypatch.setattr(utils, "_hash_objects", second_fails)
+    got = utils.file_contents(odd, tree)
+    assert calls.count(True) == 2  # the batches were tried in turn, and the failure stopped them
+    assert got == {p: hashlib.sha256(p.read_bytes()).digest() for p in odd}
 
 
 def test_a_committed_lf_to_crlf_change_moves_suite_hash(tmp_path):
