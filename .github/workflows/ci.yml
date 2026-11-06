@@ -18,8 +18,8 @@ on:
 permissions:
   contents: read
 
-# Runners: pull_request runs, fork PRs too, take the short Linux checks to dokimi-ec2 (persistent
-# hosts); main stays on ubuntu-latest, the test matrix on intel-ubuntu-latest. https://github.com/intel/dokimi/pull/272
+# Runners: pull_request runs, fork PRs too, go to dokimi-ec2 (persistent hosts); main, schedules and LINUX_RUNNER_OFF=true
+# go to intel-ubuntu-latest (ephemeral), forks of the repo to ubuntu-latest. https://github.com/intel/dokimi/pull/272
 
 # A new push to a PR supersedes the run in flight. Every other run gets a group of its
 # own (run_id): in a shared group a third queued run cancels the pending second one
@@ -47,7 +47,7 @@ jobs:
   # runner for the same reason.
   static:
     name: Static checks (ruff, schema, zizmor, licenses, pre-commit, bandit, secrets, changelog, schema compat)
-    runs-on: ${{ github.repository_owner == 'intel' && github.event_name == 'pull_request' && 'dokimi-ec2' || 'ubuntu-latest' }}
+    runs-on: ${{ github.repository_owner != 'intel' && 'ubuntu-latest' || github.event_name == 'pull_request' && vars.LINUX_RUNNER_OFF != 'true' && 'dokimi-ec2' || 'intel-ubuntu-latest' }}
     timeout-minutes: 15
     steps:
       # Full history: the commit scan, the changelog and schema checks diff
@@ -239,7 +239,7 @@ jobs:
 
   typecheck:
     name: mypy
-    runs-on: ${{ github.repository_owner == 'intel' && github.event_name == 'pull_request' && 'dokimi-ec2' || 'ubuntu-latest' }}
+    runs-on: ${{ github.repository_owner != 'intel' && 'ubuntu-latest' || github.event_name == 'pull_request' && vars.LINUX_RUNNER_OFF != 'true' && 'dokimi-ec2' || 'intel-ubuntu-latest' }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -413,7 +413,7 @@ jobs:
   package-smoke:
     name: Package install smoke test (py${{ matrix.python-version }})
     needs: static
-    runs-on: ${{ github.repository_owner == 'intel' && github.event_name == 'pull_request' && 'dokimi-ec2' || 'ubuntu-latest' }}
+    runs-on: ${{ github.repository_owner != 'intel' && 'ubuntu-latest' || github.event_name == 'pull_request' && vars.LINUX_RUNNER_OFF != 'true' && 'dokimi-ec2' || 'intel-ubuntu-latest' }}
     timeout-minutes: 15
     strategy:
       fail-fast: false
