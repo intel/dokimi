@@ -395,6 +395,30 @@ def test_a_wrapper_left_by_an_excluded_only_listing_is_dropped():
     assert out["messages"][0]["content"] == []
 
 
+def test_operator_view_keeps_the_fixture_skill_and_drops_the_reminders():
+    # operator_view is the golden side of the operator-host comparison: the fixture skill stays, the reminders go.
+    golden = fd.load_golden(GOLDEN_DIR / "skill.json")["request"]
+    view = fd.operator_view(golden)
+    text = _texts(view)
+    assert "\n- sum-fast:sum-fast:" in text  # the listing entry, not the prose that names the skill
+    assert "<total_tokens>" not in json.dumps(view) and "End git commit messages with" not in text
+
+
+def test_capture_arm_passes_the_operator_host_switch_to_normalization(tmp_path, monkeypatch):
+    binary = _fake_client(tmp_path / "bin")
+    kept = []
+    real = fd.normalize_request
+
+    def spy(record, **kw):
+        kept.append(kw.get("keep_skills"))
+        return real(record, **kw)
+
+    monkeypatch.setattr(fd, "normalize_request", spy)
+    fd.capture_arm("skill", binary=binary, scratch=tmp_path / "clean", skill_dir=SKILL_DIR)
+    fd.capture_arm("skill", binary=binary, scratch=tmp_path / "host", skill_dir=SKILL_DIR, operator_host=True)
+    assert kept == [None, (fd.FIXTURE_SKILL_NAME,)]
+
+
 _LISTING = "The following skills are available for use with the Skill tool:\n\n"
 
 
