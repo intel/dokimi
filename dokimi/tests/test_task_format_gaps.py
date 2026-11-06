@@ -135,6 +135,36 @@ def test_hf_dataset_data_files_outside_the_task_are_refused(tmp_path):
         import_path(task, fmt="inspect-task")
 
 
+def _linked_task(tmp_path: Path, args: str) -> Path:
+    secret = _jsonl(tmp_path / "outside" / "secret.jsonl", [{"input": "SECRET?", "target": "x"}])
+    _jsonl(tmp_path / "task" / "own.jsonl", [{"input": "ok?", "target": "x"}])
+    _jsonl(tmp_path / "task" / "ok" / "a.jsonl", [{"input": "fine?", "target": "x"}])
+    (tmp_path / "task" / "d").mkdir()
+    try:
+        os.symlink(secret, tmp_path / "task" / "leak.jsonl")
+        os.symlink(secret, tmp_path / "task" / "d" / "leak.jsonl")
+        os.symlink(secret.parent, tmp_path / "task" / "sub", target_is_directory=True)
+    except OSError:
+        pytest.skip("symlinks are not supported here")
+    return _write(tmp_path / "task" / "t.py", (
+        f"@task\ndef t():\n    return Task(dataset=hf_dataset('json', {args}, split='train'), scorer=match())\n"))
+
+
+@pytest.mark.parametrize("args", ["data_files='leak.jsonl'", "data_files='*.jsonl'", "data_files=['lea?.jsonl']",
+                                  "data_files='d/**/*.jsonl'", "data_dir='d'", "data_dir='d', data_files='*.jsonl'"])
+def test_hf_dataset_files_the_loader_expands_through_a_symlink_out_of_the_task_are_refused(tmp_path, args):
+    pytest.importorskip("datasets")
+    with pytest.raises(ValueError, match="outside the task's directory"):
+        import_path(_linked_task(tmp_path, args), fmt="inspect-task")
+
+
+@pytest.mark.parametrize("args", ["data_dir='ok'", "data_files='ok/*.jsonl'"])
+def test_hf_dataset_glob_and_data_dir_inside_the_task_still_read(tmp_path, args):
+    pytest.importorskip("datasets")
+    imp = import_path(_linked_task(tmp_path, args), fmt="inspect-task")
+    assert [q["question"] for q in imp.questions] == ["fine?"]
+
+
 @pytest.mark.parametrize("spec", ["FieldSpec(input=COL, target='answer')", "FieldSpec('question', target='answer')",
                                   "FieldSpec(**{'input': 'question'})"])
 def test_hf_dataset_refuses_a_computed_field_spec_before_loading(tmp_path, spec):

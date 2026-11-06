@@ -392,6 +392,28 @@ def _hf_call_args(node: ast.Call, base: Path, imp: Optional[Imported] = None) ->
     return [path], kwargs
 
 
+def _hf_confine(path: str, kwargs: Mapping[str, Any], base: Path) -> None:
+    """Refuse a builder whose globs or ``data_dir=`` reach a file outside the task (a symlink): the files are
+    expanded with the loader's own resolver, as ``load_dataset`` does, and each one is resolved."""
+    if path not in _hf_builders():
+        return
+    try:
+        from datasets.data_files import DataFilesDict, get_data_patterns, sanitize_patterns
+    except ImportError:  # no loader: nothing is read
+        return
+    root = Path(kwargs.get("data_dir") or base).as_posix()
+    files = kwargs.get("data_files")
+    try:
+        patterns = sanitize_patterns(files) if files is not None else get_data_patterns(root)
+        local = {k: [p for p in v if "://" not in str(p)] for k, v in patterns.items()}
+        found = DataFilesDict.from_patterns({k: v for k, v in local.items() if v}, base_path=root)
+    except FileNotFoundError:  # the loader reports the missing file itself
+        return
+    for name in itertools.chain.from_iterable(found.values()):
+        if not Path(name).resolve().is_relative_to(base.resolve()):
+            raise ValueError(f"hf_dataset data_files {name} is outside the task's directory")
+
+
 def _hf_load(args: list[Any], kwargs: dict[str, Any]) -> Any:
     """The split from the optional ``datasets`` package; the loader's own errors are reported with its name."""
     try:
@@ -416,6 +438,7 @@ def _hf_rows(node: ast.Call, base: Path, imp: Optional[Imported] = None) -> list
     _hf_sample_fields(node)
     limit = _hf_limit(node)
     args, kwargs = _hf_call_args(node, base, imp)
+    _hf_confine(args[0], kwargs, base)
     loaded = _hf_load(args, kwargs)
     fields = _field_spec(node, imp)
     spec = {**_FIELD_DEFAULTS, **fields} if fields else {}
