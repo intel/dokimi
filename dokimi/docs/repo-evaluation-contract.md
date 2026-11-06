@@ -1634,7 +1634,8 @@ equals the name or pattern, or when the pattern starts (after a leading `^` or
 wildcard filled in: a hook pattern as the hook reads it (`re.match`, so
 `maintenance/*` matches `maintenance/.*`), a filter as GitHub does (`*` stops at
 `/`, `**` does not, `?` and `+` make the character or `[...]` before them
-optional or repeated, `[...]` is one of its letters, digits or ranges such as
+optional or repeated, stacked ones fold into one (`a++` is `a+`, `a?+` is `a*`,
+and after `*` or `**` they add nothing), `[...]` is one of its letters, digits or ranges such as
 `0-9`, `\` escapes the next character; a leading `!` is dropped), so
 `release/*` matches `release/**`, `release/v1` matches `release/v[12]`, and
 `**` alone names no path. A range that runs backwards or mixes lowercase,
@@ -1643,8 +1644,7 @@ uppercase and digits (`9-0`, `a-Z`) makes its `[...]` literal text. A
 its value: `branch pattern of no-commit-to-branch (.pre-commit-config.yaml:17)`,
 `branch of no-commit-to-branch (.pre-commit-config.yaml:19)` or `branch filter of
 on.push (.github/workflows/ci.yml:3)`. A file that is missing, not read or does not parse, an
-`args` that is not a list, a value that is not a string, an invalid regex, a
-filter whose `?` and `+` nest deeper than Python's regex parser goes, another hook's `args` and a name only in a `run:` script give no branch, and the
+`args` that is not a list, a value that is not a string, an invalid regex, another hook's `args` and a name only in a `run:` script give no branch, and the
 claim keeps its path verdict. A link or path into a submodule is `unresolved`. A
 blob or tree link to `source.url` holds `<ref>/<path>` and the ref may contain
 slashes. A default branch, a commit or a version tag is one segment; any other

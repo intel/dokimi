@@ -378,8 +378,8 @@ _PUSH = {".github/workflows/ci.yml": 'name: ci\non:\n  push:\n    branches: [mai
     ("maintenance/*", {**_pre_commit("[-p, 'maintenance/a{999999999999}', -p, 'maintenance/" + "(" * 3000 + ")" * 3000
                                      + "']"), ".github/workflows/ci.yml": "on: {push: {branches: ['maintenance/**']}}\n"},
      "branch filter of on.push (.github/workflows/ci.yml:1)"),
-    # 3000 `?` nest 3000 groups, past what re.compile parses: that filter is passed over, the next one counts
-    ("release/*", {".github/workflows/ci.yml": "on: {push: {branches: ['release/a" + "?" * 3000 + "', 'release/**']}}\n"},
+    # 3000 `?` fold into one, so the filter compiles (nested, they were past what re.compile parses)
+    ("release/a", {".github/workflows/ci.yml": "on: {push: {branches: ['release/a" + "?" * 3000 + "']}}\n"},
      "branch filter of on.push (.github/workflows/ci.yml:1)"),
 ])
 def test_a_branch_name_or_pattern_the_repository_configures_is_ok(tmp_path, claim, files, why):
@@ -440,6 +440,19 @@ def test_a_backslash_in_a_branch_filter_escapes_the_next_character():
     """`release/c\\+\\+` is GitHub's filter for the branch `release/c++`, not `+` repeating a `\\`."""
     rx = branches._filter_regex(r"release/c\+\+")
     assert rx.match("release/c++") and not rx.match("release/c") and not rx.match("release/c\\\\")
+
+
+@pytest.mark.parametrize("pattern, regex", [
+    ("release/a++++++b", r"release/a+b\Z"),
+    ("release/a??b", r"release/a?b\Z"),
+    ("release/a?+b", r"release/a*b\Z"),
+    ("release/a+?b", r"release/a*b\Z"),
+    ("release/*+b", r"release/[^/]*b\Z"),
+    ("release/**?", r"release/.*\Z"),
+])
+def test_stacked_quantifiers_of_a_branch_filter_fold_into_one(pattern, regex):
+    """Nested, `release/a++++++b` backtracks exponentially on `release/aaaaaaaaaaac`; folded, it matches the same branches."""
+    assert branches._filter_regex(pattern).pattern == regex
 
 
 def test_read_many_fetches_missing_blobs_of_a_partial_clone(toy, tmp_path):
