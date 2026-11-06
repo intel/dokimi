@@ -10,3 +10,5 @@
   leaves a skill out unless `--include-invalid`. `dokimi catalog scan` no longer treats such a
   copy as unlisted, so it reports a `name-conflict` with a different copy of the same name, as
   routing does.
+  The routing field of a catalog with such a skill changes, so routing rates measured before
+  this release on it differ: re-run a saved baseline before comparing with it.
