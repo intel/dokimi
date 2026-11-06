@@ -182,7 +182,10 @@ def _run_text(run: ShownRun) -> list[str]:
         lines.append(f"{'unreadable:':<12}{_count(len(run.unreadable), 'file')} under the root, "
                      f"which may belong to it (first: {plain(first.path.as_posix())}: "
                      f"{plain(first.reason)})")
-    return [*lines, "", *_table(run.artifacts, with_run=False)]
+    table = _table(run.artifacts, with_run=False)
+    if any(_untimed(a) for a in run.artifacts):
+        table.append("* the file's mtime: the artifact records no time")
+    return [*lines, "", *table]
 
 
 def _show_run(root: str, run: ShownRun, as_json: bool) -> None:

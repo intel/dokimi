@@ -142,7 +142,8 @@ answers.v1  onetbb   gpt-6.1-sol        2026-10-28 09:40  onetbb_r7/answers/onet
 ```
 
 A `run_id` from `runs list` shows the artifacts that carry it, as `runs list`
-rows, newest first. A file `runs show` can open wins: one of that name under
+rows, newest first, with the same `*` for a time taken from the file's mtime.
+A file `runs show` can open wins: one of that name under
 the root, or reached from the working directory and inside the root. A
 directory of that name (a run's own, `results/nightly-7/`) does not, nor does
 a path outside the root; when no artifact has the `run_id`, such a name gets

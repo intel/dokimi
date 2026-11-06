@@ -443,6 +443,14 @@ def test_a_run_id_shows_the_artifacts_of_that_run(monkeypatch, capsys, runs):
     assert [row.split()[-1] for row in lines[4:]] == ["arms/onetbb.json", "e1.json"]
 
 
+def test_a_run_with_an_untimed_artifact_explains_the_star(monkeypatch, capsys, runs):
+    """``plugin_delta`` records no time and stays in this process's run."""
+    lines = _show(monkeypatch, capsys, run_id()).out.splitlines()
+
+    assert lines[-2].split()[4].endswith("*") and lines[-2].endswith("arms/plugin_delta.json")
+    assert lines[-1] == "* the file's mtime: the artifact records no time"
+
+
 def test_json_of_a_run_has_its_artifacts_as_runs_list_rows(monkeypatch, capsys, runs):
     data = json.loads(_show(monkeypatch, capsys, "nightly-2", "--json").out)
 
