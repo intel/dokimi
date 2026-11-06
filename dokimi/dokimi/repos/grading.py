@@ -242,7 +242,7 @@ def _stage_hidden(task: Task, workspace: Path) -> str | None:
             return f"hidden file {rel}: the workspace has a directory there"
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.unlink(missing_ok=True)  # a link the agent left there is replaced, not written through
-        shutil.copyfile(task.dir / HIDDEN_DIR / rel, dest)
+        shutil.copy(task.dir / HIDDEN_DIR / rel, dest)  # with its mode: a 100755 file stays executable
     return None
 
 

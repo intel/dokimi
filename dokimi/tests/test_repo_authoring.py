@@ -586,6 +586,18 @@ def test_staging_replaces_a_link_and_refuses_a_linked_directory(tmp_path):
     assert not (tmp_path / "elsewhere/test_a.py").exists()
 
 
+def test_staging_keeps_each_hidden_files_mode(tmp_path):
+    task, ws = _hidden_task(tmp_path), tmp_path / "ws"
+    write(task.dir, "hidden/tests/run.sh", "#!/bin/sh\nexit 0\n")
+    (task.dir / "hidden/tests/run.sh").chmod(0o755)
+    (task.dir / "hidden/tests/test_a.py").chmod(0o640)
+    write(ws, "tests/test_a.py", "")
+    (ws / "tests/test_a.py").chmod(0o777)
+    staged = Task(id=task.id, raw={**task.raw, "hidden_files": ["tests/test_a.py", "tests/run.sh"]}, dir=task.dir)
+    assert _stage_hidden(staged, ws) is None
+    assert [oct((ws / p).stat().st_mode & 0o777) for p in ("tests/run.sh", "tests/test_a.py")] == ["0o755", "0o640"]
+
+
 def test_staging_refuses_a_bad_task_and_a_workspace_that_is_no_directory(tmp_path):
     task = _hidden_task(tmp_path)
     bad = Task(id=task.id, raw={**task.raw, "hidden_tests": ["../x.py"]}, dir=task.dir)

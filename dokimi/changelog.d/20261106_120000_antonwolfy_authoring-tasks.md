@@ -12,7 +12,7 @@
   `createdAt`, so `repo compare` flags these tasks as it does replay tasks. No LLM, no GitHub call;
   exits 1 when no PR gave a task or the input cannot be used (contract §4.7).
 - **Built-in grader `dokimi:hidden_tests` and the manifest's `entry_points.test`** — the framework copies
-  a task's hidden files into the workspace, runs the repository's test command on them (`{tests}`; it
+  a task's hidden files into the workspace with their file mode, runs the repository's test command on them (`{tests}`; it
   writes a JUnit report to `{out}`), and grades `pass` when every hidden test ran and passed, with
   `pass_share` beside it for `repo compare --metric pass_share`. `eval check` runs the null and the
   oracle steps of such a task twice each and reports a task whose two runs differ as `flaky`, which

@@ -796,7 +796,7 @@ needs that comparison writes it in its own `grade` entry point.
 
 `dokimi:hidden_tests` grades the workspace with the repository's own tests, held out of it
 until the grade. Before the grader runs, the framework copies each `hidden_files` path from the
-task's `hidden/` into the workspace, replacing a file (or a link) the workspace has there; a
+task's `hidden/` into the workspace, with its file mode, replacing a file (or a link) the workspace has there; a
 directory on the way that is a symbolic link or not a directory, or a directory at the path,
 stops the copy and the grade is a grader error. It then runs `entry_points.test` (§2) in a
 container like the grading one (same mounts, network and environment, no grader code), with
