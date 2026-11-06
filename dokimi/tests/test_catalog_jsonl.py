@@ -145,3 +145,20 @@ def test_an_unwritable_jsonl_path_exits_2_and_names_the_flag(tmp_path):
 
     assert exc_info.value.code == 2
     assert "cannot write --jsonl" in str(exc_info.value)
+
+
+def test_resume_with_skip_nested_leaves_out_a_nested_row_an_earlier_run_wrote(tmp_path, capsys):
+    _skill(tmp_path, "alpha")
+    inner = tmp_path / "skills" / "alpha" / "sub-beta"
+    inner.mkdir(parents=True)
+    (inner / "SKILL.md").write_text("---\nname: sub-beta\n---\n# no description\n", encoding="utf-8")
+    out_path = tmp_path / "nested.jsonl"
+    _run(["--root", str(tmp_path), "--per-skill", "--jsonl", str(out_path)], capsys)
+    assert len(_rows(out_path)) == 2  # the first run counted the broken nested skill
+
+    out, code = _run(["--root", str(tmp_path), "--per-skill", "--jsonl", str(out_path),
+                      "--resume", "--skip-nested"], capsys)
+
+    assert code == 0
+    assert "1 declared" in out
+    assert "1 resumed" in out

@@ -189,6 +189,10 @@ def scan_per_skill(args, root: Path, report: dict, as_json: bool, pairs: list) -
     sink = _Jsonl(jsonl, args.resume) if jsonl is not None else None
     tally = _Tally(args.strict)
     prior = sink.prior if sink is not None else []
+    # Only the rows of the skills this run selects count: --skip-nested must hide a nested row an
+    # earlier run wrote, and a skill removed from the catalog is not part of this scan.
+    selected = {_entry_key(entry) for entry, _ in pairs}
+    prior = [row for row in prior if _row_key(row) in selected]
     for row in prior:
         tally.add(row)
     done = {_row_key(row) for row in prior}
