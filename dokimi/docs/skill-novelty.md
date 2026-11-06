@@ -759,7 +759,8 @@ in `n_unscored`, a skill the run never reached has an `own_rate` of `null`, and 
 between repeats keeps its picks but is left out of `noise`. The lexical arm is complete either way.
 Treat a `partial` file as a prefix of the run, not a measurement of the whole field: the skills
 and queries reached first are over-represented. To finish, raise `--max-usd` and rerun with
-`DOKIMI_RESPONSE_CACHE` set, which replays the calls already paid for at no cost. The
+`DOKIMI_RESPONSE_CACHE` set (it must also have been set on the capped run), which replays the
+calls already paid for at no cost. The
 `skill novelty` steps (`analyze`, `atoms`, `probe`) and `skill shorten` still write nothing when the
 cap stops them.
 
