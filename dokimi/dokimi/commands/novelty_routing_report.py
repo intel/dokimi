@@ -101,31 +101,48 @@ _LEFT_OUT = {
 
 
 def conflict_hint(catalog: str, conflicts: dict[str, list[str]]) -> str:
-    """Where the copies of the conflicting names sit, and the ways out of the conflict.
+    """Where the copies of each conflicting name sit, and the ways out of each conflict.
 
     A skill directory under another directory of the catalog (``skills/review``) is a
     ``--catalog`` to point at, and a ``--keep-copies-under`` to keep. A skill directory directly
     beneath the catalog (``review``) is only a ``--keep-copies-under``: its name is the directory
     to keep. A ``SKILL.md`` in the catalog root is neither: its copy routes only once it is
-    deduped or renamed.
+    deduped or renamed. A directory is suggested only when it holds exactly one of the name's
+    copies, since one that holds two (``skills`` over ``skills/legacy/review``) keeps the
+    conflict. The ways out are given per name: ``--keep-copies-under`` takes one directory.
     """
-    places = {_copy_place(path, catalog) for paths in conflicts.values() for path in paths}
-    holders = sorted({d for kind, d in places if kind == "holder"})
-    skills = sorted({d for kind, d in places if kind == "skill"})
+    texts = [_conflict_hint_for(catalog, name, paths) for name, paths in sorted(conflicts.items())]
+    if len(texts) > 1:
+        texts.append("--keep-copies-under takes one directory, so one run resolves only the names "
+                     "whose copies that directory splits.")
+    return " ".join(texts)
+
+
+def _conflict_hint_for(catalog: str, name: str, paths: list[str]) -> str:
+    """The ways out of one name's conflict: the directories that hold exactly one of its copies."""
+    rels = [Path(os.path.relpath(os.path.abspath(p), os.path.abspath(catalog))).parts for p in paths]
+    places = {_copy_place(path, catalog) for path in paths}
+
+    def holds_one(directory: str) -> bool:
+        parts = Path(directory).parts
+        return sum(rel[:len(parts)] == parts for rel in rels) == 1
+
+    holders = sorted({d for kind, d in places if kind == "holder" and holds_one(d)})
+    skills = sorted({d for kind, d in places if kind == "skill" and holds_one(d)})
     at_root = any(kind == "root" for kind, _ in places)
     if not holders and not skills:
-        return ("The copies sit at the catalog root, so no --catalog or --keep-copies-under picks "
-                "one of them: dedupe or rename them.")
+        return (f"`{name}`: no --catalog or --keep-copies-under picks one of its copies (they sit "
+                "at the catalog root or one inside another's directory): dedupe or rename them.")
     keeps = " or ".join(f"--keep-copies-under {d}" for d in holders + skills)
     where = [f"under {d}" for d in holders] + [f"in the skill directory {d}" for d in skills]
     if at_root:
         where.append("at the catalog root")
     if holders:
         picks = " or ".join(f"--catalog {os.path.join(catalog, d)}" for d in holders)
-        text = (f"The copies sit {' and '.join(where)}: point --catalog at one of those "
+        text = (f"`{name}`: copies sit {' and '.join(where)}: point --catalog at one of those "
                 f"directories ({picks}), or keep only one directory's copies with {keeps}.")
     else:
-        text = f"The copies sit {' and '.join(where)}: keep only one with {keeps}."
+        text = f"`{name}`: copies sit {' and '.join(where)}: keep only one with {keeps}."
     if at_root:
         text += " The copy at the catalog root routes only once it is deduped or renamed."
     return text

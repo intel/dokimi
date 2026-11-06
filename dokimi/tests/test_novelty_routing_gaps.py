@@ -448,3 +448,40 @@ def test_all_vs_all_names_every_missing_required_flag_in_one_error(tmp_path):
     message = str(exc.value)
     assert "--queries-by-skill" in message and "--out" in message
     assert message.count("--all-vs-all needs") == 1
+
+
+def _hint_message(root, artifact):
+    args = _parse("novelty", "routing", "--catalog", str(root),
+                  "--artifact", f"skill:{root}/{artifact}", "--queries-from-headings")
+    with pytest.raises(InputError) as exc:
+        args.func(args)
+    return str(exc.value)
+
+
+def test_the_hint_for_nested_copies_suggests_only_the_directory_that_holds_one_copy(tmp_path):
+    # Thread: PRRT_kwDOVBg7g860Lia8
+    root = tmp_path / "catalog"
+    _skill(root, "skills", "review", "review a change")
+    _skill(root, "skills/legacy", "review", "review a change, the legacy copy")
+    _skill(root, "other", "cache", "cache slow lookups")
+    message = _hint_message(root, "other/cache")
+    assert "--keep-copies-under skills/legacy" in message
+    assert f"--catalog {root}/skills/legacy" in message
+    # skills holds both copies, so it keeps the conflict: not suggested
+    assert "--keep-copies-under skills " not in message and "--keep-copies-under skills." not in message
+    assert f"--catalog {root}/skills " not in message and f"--catalog {root}/skills)" not in message
+
+
+def test_the_hint_gives_the_ways_out_per_name_when_two_names_conflict(tmp_path):
+    # Thread: PRRT_kwDOVBg7g860LibM
+    root = tmp_path / "catalog"
+    _skill(root, "a", "db", "tune a database")
+    _skill(root, "b", "db", "tune a database, b copy")
+    _skill(root, "c", "lint", "lint the code")
+    _skill(root, "d", "lint", "lint the code, d copy")
+    _skill(root, "e", "cache", "cache slow lookups")
+    message = _hint_message(root, "e/cache")
+    assert "`db`: copies sit under a and under b" in message
+    assert "`lint`: copies sit under c and under d" in message
+    assert "--keep-copies-under a or --keep-copies-under b." in message
+    assert "one run resolves only the names" in message
