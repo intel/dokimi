@@ -20,7 +20,11 @@ from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn
 
 from dokimi.commands.inputs import placebo_text_for_arms_or_exit
-from dokimi.commands.novelty_routing_inputs import load_all_vs_all_field, load_routing_field
+from dokimi.commands.novelty_routing_inputs import (
+    field_record,
+    load_all_vs_all_field,
+    load_routing_field,
+)
 from dokimi.commands.novelty_routing_report import (
     exit_partial_all_vs_all,
     print_all_vs_all_model,
@@ -344,7 +348,7 @@ def _cmd_routing_all_vs_all(args: argparse.Namespace) -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
     payload = {"mode": "all_vs_all", "queries_by_skill": args.queries_by_skill,
                "n_candidates": len(field), "result": result}
-    payload["field"] = _field_record(args, field, left_out)
+    payload["field"] = field_record(args, field, left_out)
     if selector is not None:
         payload["cost"] = roll_up_cost([selector])
     out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -355,12 +359,6 @@ def _cmd_routing_all_vs_all(args: argparse.Namespace) -> None:
           f"{len(queries_by_skill)} skills with queries")
     print_attractors(result)
     print_all_vs_all_model(model_arm, payload.get("cost"))
-
-
-def _field_record(args: argparse.Namespace, competitors: list, left_out: list[str]) -> dict:
-    """The field rule a routing result was measured under, saved next to the result."""
-    return {**{name: bool(getattr(args, name)) for name in ("include_disabled", "include_invalid")},
-            "competitors": [c.name for c in competitors], "left_out": left_out}
 
 
 def _check_all_vs_all_args(args: argparse.Namespace) -> None:
@@ -427,7 +425,7 @@ def cmd_novelty_routing(args: argparse.Namespace) -> None:
         "n_candidates": len(candidates),
         "queries_self_derived": self_derived,
         "queries_source": queries_source,
-        "field": _field_record(args, competitors, left_out),
+        "field": field_record(args, competitors, left_out, gold),
         "lexical": lexical,
     }
     if args.model:
@@ -609,7 +607,9 @@ def register(sub, positive_int) -> None:
                                 "select them and a card for one measures a choice that does "
                                 "not exist")
     routing_p.add_argument("--include-invalid", action="store_true", dest="include_invalid",
-                           help="Keep catalog and skill: competitors with a spec error in the field")
+                           help="Keep catalog and skill: competitors with a spec error in the field. "
+                                "A description over 1024 characters alone never leaves a skill "
+                                "out: it is kept and warned about")
     routing_p.add_argument("--queries", default=None,
                            help="JSON list (or one per line) of user-shaped requests that "
                                 "should select this artifact, written independently of it")
