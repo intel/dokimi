@@ -150,6 +150,60 @@ def test_pip_install_line_dropped_rest_of_step_runs(env: dict[str, Any]) -> None
     assert [c["cmd"][-1].strip() for c in env["calls"]] == ["echo after"]
 
 
+def test_global_claude_install_is_skipped_locally(env: dict[str, Any]) -> None:
+    """The fidelity job's global npm install never runs on a contributor's machine."""
+    wf = ("on: pull_request\njobs:\n  fidelity:\n    steps:\n"
+          "      - name: Install the pinned Claude Code\n"
+          "        run: npm install -g @anthropic-ai/claude-code@2.1.318 && claude --version\n"
+          "      - name: Run the fidelity golden\n        run: echo golden\n")
+    (cl.WORKFLOWS / "x.yml").write_text(wf)
+    cl.run(ns(jobs="fidelity"))
+    assert [c["cmd"][-1].strip() for c in env["calls"]] == ["echo golden"]
+
+
+def _fidelity_wf() -> str:
+    return ("on: pull_request\njobs:\n  fidelity:\n    steps:\n"
+            "      - name: Install the pinned Claude Code\n"
+            "        run: npm install -g @anthropic-ai/claude-code@2.1.318 && claude --version\n"
+            "      - name: Run the fidelity golden\n        env:\n          DOKIMI_FIDELITY_REQUIRED: '1'\n"
+            "        run: echo golden\n")
+
+
+@pytest.mark.parametrize(("have", "required"), [("2.1.303", False), (None, False), ("2.1.318", True)])
+def test_fidelity_requires_the_pin_only_when_the_claude_on_path_is_it(
+        env: dict[str, Any], monkeypatch: Any, have: str | None, required: bool) -> None:
+    """Another claude on PATH must not FAIL ci-local: the golden tests skip instead."""
+    (cl.WORKFLOWS / "x.yml").write_text(_fidelity_wf())
+    monkeypatch.setattr(cl, "claude_on_path_version", lambda: have)
+    monkeypatch.setenv("DOKIMI_FIDELITY_REQUIRED", "1")  # exported in the caller's shell
+    cl.run(ns(jobs="fidelity"))
+    assert (env["calls"][-1]["env"].get("DOKIMI_FIDELITY_REQUIRED") == "1") is required
+
+
+def test_an_unreadable_pin_drops_the_requirement(env: dict[str, Any], monkeypatch: Any) -> None:
+    (cl.WORKFLOWS / "x.yml").write_text(_fidelity_wf().replace("@2.1.318", "@latest-x").replace("@latest-x", ""))
+    monkeypatch.setattr(cl, "claude_on_path_version", lambda: None)
+    monkeypatch.setenv("DOKIMI_FIDELITY_REQUIRED", "1")
+    cl.run(ns(jobs="fidelity"))
+    assert env["calls"][-1]["env"].get("DOKIMI_FIDELITY_REQUIRED") != "1"
+
+
+def test_pinned_claude_entries_match_real_steps() -> None:
+    steps = {(job_id, step.get("name")): (job, step) for _, wf in cl.load_workflows()
+             for job_id, job in wf["jobs"].items() for step in job.get("steps", [])}
+    for entry, var in cl.PINNED_CLAUDE.items():
+        job, step = steps[entry]
+        assert var in (step.get("env") or {}) and cl.pinned_claude_version(job)
+
+
+def test_host_install_entries_match_real_steps() -> None:
+    """Every HOST_INSTALL tuple names a real job and step, catching renames."""
+    steps = {(job_id, step.get("name")) for _, wf in cl.load_workflows()
+             for job_id, job in wf["jobs"].items() for step in job.get("steps", [])}
+    for entry in cl.HOST_INSTALL:
+        assert entry in steps, f"HOST_INSTALL entry {entry} does not match a real job and step"
+
+
 def test_unknown_job_id_is_an_error(env: dict[str, Any], capsys: Any) -> None:
     """A stale --jobs id fails before anything runs instead of being skipped."""
     assert cl.run(ns(jobs="a,lint")) == 2
