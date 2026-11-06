@@ -190,15 +190,16 @@ def _name(symbol: str, sep: str) -> tuple[str, str] | None:
 
 def _references(index: CodeIndex, repo_path: dict[str, str], granularity: str, sep: str,
                 opts: Options, names: dict[str, str | None]) -> list[Candidate]:
-    # C++ overloads share one qualified name, so they are one target; elsewhere a joined name can belong to two
+    # Overloads share one qualified name, so they are one target; on scip-python a joined name can belong to two
     # unrelated symbols (function ``c`` of module ``a.b``, method ``c`` of class ``b`` in ``a``): one per symbol
+    per_symbol = index.tool.startswith("scip-python")  # Python has no overloads to group
     groups: dict[str, list[str]] = {}  # group key -> its symbols
     short: dict[str, str] = {}
     qualified: dict[str, str] = {}
     for s in index.symbols():
         named = _name(s, sep) if function_like(s) else None
         if named:
-            key = named[1] if sep == "::" else s
+            key = s if per_symbol else named[1]
             groups.setdefault(key, []).append(s)
             short[key], qualified[key] = named
     same: dict[str, int] = {}
@@ -216,7 +217,7 @@ def _references(index: CodeIndex, repo_path: dict[str, str], granularity: str, s
 
 
 def _distinct(gold: tuple[str, ...], scopes: Scopes | None, repo_path: dict[str, str]) -> tuple[str, ...]:
-    """The other functions of each gold file whose last name is a gold item's: the grader knows them, so a bare
+    """The functions of the gold files, other than the gold, whose last name is a gold item's: the grader knows them, so a bare
     ``run`` for gold ``Impl.run`` does not name it when the file also has a module-level ``run``."""
     if scopes is None:
         return ()

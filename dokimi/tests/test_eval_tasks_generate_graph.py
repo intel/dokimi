@@ -611,3 +611,10 @@ def test_an_unreadable_index_exits_2_before_the_source_is_resolved(tmp_path, cap
         _run(["eval", "tasks", "generate", f"{root}@nonexistent", "--from", "graph",
               "--index", str(tmp_path / "index.scip"), "--out", str(tmp_path / "tasks")])
     assert exc.value.code == 2 and "cannot read the code index" in capsys.readouterr().err
+
+
+def test_an_over_qualified_answer_names_the_longest_known_item(tmp_path):
+    gold = {"answer_key": "functions", "gold": ["a.py::Impl.run"], "distinct": ["a.py::run"]}
+    assert _grade(tmp_path, fence({"functions": ["a.py::cli.Impl.run"]}), gold)["f1"] == 1.0
+    two = {"answer_key": "functions", "gold": ["a.py::A.run", "a.py::B.run"]}
+    assert _grade(tmp_path, fence({"functions": ["a.py::run"]}), two)["n_false_positive"] == 1  # still ambiguous

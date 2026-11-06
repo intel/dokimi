@@ -1004,7 +1004,7 @@ Two questions:
   does not tell a call from another use, so the question is references, not
   calls. C++ overloads share one qualified name the prompt cannot tell apart,
   so they are one target and the prompt says how many overloads count; on
-  other indexes each symbol is its own target.
+  scip-python, which has no overloads, each symbol is its own target.
 - **derives**: every class whose bases (as the reader gives them, §1.2) include
   one class, answered as `path::Class`. On scip-clang the bases are the
   reader's minimal set, and the index cannot tell a class that names the
@@ -1047,7 +1047,8 @@ loses a leading `./`; in a name `::` reads as `.` and a trailing `()` is
 dropped. A name that matches no item exactly names the one gold or accepted
 item of its file whose name ends with it, or that it ends with, in whole parts (`go` for
 `Impl.go`, `ns.Impl` for `Impl`), when there is one and no `distinct` item
-of the file fits it too; `B.go` never names `Impl.go`. An item in an
+of the file fits it too; a name that ends with several (`cli.Impl.go` for
+`Impl.go` and `go`) names the longest; `B.go` never names `Impl.go`. An item in an
 `exclude` file is dropped, an item in `accepted` counts neither way. The score
 is F1 against `gold`. A gold file with an unknown `answer_key`, an empty
 `gold`, a blank `gold` entry, a `gold` entry in an `exclude` file, or an
