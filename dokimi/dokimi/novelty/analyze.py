@@ -56,6 +56,7 @@ class AnalyzeConfig:
     # cited file, so a run that skips this must not present attribution as confirmed.
     confirm_carriers: bool = DEFAULT_SETTINGS["confirm_carriers"]
     placebo_text: str | None = None
+    context_framing: str = "reference"
     cache_dir: Path | None = None
     seed: int = 0
     # Measured over the study corpus, 0.72 of a skill's words live outside `SKILL.md`, so
@@ -87,6 +88,7 @@ def _run_config(config: "AnalyzeConfig") -> dict:
         "paraphrases": config.paraphrases,
         "reversals": config.reversals,
         "arms": list(config.arms),
+        "context_framing": config.context_framing,
         "budgets": list(config.budgets),
         "include_resources": config.include_resources,
         "resource_roles": list(config.resource_roles) if config.resource_roles else None,
@@ -244,7 +246,7 @@ def analyze(
         atom_list, probe_list, text,
         answerer=answerer, judge=judge, arms=config.arms,
         concurrency=config.concurrency, allow_self_judge=config.allow_self_judge,
-        placebo_text=config.placebo_text, seed=config.seed,
+        placebo_text=config.placebo_text, seed=config.seed, framing=config.context_framing,
     )
     if config.allow_self_judge and same_client(judge, answerer):
         warnings.append(
