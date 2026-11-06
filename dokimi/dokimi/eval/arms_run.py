@@ -28,7 +28,7 @@ from dokimi.defaults import (
 from dokimi.eval.arms_refusals import refuse_cli_arms, refuse_cli_cell, refuse_cli_cell_model
 from dokimi.eval.cells import HARNESS_ARMS_RUNNER, MatrixCellDescriptor
 from dokimi.eval.question_text import EmptyQuestionError
-from dokimi.utils import InputError, check_bedrock_model, question_id
+from dokimi.utils import InputError, check_bedrock_model, question_id, warn_judge_independence
 
 if TYPE_CHECKING:
     from dokimi.eval import Judge, JudgePanel
@@ -292,6 +292,17 @@ def _check_judge(config: ArmsRunConfig, questions: list[dict]) -> None:
             "flag; every score would otherwise be null."
         )
     probe_sampling(config.judge_model, config.judge_provider, config.judge_temperature, None)
+    warn_self_judging(config)
+
+
+def warn_self_judging(config: ArmsRunConfig) -> bool:
+    """Warn, without refusing, when the judge (or every panel role) is the answer model.
+
+    ``--judge-panel`` runs each role on ``judge_model``, so one check covers both judges.
+    """
+    return warn_judge_independence(config.provider, config.model,
+                                   config.judge_provider, config.judge_model,
+                                   context="judged run")
 
 
 def _build_judge(config: ArmsRunConfig):
