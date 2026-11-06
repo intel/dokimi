@@ -387,6 +387,14 @@ def test_excluded_only_listing_keeps_the_text_around_it():
     assert "other" not in out and "Description" not in out
 
 
+def test_a_wrapper_left_by_an_excluded_only_listing_is_dropped():
+    # Every entry excluded, nothing after the listing: the block is the listing's own wrapper and goes.
+    listing = ("<system-reminder>\nThe following skills are available for use with the Skill tool:\n\n"
+               "- dataviz: x\n- loop: y\n</system-reminder>")
+    out = fd.normalize_request(_record_with(listing), keep_skills=("sum-fast",))
+    assert out["messages"][0]["content"] == []
+
+
 _LISTING = "The following skills are available for use with the Skill tool:\n\n"
 
 

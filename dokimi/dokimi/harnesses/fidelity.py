@@ -292,7 +292,9 @@ def _keep_text(text: str, keep_skills: Optional[Sequence[str]]) -> Optional[str]
         return kept
     # Every entry was excluded: the listing goes, but the text around it is the request's too.
     rest = kept.replace(_SKILLS_HEADER, "", 1).strip()
-    return rest or None
+    if not re.sub(r"</?system-reminder>|\s", "", rest):
+        return None  # only the listing's own wrapper is left: the block was the listing
+    return rest
 
 
 def _strip_content(content: Any, keep_skills: Optional[Sequence[str]]) -> Any:
