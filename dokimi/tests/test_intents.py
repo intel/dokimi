@@ -60,7 +60,7 @@ def test_blank_products_and_name_are_unset_not_malformed(tmp_path, capsys):
         encoding="utf-8",
     )
 
-    args = build_parser().parse_args(["library", "intents", "--intents", str(path)])
+    args = build_parser().parse_args(["catalog", "intents", "--intents", str(path)])
     args.func(args)
 
     out = capsys.readouterr().out
@@ -145,7 +145,7 @@ def test_default_intents_reference_only_registered_products():
 
 
 # ---------------------------------------------------------------------------
-# `library intents --intents <path>`
+# `catalog intents --intents <path>`
 # ---------------------------------------------------------------------------
 
 def test_library_intents_reads_a_custom_registry(tmp_path, capsys):
@@ -162,7 +162,7 @@ def test_library_intents_reads_a_custom_registry(tmp_path, capsys):
         }
     })
 
-    args = build_parser().parse_args(["library", "intents", "--intents", str(path)])
+    args = build_parser().parse_args(["catalog", "intents", "--intents", str(path)])
     args.func(args)
 
     out = capsys.readouterr().out

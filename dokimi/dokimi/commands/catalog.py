@@ -332,12 +332,13 @@ def register(sub, positive_int, eval_sub) -> None:
     )
     catalog_sub = catalog_p.add_subparsers(dest="catalog_cmd", required=True)
 
-    from dokimi.commands import catalog_eval
+    from dokimi.commands import catalog_eval, library
 
     catalog_eval.register(catalog_sub)
+    library.add_intents(catalog_sub)  # catalog intents (#94 M2)
 
     scan_p = catalog_sub.add_parser(
-        "scan", help="Report which skills/tasks under --root load cleanly"
+        "check", help="Report which skills/tasks under --root load cleanly"
     )
     scan_p.add_argument("--root", required=True, help="Local checkout to scan")
     scan_p.add_argument(
