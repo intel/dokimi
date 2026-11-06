@@ -1622,7 +1622,26 @@ one of those workflows or local actions was not read (too big, binary, a danglin
 link), an `owner/name` the tree does not hold, outside a root directory, that no
 read file uses keeps its `unresolved` (`tried ...`) or `fail` (`<dir>/ exists but
 ...`) verdict, and its reason also names each such file, as `<file> was not read
-(<why>)`, joined with `; `. A link or path into a submodule is `unresolved`. A
+(<why>)`, joined with `; `. After the submodule and Action checks, a path or glob
+the tree does not hold at the file's directory or an ancestor, whose first
+directory is not one at the repository root, is `ok` when the repository
+configures it as a branch: a `--branch` (`-b`, `--branch=`) name or a `--pattern`
+(`-p`, `--pattern=`) regex in the `args` of a `no-commit-to-branch` hook of the
+root `.pre-commit-config.yaml`, or a `branches` or `branches-ignore` filter of
+`on.push` or `on.pull_request` in the same workflows. The claim matches when it
+equals the name or pattern, or when the pattern starts (after a leading `^` or
+`!`) with the claim's first directory and a slash, and matches the claim with each
+wildcard filled in: a hook pattern as the hook reads it (`re.match`, so
+`maintenance/*` matches `maintenance/.*`), a filter as GitHub does (`*` stops at
+`/`, `**` does not; a leading `!` is dropped), so `release/*` matches
+`release/**`, and `**` alone names no path. A `--branch` name matches only when
+equal. The reason names the first match, hooks before workflows, with the line of
+its value: `branch pattern of no-commit-to-branch (.pre-commit-config.yaml:17)`,
+`branch of no-commit-to-branch (.pre-commit-config.yaml:19)` or `branch filter of
+on.push (.github/workflows/ci.yml:3)`. A file that is missing, not read or does not parse, an
+`args` that is not a list, a value that is not a string, an invalid regex,
+another hook's `args` and a name only in a `run:` script give no branch, and the
+claim keeps its path verdict. A link or path into a submodule is `unresolved`. A
 blob or tree link to `source.url` holds `<ref>/<path>` and the ref may contain
 slashes. A default branch, a commit or a version tag is one segment; any other
 ref is tried at each slash, shortest first, and the link is `ok` if some

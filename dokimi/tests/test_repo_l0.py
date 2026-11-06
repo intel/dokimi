@@ -334,6 +334,69 @@ def test_a_glob_that_matches_nothing_alone_keeps_the_scan_complete(tmp_path, cap
     assert data["incomplete"] is False and data["incomplete_reasons"] == []
 
 
+def _pre_commit(args: str, hook: str = "no-commit-to-branch") -> dict[str, str]:
+    """dpnp's `.pre-commit-config.yaml` shape: the hook's `args:` on line 17, as there."""
+    fillers = "".join(f"    -   id: filler-{i}\n" for i in range(11))
+    return {".pre-commit-config.yaml": "repos:\n-   repo: https://github.com/pre-commit/pre-commit-hooks\n"
+                                       f"    rev: v5.0.0\n    hooks:\n{fillers}    -   id: {hook}\n        args: {args}\n"}
+
+
+def _path_verdict(tmp_path: Path, claim: str, files: dict[str, str]) -> tuple[str, str]:
+    root = tmp_path / "b"
+    sha = _repo(root, {"AGENTS.md": f"Work on a branch, not on `{claim}`.\n", **files})
+    payload = scan_repo(GitTree(root / ".git", sha), parse_manifest(MANIFEST))
+    return next((c["status"], c["why"]) for c in payload["claims"] if c["claim"] == claim)
+
+
+_DPNP = '[--branch, "master", --pattern, "maintenance/.*"]'
+_PUSH = {".github/workflows/ci.yml": 'name: ci\non:\n  push:\n    branches: [main, "release/**"]\njobs: {}\n'}
+
+
+@pytest.mark.parametrize("claim, files, why", [
+    ("maintenance/*", _pre_commit(_DPNP), "branch pattern of no-commit-to-branch (.pre-commit-config.yaml:17)"),
+    ("maintenance/*", _pre_commit("[--pattern=maintenance/.*]"), "branch pattern of no-commit-to-branch (.pre-commit-config.yaml:17)"),
+    # `maintenance/\w+` matches `maintenance/*` only once its `*` is filled in
+    ("maintenance/*", _pre_commit("[-p, 'maintenance/\\w+']"), "branch pattern of no-commit-to-branch (.pre-commit-config.yaml:17)"),
+    ("release/1.x", _pre_commit("\n        -   --branch\n        -   release/1.x"),
+     "branch of no-commit-to-branch (.pre-commit-config.yaml:19)"),
+    ("release/*", _PUSH, "branch filter of on.push (.github/workflows/ci.yml:4)"),
+    ("dependabot/*", {".github/workflows/pr.yaml": "on:\n  pull_request:\n    branches-ignore:\n      - 'dependabot/**'\n"},
+     "branch filter of on.pull_request (.github/workflows/pr.yaml:4)"),
+    ("release/v*", {".github/workflows/ci.yml": '"on": {push: {branches: ["release/v*"]}}\n'},
+     "branch filter of on.push (.github/workflows/ci.yml:1)"),
+])
+def test_a_branch_name_or_pattern_the_repository_configures_is_ok(tmp_path, claim, files, why):
+    """https://github.com/intel/dokimi/issues/410: `maintenance/*` names the branches a hook protects, not a path."""
+    assert _path_verdict(tmp_path, claim, files) == ("ok", why)
+
+
+_NO_GLOB = "glob {} matches nothing in the tree; a build may create it"
+
+
+@pytest.mark.parametrize("claim, files, verdict", [
+    ("feature/*", {**_pre_commit(_DPNP), **_PUSH}, ("unresolved", _NO_GLOB.format("feature/*"))),
+    # a root `maintenance/` makes it a path: one stale glob still fails
+    ("maintenance/*.zzz", {**_pre_commit(_DPNP), "maintenance/notes.md": ""},
+     ("fail", "maintenance/ exists but nothing in it matches *.zzz")),
+    ("maintenance/*", _pre_commit(_DPNP, hook="forbid-new-submodules"), ("unresolved", _NO_GLOB.format("maintenance/*"))),
+    ("maintenance/*", _pre_commit("--pattern maintenance/.*"), ("unresolved", _NO_GLOB.format("maintenance/*"))),
+    ("maintenance/*", _pre_commit("[--pattern, 'maintenance/(.*']"), ("unresolved", _NO_GLOB.format("maintenance/*"))),
+    ("maintenance/*", {".pre-commit-config.yaml": "repos: [{hooks: [{id: no-commit-to-branch, args: [-p, 'maintenance/.*']\n"},
+     ("unresolved", _NO_GLOB.format("maintenance/*"))),
+    ("release/*", {".github/workflows/ci.yml": "env: {D: 2026-02-30}\non: {push: {branches: ['release/**']}}\n"},
+     ("unresolved", _NO_GLOB.format("release/*"))),
+    ("release/1.x", {".github/workflows/ci.yml": "on: push\njobs: {x: {steps: [{run: git push origin release/1.x}]}}\n"},
+     ("unresolved", "tried release/1.x")),
+    ("src/gone.py", {".github/workflows/ci.yml": "on: {push: {branches: ['**']}}\n"}, ("unresolved", "tried src/gone.py")),
+    ("release/1.x/notes", {".github/workflows/ci.yml": "on: {push: {branches: ['release/*']}}\n"},  # `*` stops at `/`
+     ("unresolved", "tried release/1.x/notes")),
+])
+def test_a_path_like_claim_no_branch_source_names_keeps_its_path_verdict(tmp_path, claim, files, verdict):
+    """No match, a root directory, another hook's id, a string `args`, a bad regex, malformed YAML, a `run:` script
+    a filter whose pattern does not start with the claim's first directory, and a `*` across `/`: today's verdict."""
+    assert _path_verdict(tmp_path, claim, files) == verdict
+
+
 def test_read_many_fetches_missing_blobs_of_a_partial_clone(toy, tmp_path):
     root, sha = toy
     subprocess.run(["git", "-C", str(root), "config", "uploadpack.allowFilter", "true"], check=True)

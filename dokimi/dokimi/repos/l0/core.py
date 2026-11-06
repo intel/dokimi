@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..source import RepoTree, SourceError
-from . import workflows
+from . import branches, workflows
 from .gitignore import GitIgnore, Rule
 from .markdown import PYTHON_LANGS, SHELL_LANGS, STARLARK_LANGS, Fence, split
 
@@ -294,7 +294,7 @@ class Scan:
             return None
         if any(c.startswith("..") for c in cands) and all(c.startswith("..") for c in cands):
             return "fail", f"resolves to {cands[0]}, outside the repository"
-        held = self._submodule_or_action(p, cands)
+        held = self._held_elsewhere(p, cands)
         if held:
             return held
         if any(c in rel for c in "*<>{"):
@@ -321,18 +321,26 @@ class Scan:
             return "ok_suffix", f"below a directory the text does not name; {len(hits)} match(es), e.g. {hits[0]}"
         return self._missing(cands, rel.endswith("/"), "tried " + ", ".join(cands) + self._unread_note(p, cands), "unresolved")
 
-    def _submodule_or_action(self, name: str, cands: list[str]) -> tuple[str, str] | None:
-        """``unresolved`` for a path into a submodule, else ``ok`` for a used Action no candidate holds, else ``None``.
+    def _held_elsewhere(self, name: str, cands: list[str]) -> tuple[str, str] | None:
+        """``unresolved`` for a path into a submodule, else ``ok`` for a used Action or a branch no candidate holds, else ``None``.
 
         The Action is one a workflow step uses as ``uses: <name>@<ref>``, named here without the ref; the
-        submodule verdict comes first, as the snapshot does not hold what the name may be there. A name
-        whose directory the tree holds at the root (``tools/gone`` beside ``tools/``) is a path, stale or not.
+        branch is a name or pattern of :mod:`.branches`. The submodule verdict comes first, as the snapshot
+        does not hold what the name may be there. A name whose directory the tree holds at the root
+        (``tools/gone`` beside ``tools/``; for a branch, its first directory) is a path, stale or not.
         """
         sub = self.submodule_of(cands)
         if sub:
             return "unresolved", f"inside the submodule {sub}, which this snapshot does not hold"
         used = workflows.action_users(self).get(name) if self._reads_as_action(name, cands) else None
-        return ("ok", f"used by {used}") if used else None
+        if used:
+            return "ok", f"used by {used}"
+        branch = branches.branch_of(self, name, [_fill(name, f) for f in _FILLS]) if self._reads_as_branch(name, cands) else None
+        return ("ok", branch) if branch else None
+
+    def _reads_as_branch(self, name: str, cands: list[str]) -> bool:
+        """No candidate holds ``name`` and its first directory is not one at the root."""
+        return not any(self.exists(c) for c in cands) and name.split("/")[0] not in self.dir_set
 
     def _reads_as_action(self, name: str, cands: list[str]) -> bool:
         """``name`` has an Action's shape, no candidate holds it and its directory is not one at the root."""
