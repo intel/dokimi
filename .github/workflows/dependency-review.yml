@@ -23,7 +23,7 @@ concurrency:
 jobs:
   dependency-review:
     name: Dependency review
-    # A short job: ubuntu-latest, as for the other short jobs (see ci.yml).
+    # Runners: see the header of ci.yml.
     runs-on: ${{ github.repository_owner != 'intel' && 'ubuntu-latest' || github.event_name == 'pull_request' && vars.LINUX_RUNNER_OFF != 'true' && 'dokimi-ec2' || 'intel-ubuntu-latest' }}
     timeout-minutes: 10
     steps:
