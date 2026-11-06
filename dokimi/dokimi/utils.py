@@ -207,7 +207,7 @@ def git_tree(base: Path) -> GitTree | None:
         top = run(["git", "-C", os.fspath(base), "rev-parse", "--show-toplevel"], timeout=60, env=_git_env())
         if not top.ok:
             return None
-        top_dir = os.fsdecode(top.stdout_bytes).strip()
+        top_dir = os.fsdecode(top.stdout_bytes).rstrip("\n")  # a name may end in a space
         ignored = _ignored_paths(top_dir)
     except OSError:
         return None

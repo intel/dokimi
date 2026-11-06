@@ -429,3 +429,10 @@ def test_a_file_the_top_tracks_counts_though_a_nested_glob_ignores_it(tmp_path):
     before = _hashes(root)
     (root / "skills/a/tools/gen.json").write_text("2\n")
     assert _hashes(root) != before
+
+
+def test_a_top_directory_whose_name_ends_in_a_space_is_read(tmp_path):
+    # PRRT_kwDOVBg7g860MHqp: --show-toplevel keeps the trailing space of the name
+    root = _repo(tmp_path / "top ", FILES)
+    tree = git_tree(root)
+    assert tree is not None and tree.top == Path(os.path.realpath(root))
