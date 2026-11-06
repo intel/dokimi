@@ -217,8 +217,8 @@ def _references(index: CodeIndex, repo_path: dict[str, str], granularity: str, s
 
 
 def _distinct(gold: tuple[str, ...], scopes: Scopes | None, repo_path: dict[str, str]) -> tuple[str, ...]:
-    """The functions of the gold files, other than the gold, whose last name is a gold item's: the grader knows them, so a bare
-    ``run`` for gold ``Impl.run`` does not name it when the file also has a module-level ``run``."""
+    """The functions of the gold files, other than the gold, whose last name is a gold item's: the grader
+    knows them, so a bare ``run`` for gold ``Impl.run`` does not name it when the file also has a module-level ``run``."""
     if scopes is None:
         return ()
     last = {(path, name.rpartition(".")[2]) for path, _, name in (g.partition("::") for g in gold)}
@@ -410,7 +410,7 @@ def _prompt(c: Candidate, key: str) -> str:
         ask = f"List every class that derives directly from {where}: its direct subclasses, not theirs."
     amb = (f" The repository has {c.same_name} symbols named `{c.name}`; only the one above counts."
            if c.ambiguous else "")
-    if _shares_a_name(c.gold + c.accepted):  # the grader resolves a bare name against both
+    if _shares_a_name(c.gold + c.accepted + c.distinct):  # what the grader resolves a bare name against
         amb += " Two answers share a name in one file: write each with its namespace or class (`ns::Name`, `Class.name`)."
     return (f"You are working in a checkout of this repository (the current directory). {ask}{amb} Do not modify "
             f"any files. End your answer with a fenced ```json block holding {_ANSWER[key]}.")

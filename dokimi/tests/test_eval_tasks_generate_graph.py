@@ -592,6 +592,7 @@ def test_a_same_named_function_of_a_gold_file_is_written_as_distinct(tmp_path):
     p = plan(_index(docs), list(docs), _opts(tmp_path))
     (o,) = [o for o in p.outcomes if o.candidate.symbols == (RUN,)]
     assert o.candidate.distinct == ("src/cli.py::run",)
+    assert "namespace or class" in graph_tasks._prompt(o.candidate, "functions")
     write(p, _opts(tmp_path), {"tool": "scip-python", "sha256": "0" * 64})
     assert json.loads((tmp_path / "tasks" / o.task / "gold.json").read_text())["distinct"] == ["src/cli.py::run"]
 
@@ -618,3 +619,5 @@ def test_an_over_qualified_answer_names_the_longest_known_item(tmp_path):
     assert _grade(tmp_path, fence({"functions": ["a.py::cli.Impl.run"]}), gold)["f1"] == 1.0
     two = {"answer_key": "functions", "gold": ["a.py::A.run", "a.py::B.run"]}
     assert _grade(tmp_path, fence({"functions": ["a.py::run"]}), two)["n_false_positive"] == 1  # still ambiguous
+    nested = {"answer_key": "functions", "gold": ["a.py::run"], "distinct": ["a.py::Outer.Impl.run"]}
+    assert _grade(tmp_path, fence({"functions": ["a.py::Impl.run"]}), nested)["n_false_positive"] == 1

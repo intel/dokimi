@@ -1047,8 +1047,8 @@ loses a leading `./`; in a name `::` reads as `.` and a trailing `()` is
 dropped. A name that matches no item exactly names the one gold or accepted
 item of its file whose name ends with it, or that it ends with, in whole parts (`go` for
 `Impl.go`, `ns.Impl` for `Impl`), when there is one and no `distinct` item
-of the file fits it too; a name that ends with several (`cli.Impl.go` for
-`Impl.go` and `go`) names the longest; `B.go` never names `Impl.go`. An item in an
+of the file fits it too; a name that agrees with several names the one sharing
+the most trailing parts with it (`cli.Impl.go` names `Impl.go`, not `go`); `B.go` never names `Impl.go`. An item in an
 `exclude` file is dropped, an item in `accepted` counts neither way. The score
 is F1 against `gold`. A gold file with an unknown `answer_key`, an empty
 `gold`, a blank `gold` entry, a `gold` entry in an `exclude` file, or an

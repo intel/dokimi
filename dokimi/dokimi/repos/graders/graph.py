@@ -84,8 +84,9 @@ def _resolve(items, known):
     """Map an answer item to the known item it names: exact, else the one item of ``known`` (gold and accepted)
     in that file whose name agrees with it (:func:`_names_agree`); ``distinct`` items are known too, so an answer
     that also fits one of them names no gold item: ``run`` names ``Impl.run`` when no other
-    known item of the file is a ``run``; ``B.run`` never names ``A.run``. An answer that ends with several known
-    names (``cli.Impl.run`` with ``Impl.run`` and ``run``) names the longest."""
+    known item of the file is a ``run``; ``B.run`` never names ``A.run``. When several agree, the one sharing the
+    most trailing parts with the answer: ``cli.Impl.run`` names ``Impl.run`` over ``run``, ``Impl.run`` names
+    ``Outer.Impl.run`` over ``run``."""
     by_path: dict = {}
     for k in known:
         path, sep, name = k.partition("::")
@@ -95,9 +96,9 @@ def _resolve(items, known):
     for x in items:
         path, sep, name = x.partition("::")
         hits = [] if x in known or not sep else [(n, k) for n, k in by_path.get(path, ()) if _names_agree(name, n)]
-        # an over-qualified answer (``cli.Impl.run``) ends with several known names: the longest is the one meant
-        within = [(n.count("."), k) for n, k in hits if n.count(".") <= name.count(".")]
-        top = [k for d, k in within if d == max(within)[0]] if within else [k for _, k in hits]
+        # several agree (``cli.Impl.run`` with ``Impl.run`` and ``run``): the one sharing the most trailing parts
+        shared = [(min(n.count("."), name.count(".")), k) for n, k in hits]
+        top = [k for d, k in shared if d == max(shared)[0]] if shared else []
         out.add(top[0] if len(top) == 1 else x)
     return out
 
