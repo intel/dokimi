@@ -1,0 +1,22 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+# Intel CI settings for dokimi, see ci/README.md
+version: 1
+workflow: intel-ci.yml
+artifacts:
+  conda: "dokimi {platform} Python {python}"
+  wheel: "dokimi {platform} Wheels Python {python}"
+test:
+  # dokimi/requirements-test.txt without the coverage tools and the package's own requirements; the names are the same on PyPI.
+  requires:
+    - "pytest >=9.0.3"
+    - "hypothesis >=6.100"
+    - "pytest-mock >=3.12.0"
+    - "pytest-socket >=0.7"
+    - "pytest-timeout >=2.2"
+    - "pytest-randomly >=3.15"
+    - "pytest-xdist >=3.6"
+    - "markdown-it-py >=3"
+    - packaging
+    - "mypy ==2.4.0"

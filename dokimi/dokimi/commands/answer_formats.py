@@ -44,8 +44,12 @@ def cmd_eval_reference(args: argparse.Namespace) -> None:
     from dokimi.eval.reference_run import artifact, score
     from dokimi.questions.artifact import load_questions
 
-    questions = load_questions(args.questions).artifact.get("questions") or []
     data = json.loads(Path(args.answers).read_text(encoding="utf-8"))
+    questions = load_questions(args.questions).artifact.get("questions") or []
+    if not args.no_judge:
+        from dokimi.utils import warn_recorded_self_judge
+
+        warn_recorded_self_judge(data, [(args.judge_model, args.judge_provider)], "eval score reference")
     try:
         result = score(data, questions, ask=_ask(args), source=args.answers, concurrency=args.concurrency)
     except ValueError as e:

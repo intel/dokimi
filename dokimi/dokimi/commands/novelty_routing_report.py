@@ -11,13 +11,15 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
+from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn
 
 from dokimi.utils import InputError
 
 if TYPE_CHECKING:
-    from pathlib import Path
+    from dokimi.novelty.routing import Candidate
 
 
 def routing_queries(args: argparse.Namespace, body: str) -> tuple[list[str], bool, str | None]:
@@ -87,54 +89,228 @@ def refuse_estimate_without_queries(args: argparse.Namespace, queries: list[str]
                    "Nothing is estimated, since the run would be refused")
 
 
-# Why a field rule left a skill out, as the refusal says it, in the order it says them.
-_LEFT_OUT_BECAUSE = {
-    "disabled": "sets disable-model-invocation (--include-disabled keeps it)",
-    "invalid": "has a spec error (--include-invalid keeps it)",
-    "conflict": "has copies with different content (every copy of a name that two different "
-                "skills share is left out whatever the flag says; dedupe or rename them)",
+# Why a field rule left a skill out: the phrase for the reason, the flag that keeps the skill, and
+# the words that name that flag, in the order they are named.
+_LEFT_OUT = {
+    "disabled": ("sets disable-model-invocation", "--include-disabled",
+                 "--include-disabled keeps it"),
+    "invalid": ("has a spec error", "--include-invalid", "--include-invalid keeps it"),
+    "conflict": ("has copies with different content", "--keep-copies-under",
+                 "--keep-copies-under <dir> keeps only the copies under <dir>"),
 }
 
 
-def refuse_queries_naming_left_out(field: list, queries_by_skill: dict[str, list[str]],
-                                   dropped: dict[str, set[str]]) -> None:
-    """Refuse queries for a skill a field rule left out, naming each skill and every reason.
+def conflict_hint(catalog: str, conflicts: dict[str, list[str]]) -> str:
+    """Where the copies of each conflicting name sit, and the ways out of each conflict.
 
-    ``dropped`` maps each name :func:`_routing_field` left out to why (``disabled``, ``invalid``,
-    ``conflict``), so the field is not read again. The generic "not in the field" refusal can
-    only list the rules, so this names the rule behind each skill. A query file naming only skills
-    no rule left out falls through to that refusal.
+    A skill directory under another directory of the catalog (``skills/review``) is a
+    ``--catalog`` to point at, and a ``--keep-copies-under`` to keep. A skill directory directly
+    beneath the catalog (``review``) is only a ``--keep-copies-under``: its name is the directory
+    to keep. A ``SKILL.md`` in the catalog root is neither: its copy routes only once it is
+    deduped or renamed. A directory is suggested only when it holds exactly one of the name's
+    copies, since one that holds two (``skills`` over ``skills/legacy/review``) keeps the
+    conflict. The ways out are given per name: ``--keep-copies-under`` takes one directory.
     """
-    unknown = sorted(set(queries_by_skill) - {c.name for c in field})
-    if not any(name in dropped for name in unknown):
+    texts = [_conflict_hint_for(catalog, name, paths) for name, paths in sorted(conflicts.items())]
+    if len(texts) > 1:
+        texts.append("--keep-copies-under takes one directory, so one run resolves only the names "
+                     "whose copies that directory splits.")
+    return " ".join(texts)
+
+
+def _conflict_hint_for(catalog: str, name: str, paths: list[str]) -> str:
+    """The ways out of one name's conflict: the directories that hold exactly one of its copies."""
+    from dokimi.novelty.catalog_keep import under
+
+    rels = [Path(os.path.relpath(os.path.abspath(p), os.path.abspath(catalog))).parts for p in paths]
+    places = {_copy_place(path, catalog) for path in paths}
+
+    def holds_one(directory: str) -> bool:
+        parts = Path(directory).parts
+        return sum(rel[:len(parts)] == parts for rel in rels) == 1
+
+    def keeps_one(directory: str) -> bool:  # the keep rule: a symlinked copy sits where it points
+        prefix = (Path(catalog) / directory).resolve()
+        return sum(under(Path(p), prefix) for p in paths) == 1
+
+    holders = sorted({d for kind, d in places if kind == "holder" and holds_one(d)})
+    skills = sorted({d for kind, d in places if kind == "skill" and holds_one(d)})
+    at_root = any(kind == "root" for kind, _ in places)
+    kept = [d for d in holders + skills if keeps_one(d)]
+    if not holders and not kept:
+        return (f"`{name}`: no --catalog or --keep-copies-under picks one of its copies (they sit "
+                "at the catalog root or one inside another's directory): dedupe or rename them.")
+    keeps = " or ".join(f"--keep-copies-under {d}" for d in kept)
+    where = [f"under {d}" for d in holders] + [f"in the skill directory {d}" for d in skills]
+    if at_root:
+        where.append("at the catalog root")
+    if holders:
+        picks = " or ".join(f"--catalog {os.path.join(catalog, d)}" for d in holders)
+        text = (f"`{name}`: copies sit {' and '.join(where)}: point --catalog at one of those "
+                f"directories ({picks})"
+                + (f", or keep only one directory's copies with {keeps}." if kept else "."))
+    else:
+        text = f"`{name}`: copies sit {' and '.join(where)}: keep only one with {keeps}."
+    if at_root:
+        text += " The copy at the catalog root routes only once it is deduped or renamed."
+    return text
+
+
+def _copy_place(path: str, catalog: str) -> tuple[str, str]:
+    """Where a copy of a skill sits under the catalog, as ``(kind, directory)``.
+
+    ``root``: a ``SKILL.md`` directly in the catalog (the directory is ``.``, which no flag picks).
+    ``skill``: a skill directory directly beneath the catalog, e.g. ``review/SKILL.md``; the
+    directory is the skill's own, and ``--keep-copies-under`` keeps it. ``holder``: a skill
+    directory under another directory, e.g. ``skills/review/SKILL.md``; the directory holds it,
+    and both ``--catalog`` and ``--keep-copies-under`` take it.
+    """
+    rel = Path(os.path.relpath(os.path.abspath(path), os.path.abspath(catalog)))
+    if len(rel.parts) <= 1:
+        return "root", "."
+    if len(rel.parts) == 2:
+        return "skill", rel.parent.as_posix()
+    return "holder", rel.parent.parent.as_posix()
+
+
+def no_competitors_conflict(args: argparse.Namespace, conflicts: dict[str, list[str]]) -> str:
+    """The refusal for a single-artifact run whose field the name conflicts left empty."""
+    names = ", ".join(f"`{n}`" for n in sorted(conflicts))
+    return ("routing needs competitors, and the catalog left none in the field: " + names
+            + " have copies with different content, so the field leaves them out. "
+            + conflict_hint(args.catalog, conflicts)
+            + " Selecting from one candidate measures whether the model will use a tool at "
+            "all, not whether this artifact wins")
+
+
+def check_all_vs_all_args(args: argparse.Namespace) -> None:
+    """Refuse the flag combinations ``--all-vs-all`` cannot run with, and name every missing flag."""
+    if args.artifact:
+        raise InputError("--all-vs-all takes no --artifact: every skill in the field is the gold in turn")
+    if args.queries or args.queries_from_headings:
+        raise InputError("--all-vs-all takes --queries-by-skill, not --queries or --queries-from-headings")
+    # --out is not needed to estimate, which writes nothing, as a single-artifact estimate.
+    missing = {}
+    if not args.queries_by_skill:
+        missing["--queries-by-skill <file>"] = ("a JSON object of skill name to the requests "
+                                                "that should select it")
+    if not args.out and not args.estimate_only:
+        missing["--out <file>"] = "where the result is written"
+    if missing:
+        raise InputError(f"--all-vs-all needs {' and '.join(missing)}: "
+                         + "; ".join(f"{flag} is {what}" for flag, what in missing.items()))
+    if args.out and not args.estimate_only:
+        from dokimi.commands.novelty_routing_inputs import checked_out_path
+
+        checked_out_path(args.out, "--all-vs-all")
+
+
+def check_all_vs_all_field(args: argparse.Namespace, field: list, dropped: dict[str, set[str]],
+                           conflicts: dict[str, list[str]]) -> None:
+    """Refuse a field of fewer than two skills, naming each skill the field left out and why.
+
+    A field that names a skill twice is refused too, before the estimate prices it, as the
+    measured run refuses it (:func:`check_field_names`).
+    """
+    from dokimi.novelty.all_vs_all import check_field_names
+
+    check_field_names([c.name for c in field])
+    if len(field) >= 2:
         return
-    reasons = []
-    for name in unknown:
-        whys = [text for why, text in _LEFT_OUT_BECAUSE.items() if why in dropped.get(name, ())]
-        reasons.append(f"`{name}` {' and '.join(whys)}, so the field leaves it out" if whys
-                       else f"`{name}` is not a loadable skill the field was given")
-    raise InputError("the queries name skills that are not in the field: "
-               + ", ".join(f"`{n}`" for n in unknown) + ". " + "; ".join(reasons))
+    left = _left_out_list(_left_out_only(dropped, field))
+    hint = f" {conflict_hint(args.catalog, conflicts)}" if conflicts else ""
+    raise InputError("all-vs-all needs at least two skills in the field"
+                     + (f": the field leaves out {left}" if left else "") + "." + hint)
 
 
-def print_routing_estimate(args: argparse.Namespace, candidates: list, queries: list[str]) -> None:
-    """The model arm's calls, tokens and list-price USD, as JSON; nothing is sent.
+def _left_out_reasons(name: str, dropped: dict[str, set[str]]) -> tuple[str, str]:
+    """Why the field leaves ``name`` out, and the flags that keep it, as two phrases."""
+    reasons = [_LEFT_OUT[why] for why in _LEFT_OUT if why in dropped.get(name, ())]
+    return " and ".join(why for why, _, _ in reasons), "; ".join(keep for _, _, keep in reasons)
 
-    No client is built. Without ``--model`` the run is lexical only, so the bill is zero.
+
+def _left_out_only(dropped: dict[str, set[str]], field: list[Candidate]) -> dict[str, set[str]]:
+    """``dropped`` without the names the field still has: a skill with one copy left in is in it."""
+    names = {c.name for c in field}
+    return {name: why for name, why in dropped.items() if name not in names}
+
+
+def _left_out_list(dropped: dict[str, set[str]]) -> str:
+    """Each skill the field left out, with its reason and the flag that keeps it, in one line."""
+    return "; ".join(f"`{name}` {why}; {keep}" for name in sorted(dropped)
+                     for why, keep in [_left_out_reasons(name, dropped)])
+
+
+def _unexplained_message(names: list[str], unloaded: dict[str, str]) -> str:
+    """The refusal for queries naming skills no field rule explains.
+
+    A catalog skill that failed to load is named with why it did not load, since it is in the
+    catalog. Any other name is more likely a misspelling.
     """
-    from dokimi.novelty.routing import (
-        SELECTION_REPLY_TOKENS,
-        selection_estimate,
-        selection_prompt_tokens,
-    )
+    sentences = [f"`{n}` is a catalog skill that failed to load: {unloaded[n]}"
+                 for n in names if n in unloaded]
+    missing = [n for n in names if n not in unloaded]
+    if missing:
+        which = "that name" if missing == names and len(missing) == 1 else (
+            ", ".join(f"`{n}`" for n in missing))
+        sentences.append(f"No catalog skill or --competitors has {which}; check the spelling")
+    return ("the queries name skills that are not in the field: "
+            + ", ".join(f"`{n}`" for n in names) + ". " + ". ".join(sentences))
 
-    # Without --model there is no selector, so no call is made, whatever --repeats says.
-    estimate = selection_estimate(candidates, queries,
-                                  repeats=args.repeats if args.model else 0)
+
+def drop_queries_left_out(queries_by_skill: dict[str, list[str]], field: list[Candidate],
+                          dropped: dict[str, set[str]], unloaded: dict[str, str],
+                          ) -> tuple[dict[str, list[str]], list[dict]]:
+    """The queries of the skills the field left out dropped, each with a WARNING naming its flag.
+
+    A name the field left out for a rule (``dropped``) loses its queries; the run goes on with the
+    rest. A name with a copy that failed to load is refused, even when another copy is in the
+    field. A name no rule explains is refused: a catalog skill that failed to load says why, and any
+    other name is more likely a misspelling. Refused too when no query is left to route. Returns the
+    kept queries and one record per dropped skill, for the saved field record:
+    ``{"skill", "reasons", "keep_flags", "queries"}``, so ``queries`` sums to the dropped count.
+    """
+    names = {c.name for c in field}
+    # a copy that failed to load may differ from the one that loaded, so the name is not measured
+    half_loaded = sorted(n for n in queries_by_skill if n in names and n in unloaded)
+    if half_loaded:
+        raise InputError("the queries name skills with a catalog copy that failed to load beside "
+                         "one that loaded, so which copy they measure is unknown: "
+                         + "; ".join(f"`{n}`: {unloaded[n]}" for n in half_loaded)
+                         + ". Fix or remove the broken copy")
+    # a name with a copy that failed to load is refused even when a rule also left a copy out
+    unexplained = sorted(n for n in queries_by_skill
+                         if n not in names and (n in unloaded or n not in dropped))
+    if unexplained:
+        raise InputError(_unexplained_message(unexplained, unloaded))
+    kept = {name: queries for name, queries in queries_by_skill.items() if name in names}
+    records: list[dict] = []
+    for name in sorted(set(queries_by_skill) - names):
+        why, keep = _left_out_reasons(name, dropped)
+        count = len(queries_by_skill[name])
+        print(f"WARNING: dropped {count} {'query' if count == 1 else 'queries'} of `{name}`: the "
+              f"field leaves it out, since it {why}; {keep}", file=sys.stderr)
+        reasons = [reason for reason in _LEFT_OUT if reason in dropped.get(name, ())]
+        records.append({"skill": name, "reasons": reasons,
+                        "keep_flags": [_LEFT_OUT[reason][1] for reason in reasons],
+                        "queries": count})
+    if not kept:
+        queried = {name: why for name, why in dropped.items() if name in queries_by_skill}
+        why = ("" if not queries_by_skill else ": the queries name only skills the field leaves "
+               f"out ({_left_out_list(_left_out_only(queried, field))})")
+        raise InputError(f"no skill in the field has queries to route{why}")
+    return kept, records
+
+
+def _print_estimate(args: argparse.Namespace, candidates: list, sent: list[str],
+                    estimate: dict) -> None:
+    """The estimate as JSON, with the list-price USD of the calls ``sent`` makes; nothing is sent."""
+    from dokimi.novelty.routing import SELECTION_REPLY_TOKENS, selection_prompt_tokens
+
     usd: float | None = 0.0
     if args.model and estimate["n_calls"]:
         usd = estimate_routing_usd(args.model, args.provider,
-                                   selection_prompt_tokens(candidates, queries), args.repeats)
+                                   selection_prompt_tokens(candidates, sent), args.repeats)
     print(json.dumps({"estimate_only": True, "artifact": args.artifact, "model": args.model,
                       "provider": args.provider if args.model else None,
                       "n_candidates": len(candidates), **estimate,
@@ -146,6 +322,34 @@ def print_routing_estimate(args: argparse.Namespace, candidates: list, queries: 
     if args.model and estimate["n_calls"] and usd is None:
         print(f"expected_usd is null: {args.model} has no list price in the litellm price map",
               file=sys.stderr)
+
+
+def print_routing_estimate(args: argparse.Namespace, candidates: list, queries: list[str]) -> None:
+    """The model arm's calls, tokens and list-price USD, as JSON; nothing is sent.
+
+    No client is built. Without ``--model`` the run is lexical only, so the bill is zero.
+    """
+    from dokimi.novelty.routing import selection_estimate
+
+    # Without --model there is no selector, so no call is made, whatever --repeats says.
+    estimate = selection_estimate(candidates, queries,
+                                  repeats=args.repeats if args.model else 0)
+    _print_estimate(args, candidates, queries, estimate)
+
+
+def print_all_vs_all_estimate(args: argparse.Namespace, field: list[Candidate],
+                              queries_by_skill: dict[str, list[str]]) -> None:
+    """The all-vs-all run's calls, priced as :func:`print_routing_estimate` prices one artifact's.
+
+    The model arm sends each query with a content word, every skill's queries with the whole field
+    on each call, so those are what is counted. ``n_queries`` is every query the run would route.
+    """
+    from dokimi.novelty.routing import selection_estimate, tokenize
+
+    sent = [query for queries in queries_by_skill.values() for query in queries if tokenize(query)]
+    estimate = selection_estimate(field, sent, repeats=args.repeats if args.model else 0)
+    estimate["n_queries"] = sum(len(queries) for queries in queries_by_skill.values())
+    _print_estimate(args, field, sent, estimate)
 
 
 def print_routing_summary(payload: dict, n_competitors: int, self_derived: bool) -> None:
@@ -261,3 +465,24 @@ def exit_partial_all_vs_all(model_arm: dict, cost: dict | None, failed: int, sen
                      f"({model_arm['first_error']}); the partial result leaves the failed calls "
                      "out of model-arm scoring, and a query with a failed repeat out of the "
                      f"repeat-noise rates, is in {out}")
+
+
+def field_record(args: argparse.Namespace, competitors: list[Candidate], left_out: list[str],
+                 dropped_queries: list[dict] | None = None, gold: Candidate | None = None) -> dict:
+    """The field rule a routing result was measured under, saved next to the result.
+
+    ``dropped_queries`` (all-vs-all only) lists each skill whose queries were dropped, with the
+    reason and the flag that keeps it. ``spec_warnings`` lists ``gold`` (the skill under test,
+    when given) as well as the field: a description over the 1024-character limit is kept and
+    recorded there.
+    """
+    from dokimi.novelty.routing import over_limit_warnings
+
+    record = {**{name: bool(getattr(args, name)) for name in ("include_disabled", "include_invalid")},
+              "keep_copies_under": args.keep_copies_under,
+              "competitors": [c.name for c in competitors], "left_out": left_out,
+              "spec_warnings": (over_limit_warnings([gold], under_test=True) if gold else [])
+              + over_limit_warnings(competitors)}
+    if dropped_queries is not None:
+        record["dropped_queries"] = dropped_queries
+    return record

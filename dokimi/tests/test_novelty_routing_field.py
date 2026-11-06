@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import json
-import re
 
 import pytest
 
@@ -613,11 +612,10 @@ def test_queries_naming_a_disabled_skill_say_so_and_suggest_the_flag(tmp_path):
                                         "grill": ["interview me about my plan"]})
     args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
                   "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"))
-    with pytest.raises(InputError) as exc:
+    with pytest.raises(InputError, match="at least two skills") as exc:
         args.func(args)
     message = str(exc.value)
-    assert "not in the field: `grill`" in message
-    assert re.search(r"`grill` sets disable-model-invocation.*--include-disabled", message)
+    assert "`grill` sets disable-model-invocation; --include-disabled keeps it" in message
     assert not (tmp_path / "o.json").exists()
 
 
@@ -637,7 +635,8 @@ def test_the_disabled_skill_routes_once_include_disabled_is_passed(tmp_path, cap
     assert json.loads(out.read_text(encoding="utf-8"))["result"]["n_skills"] == 2
 
 
-def test_one_refusal_names_each_left_out_skill_with_every_rule_that_left_it_out(tmp_path):
+def test_a_name_no_rule_left_out_is_refused_alone_and_the_left_out_names_are_dropped(
+        tmp_path, capsys):
     root = tmp_path / "catalog"
     _catalog_skill(root, "perf", "profile a slow binary")
     _catalog_skill(root, "cache", "cache slow lookups")
@@ -650,21 +649,25 @@ def test_one_refusal_names_each_left_out_skill_with_every_rule_that_left_it_out(
         (root / "skills" / directory / "SKILL.md").write_text(
             f"---\nname: {name}\ndescription: {description}\n"
             "disable-model-invocation: true\n---\n\n# B\n", encoding="utf-8")
-    names = ["perf", "cache", "long", "db", "grill", "both", "ghost"]
-    queries = _write_queries(tmp_path, {name: ["q"] for name in names})
+    names = ["perf", "cache", "long", "db", "grill", "both"]
+    out = tmp_path / "o.json"
+    queries = _write_queries(tmp_path, {name: ["profile my slow binary"] for name in names + ["ghost"]})
     args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
-                  "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"))
-    with pytest.raises(InputError) as exc:
+                  "--queries-by-skill", str(queries), "--out", str(out))
+    with pytest.raises(InputError, match="not in the field: `ghost`") as exc:
         args.func(args)
-    message = str(exc.value)
-    assert "not in the field: `both`, `db`, `ghost`, `grill`, `long`." in message
-    assert "`grill` sets disable-model-invocation (--include-disabled keeps it), so" in message
-    assert "`long` has a spec error (--include-invalid keeps it), so" in message
-    assert ("`both` sets disable-model-invocation (--include-disabled keeps it) and has a spec "
-            "error (--include-invalid keeps it), so") in message
-    assert "`db` has copies with different content" in message
-    assert "`ghost` is not a loadable skill the field was given" in message
-    assert not (tmp_path / "o.json").exists()
+    assert not any(f"`{name}`" in str(exc.value) for name in names)
+    assert not out.exists()
+    queries = _write_queries(tmp_path, {name: ["profile my slow binary"] for name in names})
+    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
+                  "--queries-by-skill", str(queries), "--out", str(out))
+    args.func(args)
+    err = capsys.readouterr().err
+    assert "`db`" in err and "--keep-copies-under" in err
+    assert "`grill`" in err and "--include-disabled keeps it" in err
+    assert "`both`" in err and "--include-disabled keeps it; --include-invalid keeps it" in err
+    assert "`long`" in err and "--include-invalid keeps it" in err
+    assert json.loads(out.read_text(encoding="utf-8"))["result"]["n_skills"] == 2
 
 
 def test_a_skill_competitor_records_every_rule_that_left_it_out(tmp_path):
