@@ -426,9 +426,11 @@ Two content patterns were measured as actively harmful, independent of topic:
   entirely: it replied with a preamble promising to look things up and scored 0.047, against 0.537
   with no skill at all. Skill bodies should be answerable standalone; progressive disclosure is a
   loading strategy, not a sentence to write.
-- **Investment in prose order.** An arm with the same spans in shuffled order scored *higher* than
-  the intact artifact on four of five models. Ordering, transitions and narrative framing carried no
-  measurable knowledge. Spend the effort on facts, qualifiers and exact values — that is where the
+- **Investment in prose order.** In the study an arm labelled shuffled scored *higher* than the
+  intact artifact on four of five models, but that arm injected files the `full` arm never saw
+  (three skills' shuffled contexts were up to 15x longer); on the ten like-for-like skills the two
+  arms were level. dokimi's `shuffled` arm permutes the same text, so the probe result says only
+  that order is not measurably load-bearing for single facts. Spend the effort on facts, qualifiers and exact values — that is where the
   strict-grading `added` lives. A probe asks one atom at a time and so cannot punish a scrambled
   document, so this was retested behaviourally on the 71 generated tasks whose graded requirements
   themselves name an ordering: the two arms stay level there too, on the whole task (+0.003) and on
@@ -854,6 +856,35 @@ framing is recorded in the run config and is covered by `prompts_sha256`.
 python cli.py novelty analyze --artifact skill:s --model M   --arms no_artifact,full,placebo,no_artifact_repeat --placebo-text other-domain.md   --context-framing neutral
 ```
 
+## Provenance, judge vendors, a second judge, reversal both ways
+
+Every `novelty analyze` and `novelty probe` JSON carries a `provenance` block, so a quoted
+number can be traced to what produced it:
+
+- `dokimi_version`, and `git_commit` when dokimi runs from a git checkout (`null` otherwise).
+- `artifact_digest` (the measured text's `ref_digest`) and `prompts_sha256`.
+- `answerer_model`, `judge_model` and `context_framing`.
+- `answerer_vendor` and `judge_vendor`, read off the model id (`claude`/`anthropic`, `gpt`/`openai`,
+  `grok`/`xai`, `gemini`/`google`, `nemotron`/`nvidia`, `llama`/`meta`, else `unknown`), and
+  `same_vendor`. A judge of the answerer's vendor is not refused, as the same model is
+  (`--allow-self-judge`); it is warned about on stderr and, in `analyze`, in `warnings`.
+
+`--judge2 MODEL` regrades a seeded `--judge2-frac` share (default 0.15) of the graded runs with a
+second judge (`--judge2-provider`, default the judge's provider) and writes `judge2`:
+`lenient_agreement`, `kappa_lenient` (Cohen's kappa on the lenient collapse) and `exact_agreement`
+over `n_compared` runs, plus that judge's cost. A second judge that is the answering model is
+refused unless `--allow-self-judge`.
+
+`controls.reversal_resisted` is the with-artifact arm's share of refused planted inversions.
+`reversal_resisted_by_arm` gives it for the baseline too, and `reversal_paired` pairs each
+inversion probe across the two arms: `resisted_only_with`, `resisted_only_without`, and
+`difference` over `n_paired`. In the study a correct artifact raised resistance
+([§10.2](skill-novelty-evidence.md)).
+
+```bash
+python cli.py novelty analyze --artifact skill:s --model M --judge2 gpt-6-luna --judge2-frac 0.2
+```
+
 ## Comparing knowledge: which matcher is allowed to answer
 
 Two steps ask "is this the same knowledge?" — the retention oracle ("does the shortened text still
@@ -1240,11 +1271,12 @@ re-asked, and its truncation warning logged, on every run. An empty answer is a 
   unanimous atom outcomes under strict grading, on any model; at heading level unanimity was 0.39–0.44
   and roughly one atom in four disagreed with its own section's majority. "This section is redundant"
   is not a statement this instrument can make.
-- **Loading an artifact lowers resistance to a reversed premise.** Paired on the same planted
-  inversions, 45 probes got worse and 14 better across five models, every model pointing the same way.
-  In-context text raises willingness to commit, including to a false premise in the question, so
-  correctness of content gates before volume of content. Measured directly for a false premise *inside*
-  the artifact: a planted wrong value is stated 0.942 of the time when plausible, 0.846 when absurd, and
+- **Loading a correct artifact raises resistance to a reversed premise.** An earlier reading of the
+  study (45 probes worse, 14 better) had the sign inverted by its analysis script; recomputed on the
+  planted-inversion probes, paired by probe and model, 49 got worse and 367 better
+  ([§10.2](skill-novelty-evidence.md)). `controls.reversal_paired` reports this pairing per run.
+  Correctness of content still gates before volume: for a false premise *inside*
+  the artifact, a planted wrong value is stated 0.942 of the time when plausible, 0.846 when absurd, and
   flagged 3% of the time. `degraded` is the visible tip of that; the channel underneath it transmits at
   85–94%.
 - **A cell can stop being re-measurable.** Two of the models behind most of these numbers no longer

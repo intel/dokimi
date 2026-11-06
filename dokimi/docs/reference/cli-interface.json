@@ -9376,6 +9376,62 @@
               "group_required": null,
               "hidden": false,
               "is_flag": false,
+              "key": "--judge2",
+              "kind": "option",
+              "nargs": null,
+              "position": null,
+              "required": false,
+              "type": null
+            },
+            {
+              "action": "_StoreAction",
+              "choices": null,
+              "const": null,
+              "default": 0.15,
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": false,
+              "key": "--judge2-frac",
+              "kind": "option",
+              "nargs": null,
+              "position": null,
+              "required": false,
+              "type": "float"
+            },
+            {
+              "action": "_StoreAction",
+              "choices": [
+                "'amazon-bedrock'",
+                "'anthropic'",
+                "'claude-cli'",
+                "'google-vertex'",
+                "'openai'",
+                "'openai-codex'",
+                "'openrouter'"
+              ],
+              "const": null,
+              "default": null,
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": false,
+              "key": "--judge2-provider",
+              "kind": "option",
+              "nargs": null,
+              "position": null,
+              "required": false,
+              "type": null
+            },
+            {
+              "action": "_StoreAction",
+              "choices": null,
+              "const": null,
+              "default": null,
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": false,
               "key": "--max-atoms",
               "kind": "option",
               "nargs": null,
@@ -9445,7 +9501,7 @@
               "nargs": null,
               "position": null,
               "required": false,
-              "type": "dokimi.commands.novelty._usd#591d6e2f0474"
+              "type": "dokimi.commands.novelty_run.usd_amount#af10a4ceaa08"
             },
             {
               "action": "_StoreAction",
@@ -9913,7 +9969,7 @@
               "nargs": null,
               "position": null,
               "required": false,
-              "type": "dokimi.commands.novelty._usd#591d6e2f0474"
+              "type": "dokimi.commands.novelty_run.usd_amount#af10a4ceaa08"
             },
             {
               "action": "_StoreAction",
@@ -10364,6 +10420,62 @@
               "group_required": null,
               "hidden": false,
               "is_flag": false,
+              "key": "--judge2",
+              "kind": "option",
+              "nargs": null,
+              "position": null,
+              "required": false,
+              "type": null
+            },
+            {
+              "action": "_StoreAction",
+              "choices": null,
+              "const": null,
+              "default": 0.15,
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": false,
+              "key": "--judge2-frac",
+              "kind": "option",
+              "nargs": null,
+              "position": null,
+              "required": false,
+              "type": "float"
+            },
+            {
+              "action": "_StoreAction",
+              "choices": [
+                "'amazon-bedrock'",
+                "'anthropic'",
+                "'claude-cli'",
+                "'google-vertex'",
+                "'openai'",
+                "'openai-codex'",
+                "'openrouter'"
+              ],
+              "const": null,
+              "default": null,
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": false,
+              "key": "--judge2-provider",
+              "kind": "option",
+              "nargs": null,
+              "position": null,
+              "required": false,
+              "type": null
+            },
+            {
+              "action": "_StoreAction",
+              "choices": null,
+              "const": null,
+              "default": null,
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": false,
               "key": "--max-atoms",
               "kind": "option",
               "nargs": null,
@@ -10401,7 +10513,7 @@
               "nargs": null,
               "position": null,
               "required": false,
-              "type": "dokimi.commands.novelty._usd#591d6e2f0474"
+              "type": "dokimi.commands.novelty_run.usd_amount#af10a4ceaa08"
             },
             {
               "action": "_StoreAction",
@@ -10689,7 +10801,7 @@
               "nargs": null,
               "position": null,
               "required": false,
-              "type": "dokimi.commands.novelty._usd#591d6e2f0474"
+              "type": "dokimi.commands.novelty_run.usd_amount#af10a4ceaa08"
             },
             {
               "action": "_StoreAction",
@@ -11028,7 +11140,7 @@
               "nargs": null,
               "position": null,
               "required": false,
-              "type": "dokimi.commands.novelty._usd#591d6e2f0474"
+              "type": "dokimi.commands.novelty_run.usd_amount#af10a4ceaa08"
             },
             {
               "action": "_StoreAction",

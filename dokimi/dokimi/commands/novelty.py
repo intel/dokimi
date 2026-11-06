@@ -12,14 +12,14 @@ stage can be paid for once and reused.
 from __future__ import annotations
 
 import argparse
-import functools
 import json
-import math
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn
 
 from dokimi.commands.inputs import placebo_text_for_arms_or_exit
+from dokimi.commands.novelty_run import (add_judge2_args, add_spend_cap, judge2_client, spend_cap,
+                                         stamp, stops_at_cap)
 from dokimi.commands.novelty_routing_inputs import load_all_vs_all_field, load_routing_field
 from dokimi.commands.novelty_routing_report import (
     exit_partial_all_vs_all,
@@ -109,6 +109,7 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
 
     placebo_text = placebo_text_for_arms_or_exit(args.placebo_text, _arms(args.arms))
     extractor, answerer, judge = _clients(args)
+    judge2 = judge2_client(args, answerer, judge, _client)
     config = AnalyzeConfig(
         artifact_ref=args.artifact,
         artifact_kind=artifact_bundle.kind,
@@ -135,6 +136,7 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
     except (ExtractionError, ValueError) as exc:  # a model failure under way
         raise SystemExit(str(exc)) from None
 
+    stamp(result.artifact, args, result.measure_result, answerer=answerer, judge=judge, judge2=judge2)
     out_dir = Path(args.out_dir) if args.out_dir else _default_dir(args.artifact)
     out_json = Path(args.out_json) if args.out_json else out_dir / "novelty.json"
     save_artifact("novelty", result.artifact, out_json)
@@ -209,6 +211,7 @@ def cmd_novelty_probe(args: argparse.Namespace) -> None:
               file=sys.stderr)
     try:  # before the paraphrase calls below, which are paid
         check_self_judge(judge, answerer, args.allow_self_judge)
+        judge2 = judge2_client(args, answerer, judge, _client)
     except SelfJudgeError as exc:
         raise InputError(str(exc)) from exc
     paraphrases, reversals = settings.values["paraphrases"], settings.values["reversals"]
@@ -238,6 +241,7 @@ def cmd_novelty_probe(args: argparse.Namespace) -> None:
         probe_set=probe_set, measure_result=result,
         sampling=sampling_record(args, atoms, saved),
     )
+    stamp(payload, args, result, answerer=answerer, judge=judge, judge2=judge2)
     out = Path(args.out) if args.out else _default_dir(args.artifact) / "probes.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -611,7 +615,7 @@ def register(sub, positive_int) -> None:
                            help="Print the projected model-call bill and exit without "
                                 "spending anything")
     _add_bundle_args(analyze_p, positive_int)
-    analyze_p.set_defaults(func=_stops_at_cap(cmd_novelty_analyze))
+    analyze_p.set_defaults(func=stops_at_cap(cmd_novelty_analyze))
 
     atoms_p = novelty_sub.add_parser("atoms", help="Extract knowledge atoms and spans only")
     _add_common(atoms_p, positive_int)
@@ -625,16 +629,16 @@ def register(sub, positive_int) -> None:
     atoms_p.add_argument("--max-tokens", type=positive_int, default=None, dest="max_tokens")
     atoms_p.add_argument("--no-verify", action="store_true", dest="no_verify")
     atoms_p.add_argument("--out", default=None)
-    _add_spend_cap(atoms_p)
+    add_spend_cap(atoms_p)
     _add_bundle_args(atoms_p, positive_int)
-    atoms_p.set_defaults(func=_stops_at_cap(cmd_novelty_atoms))
+    atoms_p.set_defaults(func=stops_at_cap(cmd_novelty_atoms))
 
     probe_p = novelty_sub.add_parser("probe", help="Run paired probes against a saved atom set")
     _add_common(probe_p, positive_int)
     _add_model_args(probe_p, positive_int)
     probe_p.add_argument("--atoms", required=True, help="atoms.json from `novelty atoms`")
     probe_p.add_argument("--out", default=None)
-    probe_p.set_defaults(func=_stops_at_cap(cmd_novelty_probe))
+    probe_p.set_defaults(func=stops_at_cap(cmd_novelty_probe))
 
     shorten_p = novelty_sub.add_parser(
         "shorten", help="Score shortening candidates on tokens/knowledge/value/protection/routing"
@@ -655,8 +659,8 @@ def register(sub, positive_int) -> None:
     shorten_p.add_argument("--allow-unsafe", action="store_true", dest="allow_unsafe",
                            help="Allow a best-candidate pick that drops protected spans")
     shorten_p.add_argument("--out", default=None, help="Write the chosen candidate here")
-    _add_spend_cap(shorten_p)
-    shorten_p.set_defaults(func=_stops_at_cap(cmd_novelty_shorten))
+    add_spend_cap(shorten_p)
+    shorten_p.set_defaults(func=stops_at_cap(cmd_novelty_shorten))
 
     routing_p = novelty_sub.add_parser(
         "routing", help="Can the artifact be selected against competitors? (name+description)"
@@ -717,8 +721,8 @@ def register(sub, positive_int) -> None:
                                 "expected_usd that --model would make, as JSON, and make no model call. "
                                 "Without --model the run is lexical and the bill is zero")
     routing_p.add_argument("--out", default=None)
-    _add_spend_cap(routing_p)
-    routing_p.set_defaults(func=_stops_at_cap(cmd_novelty_routing))
+    add_spend_cap(routing_p)
+    routing_p.set_defaults(func=stops_at_cap(cmd_novelty_routing))
 
     items_p = novelty_sub.add_parser(
         "items", help="Item analysis across saved probe runs: which atoms separate the models"
@@ -828,9 +832,10 @@ def _add_model_args(parser: argparse.ArgumentParser, positive_int) -> None:
     parser.add_argument("--allow-self-judge", action="store_true", dest="allow_self_judge",
                         help="Let the answering model grade itself. Inflates scores; recorded "
                              "as a warning on the artifact")
+    add_judge2_args(parser, PROVIDERS)
     parser.add_argument("--no-paraphrase", action="store_true", dest="no_paraphrase")
     parser.add_argument("--no-reversal", action="store_true", dest="no_reversal")
-    _add_spend_cap(parser)
+    add_spend_cap(parser)
 
 
 def _role_models(args: argparse.Namespace) -> dict[str, tuple[str, str]]:
@@ -902,51 +907,8 @@ def _client(model: str, provider: str, role: str, args: argparse.Namespace):
     return LLMClient(
         model=model, provider=provider, role=role,
         max_tokens=getattr(args, "max_tokens", None),
-        cap=_spend_cap(args),
+        cap=spend_cap(args),
     )
-
-
-def _spend_cap(args: argparse.Namespace):
-    """The invocation's one ``--max-usd`` cap, shared by every role client."""
-    from dokimi.novelty.client import SpendCap
-
-    limit = getattr(args, "max_usd", None)
-    if limit is None:
-        return None
-    if getattr(args, "_spend_cap", None) is None:
-        args._spend_cap = SpendCap(limit_usd=limit)
-    return args._spend_cap
-
-
-def _stops_at_cap(command):
-    """Turn a reached spend cap into a clean exit instead of a traceback."""
-    from dokimi.novelty.client import SpendCapReached
-
-    @functools.wraps(command)
-    def run(args: argparse.Namespace) -> None:
-        try:
-            command(args)
-        except SpendCapReached as exc:
-            raise SystemExit(str(exc)) from None
-
-    return run
-
-
-def _usd(text: str) -> float:
-    """A positive, finite USD amount (``0``, negatives, ``nan`` and ``inf`` would disable the cap)."""
-    value = float(text)
-    if not math.isfinite(value) or value <= 0:
-        raise argparse.ArgumentTypeError(f"must be a positive number of USD, got {text!r}")
-    return value
-
-
-def _add_spend_cap(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--max-usd", type=_usd, default=None, dest="max_usd",
-                        help="Stop the run once its model calls have cost this much (USD, "
-                             "all roles together; calls in flight can overshoot it). A call "
-                             "with no known price also stops it; a reply replayed from "
-                             "DOKIMI_RESPONSE_CACHE counts $0, so a stopped run can be resumed "
-                             "under the same cap. Default: no cap")
 
 
 def _settings(args: argparse.Namespace) -> RunSettings:

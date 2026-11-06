@@ -125,3 +125,39 @@ def control_fields(runs, *, baseline_arm: str, with_arm: str, scoring: str,
         fields["added_net_of_noise"] = round(rates["added"] - floor["added"], 4)
         fields["degraded_within_noise"] = rates["degraded"] <= floor["degraded"]
     return fields
+
+
+def _resisted(runs, arm: str) -> dict:
+    return {_key(r): r.verdict != "wrong_reversed" for r in runs
+            if r.arm == arm and r.probe_kind == "reversal" and not r.errored}
+
+
+def reversal_by_arm(runs, arms) -> dict[str, float | None]:
+    """Share of planted-inversion probes each arm refused; ``None`` for an arm with none."""
+    out: dict[str, float | None] = {}
+    for arm in arms:
+        resisted = _resisted(runs, arm)
+        out[arm] = round(sum(resisted.values()) / len(resisted), 4) if resisted else None
+    return out
+
+
+def reversal_paired(runs, *, baseline_arm: str, with_arm: str) -> dict | None:
+    """Reversal resistance paired by probe: resisted only with the artifact, only without it.
+
+    ``difference`` is with minus without over the pairs; ``None`` when no probe has both.
+    """
+    before, after = _resisted(runs, baseline_arm), _resisted(runs, with_arm)
+    keys = sorted(before.keys() & after.keys())
+    if not keys:
+        return None
+    only_with = sum(1 for k in keys if after[k] and not before[k])
+    only_without = sum(1 for k in keys if before[k] and not after[k])
+    both = sum(1 for k in keys if before[k] and after[k])
+    return {
+        "n_paired": len(keys),
+        "resisted_only_with": only_with,
+        "resisted_only_without": only_without,
+        "resisted_both": both,
+        "resisted_neither": len(keys) - only_with - only_without - both,
+        "difference": round((only_with - only_without) / len(keys), 4),
+    }

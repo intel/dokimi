@@ -16,7 +16,6 @@ artifact so a partial run is never quoted as a full sweep.
 
 from __future__ import annotations
 
-import hashlib
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
@@ -24,7 +23,7 @@ from typing import Any
 from . import atoms as atoms_mod
 from . import attribute, bundle as bundle_mod
 from . import classify, items as items_mod
-from . import measure, needs, probes, report, retention, shorten, spans
+from . import measure, needs, probes, provenance, report, retention, shorten, spans
 from .artifact import load_artifact_text  # noqa: F401  (public path: novelty.analyze)
 from .client import LLMClient, roll_up_cost, same_client
 from .retention import RetentionOracle
@@ -72,14 +71,6 @@ class AnalyzeConfig:
     tier_overrides: dict[str, Any] = field(default_factory=dict)
 
 
-def _prompts_sha256() -> str:
-    """Digest of every stage prompt, so a prompt edit is visible as a different measurement."""
-    mods = (atoms_mod, classify, measure, needs, probes, retention)
-    texts = sorted(v for m in mods for k, v in vars(m).items()
-                   if k.endswith(("_PROMPT", "_SYSTEM")) and isinstance(v, str))
-    return "sha256:" + hashlib.sha256("\0".join(texts).encode("utf-8")).hexdigest()
-
-
 def _run_config(config: "AnalyzeConfig") -> dict:
     """What decided this cell's numbers beyond the models: two cells compare only if these match."""
     framing = {} if config.context_framing == "reference" else {
@@ -98,7 +89,7 @@ def _run_config(config: "AnalyzeConfig") -> dict:
             "verify": config.verify_faithfulness, "classify": config.classify_content,
             "shorten": config.shorten_artifact, "confirm_carriers": config.confirm_carriers,
         },
-        "prompts_sha256": _prompts_sha256(),
+        "prompts_sha256": provenance.prompts_sha256(),
     }
 
 
@@ -394,6 +385,11 @@ def analyze(
         warnings=warnings,
     )
     payload["run_config"] = _run_config(config)
+    payload["provenance"] = provenance.provenance(
+        artifact_digest=ref_digest, answerer_model=answerer.model, judge_model=judge.model,
+        context_framing=config.context_framing)
+    payload["warnings"] = sorted({*payload["warnings"], *filter(None, [
+        provenance.same_vendor_warning(payload["provenance"])])})
     payload["run_config"]["tier"] = settings.tier_record(sampled=capped)
     return AnalyzeResult(
         artifact=payload,
