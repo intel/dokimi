@@ -207,6 +207,28 @@ def test_ci_pythons_reads_single_version_and_matrix_legs(env: dict[str, Any]) ->
     assert cl.ci_pythons() == ("3.97", ["3.96", PYV, "3.99"])
 
 
+FROM_JSON_WF = """on: pull_request
+jobs:
+  matrix:
+    steps:
+      - run: echo matrix
+  build:
+    strategy:
+      matrix: ${{ fromJSON(needs.matrix.outputs.matrix) }}
+    steps:
+      - run: conda install -y -n base conda-build
+"""
+
+
+def test_a_matrix_from_another_jobs_output_is_skipped(env: dict[str, Any], capsys: Any) -> None:
+    """intel-ci.yml's matrix is a fromJSON string: no legs to read, and its job is a skip, not a crash."""
+    (cl.WORKFLOWS / "x.yml").write_text(FROM_JSON_WF)
+    assert cl.ci_pythons() == (None, [])
+    cl.run(ns())
+    assert [c["cmd"][-1].strip() for c in env["calls"]] == ["echo matrix"]
+    assert "x.yml:build: skip (matrix from another job's output)" in capsys.readouterr().out
+
+
 def test_summary_names_the_uncovered_legs_and_a_python_mismatch(
         env: dict[str, Any], capsys: Any) -> None:
     """Legs not run are the matrix minus this venv's Python; a venv on another
