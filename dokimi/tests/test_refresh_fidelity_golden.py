@@ -45,3 +45,18 @@ def test_both_cases_are_written_after_both_pass(pinned, monkeypatch, tmp_path):
     monkeypatch.setattr(rf, "capture_arm", lambda case, **kw: {"model": "<MODEL>", "tools": []})
     assert rf.main(["--host", "--binary", "/bin/true", "--out", str(tmp_path)]) == 0
     assert sorted(p.name for p in tmp_path.iterdir()) == ["bare.json", "skill.json"]
+
+
+def test_a_dirty_capture_writes_no_golden_and_is_taken_clean(pinned, monkeypatch, tmp_path):
+    # The residue gate: a request with a home path must stop the refresh before any file is written.
+    calls = []
+
+    def capture(case, **kw):
+        calls.append(kw)
+        return {"x": "/home/bob/a"}
+
+    monkeypatch.setattr(rf, "capture_arm", capture)
+    assert rf.main(["--host", "--binary", "/bin/true", "--out", str(tmp_path)]) == 1
+    assert list(tmp_path.iterdir()) == []
+    assert calls and all(kw.get("operator_host", False) is False for kw in calls)
+    assert all(kw["skill_dir"] == rf.ROOT / fd.FIXTURE_SKILL_REL for kw in calls)
