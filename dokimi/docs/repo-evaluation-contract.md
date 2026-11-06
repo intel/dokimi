@@ -2285,7 +2285,10 @@ python cli.py repo hits judge repo-runs/replay --judge openai/gpt-5.1 --labels l
   (`#31030`, `other/repo#3103`, `other/repo-#3103` and `notgithub.com/<owner>/<repo>/pull/3103`
   do not name `#3103`); no other text is compared, and a task with no `source_pr` has no
   PR to be named. With `guidance_commits_truncated` the
-  name check covered only the newest 200 commits, and the output says so. A
+  name check covered only the newest 200 commits, and the output says so; as
+  the list is newest first by committer date, a task none of them names is
+  unknown by name when its `public_at` is missing or earlier than the oldest
+  kept commit's `committed`, and clean otherwise. A
   task is **unknown** when a flag cannot be read: no `public_at` (unknown by
   date, still checked by name), a `patch:` arm (it has no history), an
   `arm_rev` with no `guidance_latest` (a batch from before it was recorded),

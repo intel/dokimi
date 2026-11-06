@@ -25,7 +25,8 @@ thread because a rule was written from it (https://github.com/intel/dokimi/issue
   of the task's own ``source_url``, or that PR's URL, none followed by a digit. ``other/repo#<n>`` does not
   count, no text is compared, and a task
   with no ``source_pr`` has no PR to be named. With
-  ``guidance_commits_truncated`` the check covered only the newest commits the list kept.
+  ``guidance_commits_truncated`` the list kept only the newest commits: a task none of them names is unknown
+  by name unless its ``public_at`` is no earlier than the oldest kept commit's ``committed``.
 
 A ``patch:`` arm has no history: each of its replay tasks is unknown, and so is each of an ``arm_rev`` with
 no ``guidance_latest`` (a batch from before it was recorded). Cells of one (arm, task) may differ (pooled
@@ -218,7 +219,22 @@ def _by_name(rev: dict[str, Any], spec: dict[str, Any]) -> _State:
             shas.append(str(c.get("sha")))
     if shas:
         return ("flag", shas)
-    return ("unknown", "a guidance_commits entry has no subject") if unread else _CLEAN
+    if unread:
+        return ("unknown", "a guidance_commits entry has no subject")
+    return _cut(rev, commits, spec)
+
+
+def _cut(rev: dict[str, Any], commits: list[dict[str, Any]], spec: dict[str, Any]) -> _State:
+    """Unknown when ``guidance_commits_truncated`` may have cut a commit after ``public_at``: the list is newest
+    first by committer date, so every cut commit is no later than the oldest one kept."""
+    if rev.get("guidance_commits_truncated") is not True:
+        return _CLEAN
+    oldest, public = _when(commits[-1].get("committed")) if commits else None, _when(spec.get("public_at"))
+    if public is None:
+        return ("unknown", "guidance_commits_truncated, no public_at date to bound it")
+    if oldest is not None and oldest <= public:
+        return _CLEAN  # every commit after public_at was kept and read
+    return ("unknown", "guidance_commits_truncated after its public_at")
 
 
 def names_pr(pr: int, source_url: Any) -> re.Pattern[str]:

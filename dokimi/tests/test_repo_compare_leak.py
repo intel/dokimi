@@ -218,6 +218,24 @@ def test_a_cut_history_is_reported_in_the_json_and_the_text(tmp_path):
         format_compare(summary).splitlines()
 
 
+def test_a_cut_history_leaves_unknown_by_name_a_task_public_before_the_oldest_kept_commit(tmp_path):
+    """The cut commits are the oldest: one may name a task reviewed before the oldest kept commit, not a later one."""
+    meta = _rev({"sub/AGENTS.md": _commit(SHA["sub"], "2026-03-10T00:00:00Z")},
+                [_commit(SHA["other"], LATE), _commit(SHA["named"], LATE, "Fixes for #4")], truncated=True)
+    specs = {"review_replay_pr1": _spec(1, public="2026-03-09T00:00:00Z", files=["x.py"]),
+             "review_replay_pr2": _spec(2, public="2026-03-10T00:00:00Z", files=["x.py"]),
+             "review_replay_pr3": _spec(3, public=None, files=["x.py"]),
+             "review_replay_pr4": _spec(4, public="2026-03-01T00:00:00Z", files=["x.py"])}
+    summary = compare([_batch(tmp_path, meta, specs)], "guidance:none")
+    leak = _leak(summary)
+    assert leak["unknown"] == {"review_replay_pr1": "guidance_commits_truncated after its public_at",
+                               "review_replay_pr3": "no public_at; guidance_commits_truncated, no public_at date to "
+                                                    "bound it"}
+    assert leak["by_name"] == {"review_replay_pr4": [SHA["named"]]} and leak["clean"] == ["review_replay_pr2"]
+    assert "  unknown, guidance_commits_truncated after its public_at: review_replay_pr1" in \
+        format_compare(summary).splitlines()
+
+
 def test_a_patch_arm_has_every_replay_task_unknown_and_guidance_none_is_not_checked(tmp_path):
     arm = "patch:rules.patch@" + "1" * 12
     meta = {"arm": arm, "arm_patch": {"path": "/x/rules.patch", "sha256": "1" * 64, "added": [], "mcp_servers": []}}
