@@ -550,14 +550,14 @@ def save_atoms(
     extractor: str | None = None, cap: int | None = None, bundle: dict | None = None,
     extraction: ExtractionReport | None = None, sample: list[Atom] | None = None,
 ) -> None:
-    """Write atoms plus their spans as one JSON file (input to ``novelty probe``).
+    """Write atoms plus their spans as one JSON file (input to ``skill novelty probe``).
 
     ``atoms`` is every extracted atom and ``sample`` the ones a run probes
     (:func:`sample_atoms`): ``sampled_atom_ids`` lists those, in probe order, when they leave
     atoms out, and is ``null`` when they are every atom or ``sample`` is not given.
 
     ``bundle`` records *which files of the artifact* these atoms came from. Without it a
-    later ``novelty probe`` cannot know whether to inject the entry point or the whole
+    later ``skill novelty probe`` cannot know whether to inject the entry point or the whole
     bundle, and would measure atoms extracted from a reference file against a context
     that never contained it -- every such atom scoring `still_missing` for the wrong
     reason.
@@ -692,7 +692,7 @@ def _check_sample(ids, held: set[str]) -> None:
 
 
 def recorded_sample(data: dict, atoms: list[Atom]) -> list[Atom]:
-    """The atoms ``novelty probe`` and ``novelty shorten`` measure by default, of ``atoms``.
+    """The atoms ``skill novelty probe`` and ``skill shorten`` measure by default, of ``atoms``.
 
     Those ``sampled_atom_ids`` names, in its order. Without the record, every atom: a file
     written before it existed holds only the atoms its run probed, and a run whose cap kept

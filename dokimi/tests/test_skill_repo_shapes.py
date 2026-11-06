@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""Skill-repo shapes met in public catalogs: `catalog scan` and `novelty routing` over each.
+"""Skill-repo shapes met in public catalogs: `catalog check` and `novelty routing` over each.
 
 Every shape is invented (tests/skill_repo_shapes.py). The sweep asserts no command crashes;
 the expectation table asserts the status each shape should get. A shape whose bug is being
@@ -24,7 +24,7 @@ from tests.skill_repo_shapes import PROBE_QUERIES, SHAPES, build_shape, probe_ar
 
 @dataclass(frozen=True)
 class Expect:
-    scan: frozenset[int]  # `catalog scan --format json` exit codes
+    scan: frozenset[int]  # `catalog check --format json` exit codes
     strict: frozenset[int]  # the same with --strict
     routing: int  # `novelty routing --catalog` exit code
     field: tuple[str, ...] | None  # competitor names when routing exits 0; None = not checked
@@ -94,7 +94,7 @@ def shape_paths(tmp_path):
 
 
 def _scan(root: Path, capsys, *, strict: bool = False) -> tuple[int, str]:
-    argv = ["catalog", "scan", "--root", str(root), "--format", "json"]
+    argv = ["catalog", "check", "--root", str(root), "--format", "json"]
     if strict:
         argv.append("--strict")
     code, out, _ = _run(argv, capsys)

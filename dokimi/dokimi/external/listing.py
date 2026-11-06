@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""Which reviewed skills a harness lists, and so the routing field and ``catalog scan`` agree on."""
+"""Which reviewed skills a harness lists, and so the routing field and ``catalog check`` agree on."""
 
 from __future__ import annotations
 

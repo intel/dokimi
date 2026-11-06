@@ -598,7 +598,7 @@ def catalog_competitors(root: str, exclude: set[str],
     the catalog has. A declared skill that cannot be loaded is left out and described in
     ``notes`` (when given) rather than aborting the run. A skill with
     ``disable-model-invocation`` is left out too, unless ``include_disabled``. A skill with a
-    spec error (``catalog scan`` reports it as an error, e.g. a name that is not its directory
+    spec error (``catalog check`` reports it as an error, e.g. a name that is not its directory
     name) is left out too, unless ``include_invalid``. A description over 1024 characters, as the
     only error, keeps the skill (harnesses differ on it; see ``only_description_too_long``). A mirror, a byte-identical
     ``SKILL.md`` under another path (a plugin copy of the ``skills/`` tree), is left out too:
@@ -652,7 +652,7 @@ def _eligible_catalog_skills(root: str, exclude: set[str], notes: list[str] | No
             continue
         if skill.name in exclude:
             continue
-        # the digest and the disabled flag are the review's, so routing and catalog scan cannot disagree
+        # the digest and the disabled flag are the review's, so routing and catalog check cannot disagree
         loaded.append((skill, review.content_sha256 or "", review))
     # the flags first: a copy no harness lists (disabled, or a spec error) does not make its name a conflict
     listed: list[tuple[Skill, str]] = []
@@ -696,7 +696,7 @@ def _conflicting_names(listed: list[tuple[Skill, str]], notes: list[str] | None,
 
     Two skills with one name and different bytes cannot both stand for the card, so the name
     leaves the field. The rest of the field stays. ``listed`` holds only the copies the flags
-    let into the field, so ``catalog scan`` names the same copies as conflicting.
+    let into the field, so ``catalog check`` names the same copies as conflicting.
     """
     digests: dict[str, set[str]] = {}
     for skill, digest in listed:

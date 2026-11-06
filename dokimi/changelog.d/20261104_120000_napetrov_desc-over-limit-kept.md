@@ -9,7 +9,7 @@
   (an empty list when none); an over-limit skill under test (`--artifact`) is warned about and
   listed there too.
   Any other spec error (name not kebab-case or not its directory name, broken frontmatter) still
-  leaves a skill out unless `--include-invalid`. `dokimi catalog scan` no longer treats such a
+  leaves a skill out unless `--include-invalid`. `dokimi catalog check` no longer treats such a
   copy as unlisted, so it reports a `name-conflict` with a different copy of the same name, as
   routing does.
   The routing field of a catalog with such a skill changes, so routing rates measured before

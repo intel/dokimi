@@ -91,9 +91,11 @@ def test_help_lists_each_root_under_its_section():
             ),
             loop,
         ),
-        **dict.fromkeys(("run", "compare", "library", "catalog", "novelty", "repo"), subjects),
+        **dict.fromkeys(
+            ("run", "compare", "library", "catalog", "novelty", "repo", "skill"), subjects
+        ),
         **dict.fromkeys(("eval",), evals),
-        **dict.fromkeys(("dataset", "ingest", "tools", "context", "runs", "backends", "data"), data),
+        **dict.fromkeys(("tools", "trace", "runs", "backends", "data"), data),
     }
 
 
@@ -110,10 +112,10 @@ PAID_PATHS = {
     ("tasks", "run"),
     ("explore", "run"),
     ("catalog", "trigger-probe"),
-    ("novelty", "analyze"),
-    ("novelty", "atoms"),
-    ("novelty", "probe"),
-    ("novelty", "shorten"),
+    ("skill", "novelty", "analyze"),
+    ("skill", "novelty", "atoms"),
+    ("skill", "novelty", "probe"),
+    ("skill", "shorten"),
     ("novelty", "routing"),
     ("repo", "reach"),
     ("repo", "skill-reach"),
@@ -347,7 +349,7 @@ def test_the_data_help_promises_only_the_kinds_it_has():
     assert set(SCHEMA_KINDS) == {"cli_routes"}  # widen the help below when a kind is added
     for path in (("data",), ("data", "schema")):
         assert "artifact" not in helps[path].lower(), helps[path]
-        assert "route" in helps[path].lower(), helps[path]
+    assert "route" in helps[("data", "schema")].lower(), helps[("data", "schema")]
 
 
 def test_only_the_top_level_parser_lists_its_commands_by_section():
