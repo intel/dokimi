@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 from dokimi import cli
-from dokimi.artifacts import SCHEMA_DIR, SCHEMA_VERSIONS, save_artifact
+from dokimi.artifacts import SCHEMA_DIR, SCHEMA_VERSIONS, run_id, save_artifact
 from dokimi.runs import kinds
 from dokimi.runs.show import MAX_SIBLINGS, Shown, show
 
@@ -108,7 +108,7 @@ def test_a_valid_artifact_shows_its_fields_contents_and_neighbours(monkeypatch, 
         "subject:    onetbb",
         "model:      m",
         "time:       2026-10-29T14:02:00Z",
-        "run_id:     - (no artifact records one yet)",
+        f"run_id:     {run_id()}",
         f"size:       {size:,} bytes",
         "contents:   arms: 4, answers: 0",
         "next to it: onetbb-matrix/, onetbb.md, plugin_delta.json (plugin_delta.v1)",
@@ -186,7 +186,7 @@ def test_json_has_the_list_fields_the_schema_check_and_the_neighbours(monkeypatc
     data = json.loads(_show(monkeypatch, capsys, "arms/onetbb.json", "--json").out)
 
     assert data == {
-        "schema_version": "arms.v1", "kind": "arms", "run_id": None, "subject": "onetbb",
+        "schema_version": "arms.v1", "kind": "arms", "run_id": run_id(), "subject": "onetbb",
         "model": "m", "generated_at": "2026-10-29T14:02:00Z", "path": "arms/onetbb.json",
         "size_bytes": (root / "arms" / "onetbb.json").stat().st_size, "root": "results",
         "schema": "arms.v1", "schema_valid": True, "schema_errors": [],

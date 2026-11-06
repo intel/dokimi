@@ -359,9 +359,9 @@ next release.
 - `dokimi/repos/compare.py` — `repo compare`: treatment arms against a
   baseline arm over one or more batches, one value per task and arm (gate
   share, score, cost, turns, chosen `grade.json` metrics, `result.json`
-  `process` counts), with an interval
-  over tasks (bootstrap for gate and score, t for the rest), a sign-flip
-  permutation p and Holm's correction. `dokimi/repos/compare_tasks.py` holds
+  `process` counts), with a sign-flip permutation p, an interval over tasks
+  that inverts it (`dokimi/repos/compare_interval.py`) and Holm's correction.
+  `dokimi/repos/compare_tasks.py` holds
   what its `--task` selection keeps; `dokimi/repos/compare_reach.py` how small
   an effect a row can find (`mde`, an uncorrected t-based estimate, and the
   lowest `p_holm` Holm's family leaves it); `dokimi/repos/compare_judged.py`

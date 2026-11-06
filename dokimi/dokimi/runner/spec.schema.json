@@ -191,7 +191,7 @@
     "golden_manifest": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["min_docs", "max_docs", "include", "exclude"],
+      "required": ["min_docs", "include", "exclude"],
       "properties": {
         "min_docs": { "type": "integer", "minimum": 1, "maximum": 10000 },
         "max_docs": { "type": "integer", "minimum": 1, "maximum": 10000 },
