@@ -637,3 +637,18 @@ def test_every_keep_the_hint_suggests_resolves_a_copy_whose_skill_md_is_a_symlin
     for keep in keeps:
         assert [c.name for c in catalog_competitors(str(root), set(), [],
                                                     keep_copies_under=keep)] == ["review"]
+
+
+def test_a_keep_copies_under_that_resolves_a_name_adds_no_kept_no_copy_note(tmp_path):
+    root = tmp_path / "catalog"
+    _skill(root, "a", "db", "tune a database")
+    _skill(root, "b", "db", "tune a database, b copy")
+    _skill(root, "c", "lint", "lint the code")
+    _skill(root, "d", "lint", "lint the code, d copy")
+    _skill(root, "a", "mirror", "mirror the text")
+    _skill(root, "z", "mirror", "mirror the text")
+    notes: list[str] = []
+    catalog_competitors(str(root), set(), notes, keep_copies_under="a")
+    assert any("kept catalog skill 'db' under a" in note for note in notes)
+    assert not any("kept no copy" in note for note in notes)
+    assert not any("kept catalog skill 'mirror'" in note for note in notes)
