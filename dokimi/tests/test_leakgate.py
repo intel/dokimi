@@ -514,3 +514,10 @@ def test_a_json_check_value_with_accented_text_is_compared_as_its_text():
     words_ = " ".join(f"café{i}" for i in range(20))
     q = _q("1", [{"type": "json", "values": [{"note": words_}]}])
     assert assess([q], skill_index(_skill(f"Expected output: {words_}")))[0]["status"] == "flagged"
+
+
+def test_a_bom_on_the_first_allow_line_does_not_make_a_comment_a_term(tmp_path):
+    allow = tmp_path / "allow.txt"
+    allow.write_bytes("﻿# why this term is allowed\nxpu_profiler\n".encode("utf-8"))
+    from dokimi.eval.leakgate import read_terms
+    assert read_terms([], allow) == ["xpu_profiler"]

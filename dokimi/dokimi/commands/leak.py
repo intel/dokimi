@@ -52,7 +52,10 @@ def cmd_eval_leak(args: argparse.Namespace) -> None:
         lock_path = Path(args.lock) if args.lock else split_path.with_name(split_path.stem + ".lock.json")
     # An output over an input replaces it: --out would become the leak.v1 artifact, --lock the split's lock.
     # The skill is every file under its directory, since --out can name any of them.
-    skill_files = [p for p in Path(args.skill).rglob("*") if p.is_file()] if Path(args.skill).is_dir() else []
+    skill_root = Path(args.skill)
+    if skill_root.is_file():
+        skill_root = skill_root.parent  # read_skill reads the directory of a SKILL.md argument
+    skill_files = [p for p in skill_root.rglob("*") if p.is_file()] if skill_root.is_dir() else []
     inputs = {os.path.realpath(p) for p in [args.skill, args.questions, args.split, args.proposer, args.allow_file,
                                             *skill_files] if p}
     out_real = os.path.realpath(args.out) if args.out else None

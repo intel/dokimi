@@ -78,7 +78,7 @@ def read_terms(terms: Iterable[str], allow_file: Optional[Path | str] = None) ->
     """The allowlist: the terms given, then the non-blank lines of ``allow_file`` that do not start with ``#``."""
     out = [t for t in terms if t.strip()]
     if allow_file is not None:
-        for line in Path(allow_file).read_text(encoding="utf-8").splitlines():
+        for line in Path(allow_file).read_text(encoding="utf-8-sig").splitlines():  # a BOM is not a comment mark
             if line.strip() and not line.strip().startswith("#"):
                 out.append(line.strip())
     return out

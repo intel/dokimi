@@ -299,3 +299,13 @@ def test_a_relock_lock_that_names_the_split_is_refused_and_the_split_kept(tmp_pa
     before = split.read_bytes()
     assert _exit_code(_args(skill, questions, split=str(split), lock=str(split), relock=True)) == 2
     assert split.read_bytes() == before
+
+
+def test_an_out_beside_a_skill_md_given_as_the_skill_is_refused_and_the_sibling_kept(tmp_path):
+    # read_skill reads the directory of a SKILL.md argument, so its sibling files are inputs too
+    skill, questions = _clean_run(tmp_path)
+    helper = skill / "helper.md"
+    helper.write_text("helper notes\n", encoding="utf-8")
+    before = helper.read_bytes()
+    assert _exit_code(_args(skill / "SKILL.md", questions, out=str(helper))) == 2
+    assert helper.read_bytes() == before
