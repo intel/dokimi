@@ -120,13 +120,29 @@ def validate_supported_matrix_harnesses(cells) -> None:
         )
 
 
+def _doc_arms(treatments):
+    """Yield ``(arm, top_level)`` for each doc arm, past plugins and ``+`` stacks."""
+    from dokimi.treatments.arms import DocTreatment, MCPAgentTreatment
+
+    doc_arm_types = (DocTreatment, MCPAgentTreatment)
+    for treatment in treatments:
+        unwrapped = getattr(treatment, "inner", treatment)
+        if isinstance(unwrapped, doc_arm_types):
+            yield unwrapped, True
+        for sub in getattr(unwrapped, "treatments", None) or []:
+            sub = getattr(sub, "inner", sub)
+            if isinstance(sub, doc_arm_types):
+                yield sub, False
+
+
 def resolve_doc_library_id(treatments, product: str, explicit_id=None, registry=None):
     """Resolve the library id of every doc arm, before plugin wrapping.
 
-    Each ``DocTreatment``, top-level or inside a ``+`` stack, keeps its own id
-    in ``library_id``, so an ``mcp:`` source's ``;id=`` applies to its own arm
-    whatever the arm order. The return value is the first top-level doc arm's
-    id (the run-wide id the records carry), or ``None`` without one.
+    Each ``DocTreatment`` or ``MCPAgentTreatment``, top-level or inside a ``+``
+    stack, keeps its own id in ``library_id``, so an ``mcp:`` source's ``;id=``
+    applies to its own arm whatever the arm order. The return value is the first
+    top-level doc arm's id (the run-wide id the records carry), or ``None``
+    without one.
 
     Same order as the ``answers``/``questions`` commands: explicit flag (an
     empty one counts as unset), then the ``;id=`` of an ``mcp:`` source, then
@@ -138,7 +154,6 @@ def resolve_doc_library_id(treatments, product: str, explicit_id=None, registry=
     back to the product name for that arm, which the arm reports.
     """
     from dokimi.mcp.factory import resolve_library_id_for_product
-    from dokimi.treatments.arms import DocTreatment
 
     def resolve(arm):
         if explicit_id:
@@ -155,16 +170,10 @@ def resolve_doc_library_id(treatments, product: str, explicit_id=None, registry=
         return arm.library_id
 
     first = None
-    for treatment in treatments:
-        unwrapped = getattr(treatment, "inner", treatment)
-        if isinstance(unwrapped, DocTreatment):
-            lib_id = resolve(unwrapped)
-            if first is None:
-                first = lib_id
-        for sub in getattr(unwrapped, "treatments", None) or []:
-            sub = getattr(sub, "inner", sub)
-            if isinstance(sub, DocTreatment):
-                resolve(sub)
+    for arm, top_level in _doc_arms(treatments):
+        lib_id = resolve(arm)
+        if top_level and first is None:
+            first = lib_id
     if first is None and explicit_id:
         return explicit_id
     return first

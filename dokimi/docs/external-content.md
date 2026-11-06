@@ -453,8 +453,8 @@ Error: 'widgetlib' is not a Context7 library ID. Context7 IDs look like 'uxlfoun
 ```
 
 Resolution order for documentation and MCP arms is: explicit
-`--context7-id`, then the product's `context7_id:` in the registry, then the
-error above.
+`--context7-id`, then the `;id=` of an `mcp:` source, then the product's
+`context7_id:` in the registry, then the error above.
 
 A *registered* product that declares no `context7_id:` is the same error, named
 per product. That case needs its own check because a Context7 website id looks

@@ -127,6 +127,8 @@ class MCPAgentTreatment(Treatment):
     ):
         self.name = name
         self.mcp_client = mcp_client
+        # Set by resolve_doc_library_id: this arm's own id, ahead of the run-wide one.
+        self.library_id = None
         self.max_results = max_results
         self.keep = keep
         self.arm_kind = arm_kind
@@ -134,7 +136,7 @@ class MCPAgentTreatment(Treatment):
     def prepare(self, question_text, library_name, library_id=None) -> AgentConfig:
         from .tools import DocQueryTool
 
-        lib_id = library_id or library_name
+        lib_id = self.library_id or library_id or library_name
         tool = DocQueryTool(
             self.mcp_client, lib_id, max_results=self.max_results, keep=self.keep
         )

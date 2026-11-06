@@ -11,6 +11,7 @@ from dokimi.treatments import (
     AgentConfig,
     BaselineTreatment,
     DocTreatment,
+    MCPAgentTreatment,
     AgentProfileTreatment,
     SkillTreatment,
     create_treatment,
@@ -368,3 +369,56 @@ def test_a_doc_arm_inside_a_stack_gets_its_own_id(tmp_path):
 
     assert run_id == "declared/id"
     assert stacked.mcp_client.queried == ["source/id"]
+
+
+@pytest.mark.parametrize("agent_first", [True, False])
+def test_an_agent_arm_queries_its_own_id_whatever_the_arm_order(tmp_path, agent_first):
+    registry = _registry_with_declared_id(tmp_path)
+    doc = DocTreatment(_QueriedClient("doc/id"), name="a", rerank_threshold=0.0)
+    agent = MCPAgentTreatment(_QueriedClient("agent/id"), name="b")
+    arms = [agent, doc] if agent_first else [doc, agent]
+
+    run_id = resolve_doc_library_id(arms, "demo", registry=registry)
+    config = agent.prepare("q", "demo", run_id)
+    config.tools[0].call(query="q")
+    doc.prepare("q", "demo", run_id)
+
+    assert run_id == ("agent/id" if agent_first else "doc/id")
+    assert config.metadata["library_id"] == "agent/id"
+    assert agent.mcp_client.queried == ["agent/id"]
+    assert doc.mcp_client.queried == ["doc/id"]
+
+
+def test_an_agent_arm_alone_sets_the_run_wide_id_not_the_product_name(tmp_path):
+    registry = _registry_with_declared_id(tmp_path)
+    agent = MCPAgentTreatment(_QueriedClient("agent/id"))
+
+    run_id = resolve_doc_library_id([agent], "demo", registry=registry)
+
+    assert run_id == "agent/id"
+    assert agent.prepare("q", "demo", run_id).metadata["library_id"] == "agent/id"
+
+
+def test_an_agent_arm_without_an_id_uses_the_registry_and_the_flag_wins(tmp_path):
+    registry = _registry_with_declared_id(tmp_path)
+    plain = MCPAgentTreatment(_QueriedClient())
+    with_id = MCPAgentTreatment(_QueriedClient("agent/id"))
+
+    assert resolve_doc_library_id([plain], "demo", registry=registry) == "declared/id"
+    assert plain.prepare("q", "demo").metadata["library_id"] == "declared/id"
+    resolve_doc_library_id([with_id], "demo", explicit_id="flag/id", registry=registry)
+    assert with_id.prepare("q", "demo").metadata["library_id"] == "flag/id"
+
+
+def test_an_agent_arm_inside_a_stack_gets_its_own_id(tmp_path):
+    from dokimi.treatments.arms import CombinedTreatment
+
+    registry = _registry_with_declared_id(tmp_path)
+    stacked = MCPAgentTreatment(_QueriedClient("agent/id"))
+    top = DocTreatment(_QueriedClient(), name="b", rerank_threshold=0.0)
+    stack = CombinedTreatment([stacked, BaselineTreatment()])
+
+    run_id = resolve_doc_library_id([top, stack], "demo", registry=registry)
+
+    assert run_id == "declared/id"
+    assert stacked.library_id == "agent/id"
