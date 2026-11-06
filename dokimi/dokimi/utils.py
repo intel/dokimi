@@ -201,7 +201,7 @@ def _not_own_top(here: Path) -> str | None:
     top = run(["git", "-C", os.fspath(here), "rev-parse", "--show-toplevel"], timeout=60, env=_git_env())
     if not top.ok:
         return top.stderr.strip() or f"exit {top.returncode}"
-    found = os.fsdecode(top.stdout_bytes).rstrip("\n")
+    found = os.fsdecode(top.stdout_bytes).removesuffix("\n")  # git ends the name with one newline
     return None if Path(os.path.realpath(found)) == Path(os.path.realpath(here)) else f"git reads {found} instead"
 
 
@@ -221,7 +221,7 @@ def git_tree(base: Path) -> GitTree | None:
         top = run(["git", "-C", os.fspath(base), "rev-parse", "--show-toplevel"], timeout=60, env=_git_env())
         if not top.ok:
             return None
-        top_dir = os.fsdecode(top.stdout_bytes).rstrip("\n")  # a name may end in a space
+        top_dir = os.fsdecode(top.stdout_bytes).removesuffix("\n")  # a name may end in a space or a newline
         ignored = _ignored_paths(top_dir)
     except OSError:
         return None

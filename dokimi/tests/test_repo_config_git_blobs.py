@@ -432,11 +432,26 @@ def test_a_file_the_top_tracks_counts_though_a_nested_glob_ignores_it(tmp_path):
     assert _hashes(root) != before
 
 
-def test_a_top_directory_whose_name_ends_in_a_space_is_read(tmp_path):
-    # PRRT_kwDOVBg7g860MHqp: --show-toplevel keeps the trailing space of the name
-    root = _repo(tmp_path / "top ", FILES)
+_ODD_ENDS = ["top ", pytest.param("top\n", marks=pytest.mark.skipif(os.name == "nt", reason="no newline in a name"))]
+
+
+@pytest.mark.parametrize("name", _ODD_ENDS)
+def test_a_top_directory_whose_name_ends_in_a_space_is_read(tmp_path, name):
+    # PRRT_kwDOVBg7g860MHqp: --show-toplevel keeps the trailing space or newline of the name
+    root = _repo(tmp_path / name, FILES)
     tree = git_tree(root)
     assert tree is not None and tree.top == Path(os.path.realpath(root))
+
+
+@pytest.mark.parametrize("name", _ODD_ENDS)
+def test_a_nested_repository_whose_name_ends_in_a_space_or_newline_follows_its_ignore_rules(tmp_path, name):
+    root = _repo(tmp_path / "r", FILES)
+    _nested(root, f"skills/a/{name}", {"run.py": "print(1)\n"})
+    before = _hashes(root)
+    (root / "skills/a" / name / "scratch.tmp").write_text("x\n")
+    assert _hashes(root) == before
+    (root / "skills/a" / name / "run.py").write_text("print(2)\n")
+    assert _hashes(root) != before
 
 
 @pytest.mark.parametrize("rel", ["skills/a/tools", "skills/a/evals/tools"])
