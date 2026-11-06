@@ -425,7 +425,7 @@ def cmd_novelty_routing(args: argparse.Namespace) -> None:
         "n_candidates": len(candidates),
         "queries_self_derived": self_derived,
         "queries_source": queries_source,
-        "field": field_record(args, competitors, left_out),
+        "field": field_record(args, competitors, left_out, gold),
         "lexical": lexical,
     }
     if args.model:

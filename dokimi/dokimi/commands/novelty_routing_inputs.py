@@ -104,7 +104,7 @@ def load_routing_field(
     args: argparse.Namespace,
 ) -> tuple[Candidate, str, list[Candidate], list[str]]:
     """The gold card, its body, the competitors and the ones left out, or InputError naming the cause."""
-    from dokimi.novelty.routing import disables_model_invocation, skill_file
+    from dokimi.novelty.routing import disables_model_invocation, over_limit_warnings, skill_file
 
     try:
         gold, body = routing_card(args.artifact)
@@ -115,6 +115,8 @@ def load_routing_field(
                   file=sys.stderr)
         left_out: list[str] = []
         competitors = routing_field(args, {gold.name}, left_out)
+        for warning in over_limit_warnings([gold]):
+            print(f"WARNING: skill {warning['skill']!r}: {warning['message']}", file=sys.stderr)
     except InputError:
         raise
     except (OSError, ValueError, RecursionError) as exc:
@@ -122,10 +124,14 @@ def load_routing_field(
     return gold, body, competitors, left_out
 
 
-def field_record(args: argparse.Namespace, competitors: list[Candidate], left_out: list[str]) -> dict:
-    """The field rule a routing result was measured under, saved next to the result."""
+def field_record(args: argparse.Namespace, competitors: list[Candidate], left_out: list[str],
+                 gold: Candidate | None = None) -> dict:
+    """The field rule a routing result was measured under, saved next to the result.
+
+    ``spec_warnings`` lists ``gold`` (the skill under test, when given) as well as the field.
+    """
     from dokimi.novelty.routing import over_limit_warnings
 
     return {**{name: bool(getattr(args, name)) for name in ("include_disabled", "include_invalid")},
             "competitors": [c.name for c in competitors], "left_out": left_out,
-            "spec_warnings": over_limit_warnings(competitors)}
+            "spec_warnings": over_limit_warnings(([gold] if gold else []) + competitors)}

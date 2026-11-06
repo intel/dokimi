@@ -680,3 +680,19 @@ def test_a_skill_competitor_records_every_rule_that_left_it_out(tmp_path):
     dropped: dict[str, set[str]] = {}
     assert routing_field(args, set(), [], dropped) == []
     assert dropped == {"long": {"invalid"}, "both": {"disabled", "invalid"}}
+
+
+def test_the_skill_under_test_over_the_limit_is_warned_and_saved(tmp_path, capsys):
+    root = tmp_path / "catalog"
+    _catalog_skill(root, "db", "tune a slow database query")
+    ref = _skill(tmp_path, "big", "z" * 1139)
+    queries = tmp_path / "q.json"
+    queries.write_text(json.dumps(["profile my binary"]), encoding="utf-8")
+    out = tmp_path / "r.json"
+    args = _parse("novelty", "routing", "--artifact", ref, "--catalog", str(root),
+                  "--queries", str(queries), "--out", str(out))
+    args.func(args)
+    assert "WARNING: skill 'big': description is 1139 characters" in capsys.readouterr().err
+    field = json.loads(out.read_text(encoding="utf-8"))["field"]
+    assert "big" not in field["competitors"]
+    assert [(w["skill"], w["length"]) for w in field["spec_warnings"]] == [("big", 1139)]
