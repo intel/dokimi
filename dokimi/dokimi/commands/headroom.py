@@ -5,8 +5,8 @@
 
 Reads one or more ``arms.v1`` files of the same question set (one per repetition) and writes a
 ``headroom.v1`` artifact with ``--out``, always printing the human table. A file repeated on the
-command line, or holding the same JSON content as an earlier one, is one run: the repeats are skipped with a
-note on stderr. See :mod:`dokimi.eval.headroom` for the rules.
+command line, or holding the same JSON content as an earlier one (its run envelope aside), is one run: the
+repeats are skipped with a note on stderr. See :mod:`dokimi.eval.headroom` for the rules.
 """
 
 from __future__ import annotations
@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from dokimi import records
+from dokimi.artifacts import ENVELOPE_KEYS
 from dokimi.commands._output import exit_on_unwritable
 from dokimi.eval.judge_context import PROTOCOL_MIXED
 from dokimi.utils import InputError
@@ -44,7 +45,13 @@ def _canonical(value: Any) -> Any:
 
 
 def _content_digest(data: Any) -> str:
-    """Digest of the parsed JSON, so one run re-serialized (whitespace, key order, 95 vs 95.0) counts once."""
+    """Digest of the parsed JSON, so one run re-serialized (whitespace, key order, 95 vs 95.0) counts once.
+
+    The top-level run envelope (``run_id``, ``dokimi_version``) names the process that saved the file,
+    not what it holds, so it is left out: one run saved again by another process counts once too.
+    """
+    if isinstance(data, dict):
+        data = {k: v for k, v in data.items() if k not in ENVELOPE_KEYS}
     return hashlib.sha256(json.dumps(_canonical(data), sort_keys=True).encode("utf-8")).hexdigest()
 
 
