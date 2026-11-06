@@ -40,14 +40,14 @@ def _flags(args):
 
 def test_the_recorded_flag_defaults_match_the_parser():
     """If a CLI default moves, the override detection silently breaks — fail here instead."""
-    parsed = _parse("novelty", "analyze", "--artifact", "skill:x")
+    parsed = _parse("skill", "novelty", "analyze", "--artifact", "skill:x")
     for flag, default in FLAG_DEFAULTS.items():
         assert getattr(parsed, flag) == default, flag
 
 
 def test_no_tier_leaves_the_historical_defaults_alone():
     resolved = resolve_settings(
-        None, _flags(_parse("novelty", "analyze", "--artifact", "skill:x")))
+        None, _flags(_parse("skill", "novelty", "analyze", "--artifact", "skill:x")))
     assert resolved == RunSettings(values=DEFAULT_SETTINGS)
     assert resolved.tier_record() is None
 
@@ -56,13 +56,13 @@ def test_every_tier_names_what_it_forfeits():
     for name, spec in TIERS.items():
         assert spec["forfeits"], name
         resolved = resolve_settings(
-            name, _flags(_parse("novelty", "analyze", "--artifact", "skill:x")))
+            name, _flags(_parse("skill", "novelty", "analyze", "--artifact", "skill:x")))
         assert resolved.tier_record() == {"name": name, "forfeits": spec["forfeits"],
                                           "overrides": {}}
 
 
 def test_a_cheap_tier_buys_its_saving_from_the_probe_budget():
-    flags = _flags(_parse("novelty", "analyze", "--artifact", "skill:x"))
+    flags = _flags(_parse("skill", "novelty", "analyze", "--artifact", "skill:x"))
     triage, study = resolve_settings("triage", flags), resolve_settings("study", flags)
     assert triage.values["max_atoms"] < study.values["max_atoms"]
     assert (triage.values["paraphrases"], triage.values["reversals"]) == (0, False)
@@ -74,7 +74,7 @@ def test_a_cheap_tier_buys_its_saving_from_the_probe_budget():
 
 
 def test_an_explicit_flag_wins_over_the_tier_and_is_recorded():
-    args = _parse("novelty", "analyze", "--artifact", "skill:x", "--tier", "triage",
+    args = _parse("skill", "novelty", "analyze", "--artifact", "skill:x", "--tier", "triage",
                   "--max-atoms", "90")
     resolved = resolve_settings(args.tier, _flags(args))
     assert resolved.values["max_atoms"] == 90
@@ -83,7 +83,7 @@ def test_an_explicit_flag_wins_over_the_tier_and_is_recorded():
 
 def test_all_atoms_lifts_the_tier_cap_as_its_forfeit_says():
     # The `study` forfeit tells the reader to pass --all-atoms for the full sweep.
-    args = _parse("novelty", "analyze", "--artifact", "skill:x", "--tier", "study",
+    args = _parse("skill", "novelty", "analyze", "--artifact", "skill:x", "--tier", "study",
                   "--all-atoms")
     resolved = resolve_settings(args.tier, _flags(args))
     assert resolved.values["max_atoms"] is None
@@ -91,7 +91,7 @@ def test_all_atoms_lifts_the_tier_cap_as_its_forfeit_says():
 
 
 def test_a_flag_that_agrees_with_the_tier_is_not_recorded_as_an_override():
-    args = _parse("novelty", "analyze", "--artifact", "skill:x", "--tier", "triage",
+    args = _parse("skill", "novelty", "analyze", "--artifact", "skill:x", "--tier", "triage",
                   "--no-reversal")
     resolved = resolve_settings(args.tier, _flags(args))
     assert resolved.values["reversals"] is False
@@ -101,7 +101,7 @@ def test_a_flag_that_agrees_with_the_tier_is_not_recorded_as_an_override():
 def test_turning_a_stage_back_on_is_not_expressible_so_the_tier_keeps_it_off():
     # The flags are all negations; there is no `--classify`, so a tier that drops a stage
     # can only be overridden towards *less*. The resolution must not invent the other way.
-    args = _parse("novelty", "analyze", "--artifact", "skill:x", "--tier", "triage")
+    args = _parse("skill", "novelty", "analyze", "--artifact", "skill:x", "--tier", "triage")
     assert resolve_settings(args.tier, _flags(args)).values["classify_content"] is False
 
 
@@ -129,7 +129,7 @@ def test_estimate_only_spends_nothing_and_prints_the_bill(tmp_path, capsys):
     (root / "SKILL.md").write_text(
         "---\nname: s\ndescription: d\n---\n\n# S\n\nUse `--accel` on driver 2.1.\n"
         "Do not use it on 1.0.\n", encoding="utf-8")
-    args = _parse("novelty", "analyze", "--artifact", f"skill:{root}",
+    args = _parse("skill", "novelty", "analyze", "--artifact", f"skill:{root}",
                   "--tier", "study", "--estimate-only")
     args.func(args)                       # no client is constructed, no network touched
     out = capsys.readouterr()
@@ -141,13 +141,13 @@ def test_estimate_only_spends_nothing_and_prints_the_bill(tmp_path, capsys):
 
 def test_an_unknown_tier_is_refused_by_the_parser():
     with pytest.raises(SystemExit):
-        _parse("novelty", "analyze", "--artifact", "skill:x", "--tier", "cheap")
+        _parse("skill", "novelty", "analyze", "--artifact", "skill:x", "--tier", "cheap")
 
 
 def test_passing_the_default_atom_cap_explicitly_still_beats_the_tier():
     # The sweep case: `--tier triage --max-atoms 120` used to be indistinguishable from
     # `--tier triage`, so the user's number was silently replaced by 25.
-    args = _parse("novelty", "analyze", "--artifact", "skill:x", "--tier", "triage",
+    args = _parse("skill", "novelty", "analyze", "--artifact", "skill:x", "--tier", "triage",
                   "--max-atoms", "120")
     resolved = resolve_settings(args.tier, _flags(args))
     assert resolved.values["max_atoms"] == 120
@@ -157,7 +157,7 @@ def test_passing_the_default_atom_cap_explicitly_still_beats_the_tier():
 def test_an_unset_cap_resolves_to_the_documented_default():
     from dokimi.novelty.tiers import DEFAULT_MAX_ATOMS
 
-    args = _parse("novelty", "analyze", "--artifact", "skill:x")
+    args = _parse("skill", "novelty", "analyze", "--artifact", "skill:x")
     assert args.max_atoms is None                       # the sentinel, not 120
     resolved = resolve_settings(args.tier, _flags(args))
     assert resolved.values["max_atoms"] == DEFAULT_MAX_ATOMS
@@ -227,11 +227,11 @@ def test_forfeits_follow_the_resolved_settings():
     assert sampled not in forfeits(standard, sampled=False)
     assert sampled in forfeits(standard, sampled=True)
     # --all-atoms drops the cap's forfeit, triage included.
-    args = _parse("novelty", "analyze", "--artifact", "skill:x", "--tier", "triage",
+    args = _parse("skill", "novelty", "analyze", "--artifact", "skill:x", "--tier", "triage",
                   "--all-atoms")
     assert sampled not in resolve_settings(args.tier, _flags(args)).forfeits()
     # --no-verify adds the faithfulness forfeit the tier did not have.
-    args = _parse("novelty", "analyze", "--artifact", "skill:x", "--tier", "standard",
+    args = _parse("skill", "novelty", "analyze", "--artifact", "skill:x", "--tier", "standard",
                   "--no-verify")
     assert FORFEITS["verify_faithfulness"][0] in resolve_settings(args.tier,
                                                                   _flags(args)).forfeits()
@@ -239,7 +239,7 @@ def test_forfeits_follow_the_resolved_settings():
 
 
 def test_all_atoms_does_not_record_max_atoms_override():
-    args = _parse("novelty", "analyze", "--artifact", "skill:x", "--tier", "triage",
+    args = _parse("skill", "novelty", "analyze", "--artifact", "skill:x", "--tier", "triage",
                   "--max-atoms", "10", "--all-atoms")
     resolved = resolve_settings(args.tier, _flags(args))
     assert resolved.values["max_atoms"] is None
@@ -297,7 +297,7 @@ def test_shortening_under_a_cap_that_left_atoms_out_says_it_saw_only_a_spread_sa
 def test_the_settings_travel_through_the_config_unchanged():
     from dokimi.novelty.analyze import AnalyzeConfig
 
-    args = _parse("novelty", "analyze", "--artifact", "skill:x", "--tier", "triage",
+    args = _parse("skill", "novelty", "analyze", "--artifact", "skill:x", "--tier", "triage",
                   "--max-atoms", "90", "--no-shorten")
     settings = resolve_settings(args.tier, _flags(args))
     config = AnalyzeConfig(artifact_ref="x", **settings.config_fields())
@@ -518,7 +518,7 @@ def test_estimate_only_prints_the_expected_calls_and_a_dollar_figure(tmp_path, c
     root.mkdir()
     (root / "SKILL.md").write_text("---\nname: s\ndescription: d\n---\n\n# S\n\nText.\n",
                                    encoding="utf-8")
-    args = _parse("novelty", "analyze", "--artifact", f"skill:{root}", "--tier", "standard",
+    args = _parse("skill", "novelty", "analyze", "--artifact", f"skill:{root}", "--tier", "standard",
                   "--estimate-only")
     args.func(args)
     payload = json.loads(capsys.readouterr().out)
@@ -536,7 +536,7 @@ def test_the_cli_prices_a_triage_estimate_with_the_triage_extractor_profile(tmp_
                         "production host without a rollback plan." for i in range(60))
     (root / "SKILL.md").write_text(f"---\nname: s\ndescription: d\n---\n\n# S\n\n{body}\n",
                                    encoding="utf-8")
-    args = _parse("novelty", "analyze", "--artifact", f"skill:{root}", "--tier", "triage",
+    args = _parse("skill", "novelty", "analyze", "--artifact", f"skill:{root}", "--tier", "triage",
                   "--estimate-only")
     args.func(args)
     payload = json.loads(capsys.readouterr().out)
@@ -553,7 +553,7 @@ def test_the_cli_prices_a_triage_estimate_with_the_triage_extractor_profile(tmp_
 def test_the_extractor_defaults_to_the_judge_provider_not_the_answerer(tmp_path):
     from dokimi.commands.novelty import _role_models
 
-    args = _parse("novelty", "analyze", "--artifact", f"skill:{tmp_path}", "--provider", "anthropic",
+    args = _parse("skill", "novelty", "analyze", "--artifact", f"skill:{tmp_path}", "--provider", "anthropic",
                   "--judge-model", "judge-m", "--judge-provider", "openai", "--estimate-only")
     models = _role_models(args)
     assert models["judge"] == ("judge-m", "openai")
@@ -580,7 +580,7 @@ def test_estimate_only_stdout_stays_json_for_a_model_litellm_cannot_route(tmp_pa
     root.mkdir()
     (root / "SKILL.md").write_text("---\nname: s\ndescription: d\n---\n\n# S\n\nText.\n",
                                    encoding="utf-8")
-    args = _parse("novelty", "analyze", "--artifact", f"skill:{root}", "--tier", "standard",
+    args = _parse("skill", "novelty", "analyze", "--artifact", f"skill:{root}", "--tier", "standard",
                   "--estimate-only", "--model", "foo-bar-9", "--provider", "openai")
     args.func(args)
     payload = json.loads(capsys.readouterr().out)
@@ -592,7 +592,7 @@ def test_estimate_only_names_only_the_unpriced_role_on_stderr(tmp_path, capsys):
     root.mkdir()
     (root / "SKILL.md").write_text("---\nname: s\ndescription: d\n---\n\n# S\n\nText.\n",
                                    encoding="utf-8")
-    base = ["novelty", "analyze", "--artifact", f"skill:{root}", "--tier", "triage",
+    base = ["skill", "novelty", "analyze", "--artifact", f"skill:{root}", "--tier", "triage",
             "--estimate-only"]
     priced = _parse(*base).model
     args = _parse(*base, "--judge-model", "zzz", "--judge-provider", "openai",
@@ -623,7 +623,7 @@ def _one_line_skill(root):
 
 def test_estimate_only_gives_a_null_dollar_figure_when_no_judge_resolves(tmp_path, capsys):
     # A real run exits here (openrouter has no default judge); the preview still prints.
-    args = _parse("novelty", "analyze", "--artifact", f"skill:{_one_line_skill(tmp_path / 's')}",
+    args = _parse("skill", "novelty", "analyze", "--artifact", f"skill:{_one_line_skill(tmp_path / 's')}",
                   "--tier", "triage", "--estimate-only", "--judge-provider", "openrouter")
     args.func(args)
     out = capsys.readouterr()
@@ -637,7 +637,7 @@ def test_every_extra_arm_adds_an_answer_and_a_grade_per_probe_to_the_bill(tmp_pa
     by_role = {}
     for arms in ("no_artifact,full", "no_artifact,full,shuffled"):
         skill = _one_line_skill(tmp_path / str(len(by_role)))
-        args = _parse("novelty", "analyze", "--artifact", f"skill:{skill}", "--tier", "standard",
+        args = _parse("skill", "novelty", "analyze", "--artifact", f"skill:{skill}", "--tier", "standard",
                       "--estimate-only", "--arms", arms)
         args.func(args)
         by_role[arms] = json.loads(capsys.readouterr().out)["estimate"]["by_role"]
@@ -675,7 +675,7 @@ def test_the_cli_prices_three_context_arms_above_two(tmp_path, capsys):
                                    encoding="utf-8")
     figures = []
     for arms in ("no_artifact,full", "no_artifact,full,shuffled"):
-        args = _parse("novelty", "analyze", "--artifact", f"skill:{root}", "--tier", "triage",
+        args = _parse("skill", "novelty", "analyze", "--artifact", f"skill:{root}", "--tier", "triage",
                       "--arms", arms, "--estimate-only")
         args.func(args)
         figures.append(json.loads(capsys.readouterr().out))
@@ -695,7 +695,7 @@ def test_an_estimate_for_an_artifact_beyond_the_fitted_range_says_it_extrapolate
                         for i in range(120))
     (root / "SKILL.md").write_text(f"---\nname: s\ndescription: d\n---\n\n# S\n\n{body}\n",
                                    encoding="utf-8")
-    args = _parse("novelty", "analyze", "--artifact", f"skill:{root}", "--tier", "triage",
+    args = _parse("skill", "novelty", "analyze", "--artifact", f"skill:{root}", "--tier", "triage",
                   "--estimate-only")
     args.func(args)
     captured = capsys.readouterr()
@@ -716,7 +716,7 @@ def test_the_cli_passes_each_arm_share_to_the_dollar_figure(tmp_path, capsys):
                                    encoding="utf-8")
     for arms, share in (("no_artifact,full,shuffled", 2 / 3),
                         ("no_artifact,full,placebo,shuffled", 3 / 4)):
-        args = _parse("novelty", "analyze", "--artifact", f"skill:{root}", "--tier", "triage",
+        args = _parse("skill", "novelty", "analyze", "--artifact", f"skill:{root}", "--tier", "triage",
                       "--arms", arms, "--estimate-only")
         args.func(args)
         payload = json.loads(capsys.readouterr().out)
@@ -739,7 +739,7 @@ def test_the_extrapolation_flag_starts_just_above_the_fitted_range(
     # puts the artifact on either side of the fitted range.
     monkeypatch.setattr(spans, "segment", lambda text: [SimpleNamespace(tokens=tokens)])
     assert FITTED_TOKENS_MAX == 6723  # the largest measured artifact, as the docs state
-    args = _parse("novelty", "analyze", "--artifact", f"skill:{_one_line_skill(tmp_path / 's')}",
+    args = _parse("skill", "novelty", "analyze", "--artifact", f"skill:{_one_line_skill(tmp_path / 's')}",
                   "--tier", "triage", "--estimate-only")
     args.func(args)
     captured = capsys.readouterr()

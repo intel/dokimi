@@ -50,7 +50,7 @@ Read `recall@1` against the competitors, not alone. Measured on the study corpus
 `dpnp-*` skill scored 0.0 against its siblings, and `linux-perf` scored 0.0 recall@1 on
 five independently written requests — losing three of them to an `xpu-*` skill phrased the
 way a user phrases the problem. If that is your result, **fix the description before anything
-else**; `novelty analyze` holds the frontmatter fixed and will not see this.
+else**; `skill novelty analyze` holds the frontmatter fixed and will not see this.
 
 Add `--model <id>` for the model arm. Treat it as an upper bound: a harness whose own skill
 listing truncates descriptions selects on less text than the command shows.
@@ -58,7 +58,7 @@ listing truncates descriptions selects on less text than the command shows.
 ## 2. What will the measurement cost? (free)
 
 ```bash
-python cli.py novelty analyze --artifact skill:skills/my-skill --tier study --estimate-only \
+python cli.py skill novelty analyze --artifact skill:skills/my-skill --tier study --estimate-only \
     --include-resources
 ```
 
@@ -84,7 +84,7 @@ about $1.80; `study` 1,901 calls, about $14.50.
 ## 3. Triage: is there anything in here? (~100 calls)
 
 ```bash
-python cli.py novelty analyze --artifact skill:skills/my-skill \
+python cli.py skill novelty analyze --artifact skill:skills/my-skill \
     --tier triage --model <model under measurement> --judge-model <a different model>
 ```
 
@@ -106,12 +106,12 @@ every extracted atom.
 Atoms are model-independent, so the expensive extraction amortizes:
 
 ```bash
-python cli.py novelty atoms --artifact skill:skills/my-skill \
+python cli.py skill novelty atoms --artifact skill:skills/my-skill \
     --extract-model <not the model under measurement> --include-resources --out atoms.json
 
-python cli.py novelty probe --artifact skill:skills/my-skill --atoms atoms.json \
+python cli.py skill novelty probe --artifact skill:skills/my-skill --atoms atoms.json \
     --model model-a --judge-model <different> --out model-a.json
-python cli.py novelty probe --artifact skill:skills/my-skill --atoms atoms.json \
+python cli.py skill novelty probe --artifact skill:skills/my-skill --atoms atoms.json \
     --model model-b --judge-model <different> --out model-b.json
 ```
 
@@ -125,7 +125,7 @@ files it came from and `probe` rebuilds exactly that set, refusing if the artifa
 With three or more models, check which probes measured anything:
 
 ```bash
-python cli.py novelty items --probes model-a.json model-b.json model-c.json
+python cli.py skill novelty items --probes model-a.json model-b.json model-c.json
 ```
 
 An atom every model knows separates nothing (true, but not worth probe budget); a
@@ -151,7 +151,7 @@ extraction, not empty.
 ## 7. Shorten, with the protection axis pinned
 
 ```bash
-python cli.py novelty shorten --artifact skill:skills/my-skill --atoms atoms.json \
+python cli.py skill shorten --artifact skill:skills/my-skill --atoms atoms.json \
     --budgets 0.75 0.5 --lexical-only --out short/SKILL.md
 ```
 

@@ -16,7 +16,6 @@ from pathlib import Path
 import pytest
 
 from dokimi.cli import build_parser
-from dokimi.utils import InputError
 from dokimi.commands import novelty as novelty_cmd
 from dokimi.defaults import (
     DEFAULT_ANSWER_MODEL,
@@ -25,6 +24,8 @@ from dokimi.defaults import (
     DEFAULT_JUDGE_MODEL,
     DEFAULT_JUDGE_PROVIDER,
 )
+from dokimi.utils import InputError
+from tests.cli_paths import novelty_argv
 
 
 def _parse(*argv):
@@ -40,7 +41,7 @@ def test_every_subcommand_is_registered():
         "view": novelty_cmd.cmd_novelty_view,
     }
     for sub, handler in handlers.items():
-        args = _parse("novelty", sub, *(
+        args = _parse(*novelty_argv(sub), *(
             ["--artifact", "skill:x"] if sub != "view" else ["--novelty", "n.json"]
         ), *(["--atoms", "a.json"] if sub in ("probe", "shorten", "view") else []))
         # The command that runs is the subcommand's own handler (`_stops_at_cap` wraps it).
@@ -48,7 +49,7 @@ def test_every_subcommand_is_registered():
 
 
 def test_the_judge_defaults_to_a_different_model_than_the_answerer():
-    args = _parse("novelty", "analyze", "--artifact", "skill:x")
+    args = _parse("skill", "novelty", "analyze", "--artifact", "skill:x")
     extractor, answerer, judge = novelty_cmd._clients(args)
     assert answerer.model == DEFAULT_ANSWER_MODEL
     assert (judge.model, judge.provider) == (DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER)
@@ -57,7 +58,7 @@ def test_the_judge_defaults_to_a_different_model_than_the_answerer():
 
 @pytest.mark.parametrize("model", [DEFAULT_JUDGE_MODEL, f"us.anthropic.{DEFAULT_JUDGE_MODEL}"])
 def test_measuring_the_default_judge_moves_the_judge_to_the_other_family(model):
-    args = _parse("novelty", "analyze", "--artifact", "skill:x", "--model", model,
+    args = _parse("skill", "novelty", "analyze", "--artifact", "skill:x", "--model", model,
                   "--provider", "amazon-bedrock")
     _extractor, answerer, judge = novelty_cmd._clients(args)
     assert answerer.model == model
@@ -65,14 +66,14 @@ def test_measuring_the_default_judge_moves_the_judge_to_the_other_family(model):
 
 
 def test_a_judge_provider_alone_picks_the_default_judge_that_runs_there():
-    args = _parse("novelty", "analyze", "--artifact", "skill:x", "--judge-provider", "amazon-bedrock")
+    args = _parse("skill", "novelty", "analyze", "--artifact", "skill:x", "--judge-provider", "amazon-bedrock")
     extractor, _answerer, judge = novelty_cmd._clients(args)
     assert (judge.model, judge.provider) == (DEFAULT_JUDGE_MODEL, "amazon-bedrock")
     assert (extractor.model, extractor.provider) == (DEFAULT_JUDGE_MODEL, "amazon-bedrock")
 
 
 def test_a_judge_provider_alone_takes_the_generator_when_the_judge_is_measured():
-    args = _parse("novelty", "analyze", "--artifact", "skill:x", "--model", DEFAULT_JUDGE_MODEL,
+    args = _parse("skill", "novelty", "analyze", "--artifact", "skill:x", "--model", DEFAULT_JUDGE_MODEL,
                   "--provider", "anthropic", "--judge-provider", DEFAULT_GENERATOR_PROVIDER)
     _extractor, _answerer, judge = novelty_cmd._clients(args)
     assert (judge.model, judge.provider) == (DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER)
@@ -91,7 +92,7 @@ def test_a_judge_provider_alone_takes_the_generator_when_the_judge_is_measured()
     ("--judge-provider", "openai"),
 ])
 def test_a_judge_provider_with_no_default_judge_there_exits(argv):
-    args = _parse("novelty", "analyze", "--artifact", "skill:x", *argv)
+    args = _parse("skill", "novelty", "analyze", "--artifact", "skill:x", *argv)
     with pytest.raises(InputError, match="--judge-model"):
         novelty_cmd._clients(args)
 
@@ -100,7 +101,7 @@ def test_a_judge_provider_with_no_default_judge_there_exits(argv):
 def test_a_cli_answerer_with_no_judge_flags_is_judged_on_the_cli_by_another_family(model):
     from dokimi.llm_cli import same_model
 
-    args = _parse("novelty", "analyze", "--artifact", "skill:x", "--model", model,
+    args = _parse("skill", "novelty", "analyze", "--artifact", "skill:x", "--model", model,
                   "--provider", "claude-cli")
     _extractor, _answerer, judge = novelty_cmd._clients(args)
     assert judge.provider == "claude-cli"
@@ -108,7 +109,7 @@ def test_a_cli_answerer_with_no_judge_flags_is_judged_on_the_cli_by_another_fami
 
 
 def test_a_named_judge_without_a_provider_runs_on_the_answer_provider():
-    args = _parse("novelty", "analyze", "--artifact", "skill:x", "--provider", "openrouter",
+    args = _parse("skill", "novelty", "analyze", "--artifact", "skill:x", "--provider", "openrouter",
                   "--judge-model", "j")
     _extractor, _answerer, judge = novelty_cmd._clients(args)
     assert (judge.model, judge.provider) == ("j", "openrouter")
@@ -117,7 +118,7 @@ def test_a_named_judge_without_a_provider_runs_on_the_answer_provider():
 def test_the_extractor_follows_the_judge_not_the_answerer():
     """The model being measured must not write its own answer key."""
     args = _parse(
-        "novelty", "analyze", "--artifact", "skill:x",
+        "skill", "novelty", "analyze", "--artifact", "skill:x",
         "--model", "model-a", "--judge-model", "model-b",
     )
     extractor, answerer, _judge = novelty_cmd._clients(args)
@@ -134,14 +135,14 @@ def test_dropping_the_baseline_arm_is_refused(tmp_path):
     # The CLI exits with the same message.
     (tmp_path / "SKILL.md").write_text("---\nname: s\ndescription: d\n---\n\n# S\n\nText.\n",
                                        encoding="utf-8")
-    args = _parse("novelty", "analyze", "--artifact", f"skill:{tmp_path}", "--estimate-only",
+    args = _parse("skill", "novelty", "analyze", "--artifact", f"skill:{tmp_path}", "--estimate-only",
                   "--arms", "full")
     with pytest.raises(InputError, match="^--arms must include no_artifact: the 2x2"):
         args.func(args)
 
 
 def test_a_missing_artifact_exits_with_a_message(capsys):
-    args = _parse("novelty", "analyze", "--artifact", "text:/nonexistent/skill.md")
+    args = _parse("skill", "novelty", "analyze", "--artifact", "text:/nonexistent/skill.md")
     with pytest.raises(InputError, match="cannot load"):
         args.func(args)
     capsys.readouterr()
@@ -165,7 +166,7 @@ def test_an_unreadable_placebo_text_exits_with_a_message(tmp_path, make_path):
     (skill / "SKILL.md").write_text("---\nname: s\ndescription: d\n---\n\n# S\n\nText.\n",
                                     encoding="utf-8")
     placebo = make_path(tmp_path)
-    args = _parse("novelty", "analyze", "--artifact", f"skill:{skill}",
+    args = _parse("skill", "novelty", "analyze", "--artifact", f"skill:{skill}",
                   "--placebo-text", str(placebo))
     with pytest.raises(SystemExit, match=f"^cannot read --placebo-text {re.escape(str(placebo))}"):
         args.func(args)
@@ -177,7 +178,7 @@ def test_placebo_text_is_read_before_a_model_client_is_built(tmp_path, monkeypat
     skill.mkdir()
     (skill / "SKILL.md").write_text("---\nname: s\ndescription: d\n---\n\n# S\n\nText.\n",
                                     encoding="utf-8")
-    argv = ["novelty", sub, "--artifact", f"skill:{skill}",
+    argv = [*novelty_argv(sub), "--artifact", f"skill:{skill}",
             "--placebo-text", str(tmp_path / "missing.txt")]
     if sub == "probe":
         atoms = tmp_path / "atoms.json"
@@ -205,7 +206,7 @@ def test_analyze_exits_with_the_message_when_the_arms_cannot_run(
     skill = tmp_path / "skill"
     skill.mkdir()
     (skill / "SKILL.md").write_text(SKILL, encoding="utf-8")
-    argv = ["novelty", "analyze", "--artifact", f"skill:{skill}", "--arms", arms]
+    argv = ["skill", "novelty", "analyze", "--artifact", f"skill:{skill}", "--arms", arms]
     if placebo is not None:
         (tmp_path / "placebo.txt").write_text(placebo, encoding="utf-8")
         argv += ["--placebo-text", str(tmp_path / "placebo.txt")]
@@ -248,7 +249,7 @@ def test_coverage_note_printed_to_stderr_for_atoms(tmp_path, monkeypatch, capsys
     )
     out = tmp_path / "atoms.json"
     # Entry-point-only run will note that references exist and won't be measured
-    args = _parse("novelty", "atoms", "--artifact", f"skill:{skill}", "--out", str(out))
+    args = _parse("skill", "novelty", "atoms", "--artifact", f"skill:{skill}", "--out", str(out))
     args.func(args)
     payload = json.loads(out.read_text())
     assert len(payload["atoms"]) >= 1
@@ -284,7 +285,7 @@ def test_answer_key_notes_printed_to_stderr_for_probe(tmp_path, monkeypatch, cap
         ),
     )
     out = tmp_path / "atoms.json"
-    args = _parse("novelty", "atoms", "--artifact", f"skill:{skill}", "--out", str(out))
+    args = _parse("skill", "novelty", "atoms", "--artifact", f"skill:{skill}", "--out", str(out))
     args.func(args)
     
     # Now probe and edit the artifact - this should trigger answer-key notes
@@ -293,7 +294,7 @@ def test_answer_key_notes_printed_to_stderr_for_probe(tmp_path, monkeypatch, cap
         encoding="utf-8",
     )
     
-    args = _parse("novelty", "probe", "--artifact", f"skill:{skill}", "--atoms", str(out),
+    args = _parse("skill", "novelty", "probe", "--artifact", f"skill:{skill}", "--atoms", str(out),
                   "--no-paraphrase", "--no-reversal", "--out", str(tmp_path / "p.json"))
     args.func(args)
     
@@ -304,7 +305,7 @@ def test_answer_key_notes_printed_to_stderr_for_probe(tmp_path, monkeypatch, cap
 
 def test_max_atoms_rejects_zero():
     with pytest.raises(SystemExit):
-        _parse("novelty", "analyze", "--artifact", "skill:x", "--max-atoms", "0")
+        _parse("skill", "novelty", "analyze", "--artifact", "skill:x", "--max-atoms", "0")
 
 
 def test_atoms_subcommand_writes_atoms_and_span_stats(tmp_path, monkeypatch, capsys):
@@ -334,7 +335,7 @@ def test_atoms_subcommand_writes_atoms_and_span_stats(tmp_path, monkeypatch, cap
         ),
     )
     out = tmp_path / "atoms.json"
-    args = _parse("novelty", "atoms", "--artifact", f"skill:{skill}", "--out", str(out))
+    args = _parse("skill", "novelty", "atoms", "--artifact", f"skill:{skill}", "--out", str(out))
     args.func(args)
     payload = json.loads(out.read_text())
     assert len(payload["atoms"]) == 1
@@ -344,7 +345,7 @@ def test_atoms_subcommand_writes_atoms_and_span_stats(tmp_path, monkeypatch, cap
     # `atoms` extracts with the default judge, as `analyze` does, not with the answerer.
     assert (payload["extractor"], payload["cap"]) == (DEFAULT_JUDGE_MODEL, 120)
 
-    probe = ["novelty", "probe", "--artifact", f"skill:{skill}", "--atoms", str(out),
+    probe = ["skill", "novelty", "probe", "--artifact", f"skill:{skill}", "--atoms", str(out),
              "--no-paraphrase", "--no-reversal", "--out", str(tmp_path / "p.json")]
     args = _parse(*probe)
     args.func(args)
@@ -377,7 +378,7 @@ def test_probe_result_describes_the_text_probed(tmp_path, monkeypatch):
     monkeypatch.setattr(novelty_cmd, "_client", lambda model, provider, role, args:
                         _with_transport(real_client(model, provider, role, args), transport))
     atoms = tmp_path / "atoms.json"
-    args = _parse("novelty", "atoms", "--artifact", f"skill:{skill}", "--out", str(atoms))
+    args = _parse("skill", "novelty", "atoms", "--artifact", f"skill:{skill}", "--out", str(atoms))
     args.func(args)
     extracted = json.loads(atoms.read_text())["bundle"]["measured_digest"]
 
@@ -385,7 +386,7 @@ def test_probe_result_describes_the_text_probed(tmp_path, monkeypatch):
     skill.write_text("---\nname: s\ndescription: d\n---\n\n# H\n\nNo legacy driver.\n",
                      encoding="utf-8")
     out = tmp_path / "p.json"
-    args = _parse("novelty", "probe", "--artifact", f"skill:{skill}", "--atoms", str(atoms),
+    args = _parse("skill", "novelty", "probe", "--artifact", f"skill:{skill}", "--atoms", str(atoms),
                   "--model", "m-a", "--judge-model", "m-b", "--extract-model", "m-c",
                   "--no-paraphrase", "--no-reversal", "--out", str(out))
     args.func(args)
@@ -470,7 +471,7 @@ def _bundle_skill(tmp_path):
 def test_the_bundle_flags_are_on_extraction_too_not_only_on_analyze():
     """`atoms` once, `probe` per model is the cheap path; it has to see the bundle."""
     for sub in ("analyze", "atoms"):
-        args = _parse("novelty", sub, "--artifact", "skill:x", "--include-resources",
+        args = _parse(*novelty_argv(sub), "--artifact", "skill:x", "--include-resources",
                       "--resource-roles", "reference", "--max-file-words", "100")
         assert (args.include_resources, args.resource_roles) == (True, ["reference"])
         assert args.max_file_words == 100
@@ -488,7 +489,7 @@ def test_probe_refuses_a_stale_answer_key_before_building_a_client(tmp_path):
     save_atoms([], [], atoms, extractor="e", cap=None, bundle=recorded.summary())
     (root / "references" / "tuning.md").write_text("Never exceed 128 threads.\n",
                                                    encoding="utf-8")
-    args = _parse("novelty", "probe", "--artifact", f"skill:{root}", "--atoms", str(atoms))
+    args = _parse("skill", "novelty", "probe", "--artifact", f"skill:{root}", "--atoms", str(atoms))
     with pytest.raises(InputError, match="files changed"):
         args.func(args)
 
@@ -502,7 +503,7 @@ def test_probe_exits_with_a_message_on_an_unreadable_placebo_text(tmp_path):
     atoms = tmp_path / "atoms.json"
     save_atoms([], [], atoms, extractor="e", cap=None, bundle=bundle.summary())
     missing = tmp_path / "missing.txt"
-    args = _parse("novelty", "probe", "--artifact", f"skill:{root}", "--atoms", str(atoms),
+    args = _parse("skill", "novelty", "probe", "--artifact", f"skill:{root}", "--atoms", str(atoms),
                   "--placebo-text", str(missing))
     with pytest.raises(SystemExit, match=f"^cannot read --placebo-text {re.escape(str(missing))}"):
         args.func(args)
@@ -518,7 +519,7 @@ def test_shorten_restricts_a_bundle_answer_key_to_the_entry_point(tmp_path, caps
     atoms = tmp_path / "atoms.json"
     save_atoms([], segment(bundle.text), atoms, extractor="e", cap=None,
                bundle=bundle.summary())
-    args = _parse("novelty", "shorten", "--artifact", f"skill:{root}", "--atoms", str(atoms),
+    args = _parse("skill", "shorten", "--artifact", f"skill:{root}", "--atoms", str(atoms),
                   "--lexical-only")
     args.func(args)
     assert "bundle spans" in capsys.readouterr().err
@@ -537,7 +538,7 @@ def test_shorten_exits_with_a_message_on_a_bundle_block_it_cannot_slice(tmp_path
     saved = json.loads(atoms.read_text(encoding="utf-8"))
     del saved["bundle"]["files"][0]["end"]
     atoms.write_text(json.dumps(saved), encoding="utf-8")
-    args = _parse("novelty", "shorten", "--artifact", f"skill:{root}", "--atoms", str(atoms),
+    args = _parse("skill", "shorten", "--artifact", f"skill:{root}", "--atoms", str(atoms),
                   "--lexical-only")
     with pytest.raises(InputError) as exc:
         args.func(args)
@@ -547,7 +548,7 @@ def test_shorten_exits_with_a_message_on_a_bundle_block_it_cannot_slice(tmp_path
 def test_item_analysis_refuses_a_file_that_carries_no_probe_runs(tmp_path):
     path = tmp_path / "novelty.json"
     path.write_text(json.dumps({"model": "m", "paired": {}}), encoding="utf-8")
-    args = _parse("novelty", "items", "--probes", str(path))
+    args = _parse("skill", "novelty", "items", "--probes", str(path))
     with pytest.raises(InputError, match="no probe runs"):
         args.func(args)
 
@@ -562,7 +563,7 @@ def test_item_analysis_exits_with_a_message_on_an_unreadable_probes_file(tmp_pat
         path.write_text(content, encoding="utf-8")
     elif content is not None:
         path.write_bytes(content)
-    args = _parse("novelty", "items", "--probes", str(path))
+    args = _parse("skill", "novelty", "items", "--probes", str(path))
     with pytest.raises(InputError) as exc:
         args.func(args)
     assert str(exc.value).startswith(str(path))  # 3.14 parses deep nesting, then refuses the list
@@ -583,7 +584,7 @@ def test_item_analysis_refuses_a_probe_field_that_is_not_a_string(tmp_path, top,
     body = {"model": "m", "runs": [{"atom_id": "a1", "probe_kind": "direct", "arm": "full",
                                     "verdict": "correct", **run}], **top}
     path.write_text(json.dumps(body), encoding="utf-8")
-    args = _parse("novelty", "items", "--probes", str(path))
+    args = _parse("skill", "novelty", "items", "--probes", str(path))
     with pytest.raises(InputError, match="not a string"):
         args.func(args)
 
@@ -604,7 +605,7 @@ def test_item_analysis_over_three_models_reports_discrimination(tmp_path, capsys
         probes_file("weak.json", {"u": True, "hard": False, "f1": False}),
     ]
     out = tmp_path / "items.json"
-    args = _parse("novelty", "items", "--probes", *files, "--out", str(out))
+    args = _parse("skill", "novelty", "items", "--probes", *files, "--out", str(out))
     args.func(args)
 
     payload = json.loads(out.read_text(encoding="utf-8"))
@@ -623,7 +624,7 @@ def test_item_analysis_of_one_model_prints_why_it_is_not_computable(tmp_path, ca
     path.write_text(json.dumps({"model": "m1", "runs": [
         {"atom_id": "a1", "probe_kind": "direct", "arm": "full", "question": "q",
          "response": "r", "verdict": "correct_complete"}]}), encoding="utf-8")
-    args = _parse("novelty", "items", "--probes", str(path))
+    args = _parse("skill", "novelty", "items", "--probes", str(path))
     args.func(args)
     assert "at least 3" in capsys.readouterr().out
 
@@ -637,7 +638,7 @@ def test_item_analysis_warns_when_the_cells_cover_different_atoms(tmp_path, caps
              "response": "r", "verdict": "correct_complete"} for atom in atoms]}),
             encoding="utf-8")
         files.append(str(path))
-    args = _parse("novelty", "items", "--probes", *files)
+    args = _parse("skill", "novelty", "items", "--probes", *files)
     args.func(args)
     assert "WARNING: these runs do not cover the same atom set" in capsys.readouterr().err
 
@@ -655,7 +656,7 @@ def test_two_runs_of_the_same_model_do_not_overwrite_each_other(tmp_path, capsys
 
     files = [probes_file("seed0.json", "m"), probes_file("seed1.json", "m")]
     out = tmp_path / "items.json"
-    args = _parse("novelty", "items", "--probes", *files, "--out", str(out))
+    args = _parse("skill", "novelty", "items", "--probes", *files, "--out", str(out))
     args.func(args)
     payload = json.loads(out.read_text(encoding="utf-8"))
     # Keyed by source, so two seeds of one model are two rows, not one.
@@ -676,7 +677,7 @@ def test_items_refuses_runs_of_different_artifacts(tmp_path, field):
             {"atom_id": "a1", "probe_kind": "direct", "arm": "full", "question": "q",
              "response": "r", "verdict": "correct_complete"}]}), encoding="utf-8")
         files.append(str(path))
-    args = _parse("novelty", "items", "--probes", *files)
+    args = _parse("skill", "novelty", "items", "--probes", *files)
     with pytest.raises(InputError, match=f"different texts \\({field}"):
         args.func(args)
 
@@ -717,7 +718,7 @@ def test_unread_spans_travel_from_novelty_atoms_to_shorten(tmp_path, monkeypatch
                         _with_transport(real_client(model, provider, role, args),
                                         _unread_transport))
     atoms = tmp_path / "atoms.json"
-    args = _parse("novelty", "atoms", "--artifact", f"skill:{skill}", "--out", str(atoms))
+    args = _parse("skill", "novelty", "atoms", "--artifact", f"skill:{skill}", "--out", str(atoms))
     args.func(args)
     captured = capsys.readouterr()
     assert "WARNING atom extraction could not read 1 of" in captured.err
@@ -726,13 +727,13 @@ def test_unread_spans_travel_from_novelty_atoms_to_shorten(tmp_path, monkeypatch
     record = json.loads(atoms.read_text())["extraction"]
     assert len(record["unread_span_ids"]) == 1
 
-    args = _parse("novelty", "probe", "--artifact", f"skill:{skill}", "--atoms", str(atoms),
+    args = _parse("skill", "novelty", "probe", "--artifact", f"skill:{skill}", "--atoms", str(atoms),
                   "--no-paraphrase", "--no-reversal", "--out", str(tmp_path / "p.json"))
     args.func(args)
     assert "the atoms probed here leave out" in capsys.readouterr().err
 
     out = tmp_path / "short.md"
-    args = _parse("novelty", "shorten", "--artifact", f"skill:{skill}", "--atoms", str(atoms),
+    args = _parse("skill", "shorten", "--artifact", f"skill:{skill}", "--atoms", str(atoms),
                   "--budgets", "0.5", "--allow-unsafe", "--out", str(out))
     args.func(args)
     captured = capsys.readouterr()
@@ -940,7 +941,7 @@ def test_a_command_given_a_frontmatter_nested_too_deeply_exits_with_a_message(tm
         "shorten": ["--atoms", str(atoms)],
         "routing": ["--competitors", _deep_skill(tmp_path, "other")],
     }.get(sub, [])
-    args = _parse("novelty", sub, "--artifact", _deep_skill(tmp_path), *extra)
+    args = _parse(*novelty_argv(sub), "--artifact", _deep_skill(tmp_path), *extra)
     with pytest.raises(InputError) as exc:
         args.func(args)
     assert "maximum recursion" in str(exc.value)

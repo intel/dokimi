@@ -27,7 +27,7 @@ def test_extraction_failure_exits_1_not_2(tmp_path, monkeypatch, capsys):
                      encoding="utf-8")
     monkeypatch.setattr(atoms_mod, "extract_atoms", failing_extract)
     monkeypatch.setattr(novelty_cmd, "_client", lambda *a, **k: type("C", (), {"model": "m"})())
-    monkeypatch.setattr(sys, "argv", ["dokimi", "novelty", "atoms", "--artifact", f"skill:{skill}",
+    monkeypatch.setattr(sys, "argv", ["dokimi", "skill", "novelty", "atoms", "--artifact", f"skill:{skill}",
                                       "--out", str(tmp_path / "atoms.json")])
     with pytest.raises(SystemExit) as exc:
         cli.main()
@@ -39,7 +39,7 @@ def test_items_bad_probes_file_exits_2_through_cli_main(tmp_path, monkeypatch, c
     # The command raises InputError; cli.main prints it and exits 2, the code for bad input.
     path = tmp_path / "novelty.json"
     path.write_text(json.dumps({"model": "m", "paired": {}}), encoding="utf-8")
-    monkeypatch.setattr(sys, "argv", ["dokimi", "novelty", "items", "--probes", str(path)])
+    monkeypatch.setattr(sys, "argv", ["dokimi", "skill", "novelty", "items", "--probes", str(path)])
     with pytest.raises(SystemExit) as exc:
         cli.main()
     assert exc.value.code == 2

@@ -225,7 +225,7 @@ def discrimination(cells: list[dict], *, scoring: str = "lenient", arm: str = "f
 
 
 class ProbeFileError(ValueError):
-    """A ``novelty probe`` output that item analysis cannot use, with the reason."""
+    """A ``skill novelty probe`` output that item analysis cannot use, with the reason."""
 
 
 def _read_probe_file(raw: str):
@@ -245,7 +245,7 @@ def _check_probe_strings(raw: str, data: dict) -> None:
         if key in data and not isinstance(value, str):
             raise ProbeFileError(
                 f"{raw} has `{key}` as {type(value).__name__}, not a string; "
-                "it is not `novelty probe` output"
+                "it is not `skill novelty probe` output"
             )
 
 
@@ -255,12 +255,12 @@ def _check_run_strings(raw: str, row: dict) -> None:
         if key in row and not isinstance(row[key], str):
             raise ProbeFileError(
                 f"{raw} has a probe run whose `{key}` is {type(row[key]).__name__}, "
-                "not a string; it is not `novelty probe` output"
+                "not a string; it is not `skill novelty probe` output"
             )
 
 
 def load_probe_cells(paths: list[str]) -> tuple[list[dict], list[str]]:
-    """Read ``novelty probe`` outputs into item-analysis cells, one per file.
+    """Read ``skill novelty probe`` outputs into item-analysis cells, one per file.
 
     Correlating atoms across models only means something over one answer key and one
     probed text. Atom ids are content hashes, so ids collide across artifacts only for
@@ -282,13 +282,13 @@ def load_probe_cells(paths: list[str]) -> tuple[list[dict], list[str]]:
         if not isinstance(data, dict):
             raise ProbeFileError(
                 f"{raw} is {type(data).__name__}, not an object; "
-                "it is not `novelty probe` output"
+                "it is not `skill novelty probe` output"
             )
         runs_value = data.get("runs", [])
         if not isinstance(runs_value, list):
             raise ProbeFileError(
                 f"{raw} has `runs` as {type(runs_value).__name__}, not a list; "
-                "it is not `novelty probe` output"
+                "it is not `skill novelty probe` output"
             )
         _check_probe_strings(raw, data)
         runs = []
@@ -296,7 +296,7 @@ def load_probe_cells(paths: list[str]) -> tuple[list[dict], list[str]]:
             if not isinstance(row, dict):
                 raise ProbeFileError(
                     f"{raw} has a run entry as {type(row).__name__}, not an object; "
-                    "it is not `novelty probe` output"
+                    "it is not `skill novelty probe` output"
                 )
             _check_run_strings(raw, row)
             try:
@@ -307,11 +307,11 @@ def load_probe_cells(paths: list[str]) -> tuple[list[dict], list[str]]:
                 ))
             except KeyError as exc:
                 raise ProbeFileError(
-                    f"{raw} has a probe run missing {exc}; it is not `novelty probe` output"
+                    f"{raw} has a probe run missing {exc}; it is not `skill novelty probe` output"
                 ) from None
         if not runs:
-            raise ProbeFileError(f"{raw} carries no probe runs; item analysis needs `novelty "
-                                 "probe` output, not a novelty.json")
+            raise ProbeFileError(f"{raw} carries no probe runs; item analysis needs "
+                                 "`skill novelty probe` output, not a novelty.json")
         cells.append({"model": data.get("model", raw), "runs": runs, "source": raw,
                       "artifact": data.get("artifact"), "ref_digest": data.get("ref_digest")})
 
@@ -333,7 +333,7 @@ def load_probe_cells(paths: list[str]) -> tuple[list[dict], list[str]]:
 
 
 def item_analysis(cells: list[dict], *, arm: str = "full") -> dict[str, Any]:
-    """The ``novelty items`` record over cells from :func:`load_probe_cells`.
+    """The ``skill novelty items`` record over cells from :func:`load_probe_cells`.
 
     ``kind_agreement`` is keyed by source file, not by model: two runs of the same model
     (two seeds, say) must not overwrite each other.

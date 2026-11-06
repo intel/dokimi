@@ -386,11 +386,13 @@ def _render_template(template: str, context: dict[str, Any]) -> str:
 
 
 def _task_prompt(task: TaskSpec) -> str:
-    return (
-        "Solve this coding task. Work only inside the task environment. "
-        "When finished, leave the files ready for the verifier.\n\n"
-        f"# Task: {task.name}\n\n{task.instruction}"
-    )
+    """The task instruction as the user wrote it: no wrapper, the way a real harness sends it.
+
+    A wrapper ("Solve this coding task…", "# Task: <name>") is text dokimi adds that a
+    user's agent never sees, so it can move the score of a command arm for no reason
+    the task measures.
+    """
+    return task.instruction
 
 
 # Windows reports a crash or Ctrl-C as an NTSTATUS error code (0xC0000005, 0xC000013A, 0xC0000409).

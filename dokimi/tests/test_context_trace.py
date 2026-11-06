@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""`context trace`: the prompt size of every model call, read from a Claude Code stream-json trace."""
+"""`trace inspect`: the prompt size of every model call, read from a Claude Code stream-json trace."""
 
 from __future__ import annotations
 
@@ -139,7 +139,7 @@ def test_cli_table_compares_traces(tmp_path, capsys):
     a, b = tmp_path / "a.jsonl", tmp_path / "b.jsonl"
     a.write_text(RUN, encoding="utf-8")
     b.write_text(_jsonl(INIT, _assistant("m1", _usage(1, 30000, 0))), encoding="utf-8")
-    out = _run_cli(["context", "trace", str(a), str(b), "--window", "100000", "--calls"], capsys).out
+    out = _run_cli(["trace", "inspect", str(a), str(b), "--window", "100000", "--calls"], capsys).out
     rows = [line for line in out.splitlines() if line.startswith("| ")]
     assert rows[0].startswith("| trace | calls | first | peak | fill |")
     assert f"| {a} | 5 | 20,010 | 20,815 | 21% | 805 | 1 | 5 | 1 | 1 |" in rows[1]
@@ -152,7 +152,7 @@ def test_cli_table_compares_traces(tmp_path, capsys):
 def test_cli_json_single_trace(tmp_path, capsys):
     a = tmp_path / "a.jsonl"
     a.write_text("garbage\n" + RUN, encoding="utf-8")
-    got = _run_cli(["context", "trace", str(a), "--json"], capsys)
+    got = _run_cli(["trace", "inspect", str(a), "--json"], capsys)
     (data,) = json.loads(got.out)  # a list for one trace too
     assert data["trace"] == str(a) and data["peak_prompt_tokens"] == 20815
     assert "per_call" not in data and "compaction_events" not in data
@@ -162,7 +162,7 @@ def test_cli_json_single_trace(tmp_path, capsys):
 @pytest.mark.outcome("cjm-context-trace")
 def test_cli_missing_trace_exits_1(tmp_path, capsys):
     with pytest.raises(SystemExit) as exc:
-        _run_cli(["context", "trace", str(tmp_path / "missing.jsonl")], capsys)
+        _run_cli(["trace", "inspect", str(tmp_path / "missing.jsonl")], capsys)
     assert exc.value.code == 1
 
 
@@ -286,7 +286,7 @@ def test_largest_tool_results_are_the_five_heaviest_in_order_without_empty_ones(
 def test_cli_names_the_three_heaviest_tools(tmp_path, capsys):
     a = tmp_path / "a.jsonl"
     a.write_text(_sized(10, 40, 30, 20), encoding="utf-8")
-    out = _run_cli(["context", "trace", str(a)], capsys).out
+    out = _run_cli(["trace", "inspect", str(a)], capsys).out
     assert f"{a}: largest tool results (chars): T1 40, T2 30, T3 20" in out.splitlines()
 
 
@@ -309,7 +309,7 @@ def test_camel_case_and_bare_compactions():
 def test_an_init_only_trace_reads_with_empty_numbers(tmp_path, capsys):
     a = tmp_path / "a.jsonl"
     a.write_text(_jsonl(INIT), encoding="utf-8")
-    out = _run_cli(["context", "trace", str(a)], capsys).out
+    out = _run_cli(["trace", "inspect", str(a)], capsys).out
     assert out.splitlines()[0] == "| trace | calls | first | peak | growth | compact | tools | failed | repeat | result chars |"
     assert f"| {a} | 0 | – | – | – | 0 | 0 | 0 | 0 | 0 |" in out
 
@@ -322,7 +322,7 @@ def test_an_assistant_only_trace_has_no_surface():
 def test_a_pipe_in_a_trace_name_stays_in_its_cell(tmp_path, capsys):
     a = tmp_path / "a|b.jsonl"
     a.write_text(_jsonl(_assistant("m1", _usage(1, 0, 0))), encoding="utf-8")
-    row = _run_cli(["context", "trace", str(a)], capsys).out.splitlines()[2]
+    row = _run_cli(["trace", "inspect", str(a)], capsys).out.splitlines()[2]
     assert row.startswith(f"| {str(a).replace('|', chr(92) + '|')} | 1 |")
 
 
@@ -332,7 +332,7 @@ def test_one_unreadable_trace_does_not_lose_the_others(tmp_path, capsys):
     empty.write_text("", encoding="utf-8")
     for extra in ([], ["--json"]):
         with pytest.raises(SystemExit) as exc:
-            _run_cli(["context", "trace", str(empty), str(a), *extra], capsys)
+            _run_cli(["trace", "inspect", str(empty), str(a), *extra], capsys)
         got = capsys.readouterr()
         assert exc.value.code == 1 and "empty.jsonl" in got.err
         if extra:

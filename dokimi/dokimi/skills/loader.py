@@ -162,7 +162,7 @@ def load_skill(path) -> Skill:
 def walk_skill_files(root: Path, onerror: Optional[Callable[[OSError], object]] = None) -> List[Path]:
     """Every entry named ``SKILL.md`` below *root*, sorted, without walking :data:`VENDORED_DIR_NAMES`.
 
-    A dangling symlink or a directory is kept: ``catalog scan`` reports it as an error row.
+    A dangling symlink or a directory is kept: ``catalog check`` reports it as an error row.
     """
     found: List[Path] = []
     for dirpath, dirnames, filenames in os.walk(root, onerror=onerror):
