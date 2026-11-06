@@ -225,20 +225,14 @@ FORMAT_HARBOR_SUITES = "harbor-suites"
 BY_CATALOG = "catalog"
 
 
-def _suites_shape(data: dict[str, Any]) -> tuple[list[str], int]:
-    """Problems a suites manifest has, and the tasks it names, by the shape the catalog reads."""
-    suites = data.get("suites")
-    suites = [] if suites is None else suites
-    if not isinstance(suites, list) or not all(isinstance(s, dict) for s in suites):
-        return ["suites must be a list of objects"], 0
-    count = 0
-    for suite in suites:
-        tasks = suite.get("tasks")
-        tasks = [] if tasks is None else tasks
-        if not isinstance(tasks, list) or not all(isinstance(t, dict) for t in tasks):
-            return ["each suite's tasks must be a list of objects"], 0
-        count += len(tasks)
-    return [], count
+def _suites_shape(source: FileSource) -> tuple[list[str], int]:
+    """Problems a suites manifest has, and the tasks it names, as the catalog reads it."""
+    from dokimi.external.catalog import _manifest_tasks  # the catalog's own reader, so the two cannot drift
+
+    try:
+        return [], len(_manifest_tasks(source.data, source.path))
+    except ValueError as exc:
+        return [str(exc).removeprefix(f"invalid suites.json at {source.path}: ")], 0
 
 
 class HarborSuitesProbe:
@@ -251,11 +245,12 @@ class HarborSuitesProbe:
         data = source.data
         if source.path.name != "suites.json" or not isinstance(data, dict) or "suites" not in data:
             return None
+        if source.path.parent.parts[-2:] != ("evaluation", "harbor"):
+            return None  # the catalog reads only <root>/evaluation/harbor/suites.json
         return Fingerprint(0.9, ("file name", "suites"))
 
     def describe(self, source: FileSource) -> Report:
-        data: dict[str, Any] = source.data if isinstance(source.data, dict) else {}
-        problems, count = _suites_shape(data)
+        problems, count = _suites_shape(source)
         report = Report(source.path, self.name, KIND_EXECUTABLE, items=count)
         report.problems.extend([*source.problems, *problems])
         report.consumers.append(BY_CATALOG)
