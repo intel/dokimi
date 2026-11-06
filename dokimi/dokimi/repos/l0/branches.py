@@ -124,7 +124,7 @@ def _hook_source(opt: str, value: str, line: int) -> Source | None:
         return Source(value, None, f"branch of {where}")
     try:
         return Source(value, re.compile(value), f"branch pattern of {where}")
-    except re.error:
+    except (re.error, OverflowError, RecursionError):  # `a{999999999999}`, a deep nest of groups
         return None
 
 

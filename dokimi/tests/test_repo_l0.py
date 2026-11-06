@@ -364,6 +364,10 @@ _PUSH = {".github/workflows/ci.yml": 'name: ci\non:\n  push:\n    branches: [mai
      "branch filter of on.pull_request (.github/workflows/pr.yaml:4)"),
     ("release/v*", {".github/workflows/ci.yml": '"on": {push: {branches: ["release/v*"]}}\n'},
      "branch filter of on.push (.github/workflows/ci.yml:1)"),
+    # re.compile raises OverflowError and RecursionError, not re.error, for these two: the filter still counts
+    ("maintenance/*", {**_pre_commit("[-p, 'maintenance/a{999999999999}', -p, 'maintenance/" + "(" * 3000 + ")" * 3000
+                                     + "']"), ".github/workflows/ci.yml": "on: {push: {branches: ['maintenance/**']}}\n"},
+     "branch filter of on.push (.github/workflows/ci.yml:1)"),
 ])
 def test_a_branch_name_or_pattern_the_repository_configures_is_ok(tmp_path, claim, files, why):
     """https://github.com/intel/dokimi/issues/410: `maintenance/*` names the branches a hook protects, not a path."""
