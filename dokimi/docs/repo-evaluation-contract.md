@@ -996,13 +996,15 @@ Two questions:
 
 - **references**: every file that references one function, outside the files
   that define it. On an index with enclosing ranges (scip-python) the answer is
-  functions, `path::name` with the name as it reads inside its file
+  functions when every function the index defines has an enclosing range
+  (otherwise files), `path::name` with the name as it reads inside its file
   (`Impl.run` for a method), the innermost function whose definition (signature
   or body) holds each reference; module-level code and class bodies are not a
   function. Test files count. SCIP
   does not tell a call from another use, so the question is references, not
   calls. C++ overloads share one qualified name the prompt cannot tell apart,
-  so they are one target and the prompt says how many overloads count.
+  so they are one target and the prompt says how many overloads count; on
+  other indexes each symbol is its own target.
 - **derives**: every class whose bases (as the reader gives them, §1.2) include
   one class, answered as `path::Class`. On scip-clang the bases are the
   reader's minimal set, and the index cannot tell a class that names the
@@ -1030,7 +1032,10 @@ version in its symbol changes).
 `question`, `answer_key`, `symbols`, `ambiguous_name`, `code_index {tool,
 sha256}`) and `gold.json` (`answer_key`, `gold`, `exclude`: the defining files
 for references, `accepted`: right answers not required, such as a class's
-second defining file (a `.pyi` next to its `.py`); a person may add more). The
+second defining file (a `.pyi` next to its `.py`); a person may add more;
+`distinct`: for function answers, the other functions of a gold file whose
+last name is a gold item's, so a bare name that fits one of them names no
+gold item). The
 manifest needs `entry_points: {}` when every task uses a built-in grader. A
 task directory that has a `task.json` is kept and printed as `kept <id>`;
 `--force` rewrites it.
@@ -1041,12 +1046,13 @@ every metric 0, a failed run. A path is cut after the agent's workspace and
 loses a leading `./`; in a name `::` reads as `.` and a trailing `()` is
 dropped. A name that matches no item exactly names the one gold or accepted
 item of its file whose name ends with it, or that it ends with, in whole parts (`go` for
-`Impl.go`, `ns.Impl` for `Impl`), when there is one; `B.go` never names
-`Impl.go`. An item in an
+`Impl.go`, `ns.Impl` for `Impl`), when there is one and no `distinct` item
+of the file fits it too; `B.go` never names `Impl.go`. An item in an
 `exclude` file is dropped, an item in `accepted` counts neither way. The score
 is F1 against `gold`. A gold file with an unknown `answer_key`, an empty
-`gold`, or an `exclude` or `accepted` that is not a list of strings is a
-grader error.
+`gold`, a blank `gold` entry, a `gold` entry in an `exclude` file, or an
+`exclude`, `accepted` or `distinct` that is not a list of strings is a grader
+error.
 
 The command exits 2 without `--index`, with `--references 0 --derives 0`, on
 an unpinned source, an index that does not read, or one that maps to no file

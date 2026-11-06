@@ -29,12 +29,12 @@ def cmd_eval_tasks_generate(args: argparse.Namespace) -> None:
     if not args.references and not args.derives:
         print("✗ --references 0 --derives 0 asks for no task", file=sys.stderr)
         sys.exit(EXIT_USAGE)
+    index = _code_index(args.index)  # before the source: a bad index must not cost a clone first
     _, tree = _source_tree(args)
     if not isinstance(tree, GitTree):
         print(f"✗ pin the revision the index was built from: {args.source}@<rev>; a task's base is a commit",
               file=sys.stderr)
         sys.exit(EXIT_USAGE)
-    index = _code_index(args.index)
     opts = Options(out=Path(args.out), base=tree.sha, references=args.references, derives=args.derives, seed=args.seed,
                    max_turns=args.max_turns, force=args.force)
     p = plan(index, tree.files(), opts)
@@ -91,7 +91,8 @@ def add_parser(eval_tasks_sub, positive_int) -> None:
         "generate", help="Write repository tasks from a source, no LLM: --from graph writes dokimi:graph_enum "
         "tasks (which files or functions reference a function, which classes derive from a class) with gold "
         "from a SCIP code index. Exits 2 on a usage error or an index that does not read or matches no file "
-        "of the source, 1 when no target gave a task or a task cannot be written")
+        "of the source, 1 when no target gave a task, a task cannot be written or the source cannot be resolved at "
+        "the revision")
     gen_p.add_argument("source", help=SOURCE_HELP)
     gen_p.add_argument("--from", required=True, choices=SOURCES, dest="from_kind",
                        help="What the tasks are built from: graph (a code index)")
