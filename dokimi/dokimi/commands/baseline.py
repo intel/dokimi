@@ -334,17 +334,12 @@ def cmd_baseline_compare(args: argparse.Namespace) -> None:
     entry = _pick_entry(args, baselines, eval_data)
     baseline_data = _read_json_object(Path(entry["path"]), 2)
 
-    from dokimi.records import RecordError, records
+    from dokimi.records import records
 
-    # Read both record lists before the model checks: a malformed file must exit 2, not reach the --strict verdict.
-    try:
-        baseline_records = records(baseline_data.get("evaluations", []),
-                                   source=entry["path"], kind="evaluations")
-        baseline_evals = {e.key: e for e in baseline_records}
-        current_evals = records(eval_data.get("evaluations", []), source=str(eval_path), kind="evaluations")
-    except RecordError as exc:
-        print(f"❌ {exc}", file=sys.stderr)
-        raise SystemExit(2) from exc  # 1 is the --strict verdict
+    # Read both record lists before the model checks: a malformed file is an InputError (exit 2), not the --strict verdict.
+    baseline_records = records(baseline_data.get("evaluations", []), source=entry["path"], kind="evaluations")
+    baseline_evals = {e.key: e for e in baseline_records}
+    current_evals = records(eval_data.get("evaluations", []), source=str(eval_path), kind="evaluations")
 
     _report_model_checks(args, entry, baseline_data, eval_data)
 
