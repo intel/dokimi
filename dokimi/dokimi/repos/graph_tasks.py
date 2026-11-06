@@ -25,7 +25,7 @@ import random
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from dokimi.repos.code_index import CodeIndex
 from dokimi.repos.code_index.symbols import descriptor_names, descriptors
@@ -92,6 +92,7 @@ class Plan:
     candidates: dict[str, int] = field(default_factory=dict)
     outcomes: list[Outcome] = field(default_factory=list)
     unindexed: list[str] = field(default_factory=list)  # tree files of the indexed kinds the index lacks
+    dropped: int = 0  # targets whose name is a word in an unindexed file
 
 
 def _every_function_ranged(index: CodeIndex) -> bool:
@@ -102,8 +103,10 @@ def _every_function_ranged(index: CodeIndex) -> bool:
                for s in index.symbols())
 
 
-def plan(index: CodeIndex, tree_files: list[str], opts: Options) -> Plan:
-    """Map the index onto the tree, list the candidates and choose the tasks; nothing is written."""
+def plan(index: CodeIndex, tree_files: list[str], opts: Options,
+         read: Callable[[str], str] | None = None) -> Plan:
+    """Map the index onto the tree, list the candidates and choose the tasks; nothing is written. ``read`` gives
+    a tree file's text: a target whose name is a word in a file the index lacks is dropped, as its gold may miss it."""
     documents = index.files()
     prefix, _ = detect_prefix(documents, tree_files)
     in_tree = set(tree_files)
@@ -111,18 +114,32 @@ def plan(index: CodeIndex, tree_files: list[str], opts: Options) -> Plan:
     granularity = "functions" if index.has_enclosing_ranges and _every_function_ranged(index) else "files"
     sep = "::" if index.tool.startswith("scip-clang") else "."
     names = _in_file_names(index)
-    references = _references(index, repo_path, granularity, sep, opts, names)
-    derives = _derives(index, repo_path, sep, opts, names)
+    kinds = {posixpath.splitext(p)[1] for p in repo_path.values()} - {""}
+    unindexed = sorted(f for f in in_tree - set(repo_path.values())
+                       if f.startswith(prefix) and posixpath.splitext(f)[1] in kinds)
+    words = _words(unindexed, read)
+    pools = [_references(index, repo_path, granularity, sep, opts, names), _derives(index, repo_path, sep, opts, names)]
+    references, derives = ([c for c in pool if c.name not in words] for pool in pools)
     rng = random.Random(opts.seed)
     used: set[str] = set()
     chosen = _choose(references, opts.references, rng, used) + _choose(derives, opts.derives, rng, used)
     out = Plan(granularity, prefix, len(documents), len(repo_path),
-               {"references": len(references), "derives": len(derives)})
-    kinds = {posixpath.splitext(p)[1] for p in repo_path.values()} - {""}
-    out.unindexed = sorted(f for f in in_tree - set(repo_path.values())
-                           if f.startswith(prefix) and posixpath.splitext(f)[1] in kinds)
+               {"references": len(references), "derives": len(derives)}, unindexed=unindexed,
+               dropped=sum(map(len, pools)) - len(references) - len(derives))
     out.outcomes = [Outcome(task_id(c), "kept" if (opts.out / task_id(c) / "task.json").exists() and not opts.force
                             else "written", c) for c in chosen]
+    return out
+
+
+def _words(files: list[str], read: Callable[[str], str] | None) -> set[str]:
+    out: set[str] = set()
+    for f in files:
+        if read is None:
+            break
+        try:
+            out.update(re.findall(r"\w+", read(f)))
+        except (OSError, UnicodeDecodeError):  # not text: it holds no name
+            continue
     return out
 
 

@@ -41,7 +41,7 @@ def cmd_eval_tasks_generate(args: argparse.Namespace) -> None:
         sys.exit(EXIT_USAGE)
     opts = Options(out=Path(args.out), base=tree.sha, references=args.references, derives=args.derives, seed=args.seed,
                    max_turns=args.max_turns, force=args.force)
-    p = plan(index, tree.files(), opts)
+    p = plan(index, tree.files(), opts, tree.read_text)
     if not p.documents_in_tree:
         print(f"✗ no document of the code index {args.index} is a file of {tree.label}", file=sys.stderr)
         sys.exit(EXIT_USAGE)
@@ -74,7 +74,8 @@ def _print_coverage(p: Plan) -> None:
           + f"; {p.granularity}; candidates: {p.candidates['references']} references, {p.candidates['derives']} derives")
     if p.unindexed:
         print(f"⚠ {len(p.unindexed)} tree file(s) of the indexed kinds are not in the index (first: "
-              f"{p.unindexed[0]}): a reference in one is in no gold; index the whole tree", file=sys.stderr)
+              f"{p.unindexed[0]}): {p.dropped} target(s) whose name is a word in one dropped, as a gold could miss "
+              "the file; index the whole tree", file=sys.stderr)
 
 
 def _sha256(path: str) -> str:

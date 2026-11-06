@@ -682,13 +682,30 @@ def test_tree_files_of_the_indexed_kinds_that_the_index_lacks_are_listed(tmp_pat
     assert plan(_index(_callers_docs()), tree, _opts(tmp_path)).unindexed == ["tests/test_cli.py"]
 
 
-def test_cli_warns_when_the_index_lacks_a_tree_file(tmp_path, capsys):
+@pytest.mark.parametrize("text, dropped", [("x = 1\n", 0), ("run()\n", 1)])
+def test_cli_warns_when_the_index_lacks_a_tree_file(tmp_path, capsys, text, dropped):
     root, _ = _toy(tmp_path)
-    write_file(root, "tests/test_core.py", "x = 1\n")
+    write_file(root, "tests/test_core.py", text)
     git(root, "add", "-A")
     git(root, "commit", "-qm", "test")
     _scip(tmp_path / "index.scip")
-    _run(["eval", "tasks", "generate", f"{root}@HEAD", "--from", "graph", "--index", str(tmp_path / "index.scip"),
-          "--out", str(tmp_path / "tasks")])
+    argv = ["eval", "tasks", "generate", f"{root}@HEAD", "--from", "graph", "--index", str(tmp_path / "index.scip"),
+            "--out", str(tmp_path / "tasks")]
+    if dropped:
+        with pytest.raises(SystemExit):  # run was the only target
+            _run(argv)
+    else:
+        _run(argv)
     err = capsys.readouterr().err
     assert "1 tree file(s) of the indexed kinds are not in the index (first: tests/test_core.py)" in err
+    assert f"{dropped} target(s) whose name is a word in one dropped" in err
+
+
+def test_a_target_named_in_a_tree_file_the_index_lacks_is_dropped(tmp_path):
+    docs = {k: v for k, v in _callers_docs().items() if k != "tests/test_core.py"}
+    texts = {"tests/test_core.py": "from src.core import run\n\nrun()\n"}
+    p = plan(_index(docs), TREE, _opts(tmp_path), lambda f: texts.get(f, ""))
+    assert p.unindexed == ["tests/test_core.py"] and p.outcomes == [] and p.dropped == 1
+    texts["tests/test_core.py"] = "def test_runner():\n    assert parse_run()\n"
+    p = plan(_index(docs), TREE, _opts(tmp_path), lambda f: texts.get(f, ""))
+    assert [o.candidate.gold for o in p.outcomes] == [("src/api.py", "src/cli.py")] and p.dropped == 0
