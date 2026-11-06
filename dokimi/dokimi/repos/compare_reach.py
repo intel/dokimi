@@ -20,8 +20,8 @@ POWER = 0.80
 def min_detectable(sd: float, n: int) -> float:
     """An approximate, uncorrected t-based estimate of the mean delta a two-sided one-sample t test at :data:`ALPHA`
     detects with :data:`POWER` over ``n`` tasks of spread ``sd``, a planning figure: not the power of the sign-flip
-    test nor of the Holm-corrected decision. The quantiles are t at ``n - 1`` degrees of freedom, as the interval
-    of ``mean_ci`` is."""
+    test nor of the Holm-corrected decision. The quantiles are t at ``n - 1`` degrees of freedom, those of the
+    planning figure: a row's interval inverts the sign-flip test and has no quantiles (:mod:`.compare_interval`)."""
     df = n - 1
     return (sp_stats.t.ppf(1 - ALPHA / 2, df) + sp_stats.t.ppf(POWER, df)) * sd / math.sqrt(n)
 

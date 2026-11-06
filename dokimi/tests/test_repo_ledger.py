@@ -257,6 +257,23 @@ def test_format_names_the_verdict_the_hypothesis_and_the_stale_review(tmp_path):
     assert "R1: guidance:rules vs guidance:none, model m-1, gate: keep" in text
     assert "hypothesis: R1 changes the answer" in text
     assert "re-review" in text
+    assert "delta +1.000 [+1.000, +1.000]" in text  # eight cases all +1: every other shift is rejected
+
+
+def test_a_rule_delta_has_ends_at_four_places_and_names_its_method(tmp_path):
+    tasks = _ids("t", 8)  # seven up, one tied: bisection stops within 1e-7 of the steps at 0.5 and 1
+    batch = _gate_batch(tmp_path, {t: (False, t != "t_7") for t in tasks})
+    entry = evaluate(load_ledger(_ledger(tmp_path / "ledger.json", [_rule("R1", tasks)])), [batch], BASE,
+                     today=TODAY)["rules"][0]
+    assert entry["delta"] == {"mean": 0.875, "lo": 0.5, "hi": 1.0, "method": "sign_flip_inversion"}
+
+
+def test_format_prints_an_open_interval_of_few_cases(tmp_path):
+    tasks = _ids("t", 3)  # three cases: the sign-flip test rejects no shift, so both ends are open (null)
+    batch = _gate_batch(tmp_path, {t: (False, True) for t in tasks})
+    result = evaluate(load_ledger(_ledger(tmp_path / "ledger.json", [_rule("R1", tasks)])), [batch], BASE, today=TODAY)
+    assert (result["rules"][0]["delta"]["lo"], result["rules"][0]["delta"]["hi"]) == (None, None)
+    assert "delta +1.000 [-inf, +inf], p 0.2500" in format_ledger(result)
 
 
 def test_compare_with_ledger_adds_the_rule_results_to_the_json(tmp_path, capsys):
