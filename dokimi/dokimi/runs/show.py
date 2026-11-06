@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """One artifact under the runs root: its kind, whether it meets its schema, what it holds and
-what lies next to it. A failed schema is reported, not raised: showing is not a gate."""
+what lies next to it; or one run, the artifacts that share a ``run_id``. A failed schema is
+reported, not raised: showing is not a gate."""
 
 from __future__ import annotations
 
@@ -10,16 +11,18 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from dokimi.artifacts import schema_errors, schema_version_for
+from dokimi.artifacts import is_run_id, schema_errors, schema_version_for
 from dokimi.runs.kinds import VERSION_KINDS, contents
 from dokimi.runs.scan import (
     Artifact,
+    Unreadable,
     head_version,
     inside,
     load_document,
     plain,
     read_artifact,
     read_error_reason,
+    scan,
 )
 from dokimi.utils import InputError
 
@@ -135,3 +138,32 @@ def show(root: Path, address: str) -> Shown:
                   contents=contents(kind, data))
     _siblings(shown, path, os.path.realpath(root))
     return shown
+
+
+@dataclass
+class ShownRun:
+    """What ``runs show RUN_ID`` prints: the artifacts that carry the ``run_id``, newest first,
+    and the files under the root that could not be read (one of them may belong to the run)."""
+
+    run_id: str
+    artifacts: list[Artifact]
+    unreadable: list[Unreadable]
+
+
+def names_a_run(root: Path, address: str) -> bool:
+    """Whether ``address`` means a run: a run id that names nothing on disk, neither under the
+    root nor from the working directory. A file or directory of that name wins."""
+    return is_run_id(address) and not any(os.path.lexists(p) for p in (root / address, address))
+
+
+def show_run(root: Path, wanted: str) -> ShownRun:
+    """The artifacts under ``root`` whose ``run_id`` is ``wanted``.
+
+    Raises ``InputError`` when none has it.
+    """
+    result = scan(root)
+    found = [a for a in result.artifacts if a.run_id == wanted]
+    if not found:
+        raise InputError(f"no file {plain(wanted)} under the runs root {plain(root.as_posix())}/, "
+                         f"and no artifact there has that run_id")
+    return ShownRun(run_id=wanted, artifacts=found, unreadable=result.unreadable)

@@ -418,3 +418,69 @@ def test_an_absolute_address_under_a_root_named_with_dot_dot(tmp_path, monkeypat
 
     assert (by_path["path"], by_path["kind"]) == (by_name["path"], by_name["kind"]) == ("e.json",
                                                                                        "eval")
+
+
+@pytest.fixture
+def runs(root, monkeypatch):
+    """Run ``nightly-1``: the arms run (saved again) and an eval; run ``nightly-2``: one eval.
+    ``plugin_delta`` stays in this process's run."""
+    for run, path in (("nightly-1", "e1.json"), ("nightly-2", "e2.json")):
+        monkeypatch.setenv("DOKIMI_RUN_ID", run)
+        save_artifact("eval", {**_fixture("eval.v1"), "evaluated_at": "2026-10-30T08:00:00Z"},
+                      root / path)
+    monkeypatch.setenv("DOKIMI_RUN_ID", "nightly-1")
+    save_artifact("arms", {**_fixture("arms.v1"), "generated_at": "2026-10-31T09:00:00Z"},
+                  root / "arms" / "onetbb.json")
+    monkeypatch.delenv("DOKIMI_RUN_ID")
+    return root
+
+
+def test_a_run_id_shows_the_artifacts_of_that_run(monkeypatch, capsys, runs):
+    lines = _show(monkeypatch, capsys, "nightly-1").out.splitlines()
+
+    assert lines[:3] == ["run_id:     nightly-1", "artifacts:  2 (arms: 1, eval: 1)", ""]
+    assert lines[3].split() == ["SCHEMA", "SUBJECT", "MODEL", "TIME", "(UTC)", "PATH"]
+    assert [row.split()[-1] for row in lines[4:]] == ["arms/onetbb.json", "e1.json"]
+
+
+def test_json_of_a_run_has_its_artifacts_as_runs_list_rows(monkeypatch, capsys, runs):
+    data = json.loads(_show(monkeypatch, capsys, "nightly-2", "--json").out)
+
+    assert (data["root"], data["run_id"], data["unreadable"]) == ("results", "nightly-2", [])
+    (row,) = data["artifacts"]
+    assert (row["path"], row["kind"], row["run_id"]) == ("e2.json", "eval", "nightly-2")
+
+
+def test_a_file_or_directory_of_the_run_ids_name_is_shown_instead(monkeypatch, capsys, runs):
+    (runs / "nightly-1").mkdir()
+    assert _fails(monkeypatch, capsys, "nightly-1") == (
+        "Error: nightly-1 is a directory; runs show takes one artifact file\n")
+
+    (runs / "nightly-1").rmdir()
+    (runs.parent / "nightly-1").write_text("{}", encoding="utf-8")  # from the working directory
+    assert _fails(monkeypatch, capsys, "nightly-1") == "Error: nightly-1 is not under the runs root results/\n"
+
+
+def test_a_run_id_no_artifact_has_exits_2(monkeypatch, capsys, runs):
+    assert _fails(monkeypatch, capsys, "nightly-3") == (
+        "Error: no file nightly-3 under the runs root results/, and no artifact there has that "
+        "run_id\n")
+
+
+def test_an_input_kinds_stray_run_id_does_not_make_it_part_of_the_run(monkeypatch, capsys, runs):
+    stray = {**_fixture("questions.v2"), "run_id": "nightly-2"}
+    (runs / "q.json").write_text(json.dumps({"schema_version": "questions.v2", **stray}),
+                                 encoding="utf-8")
+
+    data = json.loads(_show(monkeypatch, capsys, "nightly-2", "--json").out)
+
+    assert [row["path"] for row in data["artifacts"]] == ["e2.json"]
+
+
+def test_a_run_names_the_files_that_could_not_be_read(monkeypatch, capsys, runs):
+    (runs / "broken.json").write_text('{"schema_version": "eval.v1", "x": [', encoding="utf-8")
+
+    lines = _show(monkeypatch, capsys, "nightly-2").out.splitlines()
+
+    assert lines[2] == ("unreadable: 1 file under the root, which may belong to it "
+                        "(first: broken.json: not valid JSON: Expecting value at line 1)")
