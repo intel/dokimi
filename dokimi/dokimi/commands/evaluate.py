@@ -294,7 +294,6 @@ def cmd_eval_judge_validity(args: argparse.Namespace) -> None:
     run = _load_answers(args.answers)
     answers = list(run.records)
     library = args.product or run.meta.get("library_name") or "the library"
-    warn_recorded_self_judge(run.meta, _validity_judges(args), "eval judge validate")
 
     variants = [v.strip() for v in args.variants.split(",")] if args.variants else list(DEGRADATIONS)
     unknown = sorted(set(variants) - set(DEGRADATIONS))
@@ -316,6 +315,7 @@ def cmd_eval_judge_validity(args: argparse.Namespace) -> None:
         print(f"Error: --context stored needs a judge that takes context; {what} does not",
               file=sys.stderr)
         sys.exit(2)
+    warn_recorded_self_judge(run.meta, _validity_judges(args), "eval judge validate")
     typed = None
     if args.scorer == "judge":
         judge = Judge(model=args.judge_model, provider=args.judge_provider, temperature=args.judge_temperature)

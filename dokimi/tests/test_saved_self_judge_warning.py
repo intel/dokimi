@@ -54,11 +54,14 @@ def test_roles_name_the_two_sides(capsys):
     assert "answer model" not in err
 
 
+LONG = " Call fit() on the training data, then predict() on the test rows, and check the score." * 4
+
+
 def _arms_file(tmp_path):
     p = tmp_path / "run.json"
     p.write_text(json.dumps({**SELF, "library_name": "L", "baseline_arm": "baseline", "answers": [{
         "question_id": "Q1", "question_text": "q", "arms": {
-            "baseline": {"answer": "base answer"}, "skill": {"answer": "skill answer"}}}]}),
+            "baseline": {"answer": "base answer" + LONG}, "skill": {"answer": "skill answer" + LONG}}}]}),
         encoding="utf-8")
     return p
 
@@ -196,3 +199,29 @@ def test_questions_review_on_an_answers_file_does_not_take_the_answer_model_as_g
     with pytest.raises(Stop):
         args.func(args)
     assert not seen[0].get("model")
+
+
+@pytest.mark.parametrize("argv_tail,words", [
+    (["--wordings", "nope"], ("eval", "judge", "wording")),
+    (["--variants", "nope"], ("eval", "judge", "wording")),
+    (["--variants", "nope"], ("eval", "judge", "validate")),
+    (["--scorer", "nope"], ("eval", "judge", "validate")),
+], ids=["wording-wordings", "wording-variants", "validate-variants", "validate-scorer"])
+def test_a_refused_run_does_not_warn(argv_tail, words, tmp_path, capsys):
+    argv = next(a for argvs in _judge_argv(tmp_path).values() for a in argvs if tuple(a[:3]) == words)
+    args = parse_args([*argv, *argv_tail])
+    with pytest.raises((SystemExit, ValueError)):  # InputError is a ValueError; main turns it into exit 2
+        args.func(args)
+    assert WARN not in capsys.readouterr().err
+
+
+def test_checklist_on_a_binary_answers_file_refuses_without_warning(tmp_path, capsys):
+    p = tmp_path / "bin.json"
+    p.write_text(json.dumps({**SELF, "answers": [{"question_id": "Q1", "question_text": "q",
+                                                  "answer": "a" + LONG}]}), encoding="utf-8")
+    args = parse_args(["eval", "score", "checklist", "--answers", str(p), "--questions",
+                       str(_questions_file(tmp_path)), "--judge-provider", "openai",
+                       "--output", str(tmp_path / "o.json")])
+    with pytest.raises((SystemExit, ValueError)):  # InputError is a ValueError; main turns it into exit 2
+        args.func(args)
+    assert WARN not in capsys.readouterr().err

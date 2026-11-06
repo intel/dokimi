@@ -201,12 +201,12 @@ def cmd_eval_checklist(args: argparse.Namespace) -> None:
     from dokimi.eval.judge import Judge
 
     data, records = _load_answers(args.answers)
-    warn_recorded_self_judge(data, [(args.judge_model, args.judge_provider)], "eval score checklist")
     points = _load_points(args.questions)
     baseline = args.baseline_arm or (data.get("baseline_arm") if isinstance(data, dict) else None) or "baseline"
     arms = [a.strip() for a in args.arms.split(",")] if args.arms else None
     _require_arms(args.answers, records, "eval score checklist")
     checklist_jobs(records, points, arms=arms)  # refuse a blank question before the probe call
+    warn_recorded_self_judge(data, [(args.judge_model, args.judge_provider)], "eval score checklist")
     _check_judge_temperature([(args.judge_model, args.judge_provider)], args.judge_temperature)
     llm = Judge(model=args.judge_model, provider=args.judge_provider, temperature=args.judge_temperature).llm
     label = f"{args.judge_provider}/{args.judge_model}"
@@ -239,7 +239,6 @@ def cmd_eval_judge_wording(args: argparse.Namespace) -> None:
     from dokimi.eval.judge_wording import WORDINGS, run_wording
 
     data, answers = _load_answers(args.answers)
-    warn_recorded_self_judge(data, [(args.judge_model, args.judge_provider)], "eval judge wording")
     library = args.product or (data.get("library_name") if isinstance(data, dict) else None) or "the library"
     variants = [v.strip() for v in args.variants.split(",")] if args.variants else list(DEGRADATIONS)
     wordings = [w.strip() for w in args.wordings.split(",")] if args.wordings else list(WORDINGS)
@@ -247,6 +246,11 @@ def cmd_eval_judge_wording(args: argparse.Namespace) -> None:
     if unknown:
         print(f"Error: unknown wording(s): {unknown}; known: {sorted(WORDINGS)}", file=sys.stderr)
         sys.exit(2)
+    unknown = sorted(set(variants) - set(DEGRADATIONS))
+    if unknown:
+        print(f"Error: unknown degradation(s): {unknown}; known: {sorted(DEGRADATIONS)}", file=sys.stderr)
+        sys.exit(2)
+    warn_recorded_self_judge(data, [(args.judge_model, args.judge_provider)], "eval judge wording")
     pairs = _build(answers, {}, n_bases=args.bases, seed=args.seed, variants=variants, library=library).pairs
     label = f"{args.judge_provider}/{args.judge_model}"
     n_cond = 1 + args.redraws + len(wordings)
