@@ -115,7 +115,7 @@ def load_routing_field(
                   file=sys.stderr)
         left_out: list[str] = []
         competitors = routing_field(args, {gold.name}, left_out)
-        for warning in over_limit_warnings([gold]):
+        for warning in over_limit_warnings([gold], under_test=True):
             print(f"WARNING: skill {warning['skill']!r}: {warning['message']}", file=sys.stderr)
     except InputError:
         raise
@@ -134,4 +134,5 @@ def field_record(args: argparse.Namespace, competitors: list[Candidate], left_ou
 
     return {**{name: bool(getattr(args, name)) for name in ("include_disabled", "include_invalid")},
             "competitors": [c.name for c in competitors], "left_out": left_out,
-            "spec_warnings": over_limit_warnings(([gold] if gold else []) + competitors)}
+            "spec_warnings": (over_limit_warnings([gold], under_test=True) if gold else [])
+            + over_limit_warnings(competitors)}

@@ -483,13 +483,19 @@ def non_skill_reason(ref: str) -> str | None:
     return None
 
 
-def over_limit_warnings(competitors: list[Candidate]) -> list[dict]:
-    """One record per skill in the field whose description is over the 1024-character limit."""
+def over_limit_warnings(competitors: list[Candidate], *, under_test: bool = False) -> list[dict]:
+    """One record per skill whose description is over the 1024-character limit.
+
+    ``competitors`` are skills of the field, or, with ``under_test``, the skill under test,
+    which the message names as such.
+    """
     from dokimi.external.validate import DESCRIPTION_MAX
 
+    kept = ("the skill under test, measured with its full description" if under_test
+            else "kept in the field with its full description")
     return [{"skill": c.name, "length": len(c.description), "limit": DESCRIPTION_MAX,
              "message": f"description is {len(c.description)} characters, over the {DESCRIPTION_MAX} "
-                        "limit; kept in the field with its full description (harnesses differ: "
+                        f"limit; {kept} (harnesses differ: "
                         "pi.dev rejects the skill, Claude Code truncates past about 1,536 "
                         "characters)"}
             for c in competitors if len(c.description) > DESCRIPTION_MAX]

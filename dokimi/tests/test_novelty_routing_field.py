@@ -692,7 +692,11 @@ def test_the_skill_under_test_over_the_limit_is_warned_and_saved(tmp_path, capsy
     args = _parse("novelty", "routing", "--artifact", ref, "--catalog", str(root),
                   "--queries", str(queries), "--out", str(out))
     args.func(args)
-    assert "WARNING: skill 'big': description is 1139 characters" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "WARNING: skill 'big': description is 1139 characters" in err
+    assert "the skill under test, measured with its full description" in err
+    assert "kept in the field" not in err
     field = json.loads(out.read_text(encoding="utf-8"))["field"]
     assert "big" not in field["competitors"]
     assert [(w["skill"], w["length"]) for w in field["spec_warnings"]] == [("big", 1139)]
+    assert "the skill under test" in field["spec_warnings"][0]["message"]
