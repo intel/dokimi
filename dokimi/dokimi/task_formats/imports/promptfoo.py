@@ -12,17 +12,26 @@ have no counterpart: those become ``unsupported`` checks, listed and not counted
 
 Files a config points to (``file://`` prompts and tests) are read only when they are JSON,
 YAML or text inside the config's directory.
+
+A config written as code (``promptfooconfig.js``/``.ts``/``.mjs``/``.cjs``) is read by running
+``node`` on it once, to get the object it exports as JSON. That runs the config's own code, as
+promptfoo itself does; without ``node`` on PATH the import refuses and says so.
 """
 
 from __future__ import annotations
 
 import csv
 import io
+import json
 import math
+import os
 import re
+import shutil
+import tempfile
 from pathlib import Path
 from typing import Any, Mapping, Optional
 
+from dokimi.task_formats.configs import PROMPTFOO_CODE_SUFFIXES
 from dokimi.task_formats.imports.common import (
     Imported, as_list, judge, match, question, render_chat, render_template, unsupported,
 )
@@ -30,6 +39,48 @@ from dokimi.task_formats.imports.promptfoo_csv import assertion_from_cell
 from dokimi.task_formats.source import FileSource
 
 FORMAT = "promptfoo"
+
+#: Writes the config as JSON to ``argv[2]``, not stdout, which the config's own logging shares.
+#: A function is dropped, except a ``transform``, kept as ``true`` so its assert is flagged.
+_NODE_READER = (
+    "import { pathToFileURL } from 'node:url';"
+    "import { writeFileSync } from 'node:fs';"
+    "const m = await import(pathToFileURL(process.argv[1]).href);"
+    "const keep = (k, v) => (typeof v === 'function' && k === 'transform' ? true : v);"
+    "writeFileSync(process.argv[2], JSON.stringify(m.default ?? m, keep));"
+)
+
+
+def _code_config(path: Path) -> Any:
+    node = shutil.which("node")
+    if node is None:
+        raise ValueError(f"{path}: a promptfoo config written as code is read with node, which is not on PATH; "
+                         "install node, or export the config to YAML or JSON")
+    from dokimi.process import Env, run
+
+    target = path.resolve()
+    # A .ts config needs Node's type stripping (22.6+); older Node has no flag for it and refuses.
+    flags = ["--experimental-strip-types"] if target.suffix.lower() == ".ts" else []
+    with tempfile.TemporaryDirectory(prefix="dokimi-promptfoo-") as tmp:
+        out = Path(tmp) / "config.json"
+        done = run([node, *flags, "--input-type=module", "-e", _NODE_READER, os.fspath(target), os.fspath(out)],
+                   timeout=60, env=Env.inherit(), cwd=target.parent)
+        if not done.ok:
+            if "bad option" in done.stderr and flags:
+                raise ValueError(f"{path}: this node is too old to read a .ts config; it needs Node 22.6 or later "
+                                 "(type stripping), or export the config to .mjs, YAML or JSON")
+            named = re.search(r"^\w*Error(?: \[\w+\])?: .*$", done.stderr, re.M)
+            raise ValueError(f"{path}: node could not read the config: {named.group(0) if named else 'no error text'}")
+        try:
+            return json.loads(out.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            raise ValueError(f"{path}: node wrote no JSON for the config ({exc})") from exc
+
+
+def _config(path: Path) -> Any:
+    if path.suffix.lower() in PROMPTFOO_CODE_SUFFIXES:
+        return _code_config(path)
+    return FileSource(path).data
 
 _CONTAINS = {
     "contains": ("any", False), "icontains": ("any", True),
@@ -202,7 +253,7 @@ def _render(template: Any, variables: Mapping[str, Any], imp: Imported) -> str:
 
 
 def import_file(path: Path) -> Imported:
-    data = FileSource(path).data
+    data = _config(path)
     if not isinstance(data, Mapping):
         raise ValueError(f"{path}: not a promptfoo config mapping")
     imp = Imported(FORMAT, path, native_scorer="assert")

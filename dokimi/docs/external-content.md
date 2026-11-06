@@ -186,7 +186,8 @@ with the root directory's name), and its `description` at most 1024 characters: 
 `error`, printed under the skill. It exits 1 only with `--strict`; without it, the scan reports the
 error and still exits 0. A `name` missing from the frontmatter, or a `SKILL.md` byte-identical to
 another skill's, is a `warn`. So is a skill whose `name` another skill shares with different content
-(`name-conflict`), when both are listed: neither is `disable-model-invocation` or has a spec error.
+(`name-conflict`), when both are listed: neither is `disable-model-invocation` or has a spec error
+(a description over 1024 characters, as the only error, does not unlist a skill for routing).
 The finding names the other path, and `dokimi novelty routing --catalog` skips that name rather than
 the whole catalog. Of identical copies, the one nearest the root (fewest path parts, ties to path
 order) is the original, the copy the `skill-catalog:` arm offers; each other copy is the `warn` and

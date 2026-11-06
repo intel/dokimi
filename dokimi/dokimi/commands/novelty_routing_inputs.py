@@ -124,12 +124,13 @@ def routing_field(args: argparse.Namespace, exclude: set[str],
     """The field ``--competitors`` and ``--catalog`` name, without the names in ``exclude``.
 
     What was left out of the field, and why, is appended to ``left_out`` when given. Each
-    name a rule leaves out maps to its rules in ``dropped`` (when given).
+    name a rule leaves out maps to its rules in ``dropped`` (when given). A skill kept with a
+    description over 1024 characters is warned about here and listed in the saved field rule.
 
     Raises:
         OSError, ValueError, RecursionError: A reference or the catalog cannot be loaded.
     """
-    from dokimi.novelty.routing import catalog_competitors
+    from dokimi.novelty.routing import catalog_competitors, over_limit_warnings
 
     competitors = named_competitors(args, left_out, dropped)
     if args.catalog:
@@ -148,6 +149,8 @@ def routing_field(args: argparse.Namespace, exclude: set[str],
                   file=sys.stderr)
         print(f"--catalog {args.catalog}: {len(catalog)} competitors", file=sys.stderr)
         competitors += catalog
+    for warning in over_limit_warnings(competitors):
+        print(f"WARNING: skill {warning['skill']!r}: {warning['message']}", file=sys.stderr)
     return competitors
 
 
@@ -166,7 +169,7 @@ def load_routing_field(
     args: argparse.Namespace,
 ) -> tuple[Candidate, str, list[Candidate], list[str]]:
     """The gold card, its body, the competitors and the ones left out, or InputError naming the cause."""
-    from dokimi.novelty.routing import disables_model_invocation, skill_file
+    from dokimi.novelty.routing import disables_model_invocation, over_limit_warnings, skill_file
 
     try:
         gold, body = routing_card(args.artifact)
@@ -177,8 +180,24 @@ def load_routing_field(
                   file=sys.stderr)
         left_out: list[str] = []
         competitors = routing_field(args, {gold.name}, left_out)
+        for warning in over_limit_warnings([gold], under_test=True):
+            print(f"WARNING: skill {warning['skill']!r}: {warning['message']}", file=sys.stderr)
     except InputError:
         raise
     except (OSError, ValueError, RecursionError) as exc:
         raise InputError(f"cannot load an artifact: {exc}") from exc
     return gold, body, competitors, left_out
+
+
+def field_record(args: argparse.Namespace, competitors: list[Candidate], left_out: list[str],
+                 gold: Candidate | None = None) -> dict:
+    """The field rule a routing result was measured under, saved next to the result.
+
+    ``spec_warnings`` lists ``gold`` (the skill under test, when given) as well as the field.
+    """
+    from dokimi.novelty.routing import over_limit_warnings
+
+    return {**{name: bool(getattr(args, name)) for name in ("include_disabled", "include_invalid")},
+            "competitors": [c.name for c in competitors], "left_out": left_out,
+            "spec_warnings": (over_limit_warnings([gold], under_test=True) if gold else [])
+            + over_limit_warnings(competitors)}

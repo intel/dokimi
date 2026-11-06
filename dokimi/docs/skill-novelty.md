@@ -635,10 +635,17 @@ names every path of that name: the rest of the field stays. Only the copies the 
 a disabled copy (unless `--include-disabled`) or a spec-error copy (unless `--include-invalid`) is
 left out first, so it does not make its name a conflict. Rename one, or delete the copy you do
 not mean to route against, to route the name. `dokimi catalog check` lists the same names as
-`name-conflict` warnings, for the copies it lists. A skill with a spec error (for example a description over 1024 characters, or a
-name that is not kebab-case or not its directory name) is also left out, with a warning naming the error; pass
+`name-conflict` warnings, for the copies it lists. A skill with a spec error (a name that is not
+kebab-case or not its directory name) is also left out, with a warning naming the error; pass
 `--include-invalid` to keep it, as a harness that refuses to list such a skill would not. A `skill:`
-competitor with a spec error is skipped with the same warning.
+competitor with a spec error is skipped with the same warning. The one exception is a description
+over 1024 characters as the only error: harnesses differ on it, so the skill stays in the field with
+its full description, and the run warns with its name and length (`WARNING: skill 'x': description is
+1100 characters ...`) and records it under `spec_warnings` in the saved field rule. Claude Code
+(2.1.318, probed 2026-11-04) lists such a skill with the description cut to about 1,536 characters and
+an ellipsis, so a tail past that is never seen by its model (anthropics/skills#881); pi.dev rejects the
+skill (#1622). Where a harness truncates, the rate for such a skill may differ from the one measured on the
+full text; shorten the description to 1024 characters or fewer to make every harness agree.
 The directory-name check applies to a `skill:` competitor under a `skills/` directory
 (`skills/<dir>/SKILL.md`, `plugins/x/skills/<dir>/SKILL.md`), as it does in a catalog. A `skill:`
 competitor anywhere else is read as a root skill, and its name is not checked against its
@@ -727,8 +734,9 @@ is no attractor, and a tied skill's own rate is lower by the picks inside its gr
 `n_scored` and `n_unscored` per skill say how many, a query with no content word or a failed
 model call is unscored, and a skill with none scored has an own rate of `null`, not 0.0. A run
 with any failed model call writes the result and exits non-zero. The saved file records the
-field rule under `field` (`include_disabled`, `include_invalid`, the `competitors` and what was `left_out`, which
-also names each skill left out for a conflicting name or a spec error); a
+field rule under `field` (`include_disabled`, `include_invalid`, the `competitors`, what was `left_out`, which
+also names each skill left out for a conflicting name or a spec error, and `spec_warnings`, one
+`{skill, length, limit, message}` per kept skill whose description is over 1024 characters); a
 single-artifact run records it too. It takes no `--artifact`, `--queries` or `--queries-from-headings`. `--repeats` needs `--model`
 and asks each query that many times, as a single-artifact run does: the model arm then carries a
 `noise` block (agreement per query, the rate of each repeat, `half_range`), and its counts are

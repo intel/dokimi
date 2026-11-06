@@ -13,6 +13,8 @@ from dokimi.cli import build_parser
 from dokimi.commands import baseline as baseline_mod
 
 
+from tests.cli_refusal import refusal
+
 def _eval(answer=("openai", "gpt-6.1-sol"), judge=("anthropic", "claude-sonnet-5-5"), delta=2.0) -> dict:
     return {
         "judge_provider": judge[0],
@@ -58,9 +60,9 @@ def test_compare_warns_when_the_answer_and_judge_models_differ(compare, capsys):
 
 def test_compare_strict_refuses_a_model_mismatch(compare, capsys):
     old = _eval(judge=("openai", "gpt-4o-mini"))
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         compare(old, _eval(), "--strict")
-    assert exc.value.code == 1
+    assert exc.code == 1
     out, err = capsys.readouterr()
     assert "--strict" in err and "judge model: baseline openai/gpt-4o-mini" in err
     assert "answer model" not in err
@@ -71,9 +73,9 @@ def test_compare_strict_exits_2_on_a_malformed_record(compare, capsys):
     """Exit 1 is the --strict verdict; a record with no question_id is an input error."""
     current = _eval()
     del current["evaluations"][0]["question_id"]
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         compare(_eval(), current, "--strict")
-    assert exc.value.code == 2
+    assert exc.code == 2
     out, err = capsys.readouterr()
     assert "missing question_id" in err and "missing question_id" not in out
 
@@ -83,9 +85,9 @@ def test_compare_strict_exits_2_on_a_malformed_record_when_no_models_are_recorde
     base = {"evaluations": _eval()["evaluations"]}
     current = _eval()
     del current["evaluations"][0]["question_id"]
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         compare(base, current, "--strict")
-    assert exc.value.code == 2
+    assert exc.code == 2
     out, err = capsys.readouterr()
     assert "missing question_id" in err and "--strict cannot verify" not in err
 
@@ -104,9 +106,9 @@ def test_compare_strict_exits_2_on_a_malformed_saved_baseline_record(tmp_path, m
     saved.write_text(json.dumps(data), encoding="utf-8")
     args = parser.parse_args(["baseline", "compare", "--baseline", "b",
                               "--eval", str(tmp_path / "cur.json"), "--strict"])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2
+    assert exc.code == 2
     out, err = capsys.readouterr()
     assert "missing question_id" in err and "--strict" not in err
     assert "Avg delta" not in out
@@ -216,9 +218,9 @@ def test_two_snapshots_of_one_judge_model_are_a_mismatch():
 ])
 def test_compare_strict_refuses_a_dated_judge_against_its_undated_alias(compare, capsys, base_judge, cur_judge):
     """The alias does not say which snapshot answered, so --strict cannot verify that the judge did not change."""
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         compare(_eval(judge=("anthropic", base_judge)), _eval(judge=("anthropic", cur_judge)), "--strict")
-    assert exc.value.code == 1
+    assert exc.code == 1
     out, err = capsys.readouterr()
     assert "--strict cannot verify the judge model" in err
     assert "Avg delta" not in out
@@ -245,19 +247,19 @@ def test_compare_names_a_role_the_baseline_does_not_record(compare, capsys):
 def test_compare_strict_refuses_a_role_it_cannot_verify(compare, capsys):
     old = _eval()
     del old["run_metadata"]
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         compare(old, _eval(), "--strict")
-    assert exc.value.code == 1
-    assert "--strict cannot verify the answer model" in capsys.readouterr().err
+    assert exc.code == 1
+    assert "--strict cannot verify the answer model" in exc.err
 
 
 @pytest.mark.parametrize("judge_model", ["anthropic/", "--"])
 def test_a_judge_name_with_no_id_is_not_compared_and_strict_refuses_it(compare, capsys, judge_model):
     run = _eval(judge=("anthropic", judge_model))
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         compare(run, run, "--strict")
-    assert exc.value.code == 1
-    err = capsys.readouterr().err
+    assert exc.code == 1
+    err = exc.err
     assert "judge model not recorded in baseline and current eval; not compared" in err
     assert "--strict cannot verify the judge model" in err and "judge model: baseline" not in err
 
@@ -275,10 +277,10 @@ def test_an_unknown_answer_model_is_not_a_model_change(compare, capsys):
 def test_a_non_string_identity_is_not_recorded_so_the_gate_cannot_pass(compare, capsys, role):
     # The eval schema allows a string or null; str(123) == str(123) used to verify the model.
     data = _eval(**{role: (123, 456)})
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         compare(data, data, "--max-context-drop", "0")
-    assert exc.value.code == 1
-    assert f"regression gate cannot verify the {role} model" in capsys.readouterr().err
+    assert exc.code == 1
+    assert f"regression gate cannot verify the {role} model" in exc.err
 
 
 def test_a_judge_recorded_only_in_run_metadata_is_compared(compare, capsys):
@@ -305,11 +307,11 @@ def _panel(*models: str) -> dict:
 
 
 def test_compare_strict_refuses_a_panel_whose_judges_changed(compare, capsys):
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         compare(_panel("anthropic/claude-sonnet-5-5", "anthropic/claude-sonnet-5-5"),
                 _panel("openai/gpt-4o-mini", "openai/gpt-4o-mini"), "--strict")
-    assert exc.value.code == 1
-    err = capsys.readouterr().err
+    assert exc.code == 1
+    err = exc.err
     assert "judge model: baseline panel/anthropic/claude-sonnet-5-5" in err
     assert "current panel/openai/gpt-4o-mini" in err
 
@@ -374,10 +376,10 @@ def test_compare_counts_only_questions_scored_on_both_sides(compare, capsys):
 def test_regression_gate_uses_unrounded_scores_not_stored_delta(compare, capsys, flag):
     base, cur = _eval(), _eval()
     cur["evaluations"][0]["with_docs"]["aggregate"] = 6.999
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         compare(base, cur, flag, "0")
-    assert exc.value.code == 1
-    out = capsys.readouterr().out
+    assert exc.code == 1
+    out = exc.out
     assert "REGRESSION" in out and "Comparing against baseline" in out
 
 
@@ -408,10 +410,10 @@ def test_regression_gate_refuses_incomplete_evidence(compare, capsys, kind, code
         cur.pop("run_metadata")
     else:
         cur["judge_model"] = "other"
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         compare(base, cur, "--max-context-drop", "0")
-    assert exc.value.code == code
-    assert "Regression gate: PASS" not in capsys.readouterr().out
+    assert exc.code == code
+    assert "Regression gate: PASS" not in exc.out
 
 
 @pytest.mark.parametrize("where", ["votes", "panel"])
@@ -423,32 +425,32 @@ def test_regression_gate_refuses_a_panel_score_with_a_failed_vote(compare, capsy
         block["votes"] = votes
     else:
         block["panel"] = {"votes": votes}
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         compare(base, cur, "--max-context-drop", "0")
-    assert exc.value.code == 2
-    assert "Regression gate: PASS" not in capsys.readouterr().out
+    assert exc.code == 2
+    assert "Regression gate: PASS" not in exc.out
 
 
 @pytest.mark.parametrize("value", ["nan", "inf", "-1", "oops"])
 def test_regression_threshold_requires_finite_nonnegative_number(value, capsys):
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         build_parser().parse_args(["baseline", "compare", "--eval", "x", "--max-lift-drop", value])
-    assert exc.value.code == 2
-    assert "finite non-negative" in capsys.readouterr().err
+    assert exc.code == 2
+    assert "finite non-negative" in exc.err
 
 
 def test_regression_minimum_matched_count(compare, capsys):
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         compare(_eval(), _eval(), "--max-context-drop", "0", "--min-matched", "2")
-    assert exc.value.code == 2
-    assert "insufficient" in capsys.readouterr().err
+    assert exc.code == 2
+    assert "insufficient" in exc.err
 
 
 def test_min_matched_without_a_drop_gate_is_a_usage_error(compare, capsys):
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         compare(_eval(), _eval(), "--min-matched", "20")
-    assert exc.value.code == 2
-    assert "--min-matched needs --max-context-drop or --max-lift-drop" in capsys.readouterr().err
+    assert exc.code == 2
+    assert "--min-matched needs --max-context-drop or --max-lift-drop" in exc.err
 
 
 @pytest.mark.parametrize("fails, flags", [
@@ -463,10 +465,10 @@ def test_either_gate_failing_is_a_regression(compare, capsys, fails, flags):
         block["without_docs"]["aggregate"] = 0.0
     else:
         block["without_docs"]["aggregate"] = 6.0
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         compare(base, cur, *flags)
-    assert exc.value.code == 1
-    assert "Regression gate: REGRESSION" in capsys.readouterr().out
+    assert exc.code == 1
+    assert "Regression gate: REGRESSION" in exc.out
 
 
 def test_strict_remains_identity_only_even_for_large_regression(compare, capsys):
@@ -490,10 +492,10 @@ def test_context_score_and_lift_are_distinct_metrics(compare, capsys, flag, fail
     # Context quality is unchanged, but the unaided model improved: lift fell.
     cur["evaluations"][0]["without_docs"]["aggregate"] = 6.0
     if fails:
-        with pytest.raises(SystemExit) as exc:
+        with refusal() as exc:
             compare(base, cur, flag, "0")
-        assert exc.value.code == 1
-        assert "paired lift: drop=1" in capsys.readouterr().out
+        assert exc.code == 1
+        assert "paired lift: drop=1" in exc.out
     else:
         compare(base, cur, flag, "0")
         assert "Regression gate: PASS" in capsys.readouterr().out
@@ -504,10 +506,10 @@ def test_gate_refuses_partial_question_coverage(compare, capsys, side):
     base, cur = _eval(), _eval()
     data = base if side == "base" else cur
     data["evaluations"].append({**data["evaluations"][0], "question_id": "extra"})
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         compare(base, cur, "--max-lift-drop", "100")
-    assert exc.value.code == 2
-    assert "complete unique coverage required" in capsys.readouterr().err
+    assert exc.code == 2
+    assert "complete unique coverage required" in exc.err
 
 
 @pytest.mark.outcome("cjm-baseline-regression")
@@ -522,10 +524,10 @@ def test_gate_matches_questions_by_id_not_list_position(compare, capsys):
 
 @pytest.mark.parametrize("model", ["unknown/unknown", "openai/ Unknown ", "bare-model", "openai/openai/unknown"])
 def test_regression_gate_refuses_unknown_panel_members(compare, capsys, model):
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         compare(_panel(model), _panel(model), "--max-context-drop", "0")
-    assert exc.value.code == 1
-    assert "cannot verify the judge model" in capsys.readouterr().err
+    assert exc.code == 1
+    assert "cannot verify the judge model" in exc.err
 
 
 def _scores(*context: float) -> dict:
@@ -545,10 +547,10 @@ def test_regression_gate_compares_the_mean_drop_and_ignores_improvement(
 
 
 def test_regression_gate_needs_at_least_one_matched_question_by_default(compare, capsys):
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         compare(_scores(), _scores(), "--max-context-drop", "0")
-    assert exc.value.code == 2
-    assert "insufficient" in capsys.readouterr().err
+    assert exc.code == 2
+    assert "insufficient" in exc.err
 
 
 @pytest.mark.parametrize("flag", ["--max-context-drop", "--max-lift-drop"])
@@ -562,7 +564,7 @@ def test_regression_gate_threshold_keeps_every_digit_of_an_equal_drop(compare, c
     (("anthropic", "claude-sonnet-5-5"), ("openai", "openai/unknown")),
 ])
 def test_regression_gate_refuses_an_unknown_model_behind_a_route(compare, capsys, judge, answer):
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         compare(_eval(answer=answer, judge=judge), _eval(answer=answer, judge=judge), "--max-context-drop", "0")
-    assert exc.value.code == 1
-    assert "cannot verify" in capsys.readouterr().err
+    assert exc.code == 1
+    assert "cannot verify" in exc.err

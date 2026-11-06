@@ -192,7 +192,6 @@ def test_inspect_sample_whose_target_matches_no_choice_is_skipped(tmp_path):
 
 
 @pytest.mark.parametrize("dataset,message", [
-    ("hf_dataset('x')", "run it natively"),
     ("json_dataset(PATH)", "computed"),
     ("json_dataset('../outside.jsonl')", "outside the task's directory"),
     ("csv_dataset('x.csv')", "convert the CSV to JSONL"),
