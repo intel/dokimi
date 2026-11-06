@@ -68,17 +68,18 @@ def test_read_error_on_a_loaded_skill_is_an_error_review(tmp_path, monkeypatch, 
     assert [f.code for f in reviews["sib"].findings] == ["unreadable"]
 
 
-def test_stat_error_on_an_unloaded_sibling_is_no_review_and_no_crash(tmp_path, monkeypatch):
+@pytest.mark.parametrize("method", ["is_dir", "is_file"])
+def test_stat_error_on_an_unloaded_sibling_is_no_review_and_no_crash(tmp_path, monkeypatch, method):
     _skill(tmp_path, "good")
     _skill(tmp_path, "bad", description="")  # no description: does not load
-    real_is_dir = Path.is_dir
+    real = getattr(Path, method)
 
-    def is_dir(self):
-        if self.name == "bad":
+    def fail_for_bad(self):
+        if "bad" in (self.name, self.parent.name):
             raise _too_long(self)
-        return real_is_dir(self)
+        return real(self)
 
-    monkeypatch.setattr(Path, "is_dir", is_dir)
+    monkeypatch.setattr(Path, method, fail_for_bad)
     entries = read_skill_manifest(tmp_path)
     reviews = dict(zip((e.name for e in entries), review_skills(entries), strict=True))
 
