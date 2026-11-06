@@ -307,13 +307,9 @@ def cmd_eval_cross_judge(args: argparse.Namespace) -> None:
         JudgeContextStore.from_artifact(data) if args.judges and isinstance(data, dict) else None
     )
 
-    from dokimi.records import RecordError
-
-    try:
-        stored = None if args.no_stored or not isinstance(data, dict) else stored_measure(data)
-        pair_unrepro = unreproducible_arms(data) if stored and (args.pairwise or args.checklist) else []
-    except RecordError as exc:
-        raise InputError(str(exc)) from exc  # bad input, not a failed gate
+    # A RecordError here is an InputError: cli.main prints it and exits 2 (bad input, not a failed gate).
+    stored = None if args.no_stored or not isinstance(data, dict) else stored_measure(data)
+    pair_unrepro = unreproducible_arms(data) if stored and (args.pairwise or args.checklist) else []
     if (m := stored):
         # Re-scored judges get the file's judge_materials; pairwise and checklist
         # judges see the answers alone. Each path sees different input, so we refuse
