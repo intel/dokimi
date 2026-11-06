@@ -28,7 +28,10 @@ def test_check_judge_calls_the_warning(monkeypatch):
 
     monkeypatch.setattr(arms_run, "check_bedrock_model", lambda *a: None)
     monkeypatch.setattr(arms_run, "probe_sampling", lambda *a: None)
-    monkeypatch.setattr(arms_run, "warn_self_judging", lambda cfg: (_ for _ in ()).throw(Stop))
+    def stop(cfg):
+        raise Stop
+
+    monkeypatch.setattr(arms_run, "warn_self_judging", stop)
     cfg = ArmsRunConfig(product="p", judge=True, judge_model="m", judge_provider="openai")
     import pytest
 
