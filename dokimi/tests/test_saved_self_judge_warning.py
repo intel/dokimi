@@ -145,7 +145,7 @@ def test_reference_with_no_judge_does_not_warn(tmp_path, monkeypatch):
                        "--output", str(tmp_path / "o.json")])
     try:
         args.func(args)
-    except SystemExit:
+    except (SystemExit, ValueError):  # InputError is a ValueError; main turns it into exit 2
         pass
     assert calls == []
 

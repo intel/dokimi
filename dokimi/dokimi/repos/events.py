@@ -22,8 +22,10 @@ A shell command that only prints files (:func:`~dokimi.repos.cli_traces.shell_re
 ``read`` event per file, before its ``command`` event: a Codex or Copilot shell command, and
 Claude Code's ``Bash`` tool. Claude Code keeps the shell's directory from one ``Bash`` call to the
 next, so once any call ran a ``cd`` in that shell (not in a subshell, a pipeline or a background
-job), later relative reads are not recorded, the parent's and every subagent's alike: subagents may
-share the parent's shell, and dropping a read is the safe side either way. A refused call ran nothing:
+job), or called a function that it defined with a ``cd`` in its body, later relative
+reads are not recorded, the parent's and every subagent's alike: subagents may
+share the parent's shell, and dropping a read is the safe side either way. Its functions do not carry
+over: each call starts a new shell, only the directory kept. A refused call ran nothing:
 it moves no shell, and its reads stay, ``denied``, after a move too (a relative one then has no
 ``path``: which file it named is not known; ``guidance_read``, reach and skill use skip a denied read). The reads are settled when the trace ends,
 since a ``permission_denials`` entry comes only in the final result.
@@ -73,12 +75,13 @@ def convert(fmt: str, raw: str, workdir: str | None = None, cwd: str = "") -> Tr
 
 @dataclass
 class _BashCall:
-    """A Bash call, settled when the trace ends: what came back for it decides its reads."""
+    """A Bash call, walked and settled when the trace ends: what came back for it decides its reads."""
 
     text: str
-    named: list[str]  # the files its command prints, from the start directory
-    reads: list[dict[str, Any]]  # their read events, in place before the command event
-    moves: bool  # the command may leave its shell in another directory
+    event: dict[str, Any]  # its command event
+    named: list[str] = field(default_factory=list)  # the files its command prints, from the start directory
+    reads: list[dict[str, Any]] = field(default_factory=list)  # their read events, put before the command event
+    moves: bool = False  # the command may leave its shell in another directory
     unknown: int = 0  # the relative files it named after a directory change it could not follow, in itself
     result: str | None = None  # "ok", "error" or "denied"; None while nothing came back
 
@@ -120,6 +123,7 @@ def _claude_stream_json(raw: str, workdir: str | None, cwd: str = "") -> Transcr
         except (AttributeError, TypeError) as exc:  # valid JSON of an unexpected shape
             out.dropped_lines += 1
             out.errors.append(f"line {n}: unexpected shape ({exc})")
+    _walk_bash(out, stream)
     _settle_bash(out, stream.bash.values())
     main = parse_trace(raw).main_calls()
     out.first_prompt_tokens = main[0]["prompt_tokens"] if main else None
@@ -168,6 +172,27 @@ def _deny(stream: _Stream, tool_id: Any) -> None:
         stream.bash[id(event)].result = "denied"
 
 
+def _walk_bash(out: Transcript, stream: _Stream) -> None:
+    """Each Bash call's command walked (:func:`~dokimi.repos.cli_traces.shell_walk`), once every result and denial
+    is in, in the trace's order, and a read event put before its command event for each file it names. Each call is
+    walked alone: Claude Code starts it in a new shell, which keeps the directory but no function an earlier call
+    defined (``cat() { echo hi; }``, then ``cat AGENTS.md``, reads the file)."""
+    for call in stream.bash.values():
+        call.named, call.moves, call.unknown = shell_walk(call.text, stream.cwd)
+        call.reads = [_read(call.event, p, stream.workdir) for p in call.named]
+    if stream.bash:
+        out.events[:] = [e for event in out.events
+                         for e in (*(stream.bash[id(event)].reads if id(event) in stream.bash else ()), event)]
+
+
+def _read(event: dict[str, Any], path: str, workdir: str | None) -> dict[str, Any]:
+    """The read event of a file a Bash call's command prints, at the call's time and in its agent."""
+    read = {"t": event["t"], "kind": "read", "path": relative_path(path, workdir)}
+    if "agent" in event:
+        read["agent"] = event["agent"]
+    return read
+
+
 def _settle_bash(out: Transcript, calls: Iterable[_BashCall]) -> None:
     """Each Bash call's reads, once every result and denial is in. In the trace's order:
 
@@ -211,25 +236,17 @@ def _deny_read(read: dict[str, Any], unknown: bool) -> None:
 
 
 def _tool_use(out: Transcript, block: dict[str, Any], t: float | None, agent: str, stream: _Stream) -> None:
-    """The events of one tool_use block: a Bash call's derived reads, then its own event."""
+    """The event of one tool_use block; a Bash call's derived reads come before it when the trace ends (:func:`_walk_bash`)."""
     event = _tool_event(block, t, stream.workdir)
-    reads = _bash_call(event, stream).reads if block.get("name") == _SHELL_TOOL else []
     if agent:
-        for e in (*reads, event):
-            e["agent"] = agent
+        event["agent"] = agent
+    if block.get("name") == _SHELL_TOOL:
+        stream.bash[id(event)] = _BashCall(str(event["text"]), event)
     if block.get("name") in _AGENT_TOOLS:
         out.subagent_calls = (out.subagent_calls or 0) + 1
-    out.events.extend([*reads, event])
+    out.events.append(event)
     if block.get("id"):
         stream.by_id[block["id"]] = event
-
-
-def _bash_call(event: dict[str, Any], stream: _Stream) -> _BashCall:
-    """A Bash command's call, with a read event for each file it names; :func:`_settle_bash` keeps or drops them."""
-    named, moves, unknown = shell_walk(str(event["text"]), stream.cwd)
-    reads = [{"t": event["t"], "kind": "read", "path": relative_path(p, stream.workdir)} for p in named]
-    stream.bash[id(event)] = call = _BashCall(str(event["text"]), named, reads, moves, unknown)
-    return call
 
 
 def _apply(out: Transcript, rec: dict[str, Any], t: float | None, stream: _Stream) -> None:

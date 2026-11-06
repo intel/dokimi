@@ -39,6 +39,7 @@ from dokimi.eval.judge_validity import (
     evaluate_pairs,
     run_validity,
 )
+from tests.cli_refusal import refusal
 
 ANSWER = (
     "Use perf stat to collect IPC on the Intel platform, then narrow the hotspot "
@@ -1077,10 +1078,10 @@ def test_every_eval_subcommand_prints_its_help(command, capsys):
     """argparse %-formats help text: a bare "95% CI" crashed `judge-validity --help`."""
     from dokimi.cli import build_parser
 
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         build_parser().parse_args(["eval", command, "--help"])
-    assert exc.value.code == 0
-    assert "usage:" in capsys.readouterr().out
+    assert exc.code == 0
+    assert "usage:" in exc.out
 
 
 @pytest.mark.parametrize("intact, degraded", [(62.4, 64.4), (2.4, 4.4), (6.8, 8.8), (30.2, 32.2)])
@@ -1590,9 +1591,9 @@ def test_cli_refuses_stored_context_it_cannot_honour(tmp_path, capsys, extra, me
     answers.write_text(json.dumps({"answers": _answers()}))
     args = build_parser().parse_args(["eval", "judge", "validate", "--answers", str(answers),
                                       "--context", "stored", *extra])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2 and message in capsys.readouterr().err
+    assert exc.code == 2 and message in exc.err
 
 
 def test_cli_judges_each_answer_with_its_arms_stored_material(tmp_path, monkeypatch):
@@ -1707,9 +1708,9 @@ def test_cli_judge_validity_exits_2_when_no_answer_is_long_enough(tmp_path, monk
                                                 "arms": {"baseline": {"answer": "short"}}}]}))
     args = build_parser().parse_args(["eval", "judge", "validate", "--answers", str(answers),
                                       "--judge-provider", "amazon-bedrock"])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2 and "Error:" in capsys.readouterr().err
+    assert exc.code == 2 and "Error:" in exc.err
 
 
 def test_a_bug_valueerror_in_a_degradation_is_not_turned_into_a_user_error(tmp_path, monkeypatch):
@@ -1728,9 +1729,9 @@ def test_cli_stored_context_on_a_baseline_only_artifact_exits_2(tmp_path, monkey
     for rec in data["answers"]:
         rec["arms"].pop("skill", None)
     data["judge_materials"] = {k: v for k, v in data["judge_materials"].items() if v == ""}
-    with pytest.raises(AssertionError):   # _stored_cli asserts exit code 1; here it is 2
+    with refusal() as r:  # a refusal (exit 2), not a gate verdict (1)
         _stored_cli(tmp_path, monkeypatch, "--context", "stored", data=data)
-    assert "judge_materials" in capsys.readouterr().err
+    assert r.code == 2 and "judge_materials" in r.err
 
 
 def test_a_stored_validity_report_gates_the_rescored_judge_in_cross_judge(tmp_path, monkeypatch, capsys):
@@ -1962,10 +1963,9 @@ def test_cli_stored_context_refusal_names_the_real_cause(tmp_path, capsys, extra
     answers.write_text(json.dumps(_with_materials()))
     args = build_parser().parse_args(["eval", "judge", "validate", "--answers", str(answers),
                                       "--context", "stored", *extra])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    err = capsys.readouterr().err
-    assert exc.value.code == 2 and message in err and wrong not in err
+    assert exc.code == 2 and message in exc.err and wrong not in exc.err
 
 
 def test_sequential_reports_the_bases_scored_not_the_pool_built():

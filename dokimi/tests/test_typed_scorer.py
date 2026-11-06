@@ -21,6 +21,8 @@ from dokimi.eval.typed_scorer import (
 )
 
 
+from tests.cli_refusal import refusal
+
 class FakeAgent:
     """Returns fixed level indices, and records what it was asked."""
 
@@ -245,8 +247,9 @@ class TestTypedArmReachesTheGate:
             args = build_parser().parse_args([
                 "eval", "judge", "validate", "--answers", str(answers), "--scorer", "typed:laya",
                 "--bases", "6", "--typed-max-len", max_len, "--output", str(out)])
-            with pytest.raises(SystemExit):
+            with refusal() as _r:
                 args.func(args)
+            assert _r.code == 1  # the validity gate verdict, not an input refusal
             summary = json.loads(out.read_text(encoding="utf-8"))["summary"]
             arm = summary["typed_arm"]
             assert arm["scorer"] == "laya:convaiinnovations/laya" and arm["revision"] == "55cf4c4"
@@ -287,10 +290,10 @@ class TestCliWiring:
         answers.write_text(json.dumps({"library_name": "lib", "answers": []}))
         args = self._parse("--scorer", "typed:gpt2")
         args.answers = str(answers)
-        with pytest.raises(SystemExit) as exc:
+        with refusal() as exc:
             cmd_eval_judge_validity(args)
-        assert exc.value.code == 2
-        assert "unknown typed scorer backend" in capsys.readouterr().err
+        assert exc.code == 2
+        assert "unknown typed scorer backend" in exc.err
 
     @pytest.mark.parametrize("spec", ["foo", "Judge", "laya"])
     def test_unknown_scorer_exits_two_not_a_traceback(self, spec, tmp_path, capsys):
@@ -300,10 +303,10 @@ class TestCliWiring:
         answers.write_text(json.dumps({"library_name": "lib", "answers": []}))
         args = self._parse("--scorer", spec)
         args.answers = str(answers)
-        with pytest.raises(SystemExit) as exc:
+        with refusal() as exc:
             cmd_eval_judge_validity(args)
-        assert exc.value.code == 2
-        assert "unknown --scorer" in capsys.readouterr().err
+        assert exc.code == 2
+        assert "unknown --scorer" in exc.err
 
 
 class TestSameScaleAsTheJudge:
@@ -355,9 +358,9 @@ class TestCliKnobs:
                                       ["--typed-threads", "-2"],
                                       ["--typed-max-len", "x"]])
     def test_invalid_values_exit_two(self, argv):
-        with pytest.raises(SystemExit) as exc:
+        with refusal() as exc:
             self._parse("--scorer", "typed:laya", *argv)
-        assert exc.value.code == 2
+        assert exc.code == 2
 
     def test_zero_max_len_means_the_checkpoint_default(self):
         assert self._parse("--typed-max-len", "0").typed_max_len == 0
@@ -376,9 +379,9 @@ class TestCliKnobs:
         answers.write_text(json.dumps({"library_name": "lib", "answers": []}))
         args = self._parse("--scorer", "typed:laya")
         args.answers = str(answers)
-        with pytest.raises(SystemExit) as exc:
+        with refusal() as exc:
             cmd_eval_judge_validity(args)
-        assert exc.value.code == 2
+        assert exc.code == 2
         assert "no usable degradation pairs" in capsys.readouterr().err
 
     def test_an_all_no_op_run_names_the_real_cause(self, tmp_path, monkeypatch, capsys):
@@ -396,10 +399,10 @@ class TestCliKnobs:
              "arms": {"baseline": {"answer": prose + f" {i}"}}} for i in range(5)]}))
         args = self._parse("--scorer", "typed:laya", "--variants", "strip_code")
         args.answers = str(answers)
-        with pytest.raises(SystemExit) as exc:
+        with refusal() as exc:
             cmd_eval_judge_validity(args)
-        assert exc.value.code == 2
-        err = capsys.readouterr().err
+        assert exc.code == 2
+        err = exc.err
         assert "left the answer unchanged" in err and "strip_code" in err
 
 
@@ -427,10 +430,10 @@ class TestTypedArmWithTheReliabilityModes:
 
         monkeypatch.setattr(ts, "typed_scorer", lambda *a, **k: (_ for _ in ()).throw(
             AssertionError("model loaded")))
-        with pytest.raises(SystemExit) as exc:
+        with refusal() as exc:
             cmd_eval_judge_validity(self._args(tmp_path, "--mode", "pairwise"))
-        assert exc.value.code == 2
-        assert "pairwise" in capsys.readouterr().err
+        assert exc.code == 2
+        assert "pairwise" in exc.err
 
     @pytest.mark.parametrize("argv,expected", [
         (["--sequential", "--max-bases", "7", "--bases", "3"], 7),
@@ -445,9 +448,9 @@ class TestTypedArmWithTheReliabilityModes:
         asked = []
         monkeypatch.setattr(degrade, "build_pairs",
                             lambda *a, **k: asked.append(k["n_bases"]) or [])
-        with pytest.raises(SystemExit):
+        with refusal() as _r:
             cmd_eval_judge_validity(self._args(tmp_path, *argv))
-        assert asked == [expected]
+        assert _r.code == 2 and asked == [expected]
 
     @pytest.mark.parametrize("extra", [[], ["--sequential", "--max-bases", "6"]],
                              ids=["plain", "sequential"])
@@ -488,9 +491,9 @@ class TestTheArmFailsLoudly:
     def _run(tmp_path, *argv):
         args = TestTypedArmWithTheReliabilityModes._args(
             tmp_path, "--bases", "6", "--variants", "strip_code", *argv)
-        with pytest.raises(SystemExit) as exc:
+        with refusal() as exc:
             args.func(args)
-        return exc.value.code
+        return exc.code
 
     def test_an_unloadable_checkpoint_exits_two_naming_the_spec(self, tmp_path, monkeypatch, capsys):
         """laya.load raises OSError for a typo, a missing subfolder or an offline Hub."""

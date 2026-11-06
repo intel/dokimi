@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from dokimi.utils import InputError
 
 
 def _ask(args: argparse.Namespace):
@@ -44,8 +45,7 @@ def cmd_eval_redteam(args: argparse.Namespace) -> None:
         questions = load_questions(args.questions).artifact.get("questions") or []
         result = run(questions, ask=_ask(args))
     except (OSError, ValueError, RecursionError) as e:  # RecursionError: nested too deep
-        print(f"Error: {e}", file=sys.stderr)
-        sys.exit(2)
+        raise InputError(str(e)) from e
     result["questions_path"] = str(args.questions)
     result["judge_model"] = args.judge[1] if args.judge else None
     result["judge_provider"] = args.judge[0] if args.judge else None
@@ -54,8 +54,7 @@ def cmd_eval_redteam(args: argparse.Namespace) -> None:
         try:
             save_artifact("redteam", result, args.out)
         except (OSError, ValueError) as e:
-            print(f"Error: {e}", file=sys.stderr)
-            sys.exit(2)
+            raise InputError(str(e)) from e
         print(f"Wrote redteam artifact to {args.out}")
     if result["status"] != "pass":
         sys.exit(1)

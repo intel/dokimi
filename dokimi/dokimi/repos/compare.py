@@ -20,8 +20,8 @@ cells are first reduced to one value per (task, arm, model):
 - **first_useful_rate**: the share of the cells that declare a first useful result, and have a verdict (not
   `unobserved` or `timeout`), that observed one, per task; the header counts observed of measured cells per arm and
   the unmeasured ones;
-- **metric:<name>**: the mean of ``grade.json`` ``metrics.<name>`` over the
-  cells that report it (``true`` is 1), for ``--metric``;
+- **metric:<name>**: the mean of ``grade.json`` ``metrics.<name>`` over the cells that report it (``true`` is 1),
+  for ``--metric``; ``judge:recall_judged`` reads the cell's ``hits_judged.json`` instead (:mod:`.compare_judged`);
 - **pass^k**: for ``--pass-k K``, the chance that K cells drawn from the
   task's n all pass its gate, ``C(c,K)/C(n,K)`` over c passes (τ-bench). The
   gate is the per-cell rate; pass^k says whether the task passes every time.
@@ -36,11 +36,11 @@ A task enters a comparison only when both arms have a value for it; the others
 are listed as unpaired, with the reason (no cells in one arm, a task kind that
 differs between the arms, a measure one arm lacks). Per measure the comparison
 gives the mean per-task delta (treatment minus baseline) with a 95% interval
-over tasks (a percentile bootstrap for gate and score, a t interval for the
-continuous measures; none for a single task), the tasks that went up, down or
-stayed, and a two-sided sign-flip
+over tasks, the tasks that went up, down or stayed, and a two-sided sign-flip
 permutation p on the per-task deltas: exact up to :data:`EXACT_MAX` non-zero
-deltas, Monte Carlo above. At one cell per task and arm the deltas are -1, 0
+deltas, Monte Carlo above. The interval inverts that test (:mod:`.compare_interval`, ``delta.method``): every
+shift theta the test on the deltas minus theta does not reject at 5%, uncorrected, so it excludes 0 exactly when
+p < 0.05; an end is open (``None``) at 5 or fewer tasks. At one cell per task and arm the deltas are -1, 0
 or +1 and the exact p equals McNemar's exact test. Holm's correction runs over
 the gate and score comparisons of one invocation; cost, turns and metrics are
 descriptive and keep their raw p.
@@ -54,10 +54,9 @@ Holm-corrected decision. The sign-flip p over k changed tasks cannot go below ``
 effect of any size reaches p < 0.05: ``mde`` is ``None`` there too, and the note says how low p can go instead.
 ``mde`` is ``None`` too where a gate or score row's ``p_holm_floor`` (its ``p_holm`` with its p at that floor and the
 family's other p as observed, :mod:`.compare_reach`) is not below 0.05, and the note names Holm: that floor decides
-whether ``mde`` is given, not its size. A row whose interval and p disagree (the interval excludes 0 while p is 0.05
-or more, or includes it while p is below; for gate and score the p is ``p_holm``, the one that decides them) has
-``interval_p_disagree``: the two come from different methods, and for gate and score ``p_holm`` is the one to read,
-since the percentile bootstrap runs narrow over few tasks (the inconclusive note then gives way to this one). A
+whether ``mde`` is given, not its size. A gate or score row whose interval excludes 0 while its ``p_holm`` is 0.05
+or more (Holm lifted its p across 0.05; the interval agrees with the raw p) has ``interval_p_disagree``: the
+interval is uncorrected, and ``p_holm`` decides the row (the inconclusive note then gives way to this one). A
 descriptive row with p below 0.05 is named on a line saying its p is uncorrected and outside Holm's family.
 
 ``--task`` limits a comparison to some task ids: the others are left out, not listed as unpaired, and the
@@ -111,9 +110,13 @@ from pathlib import Path
 from typing import Any
 
 from dokimi.context.consistency import Run, run_from_events
-from dokimi.eval.stats import bootstrap_ci, correct_family, mean_ci
+from dokimi.eval.stats import correct_family
 from dokimi.utils import same_model
 
+from .compare_judged import (check_reported, judge_names, judge_warnings, judged_cells, judged_lines,
+                             read_judged)
+from .compare_interval import (EPS, EXACT_MAX, METHOD, N_RESAMPLES, format_interval, includes_zero,
+                               sign_flip_interval, within)
 from .compare_reach import ALPHA, holm_floor, min_detectable
 from .compare_tasks import CompareError, select_tasks
 from .compare_values import finite_values, task_values
@@ -122,12 +125,6 @@ from .report import (load_cells, mismatch_warnings, model_mismatch, resolved_mod
                      unmeasured_note, uptake_counts)
 from .useful import USEFUL_MEASURES, useful_arms_line, useful_counts
 
-#: Largest number of non-zero deltas whose sign-flip distribution is enumerated (2**16 patterns).
-EXACT_MAX = 16
-#: Resamples of the Monte Carlo sign-flip test above :data:`EXACT_MAX`.
-N_RESAMPLES = 20_000
-#: Deltas closer to zero than this are ties.
-EPS = 1e-9
 #: Measures Holm's correction runs over.
 PRIMARY = ("gate", "score")
 #: Descriptive measures compared only when both arms report them for some shared task (an older batch has none).
@@ -164,6 +161,7 @@ def load_batches(batch_dirs: list[Path], metrics: tuple[str, ...] = (),
         for rec in found:
             rec["batch"] = name
             rec["metrics"] = _grade_metrics(batch_dir / rec["cell"] / "grade.json", metrics) if metrics else {}
+            read_judged(batch_dir / rec["cell"], rec, metrics)  # judge:<field>, from hits_judged.json
             if paths:
                 rec["path"] = _cell_path(batch_dir / rec["cell"] / "events.jsonl")
             cells.append(rec)
@@ -183,8 +181,10 @@ def compare(batch_dirs: list[Path], baseline: str, treatments: list[str] | None 
             models: list[str] | None = None, metrics: tuple[str, ...] = (), seed: int = 0,
             pass_k: int | None = None, path_stability: bool = False, tasks: list[str] | None = None,
             *, exact: bool = False) -> dict[str, Any]:
-    """``exact``: the statistics at full precision (the ledger's verdicts read them); otherwise rounded as printed."""
+    """``exact``: p and the mean delta at full precision (the ledger's verdicts read them); otherwise rounded as
+    printed. The interval's ends are at 4 places either way: bisection only knows them within 1e-7."""
     metrics = tuple(dict.fromkeys(metrics))
+    judge_names(metrics)  # a judge: field it cannot read is refused before any cell is
     if pass_k is not None and pass_k < 1:
         raise CompareError(f"--pass-k must be at least 1, got {pass_k}")
     found, missing = load_batches(batch_dirs, metrics, path_stability)
@@ -199,6 +199,9 @@ def compare(batch_dirs: list[Path], baseline: str, treatments: list[str] | None 
         task_filter["dropped_arms"] = ([] if treatments is not None
                                        else sorted(_other_arms(found, base_sel) - _other_arms(cells, base_sel)))
     treatments = _treatments(cells, baseline, base_sel, treatments, scope)
+    compared = _in_models([c for c in cells if any(selector_matches(parse_selector(t), c) for t in [baseline, *treatments])],
+                          models)  # a judged-recall file of an excluded arm or model does not count
+    check_reported(metrics, compared, scope)
     measures = ["gate", "score", *([f"pass^{pass_k}"] if pass_k else []),
                 *(["path_distance"] if path_stability else []), "cost_usd", "turns", "first_prompt_tokens",
                 *USEFUL_MEASURES, *(f"metric:{m}" for m in metrics)]
@@ -224,9 +227,12 @@ def compare(batch_dirs: list[Path], baseline: str, treatments: list[str] | None 
     _holm(rows)
     provenance = _provenance(batch_dirs, cells, baseline, treatments, models)
     provenance["warnings"] += one_arm
+    judged = judged_cells(metrics, {text: _in_models([c for c in cells if selector_matches(parse_selector(text), c)],
+                                                     models) for text in [baseline, *treatments]})
+    provenance["warnings"] += judge_warnings(judged)
     return {"batches": [str(d) for d in batch_dirs], "baseline": baseline, "treatments": treatments,
             "task_filter": task_filter, "cells": len(cells), "missing": missing, **provenance,
-            "first_useful": useful, "comparisons": rows, "unpaired": unpaired}
+            "first_useful": useful, "judged_cells": judged, "comparisons": rows, "unpaired": unpaired}
 
 
 def _one_arm_models(treatment: str, base_vals: dict[tuple[str, str], dict[str, Any]],
@@ -343,7 +349,8 @@ def _process_measures(cells: list[dict[str, Any]], selectors: list[str]) -> list
 
 def _check_metrics(metrics: tuple[str, ...], cells: list[dict[str, Any]], scope: str = "") -> None:
     """A ``--metric`` that no finished cell reports is a typo or not a number: refuse it, not print nothing."""
-    unknown = [m for m in metrics if not any(m in c["metrics"] for c in cells)]
+    judged = judge_names(metrics)  # read after the arms are resolved, by check_reported
+    unknown = [m for m in metrics if m not in judged and not any(m in c["metrics"] for c in cells)]
     if unknown:
         raise CompareError(f"no finished cell reports a numeric or boolean --metric {', '.join(unknown)}{scope}")
 
@@ -363,7 +370,7 @@ def _holm(rows: list[dict[str, Any]]) -> None:
     for i, (row, (p, below)) in enumerate(zip(primary, correct_family(ps), strict=True)):
         d = row["delta"]
         row["p_holm"] = p
-        row["interval_p_disagree"] = d["lo"] is not None and below is not None and (d["lo"] <= 0 <= d["hi"]) == below
+        row["interval_p_disagree"] = below is not None and includes_zero(d["lo"], d["hi"]) == below
         if p is not None:
             row["p_holm_floor"], reachable = holm_floor(ps, i, min_sign_flip_p(row["up"] + row["down"]))
             row["mde"] = row["mde"] if reachable else None
@@ -555,28 +562,29 @@ def paired_summary(pairs: list[dict[str, Any]], measure: str = "gate", seed: int
 
     The values are taken at full precision and rounded only in the output: rounded rates such as 1/3 and 2/3
     no longer sum to the same totals, which would move sign patterns across the observed one in the
-    permutation test. The interval is a percentile bootstrap for the bounded gate and score shares and a t
-    interval (:func:`~dokimi.eval.stats.mean_ci`) for the continuous measures, where the bootstrap
-    under-covers at these task counts; one task has no interval (``lo``/``hi`` None), not a zero-width one.
-    ``mde`` and ``interval_p_disagree`` are the reading aids of the module docstring; both read the raw p here,
-    and :func:`compare` revisits both on a gate or score row once Holm's p is known.
+    permutation test. Every measure's interval inverts the row's sign-flip test (:func:`.sign_flip_interval`,
+    ``delta.method``), so it excludes 0 exactly when the raw p is below 0.05; an end is ``None`` where it is open,
+    as both are at 5 or fewer tasks, one task included. ``mde`` and ``interval_p_disagree`` are the reading aids of
+    the module docstring; both read the raw p here, and :func:`compare` revisits both on a gate or score row once
+    Holm's p is known. ``measure`` is not read: every measure gets the same statistics.
     """
     deltas = [p["delta"] for p in pairs]
-    ci = (bootstrap_ci if measure in PRIMARY else mean_ci)(deltas, seed=seed)
-    lo, hi = (float(ci["lo"]), float(ci["hi"])) if len(deltas) > 1 else (None, None)  # mean_ci gives numpy floats
     p = sign_flip_p(deltas, seed=seed, exact=exact)
+    lo, hi = sign_flip_interval(deltas, p, seed=seed)
+    mean = sum(deltas) / len(deltas)
     sd = statistics.stdev(deltas) if len(deltas) > 1 else 0.0
     reachable = min_sign_flip_p(sum(abs(d) > EPS for d in deltas)) < ALPHA  # else no effect can be detected
     return {
         "n_tasks": len(pairs),
         "baseline_mean": _round(_mean([p["baseline"] for p in pairs])),
         "treatment_mean": _round(_mean([p["treatment"] for p in pairs])),
-        "delta": {"mean": sum(deltas) / len(deltas) if exact else ci["mean"], "lo": lo, "hi": hi},
+        "delta": {"mean": mean if exact else within(round(mean, 4) + 0.0, lo, hi), "lo": lo, "hi": hi,  # no -0.0
+                  "method": METHOD},
         "p": p,
         "p_holm": None,
         "p_holm_floor": None,
         "mde": _round(min_detectable(sd, len(deltas))) if sd > EPS and reachable else None,
-        "interval_p_disagree": lo is not None and hi is not None and p is not None and (lo <= 0 <= hi) == (p < ALPHA),
+        "interval_p_disagree": p is not None and includes_zero(lo, hi) == (p < ALPHA),
         "up": sum(d > EPS for d in deltas),
         "down": sum(d < -EPS for d in deltas),
         "tied": sum(abs(d) <= EPS for d in deltas),
@@ -626,7 +634,7 @@ def format_compare(summary: dict[str, Any]) -> str:
                   f"{'delta [95% CI]':<26}  {'p':>6}  {'p_holm':>6}  up/down/tied"]
         for r in rows:
             d = r["delta"]
-            delta = f"{d['mean']:+.3f} " + ("-" if d["lo"] is None else f"[{d['lo']:+.3f}, {d['hi']:+.3f}]")
+            delta = f"{d['mean']:+.3f} " + format_interval(d["lo"], d["hi"])
             lines.append(f"  {r['measure']:<{width}}  {r['n_tasks']:>5}  {_num(r['baseline_mean']):>9}  "
                          f"{_num(r['treatment_mean']):>9}  {delta:<26}  {_p(r['p']):>6}  {_p(r['p_holm']):>6}  "
                          f"{r['up']}/{r['down']}/{r['tied']}")
@@ -646,6 +654,7 @@ def format_compare(summary: dict[str, Any]) -> str:
             + (f" and {len(summary['unpaired']) - len(shown)} more" if len(summary["unpaired"]) > 10 else ""))
     if summary["missing"]:
         lines.append(f"{len(summary['missing'])} cells missing (no result.json): `repo report` lists them")
+    lines += judged_lines(summary.get("judged_cells"))
     lines += [f"uptake: {text} used what its arm added in {u['used']}/{u['cells']} cell(s){unmeasured_note(u)}"
               for text, u in summary.get("uptake", {}).items()]
     lines += [f"warning: {w}" for w in summary["warnings"]]
@@ -657,14 +666,9 @@ def _reading_notes(rows: list[dict[str, Any]], family: int) -> list[str]:
     out = []
     for r in rows:
         d, primary = r["delta"], r["measure"] in PRIMARY
-        if r["interval_p_disagree"]:
-            inside = d["lo"] <= 0 <= d["hi"]
-            how = "a percentile bootstrap, too narrow over few tasks," if primary else "a t interval"
-            name = "p_holm" if primary else "p"  # a gate or score row is decided by its Holm p (_holm)
-            out.append(f"  {r['measure']}: the interval [{d['lo']:+.3f}, {d['hi']:+.3f}] "
-                       f"{'includes' if inside else 'excludes'} 0 but {name} {r[name]:.4g} is {'<' if inside else '≥'} "
-                       f"{ALPHA}; they come from two methods, {how} and a sign-flip test"
-                       + ("; read p_holm" if primary else ""))
+        if primary and r["interval_p_disagree"]:  # the interval agrees with the raw p: only Holm lifts p past ALPHA
+            out.append(f"  {r['measure']}: the interval {format_interval(d['lo'], d['hi'])} excludes 0 but p_holm "
+                       f"{r['p_holm']:.4g} is ≥ {ALPHA}: the interval is uncorrected; p_holm decides this row")
         elif primary and (note := _inconclusive_note(r, family)):
             out.append(note)
     low = [r["measure"] for r in rows if r["measure"] not in PRIMARY and r["p"] is not None and r["p"] < ALPHA]
@@ -676,8 +680,7 @@ def _reading_notes(rows: list[dict[str, Any]], family: int) -> list[str]:
 
 def _inconclusive_note(r: dict[str, Any], family: int) -> str | None:
     """The note of a gate or score row of 2+ tasks whose interval includes 0: its ``mde``, or why it has none."""
-    d = r["delta"]
-    if d["lo"] is None or not d["lo"] <= 0 <= d["hi"]:
+    if r["n_tasks"] < 2 or not includes_zero(r["delta"]["lo"], r["delta"]["hi"]):
         return None
     head = f"  {r['measure']} inconclusive: the interval includes 0; "
     if r["mde"] is not None:

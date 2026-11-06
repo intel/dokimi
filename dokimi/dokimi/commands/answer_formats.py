@@ -13,8 +13,8 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from pathlib import Path
+from dokimi.utils import InputError
 
 
 def cmd_questions_import(args: argparse.Namespace) -> None:
@@ -25,8 +25,7 @@ def cmd_questions_import(args: argparse.Namespace) -> None:
     try:
         imported = import_path(Path(args.path), fmt=args.format, **options)
     except ValueError as e:
-        print(f"Error: {e}", file=sys.stderr)
-        sys.exit(2)
+        raise InputError(str(e)) from e
     save_questions_artifact(imported.artifact(), args.output)
     print(json.dumps(imported.report(), indent=2))
     print(f"Wrote {len(imported.questions)} questions to {args.output}")
@@ -54,11 +53,9 @@ def cmd_eval_reference(args: argparse.Namespace) -> None:
     try:
         result = score(data, questions, ask=_ask(args), source=args.answers, concurrency=args.concurrency)
     except ValueError as e:
-        print(f"Error: {e}", file=sys.stderr)
-        sys.exit(2)
+        raise InputError(str(e)) from e
     if not result.evaluations:
-        print("Error: no answered question has a grading block in --questions", file=sys.stderr)
-        sys.exit(2)
+        raise InputError("no answered question has a grading block in --questions")
     judge_model = None if args.no_judge else args.judge_model
     judge_provider = None if args.no_judge else args.judge_provider
     kind, payload = artifact(result, data, judge_model=judge_model, judge_provider=judge_provider,
@@ -78,8 +75,7 @@ def cmd_eval_native_import(args: argparse.Namespace) -> None:
     try:
         run = read_log(Path(args.log))
     except ValueError as e:
-        print(f"Error: {e}", file=sys.stderr)
-        sys.exit(2)
+        raise InputError(str(e)) from e
     save_artifact("answers", run.answers_artifact(), args.answers_out)
     if args.eval_out:
         save_artifact("eval", run.eval_artifact(), args.eval_out)

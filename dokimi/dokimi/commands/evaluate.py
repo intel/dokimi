@@ -25,7 +25,7 @@ from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.eval.judge_validity import DEFAULT_MIN_ACCURACY, NoUsablePairs
 from dokimi.commands._output import write_text_or_exit
 from dokimi.exit_codes import EXIT_USAGE
-from dokimi.utils import warn_judge_independence, warn_recorded_self_judge
+from dokimi.utils import InputError, warn_judge_independence, warn_recorded_self_judge
 
 
 _warn_judge_independence = warn_judge_independence
@@ -141,8 +141,7 @@ def cmd_eval_panel_score(args: argparse.Namespace) -> None:
                                          run_metadata={"answer_model": answer_model,
                                                        "answer_provider": answer_provider})
     except OSError as exc:
-        print(f"Error: cannot write {output_path}: {exc.strerror or exc}", file=sys.stderr)
-        sys.exit(2)
+        raise InputError(f"cannot write {output_path}: {exc.strerror or exc}") from exc
 
     # Summary: the context arm's own quality, not a comparison.
     from dokimi.records import CONTEXT, records
@@ -221,11 +220,9 @@ def cmd_eval_score(args: argparse.Namespace) -> None:
                                              concurrency=args.concurrency)
         judge.save_evaluations(evaluations, output_path)
     except RecordError as exc:
-        print(f"Error: {args.answers}: {exc}", file=sys.stderr)
-        sys.exit(2)
+        raise InputError(f"{args.answers}: {exc}") from exc
     except OSError as exc:
-        print(f"Error: cannot write {output_path}: {exc.strerror or exc}", file=sys.stderr)
-        sys.exit(2)
+        raise InputError(f"cannot write {output_path}: {exc.strerror or exc}") from exc
     print(f"\n✅ Saved evaluations to {output_path}")
 
 
@@ -278,16 +275,14 @@ def cmd_eval_judge_validity(args: argparse.Namespace) -> None:
     """Measure whether the judge can order pairs whose ordering is known."""
     if args.mode != "pairwise" and (args.escalate_model or args.escalate_ties):
         # Silently ignoring it would report an absolute run as if escalation had been asked for.
-        print("Error: --escalate-model / --escalate-ties need --mode pairwise", file=sys.stderr)
-        sys.exit(2)
+        raise InputError("--escalate-model / --escalate-ties need --mode pairwise")
     if args.sequential:
         from dokimi.eval.judge_sequential import sprt_bounds
 
         try:
             sprt_bounds(args.min_accuracy)
         except ValueError as exc:
-            print(f"Error: {exc}", file=sys.stderr)
-            sys.exit(2)
+            raise InputError(str(exc)) from exc
     from dokimi.eval.degrade import DEGRADATIONS
     from dokimi.eval.judge import Judge
     from dokimi.eval.judge_validity import judge_scorer, run_validity
@@ -299,8 +294,7 @@ def cmd_eval_judge_validity(args: argparse.Namespace) -> None:
     variants = [v.strip() for v in args.variants.split(",")] if args.variants else list(DEGRADATIONS)
     unknown = sorted(set(variants) - set(DEGRADATIONS))
     if unknown:
-        print(f"Error: unknown degradation(s): {unknown}; known: {sorted(DEGRADATIONS)}", file=sys.stderr)
-        sys.exit(2)
+        raise InputError(f"unknown degradation(s): {unknown}; known: {sorted(DEGRADATIONS)}")
 
     # The default arm is the shipped judge. A typed arm is a local baseline that
     # reads the answer but generates nothing — a second reference line next to
@@ -308,14 +302,11 @@ def cmd_eval_judge_validity(args: argparse.Namespace) -> None:
     # Built once and passed to both modes, so a new scorer kind is a change to
     # this block, not to each run path.
     if args.scorer not in ("judge", "typed") and not args.scorer.startswith("typed:"):
-        print(f"Error: unknown --scorer {args.scorer!r}; use 'judge' or 'typed:<backend>'", file=sys.stderr)
-        sys.exit(2)
+        raise InputError(f"unknown --scorer {args.scorer!r}; use 'judge' or 'typed:<backend>'")
     if args.context == "stored" and (args.scorer != "judge" or args.mode == "pairwise"):
         # Refused before any model is loaded: neither scorer has a context slot.
         what = "the typed scorer" if args.scorer != "judge" else "--mode pairwise"
-        print(f"Error: --context stored needs a judge that takes context; {what} does not",
-              file=sys.stderr)
-        sys.exit(2)
+        raise InputError(f"--context stored needs a judge that takes context; {what} does not")
     typed = None
     if args.scorer == "judge":
         judge = Judge(model=args.judge_model, provider=args.judge_provider, temperature=args.judge_temperature)
@@ -324,9 +315,7 @@ def cmd_eval_judge_validity(args: argparse.Namespace) -> None:
     elif args.mode == "pairwise":
         # _score_pairs gives pair_scorer precedence, so the pairwise judge would grade
         # the pairs and the report would carry the typed arm's label.
-        print("Error: a typed scorer reads one answer at a time; it has no --mode pairwise",
-              file=sys.stderr)
-        sys.exit(2)
+        raise InputError("a typed scorer reads one answer at a time; it has no --mode pairwise")
     else:
         from dokimi.eval.degrade import build_pairs
         from dokimi.eval.typed_scorer import parse_spec, typed_scorer
@@ -335,8 +324,7 @@ def cmd_eval_judge_validity(args: argparse.Namespace) -> None:
         try:
             parse_spec(spec)
         except ValueError as exc:
-            print(f"Error: {exc}", file=sys.stderr)
-            sys.exit(2)
+            raise InputError(str(exc)) from exc
         # Loading the model takes longer than building every pair, so find out
         # first whether there is anything to score.
         noop: dict = {}
@@ -345,9 +333,7 @@ def cmd_eval_judge_validity(args: argparse.Namespace) -> None:
                            variants=variants, library=library, noop=noop):
             why = (f"every degradation left the answer unchanged (no-op pairs: {noop})"
                    if noop else "too few answers, or all too short")
-            print(f"Error: the answers file yields no usable degradation pairs ({why})",
-                  file=sys.stderr)
-            sys.exit(2)
+            raise InputError(f"the answers file yields no usable degradation pairs ({why})")
         try:
             typed = typed_scorer(
                 spec,
@@ -371,10 +357,9 @@ def cmd_eval_judge_validity(args: argparse.Namespace) -> None:
         data = json.loads(Path(args.answers).read_text(encoding="utf-8"))
         store = JudgeContextStore.from_artifact(data) if isinstance(data, dict) else None
         if store is None or not any(store.materials().values()):
-            print("Error: --context stored needs an arms artifact with non-empty stored judge "
+            raise InputError("--context stored needs an arms artifact with non-empty stored judge "
                   "material; this file has none (judge_materials missing, or no record cites a "
-                  "digest that matches)", file=sys.stderr)
-            sys.exit(2)
+                  "digest that matches)")
     warn_recorded_self_judge(run.meta, _validity_judges(args), "eval judge validate")
     pair_scorer = None
     if args.mode == "pairwise":
@@ -409,8 +394,7 @@ def cmd_eval_judge_validity(args: argparse.Namespace) -> None:
         else:
             report = run_validity(answers, scorer, n_bases=args.bases, **common)
     except NoUsablePairs as exc:  # none long enough, all no-ops, none with material
-        print(f"Error: {exc}", file=sys.stderr)
-        sys.exit(2)
+        raise InputError(str(exc)) from exc
 
     # Written before anything is printed: a console that cannot encode the summary must not lose the run.
     if args.output:

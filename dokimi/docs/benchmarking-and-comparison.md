@@ -553,8 +553,8 @@ measures, and labels each arm `CONSISTENT ±`, `LEANING ±`, `JUDGE-DEPENDENT` o
 errored, or every judge was gated out); `--strict` exits 1 on that too. A
 `--judges` judge that leaves answers unscored prints how many and its first
 error, which the report keeps under `unscored`; one that scored none of its
-answers exits 2 once the report is written, with or without `--strict`, as
-`eval score pairwise` does when every comparison fails. With
+answers exits 1 once the report is written, with or without `--strict`, as
+`eval score pairwise` does when every comparison fails (a run failure, not bad input). With
 `--validity` reports, a judge that failed its gate is shown but does not vote
 (its grounded and checklist measures included, in any context);
 `--require-validated` leaves only judges that passed. The stored measure is
@@ -800,7 +800,7 @@ that never hits.
 
 A replayed entry reports the **stored** usage record — tokens, cost and latency
 as measured when the call was really made, not `$0`/`0s`, so cost stays
-comparable across runs. The run's `cost` totals (`novelty analyze`, `novelty
+comparable across runs. The run's `cost` totals (`skill novelty analyze`, `novelty
 routing --model`) are what this run spent, so they leave replayed records out of
 the token and `usd` sums and count them in `replayed_calls`; `llm_calls` still
 counts them. The flip side: latency from a cached run is a recording,
@@ -905,3 +905,43 @@ the version it declares, and an unstamped file against the newest version it mat
 Question sets are written as `questions.v2` and `questions.v1` is still read — v2
 renamed the record's text field from `text` to `question` (see
 [methodology.md](methodology.md#question-record-format)).
+
+### The run envelope
+
+An artifact of a registered run kind carries the run's envelope right after its
+`schema_version` ([#277](https://github.com/intel/dokimi/issues/277)):
+
+```json
+{"schema_version": "arms.v1", "run_id": "20261104T153012Z-1a2b3c4d", "dokimi_version": "0.1.0", ...}
+```
+
+- `run_id` is made once per process, when it is first needed (a CLI command makes it at start),
+  from the UTC time and 8 random hex digits. So every file one process writes shares it: a
+  pipeline's answers and eval, or a catalog run's report, plan and result. `runs list --json` and
+  `runs show` print it.
+- `DOKIMI_RUN_ID` gives several commands one id, for example the steps of a CI job. It is 1-128
+  letters, digits, `.`, `_` or `-` and starts with a letter or a digit, so it can name a
+  directory. Any other value exits 2 before a command runs (`--help` and `--version` still work).
+  A dokimi process started by another (`scripts/reach_conformance.py` runs `repo reach` per
+  fixture) makes its own id unless `DOKIMI_RUN_ID` is set; that script passes it through.
+- A file saved again records the process that saved it, and so does an artifact built from a
+  loaded one (`repo reach --from`).
+- The `--run-id` flag of `answers generate`, `eval score pointwise` and `report eval` names the
+  output directory only; the envelope's `run_id` is the process's. The `run_id` of each
+  `effective_instructions` receipt is that receipt's own, not the envelope.
+- The input kinds carry no envelope: `questions`, `dokimi_config`, `repo_ledger` and
+  `need_graph` are what a run is given, and `cli_routes` describes the CLI. A question set is
+  reused across runs (`--questions-from`, a curated set, the pipeline's cache), and a subject
+  scorecard's `question_set_hash` digests its bytes, so a `run_id` in it would change that hash
+  with every process that saved it. `harness_profile`, `repo_manifest` and
+  `tool_preference_groups` are inputs too, validated but never saved.
+- A plan is a run's product and carries the envelope, so it shares the `run_id` of the result
+  written with it. The completeness check compares its digest with the result's `plan_digest`,
+  so `plan_digest` leaves out the envelope as it leaves out `generated_at`.
+- Run outputs that are not a registered kind (a repo run's `grade.json` and batch files) carry
+  no envelope.
+- A file saved before the envelope has neither key and stays valid; so do the superseded
+  versions (`questions.v1`, `subject_scorecard.v1`), which declare no envelope.
+- The `--json` output of `repo scan`, `repo inspect`, `repo budget` and `eval inspect` is the
+  document their `--out` writes, envelope and key order included.
+- The run's cost is not in the envelope yet.

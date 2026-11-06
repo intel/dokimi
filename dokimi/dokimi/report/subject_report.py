@@ -30,7 +30,7 @@ def _novelty_section(novelty: dict) -> list[str]:
     cells = novelty.get("cells") or []
     if not cells:
         lines.append(
-            "- not measured (attach `novelty analyze` artifacts with `--novelty-artifact`)"
+            "- not measured (attach `skill novelty analyze` artifacts with `--novelty-artifact`)"
         )
         return lines
     lines.extend([

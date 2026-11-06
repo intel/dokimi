@@ -15,7 +15,7 @@ provenance and the 2×2 can be cut by *which file* carried the knowledge — the
 author needs to decide what belongs in the body and what can stay a reference.
 
 It also owns the bundle **record** (``Bundle.summary()``), which every later reader
-consumes: ``atoms.json`` carries it so ``novelty probe`` can replay the selection, the
+consumes: ``atoms.json`` carries it so ``skill novelty probe`` can replay the selection, the
 ``novelty.v1`` artifact carries it so the gate and the report can say how much of the
 artifact was read. Readers do not interpret the record themselves:
 
@@ -521,12 +521,12 @@ def check_answer_key(ref: str, record: dict | None, *,
             return AnswerKeyVerdict(problem="unloadable", message=f"cannot load {ref}: {exc}")
         return AnswerKeyVerdict(text=body, notes=(
             f"WARNING: {source} predates bundle provenance; assuming the entry point only. "
-            "Re-run `novelty atoms` if the atoms came from bundled files.",))
+            "Re-run `skill novelty atoms` if the atoms came from bundled files.",))
 
     rows = record.get("files") or []
     if not rows or any("role" not in row or "path" not in row for row in rows):
         return AnswerKeyVerdict(problem="no_file_rows", message=(
-            f"{source} records a bundle without usable file rows; re-run `novelty atoms` "
+            f"{source} records a bundle without usable file rows; re-run `skill novelty atoms` "
             "rather than probing against an answer key whose provenance cannot be checked"))
     try:
         now = load_bundle(ref, **_replay_selection(record))
@@ -571,7 +571,7 @@ def check_answer_key(ref: str, record: dict | None, *,
             message=(
                 "the artifact's files changed since these atoms were extracted "
                 f"({source}: {recorded}; now: {rebuilt}; edited: {edited}; "
-                f"added: {added}). Re-run `novelty atoms`; probing a different file set "
+                f"added: {added}). Re-run `skill novelty atoms`; probing a different file set "
                 "against this answer key would mis-score every moved atom."),
             recorded=tuple(recorded), rebuilt=tuple(rebuilt), edited=tuple(edited),
             added=tuple(added))
@@ -614,7 +614,7 @@ def entry_point_only(record: dict | None, spans: list, atoms: list) -> tuple[lis
         return spans, atoms, None
     if not record.get("files"):
         raise ValueError("the atoms record a bundle run without file rows; re-run "
-                         "`novelty atoms`")
+                         "`skill novelty atoms`")
     entry = record["files"][0]
     if "end" not in entry:
         raise ValueError(f"the atoms record no span range for {entry.get('path')}")
