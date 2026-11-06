@@ -83,6 +83,15 @@ def test_documented_function_without_the_scorer_decorator_stays_unsupported(tmp_
     assert "scorer `helper` has no translation" in imp.lossy
 
 
+@pytest.mark.parametrize("sample", ["Sample(input='2+2?', target='')", "Sample(input='2+2?')"])
+def test_custom_scorer_row_without_a_target_is_not_graded(tmp_path, sample):
+    text = _SCORER_TASK.replace("Sample(input='2+2?', target='4')", sample)
+    task = _write(tmp_path / "t.py", text.format(name="last", doc='"""The last number equals the target."""\n'))
+    imp = import_path(task, fmt="inspect-task")
+    assert _checks(imp) == [{"type": "unsupported", "native": "last"}]
+    assert "sample without a usable target: not graded" in imp.lossy
+
+
 # --- (b) hf_dataset ---------------------------------------------------------------------------
 
 

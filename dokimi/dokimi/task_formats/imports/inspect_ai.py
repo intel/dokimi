@@ -83,6 +83,9 @@ def _checks(scorer: str, kwargs: Mapping[str, Any], targets: list[str], imp: Imp
     if not doc:
         imp.note(f"scorer `{scorer}` has no translation")
         return [unsupported(scorer)]
+    if not targets:
+        imp.note("sample without a usable target: not graded")
+        return [unsupported(scorer)]
     imp.note(f"scorer `{scorer}` approximated by a judge on its docstring")
     return [judge(criterion=doc, reference=" | ".join(targets), native=scorer)]
 
