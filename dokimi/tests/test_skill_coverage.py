@@ -354,3 +354,21 @@ def test_read_skill_names_the_skill_for_a_relative_file_and_a_dot_directory(tmp_
     monkeypatch.chdir(skill.parent)
     assert sc.read_skill(Path("SKILL.md")).name == "demo"
     assert sc.read_skill(Path(".")).name == "demo"
+
+
+def test_a_mapping_reply_that_names_no_requirement_id_is_a_run_failure(tmp_path):
+    checks = sc.load_checks(_evals(tmp_path))
+    reqs = [sc.Requirement("mh-01", "must_hold", "b"), sc.Requirement("mh-02", "must_hold", "c")]
+    for reply in ('{"items": {}}', '{"items": {"mh-1": ["e2"], "mh-2": []}}'):
+        client, _ = _client(reply)
+        with pytest.raises(sc.SkillCoverageError, match="no usable mapping"):
+            sc.map_requirements(reqs, checks, client)
+
+
+def test_names_filed_under_an_unknown_requirement_id_are_dropped_and_counted(tmp_path):
+    checks = sc.load_checks(_evals(tmp_path))
+    reqs = [sc.Requirement("mh-01", "must_hold", "b")]
+    client, _ = _client('{"items": {"mh-01": ["e2"], "mh-99": ["e1", "no_such_check"]}}')
+    links = sc.map_requirements(reqs, checks, client)
+    assert links.by_requirement == {"mh-01": ("e2",)}
+    assert links.dropped_names == 2

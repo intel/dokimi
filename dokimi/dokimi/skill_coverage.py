@@ -291,6 +291,9 @@ def map_requirements(requirements: list[Requirement], checks: list[Check], clien
     by_requirement: dict[str, tuple[str, ...]] = {}
     dropped = 0
     items = reply["items"]
+    ids = {r.id for r in requirements}
+    if ids and not any(rid in items for rid in ids):  # e.g. {} or ids not padded as listed: nothing to map
+        raise SkillCoverageError("no usable mapping from the model: it names no requirement id")
     for requirement in requirements:
         named = items.get(requirement.id) or []
         if not isinstance(named, list):
@@ -298,6 +301,9 @@ def map_requirements(requirements: list[Requirement], checks: list[Check], clien
         hits = {str(n) for n in named if str(n) in known}
         dropped += sum(1 for n in named if str(n) not in known)
         by_requirement[requirement.id] = tuple(sorted(hits))
+    for rid, named in items.items():  # names filed under an id that is no requirement are dropped too
+        if rid not in ids and isinstance(named, list):
+            dropped += len(named)
     return Links(by_requirement=by_requirement, dropped_names=dropped)
 
 
