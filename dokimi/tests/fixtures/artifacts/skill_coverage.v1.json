@@ -1,0 +1,36 @@
+{
+  "schema_version": "skill_coverage.v1",
+  "skill": {
+    "path": "demo/SKILL.md",
+    "name": "demo",
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000001"
+  },
+  "evals_root": "evals.json",
+  "method": "llm_static_map",
+  "label": "candidate checks: LLM-estimated, not a verified coverage score; links ~.70 precision",
+  "model": {"model": "claude-sonnet-5-5", "provider": "anthropic"},
+  "requirements": [
+    {"id": "trig-01", "section": "triggers", "text": "Activate on questions about flag -x",
+     "covered": true, "checks": ["e1"], "units": ["e1"]},
+    {"id": "mh-01", "section": "must_hold", "text": "Use the -x flag, never -y",
+     "covered": true, "checks": ["e2"], "units": ["e2"]},
+    {"id": "mh-02", "section": "must_hold", "text": "Name the default value",
+     "covered": false, "checks": [], "units": []}
+  ],
+  "candidate_checks": [
+    {"id": "mh-02", "section": "must_hold", "text": "Name the default value"}
+  ],
+  "summary": {
+    "requirements": 3,
+    "covered": 2,
+    "candidate_checks": 1,
+    "by_section": {
+      "triggers": {"covered": 1, "total": 1},
+      "must_hold": {"covered": 1, "total": 2}
+    },
+    "checks": 2,
+    "requirements_dropped": 0,
+    "check_names_dropped": 1
+  },
+  "cost": {"model": "claude-sonnet-5-5", "provider": "anthropic", "role": "coverage", "llm_calls": 2, "usd": null}
+}

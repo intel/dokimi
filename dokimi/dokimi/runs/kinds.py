@@ -78,6 +78,8 @@ FIELDS: dict[str, KindFields] = {
                           counts=("violations", "questions")),
     "need_graph": KindFields(subject=("artifact_name",), counts=("nodes", "edges")),
     "eval_coverage": KindFields(subject=("graph.artifact_name",), counts=("gaps", "evals", "problems")),
+    "skill_coverage": KindFields(subject=("skill.name",), model=("model.model",),
+                                 counts=("requirements", "candidate_checks")),
     "catalog_eval": KindFields(subject=("root",), counts=("skills", "problems")),
     "reach_matrix": KindFields(time=("generated_at",), counts=("runs", "cells")),
     "repo_hits_judged": KindFields(subject=("task",), model=("judge.model",), counts=("pairs",)),
