@@ -29,7 +29,7 @@ def workflow_files(scan: Scan) -> list[str]:
 
 
 def runnable(scan: Scan) -> list[str]:
-    """The ``.yml``/``.yaml`` files directly in ``.github/workflows/``: GitHub runs no nested one."""
+    """The ``.yml``/``.yaml`` files directly in ``.github/workflows/``: GitHub does not run one in a subdirectory."""
     return [f for f in workflow_files(scan) if f.endswith((".yml", ".yaml")) and "/" not in f[len(WORKFLOWS):]]
 
 
