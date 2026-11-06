@@ -1622,10 +1622,10 @@ one of those workflows or local actions was not read (too big, binary, a danglin
 link), an `owner/name` the tree does not hold, outside a root directory, that no
 read file uses keeps its `unresolved` (`tried ...`) or `fail` (`<dir>/ exists but
 ...`) verdict, and its reason also names each such file, as `<file> was not read
-(<why>)`, joined with `; `. After the submodule and Action checks, a path or glob
-the tree does not hold at the file's directory or an ancestor, whose first
-directory is not one at the repository root, is `ok` when the repository
-configures it as a branch: a `--branch` (`-b`, `--branch=`) name or a `--pattern`
+(<why>)`, joined with `; `. A path or glob the rules above leave `unresolved`,
+whose first directory is not one at the repository root, is `ok` when the
+repository configures it as a branch (a `fail`, `ok_suffix` or other verdict
+stays): a `--branch` (`-b`, `--branch=`) name or a `--pattern`
 (`-p`, `--pattern=`) regex in the `args` of a `no-commit-to-branch` hook of the
 root `.pre-commit-config.yaml`, or a `branches` or `branches-ignore` filter of
 `on.push` or `on.pull_request` in the same workflows. The claim matches when it

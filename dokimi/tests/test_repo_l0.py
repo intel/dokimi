@@ -341,9 +341,9 @@ def _pre_commit(args: str, hook: str = "no-commit-to-branch") -> dict[str, str]:
                                        f"    rev: v5.0.0\n    hooks:\n{fillers}    -   id: {hook}\n        args: {args}\n"}
 
 
-def _path_verdict(tmp_path: Path, claim: str, files: dict[str, str]) -> tuple[str, str]:
+def _path_verdict(tmp_path: Path, claim: str, files: dict[str, str], guide: str = "AGENTS.md") -> tuple[str, str]:
     root = tmp_path / "b"
-    sha = _repo(root, {"AGENTS.md": f"Work on a branch, not on `{claim}`.\n", **files})
+    sha = _repo(root, {guide: f"Work on a branch, not on `{claim}`.\n", **files})
     payload = scan_repo(GitTree(root / ".git", sha), parse_manifest(MANIFEST))
     return next((c["status"], c["why"]) for c in payload["claims"] if c["claim"] == claim)
 
@@ -423,6 +423,17 @@ def test_a_path_like_claim_no_branch_source_names_keeps_its_path_verdict(tmp_pat
     a filter whose pattern does not start with the claim's first directory, a `*` across `/`, an escaped `*` and a
     backwards range: today's verdict."""
     assert _path_verdict(tmp_path, claim, files) == verdict
+
+
+@pytest.mark.parametrize("guide, claim, held, verdict", [
+    ("sub/AGENTS.md", "release/gone", "sub/release/a", ("fail", "sub/release/ exists but sub/release/gone does not")),
+    ("sub/AGENTS.md", "release/v*", "sub/release/a", ("fail", "sub/release/ exists but nothing in it matches v*")),
+    ("AGENTS.md", "release/notes", "pkg/release/notes",
+     ("ok_suffix", "below a directory the text does not name; 1 match(es), e.g. pkg/release/notes")),
+])
+def test_a_branch_filter_names_only_a_path_that_would_be_unresolved(tmp_path, guide, claim, held, verdict):
+    """A `fail` or `ok_suffix` found the path's directory, or the path below another one: `release/**` does not wave it through."""
+    assert _path_verdict(tmp_path, claim, {held: "", **_PUSH}, guide) == verdict
 
 
 def test_a_backslash_in_a_branch_filter_escapes_the_next_character():

@@ -294,11 +294,14 @@ class Scan:
             return None
         if any(c.startswith("..") for c in cands) and all(c.startswith("..") for c in cands):
             return "fail", f"resolves to {cands[0]}, outside the repository"
-        held = self._held_elsewhere(p, cands)
+        held = self._submodule_or_action(p, cands)
         if held:
             return held
-        if any(c in rel for c in "*<>{"):
-            return self._glob(bases, rel)
+        verdict = self._glob(bases, rel) if any(c in rel for c in "*<>{") else self._lookup(p, rel, cands)
+        return self._as_branch(p, verdict)
+
+    def _lookup(self, p: str, rel: str, cands: list[str]) -> tuple[str, str]:
+        """The verdict of a path that is not a glob, tried at each of ``cands`` (see :meth:`resolve_path`)."""
         for c in cands:
             if self.exists(c):
                 if rel.endswith("/") and self.is_file(c):
@@ -321,26 +324,29 @@ class Scan:
             return "ok_suffix", f"below a directory the text does not name; {len(hits)} match(es), e.g. {hits[0]}"
         return self._missing(cands, rel.endswith("/"), "tried " + ", ".join(cands) + self._unread_note(p, cands), "unresolved")
 
-    def _held_elsewhere(self, name: str, cands: list[str]) -> tuple[str, str] | None:
-        """``unresolved`` for a path into a submodule, else ``ok`` for a used Action or a branch no candidate holds, else ``None``.
+    def _submodule_or_action(self, name: str, cands: list[str]) -> tuple[str, str] | None:
+        """``unresolved`` for a path into a submodule, else ``ok`` for a used Action no candidate holds, else ``None``.
 
         The Action is one a workflow step uses as ``uses: <name>@<ref>``, named here without the ref; the
-        branch is a name or pattern of :mod:`.branches`. The submodule verdict comes first, as the snapshot
-        does not hold what the name may be there. A name whose directory the tree holds at the root
-        (``tools/gone`` beside ``tools/``; for a branch, its first directory) is a path, stale or not.
+        submodule verdict comes first, as the snapshot does not hold what the name may be there. A name
+        whose directory the tree holds at the root (``tools/gone`` beside ``tools/``) is a path, stale or not.
         """
         sub = self.submodule_of(cands)
         if sub:
             return "unresolved", f"inside the submodule {sub}, which this snapshot does not hold"
         used = workflows.action_users(self).get(name) if self._reads_as_action(name, cands) else None
-        if used:
-            return "ok", f"used by {used}"
-        branch = branches.branch_of(self, name, [_fill(name, f) for f in _FILLS]) if self._reads_as_branch(name, cands) else None
-        return ("ok", branch) if branch else None
+        return ("ok", f"used by {used}") if used else None
 
-    def _reads_as_branch(self, name: str, cands: list[str]) -> bool:
-        """No candidate holds ``name`` and its first directory is not one at the root."""
-        return not any(self.exists(c) for c in cands) and name.split("/")[0] not in self.dir_set
+    def _as_branch(self, name: str, verdict: tuple[str, str]) -> tuple[str, str]:
+        """``ok`` for an ``unresolved`` path a name or pattern of :mod:`.branches` names, else ``verdict``.
+
+        Only ``unresolved``: a ``fail`` or ``ok_suffix`` found the path's directory or the path itself. A name
+        whose first directory the tree holds at the root (``tools/old/x`` beside ``tools/``) is a path.
+        """
+        if verdict[0] != "unresolved" or name.split("/")[0] in self.dir_set:
+            return verdict
+        branch = branches.branch_of(self, name, [_fill(name, f) for f in _FILLS])
+        return ("ok", branch) if branch else verdict
 
     def _reads_as_action(self, name: str, cands: list[str]) -> bool:
         """``name`` has an Action's shape, no candidate holds it and its directory is not one at the root."""
