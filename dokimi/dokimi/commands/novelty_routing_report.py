@@ -461,15 +461,21 @@ def exit_partial_all_vs_all(model_arm: dict, cost: dict | None, failed: int, sen
 
 
 def field_record(args: argparse.Namespace, competitors: list, left_out: list[str],
-                  dropped_queries: list[dict] | None = None) -> dict:
+                 dropped_queries: list[dict] | None = None, gold: object | None = None) -> dict:
     """The field rule a routing result was measured under, saved next to the result.
 
     ``dropped_queries`` (all-vs-all only) lists each skill whose queries were dropped, with the
-    reason and the flag that keeps it.
+    reason and the flag that keeps it. ``spec_warnings`` lists ``gold`` (the skill under test,
+    when given) as well as the field: a description over the 1024-character limit is kept and
+    recorded there.
     """
+    from dokimi.novelty.routing import over_limit_warnings
+
     record = {**{name: bool(getattr(args, name)) for name in ("include_disabled", "include_invalid")},
               "keep_copies_under": args.keep_copies_under,
-              "competitors": [c.name for c in competitors], "left_out": left_out}
+              "competitors": [c.name for c in competitors], "left_out": left_out,
+              "spec_warnings": (over_limit_warnings([gold], under_test=True) if gold else [])
+              + over_limit_warnings(competitors)}
     if dropped_queries is not None:
         record["dropped_queries"] = dropped_queries
     return record

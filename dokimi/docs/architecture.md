@@ -326,7 +326,8 @@ next release.
   Copilot JSON converters and the parser of the files a shell command prints
   (`dokimi/repos/shell_split.py` splits the command into its parts, and
   `dokimi/repos/shell_words.py` finds a part's command word and the
-  directory builtins it runs),
+  directory builtins it runs, and `dokimi/repos/shell_functions.py` the
+  shell functions whose call may move the shell),
   and `dokimi/repos/answers.py` the `answer_format`
   conversions that turn a native review answer into a findings block.
 - `dokimi/repos/l0/` — `repo scan` (L0): checks the links, paths,
@@ -365,7 +366,8 @@ next release.
   `dokimi/repos/compare_tasks.py` holds
   what its `--task` selection keeps; `dokimi/repos/compare_reach.py` how small
   an effect a row can find (`mde`, an uncorrected t-based estimate, and the
-  lowest `p_holm` Holm's family leaves it).
+  lowest `p_holm` Holm's family leaves it); `dokimi/repos/compare_judged.py`
+  reads `--metric judge:recall_judged` from each cell's `hits_judged.json`.
 - `dokimi/repos/ledger.py` — `repo compare --ledger`: loads a `repo_ledger.v1`
   file (rules with their hypothesis, arm, linked cases and review date) and gives
   each rule a verdict from `repo compare` over its own cases, Holm-corrected

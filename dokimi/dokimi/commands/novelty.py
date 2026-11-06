@@ -419,7 +419,7 @@ def cmd_novelty_routing(args: argparse.Namespace) -> None:
         "n_candidates": len(candidates),
         "queries_self_derived": self_derived,
         "queries_source": queries_source,
-        "field": field_record(args, competitors, left_out),
+        "field": field_record(args, competitors, left_out, gold=gold),
         "lexical": lexical,
     }
     if args.model:
@@ -607,7 +607,9 @@ def register(sub, positive_int) -> None:
                                 "out the others; the copies under DIR must have one content. Names "
                                 "whose copies agree are not affected")
     routing_p.add_argument("--include-invalid", action="store_true", dest="include_invalid",
-                           help="Keep catalog and skill: competitors with a spec error in the field")
+                           help="Keep catalog and skill: competitors with a spec error in the field. "
+                                "A description over 1024 characters alone never leaves a skill "
+                                "out: it is kept and warned about")
     routing_p.add_argument("--queries", default=None,
                            help="JSON list (or one per line) of user-shaped requests that "
                                 "should select this artifact, written independently of it")

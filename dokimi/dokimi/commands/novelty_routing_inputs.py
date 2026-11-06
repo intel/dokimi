@@ -64,7 +64,8 @@ def routing_field(args: argparse.Namespace, exclude: set[str],
     What was left out of the field, and why, is appended to ``left_out`` when given. Each
     name a rule leaves out maps to its rules in ``dropped`` (when given), and each name still in
     conflict maps to the paths of its copies in ``conflicts`` (when given). Each declared catalog
-    skill that failed to load maps to why in ``unloaded`` (when given).
+    skill that failed to load maps to why in ``unloaded`` (when given). A skill kept with a
+    description over 1024 characters is warned about here and listed in the saved field rule.
 
     Raises:
         InputError: ``--keep-copies-under`` is given without ``--catalog``, or is not a directory
@@ -72,7 +73,7 @@ def routing_field(args: argparse.Namespace, exclude: set[str],
         OSError, ValueError, RecursionError: A reference or the catalog cannot be loaded.
     """
     from dokimi.novelty.catalog_keep import check_keep_copies_under
-    from dokimi.novelty.routing import catalog_competitors
+    from dokimi.novelty.routing import catalog_competitors, over_limit_warnings
 
     if args.keep_copies_under is not None:
         if not args.catalog:
@@ -103,6 +104,8 @@ def routing_field(args: argparse.Namespace, exclude: set[str],
                   file=sys.stderr)
         print(f"--catalog {args.catalog}: {len(catalog)} competitors", file=sys.stderr)
         competitors += catalog
+    for warning in over_limit_warnings(competitors):
+        print(f"WARNING: skill {warning['skill']!r}: {warning['message']}", file=sys.stderr)
     return competitors
 
 
@@ -125,7 +128,7 @@ def load_routing_field(
 
     The last is each conflicting name with the paths of its copies, or InputError naming the cause.
     """
-    from dokimi.novelty.routing import disables_model_invocation, skill_file
+    from dokimi.novelty.routing import disables_model_invocation, over_limit_warnings, skill_file
 
     try:
         gold, body = routing_card(args.artifact)
@@ -137,6 +140,8 @@ def load_routing_field(
         left_out: list[str] = []
         conflicts: dict[str, list[str]] = {}
         competitors = routing_field(args, {gold.name}, left_out, conflicts=conflicts)
+        for warning in over_limit_warnings([gold], under_test=True):
+            print(f"WARNING: skill {warning['skill']!r}: {warning['message']}", file=sys.stderr)
     except InputError:
         raise
     except (OSError, ValueError, RecursionError) as exc:

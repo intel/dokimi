@@ -246,9 +246,15 @@ these, in order, before writing what it showed (the fields:
   then the finding in the cell's `answer.txt`.
   `dokimi repo hits judge <batch> --judge PROVIDER/MODEL` has a judge label
   every credited pair (`same point`, `related` or `unrelated`) and gives
-  `recall_judged` ([§9](repo-evaluation-contract.md#9-running)). That figure
+  `recall_judged` ([§9](repo-evaluation-contract.md#9-running)), and
+  `dokimi repo compare <batch> --baseline guidance:none --metric recall --metric judge:recall_judged`
+  puts its per-task delta next to `recall`'s (a cell regraded since judging,
+  or with an unjudged pair, is left out and counted, while `recall`'s row
+  keeps it: the two deltas cover the same cells only when no per-arm
+  `cells read` line is printed). That figure
   is uncalibrated until a person labels a sample (`repo hits sheet`, then
-  `--labels`) and `uncalibrated_rows` is empty: it narrows which pairs to
+  `--labels`) and `uncalibrated_rows` is empty, and `repo compare` cannot tell:
+  quote it only next to a calibration. It narrows which pairs to
   read, it does not replace reading the pairs you cite. Cite only pairs that make the
   same point; say how many credited pairs you read and how many held. To
   attribute a hit to a guidance rule, check that the rule is in a file the

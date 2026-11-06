@@ -13,5 +13,5 @@ SPDX-License-Identifier: Apache-2.0
   and the report keeps the same counts under `unscored` (JSON) and as a note
   under the table (Markdown). A judge that scored none of its answers is a
   failed run: after the report is written, `eval judge agreement` prints an `Error:`
-  line and exits 2, with or without `--strict`, as `eval score pairwise` does when
+  line and exits 1, with or without `--strict`, as `eval score pairwise` does when
   every comparison fails. A judge that scored some answers keeps exit 0.

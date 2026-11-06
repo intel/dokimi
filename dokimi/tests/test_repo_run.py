@@ -105,7 +105,7 @@ def test_process_metrics_reach_result_json(setup, monkeypatch):
 
 
 def test_a_read_at_a_directory_not_known_is_counted_in_result_json(setup, monkeypatch):
-    calls = [["Bash", {"command": "source .venv/bin/activate && pytest"}], ["Bash", {"command": "cat AGENTS.md"}]]
+    calls = [["Bash", {"command": "source env.sh && pytest"}], ["Bash", {"command": "cat AGENTS.md"}]]
     monkeypatch.setenv("FAKE_TOOL_USES", json.dumps(calls))
     _run(setup, "--arm", "guidance:raw", "--task", "fix_add")
     rec = json.loads((setup["out"] / "b1/fix_add__guidance-raw__m-1__r1/result.json").read_text())
