@@ -252,12 +252,20 @@ def drop_queries_left_out(queries_by_skill: dict[str, list[str]], field: list[Ca
     """The queries of the skills the field left out dropped, each with a WARNING naming its flag.
 
     A name the field left out for a rule (``dropped``) loses its queries; the run goes on with the
-    rest. A name no rule explains is refused: a catalog skill that failed to load says why, and any
+    rest. A name with a copy that failed to load is refused, even when another copy is in the
+    field. A name no rule explains is refused: a catalog skill that failed to load says why, and any
     other name is more likely a misspelling. Refused too when no query is left to route. Returns the
     kept queries and one record per dropped skill, for the saved field record:
     ``{"skill", "reasons", "keep_flags", "queries"}``, so ``queries`` sums to the dropped count.
     """
     names = {c.name for c in field}
+    # a copy that failed to load may differ from the one that loaded, so the name is not measured
+    half_loaded = sorted(n for n in queries_by_skill if n in names and n in unloaded)
+    if half_loaded:
+        raise InputError("the queries name skills with a catalog copy that failed to load beside "
+                         "one that loaded, so which copy they measure is unknown: "
+                         + "; ".join(f"`{n}`: {unloaded[n]}" for n in half_loaded)
+                         + ". Fix or remove the broken copy")
     # a name with a copy that failed to load is refused even when a rule also left a copy out
     unexplained = sorted(n for n in queries_by_skill
                          if n not in names and (n in unloaded or n not in dropped))

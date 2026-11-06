@@ -518,3 +518,18 @@ def test_dropped_queries_counts_a_skill_dropped_for_two_reasons_once(tmp_path, c
     assert [r["skill"] for r in records] == ["Both"]
     assert sum(r["queries"] for r in records) == 3
     assert set(records[0]["reasons"]) == {"disabled", "invalid"}
+
+
+def test_all_vs_all_refuses_a_queried_name_with_one_broken_and_one_loaded_copy(tmp_path):
+    # Thread: PRRT_kwDOVBg7g860LibV
+    root = tmp_path / "catalog"
+    _skill(root, "skills", "cache", "cache slow lookups")
+    _skill(root, "p", "review", "review a change")
+    (root / "q" / "review").mkdir(parents=True)
+    (root / "q" / "review" / "SKILL.md").write_text("---\nname: review\n---\n# B\n",
+                                                    encoding="utf-8")
+    queries = _queries(tmp_path, {"cache": ["cache my lookups"], "review": ["review my change"]})
+    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
+                  "--queries-by-skill", str(queries), "--estimate-only")
+    with pytest.raises(InputError, match="copy that failed to load beside one that loaded.*`review`"):
+        args.func(args)
