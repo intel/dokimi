@@ -11,6 +11,7 @@ from dokimi.treatments import (
     AgentConfig,
     BaselineTreatment,
     DocTreatment,
+    MCPAgentTreatment,
     AgentProfileTreatment,
     SkillTreatment,
     create_treatment,
@@ -226,6 +227,23 @@ def test_create_treatment_baseline():
     assert isinstance(create_treatment("baseline"), BaselineTreatment)
 
 
+def test_doc_library_id_prefers_the_mcp_source_id_over_the_registry(tmp_path):
+    from dokimi.mcp.factory import create_doc_source_client
+    from dokimi.registry import ProductRegistry
+
+    path = tmp_path / "products.yaml"
+    path.write_text(
+        "products:\n  demo:\n    name: demo\n    description: x\n    context7_id: declared/id\n",
+        encoding="utf-8",
+    )
+    client = create_doc_source_client("mcp:http=http://127.0.0.1:9/mcp;id=source/id")
+    arm = DocTreatment(client, rerank_threshold=0.0)
+
+    resolved = resolve_doc_library_id([arm], "demo", registry=ProductRegistry(path=path))
+
+    assert resolved == "source/id"
+
+
 def test_create_treatment_profile_and_skill(demo_skill):
     assert isinstance(
         create_treatment("profile:data/agent_profiles/concise_expert.md"), AgentProfileTreatment
@@ -289,3 +307,118 @@ def test_prompt_plugins_accept_agent_harness():
 def test_create_plugin_rejects_unknown():
     with pytest.raises(ValueError):
         create_plugin("plugin:unknown")
+
+
+def _registry_with_declared_id(tmp_path):
+    from dokimi.registry import ProductRegistry
+
+    path = tmp_path / "products.yaml"
+    path.write_text(
+        "products:\n  demo:\n    name: demo\n    description: x\n    context7_id: declared/id\n",
+        encoding="utf-8",
+    )
+    return ProductRegistry(path=path)
+
+
+class _QueriedClient(_FakeClient):
+    """Records the library id each retrieval asks for."""
+
+    def __init__(self, default_library_id=None):
+        self.default_library_id = default_library_id
+        self.queried = []
+
+    def get_library_docs(self, library_id, query, max_results=5):
+        self.queried.append(library_id)
+        return []
+
+
+@pytest.mark.parametrize("source_first", [True, False])
+def test_each_doc_arm_queries_its_own_id_whatever_the_arm_order(tmp_path, source_first):
+    registry = _registry_with_declared_id(tmp_path)
+    with_id = DocTreatment(_QueriedClient("source/id"), name="a", rerank_threshold=0.0)
+    plain = DocTreatment(_QueriedClient(), name="b", rerank_threshold=0.0)
+    arms = [with_id, plain] if source_first else [plain, with_id]
+
+    run_id = resolve_doc_library_id(arms, "demo", registry=registry)
+    for arm in arms:
+        arm.prepare("q", "demo", run_id)
+
+    assert run_id == ("source/id" if source_first else "declared/id")
+    assert with_id.mcp_client.queried == ["source/id"]
+    assert plain.mcp_client.queried == ["declared/id"]
+
+
+def test_an_empty_explicit_id_is_unset(tmp_path):
+    registry = _registry_with_declared_id(tmp_path)
+    arm = DocTreatment(_QueriedClient(), rerank_threshold=0.0)
+
+    assert resolve_doc_library_id([arm], "demo", explicit_id="", registry=registry) == "declared/id"
+    assert resolve_doc_library_id([arm], "demo", explicit_id="flag/id", registry=registry) == "flag/id"
+
+
+def test_a_doc_arm_inside_a_stack_gets_its_own_id(tmp_path):
+    from dokimi.treatments.arms import CombinedTreatment
+
+    registry = _registry_with_declared_id(tmp_path)
+    stacked = DocTreatment(_QueriedClient("source/id"), name="a", rerank_threshold=0.0)
+    top = DocTreatment(_QueriedClient(), name="b", rerank_threshold=0.0)
+    stack = CombinedTreatment([stacked, BaselineTreatment()])
+
+    run_id = resolve_doc_library_id([top, stack], "demo", registry=registry)
+    stack.prepare("q", "demo", run_id)
+
+    assert run_id == "declared/id"
+    assert stacked.mcp_client.queried == ["source/id"]
+
+
+@pytest.mark.parametrize("agent_first", [True, False])
+def test_an_agent_arm_queries_its_own_id_whatever_the_arm_order(tmp_path, agent_first):
+    registry = _registry_with_declared_id(tmp_path)
+    doc = DocTreatment(_QueriedClient("doc/id"), name="a", rerank_threshold=0.0)
+    agent = MCPAgentTreatment(_QueriedClient("agent/id"), name="b")
+    arms = [agent, doc] if agent_first else [doc, agent]
+
+    run_id = resolve_doc_library_id(arms, "demo", registry=registry)
+    config = agent.prepare("q", "demo", run_id)
+    config.tools[0].call(query="q")
+    doc.prepare("q", "demo", run_id)
+
+    assert run_id == ("agent/id" if agent_first else "doc/id")
+    assert config.metadata["library_id"] == "agent/id"
+    assert agent.mcp_client.queried == ["agent/id"]
+    assert doc.mcp_client.queried == ["doc/id"]
+
+
+def test_an_agent_arm_alone_sets_the_run_wide_id_not_the_product_name(tmp_path):
+    registry = _registry_with_declared_id(tmp_path)
+    agent = MCPAgentTreatment(_QueriedClient("agent/id"))
+
+    run_id = resolve_doc_library_id([agent], "demo", registry=registry)
+
+    assert run_id == "agent/id"
+    assert agent.prepare("q", "demo", run_id).metadata["library_id"] == "agent/id"
+
+
+def test_an_agent_arm_without_an_id_uses_the_registry_and_the_flag_wins(tmp_path):
+    registry = _registry_with_declared_id(tmp_path)
+    plain = MCPAgentTreatment(_QueriedClient())
+    with_id = MCPAgentTreatment(_QueriedClient("agent/id"))
+
+    assert resolve_doc_library_id([plain], "demo", registry=registry) == "declared/id"
+    assert plain.prepare("q", "demo").metadata["library_id"] == "declared/id"
+    resolve_doc_library_id([with_id], "demo", explicit_id="flag/id", registry=registry)
+    assert with_id.prepare("q", "demo").metadata["library_id"] == "flag/id"
+
+
+def test_an_agent_arm_inside_a_stack_gets_its_own_id(tmp_path):
+    from dokimi.treatments.arms import CombinedTreatment
+
+    registry = _registry_with_declared_id(tmp_path)
+    stacked = MCPAgentTreatment(_QueriedClient("agent/id"))
+    top = DocTreatment(_QueriedClient(), name="b", rerank_threshold=0.0)
+    stack = CombinedTreatment([stacked, BaselineTreatment()])
+
+    run_id = resolve_doc_library_id([top, stack], "demo", registry=registry)
+
+    assert run_id == "declared/id"
+    assert stacked.library_id == "agent/id"
