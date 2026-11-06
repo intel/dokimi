@@ -1,0 +1,382 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+"""Tests for ``dokimi.eval.leakgate``: the leak gate over answers and checks, and the split lock.
+
+Everything is in memory or in ``tmp_path``; no model is called.
+"""
+
+from __future__ import annotations
+
+import json
+
+import pytest
+
+from dokimi.eval.leakgate import (
+    assess,
+    assignment_digest,
+    exposed_test_items,
+    expected_texts,
+    format_table,
+    lock_split,
+    match_split,
+    read_ids,
+    read_skill,
+    read_split,
+    read_terms,
+    run,
+    skill_index,
+)
+
+ANSWER = "the flag writes each kernel timing into the chrome trace file under the output directory"  # 15 words
+QUESTION = "Which switch should a user pass to get per kernel timings from a profiling run on the device?"
+NOW = "2026-11-05T12:00:00+00:00"
+
+
+def _match(*values, negate=False):
+    check = {"type": "match", "values": list(values), "location": "any"}
+    if negate:
+        check["negate"] = True
+    return check
+
+
+def _q(qid, checks, text=QUESTION):
+    return {"id": qid, "question": text, "grading": {"checks": checks}}
+
+
+def _skill(body, **extra):
+    return {"SKILL.md": f"---\nname: demo\n---\n{body}\n", **extra}
+
+
+def _split_file(tmp_path, dev=(), val=(), test=(), name="split.json"):
+    path = tmp_path / name
+    path.write_text(json.dumps({"dev": list(dev), "val": list(val), "test": list(test)}), encoding="utf-8")
+    return path
+
+
+# --- leak gate: what is compared ---------------------------------------------------------------
+
+def test_a_skill_that_copies_an_expected_answer_is_flagged_with_its_file():
+    rows = assess([_q("1", [_match(ANSWER)])], skill_index(_skill(f"Use this: {ANSWER}.")))
+    assert rows[0]["status"] == "flagged"
+    assert rows[0]["files"] == ["SKILL.md"]
+    assert rows[0]["fraction"] == 1.0
+
+
+def test_a_skill_that_only_restates_the_question_is_not_flagged():
+    rows = assess([_q("1", [_match(ANSWER)])], skill_index(_skill(f"Questions like this: {QUESTION}")))
+    assert rows[0]["status"] == "clear" and rows[0]["shared"] == 0
+
+
+def test_a_judge_reference_and_criterion_are_expected_answers_too():
+    judge = {"type": "judge", "criterion": "names the flag", "reference": ANSWER}
+    assert set(expected_texts(_q("1", [judge]))) == {"names the flag", ANSWER}
+    rows = assess([_q("1", [judge])], skill_index(_skill(f"Notes: {ANSWER}")))
+    assert rows[0]["status"] == "flagged"
+
+
+def test_a_negated_check_is_not_an_expected_answer():
+    forbidden = "the old flag wrote each kernel timing to the legacy text file in the cwd"
+    q = _q("1", [_match(ANSWER), _match(forbidden, negate=True)])
+    assert forbidden not in expected_texts(q)
+    rows = assess([q], skill_index(_skill(f"Do not use: {forbidden}")))
+    assert rows[0]["status"] == "clear"
+
+
+def test_a_regex_pattern_is_not_an_expected_answer():
+    q = _q("1", [{"type": "regex", "values": [ANSWER]}])
+    assert expected_texts(q) == []
+    assert assess([q], skill_index(_skill(ANSWER)))[0]["reason"] == "no literal or judge check to compare"
+
+
+def test_a_json_check_value_is_compared_as_its_json_text():
+    body = '{"count": 2, "device": "gpu", "kernel": "matmul", "run": "first", "unit": "ms"}'  # keys sorted, as the grader dumps them
+    q = _q("1", [{"type": "json", "values": [{"device": "gpu", "count": 2, "kernel": "matmul", "unit": "ms", "run": "first"}]}])
+    assert assess([q], skill_index(_skill(f"Expected output: {body}")))[0]["status"] == "flagged"
+
+
+def test_an_answer_shorter_than_the_run_length_is_unchecked_with_its_reason_not_passed():
+    q = _q("1", [_match("--ze-profile 1")])
+    row = assess([q], skill_index(_skill("--ze-profile 1 appears everywhere")))[0]
+    assert row["status"] == "unchecked"
+    assert row["reason"] == "no 8-word run left after the allowlist"
+    assert row["fraction"] is None
+
+
+def test_an_item_with_no_check_is_unchecked():
+    row = assess([{"id": "1", "question": QUESTION}], skill_index(_skill(QUESTION)))[0]
+    assert row["status"] == "unchecked" and row["grams"] == 0
+
+
+def test_a_run_of_words_does_not_span_two_skill_files():
+    left = "alpha beta gamma delta"
+    right = "epsilon zeta eta theta"
+    answer = f"{left} {right}"  # 8 words: one run, which only the two files together would hold
+    files = {"a.md": f"x {left}", "b.md": f"{right} y"}
+    assert assess([_q("1", [_match(answer)])], skill_index(files))[0]["status"] == "clear"
+    assert assess([_q("1", [_match(answer)])], skill_index({"a.md": f"{left} {right}"}))[0]["status"] == "flagged"
+
+
+def test_the_flag_is_a_share_of_the_answer_runs_against_min_fraction():
+    half = "the flag writes each kernel timing into the chrome trace file"  # first 11 words
+    answer = f"{half} and then the summary goes to a second file for review"
+    q = [_q("1", [_match(answer)])]
+    index = skill_index(_skill(f"Notes: {half}"))
+    row = assess(q, index, min_fraction=0.15)[0]
+    assert row["shared"] > 0 and 0 < row["fraction"] < 1
+    assert row["status"] == "flagged"
+    assert assess(q, index, min_fraction=row["fraction"] + 0.01)[0]["status"] == "clear"
+
+
+# --- allowlist ---------------------------------------------------------------------------------
+
+API_ANSWER = (
+    "Run /opt/intel/oneapi/vtune/2024.1/bin64/vtune -collect hotspots -result-dir r1 "
+    "and then read the summary table from r1 for the top functions"
+)
+API_SKILL = "Example command: /opt/intel/oneapi/vtune/2024.1/bin64/vtune -collect hotspots -result-dir r1"
+
+
+def test_a_shared_path_flags_an_item_without_an_allowlist():
+    assert assess([_q("1", [_match(API_ANSWER)])], skill_index(_skill(API_SKILL)))[0]["status"] == "flagged"
+
+
+def test_the_same_path_on_the_allowlist_is_not_a_leak():
+    allow = ["/opt/intel/oneapi/vtune/2024.1/bin64/vtune"]
+    row = assess([_q("1", [_match(API_ANSWER)])], skill_index(_skill(API_SKILL), allow), allow)[0]
+    assert row["status"] == "clear" and row["shared"] == 0
+
+
+def test_a_copied_sentence_that_holds_an_allowlisted_term_is_still_flagged():
+    # The term is cut from both sides, and the words around it run on: the copy is caught, the term is not counted.
+    allow = ["xpu_profiler_chrome_kernel_logging"]
+    answer = "one two three four xpu_profiler_chrome_kernel_logging five six seven eight nine"
+    assert assess([_q("1", [_match(answer)])], skill_index({"s.md": answer}))[0]["status"] == "flagged"
+    row = assess([_q("1", [_match(answer)])], skill_index({"s.md": answer}, allow), allow)[0]
+    assert row["status"] == "flagged"
+
+
+def test_an_allowlisted_term_matches_whole_words_only():
+    text = "one two three four vtunes five six seven eight nine"
+    assert skill_index({"s": text}, ["vtune"]) == skill_index({"s": text})
+
+
+def test_read_terms_takes_the_terms_then_the_file_lines_and_skips_comments_and_blanks(tmp_path):
+    allow_file = tmp_path / "allow.txt"
+    allow_file.write_text("# API names\n\n  torch.profiler  \n/opt/intel/oneapi\n", encoding="utf-8")
+    assert read_terms(["vtune", "  "], allow_file) == ["vtune", "torch.profiler", "/opt/intel/oneapi"]
+
+
+# --- reading the skill and the split -----------------------------------------------------------
+
+def test_read_skill_reads_text_files_beside_skill_md_and_skips_binary_and_git(tmp_path):
+    root = tmp_path / "demo"
+    (root / "references").mkdir(parents=True)
+    (root / ".git").mkdir()
+    (root / "SKILL.md").write_text("body", encoding="utf-8")
+    (root / "references" / "api.md").write_text("api", encoding="utf-8")
+    (root / "blob.bin").write_bytes(b"\xff\xfe\x00")
+    (root / ".git" / "config").write_text("skipped", encoding="utf-8")
+    assert read_skill(root) == {"SKILL.md": "body", "references/api.md": "api"}
+    assert read_skill(root / "SKILL.md") == read_skill(root)  # a SKILL.md means its directory
+
+
+def test_read_skill_refuses_a_missing_path_and_a_directory_with_no_text(tmp_path):
+    with pytest.raises(OSError):
+        read_skill(tmp_path / "missing")
+    (tmp_path / "empty").mkdir()
+    with pytest.raises(ValueError, match="no UTF-8 text file"):
+        read_skill(tmp_path / "empty")
+
+
+def test_read_split_reads_each_id_once_as_a_string(tmp_path):
+    path = _split_file(tmp_path, dev=["1", 2], val=["3"], test=["4"])
+    assert read_split(path) == {"1": "dev", "2": "dev", "3": "val", "4": "test"}
+
+
+@pytest.mark.parametrize("body, message", [
+    ({"dev": ["1"], "test": ["1"]}, "both dev and test"),
+    ({"train": ["1"]}, "keys"),
+    ({"dev": "1"}, "list of question ids"),
+    ({"dev": [True]}, "list of question ids"),
+    ([], "keys"),
+])
+def test_read_split_refuses_a_malformed_split(tmp_path, body, message):
+    path = tmp_path / "split.json"
+    path.write_text(json.dumps(body), encoding="utf-8")
+    with pytest.raises(ValueError, match=message):
+        read_split(path)
+
+
+def test_read_ids_reads_a_json_list_and_refuses_anything_else(tmp_path):
+    path = tmp_path / "ids.json"
+    path.write_text(json.dumps(["1", 2]), encoding="utf-8")
+    assert read_ids(path) == ["1", "2"]
+    path.write_text(json.dumps({"ids": ["1"]}), encoding="utf-8")
+    with pytest.raises(ValueError, match="JSON list of question ids"):
+        read_ids(path)
+
+
+def test_match_split_refuses_a_missing_extra_or_repeated_id():
+    questions = [{"id": "1"}, {"id": "2"}]
+    match_split(questions, {"1": "dev", "2": "test"})
+    with pytest.raises(ValueError, match="places no question id 2"):
+        match_split(questions, {"1": "dev"})
+    with pytest.raises(ValueError, match="not in the set: 9"):
+        match_split(questions, {"1": "dev", "2": "test", "9": "val"})
+    with pytest.raises(ValueError, match="repeat"):
+        match_split([{"id": "1"}, {"id": "1"}], {"1": "dev"})
+
+
+def test_the_digest_is_the_same_for_the_same_assignment_however_it_is_listed(tmp_path):
+    a = read_split(_split_file(tmp_path, dev=["1", "3"], test=["2"], name="a.json"))
+    b = read_split(_split_file(tmp_path, test=["2"], dev=["3", "1"], name="b.json"))
+    assert assignment_digest(a) == assignment_digest(b)
+    assert assignment_digest({**a, "1": "val"}) != assignment_digest(a)
+
+
+# --- split lock ----------------------------------------------------------------------------------
+
+def test_the_first_use_creates_the_lock_and_a_later_identical_split_matches_it(tmp_path):
+    lock = tmp_path / "split.lock.json"
+    assignment = {"1": "dev", "2": "test"}
+    assert lock_split(assignment, lock, NOW) == ("created", [])
+    record = json.loads(lock.read_text(encoding="utf-8"))
+    assert record["digest"] == assignment_digest(assignment)
+    assert record["counts"] == {"dev": 1, "val": 0, "test": 1}
+    assert lock_split(dict(assignment), lock, NOW) == ("matched", [])
+
+
+def test_a_split_that_moved_an_item_is_changed_names_the_items_and_leaves_the_lock(tmp_path):
+    lock = tmp_path / "split.lock.json"
+    lock_split({"1": "dev", "2": "test", "3": "val"}, lock, NOW)
+    before = lock.read_text(encoding="utf-8")
+    state, moved = lock_split({"1": "dev", "2": "dev", "3": "val", "4": "test"}, lock, NOW)
+    assert state == "changed" and moved == ["2", "4"]
+    assert lock.read_text(encoding="utf-8") == before  # never rewritten
+
+
+def test_a_lock_edited_by_hand_is_refused(tmp_path):
+    lock = tmp_path / "split.lock.json"
+    lock_split({"1": "dev"}, lock, NOW)
+    record = json.loads(lock.read_text(encoding="utf-8"))
+    record["assignment"]["1"] = "test"  # the digest still says dev
+    lock.write_text(json.dumps(record), encoding="utf-8")
+    with pytest.raises(ValueError, match="was edited"):
+        lock_split({"1": "dev"}, lock, NOW)
+
+
+@pytest.mark.parametrize("content", ["not json", "[]", json.dumps({"schema_version": "other", "assignment": {}})])
+def test_a_file_that_is_not_a_split_lock_is_refused(tmp_path, content):
+    lock = tmp_path / "split.lock.json"
+    lock.write_text(content, encoding="utf-8")
+    with pytest.raises(ValueError, match="not a split lock"):
+        lock_split({"1": "dev"}, lock, NOW)
+
+
+def test_exposed_test_items_names_the_test_ids_the_proposer_sees_and_refuses_unknown_ones():
+    assignment = {"1": "dev", "2": "val", "3": "test"}
+    assert exposed_test_items(assignment, ["1", "3"]) == ["3"]
+    assert exposed_test_items(assignment, ["1", "2"]) == []
+    with pytest.raises(ValueError, match="not in the set: 9"):
+        exposed_test_items(assignment, ["9"])
+
+
+# --- run ------------------------------------------------------------------------------------------
+
+SPLIT = {"1": "dev", "2": "val", "3": "test"}
+QUESTIONS = [_q("1", [_match(ANSWER)]), _q("2", [_match(f"{ANSWER} sorted")]), _q("3", [_match("the other answer is written there and nothing else in this one")])]
+
+
+def test_a_clean_skill_with_a_locked_split_passes(tmp_path):
+    result = run(_skill("Use the chrome trace flag."), QUESTIONS, assignment=SPLIT, lock_path=tmp_path / "l.json", now=NOW)
+    assert result["status"] == "pass"
+    assert result["split"]["state"] == "created" and result["violations"] == []
+    assert result["summary"] == {"items": 3, "checked": 3, "flagged": 0, "unchecked": 0, "exposed": 0, "violations": 0}
+
+
+def test_a_leak_blocks_the_run_and_names_the_item_with_its_split():
+    result = run(_skill(f"Answer: {ANSWER}"), QUESTIONS, assignment=SPLIT)
+    assert result["status"] == "blocked"
+    assert {"kind": "leak", "question_id": "1"} in result["violations"]
+    flagged = [r for r in result["items"] if r["status"] == "flagged"]
+    assert [(r["question_id"], r["split"]) for r in flagged] == [("1", "dev"), ("2", "val")]
+
+
+def test_a_changed_split_blocks_the_run_even_with_no_leak(tmp_path):
+    lock = tmp_path / "l.json"
+    run(_skill("clean"), QUESTIONS, assignment=SPLIT, lock_path=lock, now=NOW)
+    result = run(_skill("clean"), QUESTIONS, assignment={**SPLIT, "2": "dev"}, lock_path=lock, now=NOW)
+    assert result["status"] == "blocked"
+    assert result["split"]["state"] == "changed" and result["split"]["moved"] == ["2"]
+    assert {"kind": "split_changed", "moved": ["2"]} in result["violations"]
+
+
+def test_a_test_item_on_the_proposer_list_blocks_the_run():
+    result = run(_skill("clean"), QUESTIONS, assignment=SPLIT, proposer_ids=["1", "3"])
+    assert result["status"] == "blocked"
+    assert result["exposed_test_items"] == ["3"]
+    assert {"kind": "test_exposed", "question_id": "3"} in result["violations"]
+
+
+def test_a_proposer_that_sees_only_dev_and_val_items_is_not_blocked():
+    assert run(_skill("clean"), QUESTIONS, assignment=SPLIT, proposer_ids=["1", "2"])["status"] == "pass"
+
+
+def test_a_run_with_an_unchecked_item_is_inconclusive_not_pass():
+    questions = [_q("1", [_match("--ze-profile 1")])]
+    result = run(_skill("clean text"), questions)
+    assert result["status"] == "inconclusive"
+    assert result["summary"]["unchecked"] == 1 and result["summary"]["checked"] == 0
+
+
+def test_an_empty_question_set_is_inconclusive():
+    assert run(_skill("clean"), [])["status"] == "inconclusive"
+
+
+def test_a_leak_is_still_reported_when_an_item_is_unchecked():
+    questions = [_q("1", [_match(ANSWER)]), _q("2", [_match("--ze-profile 1")])]
+    result = run(_skill(ANSWER), questions)
+    assert result["status"] == "blocked"
+    assert result["summary"] == {"items": 2, "checked": 1, "flagged": 1, "unchecked": 1, "exposed": 0, "violations": 1}
+
+
+def test_a_proposer_list_without_a_split_is_refused():
+    with pytest.raises(ValueError, match="needs a split"):
+        run(_skill("clean"), QUESTIONS, proposer_ids=["1"])
+
+
+def test_a_split_that_does_not_match_the_questions_is_refused():
+    with pytest.raises(ValueError, match="places no question id"):
+        run(_skill("clean"), QUESTIONS, assignment={"1": "dev"})
+
+
+@pytest.mark.parametrize("bad", [0, -0.1, 1.5])
+def test_a_min_fraction_outside_zero_to_one_is_refused(bad):
+    with pytest.raises(ValueError, match="min_fraction"):
+        run(_skill("clean"), QUESTIONS, min_fraction=bad)
+
+
+def test_the_result_names_its_settings_and_the_skill_files():
+    result = run({"SKILL.md": "a", "x/ref.md": "b"}, [_q("1", [_match(ANSWER)])], allow=["vtune", "vtune"])
+    assert result["allow"] == ["vtune"] and result["ngram"] == 8
+    assert result["skill_files"] == ["SKILL.md", "x/ref.md"]
+    assert result["split"] is None
+
+
+def test_the_table_names_the_split_the_changed_items_and_the_status(tmp_path):
+    lock = tmp_path / "l.json"
+    run(_skill("clean"), QUESTIONS, assignment=SPLIT, lock_path=lock, now=NOW)
+    result = run(_skill(f"Answer: {ANSWER}"), QUESTIONS, assignment={**SPLIT, "3": "dev"}, lock_path=lock, now=NOW)
+    table = format_table(result)
+    assert "split changed since its lock: 1 items moved: 3" in table
+    assert table.splitlines()[-1].startswith("status blocked: 3 items, 3 checked, 2 flagged")
+
+
+def test_the_table_cuts_the_flagged_items_at_twenty_and_points_to_the_artifact():
+    questions = [_q(str(i), [_match(ANSWER)]) for i in range(25)]
+    result = run(_skill(ANSWER), questions)
+    assert "5 more flagged items; rerun with --out FILE" in format_table(result)
+    assert "5 more flagged items in the artifact" in format_table(result, output="leak.json")
+
+

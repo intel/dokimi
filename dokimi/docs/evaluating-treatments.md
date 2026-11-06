@@ -786,6 +786,41 @@ no-skill arm, or when `--out` is one of the input files (or its `.rejected` sibl
 aggregate divided by 100 and are not range-checked. Only arms runs are read. The flags are descriptive: they do not
 change any score or any gate.
 
+## Leak gate and split lock: is the candidate skill carrying the answers?
+
+A skill tuned against the items it is scored on measures nothing. `eval leak` checks a
+candidate skill (a directory, or its SKILL.md) against a questions set, and checks the
+dev/val/test split against the one locked at first use:
+
+```bash
+python cli.py eval leak skills/candidate questions.json --split split.json \
+    --allow-file allow.txt --proposer proposer_ids.json --out leak.json
+```
+
+- **leak**: an item is flagged when at least `--min-fraction` (default 0.15) of the 8-word
+  runs of its expected answers and checks (literal values, and the `reference` and
+  `criterion` of judge checks; negated checks are left out) also occur in the skill's text.
+  The skill's text is every UTF-8 file beside SKILL.md, each cut separately so a run does not
+  span two files. Questions are not compared: restating one is fine.
+- **allowlist**: `--allow TERM` (repeatable) and `--allow-file FILE` (one term per line, `#`
+  comments) name terms that legitimately appear in both, such as API names, paths and
+  identifiers. Whole-word runs of a term are removed from both texts before the runs are
+  cut, so a copied sentence that holds a term is still caught.
+- **split lock**: `--split` is a JSON object `{"dev": [ids], "val": [ids], "test": [ids]}`
+  that places every question once. Its digest is written to `--lock` (default: the split's
+  name with `.lock.json`) at first use. A later run whose split digests differently is
+  blocked and names the items that moved; the lock is never rewritten. A lock edited by hand
+  is refused.
+- **proposer**: `--proposer FILE` is a JSON list of the question ids the proposer sees. A test
+  id on it blocks the run.
+
+The table goes to stdout. The `leak.v1` artifact goes to `--out` only. Exit 0 is a pass, 1 is
+blocked (a leak, a changed split, a test item given to the proposer) or inconclusive (an item
+could not be checked, such as an answer shorter than 8 words after the allowlist, or no item
+could), and 2 is an input error (an unreadable skill or question set, a malformed split, lock
+or proposer list, or an unwritable `--out`). `--lock` needs `--split`; a proposer list needs
+a split. No model is called.
+
 ## Scope and caveats
 
 - **Three levels of fidelity for skills/MCP.** (1) `skill:` / `mcp:` inject
