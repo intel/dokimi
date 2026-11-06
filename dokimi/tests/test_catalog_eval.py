@@ -842,7 +842,8 @@ def test_an_ignored_cache_under_a_shared_directory_selects_nothing_and_a_tracked
     assert hashed_paths(report["skills"], ["tools/__pycache__/x.pyc"]) == []  # so the CLI's source stamp stays clean
     for path in ("tools/__pycache__/x.pyc", "tools/check.py"):  # a tracked change there is a shared input
         selection = untracked(tmp_path, [path], [])["selection"]
-        assert selection["selected"] == ["alpha", "beta"] and selection["unclaimed"] == [], path
+        assert selection["selected"] == ["alpha", "beta"], path
+        assert selection["unclaimed"] == [], path
         assert selection["reasons"]["beta"] == [f"shared evaluator changed: {path}"]
 
 
