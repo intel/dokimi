@@ -177,15 +177,21 @@ def test_pairwise_checks_the_escalation_judge_too(tmp_path, monkeypatch):
 
 
 def test_validate_with_a_typed_scorer_does_not_warn(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
     from dokimi.commands import evaluate
 
-    calls = []
-    monkeypatch.setattr(evaluate, "warn_recorded_self_judge", lambda data, judges, *a, **k: calls.extend(judges))
+    seen = []  # a valid spec, so the run reaches the check instead of exiting at parse_spec
+    monkeypatch.setattr("dokimi.eval.degrade.build_pairs", lambda *a, **k: [object()])
+    monkeypatch.setattr("dokimi.eval.typed_scorer.typed_scorer",
+                        lambda *a, **k: SimpleNamespace(name="typed", effective_max_len=None))
+    monkeypatch.setattr(evaluate, "warn_recorded_self_judge", _stop_recording(seen))
     args = parse_args(["eval", "judge", "validate", "--answers", str(_arms_file(tmp_path)),
-                       "--scorer", "typed:none", "--output", str(tmp_path / "o.json")])
-    with pytest.raises(SystemExit):
+                       "--scorer", "typed:laya", "--judge-provider", "openai",
+                       "--output", str(tmp_path / "o.json")])
+    with pytest.raises(Stop):
         args.func(args)
-    assert calls == []
+    assert seen == []
 
 
 def test_questions_review_on_an_answers_file_does_not_take_the_answer_model_as_generator(tmp_path, monkeypatch):
