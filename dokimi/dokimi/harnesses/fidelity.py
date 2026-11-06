@@ -472,17 +472,20 @@ def run_docker(image: str, binary: str, args: List[str], *, workdir: Path, plugi
 
 #: The two golden cases: the arm with no skill, and the arm with the fixture skill.
 CASES = ("bare", "skill")
-FIXTURE_SKILL = Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "fidelity" / "skill" / "sum-fast"
+#: The fixture skill's path inside a source checkout (``tests/`` is not in the wheel), relative
+#: to the ``dokimi/`` project dir. Callers pass the resolved dir as ``capture_arm(skill_dir=)``.
+FIXTURE_SKILL_REL = Path("tests") / "fixtures" / "fidelity" / "skill" / "sum-fast"
 
 
 def capture_arm(case: str, *, binary: str, scratch: Path, image: Optional[str] = None,
-                uid: int = 1000, gid: int = 1000) -> dict:
+                uid: int = 1000, gid: int = 1000, skill_dir: Optional[Path] = None) -> dict:
     """The normalized request a docker-claude arm sends for *case* (``bare`` or ``skill``).
 
     *binary* is the client to run; *image* runs it in a clean container (the golden is taken
     that way), ``None`` runs it on this host. The arm's own argv builder and skill plugin
     build are used, so the request is the one :class:`DockerSolverHarness` produces, minus
-    the container's own paths, which are the same here.
+    the container's own paths, which are the same here. The ``skill`` case needs
+    *skill_dir*, the skill to load (the golden uses :data:`FIXTURE_SKILL_REL`).
     """
     from dokimi.harnesses.docker_solver import DockerSolverHarness
     from dokimi.harnesses.skill_treatment import build_plugin
@@ -490,6 +493,8 @@ def capture_arm(case: str, *, binary: str, scratch: Path, image: Optional[str] =
 
     if case not in CASES:
         raise ValueError(f"unknown case {case!r}; expected one of {CASES}")
+    if case == "skill" and skill_dir is None:
+        raise ValueError("the skill case needs skill_dir, the skill to load")
     scratch = scratch.resolve()  # the client sees the real path (a /tmp symlink, say)
     workdir = scratch / "work"
     workdir.mkdir(parents=True, exist_ok=True)
@@ -500,7 +505,7 @@ def capture_arm(case: str, *, binary: str, scratch: Path, image: Optional[str] =
     if case == "skill":
         plugin = scratch / "plugin"
         plugin.mkdir(parents=True, exist_ok=True)
-        treatment = build_plugin(FIXTURE_SKILL, plugin)
+        treatment = build_plugin(Path(skill_dir), plugin)
         plugin_dir = str(plugin)
     args = arm_argv(harness, task, treatment=treatment, plugin_dir=plugin_dir,
                     model=FIXTURE_MODEL, output_dir=scratch)

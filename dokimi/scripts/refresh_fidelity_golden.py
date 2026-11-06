@@ -28,7 +28,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from dokimi.harnesses.fidelity import (  # noqa: E402
-    CASES, PINNED_CLAUDE_VERSION, capture_arm, residue, write_golden,
+    CASES, FIXTURE_SKILL_REL, PINNED_CLAUDE_VERSION, capture_arm, residue, write_golden,
 )
 
 DEFAULT_IMAGE = "debian:trixie-slim"
@@ -60,7 +60,8 @@ def main(argv: list[str] | None = None) -> int:
         # The container's uid and gid matter only for a container capture (Unix only).
         ids = {"uid": os.getuid(), "gid": os.getgid()} if image else {}
         try:
-            request = capture_arm(case, binary=binary, scratch=scratch, image=image, **ids)
+            request = capture_arm(case, binary=binary, scratch=scratch, image=image,
+                                  skill_dir=ROOT / FIXTURE_SKILL_REL, **ids)
         finally:
             shutil.rmtree(scratch, ignore_errors=True)
         dirty = residue(request)

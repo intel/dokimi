@@ -25,7 +25,8 @@ from dokimi.harnesses import fidelity as fd
 from dokimi.harnesses.payload_audit import audit_payload, markers_for
 
 GOLDEN_DIR = Path(__file__).parent / "fixtures" / "fidelity" / f"claude-code-{fd.PINNED_CLAUDE_VERSION}"
-SKILL_MD = Path(__file__).parent / "fixtures" / "fidelity" / "skill" / "sum-fast" / "SKILL.md"
+SKILL_DIR = Path(__file__).parents[1] / fd.FIXTURE_SKILL_REL
+SKILL_MD = SKILL_DIR / "SKILL.md"
 REQUIRED = os.environ.get("DOKIMI_FIDELITY_REQUIRED") == "1"
 IMAGE = os.environ.get("DOKIMI_FIDELITY_IMAGE") or None
 
@@ -106,7 +107,7 @@ def test_docker_claude_payload_matches_golden(case, tmp_path):
         pytest.skip(f"claude {fd.PINNED_CLAUDE_VERSION} is not on PATH")
     golden = fd.load_golden(GOLDEN_DIR / f"{case}.json")["request"]
     ids = {"uid": os.getuid(), "gid": os.getgid()} if IMAGE else {}  # container captures only
-    actual = fd.capture_arm(case, binary=binary, scratch=tmp_path, image=IMAGE, **ids)
+    actual = fd.capture_arm(case, binary=binary, scratch=tmp_path, image=IMAGE, skill_dir=SKILL_DIR, **ids)
     skill_text = SKILL_MD.read_text(encoding="utf-8")
     leaks = fd.leaks_against(actual, golden, allowed=[fd.FIXTURE_INSTRUCTION, skill_text])
     assert [lk.as_dict() for lk in leaks] == []
@@ -166,7 +167,7 @@ def test_messages_request_refuses_a_client_with_no_tools_request():
 def test_capture_arm_runs_the_arm_argv_through_a_client(tmp_path):
     binary = _fake_client(tmp_path / "bin")
     scratch = tmp_path / "scratch"
-    request = fd.capture_arm("skill", binary=binary, scratch=scratch)
+    request = fd.capture_arm("skill", binary=binary, scratch=scratch, skill_dir=SKILL_DIR)
     assert [tool["name"] for tool in request["tools"]] == ["Bash"]
     assert request["model"] == "<MODEL>"
     assert request["messages"][0]["content"][0]["text"] == fd.FIXTURE_INSTRUCTION
@@ -179,7 +180,7 @@ def test_capture_arm_passes_the_arm_prompt_skill_and_seal_to_the_client(tmp_path
     # the skill plugin must reach the client, not only be built by the arm's argv builder.
     binary = _fake_client(tmp_path / "bin")
     scratch = tmp_path / "scratch"
-    fd.capture_arm("skill", binary=binary, scratch=scratch)
+    fd.capture_arm("skill", binary=binary, scratch=scratch, skill_dir=SKILL_DIR)
     launch = json.loads((scratch / "home" / "config" / "launch.json").read_text(encoding="utf-8"))
     argv = launch["argv"]
     assert any(fd.FIXTURE_INSTRUCTION in arg for arg in argv)  # the task is inside the -p prompt
@@ -217,6 +218,14 @@ def test_run_docker_builds_the_container_command(tmp_path, monkeypatch):
     assert "1001:1002" in argv and "ANTHROPIC_BASE_URL=http://127.0.0.1:9" in argv
     assert argv[-4:] == ["img:1", "/opt/agent/claude", "-p", "x"]
     assert seen["env"].allow is None  # the docker client inherits the parent environment
+
+
+def test_the_package_reads_no_path_outside_itself(tmp_path):
+    # fidelity.py ships in the wheel and tests/ does not: the skill dir is the caller's.
+    assert not hasattr(fd, "FIXTURE_SKILL")
+    assert SKILL_MD.is_file()
+    with pytest.raises(ValueError, match="skill_dir"):
+        fd.capture_arm("skill", binary="/bin/false", scratch=tmp_path)
 
 
 def test_golden_round_trip_and_diff(tmp_path):
