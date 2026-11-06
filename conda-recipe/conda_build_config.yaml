@@ -1,0 +1,9 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+# Python versions for ci/matrix.py, one per line, without selectors
+python:
+    - "3.11"
+    - "3.12"
+    - "3.13"
+    - "3.14.* *_cp314"

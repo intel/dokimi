@@ -439,10 +439,11 @@ git dir (a local checkout cloned with `--depth`) fails the cell's preparation
 path when its result differs there from every parent: a conflict resolution,
 an edit made in the merge, or a clean merge of its parents' edits to
 different parts of one file; a merge that takes the path as one parent has
-it does not, and the commits it merged count. A reader can compare `committed` with a replay task's
-`public_at` (§4.6) to see whether a guidance commit came after the task's
-answer was public; the author date alone cannot show it, as an amend or a
-rebase keeps it. For `patch:` an `arm_patch` object (the
+it does not, and the commits it merged count. `repo compare` (§9) reads
+`guidance_latest` against a replay task's `public_at` (§4.6) and flags the
+task when a guidance file that applies to it was committed after the task's
+answer was public, and reads the `guidance_commits` subjects for the task's
+PR; it reads `committed`, as an amend or a rebase keeps the author date. For `patch:` an `arm_patch` object (the
 file's absolute `path` and full `sha256`, `added`: the files the patch added
 that neither the guidance globs nor `.mcp.json` match, and `mcp_servers`: the servers
 the patch added to the `.mcp.json` at the root, read before the agent runs); for `guidance:format=` a
@@ -509,7 +510,7 @@ Claude. `subagent_calls` counts the parent's and subagents' `Agent`/`Task`
 calls; `null` when the harness wrote no result record.
 `first_prompt_tokens` is what the first main-thread model call was sent
 (`input + cache_creation + cache_read` tokens of that call, counted once per
-message id, as `context trace` reads it): everything start-up loaded plus the
+message id, as `trace inspect` reads it): everything start-up loaded plus the
 task, so two arms that differ only in guidance differ there by what start-up
 loaded of it. It is `null` when the trace has no main-thread call with
 `usage`, and for a trace format that carries none (`text`).
@@ -523,8 +524,8 @@ parent's and subagents' together, so a grader need not:
 | `commands` | `command` events |
 | `failed_commands` | commands not denied whose `rc` is neither `0` nor `null` |
 | `denied_commands` | commands with `denied: true` (a hook or the harness's permissions refused them) |
-| `guidance_read` | sorted, distinct workspace paths (normalized: `./a`, `a/../b`; not `~`) of `read` events, neither denied nor failed (`rc` 1: the file does not exist), that `guidance.globs` match. A read event is a read tool's (Claude Code's Read, Copilot's `view`) or a shell read: a Claude Code Bash call, Codex command or Copilot `bash` command that only prints files, as §7 lists (a bare `cat`, `head`, `tail`, `nl` or `sed -n`; `cd <dir>; cat AGENTS.md` reads `<dir>/AGENTS.md`). A command that is one such read naming one file, alone, the one command of a brace group (`{ cat AGENTS.md; }`) or after `cd` commands (`cd sub && cat AGENTS.md`; `time cd`, `command cd`, `builtin cd`, `X=1 cd`, a quoted or escaped `"cd"` or `\cd` too, not `env cd`), and fails is no read; one naming two keeps its reads, even when only one is known (`cd -; cat missing.md /ws/AGENTS.md`). Guidance seen through a pipe, `grep` or `rg` is not counted, nor a relative read after an earlier Claude Code Bash call ran a `cd` (`time cd` and `command cd` too), `pushd`, `popd`, or an `eval`, `source` or `.` (which may run one), its name quoted or escaped too (`"source" "$ENV"`, `\cd "$D"`), in its own shell, not in a subshell, pipeline or background job (the shell keeps its directory between calls, so the file is not known; a call a hook or the permissions refused ran nothing and moves nothing). That holds across agents: after the parent's `cd`, a subagent's relative reads are dropped too, and the reverse, since a subagent may share the parent's shell (not checked on a real trace; dropping a read is the safe side either way); to count those, add a `process_metrics` counter on the command text (§2), which also counts denied commands, unlike this row |
-| `unknown_reads` | the relative shell reads, of calls neither refused nor failed as one read of one file (see `guidance_read`; `cd -; cat missing.md` failing counts none), that the trace made at a directory the converter could not follow (after `source .venv/bin/activate`, `cd -`, or a `cd` in an earlier Claude Code Bash call): they have no `read` event, so `guidance_read` may miss them; `0` when there are none |
+| `guidance_read` | sorted, distinct workspace paths (normalized: `./a`, `a/../b`; not `~`) of `read` events, neither denied nor failed (`rc` 1: the file does not exist), that `guidance.globs` match. A read event is a read tool's (Claude Code's Read, Copilot's `view`) or a shell read: a Claude Code Bash call, Codex command or Copilot `bash` command that only prints files, as §7 lists (a bare `cat`, `head`, `tail`, `nl` or `sed -n`, timed too: `time cat AGENTS.md`, `X=1 time cat AGENTS.md`, or after `command`: `command cat AGENTS.md`, not after `env`, which runs a program, never a builtin: `env command cat AGENTS.md` and `env builtin cat AGENTS.md` run no `cat`; `cd <dir>; cat AGENTS.md` reads `<dir>/AGENTS.md`; not a call of a shell function of that name the same Bash call defined (Claude Code starts each call in a new shell, which keeps no function of an earlier call): `cat() { echo hi; }; cat AGENTS.md`, `\cat AGENTS.md` and `cat() ( echo hi ); cat AGENTS.md` too, is no read, as bash runs the function, nor one after a function named `command`, `env`, `builtin` or `time`, not the keyword: `command() { echo hi; }; command cat AGENTS.md`). A command that is one such read naming one file, alone, the one command of a brace group (`{ cat AGENTS.md; }`) or after `cd` commands (`cd sub && cat AGENTS.md`; `time cd`, `command cd`, `builtin cd`, `X=1 cd`, a quoted or escaped `"cd"` or `\cd` too, not `env cd`) or a virtualenv's activate (`source .venv/bin/activate && cat AGENTS.md`, `source 'my env/bin/activate'` too), and fails is no read; one naming two keeps its reads, even when only one is known (`cd -; cat missing.md /ws/AGENTS.md`). Guidance seen through a pipe, `grep` or `rg` is not counted, nor a relative read after an earlier Claude Code Bash call ran a `cd` (`time cd` and `command cd` too), `pushd`, `popd`, or an `eval`, `source` or `.` (which may run one; not `source .venv/bin/activate`, a virtualenv's activate script alone, assumed to run none, §7), its name quoted or escaped too (`"source" "$ENV"`, `\cd "$D"`), or called a shell function whose body names one of these (`f() { cd sub; }` defined in that call; `source` and `.` only as a command, not of an activate script: `f() { git add .; }` names none), in its own shell, not in a subshell, pipeline or background job (the shell keeps its directory between calls, so the file is not known; a call a hook or the permissions refused ran nothing, so it moves nothing). That holds across agents: after the parent's `cd`, a subagent's relative reads are dropped too, and the reverse, since a subagent may share the parent's shell (not checked on a real trace; dropping a read is the safe side either way); to count those, add a `process_metrics` counter on the command text (§2), which also counts denied commands, unlike this row |
+| `unknown_reads` | the relative shell reads, of calls neither refused nor failed as one read of one file (see `guidance_read`; `cd -; cat missing.md` failing counts none), that the trace made at a directory the converter could not follow (after `source env.sh`, `cd -`, a call of a function that runs a `cd`, or a `cd` in an earlier Claude Code Bash call): they have no `read` event, so `guidance_read` may miss them; `0` when there are none |
 | `counters` | each `process_metrics` name (§2) and its count |
 
 `process` is `null` when the trace could not be read, the agent left none (no event and no result record), or computing the metrics failed (the error is in `agent.trace_errors`).
@@ -817,7 +818,8 @@ review thread of a merged PR, anchored on a line of the reviewed revision.
   a pair of the cell is unjudged (not measured, so not a 0). Only credited
   pairs are rescored: a thread no finding was credited with stays missed, and
   a finding outside the window is not judged, so `recall_judged` is at most
-  `recall`. It is a judge's reading, not a verdict: quote a figure only next to
+  `recall`. `repo compare --metric judge:recall_judged` compares it across
+  arms (§9). It is a judge's reading, not a verdict: quote a figure only next to
   a person's labels for a sample of the pairs (`repo hits sheet`, then
   `--labels`), whose agreement with the judge and Cohen's kappa per arm and
   answer model the command reports; without them, or when no pair carries
@@ -904,13 +906,19 @@ by a reviewer: it has no line and is never gold.
   (`--window`, default 5) and the prompt (`--prompt-file` replaces the default,
   which asks for the findings JSON of §4.5). For the reader it adds
   `source_pr`, `source_url`, `reviewed_commit`, `merge_commit`,
-  `left_out_files` and `public_at`: the earliest `createdAt` of a gold
+  `left_out_files`, `patch_files` and `public_at`. `patch_files` is the
+  sorted paths `change.patch` changes, from the same diff (a rename as both
+  its paths, since the diff follows none; the `left_out_files` not among
+  them). `public_at` is the earliest `createdAt` of a gold
   thread's first comment, as the threads file gives it, the time the task's
   answer was public. It is absent when any gold thread's `createdAt` is
   missing, not ISO 8601 or has no offset (`Z` is one), as the earliest time
-  is then unknown; the build's notes name those threads. Against the
-  `committed` dates a `guidance:rev:` arm records (§3), it shows whether a
-  guidance commit came after it.
+  is then unknown; the build's notes name those threads. `repo compare` (§9)
+  reads both from a cell's copy of `task.json`: it flags the task when a
+  guidance file that applies to a path of `patch_files` was committed, by the
+  `committed` date a `guidance:rev:` arm records (§3), after `public_at`. A
+  task built before `patch_files` was written is read as if every guidance
+  file applied to it.
 - `gold.json` holds `{id, file, line, kind, comment, addressed, reply, url}`
   per thread. `id` is `pr<number>-t<n>`, `n` being the thread's position among
   all the PR's threads, so ids stay the same when a thread is dropped. `kind`
@@ -1358,18 +1366,41 @@ per scenario).
     - `fetched`: reported only after the agent read the file with a tool (a
       read that was denied or failed is none). For the
       Claude Code (its Bash tool), Codex and Copilot profiles a shell read counts
-      only as a bare `cat`, `head`, `tail`, `nl` or `sed -n`; a command that is one
+      only as a bare `cat`, `head`, `tail`, `nl` or `sed -n`, after the `time`
+      keyword too (`time -p cat AGENTS.md`, `time -- cat AGENTS.md`; the
+      keyword takes one `-p`, then `--`, so `time -x cat AGENTS.md` runs `-x`
+      and is none), or /usr/bin/time with no option
+      (`X=1 time cat AGENTS.md`, `\time cat AGENTS.md`: it passes the command's
+      stdout through), or `command` (`command cat AGENTS.md`; not past `env`,
+      which runs a program: `env command cat AGENTS.md` runs no `cat`, and
+      `env command cd sub` moves nothing); a call of a
+      shell function the agent defined with a printer's name (`cat() { echo
+      hi; }; cat AGENTS.md`, `\cat` too, or a body in parentheses: `cat() (
+      echo hi )`, `function cat ( echo hi )`; bash runs the function) is no read,
+      unlike `command cat`, `env cat` or `/bin/cat`, and so is a printer after
+      a function named `command`, `env`, `builtin` or `time` (not the keyword:
+      `command() { echo hi; }; command cat AGENTS.md`); a command that is one
       such read naming one file, alone, in a brace group (`{ cat AGENTS.md; }`)
       or after `cd` commands (`cd sub && cat AGENTS.md`; `time cd`, `command cd`, `builtin cd`, `X=1 cd`, `"cd"` too, not
-      `env cd`), and exits non-zero is not a read (the exit code of
+      `env cd`) or a virtualenv's activate, and exits non-zero is not a read (the exit code of
       `cat a missing` does not say which file failed, so both stay reads, as
       the known one does when the other is at a directory not known). A read
       through a pipe, `grep` or `rg`, or negated (`! cat AGENTS.md`, whose exit
       says nothing of the file), is not seen, nor, under Claude Code, a relative
       read after an earlier Bash call of any agent (the parent's or a
       subagent's, which may share its shell) ran a `cd`, `pushd`, `popd`,
-      `eval`, `source` or `.` in its own shell (not in a subshell, pipeline or
-      background job, and not refused), so such a file can be classed `loaded`;
+      `eval`, `source` or `.`, or called a shell function the same call
+      defined whose body
+      names one of these, or that has the name of one
+      (`cd() { ...; }`), in its own shell (not in a
+      subshell, pipeline or background job, and not refused), so such a file
+      can be classed `loaded`. `source` or `.` of a virtualenv's activate script
+      alone (`source .venv/bin/activate`, `. "/opt/venv/bin/activate"`: one
+      operand ending in `bin/activate`, no more arguments, a redirection
+      such as `> /dev/null` aside) is assumed to move
+      no shell: the scripts venv, virtualenv and uv write set variables and
+      `PATH` and run no `cd`. Any other `source` (`source env.sh`, a computed
+      `source $V/bin/activate`, `bin/activate.fish`) may;
     - `not_loaded`;
     - `error`: the scenario produced no usable answer: no answer, a non-zero
       exit, or an error result.
@@ -1502,17 +1533,42 @@ observations of that run. It cannot show:
 - which directory a Claude Code subagent's Bash shell is in: the converter
   assumes it shares the parent's, so a `cd` in either drops the later
   relative reads of both (this only drops reads; no real trace was checked);
-- a `cd` inside a shell function the agent defined and then called: the call
-  is not followed, so a later relative read is taken from the directory
-  before it (an `eval`, `source` or `.` is taken as moving the shell). A
+- where a `cd` inside a shell function the agent defined and then called
+  went: a call of a function whose body names a directory builtin anywhere
+  (`source` and `.` only as a command's word, and not of an activate
+  script: `find .` and `source .venv/bin/activate` name none), or calls
+  another such function, defined in the same Bash call (a
+  Claude Code call starts in a new shell, which keeps none of an earlier
+  call's functions), is taken as moving the shell to a directory
+  not known, as an `eval`, `source` or `.` is, so the later relative reads
+  are dropped, and so is a call of a function named like a directory
+  builtin (`cd() { ...; }; cd sub`; `command cd sub` and `builtin cd sub`
+  run the builtin, and are followed). A definition's body is skipped, as
+  defining a function runs nothing, also with its `{` on a later line
+  (`f()`, a newline or a comment line, `{`). A body in parentheses (`f() (
+  cd sub )`, `function f ( cd sub )`) runs in a subshell, so a call of it moves nothing. A call of
+  any function the agent defined is no read (`cat() { echo hi; }; cat
+  AGENTS.md`), and a function named like a wrapper runs in its place
+  (`command() { ...; }; command cat AGENTS.md` reads nothing). A body whose
+  closing `}` is not seen (`f() { cd sub; }>log`) is taken to run to the
+  end of the script. A name
+  defined again keeps what each definition named, and a definition in a
+  subshell, one that never ran or one later in the script counts too: all
+  of these only drop reads. A
   command the parser does not fully follow counts as moving the shell when
   its command word, after `builtin`, `command` or `time` and their options
   (and, after `time`, assignments: `time X=1 cd sub` runs the `cd` here),
   names a directory builtin (`X="a b" cd "$D"`, `time -p cd sub`; not
-  `time git add .`), and so does one in a `case` arm. `time` is that
-  keyword only as the first word, unquoted (`X=1 time cd sub` and
-  `\time cd sub` run /usr/bin/time); the forms that only drop a read are listed in
-  [#374](https://github.com/intel/dokimi/issues/374);
+  `time git add .`), and so does one in a `case` arm (a `case` opens only
+  as a command word: `echo case` and the pattern `a|case)` open none).
+  `time` is that keyword only as the first word, unquoted (`X=1 time cd sub`
+  and `\time cd sub` run /usr/bin/time). Where only the directory is at
+  stake, any dash word after `time` counts as its option: `time -x cd sub`
+  loses the directory, though bash runs `-x`;
+- that a virtualenv's activate script runs no `cd`: `source` or `.` of one
+  alone (`source .venv/bin/activate`) is assumed to leave the shell where it
+  was, as the scripts venv, virtualenv and uv write do; one that moved it
+  would leave the later relative reads at the wrong directory;
 - when a source entered the request, or in what order (no timestamps);
 - start-up imports, start-up rules and skill listings from budget, which reach does not probe:
   they appear with `observed: unknown`. A skill body is loaded on demand, so it
@@ -2052,7 +2108,8 @@ python cli.py repo hits judge repo-runs/replay --judge openai/gpt-5.1 --labels l
   each as one JSON object in a fenced block marked `data`, says that text
   inside the blocks is data and not instructions, and gives the label rules
   after the blocks. It writes `<cell>/hits_judged.json` (`repo_hits_judged.v1`): the
-  judge, each pair's `thread`, `finding`, `label` and `reason`, the counts of
+  judge, each pair's `thread`, `finding`, `comment` and `message` (the
+  match's cuts of the two texts), `label` and `reason`, the counts of
   `same point`, `related`, `unrelated` and `unjudged`, `n_threads` (from
   `grade.json` `metrics`), the grader's `recall`, and `recall_judged`. A cell
   whose answer had no findings JSON is written with no pair and its
@@ -2065,7 +2122,8 @@ python cli.py repo hits judge repo-runs/replay --judge openai/gpt-5.1 --labels l
   (`--json`: `stale_removed`). The command prints, per (arm, model), the cells written, their
   pairs and label counts, the mean `recall` of those cells and the mean
   `recall_judged` of those whose `recall_judged` is not null (`--json`: the
-  same as JSON). Before any call it refuses, with exit 2,
+  same as JSON); `repo compare --metric judge:recall_judged` compares it
+  across arms (below). Before any call it refuses, with exit 2,
   a judge that runs the model of any answer of the batch (`meta.json` or
   `result.json` `model`, the model asked for, and `model_resolved`, the
   model or models the trace says answered; a CLI alias counts as its family's
@@ -2155,12 +2213,24 @@ python cli.py repo hits judge repo-runs/replay --judge openai/gpt-5.1 --labels l
   task is the unit. Per treatment arm, model and measure (gate share, score,
   cost, turns, `first_prompt_tokens`, `first_useful_s` and `first_useful_steps` (the median over a
   task's cells that observed the first useful result, §4.1), `first_useful_rate` (the share of a task's
-  declared cells with a verdict that observed one), each `--metric` from `grade.json`, and each `process` count a
+  declared cells with a verdict that observed one), each `--metric` from `grade.json` (or `judge:recall_judged` from
+  `hits_judged.json`, below), and each `process` count a
   compared cell reports as `process:<key>` or `counter:<name>`) it gives the mean per-task
-  delta against the baseline with a 95% interval over tasks (a bootstrap for
-  gate and score, a t interval for the descriptive measures, `-` for a single
-  task), the tasks up, down and tied, and a two-sided sign-flip permutation p (exact up to 16
-  changed tasks; at one cell per task and arm it equals McNemar's exact test).
+  delta against the baseline with a 95% interval over tasks, the tasks up, down and tied, and a two-sided
+  sign-flip permutation p (exact up to 16 changed tasks, Monte Carlo above with a fixed seed; at one cell per
+  task and arm it equals McNemar's exact test). Every measure's interval inverts that test
+  (`dokimi/repos/compare_interval.py`; `delta.method` is `sign_flip_inversion` in `--json`): it is every
+  shift theta at which the test on the per-task deltas minus theta does not reject at the uncorrected two-sided
+  5% level, each end found by bisection between the mean and a far bound. It excludes 0 exactly when p is below
+  0.05: the row's own p places 0, and above 16 changed tasks the interval's Monte Carlo draws are those of p, drawn
+  once from the seed and reused at every theta, so the ends do not move between runs. Under a shift every task
+  counts, the tied ones included (their delta becomes -theta), and the smallest p over n tasks is `2 / 2^n`, so
+  both ends are bounded from 6 tasks on, whatever the ties, and open (`null` in `--json`, `-inf` / `+inf` in the
+  text) at 5 or fewer, one task included. The test stays exact, with no mid-p: p(theta) is a step function and the
+  ends are its step points, so an end can be a delta itself, or 0. The text prints an end at 3 decimals, and a
+  non-zero end that would print as `0.000` at 2 significant digits (`+0.0002`), so it keeps its side of 0.
+  `delta.mean` (4 places) stays inside those ends: six deltas of `4e-5` give a mean of `0.0001`, not `0.0`, as
+  both ends are `0.0001`.
   A `process` count, `first_prompt_tokens` or `first_useful_*` only one arm reports for the shared tasks of a
   (treatment, model) is not compared; a warning names it. When neither arm
   reports it (a batch run before `repo run` recorded it), the row is absent.
@@ -2187,12 +2257,11 @@ python cli.py repo hits judge repo-runs/replay --judge openai/gpt-5.1 --labels l
   0.05, `mde` is `null` and the note names Holm instead (`with Holm over 2
   rows, p_holm cannot go below 0.0625 here: no effect can reach p_holm <
   0.05`); a family of one row is the raw rule. `p_holm_floor` decides only
-  whether `mde` is given, not its size. A row whose interval and p disagree (the
-  interval excludes 0 while p is 0.05 or more, or includes 0 while p is below
-  0.05; for gate and score that p is `p_holm`, the one that decides them, and the
-  note quotes it) has `interval_p_disagree` `true` and a note: they come from two
-  methods, and for gate and score `p_holm` is the one to read, since a percentile
-  bootstrap runs narrow over few tasks; the inconclusive note gives way to
+  whether `mde` is given, not its size. A gate or score row whose interval
+  excludes 0 while its `p_holm` is 0.05 or more (Holm's correction lifted its p
+  across 0.05; the interval agrees with the raw p, and Holm's step-down has no
+  interval to match) has `interval_p_disagree` `true` and a note: the interval
+  is uncorrected; `p_holm` decides this row. The inconclusive note gives way to
   it. Descriptive rows with p below 0.05 are named on one line: their p is
   uncorrected and outside Holm's family. `--task ID` (repeatable) compares only
   those tasks: an id no finished cell of the batches has is refused, the tasks
@@ -2224,7 +2293,44 @@ python cli.py repo hits judge repo-runs/replay --judge openai/gpt-5.1 --labels l
   scales and get `null`. `BATCH/ARM` takes an arm from one batch only, so two
   batches of the same arm (for example two revisions of the guidance) compare
   too; two selectors of the same cells are refused. A `--metric` no finished
-  cell reports as a number or boolean is refused. Tasks left out are listed as
+  cell reports as a number or boolean is refused. `--metric judge:recall_judged`
+  reads each cell's `hits_judged.json` (`repo hits judge`, above) instead of
+  `grade.json`; any other `judge:` name is refused with exit 2. A cell reports
+  it only when the file is a `repo_hits_judged.v1` JSON object whose `cell`,
+  `task`, `arm` and `model` are the cell's own, whose `recall`, `n_threads`
+  and credited (thread, finding) pairs, with the `comment` and `message` cuts
+  each pair records, equal the cell's `grade.json` ones now
+  (else the cell was regraded since judging, even to the same recall or with a thread or finding reworded within the 200 characters of `comment` and `message` the grade keeps (a later change, or one to a finding's rule or evidence, is not seen): the file is stale, and `repo hits judge` removes such files only
+  when it runs again; a file written before the pairs recorded the cuts is
+  checked on (thread, finding) only), and whose `recall_judged` is a finite number. Any other
+  cell (no file, a stale file, another cell's file, a null `recall_judged`
+  from an unjudged pair or a cell with no gold thread, a file that cannot be read, is not JSON or is not
+  `repo_hits_judged.v1`) does not report it, as a cell lacking a `grade.json`
+  metric does: it is left out of its task's mean and `n`, and a null is never
+  read as 0. `--json` gives `judged_cells` (`null` without a `judge:` metric):
+  `metrics`, the `judge:` names asked for, and `arms`, per compared arm its
+  `cells` (of the compared models) and the counts `read`, `no_file`, `not_judged`
+  (no file, and a cell `repo hits judge` never judges: a grader failure, a grade
+  without `matches`, or another grader), `stale`,
+  `other_cell`, `no_threads`, `unjudged` and `unreadable`, and `judges`, per
+  compared arm the judges (`provider/model`) of its cells read; when the
+  compared cells read name more than one judge, compare warns, as it does when
+  the arms differ in another stamp. The text prints one line per arm
+  with a cell not read (`judge:recall_judged, guidance:none: 18 of 26 cells
+  read (5 no hits_judged.json, 2 stale: regraded since judging, 1 with an
+  unjudged pair); run repo hits judge again`; the hint is left off when every
+  cell not read has no gold thread, whose null a rerun writes again, or is
+  `not_judged`, which a rerun leaves without a file). When no
+  selected cell reports it, the refusal (exit 2) gives those counts and, unless
+  every cell is one of those two, says to run
+  `repo hits judge <batch> --judge PROVIDER/MODEL` first. `hits_judged.json`
+  carries no calibration, so compare cannot tell whether a person's labels
+  backed the judge: the text adds one note, that the figure is a judge's
+  labels of the credited pairs, at most each read cell's `recall` (the
+  `recall` row also averages the cells not read, so the two rows cover
+  different cells when a per-arm line is printed), and uncalibrated unless
+  `repo hits judge --labels` reported agreement for these arms. `--ledger`
+  passes no `--metric` to its rule verdicts. Tasks left out are listed as
   unpaired with the reason: no cells in one arm, a task that is gated in one
   arm and score-only in the other, or a measure (such as a metric) one arm
   lacks. A metric's `n_baseline`/`n_treatment` count the cells that report it.
@@ -2249,6 +2355,56 @@ python cli.py repo hits judge repo-runs/replay --judge openai/gpt-5.1 --labels l
   `@20250929`) or its provider-prefixed form is the same model, `-v2` against
   `-v3` is not. `repo compare` warns the same way when the two arms of a
   comparison were answered by different models.
+  A `guidance:rev:` arm may have seen a replay task: guidance written after
+  the task's review can encode it (issue #290). `repo compare` checks every compared
+  arm, baseline or treatment, whose cells' `meta.json` has `arm_rev` (or whose
+  name starts with `guidance:rev:`), over its tasks whose cell `task.json` has
+  `public_at` or `source_pr` (§4.6; a task none of whose cells has a
+  `task.json`, which a host error before the trace is parsed leaves out, is
+  unknown),
+  and `--task` narrows it as it does the comparison. A task is flagged **by
+  date** when a guidance file that applies to it has its `guidance_latest`
+  commit `committed` after the task's `public_at`, compared as times. A file
+  named `AGENTS.md`, `CLAUDE.md`, `CLAUDE.local.md` or `GEMINI.md` below the
+  root applies to a task whose `patch_files` has a path under its directory
+  (one in a `.claude/` directory counts for that directory's parent); any
+  other guidance path (`.claude/rules/*` whatever its name, `.github/copilot-instructions.md`,
+  a skill) applies to every task, which errs on the strict side, and so does
+  every file to a task with no `patch_files` (its entry says `scoped: false`).
+  `@` imports are not followed (`guidance_latest` holds no import graph): a nested
+  file that a root file imports counts as scoped, so it can be missed.
+  A task is flagged **by name** when a `guidance_commits` subject names its
+  PR: `#<source_pr>`, or `<source_pr>` after `PR`, `PR#`, `PR #` or `GH-`
+  (any case: `pr#3103`, `PR 3103`), not preceded by a word character, `/`, `.` or `-`,
+  `<owner>/<repo>#<source_pr>` of the task's own `source_url`, or that PR's
+  URL (its host not glued to a longer name), none followed by a digit
+  (`#31030`, `other/repo#3103`, `other/repo-#3103` and `notgithub.com/<owner>/<repo>/pull/3103`
+  do not name `#3103`); no other text is compared, and a task with no `source_pr` has no
+  PR to be named. With `guidance_commits_truncated` the
+  name check covered only the newest 200 commits, and the output says so; as
+  the list is newest first by committer date, a task none of them names is
+  unknown by name when its `public_at` is missing or earlier than the oldest
+  kept commit's `committed`, and clean otherwise. A
+  task is **unknown** when a flag cannot be read: no `public_at` (unknown by
+  date, still checked by name), a `patch:` arm (it has no history), an
+  `arm_rev` with no `guidance_latest` (a batch from before it was recorded),
+  or a `meta.json` or `task.json` of the wrong shape; the reason is given.
+  Cells of one task may differ (pooled batches): a flag any cell sets counts,
+  and a cell with no `task.json` whose `arm_rev` no checked cell of the task
+  has leaves the task unknown, as its history was not read.
+  The `--json` summary's `leak` holds one entry per checked arm (`[]` when
+  none is): `arm`, `kind` (`guidance:rev` or `patch`), `revisions` (each
+  `rev` and `sha`), `checked`, `not_checked` (the arm's other tasks, whose
+  `task.json` is not replay-style), `by_date` (task → the latest applicable
+  commit that tripped it: `path`, `sha`, `committed`, `public_at`,
+  `scoped`), `by_name` (task → the commit shas), `unknown` (task → reason),
+  `clean` (flagged by neither and not unknown) and `names_truncated`. The
+  text prints per checked arm a line of the counts, the tasks flagged by name
+  with their commits, and, when some tasks are flagged and some are not, the
+  clean ones and the `not_checked` ones as `--task` options, to compare
+  without the flagged tasks; a task another arm flags or reports unknown is
+  left out of them. The
+  flags change no delta, interval, p or exit code.
 
 CI for a repository: `.github/workflows/repo-eval.yml` is a reusable workflow
 that runs the no-LLM checks on the caller's checkout and needs no secret.

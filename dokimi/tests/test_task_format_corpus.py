@@ -97,6 +97,7 @@ def test_nested_catalog_alone_reports_its_task_and_its_evals() -> None:
     found = {Path(r.path).relative_to(CORPUS / "catalog").as_posix(): r.format
              for r in inspect_path(CORPUS / "catalog")}
     assert found == {"evaluation/harbor/tasks/onetbb-nstream": "harbor",
+                     "evaluation/harbor/suites.json": "harbor-suites",
                      "skills/dpnp-io/evals/evals.json": "skill-creator-evals"}
 
 

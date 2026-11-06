@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from dokimi.exit_codes import EXIT_USAGE
+from dokimi.utils import InputError
 
 if TYPE_CHECKING:
     from dokimi.repos.graph_tasks import Plan
@@ -28,23 +28,18 @@ def cmd_eval_tasks_generate(args: argparse.Namespace) -> None:
     from .repo import _code_index, _normalize_whitespace, _source_tree
 
     if not args.index:
-        print("✗ --from graph needs --index FILE, a SCIP index of the source", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError("--from graph needs --index FILE, a SCIP index of the source")
     if not args.references and not args.derives:
-        print("✗ --references 0 --derives 0 asks for no task", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError("--references 0 --derives 0 asks for no task")
     index = _code_index(args.index)  # before the source: a bad index must not cost a clone first
     _, tree = _source_tree(args)
     if not isinstance(tree, GitTree):
-        print(f"✗ pin the revision the index was built from: {args.source}@<rev>; a task's base is a commit",
-              file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError(f"pin the revision the index was built from: {args.source}@<rev>; a task's base is a commit")
     opts = Options(out=Path(args.out), base=tree.sha, references=args.references, derives=args.derives, seed=args.seed,
                    max_turns=args.max_turns, force=args.force)
     p = plan(index, tree.files(), opts, tree.read_text)
     if not p.documents_in_tree:
-        print(f"✗ no document of the code index {args.index} is a file of {tree.label}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError(f"no document of the code index {args.index} is a file of {tree.label}")
     _print_coverage(p)
     if not args.dry_run:
         try:

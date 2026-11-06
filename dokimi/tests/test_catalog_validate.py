@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""Spec and mirror review of ``catalog scan`` (``dokimi.external.validate``), and its ``--format json`` output."""
+"""Spec and mirror review of ``catalog check`` (``dokimi.external.validate``), and its ``--format json`` output."""
 
 from __future__ import annotations
 
@@ -31,8 +31,8 @@ def _skill(root: Path, rel: str, name: str | None = None, description: str = "Us
 def _scan_json(
     root: Path, capsys, *, kind: str = "skills", strict: bool = False
 ) -> tuple[dict, int]:
-    """Run ``catalog scan --format json``; return the parsed report and the exit code (0 when none raised)."""
-    argv = ["catalog", "scan", "--root", str(root), "--kind", kind, "--format", "json"]
+    """Run ``catalog check --format json``; return the parsed report and the exit code (0 when none raised)."""
+    argv = ["catalog", "check", "--root", str(root), "--kind", kind, "--format", "json"]
     args = build_parser().parse_args(argv + (["--strict"] if strict else []))
     code = 0
     try:
@@ -154,10 +154,19 @@ def test_a_disabled_copy_of_a_name_is_not_a_name_conflict(tmp_path):
 
 def test_a_spec_error_copy_of_a_name_is_not_a_name_conflict(tmp_path):
     _skill(tmp_path / "skills", "x", name="x", description="Use for x.")
-    _skill(tmp_path / "plugins", "x", name="x", description="y" * 1100)
+    _skill(tmp_path / "plugins", "z", name="x", description="Use for x, misplaced.")  # name-mismatch
     reviews = review_skills(read_skill_manifest(tmp_path))
     assert all(f.code != "name-conflict" for r in reviews for f in r.findings)
     assert sorted(r.state for r in reviews) == ["error", "ok"]
+
+
+def test_a_copy_whose_only_error_is_the_description_length_is_a_name_conflict(tmp_path):
+    # the routing field keeps such a skill (harnesses differ on it), so its name clashes with a valid copy
+    _skill(tmp_path / "skills", "x", name="x", description="Use for x.")
+    _skill(tmp_path / "plugins", "x", name="x", description="y" * 1100)
+    reviews = review_skills(read_skill_manifest(tmp_path))
+    assert [f.code for r in reviews for f in r.findings if f.code == "name-conflict"] == [
+        "name-conflict", "name-conflict"]
 
 
 def test_disable_model_invocation_is_reported_as_a_flag_not_a_finding(tmp_path):
@@ -229,7 +238,7 @@ def test_json_report_keeps_load_errors_as_error_rows(tmp_path, capsys):
 
 def test_text_output_lists_each_finding_under_its_skill(tmp_path, capsys):
     _skill(tmp_path / "skills", "claude-api", name="Claude API")
-    args = build_parser().parse_args(["catalog", "scan", "--root", str(tmp_path), "--kind", "skills"])
+    args = build_parser().parse_args(["catalog", "check", "--root", str(tmp_path), "--kind", "skills"])
     args.func(args)  # no SystemExit: a spec error is printed, and only --strict makes it fail
     out = capsys.readouterr().out
     assert "# skills (1 declared" in out and "1 error" in out
@@ -503,7 +512,7 @@ def test_broken_yaml_outside_the_root_is_not_quoted_in_the_report(tmp_path, caps
 def test_default_kind_exits_1_on_a_broken_skill_and_no_tasks(tmp_path, capsys):
     (tmp_path / "skills" / "bad").mkdir(parents=True)
     (tmp_path / "skills" / "bad" / "SKILL.md").write_text("---\nname: bad\n---\n", encoding="utf-8")
-    args = build_parser().parse_args(["catalog", "scan", "--root", str(tmp_path)])
+    args = build_parser().parse_args(["catalog", "check", "--root", str(tmp_path)])
     with pytest.raises(SystemExit) as exc:
         args.func(args)
 

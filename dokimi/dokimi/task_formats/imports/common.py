@@ -27,6 +27,9 @@ class Imported:
     #: What the translation dropped or approximated, counted per kind (the import report).
     lossy: Counter[str] = field(default_factory=Counter)
     native_scorer: Optional[str] = None
+    #: What a native scorer says it grades, by its name, when the source states it (a docstring of a
+    #: scorer the same file defines). A scorer with no entry is graded by no judge: it stays unsupported.
+    native_docs: dict[str, str] = field(default_factory=dict)
 
     def note(self, what: str, n: int = 1) -> None:
         self.lossy[what] += n

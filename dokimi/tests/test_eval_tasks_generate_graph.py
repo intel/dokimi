@@ -21,6 +21,7 @@ from dokimi.repos.code_index.symbols import descriptor_name, descriptor_names
 from dokimi.repos.graders import HOST_DIR, NAMES, graph, main
 from dokimi.repos.graph_tasks import Options, plan, task_id, write
 from repo_eval_fixture import git, write as write_file
+from tests.cli_refusal import refusal
 from tests.test_repo_code_index_decode import document, index as scip_index, occurrence, symbol_info
 
 
@@ -550,9 +551,9 @@ def test_cli_exits_2_on_a_usage_error(tmp_path, capsys, pinned, index, error):
             "--out", str(tmp_path / "tasks")] + (["--index", str(path)] if index else [])
     if index == "none asked":
         argv += ["--references", "0", "--derives", "0"]
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         _run(argv)
-    assert exc.value.code == 2 and error in capsys.readouterr().err
+    assert exc.code == 2 and error in exc.err
 
 
 def test_cli_exits_1_when_no_target_gives_a_task(tmp_path, capsys):

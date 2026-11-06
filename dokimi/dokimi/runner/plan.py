@@ -27,6 +27,9 @@ from typing import Any, Iterable, Mapping
 MEASURED = frozenset({"pass", "fail", "inconclusive"})
 #: ``SCHEMA_VERSIONS["plan"]`` in :mod:`dokimi.artifacts`, which ``save_artifact`` stamps.
 _PLAN_SCHEMA = "plan.v1"
+#: Keys :func:`plan_digest` leaves out: ``generated_at`` and the run envelope
+#: (``ENVELOPE_KEYS`` in :mod:`dokimi.artifacts`), which name when and by which run a plan was saved.
+_UNHASHED = frozenset({"generated_at", "run_id", "dokimi_version"})
 STATUSES = ("pass", "fail", "inconclusive", "invalid", "infra_error", "not_run")
 
 
@@ -49,13 +52,14 @@ def plan_cells(arms: Iterable[str], models: Iterable[str | None], tasks: Iterabl
 
 
 def plan_digest(plan: Mapping[str, Any]) -> str:
-    """``sha256:<hex>`` of the plan's canonical JSON, ``generated_at`` left out.
+    """``sha256:<hex>`` of the plan's canonical JSON, ``generated_at`` and the run envelope left out.
 
     The plan is hashed as :func:`dokimi.artifacts.save_artifact` writes it: a missing
-    ``schema_version`` is filled in, so the digest of a dict taken before saving matches
-    the digest of the same plan loaded back.
+    ``schema_version`` is filled in, and the ``run_id`` and ``dokimi_version`` it adds are not
+    hashed, so the digest of a dict taken before saving matches the digest of the same plan
+    loaded back, whichever process saved it.
     """
-    body = {k: v for k, v in plan.items() if k != "generated_at"}
+    body = {k: v for k, v in plan.items() if k not in _UNHASHED}
     body.setdefault("schema_version", _PLAN_SCHEMA)
     text = json.dumps(body, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
     return "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()

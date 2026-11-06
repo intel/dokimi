@@ -26,6 +26,8 @@ Differences from CI, all printed as notices:
 - A matrix runs one leg: the dev venv's Python, standing in for the coverage
   leg too (`matrix.coverage` is true), so the changed-lines gate runs here. A
   notice says so when that is not the Python CI's single-version jobs use.
+  A job whose matrix comes from another job's output (`fromJSON`, intel-ci.yml's
+  build and test jobs) is skipped.
 - An unknown --jobs id is an error, not an empty run.
 - Steps that need the network are skipped when PyPI is unreachable or with
   --offline; the docker job runs only with --with-docker; conda-forge-deps
@@ -175,7 +177,7 @@ def ci_pythons() -> tuple[str | None, list[str]]:
     for _, wf in load_workflows():
         for job in wf["jobs"].values():
             matrix = (job.get("strategy") or {}).get("matrix") or {}
-            for v in matrix.get("python-version", []):
+            for v in matrix.get("python-version", []) if isinstance(matrix, dict) else []:
                 if str(v) not in legs:
                     legs.append(str(v))
             for step in job.get("steps", []):
@@ -290,6 +292,8 @@ def unavailable_job(job_id: str, online: bool, job: dict) -> str | None:
     if install and (platform.system(), platform.machine()) != ("Linux", "x86_64"):
         if reason := native_gitleaks(job):
             disable_native_scan(job, reason)
+    if isinstance((job.get("strategy") or {}).get("matrix"), str):
+        return "matrix from another job's output"
     return "needs network" if job_id in NEEDS_NETWORK and not online else None
 
 

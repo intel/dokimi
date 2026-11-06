@@ -5,8 +5,8 @@
 
 Reads one or more ``arms.v1`` files of the same question set (one per repetition) and writes a
 ``headroom.v1`` artifact with ``--out``, always printing the human table. A file repeated on the
-command line, or holding the same JSON content as an earlier one, is one run: the repeats are skipped with a
-note on stderr. See :mod:`dokimi.eval.headroom` for the rules.
+command line, or holding the same JSON content as an earlier one (its run envelope aside), is one run: the
+repeats are skipped with a note on stderr. See :mod:`dokimi.eval.headroom` for the rules.
 """
 
 from __future__ import annotations
@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from dokimi import records
+from dokimi.artifacts import ENVELOPE_KEYS
 from dokimi.commands._output import exit_on_unwritable
 from dokimi.eval.judge_context import PROTOCOL_MIXED
 from dokimi.utils import InputError
@@ -44,7 +45,13 @@ def _canonical(value: Any) -> Any:
 
 
 def _content_digest(data: Any) -> str:
-    """Digest of the parsed JSON, so one run re-serialized (whitespace, key order, 95 vs 95.0) counts once."""
+    """Digest of the parsed JSON, so one run re-serialized (whitespace, key order, 95 vs 95.0) counts once.
+
+    The top-level run envelope (``run_id``, ``dokimi_version``) names the process that saved the file,
+    not what it holds, so it is left out: one run saved again by another process counts once too.
+    """
+    if isinstance(data, dict):
+        data = {k: v for k, v in data.items() if k not in ENVELOPE_KEYS}
     return hashlib.sha256(json.dumps(_canonical(data), sort_keys=True).encode("utf-8")).hexdigest()
 
 
@@ -90,9 +97,8 @@ def _exit_unless_replicates(runs, inputs) -> None:
             for run in runs]
     odd = next((path for key, path in zip(keys[1:], inputs[1:], strict=True) if key != keys[0]), None)
     if odd is not None:
-        print(f"Error: {odd} is not a repetition of {inputs[0]}: the model, judge, judge context, run config, "
-              "harness, arms or library differ, and runs of different configurations are not pooled", file=sys.stderr)
-        sys.exit(2)
+        raise InputError(f"{odd} is not a repetition of {inputs[0]}: the model, judge, judge context, run config, "
+              "harness, arms or library differ, and runs of different configurations are not pooled")
 
 
 # The per-run tallies of a reference scoring: they count this run's answers, so repetitions differ in them.
@@ -114,19 +120,16 @@ def _exit_on_mixed_scoring(runs, inputs) -> None:
     kinds = ["reference" if "reference_scoring" in run.meta else "judge" for run in runs]
     odd = next((i for i, kind in enumerate(kinds) if kind != kinds[0]), None)
     if odd is not None:
-        print(f"Error: {inputs[odd]} was scored by the {kinds[odd]} and {inputs[0]} by the {kinds[0]}: "
-              "the two scorings are different measurements, and are not pooled", file=sys.stderr)
-        sys.exit(2)
+        raise InputError(f"{inputs[odd]} was scored by the {kinds[odd]} and {inputs[0]} by the {kinds[0]}: "
+              "the two scorings are different measurements, and are not pooled")
     references = [i for i, kind in enumerate(kinds) if kind == "reference"]
     if references:
         first = references[0]
         odd = next((i for i in references[1:] if _grading_identity(runs[i].meta) != _grading_identity(runs[first].meta)),
                    None)
         if odd is not None:
-            print(f"Error: {inputs[odd]} was scored by eval score reference against different grading than {inputs[first]} "
-                  "(its scorer or questions file differ): the two scorings are different measurements, and are not pooled",
-                  file=sys.stderr)
-            sys.exit(2)
+            raise InputError(f"{inputs[odd]} was scored by eval score reference against different grading than {inputs[first]} "
+                  "(its scorer or questions file differ): the two scorings are different measurements, and are not pooled")
 
 
 def _exit_on_mixed_grounding(runs, inputs) -> None:
@@ -142,9 +145,8 @@ def _exit_on_mixed_grounding(runs, inputs) -> None:
             grounded = bool(rec.ground_truth)
             first = seen.setdefault(rec.key, (grounded, path))
             if first[0] != grounded:
-                print(f"Error: question_id {rec.key!r} is {where[grounded]} in {path} but {where[first[0]]} in "
-                      f"{first[1]}: the judge scores the two differently, so the runs are not pooled", file=sys.stderr)
-                sys.exit(2)
+                raise InputError(f"question_id {rec.key!r} is {where[grounded]} in {path} but {where[first[0]]} in "
+                      f"{first[1]}: the judge scores the two differently, so the runs are not pooled")
 
 
 def _prompt_pins(data: Any, run) -> dict[str, set[str]]:
@@ -163,10 +165,9 @@ def _exit_on_conflicting_prompts(pins, inputs) -> None:
             for digest in sorted(digests):
                 first = seen.setdefault(arm, (digest, path))
                 if first[0] != digest:
-                    print(f"Error: arm {arm!r} ran with a different profile prompt in {path} than in {first[1]} "
+                    raise InputError(f"arm {arm!r} ran with a different profile prompt in {path} than in {first[1]} "
                           f"(profile_prompt_sha256 {digest[:12]} vs {first[0][:12]}): the profile was edited, "
-                          "and the two treatments are not pooled", file=sys.stderr)
-                    sys.exit(2)
+                          "and the two treatments are not pooled")
 
 
 def _exit_on_conflicting_questions(runs, inputs) -> None:
@@ -181,10 +182,8 @@ def _exit_on_conflicting_questions(runs, inputs) -> None:
                     continue
                 first = seen.setdefault(rec.key, {}).setdefault(name, (value, path))
                 if first[0] != value:
-                    print(f"Error: question_id {rec.key!r} has a different {name} in {path} than in "
-                          f"{first[1]}: the two are different questions and are not pooled",
-                          file=sys.stderr)
-                    sys.exit(2)
+                    raise InputError(f"question_id {rec.key!r} has a different {name} in {path} than in "
+                          f"{first[1]}: the two are different questions and are not pooled")
 
 
 # replicate_key calls .items() on run_config and tuple() on arms: a wrong type there crashes it, or (an
@@ -193,44 +192,34 @@ _METADATA_SHAPES = (("run_config", dict, "object"), ("arms", list, "array"))
 
 
 def _exit_unless_pinnable(data, run, path) -> None:
-    """Exit 2 when the profile-prompt check cannot read the file: its top level is not an object (a bare record
+    """Raise InputError (exit 2) when the profile-prompt check cannot read the file: its top level is not an object (a bare record
     list has none of the arms.v1 fields), or an answer's metadata, or its treatments, is not the shape it reads."""
     if not isinstance(data, dict):
-        print(f"Error: {path}: expected a JSON object with the arms.v1 fields, not a {type(data).__name__}",
-              file=sys.stderr)
-        sys.exit(2)
+        raise InputError(f"{path}: expected a JSON object with the arms.v1 fields, not a {type(data).__name__}")
     for rec in run:
         for answer in rec.answers.values():
             metadata = answer.raw.get("metadata")
             if not metadata:
                 continue
             if not isinstance(metadata, dict):
-                print(f"Error: {path}: answer metadata must be a JSON object, not {type(metadata).__name__}",
-                      file=sys.stderr)
-                sys.exit(2)
+                raise InputError(f"{path}: answer metadata must be a JSON object, not {type(metadata).__name__}")
             treatments = metadata.get("treatments")
             if treatments and not isinstance(treatments, list):
-                print(f"Error: {path}: metadata.treatments must be a JSON array, not {type(treatments).__name__}",
-                      file=sys.stderr)
-                sys.exit(2)
+                raise InputError(f"{path}: metadata.treatments must be a JSON array, not {type(treatments).__name__}")
 
 
 def _exit_unless_metadata_shaped(run, path) -> None:
-    """Exit 2 when a top-level field replicate_key reads is not the JSON shape it needs (absent or null
+    """Raise InputError (exit 2) when a top-level field replicate_key reads is not the JSON shape it needs (absent or null
     is fine), or the run mixed judge protocols, naming the file and the field."""
     for field, shape, label in _METADATA_SHAPES:
         value = run.meta.get(field)
         if value is not None and not isinstance(value, shape):
-            print(f"Error: {path}: {field} must be a JSON {label}, not {type(value).__name__}",
-                  file=sys.stderr)
-            sys.exit(2)
+            raise InputError(f"{path}: {field} must be a JSON {label}, not {type(value).__name__}")
     if run.meta.get("arms") is not None and not all(isinstance(arm, str) for arm in run.meta["arms"]):
-        print(f"Error: {path}: arms must be a JSON array of strings", file=sys.stderr)
-        sys.exit(2)
+        raise InputError(f"{path}: arms must be a JSON array of strings")
     if run.meta.get("judge_context") == PROTOCOL_MIXED:
-        print(f"Error: {path}: judged some answers on the stored treatment material and some on report "
-              f"snippets (judge_context {PROTOCOL_MIXED!r}); such a run pools with nothing", file=sys.stderr)
-        sys.exit(2)
+        raise InputError(f"{path}: judged some answers on the stored treatment material and some on report "
+              f"snippets (judge_context {PROTOCOL_MIXED!r}); such a run pools with nothing")
 
 
 def cmd_eval_headroom(args: argparse.Namespace) -> None:
@@ -240,13 +229,10 @@ def cmd_eval_headroom(args: argparse.Namespace) -> None:
     if args.output is not None and _names_a_directory(args.output):
         # A directory has no file name for save_artifact's sibling paths ("." has an empty name), and
         # Path() drops a trailing slash, so "newdir/" would otherwise write a plain file named newdir.
-        print(f"Error: --out {args.output} is not a file name (a directory, or a path ending in a separator)",
-              file=sys.stderr)
-        sys.exit(2)
+        raise InputError(f"--out {args.output} is not a file name (a directory, or a path ending in a separator)")
     if args.output is not None and _clobbers_an_input(args.output, args.arms):
-        print(f"Error: --out {args.output} would overwrite one of the input arms files (or its .rejected sibling); "
-              "the run would be lost", file=sys.stderr)
-        sys.exit(2)
+        raise InputError(f"--out {args.output} would overwrite one of the input arms files (or its .rejected sibling); "
+              "the run would be lost")
     runs: list[records.Run] = []
     inputs: list[str] = []
     pins: list[dict[str, set[str]]] = []
@@ -265,9 +251,8 @@ def cmd_eval_headroom(args: argparse.Namespace) -> None:
             continue
         dupes = repeated_ids(run)
         if dupes:
-            print(f"Error: {path}: question_id {dupes[0]!r} appears more than once; "
-                  "a file holds each question once", file=sys.stderr)
-            sys.exit(2)
+            raise InputError(f"{path}: question_id {dupes[0]!r} appears more than once; "
+                  "a file holds each question once")
         first_seen[digest] = str(path)
         runs.append(run)
         inputs.append(str(path))
@@ -281,8 +266,7 @@ def cmd_eval_headroom(args: argparse.Namespace) -> None:
         result = headroom(runs, no_skill_arm=args.no_skill_arm, ceiling=args.ceiling,
                           floor=args.floor, min_reps=args.min_reps)
     except ValueError as e:
-        print(f"Error: {e}", file=sys.stderr)
-        sys.exit(2)
+        raise InputError(str(e)) from e
     result["inputs"] = inputs
     print(format_table(result))
     if args.output is not None:

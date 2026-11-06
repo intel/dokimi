@@ -22,6 +22,11 @@ conformance matrix). This module stamps each with a ``schema_version`` and valid
 ``dokimi/schemas/`` on save and load, so fixtures and baselines stay
 forward-compatible and self-describing.
 
+An artifact a run writes (every kind but :data:`INPUT_KINDS`) also carries the run's envelope after
+its ``schema_version``: the ``run_id`` of the process that saved it (:func:`run_id`) and the
+``dokimi_version`` that wrote it. The files one command writes share a ``run_id``; files written
+before the envelope existed have none and stay valid.
+
 Every artifact of a registered kind is written through :func:`save_artifact`, partial
 (incremental) saves included: a run that would write an invalid artifact fails on its first
 save, not after the last paid model call. :func:`schema_errors` is the one place a JSON Schema
@@ -33,10 +38,14 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
+import secrets
 import threading
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from dokimi._version import __version__
 from dokimi.utils import InputError, read_json_input
 
 logger = logging.getLogger(__name__)
@@ -86,6 +95,58 @@ SUPERSEDED_VERSIONS: dict[str, tuple[str, ...]] = {
     "questions": ("questions.v1",),
     "subject_scorecard": ("subject_scorecard.v1",),
 }
+
+
+#: What a run is given (question sets, whose bytes ``question_set_hash`` digests, a config, a ledger, a need
+#: graph) and the CLI's route table: :func:`save_artifact` gives them no envelope (#277, #387).
+INPUT_KINDS: frozenset[str] = frozenset({"questions", "dokimi_config", "repo_ledger", "need_graph",
+                                         "cli_routes"})
+
+#: The envelope keys :func:`save_artifact` writes on a run kind, after ``schema_version``.
+ENVELOPE_KEYS: tuple[str, ...] = ("run_id", "dokimi_version")
+
+RUN_ID_ENV = "DOKIMI_RUN_ID"
+_RUN_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")  # the schemas' run_id pattern, for fullmatch
+_generated_run_id: str | None = None
+_run_id_lock = threading.Lock()
+
+
+def run_id() -> str:
+    """The ``run_id`` this process writes: ``DOKIMI_RUN_ID`` when set and not empty, else its own.
+
+    The process's own id is made on first use and kept, ``<UTC time>-<8 hex digits>``
+    (``20261104T153012Z-1a2b3c4d``), so every artifact one command saves shares it. Setting
+    ``DOKIMI_RUN_ID`` gives several commands one id (a CI job's steps, say). Either way it is 1-128
+    letters, digits, ``.``, ``_`` or ``-``, starting with a letter or a digit, so it can name a
+    directory.
+
+    Raises:
+        InputError: ``DOKIMI_RUN_ID`` is set to anything else.
+    """
+    global _generated_run_id
+    given = os.environ.get(RUN_ID_ENV, "")
+    if given:
+        if not is_run_id(given):
+            raise InputError(f"{RUN_ID_ENV}={given!r} is not a run id: 1-128 letters, digits, '.', '_' "
+                             f"or '-', starting with a letter or a digit")
+        return given
+    with _run_id_lock:
+        if _generated_run_id is None:
+            _generated_run_id = (f"{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}-"
+                                 f"{secrets.token_hex(4)}")
+        return _generated_run_id
+
+
+def is_run_id(value: object) -> bool:
+    """Whether ``value`` is a run id :func:`run_id` could write."""
+    return isinstance(value, str) and _RUN_ID.fullmatch(value) is not None
+
+
+def envelope(kind: str) -> dict[str, str]:
+    """The envelope :func:`save_artifact` writes on a ``kind`` artifact; empty for an input kind."""
+    if kind not in SCHEMA_VERSIONS:
+        raise KeyError(f"Unknown artifact kind: {kind!r}")
+    return {} if kind in INPUT_KINDS else {"run_id": run_id(), "dokimi_version": __version__}
 
 
 class ArtifactValidationError(ValueError):
@@ -151,24 +212,31 @@ def validate_artifact(kind: str, data: dict) -> None:
 
 
 def stamp(kind: str, data: dict) -> dict:
-    """Return ``data`` with its ``schema_version`` set for ``kind``."""
+    """Return a copy of ``data`` led by its ``schema_version`` and :func:`envelope` for ``kind``, as
+    :func:`save_artifact` writes it: a ``--json`` print of what ``--out`` saves is the same document,
+    key order included. ``data`` itself is not mutated."""
     if kind not in SCHEMA_VERSIONS:
         raise KeyError(f"Unknown artifact kind: {kind!r}")
-    data["schema_version"] = SCHEMA_VERSIONS[kind]
-    return data
+    head = {"schema_version": SCHEMA_VERSIONS[kind], **envelope(kind)}
+    return {**head, **{k: v for k, v in data.items() if k not in head}}
 
 
 def save_artifact(kind: str, data: dict, path: Path | str) -> dict:
     """Write ``data`` to ``path`` as a ``kind`` artifact; return exactly what was written.
 
-    - ``schema_version`` is set to the current version for ``kind`` and leads the document
-      (a value already in ``data`` is replaced); ``data`` itself is not mutated.
+    - ``schema_version`` is set to the current version for ``kind`` and leads the document,
+      followed by the :func:`envelope` (``run_id``, ``dokimi_version``) unless ``kind`` is an
+      input kind. Values already in ``data`` under these keys are replaced: the file records the
+      process that last saved it, so an artifact built from a loaded one takes the new run's id.
+      ``data`` itself is not mutated.
     - The payload is validated first. :class:`ArtifactValidationError` means nothing was
       written at ``path`` (a file already there is untouched); the rejected payload is kept
       at ``<name>.rejected`` so a paid run is not lost to a schema problem. A later valid
       save to ``path`` removes that ``<name>.rejected`` (only that sibling), so a leftover
       always belongs to the latest attempt; if it cannot be removed the save still stands and
-      a warning is logged. ``KeyError`` means ``kind`` is not registered in
+      a warning is logged. :class:`~dokimi.utils.InputError` means ``DOKIMI_RUN_ID`` is malformed
+      (``cli.main`` refuses it before a command runs): nothing is written at ``path`` and the payload
+      is kept at ``<name>.rejected`` the same way. ``KeyError`` means ``kind`` is not registered in
       :data:`SCHEMA_VERSIONS`.
     - The write is atomic (a ``<name>.<pid>.<thread>.tmp`` sibling, then ``os.replace``), so a
       reader or a crash never sees half a file, and concurrent saves to one path (threads or
@@ -183,10 +251,15 @@ def save_artifact(kind: str, data: dict, path: Path | str) -> dict:
     """
     if kind not in SCHEMA_VERSIONS:
         raise KeyError(f"Unknown artifact kind: {kind!r}")
-    payload = {"schema_version": SCHEMA_VERSIONS[kind],
-               **{k: v for k, v in data.items() if k != "schema_version"}}
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        head = {"schema_version": SCHEMA_VERSIONS[kind], **envelope(kind)}
+    except InputError as exc:  # a malformed DOKIMI_RUN_ID in library use: keep the paid payload
+        rejected = path.with_name(path.name + ".rejected")
+        rejected.write_text(json.dumps({"schema_version": SCHEMA_VERSIONS[kind], **data}, indent=2), encoding="utf-8")
+        raise InputError(f"{exc}\n(not written to {path}; payload kept at {rejected})") from exc
+    payload = {**head, **{k: v for k, v in data.items() if k not in head}}
     text = json.dumps(payload, indent=2)
     try:
         validate_artifact(kind, payload)

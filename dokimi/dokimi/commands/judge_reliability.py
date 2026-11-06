@@ -172,8 +172,7 @@ def cmd_eval_pairwise(args: argparse.Namespace) -> None:
         concurrency=args.concurrency, progress=_progress(),
     )
     if not report.verdicts and not report.errors:
-        print(f"Error: no question has both a `{baseline}` answer and another arm's", file=sys.stderr)
-        sys.exit(2)
+        raise InputError(f"no question has both a `{baseline}` answer and another arm's")
     md = report.format_markdown()
     out = Path(args.output or Path(args.answers).with_name(Path(args.answers).stem + "_pairwise.json"))
     write_text_or_exit(out, json.dumps({**report.to_dict(), "judge_temperature": getattr(args, "judge_temperature", None)},
@@ -182,7 +181,7 @@ def cmd_eval_pairwise(args: argparse.Namespace) -> None:
     if not report.verdicts:
         # Written first, so the reasons are not lost with the run.
         print(f"Error: all {len(report.errors)} comparison(s) failed; see `errors` in {out}", file=sys.stderr)
-        sys.exit(2)
+        sys.exit(EXIT_FAILURE)  # a run failure, not bad input
     print()
     print(md)
     print(f"✅ Pairwise report saved to {out} (+ .md)")
@@ -211,8 +210,7 @@ def cmd_eval_checklist(args: argparse.Namespace) -> None:
         baseline_arm=baseline, arms=arms, concurrency=args.concurrency, progress=_progress(),
     )
     if not report.verdicts:
-        print("Error: no question in the answers file has expected_topics in --questions", file=sys.stderr)
-        sys.exit(2)
+        raise InputError("no question in the answers file has expected_topics in --questions")
     out = Path(args.output or Path(args.answers).with_name(Path(args.answers).stem + "_checklist.json"))
     # The JSON first: the paid calls are in it, and a rendering error must not lose them.
     write_text_or_exit(out, json.dumps({**report.to_dict(), "judge_temperature": args.judge_temperature}, indent=2), code=2)
@@ -236,8 +234,7 @@ def cmd_eval_judge_wording(args: argparse.Namespace) -> None:
     wordings = [w.strip() for w in args.wordings.split(",")] if args.wordings else list(WORDINGS)
     unknown = sorted(set(wordings) - set(WORDINGS))
     if unknown:
-        print(f"Error: unknown wording(s): {unknown}; known: {sorted(WORDINGS)}", file=sys.stderr)
-        sys.exit(2)
+        raise InputError(f"unknown wording(s): {unknown}; known: {sorted(WORDINGS)}")
     pairs = _build(answers, {}, n_bases=args.bases, seed=args.seed, variants=variants, library=library).pairs
     label = f"{args.judge_provider}/{args.judge_model}"
     n_cond = 1 + args.redraws + len(wordings)
@@ -288,9 +285,7 @@ def cmd_eval_cross_judge(args: argparse.Namespace) -> None:
     truth: dict[str, str] | None = None
     if args.grounded:
         if not args.questions:
-            print("Error: --grounded needs --questions (their expected_topics are the ground truth)",
-                  file=sys.stderr)
-            sys.exit(2)
+            raise InputError("--grounded needs --questions (their expected_topics are the ground truth)")
         truth = {q: t for q, pts in _load_points(args.questions).items()
                  if (t := _ground_truth_from_topics({"expected_topics": pts}))}
 
@@ -312,14 +307,9 @@ def cmd_eval_cross_judge(args: argparse.Namespace) -> None:
         JudgeContextStore.from_artifact(data) if args.judges and isinstance(data, dict) else None
     )
 
-    from dokimi.records import RecordError
-
-    try:
-        stored = None if args.no_stored or not isinstance(data, dict) else stored_measure(data)
-        pair_unrepro = unreproducible_arms(data) if stored and (args.pairwise or args.checklist) else []
-    except RecordError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        sys.exit(2)  # bad input, not a failed gate
+    # A RecordError here is an InputError: cli.main prints it and exits 2 (bad input, not a failed gate).
+    stored = None if args.no_stored or not isinstance(data, dict) else stored_measure(data)
+    pair_unrepro = unreproducible_arms(data) if stored and (args.pairwise or args.checklist) else []
     if (m := stored):
         # Re-scored judges get the file's judge_materials; pairwise and checklist
         # judges see the answers alone. Each path sees different input, so we refuse
@@ -363,24 +353,25 @@ def cmd_eval_cross_judge(args: argparse.Namespace) -> None:
                     elif s.get("judge_context_sha256") != served:
                         differs.setdefault(arm, []).append(qid)
 
+        problems: list[str] = []
         if unrepro:
-            print(f"Error: the stored judge saw treatment material for {', '.join(sorted(unrepro))}, but a "
-                  "pairwise or checklist judge sees only the answers, not the arm's treatment material, "
-                  "so the comparison would mix a change of judge with a change of input. Pass "
-                  "--no-stored to compare them with each other.", file=sys.stderr)
+            problems.append(f"the stored judge saw treatment material for {', '.join(sorted(unrepro))}, but a "
+                            "pairwise or checklist judge sees only the answers, not the arm's treatment material, "
+                            "so the comparison would mix a change of judge with a change of input. Pass "
+                            "--no-stored to compare them with each other.")
         for arm, qids in sorted(differs.items()):
-            print(f"Error: for {arm}, the stored score cites different material than the arm record "
-                  f"serves a re-scored judge, for question(s) {', '.join(map(repr, qids))}: the "
-                  "re-scored judge would read a different text. Pass --no-stored to compare "
-                  "them with each other.", file=sys.stderr)
+            problems.append(f"for {arm}, the stored score cites different material than the arm record "
+                            f"serves a re-scored judge, for question(s) {', '.join(map(repr, qids))}: the "
+                            "re-scored judge would read a different text. Pass --no-stored to compare "
+                            "them with each other.")
         for arm, qids in sorted(unserved.items()):
-            print(f"Error: for {arm}, no usable material can be read for question(s) "
-                  f"{', '.join(map(repr, qids))} (the record cites no digest, the text fails its "
-                  "digest, or the question has no usable id), so a re-scored judge would read "
-                  "snippets where the stored judge read the material. Pass --no-stored to "
-                  "compare them with each other.", file=sys.stderr)
-        if unrepro or differs or unserved:
-            sys.exit(2)
+            problems.append(f"for {arm}, no usable material can be read for question(s) "
+                            f"{', '.join(map(repr, qids))} (the record cites no digest, the text fails its "
+                            "digest, or the question has no usable id), so a re-scored judge would read "
+                            "snippets where the stored judge read the material. Pass --no-stored to "
+                            "compare them with each other.")
+        if problems:
+            raise InputError("\n".join(problems))
         report.measures.append(m)
 
     # Read every result file, and its entries, before the first judge call, so a bad file costs no paid calls.
@@ -397,9 +388,7 @@ def cmd_eval_cross_judge(args: argparse.Namespace) -> None:
     for spec in specs:
         provider, _, model = spec.partition("/")
         if not model or provider not in JUDGE_PROVIDERS:
-            print(f"Error: --judges entry '{spec}' must be provider/model, provider in {JUDGE_PROVIDERS}",
-                  file=sys.stderr)
-            sys.exit(2)
+            raise InputError(f"--judges entry '{spec}' must be provider/model, provider in {JUDGE_PROVIDERS}")
         print(f"Scoring with {spec} ...", flush=True)
         judge = Judge(model=model, provider=provider, temperature=args.judge_temperature)
         for grounding in ([None, truth] if truth and args.both else [truth]):
@@ -417,9 +406,7 @@ def cmd_eval_cross_judge(args: argparse.Namespace) -> None:
     for missed in report.apply_validity(validity):
         print(f"⚠️  --validity for `{missed}` matches no measure (compare the judge labels and contexts)", file=sys.stderr)
     if not report.measures:
-        print("Error: nothing to compare — give --judges, --checklist, or an answers file with evaluations",
-              file=sys.stderr)
-        sys.exit(2)
+        raise InputError("nothing to compare — give --judges, --checklist, or an answers file with evaluations")
     md = report.format_markdown()
     out = Path(args.output or Path(args.answers).with_name(Path(args.answers).stem + "_crossjudge.json"))
     write_text_or_exit(out, json.dumps({**report.to_dict(), "judge_temperature": args.judge_temperature}, indent=2),
@@ -434,7 +421,7 @@ def cmd_eval_cross_judge(args: argparse.Namespace) -> None:
 
 
 def _scored_nothing_exit(unscored: Sequence[Measure]) -> None:
-    """Exit 2 when a ``--judges`` judge scored none of its answers.
+    """Exit 1 (a run failure) when a ``--judges`` judge scored none of its answers.
 
     That is a judge that could not run (no key, an unknown model, a dead endpoint),
     not a measurement, so it fails the run even without ``--strict`` and even when
@@ -445,7 +432,7 @@ def _scored_nothing_exit(unscored: Sequence[Measure]) -> None:
         print(f"Error: {m.name} ({m.kind}) scored none of its {m.asked} answers, first error: {m.first_error}",
               file=sys.stderr)
     if dead:
-        sys.exit(2)
+        sys.exit(EXIT_FAILURE)
 
 
 def _strict_cross_judge_exit(arms: dict[str, dict[str, Any]], baseline_arm: str) -> None:
