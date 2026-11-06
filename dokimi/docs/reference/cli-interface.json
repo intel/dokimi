@@ -215,7 +215,6 @@
                 "'claude-cli'",
                 "'google-vertex'",
                 "'openai'",
-                "'openai-codex'",
                 "'openrouter'"
               ],
               "const": null,
@@ -1979,7 +1978,6 @@
                 "'claude-cli'",
                 "'google-vertex'",
                 "'openai'",
-                "'openai-codex'",
                 "'openrouter'"
               ],
               "const": null,
@@ -2195,7 +2193,6 @@
                 "'claude-cli'",
                 "'google-vertex'",
                 "'openai'",
-                "'openai-codex'",
                 "'openrouter'"
               ],
               "const": null,
@@ -2491,7 +2488,6 @@
                 "'claude-cli'",
                 "'google-vertex'",
                 "'openai'",
-                "'openai-codex'",
                 "'openrouter'"
               ],
               "const": null,
@@ -5604,7 +5600,6 @@
                     "'claude-cli'",
                     "'google-vertex'",
                     "'openai'",
-                    "'openai-codex'",
                     "'openrouter'"
                   ],
                   "const": null,
@@ -6009,7 +6004,6 @@
                     "'claude-cli'",
                     "'google-vertex'",
                     "'openai'",
-                    "'openai-codex'",
                     "'openrouter'"
                   ],
                   "const": null,
@@ -8333,7 +8327,6 @@
             "'claude-cli'",
             "'google-vertex'",
             "'openai'",
-            "'openai-codex'",
             "'openrouter'"
           ],
           "const": null,
