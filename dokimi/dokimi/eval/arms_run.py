@@ -121,35 +121,53 @@ def validate_supported_matrix_harnesses(cells) -> None:
 
 
 def resolve_doc_library_id(treatments, product: str, explicit_id=None, registry=None):
-    """Resolve a library id for the first doc arm, before plugin wrapping.
+    """Resolve the library id of every doc arm, before plugin wrapping.
 
-    Same order as the ``answers``/``questions`` commands: explicit flag, then
-    the ``;id=`` of an ``mcp:`` source, then the product's ``context7_id`` in
-    ``products.yaml``, then the client's own resolution. When no id can be
-    named the ``ValueError`` is raised to the caller, which stops the run:
-    substituting the product name
-    would query an id that does not exist and record an empty-retrieval doc
-    arm as a measurement. Other failures (an unreachable MCP server, say) still
-    fall back to the product name and are reported by the arm itself.
+    Each ``DocTreatment``, top-level or inside a ``+`` stack, keeps its own id
+    in ``library_id``, so an ``mcp:`` source's ``;id=`` applies to its own arm
+    whatever the arm order. The return value is the first top-level doc arm's
+    id (the run-wide id the records carry), or ``None`` without one.
+
+    Same order as the ``answers``/``questions`` commands: explicit flag (an
+    empty one counts as unset), then the ``;id=`` of an ``mcp:`` source, then
+    the product's ``context7_id`` in ``products.yaml``, then the client's own
+    resolution. When no id can be named the ``ValueError`` is raised to the
+    caller, which stops the run: substituting the product name would query an
+    id that does not exist and record an empty-retrieval doc arm as a
+    measurement. Other failures (an unreachable MCP server, say) still fall
+    back to the product name for that arm, which the arm reports.
     """
-    if explicit_id is not None:
-        return explicit_id
-
     from dokimi.mcp.factory import resolve_library_id_for_product
     from dokimi.treatments.arms import DocTreatment
 
+    def resolve(arm):
+        if explicit_id:
+            arm.library_id = explicit_id
+            return explicit_id
+        try:
+            arm.library_id = resolve_library_id_for_product(
+                product, arm.mcp_client, registry=registry
+            )
+        except ValueError:
+            raise
+        except Exception:
+            arm.library_id = product
+        return arm.library_id
+
+    first = None
     for treatment in treatments:
         unwrapped = getattr(treatment, "inner", treatment)
         if isinstance(unwrapped, DocTreatment):
-            try:
-                return resolve_library_id_for_product(
-                    product, unwrapped.mcp_client, registry=registry
-                )
-            except ValueError:
-                raise
-            except Exception:
-                return product
-    return None
+            lib_id = resolve(unwrapped)
+            if first is None:
+                first = lib_id
+        for sub in getattr(unwrapped, "treatments", None) or []:
+            sub = getattr(sub, "inner", sub)
+            if isinstance(sub, DocTreatment):
+                resolve(sub)
+    if first is None and explicit_id:
+        return explicit_id
+    return first
 
 
 def _offered_skill_names(treatments) -> set:
