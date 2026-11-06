@@ -2295,7 +2295,9 @@ python cli.py repo hits judge repo-runs/replay --judge openai/gpt-5.1 --labels l
   date, still checked by name), a `patch:` arm (it has no history), an
   `arm_rev` with no `guidance_latest` (a batch from before it was recorded),
   or a `meta.json` or `task.json` of the wrong shape; the reason is given.
-  Cells of one task may differ (pooled batches): a flag any cell sets counts.
+  Cells of one task may differ (pooled batches): a flag any cell sets counts,
+  and a cell with no `task.json` whose `arm_rev` no checked cell of the task
+  has leaves the task unknown, as its history was not read.
   The `--json` summary's `leak` holds one entry per checked arm (`[]` when
   none is): `arm`, `kind` (`guidance:rev` or `patch`), `revisions` (each
   `rev` and `sha`), `checked`, `not_checked` (the arm's other tasks, whose

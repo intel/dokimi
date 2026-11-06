@@ -30,7 +30,8 @@ thread because a rule was written from it (https://github.com/intel/dokimi/issue
 
 A ``patch:`` arm has no history: each of its replay tasks is unknown, and so is each of an ``arm_rev`` with
 no ``guidance_latest`` (a batch from before it was recorded). Cells of one (arm, task) may differ (pooled
-batches): a flag any cell sets counts, the named commits are their union. A ``meta.json`` or ``task.json``
+batches): a flag any cell sets counts, the named commits are their union, and a cell with no ``task.json``
+whose ``arm_rev`` no checked cell of the task has leaves it unknown. A ``meta.json`` or ``task.json``
 of the wrong shape makes its task unknown, with the reason. The flags change no delta, interval or p.
 """
 
@@ -55,6 +56,7 @@ LIST_CAP = 10  # ids shown on a line of text before "and N more"
 _State = tuple[str, Any]  # ("flag", what tripped it) | ("clean", None) | ("unknown", reason)
 _CLEAN: _State = ("clean", None)
 _NO_SPEC: _State = ("unknown", "no cell has a task.json")
+_UNREAD_HISTORY: _State = ("unknown", "a cell with no task.json ran a guidance history no other cell read")
 
 
 def leak_check(batch_dirs: list[Path], arms: dict[str, list[dict[str, Any]]]) -> list[dict[str, Any]]:
@@ -100,15 +102,16 @@ def _kind(cells: list[dict[str, Any]], metas: list[Any]) -> str | None:
 
 def _arm_entry(text: str, kind: str, read: list[tuple[str, Any, Any]]) -> dict[str, Any]:
     states: dict[str, list[tuple[_State, _State]]] = {}
+    histories: dict[str, list[Any]] = {}  # task → the guidance histories its checked cells read
     truncated = False
     for task, meta, spec in read:
         checked = _check_cell(kind, meta, spec)
         if checked is not None:
             states.setdefault(task, []).append(checked)
-            rev = meta.get("arm_rev") if isinstance(meta, dict) else None
+            histories.setdefault(task, []).append(rev := _history(meta))
             truncated |= isinstance(rev, dict) and rev.get("guidance_commits_truncated") is True
-    unread = {task for task, _, _ in read} - {task for task, _, spec in read if spec is not None}
-    states.update({task: [(_NO_SPEC, _NO_SPEC)] for task in unread})  # a host error before the runner wrote it
+    for task, state in _no_spec(read, histories).items():
+        states.setdefault(task, []).append((state, state))
     entry: dict[str, Any] = {"arm": text, "kind": kind, "revisions": _revisions(read), "checked": sorted(states),
                              "not_checked": sorted({task for task, _, _ in read} - set(states)),
                              "by_date": {}, "by_name": {}, "unknown": {}, "clean": [], "names_truncated": truncated}
@@ -124,6 +127,24 @@ def _arm_entry(text: str, kind: str, read: list[tuple[str, Any, Any]]) -> dict[s
         elif date == name == _CLEAN:
             entry["clean"].append(task)
     return entry
+
+
+def _no_spec(read: list[tuple[str, Any, Any]], histories: dict[str, list[Any]]) -> dict[str, _State]:
+    """The tasks a cell with no ``task.json`` (a host error before the runner wrote it) leaves unknown: none of
+    their cells has one, or the cell ran a guidance history (pooled batches) that no checked cell of the task read."""
+    specs = {task for task, _, spec in read if spec is not None}
+    out: dict[str, _State] = {}
+    for task, meta, spec in read:
+        if spec is None and task not in specs:
+            out[task] = _NO_SPEC
+        elif spec is None and task in histories and _history(meta) not in histories[task]:
+            out[task] = _UNREAD_HISTORY
+    return out
+
+
+def _history(meta: Any) -> Any:
+    """What a cell's flags were read from: its ``arm_rev``, or ``meta.json`` itself when it has none."""
+    return meta.get("arm_rev") if isinstance(meta, dict) else meta
 
 
 def _hit_order(hit: dict[str, Any]) -> tuple[datetime, str]:

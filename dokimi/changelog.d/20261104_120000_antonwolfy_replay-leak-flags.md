@@ -10,7 +10,8 @@
   a path under its directory; any other guidance file, and every file for a task with no
   `patch_files`, applies to every task. A task is unknown, with the reason, when it has no
   `public_at` (by date), the arm is a `patch:` arm, the batch recorded no guidance history, a cell
-  file has the wrong shape or none of its cells has a `task.json`, or `guidance_commits_truncated` cut commits that may be later than its
+  file has the wrong shape, none of its cells has a `task.json` or one without it ran an `arm_rev` no
+  checked cell has (pooled batches), or `guidance_commits_truncated` cut commits that may be later than its
   `public_at` (by name). The `--json` summary's `leak` lists each checked arm's `checked`,
   `not_checked`, `by_date`, `by_name`, `unknown`, `clean` and `names_truncated`; the text prints the
   counts, the tasks named with their commits and, as `--task` options, the clean tasks with the ones

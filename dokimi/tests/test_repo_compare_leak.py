@@ -317,6 +317,28 @@ def test_a_task_with_no_task_json_in_any_cell_is_unknown_not_clean(tmp_path):
     assert "  clean: --task review_replay_pr1" in lines
 
 
+def test_a_cell_with_no_task_json_and_a_history_no_other_cell_read_leaves_its_task_unknown(tmp_path):
+    """Pooled batches: pr1's b2 cell lost its ``task.json`` and ran a root AGENTS.md committed after pr1's
+    ``public_at``; b1's earlier history alone would call pr1 clean."""
+    early = _rev({"AGENTS.md": _commit(SHA["root"], EARLY)})
+    late = _rev({"AGENTS.md": _commit(SHA["root"], LATE)})
+    late["arm_rev"]["sha"] = "9" * 40
+    specs = {"review_replay_pr1": _spec(1), "review_replay_pr2": _spec(2), "review_replay_pr3": _spec(3)}
+    b1, b2 = _batch(tmp_path, early, specs, name="b1"), tmp_path / "b2"
+    _cell(b2, "review_replay_pr1", "guidance:none", spec=_spec(1))
+    _cell(b2, "review_replay_pr1", REV, meta=late)
+    _cell(b2, "review_replay_pr2", "guidance:none", spec=_spec(2))
+    _cell(b2, "review_replay_pr2", REV, meta=late, spec=_spec(2))
+    summary = compare([b1, b2], "guidance:none")
+    leak = _leak(summary)
+    reason = "a cell with no task.json ran a guidance history no other cell read"
+    assert leak["unknown"] == {"review_replay_pr1": reason}
+    assert list(leak["by_date"]) == ["review_replay_pr2"] and leak["clean"] == ["review_replay_pr3"]
+    lines = format_compare(summary).splitlines()
+    assert f"  unknown, {reason}: review_replay_pr1" in lines
+    assert "  clean: --task review_replay_pr3" in lines
+
+
 def test_task_narrows_the_check_to_the_selected_tasks(tmp_path):
     meta = _rev({"AGENTS.md": _commit(SHA["root"], LATE)})
     specs = {f"review_replay_pr{n}": _spec(n, public=EARLY if n == 1 else "2026-05-01T00:00:00Z") for n in (1, 2, 3)}
