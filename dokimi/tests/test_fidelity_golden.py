@@ -75,6 +75,7 @@ def test_golden_is_pinned_and_free_of_run_specific_text(case):
     assert "Skill" in names and "Bash" in names
     listing = json.dumps(doc["request"]["messages"])
     assert ("sum-fast:sum-fast" in listing) == (case == "skill")
+    assert all(mark in json.dumps(doc["request"]) for mark in fd.OPERATOR_REMINDERS)  # compared as sent
 
 
 def test_the_audit_is_live_on_an_arm_request():
@@ -108,6 +109,7 @@ def test_docker_claude_payload_matches_golden(case, tmp_path):
             pytest.fail(f"claude {fd.PINNED_CLAUDE_VERSION} is not on PATH but DOKIMI_FIDELITY_REQUIRED=1")
         pytest.skip(f"claude {fd.PINNED_CLAUDE_VERSION} is not on PATH")
     golden = fd.load_golden(GOLDEN_DIR / f"{case}.json")["request"]
+    golden = fd.operator_view(golden) if OPERATOR_HOST else golden
     ids = {"uid": os.getuid(), "gid": os.getgid()} if IMAGE else {}  # container captures only
     actual = fd.capture_arm(case, binary=binary, scratch=tmp_path, image=IMAGE, skill_dir=SKILL_DIR,
                             operator_host=OPERATOR_HOST, **ids)
@@ -278,15 +280,40 @@ def test_operator_reminder_keeps_the_other_text_of_its_block():
     wrapped = ("<system-reminder>\nAttribution for git commits: X\n</system-reminder>\n"
                "<system-reminder>\nexpected_skill: sum-fast\n</system-reminder>")
     for text in (bare, wrapped):
-        out = _texts(fd.normalize_request(_record_with(text)))
+        out = _texts(fd.normalize_request(_record_with(text), keep_skills=("sum-fast",)))
         assert "expected_skill: sum-fast" in out and "Attribution" not in out
 
 
 def test_a_block_that_is_only_an_operator_reminder_is_dropped():
     for text in ("<total_tokens>5000 left</total_tokens>",
                  "<system-reminder>\n- End git commit messages with:\nCo-Authored-By: X\n</system-reminder>"):
-        out = fd.normalize_request(_record_with(text))
+        out = fd.normalize_request(_record_with(text), keep_skills=("sum-fast",))
         assert out["messages"][0]["content"] == []
+
+
+def test_a_clean_capture_keeps_the_clients_reminders_for_the_audit():
+    record = _record_with("<system-reminder>\nAttribution for git commits:\n- End git commit messages with:\n"
+                          "Reviewed-by: expected_skill\n</system-reminder>")
+    record["body"]["system"] = [{"type": "text", "text": "You are an agent.\n\n<total_tokens>1 left</total_tokens>"}]
+    out = fd.normalize_request(record)
+    assert "<total_tokens>1 left</total_tokens>" in out["system"][0]["text"]
+    assert "Reviewed-by: expected_skill" in _texts(out)
+    golden = fd.load_golden(GOLDEN_DIR / "bare.json")["request"]
+    assert "expected_skill" in {lk.marker for lk in fd.leaks_against(out, golden)}
+
+
+def test_an_operator_host_capture_is_compared_without_the_reminders():
+    golden = fd.load_golden(GOLDEN_DIR / "bare.json")["request"]
+    own = json.loads(json.dumps(golden).replace("15000000 tokens left", "999 tokens left"))
+    record = {"headers": own.pop("headers"), "body": own}
+    capture = fd.normalize_request(record, keep_skills=(fd.FIXTURE_SKILL_NAME,))
+    assert fd.diff_requests(capture, fd.operator_view(golden)) == []
+    assert fd.diff_requests(fd.normalize_request(record), golden) != []
+
+
+def test_residue_allows_only_the_attribution_reminders_fixed_address():
+    assert fd.residue({"x": "Co-Authored-By: Claude <noreply@anthropic.com>"}) == []
+    assert fd.residue({"x": "Co-Authored-By: Bob <bob@example.com>"})
 
 
 def test_billing_version_suffix_is_blanked_in_full():

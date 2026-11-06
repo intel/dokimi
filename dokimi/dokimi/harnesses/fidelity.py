@@ -20,8 +20,8 @@ The arm side is :func:`arm_argv`: it asks the arm's own argv builder for the
 ``claude -p …`` command line, so the test exercises the flags the arm really passes.
 
 The golden is taken with the pinned Claude Code (:data:`PINNED_CLAUDE_VERSION`) in a
-clean container, because a host home carries the operator's own ``CLAUDE.md`` and
-reminders that a user's agent in a container never sees. See
+clean container, because a host home can carry its own ``CLAUDE.md``, reminders and skills
+that a user's agent in a container never sees. See
 ``tests/fixtures/fidelity/README.md`` for how to refresh it.
 """
 
@@ -226,8 +226,8 @@ def _walk(value: Any, fn: Callable[[str], str]) -> Any:
     return value
 
 
-#: Reminders this build adds to every request (a token budget, the operator's attribution
-#: rule); a user's agent in a clean container has neither, so the golden leaves them out.
+#: The client's token-budget and commit-attribution reminders: part of the golden, removed
+#: only for an operator-host capture whose client adds its own (``keep_skills`` set).
 OPERATOR_REMINDERS = ("<total_tokens>", "Attribution for git commits", "End git commit messages with")
 _TOKEN_BUDGET = re.compile(r"\n*<total_tokens>.*?</total_tokens>", re.DOTALL)
 #: The operator's commit-attribution rule, as the reminder words it in each build.
@@ -271,19 +271,21 @@ def _keep_listing(text: str, keep_skills: Sequence[str]) -> str:
 
 
 def _keep_text(text: str, keep_skills: Optional[Sequence[str]]) -> Optional[str]:
-    """The text of one block with the operator extras out; None drops the block.
+    """The text of one block, with the operator extras out when *keep_skills* is set; None drops it.
 
     Only the operator's own reminder is removed: its ``<system-reminder>`` element, or a bare
     line with its marker, and the delimited token budget. Other text in the same block is
     kept. A block left empty by that is dropped.
     """
+    if keep_skills is None:
+        return text
     cleaned = _REMINDER_ELEMENT.sub(
         lambda m: "" if any(mk in m.group(0) for mk in _ATTRIBUTION_MARKS) else m.group(0), text)
     cleaned = _ATTRIBUTION.sub("", _TOKEN_BUDGET.sub("", cleaned))
     if cleaned != text and not re.sub(r"</?system-reminder>|\s", "", cleaned):
         return None  # only the reminder's wrapper is left: the block was the reminder
     text = cleaned
-    if keep_skills is None or _SKILLS_HEADER not in text:
+    if _SKILLS_HEADER not in text:
         return text
     kept = _keep_listing(text, keep_skills)
     if any(ln.startswith("- ") for ln in kept.split("\n")):
@@ -309,7 +311,7 @@ def _strip_content(content: Any, keep_skills: Optional[Sequence[str]]) -> Any:
 
 
 def _strip_system(system: Any) -> Any:
-    """This build also appends a token budget to the system prompt; drop it."""
+    """The client also appends a token budget to the system prompt; drop it (operator host)."""
     if not isinstance(system, list):
         return system
     return [{**blk, "text": _TOKEN_BUDGET.sub("", blk["text"])}
@@ -318,9 +320,9 @@ def _strip_system(system: Any) -> Any:
 
 
 def _strip_operator_extras(body: dict, keep_skills: Optional[Sequence[str]]) -> dict:
-    """Drop :data:`OPERATOR_REMINDERS`, and with *keep_skills* every skill-listing entry but those."""
+    """With *keep_skills*, drop :data:`OPERATOR_REMINDERS` and every skill-listing entry but those."""
     out = dict(body)
-    if "system" in out:
+    if "system" in out and keep_skills is not None:
         out["system"] = _strip_system(out["system"])
     out["messages"] = [{**msg, "content": _strip_content(msg.get("content"), keep_skills)}
                        for msg in body.get("messages", [])]
@@ -331,9 +333,10 @@ def normalize_request(record: dict, *, workdir: str = "", home: str = "",
                       keep_skills: Optional[Sequence[str]] = None) -> dict:
     """The golden-comparable form of one recorded request.
 
-    The skill listing is compared as sent. *keep_skills* filters it to those skills, for an
-    operator-host capture only (:func:`capture_arm` ``operator_host=True``): a clean capture
-    that gains a skill is a broken seal, and the golden must show it.
+    The skill listing and the client's reminders are compared as sent. *keep_skills* filters
+    the listing to those skills and drops :data:`OPERATOR_REMINDERS`, for an operator-host
+    capture only (:func:`capture_arm` ``operator_host=True``): a clean capture that gains a
+    skill is a broken seal, and a changed reminder is a change of what the solver reads.
 
     Keeps the body (model, system, tools, messages, thinking and context settings) and the
     :data:`KEPT_HEADERS`; the body's ``metadata.user_id`` carries per-run ids, so it is
@@ -348,6 +351,11 @@ def normalize_request(record: dict, *, workdir: str = "", home: str = "",
     headers = {k: v for k, v in (record.get("headers") or {}).items() if k in KEPT_HEADERS}
     kept = {k: (v if k in RAW_HEADERS else _walk(v, fn)) for k, v in headers.items()}
     return {"headers": kept, **_walk(body, fn)}
+
+
+def operator_view(request: dict) -> dict:
+    """A normalized golden as an operator-host capture sees it: no reminders, the fixture's skill only."""
+    return _strip_operator_extras(request, (FIXTURE_SKILL_NAME,))
 
 
 # -- golden I/O and comparison ----------------------------------------------------------
@@ -389,6 +397,10 @@ def leaks_against(actual: dict, golden: dict, allowed: Iterable[str] = ()) -> Li
     return new_leaks(actual, golden, allowed=list(allowed))
 
 
+#: The fixed address of the client's own commit-attribution reminder: not run-specific.
+_RESIDUE_ALLOWED = re.compile(r"<noreply@anthropic\.com>")
+
+
 def residue(value: Any) -> List[str]:
     """Run-specific text left in a normalized request: dates, UUIDs, versions, host paths.
 
@@ -405,7 +417,7 @@ def residue(value: Any) -> List[str]:
         for name, pat in (("date", _DATE), ("slash-date", _SLASH_DATE), ("month-year", _MONTH_YEAR),
                           ("uuid", _UUID), ("hex", _HEX64),
                           ("version", _VERSION_TAG), ("abs-path", _ABS_PATH), ("email", _EMAIL)):
-            if pat.search(text):
+            if pat.search(_RESIDUE_ALLOWED.sub("", text)):
                 found.append(f"{name}: {text[:80]!r}")
         return text
 
@@ -502,8 +514,8 @@ def capture_arm(case: str, *, binary: str, scratch: Path, image: Optional[str] =
     build are used, so the request is the one :class:`DockerSolverHarness` produces, minus
     the container's own paths, which are the same here. The ``skill`` case needs
     *skill_dir*, the skill to load (the golden uses :data:`FIXTURE_SKILL_REL`).
-    *operator_host* drops the skill-listing entries other than the fixture's, which an
-    operator's own build adds; never set it for CI or a golden capture.
+    *operator_host* drops :data:`OPERATOR_REMINDERS` and the skill-listing entries other than
+    the fixture's, which an operator's own build adds; never set it for CI or a golden capture.
     """
     from dokimi.harnesses.docker_solver import DockerSolverHarness
     from dokimi.harnesses.skill_treatment import build_plugin
