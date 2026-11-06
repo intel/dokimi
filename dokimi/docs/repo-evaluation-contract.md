@@ -2160,14 +2160,17 @@ python cli.py repo hits judge repo-runs/replay --judge openai/gpt-5.1 --labels l
   metric does: it is left out of its task's mean and `n`, and a null is never
   read as 0. `--json` gives `judged_cells` (`null` without a `judge:` metric):
   `metrics`, the `judge:` names asked for, and `arms`, per compared arm its
-  `cells` (of the compared models) and the counts `read`, `no_file`, `stale`,
+  `cells` (of the compared models) and the counts `read`, `no_file`, `not_judged`
+  (no file, and a cell `repo hits judge` never judges: a grader failure, a grade
+  without `matches`, or another grader), `stale`,
   `other_cell`, `no_threads`, `unjudged` and `unreadable`. The text prints one line per arm
   with a cell not read (`judge:recall_judged, guidance:none: 18 of 26 cells
   read (5 no hits_judged.json, 2 stale: regraded since judging, 1 with an
   unjudged pair); run repo hits judge again`; the hint is left off when every
-  cell not read has no gold thread, whose null a rerun writes again). When no
+  cell not read has no gold thread, whose null a rerun writes again, or is
+  `not_judged`, which a rerun leaves without a file). When no
   selected cell reports it, the refusal (exit 2) gives those counts and, unless
-  every cell has no gold thread, says to run
+  every cell is one of those two, says to run
   `repo hits judge <batch> --judge PROVIDER/MODEL` first. `hits_judged.json`
   carries no calibration, so compare cannot tell whether a person's labels
   backed the judge: the text adds one note, that the figure is a judge's

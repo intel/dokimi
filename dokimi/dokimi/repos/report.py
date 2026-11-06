@@ -337,6 +337,20 @@ def _metrics(cell_dir: Path) -> dict[str, Any]:
 REPLAY = "dokimi:review_replay"
 
 
+def replay_skip(cell_dir: Path, status: Any, grade: dict[str, Any] | None = None) -> str | None:
+    """Why :func:`load_hits` reads no pair of a cell (``other_grader``, ``grader_failure`` or ``without_matches``:
+    no ``matches`` list and not a parse error), so ``repo hits judge`` never judges it; ``None`` when it is read."""
+    grade = _grade_doc(cell_dir) if grade is None else grade
+    if grade.get("grader") != REPLAY:
+        return "other_grader"
+    if status == "grader_failure":  # the table scores this cell 0: no hit is credited to it
+        return "grader_failure"
+    details, metrics = grade.get("details"), grade.get("metrics")
+    matches = details.get("matches") if isinstance(details, dict) else None
+    unparsed = isinstance(metrics, dict) and metrics.get("parse_error") is True  # a measured 0 the mean keeps
+    return None if isinstance(matches, list) or unparsed else "without_matches"
+
+
 def load_hits(batch_dir: Path) -> dict[str, Any]:
     """``repo report --hits``: each credited pair of the batch's ``dokimi:review_replay`` cells, from their
     ``grade.json`` ``details.matches``, by task, arm, model and rep. ``replay_cells`` counts the cells whose
@@ -353,10 +367,11 @@ def load_hits(batch_dir: Path) -> dict[str, Any]:
     replay = without = failed = 0
     for rec in sorted(cells, key=lambda r: (r["task"], r["arm"], r["model"], r["rep"])):
         grade = _grade_doc(batch_dir / rec["cell"])
-        if grade.get("grader") != REPLAY:
+        skip = replay_skip(batch_dir / rec["cell"], rec["grade"]["status"], grade)
+        if skip == "other_grader":
             continue
         replay += 1
-        if rec["grade"]["status"] == "grader_failure":  # the table scores this cell 0: no hit is credited to it
+        if skip == "grader_failure":
             failed += 1
             continue
         details = grade.get("details")
@@ -365,7 +380,7 @@ def load_hits(batch_dir: Path) -> dict[str, Any]:
         metrics = grade.get("metrics")
         metrics = metrics if isinstance(metrics, dict) else {}
         unparsed = metrics.get("parse_error") is True  # no findings JSON: a measured 0 that the arm's mean keeps
-        if not isinstance(matches, list) and not unparsed:  # a grader error credits no thread: nothing is missing
+        if skip:  # a grader error credits no thread: nothing is missing
             without += "threads_hit" in details
             continue
         key = {"task": rec["task"], "arm": rec["arm"], "model": rec["model"], "rep": rec["rep"], "cell": rec["cell"]}

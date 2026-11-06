@@ -13,7 +13,8 @@ equals the cell's ``grade.json`` ``metrics.recall``, ``n_threads`` and credited 
 with the ``comment`` and ``message`` cuts its pairs record (else it was regraded since judging: the file is stale,
 even when the recall is the same), and whose ``recall_judged`` is a finite number. Any other cell does not report it, as a cell lacking a ``grade.json``
 metric does: it is left out of its task's mean and ``n``. A null ``recall_judged`` (an unjudged pair) is absent,
-never 0; so is the null of a cell with no gold thread, which has no pair to judge (reason ``no_threads``). Each cell gets one of :data:`REASONS`, and the summary counts them per compared arm (``judged_cells``).
+never 0; so is the null of a cell with no gold thread, which has no pair to judge (reason ``no_threads``). A cell with no file that ``report.load_hits``
+leaves out (a grader failure, no ``matches``, another grader) is ``not_judged``: ``repo hits judge`` never writes it. Each cell gets one of :data:`REASONS`, and the summary counts them per compared arm (``judged_cells``).
 
 The file carries no calibration, so compare cannot tell whether a person's labels backed the judge: the text says
 the figure is uncalibrated unless ``repo hits judge --labels`` reported agreement for these arms.
@@ -31,18 +32,22 @@ from dokimi.artifacts import SCHEMA_VERSIONS
 from .compare_tasks import CompareError
 from .hits_judge import HITS_JUDGED
 from .process_counts import as_measure
+from .report import replay_skip
 
 PREFIX = "judge:"
 #: The ``hits_judged.json`` fields a ``judge:`` metric may name.
 FIELDS = ("recall_judged",)
 #: Why a cell does or does not report a ``judge:`` metric, in the order the text names them.
-REASONS = ("read", "no_file", "stale", "other_cell", "no_threads", "unjudged", "unreadable")
-_SAID = {"no_file": f"no {HITS_JUDGED}", "stale": "stale: regraded since judging",
+REASONS = ("read", "no_file", "not_judged", "stale", "other_cell", "no_threads", "unjudged", "unreadable")
+_SAID = {"no_file": f"no {HITS_JUDGED}",
+         "not_judged": "not judgeable by repo hits judge",
+         "stale": "stale: regraded since judging",
          "other_cell": "not this cell's (cell, task, arm or model differ)", "no_threads": "with no gold thread",
          "unjudged": "with an unjudged pair",
          "unreadable": f"unreadable or not {SCHEMA_VERSIONS['repo_hits_judged']}"}
-#: The reasons a rerun of ``repo hits judge`` can change: a cell with no gold thread gets the same null again.
-RERUN = tuple(r for r in REASONS if r not in ("read", "no_threads"))
+#: The reasons a rerun of ``repo hits judge`` can change: a cell with no gold thread gets the same null again, and
+#: one ``report.load_hits`` leaves out gets no file.
+RERUN = tuple(r for r in REASONS if r not in ("read", "not_judged", "no_threads"))
 HINT = "run `repo hits judge <batch> --judge PROVIDER/MODEL`"
 
 
@@ -72,7 +77,7 @@ def read_judged(cell_dir: Path, rec: dict[str, Any], metrics: tuple[str, ...]) -
 def _judged(cell_dir: Path, rec: dict[str, Any]) -> tuple[float | None, str]:
     path = cell_dir / HITS_JUDGED
     if not os.path.lexists(path):
-        return None, "no_file"
+        return None, "no_file" if replay_skip(cell_dir, rec["grade"]["status"]) is None else "not_judged"
     doc = _json(path)
     if not isinstance(doc, dict) or doc.get("schema_version") != SCHEMA_VERSIONS["repo_hits_judged"]:
         return None, "unreadable"

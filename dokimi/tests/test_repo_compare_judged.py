@@ -15,6 +15,7 @@ from dokimi.artifacts import save_artifact
 from dokimi.cli import build_parser
 from dokimi.repos.compare import CompareError, compare, format_compare
 from dokimi.repos.hits_judge import cell_doc
+from dokimi.repos.report import REPLAY
 from tests import test_repo_hits_judge as hits
 from tests.test_repo_compare import _cell, _row
 
@@ -39,7 +40,7 @@ def _judged(batch: Path, task: str, arm: str, rep: int, same: int, *, recall: fl
                 for i in range(unjudged)])
     now = [(p["thread"], p["finding"]) for p in pairs] if credited is None else credited
     doc = json.loads((rd / "grade.json").read_text())
-    doc["details"] = {"matches": [{"thread": t, "finding": f} for t, f in now]}
+    doc["details"], doc["grader"] = {"matches": [{"thread": t, "finding": f} for t, f in now]}, REPLAY
     (rd / "grade.json").write_text(json.dumps(doc))
     if write:
         rec = {"cell": rd.name, "task": task, "arm": arm, "model": model, "rep": rep, "n_threads": threads,
@@ -65,7 +66,7 @@ def test_judged_recall_is_compared_next_to_recall_per_task(tmp_path):
     recall = _row(s, "metric:recall")  # grade.json's recall, read as before
     assert [(t["baseline"], t["treatment"]) for t in recall["tasks"]] == [(0.5, 0.75), (0.5, 1.0), (0.25, 0.25)]
     assert s["judged_cells"] == {"metrics": ["judge:recall_judged"], "arms": {
-        arm: {"cells": n, "read": n, "no_file": 0, "stale": 0, "other_cell": 0, "no_threads": 0, "unjudged": 0, "unreadable": 0}
+        arm: {"cells": n, "read": n, "no_file": 0, "not_judged": 0, "stale": 0, "other_cell": 0, "no_threads": 0, "unjudged": 0, "unreadable": 0}
         for arm, n in ((NONE, 4), (RAW, 4))}}
     text = format_compare(s).splitlines()
     assert not [line for line in text if "cells read" in line]  # every cell read: no line per arm
@@ -81,7 +82,7 @@ def test_credited_pairs_that_changed_with_the_same_recall_make_the_file_stale(tm
     _judged(b, "t1", RAW, 2, 1, credited=[(1, 1)])  # regraded: another thread and finding, recall still the same
     _judged(b, "t1", RAW, 3, 1, grade={"n_threads": 5})  # the task's gold changed size
     s = compare([b], NONE, metrics=("judge:recall_judged",))
-    assert s["judged_cells"]["arms"][RAW] == {"cells": 3, "read": 1, "no_file": 0, "stale": 2, "other_cell": 0,
+    assert s["judged_cells"]["arms"][RAW] == {"cells": 3, "read": 1, "no_file": 0, "not_judged": 0, "stale": 2, "other_cell": 0,
                                              "no_threads": 0, "unjudged": 0, "unreadable": 0}
     assert _row(s, JUDGED)["tasks"][0]["n_treatment"] == 1
 
@@ -214,7 +215,7 @@ def test_a_cell_whose_file_does_not_hold_up_is_left_out_and_counted(tmp_path):
     s = compare([b], NONE, metrics=("judge:recall_judged",))
     task = _row(s, JUDGED)["tasks"][0]
     assert (task["baseline"], task["treatment"], task["n_baseline"], task["n_treatment"]) == (0.5, 0.25, 1, 1)
-    assert s["judged_cells"]["arms"][RAW] == {"cells": 11, "read": 1, "no_file": 1, "stale": 1, "other_cell": 1,
+    assert s["judged_cells"]["arms"][RAW] == {"cells": 11, "read": 1, "no_file": 1, "not_judged": 0, "stale": 1, "other_cell": 1,
                                              "no_threads": 0, "unjudged": 1, "unreadable": 6}
     assert s["judged_cells"]["arms"][NONE]["read"] == 1
     lines = [line for line in format_compare(s).splitlines() if "cells read" in line]
@@ -305,5 +306,33 @@ def test_cli_compares_judged_recall_as_json(tmp_path, capsys):
     rows = {r["measure"]: r for r in out["comparisons"]}
     assert rows[JUDGED]["delta"]["mean"] == pytest.approx(0.5) and rows[JUDGED]["tasks"][0]["n_treatment"] == 1
     assert rows["metric:recall"]["tasks"][0]["n_treatment"] == 2
-    assert out["judged_cells"]["arms"][RAW] == {"cells": 2, "read": 1, "no_file": 1, "stale": 0, "other_cell": 0,
+    assert out["judged_cells"]["arms"][RAW] == {"cells": 2, "read": 1, "no_file": 1, "not_judged": 0, "stale": 0, "other_cell": 0,
                                                "no_threads": 0, "unjudged": 0, "unreadable": 0}
+
+
+def test_cells_repo_hits_judge_never_judges_get_no_rerun_hint(tmp_path, monkeypatch):
+    monkeypatch.delenv(caching.RESPONSE_CACHE_ENV, raising=False)
+    batch = hits._batch(tmp_path)  # r2: a grader failure (none) and a grade without matches (raw)
+    args = build_parser().parse_args(["repo", "hits", "judge", str(batch), "--judge", hits.JUDGE])
+    with llm.use_adapter(llm.FakeAdapter(respond=hits._reply)):
+        args.func(args)
+    s = compare([batch], NONE, metrics=("judge:recall_judged",))
+    assert {arm: (c["read"], c["not_judged"], c["no_file"]) for arm, c in s["judged_cells"]["arms"].items()}         == {NONE: (1, 1, 0), RAW: (1, 1, 0)}
+    assert [x for x in format_compare(s).splitlines() if "cells read" in x] == [
+        f"judge:recall_judged, {arm}: 1 of 2 cells read (1 not judgeable by repo hits judge)" for arm in (NONE, RAW)]
+    hits._judged(batch, RAW, 1).unlink()  # a cell it judges, its file gone: a rerun writes it
+    lines = [x for x in format_compare(compare([batch], NONE, metrics=("judge:recall_judged",))).splitlines()
+             if "cells read" in x]
+    assert lines[1] == (f"judge:recall_judged, {RAW}: 0 of 2 cells read (1 no hits_judged.json, 1 not judgeable "
+                        "by repo hits judge); run repo hits judge again")
+
+
+def test_a_selection_of_cells_never_judged_is_refused_without_the_hint(tmp_path):
+    b = tmp_path / "b1"
+    for arm in (NONE, RAW):
+        rd = _judged(b, "t1", arm, 1, 1, write=False)
+        grade = json.loads((rd / "grade.json").read_text())
+        (rd / "grade.json").write_text(json.dumps({**grade, "grader": "other:grader"}))  # load_hits skips it
+    with pytest.raises(CompareError) as exc:
+        compare([b], NONE, metrics=("judge:recall_judged",))
+    assert str(exc.value) == "no finished cell reports --metric judge:recall_judged (2 not judgeable by repo hits judge)"
