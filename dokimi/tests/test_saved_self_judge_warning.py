@@ -176,6 +176,25 @@ def test_pairwise_checks_the_escalation_judge_too(tmp_path, monkeypatch):
     assert ("gpt-6.1-sol", "openai") in seen
 
 
+def test_escalation_defaults_to_the_judge_provider_and_is_in_the_label(tmp_path, monkeypatch):
+    from dokimi.commands.judge_reliability import _pairwise_judges, pairwise_judge
+
+    built = []
+
+    class FakeJudge:
+        def __init__(self, model, provider, temperature=None):
+            built.append((model, provider))
+            self.llm = None
+
+    monkeypatch.setattr("dokimi.eval.judge.Judge", FakeJudge)
+    args = parse_args(["eval", "score", "pairwise", "--answers", str(_arms_file(tmp_path)),
+                       "--judge-provider", "anthropic", "--escalate-model", "claude-opus-5-5"])
+    assert _pairwise_judges(args)[1] == ("claude-opus-5-5", "anthropic")
+    _, label = pairwise_judge(args)
+    assert label.endswith(" pairwise → anthropic/claude-opus-5-5")  # stored as the measure name
+    assert ("claude-opus-5-5", "anthropic") in built
+
+
 def test_validate_with_a_typed_scorer_does_not_warn(tmp_path, monkeypatch):
     from types import SimpleNamespace
 
