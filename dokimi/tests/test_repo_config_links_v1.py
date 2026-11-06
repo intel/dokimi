@@ -21,9 +21,7 @@ symlinks = pytest.mark.skipif(os.name == "nt", reason="creating symlinks needs p
 
 def _tree(root, files):
     """A repository at ``root`` (it always has a ``.git``) holding ``files``; returns the resolved root."""
-    if not (root / ".git").exists():  # a real git repository: a .git git cannot read is a config error
-        subprocess.run(["git", "init", "-q", str(root)], check=True, capture_output=True,
-                       env={k: v for k, v in os.environ.items() if not k.startswith("GIT_")})
+    (root / ".git").mkdir(parents=True, exist_ok=True)
     for rel, text in files.items():
         path = root / rel
         path.parent.mkdir(parents=True, exist_ok=True)

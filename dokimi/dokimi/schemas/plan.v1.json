@@ -9,7 +9,9 @@
   "additionalProperties": false,
   "properties": {
     "schema_version": {"const": "plan.v1"},
-    "generated_at": {"type": "string", "description": "Left out of plan_digest: re-stamping a plan does not change it."},
+    "run_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}(?![\\s\\S])", "description": "The envelope: the id of the run that saved this file (dokimi.artifacts.run_id). Absent from files saved before the envelope."},
+    "dokimi_version": {"type": "string", "minLength": 1, "description": "The envelope: the dokimi version that saved this file. Absent from files saved before the envelope."},
+    "generated_at": {"type": "string", "description": "Left out of plan_digest, like the envelope: re-stamping a plan or saving it again does not change it."},
     "subjects": {
       "type": "array",
       "description": "What is under test: a skill, repository, doc source or profile, pinned by commit and content.",
