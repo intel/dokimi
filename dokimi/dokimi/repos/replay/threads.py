@@ -6,7 +6,8 @@
 The input is any JSON that holds pull request objects, each one an object with ``number``
 and ``reviewThreads``: one response, the list of pages ``gh api graphql --paginate --slurp``
 writes, or a plain list of pull requests. Connections are read as ``{"nodes": [...]}`` or
-as a list. A pull request that two pages both hold is read once.
+as a list. A pull request that two pages both hold is read once. ``repo tasks authoring``
+reads the objects with ``number`` and ``mergeCommit`` instead, and their ``body`` and ``createdAt``.
 
 A thread is gold when its first comment was written by someone other than the pull
 request's author, not by a bot (``__typename`` ``Bot``, or a login ending in ``[bot]``),
@@ -60,25 +61,28 @@ class PullRequest:
     merge: str | None  # ``mergeCommit``
     threads: tuple[Thread, ...]
     reviews: tuple[tuple[str | None, bool, str], ...]  # (author, bot, body) of each review
+    body: str = ""  # the description; read by `repo tasks authoring`
+    created: str = ""  # ``createdAt``, as the input gives it
 
 
-def read_threads(path: Path) -> list[PullRequest]:
-    """The pull requests of the threads file at ``path``."""
+def read_threads(path: Path, key: str = "reviewThreads", what: str = "threads file") -> list[PullRequest]:
+    """The pull requests of the file at ``path``: the objects with ``number`` and ``key``."""
     try:
         doc = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError, RecursionError) as exc:  # RecursionError: nested past the parser's limit
-        raise ReplayError(f"cannot read the threads file {path}: {exc}") from exc
-    return load_pull_requests(doc)
+        raise ReplayError(f"cannot read the {what} {path}: {exc}") from exc
+    return load_pull_requests(doc, key, what)
 
 
-def load_pull_requests(doc: Any) -> list[PullRequest]:
-    """The pull requests in ``doc``, by number; :class:`ReplayError` when it holds none."""
+def load_pull_requests(doc: Any, key: str = "reviewThreads", what: str = "threads file") -> list[PullRequest]:
+    """The pull requests in ``doc`` (objects with ``number`` and ``key``), by number; :class:`ReplayError`
+    when it holds none."""
     found: dict[int, PullRequest] = {}
-    for node in _pr_nodes(doc):
+    for node in _pr_nodes(doc, key):
         pr = _pull_request(node)
         found.setdefault(pr.number, pr)
     if not found:
-        raise ReplayError("the threads file holds no pull request: no object with `number` and `reviewThreads`")
+        raise ReplayError(f"the {what} holds no pull request: no object with `number` and `{key}`")
     return [found[n] for n in sorted(found)]
 
 
@@ -107,13 +111,13 @@ def review_bodies(pr: PullRequest) -> list[str]:
             if body.strip() and who is not None and who != pr.author and not bot]
 
 
-def _pr_nodes(doc: Any) -> Iterator[dict[str, Any]]:
-    """Every object with ``number`` and ``reviewThreads``, in document order; none is searched inside."""
+def _pr_nodes(doc: Any, key: str) -> Iterator[dict[str, Any]]:
+    """Every object with ``number`` and ``key``, in document order; none is searched inside."""
     stack = [doc]
     while stack:
         item = stack.pop()
         if isinstance(item, dict):
-            if "number" in item and "reviewThreads" in item:
+            if "number" in item and key in item:
                 yield item
                 continue
             stack.extend(reversed(list(item.values())))
@@ -132,7 +136,8 @@ def _pull_request(node: dict[str, Any]) -> PullRequest:
                     for r in _nodes(node.get("reviews"), "reviews", number))
     return PullRequest(number=number, title=_text(node.get("title")), url=_str(node.get("url")), author=author,
                        head=_oid(node.get("headRefOid")), merge=_oid(node.get("mergeCommit")),
-                       threads=threads, reviews=reviews)
+                       threads=threads, reviews=reviews, body=_text(node.get("body")),
+                       created=_text(node.get("createdAt")))
 
 
 def _thread(number: int, index: int, node: dict[str, Any], pr_author: str | None) -> Thread:

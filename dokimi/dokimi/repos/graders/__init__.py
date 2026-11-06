@@ -15,15 +15,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from . import typecheck
+from . import hidden_tests, typecheck
 from .review import GRADERS as REVIEW_GRADERS
 
 PREFIX = "dokimi:"
-NAMES = (*REVIEW_GRADERS, *typecheck.GRADERS)
+NAMES = (*REVIEW_GRADERS, *typecheck.GRADERS, *hidden_tests.GRADERS)
 # the data file each built-in grader reads next to task.json: the task key that renames it, and its default
 DATA_FILES = {"review_seeds": ("manifest", "manifest.json"), "review_replay": ("gold", "gold.json")}
 # graders whose options are the task's own fields, checked by ``eval check`` instead of a data file
-TASK_PROBLEMS = {"typecheck": typecheck.task_problems}
+TASK_PROBLEMS = {"typecheck": typecheck.task_problems, "hidden_tests": hidden_tests.task_problems}
 HOST_DIR = Path(__file__).resolve().parent
 ENTRY = "main.py"
 
