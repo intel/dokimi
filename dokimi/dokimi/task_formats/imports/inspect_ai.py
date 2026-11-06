@@ -327,7 +327,7 @@ def _hf_data_files(value: Any, root: Path, builder: bool) -> Any:
     resolved in the task's directory; a hub dataset's relative pattern is a path in its repo, left as it is."""
     if isinstance(value, str):
         scheme = value.split("://", 1)[0].lower() if "://" in value else None
-        if scheme in _HF_REMOTE_SCHEMES:
+        if scheme in _HF_REMOTE_SCHEMES and "::" not in value:  # a chained URL (x::file://...) can end local
             return value
         if scheme is not None:  # file://, zip://, ...: a local read the task directory does not confine
             raise ValueError(f"hf_dataset data_files {value} is a {scheme}:// path, which is not read; "
@@ -349,6 +349,8 @@ def _hf_options(node: ast.Call, imp: Optional[Imported]) -> dict[str, Any]:
     for name, arg in zip(_HF_POSITIONAL[:len(node.args)], node.args, strict=True):  # hf_dataset(path, split, ...)
         if name in kwargs:
             raise ValueError(f"hf_dataset: {name} given twice")
+        if not _is_literal(arg):
+            raise ValueError(f"hf_dataset: {name} must be a literal value; a computed one is not read")
         kwargs[name] = _literal(arg)
     if kwargs.get("trust") or kwargs.get("trust_remote_code"):
         raise ValueError("hf_dataset: trust=True or trust_remote_code= would run the dataset's own loader code on "

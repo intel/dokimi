@@ -575,7 +575,7 @@ def test_hf_dataset_url_and_hub_data_files_are_left_as_they_are(tmp_path, monkey
     with pytest.raises(ValueError, match="outside the task's directory"):
         import_path(_hf_task(tmp_path, "hf_dataset('org/ds', data_files='../x.jsonl', split='test')"),
                     fmt="inspect-task")
-    for url in ("file:///etc/passwd", "zip://x.zip"):
+    for url in ("file:///etc/passwd", "zip://x.zip", "https://h/x::file:///etc/passwd"):
         with pytest.raises(ValueError, match="path, which is not read"):
             import_path(_hf_task(tmp_path, f"hf_dataset('json', data_files='{url}', split='train')"), fmt="inspect-task")
 
@@ -630,3 +630,11 @@ def test_openai_modelgraded_spec_prompt_with_an_unfilled_slot_is_not_used(tmp_pa
     imp = import_path(_jsonl(tmp_path / "data" / "s.jsonl", [{"input": "What is 2+2?"}]),
                       fmt="openai-evals", grader=str(grader))
     assert _checks(imp) == [{"type": "unsupported", "native": "modelgraded:fact"}]
+
+
+def test_hf_dataset_computed_positional_argument_is_refused(tmp_path, monkeypatch):
+    # Thread PRRT_kwDOVBg7g860Mhbv
+    seen = _capture_hf_load(monkeypatch)
+    with pytest.raises(ValueError, match="name must be a literal value"):
+        import_path(_hf_task(tmp_path, "hf_dataset('org/ds', 'test', CONFIG)"), fmt="inspect-task")
+    assert seen == []

@@ -245,7 +245,7 @@ class HarborSuitesProbe:
         data = source.data
         if source.path.name != "suites.json" or not isinstance(data, dict) or "suites" not in data:
             return None
-        if source.path.parent.parts[-2:] != ("evaluation", "harbor"):
+        if source.path.resolve().parent.parts[-2:] != ("evaluation", "harbor"):
             return None  # the catalog reads only <root>/evaluation/harbor/suites.json
         return Fingerprint(0.9, ("file name", "suites"))
 
