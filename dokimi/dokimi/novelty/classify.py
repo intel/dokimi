@@ -29,9 +29,10 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass, field
+from typing import Any
 
 from .atoms import Atom
-from .batching import ask_in_batches
+from .batching import UnusableReply, ask_in_batches, retry_wording
 from .client import LLMClient
 
 CATEGORIES = (
@@ -116,14 +117,24 @@ class ClassifyReport:
         unjudged: Atoms with no need/scaffolding verdict. They are left out of the
             category counts.
         unjudged_skipped: How many of those the judge's reply skipped (the call worked
-            and had no row for them); the rest were in calls that failed even alone.
+            and had no row for them).
+        unjudged_malformed: How many of those had a row in a reply that was otherwise read,
+            but whose ``needed`` or ``scaffolding`` was not a boolean.
+        unjudged_unusable: How many of those came from a reply with no usable row at all.
+        unchecked_unusable: How many of ``unchecked`` came from a reply that named no usable
+            pair.
         unchecked: Atoms the conflict check never compared with anything: in a call that
             failed, or alone in a chunk (a one-statement call has no pair to look at).
         unchecked_alone: How many of those were alone in a chunk.
         pairs_total: Atom pairs that could conflict.
         pairs_compared: Pairs that shared an answered conflict-check call. Pairs split
             across calls are never compared, so this bounds what ``conflicts`` can find.
-        retried_batches: Calls that failed to parse and were split and re-asked.
+        conflict_rows_dropped: Conflict rows in answered replies that named no pair of
+            their batch (a missing ``a`` or ``b``, ``a == b``, or out of range).
+        retried_batches: Calls whose reply failed to parse, or had no usable row, and were
+            split and re-asked.
+        unusable_retries: The subset of ``retried_batches`` whose reply parsed, with no
+            usable row. Only the rest are cured by a higher ``--max-tokens``.
         calls: Calls both stages made, splits included.
         value_error: The last value-judge failure that lost atoms.
         conflict_error: The last conflict-check failure that lost atoms. Kept apart from
@@ -133,11 +144,16 @@ class ClassifyReport:
 
     unjudged: list[str] = field(default_factory=list)
     unjudged_skipped: int = 0
+    unjudged_malformed: int = 0
+    unjudged_unusable: int = 0
     unchecked: list[str] = field(default_factory=list)
+    unchecked_unusable: int = 0
     unchecked_alone: int = 0
     pairs_total: int = 0
     pairs_compared: int = 0
+    conflict_rows_dropped: int = 0
     retried_batches: int = 0
+    unusable_retries: int = 0
     calls: int = 0
     value_error: str = ""
     conflict_error: str = ""
@@ -146,29 +162,14 @@ class ClassifyReport:
         """Artifact warnings for what was not judged or not compared."""
         out = []
         if self.unjudged:
-            failed = len(self.unjudged) - self.unjudged_skipped
-            causes = []
-            if failed:
-                causes.append(f"{failed} in calls that failed (last error: {self.value_error})")
-            if self.unjudged_skipped:
-                causes.append(f"{self.unjudged_skipped} skipped by the judge's reply")
-            out.append(
-                f"{len(self.unjudged)} of {n_atoms} atoms got no need/scaffolding verdict "
-                f"and are left out of the content categories unless they conflict "
-                f"({'; '.join(causes)})"
-            )
+            out.append(self._unjudged_warning(n_atoms))
         if self.unchecked:
-            failed = len(self.unchecked) - self.unchecked_alone
-            causes = []
-            if failed:
-                causes.append(
-                    f"{failed} in calls that failed (last error: {self.conflict_error})"
-                )
-            if self.unchecked_alone:
-                causes.append(f"{self.unchecked_alone} alone in a batch, with no pair to check")
+            out.append(self._unchecked_warning(n_atoms))
+        if self.conflict_rows_dropped:
+            noun = "row" if self.conflict_rows_dropped == 1 else "rows"
             out.append(
-                f"{len(self.unchecked)} of {n_atoms} atoms were not checked for conflicts "
-                f"({'; '.join(causes)})"
+                f"{self.conflict_rows_dropped} conflict {noun} could not be used (a and b must "
+                f"name two different statements of their batch) and were dropped"
             )
         if self.pairs_total and self.pairs_compared < self.pairs_total:
             out.append(
@@ -177,12 +178,83 @@ class ClassifyReport:
                 f"answered call is not detected"
             )
         if self.retried_batches:
+            label, advice = retry_wording(self.retried_batches, self.unusable_retries)
             out.append(
-                f"content classification re-asked {self.retried_batches} unparseable "
-                f"batches as halves ({self.calls} calls in all); a higher --max-tokens "
-                f"avoids the extra calls"
+                f"content classification re-asked {self.retried_batches} {label} batches as "
+                f"halves ({self.calls} calls in all){advice}"
             )
         return out
+
+    def _unjudged_warning(self, n_atoms: int) -> str:
+        failed = (len(self.unjudged) - self.unjudged_skipped - self.unjudged_malformed
+                  - self.unjudged_unusable)
+        causes = []
+        if failed:
+            causes.append(f"{failed} in calls that failed (last error: {self.value_error})")
+        if self.unjudged_skipped:
+            causes.append(f"{self.unjudged_skipped} skipped by the judge's reply")
+        if self.unjudged_malformed:
+            causes.append(f"{self.unjudged_malformed} with a malformed verdict row")
+        if self.unjudged_unusable:
+            causes.append(f"{self.unjudged_unusable} whose reply had no usable verdict row")
+        return (
+            f"{len(self.unjudged)} of {n_atoms} atoms got no need/scaffolding verdict "
+            f"and are left out of the content categories unless they conflict "
+            f"({'; '.join(causes)})"
+        )
+
+    def _unchecked_warning(self, n_atoms: int) -> str:
+        failed = len(self.unchecked) - self.unchecked_alone - self.unchecked_unusable
+        causes = []
+        if failed:
+            causes.append(f"{failed} in calls that failed (last error: {self.conflict_error})")
+        if self.unchecked_alone:
+            causes.append(f"{self.unchecked_alone} alone in a batch, with no pair to check")
+        if self.unchecked_unusable:
+            causes.append(f"{self.unchecked_unusable} whose reply named no usable pair")
+        return (
+            f"{len(self.unchecked)} of {n_atoms} atoms were not checked for conflicts "
+            f"({'; '.join(causes)})"
+        )
+
+
+def _index(value: Any) -> int | None:
+    """A statement number a reply gave, as an int; ``None`` for a bool, a fraction or junk."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, float):
+        return int(value) if value.is_integer() else None  # inf and nan are not integers
+    if isinstance(value, str) and value.strip().isdecimal():
+        try:
+            return int(value)
+        except ValueError:  # more digits than int() accepts
+            return None
+    return value if isinstance(value, int) else None
+
+
+def _statement_rows(rows: list) -> dict[int, dict]:
+    """The dict rows of a judge reply, by their ``n`` (a later duplicate wins)."""
+    by_index: dict[int, dict] = {}
+    for row in rows:
+        n = _index(row.get("n")) if isinstance(row, dict) else None
+        if n is not None:
+            by_index[n] = row
+    return by_index
+
+
+def _is_verdict(row: dict) -> bool:
+    """``needed`` is a real boolean (``bool("false")`` is True) and ``scaffolding`` one or absent."""
+    return (
+        isinstance(row.get("needed"), bool)
+        and isinstance(row.get("scaffolding", False), bool)
+    )
+
+
+def _judge_check(chunk: list[Atom], rows: list) -> None:
+    """Refuse a reply with rows, none of which is a verdict for a statement of this chunk."""
+    by_index = _statement_rows(rows)
+    if rows and not any(1 <= n <= len(chunk) and _is_verdict(row) for n, row in by_index.items()):
+        raise UnusableReply(f"none of the {len(rows)} rows is a verdict for this batch")
 
 
 def judge_value(
@@ -198,8 +270,9 @@ def judge_value(
 
     An atom the judge did not answer for gets no verdict, rather than ``needed=False``:
     a default would read as *inert* and bias the category table toward cutting. Its id
-    goes to ``report.unjudged``. So does an atom whose row has no boolean ``needed`` (or
-    a non-boolean ``scaffolding``): ``"false"`` is not ``False``.
+    goes to ``report.unjudged``, and counts as skipped (no row for it) or malformed (a row
+    whose ``needed`` is not a real boolean, ``"false"`` included). A reply whose rows are
+    all malformed is split and re-asked, and never cached.
     """
     from dokimi.llm import extract_json_array
 
@@ -207,37 +280,32 @@ def judge_value(
     result = ask_in_batches(
         client, atoms, size=batch,
         prompt=lambda chunk: _VALUE_PROMPT.format(task=task, statements=_numbered(chunk)),
-        parse=extract_json_array,
+        parse=extract_json_array, check=_judge_check,
     )
     report.retried_batches += result.retried_batches
+    report.unusable_retries += result.unusable_retries
     report.calls += result.calls
     if result.last_error:
         report.value_error = result.last_error
     report.unjudged.extend(a.id for a in result.failed)
+    report.unjudged_unusable += len(result.unusable)
     verdicts: dict[str, AtomVerdict] = {}
     for chunk, rows in result.answered:
-        by_index = {
-            int(row["n"]): row for row in rows
-            if isinstance(row, dict) and str(row.get("n", "")).isdecimal()
-        }
+        by_index = _statement_rows(rows)
         for index, atom in enumerate(chunk, start=1):
             row = by_index.get(index)
-            # A row is a verdict only if `needed` is a real boolean (`bool("false")` is
-            # True, and a missing or null value would read as inert) and `scaffolding`
-            # is a boolean or absent.
-            if (
-                row is None
-                or not isinstance(row.get("needed"), bool)
-                or not isinstance(row.get("scaffolding", False), bool)
-            ):
+            if row is None:
                 report.unjudged.append(atom.id)
                 report.unjudged_skipped += 1
-                continue
-            verdicts[atom.id] = AtomVerdict(
-                atom_id=atom.id,
-                needed=row["needed"],
-                scaffolding=row.get("scaffolding", False),
-            )
+            elif not _is_verdict(row):
+                report.unjudged.append(atom.id)
+                report.unjudged_malformed += 1
+            else:
+                verdicts[atom.id] = AtomVerdict(
+                    atom_id=atom.id,
+                    needed=row["needed"],
+                    scaffolding=row.get("scaffolding", False),
+                )
     return verdicts
 
 
@@ -254,6 +322,26 @@ def _conflict_rows(reply: str) -> list:
     if not isinstance(rows, list):
         raise ValueError(f"no `conflicts` list in the reply: {reply[:120]!r}")
     return rows
+
+
+def _conflict_pair(row: Any, size: int) -> tuple[int, int] | None:
+    """The 0-based statement indices a conflict row names, or ``None`` if it names no pair."""
+    if not isinstance(row, dict):
+        return None
+    a, b = _index(row.get("a")), _index(row.get("b"))
+    if a is None or b is None:
+        return None
+    a_index, b_index = a - 1, b - 1
+    # A statement cannot contradict itself; a == b would flag one atom harmful.
+    if a_index == b_index or not (0 <= a_index < size and 0 <= b_index < size):
+        return None
+    return a_index, b_index
+
+
+def _conflict_check(chunk: list[Atom], rows: list) -> None:
+    """Refuse a reply with rows, none of which names a pair of statements in this chunk."""
+    if rows and not any(_conflict_pair(row, len(chunk)) for row in rows):
+        raise UnusableReply(f"none of the {len(rows)} conflict rows names a pair in this batch")
 
 
 def detect_conflicts(
@@ -273,13 +361,15 @@ def detect_conflicts(
     result = ask_in_batches(
         client, atoms, size=batch,
         prompt=lambda chunk: _CONFLICT_PROMPT.format(statements=_numbered(chunk)),
-        parse=_conflict_rows, min_size=2,
+        parse=_conflict_rows, min_size=2, check=_conflict_check,
     )
     report.retried_batches += result.retried_batches
+    report.unusable_retries += result.unusable_retries
     report.calls += result.calls
     if result.last_error:
         report.conflict_error = result.last_error
     report.unchecked.extend(a.id for a in result.failed)
+    report.unchecked_unusable += len(result.unusable)
     if len(atoms) > 1:
         # One atom in all has nothing to conflict with; that is not a gap in the check.
         report.unchecked.extend(a.id for a in result.too_small)
@@ -289,18 +379,13 @@ def detect_conflicts(
     conflicts: list[dict] = []
     for chunk, rows in result.answered:
         for row in rows:
-            try:
-                a_index, b_index = int(row["a"]) - 1, int(row["b"]) - 1
-            except (KeyError, TypeError, ValueError):
-                continue
-            # A statement cannot contradict itself; a == b would flag one atom harmful.
-            if a_index == b_index or not (
-                0 <= a_index < len(chunk) and 0 <= b_index < len(chunk)
-            ):
+            pair = _conflict_pair(row, len(chunk))
+            if pair is None:
+                report.conflict_rows_dropped += 1
                 continue
             conflicts.append({
-                "a": chunk[a_index].id,
-                "b": chunk[b_index].id,
+                "a": chunk[pair[0]].id,
+                "b": chunk[pair[1]].id,
                 "why": str(row.get("why", "")).strip(),
             })
     return conflicts

@@ -1162,9 +1162,12 @@ verdict (`retention.llm_errors`); each is answered `absent` for that decision an
 on disk or in `DOKIMI_RESPONSE_CACHE`, so carrier confirmation and shortening scores under-count
 retention by up to that many decisions. A hedged verdict (`"retained?"`) counts as no verdict.
 `analyze` and `shorten` both print it, and `shorten` repeats it beside its best candidate
-(`knowledge under-counted: N adjudications got no usable verdict`). The value judge and the conflict check split an
-unparseable batch the same way as extraction, and say so (`content classification re-asked N
-unparseable batches as halves`). Every novelty call passes a test of a usable reply to the
+(`knowledge under-counted: N adjudications got no usable verdict`). The value judge and the conflict check split a
+batch whose reply does not parse, or has no row it can use, the same way as extraction, and say so
+(`content classification re-asked N unparseable batches as halves`, or `unusable` when no row was
+usable; only the first is cured by `--max-tokens`). A judge row whose `needed` is not a real boolean
+is counted as malformed, apart from a statement the judge skipped, unless no row of its reply is usable (then the batch is split and the atoms count as `unusable`); a conflict row that names no pair
+of its batch is dropped and counted. Every novelty call passes a test of a usable reply to the
 response cache, so a reply that fails it is never stored or replayed: extraction, the batched
 judges and the oracle pass their parse test; the probe grader, the faithfulness check and the
 need graph also require the field they read (a named verdict, a node), so `{"verdict": null}`

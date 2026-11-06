@@ -28,6 +28,7 @@ from dataclasses import dataclass, field
 
 from dokimi.utils import InputError, read_json_input
 
+from .batching import retry_wording
 from .client import LLMClient, accepting
 from .spans import Span
 
@@ -270,14 +271,7 @@ class ExtractionReport:
                 f"every rate"
             )
         if self.retried_batches:
-            cut = self.retried_batches - self.unusable_retries
-            if not cut:
-                label = "unusable"
-            elif self.unusable_retries:
-                label = "unparseable or unusable"
-            else:
-                label = "unparseable"
-            advice = "; a higher --max-tokens avoids the extra calls" if cut else ""
+            label, advice = retry_wording(self.retried_batches, self.unusable_retries)
             out.append(
                 f"atom extraction re-asked {self.retried_batches} {label} batches as "
                 f"halves: {self.calls} extraction calls where {self.batches} would do "
