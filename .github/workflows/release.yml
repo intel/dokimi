@@ -5,8 +5,7 @@ name: release
 
 # Publishing a GitHub Release (tag vX.Y.Z) checks that the tree is that version
 # (scripts/check_release.py), builds the sdist and wheel, smoke-tests the
-# installed wheel, signs both and attaches them with their Sigstore bundles and
-# build provenance to the release and, once PyPI is enabled,
+# installed wheel, attaches both to the release and, once PyPI is enabled,
 # uploads them with Trusted Publishing. docs/releasing.md has the whole
 # procedure. A manual run builds and checks without uploading anything; given a
 # tag, it checks out and checks that tag, not the branch it was dispatched from.
@@ -81,11 +80,8 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  # Signs the sdist and wheel and attaches them with their signatures and build
-  # provenance (docs/releasing.md, "Verifying a release"): a Sigstore bundle per
-  # file (<file>.sigstore.json, keyless, signed with this workflow's OIDC
-  # identity) and one SLSA build-provenance attestation for both files, also
-  # recorded in the repository's attestations (`gh attestation verify`).
+  # Sigstore bundle per file plus one SLSA provenance for both, keyless via this
+  # workflow's OIDC identity: docs/releasing.md, "Verifying a release".
   attach:
     name: Sign and attach to the GitHub Release
     needs: build
@@ -118,9 +114,8 @@ jobs:
           TAG: ${{ github.event.release.tag_name }}
           BUNDLE: ${{ steps.provenance.outputs.bundle-path }}
         run: |
-          # The provenance bundle is a Sigstore bundle around an in-toto SLSA
-          # statement; the .intoto.jsonl name is what provenance checkers
-          # (OpenSSF Scorecard) look for on a release.
+          # A Sigstore bundle around the in-toto SLSA statement, named .intoto.jsonl
+          # because that is what provenance checkers (OpenSSF Scorecard) look for.
           cp "$BUNDLE" "dist/dokimi-${TAG#v}.intoto.jsonl"
           ls -l dist
           gh release upload "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --clobber
