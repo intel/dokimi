@@ -412,6 +412,19 @@ def test_a_reserialized_copy_of_a_run_counts_once(tmp_path, capsys):
     assert "counted once" in capsys.readouterr().err
 
 
+def test_a_run_saved_again_by_another_process_counts_once(tmp_path, capsys):
+    """Only the envelope differs: the same results with another run_id and dokimi_version are one run."""
+    arms = _arms_file(tmp_path / "run1.json", {"1": {"baseline": 95, "skill": 40}})
+    data = json.loads(arms.read_text(encoding="utf-8"))
+    arms.write_text(json.dumps({"run_id": "first", "dokimi_version": "0.1.0", **data}), encoding="utf-8")
+    again = tmp_path / "again.json"
+    again.write_text(json.dumps({"run_id": "second", "dokimi_version": "0.2.0", **data}), encoding="utf-8")
+    out = tmp_path / "headroom.json"
+    cmd_eval_headroom(_args([arms, again], output=out))
+    assert json.loads(out.read_text(encoding="utf-8"))["runs"] == 1
+    assert "counted once" in capsys.readouterr().err
+
+
 def test_table_note_counts_the_unscored_items_per_arm_instead_of_listing_them():
     items = [(str(q), {"baseline": 40, "skill": None}) for q in range(1, 501)]
     table = format_table(headroom([_run(items)], min_reps=1))
