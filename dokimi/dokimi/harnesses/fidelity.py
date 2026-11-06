@@ -511,8 +511,6 @@ def capture_arm(case: str, *, binary: str, scratch: Path, image: Optional[str] =
 
     if case not in CASES:
         raise ValueError(f"unknown case {case!r}; expected one of {CASES}")
-    if case == "skill" and skill_dir is None:
-        raise ValueError("the skill case needs skill_dir, the skill to load")
     scratch = scratch.resolve()  # the client sees the real path (a /tmp symlink, say)
     workdir = scratch / "work"
     workdir.mkdir(parents=True, exist_ok=True)
@@ -521,9 +519,11 @@ def capture_arm(case: str, *, binary: str, scratch: Path, image: Optional[str] =
     treatment = plugin_dir = None
     plugin = None
     if case == "skill":
+        if skill_dir is None:
+            raise ValueError("the skill case needs skill_dir, the skill to load")
         plugin = scratch / "plugin"
         plugin.mkdir(parents=True, exist_ok=True)
-        treatment = build_plugin(Path(skill_dir), plugin)
+        treatment = build_plugin(skill_dir, plugin)
         plugin_dir = str(plugin)
     args = arm_argv(harness, task, treatment=treatment, plugin_dir=plugin_dir,
                     model=FIXTURE_MODEL, output_dir=scratch)
