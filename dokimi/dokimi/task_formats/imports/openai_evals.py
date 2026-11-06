@@ -21,6 +21,7 @@ or name the template (``match``, ``includes``, ``fuzzy_match``, ``json_match``,
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any, Mapping, Optional
 
@@ -90,8 +91,12 @@ def _spec_prompt(grader: Optional[str], template: str) -> Optional[str]:
     prompt = body.get("prompt") if isinstance(body, Mapping) else None
     if not isinstance(prompt, str) or not prompt.strip():
         return None
+    if "{ideal}" in prompt or "{criteria}" in prompt:
+        return None  # the row has no ideal and no criteria to fill it with: a judge would compare with nothing
     for slot, words in _SPEC_SLOTS.items():
         prompt = prompt.replace(slot, words)
+    if re.search(r"\{\w+\}", prompt):
+        return None  # a slot the importer cannot fill
     return " ".join(prompt.split())
 
 
