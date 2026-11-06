@@ -413,6 +413,8 @@ _NO_GLOB = "glob {} matches nothing in the tree; a build may create it"
     # a root `maintenance/` makes it a path: one stale glob still fails
     ("maintenance/*.zzz", {**_pre_commit(_DPNP), "maintenance/notes.md": ""},
      ("fail", "maintenance/ exists but nothing in it matches *.zzz")),
+    # and keeps one the path rules leave `unresolved` a path too
+    ("tools/old/x", {**_pre_commit("[-p, 'tools/.*']"), "tools/keep/a": ""}, ("unresolved", "tried tools/old/x")),
     ("maintenance/*", _pre_commit(_DPNP, hook="forbid-new-submodules"), ("unresolved", _NO_GLOB.format("maintenance/*"))),
     ("maintenance/*", _pre_commit("--pattern maintenance/.*"), ("unresolved", _NO_GLOB.format("maintenance/*"))),
     # `--patterns` is no prefix of `--pattern`, and `-x` takes no value of the hook's
