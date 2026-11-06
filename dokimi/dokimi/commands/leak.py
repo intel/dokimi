@@ -20,6 +20,7 @@ proposer list, or an unwritable ``--out``. Makes no model call.
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -49,6 +50,13 @@ def cmd_eval_leak(args: argparse.Namespace) -> None:
     lock_path = None
     if split_path is not None:
         lock_path = Path(args.lock) if args.lock else split_path.with_name(split_path.stem + ".lock.json")
+    if args.out:
+        # --out over an input would replace it with the leak.v1 artifact (the split would then fail to load)
+        inputs = {os.path.realpath(p) for p in (args.skill, args.questions, args.split, lock_path,
+                                                 args.proposer, args.allow_file) if p}
+        if os.path.realpath(args.out) in inputs:
+            print(f"Error: --out {args.out} is an input of this run; choose another file", file=sys.stderr)
+            sys.exit(2)
     try:
         files = read_skill(args.skill)
         questions = load_questions(args.questions).artifact.get("questions") or []

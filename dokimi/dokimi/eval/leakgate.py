@@ -31,6 +31,7 @@ import json
 import re
 from collections import Counter
 from datetime import datetime, timezone
+import unicodedata
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Optional, Sequence
 
@@ -256,7 +257,8 @@ def expected_texts(question: Mapping[str, Any]) -> list[str]:
 
 
 def words(text: str) -> list[str]:
-    return _WORD.findall(text.lower())
+    # NFC first: a combining accent is not a word character, so an NFD copy would split its word
+    return _WORD.findall(unicodedata.normalize("NFC", text).lower())
 
 
 def _allow_runs(terms: Iterable[str]) -> list[tuple[str, ...]]:

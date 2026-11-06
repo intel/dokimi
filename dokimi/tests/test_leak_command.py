@@ -270,3 +270,16 @@ def test_relock_is_read_from_the_command_line():
 
     ns = cli.build_parser().parse_args(["eval", "leak", "skill", "q.json", "--split", "s.json", "--relock"])
     assert ns.relock is True
+
+
+@pytest.mark.parametrize("target", ["split", "lock", "questions"])
+def test_an_out_that_names_an_input_is_refused_and_the_input_kept(tmp_path, target):
+    # --out over the split, its lock or the questions would replace the input with the leak.v1 artifact
+    skill, questions = _clean_run(tmp_path)
+    split = _split(tmp_path / "split.json")
+    cmd_eval_leak(_args(skill, questions, split=str(split)))  # a clean run returns; first use creates the lock
+    lock = tmp_path / "split.lock.json"
+    named = {"split": split, "lock": lock, "questions": questions}[target]
+    before = named.read_bytes()
+    assert _exit_code(_args(skill, questions, split=str(split), out=str(named))) == 2
+    assert named.read_bytes() == before

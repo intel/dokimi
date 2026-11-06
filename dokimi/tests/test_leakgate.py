@@ -497,3 +497,13 @@ def test_the_default_min_fraction_is_a_tenth():
     from dokimi.eval.leakgate import DEFAULT_MIN_FRACTION
     assert DEFAULT_MIN_FRACTION == 0.10
     assert run(_skill("clean"), QUESTIONS)["min_fraction"] == 0.10
+
+
+def test_a_skill_stored_in_nfd_is_checked_like_nfc():
+    # A combining accent is not a word character for \w+, so an NFD copy of an NFC answer used to split its words.
+    import unicodedata
+    answer = "the profiler writes café timelines of kernel launches"  # 8 words, one of them accented
+    nfd = unicodedata.normalize("NFD", answer)
+    assert nfd != answer
+    assert assess([_q("1", [_match(answer)])], skill_index({"s.md": nfd}))[0]["status"] == "flagged"
+    assert assess([_q("1", [_match(nfd)])], skill_index({"s.md": answer}))[0]["status"] == "flagged"
