@@ -175,15 +175,17 @@ def test_fidelity_requires_the_pin_only_when_the_claude_on_path_is_it(
     """Another claude on PATH must not FAIL ci-local: the golden tests skip instead."""
     (cl.WORKFLOWS / "x.yml").write_text(_fidelity_wf())
     monkeypatch.setattr(cl, "claude_on_path_version", lambda: have)
+    monkeypatch.setenv("DOKIMI_FIDELITY_REQUIRED", "1")  # exported in the caller's shell
     cl.run(ns(jobs="fidelity"))
-    assert ("DOKIMI_FIDELITY_REQUIRED" in env["calls"][-1]["env"]) is required
+    assert (env["calls"][-1]["env"].get("DOKIMI_FIDELITY_REQUIRED") == "1") is required
 
 
 def test_an_unreadable_pin_drops_the_requirement(env: dict[str, Any], monkeypatch: Any) -> None:
     (cl.WORKFLOWS / "x.yml").write_text(_fidelity_wf().replace("@2.1.318", "@latest-x").replace("@latest-x", ""))
     monkeypatch.setattr(cl, "claude_on_path_version", lambda: None)
+    monkeypatch.setenv("DOKIMI_FIDELITY_REQUIRED", "1")
     cl.run(ns(jobs="fidelity"))
-    assert "DOKIMI_FIDELITY_REQUIRED" not in env["calls"][-1]["env"]
+    assert env["calls"][-1]["env"].get("DOKIMI_FIDELITY_REQUIRED") != "1"
 
 
 def test_pinned_claude_entries_match_real_steps() -> None:

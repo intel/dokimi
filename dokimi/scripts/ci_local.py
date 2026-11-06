@@ -342,15 +342,18 @@ def pinned_claude_version(job: dict) -> str | None:
 
 def drop_pin_without_pinned_claude(name: str, job: tuple[str, dict], step: dict[str, Any],
                                    step_env: dict[str, str]) -> None:
-    """Unset a PINNED_CLAUDE var when the claude on PATH is not the version the job pins."""
+    """Set a PINNED_CLAUDE var to 0 when the claude on PATH is not the version the job pins.
+
+    0, not a delete: the step env is merged over the caller's, which may export the var.
+    """
     var = PINNED_CLAUDE.get((job[0], str(step.get("name"))))
     if not var or var not in step_env:
         return
     pinned, have = pinned_claude_version(job[1]), claude_on_path_version()
     if pinned is None or have != pinned:
         print(f"NOTICE: {name}: claude on PATH is {have or 'missing'}, CI pins "
-              f"{pinned}: {var} unset, the pinned-client tests skip")
-        del step_env[var]
+              f"{pinned}: {var}=0, the pinned-client tests skip")
+        step_env[var] = "0"
 
 
 def run(args: argparse.Namespace) -> int:
