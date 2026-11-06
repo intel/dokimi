@@ -191,7 +191,7 @@ def test_a_rename_in_the_work_tree_column_hashes_the_work_tree(tmp_path):
 def _nested(root: Path, rel: str, files: dict[str, str]) -> None:
     """A repository of its own at ``root/rel``: its own ``.gitignore`` (``*.tmp``, ``build/``) and committed ``files``."""
     repo = root / rel
-    repo.mkdir(parents=True)
+    repo.mkdir(parents=True, exist_ok=True)
     _git(repo, "init", "-q")
     for name, text in {".gitignore": "*.tmp\nbuild/\n", **files}.items():
         (repo / name).parent.mkdir(parents=True, exist_ok=True)
@@ -371,3 +371,42 @@ def test_a_work_tree_owned_by_another_user_is_an_error_not_a_silent_fallback(tmp
     with pytest.raises(ConfigError, match=rf"cannot read .*{re.escape(str(root))}") as err:
         _hashes(root)
     assert "dubious ownership" in str(err.value)
+
+
+def test_a_case_only_rename_in_a_nested_repository_still_moves_skill_sha(tmp_path):
+    # PRRT_kwDOVBg7g860MHqZ: under core.ignorecase ls-files spells the tracked name as the index has it, and the file
+    # on disk is spelled otherwise; it is not ignored, so an edit to it moves the digest
+    root = _repo(tmp_path / "r", FILES)
+    rel = "skills/a/tools"
+    _nested(root, rel, {"Readme.md": "a\n"})
+    _git(root / rel, "config", "core.ignorecase", "true")
+    os.rename(root / rel / "Readme.md", root / rel / "README.md")
+    before = _hashes(root)
+    (root / rel / "README.md").write_text("b\n")
+    assert _hashes(root) != before
+
+
+def test_a_file_the_top_tracks_counts_though_a_nested_repository_ignores_it(tmp_path):
+    # PRRT_kwDOVBg7g860MHqk: the top stores skills/a/tools/gen.json, so its rules win over the nested .gitignore
+    root = _repo(tmp_path / "r", {**FILES, "skills/a/tools/gen.json": "1\n"})
+    _nested(root, "skills/a/tools", {".gitignore": "*.json\n"})
+    before = _hashes(root)
+    (root / "skills/a/tools/gen.json").write_text("2\n")
+    assert _hashes(root) != before
+
+
+def test_a_top_directory_whose_name_ends_in_a_space_is_read(tmp_path):
+    # PRRT_kwDOVBg7g860MHqp: --show-toplevel keeps the trailing space of the name
+    root = _repo(tmp_path / "top ", FILES)
+    tree = git_tree(root)
+    assert tree is not None and tree.top == Path(os.path.realpath(root))
+
+
+def test_a_failing_hash_object_is_an_error_not_a_silent_fallback(tmp_path):
+    # PRRT_kwDOVBg7g860MHq3: a required clean filter that fails must not let the digest hash the bytes on disk instead
+    root = _repo(tmp_path / "r", {**FILES, ".gitattributes": "*.dat filter=broken\n"})
+    _git(root, "config", "filter.broken.clean", "false")
+    _git(root, "config", "filter.broken.required", "true")
+    (root / "skills/a/x.dat").write_text("x\n")
+    with pytest.raises(ConfigError, match="hash-object"):
+        _hashes(root)
