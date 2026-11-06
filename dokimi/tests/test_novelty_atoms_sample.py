@@ -11,13 +11,20 @@ import re
 import pytest
 
 from dokimi.novelty.analyze import AnalyzeConfig, analyze
-from dokimi.novelty.atoms import (Atom, load_atoms, load_atoms_record, recorded_sample,
-                                  sample_atoms, save_atoms)
+from dokimi.novelty.atoms import (
+    Atom,
+    load_atoms,
+    load_atoms_record,
+    recorded_sample,
+    sample_atoms,
+    save_atoms,
+)
 from dokimi.novelty.client import LLMClient
 from dokimi.novelty.spans import segment
 from dokimi.novelty.tiers import resolve_settings
 from dokimi.utils import InputError
 from tests import test_novelty_cli as novelty_cli
+from tests.cli_paths import novelty_argv
 from tests.test_novelty_analyze import _scripted
 from tests.test_novelty_report import _artifact as _report_artifact
 
@@ -158,12 +165,12 @@ def _cli(monkeypatch, *argv):
     monkeypatch.setattr(novelty_cli.novelty_cmd, "_client",
                         lambda model, provider, role, args: novelty_cli._with_transport(
                             real_client(model, provider, role, args), _one_atom_per_span))
-    args = novelty_cli._parse("novelty", *argv)
+    args = novelty_cli._parse(*novelty_argv(argv[0]), *argv[1:])
     args.func(args)
 
 
 def _capped_atoms_json(tmp_path, monkeypatch, cap: int = 2):
-    """`novelty atoms --max-atoms <cap>` over a six-span skill: the skill and its atoms.json."""
+    """`skill novelty atoms --max-atoms <cap>` over a six-span skill: the skill and its atoms.json."""
     skill = tmp_path / "s" / "SKILL.md"
     skill.parent.mkdir(parents=True)
     skill.write_text("---\nname: s\ndescription: d\n---\n\n" + "\n\n".join(
@@ -274,7 +281,7 @@ def test_probe_measures_the_recorded_sample_or_with_all_atoms_every_atom(
 
 def test_all_atoms_warns_about_the_atoms_it_adds_that_were_never_checked(
         tmp_path, monkeypatch, capsys):
-    """`novelty atoms` verifies only the sample, so the atoms outside it read `unchecked`."""
+    """`skill novelty atoms` verifies only the sample, so the atoms outside it read `unchecked`."""
     skill, atoms_json, saved = _capped_atoms_json(tmp_path, monkeypatch)
     sampled = set(saved["sampled_atom_ids"])
     for row in [row for row in saved["atoms"] if row["id"] not in sampled][:2]:
@@ -284,7 +291,7 @@ def test_all_atoms_warns_about_the_atoms_it_adds_that_were_never_checked(
             "1", "--no-paraphrase", "--no-reversal", "--out", str(tmp_path / "p.json"))
     warning = (f"WARNING: probe --all-atoms measures 4 atom(s) outside the sample {atoms_json} "
                "records, 2 of them with faithfulness \"unchecked\": their answer key was never "
-               "checked against the text. To check every atom, re-run `novelty atoms "
+               "checked against the text. To check every atom, re-run `skill novelty atoms "
                "--all-atoms`, a new uncapped extraction that verifies each atom it extracts")
     capsys.readouterr()
     _cli(monkeypatch, *argv, "--all-atoms")
@@ -347,9 +354,9 @@ MAY_HOLD_THE_SAMPLE = ("it may hold only the atoms its run probed (its cap was m
 
 
 def _old_capped_warning(holds: str = HOLDS_THE_SAMPLE) -> str:
-    return ("was written by a capped `novelty atoms` run before atoms files recorded their sample "
+    return ("was written by a capped `skill novelty atoms` run before atoms files recorded their sample "
             f"(`sampled_atom_ids`): {holds}, so spans whose atoms fell outside them read as "
-            "carrying nothing and a shortening can cut them; re-run `novelty atoms` to index "
+            "carrying nothing and a shortening can cut them; re-run `skill novelty atoms` to index "
             "every atom")
 
 
@@ -384,7 +391,7 @@ def test_shorten_warns_on_an_older_capped_atoms_file_only(
     """A document-order cap recorded `reached` only when it bound, so even one that reached the
     last span may have cut that reply's later atoms: it warns, saying it may."""
     skill, atoms_json, saved = _capped_atoms_json(tmp_path, monkeypatch, cap)
-    if written == "spread-cap":  # `novelty atoms` from #358 on: `extraction.sampled` is set
+    if written == "spread-cap":  # `skill novelty atoms` from #358 on: `extraction.sampled` is set
         _as_written_before_371(atoms_json, saved)
     elif written.startswith("reach"):  # a document-order cap, before #358
         _as_written_before_371(atoms_json, saved,
@@ -394,7 +401,7 @@ def test_shorten_warns_on_an_older_capped_atoms_file_only(
          "--lexical-only")
     err = capsys.readouterr().err
     if holds is None:
-        assert "was written by a capped `novelty atoms` run" not in err
+        assert "was written by a capped `skill novelty atoms` run" not in err
     else:
         assert f"WARNING: {atoms_json} {_old_capped_warning(holds)}" in err
 

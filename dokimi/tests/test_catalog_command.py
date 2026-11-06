@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""CLI coverage for `catalog scan` against external skill/task catalogs."""
+"""CLI coverage for `catalog check` against external skill/task catalogs."""
 
 from __future__ import annotations
 
@@ -72,7 +72,7 @@ def test_catalog_scan_reports_skills_and_tasks(tmp_path, capsys):
     _write_manifests(tmp_path)
 
     parser = build_parser()
-    args = parser.parse_args(["catalog", "scan", "--root", str(tmp_path)])
+    args = parser.parse_args(["catalog", "check", "--root", str(tmp_path)])
     args.func(args)
 
     out = capsys.readouterr().out
@@ -89,7 +89,7 @@ def test_catalog_scan_kind_filters_to_skills_only(tmp_path, capsys):
 
     parser = build_parser()
     args = parser.parse_args(
-        ["catalog", "scan", "--root", str(tmp_path), "--kind", "skills"]
+        ["catalog", "check", "--root", str(tmp_path), "--kind", "skills"]
     )
     args.func(args)
 
@@ -112,7 +112,7 @@ def test_catalog_scan_exits_nonzero_on_load_error(tmp_path, capsys):
 
     parser = build_parser()
     args = parser.parse_args(
-        ["catalog", "scan", "--root", str(tmp_path), "--kind", "skills"]
+        ["catalog", "check", "--root", str(tmp_path), "--kind", "skills"]
     )
     with pytest.raises(SystemExit) as exc_info:
         args.func(args)
@@ -134,7 +134,7 @@ def test_catalog_scan_exits_nonzero_on_a_skill_md_that_is_not_a_file(tmp_path, c
             pytest.skip("this OS refuses an unprivileged symlink")
 
     parser = build_parser()
-    args = parser.parse_args(["catalog", "scan", "--root", str(tmp_path), "--kind", "skills"])
+    args = parser.parse_args(["catalog", "check", "--root", str(tmp_path), "--kind", "skills"])
     with pytest.raises(SystemExit) as exc_info:
         args.func(args)
     assert exc_info.value.code == 1
@@ -142,10 +142,8 @@ def test_catalog_scan_exits_nonzero_on_a_skill_md_that_is_not_a_file(tmp_path, c
 
 
 def test_catalog_scan_exits_nonzero_on_a_task_that_exists_but_cannot_load(tmp_path, capsys):
-    # The tasks-half sibling of the test above. Both halves need their own case:
-    # skills failures carry an `error`, task failures a `failed` flag, and the
-    # tasks half reached the exit code through a separate branch that nothing
-    # exercised -- so `catalog scan` reported a broken catalog as clean.
+    # The tasks-half sibling of the test above: `catalog check` reported a broken catalog as clean
+    # because no test exercised the tasks-half exit branch.
     _write_task(tmp_path, "onetbb-broken-task")
     (tmp_path / "evaluation/harbor/tasks/onetbb-broken-task/task.toml").write_text(
         "[metadata\ndifficulty = \"easy\"\n", encoding="utf-8"
@@ -159,7 +157,7 @@ def test_catalog_scan_exits_nonzero_on_a_task_that_exists_but_cannot_load(tmp_pa
 
     parser = build_parser()
     args = parser.parse_args(
-        ["catalog", "scan", "--root", str(tmp_path), "--kind", "tasks"]
+        ["catalog", "check", "--root", str(tmp_path), "--kind", "tasks"]
     )
     with pytest.raises(SystemExit) as exc_info:
         args.func(args)
@@ -186,7 +184,7 @@ def test_catalog_scan_exits_zero_when_every_not_loaded_entry_is_a_benign_skip(tm
 
     parser = build_parser()
     args = parser.parse_args(
-        ["catalog", "scan", "--root", str(tmp_path), "--kind", "tasks"]
+        ["catalog", "check", "--root", str(tmp_path), "--kind", "tasks"]
     )
     args.func(args)  # no SystemExit
 
@@ -196,7 +194,7 @@ def test_catalog_scan_exits_zero_when_every_not_loaded_entry_is_a_benign_skip(tm
 
 
 def test_catalog_scan_on_a_root_with_no_skill_md_says_so_and_exits_1(tmp_path, capsys):
-    args = build_parser().parse_args(["catalog", "scan", "--root", str(tmp_path)])
+    args = build_parser().parse_args(["catalog", "check", "--root", str(tmp_path)])
     with pytest.raises(SystemExit) as exc_info:
         args.func(args)
 
@@ -207,7 +205,7 @@ def test_catalog_scan_on_a_root_with_no_skill_md_says_so_and_exits_1(tmp_path, c
 def test_catalog_scan_with_a_manifest_that_declares_no_skill_says_so_and_exits_1(tmp_path, capsys):
     _write_skill(tmp_path, "lint")
     (tmp_path / "skills.yaml").write_text("skills: []\n", encoding="utf-8")
-    args = build_parser().parse_args(["catalog", "scan", "--root", str(tmp_path)])
+    args = build_parser().parse_args(["catalog", "check", "--root", str(tmp_path)])
     with pytest.raises(SystemExit) as exc_info:
         args.func(args)
 
@@ -219,11 +217,11 @@ def test_catalog_scan_with_a_manifest_that_declares_no_skill_says_so_and_exits_1
 
 def test_catalog_scan_with_tasks_but_no_skill_md_warns_and_exits_0_unless_strict(tmp_path, capsys):
     _write_task(tmp_path, "onetbb-real-task")
-    args = build_parser().parse_args(["catalog", "scan", "--root", str(tmp_path)])
+    args = build_parser().parse_args(["catalog", "check", "--root", str(tmp_path)])
     args.func(args)  # no SystemExit: the tasks are a catalog the scan can run
 
     assert f"no SKILL.md found under {tmp_path}" in capsys.readouterr().err
-    strict = build_parser().parse_args(["catalog", "scan", "--root", str(tmp_path), "--strict"])
+    strict = build_parser().parse_args(["catalog", "check", "--root", str(tmp_path), "--strict"])
     with pytest.raises(SystemExit) as exc_info:
         strict.func(strict)
     assert exc_info.value.code == 1
@@ -231,7 +229,7 @@ def test_catalog_scan_with_tasks_but_no_skill_md_warns_and_exits_0_unless_strict
 
 def test_catalog_scan_kind_tasks_does_not_ask_for_a_skill_md(tmp_path, capsys):
     _write_task(tmp_path, "onetbb-real-task")
-    args = build_parser().parse_args(["catalog", "scan", "--root", str(tmp_path), "--kind", "tasks"])
+    args = build_parser().parse_args(["catalog", "check", "--root", str(tmp_path), "--kind", "tasks"])
     args.func(args)
 
     assert "no SKILL.md" not in capsys.readouterr().err
@@ -240,7 +238,7 @@ def test_catalog_scan_kind_tasks_does_not_ask_for_a_skill_md(tmp_path, capsys):
 def test_catalog_scan_rejects_missing_root(tmp_path):
     parser = build_parser()
     args = parser.parse_args(
-        ["catalog", "scan", "--root", str(tmp_path / "does-not-exist")]
+        ["catalog", "check", "--root", str(tmp_path / "does-not-exist")]
     )
     with pytest.raises(SystemExit):
         args.func(args)
@@ -253,7 +251,7 @@ def test_catalog_scan_reports_clean_error_on_malformed_manifest(tmp_path):
 
     parser = build_parser()
     args = parser.parse_args(
-        ["catalog", "scan", "--root", str(tmp_path), "--kind", "skills"]
+        ["catalog", "check", "--root", str(tmp_path), "--kind", "skills"]
     )
     with pytest.raises(SystemExit) as exc_info:
         args.func(args)
@@ -263,7 +261,7 @@ def test_catalog_scan_reports_clean_error_on_malformed_manifest(tmp_path):
 def test_catalog_scan_reports_clean_error_on_non_utf8_skills_manifest(tmp_path):
     (tmp_path / "skills.yaml").write_bytes(b"skills: [\xff\xfe]\n")
 
-    args = build_parser().parse_args(["catalog", "scan", "--root", str(tmp_path), "--kind", "skills"])
+    args = build_parser().parse_args(["catalog", "check", "--root", str(tmp_path), "--kind", "skills"])
     with pytest.raises(SystemExit) as exc_info:
         args.func(args)
     assert "invalid skills.yaml" in str(exc_info.value)
@@ -289,7 +287,7 @@ def test_catalog_scan_reports_clean_error_on_unreadable_manifest(tmp_path, monke
 
     monkeypatch.setattr(Path, "read_text", read_text)
 
-    args = build_parser().parse_args(["catalog", "scan", "--root", str(tmp_path), "--kind", kind])
+    args = build_parser().parse_args(["catalog", "check", "--root", str(tmp_path), "--kind", kind])
     with pytest.raises(SystemExit) as exc_info:
         args.func(args)
     assert f"cannot read {path.name} at {path}" in str(exc_info.value)
@@ -300,7 +298,7 @@ def test_catalog_scan_reports_clean_error_on_non_utf8_suites_manifest(tmp_path):
     manifest.parent.mkdir(parents=True)
     manifest.write_bytes(b'{"suites": ["\xff"]}')
 
-    args = build_parser().parse_args(["catalog", "scan", "--root", str(tmp_path), "--kind", "tasks"])
+    args = build_parser().parse_args(["catalog", "check", "--root", str(tmp_path), "--kind", "tasks"])
     with pytest.raises(SystemExit) as exc_info:
         args.func(args)
     assert "invalid suites.json" in str(exc_info.value)
@@ -314,7 +312,7 @@ def test_catalog_scan_reports_clean_error_on_wrong_shaped_suites_manifest(tmp_pa
     manifest.parent.mkdir(parents=True)
     manifest.write_text(text, encoding="utf-8")
 
-    args = build_parser().parse_args(["catalog", "scan", "--root", str(tmp_path), "--kind", "tasks"])
+    args = build_parser().parse_args(["catalog", "check", "--root", str(tmp_path), "--kind", "tasks"])
     with pytest.raises(SystemExit) as exc_info:
         args.func(args)
     assert f"invalid suites.json at {manifest}" in str(exc_info.value)
@@ -325,7 +323,7 @@ def test_catalog_scan_reads_a_null_or_missing_suites_manifest_list_as_empty(tmp_
     (tmp_path / "evaluation" / "harbor" / "tasks").mkdir(parents=True)
     (tmp_path / "evaluation" / "harbor" / "suites.json").write_text(text, encoding="utf-8")
 
-    args = build_parser().parse_args(["catalog", "scan", "--root", str(tmp_path), "--kind", "tasks"])
+    args = build_parser().parse_args(["catalog", "check", "--root", str(tmp_path), "--kind", "tasks"])
     args.func(args)
     assert f"# tasks (0 declared under {tmp_path})" in capsys.readouterr().out
 
@@ -333,7 +331,7 @@ def test_catalog_scan_reads_a_null_or_missing_suites_manifest_list_as_empty(tmp_
 def test_catalog_scan_reports_clean_error_on_deeply_nested_skills_manifest(tmp_path):
     (tmp_path / "skills.yaml").write_text("[" * 200000, encoding="utf-8")
 
-    args = build_parser().parse_args(["catalog", "scan", "--root", str(tmp_path), "--kind", "skills"])
+    args = build_parser().parse_args(["catalog", "check", "--root", str(tmp_path), "--kind", "skills"])
     with pytest.raises(SystemExit) as exc_info:
         args.func(args)
     assert f"invalid skills.yaml at {tmp_path / 'skills.yaml'}" in str(exc_info.value)
@@ -352,7 +350,7 @@ def test_catalog_scan_reports_a_malformed_skill_as_an_error_row(tmp_path, capsys
     else:
         skill_md.write_bytes(content)
 
-    args = build_parser().parse_args(["catalog", "scan", "--root", str(tmp_path), "--kind", "skills"])
+    args = build_parser().parse_args(["catalog", "check", "--root", str(tmp_path), "--kind", "skills"])
     with pytest.raises(SystemExit) as exc_info:
         args.func(args)
     assert exc_info.value.code == 1
@@ -366,7 +364,7 @@ def test_catalog_scan_reports_a_deep_manifest_listed_skill_as_an_error_row(tmp_p
     (deep / "SKILL.md").write_bytes(_DEEP_FRONTMATTER)
     (tmp_path / "skills.yaml").write_text("- name: good\n- name: deep\n", encoding="utf-8")
 
-    args = build_parser().parse_args(["catalog", "scan", "--root", str(tmp_path), "--kind", "skills"])
+    args = build_parser().parse_args(["catalog", "check", "--root", str(tmp_path), "--kind", "skills"])
     with pytest.raises(SystemExit) as exc_info:
         args.func(args)
     assert exc_info.value.code == 1
@@ -422,7 +420,7 @@ def test_catalog_scan_reports_clean_error_on_unloadable_task_dir(tmp_path, instr
     if instruction is not None:
         (task / "instruction.md").write_text(instruction, encoding="utf-8")
 
-    args = build_parser().parse_args(["catalog", "scan", "--root", str(tmp_path), "--kind", "tasks"])
+    args = build_parser().parse_args(["catalog", "check", "--root", str(tmp_path), "--kind", "tasks"])
     with pytest.raises(SystemExit) as exc_info:
         args.func(args)
     assert "cannot read tasks at" in str(exc_info.value)

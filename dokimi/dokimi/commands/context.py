@@ -286,29 +286,29 @@ def _consistency_text(report: dict) -> str:
 
 
 def register(sub, positive_int) -> None:
-    """Add the `context` subcommand group."""
-    context_p = sub.add_parser(
-        "context",
+    """Add the `trace` group (#94 M2: it was `context`): what a run's trace and sessions show."""
+    trace_p = sub.add_parser(
+        "trace",
         help="What an agent's context window held during a run, read from its trace. No LLM call.",
     )
-    context_sub = context_p.add_subparsers(dest="context_cmd", required=True)
+    trace_sub = trace_p.add_subparsers(dest="trace_cmd", required=True)
 
-    trace_p = context_sub.add_parser(
-        "trace",
+    inspect_p = trace_sub.add_parser(
+        "inspect",
         help="Prompt size at every model call of a Claude Code stream-json trace: what start-up "
         "loaded, how the history grew, compactions, which tool results weighed most, failed and "
         "repeated tool calls. Several traces print as one comparison table.",
     )
-    trace_p.add_argument("traces", nargs="+",
-                         help="`claude -p --output-format stream-json --verbose` output files")
-    trace_p.add_argument("--window", type=positive_int, default=None,
-                         help="Context window of the model in tokens; adds the peak's fill fraction")
-    trace_p.add_argument("--calls", action="store_true",
-                         help="Also give every call's token counts and every compaction event")
-    trace_p.add_argument("--json", action="store_true", help="Print the summaries as JSON")
-    trace_p.set_defaults(func=cmd_context_trace)
+    inspect_p.add_argument("traces", nargs="+",
+                           help="`claude -p --output-format stream-json --verbose` output files")
+    inspect_p.add_argument("--window", type=positive_int, default=None,
+                           help="Context window of the model in tokens; adds the peak's fill fraction")
+    inspect_p.add_argument("--calls", action="store_true",
+                           help="Also give every call's token counts and every compaction event")
+    inspect_p.add_argument("--json", action="store_true", help="Print the summaries as JSON")
+    inspect_p.set_defaults(func=cmd_context_trace)
 
-    cons_p = context_sub.add_parser(
+    cons_p = trace_sub.add_parser(
         "consistency",
         help="Repeated runs of one task, read from their stream-json traces: result stability "
         "(success, pass@k, pass^k), path stability (tool mix JSD, order and action edit distance, "
@@ -331,7 +331,7 @@ def register(sub, positive_int) -> None:
     cons_p.add_argument("--json", action="store_true", help="Print the profiles as JSON")
     cons_p.set_defaults(func=cmd_context_consistency)
 
-    pre_p = context_sub.add_parser(
+    pre_p = trace_sub.add_parser(
         "prefilter",
         help="Which rules of an AGENTS.md or CLAUDE.md the sessions triggered, acted on and were "
         "corrected on, read from Claude Code session logs: a ranked list of candidates for "

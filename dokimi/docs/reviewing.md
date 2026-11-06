@@ -50,9 +50,9 @@ self-judge; `arms run` does not check, so name
 
 | Step | Command | Cost |
 |---|---|---|
-| 1. Does it load? | `dokimi catalog scan --root <catalog> --kind skills [--strict]` | free |
+| 1. Does it load? | `dokimi catalog check --root <catalog> --kind skills [--strict]` | free |
 | 2. Is it ever picked? | `dokimi novelty routing --artifact skill:<dir> --catalog <catalog> --queries queries.json [--model …]` | free without `--model` |
-| 3. What will step 4 cost? | `dokimi novelty analyze --artifact skill:<dir> --tier triage --include-resources --estimate-only` | free |
+| 3. What will step 4 cost? | `dokimi skill novelty analyze --artifact skill:<dir> --tier triage --include-resources --estimate-only` | free |
 | 4. What does it add? | the same command without `--estimate-only`, plus `--model`, `--provider`, `--judge-model` and `--max-usd` | ~100 calls |
 | 5a. Do answers improve? | `dokimi arms run --product <p> --questions <set.json> --arms baseline,skill:<dir> --model <model> --provider <provider> --judge --judge-model <judge-model> --judge-provider <judge-provider>` | one answer and one grade per question and arm |
 | 5b. Does code improve? | `dokimi tasks run --tasks-root <checkout>/evaluation/harbor/tasks --all --harnesses docker-claude,docker-claude-skill:<dir> --baseline-harness docker-claude` ([coding-harnesses.md](coding-harnesses.md)) | one agent run per task and harness; needs Docker and Claude credentials (`AWS_BEARER_TOKEN_BEDROCK`, `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN`), not the provider keys above; run with `--dry-run` first |
@@ -105,7 +105,7 @@ The full path with reading notes: [skill-novelty-walkthrough.md](skill-novelty-w
 |---|---|---|
 | 1. Do the paths, links and commands named in the guidance exist? | `dokimi repo scan <repo>` | free |
 | 2. Which guidance files does the harness actually load? | `dokimi repo reach <repo> --model <id> --dry-run`, then a few `--only <scenario>` with `--budget`; to see whether a Bash read of a nested file loads its directory's guidance (agents that read with `cat`), `--scenarios bash` (or `--scenarios bash --only bash=<dir>`) | capped by `--budget` (default $0.10) per scenario; needs the `claude` binary and `ANTHROPIC_API_KEY`, or `AWS_BEARER_TOKEN_BEDROCK` with `AWS_REGION` and `CLAUDE_CODE_USE_BEDROCK` |
-| 3. What does the root guidance add? | `dokimi novelty analyze --artifact text:<repo>/AGENTS.md --tier triage …` | ~100 calls |
+| 3. What does the root guidance add? | `dokimi skill novelty analyze --artifact text:<repo>/AGENTS.md --tier triage …` | ~100 calls |
 | 4. Does the guidance change task outcomes? | `dokimi repo run <repo> --manifest-file … --model <id> --batch <name> --arm guidance:none,guidance:raw --agent-network host --budget <usd> --max-batch-usd <usd>`; a replay batch passes `guidance:rev:<sha>` instead of `guidance:raw` (see Past review comments below) | needs the repository's own tasks, Docker, `claude` binary on PATH (or `--bin`); `--budget` defaults to $2.00 per agent run with no batch cap unless you pass `--max-batch-usd` |
 
 With no `repo-eval.yaml` in the repository, steps 1 and 2 check the default
@@ -250,9 +250,15 @@ these, in order, before writing what it showed (the fields:
   then the finding in the cell's `answer.txt`.
   `dokimi repo hits judge <batch> --judge PROVIDER/MODEL` has a judge label
   every credited pair (`same point`, `related` or `unrelated`) and gives
-  `recall_judged` ([§9](repo-evaluation-contract.md#9-running)). That figure
+  `recall_judged` ([§9](repo-evaluation-contract.md#9-running)), and
+  `dokimi repo compare <batch> --baseline guidance:none --metric recall --metric judge:recall_judged`
+  puts its per-task delta next to `recall`'s (a cell regraded since judging,
+  or with an unjudged pair, is left out and counted, while `recall`'s row
+  keeps it: the two deltas cover the same cells only when no per-arm
+  `cells read` line is printed). That figure
   is uncalibrated until a person labels a sample (`repo hits sheet`, then
-  `--labels`) and `uncalibrated_rows` is empty: it narrows which pairs to
+  `--labels`) and `uncalibrated_rows` is empty, and `repo compare` cannot tell:
+  quote it only next to a calibration. It narrows which pairs to
   read, it does not replace reading the pairs you cite. Cite only pairs that make the
   same point; say how many credited pairs you read and how many held. To
   attribute a hit to a guidance rule, check that the rule is in a file the
