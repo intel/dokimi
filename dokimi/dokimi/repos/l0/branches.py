@@ -137,9 +137,9 @@ def _filter_sources(scan: Scan) -> list[Source]:
         doc = _load(scan, path)
         on = (doc[True] if True in doc else doc.get("on")) if isinstance(doc, dict) else None  # YAML 1.1: `on` is true
         specs = [(e, on.get(e)) for e in _EVENTS] if isinstance(on, dict) else []  # `on: push` has no filters
-        out += [Source(p, _filter_regex(p), f"branch filter of on.{event} ({path}:{getattr(p, 'line', 0)})")
+        out += [Source(p, rx, f"branch filter of on.{event} ({path}:{getattr(p, 'line', 0)})")
                 for event, spec in specs if isinstance(spec, dict)
-                for key in _FILTERS for p in _list(spec.get(key)) if isinstance(p, str)]
+                for key in _FILTERS for p in _list(spec.get(key)) if isinstance(p, str) and (rx := _filter_regex(p))]
     return out
 
 
@@ -147,9 +147,10 @@ _FILTER_TOKEN = re.compile(r"\\(.)|(\*\*?)|\[([a-zA-Z0-9-]+)\]|([?+])|(.)", re.S
 _KINDS = ("abcdefghijklmnopqrstuvwxyz", "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "0123456789")
 
 
-def _filter_regex(pattern: str) -> re.Pattern[str]:
+def _filter_regex(pattern: str) -> re.Pattern[str] | None:
     """A GitHub branch filter: ``**`` matches any characters, ``*`` any but ``/``, ``?`` and ``+`` make what is
     before them optional or repeated, ``[...]`` is one of its letters, digits or ranges, ``\\`` escapes; a leading ``!`` is dropped.
+    None when its ``?`` and ``+`` nest groups deeper than ``re.compile`` parses.
     """
     out: list[str] = []
     for m in _FILTER_TOKEN.finditer(pattern.removeprefix("!")):
@@ -160,7 +161,10 @@ def _filter_regex(pattern: str) -> re.Pattern[str]:
             out.append(".*" if star == "**" else "[^/]*")
         else:
             out.append((_class(body) if body else None) or re.escape(escaped or repeat or char or m[0]))
-    return re.compile("".join(out) + r"\Z")
+    try:
+        return re.compile("".join(out) + r"\Z")
+    except RecursionError:  # each `?` or `+` wraps what is before it in a group: `a` and 3000 `?`
+        return None
 
 
 def _class(body: str) -> str | None:
