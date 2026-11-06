@@ -29,6 +29,8 @@ SKILL_DIR = Path(__file__).parents[1] / fd.FIXTURE_SKILL_REL
 SKILL_MD = SKILL_DIR / "SKILL.md"
 REQUIRED = os.environ.get("DOKIMI_FIDELITY_REQUIRED") == "1"
 IMAGE = os.environ.get("DOKIMI_FIDELITY_IMAGE") or None
+#: Set on a maintainer's host whose native build adds its own skills; CI never sets it.
+OPERATOR_HOST = os.environ.get("DOKIMI_FIDELITY_OPERATOR_HOST") == "1"
 
 
 def _pinned_binary():
@@ -107,7 +109,8 @@ def test_docker_claude_payload_matches_golden(case, tmp_path):
         pytest.skip(f"claude {fd.PINNED_CLAUDE_VERSION} is not on PATH")
     golden = fd.load_golden(GOLDEN_DIR / f"{case}.json")["request"]
     ids = {"uid": os.getuid(), "gid": os.getgid()} if IMAGE else {}  # container captures only
-    actual = fd.capture_arm(case, binary=binary, scratch=tmp_path, image=IMAGE, skill_dir=SKILL_DIR, **ids)
+    actual = fd.capture_arm(case, binary=binary, scratch=tmp_path, image=IMAGE, skill_dir=SKILL_DIR,
+                            operator_host=OPERATOR_HOST, **ids)
     skill_text = SKILL_MD.read_text(encoding="utf-8")
     leaks = fd.leaks_against(actual, golden, allowed=[fd.FIXTURE_INSTRUCTION, skill_text])
     assert [lk.as_dict() for lk in leaks] == []
@@ -371,6 +374,19 @@ def test_the_listing_ends_at_its_closing_tag():
     text = "<system-reminder>\n" + _LISTING + "- sum-fast:sum-fast: y\n- dataviz: x\n</system-reminder>\nafter"
     out = _texts(fd.normalize_request(_record_with(text), keep_skills=("sum-fast",)))
     assert "dataviz" not in out and "</system-reminder>" in out and "after" in out
+
+
+def test_the_listing_is_compared_as_sent_unless_an_operator_host_is_named():
+    # A clean capture that gains bundled skills is a broken seal: it must differ from the golden.
+    golden = fd.load_golden(GOLDEN_DIR / "skill.json")["request"]
+    sealed = {"path": "/v1/messages", "headers": {}, "body": json.loads(json.dumps(golden))}
+    broken = json.loads(json.dumps(sealed))
+    for block in broken["body"]["messages"][0]["content"]:
+        if "sum-fast:sum-fast" in block.get("text", ""):
+            block["text"] = block["text"].replace("- sum-fast:sum-fast", "- simplify: x\n- update-config: y\n- sum-fast:sum-fast")
+    assert fd.diff_requests(fd.normalize_request(broken), fd.normalize_request(sealed)) != []
+    assert fd.diff_requests(fd.normalize_request(broken, keep_skills=("sum-fast",)),
+                            fd.normalize_request(sealed, keep_skills=("sum-fast",))) == []
 
 
 def test_a_bullet_list_after_the_listing_is_kept():

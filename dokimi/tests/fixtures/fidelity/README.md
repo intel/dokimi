@@ -57,7 +57,9 @@ The script refuses a binary whose version is not the pinned one. Then:
 
 - The native build on the maintainers' machine adds two reminders (a token budget and an
   attribution rule) and extra skills of its own. A clean container does not get them. The
-  normalizer removes them by name (`OPERATOR_REMINDERS`, and skill-listing entries other
-  than the fixture's); anything else it does not remove is pinned.
+  normalizer removes the reminders by name (`OPERATOR_REMINDERS`). The skill listing is
+  compared as sent, so a skill a clean capture gains (a broken seal) is a diff; on such a
+  host set `DOKIMI_FIDELITY_OPERATOR_HOST=1` to drop the entries other than the fixture's.
+  Anything else it does not remove is pinned.
 - The arm runs in a container with its own paths and user. The host run uses the same
   argv and the same flags; the paths are blanked, so the comparison holds.

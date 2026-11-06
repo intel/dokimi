@@ -270,7 +270,7 @@ def _keep_listing(text: str, keep_skills: Sequence[str]) -> str:
     return "\n".join(kept)
 
 
-def _keep_text(text: str, keep_skills: Sequence[str]) -> Optional[str]:
+def _keep_text(text: str, keep_skills: Optional[Sequence[str]]) -> Optional[str]:
     """The text of one block with the operator extras out; None drops the block.
 
     Only the operator's own reminder is removed: its ``<system-reminder>`` element, or a bare
@@ -283,7 +283,7 @@ def _keep_text(text: str, keep_skills: Sequence[str]) -> Optional[str]:
     if cleaned != text and not re.sub(r"</?system-reminder>|\s", "", cleaned):
         return None  # only the reminder's wrapper is left: the block was the reminder
     text = cleaned
-    if _SKILLS_HEADER not in text:
+    if keep_skills is None or _SKILLS_HEADER not in text:
         return text
     kept = _keep_listing(text, keep_skills)
     if any(ln.startswith("- ") for ln in kept.split("\n")):
@@ -293,7 +293,7 @@ def _keep_text(text: str, keep_skills: Sequence[str]) -> Optional[str]:
     return rest or None
 
 
-def _strip_content(content: Any, keep_skills: Sequence[str]) -> Any:
+def _strip_content(content: Any, keep_skills: Optional[Sequence[str]]) -> Any:
     if not isinstance(content, list):
         return content
     blocks = []
@@ -317,8 +317,8 @@ def _strip_system(system: Any) -> Any:
             for blk in system]
 
 
-def _strip_operator_extras(body: dict, keep_skills: Sequence[str]) -> dict:
-    """Drop :data:`OPERATOR_REMINDERS` and every skill-listing entry but *keep_skills*."""
+def _strip_operator_extras(body: dict, keep_skills: Optional[Sequence[str]]) -> dict:
+    """Drop :data:`OPERATOR_REMINDERS`, and with *keep_skills* every skill-listing entry but those."""
     out = dict(body)
     if "system" in out:
         out["system"] = _strip_system(out["system"])
@@ -328,8 +328,12 @@ def _strip_operator_extras(body: dict, keep_skills: Sequence[str]) -> dict:
 
 
 def normalize_request(record: dict, *, workdir: str = "", home: str = "",
-                      keep_skills: Sequence[str] = ("sum-fast",)) -> dict:
+                      keep_skills: Optional[Sequence[str]] = None) -> dict:
     """The golden-comparable form of one recorded request.
+
+    The skill listing is compared as sent. *keep_skills* filters it to those skills, for an
+    operator-host capture only (:func:`capture_arm` ``operator_host=True``): a clean capture
+    that gains a skill is a broken seal, and the golden must show it.
 
     Keeps the body (model, system, tools, messages, thinking and context settings) and the
     :data:`KEPT_HEADERS`; the body's ``metadata.user_id`` carries per-run ids, so it is
@@ -484,11 +488,13 @@ def run_docker(image: str, binary: str, args: List[str], *, workdir: Path, plugi
 CASES = ("bare", "skill")
 #: The fixture skill's path inside a source checkout (``tests/`` is not in the wheel), relative
 #: to the ``dokimi/`` project dir. Callers pass the resolved dir as ``capture_arm(skill_dir=)``.
+FIXTURE_SKILL_NAME = "sum-fast"
 FIXTURE_SKILL_REL = Path("tests") / "fixtures" / "fidelity" / "skill" / "sum-fast"
 
 
 def capture_arm(case: str, *, binary: str, scratch: Path, image: Optional[str] = None,
-                uid: int = 1000, gid: int = 1000, skill_dir: Optional[Path] = None) -> dict:
+                uid: int = 1000, gid: int = 1000, skill_dir: Optional[Path] = None,
+                operator_host: bool = False) -> dict:
     """The normalized request a docker-claude arm sends for *case* (``bare`` or ``skill``).
 
     *binary* is the client to run; *image* runs it in a clean container (the golden is taken
@@ -496,6 +502,8 @@ def capture_arm(case: str, *, binary: str, scratch: Path, image: Optional[str] =
     build are used, so the request is the one :class:`DockerSolverHarness` produces, minus
     the container's own paths, which are the same here. The ``skill`` case needs
     *skill_dir*, the skill to load (the golden uses :data:`FIXTURE_SKILL_REL`).
+    *operator_host* drops the skill-listing entries other than the fixture's, which an
+    operator's own build adds; never set it for CI or a golden capture.
     """
     from dokimi.harnesses.docker_solver import DockerSolverHarness
     from dokimi.harnesses.skill_treatment import build_plugin
@@ -528,4 +536,5 @@ def capture_arm(case: str, *, binary: str, scratch: Path, image: Optional[str] =
         home = str(scratch / "home")
     turn = messages_request(record(runner))
     check_model(turn, FIXTURE_MODEL)
-    return normalize_request(turn, workdir=str(workdir), home=home)
+    keep = (FIXTURE_SKILL_NAME,) if operator_host else None
+    return normalize_request(turn, workdir=str(workdir), home=home, keep_skills=keep)
