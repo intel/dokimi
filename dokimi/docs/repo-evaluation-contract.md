@@ -521,8 +521,8 @@ parent's and subagents' together, so a grader need not:
 | `commands` | `command` events |
 | `failed_commands` | commands not denied whose `rc` is neither `0` nor `null` |
 | `denied_commands` | commands with `denied: true` (a hook or the harness's permissions refused them) |
-| `guidance_read` | sorted, distinct workspace paths (normalized: `./a`, `a/../b`; not `~`) of `read` events, neither denied nor failed (`rc` 1: the file does not exist), that `guidance.globs` match. A read event is a read tool's (Claude Code's Read, Copilot's `view`) or a shell read: a Claude Code Bash call, Codex command or Copilot `bash` command that only prints files, as §7 lists (a bare `cat`, `head`, `tail`, `nl` or `sed -n`; `cd <dir>; cat AGENTS.md` reads `<dir>/AGENTS.md`). A command that is one such read naming one file, alone, the one command of a brace group (`{ cat AGENTS.md; }`) or after `cd` commands (`cd sub && cat AGENTS.md`; `time cd`, `command cd`, `builtin cd`, `X=1 cd`, a quoted or escaped `"cd"` or `\cd` too, not `env cd`), and fails is no read; one naming two keeps its reads, even when only one is known (`cd -; cat missing.md /ws/AGENTS.md`). Guidance seen through a pipe, `grep` or `rg` is not counted, nor a relative read after an earlier Claude Code Bash call ran a `cd` (`time cd` and `command cd` too), `pushd`, `popd`, or an `eval`, `source` or `.` (which may run one), its name quoted or escaped too (`"source" "$ENV"`, `\cd "$D"`), in its own shell, not in a subshell, pipeline or background job (the shell keeps its directory between calls, so the file is not known; a call a hook or the permissions refused ran nothing and moves nothing). That holds across agents: after the parent's `cd`, a subagent's relative reads are dropped too, and the reverse, since a subagent may share the parent's shell (not checked on a real trace; dropping a read is the safe side either way); to count those, add a `process_metrics` counter on the command text (§2), which also counts denied commands, unlike this row |
-| `unknown_reads` | the relative shell reads, of calls neither refused nor failed as one read of one file (see `guidance_read`; `cd -; cat missing.md` failing counts none), that the trace made at a directory the converter could not follow (after `source .venv/bin/activate`, `cd -`, or a `cd` in an earlier Claude Code Bash call): they have no `read` event, so `guidance_read` may miss them; `0` when there are none |
+| `guidance_read` | sorted, distinct workspace paths (normalized: `./a`, `a/../b`; not `~`) of `read` events, neither denied nor failed (`rc` 1: the file does not exist), that `guidance.globs` match. A read event is a read tool's (Claude Code's Read, Copilot's `view`) or a shell read: a Claude Code Bash call, Codex command or Copilot `bash` command that only prints files, as §7 lists (a bare `cat`, `head`, `tail`, `nl` or `sed -n`, timed too: `time cat AGENTS.md`, `X=1 time cat AGENTS.md`, or after `command`: `command cat AGENTS.md`, not after `env`, which runs a program, never a builtin: `env command cat AGENTS.md` and `env builtin cat AGENTS.md` run no `cat`; `cd <dir>; cat AGENTS.md` reads `<dir>/AGENTS.md`; not a call of a shell function of that name the same Bash call defined (Claude Code starts each call in a new shell, which keeps no function of an earlier call): `cat() { echo hi; }; cat AGENTS.md`, `\cat AGENTS.md` and `cat() ( echo hi ); cat AGENTS.md` too, is no read, as bash runs the function, nor one after a function named `command`, `env`, `builtin` or `time`, not the keyword: `command() { echo hi; }; command cat AGENTS.md`). A command that is one such read naming one file, alone, the one command of a brace group (`{ cat AGENTS.md; }`) or after `cd` commands (`cd sub && cat AGENTS.md`; `time cd`, `command cd`, `builtin cd`, `X=1 cd`, a quoted or escaped `"cd"` or `\cd` too, not `env cd`) or a virtualenv's activate (`source .venv/bin/activate && cat AGENTS.md`, `source 'my env/bin/activate'` too), and fails is no read; one naming two keeps its reads, even when only one is known (`cd -; cat missing.md /ws/AGENTS.md`). Guidance seen through a pipe, `grep` or `rg` is not counted, nor a relative read after an earlier Claude Code Bash call ran a `cd` (`time cd` and `command cd` too), `pushd`, `popd`, or an `eval`, `source` or `.` (which may run one; not `source .venv/bin/activate`, a virtualenv's activate script alone, assumed to run none, §7), its name quoted or escaped too (`"source" "$ENV"`, `\cd "$D"`), or called a shell function whose body names one of these (`f() { cd sub; }` defined in that call; `source` and `.` only as a command, not of an activate script: `f() { git add .; }` names none), in its own shell, not in a subshell, pipeline or background job (the shell keeps its directory between calls, so the file is not known; a call a hook or the permissions refused ran nothing, so it moves nothing). That holds across agents: after the parent's `cd`, a subagent's relative reads are dropped too, and the reverse, since a subagent may share the parent's shell (not checked on a real trace; dropping a read is the safe side either way); to count those, add a `process_metrics` counter on the command text (§2), which also counts denied commands, unlike this row |
+| `unknown_reads` | the relative shell reads, of calls neither refused nor failed as one read of one file (see `guidance_read`; `cd -; cat missing.md` failing counts none), that the trace made at a directory the converter could not follow (after `source env.sh`, `cd -`, a call of a function that runs a `cd`, or a `cd` in an earlier Claude Code Bash call): they have no `read` event, so `guidance_read` may miss them; `0` when there are none |
 | `counters` | each `process_metrics` name (§2) and its count |
 
 `process` is `null` when the trace could not be read, the agent left none (no event and no result record), or computing the metrics failed (the error is in `agent.trace_errors`).
@@ -1269,18 +1269,41 @@ per scenario).
     - `fetched`: reported only after the agent read the file with a tool (a
       read that was denied or failed is none). For the
       Claude Code (its Bash tool), Codex and Copilot profiles a shell read counts
-      only as a bare `cat`, `head`, `tail`, `nl` or `sed -n`; a command that is one
+      only as a bare `cat`, `head`, `tail`, `nl` or `sed -n`, after the `time`
+      keyword too (`time -p cat AGENTS.md`, `time -- cat AGENTS.md`; the
+      keyword takes one `-p`, then `--`, so `time -x cat AGENTS.md` runs `-x`
+      and is none), or /usr/bin/time with no option
+      (`X=1 time cat AGENTS.md`, `\time cat AGENTS.md`: it passes the command's
+      stdout through), or `command` (`command cat AGENTS.md`; not past `env`,
+      which runs a program: `env command cat AGENTS.md` runs no `cat`, and
+      `env command cd sub` moves nothing); a call of a
+      shell function the agent defined with a printer's name (`cat() { echo
+      hi; }; cat AGENTS.md`, `\cat` too, or a body in parentheses: `cat() (
+      echo hi )`, `function cat ( echo hi )`; bash runs the function) is no read,
+      unlike `command cat`, `env cat` or `/bin/cat`, and so is a printer after
+      a function named `command`, `env`, `builtin` or `time` (not the keyword:
+      `command() { echo hi; }; command cat AGENTS.md`); a command that is one
       such read naming one file, alone, in a brace group (`{ cat AGENTS.md; }`)
       or after `cd` commands (`cd sub && cat AGENTS.md`; `time cd`, `command cd`, `builtin cd`, `X=1 cd`, `"cd"` too, not
-      `env cd`), and exits non-zero is not a read (the exit code of
+      `env cd`) or a virtualenv's activate, and exits non-zero is not a read (the exit code of
       `cat a missing` does not say which file failed, so both stay reads, as
       the known one does when the other is at a directory not known). A read
       through a pipe, `grep` or `rg`, or negated (`! cat AGENTS.md`, whose exit
       says nothing of the file), is not seen, nor, under Claude Code, a relative
       read after an earlier Bash call of any agent (the parent's or a
       subagent's, which may share its shell) ran a `cd`, `pushd`, `popd`,
-      `eval`, `source` or `.` in its own shell (not in a subshell, pipeline or
-      background job, and not refused), so such a file can be classed `loaded`;
+      `eval`, `source` or `.`, or called a shell function the same call
+      defined whose body
+      names one of these, or that has the name of one
+      (`cd() { ...; }`), in its own shell (not in a
+      subshell, pipeline or background job, and not refused), so such a file
+      can be classed `loaded`. `source` or `.` of a virtualenv's activate script
+      alone (`source .venv/bin/activate`, `. "/opt/venv/bin/activate"`: one
+      operand ending in `bin/activate`, no more arguments, a redirection
+      such as `> /dev/null` aside) is assumed to move
+      no shell: the scripts venv, virtualenv and uv write set variables and
+      `PATH` and run no `cd`. Any other `source` (`source env.sh`, a computed
+      `source $V/bin/activate`, `bin/activate.fish`) may;
     - `not_loaded`;
     - `error`: the scenario produced no usable answer: no answer, a non-zero
       exit, or an error result.
@@ -1413,17 +1436,42 @@ observations of that run. It cannot show:
 - which directory a Claude Code subagent's Bash shell is in: the converter
   assumes it shares the parent's, so a `cd` in either drops the later
   relative reads of both (this only drops reads; no real trace was checked);
-- a `cd` inside a shell function the agent defined and then called: the call
-  is not followed, so a later relative read is taken from the directory
-  before it (an `eval`, `source` or `.` is taken as moving the shell). A
+- where a `cd` inside a shell function the agent defined and then called
+  went: a call of a function whose body names a directory builtin anywhere
+  (`source` and `.` only as a command's word, and not of an activate
+  script: `find .` and `source .venv/bin/activate` name none), or calls
+  another such function, defined in the same Bash call (a
+  Claude Code call starts in a new shell, which keeps none of an earlier
+  call's functions), is taken as moving the shell to a directory
+  not known, as an `eval`, `source` or `.` is, so the later relative reads
+  are dropped, and so is a call of a function named like a directory
+  builtin (`cd() { ...; }; cd sub`; `command cd sub` and `builtin cd sub`
+  run the builtin, and are followed). A definition's body is skipped, as
+  defining a function runs nothing, also with its `{` on a later line
+  (`f()`, a newline or a comment line, `{`). A body in parentheses (`f() (
+  cd sub )`, `function f ( cd sub )`) runs in a subshell, so a call of it moves nothing. A call of
+  any function the agent defined is no read (`cat() { echo hi; }; cat
+  AGENTS.md`), and a function named like a wrapper runs in its place
+  (`command() { ...; }; command cat AGENTS.md` reads nothing). A body whose
+  closing `}` is not seen (`f() { cd sub; }>log`) is taken to run to the
+  end of the script. A name
+  defined again keeps what each definition named, and a definition in a
+  subshell, one that never ran or one later in the script counts too: all
+  of these only drop reads. A
   command the parser does not fully follow counts as moving the shell when
   its command word, after `builtin`, `command` or `time` and their options
   (and, after `time`, assignments: `time X=1 cd sub` runs the `cd` here),
   names a directory builtin (`X="a b" cd "$D"`, `time -p cd sub`; not
-  `time git add .`), and so does one in a `case` arm. `time` is that
-  keyword only as the first word, unquoted (`X=1 time cd sub` and
-  `\time cd sub` run /usr/bin/time); the forms that only drop a read are listed in
-  [#374](https://github.com/intel/dokimi/issues/374);
+  `time git add .`), and so does one in a `case` arm (a `case` opens only
+  as a command word: `echo case` and the pattern `a|case)` open none).
+  `time` is that keyword only as the first word, unquoted (`X=1 time cd sub`
+  and `\time cd sub` run /usr/bin/time). Where only the directory is at
+  stake, any dash word after `time` counts as its option: `time -x cd sub`
+  loses the directory, though bash runs `-x`;
+- that a virtualenv's activate script runs no `cd`: `source` or `.` of one
+  alone (`source .venv/bin/activate`) is assumed to leave the shell where it
+  was, as the scripts venv, virtualenv and uv write do; one that moved it
+  would leave the later relative reads at the wrong directory;
 - when a source entered the request, or in what order (no timestamps);
 - start-up imports, start-up rules and skill listings from budget, which reach does not probe:
   they appear with `observed: unknown`. A skill body is loaded on demand, so it
