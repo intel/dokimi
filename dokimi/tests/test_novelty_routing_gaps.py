@@ -533,3 +533,21 @@ def test_all_vs_all_refuses_a_queried_name_with_one_broken_and_one_loaded_copy(t
                   "--queries-by-skill", str(queries), "--estimate-only")
     with pytest.raises(InputError, match="copy that failed to load beside one that loaded.*`review`"):
         args.func(args)
+
+
+def test_no_query_left_names_only_the_queried_skills_the_field_left_out(tmp_path):
+    # Thread: PRRT_kwDOVBg7g860Libd
+    root = tmp_path / "catalog"
+    _skill(root, "skills", "cache", "cache slow lookups")
+    _skill(root, "skills", "queue", "queue background jobs")
+    _skill(root, "skills", "db", "x" * 1100)
+    off = root / "skills" / "off"
+    off.mkdir(parents=True)
+    (off / "SKILL.md").write_text("---\nname: off\ndescription: an off skill\n"
+                                  "disable-model-invocation: true\n---\n\n# B\n", encoding="utf-8")
+    queries = _queries(tmp_path, {"db": ["tune my database"]})
+    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
+                  "--queries-by-skill", str(queries), "--estimate-only")
+    with pytest.raises(InputError, match="no skill in the field has queries") as exc:
+        args.func(args)
+    assert "`db`" in str(exc.value) and "`off`" not in str(exc.value)
