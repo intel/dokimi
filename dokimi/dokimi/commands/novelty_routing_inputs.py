@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from dokimi.novelty.routing import Candidate
 
 
-def checked_out_path(out: str | None, command: str) -> Path:
+def checked_out_path(out: str | None, command: str, default: str | None = None) -> Path:
     """The ``--out`` file of a routing run, refused before any model call when it cannot be written.
 
     The file must not be a directory. Its missing parent directories are fine: the writer creates
@@ -25,34 +25,40 @@ def checked_out_path(out: str | None, command: str) -> Path:
     existing file must itself be writable. A symlink is checked where it points: the writer
     follows it, and creates only the link's own parent, not the target's.
 
+    With no ``out`` and a ``default``, the default path is checked, and a refusal names it as the
+    default output and asks for ``--out``, since the user passed none.
+
     Raises:
-        InputError: ``--out`` is missing, is a directory, sits under a path that is not a
+        InputError: ``--out`` is missing (and no default), is a directory, sits under a path that is not a
             directory, is a symlink into a missing directory, or is not writable.
     """
-    if not out:
+    if not out and not default:
         raise InputError(f"{command} needs --out <file>")
-    path = Path(out)
+    label = f"--out {out}" if out else f"the default output {default}"
+    hint = "" if out else " (pass --out <file>)"
+    path = Path(out or default)
     if path.is_dir():
-        raise InputError(f"--out {out} is a directory: pass a file path, e.g. {path / 'routing.json'}")
+        fix = f"pass a file path, e.g. {path / 'routing.json'}" if out else "pass --out <file>"
+        raise InputError(f"{label} is a directory: {fix}")
     # realpath follows a symlink even when it dangles, so the checks below see the file that is written.
     target = Path(os.path.realpath(path))
     if path.is_symlink() and not target.parent.exists():
-        raise InputError(f"--out {out} is a symlink to {target}, whose directory does not exist: "
-                         "the writer creates only the link's own directory")
+        raise InputError(f"{label} is a symlink to {target}, whose directory does not exist: "
+                         f"the writer creates only the link's own directory{hint}")
     # A dangling symlink among the parents: the writer's mkdir of that parent fails on it.
     for parent in path.parents:
         if parent.is_symlink() and not parent.exists():
-            raise InputError(f"--out {out}: {parent} is a dangling symlink, so the writer cannot create "
-                             "its directory")
+            raise InputError(f"{label}: {parent} is a dangling symlink, so the writer cannot create "
+                             f"its directory{hint}")
     ancestor = next((p for p in target.parents if p.exists()), target.parent)
     if not ancestor.is_dir():
-        raise InputError(f"--out {out}: {ancestor} is not a directory, so the file cannot be created under it")
+        raise InputError(f"{label}: {ancestor} is not a directory, so the file cannot be created under it{hint}")
     if target.exists():
         writable = os.access(target, os.W_OK)
     else:
         writable = os.access(ancestor, os.W_OK | os.X_OK)
     if not writable:
-        raise InputError(f"--out {out} is not writable")
+        raise InputError(f"{label} is not writable{hint}")
     return path
 
 

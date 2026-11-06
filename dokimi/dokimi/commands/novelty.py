@@ -415,7 +415,7 @@ def cmd_novelty_routing(args: argparse.Namespace) -> None:
         return
     lexical = dict(lexical_routing(candidates, queries, gold=0),
                    queries_self_derived=self_derived)
-    out = checked_out_path(args.out or str(_default_dir(args.artifact) / "routing.json"), "routing")
+    out = checked_out_path(args.out, "routing", default=str(_default_dir(args.artifact) / "routing.json"))
     out.parent.mkdir(parents=True, exist_ok=True)
     if not lexical["n_queries_scored"]:
         _refuse_no_queries(args, queries, self_derived, out, len(candidates), queries_source)

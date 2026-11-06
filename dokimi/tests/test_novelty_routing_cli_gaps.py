@@ -385,3 +385,15 @@ def test_all_vs_all_with_one_repeat_keeps_the_noise_block_and_prints_no_noise_li
     noise = json.loads(out.read_text(encoding="utf-8"))["result"]["model"]["noise"]
     assert (noise["n_repeats"], noise["mean_agreement"], noise["half_range"]) == (1, None, None)
     assert "noise    " not in capsys.readouterr().out
+
+
+def test_a_refused_default_out_names_the_default_and_asks_for_out(tmp_path):
+    from dokimi.commands.novelty_routing_inputs import checked_out_path
+    default = tmp_path / "routing.json"
+    default.mkdir()
+    with pytest.raises(InputError) as err:
+        checked_out_path(None, "routing", default=str(default))
+    message = str(err.value)
+    assert message.startswith(f"the default output {default} is a directory")
+    assert "pass --out <file>" in message
+    assert "routing.json/routing.json" not in message
