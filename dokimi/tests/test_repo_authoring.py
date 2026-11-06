@@ -394,6 +394,18 @@ def test_a_missing_or_unreadable_report_fails_the_run(tmp_path, report, why):
     assert doc["pass"] is False and doc["metrics"]["n_tests"] == 0 and why in doc["details"]["report"]
 
 
+def test_a_report_the_grader_cannot_read_fails_the_run_not_the_grader(tmp_path, monkeypatch):
+    rd = _run_dir(tmp_path, _junit("passed"))
+
+    def denied(self):
+        raise PermissionError(13, "Permission denied", str(self))
+
+    monkeypatch.setattr(Path, "read_bytes", denied)
+    doc = main.grade("hidden_tests", tmp_path, rd)
+    assert doc["pass"] is False and doc["errors"] == [] and doc["metrics"]["n_tests"] == 0
+    assert doc["details"]["report"].startswith(f"{hidden_tests.REPORT} cannot be read: [Errno 13] Permission denied")
+
+
 def test_a_staging_problem_or_a_bad_task_is_a_grader_error(tmp_path):
     rd = _run_dir(tmp_path, _junit("passed"))
     (rd / hidden_tests.RUN_RECORD).write_text(json.dumps({"problem": "hidden file x: a link"}))

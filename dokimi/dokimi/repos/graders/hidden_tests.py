@@ -85,9 +85,12 @@ def _cases(run_dir: Path) -> tuple[list[tuple[str, str]], str | None]:
     path = run_dir / REPORT
     if path.is_symlink() or not path.is_file():
         return [], f"the test command wrote no JUnit report to {REPORT}"
-    if path.stat().st_size > MAX_REPORT_BYTES:
-        return [], f"{REPORT} is over {MAX_REPORT_BYTES} bytes"
-    data = path.read_bytes()
+    try:
+        if path.stat().st_size > MAX_REPORT_BYTES:
+            return [], f"{REPORT} is over {MAX_REPORT_BYTES} bytes"
+        data = path.read_bytes()
+    except OSError as exc:  # the subject's code may leave it unreadable: a failed run, not a grader error
+        return [], f"{REPORT} cannot be read: {exc}"
     if b"<!DOCTYPE" in data or b"<!ENTITY" in data:  # no entity expansion from a report the subject wrote
         return [], f"{REPORT} declares a DOCTYPE or an entity"
     try:  # stdlib only (no defusedxml in the image); with no DOCTYPE there is no entity to expand
