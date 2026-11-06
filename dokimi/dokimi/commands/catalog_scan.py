@@ -100,9 +100,11 @@ def _review_rows(pairs: list, jobs: int) -> Iterator[dict]:
         for pair in pairs:
             yield _review_row(pair)
         return
-    from multiprocessing import Pool
+    import multiprocessing
 
-    with Pool(jobs) as pool:
+    # spawn on every platform: Python 3.14 defaults Linux to forkserver, which talks to its server
+    # over a socket, and spawn is what Windows and macOS use already.
+    with multiprocessing.get_context("spawn").Pool(jobs) as pool:
         yield from pool.imap(_review_row, pairs, chunksize=32)
 
 
@@ -197,14 +199,16 @@ def scan_per_skill(args, root: Path, report: dict, as_json: bool, pairs: list) -
         tally.add(row)
     done = {_row_key(row) for row in prior}
     todo = [pair for pair in pairs if _entry_key(pair[0]) not in done]
-    for row in _review_rows(todo, args.jobs):
-        tally.add(row)
+    try:
+        for row in _review_rows(todo, args.jobs):
+            tally.add(row)
+            if sink is not None:
+                sink.write(row)
+            else:
+                report["skills"].append(row)
+    finally:
         if sink is not None:
-            sink.write(row)
-        else:
-            report["skills"].append(row)
-    if sink is not None:
-        sink.close()
+            sink.close()
     if not as_json:
         _print_text(root, declared, tally, len(prior), jsonl, report["skills"])
     return tally.failed, declared
