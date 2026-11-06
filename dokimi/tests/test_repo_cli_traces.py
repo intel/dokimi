@@ -461,7 +461,9 @@ def test_copilot_native_tool_paths_start_in_the_given_directory():
 
 @pytest.mark.parametrize(("path", "cwd", "want"), [
     ("C:\\ws\\x.md", "sub", "C:\\ws\\x.md"), ("/ws/x.md", "sub", "/ws/x.md"), ("dir\\f.py", "sub", "sub/dir/f.py"),
-    ("\\AGENTS.md", "sub", "/AGENTS.md"), ("C:foo", "sub", "C:foo"), ("a\\b.txt", "sub", "sub/a/b.txt")])
+    ("\\AGENTS.md", "sub", "/AGENTS.md"), ("C:foo", "sub", "C:foo"), ("a\\b.txt", "sub", "sub/a/b.txt"),
+    # one letter and a colon reads as a drive on any host, as a Windows CLI would mean it; two letters do not
+    ("x:y.txt", "sub", "x:y.txt"), ("ab:c.txt", "sub", "sub/ab:c.txt")])
 def test_from_cwd_keeps_an_absolute_path_and_joins_a_relative_one(path, cwd, want):
     from dokimi.repos.transcript import _from_cwd
 
