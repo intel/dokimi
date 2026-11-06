@@ -66,6 +66,7 @@ class Candidate:
     gold: tuple[str, ...]
     accepted: tuple[str, ...]  # right answers outside the gold: neither a hit nor a false positive
     same_name: int  # targets of this kind with this name; above 1 the prompt says which one counts
+    distinct: tuple[str, ...] = ()  # other functions of a gold file with a gold item's last name: never a hit
 
     @property
     def ambiguous(self) -> bool:
@@ -189,24 +190,44 @@ def _name(symbol: str, sep: str) -> tuple[str, str] | None:
 
 def _references(index: CodeIndex, repo_path: dict[str, str], granularity: str, sep: str,
                 opts: Options, names: dict[str, str | None]) -> list[Candidate]:
-    groups: dict[str, list[str]] = {}  # qualified name -> its symbols (C++ overloads share one)
+    # C++ overloads share one qualified name, so they are one target; elsewhere a joined name can belong to two
+    # unrelated symbols (function ``c`` of module ``a.b``, method ``c`` of class ``b`` in ``a``): one per symbol
+    groups: dict[str, list[str]] = {}  # group key -> its symbols
     short: dict[str, str] = {}
+    qualified: dict[str, str] = {}
     for s in index.symbols():
         named = _name(s, sep) if function_like(s) else None
         if named:
-            groups.setdefault(named[1], []).append(s)
-            short[named[1]] = named[0]
+            key = named[1] if sep == "::" else s
+            groups.setdefault(key, []).append(s)
+            short[key], qualified[key] = named
     same: dict[str, int] = {}
-    for q in groups:
-        same[short[q]] = same.get(short[q], 0) + 1
+    for key in groups:
+        same[short[key]] = same.get(short[key], 0) + 1
     scopes = _function_scopes(index, names) if granularity == "functions" else None
     out = []
-    for qualified, symbols in sorted(groups.items()):
+    for key, symbols in sorted(groups.items(), key=lambda kv: (qualified[kv[0]], kv[0])):
         found = _group_referrers(index, symbols, repo_path, scopes)
         if found is not None and opts.min_gold <= len(found[1]) <= opts.max_gold:
-            out.append(Candidate("references", tuple(symbols), short[qualified], qualified, found[0],
-                                 tuple(sorted(found[1])), (), same[short[qualified]]))
+            gold = tuple(sorted(found[1]))
+            out.append(Candidate("references", tuple(symbols), short[key], qualified[key], found[0], gold, (),
+                                 same[short[key]], _distinct(gold, scopes, repo_path)))
     return out
+
+
+def _distinct(gold: tuple[str, ...], scopes: Scopes | None, repo_path: dict[str, str]) -> tuple[str, ...]:
+    """The other functions of each gold file whose last name is a gold item's: the grader knows them, so a bare
+    ``run`` for gold ``Impl.run`` does not name it when the file also has a module-level ``run``."""
+    if scopes is None:
+        return ()
+    last = {(path, name.rpartition(".")[2]) for path, _, name in (g.partition("::") for g in gold)}
+    out = set()
+    for doc, spans in scopes.items():
+        path = repo_path.get(doc)
+        for *_, name in spans:
+            if name is not None and (path, name.rpartition(".")[2]) in last:
+                out.add(f"{path}::{name}")
+    return tuple(sorted(out - set(gold)))
 
 
 def _group_referrers(index: CodeIndex, symbols: list[str], repo_path: dict[str, str],
@@ -368,7 +389,7 @@ _ANSWER = {
 
 
 def _shares_a_name(gold: tuple[str, ...]) -> bool:
-    """Two gold items of one file whose last names agree (``ns1.Child`` and ``ns2.Child``)."""
+    """Two items of one file whose last names agree (``ns1.Child`` and ``ns2.Child``)."""
     keys = [(item.partition("::")[0], item.partition("::")[2].rpartition(".")[2]) for item in gold]
     return len(set(keys)) < len(keys)
 
@@ -388,7 +409,7 @@ def _prompt(c: Candidate, key: str) -> str:
         ask = f"List every class that derives directly from {where}: its direct subclasses, not theirs."
     amb = (f" The repository has {c.same_name} symbols named `{c.name}`; only the one above counts."
            if c.ambiguous else "")
-    if _shares_a_name(c.gold):
+    if _shares_a_name(c.gold + c.accepted):  # the grader resolves a bare name against both
         amb += " Two answers share a name in one file: write each with its namespace or class (`ns::Name`, `Class.name`)."
     return (f"You are working in a checkout of this repository (the current directory). {ask}{amb} Do not modify "
             f"any files. End your answer with a fenced ```json block holding {_ANSWER[key]}.")
@@ -408,5 +429,5 @@ def _task(c: Candidate, granularity: str, opts: Options,
             "classes": "the classes whose listed bases include the symbol"}[key]
     gold = {"answer_key": key, "gold": list(c.gold),
             "exclude": list(c.defined_in) if c.kind == "references" else [], "accepted": list(c.accepted),
-            "symbols": list(c.symbols), "rule": rule}
+            "distinct": list(c.distinct), "symbols": list(c.symbols), "rule": rule}
     return task, gold

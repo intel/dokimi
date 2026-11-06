@@ -562,3 +562,52 @@ def test_cli_exits_1_when_no_target_gives_a_task(tmp_path, capsys):
         _run(["eval", "tasks", "generate", f"{root}@HEAD", "--from", "graph", "--index",
               str(tmp_path / "index.scip"), "--out", str(tmp_path / "tasks")])
     assert exc.value.code == 1 and "no target of the index" in capsys.readouterr().err
+
+
+# ------------------------------------------------------------------ review round 2 (PR #399)
+
+def test_the_shared_name_hint_also_counts_accepted_items():
+    c = graph_tasks.Candidate("derives", ("cxx . . $ Base#",), "Base", "Base", ("x.h",), ("x.h::ns1.Child",),
+                              ("x.h::ns2.Child",), 1)
+    assert "namespace or class" in graph_tasks._prompt(c, "classes")
+
+
+def test_python_function_and_method_with_one_dotted_name_are_two_targets(tmp_path):
+    mod_fn, method = "scip-python python p 0.1 `a.b`/c().", "scip-python python p 0.1 `a`/b#c()."
+    docs = {"src/ab.py": [_occ("src/ab.py", 0, mod_fn, True)], "src/a.py": [_occ("src/a.py", 0, method, True)],
+            **{f"src/u{i}.py": [_occ(f"src/u{i}.py", 0, mod_fn), _occ(f"src/u{i}.py", 1, method)] for i in range(2)}}
+    p = plan(_index(docs), list(docs), _opts(tmp_path))
+    assert p.candidates["references"] == 2  # one task is chosen: names of the chosen tasks are distinct
+    (o,) = p.outcomes
+    assert o.candidate.symbols in ((method,), (mod_fn,)) and o.candidate.same_name == 2
+    assert "overloads" not in graph_tasks._prompt(o.candidate, "files")
+
+
+def test_a_same_named_function_of_a_gold_file_is_written_as_distinct(tmp_path):
+    a_run, b_run, mod_run = _fn("A#run", mod="cli"), _fn("B#run", mod="cli"), _fn("run", mod="cli")
+    docs = {"src/core.py": [_occ("src/core.py", 0, RUN, True, (0, 3))],
+            "src/cli.py": [_occ("src/cli.py", 0, a_run, True, (0, 4)), _occ("src/cli.py", 2, RUN),
+                           _occ("src/cli.py", 6, b_run, True, (6, 9)), _occ("src/cli.py", 8, RUN),
+                           _occ("src/cli.py", 10, mod_run, True, (10, 12))]}
+    p = plan(_index(docs), list(docs), _opts(tmp_path))
+    (o,) = [o for o in p.outcomes if o.candidate.symbols == (RUN,)]
+    assert o.candidate.distinct == ("src/cli.py::run",)
+    write(p, _opts(tmp_path), {"tool": "scip-python", "sha256": "0" * 64})
+    assert json.loads((tmp_path / "tasks" / o.task / "gold.json").read_text())["distinct"] == ["src/cli.py::run"]
+
+
+def test_a_bare_name_of_a_distinct_function_is_a_false_positive(tmp_path):
+    gold = {"answer_key": "functions", "gold": ["a.py::Impl.run", "b.py::f"], "distinct": ["a.py::run"]}
+    r = _grade(tmp_path, fence({"functions": ["a.py::run", "b.py::f"]}), gold)
+    assert r["n_false_positive"] == 1 and r["recall"] == 0.5
+    r = _grade(tmp_path, fence({"functions": ["a.py::Impl.run", "b.py::f"]}), gold)
+    assert r["f1"] == 1.0
+
+
+def test_an_unreadable_index_exits_2_before_the_source_is_resolved(tmp_path, capsys):
+    root, _ = _toy(tmp_path)
+    (tmp_path / "index.scip").write_bytes(b"\xff\xff\xff")
+    with pytest.raises(SystemExit) as exc:
+        _run(["eval", "tasks", "generate", f"{root}@nonexistent", "--from", "graph",
+              "--index", str(tmp_path / "index.scip"), "--out", str(tmp_path / "tasks")])
+    assert exc.value.code == 2 and "cannot read the code index" in capsys.readouterr().err

@@ -39,7 +39,7 @@ def _read_gold(task, task_dir):
     if not isinstance(gold, dict) or gold.get("answer_key") not in KEYS:
         found = gold.get("answer_key") if isinstance(gold, dict) else gold
         raise ValueError(f"gold answer_key must be one of {', '.join(KEYS)}, not {found!r}")
-    for key, required in (("gold", True), ("exclude", False), ("accepted", False)):
+    for key, required in (("gold", True), ("exclude", False), ("accepted", False), ("distinct", False)):
         _str_list(gold, key, required)
     if any(not norm_item(x) for x in gold["gold"]):  # a blank entry can never be answered: the oracle scores 0
         raise ValueError("gold entries must name a file or a symbol, not a blank string")
@@ -82,7 +82,8 @@ def _names_agree(a, b):
 
 def _resolve(items, known):
     """Map an answer item to the known item it names: exact, else the one item of ``known`` (gold and accepted)
-    in that file whose name agrees with it (:func:`_names_agree`): ``run`` names ``Impl.run`` when no other
+    in that file whose name agrees with it (:func:`_names_agree`); ``distinct`` items are known too, so an answer
+    that also fits one of them names no gold item: ``run`` names ``Impl.run`` when no other
     known item of the file is a ``run``; ``B.run`` never names ``A.run``."""
     by_path: dict = {}
     for k in known:
@@ -116,7 +117,8 @@ def grade(task, task_dir, answer, run_dir=None):
     if got is None:  # nothing to score: the run failed, every metric 0
         return {"pass": False, "parse_error": True, "f1": 0.0, "recall": 0.0, "precision": 0.0,
                 "n_gold": len(want), "n_answer": 0, "n_false_positive": 0}
-    got = _resolve({x for x in got if _path(x) not in exclude}, want | accepted)
+    distinct = {norm_item(x) for x in gold.get("distinct", [])} - want - accepted  # names a bare answer may mean
+    got = _resolve({x for x in got if _path(x) not in exclude}, want | accepted | distinct)
     hit, wrong = want & got, got - want - accepted
     recall = len(hit) / len(want)
     precision = len(hit) / (len(hit) + len(wrong)) if hit or wrong else 0.0
