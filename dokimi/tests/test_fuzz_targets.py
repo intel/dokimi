@@ -60,9 +60,15 @@ def test_decode_wraps_the_target_byte_and_replaces_bad_utf8() -> None:
 
 def test_deep_nesting_is_a_parse_error_not_a_crash() -> None:
     # The JSON extractors read model replies; their callers retry on ValueError only.
+    # Python 3.14's json parses this depth; older ones raise RecursionError, now a ValueError.
     from dokimi.llm_json import extract_json_array
 
-    with pytest.raises(ValueError):
-        extract_json_array("x " + "[" * 100000 + "]" * 100000)
-    with pytest.raises(ValueError):
-        extract_json_object("x " + "{\"a\":" * 100000 + "1" + "}" * 100000)
+    for extract, text, kind in (
+        (extract_json_array, "x " + "[" * 100000 + "]" * 100000, list),
+        (extract_json_object, "x " + "{\"a\":" * 100000 + "1" + "}" * 100000, dict),
+    ):
+        try:
+            got = extract(text)
+        except ValueError:
+            continue
+        assert isinstance(got, kind)
