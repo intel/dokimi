@@ -30,7 +30,7 @@
       "type": "text"
      },
      {
-      "text": "<system-reminder>\nYou are powered by the model named <MODEL_NAME> The exact model ID is <MODEL>. Assistant knowledge cutoff is <MONTH YEAR>.\n</system-reminder>",
+      "text": "<system-reminder>\nYou are powered by the model named <MODEL_NAME>. The exact model ID is <MODEL>. Assistant knowledge cutoff is <MONTH YEAR>.\n</system-reminder>",
       "type": "text"
      },
      {

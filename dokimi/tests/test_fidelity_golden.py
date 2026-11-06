@@ -318,6 +318,13 @@ def test_only_the_request_model_is_blanked_in_the_text():
     assert "'claude-haiku-5-5'" in out and "'claude-fable-5-1'" in out
 
 
+def test_the_model_id_and_name_are_blanked_whole():
+    out = fd.normalize_text("model ID is claude-haiku-4-5-20251001. named Haiku 4.5. The exact",
+                            model="claude-haiku-4-5")
+    assert out == "model ID is claude-haiku-4-5-20251001. named <MODEL_NAME>. The exact"
+    assert fd.normalize_text("is claude-haiku-4-5.", model="claude-haiku-4-5") == "is <MODEL>."
+
+
 def test_residue_flags_each_run_specific_pattern():
     dirty = {
         "date": "Today's date is 2026-11-04.",

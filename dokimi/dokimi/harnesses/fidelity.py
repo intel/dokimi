@@ -184,7 +184,7 @@ _VERSION_TAG = re.compile(r"(cc_version=|claude-cli/|Claude Code )[0-9][0-9A-Za-
 _SLASH_DATE = re.compile(r"\b\d{4}/\d{2}/\d{2}\b")
 _EMAIL = re.compile(r"\b[\w.+\-]+@[\w\-]+(?:\.[\w\-]+)+\b")
 _ABS_PATH = re.compile(r"/(?:tmp|mnt|localdisk|nfs|home|root|var|opt|usr|workspace|Users)/")
-_MODEL_NAME = re.compile(r"named [A-Z][A-Za-z]+ [0-9][0-9.]*")
+_MODEL_NAME = re.compile(r"named [A-Z][A-Za-z]+ [0-9](?:[0-9.]*[0-9])?")  # not the sentence's period
 _IDS = re.compile(r"\b(?:msg|toolu|req|call)_[A-Za-z0-9]{6,}\b")
 _PLATFORM = re.compile(r"(Platform: |Shell: |OS Version: )[^\n]*")
 _GIT = re.compile(r"Is a git repository: (?:true|false)")
@@ -199,9 +199,11 @@ def normalize_text(text: str, *, workdir: str = "", home: str = "", model: str =
     # Claude Code names its per-project memory dir after the cwd, non-alphanumerics as dashes.
     slug = re.sub(r"[^A-Za-z0-9]", "-", workdir)
     for raw, token in ((workdir, "<WORKDIR>"), (slug, "<WORKDIR_SLUG>"),
-                       (home, "<HOME>"), (model, "<MODEL>")):
+                       (home, "<HOME>")):
         if raw:
             text = text.replace(raw, token)
+    if model:  # a whole id: claude-haiku-4-5 is not the head of claude-haiku-4-5-20251001
+        text = re.sub(r"(?<![\w\-])%s(?![\w\-])" % re.escape(model), "<MODEL>", text)
     text = _UUID.sub("<UUID>", text)
     text = _HEX64.sub("<HEX>", text)
     text = _IDS.sub("<ID>", text)
