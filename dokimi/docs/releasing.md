@@ -72,8 +72,10 @@ the `Fragment for package changes` step in `ci.yml`'s `static` job asks for it.
    Publishing the release runs `.github/workflows/release.yml`. It checks the tag
    against the version, the changelog section and leftover fragments, builds the
    sdist and wheel (the wheel from the sdist), smoke-tests the installed wheel
-   from outside the checkout (`scripts/smoke_installed.py`), attaches both files
-   to the release and, once enabled, uploads them to PyPI. If it fails, fix on
+   from outside the checkout (`scripts/smoke_installed.py`), signs both files,
+   attaches them to the release with their signatures and build provenance
+   (see [Verifying a release](#verifying-a-release)) and, once enabled, uploads
+   them to PyPI. If it fails, fix on
    `main` and release the next patch version: a published version is never
    rebuilt.
 
@@ -81,6 +83,29 @@ the `Fragment for package changes` step in `ci.yml`'s `static` job asks for it.
 anything. Given a tag, it checks out that tag (and fails if it does not exist)
 and also runs the readiness check on it; without one it builds the ref it was
 dispatched from.
+
+## Verifying a release
+
+Each release carries, next to the sdist and wheel:
+
+- `<file>.sigstore.json`: a [Sigstore](https://www.sigstore.dev/) bundle per
+  file, signed keyless with the identity of `release.yml` on the release tag.
+- `dokimi-X.Y.Z.intoto.jsonl`: a SLSA build-provenance attestation for both
+  files (which workflow run, commit and runner built them), also stored in the
+  repository's attestations.
+
+```bash
+gh release download vX.Y.Z -R intel/dokimi
+# signature
+python -m pip install sigstore
+python -m sigstore verify github dokimi-X.Y.Z-py3-none-any.whl \
+  --bundle dokimi-X.Y.Z-py3-none-any.whl.sigstore.json \
+  --repository intel/dokimi --ref refs/tags/vX.Y.Z
+# provenance
+gh attestation verify dokimi-X.Y.Z-py3-none-any.whl -R intel/dokimi
+```
+
+Releases before this (v0.1.0) are unsigned.
 
 ## Enabling PyPI
 

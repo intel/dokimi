@@ -80,24 +80,49 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  # Signs the sdist and wheel and attaches them with their signatures and build
+  # provenance (docs/releasing.md, "Verifying a release"): a Sigstore bundle per
+  # file (<file>.sigstore.json, keyless, signed with this workflow's OIDC
+  # identity) and one SLSA build-provenance attestation for both files, also
+  # recorded in the repository's attestations (`gh attestation verify`).
   attach:
-    name: Attach to the GitHub Release
+    name: Sign and attach to the GitHub Release
     needs: build
     if: github.event_name == 'release'
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: write      # gh release upload
+      id-token: write      # Sigstore keyless signing (OIDC)
+      attestations: write  # build-provenance attestation
     steps:
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
         with:
           name: dist
           path: dist
-      - name: Upload sdist and wheel
+      - name: Build provenance
+        id: provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8  # v4.2.2
+        with:
+          subject-path: dist/*
+      - name: Sign with Sigstore
+        uses: sigstore/gh-action-sigstore-python@790bc6befb9d733738f18d8f895854b453640ec9  # v3.5.0
+        with:
+          inputs: dist/*
+          upload-signing-artifacts: false
+          release-signing-artifacts: false
+      - name: Upload sdist, wheel, signatures and provenance
         working-directory: .
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.event.release.tag_name }}
-        run: gh release upload "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --clobber
+          BUNDLE: ${{ steps.provenance.outputs.bundle-path }}
+        run: |
+          # The provenance bundle is a Sigstore bundle around an in-toto SLSA
+          # statement; the .intoto.jsonl name is what provenance checkers
+          # (OpenSSF Scorecard) look for on a release.
+          cp "$BUNDLE" "dist/dokimi-${TAG#v}.intoto.jsonl"
+          ls -l dist
+          gh release upload "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --clobber
 
   # Off until a maintainer configures the PyPI Trusted Publisher and sets the
   # repository variable PYPI_PUBLISH to true (docs/releasing.md, "Enabling PyPI").
