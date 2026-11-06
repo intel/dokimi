@@ -28,6 +28,7 @@ def test_check_judge_calls_the_warning(monkeypatch):
 
     monkeypatch.setattr(arms_run, "check_bedrock_model", lambda *a: None)
     monkeypatch.setattr(arms_run, "probe_sampling", lambda *a: None)
+
     def stop(cfg):
         raise Stop
 

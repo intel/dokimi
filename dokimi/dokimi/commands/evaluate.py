@@ -314,7 +314,6 @@ def cmd_eval_judge_validity(args: argparse.Namespace) -> None:
         print(f"Error: --context stored needs a judge that takes context; {what} does not",
               file=sys.stderr)
         sys.exit(2)
-    warn_recorded_self_judge(run.meta, _validity_judges(args), "eval judge validate")
     typed = None
     if args.scorer == "judge":
         judge = Judge(model=args.judge_model, provider=args.judge_provider, temperature=args.judge_temperature)
@@ -374,6 +373,7 @@ def cmd_eval_judge_validity(args: argparse.Namespace) -> None:
                   "material; this file has none (judge_materials missing, or no record cites a "
                   "digest that matches)", file=sys.stderr)
             sys.exit(2)
+    warn_recorded_self_judge(run.meta, _validity_judges(args), "eval judge validate")
     pair_scorer = None
     if args.mode == "pairwise":
         from dokimi.commands.judge_reliability import pairwise_judge

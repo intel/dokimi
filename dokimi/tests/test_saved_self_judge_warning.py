@@ -206,7 +206,8 @@ def test_questions_review_on_an_answers_file_does_not_take_the_answer_model_as_g
     (["--variants", "nope"], ("eval", "judge", "wording")),
     (["--variants", "nope"], ("eval", "judge", "validate")),
     (["--scorer", "nope"], ("eval", "judge", "validate")),
-], ids=["wording-wordings", "wording-variants", "validate-variants", "validate-scorer"])
+    (["--context", "stored"], ("eval", "judge", "validate")),
+], ids=["wording-wordings", "wording-variants", "validate-variants", "validate-scorer", "validate-stored"])
 def test_a_refused_run_does_not_warn(argv_tail, words, tmp_path, capsys):
     argv = next(a for argvs in _judge_argv(tmp_path).values() for a in argvs if tuple(a[:3]) == words)
     args = parse_args([*argv, *argv_tail])
