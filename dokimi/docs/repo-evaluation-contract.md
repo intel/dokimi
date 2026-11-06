@@ -2265,7 +2265,9 @@ python cli.py repo hits judge repo-runs/replay --judge openai/gpt-5.1 --labels l
   the task's review can encode it (issue #290). `repo compare` checks every compared
   arm, baseline or treatment, whose cells' `meta.json` has `arm_rev` (or whose
   name starts with `guidance:rev:`), over its tasks whose cell `task.json` has
-  `public_at` or `source_pr` (§4.6; a cell with no `task.json` is not read),
+  `public_at` or `source_pr` (§4.6; a task none of whose cells has a
+  `task.json`, which a host error before the trace is parsed leaves out, is
+  unknown),
   and `--task` narrows it as it does the comparison. A task is flagged **by
   date** when a guidance file that applies to it has its `guidance_latest`
   commit `committed` after the task's `public_at`, compared as times. A file
@@ -2297,7 +2299,7 @@ python cli.py repo hits judge repo-runs/replay --judge openai/gpt-5.1 --labels l
   The `--json` summary's `leak` holds one entry per checked arm (`[]` when
   none is): `arm`, `kind` (`guidance:rev` or `patch`), `revisions` (each
   `rev` and `sha`), `checked`, `not_checked` (the arm's other tasks, whose
-  `task.json` is absent or not replay-style), `by_date` (task → the latest applicable
+  `task.json` is not replay-style), `by_date` (task → the latest applicable
   commit that tripped it: `path`, `sha`, `committed`, `public_at`,
   `scoped`), `by_name` (task → the commit shas), `unknown` (task → reason),
   `clean` (flagged by neither and not unknown) and `names_truncated`. The

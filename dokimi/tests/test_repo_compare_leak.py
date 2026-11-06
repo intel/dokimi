@@ -288,15 +288,33 @@ def test_the_clean_task_options_keep_the_tasks_the_check_does_not_read(tmp_path)
     specs = {"review_replay_pr1": _spec(1, public="2026-05-01T00:00:00Z"), "review_replay_pr2": _spec(2),
              "fix_a": {"id": "fix_a", "family": "fix"}}
     batch = _batch(tmp_path, meta, specs)
-    _cell(batch, "fix_b", "guidance:none")  # no task.json at all
-    _cell(batch, "fix_b", REV, meta=meta)
+    _cell(batch, "fix_b", "guidance:none")  # its REV cell's task.json is not replay-style, the other has none
+    _cell(batch, "fix_b", REV, meta=meta, spec={"id": "fix_b", "family": "fix"})
     _cell(batch, "fix_c", "guidance:none")
-    _cell(batch, "fix_c", REV, meta=meta)  # REV does not read fix_c, a later batch's other arm flags it by date
+    _cell(batch, "fix_c", REV, meta=meta, spec={"id": "fix_c", "family": "fix"})  # a later batch's other arm flags it
     other, b2 = "guidance:rev:" + "e" * 40, tmp_path / "b2"
     _cell(b2, "fix_c", "guidance:none", spec=_spec(3))
     _cell(b2, "fix_c", other, meta=meta | {"arm": other}, spec=_spec(3))
     lines = format_compare(compare([batch, b2], "guidance:none")).splitlines()
     assert "  clean: --task fix_a --task fix_b --task review_replay_pr1" in lines
+
+
+def test_a_task_with_no_task_json_in_any_cell_is_unknown_not_clean(tmp_path):
+    """A host error before the trace parsed leaves a cell without ``task.json``: its task may be a replay one."""
+    meta = _rev({"AGENTS.md": _commit(SHA["root"], LATE)})
+    specs = {"review_replay_pr1": _spec(1, public="2026-05-01T00:00:00Z"), "review_replay_pr2": _spec(2)}
+    batch = _batch(tmp_path, meta, specs)
+    _cell(batch, "review_replay_pr3", "guidance:none", spec=_spec(3))
+    _cell(batch, "review_replay_pr3", REV, meta=meta)
+    _cell(batch, "review_replay_pr1", REV, meta=meta, rep=2)  # pr1's other cell has one: checked by it
+    summary = compare([batch], "guidance:none")
+    leak = _leak(summary)
+    assert leak["checked"] == sorted([*specs, "review_replay_pr3"]) and leak["not_checked"] == []
+    assert leak["unknown"] == {"review_replay_pr3": "no cell has a task.json"}
+    assert leak["clean"] == ["review_replay_pr1"] and list(leak["by_date"]) == ["review_replay_pr2"]
+    lines = format_compare(summary).splitlines()
+    assert "  unknown, no cell has a task.json: review_replay_pr3" in lines
+    assert "  clean: --task review_replay_pr1" in lines
 
 
 def test_task_narrows_the_check_to_the_selected_tasks(tmp_path):

@@ -8,7 +8,7 @@ earlier. Guidance written or edited after a task's review can encode that review
 thread because a rule was written from it (https://github.com/intel/dokimi/issues/290). Each compared arm
 (baseline and treatments) whose cells' ``meta.json`` has ``arm_rev`` (or whose name starts with
 ``guidance:rev:``) is checked, over its tasks whose cell ``task.json`` has ``public_at`` or ``source_pr``
-(a cell with no ``task.json`` is not read):
+(a task none of whose cells has a ``task.json``, which the runner writes once the trace parsed, is unknown):
 
 - **by date**: some guidance file that applies to the task has its ``arm_rev.guidance_latest`` commit
   ``committed`` (the committer date: an amend or a rebase keeps the author date) later than the task's
@@ -54,6 +54,7 @@ LIST_CAP = 10  # ids shown on a line of text before "and N more"
 
 _State = tuple[str, Any]  # ("flag", what tripped it) | ("clean", None) | ("unknown", reason)
 _CLEAN: _State = ("clean", None)
+_NO_SPEC: _State = ("unknown", "no cell has a task.json")
 
 
 def leak_check(batch_dirs: list[Path], arms: dict[str, list[dict[str, Any]]]) -> list[dict[str, Any]]:
@@ -106,6 +107,8 @@ def _arm_entry(text: str, kind: str, read: list[tuple[str, Any, Any]]) -> dict[s
             states.setdefault(task, []).append(checked)
             rev = meta.get("arm_rev") if isinstance(meta, dict) else None
             truncated |= isinstance(rev, dict) and rev.get("guidance_commits_truncated") is True
+    unread = {task for task, _, _ in read} - {task for task, _, spec in read if spec is not None}
+    states.update({task: [(_NO_SPEC, _NO_SPEC)] for task in unread})  # a host error before the runner wrote it
     entry: dict[str, Any] = {"arm": text, "kind": kind, "revisions": _revisions(read), "checked": sorted(states),
                              "not_checked": sorted({task for task, _, _ in read} - set(states)),
                              "by_date": {}, "by_name": {}, "unknown": {}, "clean": [], "names_truncated": truncated}
