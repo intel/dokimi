@@ -179,7 +179,7 @@ crashing input; `tests/test_fuzz_targets.py` replays `fuzz/corpus/` and
 Hypothesis text through the same targets in every test run. Locally (Linux
 x86_64, CPython 3.12+): `pip install --require-hashes -r
 requirements-fuzz.lock.txt`, then from `dokimi/` `PYTHONPATH=. python
-fuzz/fuzz_parsers.py fuzz/corpus -max_total_time=60`, and `python fuzz/fuzz_parsers.py crash-<sha1>` to replay a
+fuzz/fuzz_parsers.py fuzz/corpus -max_total_time=60`, and `PYTHONPATH=. python fuzz/fuzz_parsers.py crash-<sha1>` to replay a
 crash. A new parser of untrusted text gets a target and seeds (byte 0 is the
 target's index in sorted `TARGETS`, the rest is the UTF-8 text; see
 `targets.decode`).
