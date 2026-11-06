@@ -93,10 +93,12 @@ def relative_path(path: str, workdir: str | None) -> str:
 
 def _from_cwd(path: str, cwd: str) -> str:
     """A tool's relative ``path`` joined to ``cwd``, the workspace-relative directory the CLI started in."""
-    if not cwd or path.startswith("/") or PureWindowsPath(path).is_absolute():
+    win = PureWindowsPath(path)
+    # a drive-relative path (C:foo) is relative to that drive's current directory, not to cwd
+    if not cwd or path.startswith("/") or win.is_absolute() or win.drive:
         return path
     # a Windows CLI separates with backslashes, which posixpath keeps as part of a name
-    return posixpath.normpath(posixpath.join(cwd, PureWindowsPath(path).as_posix()))
+    return posixpath.normpath(posixpath.join(cwd, win.as_posix()))
 
 
 def _parse_time(value: Any) -> datetime | None:
