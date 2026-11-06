@@ -18,6 +18,7 @@ from dokimi.eval.leakgate import (
     exposed_test_items,
     expected_texts,
     format_table,
+    item_digests,
     lock_split,
     match_split,
     read_ids,
@@ -68,11 +69,20 @@ def test_a_skill_that_only_restates_the_question_is_not_flagged():
     assert rows[0]["status"] == "clear" and rows[0]["shared"] == 0
 
 
-def test_a_judge_reference_and_criterion_are_expected_answers_too():
-    judge = {"type": "judge", "criterion": "names the flag", "reference": ANSWER}
-    assert set(expected_texts(_q("1", [judge]))) == {"names the flag", ANSWER}
-    rows = assess([_q("1", [judge])], skill_index(_skill(f"Notes: {ANSWER}")))
-    assert rows[0]["status"] == "flagged"
+CRITERION = "the answer names the trace flag and says where the chrome trace file is written"  # 16 words
+
+
+def test_a_judge_reference_is_the_expected_answer_and_its_criterion_is_not_counted_beside_it():
+    judge = {"type": "judge", "criterion": CRITERION, "reference": ANSWER}
+    assert expected_texts(_q("1", [judge])) == [ANSWER]
+    assert assess([_q("1", [judge])], skill_index(_skill(f"Notes: {ANSWER}")))[0]["status"] == "flagged"
+    assert assess([_q("1", [judge])], skill_index(_skill(f"Notes: {CRITERION}")))[0]["status"] == "clear"
+
+
+def test_a_judge_check_with_no_reference_counts_its_criterion():
+    judge = {"type": "judge", "criterion": CRITERION}
+    assert expected_texts(_q("1", [judge])) == [CRITERION]
+    assert assess([_q("1", [judge])], skill_index(_skill(f"Notes: {CRITERION}")))[0]["status"] == "flagged"
 
 
 def test_a_negated_check_is_not_an_expected_answer():
@@ -228,50 +238,115 @@ def test_match_split_refuses_a_missing_extra_or_repeated_id():
         match_split([{"id": "1"}, {"id": "1"}], {"1": "dev"})
 
 
+def _contents(*ids, text="a"):
+    return {i: text * 8 + i for i in ids}
+
+
 def test_the_digest_is_the_same_for_the_same_assignment_however_it_is_listed(tmp_path):
     a = read_split(_split_file(tmp_path, dev=["1", "3"], test=["2"], name="a.json"))
     b = read_split(_split_file(tmp_path, test=["2"], dev=["3", "1"], name="b.json"))
-    assert assignment_digest(a) == assignment_digest(b)
-    assert assignment_digest({**a, "1": "val"}) != assignment_digest(a)
+    c = _contents("1", "2", "3")
+    assert assignment_digest(a, c) == assignment_digest(b, c)
+    assert assignment_digest({**a, "1": "val"}, c) != assignment_digest(a, c)
+
+
+def test_the_digest_covers_the_item_content_not_only_its_id_and_split():
+    a = {"1": "dev", "2": "test"}
+    assert assignment_digest(a, _contents("1", "2")) != assignment_digest(a, _contents("1", "2", text="b"))
+
+
+def test_item_digests_change_with_the_grading_block_and_not_with_the_question_text():
+    base = _q("1", [_match(ANSWER)])
+    assert item_digests([base]) == item_digests([{**base, "question": "another wording of the same item"}])
+    assert item_digests([base]) != item_digests([_q("1", [_match("a different answer entirely here now")])])
 
 
 # --- split lock ----------------------------------------------------------------------------------
 
 def test_the_first_use_creates_the_lock_and_a_later_identical_split_matches_it(tmp_path):
     lock = tmp_path / "split.lock.json"
-    assignment = {"1": "dev", "2": "test"}
-    assert lock_split(assignment, lock, NOW) == ("created", [])
+    assignment, contents = {"1": "dev", "2": "test"}, _contents("1", "2")
+    assert lock_split(assignment, contents, lock, NOW) == {"state": "created", "moved": [], "previous_digest": None}
     record = json.loads(lock.read_text(encoding="utf-8"))
-    assert record["digest"] == assignment_digest(assignment)
+    assert record["digest"] == assignment_digest(assignment, contents)
     assert record["counts"] == {"dev": 1, "val": 0, "test": 1}
-    assert lock_split(dict(assignment), lock, NOW) == ("matched", [])
+    assert lock_split(dict(assignment), contents, lock, NOW)["state"] == "matched"
 
 
 def test_a_split_that_moved_an_item_is_changed_names_the_items_and_leaves_the_lock(tmp_path):
     lock = tmp_path / "split.lock.json"
-    lock_split({"1": "dev", "2": "test", "3": "val"}, lock, NOW)
+    lock_split({"1": "dev", "2": "test", "3": "val"}, _contents("1", "2", "3"), lock, NOW)
     before = lock.read_text(encoding="utf-8")
-    state, moved = lock_split({"1": "dev", "2": "dev", "3": "val", "4": "test"}, lock, NOW)
-    assert state == "changed" and moved == ["2", "4"]
-    assert lock.read_text(encoding="utf-8") == before  # never rewritten
+    result = lock_split({"1": "dev", "2": "dev", "3": "val", "4": "test"}, _contents("1", "2", "3", "4"), lock, NOW)
+    assert result["state"] == "changed" and result["moved"] == ["2", "4"]
+    assert lock.read_text(encoding="utf-8") == before  # never rewritten without relock
+
+
+def test_an_item_whose_grading_block_changed_is_moved_even_when_its_split_did_not(tmp_path):
+    lock = tmp_path / "split.lock.json"
+    lock_split({"1": "dev", "2": "test"}, _contents("1", "2"), lock, NOW)
+    changed = {**_contents("1", "2"), "2": "edited-content"}
+    result = lock_split({"1": "dev", "2": "test"}, changed, lock, NOW)
+    assert result["state"] == "changed" and result["moved"] == ["2"]
+
+
+def test_relock_overwrites_a_changed_lock_and_reports_the_digest_it_replaced(tmp_path):
+    lock = tmp_path / "split.lock.json"
+    old = {"1": "dev", "2": "test"}
+    lock_split(old, _contents("1", "2"), lock, NOW)
+    old_digest = json.loads(lock.read_text(encoding="utf-8"))["digest"]
+    new = {"1": "dev", "2": "val"}
+    result = lock_split(new, _contents("1", "2"), lock, NOW, relock=True)
+    assert result == {"state": "relocked", "moved": ["2"], "previous_digest": old_digest}
+    record = json.loads(lock.read_text(encoding="utf-8"))
+    assert record["assignment"] == new and record["digest"] == assignment_digest(new, _contents("1", "2"))
+    assert lock_split(new, _contents("1", "2"), lock, NOW)["state"] == "matched"
+
+
+def test_relock_on_an_identical_lock_is_matched_and_rewrites_nothing(tmp_path):
+    lock = tmp_path / "split.lock.json"
+    lock_split({"1": "dev"}, _contents("1"), lock, NOW)
+    before = lock.read_text(encoding="utf-8")
+    assert lock_split({"1": "dev"}, _contents("1"), lock, "later", relock=True) == {
+        "state": "matched", "moved": [], "previous_digest": None}
+    assert lock.read_text(encoding="utf-8") == before
+
+
+def test_relock_replaces_an_unreadable_lock_with_no_previous_digest(tmp_path):
+    lock = tmp_path / "split.lock.json"
+    lock.write_text("not json", encoding="utf-8")
+    assert lock_split({"1": "dev"}, _contents("1"), lock, NOW, relock=True) == {
+        "state": "relocked", "moved": [], "previous_digest": None}
+    assert lock_split({"1": "dev"}, _contents("1"), lock, NOW)["state"] == "matched"
+
+
+def test_relock_over_a_hand_edited_lock_records_the_stored_digest(tmp_path):
+    lock = tmp_path / "split.lock.json"
+    lock_split({"1": "dev"}, _contents("1"), lock, NOW)
+    record = json.loads(lock.read_text(encoding="utf-8"))
+    record["assignment"]["1"] = "test"
+    lock.write_text(json.dumps(record), encoding="utf-8")
+    result = lock_split({"1": "dev"}, _contents("1"), lock, NOW, relock=True)
+    assert result["state"] == "relocked" and result["previous_digest"] == record["digest"]
 
 
 def test_a_lock_edited_by_hand_is_refused(tmp_path):
     lock = tmp_path / "split.lock.json"
-    lock_split({"1": "dev"}, lock, NOW)
+    lock_split({"1": "dev"}, _contents("1"), lock, NOW)
     record = json.loads(lock.read_text(encoding="utf-8"))
     record["assignment"]["1"] = "test"  # the digest still says dev
     lock.write_text(json.dumps(record), encoding="utf-8")
     with pytest.raises(ValueError, match="was edited"):
-        lock_split({"1": "dev"}, lock, NOW)
+        lock_split({"1": "dev"}, _contents("1"), lock, NOW)
 
 
-@pytest.mark.parametrize("content", ["not json", "[]", json.dumps({"schema_version": "other", "assignment": {}})])
+@pytest.mark.parametrize("content", ["not json", "[]", json.dumps({"schema_version": "other", "assignment": {}}),
+                                     json.dumps({"schema_version": "split_lock.v1", "digest": "x", "assignment": {}})])
 def test_a_file_that_is_not_a_split_lock_is_refused(tmp_path, content):
     lock = tmp_path / "split.lock.json"
     lock.write_text(content, encoding="utf-8")
     with pytest.raises(ValueError, match="not a split lock"):
-        lock_split({"1": "dev"}, lock, NOW)
+        lock_split({"1": "dev"}, _contents("1"), lock, NOW)
 
 
 def test_exposed_test_items_names_the_test_ids_the_proposer_sees_and_refuses_unknown_ones():
@@ -380,3 +455,45 @@ def test_the_table_cuts_the_flagged_items_at_twenty_and_points_to_the_artifact()
     assert "5 more flagged items in the artifact" in format_table(result, output="leak.json")
 
 
+def test_an_edited_grading_block_blocks_the_run_as_a_changed_split(tmp_path):
+    lock = tmp_path / "l.json"
+    run(_skill("clean"), QUESTIONS, assignment=SPLIT, lock_path=lock, now=NOW)
+    edited = [QUESTIONS[0], _q("2", [_match("a corrected answer that replaces the old one in full here")]), QUESTIONS[2]]
+    result = run(_skill("clean"), edited, assignment=SPLIT, lock_path=lock, now=NOW)
+    assert result["status"] == "blocked"
+    assert result["split"]["state"] == "changed" and result["split"]["moved"] == ["2"]
+
+
+def test_relock_accepts_the_new_split_and_reports_the_old_digest_without_a_split_violation(tmp_path):
+    lock = tmp_path / "l.json"
+    first = run(_skill("clean"), QUESTIONS, assignment=SPLIT, lock_path=lock, now=NOW)
+    moved = {**SPLIT, "2": "dev"}
+    result = run(_skill("clean"), QUESTIONS, assignment=moved, lock_path=lock, now=NOW, relock=True)
+    assert result["status"] == "pass"
+    assert result["violations"] == []
+    assert result["split"]["state"] == "relocked"
+    assert result["split"]["previous_digest"] == first["split"]["digest"]
+    assert result["split"]["moved"] == ["2"]
+
+
+def test_relock_needs_a_split_and_a_lock():
+    with pytest.raises(ValueError, match="relock needs a split and its lock"):
+        run(_skill("clean"), QUESTIONS, relock=True)
+    with pytest.raises(ValueError, match="relock needs a split and its lock"):
+        run(_skill("clean"), QUESTIONS, assignment=SPLIT, relock=True)
+
+
+def test_the_table_reports_a_relock_with_the_digest_it_replaced(tmp_path):
+    lock = tmp_path / "l.json"
+    first = run(_skill("clean"), QUESTIONS, assignment=SPLIT, lock_path=lock, now=NOW)
+    result = run(_skill("clean"), QUESTIONS, assignment={**SPLIT, "2": "dev"}, lock_path=lock, now=NOW, relock=True)
+    table = format_table(result)
+    assert table.splitlines()[0].startswith("split relocked: digest ")
+    assert f"lock overwritten (--relock): previous digest {first['split']['digest'][:12]}" in table
+    assert "1 items moved since the old lock: 2" in table
+
+
+def test_the_default_min_fraction_is_a_tenth():
+    from dokimi.eval.leakgate import DEFAULT_MIN_FRACTION
+    assert DEFAULT_MIN_FRACTION == 0.10
+    assert run(_skill("clean"), QUESTIONS)["min_fraction"] == 0.10

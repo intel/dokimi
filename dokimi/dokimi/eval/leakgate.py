@@ -4,18 +4,22 @@
 """Leak gate and split lock for a candidate skill: does it carry held-out answers, and is the split still the one measured?
 
 Leak gate. The expected answers and checks of each eval item are the literal values of its ``grading``
-block that are not negated, plus the ``reference`` and ``criterion`` of its judge checks. Each text is cut
-into runs of ``ngram`` words (8 by default; ``\\w+``, lower-cased). An item is flagged when at least
-``min_fraction`` of its runs also occur in the skill's text (SKILL.md and every other UTF-8 file beside it).
-Questions are not compared: a skill may restate a question. An allowlist of terms (API names, file paths,
-identifiers that legitimately appear in both) is cut out of both texts first: its words are dropped, and the
-words on either side run on, so a copied sentence is still caught when it holds a term. An item with no run
-left (fewer than ``ngram`` words once the terms are cut) is ``unchecked`` and says why; that is not a pass.
+block that are not negated, plus the judge checks' ``reference``. A judge check with no ``reference`` counts
+its ``criterion`` instead (the criterion is a stand-in for an answer, so it is weighted below one: it is
+used only where there is no reference). Each text is cut into runs of ``ngram`` words (8 by default;
+``\\w+``, lower-cased). An item is flagged when at least ``min_fraction`` of its runs also occur in the skill's
+text (SKILL.md and every other UTF-8 file beside it). Questions are not compared: a skill may restate a
+question. An allowlist of terms (API names, file paths, identifiers that legitimately appear in both) is cut
+out of both texts first: its words are dropped, and the words on either side run on, so a copied sentence is
+still caught when it holds a term. An item with no run left (fewer than ``ngram`` words once the terms are
+cut) is ``unchecked`` and says why; that is not a pass.
 
 Split lock. A split is a JSON object ``{"dev": [ids], "val": [ids], "test": [ids]}`` that puts every question
-in exactly one of the three. Its digest (over the sorted id -> split pairs) is written to a lock file at first
-use; a later run whose assignment digests differently is blocked and names the items that moved. A run that
-gives the proposer a test item (a JSON list of question ids) is blocked as well.
+in exactly one of the three. The lock records, per question id, its split and the SHA-256 of its ``grading``
+block; the digest is over the sorted (id, split, grading digest) triples. The lock is written at first use. A
+later run whose digest differs is blocked and names the items whose split or grading block changed. With
+``relock`` the lock is overwritten instead, and the report keeps the digest it replaced. A run that gives the
+proposer a test item (a JSON list of question ids) is blocked as well.
 
 Nothing here calls a model.
 """
@@ -33,7 +37,7 @@ from typing import Any, Iterable, Mapping, Optional, Sequence
 from dokimi.eval.reference_checks import check_values
 
 DEFAULT_NGRAM = 8
-DEFAULT_MIN_FRACTION = 0.15
+DEFAULT_MIN_FRACTION = 0.10
 SPLITS = ("dev", "val", "test")
 LOCK_VERSION = "split_lock.v1"
 # The literal check types whose values are expected answers (regex patterns are not answers, so they are left out).
@@ -131,9 +135,22 @@ def _listed(ids: Sequence[str], limit: int = 10) -> str:
     return ", ".join(ids[:limit]) + more
 
 
-def assignment_digest(assignment: Mapping[str, str]) -> str:
-    """SHA-256 of the sorted (id, split) pairs: the same split, however the file lists it, has the same digest."""
-    body = json.dumps(sorted(assignment.items()), ensure_ascii=False, separators=(",", ":"))
+def item_digest(question: Mapping[str, Any]) -> str:
+    """SHA-256 of the question's ``grading`` block, canonically dumped: the expected answers and checks."""
+    body = json.dumps(question.get("grading"), ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(body.encode("utf-8")).hexdigest()
+
+
+def item_digests(questions: Sequence[Mapping[str, Any]]) -> dict[str, str]:
+    """Each question id mapped to its :func:`item_digest`."""
+    return {str(q.get("id")): item_digest(q) for q in questions}
+
+
+def assignment_digest(assignment: Mapping[str, str], contents: Mapping[str, str]) -> str:
+    """SHA-256 of the sorted (id, split, grading digest) triples. The same split and the same grading blocks,
+    however the split file lists them, have the same digest; a changed answer or check changes it too."""
+    triples = [[i, assignment[i], contents[i]] for i in sorted(assignment)]
+    body = json.dumps(triples, ensure_ascii=False, separators=(",", ":"))
     return hashlib.sha256(body.encode("utf-8")).hexdigest()
 
 
@@ -142,34 +159,67 @@ def _counts(assignment: Mapping[str, str]) -> dict[str, int]:
     return {name: counts.get(name, 0) for name in SPLITS}
 
 
-def lock_split(assignment: Mapping[str, str], lock_path: Path | str, now: str) -> tuple[str, list[str]]:
-    """Lock the assignment at first use. Returns ``(state, moved)``.
-
-    ``created``: no lock file existed, so this assignment is written to it. ``matched``: the lock has the same
-    digest. ``changed``: the lock has another digest; nothing is written and ``moved`` lists the ids whose split
-    differs from the lock. Raises ValueError when the file is not a split lock, or its digest does not match its
-    own assignment (it was edited by hand).
-    """
-    path = Path(lock_path)
-    digest = assignment_digest(assignment)
-    if not path.exists():
-        record = {"schema_version": LOCK_VERSION, "digest": digest, "locked_at": now,
-                  "counts": _counts(assignment), "assignment": dict(sorted(assignment.items()))}
-        path.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-        return "created", []
+def _parse_lock(path: Path) -> tuple[dict[str, str], dict[str, str], Any]:
+    """The assignment, the grading digests and the stored digest of a split lock. Raises ValueError when the file
+    is not a split lock."""
     try:
         lock = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as e:
         raise ValueError(f"{path}: not a split lock ({e})") from e
-    if not isinstance(lock, dict) or lock.get("schema_version") != LOCK_VERSION or not isinstance(lock.get("assignment"), dict):
+    if (not isinstance(lock, dict) or lock.get("schema_version") != LOCK_VERSION
+            or not isinstance(lock.get("assignment"), dict) or not isinstance(lock.get("contents"), dict)):
         raise ValueError(f"{path}: not a split lock ({LOCK_VERSION})")
     locked = {str(k): str(v) for k, v in lock["assignment"].items()}
-    if assignment_digest(locked) != lock.get("digest"):
+    contents = {str(k): str(v) for k, v in lock["contents"].items()}
+    return locked, contents, lock.get("digest")
+
+
+def _moved(old: Mapping[str, str], old_contents: Mapping[str, str],
+           new: Mapping[str, str], new_contents: Mapping[str, str]) -> list[str]:
+    """The ids whose split or grading digest differs between the two."""
+    return sorted(i for i in set(old) | set(new)
+                  if old.get(i) != new.get(i) or old_contents.get(i) != new_contents.get(i))
+
+
+def lock_split(assignment: Mapping[str, str], contents: Mapping[str, str], lock_path: Path | str, now: str, *,
+               relock: bool = False) -> dict[str, Any]:
+    """Lock the split at first use. Returns ``{"state", "moved", "previous_digest"}``.
+
+    ``created``: no lock file existed, so this split is written to it. ``matched``: the lock has the same digest.
+    ``changed``: the lock has another digest; nothing is written and ``moved`` lists the ids whose split or grading
+    block differs from the lock. ``relocked`` (``relock`` only): the lock is overwritten with this split and
+    ``previous_digest`` is the digest it had (None when the old file was not a readable split lock). Without
+    ``relock``, raises ValueError when the file is not a split lock, or its digest does not match its own
+    assignment (it was edited by hand); with ``relock`` those are overwritten like any other old lock.
+    """
+    path = Path(lock_path)
+    digest = assignment_digest(assignment, contents)
+    record = {"schema_version": LOCK_VERSION, "digest": digest, "locked_at": now, "counts": _counts(assignment),
+              "assignment": dict(sorted(assignment.items())), "contents": dict(sorted(contents.items()))}
+
+    def write() -> None:
+        path.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    if not path.exists():
+        write()
+        return {"state": "created", "moved": [], "previous_digest": None}
+    try:
+        locked, locked_contents, stored = _parse_lock(path)
+    except ValueError:
+        if not relock:
+            raise
+        write()
+        return {"state": "relocked", "moved": [], "previous_digest": None}
+    tampered = assignment_digest(locked, locked_contents) != stored if set(locked) == set(locked_contents) else True
+    if tampered and not relock:
         raise ValueError(f"{path}: the digest does not match the assignment in the lock; the lock was edited")
-    if lock["digest"] == digest:
-        return "matched", []
-    moved = sorted(i for i in set(locked) | set(assignment) if locked.get(i) != assignment.get(i))
-    return "changed", moved
+    if stored == digest and not tampered:
+        return {"state": "matched", "moved": [], "previous_digest": None}
+    moved = _moved(locked, locked_contents, assignment, contents)
+    if not relock:
+        return {"state": "changed", "moved": moved, "previous_digest": None}
+    write()
+    return {"state": "relocked", "moved": moved, "previous_digest": stored if isinstance(stored, str) else None}
 
 
 def exposed_test_items(assignment: Mapping[str, str], proposer_ids: Iterable[str]) -> list[str]:
@@ -183,8 +233,9 @@ def exposed_test_items(assignment: Mapping[str, str], proposer_ids: Iterable[str
 
 def expected_texts(question: Mapping[str, Any]) -> list[str]:
     """The expected answers and checks of one question: the values of its positive literal checks, and the
-    reference and criterion of its positive judge checks. A negated check names what must be absent, so it is
-    not an expected answer and is left out."""
+    reference of its positive judge checks. A judge check with no reference counts its criterion instead: the
+    criterion stands in for an answer only where there is none. A negated check names what must be absent, so
+    it is not an expected answer and is left out."""
     grading = question.get("grading")
     checks = grading.get("checks") if isinstance(grading, Mapping) else None
     if not isinstance(checks, list):
@@ -195,7 +246,10 @@ def expected_texts(question: Mapping[str, Any]) -> list[str]:
             continue
         kind = check.get("type")
         if kind == "judge":
-            texts += [str(check[key]) for key in ("reference", "criterion") if check.get(key)]
+            if check.get("reference"):
+                texts.append(str(check["reference"]))
+            elif check.get("criterion"):
+                texts.append(str(check["criterion"]))
         elif kind in LITERAL:
             texts += [v if isinstance(v, str) else json.dumps(v, sort_keys=True) for v in check_values(check)]
     return texts
@@ -277,29 +331,37 @@ def _utc_now() -> str:
 def run(files: Mapping[str, str], questions: Sequence[Mapping[str, Any]], *, allow: Iterable[str] = (),
         n: int = DEFAULT_NGRAM, min_fraction: float = DEFAULT_MIN_FRACTION,
         assignment: Optional[Mapping[str, str]] = None, lock_path: Optional[Path | str] = None,
-        proposer_ids: Optional[Iterable[str]] = None, now: Optional[str] = None) -> dict[str, Any]:
+        proposer_ids: Optional[Iterable[str]] = None, now: Optional[str] = None,
+        relock: bool = False) -> dict[str, Any]:
     """Check the skill against the items, and the split against its lock. Raises ValueError for input that cannot
-    be checked (a split that does not match the set, a proposer list with no split, a bad threshold).
+    be checked (a split that does not match the set, a proposer list with no split, a bad threshold, a relock
+    with no split or no lock).
 
-    ``lock_path`` locks the split (created, matched or changed); without it the split is only read. ``proposer_ids``
-    are the question ids the proposer is given: a test item among them is a violation.
+    ``lock_path`` locks the split (created, matched, changed or, with ``relock``, relocked); without it the split
+    is only read. ``relock`` overwrites a lock whose digest differs and records the digest it replaced.
+    ``proposer_ids`` are the question ids the proposer is given: a test item among them is a violation.
     """
     if not 0 < min_fraction <= 1:
         raise ValueError(f"min_fraction must be above 0 and at most 1, got {min_fraction}")
     if proposer_ids is not None and assignment is None:
         raise ValueError("a proposer list needs a split to tell the test items")
+    if relock and (assignment is None or lock_path is None):
+        raise ValueError("relock needs a split and its lock")
     allow = list(allow)
     violations: list[dict[str, Any]] = []
     split: Optional[dict[str, Any]] = None
     exposed: list[str] = []
     if assignment is not None:
         match_split(questions, assignment)
-        split = {"state": "not_locked", "digest": assignment_digest(assignment), "counts": _counts(assignment), "moved": []}
+        contents = item_digests(questions)
+        split = {"state": "not_locked", "digest": assignment_digest(assignment, contents),
+                 "previous_digest": None, "counts": _counts(assignment), "moved": []}
         if lock_path is not None:
-            state, moved = lock_split(assignment, lock_path, now or _utc_now())
-            split.update(state=state, moved=moved)
-            if state == "changed":
-                violations.append({"kind": "split_changed", "moved": moved})
+            result_lock = lock_split(assignment, contents, lock_path, now or _utc_now(), relock=relock)
+            split.update(state=result_lock["state"], moved=result_lock["moved"],
+                         previous_digest=result_lock["previous_digest"])
+            if result_lock["state"] == "changed":
+                violations.append({"kind": "split_changed", "moved": result_lock["moved"]})
         if proposer_ids is not None:
             exposed = exposed_test_items(assignment, proposer_ids)
             violations += [{"kind": "test_exposed", "question_id": i} for i in exposed]
@@ -336,6 +398,11 @@ def format_table(result: Mapping[str, Any], output: Any = None) -> str:
         lines.append(f"split {split['state'].replace('_', ' ')}: digest {split['digest'][:12]} ({counts})")
         if split["state"] == "changed":
             lines.append(f"  split changed since its lock: {len(split['moved'])} items moved: {_listed(split['moved'])}")
+        if split["state"] == "relocked":
+            old = split["previous_digest"]
+            lines.append(f"  lock overwritten (--relock): previous digest {old[:12] if old else 'unreadable'}")
+            if split["moved"]:
+                lines.append(f"  {len(split['moved'])} items moved since the old lock: {_listed(split['moved'])}")
     if result["exposed_test_items"]:
         lines.append(f"  test items given to the proposer: {_listed(result['exposed_test_items'])}")
     flagged = [r for r in result["items"] if r["status"] == "flagged"]

@@ -22,14 +22,15 @@
     "split": {
       "type": ["object", "null"],
       "description": "The split assignment and its lock; null without --split.",
-      "required": ["state", "digest", "counts", "moved"],
+      "required": ["state", "digest", "previous_digest", "counts", "moved"],
       "additionalProperties": false,
       "properties": {
-        "state": {"enum": ["not_locked", "created", "matched", "changed"], "description": "created: the lock was written at this run; matched: the lock has this digest; changed: the lock has another digest and was not rewritten."},
-        "digest": {"type": "string", "pattern": "^[0-9a-f]{64}$", "description": "SHA-256 of the sorted id -> split pairs."},
+        "state": {"enum": ["not_locked", "created", "matched", "changed", "relocked"], "description": "created: the lock was written at this run; matched: the lock has this digest; changed: the lock has another digest and was not rewritten; relocked: the lock had another digest (or was unreadable) and was overwritten with this split (--relock)."},
+        "digest": {"type": "string", "pattern": "^[0-9a-f]{64}$", "description": "SHA-256 of the sorted (id, split, grading digest) triples; the grading digest is the SHA-256 of the item's grading block."},
+        "previous_digest": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$", "description": "The digest the lock had before --relock overwrote it; null in every other state, and when the old lock was unreadable."},
         "counts": {"type": "object", "required": ["dev", "val", "test"], "additionalProperties": false,
                    "properties": {"dev": {"type": "integer", "minimum": 0}, "val": {"type": "integer", "minimum": 0}, "test": {"type": "integer", "minimum": 0}}},
-        "moved": {"type": "array", "items": {"type": "string"}, "description": "Question ids whose split differs from the lock (state changed only)."}
+        "moved": {"type": "array", "items": {"type": "string"}, "description": "Question ids whose split or grading digest differs from the lock (states changed and relocked)."}
       }
     },
     "exposed_test_items": {"type": "array", "items": {"type": "string"}, "description": "Test question ids in the proposer's list."},

@@ -1,14 +1,15 @@
 {
   "status": "blocked",
   "ngram": 8,
-  "min_fraction": 0.15,
+  "min_fraction": 0.1,
   "allow": [],
   "skill_files": [
     "SKILL.md"
   ],
   "split": {
     "state": "created",
-    "digest": "7bfa4105a7c89fc30277796dcb9f986f00cb58e74c8ef6adc3a3b1326f25023d",
+    "digest": "2427a40f3a1c321bb1954980d9e296411f3cc1311f55b2b7a160052478f92484",
+    "previous_digest": null,
     "counts": {
       "dev": 1,
       "val": 0,

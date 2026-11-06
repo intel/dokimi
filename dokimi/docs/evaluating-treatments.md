@@ -797,20 +797,36 @@ python cli.py eval leak skills/candidate questions.json --split split.json \
     --allow-file allow.txt --proposer proposer_ids.json --out leak.json
 ```
 
-- **leak**: an item is flagged when at least `--min-fraction` (default 0.15) of the 8-word
-  runs of its expected answers and checks (literal values, and the `reference` and
-  `criterion` of judge checks; negated checks are left out) also occur in the skill's text.
+- **leak**: an item is flagged when at least `--min-fraction` (default 0.10) of the 8-word
+  runs of its expected answers and checks also occur in the skill's text. The expected text of
+  an item is the literal values of its positive checks and the `reference` of its judge checks.
+  A judge check with no `reference` counts its `criterion` instead: the criterion is weighted
+  below a reference, so it is used only where there is none. Negated checks are left out.
   The skill's text is every UTF-8 file beside SKILL.md, each cut separately so a run does not
   span two files. Questions are not compared: restating one is fine.
+- **threshold**: 0.10 was set on eight saved unitrace GEPA candidates and their eval items. The
+  benign candidates peaked at 0.073 of their runs in common with an item (the
+  boilerplate: headers, flag names), and the candidates that copied an answer sentence reached
+  0.136 and up. A fraction in between is a judgement call; read the table, not only the status.
 - **allowlist**: `--allow TERM` (repeatable) and `--allow-file FILE` (one term per line, `#`
   comments) name terms that legitimately appear in both, such as API names, paths and
-  identifiers. Whole-word runs of a term are removed from both texts before the runs are
-  cut, so a copied sentence that holds a term is still caught.
+  identifiers. Build the list from the question prompts and the skill, never from the expected
+  answers, or the gate stops checking what it exists to check. Whole-word runs of a term are
+  removed from both texts before the runs are cut, so a copied sentence that holds a term is
+  still caught. Single-letter flag terms (`-d`, `-v`) are plain words once cut and drop out of
+  every text: list only the longer forms. A bare command made only of allowlisted identifiers
+  is not detected; that is a known limitation.
 - **split lock**: `--split` is a JSON object `{"dev": [ids], "val": [ids], "test": [ids]}`
-  that places every question once. Its digest is written to `--lock` (default: the split's
-  name with `.lock.json`) at first use. A later run whose split digests differently is
-  blocked and names the items that moved; the lock is never rewritten. A lock edited by hand
-  is refused.
+  that places every question once. The lock (`--lock`, default: the split's name with
+  `.lock.json`) is written at first use with each question's split and the SHA-256 of its
+  `grading` block, so a changed expected answer or check counts as a change, not only a moved
+  id. A later run whose digest differs is blocked and names the items whose split or grading
+  block moved; the lock is never rewritten by such a run. A lock edited by hand is refused.
+- **relock**: `--relock` (with `--split`) overwrites the lock with the current split and
+  grading blocks, after a deliberate change. The report says `split relocked`, prints the
+  digest it replaced (`previous_digest` in the artifact) and lists the items that moved. It
+  is not a split violation, so the run passes if the leak check does. A corrupt lock is
+  replaced, with no previous digest.
 - **proposer**: `--proposer FILE` is a JSON list of the question ids the proposer sees. A test
   id on it blocks the run.
 

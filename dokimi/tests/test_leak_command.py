@@ -42,7 +42,7 @@ def _split(path: Path, split: dict[str, list[str]] = SPLIT) -> Path:
 
 def _args(skill, questions, **overrides):
     base = {"skill": str(skill), "questions": str(questions), "allow": None, "allow_file": None,
-            "min_fraction": 0.15, "split": None, "lock": None, "proposer": None, "out": None}
+            "min_fraction": 0.10, "split": None, "lock": None, "proposer": None, "relock": False, "out": None}
     return argparse.Namespace(**{**base, **overrides})
 
 
@@ -219,3 +219,54 @@ def test_a_min_fraction_is_read_from_the_command_line():
     assert ns.min_fraction == 0.5
     with pytest.raises(SystemExit):
         parser.parse_args(["eval", "leak", "skill", "q.json", "--min-fraction", "1.5"])
+
+
+def test_a_moved_split_is_blocked_until_relock_then_passes_and_keeps_the_old_digest(tmp_path, capsys):
+    skill, questions = _clean_run(tmp_path)
+    split = _split(tmp_path / "split.json")
+    cmd_eval_leak(_args(skill, questions, split=str(split)))
+    old_digest = json.loads((tmp_path / "split.lock.json").read_text(encoding="utf-8"))["digest"]
+    moved = _split(tmp_path / "moved.json", {"dev": ["1", "3"], "val": ["2"], "test": []})
+    lock = str(tmp_path / "split.lock.json")
+    assert _exit_code(_args(skill, questions, split=str(moved), lock=lock)) == 1
+    out = tmp_path / "leak.json"
+    cmd_eval_leak(_args(skill, questions, split=str(moved), lock=lock, relock=True, out=out))  # exit 0: relock is not a violation
+    saved = json.loads(out.read_text(encoding="utf-8"))
+    assert saved["split"]["state"] == "relocked" and saved["split"]["previous_digest"] == old_digest
+    assert saved["status"] == "pass" and schema_errors("leak.v1", saved) == []
+    assert "lock overwritten (--relock): previous digest " + old_digest[:12] in capsys.readouterr().out
+    assert json.loads((tmp_path / "split.lock.json").read_text(encoding="utf-8"))["assignment"]["3"] == "dev"
+
+
+def test_an_edited_grading_block_blocks_the_run_until_relock(tmp_path):
+    skill, questions = _clean_run(tmp_path)
+    split = _split(tmp_path / "split.json")
+    cmd_eval_leak(_args(skill, questions, split=str(split)))
+    edited = _questions(tmp_path / "edited.json", {"1": ANSWER, "2": ANSWER + " sorted",
+                                                   "3": "a corrected third answer naming the switch and its default value"})
+    assert _exit_code(_args(skill, edited, split=str(split))) == 1  # item 3's grading changed: the split is not the locked one
+    cmd_eval_leak(_args(skill, edited, split=str(split), relock=True))
+
+
+def test_relock_over_a_corrupt_lock_writes_a_new_lock(tmp_path, capsys):
+    skill, questions = _clean_run(tmp_path)
+    split = _split(tmp_path / "split.json")
+    (tmp_path / "split.lock.json").write_text("{not json", encoding="utf-8")
+    out = tmp_path / "leak.json"
+    cmd_eval_leak(_args(skill, questions, split=str(split), relock=True, out=out))
+    saved = json.loads(out.read_text(encoding="utf-8"))
+    assert saved["split"]["state"] == "relocked" and saved["split"]["previous_digest"] is None
+    assert schema_errors("leak.v1", saved) == []
+
+
+def test_relock_without_a_split_exits_2(tmp_path, capsys):
+    skill, questions = _clean_run(tmp_path)
+    assert _exit_code(_args(skill, questions, relock=True)) == 2
+    assert capsys.readouterr().err.startswith("Error: --relock overwrites the split's lock")
+
+
+def test_relock_is_read_from_the_command_line():
+    import dokimi.cli as cli
+
+    ns = cli.build_parser().parse_args(["eval", "leak", "skill", "q.json", "--split", "s.json", "--relock"])
+    assert ns.relock is True

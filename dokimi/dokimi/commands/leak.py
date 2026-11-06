@@ -8,8 +8,9 @@ answer or check appears in the skill, n-gram by n-gram (see :mod:`dokimi.eval.le
 ``--allow-file`` list the terms that legitimately appear in both (API names, paths, identifiers).
 
 ``--split FILE`` gives the dev/val/test assignment. Its digest is locked in ``--lock`` (default: the split's
-name with ``.lock.json``) at first use; a later run whose split changed is blocked. ``--proposer FILE`` (a JSON
-list of question ids) blocks a run that gives the proposer a test item.
+name with ``.lock.json``) at first use; a later run whose split or any item's grading block changed is blocked.
+``--relock`` overwrites the lock with the current split and reports the digest it replaced. ``--proposer FILE``
+(a JSON list of question ids) blocks a run that gives the proposer a test item.
 
 Exits 1 when the run is blocked (a leak, a changed split, a test item given to the proposer) or inconclusive
 (an item could not be checked, or none could); exits 2 on an unreadable input, a malformed split, lock or
@@ -41,6 +42,9 @@ def cmd_eval_leak(args: argparse.Namespace) -> None:
     if args.lock and not args.split:
         print("Error: --lock locks a split: give --split too", file=sys.stderr)
         sys.exit(2)
+    if args.relock and not args.split:
+        print("Error: --relock overwrites the split's lock: give --split too", file=sys.stderr)
+        sys.exit(2)
     split_path = Path(args.split) if args.split else None
     lock_path = None
     if split_path is not None:
@@ -52,7 +56,8 @@ def cmd_eval_leak(args: argparse.Namespace) -> None:
                      min_fraction=args.min_fraction,
                      assignment=read_split(split_path) if split_path is not None else None,
                      lock_path=lock_path,
-                     proposer_ids=read_ids(args.proposer) if args.proposer else None)
+                     proposer_ids=read_ids(args.proposer) if args.proposer else None,
+                     relock=args.relock)
     except (OSError, ValueError, RecursionError) as e:  # RecursionError: nested too deep
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(2)
@@ -91,6 +96,8 @@ def register_eval(eval_sub) -> None:
                    help='split JSON {"dev": [ids], "val": [ids], "test": [ids]}; checked against the lock')
     r.add_argument("--lock", metavar="FILE", default=None,
                    help="split lock JSON (default: the split file's name with .lock.json; created at first use)")
+    r.add_argument("--relock", action="store_true",
+                   help="overwrite the split's lock with this split when it differs; the report keeps the old digest")
     r.add_argument("--proposer", metavar="FILE", default=None,
                    help="JSON list of the question ids the proposer sees; a test id here blocks the run")
     r.add_argument("--out", metavar="FILE", default=None, help="leak.v1 JSON to write")
