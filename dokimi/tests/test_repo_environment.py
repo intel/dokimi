@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from dokimi.artifacts import validate_artifact
+from dokimi.artifacts import ENVELOPE_KEYS, validate_artifact
 from dokimi.cli import build_parser
 from dokimi.repos.environment import files as F
 from dokimi.repos.environment import inspect_repo
@@ -969,7 +969,7 @@ def _fixture_artifact(tmp_path: Path) -> dict:
 def test_the_committed_fixture_is_what_repo_inspect_emits(tmp_path):
     """Regenerate with ``DOKIMI_REGEN_FIXTURES=1 pytest tests/test_repo_environment.py -k committed_fixture``."""
     import os
-    data = _fixture_artifact(tmp_path)
+    data = {k: v for k, v in _fixture_artifact(tmp_path).items() if k not in ENVELOPE_KEYS}
     if os.environ.get("DOKIMI_REGEN_FIXTURES"):
         FIXTURE.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
     assert json.loads(FIXTURE.read_text(encoding="utf-8")) == data

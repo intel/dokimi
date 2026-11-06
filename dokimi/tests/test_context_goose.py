@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""Goose session stores read by `context prefilter`: synthetic SQLite stores under ``tmp_path``.
+"""Goose session stores read by `trace prefilter`: synthetic SQLite stores under ``tmp_path``.
 
 The table and column names follow the block/goose source (session storage and message
 serialization); no real store is read.
@@ -149,7 +149,7 @@ def test_the_command_reads_a_store_and_a_claude_log_together(tmp_path, capsys):
     claude = tmp_path / "claude.jsonl"
     claude.write_text(json.dumps({"type": "user", "message": {"role": "user", "content": "fix the readme"}}) + "\n",
                       encoding="utf-8")
-    args = build_parser().parse_args(["context", "prefilter", str(guide), str(db), str(claude),
+    args = build_parser().parse_args(["trace", "prefilter", str(guide), str(db), str(claude),
                                       "--min-sessions", "1", "--json"])
     args.func(args)
     assert json.loads(capsys.readouterr().out)["sessions"] == 2

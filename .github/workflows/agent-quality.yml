@@ -140,10 +140,10 @@ jobs:
             if [ "$attempt" = 3 ]; then exit 1; fi
             sleep $((attempt * 5))
           done
-      - name: catalog scan
+      - name: catalog check
         if: steps.changes.outputs.code == 'true'
         run: |
-          python cli.py catalog scan --root "${{ runner.temp }}/uxl-skills" --kind all
+          python cli.py catalog check --root "${{ runner.temp }}/uxl-skills" --kind all
       - name: Run a real external task through docker-oracle and docker-probe
         if: steps.changes.outputs.code == 'true'
         run: |

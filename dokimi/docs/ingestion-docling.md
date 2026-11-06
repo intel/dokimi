@@ -24,7 +24,7 @@ pip install 'dokimi[ocr]'
 ## Materialize a corpus
 
 ```bash
-dokimi ingest docling --input path/to/docs --out-dir docs/
+dokimi data import docling --input path/to/docs --out-dir docs/
 ```
 
 This converts every supported document under `--input` to a `.md` file in

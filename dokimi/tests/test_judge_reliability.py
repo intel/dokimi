@@ -17,6 +17,8 @@ from dokimi.eval.judge_wording import WORDINGS, WordingReport, reword
 from tests.test_judge_validity import ANSWER, OTHER_ANSWER
 
 
+from tests.cli_refusal import refusal
+
 def _many_answers(n=40):
     return [
         {
@@ -485,11 +487,9 @@ def _cross_judge(tmp_path, monkeypatch, data, *extra, judges=True):
     if judges:
         argv += ["--judges", "amazon-bedrock/m"]
     args = build_parser().parse_args(argv + list(extra))
-    try:
+    with refusal() as outcome:
         args.func(args)
-    except SystemExit as e:
-        return e.code, seen
-    return 0, seen
+    return outcome.code, seen
 
 
 def test_stored_measure_is_named_for_its_judge():
@@ -606,9 +606,9 @@ def test_cross_judge_refuses_to_rescore_against_unreproducible_stored_scores(tmp
     argv = ["eval", "judge", "agreement", "--answers", str(answers), "--judges", "amazon-bedrock/m",
             "--output", str(tmp_path / "cj.json")]
     args = build_parser().parse_args(argv)
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2 and "skill" in capsys.readouterr().err
+    assert exc.code == 2 and "skill" in exc.err
     # Without the stored scores every measure sees the same snippets, and it runs.
     args = build_parser().parse_args(argv + ["--no-stored"])
     args.func(args)
@@ -685,9 +685,9 @@ def test_cross_judge_judges_refuses_file_without_materials(tmp_path, monkeypatch
     argv = ["eval", "judge", "agreement", "--answers", str(answers), "--judges", "amazon-bedrock/m",
             "--output", str(tmp_path / "cj.json")]
     args = build_parser().parse_args(argv)
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2 and "skill" in capsys.readouterr().err
+    assert exc.code == 2 and "skill" in exc.err
 
 
 def test_cross_judge_judges_with_int_question_ids(tmp_path, monkeypatch, capsys):
@@ -764,9 +764,9 @@ def test_cross_judge_judges_and_pairwise_refuse_together(tmp_path, monkeypatch, 
     argv = ["eval", "judge", "agreement", "--answers", str(answers), "--judges", "amazon-bedrock/m",
             "--pairwise", str(pairwise), "--output", str(tmp_path / "cj.json")]
     args = build_parser().parse_args(argv)
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2 and "skill" in capsys.readouterr().err
+    assert exc.code == 2 and "skill" in exc.err
 
 
 def test_cross_judge_judges_refuses_altered_material_text(tmp_path, monkeypatch, capsys):
@@ -799,9 +799,9 @@ def test_cross_judge_judges_refuses_altered_material_text(tmp_path, monkeypatch,
     argv = ["eval", "judge", "agreement", "--answers", str(answers), "--judges", "amazon-bedrock/m",
             "--output", str(tmp_path / "cj.json")]
     args = build_parser().parse_args(argv)
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2 and "skill" in capsys.readouterr().err
+    assert exc.code == 2 and "skill" in exc.err
 
 
 def test_cross_judge_judges_refuses_records_without_digest(tmp_path, monkeypatch, capsys):
@@ -837,9 +837,9 @@ def test_cross_judge_judges_refuses_records_without_digest(tmp_path, monkeypatch
     argv = ["eval", "judge", "agreement", "--answers", str(answers), "--judges", "amazon-bedrock/m",
             "--output", str(tmp_path / "cj.json")]
     args = build_parser().parse_args(argv)
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2 and "skill" in capsys.readouterr().err
+    assert exc.code == 2 and "skill" in exc.err
 
 
 def test_cross_judge_judges_refuses_mismatched_digest_between_arms_and_scores(tmp_path, monkeypatch, capsys):
@@ -873,9 +873,9 @@ def test_cross_judge_judges_refuses_mismatched_digest_between_arms_and_scores(tm
     argv = ["eval", "judge", "agreement", "--answers", str(answers), "--judges", "amazon-bedrock/m",
             "--output", str(tmp_path / "cj.json")]
     args = build_parser().parse_args(argv)
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2 and "skill" in capsys.readouterr().err
+    assert exc.code == 2 and "skill" in exc.err
 
 
 def test_cross_judge_pairwise_with_materials_refuses_comparison(tmp_path, monkeypatch):
@@ -902,9 +902,9 @@ def test_cross_judge_pairwise_with_materials_refuses_comparison(tmp_path, monkey
     argv = ["eval", "judge", "agreement", "--answers", str(answers), "--pairwise", str(pairwise),
             "--output", str(tmp_path / "cj.json")]
     args = build_parser().parse_args(argv)
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2
+    assert exc.code == 2
 
 
 def test_cross_judge_checklist_with_materials_refuses_comparison(tmp_path, monkeypatch):
@@ -931,9 +931,9 @@ def test_cross_judge_checklist_with_materials_refuses_comparison(tmp_path, monke
     argv = ["eval", "judge", "agreement", "--answers", str(answers), "--checklist", str(checklist),
             "--output", str(tmp_path / "cj.json")]
     args = build_parser().parse_args(argv)
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2
+    assert exc.code == 2
 
 
 def test_a_failed_gate_also_silences_that_judges_coverage_measure():
@@ -974,10 +974,10 @@ def test_cross_judge_refuses_stored_scores_against_pairwise_and_checklist_too(tm
             for q in qids]}), encoding="utf-8")
     argv = ["eval", "judge", "agreement", "--answers", str(answers), measure_flag, str(other),
             "--output", str(tmp_path / "cj.json")]
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args = build_parser().parse_args(argv)
         args.func(args)
-    assert exc.value.code == 2 and "skill" in capsys.readouterr().err
+    assert exc.code == 2 and "skill" in exc.err
     assert not (tmp_path / "cj.json").exists()
     # The judges that never saw the material can be compared with each other.
     args = build_parser().parse_args(argv + ["--no-stored"])
@@ -1371,9 +1371,9 @@ def test_eval_pairwise_writes_the_errors_when_every_comparison_fails(tmp_path, m
         "baseline": {"answer": "b"}, "skill": {"answer": "s"}}}]}), encoding="utf-8")
     out = tmp_path / "pw.json"
     args = build_parser().parse_args(["eval", "score", "pairwise", "--answers", str(answers), "--output", str(out)])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2
+    assert exc.code == 1  # a run failure (every comparison failed), not bad input
     errors = json.loads(out.read_text(encoding="utf-8"))["errors"]
     assert [e["question_id"] for e in errors] == ["Q1"] and "UnparseableVerdict" in errors[0]["error"]
 
@@ -1444,9 +1444,9 @@ def test_escalation_without_pairwise_mode_is_refused(tmp_path):
 
     args = build_parser().parse_args(["eval", "judge", "validate", "--answers", str(tmp_path / "a.json"),
                                       "--escalate-model", "m"])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2
+    assert exc.code == 2
 
 
 # --- verdict parsing inside prose, and checklist rendering without a parsed point ---------
@@ -1650,9 +1650,9 @@ def test_cross_judge_judges_refuses_edited_material(tmp_path, monkeypatch, capsy
     digest = next(iter(data["judge_materials"]))
     data["judge_materials"][digest] = "EDITED"
     args = _cross_judge_args(tmp_path, data, "--judges", "amazon-bedrock/m")
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2 and "skill" in capsys.readouterr().err
+    assert exc.code == 2 and "skill" in exc.err
     assert not seen
 
 
@@ -1661,9 +1661,9 @@ def test_cross_judge_judges_with_pairwise_refuses_stored_scores(tmp_path, monkey
     _recording_judge(monkeypatch, seen)
     args = _cross_judge_args(tmp_path, _material_arms_run(), "--judges", "amazon-bedrock/m",
                              "--pairwise", str(tmp_path / "pw.json"))
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2 and "skill" in capsys.readouterr().err
+    assert exc.code == 2 and "skill" in exc.err
 
 
 

@@ -18,6 +18,7 @@ from dokimi.report.markdown_report import write_compare_report, write_run_report
 from dokimi.runner.compare import CompareInputError, compare_snapshots
 from dokimi.runner.run import DocLoadError, load_benchmark_spec, run_benchmark, save_snapshot
 from dokimi.runner.spec import DocSelectionError
+from dokimi.utils import InputError
 
 
 def _run_or_exit(root: Path, spec_path: Path) -> dict:
@@ -79,8 +80,7 @@ def cmd_run(args: argparse.Namespace) -> None:
         try:
             bands = check_critical_bands(result["summary"], spec)
         except ValueError as exc:  # a band the gate cannot read: a bad spec, named, not a traceback
-            print(f"Error: {spec_path}: {exc}", file=sys.stderr)
-            sys.exit(2)
+            raise InputError(f"{spec_path}: {exc}") from exc
 
         # Exit 1 if hard gate fails
         if hard_gate.enabled and not hard_gate.passed:

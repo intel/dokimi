@@ -13,6 +13,8 @@ import pytest
 
 from dokimi.datasets_export import dataset_card, export_artifact, flatten
 
+from tests.cli_refusal import refusal
+
 HAS_DATASETS = importlib.util.find_spec("datasets") is not None
 
 
@@ -29,6 +31,18 @@ def test_flatten_attaches_metadata_and_jsonifies():
     assert rows[0]["question_id"] == "q1"
     # nested dict is JSON-encoded
     assert json.loads(rows[0]["with_docs"])["answer"] == "a"
+
+
+def test_exported_rows_carry_the_run_envelope(tmp_path):
+    """Rows of two runs exported together still tell the runs apart, by the run_id save_artifact wrote."""
+    from dokimi.artifacts import ENVELOPE_KEYS, save_artifact
+
+    fixture = Path(__file__).resolve().parent / "fixtures" / "artifacts" / "answers.v1.json"
+    saved = save_artifact("answers", json.loads(fixture.read_text(encoding="utf-8")), tmp_path / "a.json")
+    primary = export_artifact("answers", tmp_path / "a.json", tmp_path / "out", fmt="jsonl")
+    rows = [json.loads(line) for line in primary.read_text(encoding="utf-8").strip().splitlines()]
+    assert rows and all({k: row[k] for k in ENVELOPE_KEYS} == {k: saved[k] for k in ENVELOPE_KEYS}
+                        for row in rows)
 
 
 def test_export_jsonl(tmp_path):
@@ -134,18 +148,17 @@ def test_export_task_runs_jsonl(tmp_path):
 def _run_export(src: Path, out: Path, kind: str = "answers", *extra: str) -> None:
     from dokimi.cli import build_parser
 
-    args = build_parser().parse_args(["dataset", "export", "--kind", kind, "--input", str(src),
+    args = build_parser().parse_args(["data", "export", "--kind", kind, "--input", str(src),
                                       "--out-dir", str(out), *extra])
     args.func(args)
 
 
 def _export_error(src: Path, out: Path, *extra: str, capsys) -> str:
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         _run_export(src, out, "answers", *extra)
-    assert exc.value.code == 2
-    assert exc.value.__suppress_context__
+    assert exc.code == 2
     assert not (out / "README.md").exists()
-    err = capsys.readouterr().err
+    err = exc.err
     assert err.startswith(f"Error: cannot export {src} to {out}: ")
     return err
 
@@ -196,11 +209,11 @@ def test_cli_export_without_validation_of_a_non_list_record_array_exits_cleanly(
 def test_cli_export_of_a_non_object_top_level_exits_cleanly(tmp_path, capsys, raw, extra, kind):
     src = tmp_path / "a.json"
     src.write_text(raw, encoding="utf-8")
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         _run_export(src, tmp_path / "out", kind, *extra)
-    assert exc.value.code == 2
+    assert exc.code == 2
     assert not (tmp_path / "out" / "README.md").exists()
-    assert capsys.readouterr().err.startswith(f"Error: cannot export {src} to {tmp_path / 'out'}: ")
+    assert exc.err.startswith(f"Error: cannot export {src} to {tmp_path / 'out'}: ")
 
 
 def test_flatten_missing_record_key_raises():

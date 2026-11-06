@@ -198,7 +198,7 @@ flowchart LR
 How an author uses it:
 
 ```bash
-python cli.py novelty analyze --artifact skill:path/to/skill \
+python cli.py skill novelty analyze --artifact skill:path/to/skill \
     --model <model under measurement> --judge-model <a different model> \
     --budgets 0.75 0.5
 ```
@@ -207,8 +207,8 @@ python cli.py novelty analyze --artifact skill:path/to/skill \
 `--no-shorten`) proposes a smaller version at each budget and scores it on five
 axes — tokens, knowledge, value, protection, routing — so cutting tokens cannot
 quietly cut the safety clause. To shorten without probing, run the stages on
-their own: `novelty atoms` writes `atoms.json`, and
-`novelty shorten --atoms atoms.json` scores candidates from it. Two properties
+their own: `skill novelty atoms` writes `atoms.json`, and
+`skill shorten --atoms atoms.json` scores candidates from it. Two properties
 to keep in mind: the result belongs to the (artifact, **model**) pair, so a file
 that looks bloated against a frontier model may be correctly sized for a small
 one; and the probes are paired, so trust the signs and the rankings, not the
@@ -294,7 +294,7 @@ code.
   evaluation content yet**: the content this framework measures lives in a
   separate repository, and every location is an explicit flag
   (`--questions-root`, `--tasks-root`, `--repo-root`, `--registry`). Includes a
-  pre-flight `catalog scan` and what each command does when a root is missing.
+  pre-flight `catalog check` and what each command does when a root is missing.
 - [quickstart.md](quickstart.md) — end-to-end LLM evaluation pipeline:
   personas → questions → answers → judge → report. Includes troubleshooting
   and a cost estimate.
@@ -323,13 +323,13 @@ code.
 - [subscription-backends.md](subscription-backends.md) — run the Q&A track through a
   logged-in coding-agent CLI (`--provider claude-cli`) instead of an API key
 - [context-window.md](context-window.md) — read a run's context window from
-  its Claude Code trace with `cli.py context trace`: start-up load, growth,
+  its Claude Code trace with `cli.py trace inspect`: start-up load, growth,
   compactions, tool-result weight. No LLM call.
 - [session-prefilter.md](session-prefilter.md) — which AGENTS.md or CLAUDE.md rules
   the Claude Code session logs triggered, acted on and were corrected on, with
-  `cli.py context prefilter`: candidates for ablation, not verdicts. No LLM call.
+  `cli.py trace prefilter`: candidates for ablation, not verdicts. No LLM call.
 - [run-consistency.md](run-consistency.md) — repeated runs of one task with
-  `cli.py context consistency`: result stability (pass^k), path stability
+  `cli.py trace consistency`: result stability (pass^k), path stability
   (tool mix, order, actions, strategies), process-contract conformance.
 
 - [what-it-measures.md](what-it-measures.md) — the three things Dokimi measures:

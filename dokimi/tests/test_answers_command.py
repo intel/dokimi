@@ -22,6 +22,8 @@ from dokimi.commands import answers
 from dokimi.defaults import DEFAULT_RETRIEVAL_TOP_K
 
 
+from tests.cli_refusal import refusal
+
 def _args(**overrides) -> argparse.Namespace:
     base = dict(product="Lib", questions="q.json", top_k=None, model="m", provider="p",
                 rerank_threshold=0.5, debug_retrieval=False, max_tokens=100, concurrency=1,
@@ -57,58 +59,58 @@ def test_invalid_yaml_config_exits(tmp_path, monkeypatch, capsys):
     path = tmp_path / "products.yaml"
     path.write_text("products: [unclosed\n", encoding="utf-8")
     _point_config(monkeypatch, path)
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         answers._load_runtime_config()
-    assert exc.value.code == 2
-    assert "invalid YAML" in capsys.readouterr().err
+    assert exc.code == 2
+    assert "invalid YAML" in exc.err
 
 
 def test_non_utf8_config_exits_with_message(tmp_path, monkeypatch, capsys):
     path = tmp_path / "products.yaml"
     path.write_bytes(b"retrieval:\n  top_k: \xff\xfe\n")
     _point_config(monkeypatch, path)
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         answers._load_runtime_config()
-    assert exc.value.code == 2
-    assert f"cannot read {path}" in capsys.readouterr().err
+    assert exc.code == 2
+    assert f"cannot read {path}" in exc.err
 
 
 def test_unreadable_config_exits_with_message(tmp_path, monkeypatch, capsys):
     path = tmp_path / "products.yaml"
     path.mkdir()  # a directory where the file should be: read_text raises OSError
     _point_config(monkeypatch, path)
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         answers._load_runtime_config()
-    assert exc.value.code == 2
-    assert f"cannot read {path}" in capsys.readouterr().err
+    assert exc.code == 2
+    assert f"cannot read {path}" in exc.err
 
 
 def test_non_mapping_config_exits(tmp_path, monkeypatch, capsys):
     path = tmp_path / "products.yaml"
     path.write_text("- a\n- b\n", encoding="utf-8")
     _point_config(monkeypatch, path)
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         answers._load_runtime_config()
-    assert exc.value.code == 2
-    assert "expected a mapping" in capsys.readouterr().err
+    assert exc.code == 2
+    assert "expected a mapping" in exc.err
 
 
 def test_non_utf8_config_exits(tmp_path, monkeypatch, capsys):
     path = tmp_path / "products.yaml"
     path.write_bytes(b"\xff\xfe\x00bad: [")
     _point_config(monkeypatch, path)
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         answers._load_runtime_config()
-    assert exc.value.code == 2
-    assert f"cannot read {path}" in capsys.readouterr().err
+    assert exc.code == 2
+    assert f"cannot read {path}" in exc.err
 
 
 def test_unreadable_config_path_exits(tmp_path, monkeypatch, capsys):
     _point_config(monkeypatch, tmp_path)
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         answers._load_runtime_config()
-    assert exc.value.code == 2
-    assert f"cannot read {tmp_path}" in capsys.readouterr().err
+    assert exc.code == 2
+    assert f"cannot read {tmp_path}" in exc.err
 
 
 @pytest.mark.parametrize(("text", "key"), [
@@ -119,10 +121,10 @@ def test_config_section_of_the_wrong_shape_exits(tmp_path, monkeypatch, capsys, 
     path = tmp_path / "products.yaml"
     path.write_text(text, encoding="utf-8")
     _point_config(monkeypatch, path)
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         answers._load_runtime_config()
-    assert exc.value.code == 2
-    assert f"'{key}' in {path} must be a mapping" in capsys.readouterr().err
+    assert exc.code == 2
+    assert f"'{key}' in {path} must be a mapping" in exc.err
 
 
 def test_questions_load_error_exits(monkeypatch, capsys):
@@ -130,10 +132,10 @@ def test_questions_load_error_exits(monkeypatch, capsys):
         raise ValueError("record 3 has no question text")
 
     monkeypatch.setattr(dokimi.questions.artifact, "load_questions", fail)
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         answers._load_questions("q.json")
-    assert exc.value.code == 2
-    assert "record 3 has no question text" in capsys.readouterr().err
+    assert exc.code == 2
+    assert "record 3 has no question text" in exc.err
 
 
 def test_output_path_precedence():
@@ -242,10 +244,10 @@ def test_generate_output_that_cannot_be_written_exits_2_naming_the_path(tmp_path
             return ["a1"]
 
     _stub_generate(monkeypatch, tmp_path, FakeAnswerer)
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         answers.cmd_answers_generate(_args(output=str(target)))
-    assert exc.value.code == 2
-    assert f"Error: cannot write {target}: " in capsys.readouterr().err
+    assert exc.code == 2
+    assert f"Error: cannot write {target}: " in exc.err
 
 
 def test_generate_final_save_that_fails_exits_2_naming_the_path(tmp_path, monkeypatch, capsys):
@@ -262,10 +264,10 @@ def test_generate_final_save_that_fails_exits_2_naming_the_path(tmp_path, monkey
             raise PermissionError(13, "Permission denied", f"{path}.123.0.tmp")
 
     _stub_generate(monkeypatch, tmp_path, FakeAnswerer)
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         answers.cmd_answers_generate(_args(output=str(target)))
-    assert exc.value.code == 2
-    assert f"Error: cannot write {target}: Permission denied" in capsys.readouterr().err
+    assert exc.code == 2
+    assert f"Error: cannot write {target}: Permission denied" in exc.err
 
 
 def test_generate_output_that_is_a_directory_exits_2_naming_the_path(tmp_path, monkeypatch, capsys):
@@ -292,10 +294,10 @@ def test_generate_output_that_is_a_directory_exits_2_naming_the_path(tmp_path, m
         save_answers = RealAnswerer.save_answers
 
     _stub_generate(monkeypatch, tmp_path, FakeAnswerer)
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         answers.cmd_answers_generate(_args(output=str(target)))
-    assert exc.value.code == 2
-    assert f"Error: cannot write {target}: " in capsys.readouterr().err
+    assert exc.code == 2
+    assert f"Error: cannot write {target}: " in exc.err
 
 
 @pytest.mark.parametrize("kind", ["missing", "directory"])
@@ -304,10 +306,10 @@ def test_generate_unreadable_questions_exits_2_naming_the_path(tmp_path, monkeyp
     path = tmp_path / "q.json"
     if kind == "directory":
         path.mkdir()
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         answers.cmd_answers_generate(_args(questions=str(path)))
-    assert exc.value.code == 2
-    assert f"Error: cannot read {path}" in capsys.readouterr().err
+    assert exc.code == 2
+    assert f"Error: cannot read {path}" in exc.err
 
 
 @pytest.mark.parametrize("value", ["0", "-1", '"3"', "true"])
@@ -318,18 +320,18 @@ def test_a_config_top_k_that_is_not_a_positive_int_exits_2(tmp_path, monkeypatch
     _point_config(monkeypatch, path)
     monkeypatch.setattr(dokimi.questions.artifact, "load_questions",
                         lambda path: pytest.fail("questions loaded after a bad top_k"))
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         answers.cmd_answers_generate(_args())
-    assert exc.value.code == 2
-    assert "retrieval.top_k in the config must be a positive integer" in capsys.readouterr().err
+    assert exc.code == 2
+    assert "retrieval.top_k in the config must be a positive integer" in exc.err
 
 
 @pytest.mark.parametrize("value", ["0", "-1"])
 def test_top_k_flag_below_one_is_refused(capsys, value):
     from dokimi.cli import build_parser
 
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         build_parser().parse_args(["answers", "generate", "--product", "L",
                                    "--questions", "q.json", "--top-k", value])
-    assert exc.value.code == 2
-    assert "--top-k" in capsys.readouterr().err
+    assert exc.code == 2
+    assert "--top-k" in exc.err

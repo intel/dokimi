@@ -77,7 +77,7 @@ def test_catalog_discovered_skill_path_builds_a_docker_claude_skill_harness(tmp_
     skills = read_skill_manifest(tmp_path)
     assert len(skills) == 1 and skills[0].loaded
 
-    # The exact path catalog scan reports plugs straight into the harness
+    # The exact path catalog check reports plugs straight into the harness
     # alias, unmodified -- no extra copy/rewrite step.
     harness = create_harness(f"docker-claude-skill:{skills[0].skill.path}")
     assert harness.skill_path == str(skills[0].skill.path)
