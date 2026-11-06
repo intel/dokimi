@@ -34,7 +34,7 @@ Wheels build with cibuildwheel, in a manylinux container on Linux, as
 pyproject.toml's [tool.cibuildwheel] says; a pyproject.toml without it builds a
 pure Python wheel with `pip wheel`. Run-time
 requirements that pyproject.toml cannot declare, because the conda package gets
-them from its recipe instead, such as MKL's libraries, go in [tool.gh-ci]
+them from its recipe instead, go in [tool.gh-ci]
 wheel-requires: build.py adds them to each wheel's metadata.
 """
 

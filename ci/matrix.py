@@ -117,7 +117,7 @@ SELECTORS = {
         "ppc64le": False,
         "s390x": False,
     },
-    # Intel Macs only, as MKL has no Apple silicon build.
+    # x86_64 Macs only.
     "macos": {
         "linux": False,
         "linux64": False,
