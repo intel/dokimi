@@ -82,7 +82,24 @@ def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bo
         for row in report["skills"]:
             _print_skill_row(row)
         print()
+    _granularity_section(skills, reviews, root, report, as_json)
     return failed
+
+
+def _granularity_section(skills, reviews, root: Path, report: dict, as_json: bool) -> None:
+    """The free granularity hints (#424) over the skills a harness would offer: into ``report``, and printed unless JSON."""
+    from dokimi.external import granularity
+
+    offered = [
+        entry.skill for entry, review in zip(skills, reviews, strict=True)
+        if entry.loaded and entry.skill is not None and review is not None
+        and not review.disable_model_invocation
+    ]
+    result = granularity.hints(offered, root=str(root))
+    report["granularity"] = result.to_dict()
+    if not as_json:
+        print("\n".join(granularity.format_text(result)))
+        print()
 
 
 def _task_row(task) -> dict:
