@@ -715,7 +715,7 @@ counted as a miss.
 every skill that has queries the gold in turn, routed against the whole field. The file is a
 JSON object of skill name to the requests that should select it, each written without the
 skill's own text. A skill named twice in the file is refused. `--out` must name a file: a directory, a
-path under a non-directory, or an unwritable path is refused before any model call (the same
+path under a non-directory, a FIFO or device, a symlink loop, or an unwritable path is refused before any model call (the same
 check is made for a single-artifact `routing --out`); a missing parent directory is created. The output has a confusion
 matrix (gold to picked to count, with `(none)` for a query no card shares a word with or, in
 the model arm, an abstention, and `(tie)` for a query on which two or more other cards tie for
