@@ -551,3 +551,12 @@ def test_no_query_left_names_only_the_queried_skills_the_field_left_out(tmp_path
     with pytest.raises(InputError, match="no skill in the field has queries") as exc:
         args.func(args)
     assert "`db`" in str(exc.value) and "`off`" not in str(exc.value)
+
+
+def test_a_missing_catalog_is_named_before_the_keep_copies_under_value(tmp_path):
+    # Thread: PRRT_kwDOVBg7g860Libj
+    args = _parse("novelty", "routing", "--catalog", str(tmp_path / "typo"),
+                  "--keep-copies-under", "skills", "--all-vs-all",
+                  "--queries-by-skill", str(_queries(tmp_path, {"a": ["q"]})), "--estimate-only")
+    with pytest.raises(InputError, match="--catalog is not a directory"):
+        args.func(args)

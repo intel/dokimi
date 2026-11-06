@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from dokimi.utils import InputError
@@ -77,6 +78,8 @@ def routing_field(args: argparse.Namespace, exclude: set[str],
         if not args.catalog:
             raise InputError("--keep-copies-under needs --catalog: it picks between the copies of "
                              "a catalog")
+        if not Path(args.catalog).is_dir():
+            raise InputError(f"--catalog is not a directory: {args.catalog}")
         try:
             check_keep_copies_under(args.catalog, args.keep_copies_under)
         except ValueError as exc:
