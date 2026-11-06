@@ -283,3 +283,19 @@ def test_an_out_that_names_an_input_is_refused_and_the_input_kept(tmp_path, targ
     before = named.read_bytes()
     assert _exit_code(_args(skill, questions, split=str(split), out=str(named))) == 2
     assert named.read_bytes() == before
+
+
+def test_an_out_inside_the_skill_directory_is_refused_and_the_skill_file_kept(tmp_path):
+    skill, questions = _clean_run(tmp_path)
+    skill_md = skill / "SKILL.md"
+    before = skill_md.read_bytes()
+    assert _exit_code(_args(skill, questions, out=str(skill_md))) == 2
+    assert skill_md.read_bytes() == before
+
+
+def test_a_relock_lock_that_names_the_split_is_refused_and_the_split_kept(tmp_path):
+    skill, questions = _clean_run(tmp_path)
+    split = _split(tmp_path / "split.json")
+    before = split.read_bytes()
+    assert _exit_code(_args(skill, questions, split=str(split), lock=str(split), relock=True)) == 2
+    assert split.read_bytes() == before

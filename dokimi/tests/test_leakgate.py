@@ -507,3 +507,10 @@ def test_a_skill_stored_in_nfd_is_checked_like_nfc():
     assert nfd != answer
     assert assess([_q("1", [_match(answer)])], skill_index({"s.md": nfd}))[0]["status"] == "flagged"
     assert assess([_q("1", [_match(nfd)])], skill_index({"s.md": answer}))[0]["status"] == "flagged"
+
+
+def test_a_json_check_value_with_accented_text_is_compared_as_its_text():
+    # json.dumps with ensure_ascii escaped the accent into tokens the skill's own text never has
+    words_ = " ".join(f"café{i}" for i in range(20))
+    q = _q("1", [{"type": "json", "values": [{"note": words_}]}])
+    assert assess([q], skill_index(_skill(f"Expected output: {words_}")))[0]["status"] == "flagged"

@@ -800,8 +800,9 @@ python cli.py eval leak skills/candidate questions.json --split split.json \
 - **leak**: an item is flagged when at least `--min-fraction` (default 0.10) of the 8-word
   runs of its expected answers and checks also occur in the skill's text. The expected text of
   an item is the literal values of its positive checks and the `reference` of its judge checks.
-  A judge check with no `reference` counts its `criterion` instead: the criterion is weighted
-  below a reference, so it is used only where there is none. Negated checks are left out.
+  A judge check with no `reference` counts its `criterion` instead, at the same weight as a
+  reference (there is no lower weight for a criterion), and only where there is no reference.
+  Negated checks are left out.
   The skill's text is every UTF-8 file beside SKILL.md, each cut separately so a run does not
   span two files. Questions are not compared: restating one is fine.
 - **threshold**: 0.10 was set on eight saved unitrace GEPA candidates and their eval items. The

@@ -5,8 +5,8 @@
 
 Leak gate. The expected answers and checks of each eval item are the literal values of its ``grading``
 block that are not negated, plus the judge checks' ``reference``. A judge check with no ``reference`` counts
-its ``criterion`` instead (the criterion is a stand-in for an answer, so it is weighted below one: it is
-used only where there is no reference). Each text is cut into runs of ``ngram`` words (8 by default;
+its ``criterion`` instead, at full weight (it is a stand-in for an answer, used only where there is no
+reference; there is no lower weight for it). Each text is cut into runs of ``ngram`` words (8 by default;
 ``\\w+``, lower-cased). An item is flagged when at least ``min_fraction`` of its runs also occur in the skill's
 text (SKILL.md and every other UTF-8 file beside it). Questions are not compared: a skill may restate a
 question. An allowlist of terms (API names, file paths, identifiers that legitimately appear in both) is cut
@@ -252,7 +252,7 @@ def expected_texts(question: Mapping[str, Any]) -> list[str]:
             elif check.get("criterion"):
                 texts.append(str(check["criterion"]))
         elif kind in LITERAL:
-            texts += [v if isinstance(v, str) else json.dumps(v, sort_keys=True) for v in check_values(check)]
+            texts += [v if isinstance(v, str) else json.dumps(v, sort_keys=True, ensure_ascii=False) for v in check_values(check)]
     return texts
 
 

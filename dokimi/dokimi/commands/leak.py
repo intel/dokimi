@@ -50,13 +50,19 @@ def cmd_eval_leak(args: argparse.Namespace) -> None:
     lock_path = None
     if split_path is not None:
         lock_path = Path(args.lock) if args.lock else split_path.with_name(split_path.stem + ".lock.json")
-    if args.out:
-        # --out over an input would replace it with the leak.v1 artifact (the split would then fail to load)
-        inputs = {os.path.realpath(p) for p in (args.skill, args.questions, args.split, lock_path,
-                                                 args.proposer, args.allow_file) if p}
-        if os.path.realpath(args.out) in inputs:
-            print(f"Error: --out {args.out} is an input of this run; choose another file", file=sys.stderr)
-            sys.exit(2)
+    # An output over an input replaces it: --out would become the leak.v1 artifact, --lock the split's lock.
+    # The skill is every file under its directory, since --out can name any of them.
+    skill_files = [p for p in Path(args.skill).rglob("*") if p.is_file()] if Path(args.skill).is_dir() else []
+    inputs = {os.path.realpath(p) for p in [args.skill, args.questions, args.split, args.proposer, args.allow_file,
+                                            *skill_files] if p}
+    out_real = os.path.realpath(args.out) if args.out else None
+    lock_real = os.path.realpath(lock_path) if lock_path is not None else None
+    clobbered = [p for p in (out_real, lock_real) if p in inputs]
+    if out_real is not None and out_real == lock_real:
+        clobbered.append(out_real)  # --out and the lock are one file: the artifact would replace the lock
+    if clobbered:
+        print(f"Error: {clobbered[0]} is an input of this run; choose another output file", file=sys.stderr)
+        sys.exit(2)
     try:
         files = read_skill(args.skill)
         questions = load_questions(args.questions).artifact.get("questions") or []
