@@ -161,6 +161,32 @@ def test_global_claude_install_is_skipped_locally(env: dict[str, Any]) -> None:
     assert [c["cmd"][-1].strip() for c in env["calls"]] == ["echo golden"]
 
 
+def _fidelity_wf() -> str:
+    return ("on: pull_request\njobs:\n  fidelity:\n    steps:\n"
+            "      - name: Install the pinned Claude Code\n"
+            "        run: npm install -g @anthropic-ai/claude-code@2.1.318 && claude --version\n"
+            "      - name: Run the fidelity golden\n        env:\n          DOKIMI_FIDELITY_REQUIRED: '1'\n"
+            "        run: echo golden\n")
+
+
+@pytest.mark.parametrize(("have", "required"), [("2.1.303", False), (None, False), ("2.1.318", True)])
+def test_fidelity_requires_the_pin_only_when_the_claude_on_path_is_it(
+        env: dict[str, Any], monkeypatch: Any, have: str | None, required: bool) -> None:
+    """Another claude on PATH must not FAIL ci-local: the golden tests skip instead."""
+    (cl.WORKFLOWS / "x.yml").write_text(_fidelity_wf())
+    monkeypatch.setattr(cl, "claude_on_path_version", lambda: have)
+    cl.run(ns(jobs="fidelity"))
+    assert ("DOKIMI_FIDELITY_REQUIRED" in env["calls"][-1]["env"]) is required
+
+
+def test_pinned_claude_entries_match_real_steps() -> None:
+    steps = {(job_id, step.get("name")): (job, step) for _, wf in cl.load_workflows()
+             for job_id, job in wf["jobs"].items() for step in job.get("steps", [])}
+    for entry, var in cl.PINNED_CLAUDE.items():
+        job, step = steps[entry]
+        assert var in (step.get("env") or {}) and cl.pinned_claude_version(job)
+
+
 def test_host_install_entries_match_real_steps() -> None:
     """Every HOST_INSTALL tuple names a real job and step, catching renames."""
     steps = {(job_id, step.get("name")) for _, wf in cl.load_workflows()

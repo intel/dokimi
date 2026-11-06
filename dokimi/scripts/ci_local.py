@@ -83,6 +83,10 @@ ISOLATED = {"package-smoke", "windows-smoke", "conda-forge-deps"}
 PIP_INSTALL = re.compile(r"^\s*(python -m )?pip install\b")
 # Steps that install a tool globally on the host: skipped here, the `claude` on PATH is used.
 HOST_INSTALL = {("fidelity", "Install the pinned Claude Code")}
+# Steps whose env var makes a missing pinned `claude` a failure. Here the `claude` on PATH
+# stands in for the skipped install, so another version drops the var: the golden tests skip.
+PINNED_CLAUDE = {("fidelity", "Run the fidelity golden"): "DOKIMI_FIDELITY_REQUIRED"}
+PINNED_CLAUDE_VERSION = re.compile(r"@anthropic-ai/claude-code@([0-9][0-9A-Za-z.\-]*)")
 # pip options that take a value, by spelling, mapped to the short form `tools` emits.
 PAIRED = {"-r": "-r", "--requirement": "-r", "-c": "-c", "--constraint": "-c",
           "-e": "-e", "--editable": "-e"}
@@ -315,6 +319,23 @@ def _step_skip(job_id: str, step: dict[str, Any], online: bool) -> str | None:
     return None
 
 
+def claude_on_path_version() -> str | None:
+    """The version of the `claude` on PATH, or None when there is none."""
+    binary = shutil.which("claude")
+    if not binary:
+        return None
+    out = subprocess.run([binary, "--version"], capture_output=True, text=True, timeout=60, check=False)
+    return (out.stdout.split() or [None])[0]
+
+
+def pinned_claude_version(job: dict) -> str | None:
+    """The Claude Code version the job's install step pins (the step skipped here)."""
+    for step in job.get("steps", []):
+        if m := PINNED_CLAUDE_VERSION.search(str(step.get("run", ""))):
+            return m.group(1)
+    return None
+
+
 def run(args: argparse.Namespace) -> int:
     py = f"{sys.version_info.major}.{sys.version_info.minor}"
     want = set(args.jobs.split(",")) if args.jobs else None
@@ -407,6 +428,12 @@ def run(args: argparse.Namespace) -> int:
                     except KeyError as e:
                         record(name, f"skip (unknown expression {e})")
                         continue
+                    if (var := PINNED_CLAUDE.get((job_id, step.get("name")))) and var in step_env:
+                        pinned, have = pinned_claude_version(job), claude_on_path_version()
+                        if have != pinned:
+                            print(f"NOTICE: {name}: claude on PATH is {have or 'missing'}, CI pins "
+                                  f"{pinned}: {var} unset, the pinned-client tests skip")
+                            del step_env[var]
                     cwd = root / step.get("working-directory", wd)
                     print(f"\n=== {name}  (cwd {cwd.relative_to(root)})", flush=True)
                     t0 = time.monotonic()
