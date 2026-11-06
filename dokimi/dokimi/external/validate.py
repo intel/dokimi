@@ -699,7 +699,8 @@ def review_skills(entries: Sequence[SkillCatalogEntry]) -> list[Optional[SkillRe
     """One :class:`SkillReview` per entry, in order.
 
     None for an entry that did not load, unless its frontmatter is broken YAML: then its
-    review carries the ``frontmatter-parse`` error. Of each identical ``SKILL.md``, the
+    review carries the ``frontmatter-parse`` error. A loaded skill whose ``SKILL.md`` cannot
+    be read during review gets a review with one ``unreadable`` error and no digest. Of each identical ``SKILL.md``, the
     copy nearest the root is the original; every other copy names it in ``duplicate_of``.
     Mirror drift and near-duplicate descriptions are checked across all the loaded skills,
     and a skill with ``disable-model-invocation`` set is left out of the description checks.
