@@ -82,13 +82,15 @@ def _prompts_sha256() -> str:
 
 def _run_config(config: "AnalyzeConfig") -> dict:
     """What decided this cell's numbers beyond the models: two cells compare only if these match."""
+    framing = {} if config.context_framing == "reference" else {
+        "context_framing": config.context_framing}
     return {
+        **framing,
         "seed": config.seed,
         "max_atoms": config.max_atoms,
         "paraphrases": config.paraphrases,
         "reversals": config.reversals,
         "arms": list(config.arms),
-        "context_framing": config.context_framing,
         "budgets": list(config.budgets),
         "include_resources": config.include_resources,
         "resource_roles": list(config.resource_roles) if config.resource_roles else None,

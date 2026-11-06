@@ -834,10 +834,14 @@ only when its arm ran, so a two-arm run reads exactly as before.
     `degraded`. Do not report such a `degraded` as a defect.
   - In the review rerun the floor was 5–10% in each direction, and every model's
     `degraded` fell inside it.
+  - Both are point estimates; the floor carries its own `ci95_added` to read them against.
+    The floor is only as wide as the answerer's sampling: at temperature 0 it can read 0.
+    An injected transport is not given the `draw`, so there the repeat is no new sample.
 - **Atom-clustered interval.** The paraphrases of one atom succeed or fail together, so
   `ci95_added` (and the placebo-gated `ci95`) resamples atoms, not probes
   (`ci_cluster: "atom"`). A probe-level bootstrap reads three correlated wordings as three
-  data points, so its interval comes out too narrow.
+  data points, so its interval comes out too narrow. A record without `ci_cluster` predates this
+  change and its interval is probe-level.
 
 `--context-framing neutral` changes the preamble from "Reference material:" to "Below is a
 document. It may or may not be relevant to the question." Use it to check whether placebo

@@ -55,7 +55,7 @@ def placebo_gated(runs, *, baseline_arm: str, with_arm: str, scoring: str) -> di
     ``None`` when no placebo arm ran. Only probes answered in all three arms count.
     """
     placebo = _usable(runs, PLACEBO_ARM)
-    if not placebo:
+    if not placebo or with_arm == PLACEBO_ARM:
         return None
     baseline, with_runs = _usable(runs, baseline_arm), _usable(runs, with_arm)
     per_atom: dict[str, list[float]] = {}
@@ -87,6 +87,7 @@ def noise_floor(runs, *, baseline_arm: str, scoring: str) -> dict | None:
         return None
     baseline = _usable(runs, baseline_arm)
     added = degraded = n = 0
+    flips: dict[str, list[float]] = {}
     for key, run in repeat.items():
         before = baseline.get(key)
         if before is None:
@@ -95,10 +96,15 @@ def noise_floor(runs, *, baseline_arm: str, scoring: str) -> dict | None:
         first, second = before.correct(scoring), run.correct(scoring)
         added += second and not first
         degraded += first and not second
+        flips.setdefault(run.atom_id, []).append(1.0 if second and not first else 0.0)
+    if not n:
+        return None
     return {
         "n_paired": n,
-        "added": round(added / n, 4) if n else 0.0,
-        "degraded": round(degraded / n, 4) if n else 0.0,
+        "draws": 1,
+        "added": round(added / n, 4),
+        "degraded": round(degraded / n, 4),
+        "ci95_added": clustered_ci(flips),
     }
 
 

@@ -48,7 +48,9 @@ def test_noise_floor_nets_added_and_flags_degraded_inside_it():
                                   ("full", full))
             for i in range(10)]
     paired = paired_outcomes(runs)
-    assert paired["noise_floor"] == {"n_paired": 10, "added": 0.2, "degraded": 0.1}
+    floor = paired["noise_floor"]
+    assert (floor["n_paired"], floor["added"], floor["degraded"]) == (10, 0.2, 0.1)
+    assert floor["draws"] == 1 and floor["ci95_added"] is not None
     assert paired["added"] == 0.5
     assert paired["added_net_of_noise"] == 0.3
     assert paired["degraded"] == 0.1
