@@ -3,10 +3,10 @@
 
 """A command refuses bad input by raising InputError; cli.main prints it and exits 2.
 
-An exit with code 2 in the frontend (a literal, ``os._exit``, ``exit``, a constant holding 2
-such as ``EXIT_USAGE``, or a ``usage_exit(...)`` call) is that refusal written the old way: its message is printed by hand, with
-no ``Error:`` prefix from one place. The ratchet caps the remaining sites per module; each entry in
-EXIT2_BASELINE says why it stays, or that it is not converted yet.
+An exit with code 2 in the frontend (a literal, ``os._exit``, ``exit``, a constant holding 2 such as
+``EXIT_USAGE``, or a ``usage_exit(...)`` call) is that refusal written the old way: its message is
+printed by hand, with no ``Error:`` prefix from one place. The ratchet caps the remaining sites per
+module; each entry in EXIT2_BASELINE says why it stays, or that it is not converted yet.
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ EXIT2_BASELINE: dict[str, tuple[int, str]] = {
     "dokimi.commands.eval_coverage": (7, _UNCONVERTED),
     "dokimi.commands.evaluate": (5, "typed scorer: ImportError (a missing backend) shares the except with ValueError; "
                                     "4 EXIT_USAGE refusals not yet converted"),
-    "dokimi.commands.explore": (9, _UNCONVERTED),
+    "dokimi.commands.explore": (9, "1 EXIT_USAGE and 8 usage_exit refusals not yet converted (#275 follow-up)"),
     "dokimi.commands.ingest": (1, "Docling not installed: a missing optional dependency, not an input"),
     "dokimi.commands.inputs": (2, _UNCONVERTED_USAGE_EXIT),
     "dokimi.commands.judge_reliability": (2, _UNCONVERTED),
@@ -53,7 +53,7 @@ EXIT2_BASELINE: dict[str, tuple[int, str]] = {
     "dokimi.commands.repo_skill_reach": (1, _UNCONVERTED),
     "dokimi.commands.report": (13, _UNCONVERTED),
     "dokimi.commands.run": (5, _UNCONVERTED),
-    "dokimi.commands.subjects": (17, _UNCONVERTED),
+    "dokimi.commands.subjects": (17, "7 EXIT_USAGE and 10 usage_exit refusals not yet converted (#275 follow-up)"),
     "dokimi.commands.tasks": (14, _UNCONVERTED_USAGE_EXIT),
     "dokimi.commands.tools": (8, "'run incomplete' exit (2 literal) documented in docs/quickstart.md, not a refusal; "
                                  "3 EXIT_USAGE and 3 usage_exit refusals not yet converted"),
@@ -110,7 +110,7 @@ def _code_value(arg: ast.expr, consts: dict[str, int]) -> object:
 
 
 def _is_usage_exit(func: ast.expr) -> bool:
-    """``usage_exit(...)`` (dokimi.exit_codes): prints the message by hand and exits 2."""
+    """A call named ``usage_exit`` (dokimi.exit_codes, matched by name): prints by hand and exits 2."""
     name = func.attr if isinstance(func, ast.Attribute) else func.id if isinstance(func, ast.Name) else None
     return name == "usage_exit"
 
