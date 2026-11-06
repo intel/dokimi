@@ -120,6 +120,8 @@ def conflict_hint(catalog: str, conflicts: dict[str, list[str]]) -> str:
 
 def _conflict_hint_for(catalog: str, name: str, paths: list[str]) -> str:
     """The ways out of one name's conflict: the directories that hold exactly one of its copies."""
+    from dokimi.novelty.catalog_keep import under
+
     rels = [Path(os.path.relpath(os.path.abspath(p), os.path.abspath(catalog))).parts for p in paths]
     places = {_copy_place(path, catalog) for path in paths}
 
@@ -127,20 +129,26 @@ def _conflict_hint_for(catalog: str, name: str, paths: list[str]) -> str:
         parts = Path(directory).parts
         return sum(rel[:len(parts)] == parts for rel in rels) == 1
 
+    def keeps_one(directory: str) -> bool:  # the keep rule: a symlinked copy sits where it points
+        prefix = (Path(catalog) / directory).resolve()
+        return sum(under(Path(p), prefix) for p in paths) == 1
+
     holders = sorted({d for kind, d in places if kind == "holder" and holds_one(d)})
     skills = sorted({d for kind, d in places if kind == "skill" and holds_one(d)})
     at_root = any(kind == "root" for kind, _ in places)
-    if not holders and not skills:
+    kept = [d for d in holders + skills if keeps_one(d)]
+    if not holders and not kept:
         return (f"`{name}`: no --catalog or --keep-copies-under picks one of its copies (they sit "
                 "at the catalog root or one inside another's directory): dedupe or rename them.")
-    keeps = " or ".join(f"--keep-copies-under {d}" for d in holders + skills)
+    keeps = " or ".join(f"--keep-copies-under {d}" for d in kept)
     where = [f"under {d}" for d in holders] + [f"in the skill directory {d}" for d in skills]
     if at_root:
         where.append("at the catalog root")
     if holders:
         picks = " or ".join(f"--catalog {os.path.join(catalog, d)}" for d in holders)
         text = (f"`{name}`: copies sit {' and '.join(where)}: point --catalog at one of those "
-                f"directories ({picks}), or keep only one directory's copies with {keeps}.")
+                f"directories ({picks})"
+                + (f", or keep only one directory's copies with {keeps}." if kept else "."))
     else:
         text = f"`{name}`: copies sit {' and '.join(where)}: keep only one with {keeps}."
     if at_root:

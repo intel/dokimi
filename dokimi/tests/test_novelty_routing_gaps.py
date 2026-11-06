@@ -7,6 +7,7 @@ and every missing required flag of --all-vs-all reported at once."""
 from __future__ import annotations
 
 import json
+import re
 
 import pytest
 
@@ -621,3 +622,18 @@ def test_keep_copies_under_refuses_a_broken_copy_when_no_field_copy_is_under_it(
     args = _keep_run(root, tmp_path, "--keep-copies-under", "skills/cache")
     with pytest.raises(InputError, match="failed to load beside one that loaded.*`review`"):
         args.func(args)
+
+
+def test_every_keep_the_hint_suggests_resolves_a_copy_whose_skill_md_is_a_symlink(tmp_path):
+    root = tmp_path / "catalog"
+    _skill(root, ".openclaw/skills", "review", "review code changes for bugs")
+    _skill(tmp_path / "out", "", "review", "review documents for style")
+    (root / "skills" / "review").mkdir(parents=True)
+    (root / "skills" / "review" / "SKILL.md").symlink_to(tmp_path / "out" / "review" / "SKILL.md")
+    _skill(tmp_path / "g", "", "gold", "write release notes")
+    message = _hint_message(root, "../g/gold")
+    keeps = re.findall(r"--keep-copies-under (\S+?)[.\s]", message)
+    assert keeps == [".openclaw/skills"]
+    for keep in keeps:
+        assert [c.name for c in catalog_competitors(str(root), set(), [],
+                                                    keep_copies_under=keep)] == ["review"]
