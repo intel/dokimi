@@ -560,3 +560,23 @@ def test_a_missing_catalog_is_named_before_the_keep_copies_under_value(tmp_path)
                   "--queries-by-skill", str(_queries(tmp_path, {"a": ["q"]})), "--estimate-only")
     with pytest.raises(InputError, match="--catalog is not a directory"):
         args.func(args)
+
+
+def _broken(root, rel, name):
+    (root / rel / name).mkdir(parents=True)
+    (root / rel / name / "SKILL.md").write_text(f"---\nname: {name}\n---\n# B\n", encoding="utf-8")
+
+
+def test_all_vs_all_routes_an_explicit_competitor_beside_a_broken_catalog_copy(tmp_path, capsys):
+    # the explicit competitor shadows every catalog copy of its name, so the broken one is moot
+    root = tmp_path / "catalog"
+    _skill(root, "skills", "cache", "cache slow lookups")
+    _broken(root, ".openclaw/skills", "review")
+    _skill(tmp_path / "ext", "", "review", "review a change for bugs")
+    queries = _queries(tmp_path, {"cache": ["cache my lookups"], "review": ["review my change"]})
+    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
+                  "--competitors", f"skill:{tmp_path}/ext/review/SKILL.md",
+                  "--queries-by-skill", str(queries), "--estimate-only")
+    args.func(args)
+    estimate = json.loads(capsys.readouterr().out)
+    assert estimate["n_candidates"] == 2 and estimate["n_queries"] == 2

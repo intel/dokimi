@@ -594,7 +594,7 @@ def catalog_competitors(root: str, exclude: set[str],
     ``keep_copies_under`` (a directory under ``root``) keeps only the copies under it for a name
     whose copies differ and that have one content under it; the others of that name are left out
     with a note. ``conflicts`` (when given) gets each name still in conflict, mapped to the paths of
-    its copies. ``unloaded`` (when given) gets each declared skill that failed to load, mapped to why.
+    its copies. ``unloaded`` (when given) gets each non-excluded skill that did not load, with why.
 
     Raises:
         ValueError: ``root`` is not a directory, ``keep_copies_under`` is not a directory inside
@@ -642,7 +642,7 @@ def _eligible_catalog_skills(root: str, exclude: set[str], notes: list[str] | No
     for entry, review in zip(entries, reviews, strict=True):
         skill = entry.skill
         if skill is None or not entry.loaded or review is None:
-            if unloaded is not None:
+            if unloaded is not None and entry.name not in exclude:
                 unloaded[entry.name] = entry.error or "it did not load"
             if notes is not None:
                 notes.append(f"skipped catalog entry {entry.name!r}: {entry.error}")
