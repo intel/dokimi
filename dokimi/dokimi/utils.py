@@ -180,15 +180,29 @@ class GitTree:
         return any("/".join(parts[j:i]) in inner for i in range(max(first, j + 1), len(parts) + 1))
 
     def _inner_ignored(self, rel: str) -> frozenset[str] | None:
-        if rel not in self.nested:  # one git call per nested repository, none for a directory without .git
+        if rel not in self.nested:  # read once per nested repository, no git call for a directory without .git
             here = self.top / rel
             if not os.path.lexists(here / ".git"):
                 self.nested[rel] = None
+            elif (why := _not_own_top(here)) is not None:
+                raise OSError(errno.EIO, f"git cannot read this nested repository: {why}", os.fspath(here))
             elif (inner := _ignored_paths(os.fspath(here))) is not None:
                 self.nested[rel] = inner
             else:  # leaving nothing out would hash its ignored files only where git cannot read it
                 raise OSError(errno.EIO, "git cannot read this nested repository", os.fspath(here))
         return self.nested[rel]
+
+
+def _not_own_top(here: Path) -> str | None:
+    """Why git does not read ``here`` as its own work tree's top: git's message, or the top it found instead (git skips
+    a ``.git`` it cannot read as a repository and walks up to the enclosing one). None when it does."""
+    from dokimi.process import run
+
+    top = run(["git", "-C", os.fspath(here), "rev-parse", "--show-toplevel"], timeout=60, env=_git_env())
+    if not top.ok:
+        return top.stderr.strip() or f"exit {top.returncode}"
+    found = os.fsdecode(top.stdout_bytes).rstrip("\n")
+    return None if Path(os.path.realpath(found)) == Path(os.path.realpath(here)) else f"git reads {found} instead"
 
 
 def _git_env() -> "Env":

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import shutil
 import subprocess
 import time
@@ -436,3 +437,53 @@ def test_a_top_directory_whose_name_ends_in_a_space_is_read(tmp_path):
     root = _repo(tmp_path / "top ", FILES)
     tree = git_tree(root)
     assert tree is not None and tree.top == Path(os.path.realpath(root))
+
+
+@pytest.mark.parametrize("rel", ["skills/a/tools", "skills/a/evals/tools"])
+def test_a_nested_repository_git_cannot_read_is_an_error_not_a_silent_fallback(tmp_path, rel):
+    # git fails inside the nested repository: its ignored files must not count again without a word about it
+    root = _repo(tmp_path / "r", FILES)
+    _nested(root, rel, {"run.py": "print(1)\n"})
+    (root / rel / ".git" / "HEAD").unlink()  # a repository git cannot read as one
+    with pytest.raises(ConfigError, match=rf"cannot read .*{re.escape(rel)}") as err:
+        _hashes(root)
+    assert "git" in str(err.value)
+
+
+def test_a_broken_inner_repository_under_a_readable_one_is_an_error_not_the_outer_tree(tmp_path):
+    # the outer repository reads fine; git -C inner would skip the broken inner .git and read the outer one's rules
+    root = _repo(tmp_path / "r", FILES)
+    _nested(root, "vendor/inner", {"x.py": "x = 1\n"})
+    (root / "vendor" / "inner" / ".git" / "HEAD").unlink()
+    with pytest.raises(OSError, match="cannot read this nested repository: git reads .* instead"):
+        tree_digest(root / "vendor" / "inner", git=True)
+
+
+def _owned_by_another_user(monkeypatch, repo: Path) -> None:
+    """Git refuses the repository at ``repo`` as owned by another user (safe.directory), through git's own test knob, on
+    every git call whose arguments name ``repo`` (or a path under it). An empty safe.directory entry clears any allow-list
+    (a runner's global ``safe.directory = *`` would otherwise lift the refusal)."""
+    from dokimi import process, utils
+
+    base = utils._git_env()
+    named = re.compile(re.escape(str(repo)) + r"(?![\w.-])")
+    real_run = process.run
+    refuse = {"GIT_TEST_ASSUME_DIFFERENT_OWNER": "1", "LC_ALL": "C", "GIT_CONFIG_COUNT": "1",
+              "GIT_CONFIG_KEY_0": "safe.directory", "GIT_CONFIG_VALUE_0": ""}
+
+    def run(argv, **kwargs):
+        if any(named.search(arg) for arg in argv):
+            kwargs["env"] = process.Env.only(allow=base.allow, set={**base.set, **refuse})
+        return real_run(argv, **kwargs)
+
+    monkeypatch.setattr(process, "run", run)
+
+
+@pytest.mark.parametrize("rel", ["skills/a/tools", "skills/a/evals/tools"])
+def test_a_nested_repository_owned_by_another_user_is_an_error_not_a_silent_fallback(tmp_path, monkeypatch, rel):
+    root = _repo(tmp_path / "r", FILES)
+    _nested(root, rel, {"run.py": "print(1)\n"})
+    _owned_by_another_user(monkeypatch, root / rel)
+    with pytest.raises(ConfigError, match=rf"cannot read .*{re.escape(rel)}") as err:
+        _hashes(root)
+    assert "dubious ownership" in str(err.value)
