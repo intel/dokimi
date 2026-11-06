@@ -265,7 +265,7 @@ def _hf_builders() -> frozenset[str]:
         from datasets.packaged_modules import _PACKAGED_DATASETS_MODULES
     except ImportError:
         return _HF_BUILDERS_FALLBACK
-    return frozenset(_PACKAGED_DATASETS_MODULES) | _HF_BUILDERS_FALLBACK
+    return frozenset(_PACKAGED_DATASETS_MODULES)
 
 
 def _hf_local(value: str, base: Path) -> bool:
@@ -318,12 +318,20 @@ def _hf_limit(node: ast.Call) -> Optional[int]:
     return limit
 
 
+#: data_files= URL schemes that read a remote file, left to the loader as they are.
+_HF_REMOTE_SCHEMES = frozenset({"http", "https", "hf", "s3", "gs", "gcs", "az", "abfs", "abfss"})
+
+
 def _hf_data_files(value: Any, root: Path, builder: bool) -> Any:
     """``data_files=`` for the loader: a URL is left as it is; a builder's path, or one that leaves the task, is
     resolved in the task's directory; a hub dataset's relative pattern is a path in its repo, left as it is."""
     if isinstance(value, str):
-        if "://" in value:
+        scheme = value.split("://", 1)[0].lower() if "://" in value else None
+        if scheme in _HF_REMOTE_SCHEMES:
             return value
+        if scheme is not None:  # file://, zip://, ...: a local read the task directory does not confine
+            raise ValueError(f"hf_dataset data_files {value} is a {scheme}:// path, which is not read; "
+                             "name a file in the task's directory or a remote URL")
         path = Path(value)
         return _task_files(value, root) if builder or path.is_absolute() or ".." in path.parts else value
     if isinstance(value, (list, tuple)):
