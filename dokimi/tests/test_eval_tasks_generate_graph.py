@@ -657,6 +657,8 @@ def test_a_method_of_a_gold_function_s_name_is_distinct_and_a_false_positive(tmp
     p = plan(_index(docs), list(docs), _opts(tmp_path))
     (o,) = [o for o in p.outcomes if o.candidate.symbols == (target,)]
     assert o.candidate.distinct == tuple(f"src/u{i}.py::Impl.run" for i in range(3))
+    hint = "A name repeats within one file: write each answer with its namespace or class (`ns::Name`, `Class.name`)."
+    assert hint in graph_tasks._prompt(o.candidate, "functions")  # one answer per file: not "two answers"
     write(p, _opts(tmp_path), {"tool": "scip-python", "sha256": "0" * 64})
     r = graph.grade({"id": "t", "gold": "gold.json"}, tmp_path / "tasks" / o.task,
                     fence({"functions": [f"src/u{i}.py::Impl.run" for i in range(3)]}))
