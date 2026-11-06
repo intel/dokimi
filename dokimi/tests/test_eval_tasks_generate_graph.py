@@ -661,3 +661,16 @@ def test_a_method_of_a_gold_function_s_name_is_distinct_and_a_false_positive(tmp
     r = graph.grade({"id": "t", "gold": "gold.json"}, tmp_path / "tasks" / o.task,
                     fence({"functions": [f"src/u{i}.py::Impl.run" for i in range(3)]}))
     assert r["f1"] == 0.0 and r["n_false_positive"] == 3
+
+
+@pytest.mark.parametrize("tool, told", [("scip-clang 0.3.2", True), ("scip-python 0.6.8", False)])
+def test_a_header_prototype_is_gold_and_the_scip_clang_prompt_counts_a_declaration(tmp_path, tool, told):
+    f = "cxx . . $ lib/f(9b1)."
+    docs = {"src/f.cpp": [_occ("src/f.cpp", 0, f, True)], "src/f.h": [_occ("src/f.h", 0, f)],
+            **{f"src/u{i}.cpp": [_occ(f"src/u{i}.cpp", 0, f)] for i in range(2)}}
+    p = plan(_index(docs, tool=tool), list(docs), _opts(tmp_path))
+    (o,) = p.outcomes
+    assert "src/f.h" in o.candidate.gold
+    write(p, _opts(tmp_path), {"tool": tool, "sha256": "0" * 64})
+    prompt = json.loads((tmp_path / "tasks" / o.task / "task.json").read_text())["prompt"]
+    assert ("a declaration such as a header prototype" in prompt) is told

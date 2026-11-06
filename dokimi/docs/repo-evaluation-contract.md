@@ -1002,7 +1002,9 @@ Two questions:
   or body) holds each reference; module-level code and class bodies are not a
   function. Test files count. SCIP
   does not tell a call from another use, so the question is references, not
-  calls. C++ overloads share one qualified name the prompt cannot tell apart,
+  calls. On scip-clang a declaration (a header prototype) has no role that
+  tells it from a use, so its file is gold and the prompt counts a declaration
+  as a reference. C++ overloads share one qualified name the prompt cannot tell apart,
   so they are one target and the prompt says how many overloads count; on
   scip-python, which has no overloads, each symbol is its own target.
 - **derives**: every class whose bases (as the reader gives them, §1.2) include

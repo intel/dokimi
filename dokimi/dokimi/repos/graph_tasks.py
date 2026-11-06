@@ -413,13 +413,14 @@ def _shares_a_name(gold: tuple[str, ...]) -> bool:
     return len(set(keys)) < len(keys)
 
 
-def _prompt(c: Candidate, key: str) -> str:
+def _prompt(c: Candidate, key: str, declarations: bool = False) -> str:
     where = f"`{c.qualified}` (defined in {', '.join(c.defined_in)})"
     if len(c.symbols) > 1:
         where += f", any of its {len(c.symbols)} overloads"
     if key == "files":
         ask = (f"List every file that references {where}, other than the files that define it. A reference is "
-               "any use: a call, or a mention as a type or a value. Test files count.")
+               "any use: a call, or a mention as a type or a value"
+               + (", and a declaration such as a header prototype" if declarations else "") + ". Test files count.")
     elif key == "functions":
         ask = (f"List every function or method whose definition (its signature or its body) references {where}, "
                "other than those in the files that define it. A reference is any use: a call, or a mention as a "
@@ -437,8 +438,10 @@ def _prompt(c: Candidate, key: str) -> str:
 def _task(c: Candidate, granularity: str, opts: Options,
           code_index: dict[str, str]) -> tuple[dict[str, Any], dict[str, Any]]:
     key = "classes" if c.kind == "derives" else granularity
+    # scip-clang gives a header prototype no role that tells it from a use: its file is gold, so the prompt says so
+    prompt = _prompt(c, key, code_index.get("tool", "").startswith("scip-clang"))
     task = {
-        "id": task_id(c), "family": FAMILY, "base": opts.base, "prompt": _prompt(c, key), "grader": GRADER,
+        "id": task_id(c), "family": FAMILY, "base": opts.base, "prompt": prompt, "grader": GRADER,
         "gold": GOLD, "score": {"metric": "f1", "max": 1.0}, "max_turns": opts.max_turns,
         "question": c.kind, "answer_key": key, "symbols": list(c.symbols), "ambiguous_name": c.ambiguous,
         "code_index": code_index,
