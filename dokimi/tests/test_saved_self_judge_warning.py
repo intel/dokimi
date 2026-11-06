@@ -85,6 +85,8 @@ def _judge_argv(tmp_path):
         ],
         "dokimi.commands.evaluate": [
             ["eval", "judge", "validate", "--answers", a, "--output", out, *j],
+            ["eval", "score", "ragas", "--answers", a, "--ragas-provider", "openai",
+             "--ragas-model", "gpt-6.1-sol"],
         ],
         "dokimi.utils": [
             ["eval", "score", "reference", "--answers", a, "--questions", q, "--output", out, *j],
@@ -102,6 +104,7 @@ CASES = [  # (module whose warn_recorded_self_judge the command calls, command w
     ("dokimi.commands.judge_reliability", ("eval", "judge", "wording")),
     ("dokimi.commands.judge_reliability", ("eval", "judge", "agreement")),
     ("dokimi.commands.evaluate", ("eval", "judge", "validate")),
+    ("dokimi.commands.evaluate", ("eval", "score", "ragas")),
     ("dokimi.utils", ("eval", "score", "reference")),
     ("dokimi.commands.questions", ("eval", "questions", "analyze")),
     ("dokimi.commands.questions", ("eval", "questions", "review")),
@@ -121,6 +124,7 @@ def test_command_checks_the_recorded_model(module, words, tmp_path, monkeypatch)
         raise Stop
 
     monkeypatch.setattr(importlib.import_module(module), "warn_recorded_self_judge", stop)
+    monkeypatch.setattr("dokimi.commands.evaluate._require_ragas", lambda: None)
     args = parse_args(argv)
     with pytest.raises(Stop):
         args.func(args)

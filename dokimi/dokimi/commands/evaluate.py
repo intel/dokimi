@@ -232,8 +232,10 @@ def cmd_eval_score(args: argparse.Namespace) -> None:
 def cmd_eval_ragas(args: argparse.Namespace) -> None:
     """Run standalone RAGAS meta-evaluation on an answers JSON."""
     _require_ragas()
-    answers = list(_load_answers(args.answers).records)
+    run = _load_answers(args.answers)
+    answers = list(run.records)
     print(f"Loaded {len(answers)} answers from {args.answers}")
+    warn_recorded_self_judge(run.meta, [(args.ragas_model, args.ragas_provider)], "eval score ragas")
 
     class _Args:
         ragas_model = args.ragas_model

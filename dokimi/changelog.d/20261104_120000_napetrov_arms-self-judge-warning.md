@@ -6,7 +6,7 @@
     the judge model), when the judge model is the answer model, for example
     `--judge-provider openai`, which resolves to the default answer model `gpt-6.1-sol`;
   - `eval score pairwise` (escalation judge included), `eval score checklist`,
-    `eval score reference`, `eval judge validate` (escalation judge included),
+    `eval score reference`, `eval score ragas`, `eval judge validate` (escalation judge included),
     `eval judge wording` and `eval judge agreement --judges`, for each judge that is the
     model the answers file records in its top-level `model`/`provider`;
   - `eval questions analyze` and `eval questions review`, when the reviewing model is the one
