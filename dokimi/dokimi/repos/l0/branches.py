@@ -143,7 +143,31 @@ def _filter_sources(scan: Scan) -> list[Source]:
     return out
 
 
+_FILTER_TOKEN = re.compile(r"\\(.)|(\*\*?)|\[([a-zA-Z0-9-]+)\]|([?+])|(.)", re.S)
+_KINDS = ("abcdefghijklmnopqrstuvwxyz", "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "0123456789")
+
+
 def _filter_regex(pattern: str) -> re.Pattern[str]:
-    """A GitHub branch filter: ``**`` matches any characters, ``*`` any but ``/``; a leading ``!`` is dropped."""
-    parts = re.split(r"(\*\*|\*)", pattern.removeprefix("!"))
-    return re.compile("".join(".*" if p == "**" else "[^/]*" if p == "*" else re.escape(p) for p in parts) + r"\Z")
+    """A GitHub branch filter: ``**`` matches any characters, ``*`` any but ``/``, ``?`` and ``+`` make what is
+    before them optional or repeated, ``[...]`` is one of its letters, digits or ranges, ``\\`` escapes; a leading ``!`` is dropped.
+    """
+    out: list[str] = []
+    for m in _FILTER_TOKEN.finditer(pattern.removeprefix("!")):
+        escaped, star, body, repeat, char = m.groups()
+        if repeat and out:
+            out[-1] = f"(?:{out[-1]}){repeat}"
+        elif star:
+            out.append(".*" if star == "**" else "[^/]*")
+        else:
+            out.append((_class(body) if body else None) or re.escape(escaped or repeat or char or m[0]))
+    return re.compile("".join(out) + r"\Z")
+
+
+def _class(body: str) -> str | None:
+    """``[body]`` as a regex class; None when a range runs backwards or mixes lowercase, uppercase and digits."""
+    out = ""
+    for lo, hi, one in re.findall(r"(\w)-(\w)|(.)", body):
+        if not one and not any(lo in k and hi in k and lo <= hi for k in _KINDS):
+            return None
+        out += re.escape(one) if one else f"{lo}-{hi}"
+    return f"[{out}]"

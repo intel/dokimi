@@ -1633,9 +1633,13 @@ equals the name or pattern, or when the pattern starts (after a leading `^` or
 `!`) with the claim's first directory and a slash, and matches the claim with each
 wildcard filled in: a hook pattern as the hook reads it (`re.match`, so
 `maintenance/*` matches `maintenance/.*`), a filter as GitHub does (`*` stops at
-`/`, `**` does not; a leading `!` is dropped), so `release/*` matches
-`release/**`, and `**` alone names no path. A `--branch` name matches only when
-equal. The reason names the first match, hooks before workflows, with the line of
+`/`, `**` does not, `?` and `+` make the character or `[...]` before them
+optional or repeated, `[...]` is one of its letters, digits or ranges such as
+`0-9`, `\` escapes the next character; a leading `!` is dropped), so
+`release/*` matches `release/**`, `release/v1` matches `release/v[12]`, and
+`**` alone names no path. A range that runs backwards or mixes lowercase,
+uppercase and digits (`9-0`, `a-Z`) makes its `[...]` literal text. A
+`--branch` name matches only when equal. The reason names the first match, hooks before workflows, with the line of
 its value: `branch pattern of no-commit-to-branch (.pre-commit-config.yaml:17)`,
 `branch of no-commit-to-branch (.pre-commit-config.yaml:19)` or `branch filter of
 on.push (.github/workflows/ci.yml:3)`. A file that is missing, not read or does not parse, an

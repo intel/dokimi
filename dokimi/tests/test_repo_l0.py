@@ -14,7 +14,7 @@ import pytest
 from dokimi.artifacts import load_artifact
 from dokimi.cli import build_parser
 from dokimi.repos import parse_manifest
-from dokimi.repos.l0 import scan_repo
+from dokimi.repos.l0 import branches, scan_repo
 from dokimi.repos.source import GitTree, WorkTree
 
 MANIFEST = {
@@ -364,6 +364,13 @@ _PUSH = {".github/workflows/ci.yml": 'name: ci\non:\n  push:\n    branches: [mai
      "branch filter of on.pull_request (.github/workflows/pr.yaml:4)"),
     ("release/v*", {".github/workflows/ci.yml": '"on": {push: {branches: ["release/v*"]}}\n'},
      "branch filter of on.push (.github/workflows/ci.yml:1)"),
+    # GitHub's `[...]`, `+` and `?`: one character of a set, one or more and zero or one of the one before
+    ("release/v1", {".github/workflows/ci.yml": "on: {push: {branches: ['release/v[12]']}}\n"},
+     "branch filter of on.push (.github/workflows/ci.yml:1)"),
+    ("release/12.x", {".github/workflows/ci.yml": "on: {push: {branches: ['release/[0-9]+.x']}}\n"},
+     "branch filter of on.push (.github/workflows/ci.yml:1)"),
+    ("release/1.x", {".github/workflows/ci.yml": "on: {push: {branches: ['release/v?1.x']}}\n"},
+     "branch filter of on.push (.github/workflows/ci.yml:1)"),
     # re.compile raises OverflowError and RecursionError, not re.error, for these two: the filter still counts
     ("maintenance/*", {**_pre_commit("[-p, 'maintenance/a{999999999999}', -p, 'maintenance/" + "(" * 3000 + ")" * 3000
                                      + "']"), ".github/workflows/ci.yml": "on: {push: {branches: ['maintenance/**']}}\n"},
@@ -399,11 +406,23 @@ _NO_GLOB = "glob {} matches nothing in the tree; a build may create it"
     ("src/gone.py", {".github/workflows/ci.yml": "on: {push: {branches: ['**']}}\n"}, ("unresolved", "tried src/gone.py")),
     ("release/1.x/notes", {".github/workflows/ci.yml": "on: {push: {branches: ['release/*']}}\n"},  # `*` stops at `/`
      ("unresolved", "tried release/1.x/notes")),
+    # `\*` is a literal star; a backwards range makes `[9-0]` literal text too
+    ("release/*", {".github/workflows/ci.yml": "on: {push: {branches: ['release/\\*']}}\n"},
+     ("unresolved", _NO_GLOB.format("release/*"))),
+    ("release/v1", {".github/workflows/ci.yml": "on: {push: {branches: ['release/v[9-0]']}}\n"},
+     ("unresolved", "tried release/v1")),
 ])
 def test_a_path_like_claim_no_branch_source_names_keeps_its_path_verdict(tmp_path, claim, files, verdict):
     """No match, a root directory, another hook's id, a string `args`, a bad regex, malformed YAML, a `run:` script
-    a filter whose pattern does not start with the claim's first directory, and a `*` across `/`: today's verdict."""
+    a filter whose pattern does not start with the claim's first directory, a `*` across `/`, an escaped `*` and a
+    backwards range: today's verdict."""
     assert _path_verdict(tmp_path, claim, files) == verdict
+
+
+def test_a_backslash_in_a_branch_filter_escapes_the_next_character():
+    """`release/c\\+\\+` is GitHub's filter for the branch `release/c++`, not `+` repeating a `\\`."""
+    rx = branches._filter_regex(r"release/c\+\+")
+    assert rx.match("release/c++") and not rx.match("release/c") and not rx.match("release/c\\\\")
 
 
 def test_read_many_fetches_missing_blobs_of_a_partial_clone(toy, tmp_path):
