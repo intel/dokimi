@@ -326,6 +326,20 @@ def test_a_new_out_file_in_a_read_only_directory_is_refused_before_any_call(tmp_
         folder.chmod(0o755)
 
 
+@pytest.mark.skipif(_CANNOT_CHMOD, reason="file modes are not enforced here")
+def test_a_new_out_file_in_a_directory_with_no_search_bit_is_refused_before_any_call(tmp_path):
+    from dokimi.commands.novelty_routing_inputs import checked_out_path
+
+    folder = tmp_path / "wo"
+    folder.mkdir()
+    folder.chmod(0o200)  # writable but not searchable: the file cannot be created or opened in it
+    try:
+        with pytest.raises(InputError, match="not writable"):
+            checked_out_path(str(folder / "routing.json"), "routing")
+    finally:
+        folder.chmod(0o755)
+
+
 def test_a_valid_out_file_is_returned_as_a_path(tmp_path):
     from dokimi.commands.novelty_routing_inputs import checked_out_path
 

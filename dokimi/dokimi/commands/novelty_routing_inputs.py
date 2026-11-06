@@ -54,24 +54,24 @@ def checked_out_path(out: str | None, command: str, default: str | None = None) 
     label = f"--out {out}" if out else f"the default output {default}"
     hint = "" if out else " (pass --out <file>)"
     path = Path(chosen)
-    if path.is_dir():
+    if os.path.isdir(path):
         fix = f"pass a file path, e.g. {path / 'routing.json'}" if out else "pass --out <file>"
         raise InputError(f"{label} is a directory: {fix}")
     _refuse_a_non_file(path, label, hint)
     # realpath follows a symlink even when it dangles, so the checks below see the file that is written.
     target = Path(os.path.realpath(path))
-    if path.is_symlink() and not target.parent.exists():
+    if os.path.islink(path) and not os.path.exists(target.parent):
         raise InputError(f"{label} is a symlink to {target}, whose directory does not exist: "
                          f"the writer creates only the link's own directory{hint}")
     # A dangling symlink among the parents: the writer's mkdir of that parent fails on it.
     for parent in path.parents:
-        if parent.is_symlink() and not parent.exists():
+        if os.path.islink(parent) and not os.path.exists(parent):
             raise InputError(f"{label}: {parent} is a dangling symlink, so the writer cannot create "
                              f"its directory{hint}")
-    ancestor = next((p for p in target.parents if p.exists()), target.parent)
-    if not ancestor.is_dir():
+    ancestor = next((p for p in target.parents if os.path.exists(p)), target.parent)
+    if not os.path.isdir(ancestor):
         raise InputError(f"{label}: {ancestor} is not a directory, so the file cannot be created under it{hint}")
-    if target.exists():
+    if os.path.exists(target):
         writable = os.access(target, os.W_OK)
     else:
         writable = os.access(ancestor, os.W_OK | os.X_OK)
