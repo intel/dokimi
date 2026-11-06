@@ -113,7 +113,8 @@ from dokimi.context.consistency import Run, run_from_events
 from dokimi.eval.stats import correct_family
 from dokimi.utils import same_model
 
-from .compare_judged import check_reported, judge_names, judged_cells, judged_lines, read_judged
+from .compare_judged import (check_reported, judge_names, judge_warnings, judged_cells, judged_lines,
+                             read_judged)
 from .compare_interval import (EPS, EXACT_MAX, METHOD, N_RESAMPLES, format_interval, includes_zero,
                                sign_flip_interval, within)
 from .compare_reach import ALPHA, holm_floor, min_detectable
@@ -228,6 +229,7 @@ def compare(batch_dirs: list[Path], baseline: str, treatments: list[str] | None 
     provenance["warnings"] += one_arm
     judged = judged_cells(metrics, {text: _in_models([c for c in cells if selector_matches(parse_selector(text), c)],
                                                      models) for text in [baseline, *treatments]})
+    provenance["warnings"] += judge_warnings(judged)
     return {"batches": [str(d) for d in batch_dirs], "baseline": baseline, "treatments": treatments,
             "task_filter": task_filter, "cells": len(cells), "missing": missing, **provenance,
             "first_useful": useful, "judged_cells": judged, "comparisons": rows, "unpaired": unpaired}

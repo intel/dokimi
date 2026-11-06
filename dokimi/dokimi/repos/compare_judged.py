@@ -68,6 +68,8 @@ def read_judged(cell_dir: Path, rec: dict[str, Any], metrics: tuple[str, ...]) -
     if not names:
         return
     value, rec["judged"] = _judged(cell_dir, rec)
+    if rec["judged"] == "read":
+        rec["judged_by"] = _judge(_json(cell_dir / HITS_JUDGED))
     for name in names:
         rec["metrics"].pop(name, None)  # a grade.json metric of this name is not the judge's
         if value is not None:
@@ -92,6 +94,11 @@ def _judged(cell_dir: Path, rec: dict[str, Any]) -> tuple[float | None, str]:
         return None, "no_threads" if doc.get("n_threads") == 0 else "unjudged"
     value = as_measure(doc["recall_judged"])
     return value, "read" if value is not None else "unreadable"
+
+
+def _judge(doc: dict[str, Any]) -> str:
+    judge = doc.get("judge")
+    return f"{judge.get('provider')}/{judge.get('model')}" if isinstance(judge, dict) else "unknown"
 
 
 def _json(path: Path) -> Any:
@@ -141,10 +148,21 @@ def check_reported(metrics: tuple[str, ...], cells: list[dict[str, Any]], scope:
 
 
 def judged_cells(metrics: tuple[str, ...], arms: dict[str, list[dict[str, Any]]]) -> dict[str, Any] | None:
-    """Per compared arm, its cells and the count of each of :data:`REASONS`; ``None`` without a ``judge:`` metric."""
+    """Per compared arm, its cells and the count of each of :data:`REASONS`, and the judges (``provider/model``) of
+    its cells read; ``None`` without a ``judge:`` metric."""
     if not judge_names(metrics):
         return None
-    return {"metrics": judge_names(metrics), "arms": {text: _counts(cells) for text, cells in arms.items()}}
+    return {"metrics": judge_names(metrics), "arms": {text: _counts(cells) for text, cells in arms.items()},
+            "judges": {text: sorted({c["judged_by"] for c in cells if "judged_by" in c}) for text, cells in arms.items()}}
+
+
+def judge_warnings(judged: dict[str, Any] | None) -> list[str]:
+    """A warning when the cells read name more than one judge: the row's delta then mixes judges' labels."""
+    if not judged:
+        return []
+    names = sorted({j for found in judged["judges"].values() for j in found})
+    return ([f"{', '.join(judged['metrics'])}: the compared cells were judged by different judges ({', '.join(names)})"]
+            if len(names) > 1 else [])
 
 
 def _counts(cells: list[dict[str, Any]]) -> dict[str, int]:

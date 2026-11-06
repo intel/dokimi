@@ -2163,7 +2163,10 @@ python cli.py repo hits judge repo-runs/replay --judge openai/gpt-5.1 --labels l
   `cells` (of the compared models) and the counts `read`, `no_file`, `not_judged`
   (no file, and a cell `repo hits judge` never judges: a grader failure, a grade
   without `matches`, or another grader), `stale`,
-  `other_cell`, `no_threads`, `unjudged` and `unreadable`. The text prints one line per arm
+  `other_cell`, `no_threads`, `unjudged` and `unreadable`, and `judges`, per
+  compared arm the judges (`provider/model`) of its cells read; when the
+  compared cells read name more than one judge, compare warns, as it does when
+  the arms differ in another stamp. The text prints one line per arm
   with a cell not read (`judge:recall_judged, guidance:none: 18 of 26 cells
   read (5 no hits_judged.json, 2 stale: regraded since judging, 1 with an
   unjudged pair); run repo hits judge again`; the hint is left off when every

@@ -29,7 +29,8 @@ def _name(task: str, arm: str, rep: int, model: str = "m-1") -> str:
 
 def _judged(batch: Path, task: str, arm: str, rep: int, same: int, *, recall: float = 1.0,
             unjudged: int = 0, write: bool = True, grade: dict | None = None,
-            credited: list[tuple[int, int]] | None = None, model: str = "m-1", threads: int = 4) -> Path:
+            credited: list[tuple[int, int]] | None = None, model: str = "m-1", threads: int = 4,
+            judge: tuple[str, str] = ("openai", "judge-1")) -> Path:
     """A replay cell graded with ``recall`` over 4 threads and, with ``write``, its hits_judged.json from the
     real writer: ``same`` pairs labelled same point and ``unjudged`` pairs with no label. ``credited`` is the
 (thread, finding) pairs grade.json credits now (default: the judged ones)."""
@@ -45,7 +46,7 @@ def _judged(batch: Path, task: str, arm: str, rep: int, same: int, *, recall: fl
     if write:
         rec = {"cell": rd.name, "task": task, "arm": arm, "model": model, "rep": rep, "n_threads": threads,
                "recall": recall, "parse_error": False}
-        save_artifact("repo_hits_judged", cell_doc(rec, ("openai", "judge-1"), pairs), rd / "hits_judged.json")
+        save_artifact("repo_hits_judged", cell_doc(rec, judge, pairs), rd / "hits_judged.json")
     return rd
 
 
@@ -67,7 +68,8 @@ def test_judged_recall_is_compared_next_to_recall_per_task(tmp_path):
     assert [(t["baseline"], t["treatment"]) for t in recall["tasks"]] == [(0.5, 0.75), (0.5, 1.0), (0.25, 0.25)]
     assert s["judged_cells"] == {"metrics": ["judge:recall_judged"], "arms": {
         arm: {"cells": n, "read": n, "no_file": 0, "not_judged": 0, "stale": 0, "other_cell": 0, "no_threads": 0, "unjudged": 0, "unreadable": 0}
-        for arm, n in ((NONE, 4), (RAW, 4))}}
+        for arm, n in ((NONE, 4), (RAW, 4))}, "judges": {NONE: ["openai/judge-1"], RAW: ["openai/judge-1"]}}
+    assert not [w for w in s["warnings"] if "judges" in w]  # one judge throughout
     text = format_compare(s).splitlines()
     assert not [line for line in text if "cells read" in line]  # every cell read: no line per arm
     assert [line for line in text if line.startswith("note: ")] == [
@@ -337,3 +339,15 @@ def test_a_selection_of_cells_never_judged_is_refused_without_the_hint(tmp_path)
     with pytest.raises(CompareError) as exc:
         compare([b], NONE, metrics=("judge:recall_judged",))
     assert str(exc.value) == "no finished cell reports --metric judge:recall_judged (2 not judgeable by repo hits judge)"
+
+
+def test_cells_read_from_different_judges_are_warned_about(tmp_path):
+    b = tmp_path / "b1"
+    _judged(b, "t1", NONE, 1, 1)
+    _judged(b, "t1", RAW, 1, 2, judge=("anthropic", "judge-2"))
+    _judged(b, "t1", RAW, 2, 2, judge=("anthropic", "judge-3"), credited=[(5, 5)])  # stale: its judge is not read
+    s = compare([b], NONE, metrics=("judge:recall_judged",))
+    assert s["judged_cells"]["judges"] == {NONE: ["openai/judge-1"], RAW: ["anthropic/judge-2"]}
+    warning = ("judge:recall_judged: the compared cells were judged by different judges "
+               "(anthropic/judge-2, openai/judge-1)")
+    assert warning in s["warnings"] and f"warning: {warning}" in format_compare(s).splitlines()
