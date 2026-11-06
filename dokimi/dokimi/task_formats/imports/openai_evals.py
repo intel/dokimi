@@ -13,12 +13,15 @@ or name the template (``match``, ``includes``, ``fuzzy_match``, ``json_match``,
 - ``FuzzyMatch``: normalised completion and ideal contain each other.
 - ``JsonMatch``: the completion parses to JSON equal to an ideal.
 - ``ModelBasedClassify``: the judge, against ``ideal`` as reference (approximated: the native
-  spec's multi-choice grade, e.g. ``fact``'s A-E, becomes yes/no).
+  spec's multi-choice grade, e.g. ``fact``'s A-E, becomes yes/no). With no ideal and no ``criteria``
+  the spec's own prompt (``registry/modelgraded/<spec>.yaml``, beside the grader's ``registry/evals``)
+  is the criterion; without that file the row is unsupported.
 """
 
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any, Mapping, Optional
 
@@ -71,7 +74,34 @@ def resolve_grader(grader: Optional[str]) -> tuple[str, dict[str, Any], bool]:
                      "fuzzy_match, json_match or modelgraded:<spec>")
 
 
-def _checks(template: str, args: Mapping[str, Any], ideals: list[Any], imp: Imported) -> list[dict[str, Any]]:
+#: A registry spec's prompt names its inputs in braces; a judge reads them as these words.
+_SPEC_SLOTS = {"{input}": "the question", "{completion}": "the answer", "{ideal}": "the reference answer"}
+
+
+def _spec_prompt(grader: Optional[str], template: str) -> Optional[str]:
+    """The prompt of the model-graded spec a grader YAML names, from ``registry/modelgraded/<spec>.yaml``."""
+    spec = template.split(":", 1)[1] if template.startswith("modelgraded:") else ""
+    if not spec or "/" in spec or ".." in spec or not grader or not grader.endswith((".yaml", ".yml")):
+        return None
+    spec_file = Path(grader).resolve().parents[1] / "modelgraded" / f"{spec}.yaml"
+    if not spec_file.is_file():
+        return None
+    data = FileSource(spec_file).data
+    body = data.get(spec) if isinstance(data, Mapping) else None
+    prompt = body.get("prompt") if isinstance(body, Mapping) else None
+    if not isinstance(prompt, str) or not prompt.strip():
+        return None
+    if "{ideal}" in prompt or "{criteria}" in prompt:
+        return None  # the row has no ideal and no criteria to fill it with: a judge would compare with nothing
+    for slot, words in _SPEC_SLOTS.items():
+        prompt = prompt.replace(slot, words)
+    if re.search(r"\{\w+\}", prompt):
+        return None  # a slot the importer cannot fill
+    return " ".join(prompt.split())
+
+
+def _checks(template: str, args: Mapping[str, Any], ideals: list[Any], imp: Imported,
+            spec_prompt: Optional[str] = None) -> list[dict[str, Any]]:
     # A blank ideal is contained in every answer, so it is dropped; with none left nothing is graded.
     texts = [t for t in (json.dumps(i) if isinstance(i, (dict, list)) else str(i) for i in ideals) if t.strip()]
     if not texts and not template.startswith("modelgraded"):
@@ -98,6 +128,9 @@ def _checks(template: str, args: Mapping[str, Any], ideals: list[Any], imp: Impo
     spec_args = args.get("modelgraded_spec_args")
     criteria = spec_args.get("criteria") if isinstance(spec_args, Mapping) else None
     reference = " | ".join(texts)
+    if not (criteria or reference) and spec_prompt:
+        imp.note(f"modelgraded spec `{spec}` with no ideal: its registry prompt used as the criterion")
+        criteria = spec_prompt
     if not (criteria or reference):
         # The spec's own prompt lives in registry/modelgraded/<spec>.yaml, which is not read.
         imp.note(f"modelgraded spec `{spec}` with no ideal and no criteria: not graded")
@@ -109,6 +142,7 @@ def import_file(path: Path, *, grader: Optional[str] = None) -> Imported:
     source = FileSource(path)
     rows = source.rows if source.rows is not None else []
     template, args, defaulted = resolve_grader(grader)
+    spec_prompt = _spec_prompt(grader, template)
     imp = Imported(FORMAT, path, native_scorer=template)
     if defaulted:
         imp.note("no registry eval given: graded as Match")
@@ -121,7 +155,7 @@ def import_file(path: Path, *, grader: Optional[str] = None) -> Imported:
             continue
         ideals = as_list(row.get("ideal"))
         text = render_input(row["input"], imp)
-        checks = _checks(template, args, ideals, imp)
+        checks = _checks(template, args, ideals, imp, spec_prompt)
         imp.questions.append(question(
             row.get("id", i), text, {"checks": checks, "native_scorer": template},
             source_format=FORMAT, path=path, references=[str(x) for x in ideals]))
