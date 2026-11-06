@@ -17,6 +17,6 @@
 
 - **`noise` is always an object in routing and `--all-vs-all` results** — with
   `--repeats 1` it is no longer `null`: `n_repeats` is 1, and the agreement, mean
-  agreement and half-range fields are `null`. The console `noise` line prints only
+  agreement, half-range and unstable-queries fields are `null`. The console `noise` line prints only
   for two or more repeats. Code that tested `noise` for `null` should test
   `noise["n_repeats"] > 1`.

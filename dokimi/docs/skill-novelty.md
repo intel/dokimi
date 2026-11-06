@@ -693,8 +693,8 @@ Two numbers, reported side by side and never merged:
   queries x repeats, `n_abstained` and `n_failed` count calls, and each `per_query` row
   carries its `repeat` index. In an `--all-vs-all` run each `noise` row also names its `gold`
   skill, since two skills can list the same request. `noise` is always an object: `n_repeats` is the
-  repeat count, and with `--repeats 1` it is 1 with `mean_agreement`, `half_range` and each row's
-  `agreement` null and `unstable_queries` 0 (nothing to agree with), so a reader does not need a null check.
+  repeat count, and with `--repeats 1` it is 1 with `mean_agreement`, `half_range`, `unstable_queries`
+  and each row's `agreement` null (nothing to agree with), so a reader tests those fields, not `noise`, for null.
 
 A single-artifact `--model` run also writes a `cost` block (calls, input and output tokens, cache read and
 write tokens, and `usd`, which is `null` when any call this run paid for had no known price) and prints the

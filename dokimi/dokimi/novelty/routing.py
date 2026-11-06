@@ -347,7 +347,7 @@ def repeat_noise(groups: list[list[dict]], repeats: int | None = None) -> dict:
 
     Always returns the same keys. ``n_repeats`` is the repeat count (``repeats``, else the
     length of the first group). With one repeat there is nothing to agree with, so every
-    agreement, ``mean_agreement`` and ``half_range`` is ``None`` and ``unstable_queries`` is 0;
+    agreement, ``mean_agreement``, ``half_range`` and ``unstable_queries`` is ``None``;
     the rate of that one repeat is still in ``selection_rate_by_repeat``.
 
     A query's agreement is the share of its answered repeats that gave its most common
@@ -395,7 +395,8 @@ def repeat_noise(groups: list[list[dict]], repeats: int | None = None) -> dict:
     return {
         "n_repeats": repeats,
         "mean_agreement": round(sum(agreements) / len(agreements), 4) if agreements else None,
-        "unstable_queries": sum(1 for a in agreements if a < 1),
+        # None, not 0, with one repeat: a count of 0 would read as a stable selector.
+        "unstable_queries": sum(1 for a in agreements if a < 1) if repeats > 1 else None,
         "selection_rate_by_repeat": rates,
         "n_queries_compared": len(complete),
         "half_range": round((max(known) - min(known)) / 2, 4) if len(known) > 1 else None,

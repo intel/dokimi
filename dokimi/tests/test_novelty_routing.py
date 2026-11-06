@@ -579,7 +579,7 @@ def test_one_repeat_has_a_noise_block_with_nothing_to_measure():
     result = model_routing([PERF, TBB], ["q1", "q2"], client=client)
     noise = result["noise"]
     assert (result["repeats"], noise["n_repeats"]) == (1, 1)
-    assert (noise["mean_agreement"], noise["unstable_queries"], noise["half_range"]) == (None, 0, None)
+    assert (noise["mean_agreement"], noise["unstable_queries"], noise["half_range"]) == (None, None, None)
     assert noise["selection_rate_by_repeat"] == [result["selection_rate"]]
     assert all(row["agreement"] is None for row in noise["per_query"])
     assert [row["repeat"] for row in result["per_query"]] == [0, 0]
