@@ -11,7 +11,7 @@ A cell reports ``judge:recall_judged`` only when its file is a ``repo_hits_judge
 ``task``, ``arm`` and ``model`` are the cell's own (a copied or misplaced file is not this cell's), whose ``recall``
 equals the cell's ``grade.json`` ``metrics.recall``, ``n_threads`` and credited ``(thread, finding)`` pairs now,
 with the ``comment`` and ``message`` cuts its pairs record (else it was regraded since judging: the file is stale,
-even when the recall is the same), and whose ``recall_judged`` is a finite number. Any other cell does not report it, as a cell lacking a ``grade.json``
+even when the recall is the same; a reword past the grade's 200-character cut is not seen), and whose ``recall_judged`` is a finite number. Any other cell does not report it, as a cell lacking a ``grade.json``
 metric does: it is left out of its task's mean and ``n``. A null ``recall_judged`` (an unjudged pair) is absent,
 never 0; so is the null of a cell with no gold thread, which has no pair to judge (reason ``no_threads``). A cell with no file that ``report.load_hits``
 leaves out (a grader failure, no ``matches``, another grader) is ``not_judged``: ``repo hits judge`` never writes it. Each cell gets one of :data:`REASONS`, and the summary counts them per compared arm (``judged_cells``).

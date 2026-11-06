@@ -2151,7 +2151,7 @@ python cli.py repo hits judge repo-runs/replay --judge openai/gpt-5.1 --labels l
   `task`, `arm` and `model` are the cell's own, whose `recall`, `n_threads`
   and credited (thread, finding) pairs, with the `comment` and `message` cuts
   each pair records, equal the cell's `grade.json` ones now
-  (else the cell was regraded since judging, even to the same recall or with a reworded thread: the file is stale, and `repo hits judge` removes such files only
+  (else the cell was regraded since judging, even to the same recall or with a thread or finding reworded within the 200 characters of `comment` and `message` the grade keeps (a later change, or one to a finding's rule or evidence, is not seen): the file is stale, and `repo hits judge` removes such files only
   when it runs again; a file written before the pairs recorded the cuts is
   checked on (thread, finding) only), and whose `recall_judged` is a finite number. Any other
   cell (no file, a stale file, another cell's file, a null `recall_judged`
