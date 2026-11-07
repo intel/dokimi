@@ -69,9 +69,10 @@ def test_spec_and_claude_code_keys_are_not_unknown(tmp_path):
 def test_allowed_tools_name_that_is_no_claude_code_tool_is_a_warn(tmp_path):
     _skill(tmp_path, "typo-tools", extra="allowed-tools: Read, Frobnicate\n")
 
-    assert "allowed-tools-unknown" in _codes(tmp_path, "typo-tools")
-    assert "'Frobnicate'" in _message(tmp_path, "typo-tools", "allowed-tools-unknown")
-    assert "'Read'" not in _message(tmp_path, "typo-tools", "allowed-tools-unknown")
+    [finding] = [f for f in _findings(tmp_path)["typo-tools"] if f.code == "allowed-tools-unknown"]
+    assert finding.level == "warn"
+    assert "'Frobnicate'" in finding.message
+    assert "'Read'" not in finding.message
 
 
 def test_allowed_tools_mcp_and_pattern_entries_are_not_flagged(tmp_path):
@@ -85,6 +86,12 @@ def test_allowed_tools_mcp_and_pattern_entries_are_not_flagged(tmp_path):
 
     assert "allowed-tools-unknown" not in _codes(tmp_path, "patterns")
     assert "allowed-tools-unknown" not in _codes(tmp_path, "yaml-list")
+
+
+def test_allowed_tools_yaml_list_entry_that_is_no_tool_is_flagged(tmp_path):
+    _skill(tmp_path, "list-typo", extra="allowed-tools:\n  - Read\n  - Frobnicate\n")
+
+    assert "'Frobnicate'" in _message(tmp_path, "list-typo", "allowed-tools-unknown")
 
 
 def test_allowed_tools_pattern_with_nested_or_quoted_parentheses_is_not_a_tool_name(tmp_path):
@@ -108,8 +115,9 @@ def test_allowed_tools_pattern_that_never_closes_is_dropped_in_linear_time(tmp_p
 def test_body_over_500_lines_is_a_warn(tmp_path):
     _skill(tmp_path, "long-lines", body="\n".join(["line"] * 501) + "\n")
 
-    assert "body-too-large" in _codes(tmp_path, "long-lines")
-    assert "501 lines" in _message(tmp_path, "long-lines", "body-too-large")
+    [finding] = [f for f in _findings(tmp_path)["long-lines"] if f.code == "body-too-large"]
+    assert finding.level == "warn"
+    assert "501 lines" in finding.message
 
 
 def test_body_over_5000_tokens_is_a_warn_even_in_few_lines(tmp_path):
@@ -150,6 +158,13 @@ def test_name_of_exactly_64_characters_is_ok(tmp_path):
     _skill(tmp_path, name)
 
     assert "name-format" not in _codes(tmp_path, name)
+
+
+def test_name_of_65_characters_is_a_name_format_error(tmp_path):
+    name = "a" * 65
+    _skill(tmp_path, name)
+
+    assert "name-format" in _codes(tmp_path, name)
 
 
 def test_clean_skill_has_no_new_findings(tmp_path):

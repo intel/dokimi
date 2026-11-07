@@ -1,6 +1,6 @@
 ### Added
 
-- **`catalog check` reports four more spec and size warnings on loaded skills** — a frontmatter key
+- **`catalog check` reports three more spec and size warnings on loaded skills** — a frontmatter key
   that neither the Agent Skills spec nor Claude Code names is a `warn` (`frontmatter-unknown-key`),
   and so is an `allowed-tools` entry that is not a Claude Code tool (`allowed-tools-unknown`; `mcp__*`
   tools are not checked). A body over 500 lines or about 5,000 tokens (characters / 4) is a `warn`

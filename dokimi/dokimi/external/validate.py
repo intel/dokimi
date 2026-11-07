@@ -327,7 +327,7 @@ def _frontmatter_findings(skill: Skill, *, at_root: bool = False) -> tuple[list[
                 "warn",
                 "allowed-tools-unknown",
                 f"allowed-tools names {', '.join(map(repr, unknown_tools))}, which are not Claude Code "
-                "tools (mcp__ tools and Tool(pattern) entries are not checked)",
+                "tools (mcp__ tools are not checked; in Tool(pattern) only the tool name is checked)",
             )
         )
     # Read as the skill arm reads it (dokimi.harnesses.skill_treatment.check_skill).
