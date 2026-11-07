@@ -20,7 +20,8 @@ from dokimi.defaults import (
     JUDGE_MODEL_FOR_PROVIDER,
     JUDGE_MODEL_HELP,
 )
-from dokimi.exit_codes import EXIT_USAGE, usage_exit
+from dokimi.exit_codes import EXIT_USAGE
+from dokimi.utils import InputError
 
 
 def cmd_subjects_list(args: argparse.Namespace) -> None:
@@ -29,10 +30,10 @@ def cmd_subjects_list(args: argparse.Namespace) -> None:
     # in-repo default root. Name the flag instead of printing an empty list that
     # reads like "no subjects exist".
     if not args.subjects_root:
-        usage_exit("no subjects root given; pass --subjects-root <checkout>/evaluation/subjects")
+        raise InputError("no subjects root given; pass --subjects-root <checkout>/evaluation/subjects")
     root = Path(args.subjects_root)
     if not root.is_dir():
-        usage_exit(f"--subjects-root is not a directory: {root}")
+        raise InputError(f"--subjects-root is not a directory: {root}")
     paths = sorted([*root.glob("*.toml"), *root.glob("*.json")])
     for path in paths:
         try:
@@ -173,14 +174,14 @@ def cmd_subjects_evidence(args: argparse.Namespace) -> None:
     try:
         scorecard = load_artifact("subject_scorecard", Path(args.scorecard))
     except (OSError, ValueError, ArtifactValidationError) as exc:
-        usage_exit(f"cannot read subject scorecard {args.scorecard}: {exc}")
+        raise InputError(f"cannot read subject scorecard {args.scorecard}: {exc}") from exc
     try:
         evidence = build_skill_evidence(scorecard, source=str(args.scorecard))
     except (AttributeError, TypeError) as exc:
-        usage_exit(f"{args.scorecard} is not a well-formed subject scorecard: {exc}")
+        raise InputError(f"{args.scorecard} is not a well-formed subject scorecard: {exc}") from exc
     if not evidence["results"]:
-        usage_exit(f"{args.scorecard} holds no awareness arm with a baseline to compare against: "
-                   "nothing to publish")
+        raise InputError(f"{args.scorecard} holds no awareness arm with a baseline to compare against: "
+                         "nothing to publish")
     out = Path(args.out) if args.out else Path(args.scorecard).with_name("skill-evidence.json")
     try:
         out_real = out.resolve()
@@ -189,16 +190,16 @@ def cmd_subjects_evidence(args: argparse.Namespace) -> None:
         card_real = Path(args.scorecard).resolve()
     # A symlink loop raises RuntimeError before Python 3.13; "." or "/" has no name, so with_name raises ValueError.
     except (OSError, RuntimeError, ValueError) as exc:
-        usage_exit(f"cannot resolve --out {out}: {exc}")
+        raise InputError(f"cannot resolve --out {out}: {exc}") from exc
     if out_real == card_real:
-        usage_exit("--out names the scorecard itself; pick another file")
+        raise InputError("--out names the scorecard itself; pick another file")
     if stale_real == card_real:
-        usage_exit(f"{out}.rejected is the scorecard; a save to {out} would delete or overwrite it; pick another --out")
+        raise InputError(f"{out}.rejected is the scorecard; a save to {out} would delete or overwrite it; pick another --out")
     try:
         with exit_on_unwritable(out):
             save_artifact("skill_evidence", evidence, out)
     except ArtifactValidationError as exc:
-        usage_exit(f"{args.scorecard} holds a value the evidence schema rejects: {exc}")
+        raise InputError(f"{args.scorecard} holds a value the evidence schema rejects: {exc}") from exc
     for warning in evidence["warnings"]:
         print(f"WARN {warning}", file=sys.stderr)
     print(f"OK Saved skill evidence: {out} ({len(evidence['results'])} results)")
@@ -453,7 +454,7 @@ def _run_subject_work(descriptor, args: argparse.Namespace, *, out_dir: Path, ta
     try:
         runner.validate_harnesses()
     except ValueError as exc:
-        usage_exit(str(exc))
+        raise InputError(str(exc)) from exc
     try:
         artifact = runner.run()
     except PreflightError as exc:
