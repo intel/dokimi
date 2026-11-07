@@ -227,3 +227,23 @@ def test_analyze_stops_rather_than_publish_a_measurement_the_cap_cut_short(tmp_p
     extractor, answerer, judge = _clients()
     with pytest.raises(SpendCapReached, match="3 probe answers were not run; nothing was written"):
         analyze(body, config, extractor=extractor, answerer=answerer, judge=judge)
+
+
+def test_the_faithfulness_check_counts_the_spans_extraction_left_unread(monkeypatch):
+    from dokimi.commands.novelty_budget import verify_or_partial
+    from dokimi.novelty import atoms as atoms_mod
+    from dokimi.novelty.client import SpendCapReached
+    from dokimi.novelty.spans import segment
+
+    spans = segment(ROWS)[:75]
+    for span in spans[:25]:
+        span.unread = True  # the first batch of 25 spans was never read
+
+    def capped(sample, spans, client):
+        raise SpendCapReached("cap")
+
+    monkeypatch.setattr(atoms_mod, "verify_atoms", capped)
+    partial = verify_or_partial([], spans, client=None)
+    assert (partial["spans_read"], partial["spans_total"]) == (50, 75)
+    assert partial["message"] == ("--max-usd stopped the faithfulness check with 50 of 75 "
+                                  "spans read")
