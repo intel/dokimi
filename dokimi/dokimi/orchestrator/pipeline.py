@@ -704,8 +704,7 @@ class EvaluationPipeline:
                 "judge_model": self.judge_model,
                 "judge_provider": self.judge_provider,
                 "question_set_hash": question_set_hash,
-                "evaluator_independence_warning": same_evaluator(
-                    self.provider, str(self.model), self.judge_provider, str(self.judge_model)),
+                "evaluator_independence_warning": same_evaluator(str(self.model), str(self.judge_model)),
             },
         )
         

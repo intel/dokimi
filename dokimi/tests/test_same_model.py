@@ -20,7 +20,7 @@ CASES = [
     ("claude-sonnet-4-5@20250929", "claude-sonnet-4-5-20250929", True),  # Vertex date form
     ("claude-sonnet-4-5", "claude-opus-4-5-20251101", False),
     ("claude-sonnet-4-5", "claude-sonnet-4-5-1", False),
-    ("haiku", "claude-haiku-3", False),  # a family name is not a full id
+    ("haiku", "claude-haiku-3", True),  # a Claude CLI alias runs one of its family's ids
     ("x.claude-haiku", "haiku", False),
     ("gpt-4.1", "1", False),  # a dot after a digit or dash is not a vendor prefix
     ("", "", False),  # an unset model is not evidence of sameness
@@ -144,3 +144,32 @@ def test_every_provider_dokimi_accepts_is_a_route_not_an_organization():
 
     for provider in [*ANSWER_PROVIDERS, *PROVIDER_ALIASES]:  # a CLI backend too: a panel stores "claude-cli/<model>"
         assert same_model(f"{provider}/gpt-4o", "gpt-4o"), provider
+
+
+# The Claude CLI aliases (sonnet, opus, haiku) and the full ids they run: one model, one rule for every caller.
+@pytest.mark.parametrize("alias, full_id", [
+    ("sonnet", "claude-sonnet-4-5"),  # the divergence: utils said no, the CLI rule said yes
+    ("sonnet", "claude-sonnet-4-5-20250929"),  # the snapshot the CLI reports as answering
+    ("opus[1m]", "claude-opus-4-5"),  # the 1M-context form is the same alias
+    ("haiku", "us.anthropic.claude-haiku-4-5-20251001-v1:0"),
+    ("claude-sonnet-5-5[1m]", "anthropic/claude-sonnet-5-5"),
+])
+def test_a_cli_alias_and_a_full_id_of_its_family_are_one_model(alias, full_id):
+    assert same_model(alias, full_id)
+    assert same_model(full_id, alias)
+
+
+def test_a_cli_alias_is_not_a_full_id_of_another_family():
+    assert not same_model("sonnet", "claude-opus-4-5")
+
+
+def test_report_does_not_flag_a_cli_alias_answered_by_its_full_id():
+    from dokimi.repos.report import model_mismatch
+
+    assert model_mismatch([{"model": "sonnet", "model_resolved": "claude-sonnet-4-5-20250929"}]) == {}
+
+
+def test_baseline_compare_verifies_a_cli_alias_against_its_full_id_as_unverified_not_mismatch():
+    from dokimi.commands.baseline import _recorded_verdict
+
+    assert _recorded_verdict(("claude-cli", "sonnet"), ("claude-cli", "claude-sonnet-4-5")) == "unverified"

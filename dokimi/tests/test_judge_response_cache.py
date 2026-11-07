@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """The judge's two response-cache defects: its Bedrock, Vertex and OpenRouter path
-(then ``utils.get_llm``) bypassed the cache and had no retry, and a judge retry after an
+(before the move to ``dokimi.llm``) bypassed the cache and had no retry, and a judge retry after an
 unparseable reply replayed the same cached reply instead of drawing a new one."""
 
 import threading

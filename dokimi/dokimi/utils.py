@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, Mapping, Sequence, Tuple
 
+from dokimi import llm_cli
 from dokimi.defaults import BEDROCK_MODEL_IDS
 
 if TYPE_CHECKING:
@@ -583,7 +584,8 @@ def _model_core(model: str) -> tuple[str, str | None]:
     ``org/name`` id stays, so a re-upload under another organization is another model; a known vendor
     (``qwen/``, ``z-ai/``) goes, as its Bedrock ``vendor.`` prefix does, unless a ``huggingface/`` route precedes it.
     """
-    name = (model or "").strip().lower()
+    # sonnet[1m] is the same model with a larger window: the context suffix goes
+    name = llm_cli.CONTEXT_SUFFIX.sub("", (model or "").strip().lower())
     arn = _BEDROCK_ARN.search(name)  # only a Bedrock ARN's tail: ``foundation-model/X`` alone is an org/name id
     if arn:
         name = name[arn.end():]
@@ -596,7 +598,7 @@ def _model_core(model: str) -> tuple[str, str | None]:
     if not hub and len(parts) > 1 and _VENDOR_SLUGS.get(parts[0], parts[0]) in _VENDORS:
         parts.pop(0)  # OpenRouter's ``qwen/X`` is Bedrock's ``qwen.X``: the vendor, not an organization
     name = "/".join(parts)
-    name = re.sub(r"-v?\d+:\d+$", "", name)
+    name = re.sub(r"(?<!claude)-v?\d+:\d+$", "", name)  # not Claude 2's own version: claude-v2:1
     for prefix in _REGION_PROFILES:
         if name.startswith(prefix):
             name = name[len(prefix):]
@@ -624,26 +626,26 @@ def same_model(a: str, b: str) -> bool:
 
     The same id matches, and so does a dated snapshot and its undated alias (the alias runs
     some snapshot of it), or the same id behind another route or region profile. Two dated
-    ids match only on the same date, and a bare family name (``haiku``) is not a full id.
+    ids match only on the same date. A Claude CLI alias (``sonnet``, ``opus[1m]``) matches a
+    full id of its family, since the CLI runs the alias as one of them (which one is not known here).
 
     The provider is not part of the identity: the same weights on Bedrock and on the direct
     API are still one model for the self-judge warning and for a baseline's model check.
     """
     (base_a, date_a), (base_b, date_b) = model_identity(a), model_identity(b)
-    if base_a is None or base_b is None or (date_a and date_b and date_a != date_b):
+    if base_a is None or base_b is None:
+        return False
+    if llm_cli.is_alias(a) or llm_cli.is_alias(b):
+        family_a = llm_cli.family(a)
+        return family_a is not None and family_a == llm_cli.family(b)
+    if date_a and date_b and date_a != date_b:
         return False
     return base_a == base_b
 
 
-def same_evaluator(answer_provider: str, answer_model: str, judge_provider: str, judge_model: str) -> bool:
-    """Whether the answer and judge are one model, for the independence warning and its stored flag.
-
-    The model-name rule, or the CLI alias rule when a logged-in CLI route is involved.
-    """
-    from dokimi import llm_cli
-
-    return (same_model(answer_model, judge_model)
-            or llm_cli.same_model(answer_provider, answer_model, judge_provider, judge_model))
+def same_evaluator(answer_model: str, judge_model: str) -> bool:
+    """Whether the answer and judge are one model, for the independence warning and its stored flag."""
+    return same_model(answer_model, judge_model)
 
 
 def warn_judge_independence(
@@ -660,7 +662,7 @@ def warn_judge_independence(
     """
     import sys
 
-    same = same_evaluator(answer_provider, answer_model, judge_provider, judge_model)
+    same = same_evaluator(answer_model, judge_model)
     if same:
         first, second = roles
         print(
