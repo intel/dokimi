@@ -281,3 +281,12 @@ def test_novelty_items_refuses_a_partial_probe_file_by_name(tmp_path):
     with pytest.raises(ProbeFileError, match="partial probe result") as refused:
         load_probe_cells([str(partial)])
     assert str(partial) in str(refused.value)
+
+
+def test_an_earlier_file_that_is_not_json_is_kept_and_not_taken_for_a_partial_one(tmp_path):
+    from dokimi.commands.novelty_budget import partial_destination
+
+    finished = tmp_path / "probes.json"
+    (tmp_path / "probes.partial.json").write_bytes(b"\xff\xfe not json")
+    # A file this cannot read is not a partial result, so it is never written over.
+    assert partial_destination(finished) == tmp_path / "probes.partial2.json"
