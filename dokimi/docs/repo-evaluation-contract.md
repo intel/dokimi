@@ -1869,7 +1869,37 @@ one of those workflows or local actions was not read (too big, binary, a danglin
 link), an `owner/name` the tree does not hold, outside a root directory, that no
 read file uses keeps its `unresolved` (`tried ...`) or `fail` (`<dir>/ exists but
 ...`) verdict, and its reason also names each such file, as `<file> was not read
-(<why>)`, joined with `; `. A link or path into a submodule is `unresolved`. A
+(<why>)`, joined with `; `. A path or glob the rules above leave `unresolved`,
+whose first directory is not one at the repository root, is `ok` when the
+repository configures it as a branch (a `fail`, `ok_suffix` or other verdict
+stays): a `--branch` name or a `--pattern` regex, in each form the hook's
+argparse reads (`-b X`, `-bX`, `-b=X`, `--branch=X`, a prefix such as `--bra X`;
+the same of `-p`), in the `args` of a `no-commit-to-branch` hook of the
+root `.pre-commit-config.yaml`, or a `branches` or `branches-ignore` filter of
+`on.push`, `on.pull_request`, `on.pull_request_target`, `on.merge_group` or
+`on.workflow_run` in the same workflows. The claim matches when it
+equals the name or pattern, or when the pattern starts (after a leading `^` or
+`!`) with the claim's first directory and a slash, and matches the claim with each
+wildcard filled in: a hook pattern as the hook reads it (`re.match`, so
+`maintenance/*` matches `maintenance/.*`), a filter as GitHub does (`*` stops at
+`/`, `**` does not, `?` and `+` make the character or `[...]` before them
+optional or repeated, stacked ones fold into one (`a++` is `a+`, `a?+` is `a*`,
+and after `*` or `**` they add nothing), `[...]` is one of its letters, digits or ranges such as
+`0-9`, `\` escapes the next character; a leading `!` is dropped), so
+`release/*` matches `release/**`, `release/v1` matches `release/v[12]`, and
+`**` alone names no path. A range that runs backwards or mixes lowercase,
+uppercase and digits (`9-0`, `a-Z`) makes its `[...]` literal text. A
+`--branch` name matches only when equal, and so does any source for a claim whose
+last segment ends in an extension some file of the tree has (`release/CHANGELOG.md`
+in a tree with a `.md` file), which reads as a file. The reason names the first match, hooks before workflows, with the line of
+its value: `branch pattern of no-commit-to-branch (.pre-commit-config.yaml:17)`,
+`branch of no-commit-to-branch (.pre-commit-config.yaml:19)` or `branch filter of
+on.push (.github/workflows/ci.yml:3)`. A file that is missing, not read or does not parse, an
+`args` that is not a list, a value that is not a string, an invalid regex, another hook's `args` and a name only in a `run:` script give no branch, and the
+claim keeps its path verdict. When `.pre-commit-config.yaml` or one of those
+workflows was not read, the reason of a claim that stays `unresolved` here also
+names it, as `<file> was not read (<why>)` after the rest, in tree order and once
+even when the Action note above names it too. A link or path into a submodule is `unresolved`. A
 blob or tree link to `source.url` holds `<ref>/<path>` and the ref may contain
 slashes. A default branch, a commit or a version tag is one segment; any other
 ref is tried at each slash, shortest first, and the link is `ok` if some

@@ -4,7 +4,8 @@
 """The GitHub Actions workflows of a tree, and the Actions their steps use, read once per scan.
 
 The path rule (:mod:`.core`) takes an ``owner/name`` that a step uses for that Action, not a path; the
-Python-version check (:mod:`.versions`) finds the workflow a line names among them.
+Python-version check (:mod:`.versions`) finds the workflow a line names among them, and :mod:`.branches`
+reads their branch filters.
 """
 
 from __future__ import annotations
@@ -25,6 +26,11 @@ ACTION = re.compile(r"^[\w.-]+/[\w.-]+(?:/[\w./-]+)?$")  # `owner/name` or `owne
 def workflow_files(scan: Scan) -> list[str]:
     """Every file under ``.github/workflows/``, the directory GitHub runs workflows from."""
     return scan.cached("workflows", lambda: [f for f in scan.files if f.startswith(WORKFLOWS)])
+
+
+def runnable(scan: Scan) -> list[str]:
+    """The ``.yml``/``.yaml`` files directly in ``.github/workflows/``: GitHub does not run one in a subdirectory."""
+    return [f for f in workflow_files(scan) if f.endswith((".yml", ".yaml")) and "/" not in f[len(WORKFLOWS):]]
 
 
 def action_users(scan: Scan) -> dict[str, str]:
@@ -48,7 +54,7 @@ def _read(scan: Scan) -> tuple[dict[str, str], dict[str, str]]:
 
 
 def _action_users(scan: Scan) -> tuple[dict[str, str], dict[str, str]]:
-    flows = [f for f in workflow_files(scan) if f.endswith((".yml", ".yaml")) and "/" not in f[len(WORKFLOWS):]]
+    flows = runnable(scan)
     local = [f for f in scan.files if f.startswith(".github/") and posixpath.basename(f) in ("action.yml", "action.yaml")]
     paths = list(dict.fromkeys(flows + local))
     skipped: dict[str, str] = {}
