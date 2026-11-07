@@ -301,11 +301,15 @@ def register(sub, positive_int, eval_sub) -> None:
     tasks_sub = tasks_p.add_subparsers(dest="tasks_cmd", required=True)
 
     # eval tasks list (#94 M1)
-    eval_tasks_sub = eval_sub.add_parser("tasks", help="Eval tasks: list them").add_subparsers(
+    eval_tasks_sub = eval_sub.add_parser("tasks", help="Eval tasks: list them, generate repository tasks").add_subparsers(
         dest="eval_tasks_cmd", required=True)
     list_p = eval_tasks_sub.add_parser("list", help="List terminal-bench task metadata")
     list_p.add_argument("--tasks-root", default=None, help=_TASKS_ROOT_HELP)
     list_p.set_defaults(func=cmd_tasks_list)
+
+    from .tasks_generate import add_parser as add_generate_parser
+
+    add_generate_parser(eval_tasks_sub, positive_int)
 
     # eval inspect (#94 M1)
     inspect_p = eval_sub.add_parser(

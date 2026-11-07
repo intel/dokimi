@@ -7,7 +7,7 @@ SPDX-License-Identifier: Apache-2.0
 
 Measuring whether an AGENTS.md or CLAUDE.md helps means an ablation: run the
 agent with and without a rule and compare outcomes. That is expensive, so
-`context prefilter` picks which rules are worth one. It reads the coding
+`trace prefilter` picks which rules are worth one. It reads the coding
 agent's own session logs and asks, per rule: did the situation the rule
 describes come up, did the agent act on it, and did the user correct the agent
 on it. The output is a ranked list of **candidates for ablation**. It is not a
@@ -18,8 +18,8 @@ that prevents the costly failure, so a rare or protected rule is listed and
 never ranked as waste.
 
 ```bash
-python cli.py context prefilter AGENTS.md "$HOME/.claude/projects/<project>/*.jsonl"
-python cli.py context prefilter AGENTS.md "$HOME/.claude/projects/<project>/*.jsonl" --json
+python cli.py trace prefilter AGENTS.md "$HOME/.claude/projects/<project>/*.jsonl"
+python cli.py trace prefilter AGENTS.md "$HOME/.claude/projects/<project>/*.jsonl" --json
 ```
 
 The guidance file is split into rules with the span segmentation the novelty

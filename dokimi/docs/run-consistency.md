@@ -8,11 +8,11 @@ SPDX-License-Identifier: Apache-2.0
 An agent that solved a task once may not solve it again, and an agent that
 solves it every time may get there by a different route each time. Those are
 two questions, and a third sits beside them: did the route keep the rules the
-task sets. `context consistency` reads repeated runs of one task from their
+task sets. `trace consistency` reads repeated runs of one task from their
 Claude Code `stream-json` traces and answers each one apart. It calls no model.
 
 ```bash
-python cli.py context consistency \
+python cli.py trace consistency \
   --arm no-skill='runs/base/*.jsonl' --arm skill='runs/skill/*.jsonl' \
   --outcomes verdicts.json --contract contract.yaml
 ```

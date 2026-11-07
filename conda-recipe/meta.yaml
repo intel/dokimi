@@ -1,0 +1,57 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+package:
+    name: dokimi
+    version: 0.1.0
+
+source:
+    path: ../dokimi
+
+build:
+    noarch: python
+    number: 0
+    # Linux only; the wheels follow the recipe's platforms.
+    skip: true  # [not linux]
+    script: $PYTHON -m pip install . -vv --no-deps --no-build-isolation
+    entry_points:
+      - dokimi = dokimi.cli:main
+
+requirements:
+    host:
+      - python
+      - pip
+      - setuptools >=77
+    # The version, Python floor, entry points and these are checked against
+    # pyproject.toml by tests/test_conda_recipe.py.
+    run:
+      - python >=3.11
+      - pyyaml >=6.0.1,<7
+      - jsonschema >=4.20,<5
+      - litellm >=1.105.0
+      - httpx >=0.27.0
+      - numpy >=1.24.0
+      - scipy >=1.11.0
+      - pygithub >=2.1.0
+      - datasets >=2.20,<6
+      - openai >=1.51,<3
+      - regex >=2024.11.6
+
+test:
+    imports:
+      - dokimi
+    commands:
+      - pip check
+      - dokimi --help
+    requires:
+      - pip
+
+about:
+    home: https://github.com/intel/dokimi
+    dev_url: https://github.com/intel/dokimi
+    doc_url: https://intel.github.io/dokimi/
+    license: Apache-2.0
+    license_file:
+      - LICENSE
+      - NOTICE
+    summary: Measures whether a skill, MCP doc source, documentation set or agent profile actually improves AI-agent answers and task outcomes

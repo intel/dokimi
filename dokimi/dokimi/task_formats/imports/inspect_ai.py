@@ -9,15 +9,19 @@ A samples file (JSON/JSONL rows of ``Sample`` fields: ``input``, ``target``, ``c
 imported or run. What it says in literals is read -- ``Sample(...)`` lists,
 ``json_dataset("<file>", FieldSpec(...))``, ``scorer=<name>(<literal kwargs>)``,
 ``multiple_choice()`` / ``system_message("...")`` solvers -- and anything computed is refused
-or counted as lossy. Scorer semantics follow ``inspect_ai/scorer`` (``match_str``, ``exact``,
-``choice``, ``model_graded_qa``) at inspect-ai 0.3.283.
+or counted as lossy. ``hf_dataset(...)`` is loaded with the ``datasets`` package (data,
+not the task's code). Scorer semantics follow ``inspect_ai/scorer`` (``match_str``, ``exact``,
+``choice``, ``model_graded_qa``) at inspect-ai 0.3.283. A custom ``@scorer`` the file defines has
+no translation: it is judged on its docstring, the criterion, or stays unsupported without one.
 """
 
 from __future__ import annotations
 
 import ast
+import itertools
+import re
 from pathlib import Path
-from typing import Any, Mapping, Optional
+from typing import Any, Iterator, Mapping, Optional
 
 from dokimi.eval.reference_checks import blank_value, squad_normalize
 from dokimi.task_formats.imports.common import (
@@ -75,8 +79,15 @@ def _checks(scorer: str, kwargs: Mapping[str, Any], targets: list[str], imp: Imp
     if scorer in ("model_graded_qa", "model_graded_fact"):
         imp.note(f"{scorer}: C/P/I grade approximated by a yes/no judge")
         return [judge(reference=" | ".join(targets), native=scorer)]
-    imp.note(f"scorer `{scorer}` has no translation")
-    return [unsupported(scorer)]
+    doc = imp.native_docs.get(scorer)
+    if not doc:
+        imp.note(f"scorer `{scorer}` has no translation")
+        return [unsupported(scorer)]
+    if not targets:
+        imp.note("sample without a usable target: not graded")
+        return [unsupported(scorer)]
+    imp.note(f"scorer `{scorer}` approximated by a judge on its docstring")
+    return [judge(criterion=doc, reference=" | ".join(targets), native=scorer)]
 
 
 def _sample_question(row: Mapping[str, Any], idx: int, *, scorer: Optional[str], kwargs: Mapping[str, Any],
@@ -158,6 +169,15 @@ def _literal(node: ast.AST) -> Any:
         return None
 
 
+def _is_literal(node: ast.AST) -> bool:
+    """True when the expression is a literal value, so ``None`` from it is the value and not a failed read."""
+    try:
+        ast.literal_eval(node)
+    except (ValueError, SyntaxError, TypeError):
+        return False
+    return True
+
+
 def _kwargs(call: ast.Call) -> dict[str, Any]:
     return {k.arg: _literal(k.value) for k in call.keywords if k.arg}
 
@@ -198,10 +218,14 @@ def _read_solver(nodes: list[ast.AST], imp: Imported) -> tuple[bool, bool, Optio
     return mcq, multiple, system
 
 
-def _field_spec(call: ast.Call) -> dict[str, str]:
+def _field_spec(call: ast.Call, imp: Optional[Imported] = None) -> dict[str, str]:
     for node in [*call.args[1:], *(k.value for k in call.keywords if k.arg == "sample_fields")]:
         if isinstance(node, ast.Call) and _name(node) == "FieldSpec":
-            return {k: v for k, v in _kwargs(node).items() if isinstance(v, str)}
+            spec = _kwargs(node)
+            dropped = sorted(k for k, v in spec.items() if v is not None and not isinstance(v, str))
+            if dropped and imp is not None:  # e.g. metadata=['level', 'type']: the default column is read instead
+                imp.note(f"FieldSpec {', '.join(dropped)}= that is not one column name: not read, default used")
+            return {k: v for k, v in spec.items() if isinstance(v, str)}
     return {}
 
 
@@ -219,6 +243,238 @@ def _scorer(node: Optional[ast.AST], imp: Imported) -> tuple[str, dict[str, Any]
     return _name(first), kwargs
 
 
+def _task_files(value: Any, base: Path, name: str = "data_files") -> Any:
+    """A loader's local ``name=`` with every path resolved inside the task's directory: a path, or a list or dict of them."""
+    if isinstance(value, str):
+        files = (base / value).resolve()
+        if not files.is_relative_to(base.resolve()):
+            raise ValueError(f"hf_dataset {name} {value} is outside the task's directory")
+        return str(files)
+    if isinstance(value, (list, tuple)):
+        return [_task_files(v, base, name) for v in value]
+    if isinstance(value, dict):
+        return {k: _task_files(v, base, name) for k, v in value.items()}
+    raise ValueError(f"hf_dataset {name} must be literal paths, or a list or dict of them")
+
+
+# The loader's own builders: their name is never a path, and their data_dir= is a local directory. The installed
+# `datasets` names them (each version adds some); this list is the fallback when it does not.
+_HF_BUILDERS_FALLBACK = frozenset({"arrow", "audiofolder", "csv", "hdf5", "imagefolder", "json", "niftifolder", "pandas",
+                                   "parquet", "pdffolder", "text", "videofolder", "webdataset", "xml"})
+
+
+def _hf_builders() -> frozenset[str]:
+    try:
+        from datasets.packaged_modules import _PACKAGED_DATASETS_MODULES
+    except ImportError:
+        return _HF_BUILDERS_FALLBACK
+    return frozenset(_PACKAGED_DATASETS_MODULES)
+
+
+def _hf_local(value: str, base: Path) -> bool:
+    """True when the loader would read ``value`` as a local path: absolute, a ``..``, or a name that exists in the task
+    or in the working directory (``datasets`` resolves a relative local name from there). A builder is never a path."""
+    if not value or value in _hf_builders():
+        return False
+    path = Path(value)
+    return path.is_absolute() or ".." in path.parts or (base / value).exists() or path.exists()
+
+
+#: hf_dataset's positional parameters, in Inspect's order.
+_HF_POSITIONAL = ("path", "split", "name", "data_dir", "revision")
+#: hf_dataset's own options, which are Inspect's and not the loader's: never passed to ``load_dataset``.
+_HF_INSPECT_ONLY = ("sample_fields", "limit", "auto_id", "shuffle", "seed", "shuffle_choices", "cached", "trust")
+
+
+def _hf_literal_keywords(node: ast.Call) -> None:
+    """Refuse a keyword the importer cannot read as a literal; ``sample_fields`` and ``limit`` are checked apart."""
+    for k in node.keywords:
+        if k.arg is None:
+            raise ValueError("hf_dataset: **options is not read; name each loader argument as a literal")
+        if k.arg not in ("sample_fields", "limit") and not _is_literal(k.value):
+            raise ValueError(f"hf_dataset: {k.arg}= must be a literal value; a computed one is not read")
+
+
+def _hf_sample_fields(node: ast.Call) -> None:
+    """``sample_fields=`` must be a FieldSpec, or None: a converter function is not translated. Its columns must be
+    literal keywords: a computed or positional one is not read by ``_field_spec``, so it would fall back to the default
+    columns without a word."""
+    for k in node.keywords:
+        if k.arg != "sample_fields" or (isinstance(k.value, ast.Constant) and k.value.value is None):
+            continue
+        if not (isinstance(k.value, ast.Call) and _name(k.value) == "FieldSpec"):
+            raise ValueError("hf_dataset: sample_fields= must be a FieldSpec(...); a converter function is not translated")
+        spec = k.value
+        if spec.args or any(f.arg is None or not _is_literal(f.value) for f in spec.keywords):
+            raise ValueError("hf_dataset: FieldSpec(...) must name each column as a literal keyword, e.g. "
+                             "FieldSpec(input='question'); a computed or positional mapping is not read")
+
+
+def _hf_limit(node: ast.Call) -> Optional[int]:
+    """The ``limit=`` sample count of an hf_dataset call, or None when it has none."""
+    limit_node = next((k.value for k in node.keywords if k.arg == "limit"), None)
+    if limit_node is None:
+        return None
+    limit = _literal(limit_node)
+    if not isinstance(limit, int) or isinstance(limit, bool) or limit < 0:
+        raise ValueError("hf_dataset: limit= must be a literal count of samples")
+    return limit
+
+
+#: data_files= URL schemes that read a remote file, left to the loader as they are.
+_HF_REMOTE_SCHEMES = frozenset({"http", "https", "hf", "s3", "gs", "gcs", "az", "abfs", "abfss"})
+
+
+def _hf_data_files(value: Any, root: Path, builder: bool) -> Any:
+    """``data_files=`` for the loader: a URL is left as it is; a builder's path, or one that leaves the task, is
+    resolved in the task's directory; a hub dataset's relative pattern is a path in its repo, left as it is."""
+    if isinstance(value, str):
+        scheme = value.split("://", 1)[0].lower() if "://" in value else None
+        if scheme in _HF_REMOTE_SCHEMES and "::" not in value:  # a chained URL (x::file://...) can end local
+            return value
+        if scheme is not None:  # file://, zip://, ...: a local read the task directory does not confine
+            raise ValueError(f"hf_dataset data_files {value} is a {scheme}:// path, which is not read; "
+                             "name a file in the task's directory or a remote URL")
+        path = Path(value)
+        return _task_files(value, root) if builder or path.is_absolute() or ".." in path.parts else value
+    if isinstance(value, (list, tuple)):
+        return [_hf_data_files(v, root, builder) for v in value]
+    if isinstance(value, dict):
+        return {k: _hf_data_files(v, root, builder) for k, v in value.items()}
+    return _task_files(value, root)  # refuses what is not a path, a list or a dict
+
+
+def _hf_options(node: ast.Call, imp: Optional[Imported]) -> dict[str, Any]:
+    """The call's arguments by name, positional ones in Inspect's order, without Inspect's own options."""
+    if len(node.args) > len(_HF_POSITIONAL):
+        raise ValueError("hf_dataset: too many positional arguments; name the loader's own options as keywords")
+    kwargs = _kwargs(node)
+    for name, arg in zip(_HF_POSITIONAL[:len(node.args)], node.args, strict=True):  # hf_dataset(path, split, ...)
+        if name in kwargs:
+            raise ValueError(f"hf_dataset: {name} given twice")
+        if not _is_literal(arg):
+            raise ValueError(f"hf_dataset: {name} must be a literal value; a computed one is not read")
+        kwargs[name] = _literal(arg)
+    if kwargs.get("trust") or kwargs.get("trust_remote_code"):
+        raise ValueError("hf_dataset: trust=True or trust_remote_code= would run the dataset's own loader code on "
+                         "import; refused")
+    if imp is not None and (kwargs.get("shuffle") or kwargs.get("shuffle_choices")):
+        imp.note("hf_dataset shuffle/shuffle_choices not applied: samples (and limit=) in file order")
+    return {k: v for k, v in kwargs.items() if k not in _HF_INSPECT_ONLY}
+
+
+def _hf_call_args(node: ast.Call, base: Path, imp: Optional[Imported] = None) -> tuple[list[Any], dict[str, Any]]:
+    """The loader's path and keyword arguments, literal and checked; local paths resolved in the task."""
+    kwargs = _hf_options(node, imp)
+    path = kwargs.pop("path", None)
+    if not isinstance(path, str) or not isinstance(kwargs.get("split"), str):
+        raise ValueError("hf_dataset: the path and split= must be literal strings")
+    if _hf_local(path, base):
+        # A local dataset folder or file: datasets reads its README configs and paths from wherever they point, and
+        # those can leave the task. Only a builder named with data_files= in the task's directory is read.
+        raise ValueError(f"hf_dataset: {path} is a local dataset folder or file, and it is not read; name a builder "
+                         "with data_files= in the task's directory, e.g. hf_dataset('json', data_files='s.jsonl', split='train')")
+    builder = path in _hf_builders()
+    if builder and kwargs.get("data_dir") is None and kwargs.get("data_files") is None:
+        # With neither, the loader globs the working directory, not the task's: refused, as the task's own folder
+        # holds the task file too, which the builder would try to read as data.
+        raise ValueError(f"hf_dataset: the {path} builder names no data_files= or data_dir=, so it would read the "
+                         "working directory; name its files, e.g. data_files='s.jsonl'")
+    data_dir = kwargs.get("data_dir")
+    # A hub dataset's data_dir= is a subfolder of its repo: only a builder's, or one that leaves the task, is resolved.
+    escapes = isinstance(data_dir, str) and (Path(data_dir).is_absolute() or ".." in Path(data_dir).parts)
+    root = base
+    if data_dir is not None and (builder or escapes):
+        kwargs["data_dir"] = _task_files(data_dir, base, "data_dir")
+        root = Path(kwargs["data_dir"])  # data_files= is relative to data_dir= when both are given
+    if "data_files" in kwargs:
+        kwargs["data_files"] = _hf_data_files(kwargs["data_files"], root, builder)
+    return [path], kwargs
+
+
+def _hf_confine(path: str, kwargs: Mapping[str, Any], base: Path) -> None:
+    """Refuse a builder whose globs or ``data_dir=`` reach a file outside the task (a symlink): the files are
+    expanded with the loader's own resolver, as ``load_dataset`` does, and each one is resolved."""
+    if path not in _hf_builders():
+        return
+    try:
+        from datasets.data_files import DataFilesDict, get_data_patterns, sanitize_patterns
+    except ImportError:  # no loader: nothing is read
+        return
+    root = Path(kwargs.get("data_dir") or base).as_posix()
+    files = kwargs.get("data_files")
+    try:
+        patterns = sanitize_patterns(files) if files is not None else get_data_patterns(root)
+        local = {k: [p for p in v if "://" not in str(p)] for k, v in patterns.items()}
+        found = DataFilesDict.from_patterns({k: v for k, v in local.items() if v}, base_path=root)
+    except FileNotFoundError:  # the loader reports the missing file itself
+        return
+    for name in itertools.chain.from_iterable(found.values()):
+        if not Path(name).resolve().is_relative_to(base.resolve()):
+            raise ValueError(f"hf_dataset data_files {name} is outside the task's directory")
+
+
+def _hf_load(args: list[Any], kwargs: dict[str, Any]) -> Any:
+    """The split from the optional ``datasets`` package; the loader's own errors are reported with its name."""
+    try:
+        import datasets
+    except ImportError as exc:
+        raise ValueError("hf_dataset needs the `datasets` package (pip install datasets); "
+                         "or run the task natively and import its log") from exc
+    try:
+        return datasets.load_dataset(*args, **kwargs)  # nosec B615 - the task names its dataset and revision=
+    except Exception as exc:  # the loader's own errors (network, schema) are the user's to read
+        raise ValueError(f"hf_dataset could not load {args[0]}: {exc}") from exc
+
+
+def _hf_rows(node: ast.Call, base: Path, imp: Optional[Imported] = None) -> list[dict[str, Any]]:
+    """Rows of ``hf_dataset(path, split=..., ...)``, mapped through its FieldSpec.
+
+    The optional ``datasets`` package loads them (a local ``data_files=`` must sit in the task's
+    directory). A ``split=`` must be a literal: the default split is not read here. ``limit=`` is
+    Inspect's sample count, applied here, not passed to the loader.
+    """
+    _hf_literal_keywords(node)
+    _hf_sample_fields(node)
+    limit = _hf_limit(node)
+    args, kwargs = _hf_call_args(node, base, imp)
+    _hf_confine(args[0], kwargs, base)
+    loaded = _hf_load(args, kwargs)
+    fields = _field_spec(node, imp)
+    spec = {**_FIELD_DEFAULTS, **fields} if fields else {}
+    source: Iterator[dict[str, Any]] = (dict(r) for r in loaded)
+    if limit is not None:  # stop the stream at the limit: a streamed split is not read to its end
+        source = itertools.islice(source, limit)
+    return [{k: r.get(v) for k, v in spec.items() if v in r} if spec else r for r in source]
+
+
+_DOC_SECTION = re.compile(r"^\s*(?:Args|Arguments|Parameters|Returns|Return|Yields|Raises|Examples?|Notes?|"
+                          r"Attributes|See Also|Keyword Args)\s*:?\s*$|^\s*-{3,}\s*$", re.I)
+
+
+def _doc_summary(doc: str) -> str:
+    """A docstring's first paragraph: up to its first blank line or section header (``Args:``, ``Returns:``)."""
+    lines: list[str] = []
+    for line in doc.splitlines():
+        if not line.strip() or _DOC_SECTION.match(line):
+            if lines:
+                break
+            continue
+        lines.append(line)
+    return " ".join(" ".join(lines).split())
+
+
+def _scorer_docs(tree: ast.AST) -> dict[str, str]:
+    """The docstrings of the ``@scorer`` functions a file defines: what each custom scorer says it grades."""
+    docs: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef) and any(_name(d) == "scorer" for d in node.decorator_list):
+            summary = _doc_summary(ast.get_docstring(node) or "")
+            if summary:
+                docs[node.name] = summary
+    return docs
+
+
 def _dataset(node: Optional[ast.AST], base: Path, imp: Imported) -> tuple[Optional[Path], dict[str, str], list[dict[str, Any]]]:
     """``(file, field spec, inline rows)`` of a Task's ``dataset=``."""
     if isinstance(node, (ast.List, ast.Tuple)):
@@ -230,13 +486,15 @@ def _dataset(node: Optional[ast.AST], base: Path, imp: Imported) -> tuple[Option
                     imp.note("Sample field that is not a literal dropped")
                 rows.append({k: v for k, v in row.items() if v is not None})
         return None, {}, rows
+    if isinstance(node, ast.Call) and _name(node) == "hf_dataset":
+        return None, {}, _hf_rows(node, base, imp)
     if isinstance(node, ast.Call) and _name(node) in ("json_dataset", "csv_dataset") and node.args:
         rel = _literal(node.args[0])
         if not isinstance(rel, str):
             raise ValueError("dataset path is computed, not a literal")
         if _name(node) == "csv_dataset":
             raise ValueError("csv_dataset is not translated yet; convert the CSV to JSONL")
-        return (base / rel), _field_spec(node), []
+        return (base / rel), _field_spec(node, imp), []
     raise ValueError(f"dataset `{_name(node) if node else 'missing'}` is not a literal Sample list or json_dataset; "
                      "run it natively with `inspect eval` and import the log")
 
@@ -257,7 +515,7 @@ def import_task(path: Path, *, task: Optional[str] = None) -> Imported:
     if call is None:
         raise ValueError(f"{path}: @task {chosen[0].name} builds no Task(...) literally")  # type: ignore[attr-defined]
     kw = {k.arg: k.value for k in call.keywords if k.arg}
-    imp = Imported(FORMAT_TASK, path)
+    imp = Imported(FORMAT_TASK, path, native_docs=_scorer_docs(tree))
     if "sandbox" in kw:
         imp.note("sandbox not provided (answer-only)")
     mcq, multiple, system = _read_solver(_solvers(kw.get("solver") or kw.get("plan")), imp)

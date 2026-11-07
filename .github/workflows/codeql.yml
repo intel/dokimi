@@ -30,11 +30,11 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-# ubuntu-latest: see ci.yml.
+# Runners: see the header of ci.yml.
 jobs:
   analyze:
     name: CodeQL (${{ matrix.language }})
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.repository_owner != 'intel' && 'ubuntu-latest' || github.event_name == 'pull_request' && vars.LINUX_RUNNER_OFF != 'true' && 'dokimi-ec2' || 'intel-ubuntu-latest' }}
     permissions:
       contents: read          # to check out the code
       security-events: write  # to upload the results to code scanning
@@ -51,6 +51,11 @@ jobs:
         with:
           languages: ${{ matrix.language }}
           build-mode: none
+          # CodeQL sizes itself by the host's RAM and cores, not the runner's cgroup (6 GB on dokimi-ec2).
+          ram: 4096
+          threads: 2
       - uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370  # v4.39.1
         with:
           category: /language:${{ matrix.language }}
+          ram: 4096
+          threads: 2

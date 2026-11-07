@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""`context consistency`: result stability, path stability and contract conformance of repeated runs."""
+"""`trace consistency`: result stability, path stability and contract conformance of repeated runs."""
 
 from __future__ import annotations
 
@@ -189,7 +189,7 @@ def test_cli_arms_outcomes_and_json(tmp_path, capsys):
     import yaml
     contract.write_text(yaml.safe_dump(CONTRACT))
     args = build_parser().parse_args([
-        "context", "consistency", "--arm", f"base={tmp_path}/base/*.jsonl",
+        "trace", "consistency", "--arm", f"base={tmp_path}/base/*.jsonl",
         "--arm", f"skill={tmp_path}/skill/*.jsonl", "--outcomes", str(outcomes),
         "--contract", str(contract), "--json"])
     args.func(args)
@@ -200,7 +200,7 @@ def test_cli_arms_outcomes_and_json(tmp_path, capsys):
     assert rep["skill"]["contract"]["conformance_rate"] == 1.0
     assert rep["base"]["contract"]["conformance_rate"] == 0.0
 
-    args = build_parser().parse_args(["context", "consistency", "--arm", f"skill={tmp_path}/skill/*.jsonl"])
+    args = build_parser().parse_args(["trace", "consistency", "--arm", f"skill={tmp_path}/skill/*.jsonl"])
     args.func(args)
     text = capsys.readouterr().out
     assert "| skill | 2 | 2 | 100%" in text and "harness result event" in text
@@ -357,7 +357,7 @@ def test_cli_refuses_malformed_files_cleanly(tmp_path, flag, content):
     (tmp_path / "t.jsonl").write_text(_trace(READ))
     f = tmp_path / "bad"
     f.write_text(content)
-    args = build_parser().parse_args(["context", "consistency", str(tmp_path / "t.jsonl"), flag, str(f)])
+    args = build_parser().parse_args(["trace", "consistency", str(tmp_path / "t.jsonl"), flag, str(f)])
     with pytest.raises(SystemExit) as exc:
         args.func(args)
     assert str(exc.value).startswith("✗")
@@ -382,7 +382,7 @@ def test_cli_catches_an_outcome_key_shared_across_arms(tmp_path):
         (tmp_path / arm / "1.jsonl").write_text(_trace(READ))
     o = tmp_path / "o.json"
     o.write_text('{"1.jsonl": false}')
-    args = build_parser().parse_args(["context", "consistency", "--arm", f"base={tmp_path}/base/*.jsonl",
+    args = build_parser().parse_args(["trace", "consistency", "--arm", f"base={tmp_path}/base/*.jsonl",
                                       "--arm", f"skill={tmp_path}/skill/*.jsonl", "--outcomes", str(o)])
     with pytest.raises(SystemExit) as exc:
         args.func(args)
@@ -397,7 +397,7 @@ def test_a_trace_given_twice_counts_once(tmp_path, capsys):
     contract = tmp_path / "c.yaml"
     contract.write_text(yaml.safe_dump({"actions": CONTRACT["actions"], "rules": [{"forbids": "push"}]}))
     args = build_parser().parse_args([
-        "context", "consistency", "--arm", f"A={tmp_path}/a/*.jsonl", "--arm", f"A={tmp_path}/a/r2*.jsonl",
+        "trace", "consistency", "--arm", f"A={tmp_path}/a/*.jsonl", "--arm", f"A={tmp_path}/a/r2*.jsonl",
         f"{tmp_path}/a/./r1.jsonl", f"{tmp_path}/a/r1.jsonl", "--contract", str(contract), "--json"])
     args.func(args)
     out = capsys.readouterr()
