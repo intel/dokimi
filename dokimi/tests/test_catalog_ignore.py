@@ -8,7 +8,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from dokimi.cli import build_parser
+from dokimi.external.validate import FINDING_CODES
 from dokimi.utils import InputError
 
 
@@ -102,12 +105,26 @@ def test_text_output_leaves_the_ignored_finding_out(tmp_path, capsys):
 
 def test_unknown_code_is_a_usage_error_that_names_the_codes(tmp_path, capsys):
     _skill(tmp_path / "skills", "writing-rules", name="writing-rules")
-
-    out, code = _run(
-        ["--root", str(tmp_path), "--kind", "skills", "--ignore", "name-mismtch"], capsys
+    args = build_parser().parse_args(
+        [
+            "catalog",
+            "check",
+            "--root",
+            str(tmp_path),
+            "--kind",
+            "skills",
+            "--ignore",
+            "name-mismtch",
+        ]
     )
 
-    assert code == 2 and out == ""
+    with pytest.raises(InputError) as exc:
+        args.func(args)
+
+    message = str(exc.value)
+    assert "name-mismtch" in message
+    assert all(code in message for code in FINDING_CODES)
+    assert capsys.readouterr().out == ""
 
 
 def test_ignore_is_refused_for_tasks(tmp_path, capsys):
