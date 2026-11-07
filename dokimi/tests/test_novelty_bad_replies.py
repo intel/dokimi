@@ -47,10 +47,14 @@ MALFORMED_VERDICT_ROWS = [
     lambda n: {"n": n, "needed": "false"},
     lambda n: {"n": n, "verdict": "no"},
     lambda n: {"needed": True},
+    # the number is outside this batch: below 1 or past its last statement
+    lambda n: {"n": n + 100, "needed": True},
+    lambda n: {"n": 0, "needed": True},
 ]
 
 
-@pytest.mark.parametrize("row", MALFORMED_VERDICT_ROWS, ids=["needed-string", "needed-missing", "n-missing"])
+@pytest.mark.parametrize("row", MALFORMED_VERDICT_ROWS, ids=[
+    "needed-string", "needed-missing", "n-missing", "n-past-batch", "n-zero"])
 def test_a_judge_reply_with_no_usable_row_is_split_and_never_cached(monkeypatch, row):
     atoms = _atoms(10)
     seen = _cache_verdicts(monkeypatch, lambda p: json.dumps([row(n) for n in _numbers(p)]))
