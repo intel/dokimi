@@ -360,3 +360,15 @@ def test_read_task_manifest_raises_clear_error_on_malformed_json(tmp_path):
 
     with pytest.raises(ValueError, match="invalid suites.json"):
         read_task_manifest(tmp_path)
+
+
+def test_catalog_scan_reports_broken_frontmatter_as_yaml_not_as_a_missing_description(tmp_path):
+    skill_dir = tmp_path / "skills" / "software-factory"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: software-factory\ndescription: Use when: the user wants a factory\n---\n\n# b\n",
+        encoding="utf-8")
+    (entry,) = read_skill_manifest(tmp_path)
+    assert entry.skill is None
+    assert "invalid YAML" in entry.error and "line 3" in entry.error
+    assert "missing a 'description'" not in entry.error

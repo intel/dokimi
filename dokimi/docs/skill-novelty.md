@@ -633,8 +633,9 @@ another path counts once. A declared skill that cannot be loaded is skipped with
 catalog skills with the same name and different content are both skipped, with a warning that
 names every path of that name: the rest of the field stays. Only the copies the field lists count:
 a disabled copy (unless `--include-disabled`) or a spec-error copy (unless `--include-invalid`) is
-left out first, so it does not make its name a conflict. Rename one, or delete the copy you do
-not mean to route against, to route the name. `dokimi catalog check` lists the same names as
+left out first, so it does not make its name a conflict. Rename one, delete the copy you do not
+mean to route against, or keep only one directory's copies with `--keep-copies-under <dir>`, to
+route the name. `dokimi catalog check` lists the same names as
 `name-conflict` warnings, for the copies it lists. A skill with a spec error (a name that is not
 kebab-case or not its directory name) is also left out, with a warning naming the error; pass
 `--include-invalid` to keep it, as a harness that refuses to list such a skill would not. A `skill:`
@@ -652,7 +653,16 @@ competitor anywhere else is read as a root skill, and its name is not checked ag
 directory: `tools/database/SKILL.md` named `db` is routed when passed explicitly, while a
 `--catalog` scan of its tree leaves it out with a name error. Keep the directory name and the
 `name` field equal to get the same field from both.
-A name that conflicts with another catalog skill leaves the field whatever the flag says.
+A name that conflicts with another catalog skill leaves the field, and the error names the directory of each
+copy and suggests `--catalog <dir>` for one of them, or `--keep-copies-under <dir>`. `--keep-copies-under <dir>`
+keeps only the copies under `<dir>`, a directory relative to `--catalog`, and only for a name whose copies differ
+and that have one content under `<dir>`; the others of that name are named on stderr and left out, and the rest of
+the field is unchanged (unlike `--catalog <dir>`, which leaves out every skill outside that directory). A copy of that name outside `<dir>` that fails to load is left out too, with a
+note, once a copy under `<dir>` is in the field. An absolute
+path, a path that leaves `--catalog` (`../`), a file, or an empty value is refused with exit 2. A skill directory
+directly beneath the catalog (`review/SKILL.md`) is kept by its own name, `--keep-copies-under review`, since
+`--catalog` has no directory to point at for it. A `SKILL.md` in the catalog root itself cannot be picked by
+`--catalog` or `--keep-copies-under`: dedupe or rename it.
 A `skill:` competitor that is not a `SKILL.md`, or a directory without one, is skipped with a
 warning. A shell glob must be expanded first, with the prefix on each path
 (`skill:dir/a/SKILL.md skill:dir/b/SKILL.md`): an unexpanded `skill:dir/*` is refused as a missing
@@ -667,6 +677,10 @@ others are named on stderr.
 `--estimate-only` prints, as JSON, the calls, input and output tokens and the list-price `expected_usd` the
 `--model` arm would make, and makes no model call. Without `--model` the run is lexical and the bill
 is zero. Input is the selection prompt sized at chars / 4, so it is a projection, not a count.
+Output is `output_tokens_per_call` (65) times the calls: the average a measured routing run billed per
+selection call (360 calls drew 23.3k output tokens). The prompt asks for one `{"pick": N}` object, about
+10 tokens, which underestimated that run 6.5 times, so the estimate does not use it. Another model, or a
+reasoning model, can bill more or less.
 
 Two numbers, reported side by side and never merged:
 
@@ -695,7 +709,9 @@ Two numbers, reported side by side and never merged:
   replay. Repeats need `--model`, and cost N times the calls. With repeats, `n_calls` is
   queries x repeats, `n_abstained` and `n_failed` count calls, and each `per_query` row
   carries its `repeat` index. In an `--all-vs-all` run each `noise` row also names its `gold`
-  skill, since two skills can list the same request.
+  skill, since two skills can list the same request. `noise` is always an object: `n_repeats` is the
+  repeat count, and with `--repeats 1` it is 1 with `mean_agreement`, `half_range`, `unstable_queries`
+  and each row's `agreement` null (nothing to agree with), so a reader tests those fields, not `noise`, for null.
 
 A single-artifact `--model` run also writes a `cost` block (calls, input and output tokens, cache read and
 write tokens, and `usd`, which is `null` when any call this run paid for had no known price) and prints the
@@ -715,7 +731,9 @@ counted as a miss.
 --queries-by-skill queries.json --out routing.json` (add `--model M` for the model arm) makes
 every skill that has queries the gold in turn, routed against the whole field. The file is a
 JSON object of skill name to the requests that should select it, each written without the
-skill's own text. A skill named twice in the file is refused. The output has a confusion
+skill's own text. A skill named twice in the file is refused. `--out` must name a file: a directory, a
+path under a non-directory, a FIFO or device, a symlink loop, or an unwritable path is refused before any model call (the same
+check is made for a single-artifact `routing --out`); a missing parent directory is created. The output has a confusion
 matrix (gold to picked to count, with `(none)` for a query no card shares a word with or, in
 the model arm, an abstention, and `(tie)` for a query on which two or more other cards tie for
 the top lexical score, so no field order decides it), an own rate per skill, and an attractor
@@ -726,18 +744,22 @@ is no attractor, and a tied skill's own rate is lower by the picks inside its gr
 `n_scored` and `n_unscored` per skill say how many, a query with no content word or a failed
 model call is unscored, and a skill with none scored has an own rate of `null`, not 0.0. A run
 with any failed model call writes the result and exits non-zero. The saved file records the
-field rule under `field` (`include_disabled`, `include_invalid`, the `competitors`, what was `left_out`, which
-also names each skill left out for a conflicting name or a spec error, and `spec_warnings`, one
-`{skill, length, limit, message}` per kept skill whose description is over 1024 characters); a
-single-artifact run records it too. It takes no `--artifact`, `--queries` or `--queries-from-headings`. `--repeats` needs `--model`
+field rule under `field` (`include_disabled`, `include_invalid`, `keep_copies_under`, the `competitors` and what was
+`left_out`, which also names each skill left out for a conflicting name or a spec error, and `spec_warnings`, one
+`{skill, length, limit, message}` per kept skill whose description is over 1024 characters); a single-artifact run
+records it too. An all-vs-all run also lists in `field.dropped_queries` each skill whose queries it dropped, as
+`{skill, reasons, keep_flags, queries}`, one record per skill, with each reason `disabled`, `invalid` or `conflict`. A query for a catalog skill
+that failed to load refuses the run and names the load error. It takes no `--artifact`, `--queries` or `--queries-from-headings`. `--estimate-only` prints the calls and the
+list-price cost of the whole run as JSON, in the shape of a single-artifact estimate, with no client built and
+no query sent; it needs no `--out`. `--repeats` needs `--model`
 and asks each query that many times, as a single-artifact run does: the model arm then carries a
 `noise` block (agreement per query, the rate of each repeat, `half_range`), and its counts are
 calls, one per query per repeat. The model arm also records the selector `model`, so two runs with
 different models can be told apart. It is refused with fewer than two skills, a name repeated
-in the field, or no queries at all. A query file that names a skill outside the field is refused;
-when the field leaves that skill out for `disable-model-invocation`, a spec error or a name that two
-different skills share, the message names each such skill with every reason that applies, and
-`--include-disabled` or `--include-invalid` where a flag keeps it.
+in the field, or no queries at all. A query file that names a skill the field leaves out (`disable-model-invocation`, a spec error or a name that
+two different skills share) drops that skill's queries with a WARNING naming the flag that keeps it; the run
+goes on with the rest, and is refused only when no query is left. A name no rule explains is refused, since
+it is more likely a typo. Missing `--queries-by-skill` and `--out` are reported in one error.
 
 **Cost of `--model` in all-vs-all.** The model arm makes one selector call per query and repeat,
 across every skill in the field: the call count is the number of queries in `queries.json` that have a

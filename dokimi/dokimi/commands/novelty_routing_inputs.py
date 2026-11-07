@@ -6,13 +6,78 @@
 from __future__ import annotations
 
 import argparse
+import errno
+import os
+import stat
 import sys
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from dokimi.utils import InputError
 
 if TYPE_CHECKING:
     from dokimi.novelty.routing import Candidate
+
+
+def _refuse_a_non_file(path: Path, label: str, hint: str) -> None:
+    """Refuse a FIFO or device, which would block or swallow the write, and a symlink loop."""
+    try:
+        mode = os.stat(path).st_mode
+    except OSError as exc:
+        # Windows reports a loop as WinError 1921 (ERROR_CANT_RESOLVE_FILENAME), not ELOOP.
+        if exc.errno == errno.ELOOP or getattr(exc, "winerror", None) == 1921:
+            raise InputError(f"{label} is a symlink loop, so the file cannot be written{hint}") from exc
+        return  # missing, or under a non-directory: checked_out_path names it
+    if not stat.S_ISREG(mode):
+        raise InputError(f"{label} is not a regular file, so the results cannot be written to it{hint}")
+
+
+def checked_out_path(out: str | None, command: str, default: str | None = None) -> Path:
+    """The ``--out`` file of a routing run, refused before any model call when it cannot be written.
+
+    The file must not be a directory. Its missing parent directories are fine: the writer creates
+    them. But the nearest existing ancestor must be a directory the run can write into, and an
+    existing file must itself be writable. A symlink is checked where it points: the writer
+    follows it, and creates only the link's own parent, not the target's.
+
+    With no ``out`` and a ``default``, the default path is checked, and a refusal names it as the
+    default output and asks for ``--out``, since the user passed none.
+
+    Raises:
+        InputError: ``--out`` is missing (and no default), is a directory, sits under a path that is not a
+            directory, is a symlink into a missing directory or a symlink loop, is not a regular
+            file (a FIFO, a device), or is not writable.
+    """
+    chosen = out or default
+    if not chosen:
+        raise InputError(f"{command} needs --out <file>")
+    label = f"--out {out}" if out else f"the default output {default}"
+    hint = "" if out else " (pass --out <file>)"
+    path = Path(chosen)
+    if os.path.isdir(path):
+        fix = f"pass a file path, e.g. {path / 'routing.json'}" if out else "pass --out <file>"
+        raise InputError(f"{label} is a directory: {fix}")
+    _refuse_a_non_file(path, label, hint)
+    # realpath follows a symlink even when it dangles, so the checks below see the file that is written.
+    target = Path(os.path.realpath(path))
+    if os.path.islink(path) and not os.path.exists(target.parent):
+        raise InputError(f"{label} is a symlink to {target}, whose directory does not exist: "
+                         f"the writer creates only the link's own directory{hint}")
+    # A dangling symlink among the parents: the writer's mkdir of that parent fails on it.
+    for parent in path.parents:
+        if os.path.islink(parent) and not os.path.exists(parent):
+            raise InputError(f"{label}: {parent} is a dangling symlink, so the writer cannot create "
+                             f"its directory{hint}")
+    ancestor = next((p for p in target.parents if os.path.exists(p)), target.parent)
+    if not os.path.isdir(ancestor):
+        raise InputError(f"{label}: {ancestor} is not a directory, so the file cannot be created under it{hint}")
+    if os.path.exists(target):
+        writable = os.access(target, os.W_OK)
+    else:
+        writable = os.access(ancestor, os.W_OK | os.X_OK)
+    if not writable:
+        raise InputError(f"{label} is not writable{hint}")
+    return path
 
 
 def routing_card(ref: str) -> tuple[Candidate, str]:
@@ -55,24 +120,43 @@ def named_competitors(args: argparse.Namespace, left_out: list[str] | None,
 
 def routing_field(args: argparse.Namespace, exclude: set[str],
                   left_out: list[str] | None = None,
-                  dropped: dict[str, set[str]] | None = None) -> list[Candidate]:
+                  dropped: dict[str, set[str]] | None = None,
+                  conflicts: dict[str, list[str]] | None = None,
+                  unloaded: dict[str, str] | None = None) -> list[Candidate]:
     """The field ``--competitors`` and ``--catalog`` name, without the names in ``exclude``.
 
     What was left out of the field, and why, is appended to ``left_out`` when given. Each
-    name a rule leaves out maps to its rules in ``dropped`` (when given). A skill kept with a
+    name a rule leaves out maps to its rules in ``dropped`` (when given), and each name still in
+    conflict maps to the paths of its copies in ``conflicts`` (when given). Each declared catalog
+    skill that failed to load maps to why in ``unloaded`` (when given). A skill kept with a
     description over 1024 characters is warned about here and listed in the saved field rule.
 
     Raises:
+        InputError: ``--keep-copies-under`` is given without ``--catalog``, or is not a directory
+            inside it.
         OSError, ValueError, RecursionError: A reference or the catalog cannot be loaded.
     """
+    from dokimi.novelty.catalog_keep import check_keep_copies_under
     from dokimi.novelty.routing import catalog_competitors, over_limit_warnings
 
+    if args.keep_copies_under is not None:
+        if not args.catalog:
+            raise InputError("--keep-copies-under needs --catalog: it picks between the copies of "
+                             "a catalog")
+        if not Path(args.catalog).is_dir():
+            raise InputError(f"--catalog is not a directory: {args.catalog}")
+        try:
+            check_keep_copies_under(args.catalog, args.keep_copies_under)
+        except ValueError as exc:
+            raise InputError(str(exc)) from exc
     competitors = named_competitors(args, left_out, dropped)
     if args.catalog:
         notes: list[str] = []
         catalog = catalog_competitors(args.catalog, exclude | {c.name for c in competitors},
                                       notes, include_disabled=args.include_disabled,
-                                      include_invalid=args.include_invalid, dropped=dropped)
+                                      include_invalid=args.include_invalid, dropped=dropped,
+                                      keep_copies_under=args.keep_copies_under,
+                                      conflicts=conflicts, unloaded=unloaded)
         for note in notes:
             print(f"WARNING: {note}", file=sys.stderr)
         if left_out is not None:
@@ -90,10 +174,11 @@ def routing_field(args: argparse.Namespace, exclude: set[str],
 
 
 def load_all_vs_all_field(args: argparse.Namespace, left_out: list[str],
-                          dropped: dict[str, set[str]]) -> list[Candidate]:
+                          dropped: dict[str, set[str]], conflicts: dict[str, list[str]],
+                          unloaded: dict[str, str]) -> list[Candidate]:
     """The all-vs-all field, or InputError naming the cause."""
     try:
-        return routing_field(args, set(), left_out, dropped)
+        return routing_field(args, set(), left_out, dropped, conflicts, unloaded)
     except InputError:
         raise
     except (OSError, ValueError, RecursionError) as exc:
@@ -102,8 +187,11 @@ def load_all_vs_all_field(args: argparse.Namespace, left_out: list[str],
 
 def load_routing_field(
     args: argparse.Namespace,
-) -> tuple[Candidate, str, list[Candidate], list[str]]:
-    """The gold card, its body, the competitors and the ones left out, or InputError naming the cause."""
+) -> tuple[Candidate, str, list[Candidate], list[str], dict[str, list[str]]]:
+    """The gold card, its body, the competitors, the ones left out and the names in conflict.
+
+    The last is each conflicting name with the paths of its copies, or InputError naming the cause.
+    """
     from dokimi.novelty.routing import disables_model_invocation, over_limit_warnings, skill_file
 
     try:
@@ -114,25 +202,12 @@ def load_routing_field(
                   "it and the model cannot select it; its routing rate is not a harness rate",
                   file=sys.stderr)
         left_out: list[str] = []
-        competitors = routing_field(args, {gold.name}, left_out)
+        conflicts: dict[str, list[str]] = {}
+        competitors = routing_field(args, {gold.name}, left_out, conflicts=conflicts)
         for warning in over_limit_warnings([gold], under_test=True):
             print(f"WARNING: skill {warning['skill']!r}: {warning['message']}", file=sys.stderr)
     except InputError:
         raise
     except (OSError, ValueError, RecursionError) as exc:
         raise InputError(f"cannot load an artifact: {exc}") from exc
-    return gold, body, competitors, left_out
-
-
-def field_record(args: argparse.Namespace, competitors: list[Candidate], left_out: list[str],
-                 gold: Candidate | None = None) -> dict:
-    """The field rule a routing result was measured under, saved next to the result.
-
-    ``spec_warnings`` lists ``gold`` (the skill under test, when given) as well as the field.
-    """
-    from dokimi.novelty.routing import over_limit_warnings
-
-    return {**{name: bool(getattr(args, name)) for name in ("include_disabled", "include_invalid")},
-            "competitors": [c.name for c in competitors], "left_out": left_out,
-            "spec_warnings": (over_limit_warnings([gold], under_test=True) if gold else [])
-            + over_limit_warnings(competitors)}
+    return gold, body, competitors, left_out, conflicts

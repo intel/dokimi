@@ -6,6 +6,8 @@
 from __future__ import annotations
 
 import json
+import os
+import sys
 
 import pytest
 
@@ -206,3 +208,226 @@ def test_the_estimate_counts_the_prompts_the_run_sends():
 
     model_routing(field, queries, client=Recorder(), gold=0, repeats=1)
     assert [len(prompt) // 4 for prompt in sent] == selection_prompt_tokens(field, queries)
+
+
+def _two_skill_field(tmp_path):
+    return _skill(tmp_path, "perf", "profile a slow binary"), _skill(
+        tmp_path, "db", "tune a slow database query")
+
+
+def test_routing_refuses_an_out_directory_before_it_calls_the_model(tmp_path, monkeypatch):
+    import dokimi.commands.novelty as novelty_cmd
+
+    monkeypatch.setattr(novelty_cmd, "_client",
+                        lambda *a, **k: pytest.fail("a model call was made before --out was checked"))
+    artifact, competitor = _two_skill_field(tmp_path)
+    queries = tmp_path / "queries.txt"
+    queries.write_text("profile my slow binary\n", encoding="utf-8")
+    args = _parse("novelty", "routing", "--artifact", artifact, "--competitors", competitor,
+                  "--queries", str(queries), "--model", "m", "--out", str(tmp_path))
+    with pytest.raises(InputError, match="is a directory"):
+        args.func(args)
+
+
+def test_a_missing_out_directory_is_accepted_and_left_for_the_writer_to_create(tmp_path):
+    from dokimi.commands.novelty_routing_inputs import checked_out_path
+
+    missing = tmp_path / "new" / "deeper" / "routing.json"
+    assert checked_out_path(str(missing), "routing") == missing
+    assert not missing.parent.exists()
+
+
+def test_an_out_under_a_file_is_refused_before_the_call(tmp_path):
+    from dokimi.commands.novelty_routing_inputs import checked_out_path
+
+    blocker = tmp_path / "not-a-dir"
+    blocker.write_text("x", encoding="utf-8")
+    with pytest.raises(InputError, match="is not a directory"):
+        checked_out_path(str(blocker / "sub" / "routing.json"), "routing")
+
+
+def test_a_dangling_out_symlink_into_a_missing_directory_is_refused_before_the_call(tmp_path):
+    from dokimi.commands.novelty_routing_inputs import checked_out_path
+
+    link = tmp_path / "routing.json"
+    link.symlink_to(tmp_path / "missing" / "result.json")
+    with pytest.raises(InputError, match="does not exist"):
+        checked_out_path(str(link), "routing")
+
+
+def test_an_out_under_a_dangling_directory_symlink_is_refused_before_the_call(tmp_path):
+    from dokimi.commands.novelty_routing_inputs import checked_out_path
+
+    (tmp_path / "outdir").symlink_to(tmp_path / "missing")
+    with pytest.raises(InputError, match="dangling symlink"):
+        checked_out_path(str(tmp_path / "outdir" / "routing.json"), "routing")
+
+
+def test_an_out_symlink_under_a_file_is_refused_before_the_call(tmp_path):
+    from dokimi.commands.novelty_routing_inputs import checked_out_path
+
+    blocker = tmp_path / "not-a-dir"
+    blocker.write_text("x", encoding="utf-8")
+    link = tmp_path / "routing.json"
+    link.symlink_to(blocker / "result.json")
+    with pytest.raises(InputError, match="is not a directory"):
+        checked_out_path(str(link), "routing")
+
+
+def test_an_out_symlink_to_a_missing_file_in_an_existing_directory_is_accepted(tmp_path):
+    from dokimi.commands.novelty_routing_inputs import checked_out_path
+
+    (tmp_path / "out").mkdir()
+    link = tmp_path / "routing.json"
+    link.symlink_to(tmp_path / "out" / "result.json")
+    assert checked_out_path(str(link), "routing") == link
+
+
+def test_an_out_file_that_cannot_be_written_is_refused_up_front(tmp_path, monkeypatch):
+    import os
+
+    from dokimi.commands.novelty_routing_inputs import checked_out_path
+
+    monkeypatch.setattr(os, "access", lambda path, mode: False)
+    with pytest.raises(InputError, match="not writable"):
+        checked_out_path(str(tmp_path / "routing.json"), "routing")
+
+
+# Real permissions, not a patched os.access: a regression to paying for every call needs the
+# checks themselves to be exercised. Root ignores file modes, so these skip there.
+_CANNOT_CHMOD = sys.platform == "win32" or (hasattr(os, "geteuid") and os.geteuid() == 0)
+
+
+@pytest.mark.skipif(_CANNOT_CHMOD, reason="file modes are not enforced here")
+def test_an_existing_read_only_out_file_is_refused_before_any_call(tmp_path):
+    from dokimi.commands.novelty_routing_inputs import checked_out_path
+
+    out = tmp_path / "routing.json"
+    out.write_text("{}", encoding="utf-8")
+    out.chmod(0o444)
+    try:
+        with pytest.raises(InputError, match="not writable"):
+            checked_out_path(str(out), "routing")
+    finally:
+        out.chmod(0o644)
+
+
+@pytest.mark.skipif(_CANNOT_CHMOD, reason="file modes are not enforced here")
+def test_a_new_out_file_in_a_read_only_directory_is_refused_before_any_call(tmp_path):
+    from dokimi.commands.novelty_routing_inputs import checked_out_path
+
+    folder = tmp_path / "ro"
+    folder.mkdir()
+    folder.chmod(0o555)
+    try:
+        with pytest.raises(InputError, match="not writable"):
+            checked_out_path(str(folder / "routing.json"), "routing")
+    finally:
+        folder.chmod(0o755)
+
+
+@pytest.mark.skipif(_CANNOT_CHMOD, reason="file modes are not enforced here")
+def test_a_new_out_file_in_a_directory_with_no_search_bit_is_refused_before_any_call(tmp_path):
+    from dokimi.commands.novelty_routing_inputs import checked_out_path
+
+    folder = tmp_path / "wo"
+    folder.mkdir()
+    folder.chmod(0o200)  # writable but not searchable: the file cannot be created or opened in it
+    try:
+        with pytest.raises(InputError, match="not writable"):
+            checked_out_path(str(folder / "routing.json"), "routing")
+    finally:
+        folder.chmod(0o755)
+
+
+def test_a_valid_out_file_is_returned_as_a_path(tmp_path):
+    from dokimi.commands.novelty_routing_inputs import checked_out_path
+
+    assert checked_out_path(str(tmp_path / "routing.json"), "routing") == tmp_path / "routing.json"
+
+
+def test_all_vs_all_refuses_an_out_directory_before_it_calls_the_model(tmp_path, monkeypatch):
+    import dokimi.commands.novelty as novelty_cmd
+
+    monkeypatch.setattr(novelty_cmd, "_client",
+                        lambda *a, **k: pytest.fail("a model call was made before --out was checked"))
+    root = tmp_path / "catalog"
+    for name, text in {"perf": "profile a slow binary", "db": "tune a slow database query"}.items():
+        (root / "skills" / name).mkdir(parents=True)
+        (root / "skills" / name / "SKILL.md").write_text(
+            f"---\nname: {name}\ndescription: {text}\n---\n\n# B\n", encoding="utf-8")
+    queries = tmp_path / "queries.json"
+    queries.write_text('{"perf": ["profile my slow binary"]}', encoding="utf-8")
+    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
+                  "--queries-by-skill", str(queries), "--out", str(tmp_path), "--model", "m")
+    with pytest.raises(InputError, match="is a directory"):
+        args.func(args)
+
+
+def test_the_estimate_prices_the_reply_the_model_sends_not_one_json_pick():
+    from dokimi.novelty.routing import Candidate, selection_estimate
+
+    field = [Candidate(name="a", description="profile a slow binary"),
+             Candidate(name="b", description="tune a slow database")]
+    # 360 calls: the measured run drew 23.3k output tokens for them, where one pick per call
+    # (about 10 tokens) would have estimated 3.6k.
+    estimate = selection_estimate(field, ["profile my slow binary"] * 360, repeats=1)
+    assert estimate["n_calls"] == 360
+    assert estimate["output_tokens"] == 360 * estimate["output_tokens_per_call"]
+    assert estimate["output_tokens"] == pytest.approx(23_300, rel=0.05)
+
+
+
+def test_all_vs_all_with_one_repeat_keeps_the_noise_block_and_prints_no_noise_line(
+        tmp_path, capsys, monkeypatch):
+    import dokimi.commands.novelty as novelty_cmd
+
+    monkeypatch.setattr(novelty_cmd, "_client", lambda model, provider, role, args: LLMClient(
+        model=model, provider=provider, role=role,
+        transport=lambda prompt, system: (json.dumps({"pick": 1}), None)))
+    root = tmp_path / "catalog"
+    for name, text in {"perf": "profile a slow binary", "db": "tune a slow database query"}.items():
+        (root / "skills" / name).mkdir(parents=True)
+        (root / "skills" / name / "SKILL.md").write_text(
+            f"---\nname: {name}\ndescription: {text}\n---\n\n# B\n", encoding="utf-8")
+    queries = tmp_path / "queries.json"
+    queries.write_text('{"perf": ["profile my slow binary"]}', encoding="utf-8")
+    out = tmp_path / "o.json"
+    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
+                  "--queries-by-skill", str(queries), "--out", str(out), "--model", "m")
+    args.func(args)
+    noise = json.loads(out.read_text(encoding="utf-8"))["result"]["model"]["noise"]
+    assert (noise["n_repeats"], noise["mean_agreement"], noise["half_range"],
+            noise["unstable_queries"]) == (1, None, None, None)
+    assert "noise    " not in capsys.readouterr().out
+
+
+def test_a_refused_default_out_names_the_default_and_asks_for_out(tmp_path):
+    from dokimi.commands.novelty_routing_inputs import checked_out_path
+    default = tmp_path / "routing.json"
+    default.mkdir()
+    with pytest.raises(InputError) as err:
+        checked_out_path(None, "routing", default=str(default))
+    message = str(err.value)
+    assert message.startswith(f"the default output {default} is a directory")
+    assert "pass --out <file>" in message
+    assert "routing.json/routing.json" not in message
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="no FIFOs here")
+def test_a_fifo_out_is_refused_before_the_call(tmp_path):
+    from dokimi.commands.novelty_routing_inputs import checked_out_path
+    fifo = tmp_path / "routing.json"
+    os.mkfifo(fifo)
+    with pytest.raises(InputError, match="not a regular file"):
+        checked_out_path(str(fifo), "routing")
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="symlinks need privileges on Windows")
+def test_an_out_symlink_loop_is_refused_before_the_call(tmp_path):
+    from dokimi.commands.novelty_routing_inputs import checked_out_path
+    a, b = tmp_path / "a.json", tmp_path / "b.json"
+    a.symlink_to(b)
+    b.symlink_to(a)
+    with pytest.raises(InputError, match="symlink loop"):
+        checked_out_path(str(a), "routing")
