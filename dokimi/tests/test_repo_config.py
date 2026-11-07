@@ -476,7 +476,6 @@ def test_a_nested_skill_is_not_part_of_the_outer_skill_sha(tmp_path):
         ("'{skill}/SKILL.md'", "skills/a/SKILL.md"),
         ("'{skill}/scripts/*'", "skills/a/scripts/run.py"),
         ("'{skill}/references/*.md'", "skills/a/references/r.md"),
-        ("'{skill}/evals/*.json'", "skills/a/evals/q.json"),
     ],
 )
 def test_a_suite_that_picks_an_individual_file_of_its_skill_is_refused(tmp_path, suite, claimed):
@@ -492,6 +491,53 @@ def test_a_suite_that_picks_an_individual_file_of_its_skill_is_refused(tmp_path,
     with pytest.raises(ConfigError, match="skill/a") as err:
         load_repo_config(root).subjects(hashes=False)
     assert claimed in str(err.value) and "not a whole directory" in str(err.value)
+
+
+@pytest.mark.parametrize(
+    ("suite", "claimed"),
+    [
+        ("'{skill}/*.json'", "skills/a/q.json"),
+        ("'{skill}/tests/*.json'", "skills/a/tests/q.json"),
+        # a sibling whose name starts with the evals directory's name is not under it
+        ("'{skill}/evals-old/*.json'", "skills/a/evals-old/q.json"),
+    ],
+)
+def test_an_individual_file_outside_the_evals_directory_is_refused(tmp_path, suite, claimed):
+    body = HEADER + f"subjects:\n  - id: skill/a\n    path: skills/a\n    suite: {suite}\n"
+    root = _tree(tmp_path / "repo", {
+        ".github/dokimi/config.yaml": body, "skills/a/SKILL.md": "a\n", "skills/a/evals/q.json": "[]\n", claimed: "[]\n",
+    })
+    with pytest.raises(ConfigError, match="skill/a") as err:
+        load_repo_config(root).subjects(hashes=False)
+    assert claimed in str(err.value) and "skills/a/evals" in str(err.value)
+
+
+def test_a_file_whose_path_starts_with_a_claimed_directory_name_is_still_refused(tmp_path):
+    # ref/ is claimed whole; refs.md is a file of the skill outside it, though its path starts with "skills/a/ref"
+    body = HEADER + "subjects:\n  - id: skill/a\n    path: skills/a\n    suite: '{skill}/*'\n"
+    root = _tree(tmp_path / "repo", {
+        ".github/dokimi/config.yaml": body, "skills/a/ref/x.md": "x\n", "skills/a/refs.md": "r\n",
+    })
+    with pytest.raises(ConfigError, match="skill/a") as err:
+        load_repo_config(root).subjects(hashes=False)
+    assert "skills/a/refs.md" in str(err.value)
+
+
+def test_a_suite_may_claim_individual_files_under_its_evals_directory(tmp_path):
+    body = HEADER + "subjects:\n  - id: skill/a\n    path: skills/a\n    suite: '{skill}/evals/*.json'\n"
+    root = _tree(tmp_path / "repo", {
+        ".github/dokimi/config.yaml": body, "skills/a/SKILL.md": "a\n", "skills/a/evals/q.json": "[]\n",
+        "skills/a/evals/notes.md": "n\n",
+    })
+    before = _subjects(root)["skill/a"]
+    (root / "skills/a/evals/q.json").write_text('["x"]\n', encoding="utf-8")  # a claimed eval: its suite moves
+    after = _subjects(root)["skill/a"]
+    assert after.suite_hash != before.suite_hash and after.skill_sha == before.skill_sha
+    (root / "skills/a/evals/notes.md").write_text("m\n", encoding="utf-8")  # unclaimed: still the skill's, not the suite's
+    later = _subjects(root)["skill/a"]
+    assert later.skill_sha != after.skill_sha and later.suite_hash == after.suite_hash
+    impact = load_repo_config(root).subjects_for_changed(["skills/a/evals/q.json", "skills/a/evals/notes.md"])
+    assert impact.suites == {"skill/a": ["skills/a/evals/q.json"]} and impact.skills == {"skill/a": ["skills/a/evals/notes.md"]}
 
 
 def test_a_suite_that_claims_a_whole_directory_of_its_skill_is_accepted_and_leaves_skill_sha(tmp_path):

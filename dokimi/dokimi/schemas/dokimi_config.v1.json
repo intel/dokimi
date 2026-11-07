@@ -15,7 +15,7 @@
       ]
     },
     "suite": {
-      "description": "Where a subject's evals are: one glob (or list), or named layouts (harbor, beside) each a glob or list. {skill} stands for the subject's path.",
+      "description": "Where a subject's evals are: one glob (or list), or named layouts (harbor, beside) each a glob or list. {skill} stands for the subject's path. A suite claims whole directories of its skill, and individual files only under {skill}/evals.",
       "oneOf": [
         {"$ref": "#/$defs/globs"},
         {"type": "object", "minProperties": 1, "additionalProperties": {"$ref": "#/$defs/globs"}}

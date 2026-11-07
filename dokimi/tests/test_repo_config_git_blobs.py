@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import shutil
 import subprocess
 import time
@@ -307,3 +308,197 @@ def test_a_rename_in_the_work_tree_column_hashes_the_work_tree(tmp_path):
     _git(root, "commit", "-q", "-m", "rename")
     assert dirty == _hashes(root)
 
+
+def _nested(root: Path, rel: str, files: dict[str, str]) -> None:
+    """A repository of its own at ``root/rel``: its own ``.gitignore`` (``*.tmp``, ``build/``) and committed ``files``."""
+    repo = root / rel
+    repo.mkdir(parents=True, exist_ok=True)
+    _git(repo, "init", "-q")
+    for name, text in {".gitignore": "*.tmp\nbuild/\n", **files}.items():
+        (repo / name).parent.mkdir(parents=True, exist_ok=True)
+        (repo / name).write_text(text)
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "init")
+
+
+@pytest.mark.parametrize("rel", ["skills/a/tools", "skills/a/evals/tools"])
+def test_an_ignored_file_inside_a_nested_repository_moves_no_hash(tmp_path, rel):
+    # the nested repository's own ignore rules apply inside it: skill_sha (outside evals) and suite_hash (inside) both
+    root = _repo(tmp_path / "r", FILES)
+    _nested(root, rel, {"run.py": "print(1)\n"})
+    before = _hashes(root)
+    (root / rel / "scratch.tmp").write_text("x\n")
+    (root / rel / "build").mkdir()
+    (root / rel / "build" / "out.o").write_text("x\n")
+    assert _hashes(root) == before
+
+
+def test_a_directory_outside_any_work_tree_hashes_its_bytes(tmp_path):
+    # no .git and git says it is in no work tree: nothing for git to say, so the bytes on disk are hashed
+    root = tmp_path / "plain"
+    for rel, text in {".github/dokimi/config.yaml": CONFIG, **FILES}.items():
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_bytes(text.encode("utf-8"))
+    assert git_tree(root) is None
+    before = _hashes(root)
+    (root / "skills/a/SKILL.md").write_bytes(b"a\r\nb\r\n")  # bytes on disk, not a git blob id
+    assert _hashes(root) != before
+
+
+@pytest.mark.parametrize("rel", ["skills/a/tools", "skills/a/evals/tools"])
+def test_a_tracked_or_untracked_change_inside_a_nested_repository_moves_a_hash(tmp_path, rel):
+    root = _repo(tmp_path / "r", FILES)
+    _nested(root, rel, {"run.py": "print(1)\n"})
+    before = _hashes(root)
+    (root / rel / "run.py").write_text("print(2)\n")  # tracked by the nested repository
+    assert _hashes(root) != before
+    before = _hashes(root)
+    (root / rel / "notes.md").write_text("not ignored by the nested repository\n")  # untracked, kept
+    assert _hashes(root) != before
+
+
+@pytest.mark.parametrize("rel", ["skills/a/tools", "skills/a/evals/tools"])
+def test_a_change_inside_an_untracked_repository_under_a_nested_repository_moves_a_hash(tmp_path, rel):
+    # the nested repository lists its untracked repository as a directory (vendor/inner/); the walk must reach it
+    root = _repo(tmp_path / "r", FILES)
+    _nested(root, rel, {"run.py": "print(1)\n"})
+    _nested(root, f"{rel}/vendor/inner", {"x.py": "x = 1\n"})
+    before = _hashes(root)
+    (root / rel / "vendor" / "inner" / "x.py").write_text("x = 2\n")
+    assert _hashes(root) != before
+
+
+@pytest.mark.parametrize("rel", ["skills/a/tools", "skills/a/evals/tools"])
+def test_a_nested_repository_inside_a_nested_repository_follows_its_own_ignore_rules(tmp_path, rel):
+    # the outer nested repository ignores *.tmp (_nested); the innermost one ignores only *.log, so *.tmp is kept there
+    root = _repo(tmp_path / "r", FILES)
+    _nested(root, rel, {"run.py": "print(1)\n"})
+    inner = root / rel / "vendor" / "inner"
+    _nested(root, f"{rel}/vendor/inner", {".gitignore": "*.log\n", "x.py": "x = 1\n"})
+    before = _hashes(root)
+    (inner / "y.log").write_text("x\n")  # ignored by the innermost repository
+    assert _hashes(root) == before
+    (inner / "z.tmp").write_text("x\n")  # kept: the outer repository's *.tmp rule does not reach inside
+    assert _hashes(root) != before
+    (inner / "z.tmp").unlink()
+    before = _hashes(root)
+    (inner / "x.py").write_text("x = 2\n")  # tracked by the innermost repository
+    assert _hashes(root) != before
+
+
+def test_a_submodule_inside_a_nested_repository_is_hashed_by_its_checked_out_files(tmp_path):
+    # pinned: the files checked out in the submodule count, not the gitlink commit the skill's index records for it
+    rel = "skills/a/tools"
+    lib = tmp_path / "lib"
+    lib.mkdir()
+    _git(lib, "init", "-q")
+    (lib / "lib.py").write_text("x = 1\n")
+    _git(lib, "add", "-A")
+    _git(lib, "commit", "-q", "-m", "lib")
+    root = _repo(tmp_path / "r", FILES)
+    _nested(root, rel, {"run.py": "print(1)\n"})
+    tools = root / rel
+    _git(tools, "-c", "protocol.file.allow=always", "submodule", "add", str(lib), "sub")
+    _git(tools, "commit", "-q", "-m", "submodule")
+    before = _hashes(root)
+    (tools / "sub" / "lib.py").write_text("x = 2\n")  # a file checked out in the submodule
+    assert _hashes(root) != before
+    (tools / "sub" / "lib.py").write_text("x = 1\n")
+    assert _hashes(root) == before
+    # a new commit in the submodule moves its HEAD, not the gitlink the skill's index records: the hash must not move
+    _git(tools / "sub", "commit", "-q", "--allow-empty", "-m", "same tree")
+    assert _hashes(root) == before
+
+
+def test_a_case_only_rename_in_a_nested_repository_still_moves_skill_sha(tmp_path):
+    # PRRT_kwDOVBg7g860MHqZ: under core.ignorecase ls-files spells the tracked name as the index has it, and the file
+    # on disk is spelled otherwise; it is not ignored, so an edit to it moves the digest
+    root = _repo(tmp_path / "r", FILES)
+    rel = "skills/a/tools"
+    _nested(root, rel, {"Readme.md": "a\n"})
+    _git(root / rel, "config", "core.ignorecase", "true")
+    os.rename(root / rel / "Readme.md", root / rel / "README.md")
+    before = _hashes(root)
+    (root / rel / "README.md").write_text("b\n")
+    assert _hashes(root) != before
+
+
+def test_a_file_the_top_tracks_counts_though_a_nested_glob_ignores_it(tmp_path):
+    # PRRT_kwDOVBg7g860MHqk: the top stores skills/a/tools/gen.json, so its rules win over the nested .gitignore
+    root = _repo(tmp_path / "r", {**FILES, "skills/a/tools/gen.json": "1\n"})
+    _nested(root, "skills/a/tools", {".gitignore": "*.json\n"})
+    before = _hashes(root)
+    (root / "skills/a/tools/gen.json").write_text("2\n")
+    assert _hashes(root) != before
+
+
+_ODD_ENDS = ["top ", pytest.param("top\n", marks=pytest.mark.skipif(os.name == "nt", reason="no newline in a name"))]
+
+
+@pytest.mark.parametrize("name", _ODD_ENDS)
+def test_a_top_directory_whose_name_ends_in_a_space_is_read(tmp_path, name):
+    # PRRT_kwDOVBg7g860MHqp: --show-toplevel keeps the trailing space or newline of the name
+    root = _repo(tmp_path / name, FILES)
+    tree = git_tree(root)
+    assert tree is not None and tree.top == Path(os.path.realpath(root))
+
+
+@pytest.mark.parametrize("name", _ODD_ENDS)
+def test_a_nested_repository_whose_name_ends_in_a_space_or_newline_follows_its_ignore_rules(tmp_path, name):
+    root = _repo(tmp_path / "r", FILES)
+    _nested(root, f"skills/a/{name}", {"run.py": "print(1)\n"})
+    before = _hashes(root)
+    (root / "skills/a" / name / "scratch.tmp").write_text("x\n")
+    assert _hashes(root) == before
+    (root / "skills/a" / name / "run.py").write_text("print(2)\n")
+    assert _hashes(root) != before
+
+
+@pytest.mark.parametrize("rel", ["skills/a/tools", "skills/a/evals/tools"])
+def test_a_nested_repository_git_cannot_read_is_an_error_not_a_silent_fallback(tmp_path, rel):
+    # git fails inside the nested repository: its ignored files must not count again without a word about it
+    root = _repo(tmp_path / "r", FILES)
+    _nested(root, rel, {"run.py": "print(1)\n"})
+    (root / rel / ".git" / "HEAD").unlink()  # a repository git cannot read as one
+    with pytest.raises(ConfigError, match=rf"cannot read .*{re.escape(rel)}") as err:
+        _hashes(root)
+    assert "git" in str(err.value)
+
+
+def test_a_broken_inner_repository_under_a_readable_one_is_an_error_not_the_outer_tree(tmp_path):
+    # the outer repository reads fine; git -C inner would skip the broken inner .git and read the outer one's rules
+    root = _repo(tmp_path / "r", FILES)
+    _nested(root, "vendor/inner", {"x.py": "x = 1\n"})
+    (root / "vendor" / "inner" / ".git" / "HEAD").unlink()
+    with pytest.raises(OSError, match="cannot read this nested repository: git reads .* instead"):
+        tree_digest(root / "vendor" / "inner", git=True)
+
+
+def _owned_by_another_user(monkeypatch, repo: Path) -> None:
+    """Git refuses the repository at ``repo`` as owned by another user (safe.directory), through git's own test knob, on
+    every git call whose arguments name ``repo`` (or a path under it). An empty safe.directory entry clears any allow-list
+    (a runner's global ``safe.directory = *`` would otherwise lift the refusal)."""
+    from dokimi import process, utils
+
+    base = utils._git_env()
+    named = re.compile(re.escape(str(repo)) + r"(?![\w.-])")
+    real_run = process.run
+    refuse = {"GIT_TEST_ASSUME_DIFFERENT_OWNER": "1", "LC_ALL": "C", "GIT_CONFIG_COUNT": "1",
+              "GIT_CONFIG_KEY_0": "safe.directory", "GIT_CONFIG_VALUE_0": ""}
+
+    def run(argv, **kwargs):
+        if any(named.search(arg) for arg in argv):
+            kwargs["env"] = process.Env.only(allow=base.allow, set={**base.set, **refuse})
+        return real_run(argv, **kwargs)
+
+    monkeypatch.setattr(process, "run", run)
+
+
+@pytest.mark.parametrize("rel", ["skills/a/tools", "skills/a/evals/tools"])
+def test_a_nested_repository_owned_by_another_user_is_an_error_not_a_silent_fallback(tmp_path, monkeypatch, rel):
+    root = _repo(tmp_path / "r", FILES)
+    _nested(root, rel, {"run.py": "print(1)\n"})
+    _owned_by_another_user(monkeypatch, root / rel)
+    with pytest.raises(ConfigError, match=rf"cannot read .*{re.escape(rel)}") as err:
+        _hashes(root)
+    assert "dubious ownership" in str(err.value)

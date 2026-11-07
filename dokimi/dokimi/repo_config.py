@@ -580,7 +580,8 @@ def _digest_files(files: dict[str, Path], root: Path, modes: Mapping[str, bool] 
     Every link met on the way to a match or a file counts too (a link above it, or one on the way to its target), so
     retargeting a link on the way to a suite moves the hash even when the files behind it are identical, or there are
     none. ``modes`` are the index's executable bits keyed by repository-relative path, read once by the caller. With
-    ``tree`` a file digests as its blob id and what git leaves out (ignored paths, a nested ``.git``) is not hashed."""
+    ``tree`` a file digests as its blob id and what git leaves out (ignored paths, a nested ``.git``, and what a nested
+    repository's own ignore rules leave out) is not hashed."""
     h = hashlib.sha256()
     root_real = _real(root) or root
     seen: set[tuple[str, ...]] = set()  # a link on the way to several matches is hashed once
@@ -739,7 +740,10 @@ def _check_link(subject: Subject, name: str, entry: Path, real_skill: Path) -> N
 
 
 def _check_claims(subject: Subject, matches: dict[str, Path], real_skill: Path) -> None:
+    """A suite claims whole directories of its skill, and individual files only under its evals directory
+    (``{skill}/evals``): a file of SKILL.md, scripts, references, or anywhere else in the skill is refused."""
     dirs = [rel for rel, path in matches.items() if path.is_dir() and _within(rel, subject.path)]
+    evals = f"{subject.path}/evals"
     for rel, path in matches.items():
         into = _into_skill(path, real_skill)
         if path.is_dir() and not _within(rel, subject.path) and into:
@@ -749,11 +753,11 @@ def _check_claims(subject: Subject, matches: dict[str, Path], real_skill: Path) 
                 "so the skill's hash would cover the suite's files"
             )
         inside = _within(rel, subject.path) or into
-        if path.is_dir() or not inside or any(_within(rel, d) for d in dirs):
+        if path.is_dir() or not inside or any(_within(rel, d) for d in dirs) or _within(rel, evals):
             continue
         raise ConfigError(
-            f"subject {subject.id}: its suite claims the file {rel} of its skill, not a whole directory; "
-            f"claim the directory instead, for example {subject.path}/evals/**"
+            f"subject {subject.id}: its suite claims the file {rel} of its skill, not a whole directory or a file under "
+            f"{evals}; claim the directory instead, for example {evals}/**"
         )
 
 
