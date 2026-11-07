@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from dokimi.repos.manifest import RepoManifest
 
+from dokimi import docker_cmd
 from dokimi.repos.harness_profile import DELEGATION_MODES
 from dokimi.exit_codes import EXIT_USAGE
 from dokimi.utils import tree_digest
@@ -385,8 +386,7 @@ def _common(p: argparse.ArgumentParser, source_help: str, cache_help: str, posit
                    help="Build the image even if the tag exists")
     p.add_argument("--build-network", default=None, dest="build_network",
                    help="docker build --network (for example host, behind a local proxy)")
-    # repos.container.BUILD_TIMEOUT_S, written out to keep dokimi.repos unimported at startup
-    p.add_argument("--build-timeout", type=positive_int, default=3 * 3600, dest="build_timeout",
+    p.add_argument("--build-timeout", type=positive_int, default=docker_cmd.BUILD_TIMEOUT_S, dest="build_timeout",
                    help="Seconds the image build may run before it fails (default 10800, 3 hours)")
     p.add_argument("--cache", action="append", default=None, metavar="NAME=PATH",
                    help="Host directory for the manifest cache NAME; repeatable")
