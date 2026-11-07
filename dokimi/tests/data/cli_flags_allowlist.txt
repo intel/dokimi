@@ -196,6 +196,7 @@
 --shell  # trace consistency (#155) adds it: no registry concept yet; a F1b migration names it
 --sim-threshold
 --skip-nested  # catalog check --skip-nested (#413 A4): no registry concept yet; a F1b migration names it
+--ignore  # catalog check --ignore CODE (#413 A8): no registry concept yet; a F1b migration names it
 --skip-work
 --source-dir
 --spec

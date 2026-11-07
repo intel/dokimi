@@ -21,18 +21,19 @@ from typing import Callable, Iterable, Iterator, Optional
 from dokimi.utils import InputError
 
 
-def skill_row(skill, review, nested_in: Optional[str] = None, outputs: Iterable[Path] = ()) -> dict:
+def skill_row(skill, review, nested_in: Optional[str] = None, outputs: Iterable[Path] = (),
+              ignore: frozenset = frozenset()) -> dict:
     """One skill of the scan report. ``state`` is ``error`` for a load error or an error finding,
     ``warn`` for a warning finding only, else ``ok``. A skill that did not load has a review only
     when its frontmatter is broken YAML, and that review's finding is its only finding.
     ``nested_in`` is the skill whose directory holds this one (None when it is not nested).
-    ``outputs`` are the scan's own files, left out of ``skill_sha256``."""
+    ``outputs`` are the scan's own files, left out of ``skill_sha256``. ``ignore`` drops the
+    findings with those codes before the state is taken; ``ignored`` records the codes in effect."""
     from dokimi.external.catalog_review import entry_relpath
+    from dokimi.external.validate import state_of
 
-    if not skill.loaded:
-        state, findings = "error", (review.findings if review else [])
-    else:
-        state, findings = review.state, review.findings
+    kept = [f for f in review.findings if f.code not in ignore] if review else []
+    state = "error" if not skill.loaded else state_of(kept)
     return {
         "name": skill.name,
         "manifest_status": None if skill.status is None else str(skill.status),
@@ -45,7 +46,8 @@ def skill_row(skill, review, nested_in: Optional[str] = None, outputs: Iterable[
         "content_sha256": review.content_sha256 if review else None,
         "skill_sha256": skill_dir_digest(skill, outputs),
         "duplicate_of": review.duplicate_of if review else None,
-        "findings": [{"level": f.level, "code": f.code, "message": f.message} for f in findings],
+        "ignored": sorted(ignore),
+        "findings": [{"level": f.level, "code": f.code, "message": f.message} for f in kept],
     }
 
 
@@ -115,11 +117,11 @@ def _row_key(row: dict) -> str:
 
 
 def _review_row(item: tuple) -> dict:
-    """One ``(entry, nested_in, outputs)`` item reviewed alone, as a report row. Module level, so a worker can run it."""
+    """One ``(entry, nested_in, outputs, ignore)`` item reviewed alone, as a report row. Module level, so a worker can run it."""
     from dokimi.external.validate import review_skills
 
-    entry, nested_in, outputs = item
-    return skill_row(entry, review_skills([entry])[0], nested_in, outputs)
+    entry, nested_in, outputs, ignore = item
+    return skill_row(entry, review_skills([entry])[0], nested_in, outputs, ignore)
 
 
 def _review_rows(pairs: list, jobs: int, review: Callable = _review_row) -> Iterator[dict]:
@@ -192,13 +194,14 @@ def _parse_row(raw: bytes, path: Path, lineno: int) -> Optional[dict]:
     raise InputError(f"--jsonl {path} line {lineno} is not a scan row; fix or remove it before --resume")
 
 
-def _load_prior(path: Path, selected: dict[str, Optional[str]]) -> tuple[list[dict], bool]:
+def _load_prior(path: Path, selected: dict[str, Optional[str]], ignore: frozenset) -> tuple[list[dict], bool]:
     """The rows of *path* still current for the skills this run selects, and whether the file must be rewritten.
 
     *selected* maps each skill's key to its ``skill_sha256`` now. The file is read line by line and only
     the kept rows are held. A rewrite is due when a line is half-written, when the last line has no
     newline (the next row would be glued onto it), or when a row is for a skill this run does not
-    select or whose directory changed (the file must match the counts printed).
+    select, whose directory changed, or was written under other ``--ignore`` codes (the file must
+    match the counts printed).
     """
     rows: list[dict] = []
     dirty = False
@@ -211,7 +214,8 @@ def _load_prior(path: Path, selected: dict[str, Optional[str]]) -> tuple[list[di
                 if row is None:
                     continue
                 key = _row_key(row)
-                if key in selected and "skill_sha256" in row and row["skill_sha256"] == selected[key]:
+                if (key in selected and "skill_sha256" in row and row["skill_sha256"] == selected[key]
+                        and row.get("ignored", []) == sorted(ignore)):
                     rows.append(row)
                 else:
                     dirty = True
@@ -238,11 +242,11 @@ class _Jsonl:
     in half, and a directory name that is not valid UTF-8 is escaped rather than a crash.
     """
 
-    def __init__(self, path: Path, resume: bool, selected: dict[str, Optional[str]]) -> None:
+    def __init__(self, path: Path, resume: bool, selected: dict[str, Optional[str]], ignore: frozenset) -> None:
         self.path = path
         self.prior: list[dict] = []
         if resume and path.is_file():
-            self.prior, dirty = _load_prior(path, selected)
+            self.prior, dirty = _load_prior(path, selected, ignore)
             if dirty:
                 _rewrite(path, self.prior)
         try:
@@ -291,13 +295,14 @@ def scan_per_skill(args, root: Path, report: dict, as_json: bool, pairs: list) -
     outputs = _outputs(jsonl)
     selected = {key: skill_dir_digest(entry, outputs) if args.resume else None
                 for key, (entry, _) in zip(keys, pairs, strict=True)}
-    sink = _Jsonl(jsonl, args.resume, selected) if jsonl is not None else None
+    ignore = frozenset(args.ignore or ())
+    sink = _Jsonl(jsonl, args.resume, selected, ignore) if jsonl is not None else None
     tally = _Tally(args.strict)
     prior = sink.prior if sink is not None else []
     for row in prior:
         tally.add(row)
     done = {_row_key(row) for row in prior}
-    todo = [(entry, mark, outputs) for entry, mark in pairs if _entry_key(entry) not in done]
+    todo = [(entry, mark, outputs, ignore) for entry, mark in pairs if _entry_key(entry) not in done]
     try:
         for row in _review_rows(todo, args.jobs or 1):
             tally.add(row)
