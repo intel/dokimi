@@ -168,3 +168,10 @@ def test_the_warning_names_a_judge_change_or_a_rewritten_key_not_a_probe_flag(ca
 def test_an_older_key_naming_a_cli_alias_with_a_context_suffix_is_the_cli_alias(capsys):
     warn_answer_key({"extractor": "sonnet[1m]"}, LLMClient(model="gpt-6.1-sol"), _judge("claude-sonnet-5-5"))
     assert "are both claude-sonnet-5-5" in capsys.readouterr().err
+
+
+def test_the_probe_remedy_names_the_atoms_file_not_analyze(capsys):
+    warn_answer_key({"extractor": "claude-sonnet-5-5"}, LLMClient(model="gpt-6.1-sol"),
+                    _judge("claude-sonnet-5-5"))
+    err = capsys.readouterr().err
+    assert "write the atoms file again" in err and "analyze --extract-model" not in err

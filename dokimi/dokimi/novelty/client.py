@@ -309,24 +309,26 @@ def extractor_judge_relation(extractor_model: str, judge: LLMClient,
     }
 
 
-# The remedy holds for analyze and for probe: probe's --extract-model does not change a saved key.
-_REMEDY = ("Use a judge from another family, or write the answer key again with another extractor "
-           "(analyze --extract-model with --extract-provider when it is not the judge's, "
-           "or atoms --extract-model with --provider for a saved atoms file)")
+# analyze writes its own answer key in the run, so re-running it with another extractor helps.
+_REMEDY_ANALYZE = ("Use a judge from another family, or write the answer key again with another extractor "
+                   "(analyze --extract-model, with --extract-provider when it is not the judge's)")
+# probe reads a saved atoms file: only atoms can write that key again; probe's flags do not change it.
+_REMEDY_PROBE = ("Use a judge from another family, or write the atoms file again with another extractor "
+                 "(atoms --extract-model with --provider; probe's --extract-model does not change a saved key)")
 
 
 def warn_extractor_judge(extractor_model: str, judge: LLMClient,
-                         extractor_provider: str = "") -> dict:
+                         extractor_provider: str = "", remedy: str = _REMEDY_ANALYZE) -> dict:
     """Print a stderr warning when the judge is the answer key's model or its vendor family."""
     relation = extractor_judge_relation(extractor_model, judge, extractor_provider)
     if relation["same_model"]:
         print(f"WARNING: the extractor and the judge are both {judge.model}: one model wrote the "
-              f"answer key and grades against it. {_REMEDY} (docs/skill-novelty.md, Choosing the "
+              f"answer key and grades against it. {remedy} (docs/skill-novelty.md, Choosing the "
               "extractor and the judge)", file=sys.stderr)
     elif relation["same_vendor"]:
         print(f"WARNING: the extractor ({extractor_model}) and the judge ({judge.model}) are one "
               "vendor family: the judge may favour an answer key its own family wrote. "
-              f"{_REMEDY} (docs/skill-novelty.md, Choosing the extractor and the judge)",
+              f"{remedy} (docs/skill-novelty.md, Choosing the extractor and the judge)",
               file=sys.stderr)
     return relation
 

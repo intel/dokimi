@@ -139,7 +139,7 @@ def no_candidate_line(candidates: list, scored: list, atoms: list) -> str:
 
 def warn_answer_key(saved: dict, answerer, judge) -> None:
     """Warn when the saved answer key was written by the model under measurement, or by the judge's model or family."""
-    from dokimi.novelty.client import warn_extractor_judge
+    from dokimi.novelty.client import _REMEDY_PROBE, warn_extractor_judge
 
     extractor = saved.get("extractor")
     if not isinstance(extractor, str):
@@ -149,4 +149,5 @@ def warn_answer_key(saved: dict, answerer, judge) -> None:
               "wrote its own answer key; extract with a different --extract-model",
               file=sys.stderr)
     provider = saved.get("extractor_provider")  # None in a record from before it was saved
-    warn_extractor_judge(extractor, judge, provider if isinstance(provider, str) else "")
+    warn_extractor_judge(extractor, judge, provider if isinstance(provider, str) else "",
+                         remedy=_REMEDY_PROBE)
