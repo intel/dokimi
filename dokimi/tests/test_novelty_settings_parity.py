@@ -263,9 +263,8 @@ def _refusal_as_exit_2(step: dict[str, Any]) -> dict[str, Any]:
 
 # `skill novelty atoms` runs whose cap binds.
 CAPPED_ATOMS = {"atoms/max-atoms-1"}
-# Intended change: a run whose extractor is left at its default (the judge) warns on stderr that
-# one model wrote the key and grades it (novelty/client.py). The captured runs below print it;
-# the golden, from main, does not. Stripped before the comparison; the set names the cases.
+# Intended change: a run whose extractor defaults to the judge warns on stderr that one model
+# wrote the key and grades it. Stripped before the comparison; the set names the cases.
 EXTRACTOR_JUDGE_WARNED = {
     "run/default", "run/triage", "run/standard", "run/study", "run/study-all-atoms",
     "run/triage-max-atoms-1", "run/standard-no-verify", "run/max-atoms-1",
