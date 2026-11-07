@@ -35,6 +35,9 @@ SHELL_SUFFIXES = (".sh", ".bash")
 SCRIPT_SUFFIXES = (*SHELL_SUFFIXES, ".py")
 BASH_FAMILY = frozenset({"bash", "sh", "dash", "ksh"})  # the shebang names bash -n can judge
 ENV_OPERAND_OPTIONS = frozenset({"-u", "--unset", "-C", "--chdir"})  # env options with an operand
+PARSE_SHOPTS = frozenset({"extglob"})  # bash -O options that change how a script parses; bash -n is given them
+PARSE_NEUTRAL_FLAGS = frozenset("BEPTeuxh")  # shebang flags, as letters, that change no parse
+PARSE_NEUTRAL_OPTIONS = frozenset({"errexit", "nounset", "pipefail", "xtrace"})  # shebang -o names likewise
 SYNTAX_CODES = frozenset({"E999", "invalid-syntax"})  # a syntax error is script-syntax's, not the lint's
 SKIP_DIRS = VENDORED_DIR_NAMES | TEMPLATE_DIR_NAMES  # the loader's vendored and scaffold trees
 TOP_RULES = 3
@@ -89,7 +92,8 @@ def _file_findings(path: Path, rel: str, data: bytes, bash: Optional[str], runne
             found.append(("error", "script-syntax", f"{rel} does not parse as Python: {problem}"))
     elif suffix in SHELL_SUFFIXES and bash is not None and not crlf and _runs_under_bash(data):
         # a CRLF script fails on every line, so its crlf finding is the one to fix; fish, zsh etc. are not bash's
-        problem = _shell_problem(bash, data, runner)
+        options = _shell_options(data)  # None: the shebang asks for an option bash -n cannot be given
+        problem = None if options is None else _shell_problem(bash, options, data, runner)
         if problem:
             found.append(("error", "script-syntax", f"{rel} does not parse as shell: {problem}"))
     return found
@@ -179,9 +183,31 @@ def _spawn(runner: process.Runner, argv: list[str], **kwargs) -> Optional[proces
         return None
 
 
-def _shell_problem(bash: str, data: bytes, runner: process.Runner) -> Optional[str]:
+def _shell_options(data: bytes) -> Optional[list[str]]:
+    """The bash options ``bash -n`` is given for the shebang's arguments: ``-O`` for a shopt that changes parsing
+    (``extglob``), and nothing for a flag or ``-o`` option that changes no parse. None when the shebang has an
+    argument this check cannot reproduce, so the script is not judged."""
+    words = _shebang_words(data)
+    args = words[1:] if words else []
+    options: list[str] = []
+    i = 0
+    while i < len(args):
+        word, operand = args[i], args[i + 1] if i + 1 < len(args) else ""
+        if word == "-O" and operand in PARSE_SHOPTS:
+            options += ["-O", operand]
+            i += 2
+        elif word == "-o" and operand in PARSE_NEUTRAL_OPTIONS:
+            i += 2
+        elif word.startswith("-") and len(word) > 1 and set(word[1:]) <= PARSE_NEUTRAL_FLAGS:
+            i += 1
+        else:
+            return None
+    return options
+
+
+def _shell_problem(bash: str, options: list[str], data: bytes, runner: process.Runner) -> Optional[str]:
     """The first line ``bash -n`` reports for the script on stdin, or None. Nothing is run; no environment is passed."""
-    done = _spawn(runner, [bash, "-n"], timeout=SYNTAX_TIMEOUT_SEC, env=process.Env.only(), input=data)
+    done = _spawn(runner, [bash, *options, "-n"], timeout=SYNTAX_TIMEOUT_SEC, env=process.Env.only(), input=data)
     if done is None or done.timed_out or done.returncode == 0:
         return None
     first = next((line.strip() for line in done.stderr.splitlines() if line.strip()), "")

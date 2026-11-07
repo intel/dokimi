@@ -288,3 +288,35 @@ def test_env_options_and_assignments_do_not_hide_the_shell(tmp_path, shebang):
 
     assert [code for _, code, _ in findings] == ["script-syntax"]
     assert len(runner.calls) == 1
+
+
+def test_a_shebang_shopt_that_changes_parsing_is_given_to_bash_n(tmp_path):
+    skill = _bundle(tmp_path, {"run.sh": b"#!/usr/bin/env -S bash -O extglob\ncase x in @(x|y)) : ;; esac\n"})
+    runner = process.FakeRunner()
+
+    assert script_findings(skill, which=_tools("bash"), runner=runner) == []
+    [call] = runner.calls
+    assert call.argv == ("/usr/bin/bash", "-O", "extglob", "-n")
+
+
+@needs_bash
+def test_extglob_from_the_shebang_is_valid_under_real_bash(tmp_path, no_linters):
+    _bundle(tmp_path, {"run.sh": b"#!/usr/bin/env -S bash -O extglob\ncase x in @(x|y)) : ;; esac\n"})
+
+    assert _reviews_by_name(tmp_path)["bundled"].findings == []
+
+
+def test_a_shebang_flag_that_changes_no_parse_keeps_the_check(tmp_path):
+    skill = _bundle(tmp_path, {"run.sh": b"#!/bin/bash -eu\nif true; then\n"})
+    runner = process.FakeRunner(lambda call: process.reply(stderr="bash: syntax error\n", returncode=2))
+
+    assert [code for _, code, _ in script_findings(skill, which=_tools("bash"), runner=runner)] == ["script-syntax"]
+    assert runner.calls[0].argv == ("/usr/bin/bash", "-n")
+
+
+def test_a_shebang_option_bash_n_cannot_reproduce_leaves_the_script_unjudged(tmp_path):
+    skill = _bundle(tmp_path, {"run.sh": b"#!/bin/bash -O globstar\nif true; then\n"})
+    runner = process.FakeRunner(lambda call: process.reply(stderr="bash: syntax error\n", returncode=2))
+
+    assert script_findings(skill, which=_tools("bash"), runner=runner) == []
+    assert runner.calls == []
