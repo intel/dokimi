@@ -251,7 +251,9 @@ A large catalog is easier to scan one skill at a time:
 - `--per-skill` reviews each skill alone. The four cross-catalog checks
   (`duplicate`, `name-conflict`, `mirror-drift`, `description-near-duplicate`)
   compare a skill with the others, so they do not run in this mode; every other
-  check does.
+  check does. The granularity hints (merge and split candidates) need the whole
+  catalog too, so they are not run here; the text output says so in a
+  `# granularity: not run with --per-skill` line.
 - A `SKILL.md` inside another skill's directory is marked with `nested_in`
   (the enclosing skill's path) in JSON and with a `note` in text. It is counted
   by default; `--skip-nested` leaves it out of the scan.

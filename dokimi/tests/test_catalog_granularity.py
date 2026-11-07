@@ -415,3 +415,12 @@ def test_an_inline_code_line_with_backticks_on_both_ends_is_not_a_fence_opener()
 
     assert all(g._outside_fences(lines))
     assert g._fenced(lines) == ("intro\n```inline``` text\nmore prose\n## Next\nprose", [])
+
+
+def test_catalog_check_per_skill_says_the_granularity_hints_were_not_run(overlapping_catalog, capsys):
+    args = build_parser().parse_args(
+        ["catalog", "check", "--root", str(overlapping_catalog), "--kind", "skills", "--per-skill"]
+    )
+    args.func(args)
+
+    assert "# granularity: not run with --per-skill" in capsys.readouterr().out

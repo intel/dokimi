@@ -269,6 +269,7 @@ def _print_text(root: Path, declared: int, tally: _Tally, resumed: int,
     else:
         for row in rows:
             print_skill_row(row)
+    print("# granularity: not run with --per-skill (run without it for the merge and split hints)")
     print()
 
 
