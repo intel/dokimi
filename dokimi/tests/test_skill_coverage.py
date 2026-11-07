@@ -171,6 +171,14 @@ def test_task_checks_that_share_a_long_prefix_stay_apart_with_their_full_source(
     assert any("assert x == 2" in c.source for c in checks.values())
 
 
+def test_a_form_feed_or_unicode_line_separator_above_a_test_does_not_shift_its_source(tmp_path):
+    root = tmp_path / "tasks"
+    for task, answer in (("t1", "1"), ("t2", "2")):  # str.splitlines breaks on \x0c and \u2028; ast does not
+        _task(root, task, {"test_answer.py": f"x = 0  # \x0c\u2028\n\ndef test_a(x):\n    assert x == {answer}\n"})
+    sources = sorted(c.source for c in sc.load_checks(root))
+    assert sources == ["def test_a(x):\n    assert x == 1", "def test_a(x):\n    assert x == 2"]
+
+
 # --- the two model calls ------------------------------------------------------
 
 def test_extract_requirements_numbers_by_section_and_skips_bad_rows(tmp_path):

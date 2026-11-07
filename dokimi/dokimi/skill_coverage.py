@@ -26,6 +26,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import json
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -127,7 +128,7 @@ def check_files(root: Path) -> list[Path]:
 def _source(text: str, node: ast.stmt) -> str:
     """The function's source from its first decorator to its last line (``ast.get_source_segment`` starts at ``def``,
     so a parametrize decorator would be lost and two differently parametrized checks would read as one)."""
-    lines = text.splitlines(keepends=True)
+    lines = re.findall(r"[^\r\n]*(?:\r\n|\r|\n)|[^\r\n]+\Z", text)  # the line breaks ast counts, not splitlines's
     start = min([node.lineno, *(d.lineno for d in getattr(node, "decorator_list", []))])
     return "".join(lines[start - 1:node.end_lineno]).rstrip("\n")
 
