@@ -87,12 +87,13 @@ TARGETS: dict[str, Callable[[str], None]] = {
     "frontmatter": frontmatter,
 }
 
-NAMES = sorted(TARGETS)
+# Append-only: byte 0 of a seed indexes this tuple, so a new target goes at the end.
+NAMES = ("choice", "frontmatter", "json_answer", "json_array", "json_object", "verdict", "yes_no")
 
 
 def decode(data: bytes) -> tuple[str, str]:
     """``(target name, text)`` of a fuzz input: byte 0 picks the target (modulo the
-    number of targets, by sorted name), the rest is UTF-8 with bad bytes replaced."""
+    number of targets, in ``NAMES`` order), the rest is UTF-8 with bad bytes replaced."""
     if not data:
         return NAMES[0], ""
     return NAMES[data[0] % len(NAMES)], data[1:].decode("utf-8", errors="replace")

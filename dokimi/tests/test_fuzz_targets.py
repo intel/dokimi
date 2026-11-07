@@ -93,3 +93,10 @@ def test_parse_json_reads_deep_nesting_as_not_json(contains: bool) -> None:
     from dokimi.eval.reference_checks import parse_json
 
     assert parse_json("[" * 20000, contains=contains) == (False, None)
+
+
+def test_names_pin_the_byte_to_target_order() -> None:
+    # A seed stores its target's index in byte 0: this order is append-only, so a new
+    # target goes at the end and the seeds already saved keep their target.
+    assert NAMES == ("choice", "frontmatter", "json_answer", "json_array", "json_object", "verdict", "yes_no")
+    assert set(NAMES) == set(TARGETS)
