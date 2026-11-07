@@ -60,17 +60,23 @@ def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bo
 def _granularity_section(skills, reviews, root: Path, report: dict, as_json: bool) -> None:
     """The free granularity hints (#424) over the skills a harness would offer: into ``report``, and printed unless JSON.
 
-    Offered is ``listing.in_field`` (what the routing field lists), less the copies the scan
-    already reports as ``duplicate``: one skill counted twice is not a merge candidate.
+    Offered is ``listing.in_field`` (what the routing field lists), one copy per identical SKILL.md:
+    one skill counted twice is not a merge candidate. The original is the copy nearest the root
+    whether or not it is in the field, so an in-field copy stands in when the original is not.
     """
     from dokimi.external import granularity
     from dokimi.external.listing import in_field
 
-    offered = [
-        entry.skill for entry, review in zip(skills, reviews, strict=True)
-        if entry.loaded and entry.skill is not None and review is not None
-        and in_field(review) and review.duplicate_of is None
+    candidates = [
+        (entry.skill, review) for entry, review in zip(skills, reviews, strict=True)
+        if entry.loaded and entry.skill is not None and review is not None and in_field(review)
     ]
+    candidates.sort(key=lambda pair: pair[1].duplicate_of is not None)  # an original before its copies
+    offered, digests = [], set()
+    for skill, review in candidates:
+        if review.content_sha256 not in digests:
+            digests.add(review.content_sha256)
+            offered.append(skill)
     result = granularity.hints(offered, root=str(root))
     report["granularity"] = result.to_dict()
     if not as_json and skills:  # an empty root fails with its own message; no 0-skill section before it
