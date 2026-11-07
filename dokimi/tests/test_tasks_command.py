@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from dokimi.utils import InputError
 from dokimi.cli import build_parser
 
 
@@ -81,7 +82,7 @@ def test_tasks_list_reads_the_given_root(tmp_path, capsys):
 def test_tasks_list_without_root_exits_with_a_readable_message():
     parser = build_parser()
     args = parser.parse_args(["eval", "tasks", "list"])
-    with pytest.raises(SystemExit) as excinfo:
+    with pytest.raises(InputError) as excinfo:
         args.func(args)
     assert "--tasks-root" in str(excinfo.value)
 
@@ -92,7 +93,7 @@ def test_tasks_run_all_without_root_exits_with_a_readable_message(tmp_path):
         "tasks", "run", "--all", "--harnesses", "codex", "--dry-run",
         "--out-json", str(tmp_path / "runs.json"),
     ])
-    with pytest.raises(SystemExit) as excinfo:
+    with pytest.raises(InputError) as excinfo:
         args.func(args)
     assert "--tasks-root" in str(excinfo.value)
 
@@ -103,7 +104,7 @@ def test_tasks_run_named_task_without_root_exits_with_a_readable_message(tmp_pat
         "tasks", "run", "--tasks", "toy-task", "--harnesses", "codex", "--dry-run",
         "--out-json", str(tmp_path / "runs.json"),
     ])
-    with pytest.raises(SystemExit) as excinfo:
+    with pytest.raises(InputError) as excinfo:
         args.func(args)
     assert "--tasks-root" in str(excinfo.value)
 
@@ -116,7 +117,7 @@ def test_tasks_run_with_a_missing_skill_path_exits_before_writing_anything(tmp_p
         "--harnesses", f"docker-claude-skill:{tmp_path / 'nope' / 'SKILL.md'}",
         "--out-json", str(out), "--dry-run",
     ])
-    with pytest.raises(SystemExit) as excinfo:
+    with pytest.raises(InputError) as excinfo:
         args.func(args)
     assert "does not exist" in str(excinfo.value)
     assert not out.exists()
@@ -131,7 +132,7 @@ def test_tasks_run_with_an_unwritable_out_json_exits_with_a_message(tmp_path):
         "tasks", "run", "--tasks", "toy-task", "--tasks-root", str(tmp_path),
         "--harnesses", "codex", "--model", "m", "--out-json", str(out), "--dry-run",
     ])
-    with pytest.raises(SystemExit) as excinfo:
+    with pytest.raises(InputError) as excinfo:
         args.func(args)
     assert f"cannot write {out}" in str(excinfo.value)
 
@@ -147,7 +148,7 @@ def test_tasks_run_with_an_unwritable_out_md_keeps_the_artifact_and_exits_with_a
         "--harnesses", "codex", "--model", "m", "--out-json", str(out), "--out-md", str(md),
         "--dry-run",
     ])
-    with pytest.raises(SystemExit) as excinfo:
+    with pytest.raises(InputError) as excinfo:
         args.func(args)
     assert f"cannot write {md}" in str(excinfo.value)
     assert out.is_file()
@@ -157,7 +158,7 @@ def test_tasks_list_rejects_a_root_that_is_not_a_directory(tmp_path):
     """A mistyped --tasks-root must not read as a suite with zero tasks."""
     parser = build_parser()
     args = parser.parse_args(["eval", "tasks", "list", "--tasks-root", str(tmp_path / "typo")])
-    with pytest.raises(SystemExit) as excinfo:
+    with pytest.raises(InputError) as excinfo:
         args.func(args)
     assert "--tasks-root is not a directory" in str(excinfo.value)
 
@@ -296,10 +297,9 @@ def test_tasks_run_refuses_a_repeated_task_or_harness_before_running(tmp_path, c
             "--harnesses", "command:true", "--out-json", str(tmp_path / "runs.json")]
     argv[argv.index(flag) + 1] = value
     args = build_parser().parse_args(argv)
-    with pytest.raises(SystemExit) as exc:
+    with pytest.raises(InputError) as exc:
         args.func(args)
-    assert exc.value.code == 2
-    assert repeated in capsys.readouterr().err
+    assert repeated in str(exc.value)
     assert not (tmp_path / "runs.json").exists()
 
 
@@ -367,9 +367,9 @@ def test_tasks_run_with_a_missing_task_exits_with_a_message(tmp_path):
         "tasks", "run", "--tasks", "no-such-task", "--tasks-root", str(tmp_path), "--harnesses", "codex",
         "--model", "m", "--dry-run",
     ])
-    with pytest.raises(SystemExit) as excinfo:
+    with pytest.raises(InputError) as excinfo:
         args.func(args)
-    assert str(excinfo.value).startswith("Error:") and "no-such-task" in str(excinfo.value)
+    assert "no-such-task" in str(excinfo.value)
 
 
 @pytest.mark.parametrize("error", [RecursionError("maximum recursion depth exceeded"),
@@ -385,9 +385,9 @@ def test_tasks_run_with_an_unloadable_task_exits_with_a_message(tmp_path, monkey
         "tasks", "run", "--tasks", "t", "--tasks-root", str(tmp_path), "--harnesses", "codex", "--model", "m",
         "--dry-run",
     ])
-    with pytest.raises(SystemExit) as excinfo:
+    with pytest.raises(InputError) as excinfo:
         args.func(args)
-    assert str(excinfo.value) == f"Error: {error}"
+    assert str(excinfo.value) == str(error)
 
 
 def test_tasks_run_with_an_unusable_harness_exits_with_an_error_prefix(tmp_path, monkeypatch):
@@ -400,16 +400,16 @@ def test_tasks_run_with_an_unusable_harness_exits_with_an_error_prefix(tmp_path,
     monkeypatch.setattr("dokimi.commands.tasks._select_tasks", lambda args: ["t"])
     args = build_parser().parse_args(["tasks", "run", "--all", "--tasks-root", str(tmp_path), "--harnesses", "nope",
                                       "--model", "m", "--dry-run"])
-    with pytest.raises(SystemExit) as excinfo:
+    with pytest.raises(InputError) as excinfo:
         args.func(args)
-    assert str(excinfo.value) == "Error: unknown harness: nope"
+    assert str(excinfo.value) == "unknown harness: nope"
 
 
-def test_tasks_inspect_of_a_missing_path_exits_with_an_error_prefix(tmp_path):
+def test_tasks_inspect_of_a_missing_path_is_an_input_refusal(tmp_path):
     args = build_parser().parse_args(["eval", "inspect", str(tmp_path / "nope")])
-    with pytest.raises(SystemExit) as excinfo:
+    with pytest.raises(InputError) as excinfo:
         args.func(args)
-    assert str(excinfo.value).startswith("Error:")
+    assert isinstance(excinfo.value.__cause__, FileNotFoundError)
 
 
 def test_a_harness_id_with_characters_windows_refuses_makes_a_valid_cell_directory_name():

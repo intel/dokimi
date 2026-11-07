@@ -28,15 +28,16 @@ import traceback
 from pathlib import Path
 
 if __package__:
-    from . import graph, review, typecheck
+    from . import graph, hidden_tests, review, typecheck
 else:  # a script under -I: its own directory is not on sys.path
     # By name, not `import review`: dependency hygiene (deptry) reads a bare import as a third-party package.
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     review = importlib.import_module("review")
     typecheck = importlib.import_module("typecheck")
     graph = importlib.import_module("graph")
+    hidden_tests = importlib.import_module("hidden_tests")
 
-_MODULES = (review, typecheck, graph)
+_MODULES = (review, typecheck, graph, hidden_tests)
 GRADERS = {name: fn for m in _MODULES for name, fn in m.GRADERS.items()}
 ORACLES = {name: fn for m in _MODULES for name, fn in m.ORACLES.items()}
 VERSIONS = {name: m.VERSION for m in _MODULES for name in m.GRADERS}

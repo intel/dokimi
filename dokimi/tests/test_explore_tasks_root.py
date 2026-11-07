@@ -8,15 +8,16 @@ from __future__ import annotations
 import pytest
 
 from dokimi.cli import build_parser
+from tests.cli_refusal import refusal
 
 TASK = "id: t\nproduct: p\nquery: q\nreferences:\n  - path: a.py\n"
 
 
 def _refusal(argv, capsys):
     args = build_parser().parse_args(argv)
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as outcome:
         args.func(args)
-    return exc.value.code, capsys.readouterr()
+    return outcome.code, outcome
 
 
 @pytest.fixture

@@ -235,12 +235,11 @@ def test_probe_refuses_an_unknown_arm_before_any_model_call(tmp_path, skill, stu
         return scripted(**{**kwargs, "transport": transport})
 
     monkeypatch.setattr(client_mod, "LLMClient", recording_client)
-    with pytest.raises(SystemExit) as exc:
+    with pytest.raises(InputError) as exc:
         _run("skill", "novelty", "probe", "--artifact", f"skill:{skill}", "--atoms", str(atoms_out),
              "--model", "model-a", "--judge-model", "judge-m", "--arms", "no_artifact,full,no-such-arm",
              "--out", str(tmp_path / "p.json"))
-    assert exc.value.code == 2
-    assert "unknown novelty arms" in capsys.readouterr().err
+    assert "unknown novelty arms" in str(exc.value)
     assert prompts == [], "a model was called before the arm check refused"
 
 
