@@ -305,6 +305,8 @@ def _without_frac_forfeit(value: Any) -> Any:
 # Intended change (#293): a cap of 1 on two atoms probes the second (s0003, mid-stride), not the first,
 # so what follows the atom (dead tokens, oracle calls, the warnings on it) is not main's.
 SPREAD_RUNS = {"run/max-atoms-1", "run/triage-max-atoms-1"}
+EXPECTED_RUN_LINE = re.compile(r"^Expected ~\$\S+ for this run at list prices \((?:--tier \w+|"
+                               r"default settings)\); [^\n]*\n", re.M)
 
 
 def _settings_only(step: dict) -> dict:
@@ -345,6 +347,13 @@ def test_no_setting_bill_or_tier_record_differs_from_main(name, tmp_path):
             # Intended change: `skill novelty atoms` prints the cap warning `analyze` records.
             expected = [dict(step, stderr=f"{step['stderr']}WARNING {CAP_WARNING}\n",
                              **CAPPED_ATOMS_FILE) for step in expected]
+        if name.startswith("run/"):
+            # Intended change: `analyze` names the run's expected cost on stderr before its first
+            # paid call. The line is checked here and taken out of the comparison.
+            for step in steps:
+                named = EXPECTED_RUN_LINE.findall(step["stderr"])
+                assert len(named) == (1 if step["status"] == 0 else 0), step["stderr"]
+                step["stderr"] = EXPECTED_RUN_LINE.sub("", step["stderr"])
         if name in SPREAD_RUNS:
             steps, expected = ([_settings_only(step) for step in side] for side in (steps, expected))
             assert any(CAP_WARNING in step["warnings"] for step in steps)

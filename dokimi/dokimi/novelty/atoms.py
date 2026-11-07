@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 
 from dokimi.utils import InputError, read_json_input
 
-from .client import LLMClient, accepting
+from .client import LLMClient, SpendCapReached, accepting
 from .spans import Span
 
 ATOM_KINDS = ("proposition", "edge", "motif", "contract", "example")
@@ -221,6 +221,8 @@ class ExtractionReport:
     call_error: str = ""
     unusable_error: str = ""
     sampled: dict | None = None
+    # Set when --max-usd stopped extraction: how many spans were read, and the message.
+    partial: dict | None = None
 
     @property
     def last_error(self) -> str:
@@ -300,6 +302,28 @@ class ExtractionReport:
             "reached": None,
             "sampled": self.sampled,
         }
+
+
+def _stop_at_cap(spans: list[Span], batch: list[Span], pending: list, report: ExtractionReport) -> None:
+    """The cap ends extraction: ``batch`` and the batches queued behind it go unread, and the
+    atoms read so far stand (the caller saves them as a partial result)."""
+    for rest in [batch, *(queued for queued, _is_half in pending)]:
+        _mark_unread(rest, report)
+    pending.clear()
+    read = len(spans) - sum(span.unread for span in spans)
+    report.partial = {
+        "reason": "spend_cap", "stage": "extraction", "spans_read": read, "spans_total": len(spans),
+        "message": f"--max-usd stopped extraction with {read} of {len(spans)} spans read",
+    }
+
+
+def _keep_atoms(rows: list, valid_ids: set[str], seen: set[str], atoms: list[Atom]) -> None:
+    """Append each row's atom that is usable and new, in the reply's order."""
+    for row in rows:
+        atom = _atom_from_row(row, valid_ids)
+        if atom is not None and atom.id not in seen:
+            seen.add(atom.id)
+            atoms.append(atom)
 
 
 def extract_atoms(
@@ -390,6 +414,9 @@ def extract_atoms(
                 continue
             unparseable = True
             rows = parse(reply)
+        except SpendCapReached:
+            _stop_at_cap(spans, batch, pending, report)
+            break
         except Exception as exc:
             if unparseable and len(batch) > 1:
                 # Unparseable, most often truncated: re-ask the two halves, in place,
@@ -413,12 +440,7 @@ def extract_atoms(
                 report.call_error = error
             _mark_unread(batch, report)
             continue
-        for row in rows:
-            atom = _atom_from_row(row, valid_ids)
-            if atom is None or atom.id in seen:
-                continue
-            seen.add(atom.id)
-            atoms.append(atom)
+        _keep_atoms(rows, valid_ids, seen, atoms)
     if not atoms and lost is not None and all(span.unread for span in spans):
         # Only when nothing was read: spans that were read and asserted nothing are a
         # result, and a recovered parse error is not a failure.
@@ -549,8 +571,12 @@ def save_atoms(
     atoms: list[Atom], spans: list[Span], path, *,
     extractor: str | None = None, cap: int | None = None, bundle: dict | None = None,
     extraction: ExtractionReport | None = None, sample: list[Atom] | None = None,
+    partial: dict | None = None,
 ) -> None:
     """Write atoms plus their spans as one JSON file (input to ``skill novelty probe``).
+
+    ``partial`` marks a file that ``--max-usd`` cut short: ``status`` and ``partial`` are set,
+    and :func:`load_atoms_record` refuses it.
 
     ``atoms`` is every extracted atom and ``sample`` the ones a run probes
     (:func:`sample_atoms`): ``sampled_atom_ids`` lists those, in probe order, when they leave
@@ -582,6 +608,8 @@ def save_atoms(
                              if sample is not None and len(sample) < len(atoms) else None),
         "spans": [span.as_dict() for span in spans],
     }
+    if partial is not None:
+        payload.update(status="partial", partial=partial)
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -734,6 +762,10 @@ def load_atoms_record(path) -> tuple[list[Atom], list[Span], dict]:
     types its readers use.
     """
     data = read_json_input(path)
+    if isinstance(data, dict) and "partial" in data:
+        raise InputError(f"{path} is a partial atoms file: --max-usd stopped the run before it "
+                         "finished, so it is not a finished atom set. Rerun with a higher "
+                         "--max-usd, or without the cap")
     try:
         atoms, spans = _atoms_from_record(data)
         _check_bundle_shape(data.get("bundle"))
