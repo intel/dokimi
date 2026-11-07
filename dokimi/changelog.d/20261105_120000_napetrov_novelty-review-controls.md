@@ -3,7 +3,7 @@
 - **Novelty review controls.** These are the checks a reviewer asked of the novelty 2x2.
   - `paired` now reports `added_over_placebo` when the `placebo` arm ran: right with the artifact, wrong without it, and wrong with the placebo.
   - A new `no_artifact_repeat` arm asks the baseline again as a new cache draw. With it, `paired` reports `noise_floor`, `added_net_of_noise` and `degraded_within_noise`.
-  - `novelty analyze` and `novelty probe` take `--context-framing reference|neutral`, which controls for placebo abstention caused by the prompt. A probe record names its framing (`context_framing`).
+  - `novelty analyze` and `novelty probe` take `--context-framing reference|neutral`, which controls for placebo abstention caused by the prompt. A probe record names its framing (`context_framing`). `skill novelty items` refuses probe records of different framings; a record without the field counts as `reference`.
   - `added_over_placebo.rate` is `null`, not `0.0`, when no probe was answered in all three arms.
   - `added_net_of_noise` and `degraded_within_noise` are computed over the probes all three arms answered, and are omitted when there are none.
 
