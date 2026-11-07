@@ -93,6 +93,9 @@
 --judge-placeholder  # placeholder judge (#274) adds it: no registry concept yet; a F1b migration names it
 --judge-provider
 --judge-temperature
+--judge2  # novelty second judge (#429): a regrade sample, not a panel member; no registry concept yet
+--judge2-frac  # novelty second judge (#429): a regrade sample, not a panel member; no registry concept yet
+--judge2-provider  # novelty second judge (#429): a regrade sample, not a panel member; no registry concept yet
 --judges
 --keep
 --keep-copies-under  # novelty routing: keeps only the copies under a directory of a same-name catalog skill; no registry concept yet
