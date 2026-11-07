@@ -93,7 +93,7 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
         n_arms = len(_arms(args.arms))
         estimate["expected_usd"] = _estimate_usd(
             args, n_tokens, estimate["estimate"]["by_role"], settings.tier,
-            context_share=(n_arms - 1) / n_arms,
+            context_share=(n_arms - 1 - ("no_artifact_repeat" in args.arms)) / n_arms,
         )
         # Every arm but the baseline is priced as carrying the artifact; a placebo of another
         # length is not read.
@@ -128,7 +128,7 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
         budgets=tuple(args.budgets),
         concurrency=args.concurrency,
         allow_self_judge=args.allow_self_judge,
-        placebo_text=placebo_text,
+        placebo_text=placebo_text, context_framing=args.context_framing,
         cache_dir=Path(args.cache_dir) if args.cache_dir else None,
         seed=args.seed,
         include_resources=args.include_resources,
@@ -236,7 +236,7 @@ def cmd_novelty_probe(args: argparse.Namespace) -> None:
             atoms, probe_set.probes, verdict.text, answerer=answerer, judge=judge,
             arms=_arms(args.arms), concurrency=args.concurrency,
             allow_self_judge=args.allow_self_judge, seed=args.seed,
-            placebo_text=placebo_text,
+            placebo_text=placebo_text, framing=args.context_framing,
         )
     except ValueError as exc:  # a model failure under way
         raise SystemExit(str(exc)) from None
@@ -245,7 +245,7 @@ def cmd_novelty_probe(args: argparse.Namespace) -> None:
         artifact_ref=args.artifact, model=answerer.model, judge_model=judge.model,
         probed_bundle=verdict.bundle, atoms_bundle=saved.get("bundle"),
         probe_set=probe_set, measure_result=result,
-        sampling=sampling_record(args, atoms, saved),
+        sampling=sampling_record(args, atoms, saved), framing=args.context_framing,
     )
     out = Path(args.out) if args.out else _default_dir(args.artifact) / "probes.json"
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -725,7 +725,12 @@ def _add_model_args(parser: argparse.ArgumentParser, positive_int) -> None:
                         help="Output-token ceiling. Raise for reasoning models, which can "
                              "spend the provider default on reasoning and return empty text")
     parser.add_argument("--arms", default="no_artifact,full",
-                        help="Arms to run: no_artifact,full[,placebo][,shuffled]")
+                        help="Arms to run: no_artifact,full[,placebo][,shuffled]"
+                             "[,no_artifact_repeat] (the last is the noise floor)")
+    parser.add_argument("--context-framing", default="reference", dest="context_framing",
+                        choices=("reference", "neutral"),
+                        help="How the context is introduced: as reference material, or as a "
+                             "document that may be irrelevant (the placebo framing control)")
     parser.add_argument("--placebo-text", default=None, dest="placebo_text",
                         help="File of domain-mismatched text for the placebo control: it "
                              "separates 'this artifact carries knowledge' from 'this model "

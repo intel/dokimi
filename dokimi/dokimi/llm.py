@@ -97,12 +97,11 @@ PROVIDERS: Dict[str, str] = {
 #: ``--provider`` choices: the API providers, then the CLI backends.
 ANSWER_PROVIDERS: Tuple[str, ...] = (*PROVIDERS, *llm_cli.BACKENDS)
 
-#: Providers the answerer, judge and generators take: the table but openai-codex, with
-#: the spellings google, gemini and vertex_ai, then the CLI backends.
-CALLER_PROVIDERS: Tuple[str, ...] = (
-    "openai", "anthropic", "google", "gemini", "google-vertex", "openrouter", "amazon-bedrock",
-    "vertex_ai", *llm_cli.BACKENDS,
-)
+#: ``--provider`` choices of the commands that build the answerer or generators: not openai-codex.
+CALLER_CHOICES: Tuple[str, ...] = tuple(p for p in ANSWER_PROVIDERS if p != "openai-codex")
+
+#: Providers the answerer, judge and generators take: those, and google, gemini and vertex_ai.
+CALLER_PROVIDERS: Tuple[str, ...] = (*CALLER_CHOICES, "google", "gemini", "vertex_ai")
 
 
 def check_caller_provider(provider: str) -> None:
