@@ -5,6 +5,7 @@
 
 import argparse
 import json
+import subprocess
 
 import pytest
 
@@ -13,7 +14,7 @@ from dokimi.novelty import provenance as prov
 from dokimi.novelty.client import LLMClient
 from dokimi.novelty.controls import reversal_by_arm, reversal_paired
 from dokimi.novelty.judge2 import agreement, cohen_kappa, regrade
-from dokimi.novelty.measure import MeasureResult, ProbeRun
+from dokimi.novelty.measure import ERRORED, MeasureResult, ProbeRun
 from dokimi.novelty.probes import Probe
 from dokimi.utils import InputError
 
@@ -140,3 +141,117 @@ def test_a_spend_cap_hit_by_the_second_judge_keeps_the_main_result(capsys):
           judge2=LLMClient(model="gpt-6", transport=capped))
     assert payload["judge2"]["stopped"] == "spend cap reached" and "provenance" in payload
     assert "second judge stopped" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("judge_model", ["anthropic/claude-sonnet-5-5", "us.anthropic.claude-sonnet-5-5-v1:0"])
+def test_an_equivalent_id_of_the_answering_model_is_refused(judge_model):
+    from dokimi.novelty.judge2 import check_judge2
+    from dokimi.novelty.measure import SelfJudgeError, check_self_judge
+
+    answerer = LLMClient(model="claude-sonnet-5-5", provider="anthropic")
+    judge = LLMClient(model=judge_model, provider="anthropic")
+    with pytest.raises(InputError, match="answering model"):
+        check_judge2(judge, answerer, 0.15, False)
+    with pytest.raises(SelfJudgeError):
+        check_self_judge(judge, answerer, False)
+    check_judge2(judge, answerer, 0.15, True)
+    check_judge2(LLMClient(model="gpt-6-luna", provider="openai"), answerer, 0.15, False)
+
+
+def _git(cwd, *args):
+    return subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.com", *args],
+                          cwd=cwd, check=True, capture_output=True, text=True).stdout.strip()
+
+
+def test_git_commit_is_none_for_a_wheel_installed_in_a_consumer_repo(monkeypatch, tmp_path):
+    consumer = tmp_path / "consumer"
+    consumer.mkdir()
+    _git(consumer, "init", "-q")
+    _git(consumer, "commit", "-q", "--allow-empty", "-m", "consumer")
+    installed = consumer / ".venv" / "lib" / "site-packages" / "dokimi" / "novelty"
+    installed.mkdir(parents=True)
+    monkeypatch.setattr(prov, "__file__", str(installed / "provenance.py"))
+    prov.git_commit.cache_clear()
+    try:
+        assert prov.git_commit() is None
+    finally:
+        prov.git_commit.cache_clear()
+
+
+def test_git_commit_is_none_outside_a_checkout_or_without_git(monkeypatch, tmp_path):
+    from dokimi import process
+
+    monkeypatch.setenv("GIT_CEILING_DIRECTORIES", str(tmp_path))
+    src = tmp_path / "src"
+    src.mkdir()
+    (src / "pyproject.toml").write_text('[project]\nname = "dokimi"\n', encoding="utf-8")
+    monkeypatch.setattr(prov, "_source_root", lambda: src)
+    prov.git_commit.cache_clear()
+    try:
+        assert prov.git_commit() is None
+        monkeypatch.setattr(process, "git", lambda *a, **k: (_ for _ in ()).throw(OSError("no git")))
+        prov.git_commit.cache_clear()
+        assert prov.git_commit() is None
+    finally:
+        prov.git_commit.cache_clear()
+
+
+def test_git_commit_ignores_an_inherited_git_dir(monkeypatch, tmp_path):
+    foreign = tmp_path / "foreign"
+    foreign.mkdir()
+    _git(foreign, "init", "-q")
+    _git(foreign, "commit", "-q", "--allow-empty", "-m", "foreign")
+    monkeypatch.setenv("GIT_DIR", str(foreign / ".git"))
+    prov.git_commit.cache_clear()
+    try:
+        assert prov.git_commit() != _git(foreign, "rev-parse", "HEAD")
+    finally:
+        prov.git_commit.cache_clear()
+
+
+def test_reversal_paired_difference_is_with_minus_without():
+    runs = [_rev("a", "no_artifact", REVERSED), _rev("a", "full", WRONG),
+            _rev("b", "no_artifact", WRONG), _rev("b", "full", WRONG)]
+    paired = MeasureResult(runs=runs, arms=("no_artifact", "full")).reversal_paired()
+    assert (paired["resisted_only_with"], paired["resisted_only_without"]) == (1, 0)
+    assert paired["difference"] == 0.5
+
+
+def test_kappa_keeps_four_decimals():
+    assert cohen_kappa([True] * 6 + [False] * 4, [True] * 5 + [False] * 4 + [True]) == 0.5833
+    assert cohen_kappa([], []) is None
+
+
+def test_regrade_seed_picks_a_different_subset():
+    def judged(seed):
+        seen = set()
+
+        def transport(prompt, system):
+            seen.add(prompt)
+            return json.dumps({"verdict": RIGHT}), None
+
+        regrade(_measured(20), LLMClient(model="gpt-6", transport=transport), frac=0.3,
+                seed=seed, concurrency=1)
+        return seen
+
+    assert judged(0) == judged(0)
+    assert judged(0) != judged(1)
+
+
+def test_regrade_leaves_an_errored_run_out_of_the_sample():
+    measured = _measured(10)
+    measured.runs[0] = ProbeRun(atom_id="a0", probe_kind="direct", arm="full", question="q0",
+                                response="r", verdict=ERRORED)
+    out = regrade(measured, LLMClient(model="gpt-6", transport=lambda p, s: (json.dumps({"verdict": RIGHT}), None)),
+                  frac=1, concurrency=1)
+    assert out["n_sampled"] == 9
+
+
+def test_judge2_frac_of_one_is_allowed():
+    from dokimi.novelty.judge2 import check_judge2
+
+    answerer = LLMClient(model="claude-sonnet-5-5", provider="anthropic")
+    judge2 = LLMClient(model="gpt-6", provider="openai")
+    check_judge2(judge2, answerer, 1.0, False)
+    with pytest.raises(InputError, match="judge2-frac"):
+        check_judge2(judge2, answerer, 1.5, False)

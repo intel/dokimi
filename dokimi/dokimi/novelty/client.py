@@ -261,10 +261,12 @@ def roll_up_cost(clients: list[LLMClient]) -> dict[str, Any]:
 
 
 def same_client(a: LLMClient, b: LLMClient) -> bool:
-    """Whether two clients run one model: the same name, or a CLI alias and a full id of its family."""
-    from dokimi.llm_cli import same_model
+    """Whether two clients run one model: the same name, a CLI alias and a full id of its family,
+    or an equivalent API id (``anthropic/x``, a Bedrock ``us.anthropic.x-v1:0``), as
+    :func:`~dokimi.utils.same_evaluator` reads it."""
+    from dokimi.utils import same_evaluator
 
-    return a.model == b.model or same_model(a.provider, a.model, b.provider, b.model)
+    return a.model == b.model or same_evaluator(a.provider, a.model, b.provider, b.model)
 
 
 def default_judge(model: str, provider: str | None = None,
