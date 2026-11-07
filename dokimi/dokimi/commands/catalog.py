@@ -87,17 +87,22 @@ def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bo
 
 
 def _granularity_section(skills, reviews, root: Path, report: dict, as_json: bool) -> None:
-    """The free granularity hints (#424) over the skills a harness would offer: into ``report``, and printed unless JSON."""
+    """The free granularity hints (#424) over the skills a harness would offer: into ``report``, and printed unless JSON.
+
+    Offered is ``listing.in_field`` (what the routing field lists), less the copies the scan
+    already reports as ``duplicate``: one skill counted twice is not a merge candidate.
+    """
     from dokimi.external import granularity
+    from dokimi.external.listing import in_field
 
     offered = [
         entry.skill for entry, review in zip(skills, reviews, strict=True)
         if entry.loaded and entry.skill is not None and review is not None
-        and not review.disable_model_invocation
+        and in_field(review) and review.duplicate_of is None
     ]
     result = granularity.hints(offered, root=str(root))
     report["granularity"] = result.to_dict()
-    if not as_json:
+    if not as_json and skills:  # an empty root fails with its own message; no 0-skill section before it
         print("\n".join(granularity.format_text(result)))
         print()
 

@@ -220,13 +220,18 @@ text output and `--format json` (one object: `state`, `findings`,
 `content_sha256`, `duplicate_of`, for a script or a CI gate) are the same either way.
 
 After the skill rows, `catalog check` prints a `# granularity` section: skill pairs
-that look like merge candidates (similar descriptions, shared trigger clauses, duplicated
-sections or code blocks) and long skills that look like split candidates (a body past
-12,000 characters with several disjoint `when` clauses or separate section topics). It is
+that look like merge candidates (similar descriptions, shared trigger clauses, overlapping
+bodies, duplicated sections or code blocks) and skills that look like split candidates
+(two of: a body past 12,000 characters, three or more `when` clauses with no word in
+common, two or more section topics that share little vocabulary and do not reference each
+other). It reads the skills a harness would list: a skill with `disable-model-invocation`,
+a spec error other than an over-long description, or an identical copy of another skill
+is left out, and two skills with the same directory name are shown by their path. It is
 free, runs no model, and is hints only: it never changes the exit code, and the JSON
 carries it under `granularity` with `hints_only: true` and no verdict. Its `next:` line
 names a planned, paid follow-up command (a model run over the candidates), which is not
-yet available. The thresholds are conservative and the section is a shortlist, not a judgement.
+yet available; its flags may change before it lands. The thresholds are conservative and
+the section is a shortlist, not a judgement.
 
 Restrict the scan with `--kind`:
 

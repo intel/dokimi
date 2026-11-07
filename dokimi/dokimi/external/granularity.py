@@ -13,7 +13,7 @@ from __future__ import annotations
 import math
 import re
 import shlex
-from collections import defaultdict
+from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from itertools import combinations
 from typing import Sequence
@@ -143,12 +143,12 @@ def _thresholds() -> dict:
         "CODE_SHINGLE_TOKENS", "CODE_JACCARD_MIN", "LONG_BODY_CHARS", "DISJOINT_WHEN_MIN",
         "SPLIT_MIN_SIGNALS", "MERGE_MIN_SIGNALS",
     )
-    return {name: globals()[name] for name in names}
+    return {name.lower(): globals()[name] for name in names}
 
 
 def hints(skills: Sequence[Skill], *, root: str) -> GranularityHints:
     """The granularity hints for loaded, model-visible skills. ``root`` is only echoed into the paid hint."""
-    docs = [_describe(skill) for skill in skills]
+    docs = [_describe(skill, label) for skill, label in zip(skills, _labels(skills, root), strict=True)]
     merge = _merge_hints(docs)
     vectors = _section_vectors(docs)
     split = tuple(h for h in (_split_hint(i, d, vectors) for i, d in enumerate(docs)) if h is not None)
@@ -179,7 +179,7 @@ def format_text(result: GranularityHints) -> list[str]:
             f"  split\t{s.skill}\t{s.body_chars} chars\tdisjoint when {s.disjoint_when_clauses}\t"
             f"section clusters {len(s.section_clusters)}\t{', '.join(s.signals)}"
         )
-    hidden = len(result.merge) - DISPLAY_LIMIT + len(result.split) - DISPLAY_LIMIT
+    hidden = max(0, len(result.merge) - DISPLAY_LIMIT) + max(0, len(result.split) - DISPLAY_LIMIT)
     if hidden > 0:
         lines.append(f"  ... {hidden} more candidate row(s) (--format json lists all)")
     if result.paid is not None:
@@ -205,6 +205,7 @@ class _Doc:
     body_chars: int
     desc_words: tuple[str, ...]
     clauses: tuple[str, ...]
+    clause_words: tuple[frozenset[str], ...]  # the words of each clause, in ``clauses`` order
     trigger_words: frozenset[str]  # the words of all the "when" clauses
     prose: tuple[str, ...]  # body words outside fenced code
     sections: tuple[_Section, ...]  # H2 sections of at least SECTION_MIN_WORDS words
@@ -217,6 +218,22 @@ def _words(text: str) -> tuple[str, ...]:
 
 def _label(skill: Skill) -> str:
     return skill.path.parent.name or skill.name
+
+
+def _labels(skills: Sequence[Skill], root: str) -> list[str]:
+    """Each skill's directory name, or its directory relative to ``root`` when another skill has that name."""
+    names = [_label(skill) for skill in skills]
+    counts = Counter(names)
+    labels: list[str] = []
+    for skill, name in zip(skills, names, strict=True):
+        if counts[name] > 1:
+            parent = skill.path.parent
+            try:
+                name = parent.relative_to(root).as_posix()
+            except ValueError:
+                name = parent.as_posix()
+        labels.append(name)
+    return labels
 
 
 def trigger_clauses(description: str) -> tuple[str, ...]:
@@ -266,7 +283,7 @@ def _fenced(lines: list[str]) -> tuple[str, list[list[str]]]:
     return "\n".join(prose), blocks
 
 
-def _describe(skill: Skill) -> _Doc:
+def _describe(skill: Skill, label: str | None = None) -> _Doc:
     description = " ".join(skill.description.split())
     prose_parts: list[str] = []
     sections: list[_Section] = []
@@ -281,10 +298,11 @@ def _describe(skill: Skill) -> _Doc:
             sections.append(_Section(heading, tokens, terms, "\n".join(lines)))
     clauses = trigger_clauses(description)
     return _Doc(
-        label=_label(skill),
+        label=_label(skill) if label is None else label,
         body_chars=len(skill.body),
         desc_words=tuple(w for w in _words(description) if len(w) >= 3 and w not in STOP_WORDS),
         clauses=clauses,
+        clause_words=tuple(frozenset(c.split()) for c in clauses),
         trigger_words=frozenset(w for c in clauses for w in c.split()),
         prose=_words("\n".join(prose_parts)),
         sections=tuple(sections),
@@ -327,31 +345,46 @@ def _cosine(a: dict[str, float], b: dict[str, float]) -> float:
     return sum(w * b[t] for t, w in a.items() if t in b)
 
 
+_EPS = 1e-9  # float slack: a longer prefix or a looser size bound only costs time, never a pair
+
+
 def _similar(items: list[tuple[int, frozenset]], minimum: float) -> list[tuple[int, int, float]]:
     """Index pairs (k < m) of items from different units whose shingle Jaccard reaches ``minimum``.
 
-    Each item is (unit, shingles). An inverted index keeps it to pairs that share a shingle.
+    Each item is (unit, shingles). Prefix filtering keeps the join small when every item shares
+    some boilerplate: with each set ordered rarest shingle first, two sets with Jaccard >= t share
+    a shingle among the first ``|x| - ceil(t * |x|) + 1`` of each, so only those are indexed. A
+    size bound (Jaccard <= smaller / larger) drops the rest before any set is intersected.
     """
+    freq: Counter = Counter(gram for _, shingles in items for gram in shingles)
+    prefixes: list[list[tuple]] = []
+    for _, shingles in items:
+        ordered = sorted(shingles, key=lambda gram: (freq[gram], gram))
+        prefixes.append(ordered[: len(ordered) - math.ceil(minimum * len(ordered) - _EPS) + 1])
     index: dict[tuple, list[int]] = defaultdict(list)
-    for k, (_, shingles) in enumerate(items):
-        for gram in shingles:
+    for k, prefix in enumerate(prefixes):
+        for gram in prefix:
             index[gram].append(k)
     found: list[tuple[int, int, float]] = []
     for k, (unit, shingles) in enumerate(items):
-        later = {m for gram in shingles for m in index[gram] if m > k}
+        later = {m for gram in prefixes[k] for m in index[gram] if m > k}
         for m in sorted(later):
-            if items[m][0] != unit:
-                score = _jaccard(shingles, items[m][1])
-                if score >= minimum:
-                    found.append((k, m, score))
+            other_unit, other = items[m]
+            if other_unit == unit:
+                continue
+            small, large = sorted((len(shingles), len(other)))
+            if small < minimum * large - _EPS:
+                continue
+            score = _jaccard(shingles, other)
+            if score >= minimum:
+                found.append((k, m, score))
     return found
 
 
 def _shared_clauses(a: _Doc, b: _Doc) -> tuple[str, ...]:
     shared: list[str] = []
-    for ca in a.clauses:
-        words_a = set(ca.split())
-        if any(_jaccard(words_a, set(cb.split())) >= TRIGGER_JACCARD_MIN for cb in b.clauses):
+    for ca, words_a in zip(a.clauses, a.clause_words, strict=True):
+        if any(_jaccard(words_a, words_b) >= TRIGGER_JACCARD_MIN for words_b in b.clause_words):
             shared.append(ca)
     return tuple(shared)
 
@@ -362,6 +395,9 @@ class _Acc:
     body: float = 0.0
     sections: list[tuple[str, str, float]] = field(default_factory=list)
     code: int = 0
+
+
+_NO_OVERLAP = _Acc()  # read-only stand-in for a pair with no overlap entry
 
 
 def _ordered(ua: int, ub: int) -> tuple[int, int, bool]:
@@ -409,16 +445,21 @@ def _signals(cosine: float, vocab: float, acc: _Acc) -> tuple[str, ...]:
 
 def _merge_hints(docs: list[_Doc]) -> tuple[PairHint, ...]:
     vectors = _tfidf([d.desc_words for d in docs])
+    # Only pairs with a body, section, code or clause overlap get an entry; the rest share _NO_OVERLAP.
     accs: dict[tuple[int, int], _Acc] = defaultdict(_Acc)
-    for i, j in combinations(range(len(docs)), 2):
-        accs[(i, j)].clauses = _shared_clauses(docs[i], docs[j])
     _add_body_and_sections(docs, accs)
     _add_code(docs, accs)
     out: list[PairHint] = []
     for i, j in combinations(range(len(docs)), 2):
         cosine = _cosine(vectors[i], vectors[j])
-        vocab = _jaccard(docs[i].trigger_words, docs[j].trigger_words)
-        acc = accs[(i, j)]
+        ti, tj = docs[i].trigger_words, docs[j].trigger_words
+        shares = not ti.isdisjoint(tj)  # no shared word: no shared clause and a vocabulary Jaccard of 0
+        vocab = _jaccard(ti, tj) if shares else 0.0
+        clauses = _shared_clauses(docs[i], docs[j]) if shares else ()
+        acc = accs.get((i, j), _NO_OVERLAP)
+        if clauses:
+            acc = accs[(i, j)]
+            acc.clauses = clauses
         signals = _signals(cosine, vocab, acc)
         if len(signals) < MERGE_MIN_SIGNALS:
             continue

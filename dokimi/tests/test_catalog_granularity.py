@@ -74,7 +74,7 @@ def _multi_topic() -> Skill:
 def _single_topic_long() -> Skill:
     """Long, but one topic: every section uses the same words, so they link into one cluster."""
     words = "kafka consumer partition offset rebalance broker topic lag retention"
-    body = "# Kafka\n\n" + "\n\n".join(f"## Step {n}\n\n{_pool(words, 40)}" for n in range(3)) + "\n"
+    body = "# Kafka\n\n" + "\n\n".join(f"## Step {n}\n\n{_pool(words, 60)}" for n in range(3)) + "\n"
     return _skill(
         "single-topic-kafka",
         "Tune Kafka consumers. Use when deploying a Kafka consumer group.",
@@ -128,9 +128,11 @@ def test_a_long_multi_topic_skill_is_a_split_candidate_with_three_signals():
 
 
 def test_a_long_single_topic_skill_is_not_a_split_candidate():
-    result = g.hints([_single_topic_long()], root="ROOT")
+    skill = _single_topic_long()
+    assert len(skill.body) >= g.LONG_BODY_CHARS
+    result = g.hints([skill], root="ROOT")
 
-    # long-body alone is one signal; it needs SPLIT_MIN_SIGNALS to be a candidate
+    # long-body alone is one signal (its sections form one cluster); it needs SPLIT_MIN_SIGNALS
     assert result.split == ()
 
 
@@ -140,7 +142,7 @@ def test_the_json_carries_hints_and_no_verdict_and_names_the_planned_paid_comman
 
     assert doc["hints_only"] is True
     assert "verdict" not in doc
-    assert doc["thresholds"]["DESCRIPTION_COSINE_STRONG"] == g.DESCRIPTION_COSINE_STRONG
+    assert doc["thresholds"]["description_cosine_strong"] == g.DESCRIPTION_COSINE_STRONG
     nxt = doc["next"]
     assert nxt["status"] == "planned" and nxt["paid"] is True
     assert nxt["argv"][:4] == ["dokimi", "catalog", "granularity", "--root"]
@@ -219,3 +221,125 @@ def test_catalog_check_exits_1_on_a_load_error_regardless_of_the_hints(overlappi
         args.func(args)
     assert exc.value.code == 1
     assert "# granularity:" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------- self-review round 1
+
+
+def test_the_text_names_the_hidden_rows_when_only_one_kind_passes_the_limit():
+    desc = "Port NumPy code to dpnp on Intel GPUs. Use when the user asks to migrate NumPy code to dpnp."
+    result = g.hints([_skill(f"s{i}", desc, "# x\n") for i in range(8)], root="ROOT")
+
+    assert (len(result.merge), len(result.split)) == (28, 0)
+    lines = g.format_text(result)
+    assert sum(line.startswith("  merge") for line in lines) == g.DISPLAY_LIMIT
+    assert "  ... 8 more candidate row(s) (--format json lists all)" in lines
+
+
+def test_a_weak_description_cosine_counts_only_with_a_shared_trigger_vocabulary():
+    weak = (g.DESCRIPTION_COSINE_MIN + g.DESCRIPTION_COSINE_STRONG) / 2
+    assert g._signals(weak, 0.0, g._Acc()) == ()
+    assert g._signals(weak, g.TRIGGER_VOCAB_JACCARD_MIN, g._Acc()) == ("description-and-trigger-overlap",)
+
+
+def test_one_duplicated_code_block_is_enough_for_a_merge_candidate():
+    block = "```bash\nvllm serve model --device xpu\ncurl localhost:8000/v1/models\nvllm bench serve --model model\n```\n"
+    a = _skill("serve-a", "Serve models. Use when starting a vLLM server.", "# A\n\n" + block)
+    b = _skill("bench-b", "Benchmark throughput. Use when measuring tokens per second.", "# B\n\n" + block)
+
+    [pair] = g.hints([a, b], root="ROOT").merge
+    assert pair.signals == ("code-duplicate",)
+
+
+def test_a_heading_inside_a_fence_is_not_a_section_and_an_unclosed_fence_is_code():
+    words = " ".join(["word"] * g.SECTION_MIN_WORDS)
+    body = f"## Real\n\n{words}\n\n```\n## not a heading\n{words}\nend\n```\n\n```\none\ntwo\nthree\n"
+    doc = g._describe(_skill("fenced", "Use when x.", body))
+
+    assert [s.heading for s in doc.sections] == ["Real"]
+    assert len(doc.code) == 2
+    assert doc.code[1] == ("one", "two", "three")
+
+
+def test_a_cross_reference_links_two_sections_with_no_shared_words():
+    skill = _multi_topic()
+    linked = skill.body.replace("## Postgres\n\n", "## Postgres\n\nSee [Kafka](#kafka) first. ")
+    result = g.hints([_skill(skill.name, skill.description, linked)], root="ROOT")
+
+    assert [len(s.section_clusters) for s in result.split] == [2]
+
+
+def test_disjoint_when_clauses_are_counted_greedily_without_shared_words():
+    assert g._disjoint_when(("tune kafka lag", "kafka offsets reset", "vacuum postgres tables")) == 2
+
+
+def test_the_shingle_join_finds_exactly_the_brute_force_pairs():
+    import random
+
+    rnd = random.Random(7)
+    for minimum in (g.BODY_JACCARD_MIN, g.SECTION_JACCARD_MIN, g.CODE_JACCARD_MIN, 0.5):
+        common = frozenset((f"c{k}",) for k in range(5))  # boilerplate every item shares
+        items = []
+        for k in range(40):
+            own = frozenset((f"w{rnd.randrange(60)}",) for _ in range(rnd.randrange(0, 25)))
+            items.append((k % 13, own | (common if k % 3 else frozenset())))
+        items += [(90, frozenset(((f"e{k}",) for k in range(20)))), (91, frozenset(((f"e{k}",) for k in range(3))))]
+        brute = [
+            (k, m, g._jaccard(items[k][1], items[m][1]))
+            for k in range(len(items)) for m in range(k + 1, len(items))
+            if items[k][0] != items[m][0] and g._jaccard(items[k][1], items[m][1]) >= minimum
+        ]
+        assert sorted(g._similar(items, minimum)) == sorted(brute), minimum
+
+
+def _write_at(root: Path, rel: str, name: str, description: str, body: str, extra: str = "") -> None:
+    skill_dir = root / rel
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        f"---\nname: {name}\ndescription: {description}\n{extra}---\n{body}", encoding="utf-8"
+    )
+
+
+def _check(root: Path, capsys, *more: str) -> tuple[str, int]:
+    args = build_parser().parse_args(["catalog", "check", "--root", str(root), "--kind", "skills", *more])
+    code = 0
+    try:
+        args.func(args)
+    except SystemExit as exc:
+        code = exc.code
+    return capsys.readouterr().out, code
+
+
+def test_a_mirrored_copy_is_not_its_own_merge_candidate(tmp_path, capsys):
+    for rel in ("skills/foo", ".claude/skills/foo"):
+        _write_at(tmp_path, rel, "foo", _control().description, _control().body)
+
+    out, _ = _check(tmp_path, capsys)
+    assert "identical to skills/foo" in out
+    assert "# granularity: 0 merge and 0 split candidate(s) among 1 skills" in out
+
+
+def test_two_skills_with_one_directory_name_are_labelled_by_their_path(tmp_path, capsys):
+    desc = "Review a pull request diff for bugs. Use when the user asks to review a pull request."
+    for rel in ("plug-a/skills/review", "plug-b/skills/review"):
+        _write_at(tmp_path, rel, "review", desc, f"# {rel}\n")
+
+    out, _ = _check(tmp_path, capsys)
+    assert "merge\tplug-a/skills/review + plug-b/skills/review\t" in out
+
+
+def test_a_hidden_or_invalid_skill_is_left_out_of_the_hints(tmp_path, capsys):
+    desc = "Port NumPy code to dpnp on Intel GPUs. Use when the user asks to migrate NumPy code to dpnp."
+    _write_at(tmp_path, "skills/good-port", "good-port", desc, "# A\n")
+    _write_at(tmp_path, "skills/hidden-port", "hidden-port", desc, "# B\n", extra="disable-model-invocation: true\n")
+    _write_at(tmp_path, "skills/bad-port", "Bad_Port", desc, "# C\n")
+
+    out, _ = _check(tmp_path, capsys)
+    assert "# granularity: 0 merge and 0 split candidate(s) among 1 skills" in out
+
+
+def test_an_empty_root_prints_no_granularity_section(tmp_path, capsys):
+    out, code = _check(tmp_path, capsys)
+
+    assert code == 1
+    assert "# granularity" not in out
