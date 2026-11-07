@@ -195,6 +195,12 @@ class _Stub:
     def reversal_resisted(self):
         return None
 
+    def reversal_by_arm(self):
+        return {}
+
+    def reversal_paired(self):
+        return None
+
     def confidence_correlation(self):
         return None
 

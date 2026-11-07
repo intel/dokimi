@@ -30,7 +30,8 @@ from dataclasses import dataclass, field
 from dokimi.utils import InputError
 from .atoms import Atom
 from .client import LLMClient, same_client
-from .controls import REPEAT_ARM, clustered_ci, control_fields
+from .controls import (REPEAT_ARM, clustered_ci, control_fields, reversal_by_arm,
+                       reversal_paired)
 from .probes import Probe
 
 # Judge verdict scale. Deliberately finer than the collapses below so a rater
@@ -162,6 +163,8 @@ class MeasureResult:
     runs: list[ProbeRun] = field(default_factory=list)
     arms: tuple[str, ...] = ()
     with_arm: str = "full"
+    # The probes answered, kept so a second judge can regrade a subset (``judge2``).
+    probes: list[Probe] = field(default_factory=list)
 
     def paired(self, scoring: str) -> dict:
         """The 2×2 for one scoring (see :func:`paired_outcomes`)."""
@@ -185,6 +188,14 @@ class MeasureResult:
             return None
         resisted = sum(1 for r in rows if r.verdict != "wrong_reversed")
         return round(resisted / len(rows), 4)
+
+    def reversal_by_arm(self) -> dict[str, float | None]:
+        """:meth:`reversal_resisted` for the baseline and the with-artifact arm."""
+        return reversal_by_arm(self.runs, (BASELINE_ARM, self.with_arm))
+
+    def reversal_paired(self) -> dict | None:
+        """The paired with-vs-without reversal resistance (:func:`~.controls.reversal_paired`)."""
+        return reversal_paired(self.runs, baseline_arm=BASELINE_ARM, with_arm=self.with_arm)
 
     def abstentions(self) -> dict[str, int]:
         """Abstentions per arm — a deferral-phrasing defect shows up here first.
@@ -312,7 +323,7 @@ def run_measurement(
     with ThreadPoolExecutor(max_workers=max(1, concurrency)) as pool:
         runs = list(pool.map(one, jobs))
 
-    return MeasureResult(runs=runs, arms=tuple(arms), with_arm="full")
+    return MeasureResult(runs=runs, arms=tuple(arms), with_arm="full", probes=list(probes))
 
 
 # Named ``*_PROMPT`` so the run's ``prompts_sha256`` covers them.

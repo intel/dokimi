@@ -26,14 +26,13 @@ def register_skill(skill_sub, positive_int) -> None:
         _add_bundle_args,
         _add_common,
         _add_model_args,
-        _add_spend_cap,
-        _stops_at_cap,
         cmd_novelty_analyze,
         cmd_novelty_atoms,
         cmd_novelty_items,
         cmd_novelty_probe,
         cmd_novelty_shorten,
     )
+    from dokimi.commands.novelty_run import add_spend_cap, stops_at_cap
     from dokimi.defaults import DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER
     from dokimi.llm import ANSWER_PROVIDERS as PROVIDERS
     from dokimi.novelty.tiers import TIERS
@@ -75,7 +74,7 @@ def register_skill(skill_sub, positive_int) -> None:
                            help="Print the projected model-call bill and exit without "
                                 "spending anything")
     _add_bundle_args(analyze_p, positive_int)
-    analyze_p.set_defaults(func=_stops_at_cap(cmd_novelty_analyze))
+    analyze_p.set_defaults(func=stops_at_cap(cmd_novelty_analyze))
 
     atoms_p = novelty_sub.add_parser("atoms", help="Extract knowledge atoms and spans only")
     _add_common(atoms_p, positive_int)
@@ -89,16 +88,16 @@ def register_skill(skill_sub, positive_int) -> None:
     atoms_p.add_argument("--max-tokens", type=positive_int, default=None, dest="max_tokens")
     atoms_p.add_argument("--no-verify", action="store_true", dest="no_verify")
     atoms_p.add_argument("--out", default=None)
-    _add_spend_cap(atoms_p)
+    add_spend_cap(atoms_p)
     _add_bundle_args(atoms_p, positive_int)
-    atoms_p.set_defaults(func=_stops_at_cap(cmd_novelty_atoms))
+    atoms_p.set_defaults(func=stops_at_cap(cmd_novelty_atoms))
 
     probe_p = novelty_sub.add_parser("probe", help="Run paired probes against a saved atom set")
     _add_common(probe_p, positive_int)
     _add_model_args(probe_p, positive_int)
     probe_p.add_argument("--atoms", required=True, help="atoms.json from `skill novelty atoms`")
     probe_p.add_argument("--out", default=None)
-    probe_p.set_defaults(func=_stops_at_cap(cmd_novelty_probe))
+    probe_p.set_defaults(func=stops_at_cap(cmd_novelty_probe))
 
     items_p = novelty_sub.add_parser(
         "items", help="Item analysis across saved probe runs: which atoms separate the models"
@@ -132,5 +131,5 @@ def register_skill(skill_sub, positive_int) -> None:
     shorten_p.add_argument("--allow-unsafe", action="store_true", dest="allow_unsafe",
                            help="Allow a best-candidate pick that drops protected spans")
     shorten_p.add_argument("--out", default=None, help="Write the chosen candidate here")
-    _add_spend_cap(shorten_p)
-    shorten_p.set_defaults(func=_stops_at_cap(cmd_novelty_shorten))
+    add_spend_cap(shorten_p)
+    shorten_p.set_defaults(func=stops_at_cap(cmd_novelty_shorten))
