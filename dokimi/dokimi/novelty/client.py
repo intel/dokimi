@@ -288,10 +288,14 @@ def extractor_judge_relation(extractor_model: str, judge: LLMClient,
     """How the model that wrote the answer key relates to the judge, who grades against it.
 
     Takes a name, not a client: a saved atoms file records only the extractor's model id.
-    The provider is needed only to match a CLI alias to its full id.
+    The provider is needed only to match a CLI alias to its full id. A bare alias (``sonnet``)
+    names a CLI model only, so a record that lacks the provider (saved before it was recorded)
+    is read as the CLI's.
     """
-    from dokimi.llm_cli import same_model
+    from dokimi.llm_cli import CLAUDE_CLI, same_model
 
+    if not extractor_provider and extractor_model.lower() in CLAUDE_CLI.aliases:
+        extractor_provider = CLAUDE_CLI.name
     identical = extractor_model == judge.model or same_model(
         extractor_provider, extractor_model, judge.provider, judge.model)
     vendor = vendor_of(extractor_model)

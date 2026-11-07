@@ -186,8 +186,8 @@ def cmd_novelty_atoms(args: argparse.Namespace) -> None:
     if settings.values["verify_faithfulness"]:
         verify_atoms(sample, spans, client=extractor)
     out = Path(args.out) if args.out else _default_dir(args.artifact) / "atoms.json"
-    save_atoms(atoms, spans, out, extractor=extractor.model, cap=cap,
-               bundle=artifact_bundle.summary(), extraction=extraction, sample=sample)
+    save_atoms(atoms, spans, out, extractor=extractor.model, extractor_provider=extractor.provider,
+               cap=cap, bundle=artifact_bundle.summary(), extraction=extraction, sample=sample)
     print(f"OK Saved {len(atoms)} atoms ({len(sample)} sampled) over {len(spans)} spans: {out}")
     print(json.dumps(span_summary(spans, atoms), indent=2))
 

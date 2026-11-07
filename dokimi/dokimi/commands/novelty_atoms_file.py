@@ -148,4 +148,5 @@ def warn_answer_key(saved: dict, answerer, judge) -> None:
         print(f"WARNING: {answerer.model} extracted these atoms, so the model under measurement "
               "wrote its own answer key; extract with a different --extract-model",
               file=sys.stderr)
-    warn_extractor_judge(extractor, judge)
+    provider = saved.get("extractor_provider")  # None in a record from before it was saved
+    warn_extractor_judge(extractor, judge, provider if isinstance(provider, str) else "")

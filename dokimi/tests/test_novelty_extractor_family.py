@@ -5,9 +5,12 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from dokimi.commands.novelty_atoms_file import warn_answer_key
+from dokimi.novelty.atoms import save_atoms
 from dokimi.novelty.client import (
     LLMClient,
     extractor_judge_relation,
@@ -109,3 +112,22 @@ def test_probe_still_warns_when_the_answerer_wrote_the_saved_answer_key(capsys):
 def test_a_saved_answer_key_with_no_model_name_is_not_compared(capsys):
     warn_answer_key({"extractor": None}, LLMClient(model="gpt-6.1-sol"), _judge("claude-sonnet-5-5"))
     assert capsys.readouterr().err == ""
+
+
+def test_a_key_saved_by_a_cli_alias_warns_as_the_same_model(capsys):
+    # the saved record names the extractor's provider, so the alias is matched to its full id
+    warn_answer_key({"extractor": "sonnet", "extractor_provider": "claude-cli"},
+                    LLMClient(model="gpt-6.1-sol"), _judge("claude-sonnet-5-5"))
+    assert "are both claude-sonnet-5-5" in capsys.readouterr().err
+
+
+def test_an_older_key_naming_a_cli_alias_is_read_as_the_claude_cli_alias(capsys):
+    # a record from before the provider was saved: a bare alias can only be the CLI's
+    warn_answer_key({"extractor": "sonnet"}, LLMClient(model="gpt-6.1-sol"), _judge("claude-sonnet-5-5"))
+    assert "are both claude-sonnet-5-5" in capsys.readouterr().err
+
+
+def test_save_atoms_records_the_extractor_provider(tmp_path):
+    path = tmp_path / "atoms.json"
+    save_atoms([], [], path, extractor="sonnet", extractor_provider="claude-cli")
+    assert json.loads(path.read_text(encoding="utf-8"))["extractor_provider"] == "claude-cli"
