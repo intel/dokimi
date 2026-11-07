@@ -476,6 +476,33 @@ def test_a_second_run_that_cannot_run_makes_the_task_flaky_and_reads_not_graded(
                                "n_errors 0, n_skipped 0) then not graded"]
 
 
+SQ_TEST = ("import sys\n\nimport pytest\nfrom src.calc import add\n\n\ndef test_add_still_adds():\n"
+           "    assert add(1, 1) == 2\n\n\n")
+SKIPS = {"importorskip": "def test_sq_squares():\n    assert pytest.importorskip('src.sq').sq(3) == 9\n",
+         "platform": "def test_sq():\n    from src.sq import sq\n    assert sq(3) == 9\n\n\n"
+                     "@pytest.mark.skipif(sys.platform != 'none', reason='elsewhere')\ndef test_sq_elsewhere():\n"
+                     "    pass\n"}
+
+
+@pytest.mark.parametrize(("skip", "verdict", "share"), [("importorskip", "ok", 1 / 2), ("platform", "broken", 2 / 3)])
+def test_a_skipped_hidden_case_fails_the_grade_so_a_task_whose_oracle_skips_one_is_broken(toy, tmp_path, monkeypatch,
+                                                                                        skip, verdict, share):
+    """A test that skips when the change is absent shows nothing; nor does one that the oracle run skips too."""
+    root = toy["root"]
+    sq = {"src/sq.py": "def sq(a):\n    return a * a\n", "tests/test_sq.py": SQ_TEST + SKIPS[skip]}
+    _authoring(root, [_pr(40, _off_base(toy, skip, sq), toy["m1"], title="Add sq")], root / ".agent-eval/tasks")
+    _commit(root, "authoring tasks")
+    res = _check(root, tmp_path / "chk", monkeypatch, "authoring_pr40")
+    step = "null" if skip == "importorskip" else "oracle"  # the run in which the case skips
+    got = _metrics(tmp_path / "chk", "authoring_pr40", step)
+    assert res["verdict"] == verdict and res[step]["pass"] is False, res
+    assert (got["n_skipped"], got["pass_share"]) == (1, share)
+    if skip == "platform":  # the skipped case is the one grade.json names
+        assert res["problems"] == ["oracle: the reference solution does not pass the gate"]
+        doc = json.loads((tmp_path / "chk/check/authoring_pr40__oracle/grade.json").read_text())
+        assert doc["details"]["not_passed"] == ["tests.test_sq::test_sq_elsewhere"]
+
+
 def test_repo_validate_finds_a_hidden_file_the_task_lacks(toy, tmp_path, capsys):
     root = toy["root"]
     _authoring(root, [_pr1(toy)], root / ".agent-eval/tasks")
@@ -530,7 +557,7 @@ def _junit(*outcomes: str) -> str:
 
 
 @pytest.mark.parametrize(("outcomes", "rc", "passed", "share"), [
-    (("passed", "passed", "skipped"), 0, True, 1.0),
+    (("passed", "passed", "skipped"), 0, False, 2 / 3),  # a skipped case did not show the change
     (("passed", "failed", "error", "passed"), 1, False, 0.5),
     (("passed",), 1, False, 1.0),  # the command failed though every case passed: not a pass
     (("skipped",), 0, False, 0.0),  # nothing ran

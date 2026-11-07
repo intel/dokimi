@@ -8,8 +8,9 @@ Before this grader runs, the framework copies the task's ``hidden/`` files (``ta
 ``hidden_tests`` in the grading container; that command writes a JUnit XML report to ``{out}``
 (:data:`REPORT` in the run dir), and the framework records its exit in :data:`RUN_RECORD`.
 This module reads both: ``pass`` is true when the command exited 0, did not time out, and the
-report holds at least one passed test case and no failed or errored one. ``pass_share`` is the
-passed share of the cases that ran (skipped ones left out; 0 when none ran), for ``repo compare --metric``.
+report holds at least one test case and every one passed. A skipped case fails it: a test that skips
+when the change is absent (``pytest.importorskip``) shows nothing. ``pass_share`` is the passed share
+of all the cases (0 when there is none), for ``repo compare --metric``.
 
 The oracle copies ``reference/`` over the workspace, as ``dokimi:typecheck``'s does, and deletes
 ``reference_deleted``. Standard library only, Python 3.8: it runs on the image's ``python3``.
@@ -117,15 +118,14 @@ def grade(task: dict[str, Any], task_dir: Path, answer: str, run_dir: Path | Non
     record = _record(rd)
     cases, why = _cases(rd)
     count = {k: sum(o == k for _, o in cases) for k in ("passed", "failed", "error", "skipped")}
-    ran = len(cases) - count["skipped"]
     rc, timed_out = record.get("rc"), record.get("timed_out") is True
-    ok = rc == 0 and not timed_out and count["passed"] > 0 and count["failed"] == count["error"] == 0
-    details: dict[str, Any] = {"not_passed": [n for n, o in cases if o in ("failed", "error")][:MAX_LISTED]}
+    ok = rc == 0 and not timed_out and count["passed"] == len(cases) > 0
+    details: dict[str, Any] = {"not_passed": [n for n, o in cases if o != "passed"][:MAX_LISTED]}
     if why:
         details["report"] = why
     return {"pass": ok, "n_tests": len(cases), "n_passed": count["passed"], "n_failed": count["failed"],
             "n_errors": count["error"], "n_skipped": count["skipped"],
-            "pass_share": count["passed"] / ran if ran else 0.0,
+            "pass_share": count["passed"] / len(cases) if cases else 0.0,
             "tests_rc": rc if isinstance(rc, int) and not isinstance(rc, bool) else None,
             "tests_timed_out": timed_out, **details}
 

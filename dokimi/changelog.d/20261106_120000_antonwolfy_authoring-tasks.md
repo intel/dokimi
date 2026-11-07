@@ -13,7 +13,8 @@
   exits 1 when no PR gave a task or the input cannot be used (contract §4.8).
 - **Built-in grader `dokimi:hidden_tests` and the manifest's `entry_points.test`** — the framework copies
   a task's hidden files into the workspace with their file mode, runs the repository's test command on them (`{tests}`; it
-  writes a JUnit report to `{out}`), and grades `pass` when every hidden test ran and passed, with
-  `pass_share` beside it for `repo compare --metric pass_share`. `eval check` runs the null and the
-  oracle steps of such a task twice each and reports a task whose two runs differ as `flaky`, which
-  exits 1 like a broken one (contract §2, §4.3, §4.5).
+  writes a JUnit report to `{out}`), and grades `pass` when every hidden test ran and passed (a skipped one
+  fails it, so a task whose oracle run skips one is broken), with `pass_share` beside it for
+  `repo compare --metric pass_share`. `eval check` runs the null and the oracle steps of such a task
+  twice each and reports a task whose two runs differ as `flaky`, which exits 1 like a broken one
+  (contract §2, §4.3, §4.5).
