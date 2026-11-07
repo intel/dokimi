@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
 """The near-duplicate pass compares only the candidate pairs its prefix filter finds (``_near_duplicates``).
 
 The filter must never skip a pair that the all-pairs check would flag, so the findings are compared with a
