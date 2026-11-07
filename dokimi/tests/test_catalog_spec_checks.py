@@ -87,6 +87,22 @@ def test_allowed_tools_mcp_and_pattern_entries_are_not_flagged(tmp_path):
     assert "allowed-tools-unknown" not in _codes(tmp_path, "yaml-list")
 
 
+def test_allowed_tools_pattern_with_nested_or_quoted_parentheses_is_not_a_tool_name(tmp_path):
+    _skill(tmp_path, "nested", extra='allowed-tools: Read(src/a(b).py), Bash(python -c "print(1)")\n')
+    _skill(tmp_path, "nested-list", extra='allowed-tools:\n  - Read(src/a(b).py)\n  - Bash(python -c "print(1)")\n')
+
+    assert "allowed-tools-unknown" not in _codes(tmp_path, "nested")
+    assert "allowed-tools-unknown" not in _codes(tmp_path, "nested-list")
+
+
+def test_allowed_tools_pattern_that_never_closes_is_dropped_in_linear_time(tmp_path):
+    from dokimi.external.validate import _unknown_tools
+
+    assert _unknown_tools("Frobnicate, Bash(git add *") == ["Frobnicate"]
+    assert _unknown_tools("Bash(" * 20_000) == []
+    assert _unknown_tools('Read, Bash(echo "a)') == []
+
+
 # ---- body-too-large ----------------------------------------------------------------
 
 def test_body_over_500_lines_is_a_warn(tmp_path):

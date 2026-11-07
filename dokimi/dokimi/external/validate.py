@@ -105,8 +105,6 @@ CLAUDE_TOOLS = frozenset(
         "CronCreate", "CronDelete", "CronList", "Workflow", "LSP", "Computer",
     }
 )
-# One ``allowed-tools`` entry: a tool name, then an optional ``(pattern)`` such as ``Bash(git add *)``.
-TOOL_ENTRY_RE = re.compile(r"([^\s,(]+)(?:\([^)]*\))?")
 # A body over either limit is ``body-too-large``. Tokens are estimated as characters / 4, so no tokenizer is needed.
 BODY_MAX_LINES = 500
 BODY_MAX_TOKENS = 5000
@@ -181,6 +179,61 @@ def _strict_meta(text: str) -> tuple[dict, Optional[Finding]]:
     return meta, None
 
 
+def _group_end(value: str, start: int) -> Optional[int]:
+    """The index just past the ``)`` that closes the ``(`` at ``start``, or None when the group never closes.
+
+    Nested parentheses count; quoted text inside the group is opaque, so a ``)`` in quotes does not close it.
+    """
+    depth, quote = 0, ""
+    for i in range(start, len(value)):
+        c = value[i]
+        if quote:
+            if c == quote:
+                quote = ""
+        elif c in "\"'":
+            quote = c
+        elif c == "(":
+            depth += 1
+        elif c == ")":
+            depth -= 1
+            if depth == 0:
+                return i + 1
+    return None
+
+
+def _tool_names(value: str) -> list[str]:
+    """The tool name of each entry of one ``allowed-tools`` string, in one pass over it.
+
+    Entries are split on whitespace and commas. A ``(pattern)`` after a name is consumed whole (see
+    :func:`_group_end`). A group that never closes runs to the end of the string, so the entry is dropped
+    and the scan stops: the work stays linear in the length of the value.
+    """
+    names: list[str] = []
+    i, n = 0, len(value)
+    while i < n:
+        c = value[i]
+        if c.isspace() or c == ",":
+            i += 1
+            continue
+        if c == "(":  # a pattern with no tool name: skipped
+            end = _group_end(value, i)
+            if end is None:
+                break
+            i = end
+            continue
+        j = i
+        while j < n and not (value[j].isspace() or value[j] in ",("):
+            j += 1
+        names.append(value[i:j])
+        i = j
+        if i < n and value[i] == "(":
+            end = _group_end(value, i)
+            if end is None:
+                break
+            i = end
+    return names
+
+
 def _unknown_tools(allowed: object) -> list[str]:
     """The names in an ``allowed-tools`` value (a comma or space list, or a YAML list) that Claude Code has no tool of.
 
@@ -189,7 +242,7 @@ def _unknown_tools(allowed: object) -> list[str]:
     if allowed is None:
         return []
     items = allowed if isinstance(allowed, list) else [allowed]
-    names = [m.group(1) for item in items if isinstance(item, str) for m in TOOL_ENTRY_RE.finditer(item)]
+    names = [name for item in items if isinstance(item, str) for name in _tool_names(item)]
     return [name for name in names if not name.startswith("mcp__") and name not in CLAUDE_TOOLS]
 
 
