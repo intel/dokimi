@@ -193,6 +193,34 @@ def test_prose_with_an_apostrophe_still_splits_its_commands():
     assert online_checks.extract_packages(body) == [("pypi", "requests")]
 
 
+def test_apostrophes_in_prose_do_not_hide_the_command():
+    body = "Don't worry; pip install requests and you're done\n"
+    assert online_checks.extract_packages(body) == [("pypi", "requests")]
+
+
+def test_process_substitution_is_not_read_as_pip_arguments():
+    assert online_checks.extract_packages("pip install -r <(echo x) foo\n") == []
+
+
+def test_ampersand_redirection_target_is_not_a_package():
+    assert online_checks.extract_packages("pip install requests &> log.txt\n") == [("pypi", "requests")]
+
+
+def test_npx_prose_words_are_not_packages_and_npx_with_a_package_is():
+    body = "npx is great for one-off tools\nUse npx create-react-app my-app\n"
+    assert online_checks.extract_packages(body) == [("npm", "create-react-app")]
+
+
+def test_inline_code_spans_are_commands_of_their_own():
+    body = "Install with `pip install requests` and `npm i lodash`.\n"
+    assert online_checks.extract_packages(body) == [("pypi", "requests"), ("npm", "lodash")]
+
+
+def test_markdown_link_text_and_target_are_both_checked():
+    assert online_checks.extract_urls("[https://a.com/a](https://a.com/b)\n") == [
+        "https://a.com/a", "https://a.com/b"]
+
+
 def test_npx_run_as_an_instruction_is_checked():
     body = "Run npx create-react-app app\n$ npx cowsay hi\n"
     assert online_checks.extract_packages(body) == [("npm", "create-react-app"), ("npm", "cowsay")]
@@ -290,6 +318,17 @@ def test_dns_failure_is_a_dead_link(tmp_path):
     [review] = _reviews(root, web)
     assert _codes(review) == ["link-dead"]
     assert "does not resolve" in review.findings[0].message
+
+
+def test_no_data_answer_from_the_resolver_is_a_dead_link(tmp_path):
+    url = "https://no-data.example-tool.dev/"
+    root = _one_skill(tmp_path, f"See {url}\n")
+    error = httpx.ConnectError("No address associated with hostname")
+    error.__cause__ = socket.gaierror(socket.EAI_NODATA, "No address associated with hostname")
+    web = Web({url: error})
+
+    [review] = _reviews(root, web)
+    assert _codes(review) == ["link-dead"]
 
 
 def test_temporary_resolver_failure_is_not_a_dead_link(tmp_path):

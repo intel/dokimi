@@ -42,8 +42,10 @@ _PIP = {"pip", "pip3"}
 _NPM_INSTALL = {"install", "i", "add"}
 # Words that may come before a package manager name in a command line: a prompt, a wrapper or a verb.
 _LEAD = {"$", "sudo", "run", "Run", "RUN", "use", "Use", "then", "and", "-m", "uv", "env"}
-# Words after which ``npx`` is a command. ``Use npx to run things`` is prose, so ``use`` is not one.
-_NPX_LEAD = {"$", "sudo", "env", "run", "Run", "RUN", "then", "and"}
+# Words that end an install in prose ("pip install requests and you're done"), not package names.
+_PROSE_CONJUNCTIONS = {"and", "or", "but", "then"}
+# English words that follow ``npx`` in prose ("npx is great", "Use npx to run it"), not package names.
+_NPX_PROSE = {"a", "an", "and", "are", "for", "in", "is", "it", "on", "or", "the", "to", "with"}
 _PIP_VALUE_OPTIONS = {
     "--python", "-r", "--requirement", "-c", "--constraint", "-e", "--editable", "-i", "--index-url",
     "--extra-index-url", "-f", "--find-links", "-t", "--target", "--prefix", "--root", "--cache-dir",
@@ -68,8 +70,9 @@ _EXAMPLE_DOMAINS = ("example.com", "example.org", "example.net")
 _RESERVED_SUFFIXES = (".localhost", ".test", ".invalid", ".example")
 _PLACEHOLDER_HOST_RE = re.compile(r"(?:^|[./])your-")  # a host or a path segment that starts with ``your-``
 _CONTINUATION_RE = re.compile(r"\\[ \t]*\r?\n")  # a backslash at the end of a line continues the command
+_PROSE_APOSTROPHE_RE = re.compile(r"(?<=[A-Za-z])'(?=[A-Za-z])")
 _CODE_SPAN_RE = re.compile(r"`([^`\n]*)`")
-_SEPARATOR_RE = re.compile(r"[;&|()]+")  # a token of these operators ends one command
+_SEPARATOR_RE = re.compile(r"[;&|()]+|[<>]\(")  # a token of these operators ends one command; ``<(`` is a process substitution
 _REDIRECT_RE = re.compile(r"&?[<>]+[&|]?")  # an operator token of a redirection, such as ``>`` or ``2>&1``'s ``>&``
 
 
@@ -82,6 +85,7 @@ def make_client() -> httpx.Client:
 def _words(line: str) -> list[str]:
     """The tokens of one line, read as the shell reads them: quotes keep their text, a ``#`` starts a comment,
     and ``; & | ( )`` and ``< >`` are tokens of their own. An unbalanced quote reads as whitespace."""
+    line = _PROSE_APOSTROPHE_RE.sub("\x00", line)  # ``don't`` is prose, not the start of a quote
     try:
         return list(_lexer(line))
     except ValueError:  # an unbalanced quote: read the line unquoted, so its operators still split
@@ -102,9 +106,11 @@ def _commands(line: str) -> Iterator[list[str]]:
     words: list[str] = []
     skip_target = False
     for tok in _words(line):
-        if skip_target:
+        if skip_target and not _SEPARATOR_RE.fullmatch(tok):  # ``<(`` is a separator, not a target
             skip_target = False
-        elif _REDIRECT_RE.fullmatch(tok):
+            continue
+        skip_target = False
+        if _REDIRECT_RE.fullmatch(tok):
             if words and words[-1].isdigit():  # the file descriptor of ``2>&1`` or ``2>/dev/null``
                 words.pop()
             skip_target = True
@@ -137,6 +143,8 @@ def _requirement(tok: str) -> str:
 def _pip_names(args: list[str]) -> Iterator[str]:
     skip = False
     for tok in args:
+        if tok in _PROSE_CONJUNCTIONS:
+            return
         if skip:
             skip = False
         elif tok in _PIP_VALUE_OPTIONS:
@@ -164,6 +172,8 @@ def _npm_name(tok: str) -> Optional[str]:
 def _npm_names(args: list[str]) -> Iterator[str]:
     skip = False
     for tok in args:
+        if tok in _PROSE_CONJUNCTIONS:
+            return
         if skip:
             skip = False
         elif tok in _NPM_VALUE_OPTIONS:
@@ -191,7 +201,7 @@ def _npx_names(args: list[str]) -> Iterator[str]:
             take_next = True
         elif not tok.startswith("-"):
             if not packages:
-                packages.extend(_npm_names([tok]))
+                packages.extend(name for name in _npm_names([tok]) if name not in _NPX_PROSE)
             break
     yield from packages
 
@@ -207,7 +217,7 @@ def _command_packages(tokens: list[str]) -> Iterator[tuple[str, str]]:
             names, eco = _pip_names(tokens[i + 2:]), "pypi"
         elif tok == "npm" and nxt in _NPM_INSTALL and (i == 0 or tokens[i - 1] in _LEAD):
             names, eco = _npm_names(tokens[i + 2:]), "npm"
-        elif tok == "npx" and (i == 0 or tokens[i - 1] in _NPX_LEAD):
+        elif tok == "npx" and (i == 0 or tokens[i - 1] in _LEAD):
             names, eco = _npx_names(tokens[i + 1:]), "npm"
         else:
             continue
@@ -232,7 +242,7 @@ def extract_packages(body: str) -> list[tuple[str, str]]:
 
 def _clean_url(raw: str) -> Optional[str]:
     """``raw`` without the punctuation a sentence or a markdown link put after it, or None for a template."""
-    url = raw.split("](", 1)[0].rstrip(".,;:!?*")  # a markdown link ends at ``](``
+    url = raw.rstrip(".,;:!?*")
     while url[-1:] in (")", "]") and url.count(url[-1]) > url.count("(" if url[-1] == ")" else "["):
         url = url[:-1].rstrip(".,;:!?*")
     return url or None
@@ -263,6 +273,7 @@ def extract_urls(body: str) -> list[str]:
     A URL followed by ``<``, ``{`` or ``$`` is a template (``https://api.x.com/<id>``), not a link.
     """
     urls: dict[str, None] = {}
+    body = body.replace("](", " ")  # a markdown link's text and its target are both URLs
     for m in _URL_RE.finditer(body):
         if _TEMPLATE_RE.search(m.group()) or body[m.end():m.end() + 1] in ("<", "{", "$"):
             continue
