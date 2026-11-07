@@ -80,6 +80,13 @@ def _run_ragas_eval(answers, output_path, args) -> None:
         print(f"\n⚠️  RAGAS evaluation failed: {exc}")
 
 
+def _print_left_out(rows: list, valid: list) -> None:
+    """The mean covers only the questions in `valid`; say how many it leaves out, so it is not read as the whole set."""
+    left_out = len(rows) - len(valid)
+    if left_out:
+        print(f"Questions left out (no quorum or no answer): {left_out}/{len(rows)}")
+
+
 def cmd_eval_panel_score(args: argparse.Namespace) -> None:
     """Score answers using a multi-judge panel (parallel, role-diverse judges)."""
     from dokimi.eval.panel import JudgePanel, JudgeConfig, DEFAULT_PANEL, JUDGE_ROLES
@@ -158,10 +165,7 @@ def cmd_eval_panel_score(args: argparse.Namespace) -> None:
         print("Mean agreement score:     " + (f"{sum(agreed) / len(agreed):.3f}  (1.0 = perfect)"
                                                if agreed else "n/a"))
         print(f"Disagreement flags:       {flagged}/{len(valid)} questions")
-    # The mean covers only the questions above; say how many it leaves out, so it is not read as the whole set.
-    left_out = len(rows) - len(valid)
-    if left_out:
-        print(f"Questions left out (no quorum or no answer): {left_out}/{len(rows)}")
+    _print_left_out(rows, valid)
 
     print(f"\n✅ Saved to {output_path}")
 
