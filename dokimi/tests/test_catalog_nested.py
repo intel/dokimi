@@ -99,3 +99,16 @@ def test_nested_marks_are_the_same_in_both_modes(tmp_path, capsys, flags):
 
     rows = {row["name"]: row["nested_in"] for row in json.loads(out)["skills"]}
     assert rows == {"alpha": None, "sub-beta": "skills/alpha"}
+
+
+def test_nested_in_names_the_outer_skill_by_its_row_path_through_a_symlink(tmp_path):
+    """The outer skill is reached through a symlinked directory: its row says skills/a, so nested_in must too."""
+    real = tmp_path / "real_skills"
+    _write(real / "a", "---\nname: a\ndescription: Use when a runs.\n---\n# a\n")
+    _write(real / "a" / "sub", "---\nname: sub\ndescription: Use when sub runs.\n---\n# sub\n")
+    (tmp_path / "skills").symlink_to(real, target_is_directory=True)
+    (tmp_path / "skills.yaml").write_text("- catalog_path: skills/a\n- catalog_path: skills/a/sub\n", encoding="utf-8")
+
+    entries = read_skill_manifest(tmp_path)
+
+    assert nested_in_bundles(entries, tmp_path) == [None, "skills/a"]

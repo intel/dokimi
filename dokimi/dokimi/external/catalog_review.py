@@ -62,17 +62,18 @@ def nested_in_bundles(entries: Sequence[SkillCatalogEntry], root: Path) -> list[
     *root* is the checkout, not a bundle, so it encloses nothing.
     """
     root_r = Path(root).resolve()
-    bundles: dict[Path, str] = {}
+    bundles: dict[Path, Optional[str]] = {}
     for entry in entries:
         if entry.path is not None and entry.path.resolve() != root_r:
-            bundles.setdefault(entry.path.resolve(), entry.path.resolve().relative_to(root_r).as_posix())
+            # The label is the row's relpath, which is not resolved: a symlinked catalog must still match it.
+            bundles.setdefault(entry.path.resolve(), entry_relpath(entry))
     return [
         None if entry.path is None else _enclosing(entry.path.resolve(), root_r, bundles)
         for entry in entries
     ]
 
 
-def _enclosing(path_r: Path, root_r: Path, bundles: dict[Path, str]) -> Optional[str]:
+def _enclosing(path_r: Path, root_r: Path, bundles: dict[Path, Optional[str]]) -> Optional[str]:
     for ancestor in path_r.parents:
         if not ancestor.is_relative_to(root_r) or ancestor == root_r:
             return None
