@@ -32,6 +32,7 @@ HAS_WHEN = [
     pytest.param("배포를 수행합니다. 실패할 경우 롤백을 요청하세요.", id="ko-gyeongu-hal-gyeongu"),
     pytest.param("GAS の一覧を取得する。「GAS 一覧」「スクリプト一覧」などで起動。", id="ja-de-kidou"),
     pytest.param("Genera notas de versión. Úsalo cuando se publique una versión.", id="es-cuando"),
+    pytest.param("배포를 수행합니다. 트리거: 새 태그가 생성될 때.", id="ko-tritgeo-colon"),
     pytest.param("Génère des notes de version. À utiliser quand une release est prête.", id="fr-quand"),
     pytest.param("Erstellt Release-Notizen. Verwende dies, wenn ein Release ansteht.", id="de-wenn"),
     pytest.param("Gera notas de versão. Use quando uma versão for publicada.", id="pt-quando"),
@@ -110,6 +111,7 @@ NO_WHEN = [
     pytest.param("充当代码格式化工具，并在执行时输出日志。", id="zh-chongdang-shi-not-when"),
     pytest.param("条件式の場合分けを整理するツールです。", id="ja-baai-wake-not-when"),
     pytest.param("ひときわ読みやすいドキュメントを作成するツールです。", id="ja-hitokiwa-not-when"),
+    pytest.param("PostgreSQL 트리거를 생성하고 관리하는 도구입니다.", id="ko-tritgeo-noun-not-when"),
 ]
 
 
