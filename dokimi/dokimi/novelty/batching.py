@@ -6,8 +6,8 @@
 Several novelty stages ask one model about many items per call (atoms to classify, atoms
 to check for conflicts). A reply that does not parse — most often one cut off by an output
 ceiling — used to become ``[]`` or ``continue``, and the items in that batch then read as
-an answer: *not needed*, *no conflict*. :func:`ask_in_batches` splits an unparseable batch
-in half and re-asks, as long as each half keeps ``min_size`` items, and returns the items
+an answer: *not needed*, *no conflict*. :func:`ask_in_batches` splits a batch whose reply is unparseable or
+unusable (:class:`UnusableReply`) in half and re-asks, as long as each half keeps ``min_size`` items, and returns the items
 it still could not get an answer for, so the caller can exclude them and say so. A
 transport failure or an empty reply is not split: re-asking smaller would only multiply
 an outage, and a reasoning model that spent its ceiling before answering does so on half
@@ -64,7 +64,8 @@ class BatchResult(Generic[T]):
         calls: Calls made, splits included.
         unusable: The items of ``failed`` whose reply parsed and had no usable row, as
             opposed to a call that failed.
-        last_error: The last error on an item that ended in ``failed``. Errors that a
+        last_error: The last transport or parse error on an item that ended in ``failed``;
+            an unusable reply is counted in ``unusable`` instead. Errors that a
             split recovered from are not recorded, so this never blames a cause that
             lost nothing.
     """
@@ -90,7 +91,7 @@ def ask_in_batches(
     min_size: int = 1,
     check: Callable[[list[T], Any], None] | None = None,
 ) -> BatchResult[T]:
-    """Ask ``prompt(chunk)`` for chunks of ``items``; split a chunk whose reply won't parse.
+    """Ask ``prompt(chunk)`` for chunks of ``items``; split a chunk whose reply won't parse or can't be used.
 
     Answers come back in item order: a split chunk's halves are re-asked in its place.
     ``parse`` must raise on a reply it cannot use (the JSON extractors in

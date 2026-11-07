@@ -80,7 +80,8 @@ def test_a_transport_error_is_not_overwritten_by_a_later_unusable_reply(monkeypa
     atoms = _atoms(2)
 
     def reply_for(prompt):
-        if _numbers(prompt) == [1]:
+        # the first atom's call of one fails in transport; the second's reply is unusable
+        if _numbers(prompt) == [1] and "Setting 1 " in prompt and "Setting 2 " not in prompt:
             raise RuntimeError("503 service unavailable")
         return json.dumps([{"n": n, "needed": "no"} for n in _numbers(prompt)])
 

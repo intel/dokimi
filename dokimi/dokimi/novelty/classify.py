@@ -136,7 +136,8 @@ class ClassifyReport:
         unusable_retries: The subset of ``retried_batches`` whose reply parsed, with no
             usable row. Only the rest are cured by a higher ``--max-tokens``.
         calls: Calls both stages made, splits included.
-        value_error: The last value-judge failure that lost atoms.
+        value_error: The last value-judge call failure that lost atoms (an unusable reply is
+            counted apart).
         conflict_error: The last conflict-check failure that lost atoms. Kept apart from
             ``value_error``, and neither records an error a split recovered from, so a
             warning never quotes another stage's error or one that lost nothing.
@@ -271,8 +272,8 @@ def judge_value(
     An atom the judge did not answer for gets no verdict, rather than ``needed=False``:
     a default would read as *inert* and bias the category table toward cutting. Its id
     goes to ``report.unjudged``, and counts as skipped (no row for it) or malformed (a row
-    whose ``needed`` is not a real boolean, ``"false"`` included). A reply whose rows are
-    all malformed is split and re-asked, and never cached.
+    whose ``needed`` is not a real boolean, ``"false"`` included). A reply with no
+    verdict row (all rows malformed, or an empty list) is split and re-asked, and never cached.
     """
     from dokimi.llm import extract_json_array
 
