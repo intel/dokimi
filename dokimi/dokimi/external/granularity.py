@@ -44,7 +44,7 @@ DISPLAY_LIMIT = 20  # rows printed in text mode; JSON keeps every candidate
 PAID_USD_PER_SKILL = 1.75  # #424 PR family: about $7 for 4 skills on haiku with 3 reps
 
 _WORD_RE = re.compile(r"\w+")
-_FENCE_RE = re.compile(r"^\s*(?:```|~~~)")
+_FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})(.*)")  # a fence: its run of backticks or tildes, then any info string
 _TRIGGER_RE = re.compile(
     r"\b(?:use this skill when|use when|use for|triggers? on|whenever|when)\b", re.IGNORECASE
 )
@@ -248,14 +248,34 @@ def trigger_clauses(description: str) -> tuple[str, ...]:
     return tuple(dict.fromkeys(clauses))
 
 
+def _fence_closes(match: re.Match[str], fence: tuple[str, int]) -> bool:
+    """Whether a fence line closes the open ``fence``: the same character, a run at least as long, no info string."""
+    run, rest = match.group(1), match.group(2)
+    return run[0] == fence[0] and len(run) >= fence[1] and not rest.strip()
+
+
+def _outside_fences(lines: list[str]) -> list[bool]:
+    """For each line, whether it is outside fenced code: a fence line and the lines inside it are not."""
+    flags: list[bool] = []
+    fence: tuple[str, int] | None = None
+    for line in lines:
+        match = _FENCE_RE.match(line)
+        if fence is None:
+            flags.append(match is None)
+            if match:
+                fence = (match.group(1)[0], len(match.group(1)))
+        else:
+            flags.append(False)
+            if match and _fence_closes(match, fence):
+                fence = None
+    return flags
+
+
 def _h2_sections(lines: list[str]) -> list[tuple[str, list[str]]]:
     """The body split at its ``## `` headings; text before the first heading has an empty heading."""
     sections: list[tuple[str, list[str]]] = [("", [])]
-    in_fence = False
-    for line in lines:
-        if _FENCE_RE.match(line):
-            in_fence = not in_fence
-        elif not in_fence and line.startswith("## "):
+    for line, outside in zip(lines, _outside_fences(lines), strict=True):
+        if outside and line.startswith("## "):
             sections.append((line[3:].strip(), []))
             continue
         sections[-1][1].append(line)
@@ -266,19 +286,21 @@ def _fenced(lines: list[str]) -> tuple[str, list[list[str]]]:
     """The prose of ``lines`` (fenced code removed) and the fenced blocks, each a list of lines."""
     prose: list[str] = []
     blocks: list[list[str]] = []
-    block: list[str] | None = None
+    block: list[str] = []
+    fence: tuple[str, int] | None = None
     for line in lines:
-        if _FENCE_RE.match(line):
-            if block is None:
-                block = []
+        match = _FENCE_RE.match(line)
+        if fence is None:
+            if match:
+                fence = (match.group(1)[0], len(match.group(1)))
             else:
-                blocks.append(block)
-                block = None
-        elif block is not None:
-            block.append(line)
+                prose.append(line)
+        elif match and _fence_closes(match, fence):
+            blocks.append(block)
+            block, fence = [], None
         else:
-            prose.append(line)
-    if block:  # an unclosed fence runs to the end of the body
+            block.append(line)
+    if fence is not None and block:  # an unclosed fence runs to the end of the body
         blocks.append(block)
     return "\n".join(prose), blocks
 
