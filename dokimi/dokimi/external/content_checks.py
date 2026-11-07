@@ -68,7 +68,7 @@ def _legacy_message(where: str, line: int, model_id: str, entry: dict, sources: 
     else:
         state = f"deprecated by {vendor}" + (f", retires {date}" if date else "")
     advice = (
-        f"use {replacement}"
+        f"use {replacement} (the vendor's replacement; check it is still served)"
         if replacement
         else f"the vendor names no replacement (see {sources[vendor]})"
     )
