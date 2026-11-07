@@ -220,6 +220,33 @@ text output and `--format json` (one object: `state`, `findings`,
 `content_sha256` of the `SKILL.md`, `skill_sha256` of the skill directory,
 `duplicate_of`, for a script or a CI gate) are the same either way.
 
+### Network checks (`--online`, opt in)
+
+`catalog check` opens no connection by default. `--online` adds two checks that
+do, and only these two; each finding is a `warn`, so the exit code does not change:
+
+- `package-not-found`: a `pip install` (or `pip3`), `npm install` or `npx` name in
+  a skill that PyPI (`https://pypi.org/simple/<name>/`) or the npm registry answers
+  404 for. Flags, local paths, `git+`, URL and `file:` specs, and placeholders such as
+  `<package>` or `your-package` are not names.
+- `link-dead`: an `http(s)` URL in `SKILL.md` that answers 404 or 410, or whose host
+  does not resolve. A HEAD request is tried first and a GET only when HEAD is not 2xx or 3xx.
+  Placeholder hosts (`example.com`/`.org`/`.net`, `localhost`, loopback addresses,
+  a host or a path segment starting `your-*`, as in `github.com/your-username/your-repo`)
+  and template URLs (`<id>`, `{id}`, `${VAR}`) are not requested, and at most
+  20 URLs per skill are checked.
+
+A 403, 429 or 5xx, a timeout, a refused connection or any other network error is not a
+finding: the registry or site may refuse or be unreachable, not be gone. Each distinct
+package or URL is requested once per run, with at most 8 requests in flight and a 5-second
+timeout per request. `--online` does not combine with `--per-skill` (its workers would
+each hold their own cache, and `--resume` would keep rows no network check made), and
+it applies to skills only.
+
+```console
+$ python cli.py catalog check --root C:/Users/Public/content-repo --online
+```
+
 Restrict the scan with `--kind`:
 
 ```console
