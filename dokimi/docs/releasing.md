@@ -16,8 +16,9 @@ is cut. The first release is 0.1.0.
 
 ## Version numbers
 
-The version lives in one place: `project.version` in `pyproject.toml`.
-`dokimi --version`, `dokimi.__version__` and the `dokimi_version` field of the
+The version lives in `project.version` in `pyproject.toml`, with a copy in
+`package.version` of `../conda-recipe/meta.yaml` that `tests/test_conda_recipe.py`
+keeps equal to it. `dokimi --version`, `dokimi.__version__` and the `dokimi_version` field of the
 `dokimi run` manifest and of the subject scorecard `run_manifest` all read it. A source checkout reads `pyproject.toml` itself, an
 installed wheel its package metadata.
 
@@ -53,7 +54,8 @@ the `Fragment for package changes` step in `ci.yml`'s `static` job asks for it.
 1. **Release PR** (from a fork, like any PR). From `dokimi/`:
 
    ```bash
-   # bump project.version in pyproject.toml to X.Y.Z, then:
+   # bump project.version in pyproject.toml and package.version in
+   # ../conda-recipe/meta.yaml to X.Y.Z, then:
    scriv collect --version X.Y.Z          # fragments -> CHANGELOG.md section
    python scripts/check_release.py vX.Y.Z  # what the release workflow checks
    ```
@@ -72,8 +74,10 @@ the `Fragment for package changes` step in `ci.yml`'s `static` job asks for it.
    Publishing the release runs `.github/workflows/release.yml`. It checks the tag
    against the version, the changelog section and leftover fragments, builds the
    sdist and wheel (the wheel from the sdist), smoke-tests the installed wheel
-   from outside the checkout (`scripts/smoke_installed.py`), attaches both files
-   to the release and, once enabled, uploads them to PyPI. If it fails, fix on
+   from outside the checkout (`scripts/smoke_installed.py`), signs both files,
+   attaches them to the release with their signatures and build provenance
+   (see [Verifying a release](#verifying-a-release)) and, once enabled, uploads
+   them to PyPI. If it fails, fix on
    `main` and release the next patch version: a published version is never
    rebuilt.
 
@@ -81,6 +85,32 @@ the `Fragment for package changes` step in `ci.yml`'s `static` job asks for it.
 anything. Given a tag, it checks out that tag (and fails if it does not exist)
 and also runs the readiness check on it; without one it builds the ref it was
 dispatched from.
+
+## Verifying a release
+
+Each release carries, next to the sdist and wheel:
+
+- `<file>.sigstore.json`: a [Sigstore](https://www.sigstore.dev/) bundle per
+  file, signed keyless with the identity of `release.yml` on the release tag.
+- `dokimi-X.Y.Z.intoto.jsonl`: a SLSA build-provenance attestation for both
+  files (which workflow run, commit and runner built them), also stored in the
+  repository's attestations.
+
+```bash
+gh release download vX.Y.Z -R intel/dokimi
+# signature: signed by release.yml on the tag
+python -m pip install sigstore
+python -m sigstore verify github dokimi-X.Y.Z-py3-none-any.whl \
+  --bundle dokimi-X.Y.Z-py3-none-any.whl.sigstore.json \
+  --repository intel/dokimi --ref refs/tags/vX.Y.Z --name release
+# provenance, from the attached file (offline) or the repository's attestations
+gh attestation verify dokimi-X.Y.Z-py3-none-any.whl -R intel/dokimi \
+  --signer-workflow intel/dokimi/.github/workflows/release.yml \
+  --bundle dokimi-X.Y.Z.intoto.jsonl
+```
+
+The same commands check the sdist (`dokimi-X.Y.Z.tar.gz`).
+Releases before this (v0.1.0) are unsigned.
 
 ## Enabling PyPI
 

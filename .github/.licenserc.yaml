@@ -69,6 +69,9 @@ header:
     # Third-party eval files copied unchanged, under their own licenses
     # (dokimi/tests/fixtures/task_formats/MANIFEST.yaml, LICENSES/).
     - 'dokimi/tests/fixtures/task_formats/**'
+    # A skill the fidelity golden sends to the client: a header in its body would be
+    # part of the skill being measured (the same reason as dokimi/data/skills/**).
+    - 'dokimi/tests/fixtures/fidelity/skill/**'
 
   comment: never
 

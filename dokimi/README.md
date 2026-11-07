@@ -44,7 +44,7 @@ the same material. Pick by what you are about to do with the answer:
 | Question | Use | Command |
 |---|---|---|
 | Does this artifact help, and is the delta real? | treatment arms | `cli.py arms run` |
-| *Which parts* of it help, and which parts does the model already know? | content novelty | `cli.py novelty analyze` |
+| *Which parts* of it help, and which parts does the model already know? | content novelty | `cli.py skill novelty analyze` |
 | Does a repository's own guidance reach the agent working in it? | repository as subject | `cli.py repo reach` |
 
 The first ships or cuts an artifact; the second edits one; the third measures a
@@ -186,7 +186,7 @@ unregistered product, or if `dokimi/config/products.yaml` drifts from `products.
 Explore the mapping with:
 
 ```bash
-python cli.py library intents                       # list domains + products
+python cli.py catalog intents                       # list domains + products
 python cli.py library list --domain data-science    # products for a domain
 python cli.py library show vtune                    # includes the product's domains
 ```

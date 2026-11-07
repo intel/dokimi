@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""`context prefilter`: what one session is when Claude Code writes it to several files."""
+"""`trace prefilter`: what one session is when Claude Code writes it to several files."""
 
 from __future__ import annotations
 

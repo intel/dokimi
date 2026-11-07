@@ -41,9 +41,11 @@ from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from dokimi.external.listing import only_description_too_long
 from dokimi.skills import Skill
 from dokimi.utils import InputError, parse_frontmatter
 
+from .catalog_keep import check_keep_copies_under, keep_past_broken_copies, resolve_kept_copies
 from .client import LLMClient, parse_json_object
 
 if TYPE_CHECKING:
@@ -482,11 +484,30 @@ def non_skill_reason(ref: str) -> str | None:
     return None
 
 
+def over_limit_warnings(competitors: list[Candidate], *, under_test: bool = False) -> list[dict]:
+    """One record per skill whose description is over the 1024-character limit.
+
+    ``competitors`` are skills of the field, or, with ``under_test``, the skill under test,
+    which the message names as such.
+    """
+    from dokimi.external.validate import DESCRIPTION_MAX
+
+    kept = ("the skill under test, measured with its full description" if under_test
+            else "kept in the field with its full description")
+    return [{"skill": c.name, "length": len(c.description), "limit": DESCRIPTION_MAX,
+             "message": f"description is {len(c.description)} characters, over the {DESCRIPTION_MAX} "
+                        f"limit; {kept} (harnesses differ: "
+                        "pi.dev rejects the skill, Claude Code truncates past about 1,536 "
+                        "characters)"}
+            for c in competitors if len(c.description) > DESCRIPTION_MAX]
+
+
 def competitor_left_out(ref: str, *, include_disabled: bool, include_invalid: bool) -> str | None:
     """Why an explicit ``skill:`` competitor is left out of the field, as the note says, or None.
 
     The same two rules as a catalog skill: a ``disable-model-invocation`` skill (unless
-    ``include_disabled``) and a skill with a spec error (unless ``include_invalid``).
+    ``include_disabled``) and a skill with a spec error (unless ``include_invalid``). A
+    description over 1024 characters, as the only spec error, does not leave a skill out.
     """
     from dokimi.external.catalog import SkillCatalogEntry
     from dokimi.external.validate import review_skills
@@ -509,7 +530,7 @@ def competitor_left_out(ref: str, *, include_disabled: bool, include_invalid: bo
     entry = SkillCatalogEntry(name=skill.name, status=None, path=path.parent,
                               source_root=root, skill=skill)
     review = review_skills([entry])[0]
-    if review is None or review.state != "error":
+    if review is None or review.state != "error" or only_description_too_long(review):
         return None
     problems = "; ".join(f.message for f in review.findings if f.level == "error")
     return f"spec error ({problems}; --include-invalid keeps it)"
@@ -570,7 +591,10 @@ def catalog_competitors(root: str, exclude: set[str],
                         notes: list[str] | None = None, *,
                         include_disabled: bool = False,
                         include_invalid: bool = False,
-                        dropped: dict[str, set[str]] | None = None) -> list[Candidate]:
+                        dropped: dict[str, set[str]] | None = None,
+                        keep_copies_under: str | None = None,
+                        conflicts: dict[str, list[str]] | None = None,
+                        unloaded: dict[str, str] | None = None) -> list[Candidate]:
     """Every skill under ``root`` whose name is not in ``exclude``.
 
     The field a harness would list next to the artifact, rather than one the caller picks.
@@ -578,8 +602,9 @@ def catalog_competitors(root: str, exclude: set[str],
     the catalog has. A declared skill that cannot be loaded is left out and described in
     ``notes`` (when given) rather than aborting the run. A skill with
     ``disable-model-invocation`` is left out too, unless ``include_disabled``. A skill with a
-    spec error (``catalog scan`` reports it as an error, e.g. a description over 1024
-    characters) is left out too, unless ``include_invalid``. A mirror, a byte-identical
+    spec error (``catalog check`` reports it as an error, e.g. a name that is not its directory
+    name) is left out too, unless ``include_invalid``. A description over 1024 characters, as the
+    only error, keeps the skill (harnesses differ on it; see ``only_description_too_long``). A mirror, a byte-identical
     ``SKILL.md`` under another path (a plugin copy of the ``skills/`` tree), is left out too:
     the copy nearest the catalog root stands for the card. Disabled and spec-error copies are
     filtered according to the flags first. A name whose remaining copies differ in content leaves
@@ -587,14 +612,22 @@ def catalog_competitors(root: str, exclude: set[str],
     conflict leaves out is mapped in ``dropped`` (when given) to why: ``disabled``, ``invalid``
     or ``conflict``, so a caller need not read the catalog again.
 
+    ``keep_copies_under`` (a directory under ``root``) keeps only the copies under it for a name
+    whose copies differ and that have one content under it; the others of that name are left out
+    with a note. ``conflicts`` (when given) gets each name still in conflict, mapped to the paths of
+    its copies. ``unloaded`` (when given) gets each non-excluded skill that did not load, with why.
+
     Raises:
-        ValueError: ``root`` is not a directory, or its ``skills.yaml`` is invalid (with no
+        ValueError: ``root`` is not a directory, ``keep_copies_under`` is not a directory inside
+            it (see :func:`check_keep_copies_under`), or its ``skills.yaml`` is invalid (with no
             manifest every ``SKILL.md`` is read, and a broken one is skipped with a note).
     """
     if not Path(root).is_dir():
         raise ValueError(f"--catalog is not a directory: {root}")
+    if keep_copies_under is not None:
+        check_keep_copies_under(root, keep_copies_under)
     eligible = _eligible_catalog_skills(root, exclude, notes, include_disabled, include_invalid,
-                                        dropped)
+                                        dropped, keep_copies_under, conflicts, unloaded)
     keeper = _keepers_by_copy(eligible)
     candidates: list[Candidate] = []
     for skill, digest in eligible:
@@ -610,7 +643,11 @@ def catalog_competitors(root: str, exclude: set[str],
 def _eligible_catalog_skills(root: str, exclude: set[str], notes: list[str] | None,
                              include_disabled: bool,
                              include_invalid: bool = False,
-                             dropped: dict[str, set[str]] | None = None) -> list[tuple[Skill, str]]:
+                             dropped: dict[str, set[str]] | None = None,
+                             keep_copies_under: str | None = None,
+                             conflicts: dict[str, list[str]] | None = None,
+                             unloaded: dict[str, str] | None = None,
+                             ) -> list[tuple[Skill, str]]:
     """Each loadable, non-excluded catalog skill with the sha256 of its ``SKILL.md``.
 
     Disabled and spec-error copies are filtered according to the flags first. A name whose
@@ -623,23 +660,30 @@ def _eligible_catalog_skills(root: str, exclude: set[str], notes: list[str] | No
     entries = read_skill_manifest(Path(root), notes)
     reviews = review_skills(entries)
     loaded: list[tuple[Skill, str, SkillReview]] = []
+    broken: dict[str, list[Path | None]] = {}
     for entry, review in zip(entries, reviews, strict=True):
         skill = entry.skill
         if skill is None or not entry.loaded or review is None:
+            if unloaded is not None and entry.name not in exclude:
+                unloaded[entry.name] = entry.error or "it did not load"
+                broken.setdefault(entry.name, []).append(entry.path)
             if notes is not None:
                 notes.append(f"skipped catalog entry {entry.name!r}: {entry.error}")
             continue
         if skill.name in exclude:
             continue
-        # the digest and the disabled flag are the review's, so routing and catalog scan cannot disagree
+        # the digest and the disabled flag are the review's, so routing and catalog check cannot disagree
         loaded.append((skill, review.content_sha256 or "", review))
     # the flags first: a copy no harness lists (disabled, or a spec error) does not make its name a conflict
     listed: list[tuple[Skill, str]] = []
     for skill, digest, review in loaded:
         if not _left_out_by_flag(skill, review, include_disabled, include_invalid, notes, dropped):
             listed.append((skill, digest))
-    conflicting = _conflicting_names(listed, notes, dropped)
-    return [(skill, digest) for skill, digest in listed if skill.name not in conflicting]
+    listed = resolve_kept_copies(listed, root, keep_copies_under, notes)
+    conflicting = _conflicting_names(listed, notes, dropped, conflicts)
+    field = [(skill, digest) for skill, digest in listed if skill.name not in conflicting]
+    keep_past_broken_copies(field, root, keep_copies_under, broken, unloaded, notes)
+    return field
 
 
 def _left_out_by_flag(skill: Skill, review: SkillReview, include_disabled: bool,
@@ -650,7 +694,8 @@ def _left_out_by_flag(skill: Skill, review: SkillReview, include_disabled: bool,
     The note names the first rule; ``dropped`` (when given) gets every rule that applies.
     """
     disabled = not include_disabled and review.disable_model_invocation
-    invalid = not include_invalid and review.state == "error"
+    invalid = (not include_invalid and review.state == "error"
+               and not only_description_too_long(review))
     if dropped is not None and (disabled or invalid):
         dropped.setdefault(skill.name, set()).update(
             why for why, hit in (("disabled", disabled), ("invalid", invalid)) if hit)
@@ -669,12 +714,13 @@ def _left_out_by_flag(skill: Skill, review: SkillReview, include_disabled: bool,
 
 
 def _conflicting_names(listed: list[tuple[Skill, str]], notes: list[str] | None,
-                       dropped: dict[str, set[str]] | None = None) -> set[str]:
+                       dropped: dict[str, set[str]] | None = None,
+                       conflicts: dict[str, list[str]] | None = None) -> set[str]:
     """The names that two different files among ``listed`` share, with a note naming each path.
 
     Two skills with one name and different bytes cannot both stand for the card, so the name
     leaves the field. The rest of the field stays. ``listed`` holds only the copies the flags
-    let into the field, so ``catalog scan`` names the same copies as conflicting.
+    let into the field, so ``catalog check`` names the same copies as conflicting.
     """
     digests: dict[str, set[str]] = {}
     for skill, digest in listed:
@@ -683,12 +729,17 @@ def _conflicting_names(listed: list[tuple[Skill, str]], notes: list[str] | None,
     if dropped is not None:
         for name in conflicting:
             dropped.setdefault(name, set()).add("conflict")
+    if conflicts is not None:
+        for name in conflicting:
+            conflicts[name] = sorted(skill.path.as_posix() for skill, _ in listed
+                                     if skill.name == name)
     if notes is not None:
         for name in sorted(conflicting):
             paths = ", ".join(sorted(skill.path.as_posix() for skill, _ in listed
                                      if skill.name == name))
             notes.append(f"skipped catalog name {name!r}: it has different content at "
-                         f"{paths}; dedupe or rename them to route them")
+                         f"{paths}; keep one directory's copies with --keep-copies-under <dir>, "
+                         "or dedupe or rename them to route them")
     return conflicting
 
 

@@ -114,11 +114,11 @@ def _cross_judge(tmp_path, monkeypatch, failing, *extra, data=None):
 
 
 @pytest.mark.parametrize("strict", [[], ["--strict"]])  # a failed run, not --strict's NOT MEASURED exit 1
-def test_a_judge_that_scored_nothing_exits_2_after_writing_the_report(tmp_path, monkeypatch, capsys, strict):
+def test_a_judge_that_scored_nothing_exits_1_after_writing_the_report(tmp_path, monkeypatch, capsys, strict):
     code, report = _cross_judge(tmp_path, monkeypatch, all, "--no-stored", *strict)
     err = capsys.readouterr().err
 
-    assert code == 2
+    assert code == 1  # a runtime failure of the judge, not bad input
     assert f"Error: anthropic/m (aggregate) scored none of its 6 answers, first error: RuntimeError: {KEY_ERROR}\n" \
         in err
     assert report["summary"]["arms"]["skill"]["label"] == "NOT MEASURED"
@@ -154,7 +154,7 @@ def test_a_scored_nothing_judge_fails_the_run_even_when_the_stored_measure_carri
     code, report = _cross_judge(tmp_path, monkeypatch, all, "--strict", data=data)
 
     assert report["summary"]["arms"]["skill"]["label"] == "CONSISTENT + (one judge)"  # --strict alone passes
-    assert code == 2
+    assert code == 1
     assert "Error: anthropic/m (aggregate) scored none of its 16 answers" in capsys.readouterr().err
 
 
@@ -175,6 +175,6 @@ def test_every_measure_of_a_dead_judge_is_named(tmp_path, monkeypatch, capsys, b
     code, _ = _cross_judge(tmp_path, monkeypatch, all, *extra)
     err = capsys.readouterr().err
 
-    assert code == 2
+    assert code == 1  # a dead judge is a run failure
     assert ("anthropic/m (aggregate) scored none" in err) is both
     assert "anthropic/m (grounded) scored none" in err

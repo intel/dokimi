@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Callable, List, cast
 
 from dokimi.llm import ANSWER_PROVIDERS, credential_env_var, resolve_api_key
-from dokimi.commands.evaluate import _warn_judge_independence
+from dokimi.utils import warn_judge_independence as _warn_judge_independence
 from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.defaults import (
     DEFAULT_ANSWER_MODEL,
@@ -76,7 +76,9 @@ def _run_single_library(entry, output_dir: str, model: str, provider: str, judge
         judge_provider=judge_provider,
         judge_temperature=judge_temperature,
         judge_placeholder=judge_placeholder,
-        context7_id=entry.context7_id,
+        # The resolver finds entry.context7_id via product_key, after an mcp: ;id=;
+        # passed as the explicit id it would beat ;id= (#310).
+        context7_id=None,
         doc_source=doc_source,
         max_tokens_per_question=max_tokens_per_question,
         force_regen=force_regen,
