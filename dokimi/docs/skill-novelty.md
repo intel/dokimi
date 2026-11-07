@@ -1154,10 +1154,11 @@ And the retention oracle runs retrieval → NLI locally, escalating to an LLM on
 ambiguous band, with a disk cache (`--cache-dir`) keyed on (atom, text). Full sweeps stay opt-in
 (`--all-atoms`).
 
-The cache key carries a version (`retention-cache-v3`). Entries written before failed
-adjudications were kept out of the cache can hold a failure stored as `absent`, and entries written
-before a hedged verdict (`retained?`) counted as no verdict can hold it stored as `retained`; both
-look like real ones, so none of them is read. The old files stay in `--cache-dir` and can be deleted. The
+The cache key carries a version (`retention-cache-v4`). Entries written before failed
+adjudications were kept out of the cache can hold a failure stored as `absent`, entries written
+before a hedged verdict (`retained?`) counted as no verdict can hold it stored as `retained`, and
+entries written before a reply cut at the output ceiling was an error can hold a verdict parsed
+from a truncated reply; all of them look like real ones, so none of them is read. The old files stay in `--cache-dir` and can be deleted. The
 first run after upgrading therefore pays one adjudication call per pair the old cache held, unless
 `DOKIMI_RESPONSE_CACHE` replays it, but the response-cache key carries `max_tokens`, and novelty
 calls now send 16384 where they sent none, so those entries miss too.
