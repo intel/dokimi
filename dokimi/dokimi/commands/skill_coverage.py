@@ -111,7 +111,7 @@ def cmd_eval_skill_coverage(args: argparse.Namespace) -> None:
         requirements, requirements_dropped = extract_requirements(skill, client)
         links = map_requirements(requirements, checks, client)
     except SpendCapReached as exc:
-        print(f"Error: the --max-usd cap was reached before the map was made: {exc}", file=sys.stderr)
+        print(f"Error: the --max-usd cap was reached: {exc}", file=sys.stderr)
         sys.exit(EXIT_FAILURE)
     except SkillCoverageError as exc:
         print(f"Error: {exc}", file=sys.stderr)

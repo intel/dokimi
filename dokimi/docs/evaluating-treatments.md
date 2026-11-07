@@ -800,7 +800,10 @@ python cli.py eval skill-coverage skills/demo/SKILL.md evals/evals.json \
 ```
 
 - Two model calls: one lists the requirements, one maps them to the checks. Both go through
-  the novelty client, so `--max-usd` stops before the call that would exceed it (exit 1).
+  the novelty client. `--max-usd` is checked before each call: once spend has reached the cap, the
+  next call is refused and the run exits 1 with nothing written. The call that crosses the cap is
+  already paid, so spend can exceed the cap by that one call. A call whose price is unknown also
+  stops the run (exit 1).
 - The map is LLM-estimated. On a labelled calibration set of 88 items, item precision was about
   .92 and recall 1.0; link precision was about .70. The report carries that label. Nothing reads
   the output as a score or a gate, and the command exits 0 whenever the map was made.

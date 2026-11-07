@@ -335,7 +335,9 @@ def test_command_exits_1_when_the_usd_cap_is_reached(tmp_path, monkeypatch, caps
     with pytest.raises(SystemExit) as exc:
         _run(monkeypatch, [str(_skill(tmp_path)), str(_evals(tmp_path)), "--max-usd", "0.5"], EXTRACT, MAP)
     assert exc.value.code == 1
-    assert "--max-usd cap was reached" in capsys.readouterr().err
+    err = capsys.readouterr().err
+    assert "--max-usd cap was reached" in err
+    assert "before the map was made" not in err  # the cap can stop the run after the first call, too
 
 
 def test_command_refuses_an_out_over_the_skill_md_read_from_a_skill_directory(tmp_path, monkeypatch):
