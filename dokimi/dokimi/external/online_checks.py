@@ -42,8 +42,9 @@ _PIP = {"pip", "pip3"}
 _NPM_INSTALL = {"install", "i", "add"}
 # Words that may come before a package manager name in a command line: a prompt, a wrapper or a verb.
 _LEAD = {"$", "sudo", "run", "Run", "RUN", "use", "Use", "then", "and", "-m", "uv", "env"}
+_NPX_LEAD = {"$", "sudo", "env"}  # ``npx`` is a command at the start of a line, not a word of prose
 _PIP_VALUE_OPTIONS = {
-    "-r", "--requirement", "-c", "--constraint", "-e", "--editable", "-i", "--index-url",
+    "--python", "-r", "--requirement", "-c", "--constraint", "-e", "--editable", "-i", "--index-url",
     "--extra-index-url", "-f", "--find-links", "-t", "--target", "--prefix", "--root", "--cache-dir",
     "--proxy", "--timeout", "--trusted-host", "--python-version", "--platform", "--abi",
     "--implementation", "--upgrade-strategy", "--progress-bar", "--src", "--log", "--report",
@@ -51,16 +52,24 @@ _PIP_VALUE_OPTIONS = {
     "--exists-action", "--global-option", "--install-option", "--config-settings", "-C",
     "--only-binary", "--no-binary", "--cert", "--client-cert", "--root-user-action",
 }
-_NPM_VALUE_OPTIONS = {"--prefix", "--registry", "--workspace", "-w", "--tag", "--cache", "--userconfig"}
+_NPM_VALUE_OPTIONS = {
+    "--prefix", "--registry", "--workspace", "-w", "--tag", "--cache", "--userconfig", "--omit", "--include",
+    "--loglevel", "--otp", "--scope", "--location", "--install-strategy", "--before",
+}
 _NON_PACKAGE_SUFFIXES = (".txt", ".whl", ".tar.gz", ".tgz", ".zip", ".cfg", ".toml", ".py")
-_PYPI_NAME_RE = re.compile(r"([A-Za-z0-9][A-Za-z0-9._-]*)(?:\[[^\]]*\])?(?:(?:===|==|>=|<=|~=|!=|<|>).*)?")
+_PYPI_NAME_RE = re.compile(
+    r"([A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)(?:\[[^\]]*\])?(?:\s*(?:===|==|>=|<=|~=|!=|<|>).*)?")
 _NPM_NAME_RE = re.compile(r"(?:@[A-Za-z0-9._~-]+/)?[A-Za-z0-9._~-]+")
 _PLACEHOLDER_NAMES = {"package", "packages", "pkg", "name", "module", "mypackage", "my-package"}
-_URL_RE = re.compile(r"https?://[^\s\"'`<>]+", re.IGNORECASE)
+_URL_RE = re.compile(r"https?://[^\s\"'`<>\[\]]+", re.IGNORECASE)  # a markdown link ends at ``]``
 _TEMPLATE_RE = re.compile(r"[{}$]")  # a template variable, such as ``{id}`` or ``${VERSION}``
 _EXAMPLE_DOMAINS = ("example.com", "example.org", "example.net")
 _RESERVED_SUFFIXES = (".localhost", ".test", ".invalid", ".example")
 _PLACEHOLDER_HOST_RE = re.compile(r"(?:^|[./])your-")  # a host or a path segment that starts with ``your-``
+_CONTINUATION_RE = re.compile(r"\\[ \t]*\r?\n")  # a backslash at the end of a line continues the command
+_CODE_SPAN_RE = re.compile(r"`([^`\n]*)`")
+_SEPARATOR_RE = re.compile(r"[;&|()]+")  # a token of these operators ends one command
+_REDIRECT_RE = re.compile(r"&?[<>]+[&|]?")  # an operator token of a redirection, such as ``>`` or ``2>&1``'s ``>&``
 
 
 def make_client() -> httpx.Client:
@@ -69,23 +78,53 @@ def make_client() -> httpx.Client:
                         headers={"User-Agent": "dokimi-catalog-check"})
 
 
-def _split(text: str) -> list[str]:
+def _words(line: str) -> list[str]:
+    """The tokens of one line, read as the shell reads them: quotes keep their text, a ``#`` starts a comment,
+    and ``; & | ( )`` and ``< >`` are tokens of their own. An unbalanced quote reads as whitespace."""
+    lexer = shlex.shlex(line, posix=True, punctuation_chars=True)
+    lexer.whitespace_split = True
+    lexer.commenters = "#"
     try:
-        return shlex.split(text)
-    except ValueError:  # an unbalanced quote: read it as whitespace-separated words
-        return text.split()
+        return list(lexer)
+    except ValueError:
+        return line.split()
+
+
+def _commands(line: str) -> Iterator[list[str]]:
+    """The commands of one line, each as its words. A redirection and its target are not words of the command."""
+    words: list[str] = []
+    skip_target = False
+    for tok in _words(line):
+        if skip_target:
+            skip_target = False
+        elif _REDIRECT_RE.fullmatch(tok):
+            if words and words[-1].isdigit():  # the file descriptor of ``2>&1`` or ``2>/dev/null``
+                words.pop()
+            skip_target = True
+        elif _SEPARATOR_RE.fullmatch(tok):
+            if words:
+                yield words
+            words = []
+        else:
+            words.append(tok)
+    if words:
+        yield words
 
 
 def _command_lines(body: str) -> Iterator[list[str]]:
+    body = _CONTINUATION_RE.sub(" ", body)
+    body = _CODE_SPAN_RE.sub(lambda m: f"\n{m.group(1)}\n", body)  # an inline code span is a line of its own
     for line in body.splitlines():
-        for part in re.split(r"&&|\|\||[;|`]", line):
-            tokens = _split(part)
-            if tokens:
-                yield tokens
+        yield from _commands(line)
 
 
 def _is_package_word(tok: str) -> bool:
     return not tok.startswith(("-", ".", "/", "~", "$", "<", "{")) and "://" not in tok
+
+
+def _requirement(tok: str) -> str:
+    """``tok`` without the environment marker after ``;`` and the sentence punctuation after it."""
+    return tok.split(";", 1)[0].strip().rstrip(".,:!?")
 
 
 def _pip_names(args: list[str]) -> Iterator[str]:
@@ -95,13 +134,15 @@ def _pip_names(args: list[str]) -> Iterator[str]:
             skip = False
         elif tok in _PIP_VALUE_OPTIONS:
             skip = True
-        elif _is_package_word(tok) and not tok.lower().endswith(_NON_PACKAGE_SUFFIXES) and "@" not in tok:
-            match = _PYPI_NAME_RE.fullmatch(tok)
-            if match:
+        elif _is_package_word(tok) and "@" not in tok:
+            requirement = _requirement(tok)
+            match = _PYPI_NAME_RE.fullmatch(requirement)
+            if match and not requirement.lower().endswith(_NON_PACKAGE_SUFFIXES):
                 yield match.group(1)
 
 
 def _npm_name(tok: str) -> Optional[str]:
+    tok = tok.rstrip(".,:!?")
     if not _is_package_word(tok) or ":" in tok or tok.lower().endswith(_NON_PACKAGE_SUFFIXES):
         return None
     at = tok.rfind("@")
@@ -127,20 +168,25 @@ def _npm_names(args: list[str]) -> Iterator[str]:
 
 
 def _npx_names(args: list[str]) -> Iterator[str]:
-    """The package ``npx`` runs: the first word after its flags, or the one after ``-p``."""
+    """The packages ``npx`` runs: every ``-p`` or ``--package`` value, or else the first word after its flags
+    when there is none. The command that follows the packages is not a package."""
+    packages: list[str] = []
     take_next = False
     for tok in args:
-        if tok in {"-c", "--call"}:
-            return  # a shell command follows, not a package
-        if tok.startswith("--package="):
-            yield from _npm_names([tok[len("--package="):]])
-            return
-        if tok in {"-p", "--package"}:
+        if take_next:
+            take_next = False
+            packages.extend(_npm_names([tok]))
+        elif tok in {"-c", "--call"}:
+            break  # a shell command follows, not a package
+        elif tok.startswith("--package="):
+            packages.extend(_npm_names([tok[len("--package="):]]))
+        elif tok in {"-p", "--package"}:
             take_next = True
-            continue
-        if take_next or not tok.startswith("-"):
-            yield from _npm_names([tok])
-            return
+        elif not tok.startswith("-"):
+            if not packages:
+                packages.extend(_npm_names([tok]))
+            break
+    yield from packages
 
 
 def _is_placeholder(name: str) -> bool:
@@ -149,14 +195,12 @@ def _is_placeholder(name: str) -> bool:
 
 def _command_packages(tokens: list[str]) -> Iterator[tuple[str, str]]:
     for i, tok in enumerate(tokens):
-        if i > 0 and tokens[i - 1] not in _LEAD:
-            continue
         nxt = tokens[i + 1] if i + 1 < len(tokens) else ""
-        if tok in _PIP and nxt == "install":
+        if tok in _PIP and nxt == "install" and (i == 0 or tokens[i - 1] in _LEAD):
             names, eco = _pip_names(tokens[i + 2:]), "pypi"
-        elif tok == "npm" and nxt in _NPM_INSTALL:
+        elif tok == "npm" and nxt in _NPM_INSTALL and (i == 0 or tokens[i - 1] in _LEAD):
             names, eco = _npm_names(tokens[i + 2:]), "npm"
-        elif tok == "npx":
+        elif tok == "npx" and (i == 0 or tokens[i - 1] in _NPX_LEAD):
             names, eco = _npx_names(tokens[i + 1:]), "npm"
         else:
             continue
@@ -230,13 +274,18 @@ def _status(client: httpx.Client, url: str) -> int:
         return response.status_code
 
 
+# The resolver answers that mean the host does not exist. EAI_AGAIN and the rest are a broken or
+# busy resolver, not a dead link.
+_NO_SUCH_HOST = {code for name in ("EAI_NONAME", "EAI_NODATA") if (code := getattr(socket, name, None)) is not None}
+
+
 def _is_dns_failure(exc: BaseException) -> bool:
     seen: Optional[BaseException] = exc
     for _ in range(6):
         if seen is None:
             return False
         if isinstance(seen, socket.gaierror):
-            return True
+            return seen.args[0] in _NO_SUCH_HOST
         seen = seen.__cause__ or seen.__context__
     return False
 
