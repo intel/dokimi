@@ -117,10 +117,15 @@ def run_estimate(args: argparse.Namespace, settings, text: str, estimate_usd) ->
 
 def print_run_estimate(args: argparse.Namespace, settings, text: str, estimate_usd) -> None:
     """Name what the run is expected to cost before the first paid call (stderr)."""
-    usd = run_estimate(args, settings, text, estimate_usd)[0]["expected_usd"]
+    from dokimi.novelty.tiers import FITTED_TOKENS_MAX
+
+    estimate, n_tokens = run_estimate(args, settings, text, estimate_usd)
+    usd = estimate["expected_usd"]
     if usd is None:  # _estimate_usd has already said why
         return
     label = f"--tier {settings.tier}" if settings.tier else "default settings"
     cap = (f"--max-usd {args.max_usd:g} stops it at that cap" if args.max_usd is not None
            else "--max-usd caps it")
-    print(f"Expected ~${usd:.2f} for this run at list prices ({label}); {cap}", file=sys.stderr)
+    low = " (a low projection for this size)" if n_tokens > FITTED_TOKENS_MAX else ""
+    print(f"Expected ~${usd:.2f}{low} for this run at list prices ({label}); {cap}",
+          file=sys.stderr)
