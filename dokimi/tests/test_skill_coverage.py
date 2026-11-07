@@ -356,6 +356,59 @@ def test_command_refuses_an_out_over_a_task_check_file_before_any_call(tmp_path,
     assert check.read_text(encoding="utf-8").startswith("def test_flag")
 
 
+def test_the_real_client_carries_the_max_usd_cap_and_no_cap_without_it(tmp_path):
+    from dokimi.commands import skill_coverage as cmd
+
+    capped = build_parser().parse_args(["eval", "skill-coverage", str(_skill(tmp_path)), str(_evals(tmp_path)),
+                                        "--max-usd", "0.5"])
+    client = cmd._client(capped)  # the client the command makes, not a test stand-in
+    assert client.cap is not None and client.cap.limit_usd == 0.5
+    plain = build_parser().parse_args(["eval", "skill-coverage", str(_skill(tmp_path)), str(_evals(tmp_path))])
+    assert cmd._client(plain).cap is None
+
+
+@pytest.mark.parametrize("value", ["nan", "inf", "-1", "0"])
+def test_max_usd_refuses_a_value_that_would_disable_the_cap(tmp_path, value):
+    with pytest.raises(SystemExit):
+        build_parser().parse_args(["eval", "skill-coverage", str(_skill(tmp_path)), str(_evals(tmp_path)),
+                                   "--max-usd", value])
+
+
+def _no_paid_call(monkeypatch):
+    from dokimi.commands import skill_coverage as cmd
+
+    def no_client(args):
+        raise AssertionError("a paid call was made before the input check")
+
+    monkeypatch.setattr(cmd, "_client", no_client)
+
+
+def test_an_empty_eval_set_is_refused_before_any_paid_call(tmp_path, monkeypatch):
+    _no_paid_call(monkeypatch)
+    empty = tmp_path / "evals.json"
+    empty.write_text(json.dumps({"evals": []}), encoding="utf-8")
+    args = build_parser().parse_args(["eval", "skill-coverage", str(_skill(tmp_path)), str(empty)])
+    with pytest.raises(InputError, match="no evals.json rows"):
+        args.func(args)
+
+
+def test_an_over_budget_eval_set_is_refused_before_any_paid_call(tmp_path, monkeypatch):
+    _no_paid_call(monkeypatch)
+    monkeypatch.setattr(sc, "MAX_CATALOGUE_CHARS", 20)
+    args = build_parser().parse_args(["eval", "skill-coverage", str(_skill(tmp_path)), str(_evals(tmp_path))])
+    with pytest.raises(InputError, match="one mapping call takes"):
+        args.func(args)
+
+
+def test_an_out_equal_to_the_evals_file_is_refused_before_any_paid_call(tmp_path, monkeypatch):
+    _no_paid_call(monkeypatch)
+    evals = _evals(tmp_path)
+    args = build_parser().parse_args(["eval", "skill-coverage", str(_skill(tmp_path)), str(evals), "--out", str(evals)])
+    with pytest.raises(InputError, match="would overwrite an input"):
+        args.func(args)
+    assert json.loads(evals.read_text(encoding="utf-8"))["evals"][0]["id"] == "e1"
+
+
 def test_command_refuses_an_out_that_is_a_directory_before_any_paid_call(tmp_path, monkeypatch):
     from dokimi.commands import skill_coverage as cmd
 
