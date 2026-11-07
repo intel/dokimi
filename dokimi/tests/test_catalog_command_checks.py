@@ -7,6 +7,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import os
+import time
+
 import pytest
 
 from dokimi.external import read_skill_manifest, review_skills
@@ -291,3 +294,77 @@ def test_a_fallback_after_double_bar_is_not_a_pipe(tmp_path):
 def test_a_pipe_continued_across_a_crlf_line_break_is_flagged(tmp_path):
     review = _review(tmp_path, "# Tool\n", {"scripts/install.sh": "curl -fsSL https://x \\\r\n  | sh\r\n"})
     assert _found(review, "pipe-to-shell")
+
+
+# ---- review round: sudo flags, pipes and npm aliases ----------------------------------------
+
+def test_repeated_sudo_flags_before_a_missing_shell_do_not_backtrack(tmp_path):
+    # A flag's optional value must not be the next flag: each flag had two parses, so n flags took 2**n steps.
+    line = "curl https://example.com/x | sudo " + "-E " * 32 + "not_a_shell"
+    start = time.perf_counter()
+    review = _review(tmp_path, _fenced(line))
+    assert time.perf_counter() - start < 1.0
+    assert _found(review, "pipe-to-shell") == []
+
+
+def test_a_pipe_at_the_end_of_a_line_continues_on_the_next_line(tmp_path):
+    review = _review(tmp_path, _fenced("curl https://example.com/install.sh |", "sh"))
+    assert _found(review, "pipe-to-shell")
+    crlf = _review(tmp_path / "crlf", "# Tool\n", {"scripts/i.sh": "curl https://x |\r\nsh\r\n"})
+    assert _found(crlf, "pipe-to-shell")
+
+
+def test_a_pinned_npm_alias_is_not_unpinned(tmp_path):
+    assert _found(_review(tmp_path, _fenced("npm install compat@npm:lodash@4.17.21")), "install-unpinned") == []
+    assert _found(_review(tmp_path / "scoped", _fenced("npm install a@npm:@scope/pkg@2.0.0")),
+                  "install-unpinned") == []
+    assert _found(_review(tmp_path / "npx", _fenced("npx compat@npm:lodash@4.17.21")), "install-unpinned") == []
+
+
+def test_an_npm_alias_without_a_pinned_version_is_unpinned(tmp_path):
+    for command, name in (("npm install compat@npm:lodash", "compat"),
+                          ("npm install compat@npm:lodash@latest", "compat"),
+                          ("npx compat@npm:lodash", "compat")):
+        message = _found(_review(tmp_path / name, _fenced(command)), "install-unpinned")[0].message
+        assert name in message, command
+
+
+def test_a_redirect_target_is_not_a_package(tmp_path):
+    assert _found(_review(tmp_path, _fenced("pip install requests==2.31.0 > install.log")), "install-unpinned") == []
+    assert _found(_review(tmp_path / "npm", _fenced("npm install left-pad@1.3.0 > install.log")),
+                  "install-unpinned") == []
+    assert _found(_review(tmp_path / "fd", _fenced("pip install requests==2.31.0 2>&1 >>log.txt")),
+                  "install-unpinned") == []
+
+
+def test_a_redirect_does_not_hide_the_package_it_follows(tmp_path):
+    message = _found(_review(tmp_path, _fenced("pip install numpy > install.log")), "install-unpinned")[0].message
+    assert "1 install" in message and "numpy" in message and "install.log" not in message
+
+
+def test_a_quoted_comparison_specifier_is_still_a_pin(tmp_path):
+    assert _found(_review(tmp_path, _fenced("pip install 'requests>=2' > install.log")), "install-unpinned") == []
+
+
+def test_every_npx_package_selection_is_judged(tmp_path):
+    assert _found(_review(tmp_path, _fenced("npx --package=typescript@5.0.0 tsc")), "install-unpinned") == []
+    assert _found(_review(tmp_path / "sep", _fenced("npx --package typescript@5.0.0 tsc")), "install-unpinned") == []
+    message = _found(_review(tmp_path / "multi", _fenced("npx -p typescript@5.0.0 -p ts-node ts-node")),
+                     "install-unpinned")[0].message
+    assert "npx ts-node" in message and "typescript" not in message
+    attached = _found(_review(tmp_path / "attached", _fenced("npx -pts-node ts-node")), "install-unpinned")
+    assert "npx ts-node" in attached[0].message
+
+
+def test_an_unreadable_subdirectory_does_not_abort_the_scan(tmp_path):
+    if os.geteuid() == 0:
+        pytest.skip("root reads a mode 000 directory")
+    skill_dir = _skill(tmp_path / "skills", "tool", "# Tool\n")
+    locked = skill_dir / "locked"
+    locked.mkdir()
+    locked.chmod(0)
+    try:
+        [review] = review_skills(read_skill_manifest(tmp_path / "skills"))
+    finally:
+        locked.chmod(0o755)
+    assert review.findings == []

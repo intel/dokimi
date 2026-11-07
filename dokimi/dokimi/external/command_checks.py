@@ -43,8 +43,8 @@ PROSE_SUFFIXES = (".md", ".markdown", ".mdx", ".txt", ".rst", ".adoc")
 # A quoted string is taken whole, so a ``&`` or ``;`` in a quoted URL does not end the command.
 PIPE_TO_SHELL = re.compile(
     r"\b(?:curl|wget)\b(?:[^\n;&|\\'\"]|'[^'\n]*'|\"[^\"\n]*\"|\\\r?\n|\\[^\n]|\|(?!\|)){0,500}?"
-    r"\|&?(?!\|)(?:[ \t]|\\\r?\n)*"
-    r"(?:sudo[ \t]+(?:-[\w-]+(?:[ \t]+[\w.:-]+)?[ \t]+)*)?(?:env[ \t]+)?(?:/(?:[\w.-]+/)*)?"
+    r"\|&?(?!\|)(?:[ \t]|\r?\n|\\\r?\n)*"
+    r"(?:sudo[ \t]+(?:-[\w-]+(?:[ \t]+(?!-)[\w.:-]+)?[ \t]+)*)?(?:env[ \t]+)?(?:/(?:[\w.-]+/)*)?"
     r"(?:(?:ba|z|da|k)?sh|fish|python(?:3(?:\.\d+)?)?|node|perl|ruby)\b"
 )
 PERMISSION_BYPASS = re.compile(
@@ -58,6 +58,7 @@ PIP_NAME = re.compile(r"([A-Za-z0-9][A-Za-z0-9._-]*)(\[[^\]]*\])?(.*)")
 PIP_VERSION = re.compile(r"\s*(?:===|==|>=|<=|~=|!=|<|>|@)")
 NPM_NAME = re.compile(r"(@[A-Za-z0-9][\w.-]*/[A-Za-z0-9][\w.-]*|[A-Za-z0-9][\w.-]*)(?:@(.*))?")
 VERSION_ONLY = re.compile(r"v?\d[\d.]*")
+REDIRECT = re.compile(r"(?:\d|&)?(?:>>?|<)")  # a redirection operator, with its file descriptor
 NPM_RANGE = re.compile(r"[\^~<>=]*v?\d")  # a version or a range; a tag such as latest is not one
 # options whose next word is their value, not a package
 PIP_VALUE_OPTIONS = frozenset({
@@ -113,10 +114,14 @@ def _words(rest: str, value_options: frozenset[str]) -> list[str]:
     except ValueError:  # an unbalanced quote: split on whitespace, as the words are written
         tokens = rest.split()
     words: list[str] = []
-    take_value = False
+    take_value = skip_target = False
     for word in tokens:
-        if take_value:  # the value of an option is never a package, even a bare number
+        if skip_target:  # the file a redirection writes to or reads from is not a package
+            skip_target = False
+        elif take_value:  # the value of an option is never a package, even a bare number
             take_value = False
+        elif REDIRECT.match(word):  # ``>log``, ``2>&1``: one token; ``>`` alone takes the next word too
+            skip_target = REDIRECT.fullmatch(word) is not None
         elif word in value_options:
             take_value = True
         elif not VERSION_ONLY.fullmatch(word):
@@ -137,27 +142,52 @@ def _unpinned_pip(rest: str) -> list[str]:
     return names
 
 
+def _npm_pinned(spec: str | None) -> bool:
+    """Whether an npm version spec pins a version. An alias (``npm:<name>@<version>``) pins its target's version."""
+    if spec is not None and spec.startswith("npm:"):
+        target = spec[len("npm:"):]
+        at = target.rfind("@")  # the last @: a scoped target's @scope is not its version
+        spec = target[at + 1:] if at > 0 else None
+    return spec is not None and NPM_RANGE.match(spec) is not None
+
+
 def _unpinned_npm(rest: str) -> list[str]:
     names = []
     for word in _words(rest, NPM_VALUE_OPTIONS):
         match = NPM_NAME.fullmatch(word) if word and not word.startswith("-") else None
         if not match or word.lower().endswith(NON_PACKAGE_SUFFIXES):
             continue  # a flag, a path, a URL or a tarball
-        if not match.group(2) or not NPM_RANGE.match(match.group(2)):
+        if not _npm_pinned(match.group(2)):
             names.append(match.group(1))
     return names
 
 
 def _unpinned_npx(rest: str) -> list[str]:
-    """npx runs one package: the first word that is not a flag, unless it is pinned."""
-    for word in _words(rest, frozenset()):
-        if not word or word.startswith("-"):
+    """npx runs the packages it is given: each ``--package``/``-p`` selection, or else the first word that is not a
+    flag. A selection names the package, so the executable after it is not inferred."""
+    words = _words(rest, frozenset())
+    selected: list[str] = []
+    executable = None
+    i = 0
+    while i < len(words):
+        word = words[i]
+        if word in ("--package", "-p") and i + 1 < len(words):
+            selected.append(words[i + 1])
+            i += 2
             continue
-        match = NPM_NAME.fullmatch(word)
-        if match is None or (match.group(2) is not None and NPM_RANGE.match(match.group(2))):
-            return []
-        return [match.group(1)]
-    return []
+        if word.startswith("--package="):
+            selected.append(word[len("--package="):])
+        elif word.startswith("-p") and not word.startswith("--") and len(word) > 2:
+            selected.append(word[2:])
+        elif executable is None and word and not word.startswith("-"):
+            executable = word
+        i += 1
+    names = []
+    for spec in selected or ([executable] if executable else []):
+        match = NPM_NAME.fullmatch(spec)
+        if match is not None and not _npm_pinned(match.group(2)):
+            names.append(match.group(1))
+    return names
 
 
 def _unpinned_installs(code: str) -> list[str]:
@@ -165,6 +195,14 @@ def _unpinned_installs(code: str) -> list[str]:
     found += [f"npm {n}" for m in NPM.finditer(code) for n in _unpinned_npm(m.group(1))]
     found += [f"npx {n}" for m in NPX.finditer(code) for n in _unpinned_npx(m.group(1))]
     return found
+
+
+def _is_skill_dir(path: Path) -> bool:
+    """Whether a directory holds a SKILL.md of its own. One it cannot read is not one: the walk skips it."""
+    try:
+        return (path / "SKILL.md").is_file()
+    except OSError:  # e.g. EACCES: is_file re-raises it, and the scan must not stop on a directory it cannot read
+        return False
 
 
 def _bundled_texts(skill_dir: Path) -> Iterator[tuple[str, str]]:
@@ -178,7 +216,7 @@ def _bundled_texts(skill_dir: Path) -> Iterator[tuple[str, str]]:
         here = Path(dirpath)
         dirnames[:] = sorted(
             d for d in dirnames
-            if not d.startswith(".") and d != "node_modules" and not (here / d / "SKILL.md").is_file()
+            if not d.startswith(".") and d != "node_modules" and not _is_skill_dir(here / d)
         )
         for name in sorted(filenames):
             path = here / name
