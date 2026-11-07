@@ -14,3 +14,10 @@
   and seed, and the aggregation policy. Swapping models between roles, or changing
   the policy, now changes the identity. Panel runs saved under the old identity
   no longer pool with new ones as replicates.
+- **A panel cell that fails quorum carries an `error`** — the saved cell has the
+  `score_answer` error text (`insufficient evidence: …`, or `all panel judges
+  failed`), so readers that count `Score.error` see it. The dashboard's doc score
+  now leaves such a question out, as it does for any judge error, where before it
+  counted a quorum failure with retrieval missed as a context 0. The eval summary
+  prints how many questions it leaves out (`Questions left out …`). Panel artifacts
+  saved before this change have no such `error`, so the dashboard reads them as before.
