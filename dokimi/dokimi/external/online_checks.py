@@ -76,7 +76,9 @@ _RESERVED_SUFFIXES = (".localhost", ".test", ".invalid", ".example")
 _PLACEHOLDER_HOST_RE = re.compile(r"(?:^|[./])your-")  # a host or a path segment that starts with ``your-``
 _CODE_SPAN_RE = re.compile(r"`([^`\n]*)`")
 _COMMAND_START = _PIP | {"npm", "npx", "uv", "sudo", "$"}
-_OPERATOR_RE = re.compile(r"[;|&()<>]+")  # a shell operator ends the words of a command
+_OPERATOR_RE = re.compile(r"[;|&()]+")  # a shell operator ends the words of a command; ``<`` and ``>`` do not (see below)
+_DESCRIPTOR_RE = re.compile(r"\d*[<>]&-?\d*")  # a descriptor duplication (2>&1, >&2, 2>&-): not a file, not a split
+_REDIRECT_RE = re.compile(r"\d*(?:>>?|<<?)")  # a redirection operator at the start of a word: >, 2>>, <, 2>err.log
 
 
 def make_client() -> httpx.Client:
@@ -100,10 +102,28 @@ def _lines(body: str) -> Iterator[str]:
         yield _LINE_PREFIX_RE.sub("", line)
 
 
+def _without_redirects(words: list[str]) -> list[str]:
+    """``words`` without their redirections: a bare operator (``>``, ``2>>``) and the word after it, or an operator
+    whose target is in the same word (``2>err.log``). A redirection names no package, and the words after it do."""
+    kept: list[str] = []
+    target = False
+    for tok in words:
+        if target:
+            target = False  # the word after a bare operator is its target
+        elif _REDIRECT_RE.fullmatch(tok):
+            target = True
+        elif _REDIRECT_RE.match(tok):
+            continue
+        else:
+            kept.append(tok)
+    return kept
+
+
 def _segments(line: str) -> Iterator[list[str]]:
     """The words of ``line`` between shell operators; a ``#`` comment (see ``_COMMENT_RE``) ends the line."""
-    for part in _OPERATOR_RE.split(_COMMENT_RE.sub("", line)):
-        words = part.split()
+    line = _DESCRIPTOR_RE.sub(" ", _COMMENT_RE.sub("", line)).replace("&>", ">")
+    for part in _OPERATOR_RE.split(line):
+        words = _without_redirects(part.split())
         if words:
             yield words
 
@@ -203,16 +223,29 @@ def _command_kind(tokens: list[str], i: int) -> Optional[str]:
     return None
 
 
+def _list_end(tokens: list[str], start: int, end: int) -> int:
+    """Where the package list that starts at ``tokens[start]`` stops, at most at ``end``: before a ``then``, or after
+    the first word that ends in ``:`` (the prose after a colon is not a list)."""
+    for j in range(start, end):
+        if tokens[j].lower() == "then":
+            return j
+        if tokens[j].endswith(":"):
+            return j + 1
+    return end
+
+
 def _command_packages(tokens: list[str]) -> Iterator[tuple[str, str]]:
     starts = [(i, kind) for i in range(len(tokens)) if (kind := _command_kind(tokens, i))]
     for k, (i, kind) in enumerate(starts):
         end = starts[k + 1][0] if k + 1 < len(starts) else len(tokens)  # the words run up to the next command
-        if kind == "pip":
-            eco, names = "pypi", _pip_names(tokens[i + 2:end])
-        elif kind == "npm":
-            eco, names = "npm", _npm_names(tokens[i + 2:end])
+        if kind == "npx":
+            eco, names = "npm", _npx_names(tokens[i + 1:_list_end(tokens, i + 1, end)])
         else:
-            eco, names = "npm", _npx_names(tokens[i + 1:end])
+            words = tokens[i + 2:_list_end(tokens, i + 2, end)]
+            if kind == "pip":
+                eco, names = "pypi", _pip_names(words)
+            else:
+                eco, names = "npm", _npm_names(words)
         for name in names:
             if name.lower() not in _PROSE_CONJUNCTIONS and not _is_placeholder(name):
                 yield eco, name

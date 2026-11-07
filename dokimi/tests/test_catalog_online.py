@@ -240,6 +240,30 @@ def test_ampersand_redirection_target_is_not_a_package():
     assert online_checks.extract_packages("pip install requests &> log.txt\n") == [("pypi", "requests")]
 
 
+def test_words_after_a_redirection_target_are_still_packages():
+    # Red on the operator split: the redirect used to end the words, so "bar" was lost.
+    assert online_checks.extract_packages("pip install foo > install.log bar\n") == [("pypi", "foo"), ("pypi", "bar")]
+    assert online_checks.extract_packages("npm i foo 2>err.log bar\n") == [("npm", "foo"), ("npm", "bar")]
+    assert online_checks.extract_packages("pip install foo 2>&1 bar\n") == [("pypi", "foo"), ("pypi", "bar")]
+
+
+def test_version_specs_stay_one_requirement_and_do_not_split_the_list():
+    assert online_checks.extract_packages("pip install numpy>=1.20 pandas\n") == [
+        ("pypi", "numpy"), ("pypi", "pandas")]
+    assert online_checks.extract_packages("pip install foo<2 bar\n") == [("pypi", "foo"), ("pypi", "bar")]
+    # The quoted requirement is a documented miss; the package after it is still read.
+    assert online_checks.extract_packages('pip install "numpy<2" scipy\n') == [("pypi", "scipy")]
+
+
+def test_then_ends_the_package_list_and_a_following_command_is_not_a_package():
+    assert online_checks.extract_packages("Run npm install then npm test\n") == []
+    assert online_checks.extract_packages("pip install foo then python app.py\n") == [("pypi", "foo")]
+
+
+def test_a_word_ending_in_a_colon_ends_the_package_list():
+    assert online_checks.extract_packages("pip install foo: it is fast\n") == [("pypi", "foo")]
+
+
 def test_a_conjunction_ends_one_command_and_the_next_command_is_read():
     body = "Run pip install requests or npm i lodash\n"
     assert online_checks.extract_packages(body) == [("pypi", "requests"), ("npm", "lodash")]
