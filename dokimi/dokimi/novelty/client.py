@@ -25,12 +25,32 @@ from dokimi.defaults import (
     DEFAULT_JUDGE_PROVIDER,
 )
 from dokimi.metrics.usage import UsageRecord
+from dokimi.llm_cli import backend as cli_backend
 
 # A transport takes (prompt, system) and returns (text, usage).
 Transport = Callable[[str, "str | None"], "tuple[str, UsageRecord | None]"]
 # An acceptance test for a reply: False means "unusable", so the response cache neither
 # stores it nor replays it (see :func:`dokimi.caching.keeps`).
 Accept = Callable[[str], bool]
+
+
+# The output ceiling a novelty call asks for when none is named. A provider default is
+# lower (litellm sends 4096 to Bedrock-hosted Claude), and a cut reply is a lost datum.
+DEFAULT_MAX_TOKENS = 16384
+
+
+class OutputTruncated(ValueError):
+    """The reply hit the output ceiling, so its text is a prefix of the answer.
+
+    A ``ValueError``, so a caller that already treats an unparseable reply as a failed one
+    treats a cut one the same way; the stages that can re-ask smaller (extraction, batches)
+    catch it by type and split the batch. ``reply`` is the start of the cut text (2000
+    characters), for a report that keeps a reply's raw text.
+    """
+
+    def __init__(self, message: str, reply: str = "") -> None:
+        super().__init__(message)
+        self.reply = reply[:2000]
 
 
 class SpendCapReached(BaseException):
@@ -134,6 +154,16 @@ class LLMClient:
             self.usage.append(replace(usage, role=self.role))
         if self.cap is not None:
             self.cap.record(usage, self.model)
+        # After the record: the cut call was paid for, whatever its text is worth. An empty
+        # reply is no reply: its caller's empty-reply path handles it, and a split cannot help.
+        if usage is not None and usage.truncated and (reply or "").strip():
+            cli = cli_backend(self.provider) is not None
+            ceiling = ("the CLI's own limit" if cli
+                       else f"max_tokens={self.max_tokens or DEFAULT_MAX_TOKENS}")
+            raise OutputTruncated(
+                f"reply cut at the output ceiling ({self.model}, {ceiling}, "
+                f"{usage.completion_tokens} tokens)" + ("" if cli else "; raise --max-tokens"),
+                reply=reply or "")
         return reply or ""
 
     def json_object(
@@ -208,7 +238,7 @@ class LLMClient:
             model=self.model,
             provider=self.provider,
             system=system,
-            max_tokens=self.max_tokens,
+            max_tokens=self.max_tokens or DEFAULT_MAX_TOKENS,
             cache_if=accept,
             draw=draw,
         )
