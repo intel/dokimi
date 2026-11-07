@@ -38,7 +38,7 @@ def review_skill_dir(path: Path | str) -> SkillReview:
     own = [e for e in _scan_skill_files(skill_dir) if e.path is not None and _same_dir(e.path, skill_dir)]
     if not own:
         raise ValueError(f"no SKILL.md in {skill_dir}")
-    review = review_skills(own[:1])[0]
+    review = review_skills(own[:1], root_is_checkout=False)[0]
     if review is None:
         return SkillReview(findings=[Finding("error", "not-loaded", own[0].error or "the skill did not load")])
     return review

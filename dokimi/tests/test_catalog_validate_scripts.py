@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 
 from dokimi import process
-from dokimi.external import script_checks
+from dokimi.external import review_skill_dir, script_checks
 from dokimi.external.script_checks import script_findings
 from tests.test_catalog_validate import _codes, _reviews_by_name, _skill
 
@@ -263,3 +263,13 @@ def test_a_python_syntax_error_is_not_counted_again_by_ruff(tmp_path):
     findings = script_findings(skill, which=_tools("ruff"), runner=runner)
 
     assert [code for _, code, _ in findings] == ["script-syntax"]
+
+
+def test_review_skill_dir_checks_the_scripts_of_a_skill_reviewed_alone(tmp_path, no_linters):
+    # the per-skill API takes the skill directory as a synthetic scan root, not as a checkout: its bundle is checked
+    _skill(tmp_path, "solo", name="solo", description="Use for solo work.")
+    (tmp_path / "solo" / "scripts").mkdir()
+    (tmp_path / "solo" / "scripts" / "bad.py").write_bytes(b"def f(:\n")
+
+    review = review_skill_dir(tmp_path / "solo")
+    assert [f.code for f in review.findings if f.code.startswith("script-")] == ["script-syntax"]

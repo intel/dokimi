@@ -487,7 +487,8 @@ def _near_duplicates(loaded: list[tuple[SkillCatalogEntry, Skill, SkillReview]])
                     )
 
 
-def review_skills(entries: Sequence[SkillCatalogEntry]) -> list[Optional[SkillReview]]:
+def review_skills(entries: Sequence[SkillCatalogEntry], *,
+                  root_is_checkout: bool = True) -> list[Optional[SkillReview]]:
     """One :class:`SkillReview` per entry, in order.
 
     None for an entry that did not load, unless its frontmatter is broken YAML: then its
@@ -495,6 +496,9 @@ def review_skills(entries: Sequence[SkillCatalogEntry]) -> list[Optional[SkillRe
     copy nearest the root is the original; every other copy names it in ``duplicate_of``.
     Mirror drift and near-duplicate descriptions are checked across all the loaded skills,
     and a skill with ``disable-model-invocation`` set is left out of the description checks.
+
+    ``root_is_checkout`` is False when each entry's ``source_root`` is only the scan root of one skill
+    (the per-skill review): then a skill's bundle is its directory, not a checkout to skip.
     """
     reviews: list[Optional[SkillReview]] = []
     copies: list[tuple[SkillReview, str, str]] = []  # (review, skill directory, digest) per loaded skill
@@ -510,7 +514,8 @@ def review_skills(entries: Sequence[SkillCatalogEntry]) -> list[Optional[SkillRe
         )
         review = SkillReview(findings=findings, disable_model_invocation=hidden)
         review.findings += _bundle_findings(skill, entry.source_root)
-        review.findings += [Finding(*item) for item in script_findings(skill.path.parent, checkout=entry.source_root)]
+        review.findings += [Finding(*item) for item in script_findings(
+            skill.path.parent, checkout=entry.source_root if root_is_checkout else None)]
         if not hidden:
             review.findings += _description_findings(skill)
         review.content_sha256 = _skill_digest(skill)
