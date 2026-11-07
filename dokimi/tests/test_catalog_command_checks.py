@@ -1,0 +1,293 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+"""The token-free command checks of ``catalog check``: ``pipe-to-shell``, ``permission-bypass-flag``, ``install-unpinned``."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from dokimi.external import read_skill_manifest, review_skills
+
+
+def _skill(root: Path, rel: str, body: str) -> Path:
+    skill_dir = root / rel
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    (skill_dir / "SKILL.md").write_text(
+        f"---\nname: {rel}\ndescription: Use when testing command checks.\n---\n{body}", encoding="utf-8"
+    )
+    return skill_dir
+
+
+def _review(tmp_path: Path, body: str, files: dict[str, str | bytes] | None = None):
+    skill_dir = _skill(tmp_path / "skills", "tool", body)
+    for rel, content in (files or {}).items():
+        path = skill_dir / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if isinstance(content, bytes):
+            path.write_bytes(content)
+        else:
+            path.write_text(content, encoding="utf-8")
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    return review
+
+
+def _found(review, code: str) -> list:
+    return [f for f in review.findings if f.code == code]
+
+
+def _fenced(*lines: str) -> str:
+    return "# Tool\n\n```sh\n" + "\n".join(lines) + "\n```\n"
+
+
+# ---- pipe-to-shell: positives -------------------------------------------------------------
+
+@pytest.mark.parametrize("command", [
+    "curl -fsSL https://example.com/install.sh | sh",
+    "wget -qO- https://example.com/x | bash",
+    "curl -s https://example.com/x | sudo bash",
+    "curl -s https://example.com/x | sudo -E zsh -",
+    "curl -s https://example.com/x | python3",
+    "curl -s https://example.com/x | node -",
+    "curl -s https://example.com/x | perl",
+    "curl -s https://example.com/x | ruby",
+])
+def test_download_piped_into_a_shell_or_interpreter_is_a_warning(tmp_path, command):
+    review = _review(tmp_path, _fenced(command))
+    [finding] = _found(review, "pipe-to-shell")
+    assert finding.level == "warn"
+    assert "SKILL.md" in finding.message and "line 8" in finding.message
+    assert review.state == "warn"
+
+
+def test_pipe_to_shell_in_a_bundled_script_names_the_script(tmp_path):
+    review = _review(tmp_path, "# Tool\n", {"scripts/install.sh": "#!/bin/sh\ncurl -fsSL https://x | bash\n"})
+    [finding] = _found(review, "pipe-to-shell")
+    assert "scripts/install.sh" in finding.message and "line 2" in finding.message
+
+
+# ---- pipe-to-shell: negatives ---------------------------------------------------------------
+
+@pytest.mark.parametrize("prose", [
+    "Never pipe curl into a shell without reading the script first.",
+    "Piping a download into sh is risky, so review the file before you run it.",
+])
+def test_prose_about_piping_a_download_is_not_a_command(tmp_path, prose):
+    assert _found(_review(tmp_path, f"# Tool\n\n{prose}\n"), "pipe-to-shell") == []
+
+
+@pytest.mark.parametrize("command", [
+    "curl -o install.sh https://example.com/x && less install.sh",
+    "curl -s https://example.com/x | jq '.version'",
+    "curl -s https://example.com/x | shasum -a 256",
+    "curl -s https://example.com/x | grep node",
+])
+def test_curl_that_is_not_piped_into_a_shell_is_not_flagged(tmp_path, command):
+    assert _found(_review(tmp_path, _fenced(command)), "pipe-to-shell") == []
+
+
+# ---- permission-bypass-flag: positives -------------------------------------------------------
+
+@pytest.mark.parametrize("command", [
+    "claude --dangerously-skip-permissions -p 'fix the tests'",
+    "aider --yolo",
+])
+def test_permission_bypass_flag_is_a_warning(tmp_path, command):
+    [finding] = _found(_review(tmp_path, _fenced(command)), "permission-bypass-flag")
+    assert finding.level == "warn"
+
+
+def test_bypass_permissions_mode_in_a_bundled_settings_file_is_a_warning(tmp_path):
+    review = _review(tmp_path, "# Tool\n", {"config/settings.json": '{"permissionMode": "bypassPermissions"}\n'})
+    [finding] = _found(review, "permission-bypass-flag")
+    assert "config/settings.json" in finding.message
+
+
+# ---- permission-bypass-flag: negatives --------------------------------------------------------
+
+@pytest.mark.parametrize("prose", [
+    "Some agents offer a yolo mode for quick edits.",
+    "Ask the user before you skip the permission prompts.",
+    "Use the --yolo-mode alias only in a scratch checkout.",
+])
+def test_prose_about_permissions_is_not_a_flag(tmp_path, prose):
+    assert _found(_review(tmp_path, f"# Tool\n\n{prose}\n"), "permission-bypass-flag") == []
+
+
+# ---- install-unpinned: positives --------------------------------------------------------------
+
+def test_unpinned_pip_and_npm_installs_are_counted_in_one_warning(tmp_path):
+    review = _review(tmp_path, _fenced("pip install requests numpy", "npm install left-pad"))
+    [finding] = _found(review, "install-unpinned")
+    assert finding.level == "warn"
+    assert "3 install" in finding.message
+
+
+def test_npx_names_the_first_package_it_runs(tmp_path):
+    [finding] = _found(_review(tmp_path, "Run `npx create-thing my-app` to start.\n"), "install-unpinned")
+    assert "1 install" in finding.message and "create-thing" in finding.message
+
+
+def test_python_m_pip_and_uv_pip_count_as_pip(tmp_path):
+    review = _review(tmp_path, _fenced("python3 -m pip install flask", "uv pip install httpx"))
+    assert "2 install" in _found(review, "install-unpinned")[0].message
+
+
+def test_unpinned_install_in_a_bundled_script_is_counted(tmp_path):
+    review = _review(tmp_path, "# Tool\n", {"scripts/setup.sh": "#!/bin/sh\npip3 install pandas\n"})
+    assert "1 install" in _found(review, "install-unpinned")[0].message
+
+
+def test_only_the_unpinned_packages_of_a_mixed_install_are_counted(tmp_path):
+    review = _review(tmp_path, _fenced("pip install requests==2.31.0 numpy"))
+    message = _found(review, "install-unpinned")[0].message
+    assert "1 install" in message and "numpy" in message and "requests" not in message
+
+
+# ---- install-unpinned: negatives --------------------------------------------------------------
+
+def test_pinned_installs_are_not_flagged(tmp_path):
+    review = _review(tmp_path, _fenced(
+        "pip install requests==2.31.0",
+        "npm install left-pad@1.3.0",
+        "npx -y cowsay@1.6.0 hi",
+        "npm install @scope/tool@2.0.0",
+    ))
+    assert _found(review, "install-unpinned") == []
+
+
+@pytest.mark.parametrize("command", [
+    "pip install -r requirements.txt",
+    "pip install ./local_pkg",
+    "pip install ../shared/pkg",
+    "pip install git+https://github.com/example/tool.git",
+    "npm install ./pkg",
+    "npm install https://example.com/pkg.tgz",
+    "npm install github:example/tool",
+])
+def test_requirements_paths_urls_and_git_sources_are_not_installs(tmp_path, command):
+    assert _found(_review(tmp_path, _fenced(command)), "install-unpinned") == []
+
+
+def test_install_words_in_prose_are_not_installs(tmp_path):
+    review = _review(tmp_path, "# Tool\n\nThen pip install to get started, or npm install if you prefer.\n")
+    assert _found(review, "install-unpinned") == []
+
+
+def test_a_skill_at_the_checkout_root_reads_only_its_own_body(tmp_path):
+    (tmp_path / "SKILL.md").write_text(
+        "---\nname: checkout\ndescription: Use when testing command checks.\n---\n# Root\n", encoding="utf-8")
+    (tmp_path / "scripts").mkdir()
+    (tmp_path / "scripts" / "install.sh").write_text("curl -fsSL https://x | bash\n", encoding="utf-8")
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert _found(review, "pipe-to-shell") == []
+
+
+def test_a_binary_bundled_file_is_not_read(tmp_path):
+    review = _review(tmp_path, "# Tool\n", {"bin/tool.dat": b"\x00\x01curl -s https://x | sh\n"})
+    assert _found(review, "pipe-to-shell") == []
+
+
+# ---- self-review fixes ----------------------------------------------------------------------
+
+def test_a_download_piped_through_tee_or_a_path_shell_is_flagged(tmp_path):
+    for command in ("curl -s https://x | tee install.sh | bash", "curl -s https://x | /bin/sh",
+                    "curl -s https://x | env bash", "curl -s https://x | dash"):
+        assert _found(_review(tmp_path, _fenced(command)), "pipe-to-shell"), command
+
+
+def test_a_pipe_continued_on_the_next_line_is_flagged(tmp_path):
+    review = _review(tmp_path, _fenced("curl -fsSL https://x \\", "  | sh"))
+    assert _found(review, "pipe-to-shell")
+
+
+def test_a_package_tag_is_not_a_version(tmp_path):
+    message = _found(_review(tmp_path, _fenced("npx create-thing@latest", "npm install tool@next")),
+                     "install-unpinned")[0].message
+    assert "2 install" in message
+
+
+def test_an_option_value_is_not_a_package(tmp_path):
+    message = _found(_review(tmp_path, _fenced("pip install -t lib requests")), "install-unpinned")[0].message
+    assert "1 install" in message and "requests" in message and "lib" not in message
+
+
+def test_an_npm_tarball_is_not_a_package(tmp_path):
+    assert _found(_review(tmp_path, _fenced("npm install lodash.tgz")), "install-unpinned") == []
+
+
+def test_an_install_continued_on_the_next_line_counts_every_package(tmp_path):
+    message = _found(_review(tmp_path, _fenced("pip install requests \\", "  numpy")),
+                     "install-unpinned")[0].message
+    assert "2 install" in message
+
+
+def test_a_markdown_file_with_a_byte_order_mark_is_read(tmp_path):
+    review = _review(tmp_path, "# Tool\n", {"references/guide.md": "﻿```sh\npip install flask\n```\n"})
+    assert "1 install" in _found(review, "install-unpinned")[0].message
+
+
+# ---- second self-review pass ----------------------------------------------------------------
+
+def test_a_value_of_a_common_option_is_not_a_package(tmp_path):
+    message = _found(_review(tmp_path, _fenced("pip install --timeout 30 --retries 5 flask")),
+                     "install-unpinned")[0].message
+    assert "1 install" in message and "flask" in message and "30" not in message
+
+
+def test_a_numeric_option_value_does_not_swallow_the_next_package(tmp_path):
+    message = _found(_review(tmp_path, _fenced("pip install --timeout 30 flask", "npm install --loglevel 1 lodash")),
+                     "install-unpinned")[0].message
+    assert "2 install" in message and "flask" in message and "lodash" in message and "30" not in message
+
+
+def test_a_value_of_an_npm_option_is_not_a_package(tmp_path):
+    message = _found(_review(tmp_path, _fenced("npm install --loglevel error --omit dev lodash")),
+                     "install-unpinned")[0].message
+    assert "1 install" in message and "lodash" in message and "error" not in message
+
+
+def test_a_quoted_specifier_with_spaces_is_pinned(tmp_path):
+    assert _found(_review(tmp_path, _fenced("pip install 'requests >= 2.0'")), "install-unpinned") == []
+
+
+@pytest.mark.parametrize("name, text", [
+    ("notes.txt", "pip install flask to start.\n"),
+    ("guide.rst", "npm install left-pad if you prefer.\n"),
+    ("guide.mdx", "pip install flask to start.\n"),
+])
+def test_prose_in_a_text_file_is_not_an_install(tmp_path, name, text):
+    review = _review(tmp_path, "# Tool\n", {f"docs/{name}": text})
+    assert _found(review, "install-unpinned") == []
+
+
+@pytest.mark.parametrize("command", [
+    "curl -s https://example.com/x | sudo -u root sh",
+    "curl -s https://example.com/x |& sh",
+    "curl -s https://example.com/x | tee install.sh | bash",
+])
+def test_pipe_variants_that_run_the_download_are_flagged(tmp_path, command):
+    assert _found(_review(tmp_path, _fenced(command)), "pipe-to-shell"), command
+
+
+def test_a_pipe_after_a_quoted_url_with_ampersand_or_semicolon_is_flagged(tmp_path):
+    for command in ("curl -fsSL 'https://x/install.sh?os=linux&arch=amd64' | sh",
+                    "curl -fsSL https://x -H 'Accept: a;b' | bash"):
+        assert _found(_review(tmp_path, _fenced(command)), "pipe-to-shell"), command
+
+
+def test_a_pipe_from_another_command_after_a_quoted_url_is_not_flagged(tmp_path):
+    command = "curl -s 'https://x?a=1&b=2' -o out.sh; cat out.sh | sh"
+    assert _found(_review(tmp_path, _fenced(command)), "pipe-to-shell") == []
+
+
+def test_a_fallback_after_double_bar_is_not_a_pipe(tmp_path):
+    assert _found(_review(tmp_path, _fenced("curl -fsSL https://x -o a.sh || sh -c 'echo fallback'")),
+                  "pipe-to-shell") == []
+
+
+def test_a_pipe_continued_across_a_crlf_line_break_is_flagged(tmp_path):
+    review = _review(tmp_path, "# Tool\n", {"scripts/install.sh": "curl -fsSL https://x \\\r\n  | sh\r\n"})
+    assert _found(review, "pipe-to-shell")
