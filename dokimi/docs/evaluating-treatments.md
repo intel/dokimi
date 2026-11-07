@@ -786,6 +786,32 @@ no-skill arm, or when `--out` is one of the input files (or its `.rejected` sibl
 aggregate divided by 100 and are not range-checked. Only arms runs are read. The flags are descriptive: they do not
 change any score or any gate.
 
+## Skill coverage: which checks name each requirement
+
+`eval skill-coverage` lists the checkable requirements a SKILL.md states (triggers, out of
+scope, must hold, success criteria, failure modes) and names, for each one, the eval checks
+that would fail if a run violated it. Requirements no check names are printed as **candidate
+checks** to write. The eval set is either an `evals.json`, a skill directory, or a tasks root;
+a check is an evals row (by id) or a `test_*` function under a task's `tests/`.
+
+```bash
+python cli.py eval skill-coverage skills/demo/SKILL.md evals/evals.json \
+    --model anthropic/claude-sonnet-5-5 --max-usd 2 --out skill_coverage.json
+```
+
+- Two model calls: one lists the requirements, one maps them to the checks. Both go through
+  the novelty client, so `--max-usd` stops before the call that would exceed it (exit 1).
+- The map is LLM-estimated. On a labelled calibration set of 88 items, item precision was about
+  .92 and recall 1.0; link precision was about .70. The report carries that label. Nothing reads
+  the output as a score or a gate, and the command exits 0 whenever the map was made.
+- A check name the model invents is dropped and counted (`check_names_dropped`); requirements
+  past 80 are cut and counted (`requirements_dropped`).
+- This is not `eval coverage`. That command checks the `needs` labels of a need graph against
+  the eval set's structure. This one maps requirements of the skill's text to checks, so the
+  two can disagree; neither reads the other's output.
+- `--out` writes a `skill_coverage.v1` artifact (`dokimi runs show` reads it). A bad reply from
+  the model, or a SKILL.md or evals set that cannot be read, exits 1 or 2 respectively.
+
 ## Scope and caveats
 
 - **Three levels of fidelity for skills/MCP.** (1) `skill:` / `mcp:` inject

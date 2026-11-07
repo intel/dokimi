@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/intel/dokimi/schemas/skill_coverage.v1.json",
+  "title": "Skill coverage v1",
+  "description": "What `eval skill-coverage` mapped: the requirements a SKILL.md states (five sections), the eval set's checks each one is linked to by one model call, and the requirements no check names (candidate checks). LLM-estimated: the links are not a verified coverage score and no gate reads this file.",
+  "type": "object",
+  "required": ["schema_version", "skill", "evals_root", "method", "label", "model", "requirements", "candidate_checks", "summary", "cost"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"const": "skill_coverage.v1"},
+    "run_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}(?![\\s\\S])", "description": "The envelope: the id of the run that saved this file (dokimi.artifacts.run_id). Absent from files saved before the envelope."},
+    "dokimi_version": {"type": "string", "minLength": 1, "description": "The envelope: the dokimi version that saved this file. Absent from files saved before the envelope."},
+    "skill": {
+      "type": "object",
+      "required": ["path", "name", "sha256"],
+      "additionalProperties": false,
+      "properties": {
+        "path": {"type": "string", "description": "The SKILL.md that was read"},
+        "name": {"type": "string", "description": "The skill's directory name (its file stem when the file is not named SKILL.md)"},
+        "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$", "description": "sha256 of the SKILL.md text read"}
+      }
+    },
+    "evals_root": {"type": "string"},
+    "method": {"const": "llm_static_map"},
+    "label": {"type": "string", "description": "The caveat the report carries: candidate checks, LLM-estimated"},
+    "model": {
+      "type": "object",
+      "required": ["model", "provider"],
+      "additionalProperties": false,
+      "properties": {"model": {"type": "string", "minLength": 1}, "provider": {"type": "string", "minLength": 1}}
+    },
+    "requirements": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "section", "text", "covered", "checks", "units"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {"type": "string", "pattern": "^(trig|oos|mh|sc|fm)-[0-9]{2,}$"},
+          "section": {"enum": ["triggers", "out_of_scope", "must_hold", "success_criteria", "failure_modes"]},
+          "text": {"type": "string", "minLength": 1},
+          "covered": {"type": "boolean", "description": "True when the model named at least one check for it"},
+          "checks": {"type": "array", "items": {"type": "string"}, "description": "Check names the model named (names the eval set has)"},
+          "units": {"type": "array", "items": {"type": "string"}, "description": "The eval ids or task names those checks belong to"}
+        }
+      }
+    },
+    "candidate_checks": {
+      "type": "array",
+      "description": "Requirements no check names: the list of checks to write",
+      "items": {
+        "type": "object",
+        "required": ["id", "section", "text"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {"type": "string"},
+          "section": {"enum": ["triggers", "out_of_scope", "must_hold", "success_criteria", "failure_modes"]},
+          "text": {"type": "string"}
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "required": ["requirements", "covered", "candidate_checks", "by_section", "checks", "requirements_dropped", "check_names_dropped"],
+      "additionalProperties": false,
+      "properties": {
+        "requirements": {"type": "integer", "minimum": 0},
+        "covered": {"type": "integer", "minimum": 0},
+        "candidate_checks": {"type": "integer", "minimum": 0},
+        "by_section": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "required": ["covered", "total"],
+            "additionalProperties": false,
+            "properties": {"covered": {"type": "integer", "minimum": 0}, "total": {"type": "integer", "minimum": 1}}
+          }
+        },
+        "checks": {"type": "integer", "minimum": 0, "description": "Checks the eval set has (evals.json rows and task test functions)"},
+        "requirements_dropped": {"type": "integer", "minimum": 0, "description": "Requirements the model listed past the cap"},
+        "check_names_dropped": {"type": "integer", "minimum": 0, "description": "Check names the model named that the eval set does not have"}
+      }
+    },
+    "cost": {
+      "type": "object",
+      "required": ["model", "provider", "role", "llm_calls", "usd"],
+      "additionalProperties": true,
+      "properties": {
+        "model": {"type": "string"},
+        "provider": {"type": "string"},
+        "role": {"type": "string"},
+        "llm_calls": {"type": "integer", "minimum": 0},
+        "usd": {"type": ["number", "null"], "description": "null when a call's price is unknown"}
+      }
+    }
+  }
+}

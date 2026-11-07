@@ -7688,6 +7688,113 @@
             }
           }
         },
+        "skill-coverage": {
+          "allow_abbrev": true,
+          "params": [
+            {
+              "action": "_StoreAction",
+              "choices": null,
+              "const": null,
+              "default": null,
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": false,
+              "key": "evals",
+              "kind": "argument",
+              "nargs": null,
+              "position": 1,
+              "required": true,
+              "type": null
+            },
+            {
+              "action": "_StoreAction",
+              "choices": null,
+              "const": null,
+              "default": null,
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": false,
+              "key": "skill",
+              "kind": "argument",
+              "nargs": null,
+              "position": 0,
+              "required": true,
+              "type": null
+            },
+            {
+              "action": "_HelpAction",
+              "choices": null,
+              "const": null,
+              "default": "==SUPPRESS==",
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": true,
+              "key": "--help/-h",
+              "kind": "option",
+              "nargs": 0,
+              "position": null,
+              "required": false,
+              "type": null
+            },
+            {
+              "action": "_StoreAction",
+              "choices": null,
+              "const": null,
+              "default": null,
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": false,
+              "key": "--max-usd",
+              "kind": "option",
+              "nargs": null,
+              "position": null,
+              "required": false,
+              "type": "dokimi.commands.skill_coverage._usd#591d6e2f0474"
+            },
+            {
+              "action": "_StoreAction",
+              "choices": null,
+              "const": null,
+              "default": [
+                "anthropic",
+                "claude-sonnet-5-5"
+              ],
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": false,
+              "key": "--model",
+              "kind": "option",
+              "nargs": null,
+              "position": null,
+              "required": false,
+              "type": "dokimi.commands.skill_coverage._model_ref#4cb54c52448b"
+            },
+            {
+              "action": "_StoreAction",
+              "choices": null,
+              "const": null,
+              "default": null,
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": false,
+              "key": "--out",
+              "kind": "option",
+              "nargs": null,
+              "position": null,
+              "required": false,
+              "type": null
+            }
+          ],
+          "path": "dokimi eval skill-coverage",
+          "subcommand_required": null,
+          "subcommands": {}
+        },
         "tasks": {
           "allow_abbrev": true,
           "params": [
@@ -12549,6 +12656,7 @@
                 "'repo_ledger'",
                 "'repo_readiness'",
                 "'result'",
+                "'skill_coverage'",
                 "'skill_discovery'",
                 "'skill_evidence'",
                 "'subject_scorecard'",
