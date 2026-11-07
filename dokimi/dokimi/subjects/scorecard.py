@@ -29,7 +29,7 @@ def build_subject_scorecard(
 ) -> dict[str, Any]:
     """Build a subject_scorecard.v2 artifact from matrix rollup runs.
 
-    ``novelty_artifacts`` are ``novelty.v1`` payloads produced separately by ``novelty analyze``
+    ``novelty_artifacts`` are ``novelty.v1`` payloads produced separately by ``skill novelty analyze``
     and attached by path. They are not produced here: the measurement is
     ``atoms x probes x arms x (answer + grade)`` and would dominate a subject run's cost.
     """

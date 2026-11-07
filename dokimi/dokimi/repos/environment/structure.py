@@ -123,14 +123,14 @@ def mentioned(module: str, text: str) -> bool:
     return path or re.search(rf"`{re.escape(name)}/?`", text) is not None
 
 
-def _is_protocol_name(name: str) -> bool:
+def is_protocol_name(name: str) -> bool:
     # Protocol methods such as __init__ and C++ operator overloads such as operator==: most classes define
     # them and nobody looks them up by name.
     dunder = len(name) > 4 and name.startswith("__") and name.endswith("__")
     return dunder or re.match(r"operator\W", name) is not None
 
 
-def _function_like(symbol: str) -> bool:
+def function_like(symbol: str) -> bool:
     # scip-clang and scip-python both end a function or method symbol with `).`
     return symbol.endswith(").") and not is_local(symbol)
 
@@ -179,7 +179,7 @@ def _definitions(index: CodeIndex, repo_path: dict[str, str],
                  module_of: dict[str, str]) -> tuple[Modules, Modules, Modules]:
     """Function-like symbol -> modules defining it; module -> its names; module -> its ambiguous names.
 
-    Dunder names and C++ operators are neither (see :func:`_is_protocol_name`).
+    Dunder names and C++ operators are neither (see :func:`is_protocol_name`).
     A name is ambiguous for a module when there are two or more symbols of that name and one of them is defined
     in another module. A function declared in one module and defined in another is one symbol, so it is not
     ambiguous by itself."""
@@ -189,13 +189,13 @@ def _definitions(index: CodeIndex, repo_path: dict[str, str],
         if mod is None:
             continue
         for occ in index.occurrences(doc):
-            if occ.is_definition and _function_like(occ.symbol):
+            if occ.is_definition and function_like(occ.symbol):
                 defined_in[occ.symbol].add(mod)
     symbols_of: dict[str, set[str]] = defaultdict(set)
     for symbol in defined_in:
         symbols_of[descriptor_name(symbol) or ""].add(symbol)
     symbols_of.pop("", None)
-    symbols_of = {name: symbols for name, symbols in symbols_of.items() if not _is_protocol_name(name)}
+    symbols_of = {name: symbols for name, symbols in symbols_of.items() if not is_protocol_name(name)}
     names_of: Modules = defaultdict(set)
     ambiguous_of: Modules = defaultdict(set)
     for name, symbols in symbols_of.items():

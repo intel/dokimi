@@ -69,10 +69,10 @@ def test_no_source_file_still_names_gpt_4o_mini():
     (["eval", "questions", "refine", "--questions", "q", "--product", "p"], {"fill": GENERATOR}),
     (["eval", "questions", "review", "--questions", "q", "--product", "p"], {"model": GENERATOR}),
     (["eval", "personas", "discover", "--product", "p"], {"model": GENERATOR}),
-    (["novelty", "analyze", "--artifact", "skill:x"], {"model": ANSWER}),
-    (["novelty", "probe", "--artifact", "skill:x", "--atoms", "a"], {"model": ANSWER}),
-    (["novelty", "atoms", "--artifact", "skill:x"], {"model": JUDGE}),
-    (["novelty", "shorten", "--artifact", "skill:x", "--atoms", "a"], {"model": JUDGE}),
+    (["skill", "novelty", "analyze", "--artifact", "skill:x"], {"model": ANSWER}),
+    (["skill", "novelty", "probe", "--artifact", "skill:x", "--atoms", "a"], {"model": ANSWER}),
+    (["skill", "novelty", "atoms", "--artifact", "skill:x"], {"model": JUDGE}),
+    (["skill", "shorten", "--artifact", "skill:x", "--atoms", "a"], {"model": JUDGE}),
 ])
 def test_each_surface_takes_the_central_defaults(argv, expected):
     args = vars(build_parser().parse_args(argv))

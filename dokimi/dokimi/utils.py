@@ -9,7 +9,7 @@ import re
 import stat
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, Mapping, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, Mapping, Sequence, Tuple
 
 from dokimi.defaults import BEDROCK_MODEL_IDS
 
@@ -46,6 +46,22 @@ def parse_frontmatter_strict(text: str) -> "Tuple[Dict[str, Any], str]":
         yaml.YAMLError: The frontmatter block is not valid YAML.
     """
     return _split_frontmatter(text, strict=True)
+
+
+def describe_yaml_error(exc: Exception) -> str:
+    """One line for a frontmatter YAML error: the file line it is on, and a hint for the common case.
+
+    ``yaml`` numbers the lines of the block it parsed, and that block starts on the file's second
+    line (the opening ``---`` is the first), so the file line is the YAML line plus two. The hint
+    covers the usual cause, an unquoted ``: `` inside a value such as ``Use when: a task``.
+    """
+    problem = getattr(exc, "problem", None) or " ".join(str(exc).split()) or "not valid YAML"
+    mark = getattr(exc, "problem_mark", None)
+    where = f"line {mark.line + 2}" if mark is not None else "line unknown"
+    hint = ""
+    if "mapping values are not allowed" in problem:
+        hint = '; quote a value that contains ": ", e.g. description: "Use when: ..."'
+    return f"{where}: {problem}{hint}"
 
 
 def _split_frontmatter(text: str, *, strict: bool) -> "Tuple[Dict[str, Any], str]":
@@ -628,6 +644,53 @@ def same_evaluator(answer_provider: str, answer_model: str, judge_provider: str,
 
     return (same_model(answer_model, judge_model)
             or llm_cli.same_model(answer_provider, answer_model, judge_provider, judge_model))
+
+
+def warn_judge_independence(
+    answer_provider: str,
+    answer_model: str,
+    judge_provider: str,
+    judge_model: str,
+    context: str = "run",
+    roles: tuple[str, str] = ("answer", "judge"),
+) -> bool:
+    """Emit a non-fatal warning when answer and judge are the same model (on any provider route).
+
+    ``roles`` names the two sides in the message, e.g. ``("generator", "reviewer")``.
+    """
+    import sys
+
+    same = same_evaluator(answer_provider, answer_model, judge_provider, judge_model)
+    if same:
+        first, second = roles
+        print(
+            "⚠ Evaluator independence warning "
+            f"({context}): {first} model equals {second} model "
+            f"[{answer_provider}/{answer_model}] and [{judge_provider}/{judge_model}] — potential self-referential bias.",
+            file=sys.stderr,
+        )
+    return same
+
+
+def warn_recorded_self_judge(
+    data: Any,
+    judges: Sequence[tuple[str, str]],
+    context: str,
+    roles: tuple[str, str] = ("answer", "judge"),
+) -> bool:
+    """Warn (never refuse) for each ``(model, provider)`` judge that is the model a file records.
+
+    ``data`` is a parsed answers or questions file; its top-level ``model`` and ``provider``
+    name what produced it. Silent, and False, when either is missing.
+    """
+    if not isinstance(data, Mapping):
+        return False
+    model, provider = data.get("model"), data.get("provider")
+    if not (isinstance(model, str) and isinstance(provider, str)):
+        return False
+    hits = [warn_judge_independence(provider, model, jp, jm, context=context, roles=roles)
+            for jm, jp in dict.fromkeys(judges)]
+    return any(hits)
 
 
 def question_id(q: Dict[str, Any]) -> Any:

@@ -52,11 +52,11 @@ def _big_skill() -> str:
     return f"---\nname: big\ndescription: A big skill\n---\n\n# Big\n\n{body}\n"
 
 
-EST = ["novelty", "analyze", "--artifact", "skill:big", "--estimate-only"]
-RUN = ["novelty", "analyze", "--artifact", "skill:accel-tuning", "--concurrency", "1",
+EST = ["skill", "novelty", "analyze", "--artifact", "skill:big", "--estimate-only"]
+RUN = ["skill", "novelty", "analyze", "--artifact", "skill:accel-tuning", "--concurrency", "1",
        "--out-dir", "out"]
-ATOMS = ["novelty", "atoms", "--artifact", "skill:accel-tuning", "--out", "atoms.json"]
-PROBE = ["novelty", "probe", "--artifact", "skill:accel-tuning", "--atoms", "atoms.json",
+ATOMS = ["skill", "novelty", "atoms", "--artifact", "skill:accel-tuning", "--out", "atoms.json"]
+PROBE = ["skill", "novelty", "probe", "--artifact", "skill:accel-tuning", "--atoms", "atoms.json",
          "--concurrency", "1", "--out", "p.json"]
 
 CASES: dict[str, list[list[str]]] = {
@@ -103,16 +103,16 @@ CASES: dict[str, list[list[str]]] = {
 
 def _kept(argv: list[str], work: Path) -> dict[str, Any]:
     """What the flags decided in the files one invocation wrote."""
-    if argv[1] == "analyze" and (work / "out" / "novelty.json").exists():
+    if argv[2] == "analyze" and (work / "out" / "novelty.json").exists():
         artifact = json.loads((work / "out" / "novelty.json").read_text(encoding="utf-8"))
         run_config = dict(artifact["run_config"])
         run_config.pop("prompts_sha256")   # a prompt edit elsewhere is not this module's
         return {"run_config": run_config, "warnings": artifact["warnings"]}
-    if argv[1] == "atoms" and (work / "atoms.json").exists():
+    if argv[2] == "atoms" and (work / "atoms.json").exists():
         saved = json.loads((work / "atoms.json").read_text(encoding="utf-8"))
         return {"cap": saved.get("cap"), "n_atoms": len(saved["atoms"]),
                 "faithfulness": sorted({str(a.get("faithfulness")) for a in saved["atoms"]})}
-    if argv[1] == "probe" and (work / "p.json").exists():
+    if argv[2] == "probe" and (work / "p.json").exists():
         saved = json.loads((work / "p.json").read_text(encoding="utf-8"))
         return {"probe_kinds": sorted({run["probe_kind"] for run in saved["runs"]}),
                 "arms": sorted({run["arm"] for run in saved["runs"]})}
@@ -198,9 +198,9 @@ def _capture(name: str, tmp_path: Path) -> list[dict[str, Any]]:
             steps.append({
                 "status": status,
                 "stdout": (_without_coverage_headline(out.getvalue())
-                           if argv[1] == "analyze" else None),
+                           if argv[2] == "analyze" else None),
                 "coverage": (_headline_coverage(out.getvalue(), work)
-                             if argv[1] == "analyze" else None),
+                             if argv[2] == "analyze" else None),
                 "stderr": err.getvalue().replace(str(work), "<work>"),
                 "calls": [[c.role, c.calls] for c in clients],
                 **_kept(argv, work),
@@ -261,7 +261,7 @@ def _refusal_as_exit_2(step: dict[str, Any]) -> dict[str, Any]:
     return step
 
 
-# `novelty atoms` runs whose cap binds.
+# `skill novelty atoms` runs whose cap binds.
 CAPPED_ATOMS = {"atoms/max-atoms-1"}
 # Intended change: the cap warning says how far the cap reached instead of calling the
 # atoms a sample. In the warnings and on stderr alike.
@@ -342,7 +342,7 @@ def test_no_setting_bill_or_tier_record_differs_from_main(name, tmp_path):
             # built, so the refusal makes no model call. Same status and output as on main.
             expected = [*expected[:-1], dict(expected[-1], calls=[])]  # the refused step is the last
         if name in CAPPED_ATOMS:
-            # Intended change: `novelty atoms` prints the cap warning `analyze` records.
+            # Intended change: `skill novelty atoms` prints the cap warning `analyze` records.
             expected = [dict(step, stderr=f"{step['stderr']}WARNING {CAP_WARNING}\n",
                              **CAPPED_ATOMS_FILE) for step in expected]
         if name in SPREAD_RUNS:
