@@ -241,10 +241,10 @@ def trigger_clauses(description: str) -> tuple[str, ...]:
     text = " ".join(description.split())
     clauses: list[str] = []
     for piece in _TRIGGER_RE.split(text)[1:]:  # the text after each trigger keyword
-        for part in _CLAUSE_END_RE.split(piece):
-            words = [w for w in _words(part) if w not in STOP_WORDS]
-            if len(words) >= TRIGGER_MIN_WORDS:
-                clauses.append(" ".join(words))
+        # Only up to the first sentence end or "or when": a later sentence needs a trigger keyword of its own.
+        words = [w for w in _words(_CLAUSE_END_RE.split(piece, maxsplit=1)[0]) if w not in STOP_WORDS]
+        if len(words) >= TRIGGER_MIN_WORDS:
+            clauses.append(" ".join(words))
     return tuple(dict.fromkeys(clauses))
 
 

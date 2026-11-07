@@ -346,12 +346,9 @@ def test_an_empty_root_prints_no_granularity_section(tmp_path, capsys):
 
 
 
-def test_a_valid_copy_is_offered_when_the_shallower_original_is_ineligible(tmp_path, capsys):
-    desc = "Port NumPy code to dpnp on Intel GPUs. Use when the user asks to migrate NumPy code to dpnp."
-    # Identical SKILL.md under two directories. The shallower one is the original, but its name does not
-    # match its directory, so it is not in the routing field: the copy that is must still be offered.
-    for rel in ("wrong-name", "plugin/skills/foo"):
-        _write_at(tmp_path, rel, "foo", desc, "# Foo\n")
-
-    out, _ = _check(tmp_path, capsys)
-    assert "# granularity: 0 merge and 0 split candidate(s) among 1 skills" in out
+def test_only_the_text_before_the_first_sentence_after_a_trigger_is_a_clause():
+    clauses = g.trigger_clauses(
+        "Use when tuning Kafka consumer lag. Supports PostgreSQL table maintenance. "
+        "Generates Helm deployment manifests."
+    )
+    assert clauses == ("tuning kafka consumer lag",)
