@@ -492,7 +492,9 @@ def _near_duplicates(loaded: list[tuple[SkillCatalogEntry, Skill, SkillReview]])
                     )
 
 
-def review_skills(entries: Sequence[SkillCatalogEntry]) -> list[Optional[SkillReview]]:
+def review_skills(
+    entries: Sequence[SkillCatalogEntry], *, standalone: bool = False
+) -> list[Optional[SkillReview]]:
     """One :class:`SkillReview` per entry, in order.
 
     None for an entry that did not load, unless its frontmatter is broken YAML: then its
@@ -500,6 +502,10 @@ def review_skills(entries: Sequence[SkillCatalogEntry]) -> list[Optional[SkillRe
     copy nearest the root is the original; every other copy names it in ``duplicate_of``.
     Mirror drift and near-duplicate descriptions are checked across all the loaded skills,
     and a skill with ``disable-model-invocation`` set is left out of the description checks.
+
+    ``standalone``: each entry is one skill directory reviewed alone (:func:`review_skill_dir`). Its
+    ``SKILL.md`` is still the root for the frontmatter and link checks, but its bundled files are
+    content-checked as in a catalog, since no checkout root stands above them.
     """
     reviews: list[Optional[SkillReview]] = []
     copies: list[tuple[SkillReview, str, str]] = []  # (review, skill directory, digest) per loaded skill
@@ -516,7 +522,7 @@ def review_skills(entries: Sequence[SkillCatalogEntry]) -> list[Optional[SkillRe
         review.findings += _bundle_findings(skill, entry.source_root)
         review.findings += [
             Finding("warn", code, message)
-            for code, message in content_findings(skill, at_root=at_root)
+            for code, message in content_findings(skill, at_root=at_root and not standalone)
         ]
         if not hidden:
             review.findings += _description_findings(skill)

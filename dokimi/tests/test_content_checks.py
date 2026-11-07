@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from dokimi.external import read_skill_manifest, review_skills
+from dokimi.external import read_skill_manifest, review_skill_dir, review_skills
 from dokimi.external.content_checks import DATA_FILE, MAX_BYTES, _text_files
 
 
@@ -211,6 +211,14 @@ def test_each_hidden_range_is_reported_at_its_first_and_last_codepoint(tmp_path,
 
     [message] = _messages(tmp_path, "hidden-unicode")
     assert f"U+{codepoint:04X}" in message
+
+
+def test_standalone_review_checks_the_bundled_files(tmp_path):
+    # review_skill_dir reads one skill alone: its bundled script is content-checked like the corpus run does.
+    skill_dir = _skill(tmp_path, "demo", files={"scripts/call.py": 'MODEL = "claude-2.1"\nx = "\u202e"\n'})
+
+    codes = sorted(f.code for f in review_skill_dir(skill_dir).findings)
+    assert codes == ["hidden-unicode", "legacy-model-id"]
 
 
 # ---- scope of the content scan: what is read, not what is reported ------------------------------
