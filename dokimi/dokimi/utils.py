@@ -48,6 +48,22 @@ def parse_frontmatter_strict(text: str) -> "Tuple[Dict[str, Any], str]":
     return _split_frontmatter(text, strict=True)
 
 
+def describe_yaml_error(exc: Exception) -> str:
+    """One line for a frontmatter YAML error: the file line it is on, and a hint for the common case.
+
+    ``yaml`` numbers the lines of the block it parsed, and that block starts on the file's second
+    line (the opening ``---`` is the first), so the file line is the YAML line plus two. The hint
+    covers the usual cause, an unquoted ``: `` inside a value such as ``Use when: a task``.
+    """
+    problem = getattr(exc, "problem", None) or " ".join(str(exc).split()) or "not valid YAML"
+    mark = getattr(exc, "problem_mark", None)
+    where = f"line {mark.line + 2}" if mark is not None else "line unknown"
+    hint = ""
+    if "mapping values are not allowed" in problem:
+        hint = '; quote a value that contains ": ", e.g. description: "Use when: ..."'
+    return f"{where}: {problem}{hint}"
+
+
 def _split_frontmatter(text: str, *, strict: bool) -> "Tuple[Dict[str, Any], str]":
     import yaml
 

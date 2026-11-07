@@ -6,6 +6,9 @@
 from __future__ import annotations
 
 import argparse
+import errno
+import os
+import stat
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -14,6 +17,67 @@ from dokimi.utils import InputError
 
 if TYPE_CHECKING:
     from dokimi.novelty.routing import Candidate
+
+
+def _refuse_a_non_file(path: Path, label: str, hint: str) -> None:
+    """Refuse a FIFO or device, which would block or swallow the write, and a symlink loop."""
+    try:
+        mode = os.stat(path).st_mode
+    except OSError as exc:
+        # Windows reports a loop as WinError 1921 (ERROR_CANT_RESOLVE_FILENAME), not ELOOP.
+        if exc.errno == errno.ELOOP or getattr(exc, "winerror", None) == 1921:
+            raise InputError(f"{label} is a symlink loop, so the file cannot be written{hint}") from exc
+        return  # missing, or under a non-directory: checked_out_path names it
+    if not stat.S_ISREG(mode):
+        raise InputError(f"{label} is not a regular file, so the results cannot be written to it{hint}")
+
+
+def checked_out_path(out: str | None, command: str, default: str | None = None) -> Path:
+    """The ``--out`` file of a routing run, refused before any model call when it cannot be written.
+
+    The file must not be a directory. Its missing parent directories are fine: the writer creates
+    them. But the nearest existing ancestor must be a directory the run can write into, and an
+    existing file must itself be writable. A symlink is checked where it points: the writer
+    follows it, and creates only the link's own parent, not the target's.
+
+    With no ``out`` and a ``default``, the default path is checked, and a refusal names it as the
+    default output and asks for ``--out``, since the user passed none.
+
+    Raises:
+        InputError: ``--out`` is missing (and no default), is a directory, sits under a path that is not a
+            directory, is a symlink into a missing directory or a symlink loop, is not a regular
+            file (a FIFO, a device), or is not writable.
+    """
+    chosen = out or default
+    if not chosen:
+        raise InputError(f"{command} needs --out <file>")
+    label = f"--out {out}" if out else f"the default output {default}"
+    hint = "" if out else " (pass --out <file>)"
+    path = Path(chosen)
+    if os.path.isdir(path):
+        fix = f"pass a file path, e.g. {path / 'routing.json'}" if out else "pass --out <file>"
+        raise InputError(f"{label} is a directory: {fix}")
+    _refuse_a_non_file(path, label, hint)
+    # realpath follows a symlink even when it dangles, so the checks below see the file that is written.
+    target = Path(os.path.realpath(path))
+    if os.path.islink(path) and not os.path.exists(target.parent):
+        raise InputError(f"{label} is a symlink to {target}, whose directory does not exist: "
+                         f"the writer creates only the link's own directory{hint}")
+    # A dangling symlink among the parents: the writer's mkdir of that parent fails on it.
+    for parent in path.parents:
+        if os.path.islink(parent) and not os.path.exists(parent):
+            raise InputError(f"{label}: {parent} is a dangling symlink, so the writer cannot create "
+                             f"its directory{hint}")
+    ancestor = next((p for p in target.parents if os.path.exists(p)), target.parent)
+    if not os.path.isdir(ancestor):
+        raise InputError(f"{label}: {ancestor} is not a directory, so the file cannot be created under it{hint}")
+    if os.path.exists(target):
+        writable = os.access(target, os.W_OK)
+    else:
+        writable = os.access(ancestor, os.W_OK | os.X_OK)
+    if not writable:
+        raise InputError(f"{label} is not writable{hint}")
+    return path
 
 
 def routing_card(ref: str) -> tuple[Candidate, str]:

@@ -86,6 +86,7 @@
 --intents
 --items-out
 --jobs
+--jsonl  # catalog check --jsonl (#413 A7): one row per skill to a file; no registry concept yet; a F1b migration names it
 --judge-configs
 --judge-model
 --judge-panel
@@ -148,6 +149,7 @@
 --pass-k  # repo compare (#155) adds it: no registry concept yet; a F1b migration names it
 --path-stability  # repo compare (#155) adds it: no registry concept yet; a F1b migration names it
 --per-arm  # repo hits sheet (#291) adds it: a sample size has no registry concept yet; a F1b migration names it
+--per-skill  # catalog check corpus mode (#413 A3): no registry concept yet; a F1b migration names it
 --personas
 --personas-count
 --placebo-text
@@ -177,6 +179,7 @@
 --require-validated
 --resource-roles
 --results-dir
+--resume  # catalog check --resume (#413 A7): keep the rows already in --jsonl; no registry concept yet; a F1b migration names it
 --reviewers
 --rewrite
 --roles
@@ -192,6 +195,7 @@
 --session-turns
 --shell  # trace consistency (#155) adds it: no registry concept yet; a F1b migration names it
 --sim-threshold
+--skip-nested  # catalog check --skip-nested (#413 A4): no registry concept yet; a F1b migration names it
 --skip-work
 --source-dir
 --spec

@@ -260,7 +260,7 @@ def test_frontmatter_with_a_bare_colon_is_a_frontmatter_parse_error(tmp_path):
     assert finding.code == "frontmatter-parse"
     assert finding.level == "error"
     assert finding.message.startswith(
-        "frontmatter is not valid YAML: mapping values are not allowed"
+        "frontmatter is not valid YAML: line 3: mapping values are not allowed"
     )
     assert "\n" not in finding.message
 
@@ -272,7 +272,8 @@ def test_broken_yaml_is_reported_in_place_of_the_missing_description_error(tmp_p
     assert code == 1  # a skill that does not load exits 1 with or without --strict
     [row] = report["skills"]
     assert row["state"] == "error"
-    assert "missing a 'description'" in row["error"]
+    assert "invalid YAML" in row["error"] and "line 3" in row["error"]
+    assert "missing a 'description'" not in row["error"]
     assert [f["code"] for f in row["findings"]] == ["frontmatter-parse"]
     assert row["content_sha256"] is None and row["duplicate_of"] is None
 
