@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -74,6 +75,14 @@ def test_more_jobs_write_the_same_rows_in_the_same_order(tmp_path, capsys):
     _run(["--root", str(tmp_path), "--per-skill", "--jsonl", str(many), "--jobs", "3"], capsys)
 
     assert _rows(many) == _rows(one)
+
+
+def test_a_jobs_worker_that_dies_ends_the_scan_instead_of_hanging():
+    from dokimi.commands.catalog_scan import _review_rows
+
+    # Each item makes its worker exit at once, as an out-of-memory kill would.
+    with pytest.raises(SystemExit, match="worker process died"):
+        list(_review_rows([3, 3, 3, 3], 2, review=os._exit))
 
 
 def test_resume_reviews_only_the_skills_without_a_row(tmp_path, capsys):

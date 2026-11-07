@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 from collections import Counter
 from pathlib import Path
-from typing import Iterable, Iterator, Optional
+from typing import Callable, Iterable, Iterator, Optional
 
 from dokimi.utils import InputError
 
@@ -92,18 +92,28 @@ def _review_row(item: tuple) -> dict:
     return skill_row(entry, review_skills([entry])[0], nested_in)
 
 
-def _review_rows(pairs: list, jobs: int) -> Iterator[dict]:
-    """The rows of *pairs* in order; ``jobs`` worker processes when more than one."""
+def _review_rows(pairs: list, jobs: int, review: Callable = _review_row) -> Iterator[dict]:
+    """The rows of *pairs* in order; ``jobs`` worker processes when more than one.
+
+    A worker that dies (killed, out of memory) ends the scan with exit 1 instead of a hang.
+    """
     if jobs <= 1:
         for pair in pairs:
-            yield _review_row(pair)
+            yield review(pair)
         return
     import multiprocessing
+    from concurrent.futures import ProcessPoolExecutor
+    from concurrent.futures.process import BrokenProcessPool
 
     # spawn on every platform: Python 3.14 defaults Linux to forkserver, which talks to its server
     # over a socket, and spawn is what Windows and macOS use already.
-    with multiprocessing.get_context("spawn").Pool(jobs) as pool:
-        yield from pool.imap(_review_row, pairs, chunksize=32)
+    pool = ProcessPoolExecutor(jobs, mp_context=multiprocessing.get_context("spawn"))
+    try:
+        yield from pool.map(review, pairs, chunksize=32)
+    except BrokenProcessPool as exc:
+        raise SystemExit("a --jobs worker process died; the rows written so far are kept: rerun with --resume") from exc
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
 
 
 class _Tally:
