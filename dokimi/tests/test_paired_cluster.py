@@ -229,3 +229,9 @@ def test_n_resamples_reaches_the_bootstrap_and_the_method_string():
     assert "500 resamples" in res["method"]
     lo, hi = round(direct["lo"], DISPLAY_DIGITS), round(direct["hi"], DISPLAY_DIGITS)
     assert (res["ci_lo"], res["ci_hi"]) == (lo, hi)
+
+
+def test_an_upper_bound_below_minus_margin_by_float_noise_is_inconclusive():
+    # 0.3 - 0.4 is -0.10000000000000003: under -0.1 by rounding alone, so the tolerance must hold it.
+    res = paired_cluster_difference(list(range(N)), [0.3] * N, [0.4] * N, margin=0.1)
+    assert res["noninferiority"] == "inconclusive"
