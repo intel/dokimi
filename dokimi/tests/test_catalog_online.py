@@ -144,14 +144,16 @@ def test_urls_are_capped_per_skill():
     assert len(online_checks.extract_urls(body)) == online_checks.MAX_URLS_PER_SKILL == 20
 
 
-def test_backslash_continuation_joins_the_command_lines():
+def test_backslash_continuation_is_a_documented_miss_and_names_nothing_wrong():
+    # The line-based rule does not join continuation lines: the package on the next line is missed.
     body = "```bash\npip install \\\n  nosuch-pkg-xyz\n```\n"
-    assert online_checks.extract_packages(body) == [("pypi", "nosuch-pkg-xyz")]
+    assert online_checks.extract_packages(body) == []
 
 
-def test_quoted_semicolon_in_a_pip_requirement_is_not_a_separator():
+def test_quoted_requirement_with_a_semicolon_is_a_documented_miss():
+    # Quotes are not read: the quoted requirement is not a valid name, so nothing is checked.
     body = "pip install \"requests; python_version < '3.11'\"\n"
-    assert online_checks.extract_packages(body) == [("pypi", "requests")]
+    assert online_checks.extract_packages(body) == []
 
 
 def test_shell_comments_are_removed_before_the_command_is_split():
@@ -193,13 +195,45 @@ def test_prose_with_an_apostrophe_still_splits_its_commands():
     assert online_checks.extract_packages(body) == [("pypi", "requests")]
 
 
-def test_apostrophes_in_prose_do_not_hide_the_command():
+def test_prose_after_an_install_is_read_as_names_known_limit():
+    # Known limit (warn-only): words after an install on the same line are names until the line or an operator
+    # ends; "done" is a false name here, and "requests" is checked.
     body = "Don't worry; pip install requests and you're done\n"
-    assert online_checks.extract_packages(body) == [("pypi", "requests")]
+    assert online_checks.extract_packages(body) == [("pypi", "requests"), ("pypi", "done")]
 
 
-def test_process_substitution_is_one_word_and_the_package_after_it_is_read():
-    assert online_checks.extract_packages("pip install -r <(echo x) foo\n") == [("pypi", "foo")]
+def test_process_substitution_is_a_documented_miss_not_a_wrong_name():
+    # The operators split the line, so the value option "-r" takes nothing and "foo" is not read.
+    assert online_checks.extract_packages("pip install -r <(echo x) foo\n") == []
+
+
+def test_quoted_parenthesis_does_not_hide_the_next_command():
+    # Pass-6 blocker 1: a quoted "(" is a line operator here, and the next command is still read.
+    assert online_checks.extract_packages('npm i foo; grep "(" x; npm i bar\n') == [("npm", "foo"), ("npm", "bar")]
+
+
+def test_issue_reference_before_a_command_is_not_a_comment():
+    # Pass-6 blocker 2: "#12" is not a comment (a comment is "#" followed by a space or the end of the line).
+    assert online_checks.extract_packages("See #12; pip install foo\n") == [("pypi", "foo")]
+
+
+def test_backslash_hard_break_in_prose_does_not_turn_prose_into_names():
+    # Pass-6 blocker 3: the continuation is not joined, so the prose line is not read as an install.
+    assert online_checks.extract_packages("pip install foo\\\nThen restart the server\n") == []
+
+
+def test_nested_parentheses_do_not_hide_the_next_command():
+    # Pass-6 blocker 4: each "(" and ")" is a line operator, so the nesting does not swallow the rest.
+    assert online_checks.extract_packages("pip install foo (see (docs)) and npm i bar\n") == [
+        ("pypi", "foo"), ("npm", "bar")]
+
+
+def test_npx_verbs_after_npx_in_prose_are_not_packages():
+    assert online_checks.extract_packages("npx can run any package\nnpx runs the binary\n") == []
+
+
+def test_numbers_are_not_package_names():
+    assert online_checks.extract_packages("pip install requests 2>&1\n") == [("pypi", "requests")]
 
 
 def test_ampersand_redirection_target_is_not_a_package():
