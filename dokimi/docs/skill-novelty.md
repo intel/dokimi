@@ -276,7 +276,9 @@ name no known vendor never match. `analyze` records the result in the artifact's
 `run_config.extractor_judge` (`extractor`, `judge`, `same_model`, `same_vendor`); `probe`
 prints the warning only. The warning does not refuse the run.
 
-To clear the warning, give the extractor a different family from the judge. Here the
+To clear the warning, give the extractor a different family from the judge. `probe` reads the key
+from the saved atoms file, so its own `--extract-model` does not clear it: pick another judge, or
+write the atoms file again with another `atoms --extract-model`. Here the
 extractor is Anthropic's, the judge OpenAI's:
 
 ```bash

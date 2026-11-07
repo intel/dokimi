@@ -309,19 +309,24 @@ def extractor_judge_relation(extractor_model: str, judge: LLMClient,
     }
 
 
+# The remedy holds for analyze and for probe: probe's --extract-model does not change a saved key.
+_REMEDY = ("Use a judge from another family, or write the answer key again with another extractor "
+           "(analyze --extract-model, or atoms --extract-model for a saved atoms file)")
+
+
 def warn_extractor_judge(extractor_model: str, judge: LLMClient,
                          extractor_provider: str = "") -> dict:
     """Print a stderr warning when the judge is the answer key's model or its vendor family."""
     relation = extractor_judge_relation(extractor_model, judge, extractor_provider)
     if relation["same_model"]:
         print(f"WARNING: the extractor and the judge are both {judge.model}: one model wrote the "
-              "answer key and grades against it. Pass --extract-model of another model family "
-              "(docs/skill-novelty.md, Choosing the extractor and the judge)", file=sys.stderr)
+              f"answer key and grades against it. {_REMEDY} (docs/skill-novelty.md, Choosing the "
+              "extractor and the judge)", file=sys.stderr)
     elif relation["same_vendor"]:
         print(f"WARNING: the extractor ({extractor_model}) and the judge ({judge.model}) are one "
-              "vendor family: the judge may favour an answer key its own family wrote. Pass "
-              "--extract-model of another family (docs/skill-novelty.md, Choosing the extractor "
-              "and the judge)", file=sys.stderr)
+              "vendor family: the judge may favour an answer key its own family wrote. "
+              f"{_REMEDY} (docs/skill-novelty.md, Choosing the extractor and the judge)",
+              file=sys.stderr)
     return relation
 
 

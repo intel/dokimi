@@ -153,3 +153,13 @@ def test_two_versions_of_one_family_are_not_the_same_model():
     relation = _relation("anthropic/claude-sonnet-5-5", _judge("claude-sonnet-5-6"), "anthropic")
     assert relation["same_model"] is False
     assert relation["same_vendor"] is True
+
+
+@pytest.mark.parametrize("extractor, judge", [
+    ("claude-sonnet-5-5", _judge("claude-sonnet-5-5")),
+    ("claude-haiku-5-5", _judge("claude-opus-5-5")),
+])
+def test_the_warning_names_a_judge_change_or_a_rewritten_key_not_a_probe_flag(capsys, extractor, judge):
+    # probe's --extract-model does not change a saved key, so the advice must not point at it alone
+    warn_extractor_judge(extractor, judge)
+    assert "a judge from another family" in capsys.readouterr().err
