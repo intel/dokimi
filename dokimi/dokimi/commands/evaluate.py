@@ -149,11 +149,13 @@ def cmd_eval_panel_score(args: argparse.Namespace) -> None:
     valid = [r.scores[CONTEXT] for r in records(results, kind="evaluations") if r.score(CONTEXT) is not None]
     if valid:
         mean_score = sum(s.aggregate or 0 for s in valid) / len(valid)
-        mean_agree = sum(s.raw.get("agreement_score", 1) for s in valid) / len(valid)
+        # A question judged by one panelist has no spread, so no agreement score.
+        agreed = [s.agreement for s in valid if s.agreement is not None]
         flagged = sum(1 for s in valid if s.raw.get("disagreement_flag", False))
         print(f"\n{'─'*50}")
         print(f"Panel score (context arm): {mean_score:.1f}/100")
-        print(f"Mean agreement score:     {mean_agree:.3f}  (1.0 = perfect)")
+        print("Mean agreement score:     " + (f"{sum(agreed) / len(agreed):.3f}  (1.0 = perfect)"
+                                               if agreed else "n/a"))
         print(f"Disagreement flags:       {flagged}/{len(valid)} questions")
 
     print(f"\n✅ Saved to {output_path}")
