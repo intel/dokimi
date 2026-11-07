@@ -919,7 +919,8 @@ inversion probe across the two arms: `resisted_only_with`, `resisted_only_withou
 ([§10.2](skill-novelty-evidence.md)).
 
 ```bash
-python cli.py skill novelty analyze --artifact skill:s --model M --judge2 gpt-6-luna --judge2-frac 0.2
+python cli.py skill novelty analyze --artifact skill:s --model M --judge2 gpt-6-luna \
+  --judge2-provider openai --judge2-frac 0.2
 ```
 
 ## Comparing knowledge: which matcher is allowed to answer
