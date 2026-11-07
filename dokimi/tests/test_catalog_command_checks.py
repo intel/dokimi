@@ -307,6 +307,15 @@ def test_repeated_sudo_flags_before_a_missing_shell_do_not_backtrack(tmp_path):
     assert _found(review, "pipe-to-shell") == []
 
 
+def test_tab_separated_sudo_flags_before_a_missing_shell_do_not_backtrack(tmp_path):
+    # The CodeQL py/redos alert: the same flags with tabs between them, which static analysis reads as ambiguous.
+    line = "curl https://example.com/x | sudo" + "\t--\t--" * 16 + " not_a_shell"
+    start = time.perf_counter()
+    review = _review(tmp_path, _fenced(line))
+    assert time.perf_counter() - start < 1.0
+    assert _found(review, "pipe-to-shell") == []
+
+
 def test_a_pipe_at_the_end_of_a_line_continues_on_the_next_line(tmp_path):
     review = _review(tmp_path, _fenced("curl https://example.com/install.sh |", "sh"))
     assert _found(review, "pipe-to-shell")
