@@ -150,8 +150,7 @@ _PLACEHOLDER = re.compile(r"__(LIBRARY|QUESTION|ANSWER|CONTEXT|GROUND_TRUTH)__")
 
 DEFAULT_PANEL = ["technical_expert", "developer_advocate", "doc_reviewer"]
 
-#: A verdict needs a majority of the panelists to hold a valid vote; below it the
-#: panel reports insufficient evidence instead of a mean, spread or agreement.
+#: Panel std above this flags disagreement.
 DISAGREEMENT_STD = 15.0
 
 
@@ -427,7 +426,8 @@ class JudgePanel:
         return self._aggregate(votes, grounded=bool(ground_truth))
 
     def _aggregate(self, votes: List[JudgeVote], grounded: bool = False) -> PanelVerdict:
-        # One vote per panelist, errors included, so the quorum counts the panel asked.
+        # One vote per panelist, errors included; a verdict needs a majority of
+        # valid votes, else insufficient evidence.
         quorum = len(votes) // 2 + 1
         valid = [v for v in votes if v.aggregate is not None]
         if len(valid) < quorum:
