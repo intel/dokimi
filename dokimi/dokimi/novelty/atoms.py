@@ -444,8 +444,7 @@ def extract_atoms(
     if (not atoms and lost is not None and report.partial is None
             and all(span.unread for span in spans)):
         # Only when nothing was read and the cap did not stop the run: a cap-stopped run keeps
-        # its partial result (the caller saves it), and spans that were read and asserted
-        # nothing are a result, and a recovered parse error is not a failure.
+        # its partial result for the caller to save; spans read with no atoms are a result.
         raise ExtractionError(f"no atoms: every extraction call failed ({lost})") from lost
     report.sampled = sample_record(len(atoms), cap)
     return atoms
