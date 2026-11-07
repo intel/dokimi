@@ -388,8 +388,12 @@ next release.
   `authoring_prompt.py`): one `dokimi:hidden_tests` task per merged pull
   request, its description as the prompt, its tests hidden until the grade and
   the rest of its diff as the oracle (contract §4.8); `merged.py` holds what the
-  two kinds share. They are the commands that write into a repository's tasks
-  directory.
+  two kinds share.
+- `dokimi/repos/graph_tasks.py` — `eval tasks generate --from graph`:
+  `dokimi:graph_enum` tasks (references to a function, direct subclasses of a
+  class) with gold from a SCIP index of a pinned revision, read with
+  `dokimi/repos/code_index/`. It, `repo tasks replay` and `repo tasks
+  authoring` are the commands that write into a repository's tasks directory.
 
 Entry points: `python cli.py repo {validate,scan,fetch,reach,budget,tasks replay,tasks authoring,run,report}`
 (`python cli.py repo --help` is the current list). The interface a repository

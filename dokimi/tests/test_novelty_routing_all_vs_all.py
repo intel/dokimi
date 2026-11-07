@@ -471,12 +471,13 @@ def test_an_unreadable_queries_file_is_a_message_not_a_traceback(tmp_path, make)
         args.func(args)
 
 
-@pytest.mark.parametrize("left_out, says", [
-    ("spec_error", "--include-invalid keeps it"),
-    ("name_conflict", "every copy of a name that two different skills share"),
+@pytest.mark.parametrize("left_out, says, reason, keep_flag", [
+    ("spec_error", "--include-invalid keeps it", "invalid", "--include-invalid"),
+    ("name_conflict", "--keep-copies-under <dir> keeps only the copies under <dir>",
+     "conflict", "--keep-copies-under"),
 ])
-def test_queries_for_a_skill_the_field_left_out_are_refused_with_the_real_reason(
-        tmp_path, left_out, says):
+def test_queries_for_a_skill_the_field_left_out_are_dropped_with_a_warning_naming_the_flag(
+        tmp_path, capsys, left_out, says, reason, keep_flag):
     root = tmp_path / "catalog"
     _cat(root, {"cache": "cache slow lookups", "queue": "queue background jobs"})
     if left_out == "spec_error":
@@ -484,13 +485,18 @@ def test_queries_for_a_skill_the_field_left_out_are_refused_with_the_real_reason
     else:
         _catalog_skill(root, "db", "tune a slow database query")
         _catalog_skill(root / "plugins" / "p", "db", "migrate a database schema")
-    queries = _write_queries(tmp_path, {"cache": ["q"], "queue": ["q"], "db": ["q"]})
+    queries = _write_queries(tmp_path, {"cache": ["cache my lookups"], "queue": ["queue my jobs"],
+                                        "db": ["tune my database"]})
+    out = tmp_path / "o.json"
     args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
-                  "--include-disabled", "--queries-by-skill", str(queries),
-                  "--out", str(tmp_path / "o.json"))
-    with pytest.raises(InputError, match="not in the field: `db`") as exc:
-        args.func(args)
-    assert says in str(exc.value)
+                  "--queries-by-skill", str(queries), "--out", str(out))
+    args.func(args)
+    err = capsys.readouterr().err
+    assert "WARNING" in err and "`db`" in err and says in err
+    assert json.loads(out.read_text(encoding="utf-8"))["field"]["dropped_queries"] == [
+        {"skill": "db", "reasons": [reason], "keep_flags": [keep_flag], "queries": 1}]
+    assert set(json.loads(out.read_text(encoding="utf-8"))["result"]["lexical"]["confusion"]) == {
+        "cache", "queue"}
 
 
 def _cat(root, names_descriptions):
@@ -653,7 +659,8 @@ def test_a_single_artifact_routing_run_records_the_field_rule_too(tmp_path):
     args.func(args)
     field = json.loads(out.read_text(encoding="utf-8"))["field"]
     assert field == {"include_disabled": True, "include_invalid": False,
-                     "competitors": ["db"], "left_out": [], "spec_warnings": []}
+                     "keep_copies_under": None, "competitors": ["db"], "left_out": [],
+                     "spec_warnings": []}
 
 
 def test_console_says_how_many_tied_and_unscored_queries_are_not_counted_as_picks(
@@ -879,22 +886,6 @@ def _model_client_for_repeats(monkeypatch):
     monkeypatch.setattr(novelty_cmd, "_client", lambda model, provider, role, args: LLMClient(
         model=model, provider=provider, role=role,
         transport=lambda prompt, system: (json.dumps({"pick": 1}), None)))
-
-
-def test_all_vs_all_refuses_estimate_only_before_it_calls_the_model(tmp_path, monkeypatch):
-    import dokimi.commands.novelty as novelty_cmd
-
-    monkeypatch.setattr(novelty_cmd, "_client",
-                        lambda *a, **k: pytest.fail("--estimate-only run made a model call"))
-    root = tmp_path / "catalog"
-    _cat(root, {"perf": "profile a slow binary", "db": "tune a slow database query"})
-    queries = _write_queries(tmp_path, {"perf": ["profile my slow binary"]})
-    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
-                  "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"),
-                  "--model", "m", "--estimate-only")
-    with pytest.raises(InputError, match="takes no --estimate-only"):
-        args.func(args)
-    assert not (tmp_path / "o.json").exists()
 
 
 def test_all_vs_all_announces_every_call_it_makes_with_repeats(tmp_path, capsys, monkeypatch):

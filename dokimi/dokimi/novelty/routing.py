@@ -45,6 +45,7 @@ from dokimi.external.listing import only_description_too_long
 from dokimi.skills import Skill
 from dokimi.utils import InputError, parse_frontmatter
 
+from .catalog_keep import check_keep_copies_under, keep_past_broken_copies, resolve_kept_copies
 from .client import LLMClient, parse_json_object
 
 if TYPE_CHECKING:
@@ -263,8 +264,9 @@ def model_routing(
         ``n_failed`` count calls), ``n_abstained``, ``n_failed``, the per-query pick
         with the position the gold card was shown at, the raw reply of every abstention or
         unparseable pick, and the caveat that this bounds harness behaviour from above.
-        With ``repeats > 1``, ``noise`` holds each query's agreement across its repeats and
-        the run-to-run spread of the selection rate; it is ``None`` for one repeat.
+        ``noise`` is always an object (see :func:`repeat_noise`). With ``repeats > 1`` it holds
+        each query's agreement across its repeats and the run-to-run spread of the selection rate;
+        with one repeat ``n_repeats`` is 1 and the agreement and spread fields are ``None``.
     """
     if not 0 <= gold < len(candidates):
         raise ValueError(f"gold index {gold} is outside 0..{len(candidates) - 1}")
@@ -332,7 +334,7 @@ def model_routing(
         "selection_rate_among_answered": (
             round(hits / len(answered), 4) if answered else None
         ),
-        "noise": repeat_noise(groups) if repeats > 1 else None,
+        "noise": repeat_noise(groups, repeats),
         "per_query": picks,
         "note": (
             "An upper bound on harness behaviour, not a harness measurement: a harness "
@@ -342,8 +344,12 @@ def model_routing(
     }
 
 
-def repeat_noise(groups: list[list[dict]]) -> dict:
+def repeat_noise(groups: list[list[dict]], repeats: int | None = None) -> dict:
     """Agreement across the repeats of each query, and the run-to-run spread of the rate.
+
+    Always returns the same keys. ``n_repeats`` is ``repeats``, else the length of the first
+    group. With one repeat the agreement and spread fields are ``None``; the rate stays in
+    ``selection_rate_by_repeat``.
 
     A query's agreement is the share of its answered repeats that gave its most common
     pick; an abstention counts as a pick. ``selection_rate_by_repeat`` reads each repeat as
@@ -355,7 +361,10 @@ def repeat_noise(groups: list[list[dict]]) -> dict:
 
     Args:
         groups: One list per query, holding that query's rows in repeat order.
+        repeats: The repeat count the run asked for; ``None`` reads it from ``groups``.
     """
+    if repeats is None:
+        repeats = len(groups[0]) if groups else 0
     per_query: list[dict] = []
     for group in groups:
         labels = [
@@ -365,7 +374,8 @@ def repeat_noise(groups: list[list[dict]]) -> dict:
         modal, agreement = None, None
         if labels:
             modal, count = Counter(labels).most_common(1)[0]
-            agreement = round(count / len(labels), 4)
+            if repeats > 1:  # one repeat agrees with itself by construction: nothing to measure
+                agreement = round(count / len(labels), 4)
         per_query.append({
             "query": group[0]["query"],
             "modal_pick": modal,
@@ -373,7 +383,6 @@ def repeat_noise(groups: list[list[dict]]) -> dict:
             "picks": labels,
             "n_correct": sum(1 for row in group if row.get("correct")),
         })
-    repeats = len(groups[0]) if groups else 0
     rates: list[float | None] = []
     # Every repeat's rate is taken over the same queries: those with no failed call in any
     # repeat. Dividing each repeat by its own non-errored rows would compare different
@@ -385,8 +394,10 @@ def repeat_noise(groups: list[list[dict]]) -> dict:
     known = [rate for rate in rates if rate is not None]
     agreements = [row["agreement"] for row in per_query if row["agreement"] is not None]
     return {
+        "n_repeats": repeats,
         "mean_agreement": round(sum(agreements) / len(agreements), 4) if agreements else None,
-        "unstable_queries": sum(1 for a in agreements if a < 1),
+        # None, not 0, with one repeat: a count of 0 would read as a stable selector.
+        "unstable_queries": sum(1 for a in agreements if a < 1) if repeats > 1 else None,
         "selection_rate_by_repeat": rates,
         "n_queries_compared": len(complete),
         "half_range": round((max(known) - min(known)) / 2, 4) if len(known) > 1 else None,
@@ -430,8 +441,8 @@ def headings_as_queries(body: str, *, limit: int = 40) -> list[str]:
     return [h for h in headings if len(tokenize(h)) >= 2][:limit]
 
 
-# A selection reply is one JSON object, ``{"pick": N}``: a few tokens.
-PICK_REPLY_TOKENS = 10
+# Output tokens per selection call, measured on one run (360 calls drew 23.3k tokens).
+SELECTION_REPLY_TOKENS = 65
 
 
 def selection_prompt_tokens(candidates: list[Candidate], queries: list[str]) -> list[int]:
@@ -451,8 +462,9 @@ def selection_estimate(candidates: list[Candidate], queries: list[str], *,
                        repeats: int = 1) -> dict:
     """The calls and tokens :func:`model_routing` would make, counted without making them.
 
-    Every repeat sends the same prompts (see :func:`selection_prompt_tokens`). The reply is one
-    JSON pick, :data:`PICK_REPLY_TOKENS`. Zero repeats send nothing, so no query is sent.
+    Every repeat sends the same prompts (see :func:`selection_prompt_tokens`). Each reply is
+    billed at :data:`SELECTION_REPLY_TOKENS` output tokens, the measured figure, and
+    ``output_tokens_per_call`` says which. Zero repeats send nothing, so no query is sent.
     """
     prompts = selection_prompt_tokens(candidates, queries) if repeats else []
     calls = len(prompts) * repeats
@@ -461,7 +473,8 @@ def selection_estimate(candidates: list[Candidate], queries: list[str], *,
         "n_queries_sent": len(prompts),
         "n_calls": calls,
         "input_tokens": sum(prompts) * repeats,
-        "output_tokens": calls * PICK_REPLY_TOKENS,
+        "output_tokens_per_call": SELECTION_REPLY_TOKENS,
+        "output_tokens": calls * SELECTION_REPLY_TOKENS,
     }
 
 
@@ -590,7 +603,10 @@ def catalog_competitors(root: str, exclude: set[str],
                         notes: list[str] | None = None, *,
                         include_disabled: bool = False,
                         include_invalid: bool = False,
-                        dropped: dict[str, set[str]] | None = None) -> list[Candidate]:
+                        dropped: dict[str, set[str]] | None = None,
+                        keep_copies_under: str | None = None,
+                        conflicts: dict[str, list[str]] | None = None,
+                        unloaded: dict[str, str] | None = None) -> list[Candidate]:
     """Every skill under ``root`` whose name is not in ``exclude``.
 
     The field a harness would list next to the artifact, rather than one the caller picks.
@@ -608,14 +624,22 @@ def catalog_competitors(root: str, exclude: set[str],
     conflict leaves out is mapped in ``dropped`` (when given) to why: ``disabled``, ``invalid``
     or ``conflict``, so a caller need not read the catalog again.
 
+    ``keep_copies_under`` (a directory under ``root``) keeps only the copies under it for a name
+    whose copies differ and that have one content under it; the others of that name are left out
+    with a note. ``conflicts`` (when given) gets each name still in conflict, mapped to the paths of
+    its copies. ``unloaded`` (when given) gets each non-excluded skill that did not load, with why.
+
     Raises:
-        ValueError: ``root`` is not a directory, or its ``skills.yaml`` is invalid (with no
+        ValueError: ``root`` is not a directory, ``keep_copies_under`` is not a directory inside
+            it (see :func:`check_keep_copies_under`), or its ``skills.yaml`` is invalid (with no
             manifest every ``SKILL.md`` is read, and a broken one is skipped with a note).
     """
     if not Path(root).is_dir():
         raise ValueError(f"--catalog is not a directory: {root}")
+    if keep_copies_under is not None:
+        check_keep_copies_under(root, keep_copies_under)
     eligible = _eligible_catalog_skills(root, exclude, notes, include_disabled, include_invalid,
-                                        dropped)
+                                        dropped, keep_copies_under, conflicts, unloaded)
     keeper = _keepers_by_copy(eligible)
     candidates: list[Candidate] = []
     for skill, digest in eligible:
@@ -631,7 +655,11 @@ def catalog_competitors(root: str, exclude: set[str],
 def _eligible_catalog_skills(root: str, exclude: set[str], notes: list[str] | None,
                              include_disabled: bool,
                              include_invalid: bool = False,
-                             dropped: dict[str, set[str]] | None = None) -> list[tuple[Skill, str]]:
+                             dropped: dict[str, set[str]] | None = None,
+                             keep_copies_under: str | None = None,
+                             conflicts: dict[str, list[str]] | None = None,
+                             unloaded: dict[str, str] | None = None,
+                             ) -> list[tuple[Skill, str]]:
     """Each loadable, non-excluded catalog skill with the sha256 of its ``SKILL.md``.
 
     Disabled and spec-error copies are filtered according to the flags first. A name whose
@@ -644,9 +672,13 @@ def _eligible_catalog_skills(root: str, exclude: set[str], notes: list[str] | No
     entries = read_skill_manifest(Path(root), notes)
     reviews = review_skills(entries)
     loaded: list[tuple[Skill, str, SkillReview]] = []
+    broken: dict[str, list[Path | None]] = {}
     for entry, review in zip(entries, reviews, strict=True):
         skill = entry.skill
         if skill is None or not entry.loaded or review is None:
+            if unloaded is not None and entry.name not in exclude:
+                unloaded[entry.name] = entry.error or "it did not load"
+                broken.setdefault(entry.name, []).append(entry.path)
             if notes is not None:
                 notes.append(f"skipped catalog entry {entry.name!r}: {entry.error}")
             continue
@@ -659,8 +691,11 @@ def _eligible_catalog_skills(root: str, exclude: set[str], notes: list[str] | No
     for skill, digest, review in loaded:
         if not _left_out_by_flag(skill, review, include_disabled, include_invalid, notes, dropped):
             listed.append((skill, digest))
-    conflicting = _conflicting_names(listed, notes, dropped)
-    return [(skill, digest) for skill, digest in listed if skill.name not in conflicting]
+    listed = resolve_kept_copies(listed, root, keep_copies_under, notes)
+    conflicting = _conflicting_names(listed, notes, dropped, conflicts)
+    field = [(skill, digest) for skill, digest in listed if skill.name not in conflicting]
+    keep_past_broken_copies(field, root, keep_copies_under, broken, unloaded, notes)
+    return field
 
 
 def _left_out_by_flag(skill: Skill, review: SkillReview, include_disabled: bool,
@@ -691,7 +726,8 @@ def _left_out_by_flag(skill: Skill, review: SkillReview, include_disabled: bool,
 
 
 def _conflicting_names(listed: list[tuple[Skill, str]], notes: list[str] | None,
-                       dropped: dict[str, set[str]] | None = None) -> set[str]:
+                       dropped: dict[str, set[str]] | None = None,
+                       conflicts: dict[str, list[str]] | None = None) -> set[str]:
     """The names that two different files among ``listed`` share, with a note naming each path.
 
     Two skills with one name and different bytes cannot both stand for the card, so the name
@@ -705,12 +741,17 @@ def _conflicting_names(listed: list[tuple[Skill, str]], notes: list[str] | None,
     if dropped is not None:
         for name in conflicting:
             dropped.setdefault(name, set()).add("conflict")
+    if conflicts is not None:
+        for name in conflicting:
+            conflicts[name] = sorted(skill.path.as_posix() for skill, _ in listed
+                                     if skill.name == name)
     if notes is not None:
         for name in sorted(conflicting):
             paths = ", ".join(sorted(skill.path.as_posix() for skill, _ in listed
                                      if skill.name == name))
             notes.append(f"skipped catalog name {name!r}: it has different content at "
-                         f"{paths}; dedupe or rename them to route them")
+                         f"{paths}; keep one directory's copies with --keep-copies-under <dir>, "
+                         "or dedupe or rename them to route them")
     return conflicting
 
 
