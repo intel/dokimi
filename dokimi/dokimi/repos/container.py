@@ -26,9 +26,11 @@ Every container is started the same way, whatever the image's ``ENTRYPOINT``:
   or a process list. The CLI itself runs with the host environment: the
   container's ``HOME`` would hide ``~/.docker`` and break rootless runtimes.
 
-:class:`DockerRunner` drives the docker CLI through :mod:`dokimi.process`.
-Tests use a fake runner with the same :class:`ContainerRunner` interface, or
-give :class:`DockerRunner` a :class:`dokimi.process.FakeRunner`.
+:class:`DockerRunner` builds the docker argv and starts it through
+:mod:`dokimi.docker_cmd` (the one module that spells docker) and
+:mod:`dokimi.process`. Tests use a fake runner with the same
+:class:`ContainerRunner` interface, or give :class:`DockerRunner` a
+:class:`dokimi.process.FakeRunner`.
 """
 
 from __future__ import annotations
@@ -39,8 +41,16 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Protocol
 
-from dokimi import process
+from dokimi import docker_cmd, process
 from dokimi.container_policy import ContainerPolicy
+from dokimi.docker_cmd import (  # noqa: F401  (re-exported: the names callers have always imported from here)
+    BUILD_TIMEOUT_S,
+    INFRA_EXIT,
+    PIDS_LIMIT,
+    PROXY_BUILD_ARGS,
+    STOP_GRACE_S,
+)
+from dokimi.docker_cmd import CALL_TIMEOUT_S as DOCKER_CALL_TIMEOUT_S  # noqa: F401
 
 RUN_DIR = "/eval/run"
 WORKSPACE = f"{RUN_DIR}/workspace"
@@ -50,14 +60,6 @@ HARNESS_DIR = "/eval/harness"
 SUPPORT_DIR = "/eval/support"
 GRADERS_DIR = "/eval/graders"  # the built-in graders, mounted read-only into the grading container only
 NETWORKS = ("none", "bridge", "host")
-# Predefined docker build args: passed by name when set, so a build behind a proxy works
-# and the values stay out of the image history.
-PROXY_BUILD_ARGS = ("http_proxy", "https_proxy", "no_proxy", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY")
-PIDS_LIMIT = 32768  # threads count too: a Bazel server and a -j build on a many-core host use thousands
-INFRA_EXIT = 125  # `docker run` itself failed (daemon, mount, image); the command never started
-BUILD_TIMEOUT_S = 3 * 3600  # default: a wedged daemon or a hung RUN step fails the build instead of hanging the batch
-DOCKER_CALL_TIMEOUT_S = 60  # `docker kill`, `docker image inspect`
-STOP_GRACE_S = 10  # a timed-out docker CLI gets SIGTERM (it stops the container) before SIGKILL
 
 
 class ContainerError(RuntimeError):
@@ -118,7 +120,7 @@ def host_user() -> str | None:
 class DockerRunner:
     """Run containers with the docker CLI."""
 
-    def __init__(self, docker: str = "docker", runner: process.Runner = process.run):
+    def __init__(self, docker: str = docker_cmd.BINARY, runner: process.Runner = process.run):
         self.docker = docker
         self.runner = runner
 
@@ -134,14 +136,11 @@ class DockerRunner:
         user = spec.user or host_user()
         if user:
             out += ["--user", user]
-        for m in spec.mounts:
-            if "," in str(m.host) or "," in m.container:
-                raise ContainerError(f"a mount path cannot contain ',': {m.host} -> {m.container}")
-            out += ["--mount", f"type=bind,src={m.host},dst={m.container}" + (",readonly" if m.read_only else "")]
-        for name, value in spec.env.items():
-            out += ["-e", f"{name}={value}"]
-        for name in spec.pass_env:
-            out += ["-e", name]
+        try:
+            out += docker_cmd.mount_args((m.host, m.container, m.read_only) for m in spec.mounts)
+        except ValueError as exc:
+            raise ContainerError(str(exc)) from exc
+        out += docker_cmd.env_args(spec.env, spec.pass_env)
         return [*out, "--entrypoint", "", spec.image, *spec.argv]
 
     def run(self, spec: ContainerSpec, *, stdout: Path, stderr: Path, timeout_s: float) -> ContainerResult:
@@ -152,7 +151,7 @@ class DockerRunner:
         def stop() -> None:
             if spec.name:
                 try:
-                    self.runner([self.docker, "kill", spec.name], timeout=DOCKER_CALL_TIMEOUT_S,
+                    self.runner([self.docker, *docker_cmd.kill_args(spec.name)], timeout=docker_cmd.CALL_TIMEOUT_S,
                                 env=process.Env.inherit())
                 except OSError:
                     pass  # still a timed-out run; the docker CLI is gone, the container may outlive it
@@ -160,21 +159,16 @@ class DockerRunner:
         # -e NAME reads the forwarded values from the CLI's own environment: the caller's.
         result = run_process(self.argv(spec), env=process.Env.inherit(), stdout=stdout, stderr=stderr,
                              timeout_s=timeout_s, on_timeout=stop, runner=self.runner)
-        if result.returncode == INFRA_EXIT and not result.timed_out:
+        if docker_cmd.failed_to_start(result.returncode, result.timed_out):
             tail = stderr.read_text(encoding="utf-8", errors="replace").strip()[-500:]
             raise ContainerError(f"docker run failed: {tail}")
         return result
 
     def build(self, context: Path, dockerfile: Path, tag: str, network: str | None = None,
               timeout_s: float = BUILD_TIMEOUT_S) -> None:
-        argv = [self.docker, "build", "-f", str(dockerfile), "-t", tag]
-        if network:
-            argv += ["--network", network]
-        for name in PROXY_BUILD_ARGS:
-            if name in os.environ:
-                argv += ["--build-arg", name]
+        argv = [self.docker, *docker_cmd.build_args(context, dockerfile, tag, network=network)]
         try:
-            proc = self.runner([*argv, str(context)], timeout=timeout_s, env=process.Env.inherit())
+            proc = self.runner(argv, timeout=timeout_s, env=process.Env.inherit())
         except OSError as exc:
             raise ContainerError(f"docker build {tag}: cannot run {self.docker!r}: {exc}") from exc
         if proc.timed_out:
@@ -184,10 +178,10 @@ class DockerRunner:
             raise ContainerError(f"docker build {tag} failed:\n{(proc.stderr or proc.stdout)[-3000:]}")
 
     def image_exists(self, tag: str) -> bool:
-        proc = self.runner([self.docker, "image", "inspect", tag], timeout=DOCKER_CALL_TIMEOUT_S,
+        proc = self.runner([self.docker, *docker_cmd.inspect_image_args(tag)], timeout=docker_cmd.CALL_TIMEOUT_S,
                            env=process.Env.inherit(), capture_stdout=False)
         if proc.timed_out:  # a daemon that does not answer would only hang the build next
-            raise ContainerError(f"docker image inspect {tag}: no answer in {DOCKER_CALL_TIMEOUT_S}s")
+            raise ContainerError(f"docker image inspect {tag}: no answer in {docker_cmd.CALL_TIMEOUT_S}s")
         return proc.returncode == 0
 
 
