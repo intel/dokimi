@@ -1,7 +1,11 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""eval tasks generate: build repository tasks from a source (contract §4.7). ``--from graph`` reads a code index."""
+"""eval tasks generate: build repository tasks from a source (contract §4.7).
+
+``--from graph`` reads a SCIP code index; ``--from replay`` reads a threads file of merged pull requests
+(the former ``repo tasks replay``, #94 D11 and M3).
+"""
 
 from __future__ import annotations
 
@@ -15,12 +19,34 @@ from dokimi.utils import InputError
 if TYPE_CHECKING:
     from dokimi.repos.graph_tasks import Plan
 
-SOURCES = ("graph",)
+SOURCES = ("graph", "replay")
 SOURCE_HELP = ("Repository source pinned at the revision the index was built from: <dir>@<rev> or "
                "<https-or-ssh-url>@<rev> (cloned bare into the cache). The revision's full SHA is each task's base")
 
 
 def cmd_eval_tasks_generate(args: argparse.Namespace) -> None:
+    """Build tasks from ``--from``: graph (enumeration tasks, gold from a SCIP index) or replay (review threads)."""
+    if args.from_kind == "replay":
+        _check_replay_flags(args)
+        from .repo_run import cmd_repo_tasks_replay
+
+        return cmd_repo_tasks_replay(args)
+    if args.threads is not None:
+        raise InputError("--threads is for --from replay")
+    _generate_graph(args)
+
+
+def _check_replay_flags(args: argparse.Namespace) -> None:
+    """``--from replay`` reads a threads file and no code index."""
+    if args.threads is None:
+        raise InputError("--from replay needs --threads FILE, the merged pull requests with their reviewThreads")
+    if args.index is not None:
+        raise InputError("--index is for --from graph")
+    if args.dry_run:
+        raise InputError("--dry-run is for --from graph")
+
+
+def _generate_graph(args: argparse.Namespace) -> None:
     """Enumeration tasks with gold from a SCIP index (no LLM, no docker)."""
     from dokimi.repos.graph_tasks import Options, plan, write
     from dokimi.repos.source import GitTree
@@ -97,12 +123,26 @@ def add_parser(eval_tasks_sub, positive_int) -> None:
     gen_p = eval_tasks_sub.add_parser(
         "generate", help="Write repository tasks from a source, no LLM: --from graph writes dokimi:graph_enum "
         "tasks (which files or functions reference a function, which classes derive from a class) with gold "
-        "from a SCIP code index. Exits 2 on a usage error or an index that does not read or matches no file "
+        "from a SCIP code index; --from replay writes one dokimi:review_replay task per merged pull request of a "
+        "threads file. Exits 2 on a usage error or an index that does not read or matches no file "
         "of the source, 1 when no target gave a task, a task cannot be written or the source cannot be resolved at "
         "the revision")
     gen_p.add_argument("source", help=SOURCE_HELP)
     gen_p.add_argument("--from", required=True, choices=SOURCES, dest="from_kind",
-                       help="What the tasks are built from: graph (a code index)")
+                       help="What the tasks are built from: graph (a code index) or replay (a threads file)")
+    gen_p.add_argument("--threads", default=None, metavar="FILE",
+                       help="--from replay: JSON holding the merged pull requests with their reviewThreads, as the "
+                       "query in the contract (§4.6) returns them; pages of --paginate --slurp are read too")
+    gen_p.add_argument("--manifest", default=".agent-eval/repo-eval.yaml",
+                       help="--from replay: manifest path relative to the repository root: its guidance globs and "
+                       "eval_dir are left out of every patch")
+    gen_p.add_argument("--manifest-file", default=None, dest="manifest_file",
+                       help="--from replay: read the manifest from this local file instead of from the tree")
+    gen_p.add_argument("--window", type=positive_int, default=5,
+                       help="--from replay: task.json `window`, and how near a thread's line a later commit of the PR "
+                       "must change the file for `addressed` (default 5)")
+    gen_p.add_argument("--prompt-file", default=None, dest="prompt_file",
+                       help="--from replay: the agent's prompt (default: a review prompt asking for the findings JSON)")
     gen_p.add_argument("--index", default=None, metavar="FILE",
                        help="A SCIP code index of the source at its revision (scip-python, scip-clang, ...); "
                        "dokimi never builds one")
