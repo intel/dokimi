@@ -398,6 +398,39 @@ def test_a_mapping_reply_that_names_no_requirement_id_is_a_run_failure(tmp_path)
             sc.map_requirements(reqs, checks, client)
 
 
+class _Capture:
+    """A client that returns a fixed reply and keeps the cache predicate ``map_requirements`` passed in."""
+
+    def __init__(self, reply: dict):
+        self.reply = reply
+        self.usable = None
+
+    def json_object(self, prompt, *, system=None, usable=None):
+        self.usable = usable
+        return self.reply
+
+
+def test_the_cache_and_the_guard_refuse_the_same_mappings(tmp_path):
+    checks = sc.load_checks(_evals(tmp_path))
+    reqs = [sc.Requirement("mh-01", "must_hold", "b"), sc.Requirement("mh-02", "must_hold", "c")]
+    unusable = ('{"items": {}}', '{"items": {"zz": ["e1"]}}', '{"items": {"mh-01": null}}',
+                '{"items": {"mh-01": "e2"}}', '{"items": {"mh-01": ["e2"], "mh-02": null}}')
+    for reply in unusable:
+        fake = _Capture(json.loads(reply))
+        with pytest.raises(sc.SkillCoverageError, match="no usable mapping"):
+            sc.map_requirements(reqs, checks, fake)
+        assert not fake.usable(json.loads(reply)), reply  # never cached, so an identical rerun asks again
+
+
+def test_an_explicit_empty_list_is_a_usable_mapping(tmp_path):
+    checks = sc.load_checks(_evals(tmp_path))
+    reqs = [sc.Requirement("mh-01", "must_hold", "b"), sc.Requirement("mh-02", "must_hold", "c")]
+    fake = _Capture({"items": {"mh-01": [], "mh-02": ["e1"]}})
+    links = sc.map_requirements(reqs, checks, fake)
+    assert fake.usable({"items": {"mh-01": []}})
+    assert links.by_requirement == {"mh-01": (), "mh-02": ("e1",)}
+
+
 def test_names_filed_under_an_unknown_requirement_id_are_dropped_and_counted(tmp_path):
     checks = sc.load_checks(_evals(tmp_path))
     reqs = [sc.Requirement("mh-01", "must_hold", "b")]

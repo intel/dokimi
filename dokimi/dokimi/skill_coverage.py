@@ -258,8 +258,15 @@ declining. Be strict: most requirements have 0 or 1 checks. Use [] when none wou
 Reply with JSON only: {{"items": {{"<requirement id>": ["<check name>", ...]}}}}"""
 
 
-def _has_items(reply: dict[str, Any]) -> bool:
-    return isinstance(reply.get("items"), dict)
+def _usable_items(reply: dict[str, Any], ids: set[str]) -> bool:
+    """A mapping the run can use: ``items`` is an object, every requirement id it names holds a list of check
+    names, and at least one does (an explicit empty list is a valid answer). The cache keeps only what this
+    accepts, and the run refuses what it rejects, so an identical rerun asks the model again."""
+    items = reply.get("items")
+    if not isinstance(items, dict):
+        return False
+    named = [items[rid] for rid in ids if rid in items]
+    return bool(named) and all(isinstance(v, list) for v in named)
 
 
 def catalogue_text(checks: list[Check]) -> str:
@@ -284,23 +291,24 @@ def map_requirements(requirements: list[Requirement], checks: list[Check], clien
     catalogue = catalogue_text(checks)
     listing = "\n".join(f"[{r.id}] ({r.section}) {r.text}" for r in requirements)
     prompt = _MAP_PROMPT.format(requirements=listing, checks=catalogue)
+    ids = {r.id for r in requirements}
+
+    def usable(reply: dict[str, Any]) -> bool:
+        return _usable_items(reply, ids)
+
     try:
-        reply = client.json_object(prompt, system=_MAP_SYSTEM, usable=_has_items)
+        reply = client.json_object(prompt, system=_MAP_SYSTEM, usable=usable)
     except ValueError as exc:
         raise SkillCoverageError(f"no usable mapping from the model: {exc}") from exc
-    if not _has_items(reply):  # ``usable`` guards the cache only; an injected transport skips it
-        raise SkillCoverageError("no usable mapping from the model")
+    if not usable(reply):  # ``usable`` guards the cache only; an injected transport skips it
+        raise SkillCoverageError("no usable mapping from the model: each requirement id it names must hold a list "
+                                 "of check names, and at least one must")
     known = {c.name for c in checks}
     by_requirement: dict[str, tuple[str, ...]] = {}
     dropped = 0
     items = reply["items"]
-    ids = {r.id for r in requirements}
-    if ids and not any(rid in items for rid in ids):  # e.g. {} or ids not padded as listed: nothing to map
-        raise SkillCoverageError("no usable mapping from the model: it names no requirement id")
     for requirement in requirements:
-        named = items.get(requirement.id) or []
-        if not isinstance(named, list):
-            named = []
+        named = items.get(requirement.id, [])
         hits = {str(n) for n in named if str(n) in known}
         dropped += sum(1 for n in named if str(n) not in known)
         by_requirement[requirement.id] = tuple(sorted(hits))
