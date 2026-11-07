@@ -20,8 +20,8 @@ cells are first reduced to one value per (task, arm, model):
 - **first_useful_rate**: the share of the cells that declare a first useful result, and have a verdict (not
   `unobserved` or `timeout`), that observed one, per task; the header counts observed of measured cells per arm and
   the unmeasured ones;
-- **metric:<name>**: the mean of ``grade.json`` ``metrics.<name>`` over the
-  cells that report it (``true`` is 1), for ``--metric``;
+- **metric:<name>**: the mean of ``grade.json`` ``metrics.<name>`` over the cells that report it (``true`` is 1),
+  for ``--metric``; ``judge:recall_judged`` reads the cell's ``hits_judged.json`` instead (:mod:`.compare_judged`);
 - **pass^k**: for ``--pass-k K``, the chance that K cells drawn from the
   task's n all pass its gate, ``C(c,K)/C(n,K)`` over c passes (τ-bench). The
   gate is the per-cell rate; pass^k says whether the task passes every time.
@@ -97,6 +97,8 @@ against an ``--image`` given explicitly.
 A treatment arm that added a file or an MCP server (``result.json``
 ``uptake``) whose agents used it in none of their cells is warned about too: its
 deltas measure the patch's text (a guidance line, say), not the tool.
+
+``leak`` lists, per compared arm with a guidance history, the replay tasks it may have seen (:mod:`.compare_leak`).
 """
 
 from __future__ import annotations
@@ -113,6 +115,9 @@ from dokimi.context.consistency import Run, run_from_events
 from dokimi.eval.stats import correct_family
 from dokimi.utils import same_model
 
+from .compare_judged import (check_reported, judge_names, judge_warnings, judged_cells, judged_lines,
+                             read_judged)
+from .compare_leak import format_leak, leak_check
 from .compare_interval import (EPS, EXACT_MAX, METHOD, N_RESAMPLES, format_interval, includes_zero,
                                sign_flip_interval, within)
 from .compare_reach import ALPHA, holm_floor, min_detectable
@@ -159,6 +164,7 @@ def load_batches(batch_dirs: list[Path], metrics: tuple[str, ...] = (),
         for rec in found:
             rec["batch"] = name
             rec["metrics"] = _grade_metrics(batch_dir / rec["cell"] / "grade.json", metrics) if metrics else {}
+            read_judged(batch_dir / rec["cell"], rec, metrics)  # judge:<field>, from hits_judged.json
             if paths:
                 rec["path"] = _cell_path(batch_dir / rec["cell"] / "events.jsonl")
             cells.append(rec)
@@ -181,6 +187,7 @@ def compare(batch_dirs: list[Path], baseline: str, treatments: list[str] | None 
     """``exact``: p and the mean delta at full precision (the ledger's verdicts read them); otherwise rounded as
     printed. The interval's ends are at 4 places either way: bisection only knows them within 1e-7."""
     metrics = tuple(dict.fromkeys(metrics))
+    judge_names(metrics)  # a judge: field it cannot read is refused before any cell is
     if pass_k is not None and pass_k < 1:
         raise CompareError(f"--pass-k must be at least 1, got {pass_k}")
     found, missing = load_batches(batch_dirs, metrics, path_stability)
@@ -195,6 +202,9 @@ def compare(batch_dirs: list[Path], baseline: str, treatments: list[str] | None 
         task_filter["dropped_arms"] = ([] if treatments is not None
                                        else sorted(_other_arms(found, base_sel) - _other_arms(cells, base_sel)))
     treatments = _treatments(cells, baseline, base_sel, treatments, scope)
+    compared = _in_models([c for c in cells if any(selector_matches(parse_selector(t), c) for t in [baseline, *treatments])],
+                          models)  # a judged-recall file of an excluded arm or model does not count
+    check_reported(metrics, compared, scope)
     measures = ["gate", "score", *([f"pass^{pass_k}"] if pass_k else []),
                 *(["path_distance"] if path_stability else []), "cost_usd", "turns", "first_prompt_tokens",
                 *USEFUL_MEASURES, *(f"metric:{m}" for m in metrics)]
@@ -220,9 +230,14 @@ def compare(batch_dirs: list[Path], baseline: str, treatments: list[str] | None 
     _holm(rows)
     provenance = _provenance(batch_dirs, cells, baseline, treatments, models)
     provenance["warnings"] += one_arm
+    arm_cells = {text: _in_models([c for c in cells if selector_matches(parse_selector(text), c)], models)
+                 for text in [baseline, *treatments]}
+    judged = judged_cells(metrics, arm_cells)
+    provenance["warnings"] += judge_warnings(judged)
     return {"batches": [str(d) for d in batch_dirs], "baseline": baseline, "treatments": treatments,
             "task_filter": task_filter, "cells": len(cells), "missing": missing, **provenance,
-            "first_useful": useful, "comparisons": rows, "unpaired": unpaired}
+            "first_useful": useful, "judged_cells": judged, "comparisons": rows, "unpaired": unpaired,
+            "leak": leak_check(batch_dirs, arm_cells)}
 
 
 def _one_arm_models(treatment: str, base_vals: dict[tuple[str, str], dict[str, Any]],
@@ -339,7 +354,8 @@ def _process_measures(cells: list[dict[str, Any]], selectors: list[str]) -> list
 
 def _check_metrics(metrics: tuple[str, ...], cells: list[dict[str, Any]], scope: str = "") -> None:
     """A ``--metric`` that no finished cell reports is a typo or not a number: refuse it, not print nothing."""
-    unknown = [m for m in metrics if not any(m in c["metrics"] for c in cells)]
+    judged = judge_names(metrics)  # read after the arms are resolved, by check_reported
+    unknown = [m for m in metrics if m not in judged and not any(m in c["metrics"] for c in cells)]
     if unknown:
         raise CompareError(f"no finished cell reports a numeric or boolean --metric {', '.join(unknown)}{scope}")
 
@@ -636,6 +652,7 @@ def format_compare(summary: dict[str, Any]) -> str:
                 if r["headroom"]:
                     lines.append(f"  {r['measure']} {_headroom_note(r)}")
         lines += _reading_notes(rows, family)
+    lines += format_leak(summary.get("leak", []))
     if summary["unpaired"]:
         shown = summary["unpaired"][:10]
         lines.append("unpaired: " + ", ".join(
@@ -643,6 +660,7 @@ def format_compare(summary: dict[str, Any]) -> str:
             + (f" and {len(summary['unpaired']) - len(shown)} more" if len(summary["unpaired"]) > 10 else ""))
     if summary["missing"]:
         lines.append(f"{len(summary['missing'])} cells missing (no result.json): `repo report` lists them")
+    lines += judged_lines(summary.get("judged_cells"))
     lines += [f"uptake: {text} used what its arm added in {u['used']}/{u['cells']} cell(s){unmeasured_note(u)}"
               for text, u in summary.get("uptake", {}).items()]
     lines += [f"warning: {w}" for w in summary["warnings"]]

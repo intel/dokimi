@@ -134,12 +134,21 @@ def _tied_groups(candidates: list[Candidate]) -> list[list[str]]:
     return [group for group in by_words.values() if len(group) > 1]
 
 
+def check_field_names(names: list[str]) -> None:
+    """Refuse a field that names a skill twice: the measured run and the estimate both call this.
+
+    Raises:
+        RoutingInputError: A name is given more than once.
+    """
+    if len(set(names)) != len(names):
+        raise RoutingInputError("all-vs-all: the field names a skill more than once")
+
+
 def _check_all_vs_all_input(names: list[str], queries_by_skill: dict[str, list[str]]) -> None:
     """Refuse a field or query file :func:`all_vs_all` cannot measure."""
     if len(names) < 2:
         raise RoutingInputError("all-vs-all needs at least two skills in the field")
-    if len(set(names)) != len(names):
-        raise RoutingInputError("all-vs-all: the field names a skill more than once")
+    check_field_names(names)
     unknown = sorted(set(queries_by_skill) - set(names))
     if unknown:
         raise RoutingInputError("the queries name skills that are not in the field: "

@@ -326,7 +326,8 @@ next release.
   Copilot JSON converters and the parser of the files a shell command prints
   (`dokimi/repos/shell_split.py` splits the command into its parts, and
   `dokimi/repos/shell_words.py` finds a part's command word and the
-  directory builtins it runs),
+  directory builtins it runs, and `dokimi/repos/shell_functions.py` the
+  shell functions whose call may move the shell),
   and `dokimi/repos/answers.py` the `answer_format`
   conversions that turn a native review answer into a findings block.
 - `dokimi/repos/l0/` — `repo scan` (L0): checks the links, paths,
@@ -365,7 +366,10 @@ next release.
   `dokimi/repos/compare_tasks.py` holds
   what its `--task` selection keeps; `dokimi/repos/compare_reach.py` how small
   an effect a row can find (`mde`, an uncorrected t-based estimate, and the
-  lowest `p_holm` Holm's family leaves it).
+  lowest `p_holm` Holm's family leaves it); `dokimi/repos/compare_judged.py`
+  reads `--metric judge:recall_judged` from each cell's `hits_judged.json`;
+  `dokimi/repos/compare_leak.py` which replay tasks a `guidance:rev:` arm may
+  have seen.
 - `dokimi/repos/ledger.py` — `repo compare --ledger`: loads a `repo_ledger.v1`
   file (rules with their hypothesis, arm, linked cases and review date) and gives
   each rule a verdict from `repo compare` over its own cases, Holm-corrected
@@ -378,7 +382,12 @@ next release.
   task per merged pull request of a threads file `gh api graphql` wrote (the
   change as reviewed, gold from the reviewers' threads on its lines, and
   `addressed` from the PR's own later commits), read with git and no GitHub
-  call. It is the one command that writes into a repository's tasks directory.
+  call.
+- `dokimi/repos/graph_tasks.py` — `eval tasks generate --from graph`:
+  `dokimi:graph_enum` tasks (references to a function, direct subclasses of a
+  class) with gold from a SCIP index of a pinned revision, read with
+  `dokimi/repos/code_index/`. It and `repo tasks replay` are the commands that
+  write into a repository's tasks directory.
 
 Entry points: `python cli.py repo {validate,scan,fetch,reach,budget,tasks replay,run,report}`
 (`python cli.py repo --help` is the current list). The interface a repository

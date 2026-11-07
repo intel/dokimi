@@ -26,9 +26,10 @@ import shlex
 from datetime import datetime
 from typing import Any
 
+from .shell_functions import Functions, define
 from .shell_split import split_script
-from .shell_words import (_DIR_LOST, _DIRS, _KEYWORDS, _cd, _command_words, _is_cd, _may_run_dir, _run_name, _runs_dir,
-                          _time_keyword, _unquoted)
+from .shell_words import (_DIRS, _KEYWORDS, _case_closes, _case_opens, _cd, _command_words, _is_activate, _is_cd, _loses,
+                          _run_name, _runs_dir, _time_keyword, _unquoted)
 from .transcript import Transcript, _from_cwd, _parse_time, clip_output, relative_path
 
 _BASH_WRAP = re.compile(r"^(?:/\S*/)?(?:ba|z)?sh -lc (.+)$", re.S)
@@ -52,7 +53,10 @@ _STDOUT_AFTER_STDERR = re.compile(r"(?<![^\s;&|(])2>>?(?!&)[ \t]*[^\s;&|<>()]+.*
 _PIPE = re.compile(r"(?<!\|)\|(?!\|)")  # a pipe, not ||
 _GROUP_OPEN = re.compile(r"(?:^|[\s;&|(])\{(?=\s|$)")  # a brace group opens: ``{`` as a word
 _GROUP_CLOSE = re.compile(r"(?:^|\s)\}(?=\s|$|[;&|])")
-_FUNCTION_DEF = re.compile(r"\s*(?:function\s+[^\s(){}]+(?:\s*\(\s*\))?|[^\s(){}=$`]+\s*\(\s*\))\s*\{(?=\s|$)")
+_FUNCTION_HEAD = re.compile(r"\s*(?:function\s+[^\s(){}]+(?:\s*\(\s*\))?|[^\s(){}=$`]+\s*\(\s*\))\s*")  # ``f()``, ``function f``
+_FUNCTION_DEF = re.compile(_FUNCTION_HEAD.pattern + r"\{(?=\s|$)")  # a definition opening its body: ``f() {``, ``function f {``
+# ``f() (`` or ``function f (`` (no ``()``: bash takes the ``(`` as the body's), a definition whose body is a subshell
+_SUBSHELL_DEF = re.compile(r"\s*(?:function\s+)?[^\s(){}=$`]+\s*\(\s*\)\s*\(|\s*function\s+[^\s(){}]+\s*\((?!\s*\))")
 _STDOUT_FILE = re.compile(r"&>>?|(?<![\w&>])1?>>?(?!&)|(?<![\w&>])1?>&(?!\d)")  # a group's stdout to a file: not the agent's
 # the values of long options that take a separate word (``head --lines 5``), by command
 _LONG_VALUE = {
@@ -84,19 +88,28 @@ def shell_reads(script: str, cwd: str = "") -> list[str]:
     script starts in, relative to the workspace root. ``cd`` moves it for the parts that follow: a
     relative path is joined to it and normalised (no ``.`` or ``..``). The directory is unknown (a
     relative read is not recorded) after ``cd -``, a bare ``cd``, a ``cd`` to a computed path, a
-    ``pushd`` / ``popd``, an ``eval``, ``source`` or ``.`` (it may run a ``cd``; none of these when backgrounded or
-    piped, as it then ran in a subshell: ``source env.sh & false || cat a`` reads a), a part the walker does not
-    follow whose command word is one of these (``time -p cd sub``, ``X="a b" cd "$D"``: :func:`_may_run_dir`), a ``case``
-    arm that names one (``case`` is not followed: its reads are not kept either), ``env -C`` / ``--chdir`` (the
+    ``pushd`` / ``popd``, an ``eval``, ``source`` or ``.`` (it may run a ``cd``; not ``source .venv/bin/activate``,
+    a virtualenv's activate script alone, assumed to run none; none of these when backgrounded or piped, as it then ran
+    in a subshell: ``source env.sh & false || cat a`` reads a), a call of a function the script defines whose body names
+    one of these or that has the name of one (``f() { cd sub; }; f``, ``cd() { ...; }; cd x``), a part the walker does not
+    follow whose command word is one of these (``time -p cd sub``, ``X="a b" cd "$D"``: :func:`~.shell_words._may_run_dir`), a ``case``
+    arm that names one (``case`` is not followed: its reads are not kept either; a ``case`` opens one only as a command
+    word, not in ``echo case``), ``env -C`` / ``--chdir`` (the
     command's reads, but absolute ones), a ``cd`` after ``if`` / ``then`` / ``do`` / ``else`` (it may not run), a
     ``cd`` after ``&&`` / ``||`` once the chain holding it ends with ``;``, ``&`` or a newline (it may have been
     skipped), or a glob or brace expansion (the files are not known). A subshell ``( ... )`` or `` `...` `` records
-    no reads, and a ``cd`` in it moves nothing here. A brace group (``{ cd $(pwd); }``, ``{ { cd x; }; }`` too) or an
-    ``&&`` / ``||`` list that is backgrounded, or a piped
+    no reads, and a ``cd`` in it moves nothing here; a ``$( )`` or backtick's own ``;`` does not end the part around it
+    (``cd $(x; y) | cat`` is piped). ``time cat a``, ``X=1 time cat a`` and ``command cat a`` read a (``time -x cat a``
+    runs ``-x``; ``env`` runs a program, never a builtin, so ``env command cat a`` reads no file and ``env command cd x``
+    moves no shell: both run a program named ``command``); a call of a function the script defines is no read (``cat() { echo hi; }; cat a``, ``\\cat a``,
+    ``cat() ( ... )`` and ``function cat ( ... )`` too), nor what follows a function named like a wrapper (``command() { ...; }; command cat a``),
+    and ``command cd x`` or ``builtin cd x`` runs the builtin past a function ``cd``. A brace group (``{ cd $(pwd); }``,
+    ``{ { cd x; }; }`` too) or an ``&&`` / ``||`` list that is backgrounded, or a piped
     group, runs in a subshell, so the directory is restored after it; the reads of a
     group whose output feeds a pipe after it is dropped, as a pipeline is not a read here; a group whose stdout is
     redirected to a file or /dev/null is dropped, as that output is not shown to the agent. ``--help`` and
-    ``--version`` print and open no file. A function definition is skipped whole. Absolute paths are kept.
+    ``--version`` print and open no file. A function definition is skipped whole, its ``{`` on a later line too
+    (``f()\\n{``). Absolute paths are kept.
     """
     return _walk_script(script, cwd)[0]
 
@@ -105,7 +118,9 @@ def shell_reads_moved(script: str, cwd: str = "") -> tuple[list[str], bool]:
     """:func:`shell_reads`, and whether the script may leave its shell in another directory: it ran a ``cd``,
     ``pushd``, ``popd``, ``eval``, ``source`` or ``.`` in that shell, not in a subshell (``( ... )``, a pipeline
     or a backgrounded command, list or group: ``cd sub &``, ``{ cd sub; } | cat``, ``cd sub && make &``,
-    ``cd "$X" &``, ``cd sub | cat``, ``{ cd $(pwd); } &``)."""
+    ``cd "$X" &``, ``cd sub | cat``, ``{ cd $(pwd); } &``), or called a function whose body names one of these, or
+    that has the name of one (``f() { cd sub; }; f``, ``cd() { ...; }; cd x``; not ``f &``, ``f | cat``, nor a body
+    in parentheses, ``f() ( cd sub ); f``, which runs in a subshell)."""
     return shell_walk(script, cwd)[:2]
 
 
@@ -117,24 +132,25 @@ def shell_walk(script: str, cwd: str = "") -> tuple[list[str], bool, int]:
 
 def _walk_script(script: str, cwd: str) -> tuple[list[str], _Walk]:
     out: list[str] = []
-    walk = _Walk(posixpath.normpath(cwd) if cwd else "")
     previous = ""
     # a line continuation is removed, not made a space (``cat AGENTS\<newline>.md`` reads AGENTS.md); a heredoc body
     # is input, not commands
     script = _HEREDOC.sub(lambda m: m.group(3), _CONTINUATION.sub("", script))
+    known: Functions = {}
+    walk = _Walk(posixpath.normpath(cwd) if cwd else "", define(known, script), known)
     for part, after, in_subshell, outer in split_script(script):
         op, previous = previous, after
         chained = op in ("&&", "||")
         if not chained and walk.gated:  # a cd after && or || may not have run: the next chain starts in no known directory
             walk.here, walk.gated = None, False
         walk.chain(op, chained)
-        if walk.in_function(_bare(part)) or walk.in_case(outer, after, out):  # a definition runs nothing; a case is not followed
+        if walk.in_function(_bare(part)) or walk.in_case(outer, part, after, out):  # a definition runs nothing
             continue
         if op == "||" and walk.moved:
             walk.here = None
         walk.track_groups(_bare(outer), after, out)  # ``{ cd $(pwd); } | cat``: the group is in this shell
         if in_subshell:  # a subshell: its reads are not tracked
-            if _runs_dir(outer):  # ``cd $(dirname f)``: the cd is outside the parentheses
+            if _runs_dir(outer, walk.dirs, walk.functions):  # ``cd $(dirname f)``: the cd is outside the parentheses
                 walk.lose(_in_own_shell(outer, after))
             continue
         words = walk.words(part, after)
@@ -151,8 +167,10 @@ class _Walk:
     """Where ``shell_reads`` is in the script: the directory (``None``: unknown), whether a ``cd`` was seen, whether
     the script's own shell may have moved, and the open brace groups."""
 
-    def __init__(self, here: str | None) -> None:
+    def __init__(self, here: str | None, movers: frozenset[str] = frozenset(), functions: Functions | None = None) -> None:
         self.here = here
+        self.functions = {} if functions is None else functions  # the shell functions the script defines
+        self.dirs = _DIRS | movers  # and those whose call may move the shell (``shell_functions.define``)
         self.moved = False  # a cd was seen in this shell: after ||, the directory is not known
         self.shell_moved = False  # a directory builtin ran in the script's shell, not in a subshell
         self.gated = False  # a cd after && or || was seen in this chain: it may not have run for the next chain
@@ -162,6 +180,7 @@ class _Walk:
         self.list_start: _Spot = (here, False, False)  # the spot where the && / || list began
         self.listed = False  # that list has more than one command
         self.function = 0  # the brace depth inside a function definition
+        self.head = False  # the last part was a function's name alone (``f()``): its body's ``{`` comes next
         self.case = 0  # the depth inside ``case ... esac``
         self.operands: int | None = None  # how many files the last printing command named
         self.unknown = 0  # the relative files printing commands named at a directory not known
@@ -185,26 +204,33 @@ class _Walk:
 
     def in_function(self, bare: str) -> bool:
         """Whether ``bare`` is part of a function definition (``f() { cd x; cat a; }``): its body is skipped, as
-        defining it runs nothing (a later call is not followed)."""
-        if not self.function and not _FUNCTION_DEF.match(bare):
-            return False
+        defining it runs nothing (a later call of it loses the directory when its body names a directory builtin:
+        :func:`~dokimi.repos.shell_functions.define`). The ``{`` may come on a later line (``f()\\n{``): blank lines and
+        comments are no parts, so the part after a name alone opens the body. A body in parentheses (``cd() ( ... )``,
+        ``function cd ( ... )``) is a subshell's, so its parts record nothing; the head is skipped, so a name ``cd`` there
+        moves nothing, and a ``{`` word in it (``f() ( echo { ); cd sub``) opens no body that would hide the ``cd``."""
+        head, self.head = self.head, False
+        if not self.function and _SUBSHELL_DEF.match(bare):
+            return True
+        if not self.function and not _FUNCTION_DEF.match(bare) and not (head and _GROUP_OPEN.match(bare)):
+            self.head = bool(_FUNCTION_HEAD.fullmatch(bare))
+            return self.head
         self.function = max(self.function + len(_GROUP_OPEN.findall(bare)) - len(_GROUP_CLOSE.findall(bare)), 0)
         return True
 
-    def in_case(self, outer: str, after: str, out: list[str]) -> bool:
-        """Whether ``outer`` is part of a ``case ... esac``, which is not followed: an arm may run or not, so one naming a
-        directory builtin (as any word: ``case x in a) cd sub;; esac``) may move the shell, and its reads are not kept.
-        Inside one, each ``case`` word opens another, so a miscount stays inside; its braces still open and close groups."""
-        words = _unquoted(outer.split())
-        while words[:1] and (words[0] in _KEYWORDS or words[0] == "{"):
-            words = words[1:]
-        if not self.case and words[:1] != ["case"]:
+    def in_case(self, outer: str, part: str, after: str, out: list[str]) -> bool:
+        """Whether ``part`` is part of a ``case ... esac``, which is not followed: an arm may run or not, so one naming a
+        directory builtin or a function that does (as any word of ``outer``: ``case x in a) cd sub;; esac``) may move
+        the shell, and its reads are not kept. A ``case`` command word opens one (:func:`_case_opens`), a first ``esac``
+        closes it; its braces still open and close groups."""
+        opens = _case_opens(part)
+        if not self.case and not opens:
             return False
-        self.case += words.count("case")
+        self.case += opens
         self.track_groups(_bare(outer), after, out)  # before lose: a backgrounded group around the case restores it
-        if any(w in _DIRS for w in words):
+        if any(w in self.dirs for w in _unquoted(outer.split())):
             self.lose()
-        self.case -= words[:1] == ["esac"]
+        self.case -= _case_closes(part)
         return True
 
     def lose(self, own_shell: bool = True) -> None:
@@ -251,7 +277,7 @@ class _Walk:
         except ValueError:
             return []
         if words is None:
-            if _runs_dir(part):  # ``builtin cd "$D"``: where it went is not known
+            if _runs_dir(part, self.dirs, self.functions):  # ``builtin cd "$D"``: where it went is not known
                 self.lose(_in_own_shell(part, after))
             return []
         while words[:1] == ["{"]:  # a brace group runs in this shell: its cd and reads count
@@ -265,13 +291,16 @@ class _Walk:
         conditional = negated = False
         while words and words[0] in _KEYWORDS:  # ``then cd x``: the cd may not run
             words, conditional, negated = words[1:], True, negated or words[0] == "!"
-        words, via_env, chdir = _command_words(words, timed)
+        words, via_env, chdir, bypassed = _command_words(words, timed, self.functions)
         if not words:
             return []
         name = _run_name(words[0], via_env)
         if name is None:
             return []
-        if name in _DIR_LOST or (conditional and name == "cd") or _may_run_dir(words, timed):
+        if words[0] in self.functions and not bypassed:  # ``cat() { ...; }; \cat a`` runs the function: no read
+            if words[0] in self.dirs:  # a ``cd() { ...; }``, or a body naming one: definitions are found script-wide
+                self.lose(after != "&")
+        elif _loses(name, words, conditional, timed, via_env):
             self.lose(after != "&")
         elif name == "cd":
             self.gated |= chained
@@ -606,18 +635,19 @@ def _counted_reads(out: Transcript, script: str, cwd: str) -> tuple[list[str], i
 
 
 def _failed_read(script: str, rc: Any) -> bool:
-    """A non-zero exit of a command that is one part naming one file, alone or after ``cd`` parts
-    (``cd sub && cat AGENTS.md``: the cd or the cat failed): that file was not read, known or not
-    (``cd -; cat missing``: no read, and no ``unknown_reads``).
+    """A non-zero exit of a command that is one part naming one file, alone or after ``cd`` parts or a virtualenv's
+    activate (``cd sub && cat AGENTS.md``, ``source .venv/bin/activate && cat AGENTS.md``: it or the cat failed): that
+    file was not read, known or not (``cd -; cat missing``: no read, and no ``unknown_reads``).
 
     Otherwise the exit code does not say which read failed (``cat a missing`` prints ``a`` and
     exits 1), so the reads are kept: also when only one of the files is known (``cd -; cat missing /ws/a``). A part
-    before it that is not surely a ``cd`` (``X="a b" cd sub``, ``time -p cd sub``) keeps them too: its exit may be
-    the one that failed, and a read is dropped only when that file surely was not printed. A brace group's braces are
-    not parts: ``{ cat AGENTS.md; }`` and ``cd sub && { cat AGENTS.md; }`` are one read.
+    before it that is not surely a ``cd`` (``time -p cd sub``) keeps them too: its exit may be the one that failed,
+    and a read is dropped only when that file surely was not printed. A part is split as the walker splits it
+    (``X="a b" cd sub`` and ``source 'my env/bin/activate'`` are surely a ``cd`` and an activate). A brace group's
+    braces are not parts: ``{ cat AGENTS.md; }`` and ``cd sub && { cat AGENTS.md; }`` are one read.
     """
     parts = [p for p in (_ungrouped(part.text) for part in split_script(script)) if p]
-    if rc in (None, 0) or not all(_is_cd(p) for p in parts[:-1]):
+    if rc in (None, 0) or not all(_is_cd(p) or _is_activate(p) for p in parts[:-1]):
         return False
     return _walk_script(script, "")[1].operands == 1  # the printer's own operands, not the reads kept of them
 

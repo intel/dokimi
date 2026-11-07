@@ -82,3 +82,25 @@ def test_multi_run_and_batch_hand_the_registry_over_too(spy, tmp_path):
     assert len(spy.built) == 3
     for kwargs in spy.built:
         assert "my_lib" in kwargs["registry"]
+
+
+class _SourceIdClient(_DeclaredIdClient):
+    """An ``mcp:`` source with ``;id=``: the id it was given is its default."""
+
+    default_library_id = "my/override"
+
+
+def test_an_mcp_source_id_wins_over_the_entry_id(spy, tmp_path):
+    registry = tmp_path / "my.yaml"
+    registry.write_text(CUSTOM.replace(
+        "doc_sources: [context7]\n  onetbb", "doc_sources: [context7]\n    context7_id: org/declared\n  onetbb", 1,
+    ), encoding="utf-8")
+    args = _subparser("benchmark", "run").parse_args(
+        ["--library", "my_lib", "--registry", str(registry), "--output-dir", str(tmp_path / "out")]
+    )
+    benchmark.cmd_benchmark_run(args)
+
+    (kwargs,) = spy.built
+    real = EvaluationPipeline(**kwargs)
+    assert real._library_id(_DeclaredIdClient()) == "org/declared"
+    assert real._library_id(_SourceIdClient()) == "my/override"

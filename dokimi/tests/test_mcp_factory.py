@@ -223,3 +223,39 @@ def test_no_committed_product_resolves_to_its_own_registry_key():
             continue
         assert resolved == registry.get(key).context7_id
         assert resolved != key, f"{key} resolved to its own registry key"
+
+
+# ── an explicit ``;id=`` on an ``mcp:`` source (#310) ────────────────────────
+
+def test_mcp_source_id_wins_over_registry_context7_id(tmp_path):
+    from dokimi.mcp.factory import create_doc_source_client, resolve_library_id_for_product
+
+    client = create_doc_source_client("mcp:http=http://127.0.0.1:9/mcp;id=source/id")
+    resolved = resolve_library_id_for_product("demo", client, registry=_demo_registry(tmp_path))
+    assert resolved == "source/id"
+
+
+def test_explicit_id_wins_over_mcp_source_id(tmp_path):
+    from dokimi.mcp.factory import create_doc_source_client, resolve_library_id_for_product
+
+    client = create_doc_source_client("mcp:http=http://127.0.0.1:9/mcp;id=source/id")
+    resolved = resolve_library_id_for_product(
+        "demo", client, explicit_id="manual/id", registry=_demo_registry(tmp_path)
+    )
+    assert resolved == "manual/id"
+
+
+def test_mcp_source_without_id_still_uses_registry_context7_id(tmp_path):
+    from dokimi.mcp.factory import create_doc_source_client, resolve_library_id_for_product
+
+    client = create_doc_source_client("mcp:http=http://127.0.0.1:9/mcp")
+    resolved = resolve_library_id_for_product("demo", client, registry=_demo_registry(tmp_path))
+    assert resolved == "declared/id"
+
+
+def test_mcp_source_id_satisfies_a_registered_product_with_no_context7_id(tmp_path):
+    from dokimi.mcp.factory import create_doc_source_client, resolve_library_id_for_product
+
+    client = create_doc_source_client("mcp:http=http://127.0.0.1:9/mcp;id=source/id")
+    registry = _demo_registry(tmp_path, context7_id=None)
+    assert resolve_library_id_for_product("demo", client, registry=registry) == "source/id"

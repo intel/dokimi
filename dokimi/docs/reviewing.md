@@ -43,7 +43,7 @@ litellm has no price for such a model, so cost is reported as unknown and
 
 The judge must be a different model from the one under measurement, because a
 model that grades its own answers inflates the scores. `novelty` refuses a
-self-judge; `arms run` does not check, so name
+self-judge; `arms run` and `subjects run` warn on stderr and do not refuse, so name
 `--judge --judge-model <other> --judge-provider <judge-provider>` yourself.
 
 ## A skill
@@ -209,12 +209,16 @@ these, in order, before writing what it showed (the fields:
   as what was tested ("the root `AGENTS.md`", not "the guidance").
 - **A leakage cut.** A task is out of sample for a guidance revision only when
   no guidance commit in it could have been written from the task's review; a
-  split at the first guidance commit's date is not that cut. A
-  `guidance:rev:` cell's `meta.json` `arm_rev` lists them in
-  `guidance_commits`: flag the tasks whose `task.json` `public_at` comes
-  before a commit's `committed` date. Log by hand
-  where that record falls short (`guidance_commits_truncated` true, no
-  `public_at`, another arm, or a commit under a name or link target no
+  split at the first guidance commit's date is not that cut. `repo compare`
+  prints a `leak check` line per `guidance:rev:` arm, with the number of
+  replay tasks flagged by date (a guidance file that applies to the task's
+  `patch_files` was committed after its `public_at`) and by name (a guidance
+  commit's subject names its PR), unknown and clean; under it the tasks
+  flagged by name with their commits, the unknown ones with the reason, and
+  the clean ones, with the tasks it does not check, as `--task` options (`--json`: `leak`, every id; contract
+  §9). Log by hand
+  where that record falls short (`by name covers only the newest 200`, an
+  unknown task, a `patch:` arm, or a commit under a name or link target no
   guidance glob matches: the record follows no rename and only the links at
   `<rev>`): each guidance file on its own, through its renames,
   `git log --follow -p --format='%h %cI %B' <rev> -- <path>`, each link with
@@ -248,9 +252,15 @@ these, in order, before writing what it showed (the fields:
   then the finding in the cell's `answer.txt`.
   `dokimi repo hits judge <batch> --judge PROVIDER/MODEL` has a judge label
   every credited pair (`same point`, `related` or `unrelated`) and gives
-  `recall_judged` ([§9](repo-evaluation-contract.md#9-running)). That figure
+  `recall_judged` ([§9](repo-evaluation-contract.md#9-running)), and
+  `dokimi repo compare <batch> --baseline guidance:none --metric recall --metric judge:recall_judged`
+  puts its per-task delta next to `recall`'s (a cell regraded since judging,
+  or with an unjudged pair, is left out and counted, while `recall`'s row
+  keeps it: the two deltas cover the same cells only when no per-arm
+  `cells read` line is printed). That figure
   is uncalibrated until a person labels a sample (`repo hits sheet`, then
-  `--labels`) and `uncalibrated_rows` is empty: it narrows which pairs to
+  `--labels`) and `uncalibrated_rows` is empty, and `repo compare` cannot tell:
+  quote it only next to a calibration. It narrows which pairs to
   read, it does not replace reading the pairs you cite. Cite only pairs that make the
   same point; say how many credited pairs you read and how many held. To
   attribute a hit to a guidance rule, check that the rule is in a file the

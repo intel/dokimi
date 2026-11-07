@@ -21,6 +21,7 @@ from dokimi.defaults import (
     DEFAULT_RETRIEVAL_TOP_K,
 )
 from dokimi.exit_codes import EXIT_USAGE
+from dokimi.utils import InputError
 
 
 def _load_runtime_config() -> dict:
@@ -141,8 +142,7 @@ def cmd_answers_generate(args: argparse.Namespace) -> None:
         # file reflects any last-second ordering fix).
         answerer.save_answers(answers, output_path)
     except OSError as exc:
-        print(f"Error: cannot write {output_path}: {exc.strerror or exc}", file=sys.stderr)
-        sys.exit(2)
+        raise InputError(f"cannot write {output_path}: {exc.strerror or exc}") from exc
     print(f"\n✅ Saved answers to {output_path}")
 
     # Optional RAGAS meta-evaluation (--ragas flag)
