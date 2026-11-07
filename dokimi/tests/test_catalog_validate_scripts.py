@@ -82,6 +82,8 @@ def test_a_python_file_that_does_not_parse_is_an_error_with_its_line(tmp_path, n
     assert _codes(review) == ["script-syntax"]
     assert review.findings[0].message.startswith("tool.py does not parse as Python: ")
     assert review.findings[0].message.endswith("(line 3)")
+    assert review.findings[0].level == "error"
+    assert review.state == "error"
 
 
 @needs_bash
@@ -320,3 +322,30 @@ def test_a_shebang_option_bash_n_cannot_reproduce_leaves_the_script_unjudged(tmp
 
     assert script_findings(skill, which=_tools("bash"), runner=runner) == []
     assert runner.calls == []
+
+
+def test_a_sh_shebang_is_checked_by_bash_n(tmp_path):
+    skill = _bundle(tmp_path, {"run.sh": b"#!/bin/sh\nif true; then\n"})
+    runner = process.FakeRunner(lambda call: process.reply(stderr="sh: line 2: syntax error\n", returncode=2))
+
+    findings = script_findings(skill, which=_tools("bash"), runner=runner)
+
+    assert [code for _, code, _ in findings] == ["script-syntax"]
+    assert runner.calls[0].argv == ("/usr/bin/bash", "-n")
+
+
+def test_a_bash_n_timeout_gives_no_finding(tmp_path):
+    skill = _bundle(tmp_path, {"run.sh": b"#!/bin/bash\nif true; then\n"})
+    runner = process.FakeRunner(lambda call: process.reply(timed_out=True))
+
+    assert script_findings(skill, which=_tools("bash"), runner=runner) == []
+    assert len(runner.calls) == 1
+
+
+def test_the_suffix_is_matched_in_any_case(tmp_path):
+    skill = _bundle(tmp_path, {"RUN.SH": b"if true; then\n", "Tool.PY": b"def f(:\n"})
+    runner = process.FakeRunner(lambda call: process.reply(stderr="bash: syntax error\n", returncode=2))
+
+    findings = script_findings(skill, which=_tools("bash"), runner=runner)
+
+    assert sorted(message.split(" does not")[0] for _, _, message in findings) == ["RUN.SH", "Tool.PY"]
