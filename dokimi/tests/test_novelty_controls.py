@@ -10,8 +10,9 @@ import pytest
 from dokimi.novelty.atoms import Atom
 from dokimi.novelty.client import LLMClient
 from dokimi.novelty.controls import clustered_ci
-from dokimi.novelty.measure import ProbeRun, paired_outcomes, run_measurement
+from dokimi.novelty.measure import ERRORED, ProbeRun, paired_outcomes, run_measurement
 from dokimi.novelty.probes import Probe
+from dokimi.novelty.report import build_probe_record
 from dokimi.utils import InputError
 
 RIGHT, WRONG = "correct_complete", "wrong_other"
@@ -109,3 +110,105 @@ def test_repeat_arm_asks_the_baseline_again_as_a_new_draw(monkeypatch):
                              concurrency=1, arms=("no_artifact", "full", "no_artifact_repeat"))
     assert sorted(d for p, d in draws if "DOC" not in p) == [0, 1]
     assert result.paired("lenient")["noise_floor"]["n_paired"] == 1
+
+
+def test_derived_controls_read_only_the_probes_all_three_arms_answered():
+    # c has no full answer, so the floor (taken over a, b, c) and the net rate must not
+    # be compared over different probes: over the common a, b the net is 0.5 - 0.5.
+    runs = [
+        _run("a", "no_artifact", WRONG), _run("a", "full", RIGHT), _run("a", "no_artifact_repeat", WRONG),
+        _run("b", "no_artifact", WRONG), _run("b", "full", WRONG), _run("b", "no_artifact_repeat", RIGHT),
+        _run("c", "no_artifact", WRONG), _run("c", "full", ERRORED), _run("c", "no_artifact_repeat", RIGHT),
+    ]
+    paired = paired_outcomes(runs)
+    assert paired["noise_floor"]["added"] == pytest.approx(2 / 3, abs=1e-4)
+    assert paired["added"] == 0.5
+    assert paired["added_net_of_noise"] == 0.0
+    assert paired["degraded_within_noise"] is True
+
+
+def test_derived_controls_are_omitted_when_no_probe_is_in_all_three_arms():
+    runs = [
+        _run("a", "no_artifact", WRONG), _run("a", "full", RIGHT), _run("a", "no_artifact_repeat", ERRORED),
+        _run("b", "no_artifact", WRONG), _run("b", "full", ERRORED), _run("b", "no_artifact_repeat", RIGHT),
+    ]
+    paired = paired_outcomes(runs)
+    assert "noise_floor" in paired
+    assert "added_net_of_noise" not in paired
+    assert "degraded_within_noise" not in paired
+
+
+def test_placebo_with_no_overlap_reports_no_rate_rather_than_zero():
+    runs = [
+        _run("a", "no_artifact", WRONG), _run("a", "full", RIGHT),
+        _run("b", "no_artifact", WRONG), _run("b", "placebo", RIGHT),
+    ]
+    gated = paired_outcomes(runs)["added_over_placebo"]
+    assert (gated["n_paired"], gated["count"], gated["rate"], gated["ci95"]) == (0, 0, None, None)
+
+
+def test_an_errored_placebo_or_repeat_answer_is_not_a_wrong_answer():
+    runs = [
+        _run("a", "no_artifact", WRONG), _run("a", "full", RIGHT), _run("a", "placebo", ERRORED),
+        _run("b", "no_artifact", WRONG), _run("b", "full", RIGHT), _run("b", "placebo", WRONG),
+        _run("a", "no_artifact_repeat", ERRORED), _run("b", "no_artifact_repeat", RIGHT),
+    ]
+    paired = paired_outcomes(runs)
+    assert (paired["added_over_placebo"]["n_paired"], paired["added_over_placebo"]["count"]) == (1, 1)
+    assert (paired["noise_floor"]["n_paired"], paired["noise_floor"]["added"]) == (1, 1.0)
+
+
+def test_degraded_strictly_inside_the_floor_is_within_noise_and_beyond_it_is_not():
+    # The floor's degraded rate is 3 of 4 (right then wrong without the artifact): 0.75.
+    base = [RIGHT] * 4
+    repeat = [RIGHT, WRONG, WRONG, WRONG]
+    inside = [RIGHT, WRONG, RIGHT, RIGHT]  # degraded 0.25, strictly inside the floor
+    beyond = [WRONG] * 4                   # degraded 1.0, beyond it
+    for full, expected in ((inside, True), (beyond, False)):
+        runs = [_run(f"a{i}", arm, verdicts[i]) for arm, verdicts in
+                (("no_artifact", base), ("no_artifact_repeat", repeat), ("full", full))
+                for i in range(4)]
+        assert paired_outcomes(runs)["degraded_within_noise"] is expected
+
+
+def test_clustered_ci_has_a_minimum_of_five_atoms_and_a_pinned_interval():
+    five = {"a": [1.0], "b": [0.0], "c": [1.0], "d": [1.0], "e": [0.0]}
+    assert clustered_ci({k: five[k] for k in "abcd"}) is None
+    assert clustered_ci(five) == [0.2, 1.0]
+
+
+class _Stub:
+    """Empty stand-ins for the measure result and the probe set that the record reads."""
+
+    runs: list = []
+
+    def paired(self, scoring):
+        return {}
+
+    def arm_means(self, scoring):
+        return {}
+
+    def abstentions(self):
+        return {}
+
+    def reversal_resisted(self):
+        return None
+
+    def confidence_correlation(self):
+        return None
+
+    def as_dict(self):
+        return {}
+
+
+def test_probe_record_names_the_framing_it_was_measured_with():
+    record = build_probe_record(
+        artifact_ref="skill:x", model="m", judge_model="j", probed_bundle=None,
+        atoms_bundle=None, probe_set=_Stub(), measure_result=_Stub(), framing="neutral",
+    )
+    assert record["context_framing"] == "neutral"
+    default = build_probe_record(
+        artifact_ref="skill:x", model="m", judge_model="j", probed_bundle=None,
+        atoms_bundle=None, probe_set=_Stub(), measure_result=_Stub(),
+    )
+    assert default["context_framing"] == "reference"
