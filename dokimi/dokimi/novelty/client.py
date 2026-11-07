@@ -294,7 +294,7 @@ def extractor_judge_relation(extractor_model: str, judge: LLMClient,
     """
     from dokimi.llm_cli import CLAUDE_CLI, _full_id, same_model
 
-    if not extractor_provider and extractor_model.lower() in CLAUDE_CLI.aliases:
+    if not extractor_provider and _full_id(extractor_model) in CLAUDE_CLI.aliases:
         extractor_provider = CLAUDE_CLI.name
     # the same id behind a routing prefix or a Bedrock spelling is one model; a version suffix is not dropped
     identical = (extractor_model == judge.model

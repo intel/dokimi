@@ -163,3 +163,8 @@ def test_the_warning_names_a_judge_change_or_a_rewritten_key_not_a_probe_flag(ca
     # probe's --extract-model does not change a saved key, so the advice must not point at it alone
     warn_extractor_judge(extractor, judge)
     assert "a judge from another family" in capsys.readouterr().err
+
+
+def test_an_older_key_naming_a_cli_alias_with_a_context_suffix_is_the_cli_alias(capsys):
+    warn_answer_key({"extractor": "sonnet[1m]"}, LLMClient(model="gpt-6.1-sol"), _judge("claude-sonnet-5-5"))
+    assert "are both claude-sonnet-5-5" in capsys.readouterr().err
