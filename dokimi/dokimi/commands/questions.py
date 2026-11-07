@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 from typing import Any, Dict
 
-from dokimi.llm import ANSWER_PROVIDERS
+from dokimi.llm import ANSWER_PROVIDERS, CALLER_CHOICES
 from dokimi.commands._output import exit_on_unwritable
 from dokimi.defaults import DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER
 from dokimi.exit_codes import EXIT_USAGE
@@ -401,7 +401,7 @@ def register(eval_sub, positive_int) -> None:
                               "(sentence-transformers, no API key), or auto "
                               "(openai when a key is set, else local)")
     gen_q_p.add_argument("--model", default=DEFAULT_GENERATOR_MODEL, help="LLM model for generation")
-    gen_q_p.add_argument("--provider", default=DEFAULT_GENERATOR_PROVIDER, choices=ANSWER_PROVIDERS)
+    gen_q_p.add_argument("--provider", default=DEFAULT_GENERATOR_PROVIDER, choices=CALLER_CHOICES)
     gen_q_p.add_argument("--doc-source", default="context7",
                          help="Documentation source for topic extraction: 'context7', 'local:<path>', 'url:<url>'")
     gen_q_p.add_argument("--context7-id", default=None, dest="context7_id",

@@ -28,9 +28,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from ..manifest import RepoManifest, match_glob
-from ..overlays import overlay_of
+from ..manifest import RepoManifest
 from .history import History, addressed, carry
+from .merged import Skip, base_of, check_merged, left_out
 from .threads import PullRequest, ReplayError, Thread, gold_problem, review_bodies
 
 PATCH = "change.patch"
@@ -68,10 +68,6 @@ class Outcome:
     notes: list[str] = field(default_factory=list)  # threads left out, review bodies, `addressed` to check
 
 
-class _Skip(Exception):
-    """A pull request that gives no task; the message says why."""
-
-
 def task_id(pr: PullRequest) -> str:
     return f"review_replay_pr{pr.number}"
 
@@ -89,7 +85,7 @@ def build_one(h: History, manifest: RepoManifest, pr: PullRequest, opts: Options
     notes = [f"review body by {b}" for b in review_bodies(pr)]
     try:
         task, gold, patch = _make(h, manifest, pr, opts, notes)
-    except (_Skip, ReplayError) as exc:
+    except (Skip, ReplayError) as exc:
         return Outcome(pr.number, "skipped", reason=str(exc), notes=notes)
     _write(dest, task, gold, patch)
     return Outcome(pr.number, "written", task_id(pr), n_gold=len(gold),
@@ -98,28 +94,24 @@ def build_one(h: History, manifest: RepoManifest, pr: PullRequest, opts: Options
 
 def _make(h: History, manifest: RepoManifest, pr: PullRequest, opts: Options,
           notes: list[str]) -> tuple[dict[str, Any], list[dict[str, Any]], bytes]:
-    """``(task.json, gold.json, change.patch)`` of ``pr``; :class:`_Skip` when it gives no task."""
-    _check_pr(h, pr)
-    assert pr.merge is not None
-    if pr.merge == pr.head:  # mergeCommit^1 is then the PR's own commit, not the base branch
-        raise _Skip("merged by fast-forward: its mergeCommit is its head, so the base branch it merged into "
-                    "is unknown")
+    """``(task.json, gold.json, change.patch)`` of ``pr``; :class:`Skip` when it gives no task."""
+    merge, _ = check_merged(h, pr)
     threads = _candidates(h, pr, notes)
     if not threads:
-        raise _Skip("no review thread on a line by a reviewer")
+        raise Skip("no review thread on a line by a reviewer")
     rev = _reviewed(threads)
-    base = h.merge_base(rev, f"{pr.merge}^1")
+    base = base_of(h, merge, rev)
     if base is None:
-        raise _Skip(f"the reviewed revision {rev[:12]} shares no history with the base branch")
+        raise Skip(f"the reviewed revision {rev[:12]} shares no history with the base branch")
     changed = h.changed(base, rev)
-    leave_out = sorted({p for p in changed if _left_out(manifest, p)})
+    leave_out = sorted({p for p in changed if left_out(manifest, p)})
     if not changed:
-        raise _Skip(f"the reviewed revision {rev[:12]} changes nothing against the base branch")
+        raise Skip(f"the reviewed revision {rev[:12]} changes nothing against the base branch")
     if set(changed) <= set(leave_out):
-        raise _Skip("it changes only guidance files or files under eval_dir")
+        raise Skip("it changes only guidance files or files under eval_dir")
     gold = _gold(h, manifest, pr, threads, rev, opts.window, notes)
     if not gold:
-        raise _Skip("no gold thread is left")
+        raise Skip("no gold thread is left")
     task = _task(pr, base, rev, leave_out, opts, _public_at(threads, {g["id"] for g in gold}, notes))
     task["patch_files"] = sorted(set(changed) - set(leave_out))  # the paths of h.patch's diff, a rename as both
     return task, gold, _mbox(pr, rev, h.patch(base, rev, leave_out))
@@ -127,17 +119,6 @@ def _make(h: History, manifest: RepoManifest, pr: PullRequest, opts: Options,
 
 def _needed(pr: PullRequest) -> list[str]:
     return [s for s in (pr.merge, pr.head, *(t.commit for t in pr.threads)) if s]
-
-
-def _check_pr(h: History, pr: PullRequest) -> None:
-    if pr.merge is None:
-        raise _Skip("not merged: no mergeCommit in the input")
-    if pr.head is None:
-        raise _Skip("no headRefOid in the input")
-    for name, sha, hint in (("mergeCommit", pr.merge, "the base branch"),
-                            ("headRefOid", pr.head, f"refs/pull/{pr.number}/head")):
-        if not h.has(sha):
-            raise _Skip(f"its {name} {sha[:12]} is not in the source (fetch {hint})")
 
 
 def _candidates(h: History, pr: PullRequest, notes: list[str]) -> list[Thread]:
@@ -192,17 +173,12 @@ def _anchor_problem(h: History, manifest: RepoManifest, commit: str, path: str, 
     at = carry(h, commit, rev, path, line)
     if at is None:
         return f"its line changed between {commit[:12]} and the reviewed revision {rev[:12]}", None
-    if _left_out(manifest, at[0]):
+    if left_out(manifest, at[0]):
         return "on a guidance file or under eval_dir, which the patch leaves out", None
     n_lines = h.lines(rev, at[0])
     if n_lines is None or at[1] > n_lines:
         return f"line {at[1]} is not in {at[0]} at the reviewed revision {rev[:12]}", None
     return None, at
-
-
-def _left_out(manifest: RepoManifest, path: str) -> bool:
-    return (any(match_glob(g, path) for g in manifest.guidance_globs) or overlay_of(path) is not None
-            or manifest.in_eval_dir(path))
 
 
 def _where(t: Thread) -> str:
