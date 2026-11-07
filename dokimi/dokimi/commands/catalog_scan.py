@@ -8,7 +8,7 @@ The cross-catalog checks (``duplicate``, ``name-conflict``, ``mirror-drift``,
 and reviews one skill per row; every SKILL.md is still loaded before the first row. Rows are written in
 catalog order within one run (``--resume`` appends the rest after the rows it kept), a run
 killed midway keeps the rows it wrote, and ``--resume`` reviews only the skills that have no
-row yet.
+row yet or whose directory changed since their row was written (its ``skill_sha256``).
 """
 
 from __future__ import annotations
@@ -42,9 +42,25 @@ def skill_row(skill, review, nested_in: Optional[str] = None) -> dict:
         "error": skill.error,
         "disable_model_invocation": bool(review and review.disable_model_invocation),
         "content_sha256": review.content_sha256 if review else None,
+        "skill_sha256": skill_dir_digest(skill),
         "duplicate_of": review.duplicate_of if review else None,
         "findings": [{"level": f.level, "code": f.code, "message": f.message} for f in findings],
     }
+
+
+def skill_dir_digest(entry) -> Optional[str]:
+    """``tree_digest`` of the entry's skill directory, every file in it; None when it cannot be read."""
+    from dokimi.utils import tree_digest
+
+    path = entry.skill.path.parent if entry.loaded and entry.skill is not None else entry.path
+    if path is not None and path.name == "SKILL.md":
+        path = path.parent
+    if path is None or not path.is_dir():
+        return None
+    try:
+        return tree_digest(path)
+    except OSError:
+        return None
 
 
 def print_skill_row(row: dict) -> None:
@@ -162,12 +178,13 @@ def _parse_row(raw: bytes, path: Path, lineno: int) -> Optional[dict]:
     raise InputError(f"--jsonl {path} line {lineno} is not a scan row; fix or remove it before --resume")
 
 
-def _load_prior(path: Path, selected: set[str]) -> tuple[list[dict], bool]:
-    """The rows of *path* for the skills this run selects, and whether the file must be rewritten.
+def _load_prior(path: Path, selected: dict[str, Optional[str]]) -> tuple[list[dict], bool]:
+    """The rows of *path* still current for the skills this run selects, and whether the file must be rewritten.
 
-    The file is read line by line and only the kept rows are held. A rewrite is due when a line is
-    half-written, when the last line has no newline (the next row would be glued onto it), or when a
-    row is for a skill this run does not select (the file must match the counts printed).
+    *selected* maps each skill's key to its ``skill_sha256`` now. The file is read line by line and only
+    the kept rows are held. A rewrite is due when a line is half-written, when the last line has no
+    newline (the next row would be glued onto it), or when a row is for a skill this run does not
+    select or whose directory changed (the file must match the counts printed).
     """
     rows: list[dict] = []
     dirty = False
@@ -179,7 +196,8 @@ def _load_prior(path: Path, selected: set[str]) -> tuple[list[dict], bool]:
                     dirty = True
                 if row is None:
                     continue
-                if _row_key(row) in selected:
+                key = _row_key(row)
+                if key in selected and "skill_sha256" in row and row["skill_sha256"] == selected[key]:
                     rows.append(row)
                 else:
                     dirty = True
@@ -206,7 +224,7 @@ class _Jsonl:
     in half, and a directory name that is not valid UTF-8 is escaped rather than a crash.
     """
 
-    def __init__(self, path: Path, resume: bool, selected: set[str]) -> None:
+    def __init__(self, path: Path, resume: bool, selected: dict[str, Optional[str]]) -> None:
         self.path = path
         self.prior: list[dict] = []
         if resume and path.is_file():
@@ -256,7 +274,9 @@ def scan_per_skill(args, root: Path, report: dict, as_json: bool, pairs: list) -
         shared = sorted(key for key, n in Counter(keys).items() if n > 1)
         if shared:
             raise InputError(f"--resume needs one row per skill, but these keys are shared: {', '.join(shared[:3])}")
-    sink = _Jsonl(jsonl, args.resume, set(keys)) if jsonl is not None else None
+    selected = {key: skill_dir_digest(entry) if args.resume else None
+                for key, (entry, _) in zip(keys, pairs, strict=True)}
+    sink = _Jsonl(jsonl, args.resume, selected) if jsonl is not None else None
     tally = _Tally(args.strict)
     prior = sink.prior if sink is not None else []
     for row in prior:

@@ -121,6 +121,60 @@ def test_resume_keeps_the_exit_code_of_a_load_error_it_skips(tmp_path, capsys):
     assert len(_rows(out_path)) == 4
 
 
+def _two_good_skills(root: Path) -> list[str]:
+    """alpha and bravo, and the argv of a strict --jsonl scan of them into s1.jsonl."""
+    for name in ("alpha", "bravo"):
+        _skill(root, name)
+    return ["--root", str(root), "--per-skill", "--strict", "--jsonl", str(root / "s1.jsonl")]
+
+
+def test_resume_reviews_again_a_skill_whose_skill_md_changed(tmp_path, capsys):
+    argv = _two_good_skills(tmp_path)
+    assert _run(argv, capsys)[1] == 0
+    broken = "---\nname: alpha\n---\n# alpha lost its description\n"
+    (tmp_path / "skills" / "alpha" / "SKILL.md").write_text(broken, encoding="utf-8")
+
+    out, code = _run([*argv, "--resume"], capsys)
+
+    rows = _rows(tmp_path / "s1.jsonl")
+    assert [(row["relpath"], row["state"]) for row in rows] == [("skills/bravo", "ok"), ("skills/alpha", "error")]
+    assert "1 resumed" in out
+    assert code == 1
+
+
+def test_resume_reviews_again_a_skill_whose_linked_file_is_gone(tmp_path, capsys):
+    argv = _two_good_skills(tmp_path)
+    alpha = tmp_path / "skills" / "alpha"
+    with (alpha / "SKILL.md").open("a", encoding="utf-8") as fh:
+        fh.write("See [the guide](guide.md).\n")
+    (alpha / "guide.md").write_text("# guide\n", encoding="utf-8")
+    assert _run(argv, capsys)[1] == 0
+    (alpha / "guide.md").unlink()  # SKILL.md is byte-identical, so its content_sha256 is too
+
+    out, code = _run([*argv, "--resume"], capsys)
+
+    rows = _rows(tmp_path / "s1.jsonl")
+    assert [(row["relpath"], row["state"]) for row in rows] == [("skills/bravo", "ok"), ("skills/alpha", "warn")]
+    assert rows[1]["findings"][0]["code"] == "link-missing"
+    assert "1 resumed" in out
+    assert code == 0
+
+
+def test_resume_keeps_the_row_of_a_skill_whose_directory_is_unchanged(tmp_path, capsys):
+    argv = _two_good_skills(tmp_path)
+    out_path = tmp_path / "s1.jsonl"
+    _run(argv, capsys)
+    rows = _rows(out_path)
+    rows[0]["sentinel"] = "kept"  # a row that is reviewed again would lose this mark
+    out_path.write_text("".join(json.dumps(row) + "\n" for row in rows), encoding="utf-8")
+
+    out, code = _run([*argv, "--resume"], capsys)
+
+    assert [row.get("sentinel") for row in _rows(out_path)] == ["kept", None]
+    assert "2 resumed" in out
+    assert code == 0
+
+
 def test_without_resume_an_existing_jsonl_file_is_replaced(tmp_path, capsys):
     _catalog(tmp_path)
     out_path = tmp_path / "replace.jsonl"

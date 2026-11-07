@@ -217,7 +217,8 @@ missing a `description`.
 
 `--strict` makes `catalog check` a gate on the spec as well as on loading. The
 text output and `--format json` (one object: `state`, `findings`,
-`content_sha256`, `duplicate_of`, for a script or a CI gate) are the same either way.
+`content_sha256` of the `SKILL.md`, `skill_sha256` of the skill directory,
+`duplicate_of`, for a script or a CI gate) are the same either way.
 
 Restrict the scan with `--kind`:
 
@@ -243,7 +244,10 @@ A large catalog is easier to scan one skill at a time:
 - `--jsonl PATH` writes one JSON row per skill as it is reviewed and prints only
   the counts. `--jobs N` reviews N skills in parallel. `--resume` keeps the rows
   already in PATH and reviews only the skills without one (a half-written last
-  line from a killed run is dropped). Without `--resume`, PATH is replaced.
+  line from a killed run is dropped). Each row carries `skill_sha256`, the
+  digest of every file in the skill's directory, and `--resume` keeps a row only
+  while that is unchanged: a skill whose `SKILL.md` or bundled file changed (or
+  a row without the field) is reviewed again. Without `--resume`, PATH is replaced.
   Every `SKILL.md` is loaded before the first row, so memory still grows with
   the catalog. A `--jobs` worker that dies ends the scan with exit 1.
 
