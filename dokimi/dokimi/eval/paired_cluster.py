@@ -156,7 +156,8 @@ def _cluster_deltas(
     arms: Dict[Hashable, Tuple[List[float], List[float]]] = {}
     n_excluded = 0
     for cluster, t, c in zip(clusters, treatment, control, strict=True):
-        if cluster is None or (isinstance(cluster, float) and math.isnan(cluster)):
+        # A NaN of any type (float, Decimal, numpy) is the one value unequal to itself.
+        if cluster is None or cluster != cluster:
             raise ValueError("cluster ids must not be None or NaN")
         t_list, c_list = arms.setdefault(cluster, ([], []))
         # Booleans pass as 0/1; a missing or non-finite outcome leaves only that side's value out.

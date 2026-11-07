@@ -3,6 +3,8 @@
 
 """Tests for the paired, cluster-bootstrap difference used by trigger-probe and routing results."""
 
+from decimal import Decimal
+
 import pytest
 
 from dokimi.eval.paired_cluster import MIN_CLUSTERS, paired_cluster_difference
@@ -178,6 +180,12 @@ def test_none_or_nan_cluster_ids_are_rejected():
     for bad in (None, float("nan")):
         with pytest.raises(ValueError, match="cluster ids"):
             paired_cluster_difference(["a", bad], [1, 1], [0, 0], min_clusters=2)
+
+
+def test_a_decimal_nan_cluster_id_is_rejected():
+    # Each Decimal NaN is its own dict key, so without the check ten of them read as ten clusters.
+    with pytest.raises(ValueError, match="cluster ids"):
+        paired_cluster_difference([Decimal("NaN") for _ in range(10)], [1] * 10, [0] * 10)
 
 
 def test_a_string_is_not_a_sequence_of_cluster_ids():
