@@ -241,6 +241,10 @@ A large catalog is easier to scan one skill at a time:
 - A `SKILL.md` inside another skill's directory is marked with `nested_in`
   (the enclosing skill's path) in JSON and with a `note` in text. It is counted
   by default; `--skip-nested` leaves it out of the scan.
+- `--ignore CODE` (repeatable) leaves the findings with that code out of the scan:
+  they are not printed, and they do not set the state or the `--strict` exit. The
+  codes are the `code` of each finding in the JSON output (`name-mismatch`,
+  `description-no-when`, ...); an unknown code is a usage error.
 - `--jsonl PATH` writes one JSON row per skill as it is reviewed and prints only
   the counts. `--jobs N` reviews N skills in parallel. `--resume` keeps the rows
   already in PATH and reviews only the skills without one (a half-written last
