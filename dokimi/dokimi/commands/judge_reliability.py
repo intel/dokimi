@@ -19,7 +19,7 @@ from dokimi.defaults import (
 )
 from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.eval.judge_validity import DEFAULT_MIN_ACCURACY
-from dokimi.utils import InputError, read_json_input
+from dokimi.utils import InputError, read_json_input, warn_recorded_self_judge
 from dokimi.commands._output import write_text_or_exit
 from dokimi.exit_codes import EXIT_FAILURE, EXIT_USAGE
 
@@ -129,6 +129,14 @@ def _check_judge_temperature(judges: list[tuple[str, str]], temperature) -> None
             sys.exit(EXIT_USAGE)
 
 
+def _pairwise_judges(args: argparse.Namespace) -> list[tuple[str, str]]:
+    """``(model, provider)`` of the pairwise judge, then of the escalation judge when one is named."""
+    judges = [(args.judge_model, args.judge_provider)]
+    if getattr(args, "escalate_model", None):
+        judges.append((args.escalate_model, args.escalate_provider or args.judge_provider))
+    return judges
+
+
 def pairwise_judge(args: argparse.Namespace):
     """A both-order pairwise judge from --judge-* and optional --escalate-* args; returns (judge, label)."""
     from dokimi.eval.judge import Judge
@@ -141,12 +149,10 @@ def pairwise_judge(args: argparse.Namespace):
         return lambda prompt, draw=0, cache_if=None: llm.invoke(prompt, draw=draw, cache_if=cache_if).content
 
     label = f"{args.judge_provider}/{args.judge_model} pairwise"
-    judges = [(args.judge_model, args.judge_provider)]
+    judges = _pairwise_judges(args)
     escalate = None
-    if getattr(args, "escalate_model", None):
-        provider = args.escalate_provider or args.judge_provider
-        judges.append((args.escalate_model, provider))
-        label += f" → {provider}/{args.escalate_model}"
+    if len(judges) > 1:
+        label += f" → {judges[1][1]}/{judges[1][0]}"
     _check_judge_temperature(judges, temperature)
     if len(judges) > 1:
         escalate = asker(*judges[1])
@@ -165,6 +171,7 @@ def cmd_eval_pairwise(args: argparse.Namespace) -> None:
     arms = [a.strip() for a in args.arms.split(",")] if args.arms else None
     _require_arms(args.answers, records, "eval score pairwise")
     pairwise_jobs(records, baseline_arm=baseline, arms=arms)  # refuse a blank question before the probe call
+    warn_recorded_self_judge(data, _pairwise_judges(args), "eval score pairwise")
     judge, label = pairwise_judge(args)
     print(f"Pairwise comparison: {label}, {len(records)} questions, baseline `{baseline}`")
     report = run_arm_pairwise(
@@ -199,6 +206,7 @@ def cmd_eval_checklist(args: argparse.Namespace) -> None:
     _require_arms(args.answers, records, "eval score checklist")
     checklist_jobs(records, points, arms=arms)  # refuse a blank question before the probe call
     _check_judge_temperature([(args.judge_model, args.judge_provider)], args.judge_temperature)
+    warn_recorded_self_judge(data, [(args.judge_model, args.judge_provider)], "eval score checklist")
     llm = Judge(model=args.judge_model, provider=args.judge_provider, temperature=args.judge_temperature).llm
     label = f"{args.judge_provider}/{args.judge_model}"
     print(f"Required-point coverage: {label}, {len(records)} questions, baseline `{baseline}`")
@@ -235,13 +243,17 @@ def cmd_eval_judge_wording(args: argparse.Namespace) -> None:
     unknown = sorted(set(wordings) - set(WORDINGS))
     if unknown:
         raise InputError(f"unknown wording(s): {unknown}; known: {sorted(WORDINGS)}")
+    unknown = sorted(set(variants) - set(DEGRADATIONS))
+    if unknown:
+        raise InputError(f"unknown degradation(s): {unknown}; known: {sorted(DEGRADATIONS)}")
+    _check_judge_temperature([(args.judge_model, args.judge_provider)], args.judge_temperature)
+    warn_recorded_self_judge(data, [(args.judge_model, args.judge_provider)], "eval judge wording")
     pairs = _build(answers, {}, n_bases=args.bases, seed=args.seed, variants=variants, library=library).pairs
     label = f"{args.judge_provider}/{args.judge_model}"
     n_cond = 1 + args.redraws + len(wordings)
     print(f"Judge wording sensitivity: {label}, {len(pairs)} pairs x {n_cond} conditions "
           f"(original, {args.redraws} re-draw(s), {', '.join(wordings)})")
 
-    _check_judge_temperature([(args.judge_model, args.judge_provider)], args.judge_temperature)
 
     def scorer_for(template, draw):
         return judge_scorer(Judge(model=args.judge_model, provider=args.judge_provider,
@@ -385,10 +397,11 @@ def cmd_eval_cross_judge(args: argparse.Namespace) -> None:
         scored_answers(records)  # refuse a blank question before the probe call
     _check_judge_temperature([(m, p) for p, _, m in (s.partition("/") for s in specs) if m and p in JUDGE_PROVIDERS],
                              args.judge_temperature)
-    for spec in specs:
+    for spec in dict.fromkeys(specs):
         provider, _, model = spec.partition("/")
         if not model or provider not in JUDGE_PROVIDERS:
             raise InputError(f"--judges entry '{spec}' must be provider/model, provider in {JUDGE_PROVIDERS}")
+        warn_recorded_self_judge(data, [(model, provider)], "eval judge agreement")
         print(f"Scoring with {spec} ...", flush=True)
         judge = Judge(model=model, provider=provider, temperature=args.judge_temperature)
         for grounding in ([None, truth] if truth and args.both else [truth]):

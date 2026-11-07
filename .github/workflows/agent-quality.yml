@@ -29,7 +29,7 @@ jobs:
   # `tasks run` exits 0 for a failed verification, so "Verify pass rate" below asserts the pass rate.
   external-catalog-smoke:
     name: External catalog smoke test (uxlfoundation/skills)
-    runs-on: ${{ github.repository_owner == 'intel' && github.event_name == 'pull_request' && 'dokimi-ec2' || 'ubuntu-latest' }}
+    runs-on: ${{ github.repository_owner != 'intel' && 'ubuntu-latest' || github.event_name == 'pull_request' && vars.LINUX_RUNNER_OFF != 'true' && 'dokimi-ec2' || 'intel-ubuntu-latest' }}
     permissions:
       contents: read
       # The changes step reads this workflow's earlier runs (gh api).
@@ -186,7 +186,7 @@ jobs:
   # gate or band failure in benchmarks/spec.v1.yaml fails the job. (It used to
   # be non-strict with continue-on-error, so it could not fail at all.)
   benchmark:
-    runs-on: ${{ github.repository_owner == 'intel' && github.event_name == 'pull_request' && 'dokimi-ec2' || 'ubuntu-latest' }}
+    runs-on: ${{ github.repository_owner != 'intel' && 'ubuntu-latest' || github.event_name == 'pull_request' && vars.LINUX_RUNNER_OFF != 'true' && 'dokimi-ec2' || 'intel-ubuntu-latest' }}
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1

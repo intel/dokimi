@@ -14,6 +14,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from dokimi.utils import InputError
 from dokimi import tool_preference as tp
 from dokimi.artifacts import validate_artifact
 
@@ -252,9 +253,9 @@ def test_cli_dry_run_calls_nothing_and_unknown_factor_exits(monkeypatch, tmp_pat
     main(["tools", "preference", "--groups", str(GROUPS), "--dry-run", "--items-out", str(items_out)])
     assert "3 groups -> 40 items (34 pair, 6 control) x 3 reps = 120 calls" in capsys.readouterr().out
     assert len(json.loads(items_out.read_text(encoding="utf-8"))) == 40
-    with pytest.raises(SystemExit, match="unknown"):
+    with pytest.raises(InputError, match="unknown"):
         main(["tools", "preference", "--groups", str(GROUPS), "--factors", "loudness", "--dry-run"])
-    with pytest.raises(SystemExit, match="--model is required"):
+    with pytest.raises(InputError, match="--model is required"):
         main(["tools", "preference", "--groups", str(GROUPS)])
 
 
@@ -848,7 +849,7 @@ def test_an_unreadable_or_invalid_groups_file_exits_with_a_message(tmp_path, con
     if content is not None:
         path.write_bytes(content)
     args = build_parser().parse_args(["tools", "preference", "--groups", str(path), "--dry-run"])
-    with pytest.raises(SystemExit) as exc:
+    with pytest.raises(InputError) as exc:
         args.func(args)
     assert str(exc.value).startswith(f"--groups {path}: ")
 

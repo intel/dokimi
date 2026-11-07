@@ -231,6 +231,7 @@ def test_a_merged_pr_becomes_a_task_with_gold_from_the_reviewers_line_threads(hi
     assert task["merge_commit"] == hist["merge7"] and task["source_pr"] == 7
     assert task["grader"] == "dokimi:review_replay" and task["score"] == {"metric": "recall", "max": 1.0}
     assert task["window"] == 5 and task["left_out_files"] == [".agent-eval/notes.md", "AGENTS.md"]
+    assert task["patch_files"] == ["src/blob.bin", "src/gone.py", "src/long.py", "src/moved.py", "src/nonl.py"]
     assert "```json" in task["prompt"]
     assert "Subject: [PATCH] Change 7\n" in patch and "+v10 pr" in patch and "+v30 pr" in patch
     assert "AGENTS.md" not in patch and "notes.md" not in patch  # without the guidance and eval_dir hunks
@@ -361,7 +362,9 @@ def test_a_pr_that_edits_an_agents_overlay_leaves_it_out_and_applies_under_guida
 
 
 def test_prs_without_a_task_say_why_and_rewritten_history_is_flagged(hist, tmp_path, capsys):
+    unrelated = git(hist["root"], "commit-tree", f"{hist['rev']}^{{tree}}", "-m", "no parent")
     prs = [_pr(8, hist["rev8"], hist["merge8"], [_t("AGENTS.md", 3, hist["rev8"])]),
+           _pr(18, hist["r2"], hist["merge7"], [_t("src/long.py", 10, unrelated)]),  # reviewed on no history of main
            _pr(9, hist["r2"], None, [_t("src/long.py", 10, hist["rev"])]),
            _pr(10, None, hist["merge7"], [_t("src/long.py", 10, hist["rev"])]),
            _pr(11, hist["r2"], hist["merge7"], []),
@@ -379,6 +382,7 @@ def test_prs_without_a_task_say_why_and_rewritten_history_is_flagged(hist, tmp_p
                  "PR 11: skipped: no review thread on a line by a reviewer",
                  f"PR 16: skipped: the reviewed revision {hist['c0'][:12]} changes nothing against the base branch",
                  "PR 17: skipped: no gold thread is left",
+                 f"PR 18: skipped: the reviewed revision {unrelated[:12]} shares no history with the base branch",
                  f"PR 13: skipped: its mergeCommit {NOT_IN_SOURCE[:12]} is not in the source "
                  "(fetch the base branch)",
                  "PR 12: written review_replay_pr12: 1 gold thread(s), 1 addressed",
@@ -516,6 +520,22 @@ def test_a_thread_on_an_earlier_revision_is_carried_forward_through_a_rename(his
     task, gold, _ = _load(tmp_path / "tasks", 7)
     assert task["reviewed_commit"] == hist["r2"]
     assert [(g["file"], g["line"]) for g in gold] == [("src/renamed.py", 3), ("src/long.py", 20), ("src/long.py", 25)]
+
+
+def test_patch_files_names_both_paths_of_a_rename_and_leaves_out_what_the_patch_does(hist, tmp_path):
+    """``repo compare`` scopes a nested guidance file by these paths, so a rename counts on both sides."""
+    root = hist["root"]
+    main = git(root, "rev-parse", "--abbrev-ref", "HEAD")
+    git(root, "checkout", "-qb", "pr41")
+    git(root, "mv", "src/r.py", "src/q.py")
+    _set(root, "src/long.py", 10, "a10")
+    _put(root, "sub/AGENTS.md", ["# nested guidance"])
+    rev = _commit(root, "move r.py")
+    merge = _squash(root, main, "pr41")
+    _replay(root, _pages(_pr(41, rev, merge, [_t("src/long.py", 10, rev)])), tmp_path / "tasks")
+    task, _, patch = _load(tmp_path / "tasks", 41)
+    assert task["patch_files"] == ["src/long.py", "src/q.py", "src/r.py"]
+    assert task["left_out_files"] == ["sub/AGENTS.md"] and "rename from" not in patch
 
 
 def test_a_thread_answered_before_the_reviewed_revision_is_left_out(hist, tmp_path, capsys):

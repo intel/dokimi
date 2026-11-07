@@ -16,59 +16,29 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from dokimi.exit_codes import usage_exit
+from dokimi.commands.catalog_scan import print_skill_row, skill_row
+from dokimi.utils import InputError
 
 
-def _skill_row(skill, review) -> dict:
-    """One skill of the scan report. ``state`` is ``error`` for a load error or an error finding,
-    ``warn`` for a warning finding only, else ``ok``. A skill that did not load has a review only
-    when its frontmatter is broken YAML, and that review's finding is its only finding."""
-    if not skill.loaded:
-        state, findings = "error", (review.findings if review else [])
-    else:
-        state, findings = review.state, review.findings
-    return {
-        "name": skill.name,
-        "manifest_status": None if skill.status is None else str(skill.status),
-        "path": str(skill.path) if skill.path else None,
-        "state": state,
-        "error": skill.error,
-        "disable_model_invocation": bool(review and review.disable_model_invocation),
-        "content_sha256": review.content_sha256 if review else None,
-        "duplicate_of": review.duplicate_of if review else None,
-        "findings": [{"level": f.level, "code": f.code, "message": f.message} for f in findings],
-    }
-
-
-def _print_skill_row(row: dict) -> None:
-    if row["error"] is not None:
-        state = f"ERROR: {row['error']}"
-    elif row["state"] == "ok":
-        state = "ok"
-    else:
-        worst = next(f for f in row["findings"] if f["level"] == row["state"])
-        state = f"{'ERROR' if row['state'] == 'error' else 'warn'}: {worst['message']}"
-    print(f"{row['name']}\t{row['manifest_status'] or '-'}\t{row['path'] or '-'}\t{state}")
-    for f in row["findings"]:
-        print(f"  {f['level']} {f['code']}: {f['message']}")
-    if row["disable_model_invocation"]:
-        print("  note disable-model-invocation: true (the model is never offered this skill)")
-
-
-def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bool) -> bool:
-    """Review the skills under *root* into ``report``; True when the scan must exit 1."""
+def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bool) -> tuple[bool, int]:
+    """Review the skills under *root* into ``report``; (True when the scan must exit 1, skills declared)."""
+    from dokimi.commands import catalog_scan
     from dokimi.external import read_skill_manifest
     from dokimi.external.validate import review_skills
 
     try:
-        skills = read_skill_manifest(root)
+        manifest = read_skill_manifest(root)
     except ValueError as exc:
-        usage_exit(f"skills.yaml: {exc}")
+        raise InputError(f"skills.yaml: {exc}") from exc
+    pairs = catalog_scan.mark_nested(args, manifest, root)
+    if args.per_skill:
+        return catalog_scan.scan_per_skill(args, root, report, as_json, pairs)
+    skills = [entry for entry, _ in pairs]
     reviews = review_skills(skills)
     counts = {"ok": 0, "warn": 0, "error": 0}
     failed = False
-    for skill, review in zip(skills, reviews, strict=True):
-        row = _skill_row(skill, review)
+    for (skill, nested_in), review in zip(pairs, reviews, strict=True):
+        row = skill_row(skill, review, nested_in)
         counts[row["state"]] += 1
         report["skills"].append(row)
         # A load error always fails; a spec error fails only with --strict.
@@ -80,9 +50,9 @@ def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bo
             f"{counts['ok']} ok, {counts['warn']} warn, {counts['error']} error)"
         )
         for row in report["skills"]:
-            _print_skill_row(row)
+            print_skill_row(row)
         print()
-    return failed
+    return failed, len(skills)
 
 
 def _task_row(task) -> dict:
@@ -103,7 +73,7 @@ def _scan_tasks(args: argparse.Namespace, root: Path, report: dict, as_json: boo
     try:
         tasks = read_task_manifest(root, tasks_subdir=args.tasks_subdir)
     except ValueError as exc:
-        usage_exit(str(exc))
+        raise InputError(str(exc)) from exc
     if not as_json:
         print(f"# tasks ({len(tasks)} declared under {root})")
     failed = False
@@ -119,19 +89,35 @@ def _scan_tasks(args: argparse.Namespace, root: Path, report: dict, as_json: boo
     return failed
 
 
+def _check_scan_flags(args: argparse.Namespace) -> None:
+    """Raise InputError on a flag combination the scan cannot honour; the per-skill flags need --per-skill."""
+    if args.jsonl and args.format == "json":
+        raise InputError("--jsonl writes one row per skill to a file; drop --format json")
+    if args.resume and not args.jsonl:
+        raise InputError("--resume needs --jsonl: the rows it skips are read from that file")
+    if (args.jsonl or args.jobs is not None) and not args.per_skill:
+        raise InputError("--jsonl and --jobs need --per-skill: cross-catalog checks need every skill loaded at once")
+    if args.kind == "tasks" and (args.per_skill or args.skip_nested or args.jsonl or args.resume
+                                 or args.jobs is not None):
+        raise InputError("--per-skill, --skip-nested, --jsonl, --jobs and --resume apply to skills; "
+                         "drop them or use --kind skills|all")
+
+
 def cmd_catalog_scan(args: argparse.Namespace) -> None:
     root = Path(args.root)
     if not root.is_dir():
-        usage_exit(f"--root is not a directory: {root}")
+        raise InputError(f"--root is not a directory: {root}")
+    _check_scan_flags(args)
 
     as_json = args.format == "json"
     report: dict = {"root": str(root), "skills": [], "tasks": []}
     any_failure = False
+    declared = 0
     if args.kind in ("skills", "all"):
-        any_failure = _scan_skills(args, root, report, as_json)
+        any_failure, declared = _scan_skills(args, root, report, as_json)
     if args.kind in ("tasks", "all"):
         any_failure = _scan_tasks(args, root, report, as_json) or any_failure
-    if args.kind in ("skills", "all") and not report["skills"]:
+    if args.kind in ("skills", "all") and not declared:
         # Nothing to scan is a wrong root or an empty checkout, so a skills scan fails on it. A
         # --kind all scan of a tasks-only catalog is a warning, which --strict makes a failure.
         if (root / "skills.yaml").is_file():
@@ -164,9 +150,9 @@ def _write_trigger_set(args: argparse.Namespace, queries, catalog_root: Path) ->
                        else ts.to_skill_creator(queries, args.target))
             Path(args.out).write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     except ArtifactValidationError as exc:  # the path was writable; the payload failed the schema
-        usage_exit(f"Error: questions set rejected: {exc}")
+        raise InputError(f"questions set rejected: {exc}") from exc
     except (OSError, ValueError) as exc:  # unwritable --out: a directory, a file as parent, no permission, empty path (pathlib ValueError)
-        usage_exit(f"Error: cannot write --out {args.out}: {exc}")
+        raise InputError(f"cannot write --out {args.out}: {exc}") from exc
 
 
 def _discover_catalog_skills(catalog_root: Path) -> list:
@@ -175,7 +161,7 @@ def _discover_catalog_skills(catalog_root: Path) -> list:
     try:
         return discover_skills(catalog_root)
     except (OSError, ValueError, RecursionError) as exc:  # unreadable, non-UTF-8, bad frontmatter or nesting too deep
-        usage_exit(f"--catalog {catalog_root}: {exc}")
+        raise InputError(f"--catalog {catalog_root}: {exc}") from exc
 
 
 def cmd_catalog_trigger_set(args: argparse.Namespace) -> None:
@@ -185,19 +171,19 @@ def cmd_catalog_trigger_set(args: argparse.Namespace) -> None:
 
     catalog_root = Path(args.catalog)
     if not catalog_root.is_dir():
-        usage_exit(f"--catalog is not a directory: {catalog_root}")
+        raise InputError(f"--catalog is not a directory: {catalog_root}")
     catalog = _discover_catalog_skills(catalog_root)
     # Checked before any --rewrite call, so a bad invocation costs no LLM calls.
     if args.format == "skill-creator":
         if not args.target:
-            usage_exit("--format skill-creator needs --target <skill>")
+            raise InputError("--format skill-creator needs --target <skill>")
         if args.target not in {s.name for s in catalog}:
-            usage_exit(f"--target {args.target!r} is not a skill in --catalog "
-                       f"(have: {', '.join(sorted(s.name for s in catalog))})")
+            raise InputError(f"--target {args.target!r} is not a skill in --catalog "
+                             f"(have: {', '.join(sorted(s.name for s in catalog))})")
     sources = _question_sources(args.questions or [])
     sources += _trigger_set_sources(args.trigger_set or [], catalog)
     if not sources:
-        usage_exit("give --questions PATH=LABEL or --trigger-set PATH[=TARGET]")
+        raise InputError("give --questions PATH=LABEL or --trigger-set PATH[=TARGET]")
     # A --trigger-set file with no labels is valid only for --format questions; reach and
     # skill-creator drop unlabelled queries, so there it would write an empty set.
     specs = list(args.questions or []) + [
@@ -206,7 +192,7 @@ def cmd_catalog_trigger_set(args: argparse.Namespace) -> None:
     rewrite = None
     if args.rewrite:
         if not args.model:
-            usage_exit("--rewrite needs --model")
+            raise InputError("--rewrite needs --model")
         from dokimi.llm import llm_call
 
         def rewrite(text: str) -> str:
@@ -215,7 +201,7 @@ def cmd_catalog_trigger_set(args: argparse.Namespace) -> None:
     try:
         queries = ts.build_trigger_set(sources, catalog, rewrite=rewrite, specs=specs)
     except ts.TriggerSetInputError as exc:
-        usage_exit(str(exc))
+        raise InputError(str(exc)) from exc
     except ValueError as exc:
         # A --rewrite that returned nothing: a runtime failure, not a bad invocation.
         print(str(exc), file=sys.stderr)
@@ -250,7 +236,7 @@ def cmd_catalog_formats(args: argparse.Namespace) -> None:
 
     root = Path(args.root)
     if not root.is_dir():
-        usage_exit(f"--root is not a directory: {root}")
+        raise InputError(f"--root is not a directory: {root}")
     packages = formats.detect_skill_packages(root)
     summary = formats.summarize(packages)
     if args.json:
@@ -275,11 +261,11 @@ def _question_sources(specs: list) -> list:
     for spec in specs:
         path, _, rule = spec.rpartition("=")  # labels never contain '=', paths may
         if not path or not rule:
-            usage_exit(f"--questions needs PATH=LABEL (a skill name, 'none' or '@field'): {spec}")
+            raise InputError(f"--questions needs PATH=LABEL (a skill name, 'none' or '@field'): {spec}")
         data = read_json_input(path, flag="--questions")
         questions = data.get("questions", data) if isinstance(data, dict) else data
         if not isinstance(questions, list) or not all(isinstance(q, dict) for q in questions):
-            usage_exit(f"{path}: expected a list of question objects")
+            raise InputError(f"{path}: expected a list of question objects")
         sources.append((questions, rule))
     return sources
 
@@ -304,16 +290,16 @@ def _trigger_set_sources(specs: list, catalog) -> list:
         try:
             fmt, queries = ts.read_trigger_set(data, target=target)
         except ValueError as exc:
-            usage_exit(f"{path}: {exc}")
+            raise InputError(f"{path}: {exc}") from exc
         if fmt == ts.FORMAT_SKILL_CREATOR:
             if target not in names:
-                usage_exit(f"{spec}: skill-creator target {target!r} is not a skill in "
-                           f"--catalog (have: {', '.join(sorted(names))})")
+                raise InputError(f"{spec}: skill-creator target {target!r} is not a skill in "
+                                 f"--catalog (have: {', '.join(sorted(names))})")
             if len(names) > 1:
                 print(f"note: {path}: skill-creator negatives are read as 'no skill loads'; in a "
                       f"catalog of {len(names)} a rival load counts as a false trigger", file=sys.stderr)
         elif target:
-            usage_exit(f"{spec}: =TARGET applies to skill-creator sets only, this is {fmt}")
+            raise InputError(f"{spec}: =TARGET applies to skill-creator sets only, this is {fmt}")
         print(f"read {path} as {fmt} ({len(queries)} queries)", file=sys.stderr)
         rows = ts.to_questions(queries)["questions"]
         for row, q in zip(rows, queries, strict=True):
@@ -362,6 +348,29 @@ def register(sub, positive_int, eval_sub) -> None:
         "--tasks-subdir", default="evaluation/harbor/tasks",
         help="Task directory relative to --root (default: evaluation/harbor/tasks, "
              "the uxlfoundation/skills convention)",
+    )
+    scan_p.add_argument(
+        "--per-skill", action="store_true",
+        help="Review each skill alone: the cross-catalog checks (duplicate, name-conflict, "
+             "mirror-drift, description-near-duplicate) do not fire between skills",
+    )
+    scan_p.add_argument(
+        "--skip-nested", action="store_true",
+        help="Leave out a SKILL.md nested inside another skill's directory (every row marks "
+             "it with nested_in either way)",
+    )
+    scan_p.add_argument(
+        "--jsonl", metavar="PATH",
+        help="--per-skill: write one JSON row per skill to PATH as each is reviewed, and print "
+             "only the counts",
+    )
+    scan_p.add_argument(
+        "--jobs", type=positive_int, default=None,
+        help="--per-skill: review this many skills in parallel worker processes (default 1)",
+    )
+    scan_p.add_argument(
+        "--resume", action="store_true",
+        help="With --jsonl: keep the rows already in PATH and review only the skills without one",
     )
     scan_p.set_defaults(func=cmd_catalog_scan)
 

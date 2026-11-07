@@ -21,19 +21,24 @@ from typing import TYPE_CHECKING, NoReturn
 
 from dokimi.commands.inputs import placebo_text_for_arms_or_exit
 from dokimi.commands.novelty_routing_inputs import (
-    field_record,
+    checked_out_path,
     load_all_vs_all_field,
     load_routing_field,
 )
 from dokimi.commands.novelty_routing_report import (
+    check_all_vs_all_args,
+    check_all_vs_all_field,
+    drop_queries_left_out,
     exit_partial_all_vs_all,
+    field_record,
+    no_competitors_conflict,
+    no_queries_reason,
+    print_all_vs_all_estimate,
     print_all_vs_all_model,
     print_attractors,
     print_routing_estimate,
     print_routing_summary,
-    no_queries_reason,
     refuse_estimate_without_queries,
-    refuse_queries_naming_left_out,
     routing_queries,
 )
 from dokimi.defaults import (
@@ -88,7 +93,7 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
         n_arms = len(_arms(args.arms))
         estimate["expected_usd"] = _estimate_usd(
             args, n_tokens, estimate["estimate"]["by_role"], settings.tier,
-            context_share=(n_arms - 1) / n_arms,
+            context_share=(n_arms - 1 - ("no_artifact_repeat" in args.arms)) / n_arms,
         )
         # Every arm but the baseline is priced as carrying the artifact; a placebo of another
         # length is not read.
@@ -123,7 +128,7 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
         budgets=tuple(args.budgets),
         concurrency=args.concurrency,
         allow_self_judge=args.allow_self_judge,
-        placebo_text=placebo_text,
+        placebo_text=placebo_text, context_framing=args.context_framing,
         cache_dir=Path(args.cache_dir) if args.cache_dir else None,
         seed=args.seed,
         include_resources=args.include_resources,
@@ -231,7 +236,7 @@ def cmd_novelty_probe(args: argparse.Namespace) -> None:
             atoms, probe_set.probes, verdict.text, answerer=answerer, judge=judge,
             arms=_arms(args.arms), concurrency=args.concurrency,
             allow_self_judge=args.allow_self_judge, seed=args.seed,
-            placebo_text=placebo_text,
+            placebo_text=placebo_text, framing=args.context_framing,
         )
     except ValueError as exc:  # a model failure under way
         raise SystemExit(str(exc)) from None
@@ -240,7 +245,7 @@ def cmd_novelty_probe(args: argparse.Namespace) -> None:
         artifact_ref=args.artifact, model=answerer.model, judge_model=judge.model,
         probed_bundle=verdict.bundle, atoms_bundle=saved.get("bundle"),
         probe_set=probe_set, measure_result=result,
-        sampling=sampling_record(args, atoms, saved),
+        sampling=sampling_record(args, atoms, saved), framing=args.context_framing,
     )
     out = Path(args.out) if args.out else _default_dir(args.artifact) / "probes.json"
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -309,15 +314,22 @@ def _cmd_routing_all_vs_all(args: argparse.Namespace) -> None:
     from dokimi.novelty.client import roll_up_cost
     from dokimi.novelty.routing import tokenize
 
-    _check_all_vs_all_args(args)
+    check_all_vs_all_args(args)
     left_out: list[str] = []
     dropped: dict[str, set[str]] = {}
-    field = load_all_vs_all_field(args, left_out, dropped)
+    conflicts: dict[str, list[str]] = {}
+    unloaded: dict[str, str] = {}
+    field = load_all_vs_all_field(args, left_out, dropped, conflicts, unloaded)
     try:
         queries_by_skill = load_queries_by_skill(args.queries_by_skill)
     except (OSError, UnicodeDecodeError) as exc:
         raise InputError(f"cannot read the queries: {exc}") from exc
-    refuse_queries_naming_left_out(field, queries_by_skill, dropped)
+    check_all_vs_all_field(args, field, dropped, conflicts)
+    queries_by_skill, dropped_queries = drop_queries_left_out(queries_by_skill, field, dropped,
+                                                              unloaded)
+    if args.estimate_only:
+        print_all_vs_all_estimate(args, field, queries_by_skill)
+        return
     selector = _client(args.model, args.provider, "selector", args) if args.model else None
     if selector is not None:
         # One call per query with a content word and per repeat, each sending every card.
@@ -348,7 +360,7 @@ def _cmd_routing_all_vs_all(args: argparse.Namespace) -> None:
     out.parent.mkdir(parents=True, exist_ok=True)
     payload = {"mode": "all_vs_all", "queries_by_skill": args.queries_by_skill,
                "n_candidates": len(field), "result": result}
-    payload["field"] = field_record(args, field, left_out)
+    payload["field"] = field_record(args, field, left_out, dropped_queries)
     if selector is not None:
         payload["cost"] = roll_up_cost([selector])
     out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -359,22 +371,6 @@ def _cmd_routing_all_vs_all(args: argparse.Namespace) -> None:
           f"{len(queries_by_skill)} skills with queries")
     print_attractors(result)
     print_all_vs_all_model(model_arm, payload.get("cost"))
-
-
-def _check_all_vs_all_args(args: argparse.Namespace) -> None:
-    """Refuse the flag combinations ``--all-vs-all`` cannot run with."""
-    if args.artifact:
-        raise InputError("--all-vs-all takes no --artifact: every skill in the field is the gold in turn")
-    if args.queries or args.queries_from_headings:
-        raise InputError("--all-vs-all takes --queries-by-skill, not --queries or --queries-from-headings")
-    if args.estimate_only:
-        raise InputError("--all-vs-all takes no --estimate-only: it would make the calls it was asked "
-                   "to price; drop the flag, or estimate one artifact with routing --artifact")
-    if not args.queries_by_skill:
-        raise InputError("--all-vs-all needs --queries-by-skill <file>: a JSON object of skill "
-                   "name to the requests that should select it")
-    if not args.out:
-        raise InputError("--all-vs-all needs --out <file>")
 
 
 def _warn_blind_skills(result: dict, queries_by_skill: dict[str, list[str]]) -> None:
@@ -402,8 +398,10 @@ def cmd_novelty_routing(args: argparse.Namespace) -> None:
         return _cmd_routing_all_vs_all(args)
     if not args.artifact:
         raise InputError("pass --artifact <skill:path>, or --all-vs-all for the whole field")
-    gold, body, competitors, left_out = load_routing_field(args)
+    gold, body, competitors, left_out, conflicts = load_routing_field(args)
     # Checked before the query file is read, so the message is about the real problem.
+    if not competitors and conflicts:
+        raise InputError(no_competitors_conflict(args, conflicts))
     check_field(gold, competitors)
 
     queries, self_derived, queries_source = routing_queries(args, body)
@@ -414,7 +412,7 @@ def cmd_novelty_routing(args: argparse.Namespace) -> None:
         return
     lexical = dict(lexical_routing(candidates, queries, gold=0),
                    queries_self_derived=self_derived)
-    out = Path(args.out) if args.out else _default_dir(args.artifact) / "routing.json"
+    out = checked_out_path(args.out, "routing", default=str(_default_dir(args.artifact) / "routing.json"))
     out.parent.mkdir(parents=True, exist_ok=True)
     if not lexical["n_queries_scored"]:
         _refuse_no_queries(args, queries, self_derived, out, len(candidates), queries_source)
@@ -425,7 +423,7 @@ def cmd_novelty_routing(args: argparse.Namespace) -> None:
         "n_candidates": len(candidates),
         "queries_self_derived": self_derived,
         "queries_source": queries_source,
-        "field": field_record(args, competitors, left_out, gold),
+        "field": field_record(args, competitors, left_out, gold=gold),
         "lexical": lexical,
     }
     if args.model:
@@ -606,6 +604,12 @@ def register(sub, positive_int) -> None:
                                 "Off by default: no harness lists them, so the model cannot "
                                 "select them and a card for one measures a choice that does "
                                 "not exist")
+    routing_p.add_argument("--keep-copies-under", default=None, dest="keep_copies_under",
+                           metavar="DIR",
+                           help="With --catalog: a directory under it, relative to it. For a catalog "
+                                "name whose copies differ, keep only the copies under DIR and leave "
+                                "out the others; the copies under DIR must have one content. Names "
+                                "whose copies agree are not affected")
     routing_p.add_argument("--include-invalid", action="store_true", dest="include_invalid",
                            help="Keep catalog and skill: competitors with a spec error in the field. "
                                 "A description over 1024 characters alone never leaves a skill "
@@ -721,7 +725,12 @@ def _add_model_args(parser: argparse.ArgumentParser, positive_int) -> None:
                         help="Output-token ceiling. Raise for reasoning models, which can "
                              "spend the provider default on reasoning and return empty text")
     parser.add_argument("--arms", default="no_artifact,full",
-                        help="Arms to run: no_artifact,full[,placebo][,shuffled]")
+                        help="Arms to run: no_artifact,full[,placebo][,shuffled]"
+                             "[,no_artifact_repeat] (the last is the noise floor)")
+    parser.add_argument("--context-framing", default="reference", dest="context_framing",
+                        choices=("reference", "neutral"),
+                        help="How the context is introduced: as reference material, or as a "
+                             "document that may be irrelevant (the placebo framing control)")
     parser.add_argument("--placebo-text", default=None, dest="placebo_text",
                         help="File of domain-mismatched text for the placebo control: it "
                              "separates 'this artifact carries knowledge' from 'this model "
