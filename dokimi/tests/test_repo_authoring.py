@@ -231,7 +231,7 @@ def test_public_at_is_the_prs_created_at_when_it_has_an_offset(toy, tmp_path, ca
 def test_prs_without_a_task_say_why(toy, tmp_path, capsys):
     t = toy
     prs = [_pr(2, t["h2"], t["m2"]), _pr(3, t["h3"], t["m3"]), _pr(4, t["h4"], t["m4"]), _pr(7, t["h2"], None),
-           _pr(8, "ab" * 20, t["m2"]), _pr1(t)]
+           _pr(8, "ab" * 20, t["m2"]), {k: v for k, v in _pr(9, t["h6"], t["m6"]).items() if k != "body"}, _pr1(t)]
     _authoring(t["root"], prs, tmp_path / "tasks")
     printed = capsys.readouterr().out
     for line in ("PR 2: skipped: it adds or changes no test file",
@@ -239,7 +239,8 @@ def test_prs_without_a_task_say_why(toy, tmp_path, capsys):
                  "PR 4: skipped: merged by fast-forward: its mergeCommit is its head",
                  "PR 7: skipped: not merged: no mergeCommit in the input",
                  f"PR 8: skipped: its headRefOid {'ab' * 6} is not in the source (fetch refs/pull/8/head)",
-                 "1 task(s) written, 0 kept, 5 pull request(s) skipped"):
+                 "PR 9: skipped: no body in the input: the query in the contract (§4.7) asks for body and createdAt",
+                 "1 task(s) written, 0 kept, 6 pull request(s) skipped"):
         assert line in printed, line
     assert sorted(p.name for p in (tmp_path / "tasks").iterdir()) == ["authoring_pr1"]
 

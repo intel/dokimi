@@ -61,7 +61,7 @@ class PullRequest:
     merge: str | None  # ``mergeCommit``
     threads: tuple[Thread, ...]
     reviews: tuple[tuple[str | None, bool, str], ...]  # (author, bot, body) of each review
-    body: str = ""  # the description; read by `repo tasks authoring`
+    body: str | None = None  # the description, None when the input has no `body`; read by `repo tasks authoring`
     created: str = ""  # ``createdAt``, as the input gives it
 
 
@@ -136,7 +136,7 @@ def _pull_request(node: dict[str, Any]) -> PullRequest:
                     for r in _nodes(node.get("reviews"), "reviews", number))
     return PullRequest(number=number, title=_text(node.get("title")), url=_str(node.get("url")), author=author,
                        head=_oid(node.get("headRefOid")), merge=_oid(node.get("mergeCommit")),
-                       threads=threads, reviews=reviews, body=_text(node.get("body")),
+                       threads=threads, reviews=reviews, body=_text(node["body"]) if "body" in node else None,
                        created=_text(node.get("createdAt")))
 
 

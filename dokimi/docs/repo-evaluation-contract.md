@@ -1051,7 +1051,8 @@ query($q: String!, $endCursor: String) {
 The file is read as replay reads its threads file (one response, the pages `--slurp` writes, or
 a list), taking every object with `number` and `mergeCommit`; `body` and `createdAt` are the
 fields replay's query lacks, so adding them to the §4.6 query makes one file serve both
-commands. The files a PR changes come from git, not from the file.
+commands. An object without `body` is skipped with that reason, since its prompt would be the
+title alone; an empty `body` is a PR with no description. The files a PR changes come from git, not from the file.
 
 **One task per pull request**, in `<out>/authoring_pr<number>/`:
 

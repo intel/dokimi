@@ -45,13 +45,15 @@ def build_one(h: History, manifest: RepoManifest, pr: PullRequest, opts: Options
 
 def change_of(h: History, pr: PullRequest, notes: list[str]) -> Change:
     """``pr`` as a change; :class:`.merged.Skip` when it gives none."""
+    if pr.body is None:  # a replay file without the field: the prompt would be the title alone
+        raise Skip("no body in the input: the query in the contract (§4.7) asks for body and createdAt")
     merge, head = check_merged(h, pr)
     base = base_of(h, merge, head)
     if base is None:
         raise Skip(f"its headRefOid {head[:12]} shares no history with the base branch")
     fields = {"source_pr": pr.number, **({"source_url": pr.url} if pr.url else {}), "merge_commit": merge,
               "head_commit": head}
-    return Change(id=task_id(pr), number=pr.number, title=pr.title, body=pr.body, base=base, target=head,
+    return Change(id=task_id(pr), number=pr.number, title=pr.title, body=pr.body or "", base=base, target=head,
                   public_at=_public_at(pr, notes), fields=fields)
 
 
