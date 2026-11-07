@@ -41,7 +41,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, NamedTuple, Optional
 
-from dokimi import process
+from dokimi import docker_cmd, process
 
 from .command import clear_run_dir
 from .harbor_export import harbor_view
@@ -271,7 +271,7 @@ class BenchflowHarness:
         """
         for cmd, fix in (
             (["bench", "--version"], "install benchflow (pip install benchflow)"),
-            (["docker", "compose", "version"],
+            (docker_cmd.argv("compose", "version"),
              "install the Docker Compose v2 plugin (docker-compose-plugin, or the "
              "binary in $DOCKER_CONFIG/cli-plugins)"),
         ):
@@ -637,11 +637,11 @@ def remove_rollout_containers(jobs_dir: Path, runner: process.Runner = process.r
         # Bounded like BenchFlow's own _force_kill_project: a wedged daemon
         # must not hang the sweep after we already gave up on bench.
         try:
-            found = runner(["docker", "ps", "-aq", "--filter", f"label=com.docker.compose.project={project}"],
+            found = runner(docker_cmd.argv("ps", "-aq", "--filter", f"label=com.docker.compose.project={project}"),
                            timeout=_DOCKER_PS_TIMEOUT, env=process.Env.inherit())
             ids = found.stdout.split() if not found.timed_out else []
             if ids:
-                gone = runner(["docker", "rm", "-f", *ids], timeout=_DOCKER_RM_TIMEOUT,
+                gone = runner(docker_cmd.argv("rm", "-f", *ids), timeout=_DOCKER_RM_TIMEOUT,
                               env=process.Env.inherit())
                 if not gone.timed_out:
                     removed.append(project)
@@ -812,8 +812,8 @@ def _bridge_gateway(runner: process.Runner = process.run) -> Optional[str]:
     """The docker bridge gateway, as BenchFlow finds it (``docker network
     inspect bridge``); hosts with a custom ``bip`` do not use 172.17.0.1."""
     try:
-        proc = runner(["docker", "network", "inspect", "bridge", "-f",
-                       "{{range .IPAM.Config}}{{.Gateway}}{{end}}"],
+        proc = runner(docker_cmd.argv("network", "inspect", "bridge", "-f",
+                       "{{range .IPAM.Config}}{{.Gateway}}{{end}}"),
                       timeout=10, env=process.Env.inherit())
     except OSError:
         return None
