@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import ipaddress
 import re
-import shlex
 import socket
 from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Iterator, Optional, Sequence
@@ -40,15 +39,18 @@ _DEAD_LINK_STATUSES = (404, 410)
 
 _PIP = {"pip", "pip3"}
 _NPM_INSTALL = {"install", "i", "add"}
-# Words that may come before a package manager name in a command line: a prompt, a wrapper or a verb.
-_LEAD = {"$", "sudo", "run", "Run", "RUN", "use", "Use", "-m", "uv", "env"}
-# Words that end one command in prose ("pip install requests or npm i lodash"); they are not package names.
+# Words that may come before a package manager name in a command line: a prompt, a wrapper, a verb, or a
+# conjunction that joins a second command ("pip install x and npm i y").
+_LEAD = {"$", "sudo", "run", "Run", "RUN", "use", "Use", "-m", "uv", "env", "and", "or", "but", "then"}
+# Prose conjunctions: never package names (they are dropped from a name list, and they start a command when one
+# follows them, see _LEAD).
 _PROSE_CONJUNCTIONS = {"and", "or", "but", "then"}
 # A ``#`` that starts a word is a shell comment; one inside a word ("C#", "docs#setup") is not.
-_COMMENT_RE = re.compile(r"(?:^|(?<=[\s;&|]))#.*$")  # not after "(": "(#12)" and "(#setup)" are prose
+_COMMENT_RE = re.compile(r"(?:^|(?<=[\s;|&()<>]))#(?=\s|$).*$")  # "#" then a space or the end: "#12" is not a comment
 _LINE_PREFIX_RE = re.compile(r"^\s*(?:(?:[-*+]|\d+[.)])\s+|>+ ?)")  # a list marker or a quote marker
 # English words that follow ``npx`` in prose ("npx is great", "Use npx to run it"), not package names.
-_NPX_PROSE = {"a", "an", "and", "are", "for", "in", "is", "it", "on", "or", "the", "to", "with"}
+_NPX_PROSE = {"a", "an", "and", "are", "can", "could", "for", "get", "in", "is", "it", "may", "might", "must",
+              "on", "or", "run", "runs", "should", "the", "to", "use", "will", "with", "would"}
 _PIP_VALUE_OPTIONS = {
     "--python", "-r", "--requirement", "-c", "--constraint", "-e", "--editable", "-i", "--index-url",
     "--extra-index-url", "-f", "--find-links", "-t", "--target", "--prefix", "--root", "--cache-dir",
@@ -72,80 +74,15 @@ _TEMPLATE_RE = re.compile(r"[{}$]")  # a template variable, such as ``{id}`` or 
 _EXAMPLE_DOMAINS = ("example.com", "example.org", "example.net")
 _RESERVED_SUFFIXES = (".localhost", ".test", ".invalid", ".example")
 _PLACEHOLDER_HOST_RE = re.compile(r"(?:^|[./])your-")  # a host or a path segment that starts with ``your-``
-_CONTINUATION_RE = re.compile(r"\\[ \t]*\r?\n")  # a backslash at the end of a line continues the command
-_PROSE_APOSTROPHE_RE = re.compile(r"(?<=[A-Za-z])'(?=[A-Za-z])")
 _CODE_SPAN_RE = re.compile(r"`([^`\n]*)`")
 _COMMAND_START = _PIP | {"npm", "npx", "uv", "sudo", "$"}
-_OPERATOR_RE = re.compile(r"[;&|()<>]+")  # a token of shell operators, such as ``;``, ``&&``, ``>&`` or ``)>``
+_OPERATOR_RE = re.compile(r"[;|&()<>]+")  # a shell operator ends the words of a command
 
 
 def make_client() -> httpx.Client:
     """The HTTP client of a run: redirects followed, :data:`TIMEOUT_SECONDS` per request."""
     return httpx.Client(follow_redirects=True, timeout=TIMEOUT_SECONDS,
                         headers={"User-Agent": "dokimi-catalog-check"})
-
-
-def _words(line: str) -> list[str]:
-    """The tokens of one line, read as the shell reads them: quotes keep their text, a ``#`` starts a comment,
-    and ``; & | ( )`` and ``< >`` are tokens of their own. An unbalanced quote reads as whitespace."""
-    line = _PROSE_APOSTROPHE_RE.sub("\x00", line)  # ``don't`` is prose, not the start of a quote
-    line = _COMMENT_RE.sub("", line)
-    try:
-        return list(_lexer(line))
-    except ValueError:  # an unbalanced quote: read the line unquoted, so its operators still split
-        lexer = _lexer(line)
-        lexer.quotes = ""
-        return list(lexer)
-
-
-def _lexer(line: str) -> shlex.shlex:
-    lexer = shlex.shlex(line, posix=True, punctuation_chars=True)
-    lexer.whitespace_split = True
-    lexer.commenters = ""  # comments are removed by _COMMENT_RE, which knows where a word starts
-    return lexer
-
-
-def _is_redirect(tok: str) -> bool:
-    """A redirection operator, such as ``>``, ``2>&1``'s ``>&`` or ``)>``; ``<(`` and ``>(`` start a process substitution."""
-    return _OPERATOR_RE.fullmatch(tok) is not None and any(c in tok for c in "<>") and not tok.endswith("(")
-
-
-def _is_separator(tok: str) -> bool:
-    return _OPERATOR_RE.fullmatch(tok) is not None and not _is_redirect(tok)
-
-
-def _ends_command_in_prose(tok: str, nxt: str | None) -> bool:
-    """A conjunction ends one command when a command or prose follows it ("and you're done"), not a list item."""
-    if tok not in _PROSE_CONJUNCTIONS:
-        return False
-    return nxt is None or nxt in _PIP or nxt in {"npm", "npx"} or nxt in _LEAD or "\x00" in nxt
-
-
-def _commands(line: str) -> Iterator[list[str]]:
-    """The commands of one line, each as its words. A redirection and its target are not words of the command."""
-    words: list[str] = []
-    skip_target = False
-    tokens = _fold_substitutions(_words(line))
-    for i, tok in enumerate(tokens):
-        nxt = tokens[i + 1] if i + 1 < len(tokens) else None
-        if skip_target and not _is_separator(tok):
-            skip_target = False
-            continue
-        skip_target = False
-        if _is_redirect(tok):
-            if words and words[-1].isdigit():  # the file descriptor of ``2>&1`` or ``2>/dev/null``
-                words.pop()
-            skip_target = True
-        elif _is_separator(tok) or _ends_command_in_prose(tok, nxt):
-            if words:
-                yield words
-            words = []
-        elif tok in _PROSE_CONJUNCTIONS:  # "pip install numpy and pandas": the list goes on
-            continue
-        else:
-            words.append(tok)
-    if words:
-        yield words
 
 
 def _code_span(match: re.Match[str]) -> str:
@@ -155,28 +92,20 @@ def _code_span(match: re.Match[str]) -> str:
     return f"\n{text}\n" if words and words[0] in _COMMAND_START else f" {text} "
 
 
-def _fold_substitutions(tokens: list[str]) -> list[str]:
-    """``<( ... )`` and ``>( ... )`` are one word: what is inside them is not the command's words."""
-    out: list[str] = []
-    depth = 0
-    for tok in tokens:
-        if tok in {"(", "<(", ">("}:
-            if depth == 0 and tok != "(":
-                out.append("\x01")  # a placeholder word, which is not a package name
-            depth += 1
-        elif tok == ")" and depth:
-            depth -= 1
-        elif depth == 0:
-            out.append(tok)
-    return out
-
-
-def _command_lines(body: str) -> Iterator[list[str]]:
-    body = _CONTINUATION_RE.sub(" ", body)
+def _lines(body: str) -> Iterator[str]:
+    """The lines of ``body``: code spans split off, stray backticks and list or quote markers removed."""
     body = _CODE_SPAN_RE.sub(_code_span, body)
-    body = body.replace("`", " ")  # a backtick left over (an odd count, or a fence) is only a space
+    body = body.replace("`", " ")
     for line in body.splitlines():
-        yield from _commands(_LINE_PREFIX_RE.sub("", line))
+        yield _LINE_PREFIX_RE.sub("", line)
+
+
+def _segments(line: str) -> Iterator[list[str]]:
+    """The words of ``line`` between shell operators; a ``#`` comment (see ``_COMMENT_RE``) ends the line."""
+    for part in _OPERATOR_RE.split(_COMMENT_RE.sub("", line)):
+        words = part.split()
+        if words:
+            yield words
 
 
 def _is_package_word(tok: str) -> bool:
@@ -198,7 +127,7 @@ def _pip_names(args: list[str]) -> Iterator[str]:
         elif _is_package_word(tok) and "@" not in tok:
             requirement = _requirement(tok)
             match = _PYPI_NAME_RE.fullmatch(requirement)
-            if match and not requirement.lower().endswith(_NON_PACKAGE_SUFFIXES):
+            if match and any(c.isalpha() for c in match.group(1)) and not requirement.lower().endswith(_NON_PACKAGE_SUFFIXES):
                 yield match.group(1)
 
 
@@ -210,7 +139,7 @@ def _npm_name(tok: str) -> Optional[str]:
     name = tok[:at] if at > 0 else tok  # ``pkg@1.2`` and ``@scope/pkg@1.2``, not ``@scope/pkg``
     if "/" in name and not name.startswith("@"):
         return None  # ``user/repo``: a GitHub shorthand, not the registry
-    if len(name) > 214 or not _NPM_NAME_RE.fullmatch(name):
+    if len(name) > 214 or not _NPM_NAME_RE.fullmatch(name) or not any(c.isalpha() for c in name):
         return None
     return name
 
@@ -258,33 +187,51 @@ def _is_placeholder(name: str) -> bool:
     return name.lower() in _PLACEHOLDER_NAMES or name.lower().startswith("your-")
 
 
+def _command_kind(tokens: list[str], i: int) -> Optional[str]:
+    """``pip``, ``npm`` or ``npx`` when an install command starts at ``tokens[i]``: the word starts the segment
+    or follows a word in ``_LEAD``, and ``install`` follows pip and npm."""
+    if i and tokens[i - 1] not in _LEAD:
+        return None
+    tok = tokens[i]
+    nxt = tokens[i + 1] if i + 1 < len(tokens) else ""
+    if tok in _PIP and nxt == "install":
+        return "pip"
+    if tok == "npm" and nxt in _NPM_INSTALL:
+        return "npm"
+    if tok == "npx":
+        return "npx"
+    return None
+
+
 def _command_packages(tokens: list[str]) -> Iterator[tuple[str, str]]:
-    for i, tok in enumerate(tokens):
-        nxt = tokens[i + 1] if i + 1 < len(tokens) else ""
-        if tok in _PIP and nxt == "install" and (i == 0 or tokens[i - 1] in _LEAD):
-            names, eco = _pip_names(tokens[i + 2:]), "pypi"
-        elif tok == "npm" and nxt in _NPM_INSTALL and (i == 0 or tokens[i - 1] in _LEAD):
-            names, eco = _npm_names(tokens[i + 2:]), "npm"
-        elif tok == "npx" and (i == 0 or tokens[i - 1] in _LEAD):
-            names, eco = _npx_names(tokens[i + 1:]), "npm"
+    starts = [(i, kind) for i in range(len(tokens)) if (kind := _command_kind(tokens, i))]
+    for k, (i, kind) in enumerate(starts):
+        end = starts[k + 1][0] if k + 1 < len(starts) else len(tokens)  # the words run up to the next command
+        if kind == "pip":
+            eco, names = "pypi", _pip_names(tokens[i + 2:end])
+        elif kind == "npm":
+            eco, names = "npm", _npm_names(tokens[i + 2:end])
         else:
-            continue
+            eco, names = "npm", _npx_names(tokens[i + 1:end])
         for name in names:
-            if not _is_placeholder(name):
+            if name.lower() not in _PROSE_CONJUNCTIONS and not _is_placeholder(name):
                 yield eco, name
 
 
 def extract_packages(body: str) -> list[tuple[str, str]]:
     """The ``(ecosystem, name)`` pairs that ``pip``, ``npm`` and ``npx`` lines in ``body`` install, in order.
 
-    A command counts at the start of a line or after one of the words in ``_LEAD``, so prose such as
-    "pip install is slow" names nothing. Flags, local paths, URLs, git and ``file:`` specs, and
-    placeholders are skipped.
+    Line-based: after an install command, the words up to the next shell operator, a ``#`` comment or the end of
+    the line are read; words that are not valid package names, option flags and option values are dropped.
+    Known limits, warn-only: quotes, parentheses and continuation lines are not read (a package there is missed);
+    prose words after an install on the same line are read as names; a command inside prose is read when it
+    follows a word in ``_LEAD``.
     """
     found: dict[tuple[str, str], None] = {}
-    for tokens in _command_lines(body):
-        for pair in _command_packages(tokens):
-            found.setdefault(pair)
+    for line in _lines(body):
+        for tokens in _segments(line):
+            for pair in _command_packages(tokens):
+                found.setdefault(pair)
     return list(found)
 
 
