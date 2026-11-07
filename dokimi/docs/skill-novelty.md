@@ -260,11 +260,12 @@ answerer (`probe` warns when it is). Nothing else separates the extractor from t
 so the same model, or one vendor family, can write the key and grade against it.
 
 Defaults, unchanged: `analyze` and `probe` leave `--extract-model` unset, and the extractor
-then is the judge. With no judge flags that is `anthropic/claude-sonnet-5-5`, so a plain run
+then is the judge. With no judge flags and the default answerer that is `anthropic/claude-sonnet-5-5`, so a plain run
 has the extractor and the judge on one model. `atoms` and the `shorten` adjudicator differ: there `--model` is the extractor (or the
 retention adjudicator), not the model under measurement, and it defaults to the judge model,
 `anthropic/claude-sonnet-5-5`. A plain `atoms` run therefore has the extractor and the judge on
-one model: pass `--extract-model` of another family there.
+one model: pass `--extract-model` of another family there (with `--provider` when it is not
+Anthropic's).
 
 `analyze` checks the extractor against the judge before it spends anything; `probe` checks the
 model that wrote the saved answer key (the atoms file's `extractor`) against the judge. The same model,
@@ -278,7 +279,7 @@ prints the warning only. The warning does not refuse the run.
 
 To clear the warning, give the extractor a different family from the judge. `probe` reads the key
 from the saved atoms file, so its own `--extract-model` does not clear it: pick another judge, or
-write the atoms file again with another `atoms --extract-model`. Here the
+write the atoms file again with another `atoms --extract-model` (and `--provider`). Here the
 extractor is Anthropic's, the judge OpenAI's:
 
 ```bash
