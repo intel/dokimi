@@ -21,7 +21,6 @@ from dokimi.utils import InputError
 if TYPE_CHECKING:
     from collections.abc import Callable
     from dokimi.novelty.routing import Candidate
-    from pathlib import Path
 
 
 def routing_queries(args: argparse.Namespace, body: str) -> tuple[list[str], bool, str | None]:

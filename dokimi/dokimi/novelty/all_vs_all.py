@@ -96,7 +96,8 @@ def all_vs_all(candidates: list[Candidate], queries_by_skill: dict[str, list[str
         repeat; otherwise as :func:`dokimi.novelty.routing.model_routing` reports it, pooled over
         every skill's queries), ``n_failed``, ``n_abstained`` and ``first_error``. With repeats
         the model arm's counts are calls, one per query per repeat. When the client's
-        ``--max-usd`` cap stops the arm, it also holds ``partial`` (``reason``, ``calls_done``,
+        ``--max-usd`` cap stops the arm before every planned call is made, it also holds
+        ``partial`` (``reason``, ``calls_done``,
         ``calls_planned``, ``message``): the calls made are scored, the calls never made are in
         ``n_unscored``, and a skill the arm never reached has an ``own_rate`` of ``None``.
 
