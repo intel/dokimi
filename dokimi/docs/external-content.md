@@ -99,7 +99,8 @@ way the readers expect. Substitute your own checkout path.
 
 `catalog check` also reads the text of each loaded skill: its `SKILL.md` and the text
 files beside it (`.md`, `.py`, `.sh`, `.json`, `.yaml`, `.toml` and similar, up to 1 MB;
-hidden folders, `node_modules` and symlinks are skipped). It needs no key and calls no model.
+hidden folders, `node_modules` and symlinks are skipped). A `SKILL.md` at the checkout root
+is checked alone, since its directory is the whole repository. It needs no key and calls no model.
 Two checks, both `warn`:
 
 - **`legacy-model-id`**: the text names a model ID its vendor has deprecated or retired.
@@ -110,8 +111,7 @@ Two checks, both `warn`:
   checked against and the date. Update it by editing that file, with no code change. An entry
   lists only IDs the vendor labels deprecated or retired on the `checked` date; `status` is
   `deprecated` (still served, date ahead) or `retired` (no longer served); `date` and
-  `replacement` are the vendor's, verbatim, or empty when it gives none. `ids` match whole
-  tokens, case-sensitively.
+  `replacement` are the vendor's, verbatim, or empty when it gives none.
 - **`hidden-unicode`**: a bidi control (U+202A to U+202E, U+2066 to U+2069), a Unicode
   tag character (U+E0000 to U+E007F), or a stray zero-width character (U+200B, U+2060, or
   a U+FEFF after the start of the file). Each is reported with its line and codepoint; five

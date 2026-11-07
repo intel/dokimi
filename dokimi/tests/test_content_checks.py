@@ -164,7 +164,7 @@ def test_byte_order_mark_mid_file_is_reported_with_its_file(tmp_path):
 
 
 def test_zero_width_joiner_between_cjk_characters_is_reported(tmp_path):
-    _skill(tmp_path / "skills", "cjk", body="# C\n\n中‍文\n")
+    _skill(tmp_path / "skills", "cjk", body="# C\n\n中\u200d文\n")
 
     [message] = _messages(tmp_path, "hidden-unicode")
     assert "U+200D" in message
