@@ -652,6 +652,10 @@ def _eligible_catalog_skills(root: str, exclude: set[str], notes: list[str] | No
             continue
         if skill.name in exclude:
             continue
+        if review.content_sha256 is None:  # SKILL.md failed to read after load: its flag and digest are unknown
+            if notes is not None:
+                notes.append(f"skipped catalog skill {skill.name!r}: SKILL.md cannot be read")
+            continue
         # the digest and the disabled flag are the review's, so routing and catalog check cannot disagree
         loaded.append((skill, review.content_sha256 or "", review))
     # the flags first: a copy no harness lists (disabled, or a spec error) does not make its name a conflict

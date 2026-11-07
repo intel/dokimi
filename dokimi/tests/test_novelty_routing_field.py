@@ -300,6 +300,32 @@ def test_include_invalid_makes_the_spec_error_copy_a_conflict_again(tmp_path):
     assert str(fork / "SKILL.md") in conflict[0]
 
 
+def test_an_unreadable_skill_is_left_out_of_routing_even_with_include_invalid(tmp_path, monkeypatch):
+    # A read that fails after load leaves the disable flag and the digest unknown: routing must not
+    # offer such a skill, though --include-invalid keeps spec errors.
+    import dokimi.external.validate as validate
+
+    _catalog_skill(tmp_path / "catalog", "perf", "profile a slow binary with perf")
+    hidden = tmp_path / "catalog" / "skills" / "hid"
+    hidden.mkdir(parents=True)
+    (hidden / "SKILL.md").write_text(
+        "---\nname: hid\ndescription: tune a slow database query\n"
+        "disable-model-invocation: true\n---\n\n# B\n", encoding="utf-8")
+    real_findings = validate._frontmatter_findings
+
+    def fail_for_hid(skill, **kwargs):
+        if skill.name == "hid":
+            raise OSError("SKILL.md read failed after load")
+        return real_findings(skill, **kwargs)
+
+    monkeypatch.setattr(validate, "_frontmatter_findings", fail_for_hid)
+    notes: list[str] = []
+    names = [c.name for c in catalog_competitors(str(tmp_path / "catalog"), set(), notes,
+                                                 include_invalid=True)]
+    assert names == ["perf"]
+    assert any("cannot be read" in note and "hid" in note for note in notes)
+
+
 def test_an_explicit_spec_error_competitor_is_skipped_with_a_warning(tmp_path, capsys):
     # a skill: competitor gets the same rule as a catalog skill: left out with a warning, not kept silently
     long_ref = _skill(tmp_path, "long", "tune a long thing", dir_name="skills/long-dir")
