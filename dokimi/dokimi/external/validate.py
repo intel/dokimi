@@ -44,9 +44,10 @@ an error and does not fail ``--strict``. A link to a file outside the skill dire
 naming such a file is ``path-escapes-skill``. Code spans that name no file are not checked,
 and neither are code fences: those are usually examples or paths in the user's own project.
 
-Descriptions: one with no "when" clause is a ``warn`` (``description-no-when``),
-and so is one whose tokens overlap another skill's at a Jaccard similarity of at least
-:data:`NEAR_DUPLICATE_JACCARD` (``description-near-duplicate``). Skills with
+Descriptions: one with no "when" clause is a ``warn`` (``description-no-when``); the cues are
+English, Spanish, French, German, Portuguese, Russian, Chinese, Japanese and Korean (``WHEN_CUES``),
+and a description in a script none covers is not checked. One whose tokens overlap another skill's at a
+Jaccard similarity of at least :data:`NEAR_DUPLICATE_JACCARD` is a ``warn`` too (``description-near-duplicate``). Skills with
 ``disable-model-invocation: true`` are exempt from both, as the model never chooses them.
 
 Mirror drift: two skills in different paths with the same directory name but different
@@ -79,14 +80,29 @@ DESCRIPTION_MAX = 1024
 NEAR_DUPLICATE_JACCARD = 0.5
 NEAR_DUPLICATE_MIN_SHARED = 3  # shared words; a one-word overlap in two short descriptions is not a near-duplicate
 
-# A "when" clause of any subject and verb ("run migrations when deploying"), or a use phrase: the model
-# chooses a skill from its description alone.
-WHEN_RE = re.compile(
-    r"\b(?:when\s+\w|use for\b|use this skill\b|trigger(?:s|ed)?\s*(?:on\b|:)|invoke only\b|activate\b|"
-    r"invoke this\b|use (?:it |this |these )?(?:when|if|before|after|whenever|proactively|anytime)\b|"
-    r"whenever\b)",
-    re.I,
-)
+# A "when" clause or use phrase per language: the model chooses a skill from its description alone.
+# Latin cues take word boundaries, CJK cues are substrings; bare 使用 (use) or 用于 (for) are too broad.
+WHEN_CUES = {
+    "en": r"\b(?:when\s+\w|use for\b|use this skill\b|trigger(?:s|ed)?\s*(?:on\b|:)|invoke only\b|activate\b|"
+          r"invoke this\b|use (?:it |this |these )?(?:when|if|before|after|whenever|proactively|anytime)\b|"
+          r"whenever\b)",
+    "es": r"\bcuando\b|\bcuándo\b|\bsiempre que\b|\bcada vez que\b|\ben caso de\b|\bal (?:usar|utilizar|invocar|ejecutar)\b",
+    "fr": r"\bquand\b(?!\s+même)|\blorsqu\w*|\bdès que\b|\bchaque fois que\b|\ben cas de\b|\blors (?:de|d')",
+    "de": r"\bwenn\b|\bbeim\b|\bsobald\b|\bimmer dann\b",
+    "pt": r"\bquando\b|\bsempre que\b|\bcada vez que\b|\bem caso de\b|\bao (?:usar|utilizar|invocar|executar)\b",
+    "ru": r"\bкогда\b(?![-‑])|\bкогато\b|\bколи\b|\bвсякий раз\b|\bкаждый раз\b|"
+          r"\bпри (?:работе|использовании|необходимости|запросе|наличии|вызове|запуске|получении)\b",
+    "zh": r"(?<!任)何时|(?<!任)何時|什么时候|什麼時候|的时候|的時候|(?<![相适適恰应應妥得])[当當](?![前然即作做成地天日晚年初今])[^。；！？;!?]{1,80}?(?<![实實])[时時](?![间間区區])|(?<![实實同隨随及定按即平暂暫不临臨有适適])[时時](?:使用|调用|調用|触发|觸發|启用|啟用|激活)|"
+          r"适用于[^。]{0,20}?(?:场景|场合|情况|时(?![间間段区區]))|適用於[^。]{0,20}?(?:場景|場合|情況|時(?![間间段區区]))|(?:适用|適用|使用)(?:场景|場景)[:：]|使用时机|使用時機|触发条件|觸發條件|用户(?:说(?![明的])|提到(?!的)|要求(?!的)|请求(?!的|数据|时间|参数|内容))",
+    "ja": r"とき(?!どき|おり|たま|には)|(?<![同当一平])(?:時に(?!は)|(?<!ある)時は)|(?<!ほとんどの)(?<!多くの)(?<!大半の)場合(?!によ)|(?:場面|シーン)で(?:使う|起動|発動)|使(?:う|用)タイミング|トリガー[:：]|(?:など|」|』|）)で(?:起動|発動)|"
+          r"(?<![実国交])際(?:に|は)|いつ(?!まで|も|でも|か|の間)",
+    "ko": r"(?:(?<=할 )|(?<=하는 )|(?<=한 )|(?<=될 )|(?<=되는 )|(?<=된 )|(?<=받을 )|(?<=받는 )|(?<=받은 )|(?<=인 )|(?<=일 )|(?<=있는 )|(?<=있을 )|(?<=없는 )|(?<=없을 ))경우"
+          r"|(?<!그)때(?![문로때])|언제(?!나)|상황에서|상황이면|트리거|사용 시점|사용 시기|요청 시(?=[\s에,.:]|$)",
+}
+WHEN_RE = re.compile("|".join(WHEN_CUES.values()), re.I)
+# Letters in a script some cue list covers (Latin with accents, Cyrillic, kana, Han, Hangul), and all letters.
+_COVERED_LETTER_RE = re.compile(r"[A-Za-zÀ-ɏḀ-ỿЀ-ӿ぀-ヿ㐀-䶿一-鿿가-힯]")
+_LETTER_RE = re.compile(r"[^\W\d_]")
 # Words that say nothing about what a skill is for; left out of the description overlap.
 STOP_WORDS = frozenset(
     """a an the and or of to in on for with by from as at is are be been being this that
@@ -372,9 +388,19 @@ def _escapes_link(raw: str) -> Finding:
     )
 
 
+def when_clause_found(description: str) -> Optional[bool]:
+    """Whether the description has a "when" cue; None when most of its letters are in a script no cue list covers."""
+    text = " ".join(description.split())
+    letters = len(_LETTER_RE.findall(text))
+    covered = len(_COVERED_LETTER_RE.findall(text))
+    if letters - covered > covered:
+        return None
+    return WHEN_RE.search(text) is not None
+
+
 def _description_findings(skill: Skill) -> list[Finding]:
-    """A ``warn`` when the description has no "when" clause."""
-    if not WHEN_RE.search(" ".join(skill.description.split())):
+    """A ``warn`` when the description has no "when" clause (a script with no cue list is not checked)."""
+    if when_clause_found(skill.description) is False:
         return [
             Finding(
                 "warn",
