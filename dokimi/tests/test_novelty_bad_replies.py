@@ -151,6 +151,19 @@ def test_conflict_rows_that_cannot_be_used_are_counted_and_warned():
     assert warning.startswith("2 conflict rows could not be used")
 
 
+@pytest.mark.parametrize("bad", [{"a": 1, "b": 0}, {"a": 0, "b": 1}, {"a": 99, "b": 1}],
+                         ids=["b-zero", "a-zero", "a-past-batch"])
+def test_a_conflict_row_outside_the_batch_on_either_side_is_dropped(bad):
+    atoms = _atoms(4)
+    reply = json.dumps({"conflicts": [bad, {"a": 1, "b": 2, "why": "x"}]})
+    report = ClassifyReport()
+    conflicts = detect_conflicts(
+        atoms, client=LLMClient(model="x", transport=lambda p, s: (reply, None)), report=report,
+    )
+    assert conflicts == [{"a": atoms[0].id, "b": atoms[1].id, "why": "x"}]
+    assert report.conflict_rows_dropped == 1
+
+
 def test_a_judge_retry_for_unusable_rows_does_not_blame_max_tokens():
     atoms = _atoms(4)
     report = ClassifyReport()
