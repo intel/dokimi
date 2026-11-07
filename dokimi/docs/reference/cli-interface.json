@@ -2793,7 +2793,7 @@
               "nargs": null,
               "position": 0,
               "required": true,
-              "type": "pathlib.Path#683f66497b37"
+              "type": "pathlib._local.Path#661d9498960e"
             },
             {
               "action": "_StoreAction",
@@ -2841,7 +2841,7 @@
               "nargs": null,
               "position": null,
               "required": true,
-              "type": "pathlib.Path#683f66497b37"
+              "type": "pathlib._local.Path#661d9498960e"
             },
             {
               "action": "_StoreAction",
