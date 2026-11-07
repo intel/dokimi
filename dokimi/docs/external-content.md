@@ -215,6 +215,11 @@ on the indented `frontmatter-parse` line under the skill (and in its `findings`
 in JSON); the row's main line and its JSON `error` field still say the skill is
 missing a `description`.
 
+A `SKILL.md` that loads but cannot be read during the scan (a permission error, or
+a name the OS refuses) is an `unreadable` error. It exits 1 with or without
+`--strict`, as `frontmatter-parse` does, and routing leaves that skill out, since
+its disable flag and digest are unknown.
+
 `--strict` makes `catalog check` a gate on the spec as well as on loading. The
 text output and `--format json` (one object: `state`, `findings`,
 `content_sha256`, `duplicate_of`, for a script or a CI gate) are the same either way.
