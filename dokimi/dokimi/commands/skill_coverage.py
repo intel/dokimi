@@ -66,9 +66,14 @@ def _refuse_out_over_input(out: str, inputs: list[Path]) -> None:
     # written through, so the write lands in the folder of its target; a rejected payload lands beside the link.
     path = Path(out)
     landing = Path(os.path.realpath(path))
-    if ((os.path.lexists(landing) and not landing.is_file()) or not os.access(landing.parent, os.W_OK)
-            or not os.access(path.parent, os.W_OK)):
-        raise InputError(f"cannot write {out}: it is a directory, or its folder is missing or not writable")
+    if os.path.lexists(landing) and not landing.is_file():
+        what = "a directory" if landing.is_dir() else "not a plain file"
+        raise InputError(f"cannot write {out}: it is {what}")
+    for folder in dict.fromkeys((path.parent, landing.parent)):  # the link's folder and its target's folder
+        if not folder.is_dir():
+            raise InputError(f"cannot write {out}: its folder {folder} does not exist")
+        if not os.access(folder, os.W_OK):
+            raise InputError(f"cannot write {out}: its folder {folder} is not writable")
 
 
 def _guard_inputs(skill: Path, evals: Path) -> list[Path]:
