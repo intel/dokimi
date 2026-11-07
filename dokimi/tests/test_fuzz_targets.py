@@ -72,3 +72,16 @@ def test_deep_nesting_is_a_parse_error_not_a_crash() -> None:
         except ValueError:
             continue
         assert isinstance(got, kind)
+
+
+def test_a_date_that_is_not_real_is_invalid_frontmatter() -> None:
+    # PyYAML raises a plain ValueError for 2026-02-30: the lenient reader reads no metadata,
+    # and the strict one raises the YAML error its docstring names.
+    import yaml
+
+    from dokimi.utils import parse_frontmatter, parse_frontmatter_strict
+
+    text = "---\ndate: 2026-02-30\n---\nbody"
+    assert parse_frontmatter(text) == ({}, "body")
+    with pytest.raises(yaml.YAMLError):
+        parse_frontmatter_strict(text)
