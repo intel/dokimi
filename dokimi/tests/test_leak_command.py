@@ -431,3 +431,14 @@ def test_a_relock_over_a_non_hex_stored_digest_passes_and_writes_its_artifact(tm
     out = tmp_path / "leak.json"
     cmd_eval_leak(_args(skill, questions, split=str(split), relock=True, out=str(out)))  # exit 0, no traceback
     assert out.exists() and not schema_errors("leak.v1", json.loads(out.read_text(encoding="utf-8")))
+
+
+def test_a_word_count_or_fraction_that_is_not_a_number_is_refused_by_the_parser():
+    # the converters refuse text that is not a number at all (the codecov patch report named these lines)
+    import argparse as _argparse
+    from dokimi.commands.leak import _fraction, _positive_int
+
+    with pytest.raises(_argparse.ArgumentTypeError, match="whole number of words"):
+        _positive_int("many")
+    with pytest.raises(_argparse.ArgumentTypeError, match="a number in"):
+        _fraction("half")
