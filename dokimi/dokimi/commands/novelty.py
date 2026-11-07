@@ -248,7 +248,7 @@ def cmd_novelty_probe(args: argparse.Namespace) -> None:
         artifact_ref=args.artifact, model=answerer.model, judge_model=judge.model,
         probed_bundle=verdict.bundle, atoms_bundle=saved.get("bundle"),
         probe_set=probe_set, measure_result=result,
-        sampling=sampling_record(args, atoms, saved),
+        sampling=sampling_record(args, atoms, saved), framing=args.context_framing,
     )
     stamp(payload, args, result, answerer=answerer, judge=judge, judge2=judge2)
     out = Path(args.out) if args.out else _default_dir(args.artifact) / "probes.json"

@@ -457,8 +457,7 @@ def paired_outcomes(
         "ci_cluster": "atom",
         "atoms_added": sorted(a for a, names in per_atom.items() if "added" in names),
         "atoms_degraded": sorted(a for a, names in per_atom.items() if "degraded" in names),
-        **control_fields(runs, baseline_arm=BASELINE_ARM, with_arm=with_arm,
-                         scoring=scoring, rates=rates),
+        **control_fields(runs, baseline_arm=BASELINE_ARM, with_arm=with_arm, scoring=scoring),
     }
 
 

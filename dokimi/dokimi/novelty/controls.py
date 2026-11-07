@@ -70,10 +70,12 @@ def placebo_gated(runs, *, baseline_arm: str, with_arm: str, scoring: str) -> di
         per_atom.setdefault(run.atom_id, []).append(1.0 if gated else 0.0)
     n = sum(len(v) for v in per_atom.values())
     count = int(sum(sum(v) for v in per_atom.values()))
+    if not n:  # no probe answered in all three arms: nothing was measured, not a rate of 0
+        return {"n_paired": 0, "count": 0, "rate": None, "ci95": None}
     return {
         "n_paired": n,
         "count": count,
-        "rate": round(count / n, 4) if n else 0.0,
+        "rate": round(count / n, 4),
         "ci95": clustered_ci(per_atom),
     }
 
@@ -111,10 +113,36 @@ def noise_floor(runs, *, baseline_arm: str, scoring: str) -> dict | None:
     }
 
 
-def control_fields(runs, *, baseline_arm: str, with_arm: str, scoring: str,
-                   rates: dict) -> dict:
+def _common_flips(runs, *, baseline_arm: str, with_arm: str, scoring: str) -> dict | None:
+    """The with-arm and repeat flips against the baseline, over the probes that all three
+    arms answered. The derived controls read these, so a difference between the with-arm
+    rate and the floor is never a difference between two probe populations."""
+    baseline, with_runs = _usable(runs, baseline_arm), _usable(runs, with_arm)
+    repeat = _usable(runs, REPEAT_ARM)
+    keys = [k for k in with_runs if k in baseline and k in repeat]
+    if not keys:
+        return None
+    added = degraded = floor_added = floor_degraded = 0
+    for key in keys:
+        before = baseline[key].correct(scoring)
+        after = with_runs[key].correct(scoring)
+        again = repeat[key].correct(scoring)
+        added += after and not before
+        degraded += before and not after
+        floor_added += again and not before
+        floor_degraded += before and not again
+    n = len(keys)
+    return {"added": added / n, "degraded": degraded / n,
+            "floor_added": floor_added / n, "floor_degraded": floor_degraded / n}
+
+
+def control_fields(runs, *, baseline_arm: str, with_arm: str, scoring: str) -> dict:
     """The control keys :func:`~dokimi.novelty.measure.paired_outcomes` adds when the
-    placebo or the repeat arm ran; empty otherwise, so old outputs are unchanged."""
+    placebo or the repeat arm ran; empty otherwise, so old outputs are unchanged.
+
+    ``added_net_of_noise`` and ``degraded_within_noise`` are omitted when no probe was
+    answered in all three arms: a pass for a degradation nobody measured is worse than none.
+    """
     fields: dict = {}
     gated = placebo_gated(runs, baseline_arm=baseline_arm, with_arm=with_arm, scoring=scoring)
     if gated is not None:
@@ -122,8 +150,11 @@ def control_fields(runs, *, baseline_arm: str, with_arm: str, scoring: str,
     floor = noise_floor(runs, baseline_arm=baseline_arm, scoring=scoring)
     if floor is not None:
         fields["noise_floor"] = floor
-        fields["added_net_of_noise"] = round(rates["added"] - floor["added"], 4)
-        fields["degraded_within_noise"] = rates["degraded"] <= floor["degraded"]
+        common = _common_flips(runs, baseline_arm=baseline_arm, with_arm=with_arm,
+                               scoring=scoring)
+        if common is not None:
+            fields["added_net_of_noise"] = round(common["added"] - common["floor_added"], 4)
+            fields["degraded_within_noise"] = common["degraded"] <= common["floor_degraded"]
     return fields
 
 
