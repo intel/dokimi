@@ -497,7 +497,7 @@ def _junit(*outcomes: str) -> str:
     (("passed", "passed", "skipped"), 0, True, 1.0),
     (("passed", "failed", "error", "passed"), 1, False, 0.5),
     (("passed",), 1, False, 1.0),  # the command failed though every case passed: not a pass
-    (("skipped",), 0, False, None),  # nothing ran
+    (("skipped",), 0, False, 0.0),  # nothing ran
 ])
 def test_the_grade_passes_only_when_every_hidden_test_ran_and_passed(tmp_path, outcomes, rc, passed, share):
     doc = main.grade("hidden_tests", tmp_path, _run_dir(tmp_path, _junit(*outcomes), rc))
@@ -510,6 +510,7 @@ def test_the_grade_passes_only_when_every_hidden_test_ran_and_passed(tmp_path, o
 def test_a_missing_or_unreadable_report_fails_the_run(tmp_path, report, why):
     doc = main.grade("hidden_tests", tmp_path, _run_dir(tmp_path, report))
     assert doc["pass"] is False and doc["metrics"]["n_tests"] == 0 and why in doc["details"]["report"]
+    assert doc["metrics"]["pass_share"] == 0.0  # counted in repo compare's mean, as the untouched base is
 
 
 def test_a_report_the_grader_cannot_read_fails_the_run_not_the_grader(tmp_path, monkeypatch):

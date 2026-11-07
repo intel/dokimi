@@ -9,7 +9,7 @@ Before this grader runs, the framework copies the task's ``hidden/`` files (``ta
 (:data:`REPORT` in the run dir), and the framework records its exit in :data:`RUN_RECORD`.
 This module reads both: ``pass`` is true when the command exited 0, did not time out, and the
 report holds at least one passed test case and no failed or errored one. ``pass_share`` is the
-passed share of the cases that ran (skipped ones left out), for ``repo compare --metric``.
+passed share of the cases that ran (skipped ones left out; 0 when none ran), for ``repo compare --metric``.
 
 The oracle copies ``reference/`` over the workspace, as ``dokimi:typecheck``'s does, and deletes
 ``reference_deleted``. Standard library only, Python 3.8: it runs on the image's ``python3``.
@@ -125,7 +125,7 @@ def grade(task: dict[str, Any], task_dir: Path, answer: str, run_dir: Path | Non
         details["report"] = why
     return {"pass": ok, "n_tests": len(cases), "n_passed": count["passed"], "n_failed": count["failed"],
             "n_errors": count["error"], "n_skipped": count["skipped"],
-            "pass_share": count["passed"] / ran if ran else None,
+            "pass_share": count["passed"] / ran if ran else 0.0,
             "tests_rc": rc if isinstance(rc, int) and not isinstance(rc, bool) else None,
             "tests_timed_out": timed_out, **details}
 
