@@ -235,3 +235,12 @@ def test_an_upper_bound_below_minus_margin_by_float_noise_is_inconclusive():
     # 0.3 - 0.4 is -0.10000000000000003: under -0.1 by rounding alone, so the tolerance must hold it.
     res = paired_cluster_difference(list(range(N)), [0.3] * N, [0.4] * N, margin=0.1)
     assert res["noninferiority"] == "inconclusive"
+
+
+def test_margin_zero_is_a_superiority_check():
+    # Deltas of 1 and 2: the interval lies wholly above 0, so at margin 0 it is noninferior.
+    treatment = [1.0 + (i % 2) for i in range(N)]
+    res = paired_cluster_difference(list(range(N)), treatment, [0.0] * N, margin=0, seed=3)
+    assert res["margin"] == 0
+    assert res["ci_lo"] > 0
+    assert res["noninferiority"] == "noninferior"
