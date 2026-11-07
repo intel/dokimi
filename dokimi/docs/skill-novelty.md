@@ -843,8 +843,9 @@ atom can be true and simply universal. A **negative** `r` is the one to treat as
 
 ## Is `added` above placebo and above noise
 
-Three controls bound the headline `added` rate. Each one is added to the `paired` block
-only when its arm ran, so a two-arm run reads exactly as before.
+Three controls bound the headline `added` rate. The placebo and noise-floor fields are added
+to the `paired` block only when their arm ran. The atom-clustered interval applies to every
+run, so on a two-arm run too `ci95_added` changes (and is null below 5 atoms).
 
 - **Placebo-gated `added`** (`added_over_placebo`, needs the `placebo` arm). This counts a
   probe only when it is right with the artifact, wrong without it, *and* wrong with the
@@ -873,7 +874,9 @@ only when its arm ran, so a two-arm run reads exactly as before.
 document. It may or may not be relevant to the question." Use it to check whether placebo
 abstention is caused by the prompt. In the rerun the framing did not move the `full` arm on
 any model (±0.02). With the placebo, one model's abstention fell from 0.845 to 0.703. The
-framing is recorded in the run config, in each probe record (`context_framing`), and is covered by `prompts_sha256`.
+framing is recorded as `context_framing` in each probe record and in the run config (absent
+there for `reference`). `prompts_sha256` covers the text of both preambles, not which one
+was used. `skill novelty items` refuses probe records of different framings.
 
 ```bash
 python cli.py skill novelty analyze --artifact skill:s --model M \
