@@ -212,3 +212,16 @@ def test_probe_record_names_the_framing_it_was_measured_with():
         atoms_bundle=None, probe_set=_Stub(), measure_result=_Stub(),
     )
     assert default["context_framing"] == "reference"
+
+
+def test_a_scorecard_cell_keeps_the_marker_of_its_interval():
+    from dokimi.subjects.novelty_track import novelty_cell
+
+    runs = [_run(f"a{i}", arm, verdict) for i in range(8) for arm, verdict in
+            (("no_artifact", WRONG), ("full", RIGHT if i < 5 else WRONG))]
+    lenient = paired_outcomes(runs)
+    cell = novelty_cell({"paired": {"lenient": lenient}})["paired"]["lenient"]
+    assert cell["ci_cluster"] == "atom" and cell["ci95_added"] == lenient["ci95_added"]
+    older = {k: v for k, v in lenient.items() if k != "ci_cluster"}
+    assert novelty_cell({"paired": {"lenient": older}})["paired"]["lenient"]["ci_cluster"] is None
+
