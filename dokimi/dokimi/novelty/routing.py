@@ -663,18 +663,14 @@ def _eligible_catalog_skills(root: str, exclude: set[str], notes: list[str] | No
     broken: dict[str, list[Path | None]] = {}
     for entry, review in zip(entries, reviews, strict=True):
         skill = entry.skill
-        if skill is None or not entry.loaded or review is None:
-            if unloaded is not None and entry.name not in exclude:
-                unloaded[entry.name] = entry.error or "it did not load"
+        if skill is None or not entry.loaded or review is None or review.content_sha256 is None:
+            if unloaded is not None and entry.name not in exclude:  # a SKILL.md unreadable after load: no digest
+                unloaded[entry.name] = entry.error or "SKILL.md cannot be read"
                 broken.setdefault(entry.name, []).append(entry.path)
             if notes is not None:
-                notes.append(f"skipped catalog entry {entry.name!r}: {entry.error}")
+                notes.append(f"skipped catalog entry {entry.name!r}: {entry.error or 'SKILL.md cannot be read'}")
             continue
         if skill.name in exclude:
-            continue
-        if review.content_sha256 is None:  # SKILL.md failed to read after load: its flag and digest are unknown
-            if notes is not None:
-                notes.append(f"skipped catalog skill {skill.name!r}: SKILL.md cannot be read")
             continue
         # the digest and the disabled flag are the review's, so routing and catalog check cannot disagree
         loaded.append((skill, review.content_sha256 or "", review))
