@@ -3,6 +3,9 @@
 - **Novelty calls ask for 16384 output tokens when `--max-tokens` is not given** — the
   4096 default that litellm sends to Bedrock-hosted Claude cut long extraction and
   judge replies. An explicit `--max-tokens` is sent as given.
+- **An answerer pair whose answer is cut at the ceiling is errored** — a reported
+  `finish_reason` `length` marks the pair errored and drops it from the paired summary, rather
+  than scoring the cut text. Rerun with a higher `--max-tokens` to keep those pairs.
 
 ### Fixed
 
