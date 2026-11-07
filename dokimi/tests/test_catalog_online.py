@@ -198,8 +198,8 @@ def test_apostrophes_in_prose_do_not_hide_the_command():
     assert online_checks.extract_packages(body) == [("pypi", "requests")]
 
 
-def test_process_substitution_is_not_read_as_pip_arguments():
-    assert online_checks.extract_packages("pip install -r <(echo x) foo\n") == []
+def test_process_substitution_is_one_word_and_the_package_after_it_is_read():
+    assert online_checks.extract_packages("pip install -r <(echo x) foo\n") == [("pypi", "foo")]
 
 
 def test_ampersand_redirection_target_is_not_a_package():
@@ -227,6 +227,18 @@ def test_a_conjunction_inside_a_package_list_keeps_the_list():
         ("pypi", "pip"), ("pypi", "setuptools")]
     assert online_checks.extract_packages("npm i lodash or underscore\n") == [
         ("npm", "lodash"), ("npm", "underscore")]
+
+
+def test_a_hash_after_a_parenthesis_or_in_an_anchor_is_not_a_comment():
+    assert online_checks.extract_packages("pip install foo (#12) and npm i bar\n") == [
+        ("pypi", "foo"), ("npm", "bar")]
+    assert online_checks.extract_packages("See [x](#setup) then pip install bar\n") == [("pypi", "bar")]
+
+
+def test_list_markers_and_a_command_inside_a_code_span_are_read():
+    assert online_checks.extract_packages("- pip install foo\n1. npm i bar\n") == [
+        ("pypi", "foo"), ("npm", "bar")]
+    assert online_checks.extract_packages("Run pip install `requests`\n") == [("pypi", "requests")]
 
 
 def test_a_markdown_quote_in_front_of_a_command_is_read():

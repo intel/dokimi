@@ -45,8 +45,8 @@ _LEAD = {"$", "sudo", "run", "Run", "RUN", "use", "Use", "-m", "uv", "env"}
 # Words that end one command in prose ("pip install requests or npm i lodash"); they are not package names.
 _PROSE_CONJUNCTIONS = {"and", "or", "but", "then"}
 # A ``#`` that starts a word is a shell comment; one inside a word ("C#", "docs#setup") is not.
-_COMMENT_RE = re.compile(r"(?:^|(?<=[\s;&|()]))#.*$")
-_BLOCKQUOTE_RE = re.compile(r"^\s*>+ ?")  # a markdown quote marker in front of a command
+_COMMENT_RE = re.compile(r"(?:^|(?<=[\s;&|]))#.*$")  # not after "(": "(#12)" and "(#setup)" are prose
+_LINE_PREFIX_RE = re.compile(r"^\s*(?:(?:[-*+]|\d+[.)])\s+|>+ ?)")  # a list marker or a quote marker
 # English words that follow ``npx`` in prose ("npx is great", "Use npx to run it"), not package names.
 _NPX_PROSE = {"a", "an", "and", "are", "for", "in", "is", "it", "on", "or", "the", "to", "with"}
 _PIP_VALUE_OPTIONS = {
@@ -75,6 +75,7 @@ _PLACEHOLDER_HOST_RE = re.compile(r"(?:^|[./])your-")  # a host or a path segmen
 _CONTINUATION_RE = re.compile(r"\\[ \t]*\r?\n")  # a backslash at the end of a line continues the command
 _PROSE_APOSTROPHE_RE = re.compile(r"(?<=[A-Za-z])'(?=[A-Za-z])")
 _CODE_SPAN_RE = re.compile(r"`([^`\n]*)`")
+_COMMAND_START = _PIP | {"npm", "npx", "uv", "sudo", "$"}
 _OPERATOR_RE = re.compile(r"[;&|()<>]+")  # a token of shell operators, such as ``;``, ``&&``, ``>&`` or ``)>``
 
 
@@ -124,7 +125,7 @@ def _commands(line: str) -> Iterator[list[str]]:
     """The commands of one line, each as its words. A redirection and its target are not words of the command."""
     words: list[str] = []
     skip_target = False
-    tokens = _words(line)
+    tokens = _fold_substitutions(_words(line))
     for i, tok in enumerate(tokens):
         nxt = tokens[i + 1] if i + 1 < len(tokens) else None
         if skip_target and not _is_separator(tok):
@@ -147,12 +148,35 @@ def _commands(line: str) -> Iterator[list[str]]:
         yield words
 
 
+def _code_span(match: re.Match[str]) -> str:
+    """A code span that is a command is a line of its own ("Run `pip install x`"); any other span is just its text."""
+    text = match.group(1)
+    words = text.split()
+    return f"\n{text}\n" if words and words[0] in _COMMAND_START else f" {text} "
+
+
+def _fold_substitutions(tokens: list[str]) -> list[str]:
+    """``<( ... )`` and ``>( ... )`` are one word: what is inside them is not the command's words."""
+    out: list[str] = []
+    depth = 0
+    for tok in tokens:
+        if tok in {"(", "<(", ">("}:
+            if depth == 0 and tok != "(":
+                out.append("\x01")  # a placeholder word, which is not a package name
+            depth += 1
+        elif tok == ")" and depth:
+            depth -= 1
+        elif depth == 0:
+            out.append(tok)
+    return out
+
+
 def _command_lines(body: str) -> Iterator[list[str]]:
     body = _CONTINUATION_RE.sub(" ", body)
-    body = _CODE_SPAN_RE.sub(lambda m: f"\n{m.group(1)}\n", body)  # an inline code span is a line of its own
+    body = _CODE_SPAN_RE.sub(_code_span, body)
     body = body.replace("`", " ")  # a backtick left over (an odd count, or a fence) is only a space
     for line in body.splitlines():
-        yield from _commands(_BLOCKQUOTE_RE.sub("", line))
+        yield from _commands(_LINE_PREFIX_RE.sub("", line))
 
 
 def _is_package_word(tok: str) -> bool:
