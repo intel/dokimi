@@ -762,6 +762,30 @@ so count the queries first, or pass `--max-usd` to stop the run at a spend limit
 A stored response in `DOKIMI_RESPONSE_CACHE` is replayed without a call, so a rerun can make
 fewer calls than the printed count.
 
+**A routing run stopped by `--max-usd` keeps what it paid for.** `novelty routing --model`, single
+artifact or `--all-vs-all`, writes the result of the calls made before the cap (or a call with no
+known price) stopped it, prints the summary and `cost` lines, and still exits non-zero with the
+cap message and the path of the file. The file carries
+`"partial": {"reason": "spend_cap", "calls_done": N, "calls_planned": M, "message": ...}` at the
+top level (and under the model arm), and no `partial` key when the run finished. The record's
+`status` is then `"partial"` instead of `"ok"` (a single run; an all-vs-all file carries `status`
+only when partial), so a script that checks `status == "ok"` does not take a prefix of the run for
+a finished measurement. The model line says `partial: N of M calls` in place of the query count,
+and warns when fewer than five calls were answered. When `--out` already holds a result that is
+not itself partial, the partial one goes to the first of `<out stem>.partial.json`,
+`<out stem>.partial2.json`, ... beside it that is free or already partial, and the exit
+message names that path, so a cap never replaces a finished measurement. The calls made are
+scored as in a run with failed calls: a single run's `model.per_query` holds them, and
+`model.n_calls` is `N` rather than queries times repeats. In all-vs-all the calls never made are
+in `n_unscored`, a skill the run never reached has an `own_rate` of `null`, and a query stopped
+between repeats keeps its picks but is left out of `noise`. The lexical arm is complete either way.
+Treat a `partial` file as a prefix of the run, not a measurement of the whole field: the skills
+and queries reached first are over-represented. To finish, raise `--max-usd` and rerun with
+`DOKIMI_RESPONSE_CACHE` set (it must also have been set on the capped run), which replays the
+calls already paid for at no cost. The
+`skill novelty` steps (`analyze`, `atoms`, `probe`) and `skill shorten` still write nothing when the
+cap stops them.
+
 Three properties worth knowing before quoting either:
 
 - **Competitors are mandatory.** The existing `skill-agent:` arm offers one skill, which

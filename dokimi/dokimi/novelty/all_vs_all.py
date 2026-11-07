@@ -17,7 +17,15 @@ from collections import Counter
 from pathlib import Path
 
 from .client import LLMClient
-from .routing import BM25, Candidate, RoutingInputError, model_routing, repeat_noise, tokenize
+from .routing import (
+    BM25,
+    Candidate,
+    RoutingInputError,
+    model_routing,
+    partial_record,
+    repeat_noise,
+    tokenize,
+)
 
 NO_PICK = "(none)"
 TIE = "(tie)"
@@ -87,7 +95,11 @@ def all_vs_all(candidates: list[Candidate], queries_by_skill: dict[str, list[str
         model arm also records ``model``, ``seed``, ``repeats``, ``noise`` (``None`` for one
         repeat; otherwise as :func:`dokimi.novelty.routing.model_routing` reports it, pooled over
         every skill's queries), ``n_failed``, ``n_abstained`` and ``first_error``. With repeats
-        the model arm's counts are calls, one per query per repeat.
+        the model arm's counts are calls, one per query per repeat. When the client's
+        ``--max-usd`` cap stops the arm before every planned call is made, it also holds
+        ``partial`` (``reason``, ``calls_done``,
+        ``calls_planned``, ``message``): the calls made are scored, the calls never made are in
+        ``n_unscored``, and a skill the arm never reached has an ``own_rate`` of ``None``.
 
     Raises:
         RoutingInputError: Fewer than two skills in the field; a name repeated in the field; a
@@ -204,6 +216,8 @@ def _model_arm(candidates: list[Candidate], queries_by_skill: dict[str, list[str
     golds: list[str] = []  # the gold of each group, so a noise row says which skill it is for
     n_failed = n_abstained = 0
     first_error = None
+    planned = done = 0
+    capped: str | None = None
     for index, name in enumerate(names):
         if name not in queries_by_skill:
             continue
@@ -213,26 +227,40 @@ def _model_arm(candidates: list[Candidate], queries_by_skill: dict[str, list[str
         if not queries:
             model[name] = Counter()
             continue
+        planned += len(queries) * repeats
+        if capped is not None:  # the cap stopped an earlier skill: these calls were never made
+            model[name] = Counter()
+            unscored[name] = unscored.get(name, 0) + len(queries) * repeats
+            continue
         routed = model_routing(candidates, queries, client=client,
                                gold=index, seed=seed + index, repeats=repeats)
         rows = routed["per_query"]
-        groups += [rows[start:start + repeats] for start in range(0, len(rows), repeats)]
-        golds += [name] * len(queries)
+        done += len(rows)
+        # A query the cap stopped between repeats keeps its rows but is no sample of the noise.
+        whole = [rows[start:start + repeats] for start in range(0, len(rows), repeats)]
+        whole = [group for group in whole if len(group) == repeats]
+        groups += whole
+        golds += [name] * len(whole)
         n_failed += routed["n_failed"]
         n_abstained += routed["n_abstained"]
-        if first_error is None:
-            first_error = next((r["error"] for r in rows if r.get("error")), None)
+        first_error = first_error or next((r["error"] for r in rows if r.get("error")), None)
         # A failed call measured nothing: it is not a pick, so it is left out of the counts.
         model[name] = Counter(row.get("picked") or NO_PICK for row in rows if not row.get("error"))
-        if routed["n_failed"]:
-            unscored[name] = unscored.get(name, 0) + routed["n_failed"]
+        capped = routed.get("cap_stop")
+        # Failed calls, and calls the cap refused: neither measured anything.
+        unscored_here = routed["n_failed"] + (len(queries) * repeats - len(rows) if capped else 0)
+        if unscored_here:
+            unscored[name] = unscored.get(name, 0) + unscored_here
     noise = repeat_noise(groups) if repeats > 1 and groups else None
     if noise is not None:
         for row, gold in zip(noise["per_query"], golds, strict=True):
             row["gold"] = gold
-    return dict(_attractor_table(model, unscored, names, _tied_groups(candidates)),
-                model=client.model, seed=seed, repeats=repeats, noise=noise,
-                n_failed=n_failed, n_abstained=n_abstained, first_error=first_error)
+    arm = dict(_attractor_table(model, unscored, names, _tied_groups(candidates)),
+               model=client.model, seed=seed, repeats=repeats, noise=noise,
+               n_failed=n_failed, n_abstained=n_abstained, first_error=first_error)
+    if capped is not None and done < planned:  # a stop on the last planned call leaves none unmade
+        arm["partial"] = partial_record(capped, done, planned)
+    return arm
 
 
 def _attractor_table(picks_by_gold: dict[str, Counter], unscored: dict[str, int],

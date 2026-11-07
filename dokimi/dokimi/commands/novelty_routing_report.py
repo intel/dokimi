@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, NoReturn
 from dokimi.utils import InputError
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from dokimi.novelty.routing import Candidate
 
 
@@ -365,10 +366,18 @@ def print_routing_summary(payload: dict, n_competitors: int, self_derived: bool)
               "a rate by 20 points or more, so do not quote it as a routing rate")
     if "model" in payload:
         row = payload["model"]
+        partial = payload.get("partial")
+        basis = (f"partial: {partial['calls_done']} of {partial['calls_planned']} calls"
+                 if partial else f"n_queries {row['n_queries']} given")
         print(f"model    selection {row['selection_rate']}  "
               f"({row['selection_rate_among_answered']} among answered; "
               f"{row['n_abstained']} abstained, {row['n_failed']} failed)  "
-              f"[{row['model']}]  n_queries {row['n_queries']} given{tag}")
+              f"[{row['model']}]  {basis}{tag}")
+        answered = row["n_calls"] - row["n_failed"]
+        if partial and answered < 5:
+            print(f"WARNING: only {answered} model call{'' if answered == 1 else 's'} answered; "
+                  "one call moves a rate by 20 points or more, so do not quote it as a "
+                  "routing rate")
         if row["n_abstained"]:
             of_calls = f" of {row['n_calls']} calls" if row["repeats"] > 1 else ""
             print(f"{row['n_abstained']}{of_calls} abstained or unparseable: the raw reply "
@@ -439,11 +448,33 @@ def print_attractors(result: dict) -> None:
 
 
 def print_all_vs_all_model(model_arm: dict, cost: dict | None) -> None:
-    """The noise and cost lines of an all-vs-all run; silent without ``--model``."""
+    """The model, noise and cost lines of an all-vs-all run; silent without ``--model``."""
+    partial = model_arm.get("partial")
+    if partial:
+        answered = sum(model_arm.get("n_scored", {}).values())
+        print(f"model    partial: {partial['calls_done']} of {partial['calls_planned']} calls, "
+              f"{answered} answered")
+        if answered < 5:
+            print(f"WARNING: only {answered} model call{'' if answered == 1 else 's'} answered; "
+                  "one call moves a rate by 20 points or more, so do not quote it as a "
+                  "routing rate")
     if model_arm.get("noise"):
         print_noise(model_arm)
     if cost is not None:
         print_cost(cost)
+
+
+def print_all_vs_all_summary(result: dict, n_field: int, n_skills: int, model_arm: dict,
+                             cost: dict | None) -> None:
+    """The summary of an all-vs-all run: the field line, the attractors, the model lines.
+
+    Printed for a finished run and for one the cap stopped; the model line of the latter says how
+    many calls it rests on.
+    """
+    print(f"all-vs-all: {n_field} skills in the field, {result['n_queries']} queries over "
+          f"{n_skills} skills with queries")
+    print_attractors(result)
+    print_all_vs_all_model(model_arm, cost)
 
 
 def exit_partial_all_vs_all(model_arm: dict, cost: dict | None, failed: int, sent: int,
@@ -458,6 +489,75 @@ def exit_partial_all_vs_all(model_arm: dict, cost: dict | None, failed: int, sen
                      f"({model_arm['first_error']}); the partial result leaves the failed calls "
                      "out of model-arm scoring, and a query with a failed repeat out of the "
                      f"repeat-noise rates, is in {out}")
+
+
+def partial_block(model_arm: dict) -> dict:
+    """What a routing result gains when the cap stopped its model arm: ``status`` and ``partial``.
+
+    ``status`` is how a routing record says what kind it is (``ok``, ``no_queries``), so a reader
+    that checks it does not take a prefix of the run for a finished measurement.
+    """
+    return {"status": "partial", "partial": model_arm["partial"]} if "partial" in model_arm else {}
+
+
+def _is_partial_file(path: Path) -> bool:
+    """Whether ``path`` holds a partial result; a file this cannot read is not one."""
+    try:
+        earlier = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    return isinstance(earlier, dict) and "partial" in earlier
+
+
+def _partial_destination(out: Path) -> Path:
+    """The first of ``<out stem>.partial.json``, ``<out stem>.partial2.json``, ... that is free
+    or holds a partial result, so a partial result never replaces a finished one."""
+    base = out.with_suffix("")
+    candidate, number = base.with_name(f"{base.name}.partial.json"), 2
+    while candidate.exists() and not _is_partial_file(candidate):
+        candidate, number = base.with_name(f"{base.name}.partial{number}.json"), number + 1
+    return candidate
+
+
+def save_result(payload: dict, out: Path, model_arm: dict) -> Path:
+    """Write a routing result and return where it went.
+
+    ``model_arm`` is the arm the cap may have stopped: its ``partial`` block, if any, marks the
+    result (:func:`partial_block`). A partial result goes to ``out`` unless ``out`` already holds
+    something that is not itself a partial result (a finished measurement, or a file this cannot
+    read): then it goes to the first sidecar beside it (:func:`_partial_destination`) that is free
+    or already partial, so a cap does not replace a complete run with a prefix.
+    """
+    payload.update(partial_block(model_arm))
+    if "partial" in payload and out.exists() and not _is_partial_file(out):
+        out = _partial_destination(out)
+    out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    return out
+
+
+def stop_if_partial(payload: dict, out: Path, show: Callable[[], None]) -> None:
+    """Exit non-zero when ``--max-usd`` stopped the run; the result is already saved in ``out``.
+
+    ``show`` prints the summary and cost lines first, so the calls paid for are on the console.
+    The partial block says how many of the planned model calls were made.
+    """
+    partial = payload.get("partial")
+    if partial is None:
+        return
+    show()
+    raise SystemExit(f"{partial['message']}. The partial result, {partial['calls_done']} of "
+                     f"{partial['calls_planned']} model calls, is in {out}")
+
+
+def warn_blind_skills(result: dict, queries_by_skill: dict[str, list[str]]) -> None:
+    """Warn when the lexical arm scores none of a skill's queries: its own rate is then None."""
+    lexical = result.get("lexical")
+    if not lexical:
+        return
+    blind = [name for name in sorted(queries_by_skill) if lexical["n_scored"].get(name) == 0]
+    if blind:
+        print(f"WARNING: the lexical arm cannot score any query of {', '.join(blind)} "
+              "(no content word in them), so their lexical own_rate is None", file=sys.stderr)
 
 
 def field_record(args: argparse.Namespace, competitors: list[Candidate], left_out: list[str],

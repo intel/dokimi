@@ -30,12 +30,14 @@ from dokimi.commands.novelty_routing_report import (
     no_competitors_conflict,
     no_queries_reason,
     print_all_vs_all_estimate,
-    print_all_vs_all_model,
-    print_attractors,
+    print_all_vs_all_summary,
     print_routing_estimate,
     print_routing_summary,
     refuse_estimate_without_queries,
     routing_queries,
+    save_result,
+    stop_if_partial,
+    warn_blind_skills,
 )
 from dokimi.defaults import (
     DEFAULT_ANSWER_MODEL,
@@ -342,7 +344,7 @@ def _cmd_routing_all_vs_all(args: argparse.Namespace) -> None:
     if without:
         print(f"WARNING: {len(without)} skill(s) in the field have no queries, so they only "
               f"compete: {', '.join(sorted(without))}", file=sys.stderr)
-    _warn_blind_skills(result, queries_by_skill)
+    warn_blind_skills(result, queries_by_skill)
 
     model_arm = result.get("model") or {}
     failed = model_arm.get("n_failed", 0)
@@ -359,25 +361,13 @@ def _cmd_routing_all_vs_all(args: argparse.Namespace) -> None:
     payload["field"] = field_record(args, field, left_out, dropped_queries)
     if selector is not None:
         payload["cost"] = roll_up_cost([selector])
-    out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    out = save_result(payload, out, model_arm)
+    summary = (result, len(field), len(queries_by_skill), model_arm, payload.get("cost"))
+    stop_if_partial(payload, out, lambda: print_all_vs_all_summary(*summary))
     if failed:
         exit_partial_all_vs_all(model_arm, payload.get("cost"), failed, sent, out)
     print(f"OK Saved all-vs-all routing: {out}")
-    print(f"all-vs-all: {len(field)} skills in the field, {result['n_queries']} queries over "
-          f"{len(queries_by_skill)} skills with queries")
-    print_attractors(result)
-    print_all_vs_all_model(model_arm, payload.get("cost"))
-
-
-def _warn_blind_skills(result: dict, queries_by_skill: dict[str, list[str]]) -> None:
-    """Warn when the lexical arm scores none of a skill's queries: its own rate is then None."""
-    lexical = result.get("lexical")
-    if not lexical:
-        return
-    blind = [name for name in sorted(queries_by_skill) if lexical["n_scored"].get(name) == 0]
-    if blind:
-        print(f"WARNING: the lexical arm cannot score any query of {', '.join(blind)} "
-              "(no content word in them), so their lexical own_rate is None", file=sys.stderr)
+    print_all_vs_all_summary(*summary)
 
 
 def cmd_novelty_routing(args: argparse.Namespace) -> None:
@@ -433,7 +423,9 @@ def cmd_novelty_routing(args: argparse.Namespace) -> None:
         )
         payload["cost"] = roll_up_cost([selector])
 
-    out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    out = save_result(payload, out, payload.get("model", {}))
+    stop_if_partial(payload, out,
+                    lambda: print_routing_summary(payload, len(competitors), self_derived))
     print(f"OK Saved routing measurement: {out}")
 
     print_routing_summary(payload, len(competitors), self_derived)
@@ -829,7 +821,8 @@ def _stops_at_cap(command):
         try:
             command(args)
         except SpendCapReached as exc:
-            raise SystemExit(str(exc)) from None
+            # A command that keeps its partial result catches the cap itself and never gets here.
+            raise SystemExit(f"{exc}; nothing was written") from None
 
     return run
 
