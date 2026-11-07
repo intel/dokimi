@@ -899,3 +899,9 @@ def test_a_negative_or_string_pair_count_fails_the_schema(tmp_path):
         broken = {**artifact, "conflict_coverage": bad, "schema_version": "novelty.v1"}
         with pytest.raises(ArtifactValidationError):
             validate_artifact("novelty", broken)
+
+
+def test_the_run_config_records_how_the_extractor_relates_to_the_judge(tmp_path):
+    artifact = _analyze(tmp_path).artifact
+    assert artifact["run_config"]["extractor_judge"] == {
+        "extractor": "extractor-m", "judge": "judge-m", "same_model": False, "same_vendor": False}

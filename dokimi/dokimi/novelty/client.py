@@ -12,6 +12,7 @@ transport for a stub without patching :mod:`dokimi.llm`.
 
 from __future__ import annotations
 
+import sys
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
@@ -265,6 +266,48 @@ def same_client(a: LLMClient, b: LLMClient) -> bool:
     from dokimi.llm_cli import same_model
 
     return a.model == b.model or same_model(a.provider, a.model, b.provider, b.model)
+
+
+# Substring of a lowercased model id -> vendor, first match wins. Minimal on purpose:
+# PR #429 (novelty/provenance.py vendor_of) reads the same thing; reconcile on merge.
+_VENDOR_MARKERS = (
+    ("claude", "anthropic"), ("anthropic", "anthropic"), ("sonnet", "anthropic"),
+    ("opus", "anthropic"), ("haiku", "anthropic"),
+    ("gpt", "openai"), ("openai", "openai"), ("gemini", "google"), ("mistral", "mistral"),
+)
+
+
+def vendor_of(model: str | None) -> str | None:
+    """The vendor family a model id names (``us.anthropic.claude-...`` is ``anthropic``), else ``None``."""
+    lowered = (model or "").lower()
+    return next((vendor for marker, vendor in _VENDOR_MARKERS if marker in lowered), None)
+
+
+def extractor_judge_relation(extractor: LLMClient, judge: LLMClient) -> dict:
+    """How the extractor, who writes the answer key, relates to the judge, who grades against it."""
+    identical = same_client(extractor, judge)
+    vendor = vendor_of(extractor.model)
+    return {
+        "extractor": extractor.model,
+        "judge": judge.model,
+        "same_model": identical,
+        "same_vendor": identical or (vendor is not None and vendor == vendor_of(judge.model)),
+    }
+
+
+def warn_extractor_judge(extractor: LLMClient, judge: LLMClient) -> dict:
+    """Print a stderr warning for a judge that wrote, or shares a vendor with, the answer key; return the relation."""
+    relation = extractor_judge_relation(extractor, judge)
+    if relation["same_model"]:
+        print(f"WARNING: the extractor and the judge are both {judge.model}: one model wrote the "
+              "answer key and grades against it. Pass --extract-model of another model family "
+              "(docs/skill-novelty.md, Choosing the extractor and the judge)", file=sys.stderr)
+    elif relation["same_vendor"]:
+        print(f"WARNING: the extractor ({extractor.model}) and the judge ({judge.model}) are one "
+              "vendor family: the judge may favour an answer key its own family wrote. Pass "
+              "--extract-model of another family (docs/skill-novelty.md, Choosing the extractor "
+              "and the judge)", file=sys.stderr)
+    return relation
 
 
 def default_judge(model: str, provider: str | None = None,

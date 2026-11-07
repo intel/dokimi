@@ -26,7 +26,7 @@ from . import attribute, bundle as bundle_mod
 from . import classify, items as items_mod
 from . import measure, needs, probes, report, retention, shorten, spans
 from .artifact import load_artifact_text  # noqa: F401  (public path: novelty.analyze)
-from .client import LLMClient, roll_up_cost, same_client
+from .client import LLMClient, extractor_judge_relation, roll_up_cost, same_client
 from .retention import RetentionOracle
 from .tiers import DEFAULT_SETTINGS, RunSettings
 
@@ -391,6 +391,7 @@ def analyze(
     )
     payload["run_config"] = _run_config(config)
     payload["run_config"]["tier"] = settings.tier_record(sampled=capped)
+    payload["run_config"]["extractor_judge"] = extractor_judge_relation(extractor, judge)
     return AnalyzeResult(
         artifact=payload,
         attributions=attributions,

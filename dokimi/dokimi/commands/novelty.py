@@ -791,15 +791,15 @@ def _estimate_usd(
 
 def _clients(args: argparse.Namespace):
     """Build the three role clients, defaulting so roles never silently collapse."""
+    from dokimi.novelty.client import warn_extractor_judge
+
     try:
         models = _role_models(args)
     except ValueError as exc:
         raise InputError(str(exc)) from exc
-    return (
-        _client(*models["extractor"], "extractor", args),
-        _client(*models["answerer"], "answerer", args),
-        _client(*models["judge"], "judge", args),
-    )
+    clients = [_client(*models[role], role, args) for role in ("extractor", "answerer", "judge")]
+    warn_extractor_judge(clients[0], clients[2])
+    return tuple(clients)
 
 
 def _client(model: str, provider: str, role: str, args: argparse.Namespace):
