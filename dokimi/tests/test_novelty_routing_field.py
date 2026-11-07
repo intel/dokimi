@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import json
-import re
 
 import pytest
 
@@ -24,16 +23,17 @@ def _parse(*argv):
     return build_parser().parse_args(list(argv))
 
 
-def _skill(tmp_path, name, description, body="# B\n\n## A section here\n"):
-    root = tmp_path / name
-    root.mkdir()
+def _skill(tmp_path, name, description, body="# B\n\n## A section here\n", dir_name=None):
+    root = tmp_path / (dir_name or name)
+    root.mkdir(parents=True)
     (root / "SKILL.md").write_text(
         f"---\nname: {name}\ndescription: {description}\n---\n\n{body}", encoding="utf-8")
     return f"skill:{root}"
 
 
-def _catalog_skill(root, name, description):
-    skill_dir = root / "skills" / name
+def _catalog_skill(root, name, description, dir_name=None):
+    # dir_name other than name is a spec error (name-mismatch) with a card that is otherwise fine
+    skill_dir = root / "skills" / (dir_name or name)
     skill_dir.mkdir(parents=True)
     (skill_dir / "SKILL.md").write_text(
         f"---\nname: {name}\ndescription: {description}\n---\n\n# B\n", encoding="utf-8")
@@ -268,7 +268,7 @@ def test_a_spec_error_copy_is_no_conflict_with_a_valid_copy_of_the_name(tmp_path
     # the spec-error copy is left out by default, so the valid one stays and nothing conflicts
     root = tmp_path / "catalog"
     _catalog_skill(root, "perf", "profile a slow binary with perf")
-    _catalog_skill(root, "db", "x" * 1100)
+    _catalog_skill(root, "db", "tune a slow database query", dir_name="db-dir")
     fork = root / "plugins" / "x" / "skills" / "db"
     fork.mkdir(parents=True)
     (fork / "SKILL.md").write_text(
@@ -278,13 +278,13 @@ def test_a_spec_error_copy_is_no_conflict_with_a_valid_copy_of_the_name(tmp_path
     names = [c.name for c in catalog_competitors(str(root), {"perf"}, notes)]
     assert names == ["db"]
     assert not [note for note in notes if "different content" in note]
-    assert str(root / "skills" / "db" / "SKILL.md") in " ".join(notes)  # left out for its spec error
+    assert str(root / "skills" / "db-dir" / "SKILL.md") in " ".join(notes)  # left out for its spec error
 
 
 def test_include_invalid_makes_the_spec_error_copy_a_conflict_again(tmp_path):
     root = tmp_path / "catalog"
     _catalog_skill(root, "perf", "profile a slow binary with perf")
-    _catalog_skill(root, "db", "x" * 1100)
+    _catalog_skill(root, "db", "tune a slow database query", dir_name="db-dir")
     fork = root / "plugins" / "x" / "skills" / "db"
     fork.mkdir(parents=True)
     (fork / "SKILL.md").write_text(
@@ -295,13 +295,13 @@ def test_include_invalid_makes_the_spec_error_copy_a_conflict_again(tmp_path):
     assert "db" not in names
     conflict = [note for note in notes if "different content" in note]
     assert len(conflict) == 1
-    assert str(root / "skills" / "db" / "SKILL.md") in conflict[0]
+    assert str(root / "skills" / "db-dir" / "SKILL.md") in conflict[0]
     assert str(fork / "SKILL.md") in conflict[0]
 
 
 def test_an_explicit_spec_error_competitor_is_skipped_with_a_warning(tmp_path, capsys):
     # a skill: competitor gets the same rule as a catalog skill: left out with a warning, not kept silently
-    long_ref = _skill(tmp_path, "long", "x" * 1100)
+    long_ref = _skill(tmp_path, "long", "tune a long thing", dir_name="skills/long-dir")
     queries = tmp_path / "q.json"
     queries.write_text(json.dumps(["profile a binary"]), encoding="utf-8")
     argv = ["novelty", "routing", "--artifact", _skill(tmp_path, "a", "profile a binary"),
@@ -471,22 +471,97 @@ def test_a_disabled_skill_named_by_a_query_warns_once_and_counts_the_field_once(
 def _long_description_catalog(tmp_path):
     root = tmp_path / "catalog"
     _catalog_skill(root, "perf", "profile a slow binary with perf")
-    _catalog_skill(root, "long", "x" * 1100)
+    _catalog_skill(root, "long", "tune a long thing", dir_name="long-dir")
     return root
 
 
-def test_a_catalog_skill_over_the_spec_limit_is_left_out_with_a_note(tmp_path):
+def test_a_catalog_skill_with_a_spec_error_is_left_out_with_a_note(tmp_path):
     notes: list[str] = []
     root = _long_description_catalog(tmp_path)
     names = [c.name for c in catalog_competitors(str(root), set(), notes)]
     assert names == ["perf"]
-    assert len(notes) == 1 and "long" in notes[0] and "description" in notes[0]
+    assert len(notes) == 1 and "long" in notes[0] and "directory name" in notes[0]
 
 
-def test_include_invalid_keeps_a_catalog_skill_over_the_spec_limit(tmp_path):
+def test_include_invalid_keeps_a_catalog_skill_with_a_spec_error(tmp_path):
     root = _long_description_catalog(tmp_path)
     names = [c.name for c in catalog_competitors(str(root), set(), [], include_invalid=True)]
     assert sorted(names) == ["long", "perf"]
+
+
+def test_a_catalog_skill_whose_only_error_is_the_description_length_stays_in_the_field(tmp_path):
+    # Harnesses differ on a description over 1024 characters (Claude Code truncates it in its
+    # listing, pi.dev rejects the skill), so the field keeps the skill with its full description.
+    notes: list[str] = []
+    dropped: dict[str, set[str]] = {}
+    root = _long_description_catalog(tmp_path)
+    _catalog_skill(root, "wide", "x" * 1100)
+    field = catalog_competitors(str(root), set(), notes, dropped=dropped)
+    assert sorted(c.name for c in field) == ["perf", "wide"]  # `long` has a name-mismatch
+    assert {c.name: len(c.description) for c in field}["wide"] == 1100
+    assert not [n for n in notes if "wide" in n] and "wide" not in dropped
+
+
+def test_a_description_over_the_limit_with_another_spec_error_is_still_left_out(tmp_path):
+    root = tmp_path / "catalog"
+    _catalog_skill(root, "perf", "profile a slow binary with perf")
+    _catalog_skill(root, "wide", "x" * 1100, dir_name="wide-dir")  # name-mismatch as well
+    notes: list[str] = []
+    names = [c.name for c in catalog_competitors(str(root), set(), notes)]
+    assert names == ["perf"]
+    assert len(notes) == 1 and "wide" in notes[0] and "directory name" in notes[0]
+
+
+def test_an_explicit_competitor_whose_only_error_is_the_description_length_stays(tmp_path):
+    ref = _skill(tmp_path, "wide", "x" * 1100)
+    assert competitor_left_out(ref, include_disabled=False, include_invalid=False) is None
+
+
+def test_a_kept_skill_over_the_limit_warns_with_its_name_and_length(tmp_path, capsys):
+    root = tmp_path / "catalog"
+    _catalog_skill(root, "perf", "profile a slow binary with perf")
+    _catalog_skill(root, "wide", "x" * 1100)
+    ref = _skill(tmp_path, "huge", "y" * 1500)
+    argv = ["novelty", "routing", "--artifact", f"skill:{root / 'skills' / 'perf'}",
+            "--catalog", str(root), "--competitors", ref]
+    left_out: list[str] = []
+    field = routing_field(_parse(*argv), {"perf"}, left_out)
+    assert sorted(c.name for c in field) == ["huge", "wide"]
+    assert left_out == []
+    err = capsys.readouterr().err
+    assert "WARNING: skill 'wide': description is 1100 characters" in err
+    assert "WARNING: skill 'huge': description is 1500 characters" in err
+    assert "kept in the field with its full description" in err
+    assert ("harnesses differ: pi.dev rejects the skill, Claude Code truncates past about "
+            "1,536 characters") in err
+    assert "cuts it short" not in err
+    assert err.count("WARNING") == 2
+
+
+@pytest.mark.parametrize("all_vs_all", [False, True])
+def test_the_saved_result_lists_the_kept_skills_over_the_limit(tmp_path, all_vs_all):
+    root = tmp_path / "catalog"
+    _catalog_skill(root, "perf", "profile a slow binary with perf")
+    _catalog_skill(root, "wide", "x" * 1100)
+    _catalog_skill(root, "edge", "x" * 1024)  # exactly at the limit: valid, no warning
+    _catalog_skill(root, "db", "tune a slow database query")
+    out = tmp_path / "r.json"
+    if all_vs_all:
+        queries = _write_queries(tmp_path, {"perf": ["profile my binary"], "wide": ["x"]})
+        argv = ["novelty", "routing", "--all-vs-all", "--catalog", str(root),
+                "--queries-by-skill", str(queries), "--out", str(out)]
+    else:
+        queries = tmp_path / "q.json"
+        queries.write_text(json.dumps(["profile my binary"]), encoding="utf-8")
+        argv = ["novelty", "routing", "--artifact", f"skill:{root / 'skills' / 'perf'}",
+                "--catalog", str(root), "--queries", str(queries), "--out", str(out)]
+    args = _parse(*argv)
+    args.func(args)
+    field = json.loads(out.read_text(encoding="utf-8"))["field"]
+    assert "wide" in field["competitors"] and field["left_out"] == []
+    assert "edge" in field["competitors"]
+    assert [(w["skill"], w["length"], w["limit"]) for w in field["spec_warnings"]] == [
+        ("wide", 1100, 1024)]
 
 
 def test_the_saved_field_rule_records_include_invalid(tmp_path):
@@ -537,11 +612,10 @@ def test_queries_naming_a_disabled_skill_say_so_and_suggest_the_flag(tmp_path):
                                         "grill": ["interview me about my plan"]})
     args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
                   "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"))
-    with pytest.raises(InputError) as exc:
+    with pytest.raises(InputError, match="at least two skills") as exc:
         args.func(args)
     message = str(exc.value)
-    assert "not in the field: `grill`" in message
-    assert re.search(r"`grill` sets disable-model-invocation.*--include-disabled", message)
+    assert "`grill` sets disable-model-invocation; --include-disabled keeps it" in message
     assert not (tmp_path / "o.json").exists()
 
 
@@ -561,45 +635,85 @@ def test_the_disabled_skill_routes_once_include_disabled_is_passed(tmp_path, cap
     assert json.loads(out.read_text(encoding="utf-8"))["result"]["n_skills"] == 2
 
 
-def test_one_refusal_names_each_left_out_skill_with_every_rule_that_left_it_out(tmp_path):
+def test_a_name_no_rule_left_out_is_refused_alone_and_the_left_out_names_are_dropped(
+        tmp_path, capsys):
     root = tmp_path / "catalog"
     _catalog_skill(root, "perf", "profile a slow binary")
     _catalog_skill(root, "cache", "cache slow lookups")
-    _catalog_skill(root, "long", "x" * 1100)
+    _catalog_skill(root, "long", "tune a long thing", dir_name="long-dir")
     _catalog_skill(root, "db", "tune a slow database query")
     _catalog_skill(root / "plugins" / "p", "db", "migrate a database schema")
-    for name, description in (("grill", "relentless interview about a plan"), ("both", "x" * 1100)):
-        (root / "skills" / name).mkdir(parents=True)
-        (root / "skills" / name / "SKILL.md").write_text(
+    for name, directory, description in (("grill", "grill", "relentless interview about a plan"),
+                                         ("both", "both-dir", "x")):
+        (root / "skills" / directory).mkdir(parents=True)
+        (root / "skills" / directory / "SKILL.md").write_text(
             f"---\nname: {name}\ndescription: {description}\n"
             "disable-model-invocation: true\n---\n\n# B\n", encoding="utf-8")
-    names = ["perf", "cache", "long", "db", "grill", "both", "ghost"]
-    queries = _write_queries(tmp_path, {name: ["q"] for name in names})
+    names = ["perf", "cache", "long", "db", "grill", "both"]
+    out = tmp_path / "o.json"
+    queries = _write_queries(tmp_path, {name: ["profile my slow binary"] for name in names + ["ghost"]})
     args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
-                  "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"))
-    with pytest.raises(InputError) as exc:
+                  "--queries-by-skill", str(queries), "--out", str(out))
+    with pytest.raises(InputError, match="not in the field: `ghost`") as exc:
         args.func(args)
-    message = str(exc.value)
-    assert "not in the field: `both`, `db`, `ghost`, `grill`, `long`." in message
-    assert "`grill` sets disable-model-invocation (--include-disabled keeps it), so" in message
-    assert "`long` has a spec error (--include-invalid keeps it), so" in message
-    assert ("`both` sets disable-model-invocation (--include-disabled keeps it) and has a spec "
-            "error (--include-invalid keeps it), so") in message
-    assert "`db` has copies with different content" in message
-    assert "`ghost` is not a loadable skill the field was given" in message
-    assert not (tmp_path / "o.json").exists()
+    assert not any(f"`{name}`" in str(exc.value) for name in names)
+    assert not out.exists()
+    queries = _write_queries(tmp_path, {name: ["profile my slow binary"] for name in names})
+    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
+                  "--queries-by-skill", str(queries), "--out", str(out))
+    args.func(args)
+    err = capsys.readouterr().err
+    assert "`db`" in err and "--keep-copies-under" in err
+    assert "`grill`" in err and "--include-disabled keeps it" in err
+    assert "`both`" in err and "--include-disabled keeps it; --include-invalid keeps it" in err
+    assert "`long`" in err and "--include-invalid keeps it" in err
+    assert json.loads(out.read_text(encoding="utf-8"))["result"]["n_skills"] == 2
 
 
 def test_a_skill_competitor_records_every_rule_that_left_it_out(tmp_path):
     refs = []
     for name, extra in (("long", ""), ("both", "disable-model-invocation: true\n")):
-        (tmp_path / name).mkdir()
-        (tmp_path / name / "SKILL.md").write_text(
-            f"---\nname: {name}\ndescription: {'x' * 1100}\n{extra}---\n\n# B\n",
+        (tmp_path / "skills" / f"{name}-dir").mkdir(parents=True)
+        (tmp_path / "skills" / f"{name}-dir" / "SKILL.md").write_text(
+            f"---\nname: {name}\ndescription: tune a thing\n{extra}---\n\n# B\n",
             encoding="utf-8")
-        refs.append(f"skill:{tmp_path / name}")
+        refs.append(f"skill:{tmp_path / 'skills' / f'{name}-dir'}")
     args = _parse("novelty", "routing", "--all-vs-all", "--competitors", *refs,
                   "--queries-by-skill", "q.json")
     dropped: dict[str, set[str]] = {}
     assert routing_field(args, set(), [], dropped) == []
     assert dropped == {"long": {"invalid"}, "both": {"disabled", "invalid"}}
+
+
+def test_routing_artifact_with_broken_frontmatter_names_the_yaml_line(tmp_path):
+    from dokimi.commands.novelty_routing_inputs import load_routing_field
+
+    broken = tmp_path / "software-factory"
+    broken.mkdir()
+    (broken / "SKILL.md").write_text(
+        "---\nname: software-factory\ndescription: Use when: the user wants a factory\n---\n\n# b\n",
+        encoding="utf-8")
+    args = _parse("novelty", "routing", "--artifact", f"skill:{broken}")
+    with pytest.raises(InputError, match="line 3") as info:
+        load_routing_field(args)
+    assert "quote" in str(info.value) and "missing a 'description'" not in str(info.value)
+
+
+def test_the_skill_under_test_over_the_limit_is_warned_and_saved(tmp_path, capsys):
+    root = tmp_path / "catalog"
+    _catalog_skill(root, "db", "tune a slow database query")
+    ref = _skill(tmp_path, "big", "z" * 1139)
+    queries = tmp_path / "q.json"
+    queries.write_text(json.dumps(["profile my binary"]), encoding="utf-8")
+    out = tmp_path / "r.json"
+    args = _parse("novelty", "routing", "--artifact", ref, "--catalog", str(root),
+                  "--queries", str(queries), "--out", str(out))
+    args.func(args)
+    err = capsys.readouterr().err
+    assert "WARNING: skill 'big': description is 1139 characters" in err
+    assert "the skill under test, measured with its full description" in err
+    assert "kept in the field" not in err
+    field = json.loads(out.read_text(encoding="utf-8"))["field"]
+    assert "big" not in field["competitors"]
+    assert [(w["skill"], w["length"]) for w in field["spec_warnings"]] == [("big", 1139)]
+    assert "the skill under test" in field["spec_warnings"][0]["message"]

@@ -17,7 +17,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from dokimi.utils import parse_frontmatter
+import yaml
+
+from dokimi.utils import describe_yaml_error, parse_frontmatter, parse_frontmatter_strict
 
 # Directory names that hold a scaffold to copy, not a skill to use (see discover_skills).
 TEMPLATE_DIR_NAMES = frozenset({"template", "templates"})
@@ -116,6 +118,20 @@ def _skill_name(meta: Dict[str, Any], skill_file: Path) -> str:
     return str(meta.get("name") or skill_file.parent.name).strip()
 
 
+def _read_frontmatter(skill_file: Path) -> Tuple[Dict[str, Any], str]:
+    """The frontmatter and body of a ``SKILL.md``; broken YAML raises, naming the line.
+
+    The lenient parser reads broken YAML as no metadata, so the caller would report a missing
+    ``description`` and never show the parse error.
+    """
+    try:
+        return parse_frontmatter_strict(skill_file.read_text(encoding="utf-8"))
+    except yaml.YAMLError as exc:
+        raise ValueError(
+            f"Skill at '{skill_file}' has invalid YAML in its frontmatter: {describe_yaml_error(exc)}"
+        ) from exc
+
+
 def load_skill(path) -> Skill:
     """Load a single skill from a ``SKILL.md`` file or its containing directory.
 
@@ -130,7 +146,7 @@ def load_skill(path) -> Skill:
         ValueError: If required frontmatter fields are missing.
     """
     skill_file = _resolve_skill_file(Path(path))
-    meta, body = parse_frontmatter(skill_file.read_text(encoding="utf-8"))
+    meta, body = _read_frontmatter(skill_file)
 
     name = _skill_name(meta, skill_file)
     if not name:
@@ -162,7 +178,7 @@ def load_skill(path) -> Skill:
 def walk_skill_files(root: Path, onerror: Optional[Callable[[OSError], object]] = None) -> List[Path]:
     """Every entry named ``SKILL.md`` below *root*, sorted, without walking :data:`VENDORED_DIR_NAMES`.
 
-    A dangling symlink or a directory is kept: ``catalog scan`` reports it as an error row.
+    A dangling symlink or a directory is kept: ``catalog check`` reports it as an error row.
     """
     found: List[Path] = []
     for dirpath, dirnames, filenames in os.walk(root, onerror=onerror):

@@ -61,7 +61,7 @@ popularity signals are weakest and correctness matters most.
 - **Beat a placebo, not just nothing.** Off-topic text of the same length
   made two of five measured models much worse (a third somewhat worse), so a gain
   should beat a control of comparable length. Today that control is opt-in
-  (`dokimi novelty analyze --artifact FILE --arms no_artifact,full,placebo --placebo-text FILE2`).
+  (`dokimi skill novelty analyze --artifact FILE --arms no_artifact,full,placebo --placebo-text FILE2`).
 - **"Not measured" is never shown as "pass".**
 - **Cheap first, costly only when needed.** Static and LLM-free checks run
   first. Expensive runs (agents, Docker, panels) are only for what the cheap

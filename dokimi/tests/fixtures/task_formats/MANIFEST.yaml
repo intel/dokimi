@@ -252,6 +252,23 @@ items:
     source: dokimi
     upstream: data/explore_tasks/fastcontext-skill.yaml
 
+  - path: catalog/evaluation/harbor/suites.json
+    format: harbor-suites
+    kind: executable
+    consumers: [catalog]
+    items: 1
+    source: generated
+    note: the shape dokimi.external.catalog reads (suites of tasks with name/status/track); written for this corpus
+
+  # --- promptfoo as code (read by node at import, never by inspect) -----------
+  - path: promptfoo/code-config/promptfooconfig.mjs
+    format: promptfoo
+    kind: answer-only
+    consumers: [eval import]
+    items: null
+    source: generated
+    note: promptfoo config object written as an ES module (promptfoo.dev configuration reference); inspect leaves it unrun
+
   # --- negatives --------------------------------------------------------------
   - path: negative/pull_requests.jsonl
     format: null

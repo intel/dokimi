@@ -157,7 +157,7 @@ def build_probe_record(
     measure_result,
     sampling: dict | None = None,
 ) -> dict:
-    """The ``novelty probe`` output: the paired runs of one model over a saved answer key.
+    """The ``skill novelty probe`` output: the paired runs of one model over a saved answer key.
 
     Both ``bundle`` and ``ref_digest`` describe the text this run *injected*, not the text
     the atoms were extracted from (that is ``atoms_ref_digest``): the re-measure step probes
@@ -221,7 +221,7 @@ def _render_items(artifact: dict) -> list[str]:
         )
     if discriminated and not discriminated.get("measured"):
         lines.append(f"- discrimination: {discriminated.get('reason', 'not measured')} — "
-                     "run `novelty items --probes …` over several models' probe runs.")
+                     "run `skill novelty items --probes …` over several models' probe runs.")
     elif discriminated:
         floor = discriminated.get("min_discrimination")
         verdict = (

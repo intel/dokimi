@@ -53,7 +53,7 @@ def _within(path: Path, root: Path) -> bool:
 
 @dataclass
 class SkillCatalogEntry:
-    """One skill as reported by a catalog scan."""
+    """One skill as reported by a catalog check."""
 
     name: str
     status: Optional[str]
@@ -69,13 +69,13 @@ class SkillCatalogEntry:
 
 @dataclass
 class TaskCatalogEntry:
-    """One task as reported by a catalog scan.
+    """One task as reported by a catalog check.
 
     Three outcomes, not two. ``skipped`` is a declared entry a scan is
     *expected* to pass over -- ``status: "planned"`` with no task directory on
     disk yet, or a ``track`` this repo's ``tasks run`` doesn't drive.
     ``failed`` is an entry that should have worked and didn't. Only ``failed``
-    makes ``catalog scan`` exit non-zero, which is the reason a pre-flight scan
+    makes ``catalog check`` exit non-zero, which is the reason a pre-flight scan
     is worth running at all: collapsing both into ``skipped`` reports a catalog
     that cannot run as clean, using the same word the benign cases print.
     """
@@ -101,7 +101,7 @@ def _scan_skill_files(root: Path, notes: list[str] | None = None) -> list[SkillC
     A ``SKILL.md`` under a ``template``/``templates`` directory is a scaffold and is left
     out, as :func:`dokimi.skills.discover_skills` leaves it out; *notes* gets a line for it.
     One under a vendored or VCS directory is a dependency's copy and is not walked, as there too.
-    Byte-identical copies are kept here: ``catalog scan`` reports them.
+    Byte-identical copies are kept here: ``catalog check`` reports them.
     """
     found: list[SkillCatalogEntry] = []
     for skill_file in walk_skill_files(root):

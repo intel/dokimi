@@ -259,7 +259,7 @@ for what each output means.
 ### 1. Whole-artifact triage
 
 ```bash
-python cli.py novelty analyze --artifact skill:path/to/skill \
+python cli.py skill novelty analyze --artifact skill:path/to/skill \
     --model claude-opus-5-5 --provider anthropic \
     --judge-model gpt-6.1-sol --judge-provider openai [--include-resources]
 ```
@@ -282,7 +282,7 @@ protected), and the control arms.
 Read it in this order:
 
 1. **`routing` first.** If the artifact is not selected, content work is unrecoverable
-   spend. In the study six of thirteen skills routed below 0.50, one at 0.146. `novelty
+   spend. In the study six of thirteen skills routed below 0.50, one at 0.146. `skill novelty
    analyze` holds the frontmatter fixed so the two are never confounded — selection is its
    own command, [below](#can-the-artifact-be-selected-at-all).
 2. **`harmful_conflicting` next.** Conflicts are the only category that can make the artifact worse
@@ -347,7 +347,7 @@ the highlight is load-bearing. Three measured constraints ship with it:
 ### 3. Shortening, with five separate scores
 
 ```bash
-python cli.py novelty shorten --artifact skill:path/to/skill --atoms atoms.json --budgets 0.75 0.5
+python cli.py skill shorten --artifact skill:path/to/skill --atoms atoms.json --budgets 0.75 0.5
 ```
 
 Never one "retention" number, because a single score hides the one failure that matters. A measured
@@ -506,7 +506,7 @@ entry point alone would judge that skill on 1.2% of itself, and its "dead tokens
 would be dominated by spans whose only job is to name a file nobody read.
 
 ```bash
-python cli.py novelty analyze --artifact skill:path/to/skill --model M --judge-model J \
+python cli.py skill novelty analyze --artifact skill:path/to/skill --model M --judge-model J \
     --include-resources                       # measure the bundle
     # --resource-roles reference pattern      # or only some of it
     # --max-file-words 4000 --max-resource-words 20000
@@ -635,19 +635,36 @@ another path counts once. A declared skill that cannot be loaded is skipped with
 catalog skills with the same name and different content are both skipped, with a warning that
 names every path of that name: the rest of the field stays. Only the copies the field lists count:
 a disabled copy (unless `--include-disabled`) or a spec-error copy (unless `--include-invalid`) is
-left out first, so it does not make its name a conflict. Rename one, or delete the copy you do
-not mean to route against, to route the name. `dokimi catalog scan` lists the same names as
-`name-conflict` warnings, for the copies it lists. A skill with a spec error (for example a description over 1024 characters, or a
-name that is not kebab-case or not its directory name) is also left out, with a warning naming the error; pass
+left out first, so it does not make its name a conflict. Rename one, delete the copy you do not
+mean to route against, or keep only one directory's copies with `--keep-copies-under <dir>`, to
+route the name. `dokimi catalog check` lists the same names as
+`name-conflict` warnings, for the copies it lists. A skill with a spec error (a name that is not
+kebab-case or not its directory name) is also left out, with a warning naming the error; pass
 `--include-invalid` to keep it, as a harness that refuses to list such a skill would not. A `skill:`
-competitor with a spec error is skipped with the same warning.
+competitor with a spec error is skipped with the same warning. The one exception is a description
+over 1024 characters as the only error: harnesses differ on it, so the skill stays in the field with
+its full description, and the run warns with its name and length (`WARNING: skill 'x': description is
+1100 characters ...`) and records it under `spec_warnings` in the saved field rule. Claude Code
+(2.1.318, probed 2026-11-04) lists such a skill with the description cut to about 1,536 characters and
+an ellipsis, so a tail past that is never seen by its model (anthropics/skills#881); pi.dev rejects the
+skill (#1622). Where a harness truncates, the rate for such a skill may differ from the one measured on the
+full text; shorten the description to 1024 characters or fewer to make every harness agree.
 The directory-name check applies to a `skill:` competitor under a `skills/` directory
 (`skills/<dir>/SKILL.md`, `plugins/x/skills/<dir>/SKILL.md`), as it does in a catalog. A `skill:`
 competitor anywhere else is read as a root skill, and its name is not checked against its
 directory: `tools/database/SKILL.md` named `db` is routed when passed explicitly, while a
 `--catalog` scan of its tree leaves it out with a name error. Keep the directory name and the
 `name` field equal to get the same field from both.
-A name that conflicts with another catalog skill leaves the field whatever the flag says.
+A name that conflicts with another catalog skill leaves the field, and the error names the directory of each
+copy and suggests `--catalog <dir>` for one of them, or `--keep-copies-under <dir>`. `--keep-copies-under <dir>`
+keeps only the copies under `<dir>`, a directory relative to `--catalog`, and only for a name whose copies differ
+and that have one content under `<dir>`; the others of that name are named on stderr and left out, and the rest of
+the field is unchanged (unlike `--catalog <dir>`, which leaves out every skill outside that directory). A copy of that name outside `<dir>` that fails to load is left out too, with a
+note, once a copy under `<dir>` is in the field. An absolute
+path, a path that leaves `--catalog` (`../`), a file, or an empty value is refused with exit 2. A skill directory
+directly beneath the catalog (`review/SKILL.md`) is kept by its own name, `--keep-copies-under review`, since
+`--catalog` has no directory to point at for it. A `SKILL.md` in the catalog root itself cannot be picked by
+`--catalog` or `--keep-copies-under`: dedupe or rename it.
 A `skill:` competitor that is not a `SKILL.md`, or a directory without one, is skipped with a
 warning. A shell glob must be expanded first, with the prefix on each path
 (`skill:dir/a/SKILL.md skill:dir/b/SKILL.md`): an unexpanded `skill:dir/*` is refused as a missing
@@ -662,6 +679,10 @@ others are named on stderr.
 `--estimate-only` prints, as JSON, the calls, input and output tokens and the list-price `expected_usd` the
 `--model` arm would make, and makes no model call. Without `--model` the run is lexical and the bill
 is zero. Input is the selection prompt sized at chars / 4, so it is a projection, not a count.
+Output is `output_tokens_per_call` (65) times the calls: the average a measured routing run billed per
+selection call (360 calls drew 23.3k output tokens). The prompt asks for one `{"pick": N}` object, about
+10 tokens, which underestimated that run 6.5 times, so the estimate does not use it. Another model, or a
+reasoning model, can bill more or less.
 
 Two numbers, reported side by side and never merged:
 
@@ -690,7 +711,9 @@ Two numbers, reported side by side and never merged:
   replay. Repeats need `--model`, and cost N times the calls. With repeats, `n_calls` is
   queries x repeats, `n_abstained` and `n_failed` count calls, and each `per_query` row
   carries its `repeat` index. In an `--all-vs-all` run each `noise` row also names its `gold`
-  skill, since two skills can list the same request.
+  skill, since two skills can list the same request. `noise` is always an object: `n_repeats` is the
+  repeat count, and with `--repeats 1` it is 1 with `mean_agreement`, `half_range`, `unstable_queries`
+  and each row's `agreement` null (nothing to agree with), so a reader tests those fields, not `noise`, for null.
 
 A single-artifact `--model` run also writes a `cost` block (calls, input and output tokens, cache read and
 write tokens, and `usd`, which is `null` when any call this run paid for had no known price) and prints the
@@ -710,7 +733,9 @@ counted as a miss.
 --queries-by-skill queries.json --out routing.json` (add `--model M` for the model arm) makes
 every skill that has queries the gold in turn, routed against the whole field. The file is a
 JSON object of skill name to the requests that should select it, each written without the
-skill's own text. A skill named twice in the file is refused. The output has a confusion
+skill's own text. A skill named twice in the file is refused. `--out` must name a file: a directory, a
+path under a non-directory, a FIFO or device, a symlink loop, or an unwritable path is refused before any model call (the same
+check is made for a single-artifact `routing --out`); a missing parent directory is created. The output has a confusion
 matrix (gold to picked to count, with `(none)` for a query no card shares a word with or, in
 the model arm, an abstention, and `(tie)` for a query on which two or more other cards tie for
 the top lexical score, so no field order decides it), an own rate per skill, and an attractor
@@ -721,17 +746,22 @@ is no attractor, and a tied skill's own rate is lower by the picks inside its gr
 `n_scored` and `n_unscored` per skill say how many, a query with no content word or a failed
 model call is unscored, and a skill with none scored has an own rate of `null`, not 0.0. A run
 with any failed model call writes the result and exits non-zero. The saved file records the
-field rule under `field` (`include_disabled`, `include_invalid`, the `competitors` and what was `left_out`, which
-also names each skill left out for a conflicting name or a spec error); a
-single-artifact run records it too. It takes no `--artifact`, `--queries` or `--queries-from-headings`. `--repeats` needs `--model`
+field rule under `field` (`include_disabled`, `include_invalid`, `keep_copies_under`, the `competitors` and what was
+`left_out`, which also names each skill left out for a conflicting name or a spec error, and `spec_warnings`, one
+`{skill, length, limit, message}` per kept skill whose description is over 1024 characters); a single-artifact run
+records it too. An all-vs-all run also lists in `field.dropped_queries` each skill whose queries it dropped, as
+`{skill, reasons, keep_flags, queries}`, one record per skill, with each reason `disabled`, `invalid` or `conflict`. A query for a catalog skill
+that failed to load refuses the run and names the load error. It takes no `--artifact`, `--queries` or `--queries-from-headings`. `--estimate-only` prints the calls and the
+list-price cost of the whole run as JSON, in the shape of a single-artifact estimate, with no client built and
+no query sent; it needs no `--out`. `--repeats` needs `--model`
 and asks each query that many times, as a single-artifact run does: the model arm then carries a
 `noise` block (agreement per query, the rate of each repeat, `half_range`), and its counts are
 calls, one per query per repeat. The model arm also records the selector `model`, so two runs with
 different models can be told apart. It is refused with fewer than two skills, a name repeated
-in the field, or no queries at all. A query file that names a skill outside the field is refused;
-when the field leaves that skill out for `disable-model-invocation`, a spec error or a name that two
-different skills share, the message names each such skill with every reason that applies, and
-`--include-disabled` or `--include-invalid` where a flag keeps it.
+in the field, or no queries at all. A query file that names a skill the field leaves out (`disable-model-invocation`, a spec error or a name that
+two different skills share) drops that skill's queries with a WARNING naming the flag that keeps it; the run
+goes on with the rest, and is refused only when no query is left. A name no rule explains is refused, since
+it is more likely a typo. Missing `--queries-by-skill` and `--out` are reported in one error.
 
 **Cost of `--model` in all-vs-all.** The model arm makes one selector call per query and repeat,
 across every skill in the field: the call count is the number of queries in `queries.json` that have a
@@ -793,10 +823,10 @@ containing the item correlates it with itself, which at three respondents is eno
 report a perfect `r` on no evidence.
 
 ```bash
-python cli.py novelty probe --artifact skill:s --atoms atoms.json --model M1 --out m1.json
-python cli.py novelty probe --artifact skill:s --atoms atoms.json --model M2 --out m2.json
-python cli.py novelty probe --artifact skill:s --atoms atoms.json --model M3 --out m3.json
-python cli.py novelty items --probes m1.json m2.json m3.json
+python cli.py skill novelty probe --artifact skill:s --atoms atoms.json --model M1 --out m1.json
+python cli.py skill novelty probe --artifact skill:s --atoms atoms.json --model M2 --out m2.json
+python cli.py skill novelty probe --artifact skill:s --atoms atoms.json --model M3 --out m3.json
+python cli.py skill novelty items --probes m1.json m2.json m3.json
 ```
 
 Three **distinct models** is the minimum; below that — including three runs of one model,
@@ -934,7 +964,7 @@ being asked at all.
 
 A novelty run is attached to a subject run, not produced by one — the measurement is
 `atoms × probes × arms × (answer + grade)` and would dominate a subject's cost. Produce it with
-`novelty analyze`, then name the artifacts by path:
+`skill novelty analyze`, then name the artifacts by path:
 
 ```bash
 python cli.py subjects run subject.toml \
@@ -984,8 +1014,8 @@ content, not on the tier.
 | `study` | 120 | direct + paraphrase + reversal | all | **1,078** |
 
 ```bash
-python cli.py novelty analyze --artifact skill:s --tier triage          # ~10x cheaper
-python cli.py novelty analyze --artifact skill:s --tier study --estimate-only
+python cli.py skill novelty analyze --artifact skill:s --tier triage          # ~10x cheaper
+python cli.py skill novelty analyze --artifact skill:s --tier study --estimate-only
 ```
 
 `--estimate-only` prints the projected bill and exits without constructing a client, so
@@ -1048,8 +1078,8 @@ reply lists a batch's atoms in its own order; it is stable, so atoms citing the 
 that order, and with M ≤ n nothing is sorted and every atom is probed in extraction order. A
 stride needs no seed: the same extracted atom list gives the same sample. A fresh extraction is new model calls, so the
 same text can give other atoms and so another sample; to probe identical atoms across runs or
-models, extract once with `novelty atoms` and pass its `atoms.json` to `novelty probe --atoms`
-(and `novelty shorten --atoms`), which measure the sample it records without sampling again. The input
+models, extract once with `skill novelty atoms` and pass its `atoms.json` to `skill novelty probe --atoms`
+(and `skill shorten --atoms`), which measure the sample it records without sampling again. The input
 is the text that was segmented: the entry point, plus on a bundle run the files its roles and
 budgets selected, in that order. The stride runs over the concatenated atom list of those
 files, so a file's expected share of the probes is its share of the atoms, but a file with few
@@ -1069,7 +1099,7 @@ those (a stride of 12.5 atoms in document order; 25 of the input's spans were no
 extraction.unread_span_ids): ...`. The `novelty.md` header says the same, and the headline's
 `coverage:` line says the words went into the input and the cap probed 25 of the input's 61
 atoms, or of the atoms extracted from the spans that were read (the warning under that line,
-when half or less of the words went in, says "went into the input" too). `novelty atoms` prints
+when half or less of the words went in, says "went into the input" too). `skill novelty atoms` prints
 the same warning on stderr and records the same sample in `atoms.json`; `probe` and `shorten`,
 which read it, do not repeat the warning.
 
@@ -1080,13 +1110,13 @@ shortening oracle run on the n sampled atoms, so the bill stays at the cap. The 
 dead weight, sole carriers and shortening's structure come from all M: a span whose atoms fell
 outside the sample reads `unscored` (or `protected`), not `empty`. `atoms.json` holds all M atoms,
 the ones outside the sample with `faithfulness: "unchecked"`, and `sampled_atom_ids` lists the
-sample's ids in probe order (`null` when the cap kept every atom). `novelty probe` and `novelty
+sample's ids in probe order (`null` when the cap kept every atom). `skill novelty probe` and `skill
 shorten` measure only those atoms by default, say so on stderr (`NOTE probe measures the 60 atoms
 atoms.json records as the cap's sample, of its 200`), and index spans from all of them;
 `--all-atoms` measures every atom in the file, reusing the extraction instead of paying for a new
 one. Those outside the sample were never checked for faithfulness, so when any of them reads
-`unchecked`, `--all-atoms` prints a `WARNING` with how many, and that `novelty atoms --all-atoms`
-(a new, uncapped extraction) verifies every atom it extracts. On a bundle, `novelty shorten` keeps only the entry point's atoms; when none of the sample is
+`unchecked`, `--all-atoms` prints a `WARNING` with how many, and that `skill novelty atoms --all-atoms`
+(a new, uncapped extraction) verifies every atom it extracts. On a bundle, `skill shorten` keeps only the entry point's atoms; when none of the sample is
 among them it would score nothing, so it exits 2 and asks for `--all-atoms`.
 `novelty view` colours spans from every atom. An `atoms.json` with no `sampled_atom_ids`,
 written before the record existed, held only the atoms its run probed, and is read as all of them
@@ -1094,9 +1124,9 @@ sampled; one whose `sampled_atom_ids` names an atom the file does not hold, or n
 is refused (exit 2).
 When such an older file's record shows a cap that bound (`extraction.sampled` set, or `cap` set
 with any `extraction.reached` object, which a document-order cap wrote only when it bound),
-`novelty probe`, `novelty shorten` and `novelty view` print a `WARNING` on stderr: the file holds
+`skill novelty probe`, `skill shorten` and `novelty view` print a `WARNING` on stderr: the file holds
 only the atoms its run probed, so spans whose atoms fell outside them read as carrying nothing and
-a shortening can cut them; re-run `novelty atoms` to index every atom. A document-order cap whose
+a shortening can cut them; re-run `skill novelty atoms` to index every atom. A document-order cap whose
 `reached` is the input's last span (`spans` equal to `of`) may still have cut atoms from that last
 reply, so the warning says the file *may* hold only the atoms its run probed. A file from before
 `extraction.reached` existed (#299), with `cap` set, no `reached` key and at least `cap` atoms, gets
@@ -1119,10 +1149,10 @@ Two further savings are orthogonal to the tier. Atoms are model-independent, so 
 amortizes across models:
 
 ```bash
-python cli.py novelty atoms --artifact skill:path/to/skill --extract-model E \
+python cli.py skill novelty atoms --artifact skill:path/to/skill --extract-model E \
     [--include-resources] --out atoms.json        # once
-python cli.py novelty probe --artifact skill:path/to/skill --atoms atoms.json --model M1
-python cli.py novelty probe --artifact skill:path/to/skill --atoms atoms.json --model M2
+python cli.py skill novelty probe --artifact skill:path/to/skill --atoms atoms.json --model M1
+python cli.py skill novelty probe --artifact skill:path/to/skill --atoms atoms.json --model M2
 ```
 
 `atoms.json` records which files it was extracted from, and `probe` rebuilds exactly that

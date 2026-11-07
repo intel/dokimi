@@ -257,6 +257,8 @@ A command that validates its input and then runs exits 2 for the first and 1
 for the second. Not every command follows this yet: `repo run` and
 `eval check` still exit 1 for their input refusals, and `tools preference`
 exits 2 when every call failed or `--max-cost-usd` skipped calls.
+`eval judge agreement --judges` and `eval score pairwise` exit 1, not 2, when
+every judge call fails, a missing provider credential included.
 
 ## Troubleshooting
 

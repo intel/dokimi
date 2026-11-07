@@ -13,6 +13,8 @@ from dokimi.cli import build_parser
 from dokimi.commands import judge_reliability
 
 
+from tests.cli_refusal import refusal
+
 def _blocked(tmp_path):
     blocker = tmp_path / "blocker"
     blocker.write_text("x", encoding="utf-8")  # a regular file: nothing can be created below it
@@ -23,10 +25,10 @@ def test_write_text_or_exit_names_the_path_and_exits_with_the_code(tmp_path, cap
     from dokimi.commands._output import write_text_or_exit
 
     target = _blocked(tmp_path)
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         write_text_or_exit(target, "{}", code=2)
-    assert exc.value.code == 2
-    assert f"Error: cannot write {target}: " in capsys.readouterr().err
+    assert exc.code == 2
+    assert f"Error: cannot write {target}: " in exc.err
 
 
 class _Report:
@@ -94,9 +96,9 @@ def _run(command, out):
     args = build_parser().parse_args(
         [*_JUDGE_COMMANDS[command], "--answers", "a.json", "--output", str(out)]
     )
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    return exc.value.code
+    return exc.code
 
 
 @pytest.mark.parametrize("command", list(_JUDGE_COMMANDS))
@@ -136,10 +138,10 @@ def test_ragas_results_that_cannot_be_written_exit_2_naming_the_path(tmp_path, m
 
     monkeypatch.setattr(ragas_eval, "RagasEvaluator", Evaluator)
     blocked = _blocked(tmp_path)
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         _run_ragas_eval([], blocked, types.SimpleNamespace())
-    assert exc.value.code == 2
-    assert f"Error: cannot write {blocked.with_name('out_ragas.json')}" in capsys.readouterr().err
+    assert exc.code == 2
+    assert f"Error: cannot write {blocked.with_name('out_ragas.json')}" in exc.err
 
 
 def test_panel_score_output_that_cannot_be_written_exits_2_naming_the_path(
@@ -166,9 +168,9 @@ def test_panel_score_output_that_cannot_be_written_exits_2_naming_the_path(
     args = build_parser().parse_args(
         ["eval", "score", "panel", "--product", "P", "--answers", "a.json", "--output", str(target)]
     )
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2
+    assert exc.code == 2
     assert f"Error: cannot write {target}: " in capsys.readouterr().err
 
 
@@ -189,10 +191,10 @@ def test_score_output_that_cannot_be_written_exits_2_naming_the_path(tmp_path, m
     args = build_parser().parse_args(
         ["eval", "score", "pointwise", "--product", "P", "--answers", str(answers), "--output", str(target)]
     )
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2
-    assert f"Error: cannot write {target}: " in capsys.readouterr().err
+    assert exc.code == 2
+    assert f"Error: cannot write {target}: " in exc.err
 
 
 def test_report_eval_names_the_sidecar_when_it_cannot_be_written(tmp_path, monkeypatch, capsys):
@@ -220,10 +222,10 @@ def test_report_eval_names_the_sidecar_when_it_cannot_be_written(tmp_path, monke
         "sys.argv",
         ["dokimi", "report", "eval", "--product", "P", "--eval", str(eval_file), "--out", str(out)],
     )
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cli.main()
-    assert exc.value.code == 2
-    err = capsys.readouterr().err
+    assert exc.code == 2
+    err = exc.err
     assert str(tmp_path / "r.qa.json") in err and f"cannot write {out}" not in err
 
 
