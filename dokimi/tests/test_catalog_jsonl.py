@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from dokimi.cli import build_parser
+from dokimi.utils import InputError
 
 
 def _skill(root: Path, name: str) -> None:
@@ -35,10 +36,12 @@ def _args(argv: list[str]):
 
 
 def _run(argv: list[str], capsys) -> tuple[str, int]:
-    """stdout and the exit code of a scan; 0 when it returns normally."""
+    """stdout and the exit code of a scan; 0 when it returns normally, 2 when it refuses its input."""
     args = _args(argv)
     try:
         args.func(args)
+    except InputError:
+        return capsys.readouterr().out, 2
     except SystemExit as exc:
         return capsys.readouterr().out, int(exc.code or 0)
     return capsys.readouterr().out, 0
@@ -125,27 +128,21 @@ def test_without_resume_an_existing_jsonl_file_is_replaced(tmp_path, capsys):
         (["--per-skill", "--jsonl", "x.jsonl", "--format", "json"], "drop --format json"),
     ],
 )
-def test_flag_combinations_the_scan_cannot_honour_exit_2(tmp_path, flags, message):
+def test_flag_combinations_the_scan_cannot_honour_are_refused(tmp_path, flags, message):
     _catalog(tmp_path)
 
     args = _args(["--root", str(tmp_path), *flags])
-    with pytest.raises(SystemExit) as exc_info:
+    with pytest.raises(InputError, match=message):
         args.func(args)
 
-    assert exc_info.value.code == 2
-    assert message in str(exc_info.value)
 
-
-def test_an_unwritable_jsonl_path_exits_2_and_names_the_flag(tmp_path):
+def test_an_unwritable_jsonl_path_is_refused_and_names_the_flag(tmp_path):
     _catalog(tmp_path)
     bad = tmp_path / "no-such-dir" / "out.jsonl"
 
-    with pytest.raises(SystemExit) as exc_info:
-        args = _args(["--root", str(tmp_path), "--per-skill", "--jsonl", str(bad)])
+    args = _args(["--root", str(tmp_path), "--per-skill", "--jsonl", str(bad)])
+    with pytest.raises(InputError, match="cannot write --jsonl"):
         args.func(args)
-
-    assert exc_info.value.code == 2
-    assert "cannot write --jsonl" in str(exc_info.value)
 
 
 def test_resume_with_skip_nested_leaves_out_a_nested_row_an_earlier_run_wrote(tmp_path, capsys):
@@ -199,24 +196,19 @@ def test_strict_on_the_per_skill_path_fails_on_a_spec_error_only(tmp_path, capsy
 def test_kind_tasks_refuses_the_flags_that_apply_to_skills(tmp_path, flags):
     args = build_parser().parse_args(["catalog", "check", "--kind", "tasks", "--root", str(tmp_path), *flags])
 
-    with pytest.raises(SystemExit) as exc_info:
+    with pytest.raises(InputError, match="--kind skills"):
         args.func(args)
 
-    assert exc_info.value.code == 2
-    assert "--kind skills" in str(exc_info.value)
 
-
-def test_a_complete_line_that_is_not_a_scan_row_exits_2_and_is_not_written_over(tmp_path, capsys):
+def test_a_complete_line_that_is_not_a_scan_row_is_refused_and_not_written_over(tmp_path, capsys):
     _catalog(tmp_path)
     out_path = tmp_path / "bad-row.jsonl"
     out_path.write_text('{"name": "alpha"}\n', encoding="utf-8")
 
     args = _args(["--root", str(tmp_path), "--per-skill", "--jsonl", str(out_path), "--resume"])
-    with pytest.raises(SystemExit) as exc_info:
+    with pytest.raises(InputError, match="line 1 is not a scan row"):
         args.func(args)
 
-    assert exc_info.value.code == 2
-    assert "line 1" in str(exc_info.value)
     assert out_path.read_text(encoding="utf-8") == '{"name": "alpha"}\n'
 
 

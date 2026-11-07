@@ -18,14 +18,20 @@ import sys
 from pathlib import Path
 from dokimi.commands.catalog_scan import print_skill_row, skill_row
 from dokimi.exit_codes import usage_exit
+from dokimi.utils import InputError
 
 
 def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bool) -> tuple[bool, int]:
     """Review the skills under *root* into ``report``; (True when the scan must exit 1, skills declared)."""
     from dokimi.commands import catalog_scan
+    from dokimi.external import read_skill_manifest
     from dokimi.external.validate import review_skills
 
-    pairs = catalog_scan.read_marked_skills(args, root)
+    try:
+        manifest = read_skill_manifest(root)
+    except ValueError as exc:
+        usage_exit(f"skills.yaml: {exc}")
+    pairs = catalog_scan.mark_nested(args, manifest, root)
     if args.per_skill:
         return catalog_scan.scan_per_skill(args, root, report, as_json, pairs)
     skills = [entry for entry, _ in pairs]
@@ -85,17 +91,17 @@ def _scan_tasks(args: argparse.Namespace, root: Path, report: dict, as_json: boo
 
 
 def _check_scan_flags(args: argparse.Namespace) -> None:
-    """Exit 2 on a flag combination the scan cannot honour; the per-skill flags need --per-skill."""
+    """Raise InputError on a flag combination the scan cannot honour; the per-skill flags need --per-skill."""
     if args.jsonl and args.format == "json":
-        usage_exit("--jsonl writes one row per skill to a file; drop --format json")
+        raise InputError("--jsonl writes one row per skill to a file; drop --format json")
     if args.resume and not args.jsonl:
-        usage_exit("--resume needs --jsonl: the rows it skips are read from that file")
+        raise InputError("--resume needs --jsonl: the rows it skips are read from that file")
     if (args.jsonl or args.jobs is not None) and not args.per_skill:
-        usage_exit("--jsonl and --jobs need --per-skill: cross-catalog checks need every skill loaded at once")
+        raise InputError("--jsonl and --jobs need --per-skill: cross-catalog checks need every skill loaded at once")
     if args.kind == "tasks" and (args.per_skill or args.skip_nested or args.jsonl or args.resume
                                  or args.jobs is not None):
-        usage_exit("--per-skill, --skip-nested, --jsonl, --jobs and --resume apply to skills; "
-                   "drop them or use --kind skills|all")
+        raise InputError("--per-skill, --skip-nested, --jsonl, --jobs and --resume apply to skills; "
+                         "drop them or use --kind skills|all")
 
 
 def cmd_catalog_scan(args: argparse.Namespace) -> None:

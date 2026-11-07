@@ -18,7 +18,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Iterable, Iterator, Optional
 
-from dokimi.exit_codes import usage_exit
+from dokimi.utils import InputError
 
 
 def skill_row(skill, review, nested_in: Optional[str] = None) -> dict:
@@ -64,14 +64,10 @@ def print_skill_row(row: dict) -> None:
         print(f"  note nested in {row['nested_in']}: a SKILL.md inside another skill's directory")
 
 
-def read_marked_skills(args, root: Path) -> list:
-    """The skills of *root* as ``(entry, nested_in)`` pairs; nested ones are dropped under ``--skip-nested``."""
-    from dokimi.external import nested_in_bundles, read_skill_manifest
+def mark_nested(args, skills: list, root: Path) -> list:
+    """The *skills* of *root* as ``(entry, nested_in)`` pairs; nested ones are dropped under ``--skip-nested``."""
+    from dokimi.external import nested_in_bundles
 
-    try:
-        skills = read_skill_manifest(root)
-    except ValueError as exc:
-        usage_exit(f"skills.yaml: {exc}")
     pairs = list(zip(skills, nested_in_bundles(skills, root), strict=True))
     if args.skip_nested:
         pairs = [(entry, mark) for entry, mark in pairs if mark is None]
@@ -153,7 +149,7 @@ def _parse_row(raw: bytes, path: Path, lineno: int) -> Optional[dict]:
         return row
     if not raw.endswith(b"\n"):
         return None
-    usage_exit(f"--jsonl {path} line {lineno} is not a scan row; fix or remove it before --resume")
+    raise InputError(f"--jsonl {path} line {lineno} is not a scan row; fix or remove it before --resume")
 
 
 def _load_prior(path: Path, selected: set[str]) -> tuple[list[dict], bool]:
@@ -178,7 +174,7 @@ def _load_prior(path: Path, selected: set[str]) -> tuple[list[dict], bool]:
                 else:
                     dirty = True
     except OSError as exc:
-        usage_exit(f"cannot read --jsonl {path} to resume: {exc}")
+        raise InputError(f"cannot read --jsonl {path} to resume: {exc}") from exc
     return rows, dirty
 
 
@@ -190,7 +186,7 @@ def _rewrite(path: Path, rows: list[dict]) -> None:
                 fh.write(json.dumps(row) + "\n")
         tmp.replace(path)
     except OSError as exc:
-        usage_exit(f"cannot rewrite --jsonl {path} to resume: {exc}")
+        raise InputError(f"cannot rewrite --jsonl {path} to resume: {exc}") from exc
 
 
 class _Jsonl:
@@ -210,7 +206,7 @@ class _Jsonl:
         try:
             self._fh = path.open("a" if resume else "w", encoding="utf-8")
         except OSError as exc:
-            usage_exit(f"cannot write --jsonl {path}: {exc}")
+            raise InputError(f"cannot write --jsonl {path}: {exc}") from exc
 
     def write(self, row: dict) -> None:
         self._fh.write(json.dumps(row) + "\n")
@@ -249,7 +245,7 @@ def scan_per_skill(args, root: Path, report: dict, as_json: bool, pairs: list) -
         # A key shared by two skills would let --resume count one of them as done when only the other has a row.
         shared = sorted(key for key, n in Counter(keys).items() if n > 1)
         if shared:
-            usage_exit(f"--resume needs one row per skill, but these keys are shared: {', '.join(shared[:3])}")
+            raise InputError(f"--resume needs one row per skill, but these keys are shared: {', '.join(shared[:3])}")
     sink = _Jsonl(jsonl, args.resume, set(keys)) if jsonl is not None else None
     tally = _Tally(args.strict)
     prior = sink.prior if sink is not None else []
