@@ -73,10 +73,11 @@ def test_the_atoms_command_saves_a_partial_file_and_exits_without_atoms_json(tmp
     out = tmp_path / "atoms.json"
     args = _parse(*novelty_argv("atoms"), "--artifact", str(artifact), "--model", "e",
                                 "--out", str(out), "--max-usd", "1")
-    with pytest.raises(SystemExit, match="partial"):
-        args.func(args)
-    assert not out.exists()
     partial = tmp_path / "atoms.partial.json"
+    with pytest.raises(SystemExit) as exit_info:
+        args.func(args)
+    assert f"the partial result is in {partial}" in str(exit_info.value)
+    assert not out.exists()
     record = json.loads(partial.read_text(encoding="utf-8"))
     assert record["partial"]["reason"] == "spend_cap"
     assert (record["partial"]["spans_read"], record["partial"]["spans_total"]) == (50, 200)
@@ -149,8 +150,9 @@ def test_the_probe_command_saves_the_partial_measurement_and_exits(tmp_path, mon
     out = tmp_path / "probes.json"
     args = _parse(*novelty_argv("probe"), "--artifact", str(artifact), "--atoms", str(atoms),
                                 "--out", str(out), "--max-usd", "1")
-    with pytest.raises(SystemExit, match="partial"):
+    with pytest.raises(SystemExit) as exit_info:
         args.func(args)
+    assert f"the partial result is in {tmp_path / 'probes.partial.json'}" in str(exit_info.value)
     assert not out.exists()
     record = json.loads((tmp_path / "probes.partial.json").read_text(encoding="utf-8"))
     assert record["status"] == "partial"
@@ -178,7 +180,6 @@ def test_analyze_names_the_run_cost_before_it_spends(tmp_path, monkeypatch, caps
     assert "Expected ~$0.42 for this run at list prices (--tier triage)" in err
 
 
-
 def test_an_unpriced_answer_stops_every_queued_probe_not_only_the_one_that_raised():
     from dokimi.novelty import measure
     from dokimi.novelty.probes import Probe
@@ -199,6 +200,48 @@ def test_an_unpriced_answer_stops_every_queued_probe_not_only_the_one_that_raise
     # One call reached the provider; the six jobs behind it were never sent.
     assert len(calls) == 1
     assert result.runs == [] and result.not_run == 6
+
+
+def test_extraction_that_loses_its_first_call_to_the_cap_keeps_a_partial_result():
+    from dokimi.novelty.atoms import ExtractionReport, extract_atoms
+    from dokimi.novelty.spans import segment
+
+    spans = segment(ROWS)
+    calls: list = []
+
+    def empty_then_nothing(prompt, system=None):
+        calls.append(prompt)
+        return "", UsageRecord(cost_usd=0.6)  # an empty reply that still costs
+
+    report = ExtractionReport()
+    # The first call is lost and spends 0.6 USD; the cap of 0.5 then stops the second call.
+    atoms = extract_atoms(spans, client=LLMClient(model="e", role="extractor",
+                          transport=empty_then_nothing, cap=SpendCap(limit_usd=0.5)),
+                          report=report)
+    assert atoms == [] and len(calls) == 1
+    assert report.partial["spans_read"] == 0
+    assert report.partial["message"] == "--max-usd stopped extraction with 0 of 200 spans read"
+    assert all(span.unread for span in spans)
+
+
+def test_the_faithfulness_check_counts_the_spans_extraction_left_unread(monkeypatch):
+    from dokimi.commands.novelty_budget import verify_or_partial
+    from dokimi.novelty import atoms as atoms_mod
+    from dokimi.novelty.client import SpendCapReached
+    from dokimi.novelty.spans import segment
+
+    spans = segment(ROWS)[:75]
+    for span in spans[:25]:
+        span.unread = True  # the first batch of 25 spans was never read
+
+    def capped(sample, spans, client):
+        raise SpendCapReached("cap")
+
+    monkeypatch.setattr(atoms_mod, "verify_atoms", capped)
+    partial = verify_or_partial([], spans, client=None)
+    assert (partial["spans_read"], partial["spans_total"]) == (50, 75)
+    assert partial["message"] == ("--max-usd stopped the faithfulness check with 50 of 75 "
+                                  "spans read")
 
 
 def test_analyze_stops_rather_than_publish_a_measurement_the_cap_cut_short(tmp_path, monkeypatch):
@@ -229,43 +272,12 @@ def test_analyze_stops_rather_than_publish_a_measurement_the_cap_cut_short(tmp_p
         analyze(body, config, extractor=extractor, answerer=answerer, judge=judge)
 
 
-def test_the_faithfulness_check_counts_the_spans_extraction_left_unread(monkeypatch):
-    from dokimi.commands.novelty_budget import verify_or_partial
-    from dokimi.novelty import atoms as atoms_mod
-    from dokimi.novelty.client import SpendCapReached
-    from dokimi.novelty.spans import segment
+def test_novelty_items_refuses_a_partial_probe_file_by_name(tmp_path):
+    from dokimi.novelty.items import ProbeFileError, load_probe_cells
 
-    spans = segment(ROWS)[:75]
-    for span in spans[:25]:
-        span.unread = True  # the first batch of 25 spans was never read
-
-    def capped(sample, spans, client):
-        raise SpendCapReached("cap")
-
-    monkeypatch.setattr(atoms_mod, "verify_atoms", capped)
-    partial = verify_or_partial([], spans, client=None)
-    assert (partial["spans_read"], partial["spans_total"]) == (50, 75)
-    assert partial["message"] == ("--max-usd stopped the faithfulness check with 50 of 75 "
-                                  "spans read")
-
-
-def test_extraction_that_loses_its_first_call_to_the_cap_keeps_a_partial_result():
-    from dokimi.novelty.atoms import ExtractionReport, extract_atoms
-    from dokimi.novelty.spans import segment
-
-    spans = segment(ROWS)
-    calls: list = []
-
-    def empty_then_nothing(prompt, system=None):
-        calls.append(prompt)
-        return "", UsageRecord(cost_usd=0.6)  # an empty reply that still costs
-
-    report = ExtractionReport()
-    # The first call is lost and spends 0.6 USD; the cap of 0.5 then stops the second call.
-    atoms = extract_atoms(spans, client=LLMClient(model="e", role="extractor",
-                          transport=empty_then_nothing, cap=SpendCap(limit_usd=0.5)),
-                          report=report)
-    assert atoms == [] and len(calls) == 1
-    assert report.partial["spans_read"] == 0
-    assert report.partial["message"] == "--max-usd stopped extraction with 0 of 200 spans read"
-    assert all(span.unread for span in spans)
+    partial = tmp_path / "probes.partial.json"
+    partial.write_text(json.dumps({"partial": {"reason": "spend_cap"}, "runs": []}),
+                       encoding="utf-8")
+    with pytest.raises(ProbeFileError, match="partial probe result") as refused:
+        load_probe_cells([str(partial)])
+    assert str(partial) in str(refused.value)
