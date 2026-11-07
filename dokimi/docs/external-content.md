@@ -232,7 +232,8 @@ do, and only these two; each finding is a `warn`, so the exit code does not chan
 - `link-dead`: an `http(s)` URL in `SKILL.md` that answers 404 or 410, or whose host
   does not resolve. A HEAD request is tried first and a GET only when HEAD is not 2xx or 3xx.
   Placeholder hosts (`example.com`/`.org`/`.net`, `localhost`, loopback addresses,
-  `your-*`) and template URLs (`<id>`, `{id}`, `${VAR}`) are not requested, and at most
+  a host or a path segment starting `your-*`, as in `github.com/your-username/your-repo`)
+  and template URLs (`<id>`, `{id}`, `${VAR}`) are not requested, and at most
   20 URLs per skill are checked.
 
 A 403, 429 or 5xx, a timeout, a refused connection or any other network error is not a

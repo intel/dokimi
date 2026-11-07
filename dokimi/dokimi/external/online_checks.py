@@ -47,6 +47,7 @@ _PIP_VALUE_OPTIONS = {
     "--extra-index-url", "-f", "--find-links", "-t", "--target", "--prefix", "--root", "--cache-dir",
     "--proxy", "--timeout", "--trusted-host", "--python-version", "--platform", "--abi",
     "--implementation", "--upgrade-strategy", "--progress-bar", "--src", "--log", "--report",
+    "--retries", "--use-feature", "--keyring-provider", "--resume-retries", "--default-timeout",
     "--exists-action", "--global-option", "--install-option", "--config-settings", "-C",
     "--only-binary", "--no-binary", "--cert", "--client-cert", "--root-user-action",
 }
@@ -59,7 +60,7 @@ _URL_RE = re.compile(r"https?://[^\s\"'`<>]+", re.IGNORECASE)
 _TEMPLATE_RE = re.compile(r"[{}$]")  # a template variable, such as ``{id}`` or ``${VERSION}``
 _EXAMPLE_DOMAINS = ("example.com", "example.org", "example.net")
 _RESERVED_SUFFIXES = (".localhost", ".test", ".invalid", ".example")
-_PLACEHOLDER_HOST_RE = re.compile(r"(?<![a-z0-9])your-")
+_PLACEHOLDER_HOST_RE = re.compile(r"(?:^|[./])your-")  # a host or a path segment that starts with ``your-``
 
 
 def make_client() -> httpx.Client:
@@ -188,7 +189,8 @@ def _clean_url(raw: str) -> Optional[str]:
 
 def _placeholder_url(url: str) -> bool:
     try:
-        host = (urlsplit(url).hostname or "").lower()
+        parts = urlsplit(url)
+        host = (parts.hostname or "").lower()
     except ValueError:  # a malformed bracketed host, such as ``http://[x/y``: not a link to check
         return True
     if not host or host == "localhost" or host.endswith(_RESERVED_SUFFIXES):
@@ -201,7 +203,7 @@ def _placeholder_url(url: str) -> bool:
         address = None
     if address is not None and (address.is_loopback or address.is_unspecified):
         return True
-    return bool(_PLACEHOLDER_HOST_RE.search(host))
+    return bool(_PLACEHOLDER_HOST_RE.search(host + parts.path.lower()))
 
 
 def extract_urls(body: str) -> list[str]:

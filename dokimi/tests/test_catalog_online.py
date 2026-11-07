@@ -114,9 +114,12 @@ def test_real_link_in_markdown_keeps_its_path_and_drops_the_closing_paren():
     assert online_checks.extract_urls(body) == ["https://docs.python.org/3/library/"]
 
 
-def test_your_word_in_a_path_is_not_a_placeholder_host():
-    body = "See https://github.com/acme/your-tool/docs and https://your-org.example-tool.dev/x\n"
-    assert online_checks.extract_urls(body) == ["https://github.com/acme/your-tool/docs"]
+def test_your_placeholder_segments_are_skipped_but_a_word_containing_your_is_not():
+    body = (
+        "See https://github.com/your-username/your-repo, https://your-org.example-tool.dev/x\n"
+        "and https://github.com/acme/tool-your-docs.\n"
+    )
+    assert online_checks.extract_urls(body) == ["https://github.com/acme/tool-your-docs"]
 
 
 def test_malformed_bracketed_host_is_skipped_not_fatal():
@@ -129,7 +132,10 @@ def test_npx_package_equals_form_names_the_package():
 
 
 def test_pip_options_with_values_are_not_packages():
-    body = "pip install --python-version 3.11 --platform manylinux2014_x86_64 --upgrade-strategy eager numpy\n"
+    body = (
+        "pip install --python-version 3.11 --platform manylinux2014_x86_64 --upgrade-strategy eager "
+        "--retries 5 --use-feature 2020-resolver --keyring-provider import numpy\n"
+    )
     assert online_checks.extract_packages(body) == [("pypi", "numpy")]
 
 
