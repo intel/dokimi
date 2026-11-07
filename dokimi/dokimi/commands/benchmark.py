@@ -11,8 +11,8 @@ import sys
 from pathlib import Path
 from typing import Any, Callable, List, cast
 
-from dokimi.llm import ANSWER_PROVIDERS, credential_env_var, resolve_api_key
-from dokimi.commands.evaluate import _warn_judge_independence
+from dokimi.llm import CALLER_CHOICES, credential_env_var, resolve_api_key
+from dokimi.utils import warn_judge_independence as _warn_judge_independence
 from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.defaults import (
     DEFAULT_ANSWER_MODEL,
@@ -76,7 +76,9 @@ def _run_single_library(entry, output_dir: str, model: str, provider: str, judge
         judge_provider=judge_provider,
         judge_temperature=judge_temperature,
         judge_placeholder=judge_placeholder,
-        context7_id=entry.context7_id,
+        # The resolver finds entry.context7_id via product_key, after an mcp: ;id=;
+        # passed as the explicit id it would beat ;id= (#310).
+        context7_id=None,
         doc_source=doc_source,
         max_tokens_per_question=max_tokens_per_question,
         force_regen=force_regen,
@@ -477,7 +479,7 @@ def register(sub, positive_int) -> None:
     bench_run_p.add_argument("--output-dir", default=None, dest="output_dir",
                              help="Output directory (default: results/{target}_final)")
     bench_run_p.add_argument("--model", default=DEFAULT_ANSWER_MODEL)
-    bench_run_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=ANSWER_PROVIDERS)
+    bench_run_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=CALLER_CHOICES)
     bench_run_p.add_argument("--judge-model", default=JUDGE_MODEL_FOR_PROVIDER, dest="judge_model",
                              help=JUDGE_MODEL_HELP)
     bench_run_p.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, dest="judge_provider",
@@ -517,7 +519,7 @@ def register(sub, positive_int) -> None:
     bench_pre_p.add_argument("--doc-source", default=None, dest="doc_source", help="Override doc/context source")
     bench_pre_p.add_argument("--output-dir", default=None, dest="output_dir", help="Output directory (default: results/{target}_final)")
     bench_pre_p.add_argument("--model", default=DEFAULT_ANSWER_MODEL)
-    bench_pre_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=ANSWER_PROVIDERS)
+    bench_pre_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=CALLER_CHOICES)
     bench_pre_p.add_argument("--judge-model", default=JUDGE_MODEL_FOR_PROVIDER, dest="judge_model",
                              help=JUDGE_MODEL_HELP)
     bench_pre_p.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, dest="judge_provider", choices=JUDGE_PROVIDERS)
@@ -539,7 +541,7 @@ def register(sub, positive_int) -> None:
                                help="Run for all libraries in registry")
     bench_batch_p.add_argument("--output-dir", default="results", dest="output_dir")
     bench_batch_p.add_argument("--model", default=DEFAULT_ANSWER_MODEL)
-    bench_batch_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=ANSWER_PROVIDERS)
+    bench_batch_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=CALLER_CHOICES)
     bench_batch_p.add_argument("--judge-model", default=JUDGE_MODEL_FOR_PROVIDER, dest="judge_model",
                                help=JUDGE_MODEL_HELP)
     bench_batch_p.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, dest="judge_provider",

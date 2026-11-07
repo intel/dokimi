@@ -14,7 +14,8 @@ a step added to CI is run here without anyone editing this file.
 Differences from CI, all printed as notices:
 
 - `uses:` steps (checkout, setup-python, setup-micromamba, upload-artifact)
-  are skipped, and so are `pip install` steps: the tools come from the venv
+  are skipped, and so are `pip install` steps and the global npm install of the
+  pinned Claude Code (the `claude` on PATH is used): the tools come from the venv
   `make dev` builds, which installs exactly what those steps install (`tools`
   subcommand below). Jobs that install the package itself (package-smoke,
   windows-smoke, conda-forge-deps) run in a throwaway venv on a copy of the
@@ -64,6 +65,7 @@ import tempfile
 import time
 import urllib.request
 from pathlib import Path
+from typing import Any
 
 import yaml
 
@@ -81,6 +83,12 @@ NEEDS_TOOL = {"conda-forge-deps": "micromamba"}
 # Jobs that `pip install .`: run on a copy of the tree in a throwaway venv.
 ISOLATED = {"package-smoke", "windows-smoke", "conda-forge-deps"}
 PIP_INSTALL = re.compile(r"^\s*(python -m )?pip install\b")
+# Steps that install a tool globally on the host: skipped here, the `claude` on PATH is used.
+HOST_INSTALL = {("fidelity", "Install the pinned Claude Code")}
+# Steps whose env var makes a missing pinned `claude` a failure. Here the `claude` on PATH
+# stands in for the skipped install, so another version drops the var: the golden tests skip.
+PINNED_CLAUDE = {("fidelity", "Run the fidelity golden"): "DOKIMI_FIDELITY_REQUIRED"}
+PINNED_CLAUDE_VERSION = re.compile(r"@anthropic-ai/claude-code@([0-9][0-9A-Za-z.\-]*)")
 # pip options that take a value, by spelling, mapped to the short form `tools` emits.
 PAIRED = {"-r": "-r", "--requirement": "-r", "-c": "-c", "--constraint": "-c",
           "-e": "-e", "--editable": "-e"}
@@ -305,6 +313,53 @@ def disable_native_scan(job: dict, reason: str) -> None:
             step["name"] = f"{step.get('name', 'gitleaks')} ({reason})"
 
 
+def _step_skip(job_id: str, step: dict[str, Any], online: bool) -> str | None:
+    """Why a step is skipped here, or None when it runs."""
+    key = (job_id, step.get("name"))
+    if key in HOST_INSTALL:
+        return "skip (global install: the claude on PATH is used)"
+    if key in NEEDS_NETWORK and not online and not step.get("offline_ok"):
+        return "skip (needs network)"
+    return None
+
+
+def claude_on_path_version() -> str | None:
+    """The version of the `claude` on PATH, or None when there is none."""
+    binary = shutil.which("claude")
+    if not binary:
+        return None
+    try:
+        out = subprocess.run([binary, "--version"], capture_output=True, text=True, timeout=60, check=False)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    words = out.stdout.split()
+    return words[0] if words else None
+
+
+def pinned_claude_version(job: dict) -> str | None:
+    """The Claude Code version the job's install step pins (the step skipped here)."""
+    for step in job.get("steps", []):
+        if m := PINNED_CLAUDE_VERSION.search(str(step.get("run", ""))):
+            return m.group(1)
+    return None
+
+
+def drop_pin_without_pinned_claude(name: str, job: tuple[str, dict], step: dict[str, Any],
+                                   step_env: dict[str, str]) -> None:
+    """Set a PINNED_CLAUDE var to 0 when the claude on PATH is not the version the job pins.
+
+    0, not a delete: the step env is merged over the caller's, which may export the var.
+    """
+    var = PINNED_CLAUDE.get((job[0], str(step.get("name"))))
+    if not var or var not in step_env:
+        return
+    pinned, have = pinned_claude_version(job[1]), claude_on_path_version()
+    if pinned is None or have != pinned:
+        print(f"NOTICE: {name}: claude on PATH is {have or 'missing'}, CI pins "
+              f"{pinned}: {var}=0, the pinned-client tests skip")
+        step_env[var] = "0"
+
+
 def run(args: argparse.Namespace) -> int:
     py = f"{sys.version_info.major}.{sys.version_info.minor}"
     want = set(args.jobs.split(",")) if args.jobs else None
@@ -377,8 +432,9 @@ def run(args: argparse.Namespace) -> int:
                         if not any(x.strip() for x in lines):
                             continue
                         script = "\n".join(lines)
-                    if (job_id, step.get("name")) in NEEDS_NETWORK and not online and not step.get("offline_ok"):
-                        record(name, "skip (needs network)")
+                    reason = _step_skip(job_id, step, online)
+                    if reason:
+                        record(name, reason)
                         continue
                     if "if" in step and not ctx.condition(str(step["if"])):
                         record(name, "skip (step condition false)")
@@ -396,6 +452,7 @@ def run(args: argparse.Namespace) -> int:
                     except KeyError as e:
                         record(name, f"skip (unknown expression {e})")
                         continue
+                    drop_pin_without_pinned_claude(name, (job_id, job), step, step_env)
                     cwd = root / step.get("working-directory", wd)
                     print(f"\n=== {name}  (cwd {cwd.relative_to(root)})", flush=True)
                     t0 = time.monotonic()

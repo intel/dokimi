@@ -25,26 +25,10 @@ from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.eval.judge_validity import DEFAULT_MIN_ACCURACY, NoUsablePairs
 from dokimi.commands._output import write_text_or_exit
 from dokimi.exit_codes import EXIT_USAGE
-from dokimi.utils import InputError, same_evaluator
+from dokimi.utils import InputError, warn_judge_independence, warn_recorded_self_judge
 
 
-def _warn_judge_independence(
-    answer_provider: str,
-    answer_model: str,
-    judge_provider: str,
-    judge_model: str,
-    context: str = "run",
-) -> bool:
-    """Emit a non-fatal warning when answer and judge are the same model (on any provider route)."""
-    same = same_evaluator(answer_provider, answer_model, judge_provider, judge_model)
-    if same:
-        print(
-            "⚠ Evaluator independence warning "
-            f"({context}): answer model equals judge model "
-            f"[{answer_provider}/{answer_model}] and [{judge_provider}/{judge_model}] — potential self-referential bias.",
-            file=sys.stderr,
-        )
-    return same
+_warn_judge_independence = warn_judge_independence
 
 
 def _load_answers(path: str):
@@ -245,8 +229,10 @@ def cmd_eval_score(args: argparse.Namespace) -> None:
 def cmd_eval_ragas(args: argparse.Namespace) -> None:
     """Run standalone RAGAS meta-evaluation on an answers JSON."""
     _require_ragas()
-    answers = list(_load_answers(args.answers).records)
+    run = _load_answers(args.answers)
+    answers = list(run.records)
     print(f"Loaded {len(answers)} answers from {args.answers}")
+    warn_recorded_self_judge(run.meta, [(args.ragas_model, args.ragas_provider)], "eval score ragas")
 
     class _Args:
         ragas_model = args.ragas_model
@@ -274,6 +260,15 @@ def cmd_eval_grounding(args: argparse.Namespace) -> None:
         out = Path(args.output)
         _write_json_or_exit(out, result, code=2)
         print(f"\n✅ Grounding report saved to {out}")
+
+
+def _validity_judges(args: argparse.Namespace) -> list[tuple[str, str]]:
+    """``(model, provider)`` of the judge, then of the escalation judge; none for a typed scorer."""
+    if args.scorer != "judge":  # a typed scorer reads the answer and calls no judge
+        return []
+    from dokimi.commands.judge_reliability import _pairwise_judges
+
+    return _pairwise_judges(args)  # the judges pairwise_judge(args) builds; one copy of the escalation default
 
 
 def cmd_eval_judge_validity(args: argparse.Namespace) -> None:
@@ -365,6 +360,7 @@ def cmd_eval_judge_validity(args: argparse.Namespace) -> None:
             raise InputError("--context stored needs an arms artifact with non-empty stored judge "
                   "material; this file has none (judge_materials missing, or no record cites a "
                   "digest that matches)")
+    warn_recorded_self_judge(run.meta, _validity_judges(args), "eval judge validate")
     pair_scorer = None
     if args.mode == "pairwise":
         from dokimi.commands.judge_reliability import pairwise_judge

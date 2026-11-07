@@ -167,9 +167,9 @@ def test_the_pipeline_commands_refuse_it_before_any_answer(argv, sonnet_box, tmp
 
 
 def test_the_answerer_judge_and_generators_take_one_provider_list():
-    # main's four copies of the tuple, merged; openai-codex stays out though their CLI offers it.
-    assert CALLER_PROVIDERS == ("openai", "anthropic", "google", "gemini", "google-vertex", "openrouter",
-                                "amazon-bedrock", "vertex_ai", *BACKENDS)
+    # main's four copies of the tuple, merged; openai-codex stays out, and their CLI no longer offers it.
+    assert set(CALLER_PROVIDERS) == {"openai", "anthropic", "google", "gemini", "google-vertex", "openrouter",
+                                     "amazon-bedrock", "vertex_ai", *BACKENDS}
     for provider in ("openai-codex", "azure"):
         with pytest.raises(ValueError, match=f"Unsupported provider: '{provider}'"):
             check_caller_provider(provider)

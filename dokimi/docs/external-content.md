@@ -208,16 +208,17 @@ directory name and description but different `SKILL.md` text are a `warn` on bot
 `disable-model-invocation: true` are exempt from the description checks.
 
 Frontmatter that is not valid YAML (a bare colon in `description:`, say) stops
-the skill from loading, since the loader reads it as having no description. The
-scan reports that as a `frontmatter-parse` error carrying the YAML message, and
-it exits 1 with or without `--strict`, as a load error does. The YAML message is
-on the indented `frontmatter-parse` line under the skill (and in its `findings`
-in JSON); the row's main line and its JSON `error` field still say the skill is
-missing a `description`.
+the skill from loading. The scan reports that as a `frontmatter-parse` error
+carrying the YAML message, and it exits 1 with or without `--strict`, as a load
+error does. The YAML message is on the indented `frontmatter-parse` line under
+the skill (and in its `findings` in JSON); the row's main line and its JSON
+`error` field say the frontmatter has invalid YAML, with the line, not that the
+skill is missing a `description`.
 
 `--strict` makes `catalog check` a gate on the spec as well as on loading. The
 text output and `--format json` (one object: `state`, `findings`,
-`content_sha256`, `duplicate_of`, for a script or a CI gate) are the same either way.
+`content_sha256` of the `SKILL.md`, `skill_sha256` of the skill directory,
+`duplicate_of`, for a script or a CI gate) are the same either way.
 
 Restrict the scan with `--kind`:
 
@@ -230,6 +231,30 @@ demo-later      planned executable      skipped: no task.toml or task.md under C
 $ echo $?
 0
 ```
+
+A large catalog is easier to scan one skill at a time:
+
+- `--per-skill` reviews each skill alone. The four cross-catalog checks
+  (`duplicate`, `name-conflict`, `mirror-drift`, `description-near-duplicate`)
+  compare a skill with the others, so they do not run in this mode; every other
+  check does.
+- A `SKILL.md` inside another skill's directory is marked with `nested_in`
+  (the enclosing skill's path) in JSON and with a `note` in text. It is counted
+  by default; `--skip-nested` leaves it out of the scan.
+- `--jsonl PATH` writes one JSON row per skill as it is reviewed and prints only
+  the counts. `--jobs N` reviews N skills in parallel. `--resume` keeps the rows
+  already in PATH and reviews only the skills without one (a half-written last
+  line from a killed run is dropped). Each row carries `skill_sha256`, the
+  digest of every file in the skill's directory, and `--resume` keeps a row only
+  while that is unchanged: a skill whose `SKILL.md` or bundled file changed (or
+  a row without the field) is reviewed again. Without `--resume`, PATH is replaced.
+  Every `SKILL.md` is loaded before the first row, so memory still grows with
+  the catalog. A `--jobs` worker that dies ends the scan with exit 1.
+
+`--jsonl`, `--jobs` and `--resume` need `--per-skill`, and `--jsonl` does not
+combine with `--format json`; any other misuse exits 2. From Python,
+`dokimi.external.review_skill_dir(path)` returns the `SkillReview` of the one
+skill in `path`.
 
 ## 2. The awareness half: question sets
 
@@ -454,8 +479,8 @@ Error: 'widgetlib' is not a Context7 library ID. Context7 IDs look like 'uxlfoun
 ```
 
 Resolution order for documentation and MCP arms is: explicit
-`--context7-id`, then the product's `context7_id:` in the registry, then the
-error above.
+`--context7-id`, then the `;id=` of an `mcp:` source, then the product's
+`context7_id:` in the registry, then the error above.
 
 A *registered* product that declares no `context7_id:` is the same error, named
 per product. That case needs its own check because a Context7 website id looks

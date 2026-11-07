@@ -336,7 +336,7 @@ def test_all_vs_all_estimate_prices_each_call_and_sends_nothing(tmp_path, capsys
     estimate = json.loads(capsys.readouterr().out)
     assert set(estimate) == {"estimate_only", "artifact", "model", "provider", "n_candidates",
                              "n_queries", "n_queries_sent", "n_calls", "input_tokens",
-                             "output_tokens", "expected_usd"}
+                             "output_tokens_per_call", "output_tokens", "expected_usd"}
     assert estimate["estimate_only"] is True and estimate["artifact"] is None
     assert estimate["n_candidates"] == 3
     # Four queries given; the contentless "the a of" is not sent by the all-vs-all model arm.

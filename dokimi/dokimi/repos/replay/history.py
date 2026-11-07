@@ -144,6 +144,33 @@ class History:
         raw = self._git("diff-tree", "-r", "-z", "--name-only", "--no-renames", a, b).stdout_bytes
         return [p.decode("utf-8", "replace") for p in raw.split(b"\0") if p]
 
+    def statuses(self, a: str, b: str) -> list[tuple[str, str]]:
+        """``(status letter, path)`` of every path that differs between ``a`` and ``b``; a rename is a delete and
+        an add."""
+        raw = self._git("diff-tree", "-r", "-z", "--name-status", "--no-renames", a, b).stdout_bytes
+        parts = [p.decode("utf-8", "replace") for p in raw.split(b"\0")]
+        return [(parts[i][:1], parts[i + 1]) for i in range(0, len(parts) - 1, 2) if parts[i]]
+
+    def n_lines_changed(self, a: str, b: str, paths: list[str]) -> int:
+        """Lines added plus lines removed in ``paths`` from ``a`` to ``b``; a binary file counts none."""
+        if not paths:
+            return 0
+        raw = self._git("diff-tree", "-r", "--numstat", "--no-renames", a, b, "--", *paths).stdout
+        return sum(int(n) for ln in raw.splitlines() for n in ln.split("\t")[:2] if n.isdigit())
+
+    def blob(self, rev: str, path: str) -> tuple[str, bytes] | None:
+        """``(mode, content)`` of ``path`` at ``rev``; ``None`` when it is not there. A link's content is its
+        target, a submodule's is empty."""
+        entry = self._git("ls-tree", "-z", rev, "--", path).stdout.split("\0")[0]
+        if "\t" not in entry:
+            return None
+        mode, kind, sha = entry.split("\t", 1)[0].split()
+        return mode, (self._git("cat-file", "blob", sha).stdout_bytes if kind == "blob" else b"")
+
+    def commits(self, a: str, b: str) -> list[str]:
+        """The commits reachable from ``b`` and not from ``a``."""
+        return self._git("rev-list", b, f"^{a}", "--").stdout.split()
+
     def patch(self, a: str, b: str, leave_out: Iterable[str]) -> bytes:
         """The diff from ``a`` to ``b`` that ``git apply`` takes, binary files included, without ``leave_out``."""
         spec = [f":(exclude,literal){p}" for p in leave_out]  # only excludes: the rest of the tree

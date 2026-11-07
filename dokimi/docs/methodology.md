@@ -85,9 +85,9 @@ The benchmark separates model responsibilities because self-judging can inflate 
 
 The defaults live in `dokimi/defaults.py` and changed on 2026-10-13; scores from earlier default-flag runs are not comparable with later ones — re-baseline ([Default models](benchmarking-and-comparison.md#default-models)).
 
-`benchmark`, `eval score pointwise`, `eval score panel` and `evaluate` warn when the normalized answer model and judge model match (`arms` and `subjects` do not check). Evaluation artifacts also store model/provider metadata and `question_set_hash` so later comparisons can prove they used the same question set.
+`benchmark`, `eval score pointwise`, `eval score panel` and `evaluate` warn when the normalized answer model and judge model match, and so do `arms run --judge` and `subjects run --judge`. Commands that read a saved answers or questions file warn when the judge is the model the file records. Evaluation artifacts also store model/provider metadata and `question_set_hash` so later comparisons can prove they used the same question set.
 
-Supported providers in the main pipeline include OpenAI, Anthropic, Google Vertex, OpenRouter, Amazon Bedrock, and OpenAI Codex where wired by the CLI.
+Supported providers in the main pipeline (`evaluate`, `benchmark`, `answers generate`, `eval questions generate`, `eval personas discover`) are OpenAI, Anthropic, Google Vertex, OpenRouter, Amazon Bedrock and `claude-cli`; `openai-codex` only on the commands that call `dokimi.llm` directly (`arms`, `subjects run`, `skill novelty`, `skill shorten`, `novelty routing`, `eval questions analyze|review`, `eval score panel`, `tools preference`).
 
 ## Question Sources
 

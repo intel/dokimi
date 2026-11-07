@@ -29,10 +29,12 @@ one. For `--doc-source context7` (and MCP servers that take a library id) the id
 is resolved in this order:
 
 1. `--context7-id <id>` on the command line, if given;
-2. the product's `context7_id:` in the registry (`products.yaml`, or a custom one
+2. the `;id=<id>` of an `mcp:` source, for that source's arm;
+3. the product's `context7_id:` in the registry (`products.yaml`, or a custom one
    passed with `--registry` — see
    [external-content.md](external-content.md#6-products-this-repository-has-never-heard-of));
-3. otherwise the command stops with an error naming both options above.
+4. otherwise the command stops with an error naming the `--context7-id` and
+   `context7_id:` options above.
 
 IDs look like `uxlfoundation/oneTBB` (a GitHub repo) or
 `intelpython_github_io_dpnp` (a documentation website). `local:`, `url:` and

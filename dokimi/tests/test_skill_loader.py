@@ -334,3 +334,30 @@ def test_a_frontmatter_name_is_stripped(tmp_path, quoted):
         f"---\nname: {quoted}\ndescription: Profile.\n---\n# perf\n", encoding="utf-8"
     )
     assert load_skill(skill).name == "perf"
+
+
+# An unquoted ": " in a value is a YAML mapping error on line 3 of the file (the description).
+BROKEN_COLON_SKILL = (
+    "---\nname: software-factory\ndescription: Use when: the user wants a software factory\n"
+    "---\n\n# body\n"
+)
+
+
+def test_broken_frontmatter_names_the_yaml_line_and_hints_at_quoting(tmp_path):
+    skill_dir = tmp_path / "software-factory"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text(BROKEN_COLON_SKILL, encoding="utf-8")
+    with pytest.raises(ValueError) as info:
+        load_skill(skill_dir)
+    message = str(info.value)
+    assert "invalid YAML" in message and "line 3" in message
+    assert "quote" in message
+    assert "missing a 'description'" not in message
+
+
+def test_valid_frontmatter_without_a_description_still_says_it_is_missing(tmp_path):
+    skill_dir = tmp_path / "no-description"
+    skill_dir.mkdir()
+    (skill_dir / "SKILL.md").write_text("---\nname: no-description\n---\n\n# body\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="missing a 'description'"):
+        load_skill(skill_dir)

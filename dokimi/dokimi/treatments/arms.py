@@ -49,6 +49,8 @@ class DocTreatment(Treatment):
     ):
         self.name = name
         self.mcp_client = mcp_client
+        # Set by resolve_doc_library_id: this arm's own id, ahead of the run-wide one.
+        self.library_id = None
         self.top_k = top_k
         self.keep = keep
         self.arm_kind = arm_kind
@@ -70,9 +72,10 @@ class DocTreatment(Treatment):
         return SimpleReranker(threshold=threshold)
 
     def prepare(self, question_text, library_name, library_id=None) -> AgentConfig:
-        lib_id = library_id or library_name
+        lib_id = self.library_id or library_id or library_name
         metadata: Dict[str, Any] = {
             "arm_kind": self.arm_kind,
+            "library_id": lib_id,
             "raw_count": 0,
             "after_rerank": 0,
             "top_score": None,
@@ -124,6 +127,8 @@ class MCPAgentTreatment(Treatment):
     ):
         self.name = name
         self.mcp_client = mcp_client
+        # Set by resolve_doc_library_id: this arm's own id, ahead of the run-wide one.
+        self.library_id = None
         self.max_results = max_results
         self.keep = keep
         self.arm_kind = arm_kind
@@ -131,7 +136,7 @@ class MCPAgentTreatment(Treatment):
     def prepare(self, question_text, library_name, library_id=None) -> AgentConfig:
         from .tools import DocQueryTool
 
-        lib_id = library_id or library_name
+        lib_id = self.library_id or library_id or library_name
         tool = DocQueryTool(
             self.mcp_client, lib_id, max_results=self.max_results, keep=self.keep
         )

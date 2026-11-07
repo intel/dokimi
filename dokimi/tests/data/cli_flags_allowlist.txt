@@ -47,6 +47,7 @@
 --count
 --custom-questions
 --debug-retrieval
+--derives  # eval tasks generate (#41): a task count per question kind; no registry concept yet
 --description
 --doc-source
 --docker
@@ -85,6 +86,7 @@
 --intents
 --items-out
 --jobs
+--jsonl  # catalog check --jsonl (#413 A7): one row per skill to a file; no registry concept yet; a F1b migration names it
 --judge-configs
 --judge-model
 --judge-panel
@@ -114,6 +116,7 @@
 --max-file-words
 --max-iterations
 --max-lift-drop  # baseline compare score tolerance in points, not a spend cap; moves to the gate policy (#94)
+--max-lines  # repo tasks authoring (#294) adds it: a size filter, not a spend cap; no registry concept yet
 --max-resource-words
 --max-tokens
 --max-turns
@@ -147,6 +150,7 @@
 --pass-k  # repo compare (#155) adds it: no registry concept yet; a F1b migration names it
 --path-stability  # repo compare (#155) adds it: no registry concept yet; a F1b migration names it
 --per-arm  # repo hits sheet (#291) adds it: a sample size has no registry concept yet; a F1b migration names it
+--per-skill  # catalog check corpus mode (#413 A3): no registry concept yet; a F1b migration names it
 --personas
 --personas-count
 --placebo-text
@@ -157,6 +161,7 @@
 --product
 --prompt-file  # repo tasks replay (#265) adds it: no registry concept yet; a F1b migration names it
 --provider
+--prs  # repo tasks authoring (#294) adds it: no registry concept yet; a F1b migration names it
 --python-env  # repo scan --typecheck: the interpreter whose site-packages the fences resolve against; no registry concept yet
 --queries
 --queries-by-skill  # novelty routing (#172) adds it: no registry concept yet; a F1b migration names it
@@ -168,6 +173,7 @@
 --ragas-provider
 --rebuild-image
 --redraws
+--references  # eval tasks generate (#41): a task count per question kind; no registry concept yet
 --regular-runs
 --repeats
 --repo
@@ -175,6 +181,7 @@
 --require-validated
 --resource-roles
 --results-dir
+--resume  # catalog check --resume (#413 A7): keep the rows already in --jsonl; no registry concept yet; a F1b migration names it
 --reviewers
 --rewrite
 --roles
@@ -190,6 +197,7 @@
 --session-turns
 --shell  # trace consistency (#155) adds it: no registry concept yet; a F1b migration names it
 --sim-threshold
+--skip-nested  # catalog check --skip-nested (#413 A4): no registry concept yet; a F1b migration names it
 --skip-work
 --source-dir
 --spec
