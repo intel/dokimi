@@ -199,3 +199,31 @@ def test_an_unpriced_answer_stops_every_queued_probe_not_only_the_one_that_raise
     # One call reached the provider; the six jobs behind it were never sent.
     assert len(calls) == 1
     assert result.runs == [] and result.not_run == 6
+
+
+def test_analyze_stops_rather_than_publish_a_measurement_the_cap_cut_short(tmp_path, monkeypatch):
+    from dokimi.novelty import measure
+    from dokimi.novelty.analyze import AnalyzeConfig, analyze, load_artifact_text
+    from dokimi.novelty.client import SpendCapReached
+
+    from tests.test_novelty_analyze import SKILL, _clients
+
+    path = tmp_path / "accel-tuning" / "SKILL.md"
+    path.parent.mkdir(parents=True)
+    path.write_text(SKILL, encoding="utf-8")
+    kind, name, description, frontmatter, body = load_artifact_text(f"skill:{path}")
+    config = AnalyzeConfig(
+        artifact_ref=f"skill:{path}", artifact_kind=kind, name=name,
+        description=description, frontmatter=frontmatter, concurrency=1,
+    )
+    real = measure.run_measurement
+
+    def cut_short(*a, **kw):
+        result = real(*a, **kw)
+        result.runs, result.not_run = result.runs[:1], 3
+        return result
+
+    monkeypatch.setattr(measure, "run_measurement", cut_short)
+    extractor, answerer, judge = _clients()
+    with pytest.raises(SpendCapReached, match="3 probe answers were not run; nothing was written"):
+        analyze(body, config, extractor=extractor, answerer=answerer, judge=judge)
