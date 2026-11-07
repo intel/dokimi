@@ -5579,7 +5579,7 @@
               "nargs": null,
               "position": null,
               "required": false,
-              "type": "dokimi.commands.leak._fraction#f004dc3535ad"
+              "type": "dokimi.commands.leak._fraction#949dcee9b366"
             },
             {
               "action": "_StoreAction",
@@ -5644,6 +5644,22 @@
               "position": null,
               "required": false,
               "type": null
+            },
+            {
+              "action": "_StoreAction",
+              "choices": null,
+              "const": null,
+              "default": 12,
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": false,
+              "key": "--verbatim-words",
+              "kind": "option",
+              "nargs": null,
+              "position": null,
+              "required": false,
+              "type": "dokimi.commands.leak._positive_int#fdae49cd27e9"
             }
           ],
           "path": "dokimi eval leak",

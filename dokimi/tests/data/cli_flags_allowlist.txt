@@ -255,4 +255,5 @@
 --split  # eval leak (#220 A3) adds it: no registry concept yet; a F1b migration names it
 --lock  # eval leak (#220 A3) adds it: no registry concept yet; a F1b migration names it
 --relock  # eval leak (#220 A3) adds it: no registry concept yet; a F1b migration names it
+--verbatim-words  # eval leak (#220 A3) adds it: no registry concept yet; a F1b migration names it
 --proposer  # eval leak (#220 A3) adds it: no registry concept yet; a F1b migration names it

@@ -521,3 +521,158 @@ def test_a_bom_on_the_first_allow_line_does_not_make_a_comment_a_term(tmp_path):
     allow.write_bytes("﻿# why this term is allowed\nxpu_profiler\n".encode("utf-8"))
     from dokimi.eval.leakgate import read_terms
     assert read_terms([], allow) == ["xpu_profiler"]
+
+
+# --- relock is written only when the run passes ---------------------------------------------------
+
+def test_a_relock_of_a_run_blocked_by_a_leak_leaves_the_old_lock(tmp_path):
+    lock = tmp_path / "l.json"
+    first = run(_skill("clean"), QUESTIONS, assignment=SPLIT, lock_path=lock, now=NOW)
+    before = lock.read_bytes()
+    moved = {**SPLIT, "2": "dev"}
+    result = run(_skill(f"Answer: {ANSWER}"), QUESTIONS, assignment=moved, lock_path=lock, now=NOW, relock=True)
+    assert result["status"] == "blocked"
+    assert lock.read_bytes() == before
+    assert result["split"]["state"] == "not_relocked"
+    assert result["split"]["previous_digest"] == first["split"]["digest"]
+    assert result["split"]["moved"] == ["2"]
+    assert all(v["kind"] != "split_changed" for v in result["violations"])
+
+
+def test_a_relock_of_a_run_that_gives_the_proposer_a_test_item_leaves_the_old_lock(tmp_path):
+    lock = tmp_path / "l.json"
+    run(_skill("clean"), QUESTIONS, assignment=SPLIT, lock_path=lock, now=NOW)
+    before = lock.read_bytes()
+    result = run(_skill("clean"), QUESTIONS, assignment={**SPLIT, "2": "dev"}, lock_path=lock, now=NOW,
+                 relock=True, proposer_ids=["3"])
+    assert result["status"] == "blocked" and result["split"]["state"] == "not_relocked"
+    assert lock.read_bytes() == before
+
+
+def test_a_relock_of_an_inconclusive_run_leaves_the_old_lock(tmp_path):
+    lock = tmp_path / "l.json"
+    run(_skill("clean"), QUESTIONS, assignment=SPLIT, lock_path=lock, now=NOW)
+    before = lock.read_bytes()
+    unchecked = QUESTIONS + [_q("4", [])]
+    result = run(_skill("clean"), unchecked, assignment={**SPLIT, "4": "val"}, lock_path=lock, now=NOW, relock=True)
+    assert result["status"] == "inconclusive" and result["split"]["state"] == "not_relocked"
+    assert lock.read_bytes() == before
+
+
+def test_a_relock_of_a_passing_run_writes_the_new_lock(tmp_path):
+    lock = tmp_path / "l.json"
+    run(_skill("clean"), QUESTIONS, assignment=SPLIT, lock_path=lock, now=NOW)
+    result = run(_skill("clean"), QUESTIONS, assignment={**SPLIT, "2": "dev"}, lock_path=lock, now=NOW, relock=True)
+    assert result["status"] == "pass" and result["split"]["state"] == "relocked"
+    assert json.loads(lock.read_text(encoding="utf-8"))["assignment"]["2"] == "dev"
+
+
+def test_lock_split_with_write_relock_off_keeps_the_lock_and_names_the_moved_items(tmp_path):
+    from dokimi.eval.leakgate import lock_split
+    lock = tmp_path / "split.lock.json"
+    lock_split({"1": "dev", "2": "test"}, _contents("1", "2"), lock, NOW)
+    before = lock.read_bytes()
+    result = lock_split({"1": "dev", "2": "val"}, _contents("1", "2"), lock, NOW, relock=True, write_relock=False)
+    assert result == {"state": "not_relocked", "moved": ["2"],
+                      "previous_digest": json.loads(before)["digest"]}
+    assert lock.read_bytes() == before
+
+
+def test_the_table_says_a_relock_that_did_not_run_left_the_old_lock(tmp_path):
+    lock = tmp_path / "l.json"
+    run(_skill("clean"), QUESTIONS, assignment=SPLIT, lock_path=lock, now=NOW)
+    result = run(_skill(f"Answer: {ANSWER}"), QUESTIONS, assignment={**SPLIT, "2": "dev"}, lock_path=lock, now=NOW,
+                 relock=True)
+    table = format_table(result)
+    assert table.splitlines()[0].startswith("split not relocked: digest ")
+    assert "the run is blocked, so the old lock stands" in table
+
+
+# --- verbatim run rule: N words copied from an answer, whatever the share ------------------------
+
+LONG = " ".join(f"term{i}" for i in range(200))  # 200 distinct words: a share of 12 words is a few percent
+
+
+def _run_of(start, count):
+    return " ".join(f"term{i}" for i in range(start, start + count))
+
+
+def test_a_verbatim_run_of_twelve_words_is_flagged_though_its_share_is_below_the_threshold():
+    row = assess([_q("1", [_match(LONG)])], skill_index(_skill(f"Notes: {_run_of(50, 12)} end")),
+                 verbatim_index=skill_index(_skill(f"Notes: {_run_of(50, 12)} end"), n=12), verbatim=12)[0]
+    assert row["fraction"] < 0.10 and row["verbatim"] == 1
+    assert row["status"] == "flagged" and row["flagged_by"] == ["verbatim"]
+
+
+def test_an_eleven_word_run_is_not_a_verbatim_leak_at_the_default_length():
+    text = _skill(f"Notes: {_run_of(50, 11)} end")
+    row = assess([_q("1", [_match(LONG)])], skill_index(text), verbatim_index=skill_index(text, n=12), verbatim=12)[0]
+    assert row["verbatim"] == 0 and row["status"] == "clear"
+
+
+def test_the_verbatim_length_is_a_parameter():
+    text = _skill(f"Notes: {_run_of(50, 11)} end")
+    result = run(text, [_q("1", [_match(LONG)])], verbatim=11)
+    assert result["verbatim_words"] == 11 and result["status"] == "blocked"
+    assert result["items"][0]["flagged_by"] == ["verbatim"]
+
+
+def test_a_verbatim_run_is_flagged_through_run_and_blocks_it():
+    result = run(_skill(f"Notes: {_run_of(50, 12)} end"), [_q("1", [_match(LONG)])])
+    assert result["status"] == "blocked"
+    assert {"kind": "leak", "question_id": "1"} in result["violations"]
+
+
+def test_an_allowlisted_run_is_not_a_verbatim_leak():
+    allow = [f"term{i}" for i in range(50, 62)]
+    result = run(_skill(f"Notes: {_run_of(50, 12)} end"), [_q("1", [_match(LONG)])], allow=allow)
+    assert result["items"][0]["verbatim"] == 0 and result["status"] == "pass"
+
+
+def test_a_verbatim_run_does_not_span_two_skill_files():
+    files = {"SKILL.md": f"Notes: {_run_of(50, 6)}", "other.md": f"{_run_of(56, 6)} end"}
+    result = run(files, [_q("1", [_match(LONG)])])
+    assert result["items"][0]["verbatim"] == 0
+
+
+def test_the_verbatim_length_must_be_at_least_one():
+    with pytest.raises(ValueError, match="verbatim"):
+        run(_skill("clean"), QUESTIONS, verbatim=0)
+
+
+def test_a_verbatim_run_in_nfd_is_caught_like_nfc():
+    import unicodedata
+    answer = " ".join(["café"] + [f"term{i}" for i in range(12)] + ["x"])
+    nfd = unicodedata.normalize("NFD", f"Notes: {answer}")
+    result = run(_skill(nfd), [_q("1", [_match(answer)])], verbatim=12)
+    assert result["items"][0]["verbatim"] > 0 and result["status"] == "blocked"
+
+
+# --- skipped skill files are warnings -----------------------------------------------------------
+
+def test_read_skill_reports_a_non_utf8_file_and_a_symlink_as_skipped(tmp_path):
+    import os
+    from dokimi.eval.leakgate import read_skill as rs
+    root = tmp_path / "skill"
+    root.mkdir()
+    (root / "SKILL.md").write_text("benign\n", encoding="utf-8")
+    (root / "notes.txt").write_bytes("held-out answer".encode("utf-16"))
+    os.symlink(root / "SKILL.md", root / "link.md")
+    skipped: list[str] = []
+    files = rs(root, skipped=skipped)
+    assert sorted(files) == ["SKILL.md"]
+    assert skipped == ["link.md: symbolic link, not read", "notes.txt: not UTF-8 text, not read"]
+
+
+def test_read_skill_without_a_skipped_list_still_skips_quietly(tmp_path):
+    from dokimi.eval.leakgate import read_skill as rs
+    (tmp_path / "SKILL.md").write_text("benign\n", encoding="utf-8")
+    (tmp_path / "bin.dat").write_bytes(b"\xff\xfe\x00\x81")
+    assert sorted(rs(tmp_path)) == ["SKILL.md"]
+
+
+def test_format_table_prints_each_warning_under_the_split_line():
+    result = run({"SKILL.md": "clean"}, QUESTIONS)
+    result["warnings"] = ["notes.txt: not UTF-8 text, not read"]
+    lines = format_table(result).splitlines()
+    assert "warning: notes.txt: not UTF-8 text, not read" in lines

@@ -42,7 +42,7 @@ def _split(path: Path, split: dict[str, list[str]] = SPLIT) -> Path:
 
 def _args(skill, questions, **overrides):
     base = {"skill": str(skill), "questions": str(questions), "allow": None, "allow_file": None,
-            "min_fraction": 0.10, "split": None, "lock": None, "proposer": None, "relock": False, "out": None}
+            "min_fraction": 0.10, "split": None, "lock": None, "proposer": None, "relock": False, "out": None, "verbatim_words": 12}
     return argparse.Namespace(**{**base, **overrides})
 
 
@@ -309,3 +309,48 @@ def test_an_out_beside_a_skill_md_given_as_the_skill_is_refused_and_the_sibling_
     before = helper.read_bytes()
     assert _exit_code(_args(skill / "SKILL.md", questions, out=str(helper))) == 2
     assert helper.read_bytes() == before
+
+
+def test_a_relock_of_a_blocked_run_exits_1_and_leaves_the_old_lock(tmp_path, capsys):
+    skill, questions = _clean_run(tmp_path)
+    split = _split(tmp_path / "split.json")
+    cmd_eval_leak(_args(skill, questions, split=str(split)))
+    lock = tmp_path / "split.lock.json"
+    before = lock.read_bytes()
+    moved = _split(tmp_path / "moved.json", {"dev": ["1", "3"], "val": ["2"], "test": []})
+    leaky = _skill(tmp_path / "leaky", f"Copied: {ANSWER}.")
+    assert _exit_code(_args(leaky, questions, split=str(moved), lock=str(lock), relock=True)) == 1
+    assert lock.read_bytes() == before
+    assert "lock not overwritten: the run is blocked, so the old lock stands" in capsys.readouterr().out
+
+
+def test_the_verbatim_words_flag_defaults_to_twelve_and_refuses_zero(capsys):
+    import dokimi.cli as cli
+
+    parser = cli.build_parser()
+    assert parser.parse_args(["eval", "leak", "skill", "q.json"]).verbatim_words == 12
+    assert parser.parse_args(["eval", "leak", "skill", "q.json", "--verbatim-words", "9"]).verbatim_words == 9
+    with pytest.raises(SystemExit):
+        parser.parse_args(["eval", "leak", "skill", "q.json", "--verbatim-words", "0"])
+
+
+def test_a_verbatim_run_of_the_flag_length_exits_1(tmp_path, capsys):
+    run_words = " ".join(f"term{i}" for i in range(200))
+    questions = _questions(tmp_path / "q.json", {"1": run_words})
+    skill = _skill(tmp_path / "skill", "Notes: " + " ".join(f"term{i}" for i in range(50, 62)) + " end.")
+    out = tmp_path / "leak.json"
+    assert _exit_code(_args(skill, questions, out=out, verbatim_words=12)) == 1
+    saved = json.loads(out.read_text(encoding="utf-8"))
+    assert saved["verbatim_words"] == 12 and saved["items"][0]["flagged_by"] == ["verbatim"]
+    assert schema_errors("leak.v1", saved) == []
+
+
+def test_a_skipped_skill_file_is_a_warning_in_the_table_and_the_artifact(tmp_path, capsys):
+    skill, questions = _clean_run(tmp_path)
+    (skill / "notes.txt").write_bytes(f"{ANSWER}".encode("utf-16"))  # UTF-16: not read, so not checked
+    out = tmp_path / "leak.json"
+    cmd_eval_leak(_args(skill, questions, out=out))
+    saved = json.loads(out.read_text(encoding="utf-8"))
+    assert saved["warnings"] == ["notes.txt: not UTF-8 text, not read"]
+    assert saved["skill_files"] == ["SKILL.md"] and schema_errors("leak.v1", saved) == []
+    assert "warning: notes.txt: not UTF-8 text, not read" in capsys.readouterr().out

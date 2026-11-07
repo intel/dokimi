@@ -17,6 +17,8 @@
     "lock_path": {"type": ["string", "null"], "description": "The split lock file; null without --split."},
     "ngram": {"type": "integer", "minimum": 1, "description": "Words in a run; an item shorter than this after the allowlist is unchecked."},
     "min_fraction": {"type": "number", "exclusiveMinimum": 0, "maximum": 1, "description": "An item is flagged when this share of its runs is in the skill."},
+    "verbatim_words": {"type": "integer", "minimum": 1, "description": "Words in a verbatim run: an item with any such run copied from its expected text is flagged, whatever the share. Absent from files saved before this rule."},
+    "warnings": {"type": "array", "items": {"type": "string"}, "description": "Skill files that were not read (not UTF-8 text, or a symbolic link), one per line: the file and the reason. A file that is not read is not checked. Absent from files saved before this field."},
     "allow": {"type": "array", "items": {"type": "string"}, "description": "The allowlisted terms, sorted."},
     "skill_files": {"type": "array", "items": {"type": "string"}, "description": "The text files of the skill that were read, relative to the skill directory."},
     "split": {
@@ -25,7 +27,7 @@
       "required": ["state", "digest", "previous_digest", "counts", "moved"],
       "additionalProperties": false,
       "properties": {
-        "state": {"enum": ["not_locked", "created", "matched", "changed", "relocked"], "description": "created: the lock was written at this run; matched: the lock has this digest; changed: the lock has another digest and was not rewritten; relocked: the lock had another digest (or was unreadable) and was overwritten with this split (--relock)."},
+        "state": {"enum": ["not_locked", "created", "matched", "changed", "relocked", "not_relocked"], "description": "created: the lock was written at this run; matched: the lock has this digest; changed: the lock has another digest and was not rewritten; relocked: the lock had another digest (or was unreadable) and was overwritten with this split (--relock, the run passed); not_relocked: --relock was given but the run did not pass, so the old lock was kept."},
         "digest": {"type": "string", "pattern": "^[0-9a-f]{64}$", "description": "SHA-256 of the sorted (id, split, grading digest) triples; the grading digest is the SHA-256 of the item's grading block."},
         "previous_digest": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$", "description": "The digest the lock had before --relock overwrote it; null in every other state, and when the old lock was unreadable."},
         "counts": {"type": "object", "required": ["dev", "val", "test"], "additionalProperties": false,
@@ -48,7 +50,9 @@
           "fraction": {"type": ["number", "null"], "minimum": 0, "maximum": 1, "description": "shared / grams; null when unchecked."},
           "status": {"enum": ["flagged", "clear", "unchecked"]},
           "reason": {"type": ["string", "null"], "description": "Why the item is unchecked; null otherwise."},
-          "files": {"type": "array", "items": {"type": "string"}, "description": "Skill files that hold a shared run."}
+          "files": {"type": "array", "items": {"type": "string"}, "description": "Skill files that hold a shared run."},
+          "verbatim": {"type": "integer", "minimum": 0, "description": "Distinct runs of verbatim_words words of the item's expected text that occur in the skill. Absent from files saved before the verbatim rule."},
+          "flagged_by": {"type": "array", "items": {"enum": ["share", "verbatim"]}, "description": "The rules that flagged the item: share (at least min_fraction of its runs) and verbatim (any verbatim run). Empty unless flagged. Absent from files saved before the verbatim rule."}
         }
       }
     },

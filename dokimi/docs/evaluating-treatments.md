@@ -798,7 +798,9 @@ python cli.py eval leak skills/candidate questions.json --split split.json \
 ```
 
 - **leak**: an item is flagged when at least `--min-fraction` (default 0.10) of the 8-word
-  runs of its expected answers and checks also occur in the skill's text. The expected text of
+  runs of its expected answers and checks also occur in the skill's text, or when any single
+  verbatim run of `--verbatim-words` words (default 12) of that text occurs in the skill, whatever
+  the share (a copied passage can be a small share of a long answer). The expected text of
   an item is the literal values of its positive checks and the `reference` of its judge checks.
   A judge check with no `reference` counts its `criterion` instead, at the same weight as a
   reference (there is no lower weight for a criterion), and only where there is no reference.
@@ -816,18 +818,29 @@ python cli.py eval leak skills/candidate questions.json --split split.json \
   removed from both texts before the runs are cut, so a copied sentence that holds a term is
   still caught. Single-letter flag terms (`-d`, `-v`) are plain words once cut and drop out of
   every text: list only the longer forms. A bare command made only of allowlisted identifiers
-  is not detected; that is a known limitation.
+  is not detected; that is a known limitation. The verbatim rule needs the same allowlist: a
+  shared command line of 12 or more words (a build or install command, for example) is one
+  verbatim run, so without the allowlist a benign skill can be flagged by it.
 - **split lock**: `--split` is a JSON object `{"dev": [ids], "val": [ids], "test": [ids]}`
   that places every question once. The lock (`--lock`, default: the split's name with
   `.lock.json`) is written at first use with each question's split and the SHA-256 of its
   `grading` block, so a changed expected answer or check counts as a change, not only a moved
   id. A later run whose digest differs is blocked and names the items whose split or grading
-  block moved; the lock is never rewritten by such a run. A lock edited by hand is refused.
+  block moved; the lock is never rewritten by such a run. A lock edited by hand, without
+  recomputing its digest, is refused. The lock is an accidental-edit check, not tamper-proof:
+  its digest sits beside the assignment it covers, so whoever can write the lock can also
+  write a matching digest.
 - **relock**: `--relock` (with `--split`) overwrites the lock with the current split and
-  grading blocks, after a deliberate change. The report says `split relocked`, prints the
-  digest it replaced (`previous_digest` in the artifact) and lists the items that moved. It
-  is not a split violation, so the run passes if the leak check does. A corrupt lock is
-  replaced, with no previous digest.
+  grading blocks, after a deliberate change. It is written only when the run passes (no leak,
+  no test item given to the proposer, nothing unchecked). A blocked or inconclusive run leaves
+  the old lock as it was and reports `split not relocked`. A passing run reports
+  `split relocked`, prints the digest it replaced (`previous_digest` in the artifact) and lists
+  the items that moved. It is not a split violation. A corrupt lock is replaced, with no
+  previous digest.
+- **warnings**: a skill file that is not UTF-8 text (a UTF-16 notes file, a binary asset) or is
+  a symbolic link is not read, and so is not checked. The report and the artifact's `warnings`
+  list name each one. A warning does not block the run; a skill that ships binary assets gets
+  one warning per file.
 - **proposer**: `--proposer FILE` is a JSON list of the question ids the proposer sees. A test
   id on it blocks the run.
 
