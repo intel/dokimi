@@ -271,7 +271,7 @@ def default_judge(model: str, provider: str | None = None,
                   answerer_provider: str | None = None) -> tuple[str, str]:
     """A (model, provider) judge that is not the answerer, when the caller did not name one.
 
-    The default judge, unless it is the model under measurement (by bare name, so a
+    The default judge, unless it is the model under measurement (by ``same_model``, so a
     Bedrock ``us.anthropic.claude-...`` id counts too); then the default generator,
     which is of the other family. With ``provider`` (an explicit ``--judge-provider``)
     only a default that runs there is taken: its own provider, or Bedrock for a name in
@@ -285,20 +285,20 @@ def default_judge(model: str, provider: str | None = None,
     from dokimi.llm_cli import backend
     from dokimi.utils import same_model
 
-    bare = model.rsplit("/", 1)[-1].rsplit("anthropic.", 1)[-1]
     if provider is None and answerer_provider is not None and backend(answerer_provider) is not None:
         provider = answerer_provider
     # Hard-coded for claude-cli; a second CLI backend (codex-cli) needs its own alias list here.
     if provider == "claude-cli":
         # The CLI's aliases: the first one not of the answerer's family, so the judge is never the answerer.
+        # The model itself is compared, not a bare name: ``myorg/sonnet`` is not the CLI's sonnet.
         for alias in ("opus", "sonnet", "haiku"):
-            if not same_model(alias, bare):
+            if not same_model(alias, model):
                 return alias, provider
         raise ValueError(f"judge provider {provider}: no judge of another family than {model}; "
                          "pass --judge-model as well")
     candidates = [(m, p) for m, p in ((DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER),
                                       (DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER))
-                  if m != bare and not same_model(bare, m)]
+                  if m != model and not same_model(model, m)]
     if provider is None:
         return candidates[0]
     for m, p in candidates:

@@ -178,3 +178,12 @@ def test_baseline_compare_verifies_a_cli_alias_against_its_full_id_as_unverified
     from dokimi.commands.baseline import _recorded_verdict
 
     assert _recorded_verdict(("claude-cli", "sonnet"), ("claude-cli", "claude-sonnet-4-5")) == "unverified"
+
+
+def test_default_judge_keeps_the_organization_of_the_model_it_measures():
+    from dokimi.novelty.client import DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER, default_judge
+
+    # the org-named sonnet is not the CLI's sonnet, so the CLI judge is opus, and the API default is not it either
+    assert default_judge("myorg/sonnet", "claude-cli") == ("opus", "claude-cli")
+    assert default_judge("myorg/sonnet", DEFAULT_JUDGE_PROVIDER) == (DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER)
+    assert default_judge("myorg/sonnet", "anthropic", "openrouter") == (DEFAULT_JUDGE_MODEL, "anthropic")
