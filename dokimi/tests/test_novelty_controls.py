@@ -3,6 +3,7 @@
 
 """Placebo gating, the noise floor, atom-clustered CIs and context framing."""
 
+import importlib
 import json
 
 import pytest
@@ -225,3 +226,93 @@ def test_a_scorecard_cell_keeps_the_marker_of_its_interval():
     older = {k: v for k, v in lenient.items() if k != "ci_cluster"}
     assert novelty_cell({"paired": {"lenient": older}})["paired"]["lenient"]["ci_cluster"] is None
 
+
+def _arms_of(verdicts_by_arm):
+    return [_run(f"a{i}", arm, v) for arm, vs in verdicts_by_arm.items() for i, v in enumerate(vs)]
+
+
+def test_a_repeat_arm_the_baseline_never_answered_reports_no_floor():
+    runs = _arms_of({"no_artifact": [ERRORED], "full": [RIGHT], "no_artifact_repeat": [RIGHT]})
+    assert "noise_floor" not in paired_outcomes(runs)
+
+
+def test_the_floor_interval_counts_wrong_then_right_flips():
+    W, R = WRONG, RIGHT
+    runs = _arms_of({"no_artifact": [W, W, W, R, W, W, W, R],
+                     "no_artifact_repeat": [R, R, R, W, W, W, W, R], "full": [R] * 8})
+    floor = paired_outcomes(runs)["noise_floor"]
+    assert (floor["added"], floor["degraded"], floor["ci95_added"]) == (0.375, 0.125, [0.125, 0.75])
+
+
+def test_added_over_placebo_carries_the_atom_clustered_interval():
+    runs = _arms_of({"no_artifact": [WRONG] * 8, "placebo": [WRONG] * 8,
+                     "full": [RIGHT, RIGHT] + [WRONG] * 6})
+    gated = paired_outcomes(runs)["added_over_placebo"]
+    assert (gated["rate"], gated["ci95"]) == (0.25, [0.0, 0.625])
+
+
+def _skill_with_atoms(tmp_path, monkeypatch, seen):
+    from dokimi.cli import build_parser
+    from dokimi.commands import novelty as novelty_cmd
+
+    skill = tmp_path / "s" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text("---\nname: s\ndescription: d\n---\n\n# H\n\n"
+                     "Do not enable the legacy driver.\n", encoding="utf-8")
+    rows = [{"statement": "The legacy driver must not be enabled.", "kind": "contract",
+             "question": "Should the legacy driver be enabled?", "answer": "No.",
+             "tags": [], "span_ids": ["s0002"]}]
+
+    def transport(prompt, system=None):
+        seen.append(prompt)
+        if "Extract the checkable knowledge" in prompt:
+            return json.dumps(rows), None
+        return json.dumps({"verdict": RIGHT}), None
+
+    real = novelty_cmd._client
+
+    def client(model, provider, role, args):
+        built = real(model, provider, role, args)
+        built.transport = transport
+        return built
+
+    monkeypatch.setattr(novelty_cmd, "_client", client)
+    atoms = tmp_path / "atoms.json"
+    args = build_parser().parse_args(["skill", "novelty", "atoms", "--artifact", f"skill:{skill}",
+                                      "--out", str(atoms)])
+    args.func(args)
+    return build_parser(), f"skill:{skill}", str(atoms)
+
+
+def test_novelty_probe_measures_and_records_the_framing_its_flag_names(tmp_path, monkeypatch):
+    seen: list[str] = []
+    parser, artifact, atoms = _skill_with_atoms(tmp_path, monkeypatch, seen)
+    out = tmp_path / "p.json"
+    args = parser.parse_args(["skill", "novelty", "probe", "--artifact", artifact, "--atoms", atoms,
+                              "--model", "m-a", "--judge-model", "m-b", "--no-paraphrase",
+                              "--no-reversal", "--context-framing", "neutral", "--out", str(out)])
+    args.func(args)
+    assert any(p.startswith("Below is a document. It may or may not") for p in seen)
+    assert not any(p.startswith("Reference material:") for p in seen)
+    assert json.loads(out.read_text())["context_framing"] == "neutral"
+
+
+def test_novelty_analyze_hands_its_framing_flag_to_the_run(tmp_path, monkeypatch):
+    from dokimi.cli import build_parser
+
+    skill = tmp_path / "s" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text("---\nname: s\ndescription: d\n---\n\n# H\n\nText.\n", encoding="utf-8")
+    seen = []
+
+    def stop(text, config, **kwargs):
+        seen.append(config.context_framing)
+        raise ValueError("stop")
+
+    # The package re-exports analyze(), which hides the module of the same name.
+    monkeypatch.setattr(importlib.import_module("dokimi.novelty.analyze"), "analyze", stop)
+    args = build_parser().parse_args(["skill", "novelty", "analyze", "--artifact", f"skill:{skill}",
+                                      "--context-framing", "neutral"])
+    with pytest.raises(SystemExit, match="stop"):
+        args.func(args)
+    assert seen == ["neutral"]
