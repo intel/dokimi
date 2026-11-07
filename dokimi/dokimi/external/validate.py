@@ -179,10 +179,12 @@ def _strict_meta(text: str) -> tuple[dict, Optional[Finding]]:
     return meta, None
 
 
-def _group_end(value: str, start: int) -> Optional[int]:
+def _group_end(value: str, start: int, quotes: bool = True) -> Optional[int]:
     """The index just past the ``)`` that closes the ``(`` at ``start``, or None when the group never closes.
 
-    Nested parentheses count; quoted text inside the group is opaque, so a ``)`` in quotes does not close it.
+    Nested parentheses count. With ``quotes``, quoted text inside the group is opaque, so a ``)`` in quotes does
+    not close it; a quote that never closes makes the group fail, and the caller reads that quote as a plain
+    character (``Bash(echo don't)``) with ``quotes=False``.
     """
     depth, quote = 0, ""
     for i in range(start, len(value)):
@@ -190,7 +192,7 @@ def _group_end(value: str, start: int) -> Optional[int]:
         if quote:
             if c == quote:
                 quote = ""
-        elif c in "\"'":
+        elif quotes and c in "\"'":
             quote = c
         elif c == "(":
             depth += 1
@@ -199,6 +201,12 @@ def _group_end(value: str, start: int) -> Optional[int]:
             if depth == 0:
                 return i + 1
     return None
+
+
+def _close_group(value: str, start: int) -> Optional[int]:
+    """:func:`_group_end` with quotes; when they never close, the group with its quotes as plain text."""
+    end = _group_end(value, start)
+    return end if end is not None else _group_end(value, start, quotes=False)
 
 
 def _tool_names(value: str) -> list[str]:
@@ -216,7 +224,7 @@ def _tool_names(value: str) -> list[str]:
             i += 1
             continue
         if c == "(":  # a pattern with no tool name: skipped
-            end = _group_end(value, i)
+            end = _close_group(value, i)
             if end is None:
                 break
             i = end
@@ -227,7 +235,7 @@ def _tool_names(value: str) -> list[str]:
         names.append(value[i:j])
         i = j
         if i < n and value[i] == "(":
-            end = _group_end(value, i)
+            end = _close_group(value, i)
             if end is None:
                 break
             i = end

@@ -102,6 +102,18 @@ def test_allowed_tools_pattern_with_nested_or_quoted_parentheses_is_not_a_tool_n
     assert "allowed-tools-unknown" not in _codes(tmp_path, "nested-list")
 
 
+def test_allowed_tools_name_with_a_pattern_is_flagged_by_its_name(tmp_path):
+    _skill(tmp_path, "pattern-typo", extra="allowed-tools: Frobnicate(test)\n")
+
+    assert "'Frobnicate'" in _message(tmp_path, "pattern-typo", "allowed-tools-unknown")
+
+
+def test_apostrophe_in_a_pattern_does_not_hide_the_entries_after_it(tmp_path):
+    from dokimi.external.validate import _unknown_tools
+
+    assert _unknown_tools("Bash(echo don't), Frobnicate") == ["Frobnicate"]
+
+
 def test_allowed_tools_pattern_that_never_closes_is_dropped_in_linear_time(tmp_path):
     from dokimi.external.validate import _unknown_tools
 
