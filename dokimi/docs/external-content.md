@@ -207,6 +207,17 @@ directory name and description but different `SKILL.md` text are a `warn` on bot
 (`mirror-drift`), naming the other copies. Skills with
 `disable-model-invocation: true` are exempt from the description checks.
 
+The scan also reads the shell commands in `SKILL.md` and its bundled text files; nothing is run. A `curl`
+or `wget` piped into a shell or an interpreter (`| sh`, `| sudo bash`, `| python3`) is a `warn`
+(`pipe-to-shell`). So is `--dangerously-skip-permissions`, `--yolo` or `bypassPermissions`, which switch off
+an agent's permission prompts (`permission-bypass-flag`). A `pip`, `npm` or `npx` install that names a
+package with no version is a `warn` with the count for the skill (`install-unpinned`); a requirements
+file, a local path, a URL or a `git+` source is not counted. Installs are read from code only: the fenced
+blocks and code spans of a prose file (Markdown, `.mdx`, `.txt`, `.rst`, `.adoc`), and the whole of any other
+text file, such as a script. The scan reads at most 200
+bundled files of 256 KiB or less, skipping binary and non-UTF-8 files. A skill at the root of a
+checkout reads its own `SKILL.md` only.
+
 Frontmatter that is not valid YAML (a bare colon in `description:`, say) stops
 the skill from loading. The scan reports that as a `frontmatter-parse` error
 carrying the YAML message, and it exits 1 with or without `--strict`, as a load

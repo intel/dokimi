@@ -70,6 +70,7 @@ from dokimi.skills import Skill
 from dokimi.utils import describe_yaml_error, parse_frontmatter_strict
 
 from .catalog import SkillCatalogEntry, _within
+from .command_checks import command_findings
 from .skill_markdown import link_pieces, outside_fences
 from .listing import in_field
 
@@ -504,11 +505,14 @@ def review_skills(entries: Sequence[SkillCatalogEntry]) -> list[Optional[SkillRe
             reviews.append(_unloaded_review(entry))
             continue
         skill = entry.skill
-        findings, hidden = _frontmatter_findings(
-            skill, at_root=skill.path.parent.resolve() == entry.source_root.resolve()
-        )
+        at_root = skill.path.parent.resolve() == entry.source_root.resolve()
+        findings, hidden = _frontmatter_findings(skill, at_root=at_root)
         review = SkillReview(findings=findings, disable_model_invocation=hidden)
         review.findings += _bundle_findings(skill, entry.source_root)
+        review.findings += [
+            Finding("warn", code, message)
+            for code, message in command_findings(skill.path, at_root=at_root)
+        ]
         if not hidden:
             review.findings += _description_findings(skill)
         review.content_sha256 = _skill_digest(skill)
