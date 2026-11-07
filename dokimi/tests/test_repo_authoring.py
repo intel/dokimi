@@ -292,6 +292,41 @@ def test_a_deleted_file_is_in_reference_deleted_and_a_quote_of_a_removed_line_is
     assert "The old line goes." in task["prompt"]
 
 
+def test_a_test_file_the_pr_deletes_is_not_hidden_and_an_executable_one_keeps_its_mode(toy, tmp_path):
+    root = toy["root"]
+    git(root, "checkout", "-q", toy["c0"])
+    git(root, "checkout", "-qb", "swap")
+    (root / "tests/test_calc.py").unlink()
+    write(root, "src/neg.py", "def neg(a):\n    return -a\n")
+    write(root, "tests/test_neg.py", "def test_neg():\n    pass\n")
+    write(root, "tests/run.sh", "#!/bin/sh\nexit 0\n")
+    (root / "tests/run.sh").chmod(0o755)
+    head = _commit(root, "swap")
+    git(root, "checkout", "-q", toy["main"])
+    _authoring(root, [_pr(31, head, toy["m1"])], tmp_path / "tasks")
+    task, d = _task(tmp_path / "tasks", 31), tmp_path / "tasks/authoring_pr31"
+    assert task["hidden_tests"] == ["tests/test_neg.py"] and "tests/test_calc.py" not in task["hidden_files"]
+    assert [oct((d / "hidden" / p).stat().st_mode & 0o777) for p in ("tests/run.sh", "tests/test_neg.py")] == [
+        "0o755", "0o644"]
+
+
+def test_a_first_oracle_run_that_cannot_run_makes_the_task_broken_not_a_crash(toy, tmp_path, monkeypatch):
+    root = toy["root"]
+    _authoring(root, [_pr1(toy)], root / ".agent-eval/tasks")
+    _commit(root, "authoring tasks")
+    run_entry = selfcheck.run_entry
+
+    def fails_the_first_oracle_grade(ctx, kind, task, rd, *rest):
+        if kind == "grade" and rd.name.endswith("__oracle"):
+            raise ContainerError("the daemon went away")
+        return run_entry(ctx, kind, task, rd, *rest)
+
+    monkeypatch.setattr(selfcheck, "run_entry", fails_the_first_oracle_grade)
+    res = _check(root, tmp_path / "chk", monkeypatch, "authoring_pr1")
+    assert res["verdict"] == "broken" and res.get("oracle_again") is None
+    assert any("the daemon went away" in p for p in res["problems"]), res["problems"]
+
+
 def test_a_remote_source_fetches_the_prs_head_by_sha(toy, tmp_path):
     """A clone holds the branches, not refs/pull/*: the PR's head is fetched from origin by SHA."""
     _authoring(toy["root"], [_pr1(toy)], tmp_path / "local")
