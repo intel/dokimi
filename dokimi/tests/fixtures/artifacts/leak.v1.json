@@ -1,0 +1,64 @@
+{
+  "status": "blocked",
+  "ngram": 8,
+  "min_fraction": 0.1,
+  "allow": [],
+  "skill_files": [
+    "SKILL.md"
+  ],
+  "split": {
+    "state": "created",
+    "digest": "2427a40f3a1c321bb1954980d9e296411f3cc1311f55b2b7a160052478f92484",
+    "previous_digest": null,
+    "counts": {
+      "dev": 1,
+      "val": 0,
+      "test": 1
+    },
+    "moved": []
+  },
+  "exposed_test_items": [],
+  "items": [
+    {
+      "question_id": "1",
+      "split": "dev",
+      "grams": 8,
+      "shared": 8,
+      "fraction": 1.0,
+      "status": "flagged",
+      "reason": null,
+      "files": [
+        "SKILL.md"
+      ]
+    },
+    {
+      "question_id": "2",
+      "split": "test",
+      "grams": 5,
+      "shared": 0,
+      "fraction": 0.0,
+      "status": "clear",
+      "reason": null,
+      "files": []
+    }
+  ],
+  "violations": [
+    {
+      "kind": "leak",
+      "question_id": "1"
+    }
+  ],
+  "summary": {
+    "items": 2,
+    "checked": 2,
+    "flagged": 1,
+    "unchecked": 0,
+    "exposed": 0,
+    "violations": 1
+  },
+  "schema_version": "leak.v1",
+  "skill_path": "skills/demo",
+  "questions_path": "questions.json",
+  "split_path": "split.json",
+  "lock_path": "split.lock.json"
+}

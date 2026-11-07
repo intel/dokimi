@@ -574,6 +574,10 @@ def register(sub, positive_int):
 
     redteam.register_eval(eval_sub)  # eval redteam
 
+    from dokimi.commands import leak
+
+    leak.register_eval(eval_sub)  # eval leak
+
     # eval score panel
     panel_p = score_sub.add_parser("panel", help="Score answers using a multi-judge panel")
     panel_p.add_argument("--answers", required=True, help="Path to answers JSON file")

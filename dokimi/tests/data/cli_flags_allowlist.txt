@@ -249,3 +249,11 @@
 --min-reps  # eval headroom (#279) adds it: no registry concept yet; a F1b migration names it
 --graph  # eval coverage: the frozen need graph input, a file no registry concept names yet (#331)
 --min  # eval coverage gate floor, [METRIC=]X like --timeout [PHASE=]SEC (#331)
+--allow  # eval leak (#220 A3) adds it: no registry concept yet; a F1b migration names it
+--allow-file  # eval leak (#220 A3) adds it: no registry concept yet; a F1b migration names it
+--min-fraction  # eval leak (#220 A3) adds it: no registry concept yet; a F1b migration names it
+--split  # eval leak (#220 A3) adds it: no registry concept yet; a F1b migration names it
+--lock  # eval leak (#220 A3) adds it: no registry concept yet; a F1b migration names it
+--relock  # eval leak (#220 A3) adds it: no registry concept yet; a F1b migration names it
+--verbatim-words  # eval leak (#220 A3) adds it: no registry concept yet; a F1b migration names it
+--proposer  # eval leak (#220 A3) adds it: no registry concept yet; a F1b migration names it
