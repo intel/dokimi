@@ -26,7 +26,7 @@ from . import attribute, bundle as bundle_mod
 from . import classify, items as items_mod
 from . import measure, needs, probes, report, retention, shorten, spans
 from .artifact import load_artifact_text  # noqa: F401  (public path: novelty.analyze)
-from .client import LLMClient, roll_up_cost, same_client
+from .client import LLMClient, SpendCapReached, roll_up_cost, same_client
 from .retention import RetentionOracle
 from .tiers import DEFAULT_SETTINGS, RunSettings
 
@@ -143,6 +143,17 @@ def kind_agreement_warnings(rows: dict[str, dict]) -> list[str]:
     return out
 
 
+def _refuse_cut_short(measure_result: measure.MeasureResult) -> None:
+    """A measurement the cap cut short is not a finished report, and analyze has no partial
+    result to keep it in: stop before the paid classify and attribution stages."""
+    if measure_result.not_run:
+        raise SpendCapReached(
+            f"spend cap reached during the measurement: {measure_result.not_run} probe answers "
+            "were not run; nothing was written. Raise --max-usd, or measure less (a cheaper "
+            "--tier, a lower --max-atoms)"
+        )
+
+
 def analyze(
     text: str,
     config: AnalyzeConfig,
@@ -250,6 +261,7 @@ def analyze(
         concurrency=config.concurrency, allow_self_judge=config.allow_self_judge,
         placebo_text=config.placebo_text, seed=config.seed, framing=config.context_framing,
     )
+    _refuse_cut_short(measure_result)
     if config.allow_self_judge and same_client(judge, answerer):
         warnings.append(
             "judge and answerer are the same model (--allow-self-judge): scores are inflated"

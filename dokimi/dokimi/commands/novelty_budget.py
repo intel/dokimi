@@ -82,9 +82,12 @@ def verify_or_partial(sample, spans, client) -> dict | None:
     try:
         verify_atoms(sample, spans, client=client)
     except SpendCapReached:
-        return {"reason": "spend_cap", "stage": "verify", "spans_read": len(spans),
+        # Extraction may have left spans unread before the check ran: count those as unread.
+        read = len(spans) - sum(span.unread for span in spans)
+        return {"reason": "spend_cap", "stage": "verify", "spans_read": read,
                 "spans_total": len(spans),
-                "message": "--max-usd stopped the faithfulness check after every span was read"}
+                "message": (f"--max-usd stopped the faithfulness check with {read} of "
+                            f"{len(spans)} spans read")}
     return None
 
 

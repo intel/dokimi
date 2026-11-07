@@ -176,3 +176,26 @@ def test_analyze_names_the_run_cost_before_it_spends(tmp_path, monkeypatch, caps
         args.func(args)
     err = capsys.readouterr().err
     assert "Expected ~$0.42 for this run at list prices (--tier triage)" in err
+
+
+
+def test_an_unpriced_answer_stops_every_queued_probe_not_only_the_one_that_raised():
+    from dokimi.novelty import measure
+    from dokimi.novelty.probes import Probe
+
+    calls: list = []
+
+    def unpriced(prompt, system=None):
+        calls.append(prompt)
+        return "an answer", None  # no usage, so the cap cannot see what the call cost
+
+    answerer = LLMClient(model="a", role="answerer", cap=SpendCap(limit_usd=1.0),
+                         transport=unpriced)
+    probes = [Probe(atom_id=f"a{i}", kind="proposition", question=f"q{i}", expected="x")
+              for i in range(3)]
+    result = measure.run_measurement([], probes, "artifact", answerer=answerer,
+                                     judge=LLMClient(model="j", role="judge"),
+                                     arms=("no_artifact", "full"), concurrency=1)
+    # One call reached the provider; the six jobs behind it were never sent.
+    assert len(calls) == 1
+    assert result.runs == [] and result.not_run == 6
