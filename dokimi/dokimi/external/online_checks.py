@@ -77,8 +77,10 @@ _PLACEHOLDER_HOST_RE = re.compile(r"(?:^|[./])your-")  # a host or a path segmen
 _CODE_SPAN_RE = re.compile(r"`([^`\n]*)`")
 _COMMAND_START = _PIP | {"npm", "npx", "uv", "sudo", "$"}
 _OPERATOR_RE = re.compile(r"[;|&()]+")  # a shell operator ends the words of a command; ``<`` and ``>`` do not (see below)
-_DESCRIPTOR_RE = re.compile(r"\d*[<>]&-?\d*")  # a descriptor duplication (2>&1, >&2, 2>&-): not a file, not a split
-_REDIRECT_RE = re.compile(r"\d*(?:>>?|<<?)")  # a redirection operator at the start of a word: >, 2>>, <, 2>err.log
+_DESCRIPTOR_RE = re.compile(r"\d*[<>]&(?:\d+|-)")  # a descriptor duplication (2>&1, >&2, 2>&-): not a file, not a split
+_AMP_REDIRECT_RE = re.compile(r"(?<=[<>])[&|]|&(?=>)")  # the & of >& and <&, the | of >|, the & of &>: one operator
+_REDIRECT_RE = re.compile(r"\d*(?:>>?(?!=)|<<?<?(?!=))")  # an operator at the start of a word: >, 2>>, <, <<<, 2>err.log
+# (not >= or <=: those are version specs)
 
 
 def make_client() -> httpx.Client:
@@ -121,7 +123,7 @@ def _without_redirects(words: list[str]) -> list[str]:
 
 def _segments(line: str) -> Iterator[list[str]]:
     """The words of ``line`` between shell operators; a ``#`` comment (see ``_COMMENT_RE``) ends the line."""
-    line = _DESCRIPTOR_RE.sub(" ", _COMMENT_RE.sub("", line)).replace("&>", ">")
+    line = _AMP_REDIRECT_RE.sub("", _DESCRIPTOR_RE.sub(" ", _COMMENT_RE.sub("", line)))
     for part in _OPERATOR_RE.split(line):
         words = _without_redirects(part.split())
         if words:

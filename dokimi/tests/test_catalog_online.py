@@ -247,6 +247,16 @@ def test_words_after_a_redirection_target_are_still_packages():
     assert online_checks.extract_packages("pip install foo 2>&1 bar\n") == [("pypi", "foo"), ("pypi", "bar")]
 
 
+def test_every_redirection_form_drops_its_target_and_keeps_the_words_after_it():
+    # Red (self-review pass 8): ">&file" redirects to a file, so "log" is a target, not a package; here-strings and
+    # clobber ">|" are redirections too, and the words after their targets are packages.
+    assert online_checks.extract_packages("pip install foo >&log bar\n") == [("pypi", "foo"), ("pypi", "bar")]
+    assert online_checks.extract_packages("pip install foo >& log bar\n") == [("pypi", "foo"), ("pypi", "bar")]
+    assert online_checks.extract_packages("pip install foo <<< bar baz\n") == [("pypi", "foo"), ("pypi", "baz")]
+    assert online_checks.extract_packages("pip install foo >| out bar\n") == [("pypi", "foo"), ("pypi", "bar")]
+    assert online_checks.extract_packages("pip install foo 1>&2 bar\n") == [("pypi", "foo"), ("pypi", "bar")]
+
+
 def test_version_specs_stay_one_requirement_and_do_not_split_the_list():
     assert online_checks.extract_packages("pip install numpy>=1.20 pandas\n") == [
         ("pypi", "numpy"), ("pypi", "pandas")]
