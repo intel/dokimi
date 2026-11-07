@@ -9,7 +9,7 @@ import argparse
 import math
 from decimal import Decimal, InvalidOperation
 
-from dokimi.exit_codes import usage_exit
+from dokimi.utils import InputError
 from dokimi.records import BASELINE, CONTEXT, Record
 
 
@@ -30,7 +30,7 @@ def enabled(args: argparse.Namespace) -> bool:
 
 def require_gate_for_min_matched(args: argparse.Namespace) -> None:
     if getattr(args, "min_matched", None) is not None and not enabled(args):
-        usage_exit("--min-matched needs --max-context-drop or --max-lift-drop")
+        raise InputError("--min-matched needs --max-context-drop or --max-lift-drop")
 
 
 def _scored(rows: list[Record]) -> dict[str, tuple[Decimal, Decimal]]:
@@ -53,9 +53,9 @@ def check(args: argparse.Namespace, baseline: list[Record], current: list[Record
     matched = base.keys() & cur.keys()
     minimum = getattr(args, "min_matched", None) or 1
     if len(matched) < minimum or len(matched) != len(baseline) or len(matched) != len(current):
-        usage_exit(f"Regression gate: insufficient or partial evidence ({len(matched)} matched scored, "
-                   f"{len(baseline)} baseline, {len(current)} current; minimum {minimum}; "
-                   "complete unique coverage required)")
+        raise InputError(f"Regression gate: insufficient or partial evidence ({len(matched)} matched scored, "
+                         f"{len(baseline)} baseline, {len(current)} current; minimum {minimum}; "
+                         "complete unique coverage required)")
     failed = False
     for index, name in enumerate(("max_context_drop", "max_lift_drop")):
         limit = getattr(args, name, None)

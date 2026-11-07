@@ -65,7 +65,8 @@
       "properties": {
         "grade": {"type": "string", "minLength": 1},
         "oracle": {"type": "string", "minLength": 1},
-        "static": {"type": "string", "minLength": 1}
+        "static": {"type": "string", "minLength": 1},
+        "test": {"type": "string", "minLength": 1, "description": "The repository's test command, run by dokimi:hidden_tests on {tests} (the task's hidden test files); it writes a JUnit XML report to {out} (contract §2, §4.5)."}
       }
     },
     "tasks": {"type": "string", "minLength": 1},

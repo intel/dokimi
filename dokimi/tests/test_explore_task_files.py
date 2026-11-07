@@ -8,16 +8,17 @@ from __future__ import annotations
 import pytest
 
 from dokimi.cli import build_parser
+from tests.cli_refusal import refusal
 
 GOOD = "id: ok\nproduct: p\nquery: q\nreferences:\n  - path: a.py\n"
 
 
 def _exit_message(argv, capsys) -> str:
     args = build_parser().parse_args(argv)
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as outcome:
         args.func(args)
-    assert exc.value.code == 2
-    return capsys.readouterr().err
+    assert outcome.code == 2
+    return outcome.err
 
 
 @pytest.mark.parametrize("argv_tail", [["list"], ["run", "--all"]])

@@ -129,6 +129,7 @@ LEAVES: tuple[Leaf, ...] = (
     Leaf(("repo", "skill-reach"), PAID),
     Leaf(("repo", "budget"), FREE),
     Leaf(("repo", "tasks", "replay"), FREE),
+    Leaf(("repo", "tasks", "authoring"), FREE),
     Leaf(("repo", "run"), PAID),
     Leaf(("repo", "report"), FREE),
     Leaf(("repo", "compare"), FREE),
