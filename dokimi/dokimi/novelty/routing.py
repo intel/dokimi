@@ -284,6 +284,31 @@ def _ask_once(client, prompt: str, base: dict, order: list[int], candidates: lis
     return _pick_row(base, reply, order, candidates, gold), None
 
 
+def _ask_query(client, query: str, index_of_query: int, candidates: list[Candidate], gold: int,
+               seed: int, repeats: int) -> tuple[list[dict], str | None]:
+    """The repeats of one query: its rows, and the cap's message when the cap stops the run.
+
+    The card order is seeded per query, and kept across its repeats (see :func:`model_routing`).
+    """
+    shuffler = random.Random(f"{seed}:{index_of_query}:{len(candidates)}")
+    order = list(range(len(candidates)))
+    shuffler.shuffle(order)
+    cards = "\n".join(
+        f"{position + 1}. {candidates[index].card}"
+        for position, index in enumerate(order)
+    )
+    prompt = _SELECT_PROMPT.format(query=query, cards=cards)
+    group: list[dict] = []
+    for repeat in range(repeats):
+        row, stopped = _ask_once(client, prompt, {"query": query, "repeat": repeat},
+                                 order, candidates, gold)
+        if row is not None:
+            group.append(row)
+        if stopped is not None:
+            return group, stopped
+    return group, None
+
+
 def model_routing(
     candidates: list[Candidate], queries: list[str], *, client: LLMClient, gold: int = 0,
     seed: int = 0, repeats: int = 1,
@@ -324,27 +349,12 @@ def model_routing(
     groups: list[list[dict]] = []
     capped: str | None = None
     for index_of_query, query in enumerate(queries):
-        shuffler = random.Random(f"{seed}:{index_of_query}:{len(candidates)}")
-        order = list(range(len(candidates)))
-        shuffler.shuffle(order)
-        cards = "\n".join(
-            f"{position + 1}. {candidates[index].card}"
-            for position, index in enumerate(order)
-        )
-        prompt = _SELECT_PROMPT.format(query=query, cards=cards)
-        group: list[dict] = []
-        for repeat in range(repeats):
-            row, stopped = _ask_once(client, prompt, {"query": query, "repeat": repeat},
-                                     order, candidates, gold)
-            if row is not None:
-                picks.append(row)
-                group.append(row)
-            if stopped is not None:
-                capped = stopped  # the calls already paid for stay in ``picks``
-                break
+        group, stopped = _ask_query(client, query, index_of_query, candidates, gold, seed, repeats)
+        picks += group  # the calls already paid for stay in ``picks`` when the cap stops
         if len(group) == repeats:  # a query stopped half-way is no sample of the repeat noise
             groups.append(group)
-        if capped is not None:
+        if stopped is not None:
+            capped = stopped
             break
 
     answered = [p for p in picks if "correct" in p]
