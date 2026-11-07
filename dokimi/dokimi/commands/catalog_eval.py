@@ -19,7 +19,7 @@ from typing import Any
 
 from dokimi import __version__
 from dokimi.artifacts import save_artifact
-from dokimi.exit_codes import usage_exit
+from dokimi.utils import InputError
 
 _OUTPUTS = ("catalog.json", "plan.json", "result.json", "report.md")
 _REPORT_HEADER = "# Catalog static evaluation"
@@ -178,8 +178,8 @@ def cmd_catalog_eval(args: argparse.Namespace) -> None:
             try:
                 _write_error(out, exc)
             except OSError as write_exc:
-                usage_exit(f"catalog eval: {exc}; cannot invalidate earlier receipts: {write_exc}")
-        usage_exit(f"catalog eval: {exc}")
+                raise InputError(f"catalog eval: {exc}; cannot invalidate earlier receipts: {write_exc}") from write_exc
+        raise InputError(f"catalog eval: {exc}") from exc
     print(f"Static catalog checks: {report['status']}; receipts: {out}")
     if report["status"] != "pass":
         raise SystemExit(1)
