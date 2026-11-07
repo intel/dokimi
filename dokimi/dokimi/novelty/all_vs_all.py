@@ -236,7 +236,7 @@ def _model_arm(candidates: list[Candidate], queries_by_skill: dict[str, list[str
         first_error = first_error or next((r["error"] for r in rows if r.get("error")), None)
         # A failed call measured nothing: it is not a pick, so it is left out of the counts.
         model[name] = Counter(row.get("picked") or NO_PICK for row in rows if not row.get("error"))
-        capped = routed.get("partial", {}).get("message")
+        capped = routed.get("cap_stop")
         # Failed calls, and calls the cap refused: neither measured anything.
         unscored_here = routed["n_failed"] + (len(queries) * repeats - len(rows) if capped else 0)
         if unscored_here:
@@ -248,7 +248,7 @@ def _model_arm(candidates: list[Candidate], queries_by_skill: dict[str, list[str
     arm = dict(_attractor_table(model, unscored, names, _tied_groups(candidates)),
                model=client.model, seed=seed, repeats=repeats, noise=noise,
                n_failed=n_failed, n_abstained=n_abstained, first_error=first_error)
-    if capped is not None:
+    if capped is not None and done < planned:  # a stop on the last planned call leaves none unmade
         arm["partial"] = partial_record(capped, done, planned)
     return arm
 

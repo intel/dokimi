@@ -342,3 +342,28 @@ def test_an_all_vs_all_repeat_run_stopped_mid_query_pins_its_counts(tmp_path, mo
     noise = model["noise"]
     assert noise["n_queries_compared"] == 1            # only the query asked in full (db's)
     assert [row["query"] for row in noise["per_query"]] == ["add an index"]
+
+
+def test_a_last_call_with_no_price_that_ends_the_run_leaves_no_partial_marker(tmp_path, monkeypatch):
+    # One query, one call, no price: the run is complete, so it is not partial and does not exit.
+    calls = _provider(monkeypatch, None)
+    args, out = _single(tmp_path, QUERIES[:1], "--max-usd", "5")
+    args.func(args)
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    assert "partial" not in payload and payload["status"] == "ok"
+    assert len(calls) == 1 and payload["model"]["n_calls"] == 1
+
+
+def test_an_unpriced_call_stops_the_later_repeats_and_skills_too(tmp_path, monkeypatch):
+    calls = _provider(monkeypatch, None)
+    root, queries = _catalog(tmp_path)
+    out = tmp_path / "o.json"
+    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
+                  "--queries-by-skill", str(queries), "--out", str(out),
+                  "--model", "m", "--repeats", "3", "--max-usd", "5")
+    with pytest.raises(SystemExit, match="no price is known"):
+        args.func(args)
+    # The first unpriced reply stops the run: no repeat of that query and no later skill is asked.
+    assert len(calls) == 1
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    assert (payload["partial"]["calls_done"], payload["partial"]["calls_planned"]) == (1, 9)

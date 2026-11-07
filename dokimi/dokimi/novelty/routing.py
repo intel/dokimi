@@ -307,10 +307,12 @@ def model_routing(
         With ``repeats > 1``, ``noise`` holds each query's agreement across its repeats and
         the run-to-run spread of the selection rate; it is ``None`` for one repeat.
 
-        When the client's ``--max-usd`` cap refuses a call, the loop stops and the result holds
-        the calls made so far (``n_calls`` is then below queries x repeats), with a ``partial``
-        block (:func:`partial_record`). A query stopped between repeats keeps its rows but is
-        left out of ``noise``. Without a cap that trips, there is no ``partial`` key.
+        When the client's ``--max-usd`` cap refuses a call, or a call comes back unpriced, the
+        loop stops and the result holds the calls made so far, with ``cap_stop`` (the cap's
+        message). A ``partial`` block (:func:`partial_record`) is added only when planned calls
+        were left unmade (``n_calls`` below queries x repeats). A query stopped between repeats
+        keeps its rows but is left out of ``noise``. Without a cap that trips, there is no
+        ``cap_stop`` key.
     """
     if not 0 <= gold < len(candidates):
         raise ValueError(f"gold index {gold} is outside 0..{len(candidates) - 1}")
@@ -373,7 +375,11 @@ def model_routing(
         ),
     }
     if capped is not None:
-        result["partial"] = partial_record(capped, len(picks), len(queries) * repeats)
+        # The stop is kept apart from ``partial``: a stop on the run's last planned call leaves
+        # nothing unmade, but a caller (all-vs-all) still must not ask a later skill unmetered.
+        result["cap_stop"] = capped
+        if len(picks) < len(queries) * repeats:
+            result["partial"] = partial_record(capped, len(picks), len(queries) * repeats)
     return result
 
 
