@@ -196,7 +196,7 @@ def _exit_with_document(args: argparse.Namespace, code: str, message: str) -> No
     """Print the cli_output.v1 error document on stdout and exit with the code §2.6 gives it."""
     from dokimi import cli_output
 
-    cli_output.emit(cli_output.error_document(args.cmd, code, message))
+    cli_output.emit(cli_output.error_document(args.cmd, code, message, run_id=cli_output.current_run_id()))
     sys.exit(cli_output.EXIT_OF_ERROR[code])
 
 

@@ -17,7 +17,7 @@ def cmd_backends(args: argparse.Namespace) -> None:
     if args.json:
         installed = sum(1 for r in rows if r.installed)
         cli_output.emit(cli_output.envelope(
-            "backends", summary={"backends": len(rows), "installed": installed},
+            "backends", run_id=cli_output.current_run_id(), summary={"backends": len(rows), "installed": installed},
             data={"rows": [dataclasses.asdict(r) for r in rows]}))
         return
     print("| provider | binary | version | signed in | method | models |")

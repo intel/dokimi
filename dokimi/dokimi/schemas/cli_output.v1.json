@@ -2,9 +2,9 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/intel/dokimi/schemas/cli_output.v1.json",
   "title": "CLI --json output v1",
-  "description": "The one document a leaf prints on stdout with `--json`: on success, on an input error (exit 2) and on a crash (exit 5) (dokimi.cli_output). `verdict: null` means the leaf issues no verdict. `data` is the leaf's own payload and is open; every other level is closed. `next[].argv` is the next command as an argv array. Exit 0 with a verdict other than `pass` never happens.",
+  "description": "The one document a leaf prints on stdout with `--json`: on success, on an input error (exit 2) and on a crash (exit 5) (dokimi.cli_output). `verdict: null` means the leaf issues no verdict; a leaf that issues one exits 0 only for `pass`. `run_id` is null when DOKIMI_RUN_ID is malformed. `summary` and `artifacts` are open beyond the keys named, and `data` is the leaf's own payload; every other level is closed. `next[].argv` is the next command as an argv array.",
   "type": "object",
-  "required": ["schema_version", "kind", "status", "verdict", "reason", "error", "summary", "subjects",
+  "required": ["schema_version", "kind", "run_id", "status", "verdict", "reason", "error", "summary", "subjects",
                "artifacts", "cost", "limits", "next", "data"],
   "additionalProperties": false,
   "$defs": {
@@ -58,6 +58,7 @@
   "properties": {
     "schema_version": {"const": "cli_output.v1"},
     "kind": {"type": "string", "minLength": 1, "description": "What the data is: an artifact kind such as `comparison.v1`, or a leaf's name such as `backends`."},
+    "run_id": {"type": ["string", "null"], "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$", "description": "The id of the run this process writes (dokimi.artifacts.run_id); null when DOKIMI_RUN_ID is malformed."},
     "status": {"enum": ["complete", "partial", "budget_stopped", "cancelled", "failed"]},
     "verdict": {"$ref": "#/$defs/verdict"},
     "reason": {"type": ["string", "null"], "description": "Why the verdict or the status is what it is (proposal §2.6)."},

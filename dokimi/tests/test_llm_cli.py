@@ -380,6 +380,8 @@ def test_backends_command_prints_one_row_per_backend(monkeypatch, capsys):
     (row,) = doc["data"]["rows"]
     assert row["backend"] == "claude-cli" and row["authenticated"] is True
     assert doc["summary"]["backends"] == len(doc["data"]["rows"])
+    from dokimi import artifacts
+    assert doc["run_id"] == artifacts.run_id()  # the id this process writes, as the artifacts carry it
 
 
 def test_an_installed_cli_that_prints_no_version_is_unknown_not_not_installed(monkeypatch, capsys):

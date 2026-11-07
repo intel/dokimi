@@ -14,7 +14,9 @@ import json
 from typing import Any
 
 from dokimi._version import __version__
+from dokimi import artifacts
 from dokimi.artifacts import SCHEMA_DIR
+from dokimi.utils import InputError
 
 SCHEMA_VERSION = "cli_output.v1"
 STATUSES = ("complete", "partial", "budget_stopped", "cancelled", "failed")
@@ -29,7 +31,15 @@ def _zero_cost() -> dict[str, Any]:
             "calls": 0, "priced": None}
 
 
-def envelope(kind: str, *, status: str = "complete", verdict: str | None = None,
+def current_run_id() -> str | None:
+    """The run id this process writes, or None when ``DOKIMI_RUN_ID`` is malformed: the error path must not raise again."""
+    try:
+        return artifacts.run_id()
+    except InputError:
+        return None
+
+
+def envelope(kind: str, *, run_id: str | None = None, status: str = "complete", verdict: str | None = None,
              reason: str | None = None, error: dict[str, Any] | None = None,
              summary: dict[str, Any] | None = None, subjects: list[dict[str, Any]] | None = None,
              artifacts: dict[str, Any] | None = None, cost: dict[str, Any] | None = None,
@@ -41,6 +51,7 @@ def envelope(kind: str, *, status: str = "complete", verdict: str | None = None,
     return {
         "schema_version": SCHEMA_VERSION,
         "kind": kind,
+        "run_id": run_id,
         "status": status,
         "verdict": verdict,
         "reason": reason,
@@ -55,11 +66,12 @@ def envelope(kind: str, *, status: str = "complete", verdict: str | None = None,
     }
 
 
-def error_document(kind: str, code: str, message: str, *, field: str | None = None) -> dict[str, Any]:
+def error_document(kind: str, code: str, message: str, *, field: str | None = None,
+                   run_id: str | None = None) -> dict[str, Any]:
     """The document of a run that stopped on ``code`` (one of :data:`ERROR_CODES`)."""
     if code not in ERROR_CODES:
         raise ValueError(f"unknown cli_output error code {code!r}")
-    return envelope(kind, status="failed", error={"code": code, "message": message,
+    return envelope(kind, run_id=run_id, status="failed", error={"code": code, "message": message,
                                                   "retryable": code == "infra", "field": field})
 
 
