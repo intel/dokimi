@@ -126,3 +126,17 @@ def test_stamp_adds_provenance_to_a_probe_record_and_warns_on_one_vendor(capsys)
     assert (block["artifact_digest"], block["context_framing"]) == ("sha256:x", "neutral")
     assert block["same_vendor"] is True and "judge2" not in payload
     assert "both anthropic models" in capsys.readouterr().err
+
+
+def test_a_spend_cap_hit_by_the_second_judge_keeps_the_main_result(capsys):
+    from dokimi.novelty.client import SpendCapReached
+
+    def capped(prompt, system):
+        raise SpendCapReached("spend cap reached")
+
+    payload = {"ref_digest": "sha256:x"}
+    stamp(payload, _args(judge2="gpt-6"), _measured(20),
+          answerer=LLMClient(model="claude-haiku-5"), judge=LLMClient(model="claude-opus-5"),
+          judge2=LLMClient(model="gpt-6", transport=capped))
+    assert payload["judge2"]["stopped"] == "spend cap reached" and "provenance" in payload
+    assert "second judge stopped" in capsys.readouterr().err

@@ -99,6 +99,11 @@ def stamp(payload: dict, args: argparse.Namespace, measure_result, *, answerer, 
         if warning:
             print(f"WARNING {warning}", file=sys.stderr)
     if judge2 is not None:
-        payload["judge2"] = regrade(measure_result, judge2, frac=args.judge2_frac,
-                                    seed=args.seed, concurrency=args.concurrency)
+        from dokimi.novelty.client import SpendCapReached
+        try:
+            payload["judge2"] = regrade(measure_result, judge2, frac=args.judge2_frac,
+                                        seed=args.seed, concurrency=args.concurrency)
+        except SpendCapReached as exc:  # keep the paid-for result; only the regrade stops
+            payload["judge2"] = {"model": judge2.model, "stopped": str(exc)}
+            print(f"WARNING second judge stopped: {exc}", file=sys.stderr)
         payload["judge2"]["cost"] = judge2.cost_summary()
