@@ -207,6 +207,20 @@ directory name and description but different `SKILL.md` text are a `warn` on bot
 (`mirror-drift`), naming the other copies. Skills with
 `disable-model-invocation: true` are exempt from the description checks.
 
+The scan also reads the scripts a skill bundles: each `.sh`, `.bash` and `.py` file, and each file that
+starts with `#!`, under the skill directory (a file over 1 MB, and a link out of the directory, is not read).
+Nothing is run or imported. A CRLF line ending in such a script is an `error` (`script-crlf`): bash and a
+shebang interpreter fail on the carriage return on Linux. A Python file that the running Python's
+`ast.parse` rejects is an `error` (`script-syntax`). So is a shell script that `bash -n` rejects: the text
+goes to bash on stdin with no environment, and only when bash is on PATH; a script whose shebang names
+a shell other than bash, sh, dash or ksh is not checked that way, and a `.sh` with no shebang is taken as bash. When `ruff` or `shellcheck` is on
+PATH, the bundle is linted with `ruff check --select S,E9,F63,F7,F82` and `shellcheck -f json`, and one
+`note` (`script-lint`) gives the count and the top three rules of each tool. Both run with their config
+ignored (`--isolated`, `--norc`), so a skill's own config files do not change the result. A missing tool
+adds nothing, and so does a tool that cannot start. The vendored and scaffold trees are left out
+(`.git`, `node_modules`, `site-packages`, `.venv`, `templates` and the rest the loader skips). A skill
+at the root of the checkout has no script bundle: its bundle would be the whole checkout, tests included.
+
 Frontmatter that is not valid YAML (a bare colon in `description:`, say) stops
 the skill from loading. The scan reports that as a `frontmatter-parse` error
 carrying the YAML message, and it exits 1 with or without `--strict`, as a load

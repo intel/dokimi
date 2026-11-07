@@ -72,6 +72,7 @@ from dokimi.utils import describe_yaml_error, parse_frontmatter_strict
 from .catalog import SkillCatalogEntry, _within
 from .skill_markdown import link_pieces, outside_fences
 from .listing import in_field
+from .script_checks import script_findings
 
 NAME_PATTERN = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 NAME_MAX = 64
@@ -509,6 +510,7 @@ def review_skills(entries: Sequence[SkillCatalogEntry]) -> list[Optional[SkillRe
         )
         review = SkillReview(findings=findings, disable_model_invocation=hidden)
         review.findings += _bundle_findings(skill, entry.source_root)
+        review.findings += [Finding(*item) for item in script_findings(skill.path.parent, checkout=entry.source_root)]
         if not hidden:
             review.findings += _description_findings(skill)
         review.content_sha256 = _skill_digest(skill)
