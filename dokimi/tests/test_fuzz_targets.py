@@ -87,6 +87,28 @@ def test_a_date_that_is_not_real_is_invalid_frontmatter() -> None:
         parse_frontmatter_strict(text)
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        # Malformed explicit tags: PyYAML's constructors raise AttributeError, IndexError, KeyError.
+        "---\n!!timestamp 2026-13-01{\n\n---\n",
+        "---\n!!int \n---\n'9999'\n",
+        "---\nx: !!bool x\n---\nbody",
+    ],
+)
+def test_a_malformed_tagged_scalar_is_invalid_frontmatter(text: str) -> None:
+    # Lenient readers return no metadata; strict ones raise the YAML error the docstring names.
+    import yaml
+
+    from dokimi.utils import parse_frontmatter, parse_frontmatter_strict
+
+    meta, body = parse_frontmatter(text)
+    assert meta == {}
+    assert isinstance(body, str)
+    with pytest.raises(yaml.YAMLError):
+        parse_frontmatter_strict(text)
+
+
 @pytest.mark.parametrize("contains", [False, True])
 def test_parse_json_reads_deep_nesting_as_not_json(contains: bool) -> None:
     # A reply nested past the recursion limit is "not JSON", not a crash of the judge.
