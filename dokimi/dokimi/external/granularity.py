@@ -51,6 +51,8 @@ _TRIGGER_RE = re.compile(
     r"\b(?:use this skill when|use when|use for|triggers? on|whenever|when)\b", re.IGNORECASE
 )
 _CLAUSE_END_RE = re.compile(r"[;.!?]\s|\bor when\b|\band when\b", re.IGNORECASE)
+# "e.g." and "i.e." are neither sentence ends nor words of a trigger clause.
+_ABBREV_RE = re.compile(r"\b(?:e\.g|i\.e)\.", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -240,7 +242,7 @@ def _labels(skills: Sequence[Skill], root: str) -> list[str]:
 
 def trigger_clauses(description: str) -> tuple[str, ...]:
     """The normalised "when" clauses of a description: "use when X, or when Y" gives two clauses."""
-    text = " ".join(description.split())
+    text = _ABBREV_RE.sub(" ", " ".join(description.split()))
     clauses: list[str] = []
     for piece in _TRIGGER_RE.split(text)[1:]:  # the text after each trigger keyword
         # Only up to the first sentence end or "or when": a later sentence needs a trigger keyword of its own.

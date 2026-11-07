@@ -401,6 +401,15 @@ def test_a_valid_copy_is_offered_when_the_shallower_original_is_ineligible(tmp_p
     assert "# granularity: 0 merge and 0 split candidate(s) among 1 skills" in out
 
 
+def test_an_e_g_or_i_e_abbreviation_is_not_a_clause_end_nor_a_word():
+    assert g.trigger_clauses("Use when editing PDF forms, e.g. filling fields in tax documents") == (
+        "editing pdf forms filling fields tax documents",
+    )
+    assert g.trigger_clauses("Use when you have spreadsheets, i.e. xlsx files to clean") == (
+        "have spreadsheets xlsx files clean",
+    )
+
+
 def test_an_inline_code_line_with_backticks_on_both_ends_is_not_a_fence_opener():
     lines = "intro\n```inline``` text\nmore prose\n## Next\nprose".splitlines()
 
