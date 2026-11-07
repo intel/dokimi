@@ -120,6 +120,7 @@ def test_without_resume_an_existing_jsonl_file_is_replaced(tmp_path, capsys):
     [
         (["--jsonl", "x.jsonl"], "need --per-skill"),
         (["--jobs", "2"], "need --per-skill"),
+        (["--jobs", "1"], "need --per-skill"),
         (["--per-skill", "--resume"], "needs --jsonl"),
         (["--per-skill", "--jsonl", "x.jsonl", "--format", "json"], "drop --format json"),
     ],
@@ -162,3 +163,98 @@ def test_resume_with_skip_nested_leaves_out_a_nested_row_an_earlier_run_wrote(tm
     assert code == 0
     assert "1 declared" in out
     assert "1 resumed" in out
+    assert [row["name"] for row in _rows(out_path)] == ["alpha"]  # the nested row is pruned from the file
+
+
+def _spec_error_skill(root: Path) -> None:
+    """A skill that loads but has a spec error: its name is not its directory name."""
+    gamma = root / "skills" / "gamma"
+    gamma.mkdir(parents=True)
+    (gamma / "SKILL.md").write_text(
+        "---\nname: other\ndescription: Use when gamma runs.\n---\n# gamma\n", encoding="utf-8"
+    )
+
+
+def test_strict_on_the_per_skill_path_fails_on_a_spec_error_only(tmp_path, capsys):
+    _skill(tmp_path, "alpha")
+    _spec_error_skill(tmp_path)
+    out_path = tmp_path / "strict.jsonl"
+
+    _, lenient = _run(["--root", str(tmp_path), "--per-skill", "--jsonl", str(out_path)], capsys)
+    _, strict = _run(["--root", str(tmp_path), "--per-skill", "--jsonl", str(out_path), "--strict"], capsys)
+
+    assert (lenient, strict) == (0, 1)
+
+
+@pytest.mark.parametrize(
+    "flags",
+    [
+        ["--per-skill"],
+        ["--jobs", "2", "--per-skill"],
+        ["--per-skill", "--jsonl", "x.jsonl"],
+        ["--per-skill", "--jsonl", "x.jsonl", "--resume"],
+        ["--skip-nested"],
+    ],
+)
+def test_kind_tasks_refuses_the_flags_that_apply_to_skills(tmp_path, flags):
+    args = build_parser().parse_args(["catalog", "check", "--kind", "tasks", "--root", str(tmp_path), *flags])
+
+    with pytest.raises(SystemExit) as exc_info:
+        args.func(args)
+
+    assert exc_info.value.code == 2
+    assert "--kind skills" in str(exc_info.value)
+
+
+def test_a_complete_line_that_is_not_a_scan_row_exits_2_and_is_not_written_over(tmp_path, capsys):
+    _catalog(tmp_path)
+    out_path = tmp_path / "bad-row.jsonl"
+    out_path.write_text('{"name": "alpha"}\n', encoding="utf-8")
+
+    args = _args(["--root", str(tmp_path), "--per-skill", "--jsonl", str(out_path), "--resume"])
+    with pytest.raises(SystemExit) as exc_info:
+        args.func(args)
+
+    assert exc_info.value.code == 2
+    assert "line 1" in str(exc_info.value)
+    assert out_path.read_text(encoding="utf-8") == '{"name": "alpha"}\n'
+
+
+def test_resume_repairs_a_last_line_with_no_newline_before_appending(tmp_path, capsys):
+    _catalog(tmp_path)
+    out_path = tmp_path / "no-newline.jsonl"
+    _run(["--root", str(tmp_path), "--per-skill", "--jsonl", str(out_path)], capsys)
+    first = _rows(out_path)[0]
+    # A killed run wrote the first row but not its newline.
+    out_path.write_text(json.dumps(first), encoding="utf-8")
+
+    _run(["--root", str(tmp_path), "--per-skill", "--jsonl", str(out_path), "--resume"], capsys)
+
+    assert [row["relpath"] for row in _rows(out_path)] == [
+        "skills/alpha", "skills/bravo", "skills/charlie", "skills/delta"
+    ]
+
+
+def test_a_run_killed_inside_a_multibyte_character_resumes(tmp_path, capsys):
+    _catalog(tmp_path)
+    out_path = tmp_path / "multibyte.jsonl"
+    _run(["--root", str(tmp_path), "--per-skill", "--jsonl", str(out_path)], capsys)
+    first = _rows(out_path)[0]
+    # The first row, then the first byte of a two-byte character cut short by the kill.
+    out_path.write_bytes(json.dumps(first).encode("utf-8") + b"\n" + b"\xc3")
+
+    _, code = _run(["--root", str(tmp_path), "--per-skill", "--jsonl", str(out_path), "--resume"], capsys)
+
+    assert code == 1  # delta does not load
+    assert len(_rows(out_path)) == 4
+
+
+def test_resume_refuses_rows_that_have_no_unique_key(tmp_path, capsys):
+    _skill(tmp_path, "alpha")
+    (tmp_path / "skills.yaml").write_text("- name: alpha\n- {}\n- {foo: 1}\n", encoding="utf-8")
+    out_path = tmp_path / "keys.jsonl"
+    _run(["--root", str(tmp_path), "--per-skill", "--jsonl", str(out_path)], capsys)
+
+    _, code = _run(["--root", str(tmp_path), "--per-skill", "--jsonl", str(out_path), "--resume"], capsys)
+
+    assert code == 2  # the two entries without a path both have the key name:?

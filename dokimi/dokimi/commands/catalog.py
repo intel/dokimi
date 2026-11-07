@@ -26,7 +26,7 @@ def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bo
     from dokimi.external.validate import review_skills
 
     pairs = catalog_scan.read_marked_skills(args, root)
-    if args.per_skill or args.jsonl:
+    if args.per_skill:
         return catalog_scan.scan_per_skill(args, root, report, as_json, pairs)
     skills = [entry for entry, _ in pairs]
     reviews = review_skills(skills)
@@ -90,8 +90,12 @@ def _check_scan_flags(args: argparse.Namespace) -> None:
         usage_exit("--jsonl writes one row per skill to a file; drop --format json")
     if args.resume and not args.jsonl:
         usage_exit("--resume needs --jsonl: the rows it skips are read from that file")
-    if (args.jsonl or args.jobs > 1) and not args.per_skill:
+    if (args.jsonl or args.jobs is not None) and not args.per_skill:
         usage_exit("--jsonl and --jobs need --per-skill: cross-catalog checks need every skill loaded at once")
+    if args.kind == "tasks" and (args.per_skill or args.skip_nested or args.jsonl or args.resume
+                                 or args.jobs is not None):
+        usage_exit("--per-skill, --skip-nested, --jsonl, --jobs and --resume apply to skills; "
+                   "drop them or use --kind skills|all")
 
 
 def cmd_catalog_scan(args: argparse.Namespace) -> None:
@@ -356,7 +360,7 @@ def register(sub, positive_int, eval_sub) -> None:
              "only the counts",
     )
     scan_p.add_argument(
-        "--jobs", type=positive_int, default=1,
+        "--jobs", type=positive_int, default=None,
         help="--per-skill: review this many skills in parallel worker processes (default 1)",
     )
     scan_p.add_argument(

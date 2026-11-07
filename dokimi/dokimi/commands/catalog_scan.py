@@ -6,13 +6,15 @@
 The cross-catalog checks (``duplicate``, ``name-conflict``, ``mirror-drift``,
 ``description-near-duplicate``) need every skill loaded at once. This mode gives them up,
 so a corpus of a million skills can be scanned one row at a time: rows are written in
-catalog order, a run killed midway keeps the rows it wrote, and ``--resume`` reviews only
-the skills that have no row yet.
+catalog order within one run (``--resume`` appends the rest after the rows it kept), a run
+killed midway keeps the rows it wrote, and ``--resume`` reviews only the skills that have no
+row yet.
 """
 
 from __future__ import annotations
 
 import json
+from collections import Counter
 from pathlib import Path
 from typing import Iterable, Iterator, Optional
 
@@ -122,44 +124,96 @@ class _Tally:
             self.failed = True
 
 
-def _load_prior(path: Path) -> list[dict]:
-    """The rows already in the JSONL file. A line a killed run left half-written is dropped from the file."""
-    if not path.is_file():
-        return []
+_ROW_STATES = ("ok", "warn", "error")
+
+
+def _is_row(row: object) -> bool:
+    return (
+        isinstance(row, dict)
+        and isinstance(row.get("name"), str)
+        and isinstance(row.get("relpath"), (str, type(None)))
+        and row.get("state") in _ROW_STATES
+        and "error" in row
+        and isinstance(row.get("findings"), list)
+    )
+
+
+def _parse_row(raw: bytes, path: Path, lineno: int) -> Optional[dict]:
+    """The scan row a line of the JSONL file holds; None for a line a killed run left half-written.
+
+    A complete line that is not a scan row is not a cut-off tail, so it is a usage error.
+    """
+    if not raw.strip():
+        return None
     try:
-        lines = path.read_text(encoding="utf-8").splitlines()
-    except (OSError, UnicodeDecodeError) as exc:
-        usage_exit(f"cannot read --jsonl {path} to resume: {exc}")
+        row = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        row = None
+    if _is_row(row):
+        return row
+    if not raw.endswith(b"\n"):
+        return None
+    usage_exit(f"--jsonl {path} line {lineno} is not a scan row; fix or remove it before --resume")
+
+
+def _load_prior(path: Path, selected: set[str]) -> tuple[list[dict], bool]:
+    """The rows of *path* for the skills this run selects, and whether the file must be rewritten.
+
+    The file is read line by line and only the kept rows are held. A rewrite is due when a line is
+    half-written, when the last line has no newline (the next row would be glued onto it), or when a
+    row is for a skill this run does not select (the file must match the counts printed).
+    """
     rows: list[dict] = []
-    kept: list[str] = []
-    for line in lines:
-        try:
-            row = json.loads(line)
-        except ValueError:
-            continue
-        if isinstance(row, dict):
-            rows.append(row)
-            kept.append(line)
-    if len(kept) != len(lines):
-        tmp = path.with_name(path.name + ".part")
-        tmp.write_text("".join(line + "\n" for line in kept), encoding="utf-8")
+    dirty = False
+    try:
+        with path.open("rb") as fh:
+            for lineno, raw in enumerate(fh, 1):
+                row = _parse_row(raw, path, lineno)
+                if row is None or not raw.endswith(b"\n"):
+                    dirty = True
+                if row is None:
+                    continue
+                if _row_key(row) in selected:
+                    rows.append(row)
+                else:
+                    dirty = True
+    except OSError as exc:
+        usage_exit(f"cannot read --jsonl {path} to resume: {exc}")
+    return rows, dirty
+
+
+def _rewrite(path: Path, rows: list[dict]) -> None:
+    tmp = path.with_name(path.name + ".part")
+    try:
+        with tmp.open("w", encoding="utf-8") as fh:
+            for row in rows:
+                fh.write(json.dumps(row) + "\n")
         tmp.replace(path)
-    return rows
+    except OSError as exc:
+        usage_exit(f"cannot rewrite --jsonl {path} to resume: {exc}")
 
 
 class _Jsonl:
-    """The ``--jsonl`` file: one flushed line per row, so a killed run leaves whole rows behind."""
+    """The ``--jsonl`` file: one flushed line per row, so a killed run leaves whole rows behind.
 
-    def __init__(self, path: Path, resume: bool) -> None:
+    Rows are written with ``ensure_ascii`` on, so every line is ASCII and a kill cannot cut a character
+    in half, and a directory name that is not valid UTF-8 is escaped rather than a crash.
+    """
+
+    def __init__(self, path: Path, resume: bool, selected: set[str]) -> None:
         self.path = path
-        self.prior = _load_prior(path) if resume else []
+        self.prior: list[dict] = []
+        if resume and path.is_file():
+            self.prior, dirty = _load_prior(path, selected)
+            if dirty:
+                _rewrite(path, self.prior)
         try:
             self._fh = path.open("a" if resume else "w", encoding="utf-8")
         except OSError as exc:
             usage_exit(f"cannot write --jsonl {path}: {exc}")
 
     def write(self, row: dict) -> None:
-        self._fh.write(json.dumps(row, ensure_ascii=False) + "\n")
+        self._fh.write(json.dumps(row) + "\n")
         self._fh.flush()
 
     def close(self) -> None:
@@ -188,19 +242,23 @@ def scan_per_skill(args, root: Path, report: dict, as_json: bool, pairs: list) -
     """
     declared = len(pairs)
     jsonl = Path(args.jsonl) if args.jsonl else None
-    sink = _Jsonl(jsonl, args.resume) if jsonl is not None else None
-    tally = _Tally(args.strict)
-    prior = sink.prior if sink is not None else []
     # Only the rows of the skills this run selects count: --skip-nested must hide a nested row an
     # earlier run wrote, and a skill removed from the catalog is not part of this scan.
-    selected = {_entry_key(entry) for entry, _ in pairs}
-    prior = [row for row in prior if _row_key(row) in selected]
+    keys = [_entry_key(entry) for entry, _ in pairs]
+    if args.resume:
+        # A key shared by two skills would let --resume count one of them as done when only the other has a row.
+        shared = sorted(key for key, n in Counter(keys).items() if n > 1)
+        if shared:
+            usage_exit(f"--resume needs one row per skill, but these keys are shared: {', '.join(shared[:3])}")
+    sink = _Jsonl(jsonl, args.resume, set(keys)) if jsonl is not None else None
+    tally = _Tally(args.strict)
+    prior = sink.prior if sink is not None else []
     for row in prior:
         tally.add(row)
     done = {_row_key(row) for row in prior}
     todo = [pair for pair in pairs if _entry_key(pair[0]) not in done]
     try:
-        for row in _review_rows(todo, args.jobs):
+        for row in _review_rows(todo, args.jobs or 1):
             tally.add(row)
             if sink is not None:
                 sink.write(row)
