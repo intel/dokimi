@@ -308,8 +308,9 @@ def test_extglob_from_the_shebang_is_valid_under_real_bash(tmp_path, no_linters)
     assert _reviews_by_name(tmp_path)["bundled"].findings == []
 
 
-def test_a_shebang_flag_that_changes_no_parse_keeps_the_check(tmp_path):
-    skill = _bundle(tmp_path, {"run.sh": b"#!/bin/bash -eu\nif true; then\n"})
+@pytest.mark.parametrize("shebang", [b"#!/bin/bash -eu", b"#!/bin/bash -o pipefail"])
+def test_a_shebang_option_that_changes_no_parse_keeps_the_check(tmp_path, shebang):
+    skill = _bundle(tmp_path, {"run.sh": shebang + b"\nif true; then\n"})
     runner = process.FakeRunner(lambda call: process.reply(stderr="bash: syntax error\n", returncode=2))
 
     assert [code for _, code, _ in script_findings(skill, which=_tools("bash"), runner=runner)] == ["script-syntax"]
