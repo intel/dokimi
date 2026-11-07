@@ -114,6 +114,25 @@ def test_real_link_in_markdown_keeps_its_path_and_drops_the_closing_paren():
     assert online_checks.extract_urls(body) == ["https://docs.python.org/3/library/"]
 
 
+def test_your_word_in_a_path_is_not_a_placeholder_host():
+    body = "See https://github.com/acme/your-tool/docs and https://your-org.example-tool.dev/x\n"
+    assert online_checks.extract_urls(body) == ["https://github.com/acme/your-tool/docs"]
+
+
+def test_malformed_bracketed_host_is_skipped_not_fatal():
+    body = "See http://[broken/x and [the guide](https://docs.example-tool.dev/ok).\n"
+    assert online_checks.extract_urls(body) == ["https://docs.example-tool.dev/ok"]
+
+
+def test_npx_package_equals_form_names_the_package():
+    assert online_checks.extract_packages("npx --package=@scope/cli mytool\n") == [("npm", "@scope/cli")]
+
+
+def test_pip_options_with_values_are_not_packages():
+    body = "pip install --python-version 3.11 --platform manylinux2014_x86_64 --upgrade-strategy eager numpy\n"
+    assert online_checks.extract_packages(body) == [("pypi", "numpy")]
+
+
 def test_urls_are_capped_per_skill():
     body = "\n".join(f"https://site{i}.dev/p" for i in range(25))
     assert len(online_checks.extract_urls(body)) == online_checks.MAX_URLS_PER_SKILL == 20

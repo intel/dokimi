@@ -45,7 +45,10 @@ _LEAD = {"$", "sudo", "run", "Run", "RUN", "use", "Use", "then", "and", "-m", "u
 _PIP_VALUE_OPTIONS = {
     "-r", "--requirement", "-c", "--constraint", "-e", "--editable", "-i", "--index-url",
     "--extra-index-url", "-f", "--find-links", "-t", "--target", "--prefix", "--root", "--cache-dir",
-    "--proxy", "--timeout", "--trusted-host",
+    "--proxy", "--timeout", "--trusted-host", "--python-version", "--platform", "--abi",
+    "--implementation", "--upgrade-strategy", "--progress-bar", "--src", "--log", "--report",
+    "--exists-action", "--global-option", "--install-option", "--config-settings", "-C",
+    "--only-binary", "--no-binary", "--cert", "--client-cert", "--root-user-action",
 }
 _NPM_VALUE_OPTIONS = {"--prefix", "--registry", "--workspace", "-w", "--tag", "--cache", "--userconfig"}
 _NON_PACKAGE_SUFFIXES = (".txt", ".whl", ".tar.gz", ".tgz", ".zip", ".cfg", ".toml", ".py")
@@ -128,6 +131,9 @@ def _npx_names(args: list[str]) -> Iterator[str]:
     for tok in args:
         if tok in {"-c", "--call"}:
             return  # a shell command follows, not a package
+        if tok.startswith("--package="):
+            yield from _npm_names([tok[len("--package="):]])
+            return
         if tok in {"-p", "--package"}:
             take_next = True
             continue
@@ -181,8 +187,10 @@ def _clean_url(raw: str) -> Optional[str]:
 
 
 def _placeholder_url(url: str) -> bool:
-    parts = urlsplit(url)
-    host = (parts.hostname or "").lower()
+    try:
+        host = (urlsplit(url).hostname or "").lower()
+    except ValueError:  # a malformed bracketed host, such as ``http://[x/y``: not a link to check
+        return True
     if not host or host == "localhost" or host.endswith(_RESERVED_SUFFIXES):
         return True
     if host in _EXAMPLE_DOMAINS or host.endswith(tuple("." + d for d in _EXAMPLE_DOMAINS)):
@@ -193,7 +201,7 @@ def _placeholder_url(url: str) -> bool:
         address = None
     if address is not None and (address.is_loopback or address.is_unspecified):
         return True
-    return bool(_PLACEHOLDER_HOST_RE.search(url.lower()))
+    return bool(_PLACEHOLDER_HOST_RE.search(host))
 
 
 def extract_urls(body: str) -> list[str]:
