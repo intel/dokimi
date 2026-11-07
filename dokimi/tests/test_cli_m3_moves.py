@@ -129,3 +129,78 @@ def test_replay_refuses_dry_run(tmp_path):
     )
     with pytest.raises(InputError, match="--dry-run is for --from graph"):
         args.func(args)
+
+
+@pytest.mark.parametrize("flags", [["--max-turns", "7"], ["--references", "0"], ["--derives", "3"], ["--seed", "7"]])
+def test_replay_refuses_a_graph_only_flag_even_at_its_default(tmp_path, flags):
+    args = build_parser().parse_args(
+        ["eval", "tasks", "generate", str(tmp_path), "--from", "replay", "--threads", "t.json",
+         "--out", str(tmp_path / "t"), *flags]
+    )
+    with pytest.raises(InputError, match=f"{flags[0]} is for --from graph"):
+        args.func(args)
+
+
+@pytest.mark.parametrize("flags", [["--window", "3"], ["--prompt-file", "p.txt"], ["--manifest", "m.yaml"],
+                                   ["--manifest-file", "m.yaml"]])
+def test_graph_refuses_a_replay_only_flag(tmp_path, flags):
+    args = build_parser().parse_args(
+        ["eval", "tasks", "generate", str(tmp_path), "--from", "graph", "--index", "i.scip",
+         "--out", str(tmp_path / "t"), *flags]
+    )
+    with pytest.raises(InputError, match=f"{flags[0]} is for --from replay"):
+        args.func(args)
+
+
+@pytest.mark.parametrize(
+    ("argv", "message"),
+    [
+        (["catalog", "list", "--kind", "product", "--subjects-root", "/nope"], "--subjects-root is for --kind subject"),
+        (["catalog", "list", "--kind", "subject", "--domain", "x"], "--domain is for --kind product"),
+        (["catalog", "show", "--kind", "subject", "s.toml", "--registry", "r.yaml"], "--registry is for --kind product"),
+        (["catalog", "show", "--kind", "subject", "s.toml", "--intents", "i.yaml"], "--intents is for --kind product"),
+    ],
+)
+def test_catalog_refuses_the_flags_of_the_other_kind(argv, message):
+    args = build_parser().parse_args(argv)
+    with pytest.raises(InputError, match=message):
+        args.func(args)
+
+
+def _skill_with_a_name_mismatch(tmp_path):
+    """Two skills; uxl-alpha's frontmatter names another skill, a spec error that loads (exit 0 unless --strict)."""
+    for name in ("uxl-alpha", "uxl-beta"):
+        skill_dir = tmp_path / "skills" / name
+        skill_dir.mkdir(parents=True)
+        declared = "uxl-gamma" if name == "uxl-alpha" else name
+        (skill_dir / "SKILL.md").write_text(
+            f"---\nname: {declared}\ndescription: Use for {name} things.\n---\n# {name}\n", encoding="utf-8"
+        )
+    (tmp_path / "skills.yaml").write_text(
+        'schema_version: "1"\nskills:\n'
+        '  - name: "uxl-alpha"\n    status: "incubating"\n    catalog_path: "skills/uxl-alpha"\n'
+        '  - name: "uxl-beta"\n    status: "incubating"\n    catalog_path: "skills/uxl-beta"\n',
+        encoding="utf-8",
+    )
+
+
+def test_skill_check_strict_makes_a_spec_error_exit_1(tmp_path):
+    _skill_with_a_name_mismatch(tmp_path)
+    args = build_parser().parse_args(["skill", "check", "uxl-alpha", "--root", str(tmp_path)])
+    args.func(args)  # a spec error without --strict does not fail
+    args = build_parser().parse_args(["skill", "check", "uxl-alpha", "--root", str(tmp_path), "--strict"])
+    with pytest.raises(SystemExit) as excinfo:
+        args.func(args)
+    assert excinfo.value.code == 1
+
+
+def test_skill_check_json_is_the_named_skills_row_only(tmp_path, capsys):
+    import json
+
+    _skill_with_a_name_mismatch(tmp_path)
+    args = build_parser().parse_args(
+        ["skill", "check", "uxl-alpha", "--root", str(tmp_path), "--format", "json"]
+    )
+    args.func(args)
+    rows = json.loads(capsys.readouterr().out)["skills"]
+    assert [(row["name"], row["state"]) for row in rows] == [("uxl-alpha", "error")]

@@ -44,7 +44,8 @@ def _assert_helper_matches_main(argv, monkeypatch, capsys, expect):
     (lambda d: ["eval", "tasks", "list", "--tasks-root", str(d / "missing")], "--tasks-root is not a directory"),
     (lambda d: ["explore", "list", "--tasks-root", str(d / "missing")], "--tasks-root is not a directory"),
     (lambda d: ["catalog", "check", "--root", str(d / "missing")], "--root is not a directory"),
-    (lambda d: ["subjects", "list", "--subjects-root", str(d / "missing")], "--subjects-root is not a directory"),
+    (lambda d: ["catalog", "list", "--kind", "subject", "--subjects-root", str(d / "missing")],
+     "--subjects-root is not a directory"),
 ], ids=["data-export-missing-input", "judge-validate-escalation-needs-pairwise", "eval-tasks-list-root",
         "explore-list-root", "catalog-check-root", "subjects-list-root"])
 def test_helper_matches_cli_main_for_converted_commands(argv_for, expect, tmp_path, monkeypatch, capsys):

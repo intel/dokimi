@@ -488,7 +488,7 @@ Both are deterministic; `python cli.py trace prefilter`. Guide:
   answers, eval, arms and task-run artifacts to JSONL, Parquet or a Hugging Face
   dataset, with a dataset card.
 - `dokimi/registry.py` — product registry loaded from
-  `products.yaml`; powers `cli.py library` (alias `product`) and
+  `products.yaml`; powers `cli.py catalog list|show --kind product` and
   `cli.py benchmark`.
 - `dokimi/intents.py` — intent registry loaded from `intents.yaml`:
   the problem/intent space mapping domains (data science, debugging,

@@ -1002,16 +1002,14 @@ plugins = []
 
 def test_subjects_list_without_a_root_names_the_flag():
     """Descriptors live in a content checkout, so there is no in-repo default root."""
-    parser = build_parser()
-    args = parser.parse_args(["catalog", "list", "--kind", "subject"])
+    args = build_parser().parse_args(["catalog", "list", "--kind", "subject"])
     with pytest.raises(InputError) as excinfo:
         args.func(args)
     assert "--subjects-root" in str(excinfo.value)
 
 
 def test_subjects_list_rejects_a_root_that_is_not_a_directory(tmp_path: Path):
-    parser = build_parser()
-    args = parser.parse_args(["catalog", "list", "--kind", "subject", "--subjects-root", str(tmp_path / "typo")])
+    args = build_parser().parse_args(["catalog", "list", "--kind", "subject", "--subjects-root", f"{tmp_path}/typo"])
     with pytest.raises(InputError) as excinfo:
         args.func(args)
     assert "--subjects-root is not a directory" in str(excinfo.value)

@@ -212,7 +212,7 @@ def add_list_show_subject(catalog_list_p) -> None:
         default=None,
         dest="subjects_root",
         help=(
-            "Directory holding subject descriptors (*.toml/*.json). Required; the "
+            "Directory holding subject descriptors (*.toml/*.json). Required with --kind subject; the "
             "descriptors live in a separate evaluation-content checkout, e.g. "
             "--subjects-root /path/to/content-repo/evaluation/subjects"
         ),

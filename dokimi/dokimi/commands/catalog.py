@@ -314,10 +314,24 @@ def _trigger_set_sources(specs: list, catalog) -> list:
     return out
 
 
+# Flags that only one --kind reads: given with the other kind, they are refused, not ignored.
+_KIND_FLAGS = {"product": ("registry", "intents", "domain"), "subject": ("subjects_root",)}
+
+
+def _refuse_other_kind_flags(args: argparse.Namespace) -> None:
+    for kind, dests in _KIND_FLAGS.items():
+        if args.kind == kind:
+            continue
+        for dest in dests:
+            if getattr(args, dest, None) is not None:
+                raise InputError(f"--{dest.replace('_', '-')} is for --kind {kind}")
+
+
 def cmd_catalog_list(args: argparse.Namespace) -> None:
     """`catalog list --kind product|subject` (#94 M3): the registry or the subject descriptors."""
     from dokimi.commands import library, subjects
 
+    _refuse_other_kind_flags(args)
     if args.kind == "product":
         library.cmd_library_list(args)
     else:
@@ -328,6 +342,7 @@ def cmd_catalog_show(args: argparse.Namespace) -> None:
     """`catalog show NAME --kind product|subject` (#94 M3): one product key or one subject descriptor path."""
     from dokimi.commands import library, subjects
 
+    _refuse_other_kind_flags(args)
     if args.kind == "product":
         library.cmd_library_show(args)
     else:
