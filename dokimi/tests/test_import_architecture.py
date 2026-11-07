@@ -71,7 +71,7 @@ LAYERS: tuple[tuple[str, tuple[str, ...]], ...] = (
     # What everything shares: defaults, registries, artifact and record I/O, the LLM and
     # process chokepoints, console output.
     ("foundation", (
-        "dokimi", "dokimi._version", "dokimi.artifacts", "dokimi.caching", "dokimi.cli_flags", "dokimi.exit_codes",
+        "dokimi", "dokimi._version", "dokimi.artifacts", "dokimi.caching", "dokimi.cli_flags", "dokimi.cli_output", "dokimi.exit_codes",
         "dokimi.config", "dokimi.console", "dokimi.container_policy", "dokimi.defaults",
         "dokimi.intents", "dokimi.judged", "dokimi.llm", "dokimi.llm_cli", "dokimi.llm_json",
         "dokimi.llm_pricing", "dokimi.measure", "dokimi.process", "dokimi.process_io",
