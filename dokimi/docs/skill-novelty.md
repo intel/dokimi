@@ -426,8 +426,9 @@ Two content patterns were measured as actively harmful, independent of topic:
   entirely: it replied with a preamble promising to look things up and scored 0.047, against 0.537
   with no skill at all. Skill bodies should be answerable standalone; progressive disclosure is a
   loading strategy, not a sentence to write.
-- **Investment in prose order.** An arm with the same spans in shuffled order scored *higher* than
-  the intact artifact on four of five models. Ordering, transitions and narrative framing carried no
+- **Investment in prose order.** The study's shuffled arm scored *higher* than the intact artifact
+  on four of five models, but it injected more files than the artifact did, so that result does not
+  carry over to this measurement. Ordering, transitions and narrative framing carried no
   measurable knowledge. Spend the effort on facts, qualifiers and exact values — that is where the
   strict-grading `added` lives. A probe asks one atom at a time and so cannot punish a scrambled
   document, so this was retested behaviourally on the 71 generated tasks whose graded requirements
@@ -850,11 +851,12 @@ only when its arm ran, so a two-arm run reads exactly as before.
   placebo text. A gain the placebo also gets is a context effect, not knowledge.
 - **Noise floor** (`noise_floor`, needs the `no_artifact_repeat` arm). That arm asks every
   baseline question again as a new sample (a new cache `draw`). Its flips against the
-
   baseline are what `added` and `degraded` would be if the artifact did nothing.
-    - `added_net_of_noise` subtracts the floor's `added` from the measured one.
+
+    - `added_net_of_noise` subtracts the floor's `added` from the measured one, over the
+      probes that all three arms answered. It is omitted when there are none.
     - `degraded_within_noise` is `true` when `degraded` is no larger than the floor's own
-      `degraded`. Do not report such a `degraded` as a defect.
+      `degraded`, over the same probes. Do not report such a `degraded` as a defect.
     - In the review rerun the floor was 5–10% in each direction, and every model's
       `degraded` fell inside it.
     - Both are point estimates; the floor carries its own `ci95_added` to read them against.
@@ -870,10 +872,13 @@ only when its arm ran, so a two-arm run reads exactly as before.
 document. It may or may not be relevant to the question." Use it to check whether placebo
 abstention is caused by the prompt. In the rerun the framing did not move the `full` arm on
 any model (±0.02). With the placebo, one model's abstention fell from 0.845 to 0.703. The
-framing is recorded in the run config and is covered by `prompts_sha256`.
+framing is recorded in the run config, in each probe record (`context_framing`), and is covered by `prompts_sha256`.
 
 ```bash
-python cli.py novelty analyze --artifact skill:s --model M   --arms no_artifact,full,placebo,no_artifact_repeat --placebo-text other-domain.md   --context-framing neutral
+python cli.py novelty analyze --artifact skill:s --model M \
+  --arms no_artifact,full,placebo,no_artifact_repeat \
+  --placebo-text other-domain.md \
+  --context-framing neutral
 ```
 
 ## Comparing knowledge: which matcher is allowed to answer
