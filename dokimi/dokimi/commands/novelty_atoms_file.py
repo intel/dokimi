@@ -9,7 +9,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from dokimi.exit_codes import usage_exit
+from dokimi.utils import InputError
 
 
 def warn_unread(spans: list, consequence: str) -> None:
@@ -118,10 +118,10 @@ def measured_atoms(args: argparse.Namespace, atoms: list, saved: dict, stage: st
     if args.all_atoms or len(sample) == len(atoms):
         return atoms
     if not sample and atoms:
-        usage_exit(f"{stage}: {args.atoms} records a sample of {len(saved['sampled_atom_ids'])} "
-                   f"atom(s), none of them among the {len(atoms)} of its {len(saved['atoms'])} "
-                   f"atoms {stage} measures here, so it would score nothing; pass --all-atoms "
-                   f"to measure those {len(atoms)}")
+        raise InputError(f"{stage}: {args.atoms} records a sample of {len(saved['sampled_atom_ids'])} "
+                         f"atom(s), none of them among the {len(atoms)} of its {len(saved['atoms'])} "
+                         f"atoms {stage} measures here, so it would score nothing; pass --all-atoms "
+                         f"to measure those {len(atoms)}")
     print(f"NOTE {stage} measures the {len(sample)} atoms {args.atoms} records as the cap's "
           f"sample, of its {len(saved['atoms'])}; spans are indexed from all "
           f"{len(saved['atoms'])}. Pass "

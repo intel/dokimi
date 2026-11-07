@@ -1,13 +1,15 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""``repo tasks replay``: ``dokimi:review_replay`` tasks from recorded review threads.
+"""``repo tasks replay`` and ``repo tasks authoring``: tasks from merged pull requests.
 
 :mod:`.threads` reads the pull requests and picks the gold threads, :mod:`.history` asks
 git where a line went and whether the PR's own commits changed it, and :mod:`.build`
-writes one task directory per pull request. No GitHub call is made: the threads come
-from a file ``gh api graphql`` wrote, so the command works offline and on a private
-repository alike.
+writes one ``dokimi:review_replay`` task directory per pull request. :mod:`.authoring`
+writes one ``dokimi:hidden_tests`` task per change, and :mod:`.authoring_prs` makes a
+change of each merged pull request; :mod:`.merged` holds what both kinds share (the base,
+the files left out). No GitHub call is made: the pull requests come from a file
+``gh api graphql`` wrote, so the commands work offline and on a private repository alike.
 """
 
 from .build import DEFAULT_PROMPT, Options, Outcome, build_all, task_id

@@ -905,3 +905,39 @@ def test_the_run_config_records_how_the_extractor_relates_to_the_judge(tmp_path)
     artifact = _analyze(tmp_path).artifact
     assert artifact["run_config"]["extractor_judge"] == {
         "extractor": "extractor-m", "judge": "judge-m", "same_model": False, "same_vendor": False}
+
+
+def test_an_analyze_artifact_keeps_the_control_fields_and_the_cluster_marker(tmp_path):
+    result = _analyze(tmp_path, arms=("no_artifact", "full", "placebo", "no_artifact_repeat"),
+                      placebo_text="Lemon cake: fold the egg whites in slowly, then bake.")
+    lenient = result.artifact["paired"]["lenient"]
+    assert lenient["ci_cluster"] == "atom"
+    assert "added_over_placebo" in lenient and "noise_floor" in lenient
+    assert "added_net_of_noise" in lenient and "degraded_within_noise" in lenient
+
+
+def test_neutral_framing_reaches_the_prompts_and_the_run_config(tmp_path):
+    seen: list[str] = []
+    informed = _scripted("informed")
+
+    def recording(prompt: str, system: str | None):
+        seen.append(prompt)
+        return informed(prompt, system)
+
+    path = tmp_path / "accel-tuning" / "SKILL.md"
+    path.parent.mkdir(parents=True)
+    path.write_text(SKILL, encoding="utf-8")
+    kind, name, description, frontmatter, body = load_artifact_text(f"skill:{path}")
+    config = AnalyzeConfig(
+        artifact_ref=f"skill:{path}", artifact_kind=kind, name=name, description=description,
+        frontmatter=frontmatter, concurrency=1, context_framing="neutral",
+    )
+    artifact = analyze(
+        body, config, extractor=LLMClient(model="e", role="extractor", transport=recording),
+        answerer=LLMClient(model="a", role="answerer", transport=recording),
+        judge=LLMClient(model="j", role="judge", transport=recording),
+    ).artifact
+    assert artifact["run_config"]["context_framing"] == "neutral"
+    assert any(p.startswith("Below is a document. It may or may not") for p in seen)
+    default = _analyze(tmp_path / "again")
+    assert "context_framing" not in default.artifact["run_config"]

@@ -56,6 +56,7 @@ class AnalyzeConfig:
     # cited file, so a run that skips this must not present attribution as confirmed.
     confirm_carriers: bool = DEFAULT_SETTINGS["confirm_carriers"]
     placebo_text: str | None = None
+    context_framing: str = "reference"
     cache_dir: Path | None = None
     seed: int = 0
     # Measured over the study corpus, 0.72 of a skill's words live outside `SKILL.md`, so
@@ -81,7 +82,10 @@ def _prompts_sha256() -> str:
 
 def _run_config(config: "AnalyzeConfig") -> dict:
     """What decided this cell's numbers beyond the models: two cells compare only if these match."""
+    framing = {} if config.context_framing == "reference" else {
+        "context_framing": config.context_framing}
     return {
+        **framing,
         "seed": config.seed,
         "max_atoms": config.max_atoms,
         "paraphrases": config.paraphrases,
@@ -245,7 +249,7 @@ def analyze(
         atom_list, probe_list, text,
         answerer=answerer, judge=judge, arms=config.arms,
         concurrency=config.concurrency, allow_self_judge=config.allow_self_judge,
-        placebo_text=config.placebo_text, seed=config.seed,
+        placebo_text=config.placebo_text, seed=config.seed, framing=config.context_framing,
     )
     if config.allow_self_judge and same_client(judge, answerer):
         warnings.append(
