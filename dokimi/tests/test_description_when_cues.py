@@ -34,6 +34,7 @@ HAS_WHEN = [
     pytest.param("Genera notas de versión. Úsalo cuando se publique una versión.", id="es-cuando"),
     pytest.param("배포를 수행합니다. 트리거: 새 태그 생성.", id="ko-tritgeo-colon"),
     pytest.param("새 태그가 트리거되면 배포합니다.", id="ko-tritgeo-doemyeon"),
+    pytest.param("배포를 수행합니다. 트리거 조건: 새 태그 생성.", id="ko-tritgeo-label"),
     pytest.param("Génère des notes de version. À utiliser quand une release est prête.", id="fr-quand"),
     pytest.param("Erstellt Release-Notizen. Verwende dies, wenn ein Release ansteht.", id="de-wenn"),
     pytest.param("Gera notas de versão. Use quando uma versão for publicada.", id="pt-quando"),
