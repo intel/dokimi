@@ -105,6 +105,7 @@ dokimi = [
   "repos/skill_fixtures.yaml",
   "repos/support/*.py",
   "harnesses/swebench_specs.json",
+  "external/legacy_models.toml",
 ]
 
 [tool.scriv]

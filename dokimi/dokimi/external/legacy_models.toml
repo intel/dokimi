@@ -1,0 +1,578 @@
+# Retired and deprecated model IDs that skills name, read by dokimi.external.content_checks.
+# Entry rules, the update process and the source pages (see `checked`): docs/external-content.md.
+
+checked = "2026-11-07"
+
+[sources]
+anthropic = "https://platform.claude.com/docs/en/about-claude/model-deprecations"
+openai = "https://developers.openai.com/api/docs/deprecations"
+google = "https://aistudio.google.com/docs/deprecations"
+
+# ---- Anthropic (model-deprecations page, "Model status" and "Deprecation history") ----
+
+[[model]]
+vendor = "anthropic"
+ids = ["claude-sonnet-4-5", "claude-sonnet-4-5-20250929"]
+status = "deprecated"
+date = "2026-11-30"
+replacement = "claude-sonnet-5-5"
+
+[[model]]
+vendor = "anthropic"
+ids = ["claude-mythos-preview"]
+status = "deprecated"
+date = ""
+replacement = "claude-mythos-5-1 (Project Glasswing) or claude-fable-5-1"
+
+[[model]]
+vendor = "anthropic"
+ids = ["claude-opus-4-1-20250805"]
+status = "retired"
+date = "2026-08-05"
+replacement = "claude-opus-4-8"
+
+[[model]]
+vendor = "anthropic"
+ids = ["claude-opus-4-20250514"]
+status = "retired"
+date = "2026-06-15"
+replacement = "claude-opus-4-8"
+
+[[model]]
+vendor = "anthropic"
+ids = ["claude-sonnet-4-20250514"]
+status = "retired"
+date = "2026-06-15"
+replacement = "claude-sonnet-5-5"
+
+[[model]]
+vendor = "anthropic"
+ids = ["claude-3-7-sonnet-20250219"]
+status = "retired"
+date = "2026-02-19"
+replacement = "claude-sonnet-5-5"
+
+[[model]]
+vendor = "anthropic"
+ids = ["claude-3-5-haiku-20241022"]
+status = "retired"
+date = "2026-02-19"
+replacement = "claude-haiku-4-5-20251001"
+
+[[model]]
+vendor = "anthropic"
+ids = ["claude-3-haiku-20240307"]
+status = "retired"
+date = "2026-04-20"
+replacement = "claude-haiku-4-5-20251001"
+
+[[model]]
+vendor = "anthropic"
+ids = ["claude-3-5-sonnet-20240620", "claude-3-5-sonnet-20241022"]
+status = "retired"
+date = "2025-10-28"
+replacement = "claude-sonnet-5-5"
+
+[[model]]
+vendor = "anthropic"
+ids = ["claude-3-opus-20240229"]
+status = "retired"
+date = "2026-01-05"
+replacement = "claude-opus-4-8"
+
+[[model]]
+vendor = "anthropic"
+ids = ["claude-3-sonnet-20240229"]
+status = "retired"
+date = "2025-07-21"
+replacement = "claude-sonnet-5-5"
+
+[[model]]
+vendor = "anthropic"
+ids = ["claude-2.0", "claude-2.1"]
+status = "retired"
+date = "2025-07-21"
+replacement = "claude-opus-4-8"
+
+# ---- OpenAI (deprecations page: "Deprecated" and "Shut down" rows; announced-only rows left out) ----
+
+[[model]]
+vendor = "openai"
+ids = ["code-davinci-002", "code-davinci-001", "code-cushman-002", "code-cushman-001"]
+status = "retired"
+date = "2023-03-23"
+replacement = "gpt-4o"
+
+[[model]]
+vendor = "openai"
+ids = [
+  "text-ada-001", "text-babbage-001", "text-curie-001",
+  "text-davinci-001", "text-davinci-002", "text-davinci-003",
+]
+status = "retired"
+date = "2024-01-04"
+replacement = "gpt-3.5-turbo-instruct"
+
+[[model]]
+vendor = "openai"
+ids = ["text-davinci-edit-001", "code-davinci-edit-001"]
+status = "retired"
+date = "2024-01-04"
+replacement = "gpt-4o"
+
+[[model]]
+vendor = "openai"
+ids = [
+  "text-similarity-ada-001", "text-similarity-babbage-001", "text-similarity-curie-001", "text-similarity-davinci-001",
+  "text-search-ada-doc-001", "text-search-babbage-doc-001", "text-search-curie-doc-001", "text-search-davinci-doc-001",
+  "text-search-ada-query-001", "text-search-babbage-query-001", "text-search-curie-query-001", "text-search-davinci-query-001",
+  "code-search-ada-code-001", "code-search-babbage-code-001", "code-search-ada-text-001", "code-search-babbage-text-001",
+]
+status = "retired"
+date = "2024-01-04"
+replacement = "text-embedding-3-small"
+
+[[model]]
+vendor = "openai"
+ids = ["gpt-3.5-turbo-0613", "gpt-3.5-turbo-16k-0613", "gpt-3.5-turbo-0301"]
+status = "retired"
+date = "2024-09-13"
+replacement = "gpt-3.5-turbo"
+
+[[model]]
+vendor = "openai"
+ids = ["gpt-4-vision-preview", "gpt-4-1106-vision-preview"]
+status = "retired"
+date = "2024-12-06"
+replacement = "gpt-4o"
+
+[[model]]
+vendor = "openai"
+ids = ["gpt-4-32k", "gpt-4-32k-0613", "gpt-4-32k-0314"]
+status = "retired"
+date = "2025-06-06"
+replacement = "gpt-4o"
+
+[[model]]
+vendor = "openai"
+ids = ["gpt-4.5-preview"]
+status = "retired"
+date = "2025-07-14"
+replacement = "gpt-4.1"
+
+[[model]]
+vendor = "openai"
+ids = ["o1-preview"]
+status = "retired"
+date = "2025-07-28"
+replacement = "o3"
+
+[[model]]
+vendor = "openai"
+ids = ["gpt-4o-realtime-preview-2024-10-01"]
+status = "retired"
+date = "2025-10-10"
+replacement = "gpt-realtime-1.5"
+
+[[model]]
+vendor = "openai"
+ids = ["gpt-4o-audio-preview-2024-10-01"]
+status = "retired"
+date = "2025-10-10"
+replacement = "gpt-audio-1.5"
+
+[[model]]
+vendor = "openai"
+ids = ["o1-mini"]
+status = "retired"
+date = "2025-10-27"
+replacement = "o4-mini"
+
+[[model]]
+vendor = "openai"
+ids = ["text-moderation-007", "text-moderation-stable", "text-moderation-latest"]
+status = "retired"
+date = "2025-10-27"
+replacement = "omni-moderation"
+
+[[model]]
+vendor = "openai"
+ids = ["codex-mini-latest"]
+status = "retired"
+date = "2026-02-12"
+replacement = "gpt-5-codex-mini"
+
+[[model]]
+vendor = "openai"
+ids = ["chatgpt-4o-latest"]
+status = "retired"
+date = "2026-02-17"
+replacement = "gpt-5.1-chat-latest"
+
+[[model]]
+vendor = "openai"
+ids = ["gpt-4-0314", "gpt-4-0125-preview", "gpt-4-turbo-preview", "gpt-4-turbo-preview-completions"]
+status = "retired"
+date = "2026-03-26"
+replacement = "gpt-5 or gpt-4.1 (latency-sensitive tasks without reasoning)"
+
+[[model]]
+vendor = "openai"
+ids = ["gpt-4o-realtime-preview", "gpt-4o-realtime-preview-2025-06-03", "gpt-4o-realtime-preview-2024-12-17"]
+status = "retired"
+date = "2026-05-07"
+replacement = "gpt-realtime-1.5"
+
+[[model]]
+vendor = "openai"
+ids = ["gpt-4o-mini-realtime-preview"]
+status = "retired"
+date = "2026-05-07"
+replacement = "gpt-realtime-mini"
+
+[[model]]
+vendor = "openai"
+ids = ["gpt-4o-audio-preview"]
+status = "retired"
+date = "2026-05-07"
+replacement = "gpt-audio-1.5"
+
+[[model]]
+vendor = "openai"
+ids = ["gpt-4o-mini-audio-preview"]
+status = "retired"
+date = "2026-05-07"
+replacement = "gpt-audio-mini"
+
+[[model]]
+vendor = "openai"
+ids = ["dall-e-2", "dall-e-3"]
+status = "retired"
+date = "2026-05-12"
+replacement = "gpt-image-2, gpt-image-1 or gpt-image-1-mini"
+
+[[model]]
+vendor = "openai"
+ids = [
+  "computer-use-preview", "computer-use-preview-2025-03-11",
+  "gpt-4o-search-preview-2025-03-11", "gpt-4o-mini-search-preview-2025-03-11",
+]
+status = "retired"
+date = "2026-07-23"
+replacement = "gpt-5.6-terra"
+
+[[model]]
+vendor = "openai"
+ids = [
+  "gpt-5-chat-latest", "gpt-5-codex", "gpt-5.1-chat-latest",
+  "gpt-5.1-codex", "gpt-5.1-codex-max", "gpt-5.2-codex",
+]
+status = "retired"
+date = "2026-07-23"
+replacement = "gpt-5.6-sol"
+
+[[model]]
+vendor = "openai"
+ids = ["gpt-5.1-codex-mini"]
+status = "retired"
+date = "2026-07-23"
+replacement = "gpt-5.6-terra"
+
+[[model]]
+vendor = "openai"
+ids = ["gpt-audio-mini-2025-10-06"]
+status = "retired"
+date = "2026-07-23"
+replacement = "gpt-audio-1.5"
+
+[[model]]
+vendor = "openai"
+ids = ["gpt-realtime-mini-2025-10-06"]
+status = "retired"
+date = "2026-07-23"
+replacement = "gpt-realtime-2.1-mini"
+
+[[model]]
+vendor = "openai"
+ids = [
+  "o3-deep-research", "o3-deep-research-2025-06-26",
+  "o4-mini-deep-research", "o4-mini-deep-research-2025-06-26",
+]
+status = "retired"
+date = "2026-07-23"
+replacement = "gpt-5.6-sol"
+
+[[model]]
+vendor = "openai"
+ids = ["gpt-5.2-chat-latest", "gpt-5.3-chat-latest"]
+status = "retired"
+date = "2026-08-10"
+replacement = "gpt-5.6-sol"
+
+[[model]]
+vendor = "openai"
+ids = [
+  "sora-2", "sora-2-pro", "sora-2-2025-10-06",
+  "sora-2-2025-12-08", "sora-2-pro-2025-10-06",
+]
+status = "retired"
+date = "2026-09-24"
+replacement = ""
+
+[[model]]
+vendor = "openai"
+ids = ["gpt-3.5-turbo-instruct", "babbage-002", "davinci-002", "gpt-3.5-turbo-1106"]
+status = "retired"
+date = "2026-09-28"
+replacement = "gpt-5.6-terra"
+
+[[model]]
+vendor = "openai"
+ids = ["gpt-5.4-cyber"]
+status = "retired"
+date = "2026-10-01"
+replacement = ""
+
+[[model]]
+vendor = "openai"
+ids = ["gpt-3.5-turbo-0125", "gpt-3.5-turbo", "gpt-3.5-turbo-completions"]
+status = "retired"
+date = "2026-10-23"
+replacement = "gpt-5.6-terra"
+
+[[model]]
+vendor = "openai"
+ids = [
+  "gpt-4-0613", "gpt-4", "gpt-4-0613-completions", "gpt-4-completions",
+  "gpt-4-1106-preview", "gpt-4-turbo", "gpt-4-turbo-2024-04-09",
+  "gpt-4-turbo-completions", "gpt-4o-2024-05-13",
+]
+status = "retired"
+date = "2026-10-23"
+replacement = "gpt-5.6-sol"
+
+[[model]]
+vendor = "openai"
+ids = ["gpt-4.1-nano", "gpt-4.1-nano-2025-04-14"]
+status = "retired"
+date = "2026-10-23"
+replacement = "gpt-5.6-luna"
+
+[[model]]
+vendor = "openai"
+ids = ["ft-o4-mini-2025-04-16", "o4-mini", "o4-mini-2025-04-16"]
+status = "retired"
+date = "2026-10-23"
+replacement = "gpt-5.6-terra"
+
+[[model]]
+vendor = "openai"
+ids = ["o1", "o1-2024-12-17", "o3-mini", "o3-mini-2025-01-31"]
+status = "retired"
+date = "2026-10-23"
+replacement = "gpt-5.6-sol"
+
+[[model]]
+vendor = "openai"
+ids = ["o1-pro", "o1-pro-2025-03-19"]
+status = "retired"
+date = "2026-10-23"
+replacement = "gpt-5.6-sol (reasoning.mode: pro)"
+
+[[model]]
+vendor = "openai"
+ids = ["gpt-image-1"]
+status = "retired"
+date = "2026-10-23"
+replacement = "gpt-image-2.5-sunburst or gpt-image-2.5-flare"
+
+# ---- Google (aistudio deprecations page: shutdown date already past; the page labels no status) ----
+
+[[model]]
+vendor = "google"
+ids = ["gemini-3-pro-preview"]
+status = "retired"
+date = "2026-03-09"
+replacement = "gemini-3.1-pro-preview"
+
+[[model]]
+vendor = "google"
+ids = ["gemini-3.1-flash-lite-preview"]
+status = "retired"
+date = "2026-05-25"
+replacement = "gemini-3.1-flash-lite"
+
+[[model]]
+vendor = "google"
+ids = ["gemini-2.5-computer-use-preview-10-2025"]
+status = "retired"
+date = "2026-07-28"
+replacement = "gemini-3.8-flash"
+
+[[model]]
+vendor = "google"
+ids = ["gemini-2.5-pro-preview-03-25", "gemini-2.5-pro-preview-05-06", "gemini-2.5-pro-preview-06-05"]
+status = "retired"
+date = "2025-12-02"
+replacement = "gemini-3.8-flash"
+
+[[model]]
+vendor = "google"
+ids = ["gemini-2.5-flash-lite-preview-09-2025"]
+status = "retired"
+date = "2026-03-31"
+replacement = "gemini-3.1-flash-lite"
+
+[[model]]
+vendor = "google"
+ids = ["gemini-2.5-flash-preview-05-20"]
+status = "retired"
+date = "2025-11-18"
+replacement = "gemini-3.6-flash"
+
+[[model]]
+vendor = "google"
+ids = ["gemini-2.5-flash-preview-09-2025"]
+status = "retired"
+date = "2026-02-17"
+replacement = "gemini-3.6-flash"
+
+[[model]]
+vendor = "google"
+ids = ["gemini-2.0-flash", "gemini-2.0-flash-001"]
+status = "retired"
+date = "2026-06-01"
+replacement = "gemini-3.6-flash"
+
+[[model]]
+vendor = "google"
+ids = ["gemini-2.0-flash-lite", "gemini-2.0-flash-lite-001"]
+status = "retired"
+date = "2026-06-01"
+replacement = "gemini-3.1-flash-lite"
+
+[[model]]
+vendor = "google"
+ids = ["gemini-2.0-flash-lite-preview", "gemini-2.0-flash-lite-preview-02-05"]
+status = "retired"
+date = "2025-12-09"
+replacement = "gemini-3.1-flash-lite"
+
+[[model]]
+vendor = "google"
+ids = ["gemini-live-2.5-flash-preview", "gemini-2.0-flash-live-001"]
+status = "retired"
+date = "2025-12-09"
+replacement = "gemini-3.8-live"
+
+[[model]]
+vendor = "google"
+ids = ["gemini-embedding-2-preview"]
+status = "retired"
+date = "2026-11-06"
+replacement = "gemini-embedding-2"
+
+[[model]]
+vendor = "google"
+ids = ["text-embedding-004"]
+status = "retired"
+date = "2026-01-14"
+replacement = "gemini-embedding-2"
+
+[[model]]
+vendor = "google"
+ids = ["embedding-001", "embedding-gecko-001", "gemini-embedding-exp", "gemini-embedding-exp-03-07"]
+status = "retired"
+date = "2025-10-30"
+replacement = "gemini-embedding-2"
+
+[[model]]
+vendor = "google"
+ids = ["gemini-3.1-flash-image-preview"]
+status = "retired"
+date = "2026-06-25"
+replacement = "gemini-nano-banana-2.1"
+
+[[model]]
+vendor = "google"
+ids = ["gemini-3-pro-image-preview"]
+status = "retired"
+date = "2026-06-25"
+replacement = "gemini-3-pro-image"
+
+[[model]]
+vendor = "google"
+ids = ["gemini-2.5-flash-image-preview"]
+status = "retired"
+date = "2026-01-15"
+replacement = "gemini-nano-banana-2.1"
+
+[[model]]
+vendor = "google"
+ids = ["gemini-2.0-flash-preview-image-generation"]
+status = "retired"
+date = "2025-11-14"
+replacement = "gemini-nano-banana-2.1"
+
+[[model]]
+vendor = "google"
+ids = ["imagen-4.0-generate-001", "imagen-4.0-ultra-generate-001", "imagen-4.0-fast-generate-001"]
+status = "retired"
+date = "2026-08-17"
+replacement = "gemini-nano-banana-2.1"
+
+[[model]]
+vendor = "google"
+ids = ["imagen-4.0-generate-preview-06-06", "imagen-4.0-ultra-generate-preview-06-06"]
+status = "retired"
+date = "2026-02-17"
+replacement = "gemini-nano-banana-2.1"
+
+[[model]]
+vendor = "google"
+ids = ["imagen-3.0-generate-002"]
+status = "retired"
+date = "2025-11-10"
+replacement = "gemini-nano-banana-2.1"
+
+[[model]]
+vendor = "google"
+ids = ["veo-3.1-lite-generate-preview", "veo-3.1-generate-preview", "veo-3.1-fast-generate-preview"]
+status = "retired"
+date = "2026-10-22"
+replacement = "gemini-omni-1.2-flash"
+
+[[model]]
+vendor = "google"
+ids = ["veo-3.0-generate-001", "veo-3.0-fast-generate-001", "veo-2.0-generate-001"]
+status = "retired"
+date = "2026-06-30"
+replacement = "gemini-omni-1.2-flash"
+
+[[model]]
+vendor = "google"
+ids = ["veo-3.0-generate-preview", "veo-3.0-fast-generate-preview"]
+status = "retired"
+date = "2025-11-12"
+replacement = "gemini-omni-1.2-flash"
+
+[[model]]
+vendor = "google"
+ids = ["gemini-omni-flash-preview"]
+status = "retired"
+date = "2026-10-22"
+replacement = "gemini-omni-1.2-flash"
+
+[[model]]
+vendor = "google"
+ids = ["gemini-robotics-er-1.6-preview"]
+status = "retired"
+date = "2026-08-31"
+replacement = "gemini-robotics-er-2-preview"
+
+[[model]]
+vendor = "google"
+ids = ["gemini-robotics-er-1.5-preview"]
+status = "retired"
+date = "2026-04-30"
+replacement = "gemini-robotics-er-2-preview"
