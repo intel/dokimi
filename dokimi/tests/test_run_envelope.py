@@ -248,7 +248,7 @@ def test_each_process_has_its_own_run_id_and_dokimi_run_id_joins_them(tmp_path):
 
 
 def test_the_panel_judge_output_is_an_eval_artifact_with_the_envelope(tmp_path, monkeypatch):
-    """`eval panel score` wrote its incremental output with no schema_version, so `runs list` could
+    """`eval score panel` wrote its incremental output with no schema_version, so `runs list` could
     not see it and it had no run_id (#277 B1b). It is saved through save_artifact now."""
     from dokimi.eval.panel import JudgeConfig, JudgePanel, _save_incremental
 
