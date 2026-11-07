@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 from dokimi import cli
-from dokimi.artifacts import run_id, save_artifact
+from dokimi.artifacts import save_artifact
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "artifacts"
 
@@ -31,12 +31,18 @@ def root(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def filled(root):
-    save_artifact("arms", {**_fixture("arms.v1"), "generated_at": "2026-10-29T14:02:00Z"},
+def filled(root, monkeypatch):
+    """Each artifact a run of its own (``r-<kind>``), so the rows are newest first."""
+    def save(kind, *args):
+        monkeypatch.setenv("DOKIMI_RUN_ID", f"r-{kind}")
+        save_artifact(kind, *args)
+        monkeypatch.delenv("DOKIMI_RUN_ID")
+
+    save("arms", {**_fixture("arms.v1"), "generated_at": "2026-10-29T14:02:00Z"},
                   root / "arms" / "onetbb.json")
-    save_artifact("plugin_delta", _fixture("plugin_delta.v1"), root / "arms" / "plugin_delta.json")
-    save_artifact("eval", _fixture("eval.v1"), root / "onetbb_r1" / "eval" / "onetbb.json")
-    save_artifact("questions", {**_fixture("questions.v2"), "product": "oneTBB",
+    save("plugin_delta", _fixture("plugin_delta.v1"), root / "arms" / "plugin_delta.json")
+    save("eval", _fixture("eval.v1"), root / "onetbb_r1" / "eval" / "onetbb.json")
+    save("questions", {**_fixture("questions.v2"), "product": "oneTBB",
                                 "generated_at": "2026-10-20T09:00:00+02:00"},
                   root / "onetbb_r1" / "questions" / "oneTBB.json")
     os.utime(root / "arms" / "plugin_delta.json", (1_780_000_000, 1_780_000_000))  # 2026-05-28
@@ -107,9 +113,10 @@ def test_rows_are_newest_first_by_recorded_time_then_mtime(monkeypatch, capsys, 
     assert _paths(out) == ["arms/onetbb.json", "onetbb_r1/questions/oneTBB.json",
                            "arms/plugin_delta.json", "onetbb_r1/eval/onetbb.json"]
     lines = out.splitlines()
-    assert lines[0].split() == ["SCHEMA", "SUBJECT", "MODEL", "TIME", "(UTC)", "PATH"]
-    assert lines[2].split()[:5] == ["questions.v2", "oneTBB", "-", "2026-10-20", "07:00"]
-    assert lines[3].split()[3] == "2026-05-28" and lines[3].split()[4].endswith("*")
+    assert lines[0].split() == ["RUN", "SCHEMA", "SUBJECT", "MODEL", "TIME", "(UTC)", "PATH"]
+    assert lines[2].split()[:6] == ["-", "questions.v2", "oneTBB", "-", "2026-10-20", "07:00"]
+    assert lines[3].split()[:5] == ["r-plugin_delta", "plugin_delta.v1", "oneTBB", "m", "2026-05-28"]
+    assert lines[3].split()[5].endswith("*")
 
 
 def test_kind_is_repeatable_and_subject_matches_exactly(monkeypatch, capsys, filled):
@@ -130,10 +137,11 @@ def test_json_has_the_vocabulary_fields_and_every_count(monkeypatch, capsys, fil
     data = json.loads(_list(monkeypatch, capsys, "--json", "--kind", "arms").out)
 
     assert data["artifacts"] == [{
-        "schema_version": "arms.v1", "kind": "arms", "run_id": run_id(), "subject": "onetbb",
+        "schema_version": "arms.v1", "kind": "arms", "run_id": "r-arms", "subject": "onetbb",
         "model": "m", "generated_at": "2026-10-29T14:02:00Z", "path": "arms/onetbb.json",
         "size_bytes": (filled / "arms" / "onetbb.json").stat().st_size,
     }]
+    assert data["runs"] == [{"run_id": "r-arms", "kinds": ["arms"], "paths": ["arms/onetbb.json"]}]
     assert data["root"] == "results" and data["total"] == 4
     assert data["skipped"] == {"not_json": 1, "unknown_schema_version": 1}
     assert data["unknown_versions"] == {"pairwise.v0": 1}
@@ -152,6 +160,7 @@ def test_the_text_summary_counts_what_was_skipped_and_names_the_first_unreadable
 
     assert summary == [
         "4 artifacts under results/ (* the file's mtime: the artifact records no time)",
+        "runs: 3 (3 artifacts); no run_id: 1 (runs show PATH says why)",
         "skipped: 1 JSON with no leading schema_version, 1 JSON of an unknown schema_version "
         "(pairwise.v0: 1), 1 *.rejected (payloads save_artifact refused), 1 not .json",
         "unreadable: 1 (first: broken.json: not valid JSON: Expecting value at line 1)",
@@ -172,7 +181,7 @@ def test_control_characters_in_names_and_fields_are_escaped(monkeypatch, capsys,
     rows = _list(monkeypatch, capsys).out.split("\n\n")[0].splitlines()
 
     assert len(rows) == 2
-    assert rows[1].split()[1] == "evil\\x1b[2J" and rows[1].endswith("two\\nlines.json")
+    assert rows[1].split()[2] == "evil\\x1b[2J" and rows[1].endswith("two\\nlines.json")
 
 
 def test_an_unknown_version_with_a_line_separator_is_printed_escaped(monkeypatch, capsys, root):
@@ -195,7 +204,7 @@ def test_an_mtime_past_the_year_9999_is_shown_as_seconds(monkeypatch, capsys, ro
 
     rows = _list(monkeypatch, capsys).out.splitlines()
 
-    assert rows[1].split()[:4] == ["plugin_delta.v1", "-", "-", "@253402300800*"]
+    assert rows[1].split()[:5] == ["-", "plugin_delta.v1", "-", "-", "@253402300800*"]
 
 
 @pytest.mark.skipif(os.name == "nt" or os.geteuid() == 0,
@@ -223,7 +232,7 @@ def test_a_time_that_is_not_iso_8601_is_shown_as_written(monkeypatch, capsys, ro
 
     rows = _list(monkeypatch, capsys).out.splitlines()
 
-    assert rows[1].split()[:4] == ["eval.v1", "-", "demo-judge", "yesterday"]
+    assert rows[1].split()[1:5] == ["eval.v1", "-", "demo-judge", "yesterday"]
 
 
 @pytest.mark.skipif(os.name == "nt", reason="Windows paths cannot hold control characters")
@@ -235,3 +244,77 @@ def test_a_bad_root_is_named_escaped(tmp_path, monkeypatch, capsys):
 
     err = capsys.readouterr().err
     assert err == f"Error: runs root DOKIMI_RUNS_DIR={tmp_path}/no\\nwhere does not exist\n"
+
+
+@pytest.fixture
+def two_runs(root, monkeypatch):
+    """Run ``a`` (an eval at 10:00, arms at 08:00), run ``b`` (09:00) and a question set (09:30,
+    no envelope)."""
+    def save(run, kind, data, path):
+        monkeypatch.setenv("DOKIMI_RUN_ID", run)
+        save_artifact(kind, data, root / path)
+
+    save("a", "arms", {**_fixture("arms.v1"), "generated_at": "2026-11-01T08:00:00Z"}, "a/arms.json")
+    save("a", "eval", {**_fixture("eval.v1"), "evaluated_at": "2026-11-01T10:00:00Z"}, "a/eval.json")
+    save("b", "eval", {**_fixture("eval.v1"), "evaluated_at": "2026-11-01T09:00:00Z"}, "b/eval.json")
+    save("b", "questions", {**_fixture("questions.v2"), "generated_at": "2026-11-01T09:30:00Z"},
+         "q.json")
+    monkeypatch.delenv("DOKIMI_RUN_ID")
+    return root
+
+
+def test_the_artifacts_of_one_run_are_listed_together_and_the_runs_newest_first(
+        monkeypatch, capsys, two_runs):
+    out = _list(monkeypatch, capsys).out
+
+    assert _paths(out) == ["a/eval.json", "a/arms.json", "q.json", "b/eval.json"]
+    assert [row.split()[0] for row in out.split("\n\n")[0].splitlines()[1:]] == ["a", "a", "-", "b"]
+    assert out.split("\n\n")[1].splitlines()[1] == (
+        "runs: 2 (3 artifacts); no run_id: 1 (runs show PATH says why)")
+
+
+def test_json_lists_the_runs_in_the_order_of_the_rows(monkeypatch, capsys, two_runs):
+    data = json.loads(_list(monkeypatch, capsys, "--json").out)
+
+    assert [a["path"] for a in data["artifacts"]] == ["a/eval.json", "a/arms.json", "q.json",
+                                                      "b/eval.json"]
+    assert data["runs"] == [
+        {"run_id": "a", "kinds": ["arms", "eval"], "paths": ["a/eval.json", "a/arms.json"]},
+        {"run_id": "b", "kinds": ["eval"], "paths": ["b/eval.json"]},
+    ]
+
+
+def test_a_filter_groups_only_the_rows_it_keeps(monkeypatch, capsys, two_runs):
+    out = _list(monkeypatch, capsys, "--kind", "arms", "--kind", "questions").out
+    assert _paths(out) == ["q.json", "a/arms.json"]  # run a now starts at 08:00
+    assert out.split("\n\n")[1].splitlines()[1] == (
+        "runs: 1 (1 artifact); no run_id: 1 (runs show PATH says why)")
+    out = _list(monkeypatch, capsys, "--kind", "eval").out
+    assert out.split("\n\n")[1].splitlines()[1] == "runs: 2 (2 artifacts)"
+
+    data = json.loads(_list(monkeypatch, capsys, "--json", "--kind", "questions").out)
+    assert data["runs"] == []
+    out = _list(monkeypatch, capsys, "--kind", "questions").out
+    assert out.split("\n\n")[1].splitlines()[1] == "runs: 0; no run_id: 1 (runs show PATH says why)"
+
+
+def test_artifacts_with_no_run_id_each_stand_in_their_own_place(monkeypatch, capsys, root):
+    """Two pre-envelope artifacts around a run: grouped together, they would move the run."""
+    def save(name, at, run=None):
+        if run:
+            monkeypatch.setenv("DOKIMI_RUN_ID", run)
+        data = save_artifact("eval", {**_fixture("eval.v1"), "evaluated_at": at}, root / name)
+        if not run:
+            data = {k: v for k, v in data.items() if k not in ("run_id", "dokimi_version")}
+            (root / name).write_text(json.dumps(data), encoding="utf-8")
+        monkeypatch.delenv("DOKIMI_RUN_ID", raising=False)
+
+    save("x.json", "2026-11-01T10:00:00Z")
+    save("r.json", "2026-11-01T09:00:00Z", run="r")
+    save("y.json", "2026-11-01T08:00:00Z")
+
+    out = _list(monkeypatch, capsys).out
+
+    assert _paths(out) == ["x.json", "r.json", "y.json"]
+    assert out.split("\n\n")[1].splitlines()[1] == (
+        "runs: 1 (1 artifact); no run_id: 2 (runs show PATH says why)")

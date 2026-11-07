@@ -16,8 +16,8 @@ at the dedicated `catalog eval` output directory to inspect those receipts. Thei
 static pass does not establish a skill's runtime outcome.
 
 Most commands that run an evaluation write their artifacts under `results/` by
-default (a few write elsewhere, listed below). `runs list` shows what is there
-and `runs show` opens one artifact. Both only read files: no model call, no
+default (a few write elsewhere, listed below). `runs list` shows what is there,
+one run's artifacts together, and `runs show` opens one artifact or one run. Both only read files: no model call, no
 network access, nothing written.
 
 The runs root is `results/` in the working directory. Set `DOKIMI_RUNS_DIR` to
@@ -27,14 +27,15 @@ read another directory.
 
 ```text
 $ python cli.py runs list
-SCHEMA           SUBJECT                     MODEL              TIME (UTC)         PATH
-arms.v1          onetbb                      gpt-6.1-sol        2026-10-29 14:02   arms/onetbb.json
-plugin_delta.v1  onetbb                      gpt-6.1-sol        2026-10-28 10:11*  arms/plugin_delta.json
-eval.v1          -                           claude-sonnet-5-5  2026-10-28 10:05   onetbb_r7/eval/onetbb.json
-answers.v1       onetbb                      gpt-6.1-sol        2026-10-28 09:40   onetbb_r7/answers/onetbb.json
-novelty.v1       skill:skills/onetbb-tuning  claude-sonnet-5-5  2026-10-27 18:30   novelty/skill_skills_onetbb-tuning/novelty.json
+RUN                        SCHEMA           SUBJECT                     MODEL              TIME (UTC)         PATH
+20261029T140211Z-3f9a0c1e  arms.v1          onetbb                      gpt-6.1-sol        2026-10-29 14:02   arms/onetbb.json
+-                          plugin_delta.v1  onetbb                      gpt-6.1-sol        2026-10-28 10:11*  arms/plugin_delta.json
+20261028T093512Z-77c2e0b4  eval.v1          -                           claude-sonnet-5-5  2026-10-28 10:05   onetbb_r7/eval/onetbb.json
+20261028T093512Z-77c2e0b4  answers.v1       onetbb                      gpt-6.1-sol        2026-10-28 09:40   onetbb_r7/answers/onetbb.json
+-                          novelty.v1       skill:skills/onetbb-tuning  claude-sonnet-5-5  2026-10-27 18:30   novelty/skill_skills_onetbb-tuning/novelty.json
 
 5 artifacts under results/ (* the file's mtime: the artifact records no time)
+runs: 2 (3 artifacts); no run_id: 2 (runs show PATH says why)
 skipped: 1 JSON with no leading schema_version, 1 JSON of an unknown schema_version (pairwise.v0: 1), 1 not .json
 ```
 
@@ -51,8 +52,13 @@ skipped: 1 JSON with no leading schema_version, 1 JSON of an unknown schema_vers
   `judge_model` and `evaluated_at` of an eval. An artifact that records no
   subject shows `-` (an eval, a task run, a reach matrix, a questions set from
   `questions generate`, which records the model but not the product); nothing is guessed
-  from the path. Rows are newest first. When an artifact records no time, its
-  file's mtime is used for the order and shown with `*`.
+  from the path. When an artifact records no time, its file's mtime is used
+  for the order and shown with `*`.
+- **The artifacts of one run are listed together.** `RUN` is the artifact's
+  `run_id` (below), `-` when it has none. The runs are newest first, each in
+  the place of its newest artifact, and the artifacts of a run are newest
+  first too. An artifact with no `run_id` stands on its own, in its place by
+  time. The summary counts the runs and the artifacts with no `run_id`.
 - **Nothing is dropped silently.** The summary counts the files skipped, by
   reason: JSON that does not open with a `schema_version` (other output, and
   artifacts saved before #27, which did not put it first), JSON of an unknown
@@ -65,9 +71,12 @@ skipped: 1 JSON with no leading schema_version, 1 JSON of an unknown schema_vers
   `schema_version` but does not parse (a file of no registered kind is never
   parsed). The text summary names the first one's reason; `--json` lists all.
 - `--kind KIND` (repeatable, for example `--kind arms --kind eval`) and
-  `--subject NAME` (an exact, case-sensitive match) filter the rows.
-- `--json` prints `root`, `artifacts`, `total` (before filtering), `skipped`,
-  `unknown_versions` and `unreadable`. Each artifact has `schema_version`,
+  `--subject NAME` (an exact, case-sensitive match) filter the rows. The rows
+  left are grouped, so a run's place follows the newest of its rows shown.
+- `--json` prints `root`, `artifacts` (in the order of the rows), `runs`,
+  `total` (before filtering), `skipped`, `unknown_versions` and `unreadable`.
+  Each run has `run_id`, `kinds` (sorted) and the `paths` of its artifacts, in
+  the order of the rows; an artifact with no `run_id` is in no run. Each artifact has `schema_version`,
   `kind`, `run_id`, `subject`, `model`, `generated_at` (the time the artifact
   records, `evaluated_at` for an eval; `null` when none), `path` (relative to
   the root) and `size_bytes`.
@@ -79,8 +88,7 @@ process writes share it. It is `null` for a file saved before the envelope,
 for an input kind such as a question set, and for a `run_id` that is not a run id
 (`runs show` lists the schema error).
 
-**What it does not show yet.** Rows are not grouped into runs by `run_id`.
-Files outside the root are not listed:
+**What it does not show.** Files outside the root are not listed:
 
 - `repo run` writes its batches to `repo-runs/`, and its files carry no
   `schema_version`;
@@ -121,6 +129,28 @@ directory. `--json` prints the fields of a `runs list` row plus `root`,
 `schema`, `schema_valid`, `schema_errors`, `contents`, `siblings`,
 `siblings_total` and `siblings_error`.
 
+### `runs show RUN_ID`
+
+```text
+$ python cli.py runs show 20261028T093512Z-77c2e0b4
+run_id:     20261028T093512Z-77c2e0b4
+artifacts:  2 (answers: 1, eval: 1)
+
+SCHEMA      SUBJECT  MODEL              TIME (UTC)        PATH
+eval.v1     -        claude-sonnet-5-5  2026-10-28 10:05  onetbb_r7/eval/onetbb.json
+answers.v1  onetbb   gpt-6.1-sol        2026-10-28 09:40  onetbb_r7/answers/onetbb.json
+```
+
+A `run_id` from `runs list` shows the artifacts that carry it, as `runs list`
+rows, newest first, with the same `*` for a time taken from the file's mtime.
+A file `runs show` can open wins: one of that name under
+the root, or reached from the working directory and inside the root. A
+directory of that name (a run's own, `results/nightly-7/`) does not, nor does
+a path outside the root; when no artifact has the `run_id`, such a name gets
+the error it got before. When a file under the root could not be read, the
+count and the first one are printed, since it may belong to the run. `--json` prints
+`root`, `run_id`, `artifacts` (the `runs list --json` rows) and `unreadable`.
+
 ## Exit codes
 
 | Case | Exit |
@@ -129,3 +159,4 @@ directory. `--json` prints the fields of a `runs list` row plus `root`,
 | `results/` does not exist (`runs list` prints "no runs") | 0 |
 | `DOKIMI_RUNS_DIR` does not exist, or the root is not a directory | 2 |
 | `runs show`: no root, a path outside the root (or a symlink that leads out of it), a missing file, a directory, or a file that is not a readable artifact of a registered kind | 2 |
+| `runs show RUN_ID`: nothing of that name and no artifact under the root with that `run_id` (the error counts the files that could not be read) | 2 |

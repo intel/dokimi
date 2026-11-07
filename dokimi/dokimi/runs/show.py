@@ -2,24 +2,28 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """One artifact under the runs root: its kind, whether it meets its schema, what it holds and
-what lies next to it. A failed schema is reported, not raised: showing is not a gate."""
+what lies next to it; or one run, the artifacts that share a ``run_id``. A failed schema is
+reported, not raised: showing is not a gate."""
 
 from __future__ import annotations
 
 import os
+import stat
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from dokimi.artifacts import schema_errors, schema_version_for
+from dokimi.artifacts import is_run_id, schema_errors, schema_version_for
 from dokimi.runs.kinds import VERSION_KINDS, contents
 from dokimi.runs.scan import (
     Artifact,
+    Unreadable,
     head_version,
     inside,
     load_document,
     plain,
     read_artifact,
     read_error_reason,
+    scan,
 )
 from dokimi.utils import InputError
 
@@ -135,3 +139,58 @@ def show(root: Path, address: str) -> Shown:
                   contents=contents(kind, data))
     _siblings(shown, path, os.path.realpath(root))
     return shown
+
+
+@dataclass
+class ShownRun:
+    """What ``runs show RUN_ID`` prints: the artifacts that carry the ``run_id``, newest first,
+    and the files under the root that could not be read (one of them may belong to the run)."""
+
+    run_id: str
+    artifacts: list[Artifact]
+    unreadable: list[Unreadable]
+
+
+def names_a_run(root: Path, address: str) -> bool:
+    """Whether ``address`` may mean a run: a run id that names no file ``runs show`` could open.
+
+    A file of that name under the root (or reached from the working directory and inside the
+    root) is the artifact, and so is a name that cannot be looked up, so the path check names
+    the reason. A directory of that name (a run's own, say), a path outside the root and a
+    missing one do not stop it.
+    """
+    if not is_run_id(address):
+        return False
+    real_root = os.path.realpath(root)
+    for path in (root / address, Path(address)):
+        try:
+            mode = os.stat(path).st_mode
+        except (FileNotFoundError, NotADirectoryError):
+            continue
+        except OSError:  # no permission to look: the path check reports it
+            return False
+        if not stat.S_ISDIR(mode) and inside(real_root, os.path.realpath(path)):
+            return False
+    return True
+
+
+def show_target(root: Path, address: str) -> Shown | ShownRun:
+    """The run ``address`` names when it is a run id that names no openable file and some
+    artifact under ``root`` has it; otherwise the artifact, as :func:`show` finds it.
+
+    Raises ``InputError`` as :func:`show` does, and when ``address`` names neither a run nor
+    anything on disk.
+    """
+    if not names_a_run(root, address):
+        return show(root, address)
+    result = scan(root)
+    found = [a for a in result.artifacts if a.run_id == address]
+    if found:
+        return ShownRun(run_id=address, artifacts=found, unreadable=result.unreadable)
+    if any(os.path.lexists(p) for p in (root / address, address)):
+        return show(root, address)  # a directory, a path outside the root: say which
+    unread = len(result.unreadable)
+    note = (f"; {unread} {'file' if unread == 1 else 'files'} under the root could not be read"
+            if unread else "")
+    raise InputError(f"no file {plain(address)} under the runs root {plain(root.as_posix())}/, "
+                     f"and no artifact there has that run_id{note}")

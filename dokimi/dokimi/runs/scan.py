@@ -295,6 +295,25 @@ def scan(root: Path) -> ScanResult:
     return result
 
 
+def by_run(artifacts: list[Artifact]) -> list[list[Artifact]]:
+    """``artifacts`` in groups, one per ``run_id``, in their order (newest first from :func:`scan`).
+
+    A group stands where its first artifact stood, so the runs are newest first too, and keeps
+    the order of its artifacts. An artifact with no ``run_id`` is a group of its own.
+    """
+    groups: list[list[Artifact]] = []
+    runs: dict[str, list[Artifact]] = {}
+    for artifact in artifacts:
+        if artifact.run_id is None:
+            groups.append([artifact])
+            continue
+        if artifact.run_id not in runs:
+            runs[artifact.run_id] = []
+            groups.append(runs[artifact.run_id])
+        runs[artifact.run_id].append(artifact)
+    return groups
+
+
 def select(artifacts: list[Artifact], kinds: list[str] | None = None,
            subject: str | None = None) -> list[Artifact]:
     """The artifacts of one of ``kinds`` (all when none) that name exactly ``subject`` (if given)."""

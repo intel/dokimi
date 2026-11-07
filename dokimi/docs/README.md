@@ -299,8 +299,9 @@ code.
   personas → questions → answers → judge → report. Includes troubleshooting
   and a cost estimate.
 - [runs.md](runs.md) — what the runs have written: `cli.py runs list` lists
-  every artifact under `results/` (or `DOKIMI_RUNS_DIR`) and counts what it
-  skipped, `cli.py runs show` checks one against its schema. No LLM call.
+  every artifact under `results/` (or `DOKIMI_RUNS_DIR`), one run's together,
+  and counts what it skipped, `cli.py runs show` checks one against its schema
+  or lists one run. No LLM call.
 - [user-flow.md](user-flow.md) — the canonical end-to-end path: pick a target,
   preflight, run, then pin the question set so runs stay comparable.
 - [benchmarking-and-comparison.md](benchmarking-and-comparison.md) — how to
