@@ -27,6 +27,7 @@ import random
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 
+from dokimi.eval.stats import bootstrap_ci
 from dokimi.utils import InputError
 from .atoms import Atom
 from .client import LLMClient, same_client
@@ -561,17 +562,13 @@ def _pearson(xs: list[float], ys: list[float]) -> float | None:
     return round(sum(a * b for a, b in zip(dx, dy, strict=True)) / den, 4)
 
 
-def _bootstrap_ci(
-    values: list[float], *, iterations: int = 400, seed: int = 0
-) -> list[float] | None:
-    """Percentile bootstrap CI, so a rate from 40 probes is not read like one from 400."""
+def _bootstrap_ci(values: list[float]) -> list[float] | None:
+    """95% CI for a novelty rate, so a rate from 40 probes is not read like one from 400.
+
+    The resampling is :func:`dokimi.eval.stats.bootstrap_ci` (one bootstrap for the package); the
+    400 resamples are this module's choice, and fewer than five probes give no interval.
+    """
     if len(values) < 5:
         return None
-    rng = random.Random(f"novelty-ci-{seed}")
-    n = len(values)
-    means = sorted(
-        sum(values[rng.randrange(n)] for _ in range(n)) / n for _ in range(iterations)
-    )
-    lo = means[int(0.025 * iterations)]
-    hi = means[min(iterations - 1, int(0.975 * iterations))]
-    return [round(lo, 4), round(hi, 4)]
+    ci = bootstrap_ci(values, n_resamples=400, seed=0)
+    return [ci["lo"], ci["hi"]]
