@@ -11,6 +11,7 @@ from dokimi.eval.panel import (
     JudgeConfig,
     JudgePanel,
     JudgeVote,
+    _verdict_to_dict,
 )
 from dokimi.eval.judge import MAX_GROUND_TRUTH_CHARS
 
@@ -117,6 +118,41 @@ def test_score_answer_reports_insufficient_evidence_as_an_error():
     assert "insufficient evidence" in out["error"]
 
 
+def test_score_answer_panel_fields_follow_the_grounding_and_the_quorum():
+    panel = JudgePanel(judges=_three())
+    with patch("dokimi.eval.panel.llm_call",
+               side_effect=_fake_llm(["technical_expert", "developer_advocate"])):
+        ok = panel.score_answer("oneTBB", "Q?", "A.", ground_truth="REF")
+    assert ok["panel"]["grounded"] is True
+    assert ok["panel"]["quorum"] == 2
+    assert ok["panel"]["insufficient_evidence"] is False
+    assert "error" not in ok
+    with patch("dokimi.eval.panel.llm_call", side_effect=_fake_llm(["technical_expert"])):
+        bad = panel.score_answer("oneTBB", "Q?", "A.")
+    assert bad["panel"]["grounded"] is False
+    assert bad["panel"]["insufficient_evidence"] is True
+
+
+def test_quorum_failed_verdict_dict_carries_the_error_score_answer_gives():
+    panel = JudgePanel(judges=_three())
+    with patch("dokimi.eval.panel.llm_call", side_effect=_fake_llm(["technical_expert"])):
+        cell = _verdict_to_dict(panel.evaluate(question="Q?", answer="A.", library_name="oneTBB"))
+    assert cell["aggregate"] is None
+    assert cell["insufficient_evidence"] is True
+    assert cell["error"] == "insufficient evidence: 1 of 3 panelists valid, quorum is 2"
+    with patch("dokimi.eval.panel.llm_call", side_effect=_fake_llm([])):
+        failed = _verdict_to_dict(panel.evaluate(question="Q?", answer="A.", library_name="oneTBB"))
+    assert failed["error"] == "all panel judges failed"
+
+
+def test_a_valid_verdict_dict_has_no_error_key():
+    panel = JudgePanel(judges=_three())
+    with patch("dokimi.eval.panel.llm_call", side_effect=_fake_llm(list(_INTRO))):
+        cell = _verdict_to_dict(panel.evaluate(question="Q?", answer="A.", library_name="oneTBB"))
+    assert cell["insufficient_evidence"] is False
+    assert "error" not in cell
+
+
 # ── ground_truth ──────────────────────────────────────────────────────────────
 
 def test_ground_truth_reaches_every_role_prompt():
@@ -161,6 +197,28 @@ def test_evaluate_answers_forwards_the_record_ground_truth(tmp_path):
     assert without_docs_prompts and all("REF-TEXT-BETA" in p for p in without_docs_prompts)
 
 
+def test_ungrounded_prompt_has_no_reference_block():
+    prompts = _prompts_sent(JudgePanel(judges=_three()), ground_truth=None)
+    assert all("Reference (" not in p for p in prompts)
+    assert all("contradicts is incorrect" not in p for p in prompts)
+
+
+def test_placeholder_text_in_the_answer_is_sent_verbatim():
+    sent = []
+
+    def fake(prompt, **kwargs):
+        sent.append(prompt)
+        return _reply()
+
+    with patch("dokimi.eval.panel.llm_call", side_effect=fake):
+        JudgePanel(judges=_three()).score_answer(
+            "oneTBB", "Q?", "Keep __CONTEXT__ and __GROUND_TRUTH__ as written.",
+            context="DOCS-ALPHA", ground_truth="REF-TEXT-GAMMA")
+    assert len(sent) == 3
+    assert all("Keep __CONTEXT__ and __GROUND_TRUTH__ as written." in p for p in sent)
+    assert all("REF-TEXT-GAMMA" in p and "DOCS-ALPHA" in p for p in sent)
+
+
 # ── identity ──────────────────────────────────────────────────────────────────
 
 def test_swapping_models_between_roles_changes_the_model_identity():
@@ -193,6 +251,33 @@ def test_aggregation_policy_changes_the_prompt_hash():
     assert before != after
 
 
+def test_grounding_block_text_changes_the_prompt_hash(monkeypatch):
+    before = JudgePanel(judges=_three()).prompt_sha256
+    monkeypatch.setattr("dokimi.eval.panel._GROUND_BLOCK",
+                        "Reference (reworded).\n__GROUND_TRUTH__\nA claim the reference supports is fine.\n")
+    assert JudgePanel(judges=_three()).prompt_sha256 != before
+
+
+def test_ground_truth_clip_limit_changes_the_prompt_hash(monkeypatch):
+    before = JudgePanel(judges=_three()).prompt_sha256
+    monkeypatch.setattr("dokimi.eval.panel.MAX_GROUND_TRUTH_CHARS", MAX_GROUND_TRUTH_CHARS // 2)
+    assert JudgePanel(judges=_three()).prompt_sha256 != before
+
+
+def test_disagreement_threshold_changes_the_prompt_hash(monkeypatch):
+    before = JudgePanel(judges=_three()).prompt_sha256
+    monkeypatch.setattr("dokimi.eval.panel.DISAGREEMENT_STD", 20.0)
+    assert JudgePanel(judges=_three()).prompt_sha256 != before
+
+
+def test_seed_and_provider_change_the_prompt_hash():
+    base = JudgePanel(judges=_three()).prompt_sha256
+    seeded = JudgePanel(judges=[JudgeConfig(r, "m1", "openai", seed=7) for r in DEFAULT_PANEL])
+    other = JudgePanel(judges=[JudgeConfig(r, "m1", "anthropic") for r in DEFAULT_PANEL])
+    assert seeded.prompt_sha256 != base
+    assert other.prompt_sha256 != base
+
+
 def test_panel_summary_handles_a_single_judge_with_no_agreement(tmp_path, monkeypatch, capsys):
     """`eval score panel` with one judge has no spread: the summary prints n/a, not a crash."""
     from types import SimpleNamespace
@@ -219,3 +304,37 @@ def test_panel_summary_handles_a_single_judge_with_no_agreement(tmp_path, monkey
     args.func(args)
     assert "Mean agreement score:     n/a" in capsys.readouterr().out
     assert json.loads(out.read_text())["evaluations"][0]["with_docs"]["std"] is None
+
+
+def test_panel_summary_counts_the_questions_left_out_for_no_quorum(tmp_path, monkeypatch, capsys):
+    """A question without a quorum is left out of the mean; the summary says how many."""
+    from types import SimpleNamespace
+
+    import litellm
+
+    from dokimi.cli import build_parser
+
+    def completion(**kwargs):
+        text = " ".join(m["content"] for m in kwargs["messages"])
+        if "bad docs" in text and "STRICT TECHNICAL EXPERT" not in text:
+            raise RuntimeError("boom")
+        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=_reply()))],
+                               usage=None)
+
+    monkeypatch.setattr(litellm, "completion", completion)
+    answers = tmp_path / "answers.json"
+    answers.write_text(json.dumps([
+        {"question_id": "Q1", "question_text": "How?", "question": "How?",
+         "with_docs": {"answer": "good docs"}, "without_docs": {"answer": "without docs"}},
+        {"question_id": "Q2", "question_text": "Why?", "question": "Why?",
+         "with_docs": {"answer": "bad docs"}, "without_docs": {"answer": "without docs"}},
+    ]), encoding="utf-8")
+    out = tmp_path / "panel.json"
+    args = build_parser().parse_args([
+        "eval", "score", "panel", "--product", "L", "--answers", str(answers),
+        "--output", str(out), "--provider", "amazon-bedrock", "--model", "us.anthropic.x",
+        "--roles", "technical_expert,developer_advocate,doc_reviewer", "--concurrency", "1"])
+    args.func(args)
+    printed = capsys.readouterr().out
+    assert "Questions left out (no quorum or no answer): 1/2" in printed
+    assert "Disagreement flags:       0/1 questions" in printed
