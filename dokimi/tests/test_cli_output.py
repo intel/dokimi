@@ -160,6 +160,18 @@ def test_a_crash_without_json_is_not_wrapped(monkeypatch, capsys):
     assert capsys.readouterr().out == ""
 
 
+def test_a_json_leaf_outside_the_opt_in_that_crashes_re_raises_and_prints_no_envelope(monkeypatch, capsys):
+    from dokimi.commands import runs
+
+    def crash(args):
+        raise RuntimeError("runs fell over")
+
+    monkeypatch.setattr(runs, "cmd_runs_list", crash)
+    with pytest.raises(RuntimeError):
+        _run_main(monkeypatch, ["runs", "list", "--json"])
+    assert capsys.readouterr().out == ""
+
+
 def test_a_malformed_run_id_still_gets_the_input_document_with_a_null_run_id(monkeypatch, capsys):
     monkeypatch.setenv("DOKIMI_RUN_ID", "bad id!")
     with pytest.raises(SystemExit) as exc:
