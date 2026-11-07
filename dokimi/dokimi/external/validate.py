@@ -72,6 +72,7 @@ from dokimi.skills import Skill
 from dokimi.utils import parse_frontmatter_strict
 
 from .catalog import SkillCatalogEntry, _within
+from .paths import _exists, _in_checkout, _inside, _resolved
 from .listing import in_field
 
 NAME_PATTERN = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
@@ -240,12 +241,12 @@ def _unloaded_review(entry: SkillCatalogEntry) -> Optional[SkillReview]:
     """
     if entry.path is None:
         return None
-    candidate = entry.path / "SKILL.md" if entry.path.is_dir() else entry.path
-    if candidate.name != "SKILL.md" or not candidate.is_file():
-        return None
-    if not _within(candidate, entry.source_root):
-        return None
     try:
+        candidate = entry.path / "SKILL.md" if entry.path.is_dir() else entry.path
+        if candidate.name != "SKILL.md" or not candidate.is_file():
+            return None
+        if not _within(candidate, entry.source_root):
+            return None
         text = candidate.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         return None  # the loader already reported why the skill did not load
@@ -522,33 +523,6 @@ def _file_ref(raw: str, link: bool = False) -> Optional[str]:
     return text
 
 
-def _resolved(path: Path) -> Optional[Path]:
-    """``path`` resolved, or None when the OS refuses the name (a NUL byte, a symlink loop)."""
-    try:
-        return path.resolve()
-    except (OSError, RuntimeError, ValueError):
-        return None
-
-
-def _exists(path: Path) -> bool:
-    """``path.exists()``, where a name the OS refuses (over 255 bytes in one part, say) is absent."""
-    try:
-        return path.exists()
-    except (OSError, ValueError):
-        return False
-
-
-def _inside(path: Path, base: Path) -> bool:
-    """Whether ``path`` lies under ``base`` by its written name, with ``..`` taken away. Reads no file."""
-    return Path(os.path.abspath(path)).is_relative_to(os.path.abspath(base))
-
-
-def _in_checkout(path: Path, source_root: Path) -> Optional[Path]:
-    """``path`` resolved, or None unless it lies in the checkout both as written and where it resolves."""
-    target = _resolved(path) if _inside(path, source_root) else None
-    return target if target is not None and target.is_relative_to(source_root.resolve()) else None
-
-
 def _link_finding(raw: str, skill_dir: Path, source_root: Path, real_dir: Path) -> Optional[Finding]:
     """The finding for one link destination (inline or reference), or None when it is fine."""
     text = _file_ref(raw, link=True)
@@ -726,7 +700,8 @@ def review_skills(entries: Sequence[SkillCatalogEntry]) -> list[Optional[SkillRe
     """One :class:`SkillReview` per entry, in order.
 
     None for an entry that did not load, unless its frontmatter is broken YAML: then its
-    review carries the ``frontmatter-parse`` error. Of each identical ``SKILL.md``, the
+    review carries the ``frontmatter-parse`` error. A loaded skill whose ``SKILL.md`` cannot
+    be read during review gets a review with one ``unreadable`` error and no digest. Of each identical ``SKILL.md``, the
     copy nearest the root is the original; every other copy names it in ``duplicate_of``.
     Mirror drift and near-duplicate descriptions are checked across all the loaded skills,
     and a skill with ``disable-model-invocation`` set is left out of the description checks.
@@ -740,14 +715,19 @@ def review_skills(entries: Sequence[SkillCatalogEntry]) -> list[Optional[SkillRe
             reviews.append(_unloaded_review(entry))
             continue
         skill = entry.skill
-        findings, hidden = _frontmatter_findings(
-            skill, at_root=skill.path.parent.resolve() == entry.source_root.resolve()
-        )
-        review = SkillReview(findings=findings, disable_model_invocation=hidden)
-        review.findings += _bundle_findings(skill, entry.source_root)
-        if not hidden:
-            review.findings += _description_findings(skill)
-        review.content_sha256 = _skill_digest(skill)
+        try:  # any read of SKILL.md after it loaded: an error row, not a crash
+            findings, hidden = _frontmatter_findings(
+                skill, at_root=skill.path.parent.resolve() == entry.source_root.resolve()
+            )
+            review = SkillReview(findings=findings, disable_model_invocation=hidden)
+            review.findings += _bundle_findings(skill, entry.source_root)
+            if not hidden:
+                review.findings += _description_findings(skill)
+            review.content_sha256 = _skill_digest(skill)
+        except (OSError, UnicodeDecodeError, RuntimeError, ValueError) as exc:
+            unreadable = Finding("error", "unreadable", f"SKILL.md cannot be read: {exc}")
+            reviews.append(SkillReview(findings=[unreadable]))
+            continue
         where = _relative_to_root(skill.path.parent, entry.source_root)
         copies.append((review, where, review.content_sha256))
         by_name.setdefault(skill.name, []).append((review, where, review.content_sha256))

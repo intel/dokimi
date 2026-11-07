@@ -71,8 +71,9 @@ def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bo
         row = _skill_row(skill, review)
         counts[row["state"]] += 1
         report["skills"].append(row)
-        # A load error always fails; a spec error fails only with --strict.
-        if not skill.loaded or (args.strict and row["state"] == "error"):
+        # A load error, or a SKILL.md the OS will not read, always fails; a spec error fails only with --strict.
+        unreadable = review is not None and any(f.code == "unreadable" for f in review.findings)
+        if not skill.loaded or unreadable or (args.strict and row["state"] == "error"):
             failed = True
     if not as_json:
         print(
