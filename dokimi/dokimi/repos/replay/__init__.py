@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""``repo tasks replay``: ``dokimi:review_replay`` tasks from recorded review threads.
+"""``eval tasks generate --from replay``: ``dokimi:review_replay`` tasks from recorded review threads.
 
 :mod:`.threads` reads the pull requests and picks the gold threads, :mod:`.history` asks
 git where a line went and whether the PR's own commits changed it, and :mod:`.build`

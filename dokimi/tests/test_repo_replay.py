@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""``repo tasks replay``: ``dokimi:review_replay`` tasks from recorded review threads (contract §4.5).
+"""``eval tasks generate --from replay``: ``dokimi:review_replay`` tasks from recorded review threads (contract §4.5).
 
 The threads files here have the shape ``gh api graphql --paginate --slurp`` writes, with the
 SHAs of a toy history built per test. No network, no docker.
@@ -200,7 +200,8 @@ def _pages(*prs):
 def _replay(root: Path, doc, out: Path, *extra: str, source: str | None = None) -> None:
     path = root.parent / "threads.json"
     path.write_text(json.dumps(doc), encoding="utf-8")
-    args = build_parser().parse_args(["repo", "tasks", "replay", source or str(root), "--threads", str(path),
+    args = build_parser().parse_args(["eval", "tasks", "generate", source or str(root), "--from", "replay",
+                                      "--threads", str(path),
                                       "--out", str(out), *extra])
     args.func(args)
 
@@ -586,7 +587,8 @@ def test_an_unusable_threads_file_exits_1_with_the_reason(hist, tmp_path, capsys
     path = tmp_path / "threads.json"
     if content is not None:
         path.write_text(content, encoding="utf-8")
-    args = build_parser().parse_args(["repo", "tasks", "replay", str(hist["root"]), "--threads", str(path),
+    args = build_parser().parse_args(["eval", "tasks", "generate", str(hist["root"]), "--from", "replay",
+                                      "--threads", str(path),
                                       "--out", str(tmp_path / "tasks")])
     with pytest.raises(SystemExit) as exc:
         args.func(args)
@@ -603,7 +605,8 @@ def test_a_threads_file_nested_past_the_parsers_limit_exits_1(hist, tmp_path, ca
     monkeypatch.setattr(threads_module, "json", SimpleNamespace(loads=too_deep))
     path = tmp_path / "threads.json"
     path.write_text("[[]]", encoding="utf-8")
-    args = build_parser().parse_args(["repo", "tasks", "replay", str(hist["root"]), "--threads", str(path),
+    args = build_parser().parse_args(["eval", "tasks", "generate", str(hist["root"]), "--from", "replay",
+                                      "--threads", str(path),
                                       "--out", str(tmp_path / "tasks")])
     with pytest.raises(SystemExit) as exc:
         args.func(args)

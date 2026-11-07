@@ -1,13 +1,16 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""skill subcommand group: measure one skill (#94 M2).
+"""skill subcommand group: measure one skill (#94 M2, M3).
 
-``skill novelty`` (analyze, atoms, probe, items) and ``skill shorten`` are the moved leaves.
-``skill routing`` and ``skill check`` follow with their redesigns of #94 §4.
+``skill novelty`` (analyze, atoms, probe, items) and ``skill shorten`` are the moved leaves;
+``skill check SKILL`` is the catalog check scoped to one skill (#94 M3). ``skill routing`` follows
+with the routing moves of #94 §4.
 """
 
 from __future__ import annotations
+
+import argparse
 
 
 def register(sub, positive_int) -> None:
@@ -18,6 +21,31 @@ def register(sub, positive_int) -> None:
     )
     skill_sub = skill_p.add_subparsers(dest="skill_cmd", required=True)
     register_skill(skill_sub, positive_int)
+    register_check(skill_sub)
+
+
+def cmd_skill_check(args: argparse.Namespace) -> None:
+    """`skill check SKILL --root ROOT`: the `catalog check` of ROOT, reporting SKILL only (#94 M3)."""
+    from dokimi.commands.catalog import cmd_catalog_scan
+
+    cmd_catalog_scan(argparse.Namespace(
+        root=args.root, kind="skills", strict=args.strict, format=args.format,
+        tasks_subdir="evaluation/harbor/tasks", per_skill=False, skip_nested=False,
+        jsonl=None, jobs=None, resume=False, only=args.skill))
+
+
+def register_check(skill_sub) -> None:
+    """Add `skill check SKILL`: the same checks as `catalog check`, for one skill."""
+    check_p = skill_sub.add_parser(
+        "check", help="Check one skill under --root: the catalog check's findings for it (same rules)"
+    )
+    check_p.add_argument("skill", help="The skill's name, as its SKILL.md frontmatter and directory give it")
+    check_p.add_argument("--root", required=True, help="Local checkout the skill is under")
+    check_p.add_argument("--strict", action="store_true",
+                         help="Exit 1 on a spec error of the skill as well as on one that does not load")
+    check_p.add_argument("--format", choices=["text", "json"], default="text",
+                         help="text: one line for the skill; json: the catalog check's row for it")
+    check_p.set_defaults(func=cmd_skill_check)
 
 
 def register_skill(skill_sub, positive_int) -> None:
