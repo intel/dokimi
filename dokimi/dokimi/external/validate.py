@@ -57,8 +57,10 @@ same skill has probably been edited in one place and not the other.
 from __future__ import annotations
 
 import hashlib
+import math
 import os
 import re
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Optional, Sequence
@@ -451,18 +453,39 @@ def _mirror_drift(loaded: list[tuple[SkillCatalogEntry, Skill, SkillReview]]) ->
                 )
 
 
+def _min_overlap(size: int) -> int:
+    """The fewest words a skill of ``size`` words shares with any pair that passes the near-duplicate test.
+
+    A passing pair shares at least NEAR_DUPLICATE_MIN_SHARED words and a Jaccard similarity of at least
+    NEAR_DUPLICATE_JACCARD; its shared words are then that fraction of the union, which is at least
+    the skill's own size. The epsilon only ever lowers the bound, so it stays a safe under-estimate.
+    """
+    return max(NEAR_DUPLICATE_MIN_SHARED, math.ceil(NEAR_DUPLICATE_JACCARD * size - 1e-9))
+
+
 def _near_duplicates(loaded: list[tuple[SkillCatalogEntry, Skill, SkillReview]]) -> None:
-    """``description-near-duplicate`` on both skills of each pair whose descriptions overlap."""
+    """``description-near-duplicate`` on both skills of each pair whose descriptions overlap.
+
+    Only candidate pairs are compared, found by a prefix filter: each skill's words are ordered
+    rarest first across all the skills, and only its first ``size - _min_overlap(size) + 1`` words are
+    indexed. A passing pair with ``s`` shared words has at least ``_min_overlap`` of them, so its
+    rarest shared word sits inside both skills' prefixes and the pair is a candidate. Non-candidates
+    could not pass, so the findings, and their order, match comparing every pair.
+    """
     shown = [item for item in loaded if not item[2].disable_model_invocation]
     tokens = [_tokens(" ".join(item[1].description.split())) for item in shown]
     names = [_dir_name(item) for item in shown]
-    by_token: dict[str, list[int]] = {}
+    frequency = Counter(word for words in tokens for word in words)
+    prefixes: list[list[str]] = []
+    by_prefix_word: dict[str, list[int]] = {}
     for index, words in enumerate(tokens):
-        for word in words:
-            by_token.setdefault(word, []).append(index)
+        ordered = sorted(words, key=lambda word: (frequency[word], word))
+        prefix = ordered[: max(0, len(ordered) - _min_overlap(len(ordered)) + 1)]
+        prefixes.append(prefix)
+        for word in prefix:
+            by_prefix_word.setdefault(word, []).append(index)
     for i, (entry, _, review) in enumerate(shown):
-        # only a pair that shares a word can overlap
-        for j in sorted({k for word in tokens[i] for k in by_token[word] if k > i}):
+        for j in sorted({k for word in prefixes[i] for k in by_prefix_word[word] if k > i}):
             o_entry, _, o_review = shown[j]
             if o_review.content_sha256 == review.content_sha256:
                 continue  # an identical SKILL.md: already a duplicate
