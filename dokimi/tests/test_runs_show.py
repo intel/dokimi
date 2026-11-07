@@ -459,6 +459,12 @@ def test_json_of_a_run_has_its_artifacts_as_runs_list_rows(monkeypatch, capsys, 
     assert (row["path"], row["kind"], row["run_id"]) == ("e2.json", "eval", "nightly-2")
 
 
+def test_json_of_a_run_lists_every_artifact_newest_first(monkeypatch, capsys, runs):
+    data = json.loads(_show(monkeypatch, capsys, "nightly-1", "--json").out)
+
+    assert [row["path"] for row in data["artifacts"]] == ["arms/onetbb.json", "e1.json"]
+
+
 def test_a_run_id_wins_over_a_directory_or_a_path_outside_the_root(monkeypatch, capsys, runs):
     """``DOKIMI_RUN_ID=nightly-1`` writing into ``results/nightly-1/`` is the natural layout."""
     (runs / "nightly-1").mkdir()
