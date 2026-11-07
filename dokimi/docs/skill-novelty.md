@@ -677,6 +677,10 @@ others are named on stderr.
 `--estimate-only` prints, as JSON, the calls, input and output tokens and the list-price `expected_usd` the
 `--model` arm would make, and makes no model call. Without `--model` the run is lexical and the bill
 is zero. Input is the selection prompt sized at chars / 4, so it is a projection, not a count.
+Output is `output_tokens_per_call` (65) times the calls: the average a measured routing run billed per
+selection call (360 calls drew 23.3k output tokens). The prompt asks for one `{"pick": N}` object, about
+10 tokens, which underestimated that run 6.5 times, so the estimate does not use it. Another model, or a
+reasoning model, can bill more or less.
 
 Two numbers, reported side by side and never merged:
 
@@ -705,7 +709,9 @@ Two numbers, reported side by side and never merged:
   replay. Repeats need `--model`, and cost N times the calls. With repeats, `n_calls` is
   queries x repeats, `n_abstained` and `n_failed` count calls, and each `per_query` row
   carries its `repeat` index. In an `--all-vs-all` run each `noise` row also names its `gold`
-  skill, since two skills can list the same request.
+  skill, since two skills can list the same request. `noise` is always an object: `n_repeats` is the
+  repeat count, and with `--repeats 1` it is 1 with `mean_agreement`, `half_range`, `unstable_queries`
+  and each row's `agreement` null (nothing to agree with), so a reader tests those fields, not `noise`, for null.
 
 A single-artifact `--model` run also writes a `cost` block (calls, input and output tokens, cache read and
 write tokens, and `usd`, which is `null` when any call this run paid for had no known price) and prints the
@@ -725,7 +731,9 @@ counted as a miss.
 --queries-by-skill queries.json --out routing.json` (add `--model M` for the model arm) makes
 every skill that has queries the gold in turn, routed against the whole field. The file is a
 JSON object of skill name to the requests that should select it, each written without the
-skill's own text. A skill named twice in the file is refused. The output has a confusion
+skill's own text. A skill named twice in the file is refused. `--out` must name a file: a directory, a
+path under a non-directory, a FIFO or device, a symlink loop, or an unwritable path is refused before any model call (the same
+check is made for a single-artifact `routing --out`); a missing parent directory is created. The output has a confusion
 matrix (gold to picked to count, with `(none)` for a query no card shares a word with or, in
 the model arm, an abstention, and `(tie)` for a query on which two or more other cards tie for
 the top lexical score, so no field order decides it), an own rate per skill, and an attractor

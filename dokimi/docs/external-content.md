@@ -208,12 +208,12 @@ directory name and description but different `SKILL.md` text are a `warn` on bot
 `disable-model-invocation: true` are exempt from the description checks.
 
 Frontmatter that is not valid YAML (a bare colon in `description:`, say) stops
-the skill from loading, since the loader reads it as having no description. The
-scan reports that as a `frontmatter-parse` error carrying the YAML message, and
-it exits 1 with or without `--strict`, as a load error does. The YAML message is
-on the indented `frontmatter-parse` line under the skill (and in its `findings`
-in JSON); the row's main line and its JSON `error` field still say the skill is
-missing a `description`.
+the skill from loading. The scan reports that as a `frontmatter-parse` error
+carrying the YAML message, and it exits 1 with or without `--strict`, as a load
+error does. The YAML message is on the indented `frontmatter-parse` line under
+the skill (and in its `findings` in JSON); the row's main line and its JSON
+`error` field say the frontmatter has invalid YAML, with the line, not that the
+skill is missing a `description`.
 
 `--strict` makes `catalog check` a gate on the spec as well as on loading. The
 text output and `--format json` (one object: `state`, `findings`,
