@@ -399,3 +399,10 @@ def test_a_valid_copy_is_offered_when_the_shallower_original_is_ineligible(tmp_p
 
     out, _ = _check(tmp_path, capsys)
     assert "# granularity: 0 merge and 0 split candidate(s) among 1 skills" in out
+
+
+def test_an_inline_code_line_with_backticks_on_both_ends_is_not_a_fence_opener():
+    lines = "intro\n```inline``` text\nmore prose\n## Next\nprose".splitlines()
+
+    assert all(g._outside_fences(lines))
+    assert g._fenced(lines) == ("intro\n```inline``` text\nmore prose\n## Next\nprose", [])

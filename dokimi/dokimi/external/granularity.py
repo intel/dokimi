@@ -44,7 +44,9 @@ DISPLAY_LIMIT = 20  # rows printed in text mode; JSON keeps every candidate
 PAID_USD_PER_SKILL = 1.75  # #424 PR family: about $7 for 4 skills on haiku with 3 reps
 
 _WORD_RE = re.compile(r"\w+")
-_FENCE_RE = re.compile(r"^\s*(`{3,}|~{3,})(.*)")  # a fence: its run of backticks or tildes, then any info string
+# A fence opener or closer (CommonMark): at most three spaces of indent, then a run of backticks or
+# tildes; a backtick fence's info string has no backtick, so "```foo``` text" is inline code.
+_FENCE_RE = re.compile(r"^ {0,3}(`{3,}(?=[^`]*$)|~{3,})(.*)")
 _TRIGGER_RE = re.compile(
     r"\b(?:use this skill when|use when|use for|triggers? on|whenever|when)\b", re.IGNORECASE
 )
