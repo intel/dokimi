@@ -45,7 +45,7 @@ class Web:
 
 def _dns_failure() -> httpx.ConnectError:
     error = httpx.ConnectError("[Errno -2] Name or service not known")
-    error.__cause__ = socket.gaierror(-2, "Name or service not known")
+    error.__cause__ = socket.gaierror(socket.EAI_NONAME, "Name or service not known")
     return error
 
 
@@ -144,6 +144,54 @@ def test_urls_are_capped_per_skill():
     assert len(online_checks.extract_urls(body)) == online_checks.MAX_URLS_PER_SKILL == 20
 
 
+def test_backslash_continuation_joins_the_command_lines():
+    body = "```bash\npip install \\\n  nosuch-pkg-xyz\n```\n"
+    assert online_checks.extract_packages(body) == [("pypi", "nosuch-pkg-xyz")]
+
+
+def test_quoted_semicolon_in_a_pip_requirement_is_not_a_separator():
+    body = "pip install \"requests; python_version < '3.11'\"\n"
+    assert online_checks.extract_packages(body) == [("pypi", "requests")]
+
+
+def test_shell_comments_are_removed_before_the_command_is_split():
+    body = (
+        "pip install requests # development-only\nnpm install lodash # development-only\n"
+        "pip install requests # note; pip install nosuch-pkg-xyz\n"
+    )
+    assert online_checks.extract_packages(body) == [("pypi", "requests"), ("npm", "lodash")]
+
+
+def test_redirection_operators_and_their_targets_are_not_packages():
+    body = (
+        "pip install requests > install.log\nnpm install lodash >> log.txt\n"
+        "pip install requests 2>&1 | tee out\npip install numpy 2>/dev/null\n"
+    )
+    assert online_checks.extract_packages(body) == [("pypi", "requests"), ("npm", "lodash"), ("pypi", "numpy")]
+
+
+def test_every_npx_package_option_is_checked_and_the_command_is_not_a_package():
+    assert online_checks.extract_packages("npx --package=@scope/cli --package=nosuch-pkg-xyz tool\n") == [
+        ("npm", "@scope/cli"), ("npm", "nosuch-pkg-xyz")]
+    assert online_checks.extract_packages("npx -p @scope/cli -p nosuch-pkg-xyz tool\n") == [
+        ("npm", "@scope/cli"), ("npm", "nosuch-pkg-xyz")]
+
+
+def test_trailing_sentence_punctuation_is_not_part_of_a_name_and_prose_npx_names_nothing():
+    assert online_checks.extract_packages("Run pip install requests.\nRun npm install lodash.\n") == [
+        ("pypi", "requests"), ("npm", "lodash")]
+    assert online_checks.extract_packages("Use npx to run things\n") == []
+
+
+def test_npm_and_pip_value_options_take_their_argument():
+    body = "npm install --omit dev lodash\npip install --python python3.11 foo\n"
+    assert online_checks.extract_packages(body) == [("npm", "lodash"), ("pypi", "foo")]
+
+
+def test_markdown_link_whose_text_is_the_url_is_one_url():
+    assert online_checks.extract_urls("[https://b.com/x](https://b.com/x)\n") == ["https://b.com/x"]
+
+
 # ---- what the registry and the web answer --------------------------------------------------
 
 
@@ -234,6 +282,17 @@ def test_dns_failure_is_a_dead_link(tmp_path):
     assert "does not resolve" in review.findings[0].message
 
 
+def test_temporary_resolver_failure_is_not_a_dead_link(tmp_path):
+    url = "https://real-site.example-tool.dev/"
+    root = _one_skill(tmp_path, f"See {url}\n")
+    error = httpx.ConnectError("Temporary failure in name resolution")
+    error.__cause__ = socket.gaierror(socket.EAI_AGAIN, "Temporary failure in name resolution")
+    web = Web({url: error})
+
+    [review] = _reviews(root, web)
+    assert _codes(review) == []
+
+
 def test_timeout_on_a_link_is_not_dead(tmp_path):
     url = "https://slow.example-tool.dev/"
     root = _one_skill(tmp_path, f"See {url}\n")
@@ -299,6 +358,28 @@ def test_online_with_per_skill_is_a_usage_error(tmp_path):
                               "--per-skill", "--online"])
     with pytest.raises(InputError, match="--online"):
         args.func(args)
+
+
+def test_online_with_kind_tasks_is_a_usage_error(tmp_path):
+    parser = build_parser()
+    args = parser.parse_args(["catalog", "check", "--root", str(tmp_path), "--kind", "tasks", "--online"])
+    with pytest.raises(InputError, match="--online"):
+        args.func(args)
+
+
+def test_online_still_probes_the_good_skills_when_one_skill_fails_to_load(tmp_path, monkeypatch, capsys):
+    _skill(tmp_path / "skills", "good", name="good", description="Use for good work.",
+           body="pip install nosuch-pkg-xyz\n")
+    broken = tmp_path / "skills" / "broken"
+    broken.mkdir(parents=True)
+    (broken / "SKILL.md").write_text("---\nname: [unclosed\n---\nbody\n", encoding="utf-8")
+    web = Web({PYPI.format(name="nosuch-pkg-xyz"): 404})
+    monkeypatch.setattr(online_checks, "make_client", web.client)
+
+    code, report = _scan_capture(tmp_path, capsys, "--online")
+    assert code == 1  # the skill that does not load fails the check, as it does without --online
+    good = next(row for row in report["skills"] if row["name"] == "good")
+    assert [f["code"] for f in good["findings"]] == ["package-not-found"]
 
 
 def _scan_capture(root, capsys, *extra: str) -> tuple[int, dict]:
