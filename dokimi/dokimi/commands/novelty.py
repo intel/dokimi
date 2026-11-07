@@ -70,8 +70,8 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
         render_novelty_markdown,
     )
 
-    from dokimi.novelty.spans import segment
     from dokimi.novelty.tiers import FITTED_TOKENS_MAX
+    from dokimi.commands.novelty_budget import print_run_estimate, run_estimate
 
     artifact_bundle = _bundle_from_args(args)
     settings = _settings(args)
@@ -85,16 +85,7 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
             print(f"  overridden by flags: {sorted(record['overrides'])}", file=sys.stderr)
 
     if args.estimate_only:
-        spans = segment(artifact_bundle.text)
-        n_tokens = sum(span.tokens for span in spans)
-        estimate = settings.estimate(
-            len(spans), n_tokens=n_tokens, budgets=tuple(args.budgets), n_arms=len(_arms(args.arms))
-        )
-        n_arms = len(_arms(args.arms))
-        estimate["expected_usd"] = _estimate_usd(
-            args, n_tokens, estimate["estimate"]["by_role"], settings.tier,
-            context_share=(n_arms - 1 - ("no_artifact_repeat" in args.arms)) / n_arms,
-        )
+        estimate, n_tokens = run_estimate(args, settings, artifact_bundle.text, _estimate_usd)
         # Every arm but the baseline is priced as carrying the artifact; a placebo of another
         # length is not read.
         if n_tokens > FITTED_TOKENS_MAX:
@@ -115,6 +106,7 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
                 file=sys.stderr,
             )
         return
+    print_run_estimate(args, settings, artifact_bundle.text, _estimate_usd)
 
     placebo_text = placebo_text_for_arms_or_exit(args.placebo_text, _arms(args.arms))
     extractor, answerer, judge = _clients(args)
@@ -163,8 +155,8 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
 
 def cmd_novelty_atoms(args: argparse.Namespace) -> None:
     """Extract atoms and spans only — the expensive stage, cached for reuse."""
-    from dokimi.novelty.atoms import (ExtractionError, ExtractionReport, extract_atoms, sample_atoms,
-                                      save_atoms, verify_atoms)
+    from dokimi.commands.novelty_budget import save_atoms_run, verify_or_partial
+    from dokimi.novelty.atoms import ExtractionError, ExtractionReport, extract_atoms, sample_atoms
     from dokimi.novelty.report import cap_warning
     from dokimi.novelty.spans import segment, span_summary
 
@@ -181,13 +173,15 @@ def cmd_novelty_atoms(args: argparse.Namespace) -> None:
     sample = sample_atoms(atoms, spans, cap)  # what the run probes; atoms.json holds every atom
     # The cap warning analyze records; probe and shorten, which read atoms.json, do not repeat it.
     sampled = [cap_warning(extraction.as_dict())] if extraction.sampled else []
-    for warning in extraction.warnings(len(spans)) + sampled:
+    # A cap-stopped run's unread spans are the cap's doing, which the exit message names.
+    for warning in ([] if extraction.partial else extraction.warnings(len(spans)) + sampled):
         print(f"WARNING {warning}", file=sys.stderr)
-    if settings.values["verify_faithfulness"]:
-        verify_atoms(sample, spans, client=extractor)
+    partial = extraction.partial  # a cap that stopped extraction keeps what it read
+    if settings.values["verify_faithfulness"] and partial is None:
+        partial = verify_or_partial(sample, spans, extractor)
     out = Path(args.out) if args.out else _default_dir(args.artifact) / "atoms.json"
-    save_atoms(atoms, spans, out, extractor=extractor.model, cap=cap,
-               bundle=artifact_bundle.summary(), extraction=extraction, sample=sample)
+    save_atoms_run(atoms, spans, out, partial, extractor=extractor.model, cap=cap,
+                   bundle=artifact_bundle.summary(), extraction=extraction, sample=sample)
     print(f"OK Saved {len(atoms)} atoms ({len(sample)} sampled) over {len(spans)} spans: {out}")
     print(json.dumps(span_summary(spans, atoms), indent=2))
 
@@ -200,6 +194,7 @@ def cmd_novelty_probe(args: argparse.Namespace) -> None:
     from dokimi.novelty.measure import SelfJudgeError, check_self_judge, run_measurement
     from dokimi.novelty.probes import build_probe_set
     from dokimi.novelty.report import build_probe_record
+    from dokimi.commands.novelty_budget import save_probe_run
 
     atoms, saved_spans, saved = load_atoms_record(args.atoms)
     atoms = measured_atoms(args, atoms, saved, "probe")
@@ -248,8 +243,8 @@ def cmd_novelty_probe(args: argparse.Namespace) -> None:
         sampling=sampling_record(args, atoms, saved), framing=args.context_framing,
     )
     out = Path(args.out) if args.out else _default_dir(args.artifact) / "probes.json"
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    # A run the cap stopped keeps the answers it paid for, as a partial result (and exits).
+    save_probe_run(payload, out, done=len(result.runs), not_run=result.not_run)
     print(f"OK Saved {len(result.runs)} probe runs: {out}")
     for scoring in ("lenient", "strict"):
         row = payload["paired"][scoring]

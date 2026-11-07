@@ -107,10 +107,12 @@ def test_the_cap_gets_through_a_stage_that_absorbs_failed_calls(tmp_path, monkey
     out = tmp_path / "atoms.json"
     args = _parse("skill", "novelty", "atoms", "--artifact", f"skill:{skill}", "--out", str(out),
                   "--max-usd", "1")
-    with pytest.raises(SystemExit, match="spend cap reached"):
+    with pytest.raises(SystemExit, match="partial"):
         args.func(args)
     assert len(calls) == 1      # extraction ran; the faithfulness call was refused
     assert not out.exists()
+    partial = json.loads((tmp_path / "atoms.partial.json").read_text(encoding="utf-8"))
+    assert partial["partial"]["stage"] == "verify"
 
 
 @pytest.mark.outcome("cjm-novelty-estimate")

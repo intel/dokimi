@@ -29,7 +29,7 @@ from dataclasses import dataclass, field
 
 from dokimi.utils import InputError
 from .atoms import Atom
-from .client import LLMClient, same_client
+from .client import LLMClient, SpendCapReached, same_client
 from .controls import REPEAT_ARM, clustered_ci, control_fields
 from .probes import Probe
 
@@ -162,6 +162,8 @@ class MeasureResult:
     runs: list[ProbeRun] = field(default_factory=list)
     arms: tuple[str, ...] = ()
     with_arm: str = "full"
+    # (probe, arm) jobs the spend cap stopped before they were answered; 0 for a whole run.
+    not_run: int = 0
 
     def paired(self, scoring: str) -> dict:
         """The 2×2 for one scoring (see :func:`paired_outcomes`)."""
@@ -309,10 +311,17 @@ def run_measurement(
             confidence=confidence,
         )
 
-    with ThreadPoolExecutor(max_workers=max(1, concurrency)) as pool:
-        runs = list(pool.map(one, jobs))
+    def guarded(job: tuple[Probe, str]) -> ProbeRun | None:
+        try:
+            return one(job)
+        except SpendCapReached:  # the cap stops the measurement: this job is not run
+            return None
 
-    return MeasureResult(runs=runs, arms=tuple(arms), with_arm="full")
+    with ThreadPoolExecutor(max_workers=max(1, concurrency)) as pool:
+        answered = list(pool.map(guarded, jobs))
+    runs = [run for run in answered if run is not None]
+    return MeasureResult(runs=runs, arms=tuple(arms), with_arm="full",
+                         not_run=len(jobs) - len(runs))
 
 
 # Named ``*_PROMPT`` so the run's ``prompts_sha256`` covers them.
