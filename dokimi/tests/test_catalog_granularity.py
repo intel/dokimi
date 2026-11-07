@@ -363,6 +363,33 @@ def test_a_fence_closes_only_on_its_own_character_and_at_least_its_length():
     assert [s.heading for s in doc.sections] == ["Real"]
 
 
+def _headings_after(fenced: str) -> list[str]:
+    words = " ".join(["word"] * g.SECTION_MIN_WORDS)
+    body = f"## Real\n\n{words}\n\n{fenced.format(words=words)}"
+    return [s.heading for s in g._describe(_skill("fences", "Use when x.", body)).sections]
+
+
+def test_a_tilde_fence_is_not_closed_by_a_backtick_line_and_is_closed_by_tildes():
+    assert _headings_after("~~~\n```\n## Example\n{words}\n```\n~~~\n") == ["Real"]
+    assert _headings_after("~~~\ncode\n~~~\n\n## After\n\n{words}\n") == ["Real", "After"]
+
+
+def test_a_shorter_plain_fence_line_does_not_close_a_longer_fence():
+    assert _headings_after("````\n```\n## Example\n{words}\n```\n````\n") == ["Real"]
+
+
+def test_a_fence_line_with_an_info_string_does_not_close_a_fence_of_the_same_length():
+    assert _headings_after("```\n```python\n## Example\n{words}\n```\n") == ["Real"]
+
+
+def test_a_split_only_catalog_prices_the_paid_command_from_its_split_skills():
+    result = g.hints([_multi_topic()], root="/data/catalog")
+
+    assert result.merge == () and len(result.split) == 1
+    assert result.paid is not None and result.paid.est_usd == 1.75
+    assert result.paid.argv[5:] == ("--from-check", "--model", "haiku", "--reps", "3", "--budget", "4")
+
+
 def test_a_valid_copy_is_offered_when_the_shallower_original_is_ineligible(tmp_path, capsys):
     desc = "Port NumPy code to dpnp on Intel GPUs. Use when the user asks to migrate NumPy code to dpnp."
     # Identical SKILL.md under two directories. The shallower one is the original, but its name does not
