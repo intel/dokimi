@@ -17,7 +17,6 @@ import json
 import sys
 from pathlib import Path
 from dokimi.commands.catalog_scan import print_skill_row, skill_row
-from dokimi.exit_codes import usage_exit
 from dokimi.utils import InputError
 
 
@@ -30,7 +29,7 @@ def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bo
     try:
         manifest = read_skill_manifest(root)
     except ValueError as exc:
-        usage_exit(f"skills.yaml: {exc}")
+        raise InputError(f"skills.yaml: {exc}") from exc
     pairs = catalog_scan.mark_nested(args, manifest, root)
     if args.per_skill:
         return catalog_scan.scan_per_skill(args, root, report, as_json, pairs)
@@ -78,7 +77,7 @@ def _scan_tasks(args: argparse.Namespace, root: Path, report: dict, as_json: boo
     try:
         tasks = read_task_manifest(root, tasks_subdir=args.tasks_subdir)
     except ValueError as exc:
-        usage_exit(str(exc))
+        raise InputError(str(exc)) from exc
     if not as_json:
         print(f"# tasks ({len(tasks)} declared under {root})")
     failed = False
@@ -114,7 +113,7 @@ def _check_scan_flags(args: argparse.Namespace) -> None:
 def cmd_catalog_scan(args: argparse.Namespace) -> None:
     root = Path(args.root)
     if not root.is_dir():
-        usage_exit(f"--root is not a directory: {root}")
+        raise InputError(f"--root is not a directory: {root}")
     _check_scan_flags(args)
 
     as_json = args.format == "json"
@@ -158,9 +157,9 @@ def _write_trigger_set(args: argparse.Namespace, queries, catalog_root: Path) ->
                        else ts.to_skill_creator(queries, args.target))
             Path(args.out).write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     except ArtifactValidationError as exc:  # the path was writable; the payload failed the schema
-        usage_exit(f"Error: questions set rejected: {exc}")
+        raise InputError(f"questions set rejected: {exc}") from exc
     except (OSError, ValueError) as exc:  # unwritable --out: a directory, a file as parent, no permission, empty path (pathlib ValueError)
-        usage_exit(f"Error: cannot write --out {args.out}: {exc}")
+        raise InputError(f"cannot write --out {args.out}: {exc}") from exc
 
 
 def _discover_catalog_skills(catalog_root: Path) -> list:
@@ -169,7 +168,7 @@ def _discover_catalog_skills(catalog_root: Path) -> list:
     try:
         return discover_skills(catalog_root)
     except (OSError, ValueError, RecursionError) as exc:  # unreadable, non-UTF-8, bad frontmatter or nesting too deep
-        usage_exit(f"--catalog {catalog_root}: {exc}")
+        raise InputError(f"--catalog {catalog_root}: {exc}") from exc
 
 
 def cmd_catalog_trigger_set(args: argparse.Namespace) -> None:
@@ -179,19 +178,19 @@ def cmd_catalog_trigger_set(args: argparse.Namespace) -> None:
 
     catalog_root = Path(args.catalog)
     if not catalog_root.is_dir():
-        usage_exit(f"--catalog is not a directory: {catalog_root}")
+        raise InputError(f"--catalog is not a directory: {catalog_root}")
     catalog = _discover_catalog_skills(catalog_root)
     # Checked before any --rewrite call, so a bad invocation costs no LLM calls.
     if args.format == "skill-creator":
         if not args.target:
-            usage_exit("--format skill-creator needs --target <skill>")
+            raise InputError("--format skill-creator needs --target <skill>")
         if args.target not in {s.name for s in catalog}:
-            usage_exit(f"--target {args.target!r} is not a skill in --catalog "
-                       f"(have: {', '.join(sorted(s.name for s in catalog))})")
+            raise InputError(f"--target {args.target!r} is not a skill in --catalog "
+                             f"(have: {', '.join(sorted(s.name for s in catalog))})")
     sources = _question_sources(args.questions or [])
     sources += _trigger_set_sources(args.trigger_set or [], catalog)
     if not sources:
-        usage_exit("give --questions PATH=LABEL or --trigger-set PATH[=TARGET]")
+        raise InputError("give --questions PATH=LABEL or --trigger-set PATH[=TARGET]")
     # A --trigger-set file with no labels is valid only for --format questions; reach and
     # skill-creator drop unlabelled queries, so there it would write an empty set.
     specs = list(args.questions or []) + [
@@ -200,7 +199,7 @@ def cmd_catalog_trigger_set(args: argparse.Namespace) -> None:
     rewrite = None
     if args.rewrite:
         if not args.model:
-            usage_exit("--rewrite needs --model")
+            raise InputError("--rewrite needs --model")
         from dokimi.llm import llm_call
 
         def rewrite(text: str) -> str:
@@ -209,7 +208,7 @@ def cmd_catalog_trigger_set(args: argparse.Namespace) -> None:
     try:
         queries = ts.build_trigger_set(sources, catalog, rewrite=rewrite, specs=specs)
     except ts.TriggerSetInputError as exc:
-        usage_exit(str(exc))
+        raise InputError(str(exc)) from exc
     except ValueError as exc:
         # A --rewrite that returned nothing: a runtime failure, not a bad invocation.
         print(str(exc), file=sys.stderr)
@@ -244,7 +243,7 @@ def cmd_catalog_formats(args: argparse.Namespace) -> None:
 
     root = Path(args.root)
     if not root.is_dir():
-        usage_exit(f"--root is not a directory: {root}")
+        raise InputError(f"--root is not a directory: {root}")
     packages = formats.detect_skill_packages(root)
     summary = formats.summarize(packages)
     if args.json:
@@ -269,11 +268,11 @@ def _question_sources(specs: list) -> list:
     for spec in specs:
         path, _, rule = spec.rpartition("=")  # labels never contain '=', paths may
         if not path or not rule:
-            usage_exit(f"--questions needs PATH=LABEL (a skill name, 'none' or '@field'): {spec}")
+            raise InputError(f"--questions needs PATH=LABEL (a skill name, 'none' or '@field'): {spec}")
         data = read_json_input(path, flag="--questions")
         questions = data.get("questions", data) if isinstance(data, dict) else data
         if not isinstance(questions, list) or not all(isinstance(q, dict) for q in questions):
-            usage_exit(f"{path}: expected a list of question objects")
+            raise InputError(f"{path}: expected a list of question objects")
         sources.append((questions, rule))
     return sources
 
@@ -298,16 +297,16 @@ def _trigger_set_sources(specs: list, catalog) -> list:
         try:
             fmt, queries = ts.read_trigger_set(data, target=target)
         except ValueError as exc:
-            usage_exit(f"{path}: {exc}")
+            raise InputError(f"{path}: {exc}") from exc
         if fmt == ts.FORMAT_SKILL_CREATOR:
             if target not in names:
-                usage_exit(f"{spec}: skill-creator target {target!r} is not a skill in "
-                           f"--catalog (have: {', '.join(sorted(names))})")
+                raise InputError(f"{spec}: skill-creator target {target!r} is not a skill in "
+                                 f"--catalog (have: {', '.join(sorted(names))})")
             if len(names) > 1:
                 print(f"note: {path}: skill-creator negatives are read as 'no skill loads'; in a "
                       f"catalog of {len(names)} a rival load counts as a false trigger", file=sys.stderr)
         elif target:
-            usage_exit(f"{spec}: =TARGET applies to skill-creator sets only, this is {fmt}")
+            raise InputError(f"{spec}: =TARGET applies to skill-creator sets only, this is {fmt}")
         print(f"read {path} as {fmt} ({len(queries)} queries)", file=sys.stderr)
         rows = ts.to_questions(queries)["questions"]
         for row, q in zip(rows, queries, strict=True):

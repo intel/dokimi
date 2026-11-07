@@ -9,7 +9,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from dokimi.exit_codes import usage_exit
+from dokimi.utils import InputError
 
 _TASKS_ROOT_HELP = (
     "Directory holding one sub-directory per task (each with task.toml or task.md). "
@@ -32,17 +32,18 @@ def _tasks_root(args: argparse.Namespace) -> Path | None:
         return None
     root = Path(args.tasks_root)
     if not root.is_dir():
-        usage_exit(f"--tasks-root is not a directory: {root}")
+        raise InputError(f"--tasks-root is not a directory: {root}")
     return root
 
 
 def cmd_tasks_list(args: argparse.Namespace) -> None:
     from dokimi.harnesses import discover_tasks
 
+    root = _tasks_root(args)
     try:
-        tasks = discover_tasks(_tasks_root(args))
+        tasks = discover_tasks(root)
     except ValueError as exc:
-        usage_exit(str(exc))
+        raise InputError(str(exc)) from exc
     for task in tasks:
         tags = task.metadata.get("tags") or []
         difficulty = task.metadata.get("difficulty", "?")
@@ -80,13 +81,13 @@ def cmd_tasks_inspect(args: argparse.Namespace) -> None:
     try:
         reports = [r.as_dict() for r in inspect_path(Path(args.path))]
     except FileNotFoundError as exc:
-        usage_exit(f"Error: {exc}")
+        raise InputError(str(exc)) from exc
     payload = {"root": str(args.path), "items": reports}
     if args.out:
         try:
             save_artifact("task_inspect", payload, Path(args.out))
         except OSError as exc:
-            usage_exit(f"Error: cannot write {args.out}: {exc}")
+            raise InputError(f"cannot write {args.out}: {exc}") from exc
     if args.json:
         print(json.dumps(stamp("task_inspect", dict(payload)), indent=2, default=str))
     else:
@@ -130,7 +131,7 @@ def _select_swebench(args: argparse.Namespace) -> list:
 
     ids = None if args.all else [t.strip() for t in (args.tasks or "").split(",") if t.strip()]
     if ids == []:
-        usage_exit("No tasks selected. Pass --tasks <instance_id[,...]> or --all.")
+        raise InputError("No tasks selected. Pass --tasks <instance_id[,...]> or --all.")
     _refuse_repeats("task", ids or [])
     try:
         if ids is None:
@@ -140,17 +141,17 @@ def _select_swebench(args: argparse.Namespace) -> list:
                       + ", ".join(skipped), file=sys.stderr)
         tasks = load_swebench(Path(args.swe_bench), Path(args.output_dir) / "swe-bench-tasks", ids)
     except (OSError, ValueError) as exc:  # SweBenchError and bad JSON are ValueErrors
-        usage_exit(f"--swe-bench: {exc}")
+        raise InputError(f"--swe-bench: {exc}") from exc
     if not tasks:  # an empty run must not exit 0 with an empty artifact
-        usage_exit(f"--swe-bench: no runnable rows in {args.swe_bench} "
-                   "(--all skips the known-bad rows)")
+        raise InputError(f"--swe-bench: no runnable rows in {args.swe_bench} "
+                         "(--all skips the known-bad rows)")
     return tasks
 
 
 def _refuse_repeats(kind: str, names: list[str]) -> None:
     repeated = sorted({n for n in names if names.count(n) > 1})
     if repeated:
-        usage_exit(f"Repeated {kind}: {', '.join(repeated)}. List each once; use --repeats to run it again.")
+        raise InputError(f"Repeated {kind}: {', '.join(repeated)}. List each once; use --repeats to run it again.")
 
 
 def _select_tasks(args: argparse.Namespace) -> list:
@@ -169,9 +170,9 @@ def _select_tasks(args: argparse.Namespace) -> list:
             # cells and output dirs are keyed by the loaded name, not the spelling
             _refuse_repeats("task", [t.name for t in tasks])
     except (ValueError, OSError, RecursionError) as exc:  # a missing or unreadable task, deeply nested YAML
-        usage_exit(f"Error: {exc}")
+        raise InputError(str(exc)) from exc
     if not tasks:
-        usage_exit("No tasks selected. Pass --tasks <name[,name]> or --all.")
+        raise InputError("No tasks selected. Pass --tasks <name[,name]> or --all.")
     return tasks
 
 
@@ -238,7 +239,7 @@ def cmd_tasks_run(args: argparse.Namespace) -> None:
 
     harnesses = [h.strip() for h in args.harnesses.split(",") if h.strip()]
     if not harnesses:
-        usage_exit("No harnesses selected. Pass --harnesses codex,claude-code.")
+        raise InputError("No harnesses selected. Pass --harnesses codex,claude-code.")
     _refuse_repeats("harness", harnesses)
     if args.baseline_harness and args.baseline_harness not in harnesses:
         print(f"Also running baseline harness: {args.baseline_harness}")
@@ -261,7 +262,7 @@ def cmd_tasks_run(args: argparse.Namespace) -> None:
     try:
         runner.validate_harnesses()
     except ValueError as exc:
-        usage_exit(f"Error: {exc}")
+        raise InputError(str(exc)) from exc
     try:
         output = runner.run()
     except PreflightError as exc:
@@ -274,7 +275,7 @@ def cmd_tasks_run(args: argparse.Namespace) -> None:
     try:
         save_artifact("task_runs", output, out_json)
     except OSError as exc:
-        usage_exit(f"Error: cannot write {out_json}: {exc}")
+        raise InputError(f"cannot write {out_json}: {exc}") from exc
     print(f"Saved task run artifact: {out_json}")
 
     out_md = Path(args.out_md) if args.out_md else out_json.with_suffix(".md")
@@ -284,7 +285,7 @@ def cmd_tasks_run(args: argparse.Namespace) -> None:
         out_md.parent.mkdir(parents=True, exist_ok=True)
         out_md.write_text(render_task_runs_report(output), encoding="utf-8")
     except OSError as exc:
-        usage_exit(f"Error: cannot write {out_md}: {exc} (the artifact is saved at {out_json})")
+        raise InputError(f"cannot write {out_md}: {exc} (the artifact is saved at {out_json})") from exc
     print(f"Saved task run report:   {out_md}")
 
     _print_summary(output)
