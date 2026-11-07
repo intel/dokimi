@@ -347,7 +347,9 @@ next release.
   and the docker CLI runner; tests swap in a fake runner.
 - `dokimi/repos/grading.py` — runs the `grade` and `oracle` entry
   points in their own container, reads `grade.json` (`repo_grade.v1`) without
-  following links, and turns it into the framework's verdict and gate.
+  following links, and turns it into the framework's verdict and gate. For
+  `dokimi:hidden_tests` (`dokimi/repos/graders/hidden_tests.py`) it first copies
+  the hidden files into the workspace and runs the manifest's `test` entry point.
 - `dokimi/repos/runner.py` + `dokimi/repos/report.py` —
   `repo run` (one agent per task × arm × model × rep cell, then `grade`, one
   `result.json` per cell) and `repo report` (gated success with a Wilson
@@ -382,14 +384,18 @@ next release.
   task per merged pull request of a threads file `gh api graphql` wrote (the
   change as reviewed, gold from the reviewers' threads on its lines, and
   `addressed` from the PR's own later commits), read with git and no GitHub
-  call.
+  call. `repo tasks authoring` (`authoring.py`, `authoring_prs.py`,
+  `authoring_prompt.py`): one `dokimi:hidden_tests` task per merged pull
+  request, its description as the prompt, its tests hidden until the grade and
+  the rest of its diff as the oracle (contract §4.8); `merged.py` holds what the
+  two kinds share.
 - `dokimi/repos/graph_tasks.py` — `eval tasks generate --from graph`:
   `dokimi:graph_enum` tasks (references to a function, direct subclasses of a
   class) with gold from a SCIP index of a pinned revision, read with
-  `dokimi/repos/code_index/`. It and `repo tasks replay` are the commands that
-  write into a repository's tasks directory.
+  `dokimi/repos/code_index/`. It, `repo tasks replay` and `repo tasks
+  authoring` are the commands that write into a repository's tasks directory.
 
-Entry points: `python cli.py repo {validate,scan,fetch,reach,budget,tasks replay,run,report}`
+Entry points: `python cli.py repo {validate,scan,fetch,reach,budget,tasks replay,tasks authoring,run,report}`
 (`python cli.py repo --help` is the current list). The interface a repository
 codes against is [repo-evaluation-contract.md](repo-evaluation-contract.md),
 still marked PROPOSED: the per-host egress proxy (§2) is not implemented, so
