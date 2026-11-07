@@ -118,8 +118,9 @@ be right or wrong) and `harmful_conflicting` (below), which overrides the other 
   at once"), was non-inferior on pooled data (+0.005, CI [−0.045, +0.057]) and *worse* on
   `nemotron-nano-12b` for `dpnp-quickstart` ([§10.6](skill-novelty-evidence.md)).
 - An atom the value judge did not answer for gets no category. The artifact says how many
-  (`N of M atoms got no need/scaffolding verdict`, split into calls that failed and rows the reply
-  skipped), rather than counting them as inert, and its span is labelled from what was measured
+  (`N of M atoms got no need/scaffolding verdict`, split into calls that failed, rows the reply
+  skipped, malformed rows, and replies with no usable verdict row; an empty list for a batch is
+  one of those, split and re-asked, never cached), rather than counting them as inert, and its span is labelled from what was measured
   (`still_missing`, or `unscored` when nothing was) rather than `redundant` or `inert`.
 
 ### `harmful_conflicting` (judged)
@@ -145,11 +146,12 @@ marked. Read it as a review queue:
   `harmful_conflicting` row reads `not measured (0 found)`. An artifact written before
   `conflict_coverage` existed has no such field and keeps the old reading, a 0 that counts as
   cleared, unless its atom set was capped; re-run `analyze` to check it.
-- **Unchecked atoms.** A call whose reply does not parse is split and re-asked only while both
+- **Unchecked atoms.** A call whose reply does not parse, or whose rows name no pair of the batch
+  (an empty list is fine: it means no conflicts), is split and re-asked only while both
   halves keep two atoms, since one statement has no pair to look at; a chunk of two or three whose
   reply does not parse fails with its error. Atoms in a call that failed, and an atom left alone in
   a chunk (the 41st, say), are counted in `N of M atoms were not checked for conflicts`, split by
-  cause (`K in calls that failed (last error: …)`, `K alone in a batch, with no pair to check`).
+  cause (`K in calls that failed (last error: …)`, `K whose reply named no usable pair`, `K alone in a batch, with no pair to check`).
   Their ids are not written to the artifact.
 - **False positives (anecdotal, not a rate).** Spot-checking 7 of the 31 pairs one run reported
   ([mattpocock/skills](https://github.com/mattpocock/skills) @ `49dd158`) found 4 real, 1

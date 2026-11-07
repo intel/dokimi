@@ -64,7 +64,30 @@ def test_a_judge_reply_with_no_usable_row_is_split_and_never_cached(monkeypatch,
     assert report.unjudged_unusable == len(atoms)
     assert any(w.endswith("(10 whose reply had no usable verdict row)")
                for w in report.warnings(len(atoms)))
-    assert report.value_error.startswith("UnusableReply")
+    assert report.value_error == ""  # an unusable reply has its own cause, not "calls that failed"
+
+
+def test_an_empty_judge_reply_for_a_batch_is_split_and_never_cached(monkeypatch):
+    atoms = _atoms(4)
+    seen = _cache_verdicts(monkeypatch, lambda p: "[]")
+    report = ClassifyReport()
+    assert judge_value(atoms, client=LLMClient(model="x"), task="t", batch=4, report=report) == {}
+    assert seen and not any(seen)
+    assert report.unjudged_unusable == len(atoms) and report.unjudged_skipped == 0
+
+
+def test_a_transport_error_is_not_overwritten_by_a_later_unusable_reply(monkeypatch):
+    atoms = _atoms(2)
+
+    def reply_for(prompt):
+        if _numbers(prompt) == [1]:
+            raise RuntimeError("503 service unavailable")
+        return json.dumps([{"n": n, "needed": "no"} for n in _numbers(prompt)])
+
+    _cache_verdicts(monkeypatch, reply_for)
+    report = ClassifyReport()
+    judge_value(atoms, client=LLMClient(model="x"), task="t", batch=2, report=report)
+    assert "503" in report.value_error
 
 
 def test_a_judge_reply_with_one_usable_row_is_still_cached(monkeypatch):

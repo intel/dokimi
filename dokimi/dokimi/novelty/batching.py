@@ -133,8 +133,10 @@ def ask_in_batches(
                 result.retried_batches += 1
                 result.unusable_retries += isinstance(exc, UnusableReply)
             else:
-                result.last_error = f"{type(exc).__name__}: {str(exc)[:120]}"
                 result.failed.extend(chunk)
                 if isinstance(exc, UnusableReply):
                     result.unusable.extend(chunk)
+                else:
+                    # an unusable reply is counted under its own cause; keep the transport error
+                    result.last_error = f"{type(exc).__name__}: {str(exc)[:120]}"
     return result

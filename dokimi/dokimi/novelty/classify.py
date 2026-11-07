@@ -251,9 +251,9 @@ def _is_verdict(row: dict) -> bool:
 
 
 def _judge_check(chunk: list[Atom], rows: list) -> None:
-    """Refuse a reply with rows, none of which is a verdict for a statement of this chunk."""
+    """Refuse a reply with no verdict for any statement of this chunk, an empty list included."""
     by_index = _statement_rows(rows)
-    if rows and not any(1 <= n <= len(chunk) and _is_verdict(row) for n, row in by_index.items()):
+    if not any(1 <= n <= len(chunk) and _is_verdict(row) for n, row in by_index.items()):
         raise UnusableReply(f"none of the {len(rows)} rows is a verdict for this batch")
 
 
