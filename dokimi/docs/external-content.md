@@ -116,7 +116,7 @@ Two checks, both `warn`:
   tag character (U+E0000 to U+E007F), or a stray zero-width character (U+200B, U+2060, or
   a U+FEFF after the start of the file). Each is reported with its line and codepoint; five
   per file are listed. A zero-width joiner (U+200C, U+200D) is not reported next to an emoji
-  or symbol (U+2600 to U+27BF, U+1F000 and up) or in Arabic and Indic script, where it is correct.
+  or symbol (U+2600 to U+27BF, U+1F000 to U+1FAFF) or in Arabic and Indic script, where it is correct.
   Vendored folders (`site-packages`, `node_modules`, `.venv` and the like) are not scanned, and
   a folder that holds another skill's `SKILL.md` is checked as that skill only.
 

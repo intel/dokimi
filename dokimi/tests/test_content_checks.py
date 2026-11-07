@@ -9,11 +9,15 @@ The positives fail on a tree without the checks. Hidden characters are written a
 
 from __future__ import annotations
 
+import os
+import sys
 import tomllib
 from pathlib import Path
 
+import pytest
+
 from dokimi.external import read_skill_manifest, review_skills
-from dokimi.external.content_checks import DATA_FILE
+from dokimi.external.content_checks import DATA_FILE, MAX_BYTES, _text_files
 
 
 def _skill(root: Path, rel: str, body: str = "# Body\n", files: dict[str, str] | None = None) -> Path:
@@ -164,6 +168,94 @@ def test_zero_width_joiner_between_cjk_characters_is_reported(tmp_path):
 
     [message] = _messages(tmp_path, "hidden-unicode")
     assert "U+200D" in message
+
+
+def test_zero_width_joiner_next_to_supplementary_cjk_is_reported(tmp_path):
+    _skill(tmp_path / "skills", "supp-cjk", body="# S\n\n\U00020000\u200d\U00020001 text\n")
+
+    [message] = _messages(tmp_path, "hidden-unicode")
+    assert "U+200D" in message
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "\U0001F468\u200d\U0001F469",  # emoji on the left
+        "\U0001F468\u200d a",  # ... and a letter after it: one emoji neighbour is enough
+        "a \u200d\U0001F469",  # emoji on the right only
+        "❤\u200d\U0001F525",  # heart and fire, a symbol next to an emoji
+    ],
+)
+def test_zero_width_joiner_with_one_emoji_neighbour_is_not_reported(tmp_path, text):
+    _skill(tmp_path / "skills", "joiner-emoji", body=f"# E\n\n{text}\n")
+
+    assert _messages(tmp_path, "hidden-unicode") == []
+
+
+@pytest.mark.parametrize(
+    "codepoint",
+    [
+        0x202A,  # first bidi embedding
+        0x202E,  # last bidi override
+        0x2066,  # first isolate
+        0x2069,  # last isolate
+        0x200B,  # zero-width space
+        0x2060,  # word joiner
+        0xFEFF,  # byte order mark mid-file
+        0xE0000,  # first tag character
+        0xE007F,  # last tag character
+    ],
+)
+def test_each_hidden_range_is_reported_at_its_first_and_last_codepoint(tmp_path, codepoint):
+    _skill(tmp_path / "skills", "edge", body=f"# Edge\n\nvisible{chr(codepoint)}text\n")
+
+    [message] = _messages(tmp_path, "hidden-unicode")
+    assert f"U+{codepoint:04X}" in message
+
+
+# ---- scope of the content scan: what is read, not what is reported ------------------------------
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="needs mkfifo")
+def test_named_pipe_named_like_a_text_file_is_not_scanned(tmp_path):
+    # Reading a FIFO blocks until a writer opens it, so it is never handed to read_text.
+    skill_dir = _skill(tmp_path / "skills", "fifo")
+    os.mkfifo(skill_dir / "notes.md")
+
+    assert [p.name for p in _text_files(skill_dir)] == ["SKILL.md"]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="symlinks need privileges on Windows")
+def test_symlinked_text_file_is_not_scanned(tmp_path):
+    outside = tmp_path / "outside.md"
+    outside.write_text('Model: "claude-2.1"\n', encoding="utf-8")
+    skill_dir = _skill(tmp_path / "skills", "linked")
+    (skill_dir / "link.md").symlink_to(outside)
+
+    assert _messages(tmp_path, "legacy-model-id") == []
+
+
+def test_oversize_text_file_is_not_scanned(tmp_path):
+    big = 'Model: "claude-2.1"\n' + "a" * (MAX_BYTES + 1 - len('Model: "claude-2.1"\n'))
+    skill_dir = _skill(tmp_path / "skills", "big", files={"big.md": big})
+
+    assert _messages(tmp_path, "legacy-model-id") == []
+    assert all(p.name != "big.md" for p in _text_files(skill_dir))
+
+
+def test_hidden_folder_is_not_scanned_and_json_and_shell_files_are_scanned(tmp_path):
+    _skill(
+        tmp_path / "skills",
+        "scope",
+        files={
+            ".github/notes.md": 'Model: "claude-2.1"\n',
+            "data.json": '{"model": "claude-2.1"}\n',
+            "run.sh": "MODEL=claude-2.1\n",
+        },
+    )
+
+    names = sorted(m.split(" line ")[0] for m in _messages(tmp_path, "legacy-model-id"))
+    assert names == ["data.json", "run.sh"]
 
 
 # ---- scope of the scan --------------------------------------------------------------------------

@@ -8,13 +8,14 @@
   says which page each vendor's rows were checked against and on which date.
 - ``hidden-unicode`` (warn): a bidi control, a Unicode tag character, or a stray zero-width character.
   Each is reported with its line and codepoint. Exempt: a zero-width joiner (U+200C, U+200D) next to an
-  emoji (U+2600 to U+27BF, U+1F000 and up) or in Arabic and Indic script (U+0600 to U+0DFF), and a byte
+  emoji (U+2600 to U+27BF, U+1F000 to U+1FAFF) or in Arabic and Indic script (U+0600 to U+0DFF), and a byte
   order mark at the start of a file.
 
 Scanned: ``SKILL.md`` and the text files beside it (``.md``, ``.py``, ``.json`` and similar) in the skill
 directory. Left out: hidden folders, the vendored and dependency folders of
 :data:`dokimi.skills.loader.VENDORED_DIR_NAMES` (``site-packages``, ``node_modules``, ``.venv`` ...), folders
-that hold another skill's ``SKILL.md`` (that skill is checked on its own), and symlinks. A skill whose
+that hold another skill's ``SKILL.md`` (that skill is checked on its own), symlinks, and files that are not
+regular (a FIFO, a socket, a device). A skill whose
 ``SKILL.md`` sits at the checkout root is checked on that file only: its directory is the whole repository.
 """
 
@@ -96,7 +97,7 @@ def _joiner_exempt(text: str, index: int) -> bool:
     for j in (index - 1, index + 1):
         if 0 <= j < len(text):
             cp = ord(text[j])
-            if 0x2600 <= cp <= 0x27BF or cp >= 0x1F000 or 0x0600 <= cp <= 0x0DFF:
+            if 0x2600 <= cp <= 0x27BF or 0x1F000 <= cp <= 0x1FAFF or 0x0600 <= cp <= 0x0DFF:
                 return True
     return False
 
@@ -135,7 +136,8 @@ def _hidden_hits(where: str, text: str) -> list[Hit]:
 
 
 def _text_files(skill_dir: Path) -> list[Path]:
-    """The text files under ``skill_dir``, in walk order; hidden folders, symlinks and oversize files are left out."""
+    """The text files under ``skill_dir``, in walk order; hidden folders, symlinks, non-regular files and
+    oversize files are left out."""
     found: list[Path] = []
     for dirpath, dirnames, filenames in os.walk(skill_dir):  # does not descend into symlinked folders
         here = Path(dirpath)
@@ -146,7 +148,8 @@ def _text_files(skill_dir: Path) -> list[Path]:
         )
         for name in sorted(filenames):
             path = Path(dirpath) / name
-            if path.suffix.lower() not in TEXT_SUFFIXES or path.is_symlink():
+            # A FIFO, socket or device is not a file to read: reading a FIFO blocks until a writer opens it.
+            if path.suffix.lower() not in TEXT_SUFFIXES or path.is_symlink() or not path.is_file():
                 continue
             try:
                 if path.stat().st_size > MAX_BYTES:
