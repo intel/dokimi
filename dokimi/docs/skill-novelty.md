@@ -260,8 +260,9 @@ answerer (`probe` warns when it is). Nothing else separates the extractor from t
 so the same model, or one vendor family, can write the key and grade against it.
 
 Defaults, unchanged: `analyze` and `probe` leave `--extract-model` unset, and the extractor
-then is the judge. With no judge flags and the default answerer that is `anthropic/claude-sonnet-5-5`, so a plain run
-has the extractor and the judge on one model. `atoms` and the `shorten` adjudicator differ: there `--model` is the extractor (or the
+then is the judge. With no judge flags and the default answerer, that is
+`anthropic/claude-sonnet-5-5`, so a plain run has the extractor and the judge on one model.
+`atoms` and the `shorten` adjudicator differ: there `--model` is the extractor (or the
 retention adjudicator), not the model under measurement, and it defaults to the judge model,
 `anthropic/claude-sonnet-5-5`. A plain `atoms` run therefore has the extractor and the judge on
 one model: pass `--extract-model` of another family there (with `--provider` when it is not

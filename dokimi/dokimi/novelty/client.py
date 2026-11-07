@@ -311,7 +311,8 @@ def extractor_judge_relation(extractor_model: str, judge: LLMClient,
 
 # The remedy holds for analyze and for probe: probe's --extract-model does not change a saved key.
 _REMEDY = ("Use a judge from another family, or write the answer key again with another extractor "
-           "(analyze --extract-model, or atoms --extract-model with --provider for a saved atoms file)")
+           "(analyze --extract-model with --extract-provider when it is not the judge's, "
+           "or atoms --extract-model with --provider for a saved atoms file)")
 
 
 def warn_extractor_judge(extractor_model: str, judge: LLMClient,
