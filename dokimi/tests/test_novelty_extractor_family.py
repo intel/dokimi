@@ -65,6 +65,10 @@ def test_an_unknown_vendor_never_counts_as_the_same_vendor():
     assert _relation("local-a", _judge("local-b", provider="openai"))["same_vendor"] is False
 
 
+def test_the_same_unrecognised_model_on_both_sides_is_the_same_vendor():
+    assert _relation("my-local-model", _judge("my-local-model", provider="openai"))["same_vendor"] is True
+
+
 def test_the_same_model_warns_on_stderr_and_names_the_model(capsys):
     relation = warn_extractor_judge("claude-sonnet-5-5", _judge("claude-sonnet-5-5"))
     err = capsys.readouterr().err
