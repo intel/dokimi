@@ -139,6 +139,25 @@ def test_a_single_body_task_check_keeps_the_function_name(tmp_path):
     assert (check.name, check.units) == ("test_only", ("t1",))
 
 
+def test_a_long_eval_row_keeps_its_expected_output_in_the_check(tmp_path):
+    path = tmp_path / "evals.json"
+    path.write_text(json.dumps({"evals": [
+        {"id": "e1", "prompt": "p" * 1600, "expected_output": "THE-EXPECTED-ANSWER"}]}), encoding="utf-8")
+    [check] = sc.load_checks(path)
+    assert "THE-EXPECTED-ANSWER" in check.source  # the grading criterion is never clipped away
+    assert "[clipped]" not in check.source
+
+
+def test_task_checks_that_share_a_long_prefix_stay_apart_with_their_full_source(tmp_path):
+    prefix = "".join(f"    x{i} = {i}\n" for i in range(300))  # longer than the old per-check clip
+    root = tmp_path / "tasks"
+    _task(root, "t1", {"test_answer.py": f"def test_same(x):\n{prefix}    assert x == 1\n"})
+    _task(root, "t2", {"test_answer.py": f"def test_same(x):\n{prefix}    assert x == 2\n"})
+    checks = {c.name: c for c in sc.load_checks(root)}
+    assert set(checks) == {"test_same#1", "test_same#2"}
+    assert any("assert x == 2" in c.source for c in checks.values())
+
+
 # --- the two model calls ------------------------------------------------------
 
 def test_extract_requirements_numbers_by_section_and_skips_bad_rows(tmp_path):

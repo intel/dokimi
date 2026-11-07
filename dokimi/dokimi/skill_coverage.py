@@ -41,7 +41,6 @@ PREFIX = {"triggers": "trig", "out_of_scope": "oos", "must_hold": "mh",
           "success_criteria": "sc", "failure_modes": "fm"}
 MAX_REQUIREMENTS = 80
 MAX_SKILL_CHARS = 60_000
-CHECK_CHARS = 1_500
 MAX_CATALOGUE_CHARS = 120_000
 _SKIPPED_ROW_FIELDS = ("id", "needs")
 
@@ -99,10 +98,6 @@ def read_skill(path: Path) -> SkillDoc:
                     sha256=hashlib.sha256(text.encode("utf-8")).hexdigest())
 
 
-def _clip(text: str) -> str:
-    return text if len(text) <= CHECK_CHARS else text[:CHECK_CHARS] + " [clipped]"
-
-
 def _evals_checks(root: Path) -> list[tuple[str, str, str]]:
     """(unit, name, source) for each evals.json row: the row's id, its body without ``needs``."""
     out: list[tuple[str, str, str]] = []
@@ -118,7 +113,7 @@ def _evals_checks(root: Path) -> list[tuple[str, str, str]]:
                 continue
             eid = str(row.get("id", index))
             body = {k: v for k, v in row.items() if k not in _SKIPPED_ROW_FIELDS}
-            out.append((eid, eid, _clip(json.dumps(body, ensure_ascii=False, indent=1))))
+            out.append((eid, eid, json.dumps(body, ensure_ascii=False, indent=1)))
     return out
 
 
@@ -142,7 +137,7 @@ def _task_checks(root: Path) -> list[tuple[str, str, str]]:
             for node in tree.body:
                 if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test_"):
                     source = ast.get_source_segment(text, node) or node.name
-                    out.append((task_dir.name, node.name, _clip(source)))
+                    out.append((task_dir.name, node.name, source))
     return out
 
 
