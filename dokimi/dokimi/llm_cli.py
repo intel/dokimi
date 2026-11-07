@@ -195,9 +195,9 @@ def _main_model(model_usage: Dict[str, Any], requested: str) -> Optional[str]:
     names = [n for n in model_usage if isinstance(n, str)]
     if not names:
         return None
-    family = _family(requested)
+    wanted = family(requested)
     for name in names:
-        if family is not None and _family(name) == family:
+        if wanted is not None and family(name) == wanted:
             return name
     def output(name: str) -> int:
         stats = model_usage.get(name)
@@ -284,12 +284,12 @@ def backend(provider: str) -> Optional[CliBackend]:
 
 
 #: The 1M-context suffix ``claude --model`` takes after an alias or a full id: ``sonnet[1m]``.
-_CONTEXT_SUFFIX = re.compile(r"\[[^\]]*\]$")
+CONTEXT_SUFFIX = re.compile(r"\[[^\]]*\]$")
 
 
 def _without_context(model: str) -> str:
     """*model* with a trailing ``[...]`` (the context-window form) removed, and blanks stripped."""
-    return _CONTEXT_SUFFIX.sub("", model.strip())
+    return CONTEXT_SUFFIX.sub("", model.strip())
 
 
 def accepts_model(provider: str, model: str) -> bool:
@@ -313,8 +313,13 @@ def _full_id(model: str) -> str:
     return _BEDROCK_REVISION.sub("", name)
 
 
-def _family(model: str) -> Optional[str]:
-    """The alias a Claude model name belongs to: ``sonnet``, or of ``claude-sonnet-5-5``."""
+def is_alias(model: object) -> bool:
+    """Whether *model* is a CLI alias itself (``sonnet``, ``opus[1m]``), not a full id."""
+    return isinstance(model, str) and _full_id(model) in CLAUDE_CLI.aliases
+
+
+def family(model: str) -> Optional[str]:
+    """The alias a Claude model name belongs to: ``sonnet`` for the alias or for ``claude-sonnet-5-5``."""
     name = _full_id(model)
     if name in CLAUDE_CLI.aliases:
         return name
@@ -323,27 +328,6 @@ def _family(model: str) -> Optional[str]:
             if part in CLAUDE_CLI.aliases:
                 return part
     return None
-
-
-def same_model(provider_a: str, model_a: Optional[str], provider_b: str, model_b: Optional[str]) -> bool:
-    """Whether two model refs name one model, for the independence and self-judge checks.
-
-    An alias the CLI resolves (``sonnet``) is the same model as a full id of its family
-    (``claude-sonnet-5-5``): which version the alias is today is not known here, so the
-    check errs toward "same", and a warning is the cost of being wrong. Refs that involve
-    no CLI provider are left to the caller's own comparison (this returns ``False``).
-    """
-    if provider_a not in BACKENDS and provider_b not in BACKENDS:
-        return False
-    if not isinstance(model_a, str) or not isinstance(model_b, str):
-        return False  # a null model in an artifact names no model: nothing to compare
-    a, b = _full_id(model_a), _full_id(model_b)
-    if a == b:
-        return True
-    if a not in CLAUDE_CLI.aliases and b not in CLAUDE_CLI.aliases:
-        return False  # two full ids that differ are two models
-    fa, fb = _family(a), _family(b)
-    return fa is not None and fa == fb
 
 
 def check_sampling(provider: str, temperature: Optional[float], seed: Optional[int]) -> None:

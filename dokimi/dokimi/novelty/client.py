@@ -262,9 +262,9 @@ def roll_up_cost(clients: list[LLMClient]) -> dict[str, Any]:
 
 def same_client(a: LLMClient, b: LLMClient) -> bool:
     """Whether two clients run one model: the same name, or a CLI alias and a full id of its family."""
-    from dokimi.llm_cli import same_model
+    from dokimi.utils import same_model
 
-    return a.model == b.model or same_model(a.provider, a.model, b.provider, b.model)
+    return a.model == b.model or same_model(a.model, b.model)
 
 
 def default_judge(model: str, provider: str | None = None,
@@ -282,7 +282,8 @@ def default_judge(model: str, provider: str | None = None,
     Raises:
         ValueError: ``provider`` runs no default judge other than ``model``.
     """
-    from dokimi.llm_cli import backend, same_model
+    from dokimi.llm_cli import backend
+    from dokimi.utils import same_model
 
     bare = model.rsplit("/", 1)[-1].rsplit("anthropic.", 1)[-1]
     if provider is None and answerer_provider is not None and backend(answerer_provider) is not None:
@@ -291,13 +292,13 @@ def default_judge(model: str, provider: str | None = None,
     if provider == "claude-cli":
         # The CLI's aliases: the first one not of the answerer's family, so the judge is never the answerer.
         for alias in ("opus", "sonnet", "haiku"):
-            if not same_model("claude-cli", alias, "claude-cli", bare):
+            if not same_model(alias, bare):
                 return alias, provider
         raise ValueError(f"judge provider {provider}: no judge of another family than {model}; "
                          "pass --judge-model as well")
     candidates = [(m, p) for m, p in ((DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER),
                                       (DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER))
-                  if m != bare and not same_model(answerer_provider or "", bare, p, m)]
+                  if m != bare and not same_model(bare, m)]
     if provider is None:
         return candidates[0]
     for m, p in candidates:

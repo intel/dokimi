@@ -3,7 +3,7 @@
 
 """The judge, persona generator, question generator and validator route through :mod:`dokimi.llm`.
 
-They reached litellm through ``utils.get_llm``'s own provider table, which differed from the one
+They reached litellm through a provider table of their own (before the move to ``dokimi.llm``), which differed from the one
 the answerer uses (#229 P1-2). Each test builds the real caller and reads the request it sends at
 the :mod:`dokimi.llm` adapter seam (``fake_llm``).
 """
@@ -49,7 +49,7 @@ def sent(caller, fake_llm, model, provider, api_key=None):
 
 @pytest.mark.parametrize("caller", CALLERS)
 def test_an_unknown_bare_bedrock_name_is_sent_as_given(caller, fake_llm, monkeypatch):
-    # get_llm sent the box's default Sonnet instead. A run that pays for answers first refuses it (below).
+    # The old path sent the box's default Sonnet instead. A run that pays for answers first refuses it (below).
     monkeypatch.setenv("ANTHROPIC_DEFAULT_SONNET_MODEL", "us.anthropic.claude-sonnet-4-5")
     request = sent(caller, fake_llm, "claude-sonnet-4", "amazon-bedrock")
     assert request.litellm_model == "bedrock/claude-sonnet-4"
@@ -63,7 +63,7 @@ def test_an_explicit_bedrock_key_is_sent(caller, fake_llm, monkeypatch):
 
 @pytest.mark.parametrize("caller", CALLERS)
 def test_an_unreadable_key_file_raises_before_a_request(caller, fake_llm, tmp_path):
-    # get_llm sent the literal "file:..." text as the key.
+    # The old path sent the literal "file:..." text as the key.
     model = CALLERS[caller]("x/y", "openrouter", f"file:{tmp_path / 'missing'}").llm
     with pytest.raises(ValueError, match="Cannot read API key"):
         model.invoke("q")
@@ -80,7 +80,7 @@ def test_vertex_ai_reads_the_gemini_key(caller, fake_llm, monkeypatch):
 
 @pytest.mark.parametrize("caller", CALLERS)
 def test_openrouter_has_no_output_ceiling_of_its_own(caller, fake_llm, monkeypatch):
-    # get_llm capped OpenRouter at 2000 output tokens; the answerer there never was.
+    # The old path capped OpenRouter at 2000 output tokens; the answerer there never was.
     monkeypatch.setenv("OPENROUTER_API_KEY", "or-key")
     request = sent(caller, fake_llm, "x/y", "openrouter")
     assert (request.litellm_model, request.api_key, request.max_tokens) == ("openrouter/x/y", "or-key", None)
@@ -118,7 +118,7 @@ def test_the_answerer_table_routes_a_bedrock_arn_and_vertex_ai():
         "gemini/gemini-2.5-pro", "vertex_ai/x"]
 
 
-BARE = "claude-sonnet-4"  # off BEDROCK_MODEL_IDS: get_llm ran the box's default Sonnet for it
+BARE = "claude-sonnet-4"  # off BEDROCK_MODEL_IDS: the old path ran the box's default Sonnet for it
 
 
 @pytest.mark.parametrize("model", [BARE, "claude", "sonnet", "claude-sonnet-4.5"])
