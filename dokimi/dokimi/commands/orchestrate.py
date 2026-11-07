@@ -12,7 +12,7 @@ from pathlib import Path
 from dokimi.llm import ANSWER_PROVIDERS
 from dokimi.llm_cli import SamplingError, check_sampling
 from dokimi.utils import check_bedrock_model
-from dokimi.commands.evaluate import _warn_judge_independence
+from dokimi.utils import warn_judge_independence as _warn_judge_independence
 from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.defaults import (
     DEFAULT_ANSWER_MODEL,

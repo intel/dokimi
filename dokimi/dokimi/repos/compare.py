@@ -97,6 +97,8 @@ against an ``--image`` given explicitly.
 A treatment arm that added a file or an MCP server (``result.json``
 ``uptake``) whose agents used it in none of their cells is warned about too: its
 deltas measure the patch's text (a guidance line, say), not the tool.
+
+``leak`` lists, per compared arm with a guidance history, the replay tasks it may have seen (:mod:`.compare_leak`).
 """
 
 from __future__ import annotations
@@ -115,6 +117,7 @@ from dokimi.utils import same_model
 
 from .compare_judged import (check_reported, judge_names, judge_warnings, judged_cells, judged_lines,
                              read_judged)
+from .compare_leak import format_leak, leak_check
 from .compare_interval import (EPS, EXACT_MAX, METHOD, N_RESAMPLES, format_interval, includes_zero,
                                sign_flip_interval, within)
 from .compare_reach import ALPHA, holm_floor, min_detectable
@@ -227,12 +230,14 @@ def compare(batch_dirs: list[Path], baseline: str, treatments: list[str] | None 
     _holm(rows)
     provenance = _provenance(batch_dirs, cells, baseline, treatments, models)
     provenance["warnings"] += one_arm
-    judged = judged_cells(metrics, {text: _in_models([c for c in cells if selector_matches(parse_selector(text), c)],
-                                                     models) for text in [baseline, *treatments]})
+    arm_cells = {text: _in_models([c for c in cells if selector_matches(parse_selector(text), c)], models)
+                 for text in [baseline, *treatments]}
+    judged = judged_cells(metrics, arm_cells)
     provenance["warnings"] += judge_warnings(judged)
     return {"batches": [str(d) for d in batch_dirs], "baseline": baseline, "treatments": treatments,
             "task_filter": task_filter, "cells": len(cells), "missing": missing, **provenance,
-            "first_useful": useful, "judged_cells": judged, "comparisons": rows, "unpaired": unpaired}
+            "first_useful": useful, "judged_cells": judged, "comparisons": rows, "unpaired": unpaired,
+            "leak": leak_check(batch_dirs, arm_cells)}
 
 
 def _one_arm_models(treatment: str, base_vals: dict[tuple[str, str], dict[str, Any]],
@@ -647,6 +652,7 @@ def format_compare(summary: dict[str, Any]) -> str:
                 if r["headroom"]:
                     lines.append(f"  {r['measure']} {_headroom_note(r)}")
         lines += _reading_notes(rows, family)
+    lines += format_leak(summary.get("leak", []))
     if summary["unpaired"]:
         shown = summary["unpaired"][:10]
         lines.append("unpaired: " + ", ".join(

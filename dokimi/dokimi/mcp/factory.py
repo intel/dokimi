@@ -117,17 +117,19 @@ def resolve_library_id_for_product(
 ) -> str:
     """Resolve the doc-source library id to use for *product*.
 
-    Three steps, in order:
+    Four steps, in order:
 
     1. ``explicit_id`` — whatever the caller passed as ``--context7-id``.
-    2. ``context7_id`` declared for the product in ``products.yaml``, when the
+    2. the ``;id=`` of an ``mcp:`` source (the client's ``default_library_id``):
+       like the flag, the caller's own choice, so it goes before the registry.
+    3. ``context7_id`` declared for the product in ``products.yaml``, when the
        product is registered (registry lookup is case-insensitive, so
        ``oneTBB`` finds the ``onetbb`` entry). A registered product that
        declares none is an error for any client with
        ``requires_declared_library_id``: a registry key is not an id, and a key
        such as ``mkl_extensions`` would otherwise pass Context7's website-form
        check verbatim and retrieve nothing.
-    3. the client's own ``resolve_library_id``, for a name that is not a
+    4. the client's own ``resolve_library_id``, for a name that is not a
        registry key at all. Local sources return their own path;
        :class:`~dokimi.mcp.context7.Context7Client` raises
        ``ValueError`` for an unqualified name, naming both options above.
@@ -141,6 +143,10 @@ def resolve_library_id_for_product(
     """
     if explicit_id:
         return explicit_id
+
+    source_id = getattr(client, "default_library_id", None)
+    if source_id:
+        return source_id
 
     if registry is None:
         from dokimi.registry import ProductRegistry

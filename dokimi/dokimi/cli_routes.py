@@ -139,6 +139,7 @@ LEAVES: tuple[Leaf, ...] = (
     Leaf(("eval", "import"), FREE),
     Leaf(("eval", "native-import"), FREE),
     Leaf(("eval", "tasks", "list"), FREE),
+    Leaf(("eval", "tasks", "generate"), FREE),
     Leaf(("eval", "personas", "discover"), PAID),
     Leaf(("eval", "personas", "validate"), FREE),
     Leaf(("eval", "questions", "generate"), PAID),
