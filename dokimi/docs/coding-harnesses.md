@@ -344,7 +344,7 @@ The result is in `metrics.isolation_probe` and `isolation_probe.json`:
 - **Capabilities.** Every `docker-*` task container, `docker-oracle` included,
   starts with `--init`, `--cap-drop ALL`, `no-new-privileges` and `--pids-limit 32768`,
   and gets back only `CHOWN`, `DAC_OVERRIDE`, `FOWNER`, `SETUID` and `SETGID`
-  (`TASK_CONTAINER_HARDENING` in `harnesses/container_agent.py`). Every other
+  (`TASK_CONTAINER_HARDENING` in `docker_cmd.py`). Every other
   capability Docker grants by default is dropped, so a step that needs one
   fails: signalling another user's process (`KILL`), a raw socket (`NET_RAW`),
   `mknod` (`MKNOD`), `chroot` (`SYS_CHROOT`). Without `FSETID`, `chmod g+s` on
