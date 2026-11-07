@@ -253,6 +253,10 @@ failed check.
 | 1 | A verdict or a gate that ran and failed, or a runtime failure (a model call, a run, a clone or fetch). | `baseline compare --strict` over a changed model, `repo reach` with a harness binary that cannot run, `eval triggers generate --strict` over a lint finding |
 | 2 | A bad invocation: a missing, unreadable or malformed input file, a flag combination the command refuses, an output file that cannot be written, a missing provider credential, a source string that is malformed, unpinned or not a repository root. | `baseline save` on a bad eval file, `benchmark preflight` with no golden set, `repo scan --manifest ../x.yaml` |
 
+A `--json` command that prints the `cli_output.v1` document (`backends --json` today) also exits 5
+when it crashes, after printing an `infra` error document on stdout. The other commands still exit 1
+on a crash.
+
 A command that validates its input and then runs exits 2 for the first and 1
 for the second. Not every command follows this yet: `repo run` and
 `eval check` still exit 1 for their input refusals, and `tools preference`
