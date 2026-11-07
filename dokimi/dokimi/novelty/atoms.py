@@ -28,7 +28,7 @@ from dataclasses import dataclass, field
 
 from dokimi.utils import InputError, read_json_input
 
-from .client import LLMClient, accepting
+from .client import LLMClient, OutputTruncated, accepting
 from .spans import Span
 
 ATOM_KINDS = ("proposition", "edge", "motif", "contract", "example")
@@ -391,7 +391,8 @@ def extract_atoms(
             unparseable = True
             rows = parse(reply)
         except Exception as exc:
-            if unparseable and len(batch) > 1:
+            cut = isinstance(exc, OutputTruncated)
+            if (unparseable or cut) and len(batch) > 1:
                 # Unparseable, most often truncated: re-ask the two halves, in place,
                 # so atoms keep document order. Not recorded as an error: if the halves
                 # parse, nothing was lost.
@@ -406,7 +407,7 @@ def extract_atoms(
             if isinstance(exc, _NoUsableRows):
                 report.unusable_error = str(exc)[:120]  # no private class name
                 report.unusable_span_ids.extend(span.id for span in batch)
-            elif unparseable:
+            elif unparseable or cut:
                 report.parse_error = error
                 report.unparseable_span_ids.extend(span.id for span in batch)
             else:

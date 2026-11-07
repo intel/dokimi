@@ -1159,13 +1159,17 @@ adjudications were kept out of the cache can hold a failure stored as `absent`, 
 before a hedged verdict (`retained?`) counted as no verdict can hold it stored as `retained`; both
 look like real ones, so none of them is read. The old files stay in `--cache-dir` and can be deleted. The
 first run after upgrading therefore pays one adjudication call per pair the old cache held, unless
-`DOKIMI_RESPONSE_CACHE` replays it: the prompt is unchanged, so its entries still hit.
+`DOKIMI_RESPONSE_CACHE` replays it, but the response-cache key carries `max_tokens`, and novelty
+calls now send 16384 where they sent none, so those entries miss too.
 
-**Pass `--max-tokens` when the provider has a low default output ceiling.** litellm sends
-4096 to Bedrock-hosted Claude when none is given, and on a dense skill a 25-span extraction
-batch can need more than that: in the run below, replies came back with `finish_reason=length`
-at exactly 4096 tokens, cut mid-array. Extraction recovers by splitting an unparseable batch (or one whose rows are
-all unusable) in half and re-asking, down to one span per call, so a truncation costs extra calls rather than
+**Pass `--max-tokens` when a reply can outgrow the output ceiling.** Novelty calls ask for
+16384 output tokens unless `--max-tokens` names a ceiling. litellm sends 4096 to Bedrock-hosted
+Claude when none is given, and on a dense skill a 25-span extraction batch can need more than
+that: in the run below, replies came back with `finish_reason=length` at exactly 4096 tokens,
+cut mid-array. A reply cut at the ceiling (`finish_reason` `length` or `max_tokens`) is an error,
+not a parse that happens to succeed: its cost is still recorded, and the call fails with
+"reply cut at the output ceiling". Extraction recovers by splitting a batch that was cut or
+unparseable (or one whose rows are all unusable) in half and re-asking, down to one span per call, so a truncation costs extra calls rather than
 atoms: up to 2n−1 calls for an n-span batch that never parses. The artifact's `extraction`
 block counts them (`calls` against `batches`, the calls the run would make with no splitting; a
 capped run asks every batch too), and a warning (`atom extraction re-asked N
