@@ -43,7 +43,7 @@ litellm has no price for such a model, so cost is reported as unknown and
 
 The judge must be a different model from the one under measurement, because a
 model that grades its own answers inflates the scores. `novelty` refuses a
-self-judge; `arms run` does not check, so name
+self-judge; `arms run` and `subjects run` warn on stderr and do not refuse, so name
 `--judge --judge-model <other> --judge-provider <judge-provider>` yourself.
 
 ## A skill

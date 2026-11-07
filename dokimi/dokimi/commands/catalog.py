@@ -16,59 +16,30 @@ import argparse
 import json
 import sys
 from pathlib import Path
+from dokimi.commands.catalog_scan import print_skill_row, skill_row
 from dokimi.exit_codes import usage_exit
+from dokimi.utils import InputError
 
 
-def _skill_row(skill, review) -> dict:
-    """One skill of the scan report. ``state`` is ``error`` for a load error or an error finding,
-    ``warn`` for a warning finding only, else ``ok``. A skill that did not load has a review only
-    when its frontmatter is broken YAML, and that review's finding is its only finding."""
-    if not skill.loaded:
-        state, findings = "error", (review.findings if review else [])
-    else:
-        state, findings = review.state, review.findings
-    return {
-        "name": skill.name,
-        "manifest_status": None if skill.status is None else str(skill.status),
-        "path": str(skill.path) if skill.path else None,
-        "state": state,
-        "error": skill.error,
-        "disable_model_invocation": bool(review and review.disable_model_invocation),
-        "content_sha256": review.content_sha256 if review else None,
-        "duplicate_of": review.duplicate_of if review else None,
-        "findings": [{"level": f.level, "code": f.code, "message": f.message} for f in findings],
-    }
-
-
-def _print_skill_row(row: dict) -> None:
-    if row["error"] is not None:
-        state = f"ERROR: {row['error']}"
-    elif row["state"] == "ok":
-        state = "ok"
-    else:
-        worst = next(f for f in row["findings"] if f["level"] == row["state"])
-        state = f"{'ERROR' if row['state'] == 'error' else 'warn'}: {worst['message']}"
-    print(f"{row['name']}\t{row['manifest_status'] or '-'}\t{row['path'] or '-'}\t{state}")
-    for f in row["findings"]:
-        print(f"  {f['level']} {f['code']}: {f['message']}")
-    if row["disable_model_invocation"]:
-        print("  note disable-model-invocation: true (the model is never offered this skill)")
-
-
-def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bool) -> bool:
-    """Review the skills under *root* into ``report``; True when the scan must exit 1."""
+def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bool) -> tuple[bool, int]:
+    """Review the skills under *root* into ``report``; (True when the scan must exit 1, skills declared)."""
+    from dokimi.commands import catalog_scan
     from dokimi.external import read_skill_manifest
     from dokimi.external.validate import review_skills
 
     try:
-        skills = read_skill_manifest(root)
+        manifest = read_skill_manifest(root)
     except ValueError as exc:
         usage_exit(f"skills.yaml: {exc}")
+    pairs = catalog_scan.mark_nested(args, manifest, root)
+    if args.per_skill:
+        return catalog_scan.scan_per_skill(args, root, report, as_json, pairs)
+    skills = [entry for entry, _ in pairs]
     reviews = review_skills(skills)
     counts = {"ok": 0, "warn": 0, "error": 0}
     failed = False
-    for skill, review in zip(skills, reviews, strict=True):
-        row = _skill_row(skill, review)
+    for (skill, nested_in), review in zip(pairs, reviews, strict=True):
+        row = skill_row(skill, review, nested_in)
         counts[row["state"]] += 1
         report["skills"].append(row)
         # A load error always fails; a spec error fails only with --strict.
@@ -80,10 +51,10 @@ def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bo
             f"{counts['ok']} ok, {counts['warn']} warn, {counts['error']} error)"
         )
         for row in report["skills"]:
-            _print_skill_row(row)
+            print_skill_row(row)
         print()
     _granularity_section(skills, reviews, root, report, as_json)
-    return failed
+    return failed, len(skills)
 
 
 def _granularity_section(skills, reviews, root: Path, report: dict, as_json: bool) -> None:
@@ -141,19 +112,35 @@ def _scan_tasks(args: argparse.Namespace, root: Path, report: dict, as_json: boo
     return failed
 
 
+def _check_scan_flags(args: argparse.Namespace) -> None:
+    """Raise InputError on a flag combination the scan cannot honour; the per-skill flags need --per-skill."""
+    if args.jsonl and args.format == "json":
+        raise InputError("--jsonl writes one row per skill to a file; drop --format json")
+    if args.resume and not args.jsonl:
+        raise InputError("--resume needs --jsonl: the rows it skips are read from that file")
+    if (args.jsonl or args.jobs is not None) and not args.per_skill:
+        raise InputError("--jsonl and --jobs need --per-skill: cross-catalog checks need every skill loaded at once")
+    if args.kind == "tasks" and (args.per_skill or args.skip_nested or args.jsonl or args.resume
+                                 or args.jobs is not None):
+        raise InputError("--per-skill, --skip-nested, --jsonl, --jobs and --resume apply to skills; "
+                         "drop them or use --kind skills|all")
+
+
 def cmd_catalog_scan(args: argparse.Namespace) -> None:
     root = Path(args.root)
     if not root.is_dir():
         usage_exit(f"--root is not a directory: {root}")
+    _check_scan_flags(args)
 
     as_json = args.format == "json"
     report: dict = {"root": str(root), "skills": [], "tasks": []}
     any_failure = False
+    declared = 0
     if args.kind in ("skills", "all"):
-        any_failure = _scan_skills(args, root, report, as_json)
+        any_failure, declared = _scan_skills(args, root, report, as_json)
     if args.kind in ("tasks", "all"):
         any_failure = _scan_tasks(args, root, report, as_json) or any_failure
-    if args.kind in ("skills", "all") and not report["skills"]:
+    if args.kind in ("skills", "all") and not declared:
         # Nothing to scan is a wrong root or an empty checkout, so a skills scan fails on it. A
         # --kind all scan of a tasks-only catalog is a warning, which --strict makes a failure.
         if (root / "skills.yaml").is_file():
@@ -384,6 +371,29 @@ def register(sub, positive_int, eval_sub) -> None:
         "--tasks-subdir", default="evaluation/harbor/tasks",
         help="Task directory relative to --root (default: evaluation/harbor/tasks, "
              "the uxlfoundation/skills convention)",
+    )
+    scan_p.add_argument(
+        "--per-skill", action="store_true",
+        help="Review each skill alone: the cross-catalog checks (duplicate, name-conflict, "
+             "mirror-drift, description-near-duplicate) do not fire between skills",
+    )
+    scan_p.add_argument(
+        "--skip-nested", action="store_true",
+        help="Leave out a SKILL.md nested inside another skill's directory (every row marks "
+             "it with nested_in either way)",
+    )
+    scan_p.add_argument(
+        "--jsonl", metavar="PATH",
+        help="--per-skill: write one JSON row per skill to PATH as each is reviewed, and print "
+             "only the counts",
+    )
+    scan_p.add_argument(
+        "--jobs", type=positive_int, default=None,
+        help="--per-skill: review this many skills in parallel worker processes (default 1)",
+    )
+    scan_p.add_argument(
+        "--resume", action="store_true",
+        help="With --jsonl: keep the rows already in PATH and review only the skills without one",
     )
     scan_p.set_defaults(func=cmd_catalog_scan)
 
