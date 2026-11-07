@@ -16,6 +16,12 @@ follow the Agent Skills spec:
 - ``description`` is at most 1024 characters (``error``). A missing or empty
   description is a load error, raised by the loader.
 - The frontmatter is valid YAML (``frontmatter-parse``, ``error``).
+- A frontmatter key that neither the spec nor Claude Code names is a ``warn``
+  (``frontmatter-unknown-key``, see :data:`FRONTMATTER_KEYS`), and so is an ``allowed-tools``
+  name that is no Claude Code tool (``allowed-tools-unknown``). A body over 500 lines or about
+  5000 tokens (characters / 4) is a ``warn`` (``body-too-large``).
+- A file with no frontmatter at all does not load, and its load error says "no frontmatter"
+  rather than "missing a description" (a load error, so no finding; see the loader).
 
 Identical copies: of the skills whose ``SKILL.md`` bytes are the same, the one
 nearest the root (fewest path parts, ties to path order) is the original, the
@@ -78,6 +84,32 @@ NAME_MAX = 64
 DESCRIPTION_MAX = 1024
 NEAR_DUPLICATE_JACCARD = 0.5
 NEAR_DUPLICATE_MIN_SHARED = 3  # shared words; a one-word overlap in two short descriptions is not a near-duplicate
+# The frontmatter keys the Agent Skills spec defines, then the ones Claude Code reads on top of it.
+# Any other key is a typo or a field no harness reads (``frontmatter-unknown-key``).
+FRONTMATTER_KEYS = frozenset(
+    {
+        "name", "description", "license", "allowed-tools", "metadata", "compatibility",
+        "argument-hint", "disable-model-invocation", "user-invocable", "model", "context",
+        "agent", "hooks", "version", "when_to_use", "paths", "shell", "effort",
+    }
+)
+# The tool names Claude Code has. An ``allowed-tools`` entry is checked by its name only
+# (``allowed-tools-unknown``): ``mcp__*`` tools are not checked, and ``Tool(pattern)`` is read as ``Tool``.
+CLAUDE_TOOLS = frozenset(
+    {
+        "Bash", "Read", "Write", "Edit", "MultiEdit", "Glob", "Grep", "LS", "WebFetch",
+        "WebSearch", "Task", "Agent", "TodoWrite", "NotebookEdit", "NotebookRead",
+        "Skill", "AskUserQuestion", "ExitPlanMode", "BashOutput", "KillShell", "KillBash",
+        "SlashCommand", "ToolSearch", "Monitor", "TaskStop", "SendMessage", "EnterPlanMode",
+        "EnterWorktree", "ExitWorktree", "ListMcpResourcesTool", "ReadMcpResourceTool",
+        "CronCreate", "CronDelete", "CronList", "Workflow", "LSP", "Computer",
+    }
+)
+# One ``allowed-tools`` entry: a tool name, then an optional ``(pattern)`` such as ``Bash(git add *)``.
+TOOL_ENTRY_RE = re.compile(r"([^\s,(]+)(?:\([^)]*\))?")
+# A body over either limit is ``body-too-large``. Tokens are estimated as characters / 4, so no tokenizer is needed.
+BODY_MAX_LINES = 500
+BODY_MAX_TOKENS = 5000
 
 # A "when" clause of any subject and verb ("run migrations when deploying"), or a use phrase: the model
 # chooses a skill from its description alone.
@@ -149,6 +181,34 @@ def _strict_meta(text: str) -> tuple[dict, Optional[Finding]]:
     return meta, None
 
 
+def _unknown_tools(allowed: object) -> list[str]:
+    """The names in an ``allowed-tools`` value (a comma or space list, or a YAML list) that Claude Code has no tool of.
+
+    ``mcp__*`` tools are not checked. A ``Tool(pattern)`` entry is checked by ``Tool``.
+    """
+    if allowed is None:
+        return []
+    items = allowed if isinstance(allowed, list) else [allowed]
+    names = [m.group(1) for item in items if isinstance(item, str) for m in TOOL_ENTRY_RE.finditer(item)]
+    return [name for name in names if not name.startswith("mcp__") and name not in CLAUDE_TOOLS]
+
+
+def _body_findings(skill: Skill) -> list[Finding]:
+    """``body-too-large`` when the instruction body is over :data:`BODY_MAX_LINES` lines or :data:`BODY_MAX_TOKENS` tokens."""
+    lines = len(skill.body.splitlines())
+    tokens = len(skill.body) // 4  # chars / 4: an estimate, not a tokenizer count
+    if lines <= BODY_MAX_LINES and tokens <= BODY_MAX_TOKENS:
+        return []
+    return [
+        Finding(
+            "warn",
+            "body-too-large",
+            f"SKILL.md body is {lines} lines and about {tokens} tokens (characters / 4); the limit is "
+            f"{BODY_MAX_LINES} lines or {BODY_MAX_TOKENS} tokens. Move the detail into bundled files.",
+        )
+    ]
+
+
 def _frontmatter_findings(skill: Skill, *, at_root: bool = False) -> tuple[list[Finding], bool]:
     """The spec checks on the frontmatter of ``skill``, and its ``disable-model-invocation`` flag.
 
@@ -179,14 +239,15 @@ def _frontmatter_findings(skill: Skill, *, at_root: bool = False) -> tuple[list[
                     f"name {declared!r} is not the directory name {dir_name!r}",
                 )
             )
-        if len(declared) > NAME_MAX or not NAME_PATTERN.fullmatch(declared):
+        # ``name-format`` also covers the length: a name over 64 characters is not a separate code.
+        problems = []
+        if not NAME_PATTERN.fullmatch(declared):
+            problems.append("is not kebab-case (lowercase letters, digits, single hyphens)")
+        if len(declared) > NAME_MAX:
+            problems.append(f"is {len(declared)} characters; the limit is {NAME_MAX}")
+        if problems:
             findings.append(
-                Finding(
-                    "error",
-                    "name-format",
-                    f"name {declared!r} is not kebab-case (lowercase letters, digits, "
-                    f"single hyphens; at most {NAME_MAX} characters)",
-                )
+                Finding("error", "name-format", f"name {declared!r} {' and '.join(problems)}")
             )
     if len(skill.description) > DESCRIPTION_MAX:
         findings.append(
@@ -194,6 +255,26 @@ def _frontmatter_findings(skill: Skill, *, at_root: bool = False) -> tuple[list[
                 "error",
                 "description-too-long",
                 f"description is {len(skill.description)} characters; the limit is {DESCRIPTION_MAX}",
+            )
+        )
+    unknown_keys = sorted({str(key) for key in meta} - FRONTMATTER_KEYS)
+    if unknown_keys:
+        findings.append(
+            Finding(
+                "warn",
+                "frontmatter-unknown-key",
+                f"frontmatter has {', '.join(map(repr, unknown_keys))}, which no spec or Claude Code "
+                "field is named; a typo, or a field no harness reads",
+            )
+        )
+    unknown_tools = sorted(set(_unknown_tools(meta.get("allowed-tools"))))
+    if unknown_tools:
+        findings.append(
+            Finding(
+                "warn",
+                "allowed-tools-unknown",
+                f"allowed-tools names {', '.join(map(repr, unknown_tools))}, which are not Claude Code "
+                "tools (mcp__ tools and Tool(pattern) entries are not checked)",
             )
         )
     # Read as the skill arm reads it (dokimi.harnesses.skill_treatment.check_skill).
@@ -509,6 +590,7 @@ def review_skills(entries: Sequence[SkillCatalogEntry]) -> list[Optional[SkillRe
         )
         review = SkillReview(findings=findings, disable_model_invocation=hidden)
         review.findings += _bundle_findings(skill, entry.source_root)
+        review.findings += _body_findings(skill)
         if not hidden:
             review.findings += _description_findings(skill)
         review.content_sha256 = _skill_digest(skill)
