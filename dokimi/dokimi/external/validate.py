@@ -203,28 +203,34 @@ def _group_end(value: str, start: int, quotes: bool = True) -> Optional[int]:
     return None
 
 
-def _close_group(value: str, start: int) -> Optional[int]:
-    """:func:`_group_end` with quotes; when they never close, the group with its quotes as plain text."""
-    end = _group_end(value, start)
-    return end if end is not None else _group_end(value, start, quotes=False)
+def _group_end_checked(value: str, start: int, quotes: bool) -> tuple[Optional[int], bool]:
+    """``(_group_end(...), quotes still on)``. A quote that never closes switches quotes off for the rest of
+    the value: that is one failed quoted scan at most, so the whole value is read in linear time."""
+    if quotes:
+        end = _group_end(value, start)
+        if end is not None:
+            return end, True
+    return _group_end(value, start, quotes=False), False
 
 
 def _tool_names(value: str) -> list[str]:
     """The tool name of each entry of one ``allowed-tools`` string, in one pass over it.
 
     Entries are split on whitespace and commas. A ``(pattern)`` after a name is consumed whole (see
-    :func:`_group_end`). A group that never closes runs to the end of the string, so the entry is dropped
-    and the scan stops: the work stays linear in the length of the value.
+    :func:`_group_end`). A group that never closes runs to the end of the string: its tool name is kept,
+    its pattern is not read, and the scan stops. Quoting is a heuristic, and a stray quote can hide the entries between two quotes or
+    leave a junk name such as ``")"`` (warn-only, and rare).
     """
     names: list[str] = []
     i, n = 0, len(value)
+    quotes = True
     while i < n:
         c = value[i]
         if c.isspace() or c == ",":
             i += 1
             continue
         if c == "(":  # a pattern with no tool name: skipped
-            end = _close_group(value, i)
+            end, quotes = _group_end_checked(value, i, quotes)
             if end is None:
                 break
             i = end
@@ -235,7 +241,7 @@ def _tool_names(value: str) -> list[str]:
         names.append(value[i:j])
         i = j
         if i < n and value[i] == "(":
-            end = _close_group(value, i)
+            end, quotes = _group_end_checked(value, i, quotes)
             if end is None:
                 break
             i = end

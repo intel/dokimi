@@ -108,13 +108,25 @@ def test_allowed_tools_name_with_a_pattern_is_flagged_by_its_name(tmp_path):
     assert "'Frobnicate'" in _message(tmp_path, "pattern-typo", "allowed-tools-unknown")
 
 
-def test_apostrophe_in_a_pattern_does_not_hide_the_entries_after_it(tmp_path):
+def test_allowed_tools_quotes_that_alternate_with_parens_are_read_in_linear_time():
+    # Each quoted scan of this value runs to its end before it fails; the quotes are then switched off once.
+    import time
+
+    from dokimi.external.validate import _unknown_tools
+
+    value = ("A('" + ")'() ") * 4_000  # 32,000 characters
+    started = time.perf_counter()
+    _unknown_tools(value)
+    assert time.perf_counter() - started < 2.0
+
+
+def test_apostrophe_in_a_pattern_does_not_hide_the_entries_after_it():
     from dokimi.external.validate import _unknown_tools
 
     assert _unknown_tools("Bash(echo don't), Frobnicate") == ["Frobnicate"]
 
 
-def test_allowed_tools_pattern_that_never_closes_is_dropped_in_linear_time(tmp_path):
+def test_allowed_tools_pattern_that_never_closes_is_dropped_in_linear_time():
     from dokimi.external.validate import _unknown_tools
 
     assert _unknown_tools("Frobnicate, Bash(git add *") == ["Frobnicate"]
