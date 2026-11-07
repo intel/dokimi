@@ -111,6 +111,42 @@ def test_changed_from_uses_working_resource_and_records_source(tmp_path):
     assert report["source"] == {"commit": sha, "dirty": True}
 
 
+def _shared_name_catalog(tmp_path: Path) -> Path:
+    """No manifest: discovery lists a nested SKILL.md, a second row named alpha, and a broken one."""
+    root = tmp_path / "catalog"
+    skills = root / "skills"
+    for rel, name in (("alpha", "alpha"), ("alpha/nested", "alpha"), ("beta", "beta")):
+        (skills / rel).mkdir(parents=True)
+        (skills / rel / "SKILL.md").write_text(
+            f"---\nname: {name}\ndescription: Use for {name} tasks.\n---\nRun.\n", encoding="utf-8")
+    (skills / "broken").mkdir()
+    (skills / "broken" / "SKILL.md").write_text("---\nname: [unclosed\n---\nRun.\n", encoding="utf-8")
+    return root
+
+
+def test_report_counts_rows_and_names_and_states_the_selection_rule(tmp_path):
+    root = _shared_name_catalog(tmp_path)
+    out = tmp_path / "out"
+    assert _run(root, out).returncode in (0, 1)
+    report = (out / "report.md").read_text()
+    assert "Selected skills: 4 of 4 rows (3 distinct names)." in report
+    assert "1 row(s) share a name with an earlier row" in report
+    assert "Excluded rows: 0 (a full run selects every row)." in report
+
+
+def test_changed_report_says_how_many_rows_its_selection_left_out(tmp_path):
+    root = _shared_name_catalog(tmp_path)
+    sha = _commit(root)
+    (root / "skills/beta/reference.md").write_text("new guidance", encoding="utf-8")
+    out = tmp_path / "out"
+    assert _run(root, out, "--changed-from", sha).returncode in (0, 1)
+    report = json.loads((out / "catalog.json").read_text())
+    assert report["selection"]["selected"] == ["beta"]
+    text = (out / "report.md").read_text()
+    assert "Selected skills: 1 of 4 rows (1 distinct name)." in text
+    assert "Excluded rows: 3, because no changed path is owned by their skill." in text
+
+
 def test_unresolvable_base_reports_conservative_selection(tmp_path):
     root = _catalog(tmp_path)
     _commit(root)
