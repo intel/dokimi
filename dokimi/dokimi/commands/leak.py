@@ -53,23 +53,38 @@ def _fraction(value: str) -> float:
     return number
 
 
+def _same_file(a: str, b: str) -> bool:
+    """Whether two paths name one file: the same resolved name, or a hard link (the same inode). A path
+    that does not exist yet has no inode, so only its name counts."""
+    if os.path.realpath(a) == os.path.realpath(b):
+        return True
+    try:
+        return os.path.samefile(a, b)
+    except OSError:
+        return False
+
+
 def _refuse_clobber(args: argparse.Namespace, lock_path: Path | None) -> None:
     """Exit 2 when --out or the lock would replace an input of this run.
 
     An output over an input replaces it: --out would become the leak.v1 artifact, --lock the split's lock.
-    The skill is every file under its directory, since --out can name any of them.
+    save_artifact also writes and removes ``<out>.rejected``, so that sibling is an output too. The skill is
+    every file under its directory, since --out can name any of them. A hard link to an input is the input.
     """
     skill_root = Path(args.skill)
     if skill_root.is_file():
         skill_root = skill_root.parent  # read_skill reads the directory of a SKILL.md argument
-    skill_files = [p for p in skill_root.rglob("*") if p.is_file()] if skill_root.is_dir() else []
-    inputs = {os.path.realpath(p) for p in [args.skill, args.questions, args.split, args.proposer, args.allow_file,
-                                            *skill_files] if p}
-    out_real = os.path.realpath(args.out) if args.out else None
-    lock_real = os.path.realpath(lock_path) if lock_path is not None else None
-    clobbered = [p for p in (out_real, lock_real) if p in inputs]
-    if out_real is not None and out_real == lock_real:
-        clobbered.append(out_real)  # --out and the lock are one file: the artifact would replace the lock
+    skill_files = [str(p) for p in skill_root.rglob("*") if p.is_file()] if skill_root.is_dir() else []
+    inputs = [str(p) for p in [args.skill, args.questions, args.split, args.proposer, args.allow_file] if p]
+    inputs += skill_files
+    outputs = []
+    if args.out:
+        outputs += [str(args.out), f"{args.out}.rejected"]
+    if lock_path is not None:
+        outputs.append(str(lock_path))
+    clobbered = [o for o in outputs if any(_same_file(o, i) for i in inputs)]
+    # two outputs that are one file: the artifact would replace the lock, or the sibling would
+    clobbered += [o for i, o in enumerate(outputs) if any(_same_file(o, p) for p in outputs[i + 1:])]
     if clobbered:
         raise InputError(f"{clobbered[0]} is an input of this run; choose another output file")
 

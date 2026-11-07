@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -294,12 +295,44 @@ def test_an_out_that_names_an_input_is_refused_and_the_input_kept(tmp_path, targ
     assert named.read_bytes() == before
 
 
+def test_an_out_whose_rejected_sibling_is_an_input_is_refused_and_the_input_kept(tmp_path):
+    # save_artifact writes <out>.rejected when the payload is refused and removes it after a save: an input there goes too
+    skill, questions = _clean_run(tmp_path)
+    allow_file = tmp_path / "o.json.rejected"
+    allow_file.write_text("a term\n", encoding="utf-8")
+    before = allow_file.read_bytes()
+    assert _exit_code(_args(skill, questions, allow_file=str(allow_file), out=str(tmp_path / "o.json"))) == 2
+    assert allow_file.read_bytes() == before
+
+
 def test_an_out_inside_the_skill_directory_is_refused_and_the_skill_file_kept(tmp_path):
     skill, questions = _clean_run(tmp_path)
     skill_md = skill / "SKILL.md"
     before = skill_md.read_bytes()
     assert _exit_code(_args(skill, questions, out=str(skill_md))) == 2
     assert skill_md.read_bytes() == before
+
+
+def test_a_relock_lock_that_is_a_hard_link_to_the_split_is_refused_and_the_split_kept(tmp_path):
+    # a second name for the split's inode is the split: the name check alone let the lock write go through it
+    skill, questions = _clean_run(tmp_path)
+    split = _split(tmp_path / "split.json")
+    alias = tmp_path / "alias.json"
+    os.link(split, alias)
+    before = split.read_bytes()
+    assert _exit_code(_args(skill, questions, split=str(split), lock=str(alias), relock=True)) == 2
+    assert split.read_bytes() == before
+
+
+def test_an_out_that_is_a_hard_link_to_an_input_is_refused_and_the_input_kept(tmp_path):
+    skill, questions = _clean_run(tmp_path)
+    allow_file = tmp_path / "allow.txt"
+    allow_file.write_text("a term\n", encoding="utf-8")
+    alias = tmp_path / "alias.txt"
+    os.link(allow_file, alias)
+    before = allow_file.read_bytes()
+    assert _exit_code(_args(skill, questions, allow_file=str(allow_file), out=str(alias))) == 2
+    assert allow_file.read_bytes() == before
 
 
 def test_a_relock_lock_that_names_the_split_is_refused_and_the_split_kept(tmp_path):
