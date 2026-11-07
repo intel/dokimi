@@ -367,3 +367,13 @@ def test_an_unpriced_call_stops_the_later_repeats_and_skills_too(tmp_path, monke
     assert len(calls) == 1
     payload = json.loads(out.read_text(encoding="utf-8"))
     assert (payload["partial"]["calls_done"], payload["partial"]["calls_planned"]) == (1, 9)
+
+
+def test_an_unpriced_call_stops_the_repeats_of_a_single_artifact_run(tmp_path, monkeypatch):
+    calls = _provider(monkeypatch, None)
+    args, out = _single(tmp_path, QUERIES[:2], "--repeats", "3", "--max-usd", "5")
+    with pytest.raises(SystemExit, match="no price is known"):
+        args.func(args)
+    assert len(calls) == 1
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    assert (payload["partial"]["calls_done"], payload["partial"]["calls_planned"]) == (1, 6)
