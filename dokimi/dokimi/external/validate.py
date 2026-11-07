@@ -86,10 +86,10 @@ WHEN_CUES = {
     "en": r"\b(?:when\s+\w|use for\b|use this skill\b|trigger(?:s|ed)?\s*(?:on\b|:)|invoke only\b|activate\b|"
           r"invoke this\b|use (?:it |this |these )?(?:when|if|before|after|whenever|proactively|anytime)\b|"
           r"whenever\b)",
-    "es": r"\bcuando\b|\bcuándo\b|\bsiempre que\b|\bcada vez que\b|\ben caso de\b|\bal (?:usar|utilizar|invocar|ejecutar)\b",
+    "es": r"(?<!vez en )\bcuando\b|\bcuándo\b|\bsiempre que\b|\bcada vez que\b|\ben caso de\b|\bal (?:usar|utilizar|invocar|ejecutar)\b",
     "fr": r"\bquand\b(?!\s+même)|\blorsqu\w*|\bdès que\b|\bchaque fois que\b|\ben cas de\b|\blors (?:de|d')",
     "de": r"\bwenn\b|\bbeim\b|\bsobald\b|\bimmer dann\b",
-    "pt": r"\bquando\b|\bsempre que\b|\bcada vez que\b|\bem caso de\b|\bao (?:usar|utilizar|invocar|executar)\b",
+    "pt": r"(?<!vez em )\bquando\b|\bsempre que\b|\bcada vez que\b|\bem caso de\b|\bao (?:usar|utilizar|invocar|executar)\b",
     "ru": r"\bкогда\b(?![-‑])|\bкогато\b|\bколи\b|\bвсякий раз\b|\bкаждый раз\b|"
           r"\bпри (?:работе|использовании|необходимости|запросе|наличии|вызове|запуске|получении)\b",
     "zh": r"(?<!任)何时|(?<!任)何時|什么时候|什麼時候|的时候|的時候|(?<![相适適恰应應妥得])[当當](?![前然即作做成地天日晚年初今])[^。；！？;!?]{1,80}?(?<![实實])[时時](?![间間区區])|(?<![实實同隨随及定按即平暂暫不临臨有适適])[时時](?:使用|调用|調用|触发|觸發|启用|啟用|激活)|"
