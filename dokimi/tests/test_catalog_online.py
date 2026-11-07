@@ -215,6 +215,24 @@ def test_a_stray_backtick_does_not_hide_the_command():
     assert online_checks.extract_packages("Run `pip install requests\n") == [("pypi", "requests")]
 
 
+def test_a_hash_inside_a_word_is_not_a_comment():
+    body = "| C# | npm install foo |\nSee [setup](https://ex.com/docs#setup) then pip install bar\n"
+    assert online_checks.extract_packages(body) == [("npm", "foo"), ("pypi", "bar")]
+
+
+def test_a_conjunction_inside_a_package_list_keeps_the_list():
+    assert online_checks.extract_packages("Run pip install numpy and pandas\n") == [
+        ("pypi", "numpy"), ("pypi", "pandas")]
+    assert online_checks.extract_packages("pip install -U pip and setuptools\n") == [
+        ("pypi", "pip"), ("pypi", "setuptools")]
+    assert online_checks.extract_packages("npm i lodash or underscore\n") == [
+        ("npm", "lodash"), ("npm", "underscore")]
+
+
+def test_a_markdown_quote_in_front_of_a_command_is_read():
+    assert online_checks.extract_packages("> pip install foo\n") == [("pypi", "foo")]
+
+
 def test_npx_value_option_is_skipped_before_the_package():
     assert online_checks.extract_packages("npx --registry https://r.example-tool.dev foo\n") == [("npm", "foo")]
 

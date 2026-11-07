@@ -41,9 +41,12 @@ _DEAD_LINK_STATUSES = (404, 410)
 _PIP = {"pip", "pip3"}
 _NPM_INSTALL = {"install", "i", "add"}
 # Words that may come before a package manager name in a command line: a prompt, a wrapper or a verb.
-_LEAD = {"$", "sudo", "run", "Run", "RUN", "use", "Use", "then", "and", "-m", "uv", "env"}
+_LEAD = {"$", "sudo", "run", "Run", "RUN", "use", "Use", "-m", "uv", "env"}
 # Words that end one command in prose ("pip install requests or npm i lodash"); they are not package names.
 _PROSE_CONJUNCTIONS = {"and", "or", "but", "then"}
+# A ``#`` that starts a word is a shell comment; one inside a word ("C#", "docs#setup") is not.
+_COMMENT_RE = re.compile(r"(?:^|(?<=[\s;&|()]))#.*$")
+_BLOCKQUOTE_RE = re.compile(r"^\s*>+ ?")  # a markdown quote marker in front of a command
 # English words that follow ``npx`` in prose ("npx is great", "Use npx to run it"), not package names.
 _NPX_PROSE = {"a", "an", "and", "are", "for", "in", "is", "it", "on", "or", "the", "to", "with"}
 _PIP_VALUE_OPTIONS = {
@@ -85,6 +88,7 @@ def _words(line: str) -> list[str]:
     """The tokens of one line, read as the shell reads them: quotes keep their text, a ``#`` starts a comment,
     and ``; & | ( )`` and ``< >`` are tokens of their own. An unbalanced quote reads as whitespace."""
     line = _PROSE_APOSTROPHE_RE.sub("\x00", line)  # ``don't`` is prose, not the start of a quote
+    line = _COMMENT_RE.sub("", line)
     try:
         return list(_lexer(line))
     except ValueError:  # an unbalanced quote: read the line unquoted, so its operators still split
@@ -96,7 +100,7 @@ def _words(line: str) -> list[str]:
 def _lexer(line: str) -> shlex.shlex:
     lexer = shlex.shlex(line, posix=True, punctuation_chars=True)
     lexer.whitespace_split = True
-    lexer.commenters = "#"
+    lexer.commenters = ""  # comments are removed by _COMMENT_RE, which knows where a word starts
     return lexer
 
 
@@ -109,11 +113,20 @@ def _is_separator(tok: str) -> bool:
     return _OPERATOR_RE.fullmatch(tok) is not None and not _is_redirect(tok)
 
 
+def _ends_command_in_prose(tok: str, nxt: str | None) -> bool:
+    """A conjunction ends one command when a command or prose follows it ("and you're done"), not a list item."""
+    if tok not in _PROSE_CONJUNCTIONS:
+        return False
+    return nxt is None or nxt in _PIP or nxt in {"npm", "npx"} or nxt in _LEAD or "\x00" in nxt
+
+
 def _commands(line: str) -> Iterator[list[str]]:
     """The commands of one line, each as its words. A redirection and its target are not words of the command."""
     words: list[str] = []
     skip_target = False
-    for tok in _words(line):
+    tokens = _words(line)
+    for i, tok in enumerate(tokens):
+        nxt = tokens[i + 1] if i + 1 < len(tokens) else None
         if skip_target and not _is_separator(tok):
             skip_target = False
             continue
@@ -122,10 +135,12 @@ def _commands(line: str) -> Iterator[list[str]]:
             if words and words[-1].isdigit():  # the file descriptor of ``2>&1`` or ``2>/dev/null``
                 words.pop()
             skip_target = True
-        elif _is_separator(tok) or tok in _PROSE_CONJUNCTIONS:
+        elif _is_separator(tok) or _ends_command_in_prose(tok, nxt):
             if words:
                 yield words
             words = []
+        elif tok in _PROSE_CONJUNCTIONS:  # "pip install numpy and pandas": the list goes on
+            continue
         else:
             words.append(tok)
     if words:
@@ -137,7 +152,7 @@ def _command_lines(body: str) -> Iterator[list[str]]:
     body = _CODE_SPAN_RE.sub(lambda m: f"\n{m.group(1)}\n", body)  # an inline code span is a line of its own
     body = body.replace("`", " ")  # a backtick left over (an odd count, or a fence) is only a space
     for line in body.splitlines():
-        yield from _commands(line)
+        yield from _commands(_BLOCKQUOTE_RE.sub("", line))
 
 
 def _is_package_word(tok: str) -> bool:
