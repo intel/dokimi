@@ -26,11 +26,12 @@ PKG = Path(dokimi.__file__).parent
 
 
 def test_novelty_ci_is_the_shared_bootstrap_at_400_resamples_seed_0():
-    values = [1.0 if i % 5 < 2 else 0.0 for i in range(40)]
+    # 120 ones then 280 zeros: the string-seeded stream gives [0.2575, 0.345], the shared one [0.2575, 0.3475].
+    values = [1.0] * 120 + [0.0] * 280
     shared = stats.bootstrap_ci(values, n_resamples=400, seed=0)
     assert novelty_ci(values) == [shared["lo"], shared["hi"]]
-    # Golden: the integer seed 0 stream, 400 resamples, on this input.
-    assert novelty_ci(values) == [0.25, 0.55]
+    # Golden: the integer seed 0 stream, 400 resamples, on this input. A reverted novelty CI misses it.
+    assert novelty_ci(values) == [0.2575, 0.3475]
 
 
 def test_novelty_ci_needs_five_probes_and_returns_a_pair():
