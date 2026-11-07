@@ -42,7 +42,8 @@ _PIP = {"pip", "pip3"}
 _NPM_INSTALL = {"install", "i", "add"}
 # Words that may come before a package manager name in a command line: a prompt, a wrapper or a verb.
 _LEAD = {"$", "sudo", "run", "Run", "RUN", "use", "Use", "then", "and", "-m", "uv", "env"}
-_NPX_LEAD = {"$", "sudo", "env"}  # ``npx`` is a command at the start of a line, not a word of prose
+# Words after which ``npx`` is a command. ``Use npx to run things`` is prose, so ``use`` is not one.
+_NPX_LEAD = {"$", "sudo", "env", "run", "Run", "RUN", "then", "and"}
 _PIP_VALUE_OPTIONS = {
     "--python", "-r", "--requirement", "-c", "--constraint", "-e", "--editable", "-i", "--index-url",
     "--extra-index-url", "-f", "--find-links", "-t", "--target", "--prefix", "--root", "--cache-dir",
@@ -61,7 +62,7 @@ _PYPI_NAME_RE = re.compile(
     r"([A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)(?:\[[^\]]*\])?(?:\s*(?:===|==|>=|<=|~=|!=|<|>).*)?")
 _NPM_NAME_RE = re.compile(r"(?:@[A-Za-z0-9._~-]+/)?[A-Za-z0-9._~-]+")
 _PLACEHOLDER_NAMES = {"package", "packages", "pkg", "name", "module", "mypackage", "my-package"}
-_URL_RE = re.compile(r"https?://[^\s\"'`<>\[\]]+", re.IGNORECASE)  # a markdown link ends at ``]``
+_URL_RE = re.compile(r"https?://[^\s\"'`<>]+", re.IGNORECASE)
 _TEMPLATE_RE = re.compile(r"[{}$]")  # a template variable, such as ``{id}`` or ``${VERSION}``
 _EXAMPLE_DOMAINS = ("example.com", "example.org", "example.net")
 _RESERVED_SUFFIXES = (".localhost", ".test", ".invalid", ".example")
@@ -81,13 +82,19 @@ def make_client() -> httpx.Client:
 def _words(line: str) -> list[str]:
     """The tokens of one line, read as the shell reads them: quotes keep their text, a ``#`` starts a comment,
     and ``; & | ( )`` and ``< >`` are tokens of their own. An unbalanced quote reads as whitespace."""
+    try:
+        return list(_lexer(line))
+    except ValueError:  # an unbalanced quote: read the line unquoted, so its operators still split
+        lexer = _lexer(line)
+        lexer.quotes = ""
+        return list(lexer)
+
+
+def _lexer(line: str) -> shlex.shlex:
     lexer = shlex.shlex(line, posix=True, punctuation_chars=True)
     lexer.whitespace_split = True
     lexer.commenters = "#"
-    try:
-        return list(lexer)
-    except ValueError:
-        return line.split()
+    return lexer
 
 
 def _commands(line: str) -> Iterator[list[str]]:
@@ -225,7 +232,7 @@ def extract_packages(body: str) -> list[tuple[str, str]]:
 
 def _clean_url(raw: str) -> Optional[str]:
     """``raw`` without the punctuation a sentence or a markdown link put after it, or None for a template."""
-    url = raw.rstrip(".,;:!?*")
+    url = raw.split("](", 1)[0].rstrip(".,;:!?*")  # a markdown link ends at ``](``
     while url[-1:] in (")", "]") and url.count(url[-1]) > url.count("(" if url[-1] == ")" else "["):
         url = url[:-1].rstrip(".,;:!?*")
     return url or None
@@ -285,7 +292,7 @@ def _is_dns_failure(exc: BaseException) -> bool:
         if seen is None:
             return False
         if isinstance(seen, socket.gaierror):
-            return seen.args[0] in _NO_SUCH_HOST
+            return seen.errno in _NO_SUCH_HOST
         seen = seen.__cause__ or seen.__context__
     return False
 

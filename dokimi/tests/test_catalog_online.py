@@ -188,6 +188,16 @@ def test_npm_and_pip_value_options_take_their_argument():
     assert online_checks.extract_packages(body) == [("npm", "lodash"), ("pypi", "foo")]
 
 
+def test_prose_with_an_apostrophe_still_splits_its_commands():
+    body = "Run pip install requests; it's quick and painless\n"
+    assert online_checks.extract_packages(body) == [("pypi", "requests")]
+
+
+def test_npx_run_as_an_instruction_is_checked():
+    body = "Run npx create-react-app app\n$ npx cowsay hi\n"
+    assert online_checks.extract_packages(body) == [("npm", "create-react-app"), ("npm", "cowsay")]
+
+
 def test_markdown_link_whose_text_is_the_url_is_one_url():
     assert online_checks.extract_urls("[https://b.com/x](https://b.com/x)\n") == ["https://b.com/x"]
 
