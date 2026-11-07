@@ -3716,6 +3716,7 @@
                 {
                   "action": "_StoreAction",
                   "choices": [
+                    "'cli_output.v1'",
                     "'cli_routes'"
                   ],
                   "const": null,

@@ -1,0 +1,28 @@
+{
+  "schema_version": "cli_output.v1",
+  "kind": "backends",
+  "status": "complete",
+  "verdict": null,
+  "reason": null,
+  "error": null,
+  "summary": {
+    "dokimi_version": "0.0.0",
+    "backends": 1,
+    "installed": 0
+  },
+  "subjects": [],
+  "artifacts": null,
+  "cost": {
+    "spent_usd": 0.0,
+    "cap_usd": null,
+    "remaining_usd": null,
+    "estimate_kind": null,
+    "calls": 0,
+    "priced": null
+  },
+  "limits": [],
+  "next": [],
+  "data": {
+    "rows": []
+  }
+}

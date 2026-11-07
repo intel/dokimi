@@ -375,8 +375,11 @@ def test_backends_command_prints_one_row_per_backend(monkeypatch, capsys):
     text = capsys.readouterr().out
     assert "| claude-cli | claude | 2.1.304 (Claude Code) | signed in (settings file) | third_party (bedrock) |" in text
     cmd_backends(argparse.Namespace(json=True))
-    (row,) = json.loads(capsys.readouterr().out)
+    doc = json.loads(capsys.readouterr().out)  # one cli_output.v1 document
+    assert doc["kind"] == "backends" and doc["verdict"] is None and doc["status"] == "complete"
+    (row,) = doc["data"]["rows"]
     assert row["backend"] == "claude-cli" and row["authenticated"] is True
+    assert doc["summary"]["backends"] == len(doc["data"]["rows"])
 
 
 def test_an_installed_cli_that_prints_no_version_is_unknown_not_not_installed(monkeypatch, capsys):

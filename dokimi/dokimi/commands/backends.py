@@ -7,16 +7,18 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
-import json
 
 
 def cmd_backends(args: argparse.Namespace) -> None:
     """One row per CLI backend: installed, version, signed in and how. Calls no model."""
-    from dokimi import llm_cli
+    from dokimi import cli_output, llm_cli
 
     rows = [llm_cli.detect(name) for name in llm_cli.BACKENDS]
     if args.json:
-        print(json.dumps([dataclasses.asdict(r) for r in rows], indent=2))
+        installed = sum(1 for r in rows if r.installed)
+        cli_output.emit(cli_output.envelope(
+            "backends", summary={"backends": len(rows), "installed": installed},
+            data={"rows": [dataclasses.asdict(r) for r in rows]}))
         return
     print("| provider | binary | version | signed in | method | models |")
     print("|---|---|---|---|---|---|")
@@ -43,5 +45,5 @@ def register(sub, positive_int) -> None:
         help="Coding-agent CLIs usable as --provider (claude-cli): installed, version, signed "
         "in. No model call.",
     )
-    p.add_argument("--json", action="store_true", help="Print the rows as JSON")
-    p.set_defaults(func=cmd_backends)
+    p.add_argument("--json", action="store_true", help="Print cli_output.v1 on stdout (rows under data)")
+    p.set_defaults(func=cmd_backends, emits_cli_output=True)
