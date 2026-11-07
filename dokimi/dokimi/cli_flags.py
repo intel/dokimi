@@ -216,6 +216,12 @@ CONCEPTS: tuple[Concept, ...] = (
         banned=("--agent-network", "--build-network"),
     ),
     Concept(
+        name="online",
+        help="network checks of a catalog's skills, opt in",
+        canonical=(Flag("--online", kind="flag", meaning="also check packages and links over the network"),),
+        banned=(),
+    ),
+    Concept(
         name="timeout",
         help="time limits, per phase",
         canonical=(Flag("--timeout", "[PHASE=]SEC", "text"),),
