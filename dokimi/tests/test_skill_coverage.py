@@ -9,6 +9,7 @@ Every model call goes through an injected transport on :class:`LLMClient`; no te
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -385,3 +386,33 @@ def test_command_refuses_a_dangling_symlink_as_out_before_any_paid_call(tmp_path
     link.symlink_to(tmp_path / "missing" / "coverage.json")
     with pytest.raises(InputError, match="cannot write"):
         _run(monkeypatch, [str(_skill(tmp_path)), str(_evals(tmp_path)), "--out", str(link)])
+
+
+@pytest.mark.skipif(hasattr(os, "geteuid") and os.geteuid() == 0, reason="root writes into a read-only folder")
+def test_command_refuses_a_symlink_into_a_read_only_folder_as_out_before_any_paid_call(tmp_path, monkeypatch):
+    from dokimi.commands import skill_coverage as cmd
+
+    def no_client(args):
+        raise AssertionError("a paid call was made before the --out check")
+
+    monkeypatch.setattr(cmd, "_client", no_client)
+    locked = tmp_path / "locked"
+    locked.mkdir()
+    target = locked / "coverage.json"
+    target.write_text("{}", encoding="utf-8")
+    link = tmp_path / "coverage.json"
+    link.symlink_to(target)
+    locked.chmod(0o555)
+    try:
+        with pytest.raises(InputError, match="cannot write"):
+            _run(monkeypatch, [str(_skill(tmp_path)), str(_evals(tmp_path)), "--out", str(link)])
+    finally:
+        locked.chmod(0o755)
+
+
+def test_a_dangling_symlink_into_a_writable_folder_is_written_through_as_out(tmp_path, monkeypatch):
+    target = tmp_path / "later.json"
+    link = tmp_path / "coverage.json"
+    link.symlink_to(target)  # save_artifact creates the target: the run is not refused
+    _run(monkeypatch, [str(_skill(tmp_path)), str(_evals(tmp_path)), "--out", str(link)], EXTRACT, MAP)
+    assert json.loads(target.read_text(encoding="utf-8"))["skill"]["name"] == "demo"

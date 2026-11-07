@@ -62,9 +62,12 @@ def _refuse_out_over_input(out: str, inputs: list[Path]) -> None:
         raise InputError(f"cannot resolve {out}: {exc}") from exc
     if clobbers:
         raise InputError(f"--out would overwrite an input file: {out}")
-    # Refused here, before the paid calls: save_artifact would fail on these after both have run.
+    # Refused here, before the paid calls: save_artifact would fail on these after both have run. A symlink is
+    # written through, so the write lands in the folder of its target; a rejected payload lands beside the link.
     path = Path(out)
-    if (os.path.lexists(path) and not path.is_file()) or not os.access(path.parent, os.W_OK):
+    landing = Path(os.path.realpath(path))
+    if ((os.path.lexists(landing) and not landing.is_file()) or not os.access(landing.parent, os.W_OK)
+            or not os.access(path.parent, os.W_OK)):
         raise InputError(f"cannot write {out}: it is a directory, or its folder is missing or not writable")
 
 
