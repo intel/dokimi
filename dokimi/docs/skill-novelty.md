@@ -862,6 +862,7 @@ only when its arm ran, so a two-arm run reads exactly as before.
     - Both are point estimates; the floor carries its own `ci95_added` to read them against.
       The floor is only as wide as the answerer's sampling: at temperature 0 it can read 0.
     An injected transport is not given the `draw`, so there the repeat is no new sample.
+
 - **Atom-clustered interval.** The paraphrases of one atom succeed or fail together, so
   `ci95_added` (and the placebo-gated `ci95`) resamples atoms, not probes
   (`ci_cluster: "atom"`). A probe-level bootstrap reads three correlated wordings as three
@@ -875,7 +876,7 @@ any model (±0.02). With the placebo, one model's abstention fell from 0.845 to 
 framing is recorded in the run config, in each probe record (`context_framing`), and is covered by `prompts_sha256`.
 
 ```bash
-python cli.py novelty analyze --artifact skill:s --model M \
+python cli.py skill novelty analyze --artifact skill:s --model M \
   --arms no_artifact,full,placebo,no_artifact_repeat \
   --placebo-text other-domain.md \
   --context-framing neutral
