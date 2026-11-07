@@ -377,3 +377,15 @@ def test_an_unpriced_call_stops_the_repeats_of_a_single_artifact_run(tmp_path, m
     assert len(calls) == 1
     payload = json.loads(out.read_text(encoding="utf-8"))
     assert (payload["partial"]["calls_done"], payload["partial"]["calls_planned"]) == (1, 6)
+
+
+def test_a_partial_single_run_rates_its_selections_over_the_calls_it_made(tmp_path, monkeypatch):
+    # Three queries, the cap stops after two calls: the rate is over the two asked, not all three.
+    _provider(monkeypatch, UsageRecord(cost_usd=0.6))
+    args, out = _single(tmp_path, QUERIES, "--max-usd", "1")
+    with pytest.raises(SystemExit, match="spend cap reached"):
+        args.func(args)
+    model = json.loads(out.read_text(encoding="utf-8"))["model"]
+    hits = sum(1 for row in model["per_query"] if row.get("correct"))
+    assert model["n_calls"] == 2
+    assert model["selection_rate"] == round(hits / 2, 4)
