@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
 # Retired and deprecated model IDs that skills name, read by dokimi.external.content_checks.
 # Entry rules, the update process and the source pages (see `checked`): docs/external-content.md.
 
