@@ -131,3 +131,25 @@ def test_save_atoms_records_the_extractor_provider(tmp_path):
     path = tmp_path / "atoms.json"
     save_atoms([], [], path, extractor="sonnet", extractor_provider="claude-cli")
     assert json.loads(path.read_text(encoding="utf-8"))["extractor_provider"] == "claude-cli"
+
+
+@pytest.mark.parametrize("extractor", [
+    "anthropic/claude-sonnet-5-5",
+    "us.anthropic.claude-sonnet-5-5-v1:0",
+    "claude-sonnet-5-5[1m]",
+])
+def test_equivalent_spellings_of_one_api_model_are_the_same_model(extractor):
+    relation = _relation(extractor, _judge("claude-sonnet-5-5"), "anthropic")
+    assert relation["same_model"] is True
+    assert relation["same_vendor"] is True
+
+
+def test_the_bedrock_spelling_of_the_judge_matches_the_plain_extractor():
+    relation = _relation("claude-sonnet-5-5", _judge("us.anthropic.claude-sonnet-5-5"), "anthropic")
+    assert relation["same_model"] is True
+
+
+def test_two_versions_of_one_family_are_not_the_same_model():
+    relation = _relation("anthropic/claude-sonnet-5-5", _judge("claude-sonnet-5-6"), "anthropic")
+    assert relation["same_model"] is False
+    assert relation["same_vendor"] is True
