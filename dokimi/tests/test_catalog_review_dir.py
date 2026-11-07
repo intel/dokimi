@@ -73,6 +73,14 @@ def test_a_directory_with_no_skill_md_is_a_value_error(tmp_path):
         review_skill_dir(empty)
 
 
+def test_a_directory_that_holds_only_a_nested_skill_is_a_value_error(tmp_path):
+    only = tmp_path / "only"
+    _write(only / "sub", "---\nname: sub\ndescription: Use when sub work runs.\n---\n# Sub\n")
+
+    with pytest.raises(ValueError, match="no SKILL.md"):
+        review_skill_dir(only)
+
+
 def test_a_path_that_is_not_a_directory_is_a_value_error(tmp_path):
     with pytest.raises(ValueError, match="not a skill directory"):
         review_skill_dir(tmp_path / "missing")
