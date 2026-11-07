@@ -124,6 +124,14 @@ def check_files(root: Path) -> list[Path]:
     return [p.resolve() for task in root.iterdir() if _is_task(task) for p in (task / "tests").glob("*.py")]
 
 
+def _source(text: str, node: ast.stmt) -> str:
+    """The function's source from its first decorator to its last line (``ast.get_source_segment`` starts at ``def``,
+    so a parametrize decorator would be lost and two differently parametrized checks would read as one)."""
+    lines = text.splitlines(keepends=True)
+    start = min([node.lineno, *(d.lineno for d in getattr(node, "decorator_list", []))])
+    return "".join(lines[start - 1:node.end_lineno]).rstrip("\n")
+
+
 def _task_checks(root: Path) -> list[tuple[str, str, str]]:
     """(task, function name, source) for each top-level ``test_*`` function under a task's ``tests/``."""
     out: list[tuple[str, str, str]] = []
@@ -136,7 +144,7 @@ def _task_checks(root: Path) -> list[tuple[str, str, str]]:
                 raise ValueError(f"{path}: unreadable test file ({exc})") from exc
             for node in tree.body:
                 if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test_"):
-                    source = ast.get_source_segment(text, node) or node.name
+                    source = _source(text, node) or node.name
                     out.append((task_dir.name, node.name, source))
     return out
 

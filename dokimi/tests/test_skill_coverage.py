@@ -148,6 +148,19 @@ def test_a_long_eval_row_keeps_its_expected_output_in_the_check(tmp_path):
     assert "[clipped]" not in check.source
 
 
+def test_a_parametrized_task_check_keeps_its_decorators_and_stays_apart(tmp_path):
+    root = tmp_path / "tasks"
+    for task, flag in (("t1", "-x"), ("t2", "-y")):
+        _task(root, task, {"test_answer.py": (
+            "import pytest\n\n"
+            f'@pytest.mark.parametrize("flag,answer", [("{flag}", "a")])\n'
+            "def test_flag(flag, answer):\n    assert flag == answer\n")})
+    checks = sc.load_checks(root)
+    assert sorted(c.name for c in checks) == ["test_flag#1", "test_flag#2"]  # two checks, not one merged
+    assert any('("-x", "a")' in c.source for c in checks)  # the values the check depends on reach the mapper
+    assert any('("-y", "a")' in c.source for c in checks)
+
+
 def test_task_checks_that_share_a_long_prefix_stay_apart_with_their_full_source(tmp_path):
     prefix = "".join(f"    x{i} = {i}\n" for i in range(300))  # longer than the old per-check clip
     root = tmp_path / "tasks"
