@@ -85,3 +85,11 @@ def test_a_date_that_is_not_real_is_invalid_frontmatter() -> None:
     assert parse_frontmatter(text) == ({}, "body")
     with pytest.raises(yaml.YAMLError):
         parse_frontmatter_strict(text)
+
+
+@pytest.mark.parametrize("contains", [False, True])
+def test_parse_json_reads_deep_nesting_as_not_json(contains: bool) -> None:
+    # A reply nested past the recursion limit is "not JSON", not a crash of the judge.
+    from dokimi.eval.reference_checks import parse_json
+
+    assert parse_json("[" * 20000, contains=contains) == (False, None)
