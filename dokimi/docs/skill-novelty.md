@@ -1173,7 +1173,7 @@ unparseable (or one whose rows are all unusable) in half and re-asking, down to 
 atoms: up to 2n−1 calls for an n-span batch that never parses. The artifact's `extraction`
 block counts them (`calls` against `batches`, the calls the run would make with no splitting; a
 capped run asks every batch too), and a warning (`atom extraction re-asked N
-unparseable batches as halves`) says what they cost; `--max-tokens 16000` avoids the truncated ones, not those with unusable rows. A call
+unparseable batches as halves`) says what they cost; a higher `--max-tokens` avoids the truncated ones, not those with unusable rows. A call
 that fails or returns an empty reply is not split, since half a batch fails the same way.
 
 Spans that still cannot be read are *unread*, not text that carries nothing. The warning
@@ -1218,9 +1218,10 @@ response cache, so a reply that fails it is never stored or replayed: extraction
 judges and the oracle pass their parse test; the probe grader, the faithfulness check and the
 need graph also require the field they read (a named verdict, a node), so `{"verdict": null}`
 or `{"nodes": []}` parses and is still asked again; routing requires a `pick`; and the answerer
-requires the closing `confidence:` line it was asked for, so an answer cut at the ceiling is
-re-asked, and its truncation warning logged, on every run. An empty answer is a failed probe run
-(its pair is dropped), not a wrong answer.
+requires the closing `confidence:` line it was asked for. An answer the provider reports as cut
+at the ceiling errors its pair, which is dropped, and replays as the same error from the cache;
+one cut without a reported reason lacks that line, so it is graded but never stored. An empty
+answer is a failed probe run (its pair is dropped), not a wrong answer.
 
 ## Limits to state when quoting these numbers
 
