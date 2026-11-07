@@ -77,7 +77,7 @@ def test_security_documents_every_ignored_id():
     )
 
 
-NO_LOCK_ADVISORY = "`requirements-mutation.lock.txt`) reports no advisory."
+NO_LOCK_ADVISORY = "`requirements-fuzz.lock.txt`) reports no\nadvisory."
 
 
 def _lock_advisory_list() -> str:

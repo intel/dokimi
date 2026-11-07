@@ -133,6 +133,8 @@ extend_exclude = [
   "scripts/docs",
   # Run by conda-forge.yml, which installs packaging for it.
   "scripts/conda_forge_specs.py",
+  # Run by fuzz.yml, which installs atheris from requirements-fuzz.lock.txt.
+  "fuzz",
 ]
 # Tools in the dev extra (pytest and plugins, ruff, mypy, scriv), never imported by
 # the package. A dev dep imported from the package is DEP004.
