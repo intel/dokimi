@@ -46,10 +46,11 @@ import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Iterable, Optional
+from typing import Iterable, Optional
 
-from dokimi import process
-from dokimi.repos.container import PIDS_LIMIT
+from dokimi import docker_cmd, process
+from dokimi.docker_cmd import TASK_CONTAINER_HARDENING, Docker  # noqa: F401  (Docker is re-exported)
+from dokimi.docker_cmd import STEP_TIMEOUT_S as DOCKER_STEP_TIMEOUT  # noqa: F401
 
 from . import egress_proxy
 from .agent_sandbox import (
@@ -84,20 +85,7 @@ LABEL = "dokimi.run"  # on the network, sidecar and task container: find leftove
 _FILE_VARS = ("NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "AWS_CA_BUNDLE",
               "GOOGLE_APPLICATION_CREDENTIALS", "AWS_SHARED_CREDENTIALS_FILE", "AWS_CONFIG_FILE")
 PROXY_PORT = 3128
-# The task container's hardening flags are the ones repos/container.py sets, --init included
-# (PID 1 reaps the orphans a step leaves behind). Unlike there, root here gets back the few
-# capabilities its own steps need: CHOWN and FOWNER (chown/chmod of the agent's tree) and
-# DAC_OVERRIDE (root writing the agent's files). SETUID/SETGID are for task scripts that drop
-# privileges (apt's _apt sandbox, su); the harness's own `exec -u` steps need neither.
-# KILL, NET_BIND_SERVICE and the rest stay dropped.
-TASK_CONTAINER_HARDENING = (
-    "--init", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
-    "--pids-limit", str(PIDS_LIMIT),
-    "--cap-add", "CHOWN", "--cap-add", "DAC_OVERRIDE", "--cap-add", "FOWNER",
-    "--cap-add", "SETUID", "--cap-add", "SETGID",
-)
 _PROBE_TIMEOUT_SEC = 120.0
-DOCKER_STEP_TIMEOUT = 600.0  # a docker step without a budget of its own (cp, exec, inspect, ...)
 # The sidecar needs only a Python 3 interpreter. Pinned by digest (a tag moves, and
 # the sidecar holds the upstream proxy URL); override for a mirror or an offline runner.
 PROXY_IMAGE = os.environ.get(
@@ -114,9 +102,6 @@ _HOST_ONLY = frozenset({"PATH", "SHELL", "USER", "LOGNAME", "TMPDIR", "SSL_CERT_
 # The proxy variables the Docker client may inject (proxies.default), in both cases.
 _PROXY_NAMES = tuple(n for base in ("HTTPS", "HTTP", "ALL", "FTP", "NO")
                      for n in (f"{base}_PROXY", f"{base.lower()}_proxy"))
-
-Docker = Callable[..., process.Completed]
-
 
 def claude_binary() -> Path:
     """The host ``claude`` executable, resolved through its launcher symlink."""
@@ -292,8 +277,8 @@ class ContainerSandbox:
                 if key not in multiline:
                     fh.write(f"{key}={env[key]}\n")
         names = [a for k in sorted(multiline) for a in ("-e", k)]
-        argv_out = ["docker", "exec", "-u", AGENT_UID, "-w", self.workdir, "--env-file", name, *names,
-                    container, *argv]
+        argv_out = docker_cmd.argv("exec", "-u", AGENT_UID, "-w", self.workdir, "--env-file", name, *names,
+                                   container, *argv)
         return argv_out, {**os.environ, **multiline}
 
     def run_probe(self, container: str, task_path: Path, source: dict[str, str],

@@ -32,15 +32,18 @@ from dokimi.artifacts import schema_errors
 from dokimi.measure import SCORE_BOUND, as_float, is_finite
 
 from .graders import DATA_FILES, NAMES as BUILTIN_NAMES, PREFIX as BUILTIN_PREFIX, TASK_PROBLEMS
+from .graders.hidden_tests import HIDDEN_DIR, hidden_files
 from .host_spec import HostSpecError, parse_host
 from .process_metrics import Counter, parse_counter
-from .source import RepoTree
+from .source import RepoTree, SourceError
 from .useful_spec import UsefulSpecError, parse_useful
 
 SCHEMA_VERSION = "repo_manifest.v1"
 _RUN_KEYS = ("eval_dir", "tasks", "entry_points")
 DEFAULT_MANIFEST_PATH = ".agent-eval/repo-eval.yaml"
-PLACEHOLDERS = frozenset({"eval_dir", "source_dir", "run_dir", "out", "task"})
+PLACEHOLDERS = frozenset({"eval_dir", "source_dir", "run_dir", "out", "task", "tests"})
+# entry_points.test runs on a task's hidden test files ({tests}) and writes a JUnit report to {out} (contract §2)
+_TEST_ENTRY_POINT = "entry_points/test"
 # {source_dir} is a full-history clone, so it holds every fix: only the grading
 # container gets it (contract §2).
 _SOURCE_DIR_ENTRY_POINTS = frozenset({"entry_points/grade", "entry_points/oracle"})
@@ -63,7 +66,7 @@ RESERVED_RUN_ENTRIES = frozenset({
     "grade-home", "agent-git",
     "meta.json", "task.json", "answer.txt", "events.jsonl", "result.json", "grade.json",
     "agent.stdout", "agent.stderr", "grade.log", "grade.err", "oracle.log", "oracle.err",
-    "isolation.log", "isolation.err",
+    "isolation.log", "isolation.err", "test.log", "test.err", "hidden-tests.xml", "hidden-tests.json",
 })
 _SCRATCH_PART = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 _RUN_DIR_PREFIX = "{run_dir}/"
@@ -274,6 +277,7 @@ def parse_manifest(raw: Any, path: str = "<manifest>") -> RepoManifest:
             errors.append(f"{key}: unknown placeholder(s) {unknown}; allowed: {sorted(PLACEHOLDERS)}")
         if "source_dir" in found and key not in _SOURCE_DIR_ENTRY_POINTS:
             errors.append(f"{key}: {{source_dir}} holds the full history and is only for grade and oracle")
+        errors += _test_entry_problems(key, found)
     if any("{source_dir}" in v for _, v in templates) and not (raw.get("source") or {}).get("url"):
         errors.append("source/url: required when an entry point uses {source_dir}, which clones it")
     for key, value in (image.get("env") or {}).items():
@@ -308,6 +312,14 @@ def parse_manifest(raw: Any, path: str = "<manifest>") -> RepoManifest:
         build_systems=tuple(raw.get("build_systems") or ()),
         process_metrics=counters,
     )
+
+
+def _test_entry_problems(key: str, found: set[str]) -> list[str]:
+    """``{tests}`` belongs to ``entry_points.test`` alone, which must name it and ``{out}``, its report."""
+    if key != _TEST_ENTRY_POINT:
+        return [f"{key}: {{tests}} is only for entry_points.test"] if "tests" in found else []
+    return [f"{key}: must name {{{p}}} ({why})" for p, why in
+            (("tests", "the hidden test files"), ("out", "the JUnit XML report it writes")) if p not in found]
 
 
 def _parse_counters(raw: dict[Any, Any], errors: list[str]) -> dict[str, Counter]:
@@ -364,14 +376,18 @@ def check_repo(tree: RepoTree, manifest: RepoManifest,
 
 
 def grade_problems(manifest: RepoManifest, tasks: list[TaskSummary]) -> list[str]:
-    """``entry_points.grade`` is required only when some task's grader is not a built-in ``dokimi:`` one."""
-    if manifest.entry_points.get("grade"):
-        return []
+    """``entry_points.grade`` is required only when some task's grader is not a built-in ``dokimi:`` one, and
+    ``entry_points.test`` when some task's is ``dokimi:hidden_tests``."""
+    problems = []
     own = sorted(t.id for t in tasks if not t.grader.startswith(BUILTIN_PREFIX))
-    if not own:
-        return []
-    return [f"entry_points/grade: required, since these tasks use the repository's own grader "
-            f"(not {BUILTIN_PREFIX}*): {', '.join(own)}"]
+    if own and not manifest.entry_points.get("grade"):
+        problems.append(f"entry_points/grade: required, since these tasks use the repository's own grader "
+                        f"(not {BUILTIN_PREFIX}*): {', '.join(own)}")
+    hidden = sorted(t.id for t in tasks if t.grader == f"{BUILTIN_PREFIX}hidden_tests")
+    if hidden and not manifest.entry_points.get("test"):
+        problems.append(f"entry_points/test: required, since these tasks run their hidden tests with it "
+                        f"({BUILTIN_PREFIX}hidden_tests): {', '.join(hidden)}")
+    return problems
 
 
 def _check_mcp_at_tree(tree: RepoTree, report: RepoCheckReport) -> None:
@@ -602,13 +618,28 @@ def _useful_problems(raw: dict[str, Any]) -> list[str]:
     return []
 
 
+def _hidden_file_problem(tree: RepoTree, task_dir: str, rel: str) -> str | None:
+    """Why ``hidden/<rel>`` is not a file the grade can copy: it is missing, or a symbolic link (contract §4.5)."""
+    path = f"{task_dir}/{HIDDEN_DIR}/{rel}"
+    if not tree.is_file(path):
+        return f"hidden file does not exist: {HIDDEN_DIR}/{rel}"
+    try:
+        linked = tree.resolve(path) != path
+    except SourceError:
+        linked = True
+    return f"hidden file is a symbolic link: {HIDDEN_DIR}/{rel}" if linked else None
+
+
 def _builtin_problems(tree: RepoTree, task_dir: str, raw: dict[str, Any], name: str) -> list[str]:
     """A ``dokimi:`` grader must be one the framework has, and its data file must be in the task directory."""
     if name not in BUILTIN_NAMES:
         return [f"unknown built-in grader {BUILTIN_PREFIX + name!r}; known: "
                 + ", ".join(BUILTIN_PREFIX + n for n in BUILTIN_NAMES)]
     if name in TASK_PROBLEMS:
-        return TASK_PROBLEMS[name](raw)
+        problems = TASK_PROBLEMS[name](raw)
+        if name == "hidden_tests" and not problems:  # the files the grade copies into the workspace
+            problems = [q for p in hidden_files(raw) if (q := _hidden_file_problem(tree, task_dir, p))]
+        return problems
     key, default = DATA_FILES[name]
     path = raw.get(key, default)
     if not isinstance(path, str):

@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 
+from dokimi.utils import InputError
 from dokimi.cli import build_parser
 
 _DEEP_FRONTMATTER = b"---\nname: " + b"[" * 100000 + b"\n---\nbody\n"
@@ -240,7 +241,7 @@ def test_catalog_scan_rejects_missing_root(tmp_path):
     args = parser.parse_args(
         ["catalog", "check", "--root", str(tmp_path / "does-not-exist")]
     )
-    with pytest.raises(SystemExit):
+    with pytest.raises(InputError):
         args.func(args)
 
 
@@ -253,7 +254,7 @@ def test_catalog_scan_reports_clean_error_on_malformed_manifest(tmp_path):
     args = parser.parse_args(
         ["catalog", "check", "--root", str(tmp_path), "--kind", "skills"]
     )
-    with pytest.raises(SystemExit) as exc_info:
+    with pytest.raises(InputError) as exc_info:
         args.func(args)
     assert "invalid skills.yaml" in str(exc_info.value)
 
@@ -262,7 +263,7 @@ def test_catalog_scan_reports_clean_error_on_non_utf8_skills_manifest(tmp_path):
     (tmp_path / "skills.yaml").write_bytes(b"skills: [\xff\xfe]\n")
 
     args = build_parser().parse_args(["catalog", "check", "--root", str(tmp_path), "--kind", "skills"])
-    with pytest.raises(SystemExit) as exc_info:
+    with pytest.raises(InputError) as exc_info:
         args.func(args)
     assert "invalid skills.yaml" in str(exc_info.value)
 
@@ -288,7 +289,7 @@ def test_catalog_scan_reports_clean_error_on_unreadable_manifest(tmp_path, monke
     monkeypatch.setattr(Path, "read_text", read_text)
 
     args = build_parser().parse_args(["catalog", "check", "--root", str(tmp_path), "--kind", kind])
-    with pytest.raises(SystemExit) as exc_info:
+    with pytest.raises(InputError) as exc_info:
         args.func(args)
     assert f"cannot read {path.name} at {path}" in str(exc_info.value)
 
@@ -299,7 +300,7 @@ def test_catalog_scan_reports_clean_error_on_non_utf8_suites_manifest(tmp_path):
     manifest.write_bytes(b'{"suites": ["\xff"]}')
 
     args = build_parser().parse_args(["catalog", "check", "--root", str(tmp_path), "--kind", "tasks"])
-    with pytest.raises(SystemExit) as exc_info:
+    with pytest.raises(InputError) as exc_info:
         args.func(args)
     assert "invalid suites.json" in str(exc_info.value)
 
@@ -313,7 +314,7 @@ def test_catalog_scan_reports_clean_error_on_wrong_shaped_suites_manifest(tmp_pa
     manifest.write_text(text, encoding="utf-8")
 
     args = build_parser().parse_args(["catalog", "check", "--root", str(tmp_path), "--kind", "tasks"])
-    with pytest.raises(SystemExit) as exc_info:
+    with pytest.raises(InputError) as exc_info:
         args.func(args)
     assert f"invalid suites.json at {manifest}" in str(exc_info.value)
 
@@ -332,7 +333,7 @@ def test_catalog_scan_reports_clean_error_on_deeply_nested_skills_manifest(tmp_p
     (tmp_path / "skills.yaml").write_text("[" * 200000, encoding="utf-8")
 
     args = build_parser().parse_args(["catalog", "check", "--root", str(tmp_path), "--kind", "skills"])
-    with pytest.raises(SystemExit) as exc_info:
+    with pytest.raises(InputError) as exc_info:
         args.func(args)
     assert f"invalid skills.yaml at {tmp_path / 'skills.yaml'}" in str(exc_info.value)
 
@@ -403,7 +404,7 @@ def test_catalog_trigger_set_reports_clean_error_on_malformed_skill_md(tmp_path,
 
     args = build_parser().parse_args(["eval", "triggers", "generate", "--catalog", str(catalog),
                                       "--questions", f"{questions}=none", "--out", str(tmp_path / "o.json")])
-    with pytest.raises(SystemExit) as exc_info:
+    with pytest.raises(InputError) as exc_info:
         args.func(args)
     assert f"--catalog {catalog}:" in str(exc_info.value)
 
@@ -421,6 +422,6 @@ def test_catalog_scan_reports_clean_error_on_unloadable_task_dir(tmp_path, instr
         (task / "instruction.md").write_text(instruction, encoding="utf-8")
 
     args = build_parser().parse_args(["catalog", "check", "--root", str(tmp_path), "--kind", "tasks"])
-    with pytest.raises(SystemExit) as exc_info:
+    with pytest.raises(InputError) as exc_info:
         args.func(args)
     assert "cannot read tasks at" in str(exc_info.value)
