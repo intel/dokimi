@@ -13,6 +13,7 @@ import json
 import pytest
 
 from dokimi.eval.leakgate import (
+    _allow_runs,
     assess,
     assignment_digest,
     exposed_test_items,
@@ -676,3 +677,65 @@ def test_format_table_prints_each_warning_under_the_split_line():
     result["warnings"] = ["notes.txt: not UTF-8 text, not read"]
     lines = format_table(result).splitlines()
     assert "warning: notes.txt: not UTF-8 text, not read" in lines
+
+
+# --- review follow-ups: a blank reference, a non-string type, digests, ties, the threshold and case -----------
+
+def test_a_blank_judge_reference_falls_back_to_the_criterion_as_the_grader_does():
+    # judge_point strips the reference and uses the criterion when the reference is blank: so must the gate
+    judge = {"type": "judge", "criterion": CRITERION, "reference": "   "}
+    assert expected_texts(_q("1", [judge])) == [CRITERION]
+    assert assess([_q("1", [judge])], skill_index(_skill(f"Notes: {CRITERION}")))[0]["status"] == "flagged"
+
+
+def test_a_check_type_that_is_not_a_string_is_refused_with_a_value_error():
+    with pytest.raises(ValueError, match="type must be a string"):
+        expected_texts(_q("1", [{"type": ["match"], "values": [ANSWER]}]))
+
+
+def test_a_fuzzy_check_value_is_an_expected_answer():
+    q = _q("1", [{"type": "fuzzy", "values": [ANSWER]}])
+    assert expected_texts(q) == [ANSWER]
+    assert assess([q], skill_index(_skill(f"Use this: {ANSWER}.")))[0]["status"] == "flagged"
+
+
+def test_a_skill_in_capitals_is_checked_like_its_lower_case_answer():
+    assert assess([_q("1", [_match(ANSWER)])], skill_index(_skill(ANSWER.upper())))[0]["status"] == "flagged"
+
+
+def test_an_item_exactly_at_min_fraction_is_flagged():
+    # 17 words hold 10 runs of 8; one run in the skill is 1 of 10, which is 0.10 exactly
+    answer = ("alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima mike november oscar "
+              "papa quebec")
+    rows = assess([_q("1", [_match(answer)])], skill_index(_skill("Notes: alpha bravo charlie delta echo foxtrot golf hotel.")),
+                  min_fraction=0.10)
+    assert rows[0]["grams"] == 10 and rows[0]["fraction"] == 0.1
+    assert rows[0]["status"] == "flagged"
+
+
+def test_equal_length_allowlist_terms_are_cut_longest_first_then_in_a_fixed_order():
+    # the order must not depend on the order the terms were listed in, or on the hash seed
+    assert _allow_runs(["beta gamma", "alpha beta"]) == _allow_runs(["alpha beta", "beta gamma"])
+    assert _allow_runs(["beta gamma", "alpha beta"]) == [("alpha", "beta"), ("beta", "gamma")]
+    answer = "alpha beta gamma delta epsilon zeta eta theta iota kappa"
+    skill = _skill("Notes: gamma delta epsilon zeta eta theta iota kappa.")
+    for allow in (["alpha beta", "beta gamma"], ["beta gamma", "alpha beta"]):
+        assert assess([_q("1", [_match(answer)])], skill_index(skill, allow))[0]["status"] == "flagged"
+
+
+def test_a_stored_digest_that_is_not_sha256_hex_is_not_reported_as_the_previous_digest(tmp_path):
+    lock = tmp_path / "split.lock.json"
+    lock_split({"1": "dev"}, _contents("1"), lock, NOW)
+    record = json.loads(lock.read_text(encoding="utf-8"))
+    record["digest"] = "x"
+    lock.write_text(json.dumps(record), encoding="utf-8")
+    result = lock_split({"1": "dev"}, _contents("1"), lock, NOW, relock=True)
+    assert result["state"] == "relocked" and result["previous_digest"] is None
+
+
+def test_a_blocked_relock_leaves_an_unreadable_lock_as_it_was(tmp_path):
+    lock = tmp_path / "split.lock.json"
+    lock.write_text("not json", encoding="utf-8")
+    result = lock_split({"1": "dev"}, _contents("1"), lock, NOW, relock=True, write_relock=False)
+    assert result == {"state": "not_relocked", "moved": [], "previous_digest": None}
+    assert lock.read_text(encoding="utf-8") == "not json"

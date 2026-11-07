@@ -396,3 +396,38 @@ def test_a_skipped_skill_file_is_a_warning_in_the_table_and_the_artifact(tmp_pat
     assert saved["warnings"] == ["notes.txt: not UTF-8 text, not read"]
     assert saved["skill_files"] == ["SKILL.md"] and schema_errors("leak.v1", saved) == []
     assert "warning: notes.txt: not UTF-8 text, not read" in capsys.readouterr().out
+
+
+GATE_LONG = ("alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo lima mike november oscar papa "
+             "quebec romeo sierra tango uniform victor whiskey xray yankee zulu one two three")  # 29 words, 22 runs
+
+
+def test_min_fraction_and_verbatim_words_reach_the_gate(tmp_path):
+    # the skill holds 8 words of the answer: 1 run of 22 (under the default 0.10), and under the default 12 words
+    questions = _questions(tmp_path / "q.json", {"1": GATE_LONG})
+    skill = _skill(tmp_path / "skill", "Codes: kilo lima mike november oscar papa quebec romeo are listed here.")
+    cmd_eval_leak(_args(skill, questions))  # the defaults pass
+    assert _exit_code(_args(skill, questions, min_fraction=0.01)) == 1
+    assert _exit_code(_args(skill, questions, verbatim_words=8)) == 1
+
+
+def test_a_check_type_that_is_not_a_string_exits_2_not_a_traceback(tmp_path, capsys):
+    questions = tmp_path / "q.json"
+    questions.write_text(json.dumps({"questions": [{"id": "1", "question": "Which flag?", "grading": {
+        "checks": [{"type": ["match"], "values": [ANSWER]}]}}]}), encoding="utf-8")
+    skill = _skill(tmp_path / "skill", "Use the trace flag.")
+    assert _exit_code(_args(skill, questions)) == 2
+    assert "type must be a string" in capsys.readouterr().err
+
+
+def test_a_relock_over_a_non_hex_stored_digest_passes_and_writes_its_artifact(tmp_path):
+    skill, questions = _clean_run(tmp_path)
+    split = _split(tmp_path / "split.json")
+    cmd_eval_leak(_args(skill, questions, split=str(split)))
+    lock = tmp_path / "split.lock.json"
+    record = json.loads(lock.read_text(encoding="utf-8"))
+    record["digest"] = "x"
+    lock.write_text(json.dumps(record), encoding="utf-8")
+    out = tmp_path / "leak.json"
+    cmd_eval_leak(_args(skill, questions, split=str(split), relock=True, out=str(out)))  # exit 0, no traceback
+    assert out.exists() and not schema_errors("leak.v1", json.loads(out.read_text(encoding="utf-8")))

@@ -244,7 +244,7 @@ def lock_split(assignment: Mapping[str, str], contents: Mapping[str, str], lock_
     moved = _moved(locked, locked_contents, assignment, contents)
     if not relock:
         return {"state": "changed", "moved": moved, "previous_digest": None}
-    previous = stored if isinstance(stored, str) else None
+    previous = stored if isinstance(stored, str) and re.fullmatch(r"[0-9a-f]{64}", stored) else None
     if not write_relock:
         return {"state": "not_relocked", "moved": moved, "previous_digest": previous}
     write()
@@ -274,11 +274,15 @@ def expected_texts(question: Mapping[str, Any]) -> list[str]:
         if not isinstance(check, Mapping) or check.get("negate"):
             continue
         kind = check.get("type")
+        # A non-string type (a list, say) is unhashable: refuse it here, as validate_grading does, not at the membership test.
+        if not isinstance(kind, str):
+            raise ValueError(f"a grading check's type must be a string, not {kind!r}")
         if kind == "judge":
-            if check.get("reference"):
-                texts.append(str(check["reference"]))
-            elif check.get("criterion"):
-                texts.append(str(check["criterion"]))
+            # judge_point strips both texts and falls back to the criterion when the reference is blank: the gate does too
+            reference = str(check.get("reference") or "").strip()
+            criterion = str(check.get("criterion") or "").strip()
+            if reference or criterion:
+                texts.append(reference or criterion)
         elif kind in LITERAL:
             texts += [v if isinstance(v, str) else json.dumps(v, sort_keys=True, ensure_ascii=False) for v in check_values(check)]
     return texts
@@ -293,7 +297,8 @@ def _allow_runs(terms: Iterable[str]) -> list[tuple[str, ...]]:
     """The allowlist as word tuples, longest first, so a term is cut before a shorter term inside it."""
     runs = {tuple(words(t)) for t in terms}
     runs.discard(())
-    return sorted(runs, key=len, reverse=True)
+    # equal lengths are ordered by their words, so the cut does not depend on the hash seed
+    return sorted(runs, key=lambda r: (-len(r), r))
 
 
 def _cut(tokens: list[str], runs: Sequence[tuple[str, ...]]) -> list[str]:
