@@ -108,6 +108,8 @@ NO_WHEN = [
     pytest.param("Genera informes de vez en cuando.", id="es-vez-en-cuando-not-when"),
     pytest.param("Gera relatórios de vez em quando.", id="pt-vez-em-quando-not-when"),
     pytest.param("充当代码格式化工具，并在执行时输出日志。", id="zh-chongdang-shi-not-when"),
+    pytest.param("条件式の場合分けを整理するツールです。", id="ja-baai-wake-not-when"),
+    pytest.param("ひときわ読みやすいドキュメントを作成するツールです。", id="ja-hitokiwa-not-when"),
 ]
 
 
