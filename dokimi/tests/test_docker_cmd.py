@@ -46,6 +46,14 @@ def test_build_args_pass_only_the_proxy_variables_that_are_set():
                     "--build-arg", "https_proxy", "/ctx"]
 
 
+def test_build_args_pass_every_proxy_variable_in_order(monkeypatch):
+    for name in docker_cmd.PROXY_BUILD_ARGS:
+        monkeypatch.setenv(name, "http://p:3128")
+    args = docker_cmd.build_args("/ctx", "/ctx/Dockerfile", "t:1")
+    expected = [part for name in docker_cmd.PROXY_BUILD_ARGS for part in ("--build-arg", name)]
+    assert args == ["build", "-f", "/ctx/Dockerfile", "-t", "t:1", *expected, "/ctx"]
+
+
 def test_failed_to_start_is_the_infra_exit_and_not_a_timeout():
     assert docker_cmd.failed_to_start(125, False)
     assert not docker_cmd.failed_to_start(125, True)
