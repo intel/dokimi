@@ -1311,7 +1311,8 @@ re-asked, and its truncation warning logged, on every run. An empty answer is a 
 - **Loading a correct artifact raises resistance to a reversed premise.** An earlier reading of the
   study (45 probes worse, 14 better) had the sign inverted by its analysis script; recomputed on the
   planted-inversion probes, paired by probe and model, 49 got worse and 367 better
-  ([§10.2](skill-novelty-evidence.md)). `controls.reversal_paired` reports this pairing per run.
+  ([§10.2](skill-novelty-evidence.md)). `reversal_paired` reports the binary version of this
+  pairing (31 worse, 96 better in the evidence page).
   Correctness of content still gates before volume: for a false premise *inside*
   the artifact, a planted wrong value is stated 0.942 of the time when plausible, 0.846 when absurd, and
   flagged 3% of the time. `degraded` is the visible tip of that; the channel underneath it transmits at
