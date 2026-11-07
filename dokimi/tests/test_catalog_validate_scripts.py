@@ -273,3 +273,18 @@ def test_review_skill_dir_checks_the_scripts_of_a_skill_reviewed_alone(tmp_path,
 
     review = review_skill_dir(tmp_path / "solo")
     assert [f.code for f in review.findings if f.code.startswith("script-")] == ["script-syntax"]
+
+
+@pytest.mark.parametrize("shebang", [
+    b"#!/usr/bin/env -S -u BASH_ENV bash",
+    b"#!/usr/bin/env -S FOO=bar bash",
+    b"#!/usr/bin/env FOO=bar bash",
+])
+def test_env_options_and_assignments_do_not_hide_the_shell(tmp_path, shebang):
+    skill = _bundle(tmp_path, {"run.sh": shebang + b"\nif true; then\n"})
+    runner = process.FakeRunner(lambda call: process.reply(stderr="bash: line 3: syntax error\n", returncode=2))
+
+    findings = script_findings(skill, which=_tools("bash"), runner=runner)
+
+    assert [code for _, code, _ in findings] == ["script-syntax"]
+    assert len(runner.calls) == 1

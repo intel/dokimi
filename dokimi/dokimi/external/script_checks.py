@@ -34,6 +34,7 @@ RUFF_SELECT = "S,E9,F63,F7,F82"
 SHELL_SUFFIXES = (".sh", ".bash")
 SCRIPT_SUFFIXES = (*SHELL_SUFFIXES, ".py")
 BASH_FAMILY = frozenset({"bash", "sh", "dash", "ksh"})  # the shebang names bash -n can judge
+ENV_OPERAND_OPTIONS = frozenset({"-u", "--unset", "-C", "--chdir"})  # env options with an operand
 SYNTAX_CODES = frozenset({"E999", "invalid-syntax"})  # a syntax error is script-syntax's, not the lint's
 SKIP_DIRS = VENDORED_DIR_NAMES | TEMPLATE_DIR_NAMES  # the loader's vendored and scaffold trees
 TOP_RULES = 3
@@ -140,12 +141,34 @@ def _python_problem(data: bytes, path: Path) -> Optional[str]:
 
 def _runs_under_bash(data: bytes) -> bool:
     """True when the script has no shebang, or one naming a POSIX-family shell (``env`` is looked through)."""
-    if not data.startswith(b"#!"):
+    words = _shebang_words(data)
+    if words is None:
         return True
+    return bool(words) and os.path.basename(words[0]) in BASH_FAMILY
+
+
+def _shebang_words(data: bytes) -> Optional[list[str]]:
+    """The words of the ``#!`` line, from the interpreter on; None when there is no shebang."""
+    if not data.startswith(b"#!"):
+        return None
     words = data.split(b"\n", 1)[0][2:].decode("utf-8", "replace").split()
     if words and os.path.basename(words[0]) == "env":
-        words = [word for word in words[1:] if not word.startswith("-")]
-    return bool(words) and os.path.basename(words[0]) in BASH_FAMILY
+        words = _env_command(words[1:])
+    return words
+
+
+def _env_command(args: list[str]) -> list[str]:
+    """What ``env`` runs: its options (``-u`` and ``-C`` take an operand; ``-S`` splits what follows) and the
+    ``NAME=value`` words before the command are skipped."""
+    i = 0
+    while i < len(args):
+        if args[i] in ENV_OPERAND_OPTIONS:
+            i += 2
+        elif args[i].startswith("-") or "=" in args[i]:
+            i += 1
+        else:
+            break
+    return args[i:]
 
 
 def _spawn(runner: process.Runner, argv: list[str], **kwargs) -> Optional[process.Completed]:
