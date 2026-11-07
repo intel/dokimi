@@ -16,6 +16,7 @@ from pathlib import Path
 import pytest
 
 from dokimi.cli import build_parser
+from dokimi.external import paths as path_checks
 from dokimi.external import read_skill_manifest, review_skills
 
 
@@ -31,6 +32,7 @@ def _too_long(path: Path) -> OSError:
 
 
 def test_load_error_on_a_sibling_is_an_error_row(tmp_path, monkeypatch):
+    """Pins the load path, which already caught OSError before this change; the other tests pin the fix."""
     _skill(tmp_path, "good")
     _skill(tmp_path, "sib")
     real_read_text = Path.read_text
@@ -103,3 +105,20 @@ def test_unreadable_skill_fails_the_scan_like_a_load_error(tmp_path, monkeypatch
     with pytest.raises(SystemExit) as exc_info:
         args.func(args)
     assert exc_info.value.code == 1
+
+
+@pytest.mark.parametrize("error", [OSError, RuntimeError, ValueError])
+def test_a_name_the_os_refuses_is_an_answer_not_a_crash(tmp_path, monkeypatch, error):
+    """The path helpers answer for a name the OS refuses to resolve (a symlink loop, a NUL byte) or stat."""
+    def refuse_resolve(self, *args, **kwargs):
+        raise error("name refused by the OS")
+
+    def refuse_exists(self, *args, **kwargs):
+        raise OSError(errno.ENAMETOOLONG, os.strerror(errno.ENAMETOOLONG), str(self))
+
+    monkeypatch.setattr(Path, "resolve", refuse_resolve)
+    monkeypatch.setattr(Path, "exists", refuse_exists)
+    target = tmp_path / "x"
+    assert path_checks._resolved(target) is None
+    assert path_checks._exists(target) is False
+    assert path_checks._in_checkout(target, tmp_path) is None
