@@ -494,11 +494,11 @@ Worth knowing before you read a suspiciously clean result:
 
 | Command | Root missing | Exit |
 |---|---|---|
-| `catalog check --root <missing>` | `--root is not a directory: <path>` | 2 |
+| `catalog check --root <missing>` | `Error: --root is not a directory: <path>` | 2 |
 | `catalog check --root <no SKILL.md> --kind skills` | `no SKILL.md found under <path>` | 1 |
-| `tasks run --tasks-root <missing>` | `--tasks-root is not a directory: <path>` | 2 |
-| `eval tasks list --tasks-root <missing>` | `--tasks-root is not a directory: <path>` | 2 |
-| `explore list --tasks-root <missing>` | `--tasks-root is not a directory: <path>` | 2 |
+| `tasks run --tasks-root <missing>` | `Error: --tasks-root is not a directory: <path>` | 2 |
+| `eval tasks list --tasks-root <missing>` | `Error: --tasks-root is not a directory: <path>` | 2 |
+| `explore list --tasks-root <missing>` | `Error: --tasks-root is not a directory: <path>` | 2 |
 | `coverage` with no roots | every product reads `no`/`0`, plus an explicit note | 0 |
 | `evaluate`/`benchmark run` with a root lacking the golden set | `WARNING ... has no golden set for <product>` and continues | — |
 

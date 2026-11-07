@@ -57,7 +57,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional
 
-from dokimi import process
+from dokimi import docker_cmd, process
 from dokimi.metrics.usage import UsageRecord
 
 from .agent_sandbox import (
@@ -865,7 +865,7 @@ def _docker(args: list[str], log, *, check: bool = True, timeout: Optional[float
     is kept whole, in memory: callers parse it (the sidecar's decision log), and it is
     redacted before run.log gets all of it.
     """
-    argv = ["docker", *args]
+    argv = docker_cmd.argv(*args)
     budget = timeout if timeout is not None else DOCKER_STEP_TIMEOUT
     proc = runner(argv, timeout=budget, env=process.Env.inherit(), capture_limit=None)
     log.write(f"$ docker {' '.join(shlex.quote(_redact(a)) for a in args)}\n")
