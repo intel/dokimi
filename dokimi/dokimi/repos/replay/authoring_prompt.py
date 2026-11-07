@@ -55,7 +55,7 @@ def build(title: str, body: str, *, names: list[str], changed_lines: set[str], n
     lines its diff adds or removes, ``commits`` its SHAs."""
     dropped = {"test_lines": 0, "code_blocks": 0, "links": 0}
     lines = _without_quoted_blocks(body.replace("\r\n", "\n").split("\n"), changed_lines, dropped)
-    named = [re.compile(r"(?<![\w/.-])" + re.escape(n) + r"(?![\w-])") for n in names]
+    named = [re.compile(r"(?<![\w.-])" + re.escape(n) + r"(?![\w-])") for n in names]
     kept = []
     for line in lines:
         line = _without_links(line, number, commits, dropped)

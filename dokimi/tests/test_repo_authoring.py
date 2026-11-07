@@ -201,6 +201,13 @@ def test_the_prompt_drops_a_diff_and_change_links_and_keeps_other_links_and_hex_
                                             "https://example.invalid/wiki.\nCompare  build deadbeef1, commit .")
 
 
+def test_a_line_naming_a_hidden_test_by_a_shorter_path_is_dropped():
+    body = "see `tests/test_a.py`\nrun ./tests/test_a.py\nFAILED tests/test_a.py::test_x\nmytest_a.py stays"
+    names = authoring_prompt.test_names(["pkg/tests/test_a.py"], [])
+    prompt = authoring_prompt.build("T", body, names=names, changed_lines=set(), number=9, commits=[])
+    assert prompt.dropped["test_lines"] == 3 and prompt.text.split("\n\n")[1] == "mytest_a.py stays"
+
+
 def test_a_prompt_file_replaces_the_instruction_and_an_empty_one_exits_1(toy, tmp_path, capsys):
     out, instr = tmp_path / "tasks", tmp_path / "instr.txt"
     instr.write_text("Do it with no new dependency.\n", encoding="utf-8")
