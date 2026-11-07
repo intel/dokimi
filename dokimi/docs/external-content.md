@@ -213,7 +213,7 @@ Nothing is run or imported. A CRLF line ending in such a script is an `error` (`
 shebang interpreter fail on the carriage return on Linux. A Python file that the running Python's
 `ast.parse` rejects is an `error` (`script-syntax`). So is a shell script that `bash -n` rejects: the text
 goes to bash on stdin with no environment, and only when bash is on PATH; a script whose shebang names
-a shell other than bash, sh, dash or ksh is not checked that way, and a `.sh` with no shebang is taken as bash. When `ruff` or `shellcheck` is on
+a shell other than bash, sh, dash or ksh is not checked that way, and a `.sh` with no shebang is taken as bash. The shebang's `env` options and `NAME=value` words are looked through, and `-O extglob` is given to `bash -n`; a shebang argument that changes parsing and is not one of these leaves the script unchecked. When `ruff` or `shellcheck` is on
 PATH, the bundle is linted with `ruff check --select S,E9,F63,F7,F82` and `shellcheck -f json`, and one
 `note` (`script-lint`) gives the count and the top three rules of each tool. Both run with their config
 ignored (`--isolated`, `--norc`), so a skill's own config files do not change the result. A missing tool
