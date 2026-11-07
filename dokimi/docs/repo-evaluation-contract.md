@@ -227,6 +227,7 @@ entry_points:                             # run inside the image, cwd = {run_dir
   grade:  "python3 {eval_dir}/run.py grade --contract {run_dir}"
   oracle: "python3 {eval_dir}/run.py oracle --contract {run_dir}"   # applies the reference solution
   static: "python3 {eval_dir}/static_check.py --out {out}"          # optional, repo_static.v1 (§4.4)
+  test:   "python3 -m pytest -q -p no:cacheprovider --junitxml={out} {tests}"  # optional, dokimi:hidden_tests (§4.5)
 
 tasks: dev/agent_evals/tasks
 explore_tasks: null                       # optional ExploreBench YAML directory
@@ -258,9 +259,16 @@ Rules:
   that does not compile.
 - `eval_dir` is a proper subdirectory, and `tasks` and `explore_tasks` sit inside it: it is the
   one directory deleted from every workspace (§3).
-- `{eval_dir}`, `{source_dir}`, `{run_dir}`, `{out}` and `{task}` are the only
+- `{eval_dir}`, `{source_dir}`, `{run_dir}`, `{out}`, `{task}` and `{tests}` are the only
   placeholders. `{eval_dir}` is the read-only copy from the eval tree (§1.1),
   not a path inside the workspace.
+- `entry_points.test` is the repository's test command, which `dokimi:hidden_tests` (§4.5)
+  runs on a task's hidden tests. It must name `{tests}` and `{out}`, and `{tests}` is
+  refused in any other entry point. A word that is `{tests}` becomes one argument per hidden
+  test (workspace-relative paths); inside a longer word it is the paths joined by spaces. `{out}`
+  is the JUnit XML report the command writes (`{run_dir}/hidden-tests.xml`). It is required
+  when some task's `grader` is `dokimi:hidden_tests` (`repo validate` and `eval check` say
+  which). It may not use `{source_dir}`, which is only for `grade` and `oracle`.
 - `{source_dir}` is a read-only, full-history clone of `source.url` with
   blobs, for graders that read hidden tests or mined fix commits (oneDAL's
   `fix` grader reads the fix commit named by `base`). It is allowed only in
@@ -649,6 +657,12 @@ For every task, before any paid run:
 - for score-only tasks, the oracle must reach `score.max` on `score.metric`
 - the agent container must not be able to read any file under `tasks` or
   `{source_dir}` (§1.1)
+- for a `dokimi:hidden_tests` task (§4.5), whose verdict comes from tests, the null and the
+  oracle steps run twice each, each run in a workspace of its own (`<task>__null2`,
+  `<task>__oracle2`). When the two runs of a step differ in their status, `pass` or the count
+  of passed, failed, errored or skipped tests, the task is `flaky`, with both runs in its
+  problems: not ok, so `eval check` exits 1 for it, as for a broken task. `check.json` holds the
+  second runs as `null_again` and `oracle_again`
 
 A task whose `host` requirements (§3) the probe container does not meet is
 `unsupported` with the reason, like a task whose `egress` needs the missing
@@ -722,7 +736,8 @@ other exit 127 is reported as a plain `grade exited 127`.
   did not produce is `null`.
 - `oracle` writes the reference answer to `answer.txt` and leaves the
   workspace alone, except `dokimi:typecheck`, whose `oracle` copies `reference/`
-  over the workspace (see its paragraph below).
+  over the workspace (see its paragraph below), and `dokimi:hidden_tests`, whose
+  `oracle` does the same and then deletes `reference_deleted`.
 
 A review task with `pass: null` is scored, not gated: give it `score`. A `gate`
 on its metrics is not applied (`success` is null), and without `score` the run
@@ -751,6 +766,7 @@ failed the task, and on a task with `score` that is a failed run with score
 |---|---|---|---|---|
 | `dokimi:review_seeds` | `manifest.json` (`manifest`); oracle answer `oracle.json` (`oracle_answer`), a list of findings | `null`; for a manifest with no seeds (a clean-diff control), `true` when no finding is `blocker` or `major` | `n_findings`, `n_severe`, `n_decoys`, `unmatched`, `recall` (`null` with no seeds) | `seeds_hit`, `decoys_flagged`, `recall_by_class` (`"hit/total"`) |
 | `dokimi:review_replay` | `gold.json` (`gold`); `task.json` `window`, default 5 | `null` (score-only) | `n_findings`, `n_severe`, `n_threads`, `recall` (= `recall_all`), `recall_addressed`, `precision_proxy` | `threads_hit`, `matches`, `recall_by_kind`, `decoys_flagged` (always `[]`) |
+| `dokimi:hidden_tests` | `hidden/` (the hidden files at their repository paths) and an optional `reference/`; the task's own fields `hidden_tests` (the files `entry_points.test` runs), `hidden_files` (the files copied in, default `hidden_tests`) and `reference_deleted` | `true` when the test command exited 0, did not time out, and its report holds a test case and every one passed (a skipped one fails it), else `false` | `n_tests`, `n_passed`, `n_failed`, `n_errors`, `n_skipped`, `pass_share` (passed over all the cases, skipped ones included; `0` when there is none, so a run that broke the test command counts, §4.2), `tests_rc`, `tests_timed_out` | `not_passed` (the first 50 failed, errored or skipped cases, `classname::name`), `report` (why no case was read) |
 | `dokimi:graph_enum` | `gold.json` (`gold`): `answer_key` (`files`, `functions` or `classes`), `gold`, `exclude`, `accepted` (§4.7) | `null` (score-only); `false` with `parse_error: true` and every metric 0 when the answer has no list under the key | `f1`, `recall`, `precision`, `n_gold`, `n_answer`, `n_false_positive` | `missed`, `false_positive`, `accepted_extra` (first 50 each) |
 | `dokimi:typecheck` | none: the task's own fields `tool` (`mypy`), `version` (the image's mypy, exactly), `paths` (workspace-relative files) | `true` when no error is reported on a listed file, every listed file exists, and nothing silences mypy, else `false` | `n_errors`, `n_missing`, `n_suppressions`, `n_files` | `errors` (first 50, `file:line: message [code]`, and each silenced spot), `missing`, `tool`, `tool_version` |
 
@@ -780,6 +796,29 @@ grader failure, not a fail. It is not "no new errors against the base": the
 grader is stdlib-only and cannot run `git` to read the base, and it does not
 start basedpyright (the L0 check, §8.2, runs mypy or basedpyright on the host, as `--typecheck-tool` selects). A repository that
 needs that comparison writes it in its own `grade` entry point.
+
+`dokimi:hidden_tests` grades the workspace with the repository's own tests, held out of it
+until the grade. Before the grader runs, the framework copies each `hidden_files` path from the
+task's `hidden/` into the workspace, with its file mode, replacing a file (or a link) the workspace has there; a
+directory on the way that is a symbolic link or not a directory, or a directory at the path,
+stops the copy and the grade is a grader error; so does a hidden file that is a symbolic link
+(`repo validate` reports it) or cannot be copied. It then runs `entry_points.test` (§2) in a
+container like the grading one (same mounts, network and environment, no grader code), with
+its output in `test.log` and `test.err`, records its exit in `hidden-tests.json`, and runs
+the grader, which reads that record and the JUnit report at `{out}`
+(`hidden-tests.xml`). A test case with a `failure` element failed, one with `error` errored,
+one with `skipped` was skipped, and any other passed. No report, an unreadable one, one over 64 MB,
+or one that declares a DOCTYPE or an entity is a failed run with no test case (`n_tests` 0,
+`details.report` says why), not a grader error: the subject's code may break the test command.
+The gate is the default `["pass"]`: every hidden test ran and passed; `pass_share` is the
+partial credit `repo compare --metric pass_share` reads. A skipped case fails the gate and counts
+against `pass_share`: a test that skips when the change is absent (`pytest.importorskip` of a module
+the change adds) shows nothing. So a task whose oracle run skips a case (a platform `skipif`) is
+`broken` in the self-check (§4.3): drop that case from the task's tests, or the task. The test command runs the subject's
+code with the run dir writable, as a repository's `grade` does, so a run that rewrites the
+report is not detected. Its `oracle` copies `reference/` over the workspace as
+`dokimi:typecheck`'s does and then deletes each `reference_deleted` path, refusing one reached
+through a symbolic link. `repo tasks authoring` writes these tasks (§4.8).
 
 `manifest.json` is `{"seeds": [{id, class, file, lines, kw}], "decoys":
 [{id, file, lines, kw}]}`; `file` `"*"` matches any file, and `kw` is a
@@ -1072,6 +1111,118 @@ error.
 The command exits 2 without `--index`, with `--references 0 --derives 0`, on
 an unpinned source, an index that does not read, or one that maps to no file
 of the tree; 1 when no target gave a task, a task cannot be written, or the source cannot be resolved at the revision.
+
+### 4.8 Authoring tasks from merged pull requests
+
+Review replay (§4.6) measures guidance for reviewing; most guidance is read while writing code.
+`repo tasks authoring` writes `dokimi:hidden_tests` tasks (§4.5) from merged pull requests: the
+agent gets the PR's title and description, the PR's own tests are held out of the workspace
+and run at grade time, and the rest of the PR's diff is the oracle. Like replay it makes no
+GitHub call and reads the history with git.
+
+```bash
+gh api graphql --paginate --slurp -F query=@authoring-prs.graphql \
+    -F q='repo:intel/dokimi is:pr is:merged merged:2026-10-01..2026-10-27' > prs.json
+python cli.py repo tasks authoring ~/dokimi --prs prs.json --out ~/dokimi/.agent-eval/tasks
+```
+
+```graphql
+query($q: String!, $endCursor: String) {
+  search(query: $q, type: ISSUE, first: 50, after: $endCursor) {
+    pageInfo { hasNextPage endCursor }
+    nodes {
+      ... on PullRequest {
+        number title body url createdAt author { login __typename }
+        headRefOid mergeCommit { oid }
+      }
+    }
+  }
+}
+```
+
+The file is read as replay reads its threads file (one response, the pages `--slurp` writes, or
+a list), taking every object with `number` and `mergeCommit`; `body` and `createdAt` are the
+fields replay's query lacks, so adding them to the §4.6 query makes one file serve both
+commands. An object without `body` is skipped with that reason, since its prompt would be the
+title alone; an empty `body` is a PR with no description. The files a PR changes come from git, not from the file.
+
+**One task per pull request**, in `<out>/authoring_pr<number>/`:
+
+- `base` is the merge base of `headRefOid` with `mergeCommit^1`, as replay takes it (§4.6),
+  and the change is the diff from `base` to `headRefOid`. A PR merged by fast-forward is
+  skipped. A file the guidance globs match, an overlay or a file under `eval_dir` is left out
+  and listed in `left_out_files`, as in replay.
+- Of the rest, a **test path** is a file whose name a test runner collects (`test_*`,
+  `*_test.*`, `*_tests.*`, `*.test.*`, `*.spec.*`), a `conftest.py`, or any file under a
+  directory named `test`, `tests` or `__tests__`. The test paths the PR adds or changes are
+  `hidden_files`, written to `hidden/` at their repository paths; those whose name a runner
+  collects are `hidden_tests`, the files `entry_points.test` runs. A test path the PR deletes is
+  not hidden: the base's copy stays in the workspace.
+- Every other path is the oracle: `reference/` holds each file the PR adds or changes, with its
+  content and mode at `headRefOid`, and `reference_deleted` lists the ones it deletes.
+  `oracle_lines` is the lines it adds and removes there (a binary file counts none).
+- `task.json` has `family` (`fix` when the title starts with `fix`, `bugfix` or `hotfix`,
+  else `feature`), `base`, `prompt`, `grader: dokimi:hidden_tests`, `hidden_tests`,
+  `hidden_files`, and for the reader `source_pr`, `source_url`, `merge_commit`, `head_commit`,
+  `patch_files` (every path the change makes outside `left_out_files`, tests included, the
+  rename of a file as both its paths), `oracle_lines`, `prompt_dropped`, and when they apply
+  `reference_deleted`, `left_out_files` and `public_at`. No `gate`: the default `["pass"]`
+  is that every hidden test ran and passed, and `pass_share` is in `grade.json` beside it.
+- `public_at` is the PR's `createdAt` as the file gives it, absent (with a note) when it is
+  missing, not ISO 8601 or has no offset. `repo compare` flags these tasks by the rule it
+  applies to replay tasks (§4.6, §9): a guidance file that applies to a path of `patch_files`,
+  committed after `public_at`.
+
+**The prompt** is the PR's title, its description, and a fixed instruction (implement the
+change; its tests are hidden and run after the agent finishes); `--prompt-file` replaces the
+instruction, not the PR's text. From the description the command removes, counting each kind
+in `prompt_dropped`:
+
+- `code_blocks`: a fenced block whose info string is `diff` or `patch`, that holds a diff line
+  (`diff --git`, `@@ -`, `+++ `, `--- a/`), or half or more of whose lines of 4 or more
+  characters are lines the PR's diff adds or removes;
+- `links`: a link or URL to `/commit/`, `/commits/`, `/compare/`, a `.diff` or `.patch`, or
+  `/pull/<number>` of the PR itself, and a word of 7 to 40 hex digits that starts one of the
+  PR's commits (`base..headRefOid`);
+- `test_lines`: a line naming a hidden test: its path, its file name without the extension
+  (not a bare `test` or `tests`), or a function or class whose name starts with `test` or
+  `Test` that a line the PR adds to a hidden test file defines (`def`, `async def`,
+  `class`). A PR with more than 5 such lines is skipped: its description is its tests.
+
+**Which pull requests give a task.** The build's filter is cheap: the PR adds or changes a
+hidden test, changes something outside its tests, and its `oracle_lines` is at most
+`--max-lines` (default 400). `eval check` (§4.3) decides the rest: the untouched base must
+fail the hidden tests, the oracle must pass them, each twice, or the task is broken or flaky.
+A pull request that gives no task is listed with the reason:
+
+| Reason | When |
+|---|---|
+| `not merged: no mergeCommit in the input` | `mergeCommit` is null or not a full SHA |
+| `no headRefOid in the input` | the same for `headRefOid` |
+| `its mergeCommit <sha> is not in the source (fetch the base branch)`, `its headRefOid <sha> is not in the source (fetch refs/pull/<n>/head)` | the commit is missing |
+| `merged by fast-forward: ...` | `mergeCommit` is `headRefOid` |
+| `its headRefOid <sha> shares no history with the base branch` | no merge base |
+| `<sha> changes nothing against its base <sha>` | an empty diff |
+| `it changes only guidance files or files under eval_dir` | nothing is left after `left_out_files` |
+| `it adds or changes no test file` | no `hidden_tests` |
+| `it changes only test files, so there is nothing to implement` | no oracle |
+| `its diff outside the tests changes <n> lines, more than --max-lines <m>` | `oracle_lines` over the limit |
+| `it makes <path> a symbolic link or a submodule, which a task copies no file for` | the PR's version of a hidden or oracle file is not a regular file |
+| `its description names the hidden tests on <n> lines, more than 5: the description is its tests` | `test_lines` over 5 |
+| `git <command> failed: ...`, `git <command> timed out ...` | a git failure while that PR is built |
+
+A task directory that has a `task.json` is kept as it is; `--force` rewrites it, and its
+`hidden/` and `reference/` with it. For a remote source the clone fetches the `mergeCommit`
+and `headRefOid` it lacks from `origin`; a local repository is read as it is, so fetch
+`refs/pull/*/head` first (§4.6).
+
+The command prints one line per pull request (`written`, `kept` or `skipped`, with the
+reason or the counts) and a summary. It exits 1 when the pull request file cannot be read or
+holds no pull request, when no pull request gave a task (written, or kept from before), and on
+an error that is not one pull request's own: a malformed pull request (a `number` that is not
+an integer), the source, the manifest, the prompt file (unreadable or empty), or a task it
+cannot write. Each prints `✗` and the reason. Grading a task needs the manifest's
+`entry_points.test` (§2).
 
 ## 5. Aligning oneDAL `dev/agent_evals` (uxlfoundation/oneDAL#3818)
 
@@ -2025,6 +2176,13 @@ python cli.py repo compare repo-runs/replay --baseline guidance:none --metric re
 # judged recall (§4.5): a sample for a person to label (no LLM), then the judge (paid)
 python cli.py repo hits sheet repo-runs/replay --out labels.json
 python cli.py repo hits judge repo-runs/replay --judge openai/gpt-5.1 --labels labels.json --max-usd 5
+```
+
+```bash
+# authoring tasks from merged PRs (§4.8): no LLM, no docker, no GitHub call; the manifest needs entry_points.test
+python cli.py repo tasks authoring ~/dokimi --prs prs.json --out ~/dokimi/.agent-eval/tasks
+python cli.py eval check ~/dokimi --task authoring_pr405   # base fails, oracle passes, twice each
+python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric pass_share
 ```
 
 - Each cell holds the §4 inputs plus `agent.stdout` (the raw trace) and

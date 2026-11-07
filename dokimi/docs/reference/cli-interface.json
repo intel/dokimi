@@ -215,7 +215,6 @@
                 "'claude-cli'",
                 "'google-vertex'",
                 "'openai'",
-                "'openai-codex'",
                 "'openrouter'"
               ],
               "const": null,
@@ -1979,7 +1978,6 @@
                 "'claude-cli'",
                 "'google-vertex'",
                 "'openai'",
-                "'openai-codex'",
                 "'openrouter'"
               ],
               "const": null,
@@ -2195,7 +2193,6 @@
                 "'claude-cli'",
                 "'google-vertex'",
                 "'openai'",
-                "'openai-codex'",
                 "'openrouter'"
               ],
               "const": null,
@@ -2491,7 +2488,6 @@
                 "'claude-cli'",
                 "'google-vertex'",
                 "'openai'",
-                "'openai-codex'",
                 "'openrouter'"
               ],
               "const": null,
@@ -5882,7 +5878,6 @@
                     "'claude-cli'",
                     "'google-vertex'",
                     "'openai'",
-                    "'openai-codex'",
                     "'openrouter'"
                   ],
                   "const": null,
@@ -6287,7 +6282,6 @@
                     "'claude-cli'",
                     "'google-vertex'",
                     "'openai'",
-                    "'openai-codex'",
                     "'openrouter'"
                   ],
                   "const": null,
@@ -8692,7 +8686,6 @@
             "'claude-cli'",
             "'google-vertex'",
             "'openai'",
-            "'openai-codex'",
             "'openrouter'"
           ],
           "const": null,
@@ -11610,6 +11603,199 @@
           "subcommand_required": null,
           "subcommands": {}
         },
+        "tasks": {
+          "allow_abbrev": true,
+          "params": [
+            {
+              "action": "_HelpAction",
+              "choices": null,
+              "const": null,
+              "default": "==SUPPRESS==",
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": true,
+              "key": "--help/-h",
+              "kind": "option",
+              "nargs": 0,
+              "position": null,
+              "required": false,
+              "type": null
+            }
+          ],
+          "path": "dokimi repo tasks",
+          "subcommand_required": true,
+          "subcommands": {
+            "authoring": {
+              "allow_abbrev": true,
+              "params": [
+                {
+                  "action": "_StoreAction",
+                  "choices": null,
+                  "const": null,
+                  "default": null,
+                  "group_key": null,
+                  "group_required": null,
+                  "hidden": false,
+                  "is_flag": false,
+                  "key": "source",
+                  "kind": "argument",
+                  "nargs": null,
+                  "position": 0,
+                  "required": true,
+                  "type": null
+                },
+                {
+                  "action": "_StoreAction",
+                  "choices": null,
+                  "const": null,
+                  "default": null,
+                  "group_key": null,
+                  "group_required": null,
+                  "hidden": false,
+                  "is_flag": false,
+                  "key": "--cache-dir",
+                  "kind": "option",
+                  "nargs": null,
+                  "position": null,
+                  "required": false,
+                  "type": null
+                },
+                {
+                  "action": "_StoreTrueAction",
+                  "choices": null,
+                  "const": true,
+                  "default": false,
+                  "group_key": null,
+                  "group_required": null,
+                  "hidden": false,
+                  "is_flag": true,
+                  "key": "--force",
+                  "kind": "option",
+                  "nargs": 0,
+                  "position": null,
+                  "required": false,
+                  "type": null
+                },
+                {
+                  "action": "_HelpAction",
+                  "choices": null,
+                  "const": null,
+                  "default": "==SUPPRESS==",
+                  "group_key": null,
+                  "group_required": null,
+                  "hidden": false,
+                  "is_flag": true,
+                  "key": "--help/-h",
+                  "kind": "option",
+                  "nargs": 0,
+                  "position": null,
+                  "required": false,
+                  "type": null
+                },
+                {
+                  "action": "_StoreAction",
+                  "choices": null,
+                  "const": null,
+                  "default": ".agent-eval/repo-eval.yaml",
+                  "group_key": null,
+                  "group_required": null,
+                  "hidden": false,
+                  "is_flag": false,
+                  "key": "--manifest",
+                  "kind": "option",
+                  "nargs": null,
+                  "position": null,
+                  "required": false,
+                  "type": null
+                },
+                {
+                  "action": "_StoreAction",
+                  "choices": null,
+                  "const": null,
+                  "default": null,
+                  "group_key": null,
+                  "group_required": null,
+                  "hidden": false,
+                  "is_flag": false,
+                  "key": "--manifest-file",
+                  "kind": "option",
+                  "nargs": null,
+                  "position": null,
+                  "required": false,
+                  "type": null
+                },
+                {
+                  "action": "_StoreAction",
+                  "choices": null,
+                  "const": null,
+                  "default": 400,
+                  "group_key": null,
+                  "group_required": null,
+                  "hidden": false,
+                  "is_flag": false,
+                  "key": "--max-lines",
+                  "kind": "option",
+                  "nargs": null,
+                  "position": null,
+                  "required": false,
+                  "type": "dokimi.cli.build_parser.<locals>.positive_int#faf57db5ff9f"
+                },
+                {
+                  "action": "_StoreAction",
+                  "choices": null,
+                  "const": null,
+                  "default": null,
+                  "group_key": null,
+                  "group_required": null,
+                  "hidden": false,
+                  "is_flag": false,
+                  "key": "--out",
+                  "kind": "option",
+                  "nargs": null,
+                  "position": null,
+                  "required": true,
+                  "type": null
+                },
+                {
+                  "action": "_StoreAction",
+                  "choices": null,
+                  "const": null,
+                  "default": null,
+                  "group_key": null,
+                  "group_required": null,
+                  "hidden": false,
+                  "is_flag": false,
+                  "key": "--prompt-file",
+                  "kind": "option",
+                  "nargs": null,
+                  "position": null,
+                  "required": false,
+                  "type": null
+                },
+                {
+                  "action": "_StoreAction",
+                  "choices": null,
+                  "const": null,
+                  "default": null,
+                  "group_key": null,
+                  "group_required": null,
+                  "hidden": false,
+                  "is_flag": false,
+                  "key": "--prs",
+                  "kind": "option",
+                  "nargs": null,
+                  "position": null,
+                  "required": true,
+                  "type": null
+                }
+              ],
+              "path": "dokimi repo tasks authoring",
+              "subcommand_required": null,
+              "subcommands": {}
+            }
+          }
+        },
         "validate": {
           "allow_abbrev": true,
           "params": [
@@ -12652,6 +12838,25 @@
                   "type": "dokimi.cli.build_parser.<locals>.positive_int#faf57db5ff9f"
                 },
                 {
+                  "action": "_StoreAction",
+                  "choices": [
+                    "'neutral'",
+                    "'reference'"
+                  ],
+                  "const": null,
+                  "default": "reference",
+                  "group_key": null,
+                  "group_required": null,
+                  "hidden": false,
+                  "is_flag": false,
+                  "key": "--context-framing",
+                  "kind": "option",
+                  "nargs": null,
+                  "position": null,
+                  "required": false,
+                  "type": null
+                },
+                {
                   "action": "_StoreTrueAction",
                   "choices": null,
                   "const": true,
@@ -13651,6 +13856,25 @@
                   "position": null,
                   "required": false,
                   "type": "dokimi.cli.build_parser.<locals>.positive_int#faf57db5ff9f"
+                },
+                {
+                  "action": "_StoreAction",
+                  "choices": [
+                    "'neutral'",
+                    "'reference'"
+                  ],
+                  "const": null,
+                  "default": "reference",
+                  "group_key": null,
+                  "group_required": null,
+                  "hidden": false,
+                  "is_flag": false,
+                  "key": "--context-framing",
+                  "kind": "option",
+                  "nargs": null,
+                  "position": null,
+                  "required": false,
+                  "type": null
                 },
                 {
                   "action": "_StoreAction",

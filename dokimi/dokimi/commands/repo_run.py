@@ -1,8 +1,8 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""eval check / eval tasks generate --from replay / repo run / repo report / repo compare: the repository-mode runner
-(contract §3, §4, §4.3, §4.5)."""
+"""eval check / eval tasks generate --from replay / repo tasks authoring / repo run / repo report / repo compare: the
+repository-mode runner (contract §3, §4, §4.3, §4.5, §4.6, §4.8)."""
 
 from __future__ import annotations
 
@@ -232,6 +232,47 @@ def cmd_repo_tasks_replay(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
+def cmd_repo_tasks_authoring(args: argparse.Namespace) -> None:
+    """One dokimi:hidden_tests task per merged PR of a recorded PR file (contract §4.8; no LLM, no GitHub)."""
+    from dokimi.repos import RepoSource, open_source
+    from dokimi.repos.replay import History, read_threads
+    from dokimi.repos.replay.authoring import Options
+    from dokimi.repos.replay.authoring_prompt import DEFAULT_INSTRUCTION
+    from dokimi.repos.replay.authoring_prs import build_all
+    from dokimi.repos.workspace import source_git_dir
+
+    from .repo import _cache_dir, _load_manifest
+
+    try:
+        prs = read_threads(Path(args.prs), "mergeCommit", "pull request file")
+        text = Path(args.prompt_file).read_text(encoding="utf-8").strip() if args.prompt_file else DEFAULT_INSTRUCTION
+        if not text:
+            raise ValueError(f"the prompt file {args.prompt_file} is empty")
+        source = RepoSource.parse(args.source)
+        tree = open_source(source, _cache_dir(args))
+        manifest = _load_manifest(tree, args)
+        opts = Options(out=Path(args.out), max_lines=args.max_lines, instruction=text, force=args.force,
+                       fetch=source.remote)
+        outcomes = build_all(History(source_git_dir(source, tree, _cache_dir(args))), manifest, prs, opts)
+    except _errors() as exc:
+        print(f"✗ {exc}", file=sys.stderr)
+        sys.exit(1)
+    for o in outcomes:
+        d = o.dropped
+        what = (f"{o.status} {o.task}: {o.n_hidden} hidden test file(s), {o.n_lines} line(s) outside the tests; "
+                f"the prompt dropped {d.get('test_lines', 0)} line(s) naming a hidden test, "
+                f"{d.get('code_blocks', 0)} quoted block(s), {d.get('links', 0)} link(s)") \
+            if o.status == "written" else f"{o.status}{f' {o.task}' if o.task else ''}: {o.reason}"
+        print(f"PR {o.pr}: {what}")
+        for note in o.notes:
+            print(f"  {note}")
+    n = {k: sum(o.status == k for o in outcomes) for k in ("written", "kept", "skipped")}
+    print(f"{n['written']} task(s) written, {n['kept']} kept, {n['skipped']} pull request(s) skipped; in {opts.out}")
+    if not n["written"] and not n["kept"]:
+        print("✗ no pull request gave a task", file=sys.stderr)
+        sys.exit(1)
+
+
 def cmd_repo_run(args: argparse.Namespace) -> None:
     """Run agents on the tasks, grade every run, write one result.json per cell."""
     arms = [a for spec in args.arm for a in spec.split(",") if a]
@@ -403,6 +444,8 @@ def _common(p: argparse.ArgumentParser, source_help: str, cache_help: str, posit
 
 
 def register(repo_sub, eval_sub, positive_int, source_help: str, cache_help: str) -> None:
+    tasks_p = repo_sub.add_parser("tasks", help="Authoring tasks built from merged pull requests (no LLM)")
+    tasks_sub = tasks_p.add_subparsers(dest="repo_tasks_cmd", required=True)
     # eval check (#94 M1): the self-check that `repo tasks check` ran, now `eval check`
     check_p = eval_sub.add_parser(
         "check", help="Per task: grade on the untouched workspace must fail the gate, oracle then grade must "
@@ -421,6 +464,34 @@ def register(repo_sub, eval_sub, positive_int, source_help: str, cache_help: str
                          "which no task is ok")
     check_p.add_argument("--out", default="repo-check", help="Work directory (default: repo-check)")
     check_p.set_defaults(func=cmd_repo_tasks_check)
+
+    authoring_p = tasks_sub.add_parser(
+        "authoring", help="Write one dokimi:hidden_tests task per merged pull request of a file `gh api graphql` "
+        "wrote: the PR's description as the prompt, its test files hidden until grading, the rest of its diff as "
+        "the oracle. No LLM and no GitHub call. Exits 1 when no pull request gave a task, and on an error that is "
+        "not one pull request's own (the PR file, the source, the manifest, the prompt file, writing a task)")
+    authoring_p.add_argument("source", help=source_help)
+    authoring_p.add_argument("--prs", required=True,
+                             help="JSON holding the merged pull requests, as the query in the contract (§4.8) "
+                             "returns them; pages of --paginate --slurp are read too")
+    authoring_p.add_argument("--out", required=True,
+                             help="Directory that gets one authoring_pr<number>/ per pull request, usually the "
+                             "manifest's `tasks`")
+    authoring_p.add_argument("--manifest", default=".agent-eval/repo-eval.yaml",
+                             help="Manifest path relative to the repository root: its guidance globs and eval_dir "
+                             "are left out of every task")
+    authoring_p.add_argument("--manifest-file", default=None, dest="manifest_file",
+                             help="Read the manifest from this local file instead of from the tree")
+    authoring_p.add_argument("--max-lines", type=positive_int, default=400, dest="max_lines",
+                             help="Skip a pull request whose diff outside its tests and the left-out files adds and "
+                             "removes more lines than this (default 400)")
+    authoring_p.add_argument("--prompt-file", default=None, dest="prompt_file",
+                             help="The instruction after the PR's title and description (default: implement the "
+                             "change; its tests are hidden)")
+    authoring_p.add_argument("--force", action="store_true",
+                             help="Rewrite a task directory that has a task.json (default: keep it and its edits)")
+    authoring_p.add_argument("--cache-dir", default=None, dest="cache_dir", help=cache_help)
+    authoring_p.set_defaults(func=cmd_repo_tasks_authoring)
 
     run_p = repo_sub.add_parser(
         "run", help="Run an agent per (task, arm, model, rep) in the image and grade each run; one "
