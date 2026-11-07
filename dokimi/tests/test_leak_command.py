@@ -10,12 +10,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
 import pytest
 
 from dokimi.artifacts import schema_errors
 from dokimi.commands.leak import cmd_eval_leak
+from dokimi.utils import InputError
 
 ANSWER = "the flag writes each kernel timing into the chrome trace file under the output directory"
 SPLIT = {"dev": ["1"], "val": ["2"], "test": ["3"]}
@@ -47,9 +49,16 @@ def _args(skill, questions, **overrides):
 
 
 def _exit_code(args) -> int:
-    with pytest.raises(SystemExit) as exc:
+    """The exit code of a run. A refused input is an InputError, which cli.main prints as ``Error: ...``
+    and exits 2 for; this does the same here so the stderr check sees the line the user sees."""
+    try:
         cmd_eval_leak(args)
-    return exc.value.code
+    except SystemExit as exc:
+        return exc.code
+    except InputError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 2
+    raise AssertionError("the run did not exit")
 
 
 def _clean_run(tmp_path):

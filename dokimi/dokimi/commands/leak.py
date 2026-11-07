@@ -30,6 +30,8 @@ import os
 import sys
 from pathlib import Path
 
+from dokimi.utils import InputError
+
 
 def _positive_int(value: str) -> int:
     try:
@@ -69,8 +71,7 @@ def _refuse_clobber(args: argparse.Namespace, lock_path: Path | None) -> None:
     if out_real is not None and out_real == lock_real:
         clobbered.append(out_real)  # --out and the lock are one file: the artifact would replace the lock
     if clobbered:
-        print(f"Error: {clobbered[0]} is an input of this run; choose another output file", file=sys.stderr)
-        sys.exit(2)
+        raise InputError(f"{clobbered[0]} is an input of this run; choose another output file")
 
 
 def cmd_eval_leak(args: argparse.Namespace) -> None:
@@ -79,11 +80,9 @@ def cmd_eval_leak(args: argparse.Namespace) -> None:
     from dokimi.questions.artifact import load_questions
 
     if args.lock and not args.split:
-        print("Error: --lock locks a split: give --split too", file=sys.stderr)
-        sys.exit(2)
+        raise InputError("--lock locks a split: give --split too")
     if args.relock and not args.split:
-        print("Error: --relock overwrites the split's lock: give --split too", file=sys.stderr)
-        sys.exit(2)
+        raise InputError("--relock overwrites the split's lock: give --split too")
     split_path = Path(args.split) if args.split else None
     lock_path = None
     if split_path is not None:
@@ -100,8 +99,7 @@ def cmd_eval_leak(args: argparse.Namespace) -> None:
                      proposer_ids=read_ids(args.proposer) if args.proposer else None,
                      relock=args.relock)
     except (OSError, ValueError, RecursionError) as e:  # RecursionError: nested too deep
-        print(f"Error: {e}", file=sys.stderr)
-        sys.exit(2)
+        raise InputError(str(e)) from e
     result["skill_path"] = str(args.skill)
     result["questions_path"] = str(args.questions)
     result["split_path"] = str(split_path) if split_path is not None else None
@@ -112,8 +110,7 @@ def cmd_eval_leak(args: argparse.Namespace) -> None:
         try:
             save_artifact("leak", result, args.out)
         except (OSError, ValueError) as e:
-            print(f"Error: {e}", file=sys.stderr)
-            sys.exit(2)
+            raise InputError(str(e)) from e
         print(f"Wrote leak artifact to {args.out}")
     if result["status"] != "pass":
         sys.exit(1)
