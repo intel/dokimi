@@ -206,6 +206,19 @@ def test_ampersand_redirection_target_is_not_a_package():
     assert online_checks.extract_packages("pip install requests &> log.txt\n") == [("pypi", "requests")]
 
 
+def test_a_conjunction_ends_one_command_and_the_next_command_is_read():
+    body = "Run pip install requests or npm i lodash\n"
+    assert online_checks.extract_packages(body) == [("pypi", "requests"), ("npm", "lodash")]
+
+
+def test_a_stray_backtick_does_not_hide_the_command():
+    assert online_checks.extract_packages("Run `pip install requests\n") == [("pypi", "requests")]
+
+
+def test_npx_value_option_is_skipped_before_the_package():
+    assert online_checks.extract_packages("npx --registry https://r.example-tool.dev foo\n") == [("npm", "foo")]
+
+
 def test_npx_prose_words_are_not_packages_and_npx_with_a_package_is():
     body = "npx is great for one-off tools\nUse npx create-react-app my-app\n"
     assert online_checks.extract_packages(body) == [("npm", "create-react-app")]

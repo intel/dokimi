@@ -42,7 +42,7 @@ _PIP = {"pip", "pip3"}
 _NPM_INSTALL = {"install", "i", "add"}
 # Words that may come before a package manager name in a command line: a prompt, a wrapper or a verb.
 _LEAD = {"$", "sudo", "run", "Run", "RUN", "use", "Use", "then", "and", "-m", "uv", "env"}
-# Words that end an install in prose ("pip install requests and you're done"), not package names.
+# Words that end one command in prose ("pip install requests or npm i lodash"); they are not package names.
 _PROSE_CONJUNCTIONS = {"and", "or", "but", "then"}
 # English words that follow ``npx`` in prose ("npx is great", "Use npx to run it"), not package names.
 _NPX_PROSE = {"a", "an", "and", "are", "for", "in", "is", "it", "on", "or", "the", "to", "with"}
@@ -72,8 +72,7 @@ _PLACEHOLDER_HOST_RE = re.compile(r"(?:^|[./])your-")  # a host or a path segmen
 _CONTINUATION_RE = re.compile(r"\\[ \t]*\r?\n")  # a backslash at the end of a line continues the command
 _PROSE_APOSTROPHE_RE = re.compile(r"(?<=[A-Za-z])'(?=[A-Za-z])")
 _CODE_SPAN_RE = re.compile(r"`([^`\n]*)`")
-_SEPARATOR_RE = re.compile(r"[;&|()]+|[<>]\(")  # a token of these operators ends one command; ``<(`` is a process substitution
-_REDIRECT_RE = re.compile(r"&?[<>]+[&|]?")  # an operator token of a redirection, such as ``>`` or ``2>&1``'s ``>&``
+_OPERATOR_RE = re.compile(r"[;&|()<>]+")  # a token of shell operators, such as ``;``, ``&&``, ``>&`` or ``)>``
 
 
 def make_client() -> httpx.Client:
@@ -101,20 +100,29 @@ def _lexer(line: str) -> shlex.shlex:
     return lexer
 
 
+def _is_redirect(tok: str) -> bool:
+    """A redirection operator, such as ``>``, ``2>&1``'s ``>&`` or ``)>``; ``<(`` and ``>(`` start a process substitution."""
+    return _OPERATOR_RE.fullmatch(tok) is not None and any(c in tok for c in "<>") and not tok.endswith("(")
+
+
+def _is_separator(tok: str) -> bool:
+    return _OPERATOR_RE.fullmatch(tok) is not None and not _is_redirect(tok)
+
+
 def _commands(line: str) -> Iterator[list[str]]:
     """The commands of one line, each as its words. A redirection and its target are not words of the command."""
     words: list[str] = []
     skip_target = False
     for tok in _words(line):
-        if skip_target and not _SEPARATOR_RE.fullmatch(tok):  # ``<(`` is a separator, not a target
+        if skip_target and not _is_separator(tok):
             skip_target = False
             continue
         skip_target = False
-        if _REDIRECT_RE.fullmatch(tok):
+        if _is_redirect(tok):
             if words and words[-1].isdigit():  # the file descriptor of ``2>&1`` or ``2>/dev/null``
                 words.pop()
             skip_target = True
-        elif _SEPARATOR_RE.fullmatch(tok):
+        elif _is_separator(tok) or tok in _PROSE_CONJUNCTIONS:
             if words:
                 yield words
             words = []
@@ -127,6 +135,7 @@ def _commands(line: str) -> Iterator[list[str]]:
 def _command_lines(body: str) -> Iterator[list[str]]:
     body = _CONTINUATION_RE.sub(" ", body)
     body = _CODE_SPAN_RE.sub(lambda m: f"\n{m.group(1)}\n", body)  # an inline code span is a line of its own
+    body = body.replace("`", " ")  # a backtick left over (an odd count, or a fence) is only a space
     for line in body.splitlines():
         yield from _commands(line)
 
@@ -143,8 +152,6 @@ def _requirement(tok: str) -> str:
 def _pip_names(args: list[str]) -> Iterator[str]:
     skip = False
     for tok in args:
-        if tok in _PROSE_CONJUNCTIONS:
-            return
         if skip:
             skip = False
         elif tok in _PIP_VALUE_OPTIONS:
@@ -172,8 +179,6 @@ def _npm_name(tok: str) -> Optional[str]:
 def _npm_names(args: list[str]) -> Iterator[str]:
     skip = False
     for tok in args:
-        if tok in _PROSE_CONJUNCTIONS:
-            return
         if skip:
             skip = False
         elif tok in _NPM_VALUE_OPTIONS:
@@ -188,9 +193,11 @@ def _npx_names(args: list[str]) -> Iterator[str]:
     """The packages ``npx`` runs: every ``-p`` or ``--package`` value, or else the first word after its flags
     when there is none. The command that follows the packages is not a package."""
     packages: list[str] = []
-    take_next = False
+    take_next = skip = False
     for tok in args:
-        if take_next:
+        if skip:
+            skip = False
+        elif take_next:
             take_next = False
             packages.extend(_npm_names([tok]))
         elif tok in {"-c", "--call"}:
@@ -199,6 +206,8 @@ def _npx_names(args: list[str]) -> Iterator[str]:
             packages.extend(_npm_names([tok[len("--package="):]]))
         elif tok in {"-p", "--package"}:
             take_next = True
+        elif tok in _NPM_VALUE_OPTIONS:
+            skip = True
         elif not tok.startswith("-"):
             if not packages:
                 packages.extend(name for name in _npm_names([tok]) if name not in _NPX_PROSE)
