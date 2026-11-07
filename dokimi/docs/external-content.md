@@ -244,6 +244,8 @@ A large catalog is easier to scan one skill at a time:
   the counts. `--jobs N` reviews N skills in parallel. `--resume` keeps the rows
   already in PATH and reviews only the skills without one (a half-written last
   line from a killed run is dropped). Without `--resume`, PATH is replaced.
+  Every `SKILL.md` is loaded before the first row, so memory still grows with
+  the catalog. A `--jobs` worker that dies ends the scan with exit 1.
 
 `--jsonl`, `--jobs` and `--resume` need `--per-skill`, and `--jsonl` does not
 combine with `--format json`; any other misuse exits 2. From Python,

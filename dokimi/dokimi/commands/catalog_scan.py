@@ -4,8 +4,8 @@
 """``catalog check --per-skill``: each skill reviewed alone, streamed to JSONL, with ``--jobs`` and ``--resume``.
 
 The cross-catalog checks (``duplicate``, ``name-conflict``, ``mirror-drift``,
-``description-near-duplicate``) need every skill loaded at once. This mode gives them up,
-so a corpus of a million skills can be scanned one row at a time: rows are written in
+``description-near-duplicate``) need every skill reviewed together. This mode gives them up
+and reviews one skill per row; every SKILL.md is still loaded before the first row. Rows are written in
 catalog order within one run (``--resume`` appends the rest after the rows it kept), a run
 killed midway keeps the rows it wrote, and ``--resume`` reviews only the skills that have no
 row yet.
