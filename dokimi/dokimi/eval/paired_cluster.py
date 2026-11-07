@@ -21,11 +21,12 @@ Non-inferiority: the treatment is non-inferior when the lower bound of the inter
 (0..1 for pass rates). The nominal lower bound of a two-sided 95% interval corresponds to the
 one-sided 97.5% bound non-inferiority trials use, but the percentile bootstrap is too narrow with
 few clusters (see :func:`dokimi.eval.stats.bootstrap_ci`): simulated at a true delta equal to
-``-margin``, it reads ``noninferior`` about 8% of the time at 10 binary clusters, about 15% at 5-6 and
-about 2% at 20. :data:`MIN_CLUSTERS` is a floor below which no interval is reported, not a power calculation,
-and a ``noninferior`` verdict near the floor is a screening signal, not a trial-grade claim. An
-interval of zero width (every cluster has the same delta) carries no spread estimate: it never
-reads ``noninferior`` (``inferior`` when it lies below ``-margin``, else ``inconclusive``).
+``-margin`` (binary cells, one per cluster, p between 0.5 and 0.9), it reads ``noninferior``
+roughly 2-8% of the time at 10 clusters, about 15% at 5-6 and about 2% at 20. :data:`MIN_CLUSTERS`
+is a floor below which no interval is reported, not a power calculation, and a ``noninferior``
+verdict near the floor is a screening signal, not a trial-grade claim. An interval of zero width
+(every cluster has the same delta) carries no spread estimate: it never reads
+``noninferior`` (``inferior`` when it lies below ``-margin``, else ``inconclusive``).
 """
 
 from __future__ import annotations
