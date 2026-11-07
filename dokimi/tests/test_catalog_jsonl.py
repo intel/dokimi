@@ -67,13 +67,17 @@ def test_writes_one_row_per_skill_in_catalog_order_and_prints_only_the_counts(tm
 
 
 def test_more_jobs_write_the_same_rows_in_the_same_order(tmp_path, capsys):
-    _catalog(tmp_path)
+    # More skills than one 32-skill chunk per worker, so the workers finish out of order.
+    for i in range(100):
+        _skill(tmp_path, f"s{i:03d}")
     one = tmp_path / "jobs1.jsonl"
     many = tmp_path / "jobs3.jsonl"
 
     _run(["--root", str(tmp_path), "--per-skill", "--jsonl", str(one), "--jobs", "1"], capsys)
     _run(["--root", str(tmp_path), "--per-skill", "--jsonl", str(many), "--jobs", "3"], capsys)
 
+    relpaths = [row["relpath"] for row in _rows(many)]
+    assert relpaths == sorted(relpaths) and len(relpaths) == 100
     assert _rows(many) == _rows(one)
 
 
