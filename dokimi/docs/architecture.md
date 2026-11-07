@@ -387,7 +387,7 @@ next release.
   call. `repo tasks authoring` (`authoring.py`, `authoring_prs.py`,
   `authoring_prompt.py`): one `dokimi:hidden_tests` task per merged pull
   request, its description as the prompt, its tests hidden until the grade and
-  the rest of its diff as the oracle (contract §4.7); `merged.py` holds what the
+  the rest of its diff as the oracle (contract §4.8); `merged.py` holds what the
   two kinds share. They are the commands that write into a repository's tasks
   directory.
 

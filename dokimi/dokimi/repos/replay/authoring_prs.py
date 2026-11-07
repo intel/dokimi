@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""``repo tasks authoring``: one authoring task per merged pull request (contract §4.7).
+"""``repo tasks authoring``: one authoring task per merged pull request (contract §4.8).
 
 The pull request is a :class:`.authoring.Change` from ``base``, the merge base of its
 ``headRefOid`` with ``mergeCommit^1`` (as review replay takes it, :mod:`.merged`), to its
@@ -46,7 +46,7 @@ def build_one(h: History, manifest: RepoManifest, pr: PullRequest, opts: Options
 def change_of(h: History, pr: PullRequest, notes: list[str]) -> Change:
     """``pr`` as a change; :class:`.merged.Skip` when it gives none."""
     if pr.body is None:  # a replay file without the field: the prompt would be the title alone
-        raise Skip("no body in the input: the query in the contract (§4.7) asks for body and createdAt")
+        raise Skip("no body in the input: the query in the contract (§4.8) asks for body and createdAt")
     merge, head = check_merged(h, pr)
     base = base_of(h, merge, head)
     if base is None:

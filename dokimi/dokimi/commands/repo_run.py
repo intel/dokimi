@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """eval check / repo tasks replay / repo tasks authoring / repo run / repo report / repo compare: the
-repository-mode runner (contract §3, §4, §4.3, §4.5, §4.6, §4.7)."""
+repository-mode runner (contract §3, §4, §4.3, §4.5, §4.6, §4.8)."""
 
 from __future__ import annotations
 
@@ -233,7 +233,7 @@ def cmd_repo_tasks_replay(args: argparse.Namespace) -> None:
 
 
 def cmd_repo_tasks_authoring(args: argparse.Namespace) -> None:
-    """One dokimi:hidden_tests task per merged PR of a recorded PR file (contract §4.7; no LLM, no GitHub)."""
+    """One dokimi:hidden_tests task per merged PR of a recorded PR file (contract §4.8; no LLM, no GitHub)."""
     from dokimi.repos import RepoSource, open_source
     from dokimi.repos.replay import History, read_threads
     from dokimi.repos.replay.authoring import Options
@@ -498,7 +498,7 @@ def register(repo_sub, eval_sub, positive_int, source_help: str, cache_help: str
         "not one pull request's own (the PR file, the source, the manifest, the prompt file, writing a task)")
     authoring_p.add_argument("source", help=source_help)
     authoring_p.add_argument("--prs", required=True,
-                             help="JSON holding the merged pull requests, as the query in the contract (§4.7) "
+                             help="JSON holding the merged pull requests, as the query in the contract (§4.8) "
                              "returns them; pages of --paginate --slurp are read too")
     authoring_p.add_argument("--out", required=True,
                              help="Directory that gets one authoring_pr<number>/ per pull request, usually the "

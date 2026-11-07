@@ -10,7 +10,7 @@
   `reference/`. A PR with no test file, only test changes, more than `--max-lines` (default 400) lines
   outside its tests, or a fast-forward merge is listed with the reason. `public_at` is the PR's
   `createdAt`, so `repo compare` flags these tasks as it does replay tasks. No LLM, no GitHub call;
-  exits 1 when no PR gave a task or the input cannot be used (contract §4.7).
+  exits 1 when no PR gave a task or the input cannot be used (contract §4.8).
 - **Built-in grader `dokimi:hidden_tests` and the manifest's `entry_points.test`** — the framework copies
   a task's hidden files into the workspace with their file mode, runs the repository's test command on them (`{tests}`; it
   writes a JUnit report to `{out}`), and grades `pass` when every hidden test ran and passed, with

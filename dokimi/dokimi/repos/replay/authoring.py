@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""The authoring-task writer (contract §4.7): one ``dokimi:hidden_tests`` task per :class:`Change`.
+"""The authoring-task writer (contract §4.8): one ``dokimi:hidden_tests`` task per :class:`Change`.
 
 A change is a ``base`` and a ``target`` revision with a title and a description, whatever its
 source: :mod:`.authoring_prs` makes one per merged pull request. The diff from ``base`` to
@@ -142,7 +142,7 @@ def _make(h: History, manifest: RepoManifest, change: Change,
     if leave_out:
         task["left_out_files"] = leave_out
     if change.public_at:
-        task["public_at"] = change.public_at  # when the change was public (contract §4.6, §4.7)
+        task["public_at"] = change.public_at  # when the change was public (contract §4.6, §4.8)
     return task, files
 
 

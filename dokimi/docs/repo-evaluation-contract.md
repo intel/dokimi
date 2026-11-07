@@ -812,7 +812,7 @@ partial credit `repo compare --metric pass_share` reads. The test command runs t
 code with the run dir writable, as a repository's `grade` does, so a run that rewrites the
 report is not detected. Its `oracle` copies `reference/` over the workspace as
 `dokimi:typecheck`'s does and then deletes each `reference_deleted` path, refusing one reached
-through a symbolic link. `repo tasks authoring` writes these tasks (§4.7).
+through a symbolic link. `repo tasks authoring` writes these tasks (§4.8).
 
 `manifest.json` is `{"seeds": [{id, class, file, lines, kw}], "decoys":
 [{id, file, lines, kw}]}`; `file` `"*"` matches any file, and `kw` is a
@@ -1020,7 +1020,7 @@ pull request with the reason.
 python cli.py repo compare repo-runs/replay --baseline guidance:none --metric recall_addressed
 ```
 
-### 4.7 Authoring tasks from merged pull requests
+### 4.8 Authoring tasks from merged pull requests
 
 Review replay (§4.6) measures guidance for reviewing; most guidance is read while writing code.
 `repo tasks authoring` writes `dokimi:hidden_tests` tasks (§4.5) from merged pull requests: the
@@ -2082,7 +2082,7 @@ python cli.py repo hits judge repo-runs/replay --judge openai/gpt-5.1 --labels l
 ```
 
 ```bash
-# authoring tasks from merged PRs (§4.7): no LLM, no docker, no GitHub call; the manifest needs entry_points.test
+# authoring tasks from merged PRs (§4.8): no LLM, no docker, no GitHub call; the manifest needs entry_points.test
 python cli.py repo tasks authoring ~/dokimi --prs prs.json --out ~/dokimi/.agent-eval/tasks
 python cli.py eval check ~/dokimi --task authoring_pr405   # base fails, oracle passes, twice each
 python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric pass_share

@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""``repo tasks authoring`` and ``dokimi:hidden_tests``: authoring tasks from merged pull requests (contract §4.7).
+"""``repo tasks authoring`` and ``dokimi:hidden_tests``: authoring tasks from merged pull requests (contract §4.8).
 
 The pull request files have the shape ``gh api graphql --paginate --slurp`` writes, with the SHAs of
 a toy history built per test. ``eval check`` runs on :class:`FakeRunner`, which runs each container's
@@ -239,7 +239,7 @@ def test_prs_without_a_task_say_why(toy, tmp_path, capsys):
                  "PR 4: skipped: merged by fast-forward: its mergeCommit is its head",
                  "PR 7: skipped: not merged: no mergeCommit in the input",
                  f"PR 8: skipped: its headRefOid {'ab' * 6} is not in the source (fetch refs/pull/8/head)",
-                 "PR 9: skipped: no body in the input: the query in the contract (§4.7) asks for body and createdAt",
+                 "PR 9: skipped: no body in the input: the query in the contract (§4.8) asks for body and createdAt",
                  "1 task(s) written, 0 kept, 6 pull request(s) skipped"):
         assert line in printed, line
     assert sorted(p.name for p in (tmp_path / "tasks").iterdir()) == ["authoring_pr1"]

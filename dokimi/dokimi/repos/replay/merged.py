@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""What every task built from a merged pull request shares: review replay (contract §4.6) and authoring (§4.7).
+"""What every task built from a merged pull request shares: review replay (contract §4.6) and authoring (§4.8).
 
 The pull request must name its ``mergeCommit`` and ``headRefOid``, both in the source, and must not
 be merged by fast-forward. Its ``base`` is the merge base of a revision of the PR with
