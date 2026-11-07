@@ -265,13 +265,15 @@ has the extractor and the judge on one model. `atoms` and the `shorten` adjudica
 with no `--extract-model` they extract with `--model`, the model under measurement. Always pass
 `--extract-model` there.
 
-Every run checks the extractor against the judge before it spends anything. The same model,
+`analyze` checks the extractor against the judge before it spends anything; `probe` checks the
+model that wrote the saved answer key (the atoms file's `extractor`) against the judge. The same model,
 or two models of one vendor family (the vendor is read off the model id: `claude`, `sonnet`,
 `haiku`, `opus` and `anthropic` are one family; `gpt` and `openai` another; `gemini` and
-`mistral` likewise), prints a `WARNING` on stderr. Ids that name no known vendor, such as
-a local server's, never match. The result is recorded in the artifact's
-`run_config.extractor_judge` (`extractor`, `judge`, `same_model`, `same_vendor`), so a
-reader of the JSON sees it without the terminal. The warning does not refuse the run.
+`mistral` likewise), prints a `WARNING` on stderr. The vendor is read off the name, so a model
+served locally under a vendor's name (`gpt-oss-120b` is OpenAI's) counts as that vendor; ids that
+name no known vendor never match. `analyze` records the result in the artifact's
+`run_config.extractor_judge` (`extractor`, `judge`, `same_model`, `same_vendor`); `probe`
+prints the warning only. The warning does not refuse the run.
 
 To clear the warning, give the extractor a different family from the judge. Here the
 extractor is Anthropic's, the judge OpenAI's:

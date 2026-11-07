@@ -194,7 +194,8 @@ def cmd_novelty_atoms(args: argparse.Namespace) -> None:
 
 def cmd_novelty_probe(args: argparse.Namespace) -> None:
     """Run the paired probes against a saved atom set and print the 2×2."""
-    from dokimi.commands.novelty_atoms_file import measured_atoms, sampling_record, warn_unread
+    from dokimi.commands.novelty_atoms_file import (measured_atoms, sampling_record,
+                                                    warn_answer_key, warn_unread)
     from dokimi.novelty.atoms import load_atoms_record
     from dokimi.novelty.bundle import check_answer_key
     from dokimi.novelty.measure import SelfJudgeError, check_self_judge, run_measurement
@@ -212,10 +213,7 @@ def cmd_novelty_probe(args: argparse.Namespace) -> None:
     settings = _settings(args)
     placebo_text = placebo_text_for_arms_or_exit(args.placebo_text, _arms(args.arms))
     extractor, answerer, judge = _clients(args)
-    if saved.get("extractor") == answerer.model:
-        print(f"WARNING: {answerer.model} extracted these atoms, so the model under measurement "
-              "wrote its own answer key; extract with a different --extract-model",
-              file=sys.stderr)
+    warn_answer_key(saved, answerer, judge)
     try:  # before the paraphrase calls below, which are paid
         check_self_judge(judge, answerer, args.allow_self_judge)
     except SelfJudgeError as exc:
@@ -791,15 +789,15 @@ def _estimate_usd(
 
 def _clients(args: argparse.Namespace):
     """Build the three role clients, defaulting so roles never silently collapse."""
-    from dokimi.novelty.client import warn_extractor_judge
-
     try:
         models = _role_models(args)
     except ValueError as exc:
         raise InputError(str(exc)) from exc
-    clients = [_client(*models[role], role, args) for role in ("extractor", "answerer", "judge")]
-    warn_extractor_judge(clients[0], clients[2])
-    return tuple(clients)
+    return (
+        _client(*models["extractor"], "extractor", args),
+        _client(*models["answerer"], "answerer", args),
+        _client(*models["judge"], "judge", args),
+    )
 
 
 def _client(model: str, provider: str, role: str, args: argparse.Namespace):
