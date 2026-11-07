@@ -70,7 +70,11 @@ def frontmatter(text: str) -> None:
         strict = parse_frontmatter_strict(text)
     except yaml.YAMLError:
         return
-    assert strict == (meta, body)
+    try:
+        assert strict == (meta, body)
+    except RecursionError:
+        # A YAML alias can make both metadata dicts cyclic; comparing two cyclic dicts recurses.
+        return
 
 
 TARGETS: dict[str, Callable[[str], None]] = {
