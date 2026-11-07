@@ -362,7 +362,9 @@ def test_a_pr_that_edits_an_agents_overlay_leaves_it_out_and_applies_under_guida
 
 
 def test_prs_without_a_task_say_why_and_rewritten_history_is_flagged(hist, tmp_path, capsys):
+    unrelated = git(hist["root"], "commit-tree", f"{hist['rev']}^{{tree}}", "-m", "no parent")
     prs = [_pr(8, hist["rev8"], hist["merge8"], [_t("AGENTS.md", 3, hist["rev8"])]),
+           _pr(18, hist["r2"], hist["merge7"], [_t("src/long.py", 10, unrelated)]),  # reviewed on no history of main
            _pr(9, hist["r2"], None, [_t("src/long.py", 10, hist["rev"])]),
            _pr(10, None, hist["merge7"], [_t("src/long.py", 10, hist["rev"])]),
            _pr(11, hist["r2"], hist["merge7"], []),
@@ -380,6 +382,7 @@ def test_prs_without_a_task_say_why_and_rewritten_history_is_flagged(hist, tmp_p
                  "PR 11: skipped: no review thread on a line by a reviewer",
                  f"PR 16: skipped: the reviewed revision {hist['c0'][:12]} changes nothing against the base branch",
                  "PR 17: skipped: no gold thread is left",
+                 f"PR 18: skipped: the reviewed revision {unrelated[:12]} shares no history with the base branch",
                  f"PR 13: skipped: its mergeCommit {NOT_IN_SOURCE[:12]} is not in the source "
                  "(fetch the base branch)",
                  "PR 12: written review_replay_pr12: 1 gold thread(s), 1 addressed",
