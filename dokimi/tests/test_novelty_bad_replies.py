@@ -201,3 +201,14 @@ def test_a_conflict_with_a_whole_number_written_as_float_or_padded_string_is_kep
     )
     assert conflicts == [{"a": atoms[0].id, "b": atoms[1].id, "why": "x"}]
     assert report.conflict_rows_dropped == 0
+
+
+def test_an_atom_alone_in_a_conflict_batch_is_warned_apart_from_failed_calls(monkeypatch):
+    atoms = _atoms(3)
+    _cache_verdicts(monkeypatch, lambda p: json.dumps({"conflicts": []}))
+    report = ClassifyReport()
+    assert detect_conflicts(atoms, client=LLMClient(model="x"), batch=2, report=report) == []
+    assert report.unchecked_alone == 1 and report.unchecked_unusable == 0
+    assert any(w.startswith("1 of 3 atoms were not checked for conflicts")
+               and "1 alone in a batch, with no pair to check" in w
+               for w in report.warnings(len(atoms)))
