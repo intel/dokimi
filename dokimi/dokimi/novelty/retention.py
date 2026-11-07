@@ -252,11 +252,8 @@ def _content_words(text: str) -> set[str]:
 
 def _key(atom: Atom, text: str) -> str:
     digest = hashlib.sha256()
-    # Bumped when what a cache entry means changes. v2: entries written before failed or
-    # verdict-less adjudications were kept out of the cache can hold such a failure
-    # stored as `absent`, indistinguishable from a real one, so they are not read. v3: a
-    # hedged `retained?` was stored as `retained` before it counted as no verdict. v4: a
-    # reply cut at the output ceiling was stored as a verdict before it was an error.
+    # Bumped when what an entry means changes: every older entry is then not read.
+    # The reason for each bump is in docs/skill-novelty.md, under the cache key.
     digest.update(_CACHE_VERSION)
     digest.update(atom.statement.strip().encode("utf-8"))
     digest.update(b"\0")
