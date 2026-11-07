@@ -65,8 +65,11 @@ def _is_leaf(parser: argparse.ArgumentParser) -> bool:
     return not any(isinstance(a, argparse._SubParsersAction) for a in parser._actions)
 
 
-def test_the_tombstone_table_holds_exactly_the_moves():
-    assert {(tomb.old, tomb.new) for tomb in cli_routes.TOMBSTONES} == set(MOVES) | set(ROOT_MOVES)
+def test_the_tombstone_table_holds_the_m1_moves():
+    # Later stages add their own tombstones (M2 in test_cli_skill_catalog_moves.py), so this checks
+    # that every M1 move is present, not that nothing else is.
+    tombstones = {(tomb.old, tomb.new) for tomb in cli_routes.TOMBSTONES}
+    assert set(MOVES) | set(ROOT_MOVES) <= tombstones
     assert len(MOVES) == 21
 
 

@@ -10,7 +10,7 @@ SPDX-License-Identifier: Apache-2.0
 
 # Context window of a run
 
-The other tracks score what an agent produced. `context trace` reads what the
+The other tracks score what an agent produced. `trace inspect` reads what the
 agent *held* while producing it: how big the prompt was at every model call,
 what start-up loaded before the agent did anything, how fast the history grew,
 whether the harness compacted it, and which tool results took the room. It
@@ -18,7 +18,7 @@ reads a trace file and calls no model.
 
 ```bash
 claude -p "<task>" --output-format stream-json --verbose > run.jsonl
-python cli.py context trace run.jsonl --window 200000 --calls
+python cli.py trace inspect run.jsonl --window 200000 --calls
 ```
 
 ```text

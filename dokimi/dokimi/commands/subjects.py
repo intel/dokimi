@@ -103,9 +103,8 @@ def cmd_subjects_run(args: argparse.Namespace) -> None:
         print("Error: repo subjects are not run by `subjects run` yet; "
               "check them with `repo validate`", file=sys.stderr)
         sys.exit(EXIT_USAGE)
-    # Attached, not produced: a novelty run costs atoms x probes x arms x (answer + grade), so it is
-    # produced by `novelty analyze` and named here by path. A bad path fails now, before any cell
-    # runs, rather than after the expensive part.
+    # Attached, not produced: `skill novelty analyze` makes it, so a bad path fails here,
+    # before any cell runs.
     try:
         novelty_artifacts, novelty_sources = load_novelty_artifacts(
             list(getattr(args, "novelty_artifact", None) or [])
@@ -260,7 +259,7 @@ def register(sub, positive_int) -> None:
     run_p.add_argument(
         "--novelty-artifact", action="append", default=None, dest="novelty_artifact",
         metavar="PATH",
-        help="Attach a novelty.v1 artifact from `novelty analyze` (repeatable, one per "
+        help="Attach a novelty.v1 artifact from `skill novelty analyze` (repeatable, one per "
              "(artifact, model) pair). Reported per cell and never averaged: novelty is a property "
              "of a pair, and ranking artifacts by `added` inside one model correlated with the "
              "measured task delta at -0.446. All novelty checks are soft and never block",

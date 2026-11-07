@@ -13,6 +13,8 @@ import pytest
 
 from dokimi.datasets_export import dataset_card, export_artifact, flatten
 
+from tests.cli_refusal import refusal
+
 HAS_DATASETS = importlib.util.find_spec("datasets") is not None
 
 
@@ -146,18 +148,17 @@ def test_export_task_runs_jsonl(tmp_path):
 def _run_export(src: Path, out: Path, kind: str = "answers", *extra: str) -> None:
     from dokimi.cli import build_parser
 
-    args = build_parser().parse_args(["dataset", "export", "--kind", kind, "--input", str(src),
+    args = build_parser().parse_args(["data", "export", "--kind", kind, "--input", str(src),
                                       "--out-dir", str(out), *extra])
     args.func(args)
 
 
 def _export_error(src: Path, out: Path, *extra: str, capsys) -> str:
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         _run_export(src, out, "answers", *extra)
-    assert exc.value.code == 2
-    assert exc.value.__suppress_context__
+    assert exc.code == 2
     assert not (out / "README.md").exists()
-    err = capsys.readouterr().err
+    err = exc.err
     assert err.startswith(f"Error: cannot export {src} to {out}: ")
     return err
 
@@ -208,11 +209,11 @@ def test_cli_export_without_validation_of_a_non_list_record_array_exits_cleanly(
 def test_cli_export_of_a_non_object_top_level_exits_cleanly(tmp_path, capsys, raw, extra, kind):
     src = tmp_path / "a.json"
     src.write_text(raw, encoding="utf-8")
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         _run_export(src, tmp_path / "out", kind, *extra)
-    assert exc.value.code == 2
+    assert exc.code == 2
     assert not (tmp_path / "out" / "README.md").exists()
-    assert capsys.readouterr().err.startswith(f"Error: cannot export {src} to {tmp_path / 'out'}: ")
+    assert exc.err.startswith(f"Error: cannot export {src} to {tmp_path / 'out'}: ")
 
 
 def test_flatten_missing_record_key_raises():

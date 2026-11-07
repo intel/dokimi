@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""`context prefilter`: guidance rules matched against Claude Code session logs, candidates for ablation.
+"""`trace prefilter`: guidance rules matched against Claude Code session logs, candidates for ablation.
 
 Every session here is a small synthetic fixture written under ``tmp_path``; no real transcript is read.
 """
@@ -265,7 +265,7 @@ def test_the_command_reads_a_quoted_glob_and_prints_json(tmp_path, capsys):
     logs.mkdir()
     for i in range(3):
         _write(logs / f"s{i}.jsonl", [_prompt("fix the readme typo")])
-    args = build_parser().parse_args(["context", "prefilter", str(guide), f"{logs}/*.jsonl",
+    args = build_parser().parse_args(["trace", "prefilter", str(guide), f"{logs}/*.jsonl",
                                       "--min-sessions", "1", "--json"])
     args.func(args)
     report = json.loads(capsys.readouterr().out)
@@ -279,7 +279,7 @@ def test_the_command_prints_a_table_and_still_reports_a_bad_session(tmp_path, ca
     good = _write(tmp_path / "good.jsonl", [_prompt("push the branch now")])
     bad = tmp_path / "bad.jsonl"
     bad.write_text("not json at all\n", encoding="utf-8")
-    args = build_parser().parse_args(["context", "prefilter", str(guide), str(good), str(bad),
+    args = build_parser().parse_args(["trace", "prefilter", str(guide), str(good), str(bad),
                                       "--min-sessions", "1"])
     with pytest.raises(SystemExit) as exc:
         args.func(args)
@@ -290,7 +290,7 @@ def test_the_command_prints_a_table_and_still_reports_a_bad_session(tmp_path, ca
 
 
 def test_the_command_refuses_a_guidance_file_it_cannot_read(tmp_path):
-    args = build_parser().parse_args(["context", "prefilter", str(tmp_path / "none.md"), str(tmp_path / "x.jsonl")])
+    args = build_parser().parse_args(["trace", "prefilter", str(tmp_path / "none.md"), str(tmp_path / "x.jsonl")])
     with pytest.raises(SystemExit, match="cannot read"):
         args.func(args)
 
@@ -398,14 +398,14 @@ def test_the_thresholds_refuse_values_outside_their_domain(tmp_path, flag, value
     guide.write_text(GUIDE, encoding="utf-8")
     log = _write(tmp_path / "s.jsonl", [_prompt("push the branch now")])
     with pytest.raises(SystemExit):
-        build_parser().parse_args(["context", "prefilter", str(guide), str(log), flag, value])
+        build_parser().parse_args(["trace", "prefilter", str(guide), str(log), flag, value])
 
 
 def test_the_thresholds_accept_their_edge_values(tmp_path):
     guide = tmp_path / "AGENTS.md"
     guide.write_text(GUIDE, encoding="utf-8")
     log = _write(tmp_path / "s.jsonl", [_prompt("push the branch now")])
-    args = build_parser().parse_args(["context", "prefilter", str(guide), str(log),
+    args = build_parser().parse_args(["trace", "prefilter", str(guide), str(log),
                                       "--rare-max", "0", "--in-use-rate", "1"])
     assert args.rare_max == 0 and args.in_use_rate == 1.0
 

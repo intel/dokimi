@@ -35,14 +35,14 @@ a scorecard.
 ## 2. What does it add? Novel vs known content
 
 An arm delta says whether an artifact helps; it does not say which parts.
-`dokimi novelty analyze --artifact skill:<path>|text:<path>` splits the
+`dokimi skill novelty analyze --artifact skill:<path>|text:<path>` splits the
 artifact into knowledge atoms and probes each one against the model with and
 without the artifact. Each atom comes out **added** (new to the model),
 **redundant** (the model already knew it), **degraded** (the artifact broke
 something the model knew) or **still missing** (stated but not picked up).
 `text:` takes any file, so the same analysis runs on a documentation page or
 a repository's `AGENTS.md`. The output is per (artifact, model) pair, with
-shortening candidates (`novelty shorten`) and a check that the artifact can be
+shortening candidates (`skill shorten`) and a check that the artifact can be
 selected among competitors at all (`novelty routing`). See
 [`skill-novelty.md`](skill-novelty.md).
 

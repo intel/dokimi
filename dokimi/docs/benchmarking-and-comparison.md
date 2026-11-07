@@ -90,7 +90,7 @@ Every command takes its models from `dokimi/defaults.py`, and every surface
 The judge is a different family from the answerer, so the judge-independence
 warning stays quiet on default flags; answering with `claude-sonnet-5-5` moves the
 novelty judge to `openai/gpt-6.1-sol` and makes `benchmark`, `eval score pointwise`,
-`eval score panel` and `evaluate` warn (`arms` and `subjects` do not check). Escalation
+`eval score panel`, `evaluate`, `arms run` and `subjects run` warn. Escalation
 judges (`--escalate-model`) have no default; `claude-opus-5-5` ($4 / $20) is the
 natural tie-break above the Sonnet judge. On `--provider amazon-bedrock` the bare
 names `claude-sonnet-5-5`, `claude-opus-5-5` and `claude-haiku-5-5` resolve to the
@@ -553,8 +553,8 @@ measures, and labels each arm `CONSISTENT ±`, `LEANING ±`, `JUDGE-DEPENDENT` o
 errored, or every judge was gated out); `--strict` exits 1 on that too. A
 `--judges` judge that leaves answers unscored prints how many and its first
 error, which the report keeps under `unscored`; one that scored none of its
-answers exits 2 once the report is written, with or without `--strict`, as
-`eval score pairwise` does when every comparison fails. With
+answers exits 1 once the report is written, with or without `--strict`, as
+`eval score pairwise` does when every comparison fails (a run failure, not bad input). With
 `--validity` reports, a judge that failed its gate is shown but does not vote
 (its grounded and checklist measures included, in any context);
 `--require-validated` leaves only judges that passed. The stored measure is
@@ -800,7 +800,7 @@ that never hits.
 
 A replayed entry reports the **stored** usage record — tokens, cost and latency
 as measured when the call was really made, not `$0`/`0s`, so cost stays
-comparable across runs. The run's `cost` totals (`novelty analyze`, `novelty
+comparable across runs. The run's `cost` totals (`skill novelty analyze`, `novelty
 routing --model`) are what this run spent, so they leave replayed records out of
 the token and `usd` sums and count them in `replayed_calls`; `llm_calls` still
 counts them. The flip side: latency from a cached run is a recording,

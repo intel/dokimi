@@ -670,7 +670,7 @@ def test_novelty_atoms_indexes_every_atom_whether_or_not_the_cap_binds(
     monkeypatch.setattr(novelty_cli.novelty_cmd, "_client",
                         lambda model, provider, role, args: novelty_cli._with_transport(
                             real_client(model, provider, role, args), transport))
-    args = novelty_cli._parse("novelty", "atoms", "--artifact", f"skill:{skill}", "--out",
+    args = novelty_cli._parse("skill", "novelty", "atoms", "--artifact", f"skill:{skill}", "--out",
                               str(tmp_path / "atoms.json"), "--max-atoms", str(cap), "--no-verify")
     args.func(args)
     out = capsys.readouterr().out
@@ -704,7 +704,7 @@ def test_novelty_atoms_saves_the_same_spread_sample_analyze_probes(tmp_path, mon
                         lambda model, provider, role, args: novelty_cli._with_transport(
                             real_client(model, provider, role, args), transport))
     out = tmp_path / "atoms.json"
-    args = novelty_cli._parse("novelty", "atoms", "--artifact", f"skill:{skill}", "--out",
+    args = novelty_cli._parse("skill", "novelty", "atoms", "--artifact", f"skill:{skill}", "--out",
                               str(out), "--max-atoms", "2", "--no-verify")
     args.func(args)
     payload = json.loads(out.read_text())

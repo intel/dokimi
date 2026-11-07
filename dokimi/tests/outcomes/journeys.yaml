@@ -362,7 +362,7 @@ criteria:
     delivery: available
     enforce: true
     capability: novelty
-    surfaces: ["novelty analyze --max-usd", "novelty probe --max-usd", "novelty routing --max-usd"]
+    surfaces: ["skill novelty analyze --max-usd", "skill novelty probe --max-usd", "novelty routing --max-usd"]
     refs: [docs/skill-novelty.md#cost-and-how-it-is-kept-down, dokimi/commands/novelty.py]
     evidence:
       - {id: cjm-novelty-spend-cap, kind: unit, stubs: [model client prices]}
@@ -370,7 +370,7 @@ criteria:
     delivery: available
     enforce: true
     capability: novelty
-    surfaces: ["novelty analyze --estimate-only"]
+    surfaces: ["skill novelty analyze --estimate-only"]
     evidence:
       - {id: cjm-novelty-estimate, kind: integration, stubs: []}
     gaps: ["the estimate is a call count and price; its error against actual spend is not measured"]
@@ -384,10 +384,10 @@ criteria:
         kind: cli_scenario
         invokes:
           - "novelty routing --artifact --competitors --queries"
-          - "novelty analyze --estimate-only"
-          - "novelty atoms --extract-model --out"
-          - "novelty probe --atoms --model --judge-model"
-          - "novelty shorten --atoms"
+          - "skill novelty analyze --estimate-only"
+          - "skill novelty atoms --extract-model --out"
+          - "skill novelty probe --atoms --model --judge-model"
+          - "skill shorten --atoms"
           - "novelty view --novelty"
         stubs: [every model client (scripted transport)]
     scope: the CLI path and its intermediate artifacts on scripted models; novelty figures here are not measurements
@@ -398,18 +398,18 @@ criteria:
     evidence:
       - id: cjm-novelty-stale-inventory
         kind: cli_scenario
-        invokes: ["novelty atoms --out", "novelty probe --atoms"]
+        invokes: ["skill novelty atoms --out", "skill novelty probe --atoms"]
         stubs: [every model client (scripted transport)]
   AC-J14-005:
     delivery: available
     enforce: true
     capability: context-trace
-    surfaces: ["context trace --json"]
+    surfaces: ["trace inspect --json"]
     refs: [docs/context-window.md]
     evidence:
       - id: cjm-context-trace
         kind: cli_scenario
-        invokes: ["context trace --json"]
+        invokes: ["trace inspect --json"]
         stubs: []
     gaps: ["no test asserts that no model is called; trace.py imports no client"]
   AC-J14-008:
@@ -445,7 +445,7 @@ criteria:
     evidence:
       - id: cjm-novelty-remeasure
         kind: cli_scenario
-        invokes: ["novelty probe --atoms --artifact"]
+        invokes: ["skill novelty probe --atoms --artifact"]
         stubs: [every model client (scripted transport)]
   AC-J02-002:
     delivery: available
@@ -454,7 +454,7 @@ criteria:
     evidence:
       - id: cjm-novelty-stale-inventory
         kind: cli_scenario
-        invokes: ["novelty atoms --out"]
+        invokes: ["skill novelty atoms --out"]
         stubs: [every model client (scripted transport)]
   AC-J02-004:
     delivery: partial
@@ -491,7 +491,7 @@ criteria:
     delivery: available
     enforce: false
     capability: novelty
-    surfaces: ["novelty analyze --artifact"]
+    surfaces: ["skill novelty analyze --artifact"]
     gaps: ["covered for any skill by the J14 novelty criteria; no test runs it on a draft written from a transcript"]
   AC-J15-004:
     delivery: partial
