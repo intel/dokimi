@@ -30,6 +30,7 @@ from dataclasses import dataclass, field
 from dokimi.utils import InputError
 from .atoms import Atom
 from .client import LLMClient, same_client
+from .controls import REPEAT_ARM, clustered_ci, control_fields
 from .probes import Probe
 
 # Judge verdict scale. Deliberately finer than the collapses below so a rater
@@ -55,7 +56,11 @@ ERRORED = "error"
 # controls exist because a with-artifact gain can otherwise be a prompt-length artifact
 # (placebo) or a narrative that is not actually load-bearing (shuffled).
 BASELINE_ARM = "no_artifact"
-ARMS = (BASELINE_ARM, "full", "placebo", "shuffled")
+# ``no_artifact_repeat`` answers the baseline again as a new draw: its noise floor.
+ARMS = (BASELINE_ARM, "full", "placebo", "shuffled", REPEAT_ARM)
+# How the context is introduced; ``neutral`` says it may be irrelevant, the control for
+# placebo abstention caused by the "reference material" wording.
+FRAMINGS = ("reference", "neutral")
 
 _ANSWER_SYSTEM = (
     "Answer the question directly and concisely. If you do not know, say you do not know "
@@ -252,6 +257,7 @@ def run_measurement(
     allow_self_judge: bool = False,
     placebo_text: str | None = None,
     seed: int = 0,
+    framing: str = "reference",
 ) -> MeasureResult:
     """Answer every probe in every arm and grade the answers.
 
@@ -269,12 +275,16 @@ def run_measurement(
             far *below* the no-artifact baseline on two models (0.104 vs 0.352), i.e.
             irrelevant context actively harms them.
         seed: Seed for the ``shuffled`` control, so the control is reproducible.
+        framing: One of :data:`FRAMINGS`; how the context is introduced in the prompt.
     """
     check_self_judge(judge, answerer, allow_self_judge)
     check_arms(arms, placebo_text)
+    if framing not in FRAMINGS:
+        raise InputError(f"unknown context framing {framing!r}; known: {list(FRAMINGS)}")
 
     contexts = {
         BASELINE_ARM: None,
+        REPEAT_ARM: None,
         "full": artifact_text,
         "placebo": placebo_text,
         "shuffled": shuffle_text(artifact_text, seed=seed),
@@ -284,7 +294,10 @@ def run_measurement(
     def one(job: tuple[Probe, str]) -> ProbeRun:
         probe, arm = job
         try:
-            response, confidence = _answer(probe.question, contexts.get(arm), answerer)
+            response, confidence = _answer(
+                probe.question, contexts.get(arm), answerer,
+                framing=framing, draw=1 if arm == REPEAT_ARM else 0,
+            )
         except Exception as exc:  # a provider failure is a missing datum, not a wrong answer
             response, confidence = f"<error: {exc}>", None
             verdict = ERRORED
@@ -302,15 +315,27 @@ def run_measurement(
     return MeasureResult(runs=runs, arms=tuple(arms), with_arm="full")
 
 
-def _answer(question: str, context: str | None, answerer: LLMClient) -> tuple[str, float | None]:
-    """Answer one probe. With ``context=None`` the model sees only the question."""
+# Named ``*_PROMPT`` so the run's ``prompts_sha256`` covers them.
+_CONTEXT_REFERENCE_PROMPT = "Reference material:"
+_CONTEXT_NEUTRAL_PROMPT = "Below is a document. It may or may not be relevant to the question."
+_CONTEXT_PREAMBLES = {"reference": _CONTEXT_REFERENCE_PROMPT, "neutral": _CONTEXT_NEUTRAL_PROMPT}
+
+
+def _answer(
+    question: str, context: str | None, answerer: LLMClient,
+    *, framing: str = "reference", draw: int = 0,
+) -> tuple[str, float | None]:
+    """Answer one probe. With ``context=None`` the model sees only the question.
+
+    ``draw`` > 0 asks for a fresh sample of a prompt already answered (the repeat arm).
+    """
     if context:
         # The artifact goes in as a stable cache prefix-shaped preamble; the question is
         # unchanged between arms so the pair differs by context alone.
-        prompt = f"Reference material:\n\n{context}\n\n---\n\nQuestion: {question}"
+        prompt = f"{_CONTEXT_PREAMBLES[framing]}\n\n{context}\n\n---\n\nQuestion: {question}"
     else:
         prompt = f"Question: {question}"
-    reply = answerer.text(prompt, system=_ANSWER_SYSTEM, accept=_is_complete_answer)
+    reply = answerer.text(prompt, system=_ANSWER_SYSTEM, accept=_is_complete_answer, draw=draw)
     if not reply.strip():
         # No answer is no datum: graded, it would read as a wrong one. A reasoning model
         # that spends its output ceiling before answering returns this.
@@ -406,6 +431,8 @@ def paired_outcomes(
     total = sum(counts.values())
     rates = {k: round(v / total, 4) if total else 0.0 for k, v in counts.items()}
     k0_rows = [r for r in baseline.values()]
+    added_by_atom = {a: [1.0 if n == "added" else 0.0 for n in names]
+                     for a, names in per_atom.items()}
     return {
         "scoring": scoring,
         "with_arm": with_arm,
@@ -414,10 +441,12 @@ def paired_outcomes(
         "counts": counts,
         **rates,
         "k0": round(sum(r.correct(scoring) for r in k0_rows) / len(k0_rows), 4) if k0_rows else 0.0,
-        "ci95_added": _bootstrap_ci([1.0 if n == "added" else 0.0
-                                     for atom in per_atom.values() for n in atom]),
+        # Atoms are resampled: the paraphrases of one atom are not independent probes.
+        "ci95_added": clustered_ci(added_by_atom),
+        "ci_cluster": "atom",
         "atoms_added": sorted(a for a, names in per_atom.items() if "added" in names),
         "atoms_degraded": sorted(a for a, names in per_atom.items() if "degraded" in names),
+        **control_fields(runs, baseline_arm=BASELINE_ARM, with_arm=with_arm, scoring=scoring),
     }
 
 
@@ -535,11 +564,9 @@ def shuffle_text(text: str, *, seed: int = 0) -> str:
     Seeded from a string rather than :func:`hash`, because Python salts string hashing
     per process and a control that changes between runs is not a control.
 
-    Expect this arm to score at least as high as ``full``: it did on four of five models in
-    the study, and a behavioural retest on 71 tasks whose graded requirements *name* an
-    ordering kept the two level (+0.022 on the ordering items, 95% CI -0.027 to +0.072). A
-    probe cannot punish a scrambled document, so treat a ``shuffled`` win as the expected
-    reading and not as a bug in the shuffle.
+    A probe asks for one fact, so it cannot punish a scrambled document: expect this arm
+    near ``full``. The study's shuffled arm scored higher, but it injected more files
+    than ``full`` did, so that result does not carry over to this arm.
     """
     from .spans import segment
 
@@ -560,18 +587,3 @@ def _pearson(xs: list[float], ys: list[float]) -> float | None:
         return None
     return round(sum(a * b for a, b in zip(dx, dy, strict=True)) / den, 4)
 
-
-def _bootstrap_ci(
-    values: list[float], *, iterations: int = 400, seed: int = 0
-) -> list[float] | None:
-    """Percentile bootstrap CI, so a rate from 40 probes is not read like one from 400."""
-    if len(values) < 5:
-        return None
-    rng = random.Random(f"novelty-ci-{seed}")
-    n = len(values)
-    means = sorted(
-        sum(values[rng.randrange(n)] for _ in range(n)) / n for _ in range(iterations)
-    )
-    lo = means[int(0.025 * iterations)]
-    hi = means[min(iterations - 1, int(0.975 * iterations))]
-    return [round(lo, 4), round(hi, 4)]
