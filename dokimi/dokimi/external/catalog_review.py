@@ -27,7 +27,8 @@ def review_skill_dir(path: Path | str) -> SkillReview:
     Only *path* and the files below it are read; a ``SKILL.md`` nested under *path* is a
     different skill and is not reviewed here. The checkout root is taken to be *path*, so the
     directory name is not compared with the frontmatter ``name``, and a link that leaves
-    *path* is ``link-escapes-skill``, as when the skill is installed alone.
+    *path* is ``link-escapes-skill``, as when the skill is installed alone. Every SKILL.md the scan finds
+    below *path* is loaded to find its own, and the other bodies are discarded (eager; lazy loading is #434).
 
     A skill that does not load gets one ``error`` finding (``not-loaded``) with the loader's
     message. Raises ``ValueError`` when *path* is not a directory or holds no ``SKILL.md``.
