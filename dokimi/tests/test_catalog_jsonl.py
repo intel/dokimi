@@ -175,6 +175,39 @@ def test_resume_keeps_the_row_of_a_skill_whose_directory_is_unchanged(tmp_path, 
     assert code == 0
 
 
+def test_resume_starts_no_process_to_digest_the_skills(tmp_path, capsys, monkeypatch):
+    import subprocess
+
+    for i in range(200):
+        _skill(tmp_path, f"s{i:03d}")
+    argv = ["--root", str(tmp_path), "--per-skill", "--jsonl", str(tmp_path / "s1.jsonl"), "--resume"]
+    _run(argv, capsys)
+    started: list = []
+    real = subprocess.Popen
+    monkeypatch.setattr(subprocess, "Popen", lambda *a, **kw: started.append(a) or real(*a, **kw))
+
+    out, code = _run(argv, capsys)
+
+    assert started == []
+    assert "200 resumed" in out and code == 0
+
+
+def test_resume_keeps_a_root_skill_whose_directory_holds_the_jsonl_file(tmp_path, capsys, monkeypatch):
+    (tmp_path / "SKILL.md").write_text("---\nname: root\ndescription: Use when root runs.\n---\n# root\n",
+                                       encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+    argv = ["--root", ".", "--per-skill", "--jsonl", "out.jsonl", "--resume"]
+    _run(argv, capsys)
+    rows = _rows(tmp_path / "out.jsonl")
+    rows[0]["sentinel"] = "kept"  # a row that is reviewed again would lose this mark
+    (tmp_path / "out.jsonl").write_text(json.dumps(rows[0]) + "\n", encoding="utf-8")
+
+    out, _ = _run(argv, capsys)
+
+    assert [row.get("sentinel") for row in _rows(tmp_path / "out.jsonl")] == ["kept"]
+    assert "1 resumed" in out
+
+
 def test_without_resume_an_existing_jsonl_file_is_replaced(tmp_path, capsys):
     _catalog(tmp_path)
     out_path = tmp_path / "replace.jsonl"

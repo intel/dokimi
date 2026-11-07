@@ -21,11 +21,12 @@ from typing import Callable, Iterable, Iterator, Optional
 from dokimi.utils import InputError
 
 
-def skill_row(skill, review, nested_in: Optional[str] = None) -> dict:
+def skill_row(skill, review, nested_in: Optional[str] = None, outputs: Iterable[Path] = ()) -> dict:
     """One skill of the scan report. ``state`` is ``error`` for a load error or an error finding,
     ``warn`` for a warning finding only, else ``ok``. A skill that did not load has a review only
     when its frontmatter is broken YAML, and that review's finding is its only finding.
-    ``nested_in`` is the skill whose directory holds this one (None when it is not nested)."""
+    ``nested_in`` is the skill whose directory holds this one (None when it is not nested).
+    ``outputs`` are the scan's own files, left out of ``skill_sha256``."""
     from dokimi.external.catalog_review import entry_relpath
 
     if not skill.loaded:
@@ -42,14 +43,17 @@ def skill_row(skill, review, nested_in: Optional[str] = None) -> dict:
         "error": skill.error,
         "disable_model_invocation": bool(review and review.disable_model_invocation),
         "content_sha256": review.content_sha256 if review else None,
-        "skill_sha256": skill_dir_digest(skill),
+        "skill_sha256": skill_dir_digest(skill, outputs),
         "duplicate_of": review.duplicate_of if review else None,
         "findings": [{"level": f.level, "code": f.code, "message": f.message} for f in findings],
     }
 
 
-def skill_dir_digest(entry) -> Optional[str]:
-    """``tree_digest`` of the entry's skill directory, every file in it; None when it cannot be read."""
+def skill_dir_digest(entry, outputs: Iterable[Path] = ()) -> Optional[str]:
+    """``tree_digest`` of the entry's skill directory by the bytes and mode bits on disk, with no git call.
+
+    Files in *outputs* (resolved paths) that sit in the directory are left out. None when it cannot be read.
+    """
     from dokimi.utils import tree_digest
 
     path = entry.skill.path.parent if entry.loaded and entry.skill is not None else entry.path
@@ -58,9 +62,19 @@ def skill_dir_digest(entry) -> Optional[str]:
     if path is None or not path.is_dir():
         return None
     try:
-        return tree_digest(path)
+        base = path.resolve()
+        skip = [out.relative_to(base).as_posix() for out in outputs if out.is_relative_to(base)]
+        return tree_digest(path, exclude=skip, tracked={})
     except OSError:
         return None
+
+
+def _outputs(jsonl: Optional[Path]) -> tuple[Path, ...]:
+    """The files a ``--jsonl`` scan writes, resolved: the file and the temporary one :func:`_rewrite` replaces it with."""
+    if jsonl is None:
+        return ()
+    out = jsonl.resolve()
+    return (out, out.with_name(out.name + ".part"))
 
 
 def print_skill_row(row: dict) -> None:
@@ -101,11 +115,11 @@ def _row_key(row: dict) -> str:
 
 
 def _review_row(item: tuple) -> dict:
-    """One ``(entry, nested_in)`` pair reviewed alone, as a report row. Module level, so a worker can run it."""
+    """One ``(entry, nested_in, outputs)`` item reviewed alone, as a report row. Module level, so a worker can run it."""
     from dokimi.external.validate import review_skills
 
-    entry, nested_in = item
-    return skill_row(entry, review_skills([entry])[0], nested_in)
+    entry, nested_in, outputs = item
+    return skill_row(entry, review_skills([entry])[0], nested_in, outputs)
 
 
 def _review_rows(pairs: list, jobs: int, review: Callable = _review_row) -> Iterator[dict]:
@@ -274,7 +288,8 @@ def scan_per_skill(args, root: Path, report: dict, as_json: bool, pairs: list) -
         shared = sorted(key for key, n in Counter(keys).items() if n > 1)
         if shared:
             raise InputError(f"--resume needs one row per skill, but these keys are shared: {', '.join(shared[:3])}")
-    selected = {key: skill_dir_digest(entry) if args.resume else None
+    outputs = _outputs(jsonl)
+    selected = {key: skill_dir_digest(entry, outputs) if args.resume else None
                 for key, (entry, _) in zip(keys, pairs, strict=True)}
     sink = _Jsonl(jsonl, args.resume, selected) if jsonl is not None else None
     tally = _Tally(args.strict)
@@ -282,7 +297,7 @@ def scan_per_skill(args, root: Path, report: dict, as_json: bool, pairs: list) -
     for row in prior:
         tally.add(row)
     done = {_row_key(row) for row in prior}
-    todo = [pair for pair in pairs if _entry_key(pair[0]) not in done]
+    todo = [(entry, mark, outputs) for entry, mark in pairs if _entry_key(entry) not in done]
     try:
         for row in _review_rows(todo, args.jobs or 1):
             tally.add(row)
