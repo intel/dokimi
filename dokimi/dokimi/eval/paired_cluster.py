@@ -141,8 +141,8 @@ def _validate(
         raise ValueError(f"margin must be finite and >= 0 (the largest accepted drop), got {margin}")
     if not 0 < confidence < 1:
         raise ValueError(f"confidence must be in (0, 1), got {confidence}")
-    if n_resamples < 1:
-        raise ValueError(f"n_resamples must be >= 1, got {n_resamples}")
+    if n_resamples < 100:
+        raise ValueError(f"n_resamples must be >= 100, got {n_resamples}")
     if min_clusters < 2:
         raise ValueError(f"min_clusters must be >= 2 for an interval, got {min_clusters}")
 
