@@ -146,7 +146,8 @@ def cmd_eval_panel_score(args: argparse.Namespace) -> None:
     # Summary: the context arm's own quality, not a comparison.
     from dokimi.records import CONTEXT, records
 
-    valid = [r.scores[CONTEXT] for r in records(results, kind="evaluations") if r.score(CONTEXT) is not None]
+    rows = list(records(results, kind="evaluations"))
+    valid = [r.scores[CONTEXT] for r in rows if r.score(CONTEXT) is not None]
     if valid:
         mean_score = sum(s.aggregate or 0 for s in valid) / len(valid)
         # A question judged by one panelist has no spread, so no agreement score.
@@ -157,6 +158,10 @@ def cmd_eval_panel_score(args: argparse.Namespace) -> None:
         print("Mean agreement score:     " + (f"{sum(agreed) / len(agreed):.3f}  (1.0 = perfect)"
                                                if agreed else "n/a"))
         print(f"Disagreement flags:       {flagged}/{len(valid)} questions")
+    # The mean covers only the questions above; say how many it leaves out, so it is not read as the whole set.
+    left_out = len(rows) - len(valid)
+    if left_out:
+        print(f"Questions left out (no quorum or no answer): {left_out}/{len(rows)}")
 
     print(f"\n✅ Saved to {output_path}")
 

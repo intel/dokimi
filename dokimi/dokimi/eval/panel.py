@@ -30,7 +30,7 @@ from dokimi.judged import judged_reply
 from dokimi.llm import llm_call
 from dokimi.llm_cli import check_sampling
 from dokimi.defaults import DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER
-from dokimi.eval.judge import _clip_ground_truth
+from dokimi.eval.judge import MAX_GROUND_TRUTH_CHARS, _clip_ground_truth
 from dokimi.eval.question_text import require_question_texts
 # The panel had no numeric-claims criterion (see `eval/rubric.py`) until it was
 # measured against the gate's own `wrong_numbers` degradation (Haiku 4.5, 3
@@ -258,12 +258,16 @@ class JudgePanel:
     def prompt_sha256(self) -> str:
         """Digest of what this panel sends and how it combines the votes.
 
-        Covers the role prompts in configured order, each judge's role, provider,
-        model, temperature and seed, and the aggregation policy. The name is kept
-        because saved artifacts already store it.
+        Covers the role prompts in configured order, the grounding block and its
+        ground-truth clip limit (both reach the prompt when a question has a
+        reference), each judge's role, provider, model, temperature and seed, and
+        the aggregation policy. The name is kept because saved artifacts already
+        store it.
         """
         config = {
             "prompts": [JUDGE_ROLES.get(j.role, JUDGE_ROLES["technical_expert"]) for j in self.judges],
+            "ground_block": _GROUND_BLOCK,
+            "ground_truth_max_chars": MAX_GROUND_TRUTH_CHARS,
             "judges": [{"role": j.role, "provider": j.provider, "model": j.model,
                         "temperature": j.temperature, "seed": j.seed} for j in self.judges],
             "aggregation": _aggregation_policy(),
@@ -405,11 +409,9 @@ class JudgePanel:
                 for v in verdict.votes
             ],
         }
-        if not verdict.valid_votes:
-            out["error"] = "all panel judges failed"
-        elif verdict.insufficient_evidence:
-            out["error"] = (f"insufficient evidence: {len(verdict.valid_votes)} of "
-                            f"{len(verdict.votes)} panelists valid, quorum is {verdict.quorum}")
+        error = _verdict_error(verdict)
+        if error:
+            out["error"] = error
         return out
 
     def evaluate(self, question: str, answer: str, library_name: str,
@@ -513,10 +515,20 @@ def _numeric_fields(vote: JudgeVote) -> Dict[str, Any]:
     return fields
 
 
+def _verdict_error(v: PanelVerdict) -> Optional[str]:
+    """Why the verdict has no score, in the words both the summary and the artifact use."""
+    if not v.valid_votes:
+        return "all panel judges failed"
+    if v.insufficient_evidence:
+        return (f"insufficient evidence: {len(v.valid_votes)} of "
+                f"{len(v.votes)} panelists valid, quorum is {v.quorum}")
+    return None
+
+
 def _verdict_to_dict(v: Optional[PanelVerdict]) -> Optional[Dict[str, Any]]:
     if v is None:
         return None
-    return {
+    out: Dict[str, Any] = {
         "aggregate": v.mean_aggregate,
         "std": v.std_aggregate,
         "agreement_score": v.agreement_score,
@@ -532,6 +544,11 @@ def _verdict_to_dict(v: Optional[PanelVerdict]) -> Optional[Dict[str, Any]]:
             for vt in v.votes
         ],
     }
+    # A cell with no score carries its reason, as score_answer's does, so readers that count Score.error see it.
+    error = _verdict_error(v)
+    if error:
+        out["error"] = error
+    return out
 
 
 def _save_incremental(results: List[Dict], path: Path, library_name: str,
