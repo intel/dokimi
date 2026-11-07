@@ -28,7 +28,7 @@ from dokimi.defaults import (
 from dokimi.eval.arms_refusals import refuse_cli_arms, refuse_cli_cell, refuse_cli_cell_model
 from dokimi.eval.cells import HARNESS_ARMS_RUNNER, MatrixCellDescriptor
 from dokimi.eval.question_text import EmptyQuestionError
-from dokimi.utils import InputError, check_bedrock_model, question_id
+from dokimi.utils import InputError, check_bedrock_model, question_id, warn_judge_independence
 
 if TYPE_CHECKING:
     from dokimi.eval import Judge, JudgePanel
@@ -120,35 +120,63 @@ def validate_supported_matrix_harnesses(cells) -> None:
         )
 
 
-def resolve_doc_library_id(treatments, product: str, explicit_id=None, registry=None):
-    """Resolve a library id for the first doc arm, before plugin wrapping.
+def _doc_arms(treatments):
+    """Yield ``(arm, top_level)`` for each doc arm, past plugins and ``+`` stacks."""
+    from dokimi.treatments.arms import DocTreatment, MCPAgentTreatment
 
-    Same three-step order as the ``answers``/``questions`` commands: explicit
-    flag, then the product's ``context7_id`` in ``products.yaml``, then the
-    client's own resolution. When no id can be named the ``ValueError`` is
-    raised to the caller, which stops the run: substituting the product name
-    would query an id that does not exist and record an empty-retrieval doc
-    arm as a measurement. Other failures (an unreachable MCP server, say) still
-    fall back to the product name and are reported by the arm itself.
-    """
-    if explicit_id is not None:
-        return explicit_id
-
-    from dokimi.mcp.factory import resolve_library_id_for_product
-    from dokimi.treatments.arms import DocTreatment
-
+    doc_arm_types = (DocTreatment, MCPAgentTreatment)
     for treatment in treatments:
         unwrapped = getattr(treatment, "inner", treatment)
-        if isinstance(unwrapped, DocTreatment):
-            try:
-                return resolve_library_id_for_product(
-                    product, unwrapped.mcp_client, registry=registry
-                )
-            except ValueError:
-                raise
-            except Exception:
-                return product
-    return None
+        if isinstance(unwrapped, doc_arm_types):
+            yield unwrapped, True
+        for sub in getattr(unwrapped, "treatments", None) or []:
+            sub = getattr(sub, "inner", sub)
+            if isinstance(sub, doc_arm_types):
+                yield sub, False
+
+
+def resolve_doc_library_id(treatments, product: str, explicit_id=None, registry=None):
+    """Resolve the library id of every doc arm, before plugin wrapping.
+
+    Each ``DocTreatment`` or ``MCPAgentTreatment``, top-level or inside a ``+``
+    stack, keeps its own id in ``library_id``, so an ``mcp:`` source's ``;id=``
+    applies to its own arm whatever the arm order. The return value is the first
+    top-level doc arm's id (the run-wide id the records carry), or ``None``
+    without one.
+
+    Same order as the ``answers``/``questions`` commands: explicit flag (an
+    empty one counts as unset), then the ``;id=`` of an ``mcp:`` source, then
+    the product's ``context7_id`` in ``products.yaml``, then the client's own
+    resolution. When no id can be named the ``ValueError`` is raised to the
+    caller, which stops the run: substituting the product name would query an
+    id that does not exist and record an empty-retrieval doc arm as a
+    measurement. Other failures (an unreachable MCP server, say) still fall
+    back to the product name for that arm, which the arm reports.
+    """
+    from dokimi.mcp.factory import resolve_library_id_for_product
+
+    def resolve(arm):
+        if explicit_id:
+            arm.library_id = explicit_id
+            return explicit_id
+        try:
+            arm.library_id = resolve_library_id_for_product(
+                product, arm.mcp_client, registry=registry
+            )
+        except ValueError:
+            raise
+        except Exception:
+            arm.library_id = product
+        return arm.library_id
+
+    first = None
+    for arm, top_level in _doc_arms(treatments):
+        lib_id = resolve(arm)
+        if top_level and first is None:
+            first = lib_id
+    if first is None and explicit_id:
+        return explicit_id
+    return first
 
 
 def _offered_skill_names(treatments) -> set:
@@ -292,6 +320,17 @@ def _check_judge(config: ArmsRunConfig, questions: list[dict]) -> None:
             "flag; every score would otherwise be null."
         )
     probe_sampling(config.judge_model, config.judge_provider, config.judge_temperature, None)
+    warn_self_judging(config)
+
+
+def warn_self_judging(config: ArmsRunConfig) -> bool:
+    """Warn, without refusing, when the judge (or every panel role) is the answer model.
+
+    ``--judge-panel`` runs each role on ``judge_model``, so one check covers both judges.
+    """
+    return warn_judge_independence(config.provider, config.model,
+                                   config.judge_provider, config.judge_model,
+                                   context="judged run")
 
 
 def _build_judge(config: ArmsRunConfig):

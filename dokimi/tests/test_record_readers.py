@@ -22,6 +22,8 @@ from dokimi.utils import InputError
 from tests.artifact_fixtures import artifact_fixture
 
 
+from tests.cli_refusal import refusal
+
 def _answers():
     return artifact_fixture("answers", {"model": "m", "provider": "p", "answers": [
         {"question_id": f"q{i}", "question_text": f"How do I use feature {i}?", "library_name": "lib",
@@ -206,9 +208,9 @@ def test_baseline_save_refuses_a_malformed_eval_file_before_writing(tmp_path, mo
     path.write_text(json.dumps({"evaluations": [
         {"question_text": "nq", "with_docs": {"aggregate": 5}, "without_docs": {"aggregate": 1}, "delta": 4}]}),
         encoding="utf-8")
-    with pytest.raises(SystemExit):
+    with refusal() as _r:
         baseline.cmd_baseline_save(argparse.Namespace(from_eval=str(path), name="n1", product="P"))
-    assert "evaluations[0]: missing question_id" in capsys.readouterr().err
+    assert _r.code == 2 and "evaluations[0]: missing question_id" in _r.err
     assert not (tmp_path / "baselines" / "n1.json").exists()
 
 
@@ -259,9 +261,9 @@ def test_eval_score_exits_cleanly_on_a_record_without_question_text(tmp_path, ca
 
     args = argparse.Namespace(answers=str(path), judge_provider="openai", judge_model="j", judge_temperature=0.0,
                               output=str(tmp_path / "eval.json"), product="lib", concurrency=1, run_id=None)
-    with patch("dokimi.eval.Judge", StubJudge), pytest.raises(SystemExit) as exit_:
+    with patch("dokimi.eval.Judge", StubJudge), refusal() as exit_:
         cmd_eval_score(args)
-    assert exit_.value.code == 2  # bad input, as every RecordError
+    assert exit_.code == 2  # bad input, as every RecordError
     assert "answers[2]: question 'q2' has no question_text" in capsys.readouterr().err
 
 
@@ -279,10 +281,10 @@ def test_report_eval_exits_cleanly_naming_the_file(tmp_path, capsys):
     from dokimi.commands.report import cmd_report_eval
 
     path, out = _id_less_eval(tmp_path), tmp_path / "r.md"
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cmd_report_eval(argparse.Namespace(eval=str(path), out=str(out), product="P", run_id=None))
-    assert exc.value.code == 2
-    assert f"Error: {path}[1]: missing question_id" in capsys.readouterr().err
+    assert exc.code == 2
+    assert f"Error: {path}[1]: missing question_id" in exc.err
     assert not out.exists()
 
 
@@ -293,11 +295,11 @@ def test_report_generate_exits_cleanly_naming_the_file(tmp_path, capsys, fmt):
     path, out = _id_less_eval(tmp_path), tmp_path / "r.out"
     questions = tmp_path / "q.json"
     questions.write_text(json.dumps({"questions": []}), encoding="utf-8")
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cmd_report_generate(argparse.Namespace(eval=str(path), questions=str(questions), format=fmt,
                                                output=str(out), product="P"))
-    assert exc.value.code == 2
-    assert f"Error: {path} evaluations[1]: missing question_id" in capsys.readouterr().err
+    assert exc.code == 2
+    assert f"Error: {path} evaluations[1]: missing question_id" in exc.err
     assert not out.exists()
 
 
@@ -320,9 +322,9 @@ def test_plugin_delta_names_the_file_with_the_malformed_record(tmp_path, monkeyp
     args = build_parser().parse_args(["arms", "plugin-delta", "--baseline-json", str(tmp_path / "b.json"),
                                       "--plugin-json", str(tmp_path / "p.json"),
                                       "--out-json", str(tmp_path / "d.json")])
-    with pytest.raises(SystemExit):
+    with refusal() as _r:
         args.func(args)
-    assert "p.json answers[0]: missing question_id" in capsys.readouterr().err
+    assert _r.code == 2 and "p.json answers[0]: missing question_id" in _r.err
     assert not (tmp_path / "d.json").exists()
 
 
@@ -334,10 +336,10 @@ def test_plugin_delta_exits_2_with_a_message_on_an_unreadable_arms_file(tmp_path
     args = build_parser().parse_args(["arms", "plugin-delta", "--baseline-json", str(unreadable),
                                       "--plugin-json", str(tmp_path / "p.json"),
                                       "--out-json", str(tmp_path / "d.json")])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2
-    assert "b.json" in capsys.readouterr().err
+    assert exc.code == 2
+    assert "b.json" in exc.err
     assert not (tmp_path / "d.json").exists()
 
 
@@ -492,10 +494,10 @@ def test_cross_judge_on_a_legacy_inline_score_run_has_nothing_to_compare(tmp_pat
     path.write_text(json.dumps(_legacy_arms_run()), encoding="utf-8")
     args = build_parser().parse_args(["eval", "judge", "agreement", "--answers", str(path),
                                       "--output", str(tmp_path / "cj.json")])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2
-    assert "nothing to compare" in capsys.readouterr().err
+    assert exc.code == 2
+    assert "nothing to compare" in exc.err
 
 
 def test_stored_readers_refuse_a_run_because_it_does_not_say_which_list_it_holds():
@@ -515,10 +517,10 @@ def test_cross_judge_exits_2_on_a_malformed_arms_file(tmp_path, monkeypatch, cap
     answers = tmp_path / "arms.json"
     answers.write_text(json.dumps({"answers": [{"arms": {"skill": {"answer": "s"}}}]}), encoding="utf-8")
     monkeypatch.setattr("sys.argv", ["dokimi", "eval", "judge", "agreement", "--answers", str(answers)])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cli.main()
-    assert exc.value.code == 2  # bad input; 1 is the verdict code of the gates
-    assert "missing question_id" in capsys.readouterr().err
+    assert exc.code == 2  # bad input; 1 is the verdict code of the gates
+    assert "missing question_id" in exc.err
 
 
 @pytest.mark.parametrize("flag", ["--answers", "--pairwise", "--checklist", "--validity"])
@@ -546,10 +548,10 @@ def test_cross_judge_exits_2_on_an_unreadable_input_file(tmp_path, monkeypatch, 
     else:
         argv = ["dokimi", "eval", "judge", "agreement", "--answers", str(arms), "--no-stored", flag, str(bad)]
     monkeypatch.setattr("sys.argv", argv)
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cli.main()
-    assert exc.value.code == 2
-    err = capsys.readouterr().err
+    assert exc.code == 2
+    err = exc.err
     assert err.startswith("Error: ") and str(bad) in err
     if content == "TOO-DEEP":
         assert "is not valid JSON" in err and "recursion" in err
@@ -572,10 +574,10 @@ def test_every_answers_reader_exits_2_on_an_unreadable_answers_file(tmp_path, mo
     questions.write_text(json.dumps({"questions": []}), encoding="utf-8")
     extra = ["--questions", str(questions)] if command[1] == "checklist" else []
     monkeypatch.setattr("sys.argv", ["dokimi", "eval", *command, "--answers", str(bad), *extra])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cli.main()
-    assert exc.value.code == 2
-    err = capsys.readouterr().err
+    assert exc.code == 2
+    err = exc.err
     assert err.startswith("Error: ") and str(bad) in err
 
 
@@ -605,10 +607,10 @@ def test_cross_judge_exits_2_on_a_validity_file_without_a_summary_object(tmp_pat
     validity.write_text(json.dumps(content), encoding="utf-8")
     monkeypatch.setattr("sys.argv", ["dokimi", "eval", "judge", "agreement", "--answers", str(arms), "--no-stored",
                                      "--validity", str(validity)])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cli.main()
-    assert exc.value.code == 2
-    err = capsys.readouterr().err
+    assert exc.code == 2
+    err = exc.err
     assert err.startswith("Error: ") and str(validity) in err and "`summary`" in err
 
 
@@ -627,10 +629,10 @@ def test_cross_judge_exits_2_on_a_result_file_of_the_wrong_shape(tmp_path, monke
     wrong.write_text(json.dumps(content), encoding="utf-8")
     monkeypatch.setattr("sys.argv", ["dokimi", "eval", "judge", "agreement", "--answers", str(arms), "--no-stored",
                                      flag, str(wrong)])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cli.main()
-    assert exc.value.code == 2
-    err = capsys.readouterr().err
+    assert exc.code == 2
+    err = exc.err
     assert err.startswith("Error: ") and str(wrong) in err
 
 

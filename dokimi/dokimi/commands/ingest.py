@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import sys
 from pathlib import Path
+from dokimi.utils import InputError
 
 
 def cmd_ingest_docling(args: argparse.Namespace) -> None:
@@ -34,8 +35,7 @@ def cmd_ingest_docling(args: argparse.Namespace) -> None:
     try:
         written = materialize_markdown(docs, Path(args.out_dir))
     except OSError as exc:  # --out-dir is a file or unwritable, or a source cannot be read
-        print(f"Error: ingest into {args.out_dir} failed: {exc}", file=sys.stderr)
-        sys.exit(2)  # 2 as cli.main's other input errors; 1 is "nothing to convert"
+        raise InputError(f"ingest into {args.out_dir} failed: {exc}") from exc  # 2 as cli.main's other input errors; 1 is "nothing to convert"
     for path in written:
         print(f"  ✓ {path}")
     print(f"✅ Materialized {len(written)} Markdown file(s)")

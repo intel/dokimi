@@ -186,7 +186,8 @@ with the root directory's name), and its `description` at most 1024 characters: 
 `error`, printed under the skill. It exits 1 only with `--strict`; without it, the scan reports the
 error and still exits 0. A `name` missing from the frontmatter, or a `SKILL.md` byte-identical to
 another skill's, is a `warn`. So is a skill whose `name` another skill shares with different content
-(`name-conflict`), when both are listed: neither is `disable-model-invocation` or has a spec error.
+(`name-conflict`), when both are listed: neither is `disable-model-invocation` or has a spec error
+(a description over 1024 characters, as the only error, does not unlist a skill for routing).
 The finding names the other path, and `dokimi novelty routing --catalog` skips that name rather than
 the whole catalog. Of identical copies, the one nearest the root (fewest path parts, ties to path
 order) is the original, the copy the `skill-catalog:` arm offers; each other copy is the `warn` and
@@ -472,8 +473,8 @@ Error: 'widgetlib' is not a Context7 library ID. Context7 IDs look like 'uxlfoun
 ```
 
 Resolution order for documentation and MCP arms is: explicit
-`--context7-id`, then the product's `context7_id:` in the registry, then the
-error above.
+`--context7-id`, then the `;id=` of an `mcp:` source, then the product's
+`context7_id:` in the registry, then the error above.
 
 A *registered* product that declares no `context7_id:` is the same error, named
 per product. That case needs its own check because a Context7 website id looks
