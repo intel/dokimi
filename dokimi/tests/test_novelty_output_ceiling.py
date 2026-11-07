@@ -67,6 +67,17 @@ def test_a_cached_cut_reply_still_raises_on_replay(monkeypatch, tmp_path):
     assert len(calls) == 1  # the second run replays the stored reply, and still knows it was cut
 
 
+def test_a_reply_cut_at_the_ceiling_is_charged_to_the_spend_cap_before_it_raises():
+    from dokimi.novelty.client import SpendCap
+
+    cut = UsageRecord(completion_tokens=4096, cost_usd=0.5, truncated=True)
+    cap = SpendCap(limit_usd=10.0)
+    client = LLMClient(model="m", transport=lambda p, s: ('[{"a": 1', cut), cap=cap)
+    with pytest.raises(OutputTruncated):
+        client.text("p")
+    assert cap.spent_usd == pytest.approx(0.5)
+
+
 def test_a_novelty_call_asks_for_the_default_ceiling_when_none_is_named(monkeypatch):
     calls = _provider(monkeypatch, "stop", [])
     LLMClient(model="m", provider="openai").text("p")
