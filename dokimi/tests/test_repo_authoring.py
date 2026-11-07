@@ -447,6 +447,25 @@ def test_repo_validate_finds_a_hidden_file_the_task_lacks(toy, tmp_path, capsys)
     assert errors == [".agent-eval/tasks/authoring_pr1/task.json: hidden file does not exist: hidden/tests/data/case.txt"]
 
 
+def test_a_hidden_file_that_is_a_link_fails_validate_and_eval_check_grades_the_task_broken(toy, tmp_path, monkeypatch,
+                                                                                            capsys):
+    root = toy["root"]
+    _authoring(root, [_pr1(toy)], root / ".agent-eval/tasks")
+    hidden = root / ".agent-eval/tasks/authoring_pr1/hidden/tests/test_mul.py"
+    hidden.unlink()
+    hidden.symlink_to("does-not-exist.py")
+    _commit(root, "authoring tasks")
+    capsys.readouterr()
+    args = build_parser().parse_args(["repo", "validate", f"{root}@HEAD", "--cache-dir", str(tmp_path / "caches"),
+                                      "--json"])
+    with pytest.raises(SystemExit):
+        args.func(args)
+    errors = json.loads(capsys.readouterr().out)["errors"]
+    assert errors == [".agent-eval/tasks/authoring_pr1/task.json: hidden file is a symbolic link: hidden/tests/test_mul.py"]
+    res = _check(root, tmp_path / "chk", monkeypatch, "authoring_pr1")
+    assert res["verdict"] == "broken" and "hidden/tests/test_mul.py in the task is a symbolic link" in str(res["problems"])
+
+
 # ------------------------------------------------------------------ the grader on its own
 
 
@@ -584,6 +603,32 @@ def test_staging_replaces_a_link_and_refuses_a_linked_directory(tmp_path):
     (tmp_path / "elsewhere").mkdir()
     assert "tests in the workspace is a symbolic link" in (_stage_hidden(task, ws2) or "")
     assert not (tmp_path / "elsewhere/test_a.py").exists()
+
+
+@pytest.mark.parametrize("link", ["absolute", "dangling", "directory"])
+def test_staging_refuses_a_hidden_file_reached_through_a_link_and_copies_nothing(tmp_path, link):
+    task, ws = _hidden_task(tmp_path), tmp_path / "ws"
+    ws.mkdir()
+    (tmp_path / "host").mkdir()
+    (tmp_path / "host/test_a.py").write_text("TOKEN = 'host-only'\n")
+    if link == "directory":
+        (task.dir / "hidden/tests/test_a.py").unlink()
+        (task.dir / "hidden/tests").rmdir()
+        (task.dir / "hidden/tests").symlink_to(tmp_path / "host", target_is_directory=True)
+    else:
+        (task.dir / "hidden/tests/test_a.py").unlink()
+        (task.dir / "hidden/tests/test_a.py").symlink_to(tmp_path / ("host/test_a.py" if link == "absolute" else "no"))
+    assert _stage_hidden(task, ws) == ("hidden file tests/test_a.py: hidden/tests/test_a.py in the task is a "
+                                       "symbolic link or not a file")
+    assert not (ws / "tests/test_a.py").exists()
+
+
+def test_a_hidden_file_that_cannot_be_copied_is_a_staging_problem(tmp_path, monkeypatch):
+    def denied(src, dest):
+        raise PermissionError(13, "Permission denied", str(dest))
+
+    monkeypatch.setattr("dokimi.repos.grading.shutil.copy", denied)
+    assert (_stage_hidden(_hidden_task(tmp_path), tmp_path) or "").startswith("hidden file tests/test_a.py: [Errno 13]")
 
 
 def test_staging_keeps_each_hidden_files_mode(tmp_path):

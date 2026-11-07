@@ -798,7 +798,8 @@ needs that comparison writes it in its own `grade` entry point.
 until the grade. Before the grader runs, the framework copies each `hidden_files` path from the
 task's `hidden/` into the workspace, with its file mode, replacing a file (or a link) the workspace has there; a
 directory on the way that is a symbolic link or not a directory, or a directory at the path,
-stops the copy and the grade is a grader error. It then runs `entry_points.test` (§2) in a
+stops the copy and the grade is a grader error; so does a hidden file that is a symbolic link
+(`repo validate` reports it) or cannot be copied. It then runs `entry_points.test` (§2) in a
 container like the grading one (same mounts, network and environment, no grader code), with
 its output in `test.log` and `test.err`, records its exit in `hidden-tests.json`, and runs
 the grader, which reads that record and the JUnit report at `{out}`

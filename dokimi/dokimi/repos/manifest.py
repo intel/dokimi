@@ -35,7 +35,7 @@ from .graders import DATA_FILES, NAMES as BUILTIN_NAMES, PREFIX as BUILTIN_PREFI
 from .graders.hidden_tests import HIDDEN_DIR, hidden_files
 from .host_spec import HostSpecError, parse_host
 from .process_metrics import Counter, parse_counter
-from .source import RepoTree
+from .source import RepoTree, SourceError
 from .useful_spec import UsefulSpecError, parse_useful
 
 SCHEMA_VERSION = "repo_manifest.v1"
@@ -618,6 +618,18 @@ def _useful_problems(raw: dict[str, Any]) -> list[str]:
     return []
 
 
+def _hidden_file_problem(tree: RepoTree, task_dir: str, rel: str) -> str | None:
+    """Why ``hidden/<rel>`` is not a file the grade can copy: it is missing, or a symbolic link (contract §4.5)."""
+    path = f"{task_dir}/{HIDDEN_DIR}/{rel}"
+    if not tree.is_file(path):
+        return f"hidden file does not exist: {HIDDEN_DIR}/{rel}"
+    try:
+        linked = tree.resolve(path) != path
+    except SourceError:
+        linked = True
+    return f"hidden file is a symbolic link: {HIDDEN_DIR}/{rel}" if linked else None
+
+
 def _builtin_problems(tree: RepoTree, task_dir: str, raw: dict[str, Any], name: str) -> list[str]:
     """A ``dokimi:`` grader must be one the framework has, and its data file must be in the task directory."""
     if name not in BUILTIN_NAMES:
@@ -626,8 +638,7 @@ def _builtin_problems(tree: RepoTree, task_dir: str, raw: dict[str, Any], name: 
     if name in TASK_PROBLEMS:
         problems = TASK_PROBLEMS[name](raw)
         if name == "hidden_tests" and not problems:  # the files the grade copies into the workspace
-            problems = [f"hidden file does not exist: {HIDDEN_DIR}/{p}" for p in hidden_files(raw)
-                        if not tree.is_file(f"{task_dir}/{HIDDEN_DIR}/{p}")]
+            problems = [q for p in hidden_files(raw) if (q := _hidden_file_problem(tree, task_dir, p))]
         return problems
     key, default = DATA_FILES[name]
     path = raw.get(key, default)

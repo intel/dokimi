@@ -237,13 +237,25 @@ def _stage_hidden(task: Task, workspace: Path) -> str | None:
             d = workspace / parent
             if d.is_symlink() or (d.exists() and not d.is_dir()):
                 return f"hidden file {rel}: {parent} in the workspace is a symbolic link or not a directory"
+        if _linked_in_task(task.dir / HIDDEN_DIR, rel):
+            return f"hidden file {rel}: {HIDDEN_DIR}/{rel} in the task is a symbolic link or not a file"
         dest = workspace / rel
         if dest.exists() and not dest.is_symlink() and not dest.is_file():
             return f"hidden file {rel}: the workspace has a directory there"
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.unlink(missing_ok=True)  # a link the agent left there is replaced, not written through
-        shutil.copy(task.dir / HIDDEN_DIR / rel, dest)  # with its mode: a 100755 file stays executable
+        try:
+            shutil.copy(task.dir / HIDDEN_DIR / rel, dest)  # with its mode: a 100755 file stays executable
+        except OSError as exc:
+            return f"hidden file {rel}: {exc}"
     return None
+
+
+def _linked_in_task(hidden: Path, rel: str) -> bool:
+    """Whether ``hidden/<rel>`` is no regular file or is reached through a symbolic link: the copy would
+    follow it to a host file that is not the task's."""
+    on_the_way = [hidden, *(hidden / p for p in reversed(PurePosixPath(rel).parents[:-1])), hidden / rel]
+    return any(p.is_symlink() for p in on_the_way) or not (hidden / rel).is_file()
 
 
 def _set_git_config_aside(run_dir: Path) -> None:
