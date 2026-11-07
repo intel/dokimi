@@ -7,7 +7,7 @@ from decimal import Decimal
 
 import pytest
 
-from dokimi.eval.paired_cluster import MIN_CLUSTERS, paired_cluster_difference
+from dokimi.eval.paired_cluster import DISPLAY_DIGITS, MIN_CLUSTERS, paired_cluster_difference
 from dokimi.eval.stats import bootstrap_ci
 
 N = MIN_CLUSTERS
@@ -219,3 +219,13 @@ def test_a_missing_outcome_can_change_the_verdict():
     assert failed["noninferiority"] == "inferior"
     assert not_run["noninferiority"] == "inconclusive"
     assert not_run["n_excluded"] == N
+
+
+def test_n_resamples_reaches_the_bootstrap_and_the_method_string():
+    # Dropping the argument, or hardcoding the count in the method text, must fail this test.
+    treatment = [float(i) for i in range(N)]
+    res = paired_cluster_difference(list(range(N)), treatment, [0.0] * N, seed=7, n_resamples=500)
+    direct = bootstrap_ci(treatment, n_resamples=500, seed=7, ndigits=None)
+    assert "500 resamples" in res["method"]
+    lo, hi = round(direct["lo"], DISPLAY_DIGITS), round(direct["hi"], DISPLAY_DIGITS)
+    assert (res["ci_lo"], res["ci_hi"]) == (lo, hi)
