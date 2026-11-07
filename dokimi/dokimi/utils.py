@@ -635,7 +635,8 @@ def same_model(a: str, b: str) -> bool:
     (base_a, date_a), (base_b, date_b) = model_identity(a), model_identity(b)
     if base_a is None or base_b is None:
         return False
-    if llm_cli.is_alias(a) or llm_cli.is_alias(b):
+    # The alias rule applies only when neither side keeps an organization: ``myorg/sonnet`` is not the CLI's sonnet.
+    if "/" not in base_a and "/" not in base_b and (llm_cli.is_alias(a) or llm_cli.is_alias(b)):
         family_a = llm_cli.family(a)
         return family_a is not None and family_a == llm_cli.family(b)
     if date_a and date_b and date_a != date_b:

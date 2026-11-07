@@ -92,6 +92,11 @@ CASES = [
     ("mistral.mistral-large", "openrouter/mistralai/mistral-large", True),
     ("openrouter/qwen/qwen3-8b", "openrouter/myorg/qwen3-8b", False),
     ("huggingface/qwen/qwen3-8b", "qwen3-8b", False),
+    # an organization is part of the id: a CLI alias under one never matches another or a bare alias
+    ("myorg/sonnet", "otherorg/sonnet", False),
+    ("myorg/sonnet", "sonnet", False),
+    ("sonnet", "huggingface/myorg/claude-sonnet-4-5", False),
+    ("myorg/sonnet", "myorg/sonnet", True),
 ]
 
 
