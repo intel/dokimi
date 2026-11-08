@@ -19,8 +19,8 @@ import pytest
 from dokimi import cli_routes
 from dokimi.cli import build_parser, parse_args
 
-# (old argv, new argv): the moves of #94 §4 that M2 makes. `novelty routing`/`view`,
-# `library list|show`, `subjects list|show` and `repo tasks replay` stay where they are for now.
+# (old argv, new argv): the moves of #94 §4 that M2 makes. `novelty routing` stays where it is for now.
+# `library list|show`, `subjects list|show` and `repo tasks replay` moved in M3 (see test_cli_m3_moves.py).
 MOVES = [
     (("novelty", "analyze"), ("skill", "novelty", "analyze")),
     (("novelty", "atoms"), ("skill", "novelty", "atoms")),
@@ -95,10 +95,6 @@ def test_new_path_shows_help(old, new, capsys):
 STAYING = [
     ("novelty", "routing"),
     ("novelty", "view"),
-    ("library", "list"),
-    ("library", "show"),
-    ("subjects", "list"),
-    ("repo", "tasks", "replay"),
     ("tools", "preference"),
     ("data", "schema", "show"),
 ]
