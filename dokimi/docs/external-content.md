@@ -242,6 +242,8 @@ package or URL is requested once per run, with at most 8 requests in flight and 
 timeout per request. `--online` does not combine with `--per-skill` (its workers would
 each hold their own cache, and `--resume` would keep rows no network check made), and
 it applies to skills only.
+The package scan reads one line at a time: a requirement in quotes or on a `\` continuation
+line is not checked, and a prose word after an install command can be read as a package name.
 
 ```console
 $ python cli.py catalog check --root C:/Users/Public/content-repo --online
