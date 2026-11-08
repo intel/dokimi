@@ -12,6 +12,7 @@ transport for a stub without patching :mod:`dokimi.llm`.
 
 from __future__ import annotations
 
+import sys
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
@@ -265,6 +266,71 @@ def same_client(a: LLMClient, b: LLMClient) -> bool:
     from dokimi.llm_cli import same_model
 
     return a.model == b.model or same_model(a.provider, a.model, b.provider, b.model)
+
+
+# Substring of a lowercased model id -> vendor, first match wins. Minimal on purpose:
+# PR #429 (novelty/provenance.py vendor_of) reads the same thing; reconcile on merge.
+_VENDOR_MARKERS = (
+    ("claude", "anthropic"), ("anthropic", "anthropic"), ("sonnet", "anthropic"),
+    ("opus", "anthropic"), ("haiku", "anthropic"),
+    ("gpt", "openai"), ("openai", "openai"), ("gemini", "google"), ("mistral", "mistral"),
+)
+
+
+def vendor_of(model: str | None) -> str | None:
+    """The vendor family a model id names (``us.anthropic.claude-...`` is ``anthropic``), else ``None``."""
+    lowered = (model or "").lower()
+    return next((vendor for marker, vendor in _VENDOR_MARKERS if marker in lowered), None)
+
+
+def extractor_judge_relation(extractor_model: str, judge: LLMClient,
+                             extractor_provider: str = "") -> dict:
+    """How the model that wrote the answer key relates to the judge, who grades against it.
+
+    Takes a name, not a client: a saved atoms file records only the extractor's model id.
+    The provider is needed only to match a CLI alias to its full id. A bare alias (``sonnet``)
+    names a CLI model only, so a record that lacks the provider (saved before it was recorded)
+    is read as the CLI's.
+    """
+    from dokimi.llm_cli import CLAUDE_CLI, _full_id, same_model
+
+    if not extractor_provider and _full_id(extractor_model) in CLAUDE_CLI.aliases:
+        extractor_provider = CLAUDE_CLI.name
+    # the same id behind a routing prefix or a Bedrock spelling is one model; a version suffix is not dropped
+    identical = (extractor_model == judge.model
+                 or _full_id(extractor_model) == _full_id(judge.model)
+                 or same_model(extractor_provider, extractor_model, judge.provider, judge.model))
+    vendor = vendor_of(extractor_model)
+    return {
+        "extractor": extractor_model,
+        "judge": judge.model,
+        "same_model": identical,
+        "same_vendor": identical or (vendor is not None and vendor == vendor_of(judge.model)),
+    }
+
+
+# analyze writes its own answer key in the run, so re-running it with another extractor helps.
+_REMEDY_ANALYZE = ("Use a judge from another family, or write the answer key again with another extractor "
+                   "(analyze --extract-model, with --extract-provider when it is not the judge's)")
+# probe reads a saved atoms file: only atoms can write that key again; probe's flags do not change it.
+_REMEDY_PROBE = ("Use a judge from another family, or write the atoms file again with another extractor "
+                 "(atoms --extract-model with --provider; probe's --extract-model does not change a saved key)")
+
+
+def warn_extractor_judge(extractor_model: str, judge: LLMClient,
+                         extractor_provider: str = "", remedy: str = _REMEDY_ANALYZE) -> dict:
+    """Print a stderr warning when the judge is the answer key's model or its vendor family."""
+    relation = extractor_judge_relation(extractor_model, judge, extractor_provider)
+    if relation["same_model"]:
+        print(f"WARNING: the extractor and the judge are both {judge.model}: one model wrote the "
+              f"answer key and grades against it. {remedy} (docs/skill-novelty.md, Choosing the "
+              "extractor and the judge)", file=sys.stderr)
+    elif relation["same_vendor"]:
+        print(f"WARNING: the extractor ({extractor_model}) and the judge ({judge.model}) are one "
+              "vendor family: the judge may favour an answer key its own family wrote. "
+              f"{remedy} (docs/skill-novelty.md, Choosing the extractor and the judge)",
+              file=sys.stderr)
+    return relation
 
 
 def default_judge(model: str, provider: str | None = None,

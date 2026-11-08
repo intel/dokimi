@@ -26,7 +26,7 @@ from . import attribute, bundle as bundle_mod
 from . import classify, items as items_mod
 from . import measure, needs, probes, report, retention, shorten, spans
 from .artifact import load_artifact_text  # noqa: F401  (public path: novelty.analyze)
-from .client import LLMClient, roll_up_cost, same_client
+from .client import LLMClient, roll_up_cost, same_client, warn_extractor_judge
 from .retention import RetentionOracle
 from .tiers import DEFAULT_SETTINGS, RunSettings
 
@@ -175,6 +175,7 @@ def analyze(
             the body. Without it the run is entry-point-only and says so.
     """
     measure.check_self_judge(judge, answerer, config.allow_self_judge)
+    relation = warn_extractor_judge(extractor.model, judge, extractor.provider)
     warnings: list[str] = []
     span_list = spans.segment(text)
     extraction = atoms_mod.ExtractionReport()
@@ -395,6 +396,7 @@ def analyze(
     )
     payload["run_config"] = _run_config(config)
     payload["run_config"]["tier"] = settings.tier_record(sampled=capped)
+    payload["run_config"]["extractor_judge"] = relation
     return AnalyzeResult(
         artifact=payload,
         attributions=attributions,
