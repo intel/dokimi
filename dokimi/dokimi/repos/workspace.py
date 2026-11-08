@@ -62,6 +62,7 @@ from .overlays import overlay_names, overlay_of
 from .source import GitTree, RepoSource, RepoTree, SourceError, cache_path, default_cache_dir, isolated_git_env, resolve_rev
 from .uptake import MCP_CONFIG, base_servers, mcp_servers
 from .useful_spec import Useful, parse_useful
+from dokimi.treatments.specs import COMBINE, split_parts
 
 ARMS = ("guidance:none", "guidance:raw", "guidance:bridge", "guidance:as-skill", "guidance:overlay")  # the guidance parts
 OVERLAY_ARM = "guidance:overlay"  # base + the profile's AGENTS.<overlay>.md, other overlays removed (repos/overlays.py)
@@ -69,7 +70,7 @@ REV_ARM, PATCH_ARM, FORMAT_ARM = "guidance:rev:", "patch:", "guidance:format="
 #: Every form ``repo run --arm`` takes
 ARM_FORMS = (*ARMS, f"{REV_ARM}<rev>", f"{PATCH_ARM}<file>", f"{FORMAT_ARM}<{'|'.join(FORMATS)}>",
              "skill:<dir>", "skill-catalog:<dir>")
-SKILL_JOIN = "+"
+SKILL_JOIN = COMBINE  # the one '+' of treatments/specs.py
 _SKILL_PREFIXES = ("skill:", "skill-catalog:")
 SNAPSHOT_AUTHOR = ("dokimi", "dokimi@example.invalid")
 REVIEW_AUTHOR = ("Contributor", "contributor@example.invalid")
@@ -123,12 +124,7 @@ def parse_arm(spec: str) -> Arm:
     A patch file is read here; a revision is resolved by :func:`pin_arm`, which needs the source's git dir."""
     if isinstance(spec, Arm):
         return spec
-    parts: list[str] = []
-    for piece in spec.split(SKILL_JOIN):
-        if parts and not _starts_part(piece):  # a patch path may hold a "+"
-            parts[-1] += SKILL_JOIN + piece
-        else:
-            parts.append(piece)
+    parts = split_parts(spec, _starts_part, strip=False)  # a patch path may hold a "+"
     skills = tuple((p.partition(":")[0], p.partition(":")[2]) for p in parts if p.startswith(_SKILL_PREFIXES))
     guidance = [p for p in parts if not p.startswith(_SKILL_PREFIXES)]
     if not skills:

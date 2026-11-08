@@ -92,8 +92,21 @@ tail"""
     ("- >     code\nlazy\n  ```\n# Real\n", []),  # indented code in the quote is no paragraph: lazy ends the item
     ("para\n- >     code\nlazy\n  ```\n# Real\n", []),  # a new item after a paragraph: the same, no lazy continuation
     ("- > a\n  >     more\nlazy\n  ```\n# Real\n", ["Real"]),  # an open quoted paragraph takes an indented line too
+    ("+ ```\n  echo hi\n  ```\n# Real\n", ["Real"]),  # a + bullet owns its fence too: as text, its "  ```" would open one
+    ("1) ```\n   echo hi\n   ```\n# Real\n", ["Real"]),  # so does a ")" ordered marker
+    ("-    ```\n     ```\n2. ```\n   ```\n# Real\n", ["Real"]),  # four spaces after the marker is still an item, so
+    # no paragraph is open at "2. ```": it starts an item whose fence closes, rather than leaving "   ```" to open one
 ])
 def test_a_fence_opened_by_a_list_item_holds_body_text_only_inside_the_item(text, sections):
+    assert re.findall(r'title="([^"]*)"', to_format(text, "xml")) == sections
+
+
+@pytest.mark.parametrize("text, sections", [
+    ("```\n ```\n# Real\n", ["Real"]),  # a closer indented one space closes the fence
+    ("```\n   ```\n# Real\n", ["Real"]),  # three spaces too
+    ("```\n    ```\n# x\n", []),  # four spaces is fence content: the fence holds x to the end
+])
+def test_a_closing_fence_may_be_indented_up_to_three_spaces(text, sections):
     assert re.findall(r'title="([^"]*)"', to_format(text, "xml")) == sections
 
 

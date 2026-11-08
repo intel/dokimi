@@ -56,7 +56,7 @@ def _headroom_unreadable_arms(tmp_path):
 
 
 def _library_list_unknown_domain(tmp_path):
-    return ["library", "list", "--domain", "no-such-domain"]
+    return ["catalog", "list", "--kind", "product", "--domain", "no-such-domain"]
 
 
 @pytest.mark.parametrize(

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import json
 
-import pytest
+from tests.cli_refusal import refusal
 
 from dokimi.cli import build_parser
 
@@ -38,10 +38,10 @@ def test_generate_exits_2_with_a_message_when_the_output_dir_is_a_file(tmp_path,
     args = build_parser().parse_args(
         ["dashboard", "generate", "--results-dir", str(results), "--output-dir", str(blocker)])
 
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as out:
         args.func(args)
 
-    assert exc.value.code == 2
+    assert out.code == 2 and out.err.startswith("Error: "), out.err
     err = capsys.readouterr().err
     assert err.startswith("Error: cannot write the dashboard to ")
     assert "Traceback" not in err
