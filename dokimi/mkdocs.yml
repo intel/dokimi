@@ -126,6 +126,7 @@ nav:
       - skill-novelty.md
       - skill-novelty-walkthrough.md
       - skill-novelty-evidence.md
+      - judge-panel-study.md
   - Repository evaluation:
       - repo-evaluation-contract.md
       - repo-evaluation-mergeability.md
