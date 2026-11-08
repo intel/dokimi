@@ -175,3 +175,11 @@ def test_the_probe_remedy_names_the_atoms_file_not_analyze(capsys):
                     _judge("claude-sonnet-5-5"))
     err = capsys.readouterr().err
     assert "write the atoms file again" in err and "analyze --extract-model" not in err
+
+
+def test_the_probe_same_vendor_remedy_names_the_atoms_file_not_analyze(capsys):
+    warn_answer_key({"extractor": "claude-haiku-5-5"}, LLMClient(model="gpt-6.1-sol"),
+                    _judge("claude-sonnet-5-5"))
+    err = capsys.readouterr().err
+    assert "vendor family" in err
+    assert "atoms --extract-model" in err and "analyze --extract-model" not in err
