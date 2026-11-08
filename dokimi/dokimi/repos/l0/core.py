@@ -341,10 +341,11 @@ class Scan:
         """``ok`` for an ``unresolved`` path a name or pattern of :mod:`.branches` names, else ``verdict``.
 
         Only ``unresolved``: a ``fail`` or ``ok_suffix`` found the path's directory or the path itself. A name
-        whose first directory the tree holds at the root (``tools/old/x`` beside ``tools/``) is a path.
-        Left ``unresolved``, its reason also names each file the branch reading skipped, once.
+        whose first directory the tree holds at the root (``tools/old/x`` beside ``tools/``, or a link ``tools`` to a
+        directory) is a path. Left ``unresolved``, its reason also names each file the branch reading skipped, once.
         """
-        if verdict[0] != "unresolved" or name.split("/")[0] in self.dir_set:
+        head = name.split("/")[0]
+        if verdict[0] != "unresolved" or head in self.dir_set or (head in self.file_set and self._dir_link(head)):
             return verdict
         branch = branches.branch_of(self, name, [_fill(name, f) for f in _FILLS])
         if branch:

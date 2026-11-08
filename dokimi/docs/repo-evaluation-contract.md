@@ -1623,7 +1623,8 @@ link), an `owner/name` the tree does not hold, outside a root directory, that no
 read file uses keeps its `unresolved` (`tried ...`) or `fail` (`<dir>/ exists but
 ...`) verdict, and its reason also names each such file, as `<file> was not read
 (<why>)`, joined with `; `. A path or glob the rules above leave `unresolved`,
-whose first directory is not one at the repository root, is `ok` when the
+whose first directory is not one at the repository root (nor a link to a
+directory there), is `ok` when the
 repository configures it as a branch (a `fail`, `ok_suffix` or other verdict
 stays): a `--branch` name or a `--pattern` regex, in each form the hook's
 argparse reads (`-b X`, `-bX`, `-b=X`, `--branch=X`, a prefix such as `--bra X`;

@@ -3,7 +3,7 @@
 - **`repo scan` reads a branch name or pattern the repository configures as a branch, not a
   path** — guidance such as "The `no-commit-to-branch` hook fails on `master` and
   `maintenance/*`" left `maintenance/*` `unresolved` ("matches nothing in the tree"). A path or
-  glob that would be `unresolved`, outside a root directory, is now `ok` when a `--branch` name or
+  glob that would be `unresolved`, outside a root directory (or a link to one), is now `ok` when a `--branch` name or
   `--pattern` regex of the `no-commit-to-branch` hook in `.pre-commit-config.yaml`, or a
   `branches` / `branches-ignore` filter of `on.push`, `on.pull_request`,
   `on.pull_request_target`, `on.merge_group` or `on.workflow_run` in a workflow, names

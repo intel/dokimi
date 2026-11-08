@@ -466,6 +466,17 @@ def test_a_branch_filter_names_only_a_path_that_would_be_unresolved(tmp_path, gu
     assert _path_verdict(tmp_path, claim, {held: "", **_PUSH}, guide) == verdict
 
 
+@pytest.mark.parametrize("target, verdict", [
+    ("src/pkg", ("unresolved", "tried tools/old/x")),
+    ("src/pkg/keep", ("ok", "branch pattern of no-commit-to-branch (.pre-commit-config.yaml:17)")),
+])
+def test_a_root_link_to_a_directory_keeps_a_path_below_it_a_path(tmp_path, target, verdict):
+    """A link `tools` to a directory is the root directory `tools/` a checkout makes; a link to a file is no directory."""
+    (tmp_path / "b").mkdir()
+    (tmp_path / "b/tools").symlink_to(target)
+    assert _path_verdict(tmp_path, "tools/old/x", {**_pre_commit("[-p, 'tools/.*']"), "src/pkg/keep": ""}) == verdict
+
+
 def test_a_branch_source_the_scan_does_not_read_is_named_in_the_reason(tmp_path):
     """A binary `.pre-commit-config.yaml` and a workflow over the read limit could hold `maintenance/*`: the reason says so."""
     big = "on: {push: {branches: ['maintenance/**']}}\n" + "#" * READ_MANY_LIMIT + "\n"
