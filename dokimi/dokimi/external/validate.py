@@ -16,6 +16,12 @@ follow the Agent Skills spec:
 - ``description`` is at most 1024 characters (``error``). A missing or empty
   description is a load error, raised by the loader.
 - The frontmatter is valid YAML (``frontmatter-parse``, ``error``).
+- A frontmatter key that neither the spec nor Claude Code names is a ``warn``
+  (``frontmatter-unknown-key``, see :data:`FRONTMATTER_KEYS`), and so is an ``allowed-tools``
+  name that is no Claude Code tool (``allowed-tools-unknown``). A body over 500 lines or about
+  5000 tokens (characters / 4) is a ``warn`` (``body-too-large``).
+- A file with no frontmatter at all does not load, and its load error says "no frontmatter"
+  rather than "missing a description" (a load error, so no finding; see the loader).
 
 Identical copies: of the skills whose ``SKILL.md`` bytes are the same, the one
 nearest the root (fewest path parts, ties to path order) is the original, the
@@ -52,6 +58,11 @@ and so is one whose tokens overlap another skill's at a Jaccard similarity of at
 Mirror drift: two skills in different paths with the same directory name but different
 ``SKILL.md`` text are a ``warn`` on both (``mirror-drift``), naming the other copies: the
 same skill has probably been edited in one place and not the other.
+
+Content (:mod:`dokimi.external.content_checks`): a model ID its vendor has retired or
+deprecated is a ``warn`` (``legacy-model-id``), and so is a hidden character (bidi control,
+Unicode tag, stray zero-width character) in ``SKILL.md`` or a bundled text file
+(``hidden-unicode``), reported with its line and codepoint.
 """
 
 from __future__ import annotations
@@ -70,6 +81,7 @@ from dokimi.skills import Skill
 from dokimi.utils import describe_yaml_error, parse_frontmatter_strict
 
 from .catalog import SkillCatalogEntry, _within
+from .content_checks import content_findings
 from .skill_markdown import link_pieces, outside_fences
 from .listing import in_field
 
@@ -78,6 +90,30 @@ NAME_MAX = 64
 DESCRIPTION_MAX = 1024
 NEAR_DUPLICATE_JACCARD = 0.5
 NEAR_DUPLICATE_MIN_SHARED = 3  # shared words; a one-word overlap in two short descriptions is not a near-duplicate
+# The frontmatter keys the Agent Skills spec defines, then the ones Claude Code reads on top of it.
+# Any other key is a typo or a field no harness reads (``frontmatter-unknown-key``).
+FRONTMATTER_KEYS = frozenset(
+    {
+        "name", "description", "license", "allowed-tools", "metadata", "compatibility",
+        "argument-hint", "disable-model-invocation", "user-invocable", "model", "context",
+        "agent", "hooks", "version", "when_to_use", "paths", "shell", "effort",
+    }
+)
+# The tool names Claude Code has. An ``allowed-tools`` entry is checked by its name only
+# (``allowed-tools-unknown``): ``mcp__*`` tools are not checked, and ``Tool(pattern)`` is read as ``Tool``.
+CLAUDE_TOOLS = frozenset(
+    {
+        "Bash", "Read", "Write", "Edit", "MultiEdit", "Glob", "Grep", "LS", "WebFetch",
+        "WebSearch", "Task", "Agent", "TodoWrite", "NotebookEdit", "NotebookRead",
+        "Skill", "AskUserQuestion", "ExitPlanMode", "BashOutput", "KillShell", "KillBash",
+        "SlashCommand", "ToolSearch", "Monitor", "TaskStop", "SendMessage", "EnterPlanMode",
+        "EnterWorktree", "ExitWorktree", "ListMcpResourcesTool", "ReadMcpResourceTool",
+        "CronCreate", "CronDelete", "CronList", "Workflow", "LSP", "Computer", "PowerShell",
+    }
+)
+# A body over either limit is ``body-too-large``. Tokens are estimated as characters / 4, so no tokenizer is needed.
+BODY_MAX_LINES = 500
+BODY_MAX_TOKENS = 5000
 
 # A "when" clause of any subject and verb ("run migrations when deploying"), or a use phrase: the model
 # chooses a skill from its description alone.
@@ -171,6 +207,103 @@ def _strict_meta(text: str) -> tuple[dict, Optional[Finding]]:
     return meta, None
 
 
+def _group_end(value: str, start: int, quotes: bool = True) -> Optional[int]:
+    """The index just past the ``)`` that closes the ``(`` at ``start``, or None when the group never closes.
+
+    Nested parentheses count. With ``quotes``, quoted text inside the group is opaque, so a ``)`` in quotes does
+    not close it; a quote that never closes makes the group fail, and the caller reads that quote as a plain
+    character (``Bash(echo don't)``) with ``quotes=False``.
+    """
+    depth, quote = 0, ""
+    for i in range(start, len(value)):
+        c = value[i]
+        if quote:
+            if c == quote:
+                quote = ""
+        elif quotes and c in "\"'":
+            quote = c
+        elif c == "(":
+            depth += 1
+        elif c == ")":
+            depth -= 1
+            if depth == 0:
+                return i + 1
+    return None
+
+
+def _group_end_checked(value: str, start: int, quotes: bool) -> tuple[Optional[int], bool]:
+    """``(_group_end(...), quotes still on)``. A quote that never closes switches quotes off for the rest of
+    the value: that is one failed quoted scan at most, so the whole value is read in linear time."""
+    if quotes:
+        end = _group_end(value, start)
+        if end is not None:
+            return end, True
+    return _group_end(value, start, quotes=False), False
+
+
+def _tool_names(value: str) -> list[str]:
+    """The tool name of each entry of one ``allowed-tools`` string, in one pass over it.
+
+    Entries are split on whitespace and commas. A ``(pattern)`` after a name is consumed whole (see
+    :func:`_group_end`). A group that never closes runs to the end of the string: its tool name is kept,
+    its pattern is not read, and the scan stops. Quoting is a heuristic, and a stray quote can hide the entries between two quotes or
+    leave a junk name such as ``")"`` (warn-only, and rare).
+    """
+    names: list[str] = []
+    i, n = 0, len(value)
+    quotes = True
+    while i < n:
+        c = value[i]
+        if c.isspace() or c == ",":
+            i += 1
+            continue
+        if c == "(":  # a pattern with no tool name: skipped
+            end, quotes = _group_end_checked(value, i, quotes)
+            if end is None:
+                break
+            i = end
+            continue
+        j = i
+        while j < n and not (value[j].isspace() or value[j] in ",("):
+            j += 1
+        names.append(value[i:j])
+        i = j
+        if i < n and value[i] == "(":
+            end, quotes = _group_end_checked(value, i, quotes)
+            if end is None:
+                break
+            i = end
+    return names
+
+
+def _unknown_tools(allowed: object) -> list[str]:
+    """The names in an ``allowed-tools`` value (a comma or space list, or a YAML list) that Claude Code has no tool of.
+
+    ``mcp__*`` tools are not checked. A ``Tool(pattern)`` entry is checked by ``Tool``.
+    """
+    if allowed is None:
+        return []
+    items = allowed if isinstance(allowed, list) else [allowed]
+    names = [name for item in items if isinstance(item, str) for name in _tool_names(item)]
+    return [name for name in names if not name.startswith("mcp__") and name not in CLAUDE_TOOLS]
+
+
+def _body_findings(skill: Skill) -> list[Finding]:
+    """``body-too-large`` when the instruction body is over :data:`BODY_MAX_LINES` lines or :data:`BODY_MAX_TOKENS` tokens."""
+    lines = len(skill.body.splitlines())
+    tokens = len(skill.body) // 4  # chars / 4: an estimate, not a tokenizer count
+    if lines <= BODY_MAX_LINES and tokens <= BODY_MAX_TOKENS:
+        return []
+    return [
+        Finding(
+            "warn",
+            "body-too-large",
+            f"SKILL.md body is {lines} lines and about {tokens} tokens (characters / 4); the limit is "
+            f"{BODY_MAX_LINES} lines or {BODY_MAX_TOKENS} tokens. Move the detail into bundled files.",
+        )
+    ]
+
+
 def _frontmatter_findings(skill: Skill, *, at_root: bool = False) -> tuple[list[Finding], bool]:
     """The spec checks on the frontmatter of ``skill``, and its ``disable-model-invocation`` flag.
 
@@ -201,14 +334,15 @@ def _frontmatter_findings(skill: Skill, *, at_root: bool = False) -> tuple[list[
                     f"name {declared!r} is not the directory name {dir_name!r}",
                 )
             )
-        if len(declared) > NAME_MAX or not NAME_PATTERN.fullmatch(declared):
+        # ``name-format`` also covers the length: a name over 64 characters is not a separate code.
+        problems = []
+        if not NAME_PATTERN.fullmatch(declared):
+            problems.append("is not kebab-case (lowercase letters, digits, single hyphens)")
+        if len(declared) > NAME_MAX:
+            problems.append(f"is {len(declared)} characters; the limit is {NAME_MAX}")
+        if problems:
             findings.append(
-                Finding(
-                    "error",
-                    "name-format",
-                    f"name {declared!r} is not kebab-case (lowercase letters, digits, "
-                    f"single hyphens; at most {NAME_MAX} characters)",
-                )
+                Finding("error", "name-format", f"name {declared!r} {' and '.join(problems)}")
             )
     if len(skill.description) > DESCRIPTION_MAX:
         findings.append(
@@ -216,6 +350,26 @@ def _frontmatter_findings(skill: Skill, *, at_root: bool = False) -> tuple[list[
                 "error",
                 "description-too-long",
                 f"description is {len(skill.description)} characters; the limit is {DESCRIPTION_MAX}",
+            )
+        )
+    unknown_keys = sorted({str(key) for key in meta} - FRONTMATTER_KEYS)
+    if unknown_keys:
+        findings.append(
+            Finding(
+                "warn",
+                "frontmatter-unknown-key",
+                f"frontmatter has {', '.join(map(repr, unknown_keys))}, which no spec or Claude Code "
+                "field is named; a typo, or a field no harness reads",
+            )
+        )
+    unknown_tools = sorted(set(_unknown_tools(meta.get("allowed-tools"))))
+    if unknown_tools:
+        findings.append(
+            Finding(
+                "warn",
+                "allowed-tools-unknown",
+                f"allowed-tools names {', '.join(map(repr, unknown_tools))}, which are not Claude Code "
+                "tools (mcp__ tools are not checked; in Tool(pattern) only the tool name is checked)",
             )
         )
     # Read as the skill arm reads it (dokimi.harnesses.skill_treatment.check_skill).
@@ -508,7 +662,9 @@ def _near_duplicates(loaded: list[tuple[SkillCatalogEntry, Skill, SkillReview]])
                     )
 
 
-def review_skills(entries: Sequence[SkillCatalogEntry]) -> list[Optional[SkillReview]]:
+def review_skills(
+    entries: Sequence[SkillCatalogEntry], *, standalone: bool = False
+) -> list[Optional[SkillReview]]:
     """One :class:`SkillReview` per entry, in order.
 
     None for an entry that did not load, unless its frontmatter is broken YAML: then its
@@ -516,6 +672,10 @@ def review_skills(entries: Sequence[SkillCatalogEntry]) -> list[Optional[SkillRe
     copy nearest the root is the original; every other copy names it in ``duplicate_of``.
     Mirror drift and near-duplicate descriptions are checked across all the loaded skills,
     and a skill with ``disable-model-invocation`` set is left out of the description checks.
+
+    ``standalone``: each entry is one skill directory reviewed alone (:func:`review_skill_dir`). Its
+    ``SKILL.md`` is still the root for the frontmatter and link checks, but its bundled files are
+    content-checked as in a catalog, since no checkout root stands above them.
     """
     reviews: list[Optional[SkillReview]] = []
     copies: list[tuple[SkillReview, str, str]] = []  # (review, skill directory, digest) per loaded skill
@@ -526,11 +686,15 @@ def review_skills(entries: Sequence[SkillCatalogEntry]) -> list[Optional[SkillRe
             reviews.append(_unloaded_review(entry))
             continue
         skill = entry.skill
-        findings, hidden = _frontmatter_findings(
-            skill, at_root=skill.path.parent.resolve() == entry.source_root.resolve()
-        )
+        at_root = skill.path.parent.resolve() == entry.source_root.resolve()
+        findings, hidden = _frontmatter_findings(skill, at_root=at_root)
         review = SkillReview(findings=findings, disable_model_invocation=hidden)
         review.findings += _bundle_findings(skill, entry.source_root)
+        review.findings += _body_findings(skill)
+        review.findings += [
+            Finding("warn", code, message)
+            for code, message in content_findings(skill, at_root=at_root and not standalone)
+        ]
         if not hidden:
             review.findings += _description_findings(skill)
         review.content_sha256 = _skill_digest(skill)

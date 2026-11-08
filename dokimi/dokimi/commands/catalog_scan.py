@@ -5,7 +5,8 @@
 
 The cross-catalog checks (``duplicate``, ``name-conflict``, ``mirror-drift``,
 ``description-near-duplicate``) need every skill reviewed together. This mode gives them up
-and reviews one skill per row; every SKILL.md is still loaded before the first row. Rows are written in
+and reviews one skill per row. Every SKILL.md body the scan finds is loaded before the first row (eager, so
+memory grows with the catalog; lazy per-skill loading is #434). Rows are written in
 catalog order within one run (``--resume`` appends the rest after the rows it kept), a run
 killed midway keeps the rows it wrote, and ``--resume`` reviews only the skills that have no
 row yet or whose directory changed since their row was written (its ``skill_sha256``).
@@ -273,6 +274,7 @@ def _print_text(root: Path, declared: int, tally: _Tally, resumed: int,
     else:
         for row in rows:
             print_skill_row(row)
+    print("# granularity: not run with --per-skill (run without it for the merge and split hints)")
     print()
 
 

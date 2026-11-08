@@ -17,7 +17,7 @@ in [agentsmd/agents.md#213](https://github.com/agentsmd/agents.md/issues/213).
 
 | Piece | Where | What it does |
 |---|---|---|
-| Replay tasks from review threads | `dokimi/repos/replay/`, `repo tasks replay` ([contract §4.6](repo-evaluation-contract.md#46-replay-tasks-from-review-threads)) | One `dokimi:review_replay` task per merged PR, with the change as reviewed and the reviewers' threads as gold. No GitHub call. |
+| Replay tasks from review threads | `dokimi/repos/replay/`, `eval tasks generate --from replay` ([contract §4.6](repo-evaluation-contract.md#46-replay-tasks-from-review-threads)) | One `dokimi:review_replay` task per merged PR, with the change as reviewed and the reviewers' threads as gold. No GitHub call. |
 | Deterministic review grader | `dokimi/repos/graders/review.py` | Matches the agent's findings JSON to gold threads by file and a line window (`window`, default 5). No LLM. |
 | Executable tasks and self-check | `eval check` (`dokimi/repos/selfcheck.py`, [contract §4.3](repo-evaluation-contract.md#43-self-check-eval-check-no-llm)) | Checks that a task fails on the untouched workspace and passes after its oracle. Run this check and resolve broken cases before starting paid runs; `repo run` does not enforce its results. |
 | Arms | `dokimi/repos/arms.py` | `guidance:none`, `guidance:raw`, `guidance:rev:`, `patch:` and the rest. |
@@ -33,7 +33,7 @@ Before this change nothing tied a rule to the cases it was written from, and
 An incident is a failure a rule should prevent. Three sources are in use or
 planned:
 
-1. **A review comment on a merged PR.** Run `repo tasks replay` on the PR's
+1. **A review comment on a merged PR.** Run `eval tasks generate --from replay` on the PR's
    threads. The case is `review_replay_pr<N>` and already exists. Its grader is
    recall of the gold threads, so the check is deterministic.
 2. **A failed agent run, or a bug a fix PR corrected.** Write an executable task

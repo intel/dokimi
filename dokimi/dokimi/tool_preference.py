@@ -29,7 +29,6 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-import random
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -37,6 +36,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from dokimi.artifacts import schema_errors
+from dokimi.eval.stats import bootstrap_ci
 
 FACTORS = ("vendor_name", "assertive", "social_proof", "long_desc", "exclusion")
 
@@ -197,15 +197,16 @@ def _share(outcome: str, role: str) -> float:
 
 
 def _boot(per_group: Dict[str, float], n: int = 2000, seed: int = 0) -> Dict[str, Any]:
-    """Mean over groups with a 95% bootstrap CI that resamples groups (cluster bootstrap)."""
+    """Mean over groups with a 95% bootstrap CI that resamples groups (cluster bootstrap).
+
+    One value per group, so resampling the values resamples the groups; the resampler is
+    :func:`dokimi.eval.stats.bootstrap_ci`.
+    """
     vals = list(per_group.values())
     if not vals:
         return {"mean": None, "ci95": None, "n_groups": 0}
-    rng = random.Random(seed)
-    means = sorted(sum(rng.choices(vals, k=len(vals))) / len(vals) for _ in range(n))
-    return {"mean": round(sum(vals) / len(vals), 4),
-            "ci95": [round(means[int(0.025 * n)], 4), round(means[int(0.975 * n) - 1], 4)],
-            "n_groups": len(vals)}
+    ci = bootstrap_ci(vals, n_resamples=n, seed=seed)
+    return {"mean": ci["mean"], "ci95": [ci["lo"], ci["hi"]], "n_groups": len(vals)}
 
 
 def summarize(items: Sequence[dict], results: Sequence[dict]) -> Dict[str, Any]:
