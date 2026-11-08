@@ -53,7 +53,7 @@
   // and updates the SHA and the tag together.
   "pre-commit": { enabled: true },
   "pip-compile": {
-    managerFilePatterns: ["/(^|/)requirements(-ci|-docs|-mutation)?\\.lock\\.txt$/"],
+    managerFilePatterns: ["/(^|/)requirements(-ci|-docs|-mutation|-fuzz)?\\.lock\\.txt$/"],
   },
   // Inside a range: bump the lock only. Outside it: move the range too.
   rangeStrategy: "update-lockfile",

@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from functools import partial
 from typing import Any, Generic, TypeVar
 
-from .client import LLMClient, accepting
+from .client import LLMClient, OutputTruncated, accepting
 
 T = TypeVar("T")
 
@@ -129,7 +129,8 @@ def ask_in_batches(
             result.answered.append((chunk, read(chunk, reply)))
         except Exception as exc:
             half = len(chunk) // 2
-            if replied and half >= max(min_size, 1):
+            # A reply cut at the ceiling is re-asked smaller, like one that will not parse.
+            if (replied or isinstance(exc, OutputTruncated)) and half >= max(min_size, 1):
                 pending[:0] = [chunk[:half], chunk[half:]]
                 result.retried_batches += 1
                 result.unusable_retries += isinstance(exc, UnusableReply)

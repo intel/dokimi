@@ -175,7 +175,8 @@ def read_skill_manifest(root: Path, notes: list[str] | None = None) -> list[Skil
     """Read skills under *root*, preferring a ``skills.yaml`` manifest.
 
     *notes* receives one line per template the filesystem scan leaves out (a manifest lists
-    its skills, so it has none).
+    its skills, so it has none). Every skill's SKILL.md is loaded before this returns (eager; lazy
+    loading is #434).
     """
 
     root = Path(root)
