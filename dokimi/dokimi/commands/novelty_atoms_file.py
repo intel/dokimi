@@ -146,7 +146,7 @@ def warn_answer_key(saved: dict, answerer, judge) -> None:
         return  # a null model in an artifact names no model: nothing to compare
     if extractor == answerer.model:
         print(f"WARNING: {answerer.model} extracted these atoms, so the model under measurement "
-              "wrote its own answer key; write the atoms file again with a different atoms --extract-model",
+              "wrote its own answer key; write the atoms file again with another extractor (atoms --extract-model)",
               file=sys.stderr)
     provider = saved.get("extractor_provider")  # None in a record from before it was saved
     warn_extractor_judge(extractor, judge, provider if isinstance(provider, str) else "",
