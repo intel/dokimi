@@ -16,6 +16,7 @@ import json
 from typing import Any, Callable
 
 from .manifest import RepoCheckReport, match_glob
+from .overlays import overlay_of
 from .source import GitTree, RepoTree, SourceError
 
 MCP_CONFIG = ".mcp.json"
@@ -72,6 +73,7 @@ def check_bases(report: RepoCheckReport, open_base: Callable[[str], RepoTree],
     by_base: dict[str, list[str]] = {}
     failed: set[str] = set()
     matched_somewhere: set[str] = set()
+    overlaid: set[str] = set()
     for task in report.tasks:
         if task.base in by_base or task.base in failed:
             continue
@@ -89,6 +91,8 @@ def check_bases(report: RepoCheckReport, open_base: Callable[[str], RepoTree],
                 matched_somewhere.add(pattern)
             found.extend(m for m in matched if m not in found)
         by_base[task.base] = found
+        if any(overlay_of(f) is not None and not manifest.in_eval_dir(f) for f in files):
+            overlaid.add(task.base)  # guidance:none removes it and guidance:overlay keeps it, globs or not
         problem = tree_mcp_error(base_tree)
         if problem:
             report.warnings.append(f"task {task.id}: {MCP_CONFIG} at base {task.base!r} is {problem}; `repo run --tools all` "
@@ -100,10 +104,11 @@ def check_bases(report: RepoCheckReport, open_base: Callable[[str], RepoTree],
         f"guidance glob matches no file at the eval tree or at {where}: {p}"
         for p in unmatched_at_eval_tree if p not in matched_somewhere
     )
-    bare = sorted(t.id for t in report.tasks if report.guidance_by_base.get(t.base) == 0)
+    bare = sorted(t.id for t in report.tasks if report.guidance_by_base.get(t.base) == 0 and t.base not in overlaid)
     if bare:
         report.notes.append(
-            f"no guidance file at the base of {len(bare)} task(s); there guidance:none, raw and bridge give the same "
+            f"no guidance file and no AGENTS.<agent>.md overlay at the base of {len(bare)} task(s); "
+            "there guidance:none, raw and bridge give the same "
             "workspace and as-skill, overlay and format= fail preparation, so leave these tasks out of comparisons "
             f"among those arms (guidance:rev:, patch: and +skill: parts bring their own files): {', '.join(bare)}"
         )
