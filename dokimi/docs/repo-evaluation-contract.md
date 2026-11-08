@@ -1643,7 +1643,8 @@ and after `*` or `**` they add nothing), `[...]` is one of its letters, digits o
 `**` alone names no path. A filter that excludes branches, a `branches-ignore`
 entry or one with a leading `!`, names them as one that includes them does: the
 workflow skips `release/x` under `branches: ['**', '!release/**']`, but `release/x`
-is still a branch, so it is `ok`. A range that runs backwards or mixes lowercase,
+is still a branch, so it is `ok`, and `release/1.x` equals the entry `!release/1.x`
+as it does `release/1.x`. A range that runs backwards or mixes lowercase,
 uppercase and digits (`9-0`, `a-Z`) makes its `[...]` literal text. A
 `--branch` name matches only when equal, and so does any source for a claim whose
 last segment ends in an extension some file of the tree has (`release/CHANGELOG.md`

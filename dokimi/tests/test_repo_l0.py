@@ -373,6 +373,9 @@ _PUSH = {".github/workflows/ci.yml": 'name: ci\non:\n  push:\n    branches: [mai
     # `.x` is an extension the tree uses, so `release/1.x` reads as a file, but a name equal to it still counts
     ("release/1.x", {**_pre_commit("[--branch, release/1.x]"), "src/gen.x": ""},
      "branch of no-commit-to-branch (.pre-commit-config.yaml:17)"),
+    # and so does a filter entry that excludes it, without its `!`
+    ("release/1.x", {".github/workflows/ci.yml": "on: {push: {branches: ['**', '!release/1.x']}}\n", "src/gen.x": ""},
+     "branch filter of on.push (.github/workflows/ci.yml:1)"),
     ("dependabot/*", {".github/workflows/pr.yaml": "on:\n  pull_request:\n    branches-ignore:\n      - 'dependabot/**'\n"},
      "branch filter of on.pull_request (.github/workflows/pr.yaml:4)"),
     # a branch a `!` entry excludes is still a branch: the entry names it, not `**`, which names no path

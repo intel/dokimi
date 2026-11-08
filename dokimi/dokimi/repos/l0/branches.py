@@ -169,14 +169,15 @@ def _filter_sources(scan: Scan, flows: list[str]) -> list[Source]:
     """The ``branches`` and ``branches-ignore`` globs of each event of ``_EVENTS``, workflow by workflow.
 
     A glob that excludes branches (``branches-ignore``, a leading ``!``) names them as one that includes them does: the
-    workflow skips ``release/x`` under ``['**', '!release/**']``, but it is still a branch, not a path.
+    workflow skips ``release/x`` under ``['**', '!release/**']``, but it is still a branch, not a path. The text is
+    without that ``!``, so ``!release/1.x`` equals ``release/1.x`` as ``release/1.x`` does.
     """
     out: list[Source] = []
     for path in flows:
         doc = _load(scan, path)
         on = (doc[True] if True in doc else doc.get("on")) if isinstance(doc, dict) else None  # YAML 1.1: `on` is true
         specs = [(e, on.get(e)) for e in _EVENTS] if isinstance(on, dict) else []  # `on: push` has no filters
-        out += [Source(p, _filter_regex(p), f"branch filter of on.{event} ({path}:{getattr(p, 'line', 0)})")
+        out += [Source(p.removeprefix("!"), _filter_regex(p), f"branch filter of on.{event} ({path}:{getattr(p, 'line', 0)})")
                 for event, spec in specs if isinstance(spec, dict)
                 for key in _FILTERS for p in _list(spec.get(key)) if isinstance(p, str)]
     return out
