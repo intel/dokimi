@@ -14,7 +14,6 @@ import pytest
 
 from dokimi.external import read_skill_manifest, review_skills
 from dokimi.external.command_checks import command_findings
-from dokimi.external.command_checks import command_findings
 
 
 def _skill(root: Path, rel: str, body: str) -> Path:
@@ -379,6 +378,21 @@ def test_every_npx_package_selection_is_judged(tmp_path):
     assert "npx ts-node" in message and "typescript" not in message
     attached = _found(_review(tmp_path / "attached", _fenced("npx -pts-node ts-node")), "install-unpinned")
     assert "npx ts-node" in attached[0].message
+
+
+def test_npx_flags_after_the_program_are_not_packages(tmp_path):
+    # a flag of the program run is its own; an npx option that takes a value does not name the package
+    tsc = _found(_review(tmp_path / "tsc", _fenced("npx tsc -p tsconfig.json")), "install-unpinned")[0].message
+    assert "npx tsc" in tsc and "tsconfig" not in tsc
+    assert _found(_review(tmp_path / "pinned", _fenced("npx -y typescript@5 tsc -p tsconfig.json")),
+                  "install-unpinned") == []
+    jest = _found(_review(tmp_path / "jest", _fenced("npx jest -passWithNoTests")), "install-unpinned")[0].message
+    assert "npx jest" in jest and "assWithNoTests" not in jest
+    registry = _found(_review(tmp_path / "registry", _fenced("npx --registry https://r.io pkg")),
+                      "install-unpinned")[0].message
+    assert "npx pkg" in registry
+    workspace = _found(_review(tmp_path / "ws", _fenced("npx -w ws pkg")), "install-unpinned")[0].message
+    assert "npx pkg" in workspace and "npx ws" not in workspace
 
 
 def test_an_unreadable_subdirectory_does_not_abort_the_scan(tmp_path):

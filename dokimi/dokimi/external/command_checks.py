@@ -70,6 +70,9 @@ PIP_VALUE_OPTIONS = frozenset({
 NPM_VALUE_OPTIONS = frozenset({
     "--prefix", "--registry", "--cache", "--userconfig", "--workspace", "-w", "--tag", "--loglevel",
     "--omit", "--include", "--before", "--scope", "--save-prefix", "--otp", "--proxy", "--fetch-timeout"})
+# npx's own options that take a value; --package and -p are not here, since their value is a selection
+NPX_VALUE_OPTIONS = frozenset({
+    "-w", "--workspace", "--registry", "-c", "--call", "--cache", "--userconfig"})
 NON_PACKAGE_SUFFIXES = (".txt", ".whl", ".gz", ".zip", ".tgz", ".tar", ".cfg", ".toml", ".lock")
 FENCE_OPEN = re.compile(r"^[ \t]{0,3}(`{3,}|~{3,})")
 
@@ -163,9 +166,10 @@ def _unpinned_npm(rest: str) -> list[str]:
 
 
 def _unpinned_npx(rest: str) -> list[str]:
-    """npx runs the packages it is given: each ``--package``/``-p`` selection, or else the first word that is not a
-    flag. A selection names the package, so the executable after it is not inferred."""
-    words = _words(rest, frozenset())
+    """npx runs the packages it is given: each ``--package``/``-p`` selection before the program, or else the program
+    itself (the first word that is not a flag). A selection names the package, so the program is not inferred from
+    it. Words after the program are its own arguments: its ``-p`` is not npx's selection."""
+    words = _words(rest, NPX_VALUE_OPTIONS)
     selected: list[str] = []
     executable = None
     i = 0
@@ -179,8 +183,9 @@ def _unpinned_npx(rest: str) -> list[str]:
             selected.append(word[len("--package="):])
         elif word.startswith("-p") and not word.startswith("--") and len(word) > 2:
             selected.append(word[2:])
-        elif executable is None and word and not word.startswith("-"):
+        elif word and not word.startswith("-"):
             executable = word
+            break
         i += 1
     names = []
     for spec in selected or ([executable] if executable else []):
