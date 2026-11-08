@@ -19,30 +19,23 @@ import pytest
 PACKAGE = Path(__file__).resolve().parents[1] / "dokimi"
 
 #: Exits with 2 that stay: the handler, a dependency, a documented exit, and the
-#: ``EXIT_USAGE`` and ``usage_exit`` refusals not yet converted (#275 follow-up). Lower a count when a site converts.
+#: ``EXIT_USAGE`` refusals not yet converted (#275 follow-up). Lower a count when a site converts.
 _UNCONVERTED = "EXIT_USAGE refusal written by hand, not an InputError yet (#275 follow-up)"
-_UNCONVERTED_USAGE_EXIT = "usage_exit() refusal, not an InputError yet (#275 follow-up)"
 EXIT2_BASELINE: dict[str, tuple[int, str]] = {
     "dokimi.cli": (1, "the handler: prints InputError as 'Error: ...' and exits 2"),
     "dokimi.commands._output": (1, "write_text_or_exit: shared writer that exits 2 by hand (#275 follow-up)"),
     "dokimi.commands.answers": (8, _UNCONVERTED),
     "dokimi.commands.arms": (11, _UNCONVERTED),
     "dokimi.commands.baseline": (4, _UNCONVERTED),
-    "dokimi.commands.baseline_regression": (2, _UNCONVERTED_USAGE_EXIT),
     "dokimi.commands.benchmark": (5, _UNCONVERTED),
-    "dokimi.commands.catalog": (18, _UNCONVERTED_USAGE_EXIT),
-    "dokimi.commands.catalog_eval": (2, _UNCONVERTED_USAGE_EXIT),
-    "dokimi.commands.catalog_probe": (1, _UNCONVERTED_USAGE_EXIT),
     "dokimi.commands.dashboard": (2, _UNCONVERTED),
     "dokimi.commands.eval_coverage": (7, _UNCONVERTED),
     "dokimi.commands.evaluate": (5, "typed scorer: ImportError (a missing backend) shares the except with ValueError; "
                                     "4 EXIT_USAGE refusals not yet converted"),
-    "dokimi.commands.explore": (9, "1 EXIT_USAGE and 8 usage_exit refusals not yet converted (#275 follow-up)"),
+    "dokimi.commands.explore": (1, "1 EXIT_USAGE refusal not yet converted (#275 follow-up)"),
     "dokimi.commands.ingest": (1, "Docling not installed: a missing optional dependency, not an input"),
-    "dokimi.commands.inputs": (2, _UNCONVERTED_USAGE_EXIT),
     "dokimi.commands.judge_reliability": (2, _UNCONVERTED),
     "dokimi.commands.library": (4, _UNCONVERTED),
-    "dokimi.commands.novelty_atoms_file": (1, _UNCONVERTED_USAGE_EXIT),
     "dokimi.commands.orchestrate": (3, _UNCONVERTED),
     "dokimi.commands.personas": (9, _UNCONVERTED),
     "dokimi.commands.questions": (14, _UNCONVERTED),
@@ -53,10 +46,9 @@ EXIT2_BASELINE: dict[str, tuple[int, str]] = {
     "dokimi.commands.repo_skill_reach": (1, _UNCONVERTED),
     "dokimi.commands.report": (13, _UNCONVERTED),
     "dokimi.commands.run": (5, _UNCONVERTED),
-    "dokimi.commands.subjects": (17, "7 EXIT_USAGE and 10 usage_exit refusals not yet converted (#275 follow-up)"),
-    "dokimi.commands.tasks": (14, _UNCONVERTED_USAGE_EXIT),
-    "dokimi.commands.tools": (8, "'run incomplete' exit (2 literal) documented in docs/quickstart.md, not a refusal; "
-                                 "3 EXIT_USAGE and 3 usage_exit refusals not yet converted"),
+    "dokimi.commands.subjects": (7, "7 EXIT_USAGE refusals not yet converted (#275 follow-up)"),
+    "dokimi.commands.tools": (5, "'run incomplete' exit (2 literal) documented in docs/quickstart.md, not a refusal; "
+                                 "3 EXIT_USAGE refusals not yet converted"),
 }
 
 
