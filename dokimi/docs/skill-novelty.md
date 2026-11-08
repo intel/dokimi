@@ -426,8 +426,9 @@ Two content patterns were measured as actively harmful, independent of topic:
   entirely: it replied with a preamble promising to look things up and scored 0.047, against 0.537
   with no skill at all. Skill bodies should be answerable standalone; progressive disclosure is a
   loading strategy, not a sentence to write.
-- **Investment in prose order.** An arm with the same spans in shuffled order scored *higher* than
-  the intact artifact on four of five models. Ordering, transitions and narrative framing carried no
+- **Investment in prose order.** The study's shuffled arm scored *higher* than the intact artifact
+  on four of five models, but it injected more files than the artifact did, so that result does not
+  carry over to this measurement. Ordering, transitions and narrative framing carried no
   measurable knowledge. Spend the effort on facts, qualifiers and exact values — that is where the
   strict-grading `added` lives. A probe asks one atom at a time and so cannot punish a scrambled
   document, so this was retested behaviourally on the 71 generated tasks whose graded requirements
@@ -677,6 +678,10 @@ others are named on stderr.
 `--estimate-only` prints, as JSON, the calls, input and output tokens and the list-price `expected_usd` the
 `--model` arm would make, and makes no model call. Without `--model` the run is lexical and the bill
 is zero. Input is the selection prompt sized at chars / 4, so it is a projection, not a count.
+Output is `output_tokens_per_call` (65) times the calls: the average a measured routing run billed per
+selection call (360 calls drew 23.3k output tokens). The prompt asks for one `{"pick": N}` object, about
+10 tokens, which underestimated that run 6.5 times, so the estimate does not use it. Another model, or a
+reasoning model, can bill more or less.
 
 Two numbers, reported side by side and never merged:
 
@@ -705,7 +710,9 @@ Two numbers, reported side by side and never merged:
   replay. Repeats need `--model`, and cost N times the calls. With repeats, `n_calls` is
   queries x repeats, `n_abstained` and `n_failed` count calls, and each `per_query` row
   carries its `repeat` index. In an `--all-vs-all` run each `noise` row also names its `gold`
-  skill, since two skills can list the same request.
+  skill, since two skills can list the same request. `noise` is always an object: `n_repeats` is the
+  repeat count, and with `--repeats 1` it is 1 with `mean_agreement`, `half_range`, `unstable_queries`
+  and each row's `agreement` null (nothing to agree with), so a reader tests those fields, not `noise`, for null.
 
 A single-artifact `--model` run also writes a `cost` block (calls, input and output tokens, cache read and
 write tokens, and `usd`, which is `null` when any call this run paid for had no known price) and prints the
@@ -725,7 +732,9 @@ counted as a miss.
 --queries-by-skill queries.json --out routing.json` (add `--model M` for the model arm) makes
 every skill that has queries the gold in turn, routed against the whole field. The file is a
 JSON object of skill name to the requests that should select it, each written without the
-skill's own text. A skill named twice in the file is refused. The output has a confusion
+skill's own text. A skill named twice in the file is refused. `--out` must name a file: a directory, a
+path under a non-directory, a FIFO or device, a symlink loop, or an unwritable path is refused before any model call (the same
+check is made for a single-artifact `routing --out`); a missing parent directory is created. The output has a confusion
 matrix (gold to picked to count, with `(none)` for a query no card shares a word with or, in
 the model arm, an abstention, and `(tie)` for a query on which two or more other cards tie for
 the top lexical score, so no field order decides it), an own rate per skill, and an attractor
@@ -839,6 +848,50 @@ of writing its own.
 
 Read the output as a statement about the *measurement*, not the atom: a non-discriminating
 atom can be true and simply universal. A **negative** `r` is the one to treat as a defect.
+
+## Is `added` above placebo and above noise
+
+Three controls bound the headline `added` rate. The placebo and noise-floor fields are added
+to the `paired` block only when their arm ran. The atom-clustered interval applies to every
+run, so on a two-arm run too `ci95_added` changes (and is null below 5 atoms).
+
+- **Placebo-gated `added`** (`added_over_placebo`, needs the `placebo` arm). This counts a
+  probe only when it is right with the artifact, wrong without it, *and* wrong with the
+  placebo text. A gain the placebo also gets is a context effect, not knowledge.
+- **Noise floor** (`noise_floor`, needs the `no_artifact_repeat` arm). That arm asks every
+  baseline question again as a new sample (a new cache `draw`). Its flips against the
+  baseline are what `added` and `degraded` would be if the artifact did nothing.
+
+    - `added_net_of_noise` subtracts the floor's `added` from the measured one, over the
+      probes that all three arms answered. It is omitted when there are none.
+    - `degraded_within_noise` is `true` when `degraded` is no larger than the floor's own
+      `degraded`, over the same probes. Do not report such a `degraded` as a defect.
+    - In the review rerun the floor was 5–10% in each direction, and every model's
+      `degraded` fell inside it.
+    - Both are point estimates; the floor carries its own `ci95_added` to read them against.
+      The floor is only as wide as the answerer's sampling: at temperature 0 it can read 0.
+    An injected transport is not given the `draw`, so there the repeat is no new sample.
+
+- **Atom-clustered interval.** The paraphrases of one atom succeed or fail together, so
+  `ci95_added` (and the placebo-gated `ci95`) resamples atoms, not probes
+  (`ci_cluster: "atom"`). A probe-level bootstrap reads three correlated wordings as three
+  data points, so its interval comes out too narrow. A record or scorecard cell without
+  `ci_cluster` (or with it null) predates this change and its interval is probe-level.
+
+`--context-framing neutral` changes the preamble from "Reference material:" to "Below is a
+document. It may or may not be relevant to the question." Use it to check whether placebo
+abstention is caused by the prompt. In the rerun the framing did not move the `full` arm on
+any model (±0.02). With the placebo, one model's abstention fell from 0.845 to 0.703. The
+framing is recorded as `context_framing` in each probe record and in the run config (absent
+there for `reference`). `prompts_sha256` covers the text of both preambles, not which one
+was used. `skill novelty items` refuses probe records of different framings.
+
+```bash
+python cli.py skill novelty analyze --artifact skill:s --model M \
+  --arms no_artifact,full,placebo,no_artifact_repeat \
+  --placebo-text other-domain.md \
+  --context-framing neutral
+```
 
 ## Comparing knowledge: which matcher is allowed to answer
 

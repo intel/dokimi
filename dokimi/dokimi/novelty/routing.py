@@ -264,8 +264,9 @@ def model_routing(
         ``n_failed`` count calls), ``n_abstained``, ``n_failed``, the per-query pick
         with the position the gold card was shown at, the raw reply of every abstention or
         unparseable pick, and the caveat that this bounds harness behaviour from above.
-        With ``repeats > 1``, ``noise`` holds each query's agreement across its repeats and
-        the run-to-run spread of the selection rate; it is ``None`` for one repeat.
+        ``noise`` is always an object (see :func:`repeat_noise`). With ``repeats > 1`` it holds
+        each query's agreement across its repeats and the run-to-run spread of the selection rate;
+        with one repeat ``n_repeats`` is 1 and the agreement and spread fields are ``None``.
     """
     if not 0 <= gold < len(candidates):
         raise ValueError(f"gold index {gold} is outside 0..{len(candidates) - 1}")
@@ -333,7 +334,7 @@ def model_routing(
         "selection_rate_among_answered": (
             round(hits / len(answered), 4) if answered else None
         ),
-        "noise": repeat_noise(groups) if repeats > 1 else None,
+        "noise": repeat_noise(groups, repeats),
         "per_query": picks,
         "note": (
             "An upper bound on harness behaviour, not a harness measurement: a harness "
@@ -343,8 +344,12 @@ def model_routing(
     }
 
 
-def repeat_noise(groups: list[list[dict]]) -> dict:
+def repeat_noise(groups: list[list[dict]], repeats: int | None = None) -> dict:
     """Agreement across the repeats of each query, and the run-to-run spread of the rate.
+
+    Always returns the same keys. ``n_repeats`` is ``repeats``, else the length of the first
+    group. With one repeat the agreement and spread fields are ``None``; the rate stays in
+    ``selection_rate_by_repeat``.
 
     A query's agreement is the share of its answered repeats that gave its most common
     pick; an abstention counts as a pick. ``selection_rate_by_repeat`` reads each repeat as
@@ -356,7 +361,10 @@ def repeat_noise(groups: list[list[dict]]) -> dict:
 
     Args:
         groups: One list per query, holding that query's rows in repeat order.
+        repeats: The repeat count the run asked for; ``None`` reads it from ``groups``.
     """
+    if repeats is None:
+        repeats = len(groups[0]) if groups else 0
     per_query: list[dict] = []
     for group in groups:
         labels = [
@@ -366,7 +374,8 @@ def repeat_noise(groups: list[list[dict]]) -> dict:
         modal, agreement = None, None
         if labels:
             modal, count = Counter(labels).most_common(1)[0]
-            agreement = round(count / len(labels), 4)
+            if repeats > 1:  # one repeat agrees with itself by construction: nothing to measure
+                agreement = round(count / len(labels), 4)
         per_query.append({
             "query": group[0]["query"],
             "modal_pick": modal,
@@ -374,7 +383,6 @@ def repeat_noise(groups: list[list[dict]]) -> dict:
             "picks": labels,
             "n_correct": sum(1 for row in group if row.get("correct")),
         })
-    repeats = len(groups[0]) if groups else 0
     rates: list[float | None] = []
     # Every repeat's rate is taken over the same queries: those with no failed call in any
     # repeat. Dividing each repeat by its own non-errored rows would compare different
@@ -386,8 +394,10 @@ def repeat_noise(groups: list[list[dict]]) -> dict:
     known = [rate for rate in rates if rate is not None]
     agreements = [row["agreement"] for row in per_query if row["agreement"] is not None]
     return {
+        "n_repeats": repeats,
         "mean_agreement": round(sum(agreements) / len(agreements), 4) if agreements else None,
-        "unstable_queries": sum(1 for a in agreements if a < 1),
+        # None, not 0, with one repeat: a count of 0 would read as a stable selector.
+        "unstable_queries": sum(1 for a in agreements if a < 1) if repeats > 1 else None,
         "selection_rate_by_repeat": rates,
         "n_queries_compared": len(complete),
         "half_range": round((max(known) - min(known)) / 2, 4) if len(known) > 1 else None,
@@ -431,8 +441,8 @@ def headings_as_queries(body: str, *, limit: int = 40) -> list[str]:
     return [h for h in headings if len(tokenize(h)) >= 2][:limit]
 
 
-# A selection reply is one JSON object, ``{"pick": N}``: a few tokens.
-PICK_REPLY_TOKENS = 10
+# Output tokens per selection call, measured on one run (360 calls drew 23.3k tokens).
+SELECTION_REPLY_TOKENS = 65
 
 
 def selection_prompt_tokens(candidates: list[Candidate], queries: list[str]) -> list[int]:
@@ -452,8 +462,9 @@ def selection_estimate(candidates: list[Candidate], queries: list[str], *,
                        repeats: int = 1) -> dict:
     """The calls and tokens :func:`model_routing` would make, counted without making them.
 
-    Every repeat sends the same prompts (see :func:`selection_prompt_tokens`). The reply is one
-    JSON pick, :data:`PICK_REPLY_TOKENS`. Zero repeats send nothing, so no query is sent.
+    Every repeat sends the same prompts (see :func:`selection_prompt_tokens`). Each reply is
+    billed at :data:`SELECTION_REPLY_TOKENS` output tokens, the measured figure, and
+    ``output_tokens_per_call`` says which. Zero repeats send nothing, so no query is sent.
     """
     prompts = selection_prompt_tokens(candidates, queries) if repeats else []
     calls = len(prompts) * repeats
@@ -462,7 +473,8 @@ def selection_estimate(candidates: list[Candidate], queries: list[str], *,
         "n_queries_sent": len(prompts),
         "n_calls": calls,
         "input_tokens": sum(prompts) * repeats,
-        "output_tokens": calls * PICK_REPLY_TOKENS,
+        "output_tokens_per_call": SELECTION_REPLY_TOKENS,
+        "output_tokens": calls * SELECTION_REPLY_TOKENS,
     }
 
 

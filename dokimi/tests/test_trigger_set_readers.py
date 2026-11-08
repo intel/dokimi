@@ -14,6 +14,7 @@ from pathlib import Path
 
 import pytest
 
+from dokimi.utils import InputError
 from dokimi.cli import build_parser
 from dokimi.external import trigger_set as ts
 from dokimi.questions.artifact import load_questions
@@ -169,13 +170,13 @@ def test_cli_refuses_bad_trigger_set_specs(tmp_path, catalog):
     reach.write_text(json.dumps({"queries": [{"id": "1", "text": "a", "expected_skill": None}]}),
                      encoding="utf-8")
     base = ["eval", "triggers", "generate", "--catalog", str(catalog), "--out", str(tmp_path / "o.json")]
-    with pytest.raises(SystemExit, match="not a skill in --catalog"):
+    with pytest.raises(InputError, match="not a skill in --catalog"):
         _run(base + ["--trigger-set", f"{sc}=nope"])
-    with pytest.raises(SystemExit, match="needs the target"):
+    with pytest.raises(InputError, match="needs the target"):
         _run(base + ["--trigger-set", str(sc)])
-    with pytest.raises(SystemExit, match="skill-creator sets only"):
+    with pytest.raises(InputError, match="skill-creator sets only"):
         _run(base + ["--trigger-set", f"{reach}=linux-perf"])
-    with pytest.raises(SystemExit, match="--questions PATH=LABEL or --trigger-set"):
+    with pytest.raises(InputError, match="--questions PATH=LABEL or --trigger-set"):
         _run(base)
 
 
