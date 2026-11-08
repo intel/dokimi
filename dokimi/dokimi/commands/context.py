@@ -157,7 +157,8 @@ def cmd_context_consistency(args: argparse.Namespace) -> None:
         report[label]["shell"] = args.shell  # the grain the step counts were taken at
 
     if args.json:
-        cli_output.emit_leaf("trace consistency", report, status="partial" if failed else "complete",
+        status = "failed" if not any(loaded.values()) else "partial" if failed else "complete"
+        cli_output.emit_leaf("trace consistency", report, status=status,
                              reason="one or more traces could not be read (see stderr)" if failed else None)
     else:
         print(_consistency_text(report))

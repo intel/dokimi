@@ -227,6 +227,16 @@ def test_trace_inspect_json_is_partial_when_a_trace_does_not_read(tmp_path, caps
     assert schema_errors("cli_output.v1", doc) == []
 
 
+def test_trace_consistency_json_is_failed_when_no_trace_reads(tmp_path, capsys):
+    args = cli.parse_args(["trace", "consistency", "--arm", f"base={tmp_path}/missing.jsonl", "--json"])
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 1
+    doc = json.loads(capsys.readouterr().out)
+    assert doc["kind"] == "trace consistency" and doc["status"] == "failed" and doc["reason"]
+    assert schema_errors("cli_output.v1", doc) == []
+
+
 def test_a_trace_leaf_refused_before_any_read_prints_a_failed_document(tmp_path, capsys):
     args = cli.parse_args(["trace", "prefilter", str(tmp_path / "none.md"), str(tmp_path / "x.jsonl"), "--json"])
     with pytest.raises(SystemExit) as exc:
