@@ -54,17 +54,18 @@ def test_repo_budget_exits_2_on_a_harness_file_it_cannot_read(tmp_path, capsys, 
     with pytest.raises(SystemExit) as exc:
         _run("budget", str(tmp_path), "--harness", str(path))
     assert exc.value.code == 2
-    assert str(path) in capsys.readouterr().err
+    assert f"{path}: cannot read: " in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("text", ["name: 2026-99-99\n", "[" * 100000], ids=["bad-date", "deep"])
 def test_repo_budget_exits_2_on_a_harness_file_whose_yaml_does_not_load(tmp_path, capsys, text):
+    # The message of a YAML syntax error, as the changelog promises; PyYAML words the rest.
     path = tmp_path / "profile.yaml"
     path.write_text(text, encoding="utf-8")
     with pytest.raises(SystemExit) as exc:
         _run("budget", str(tmp_path), "--harness", str(path))
     assert exc.value.code == 2
-    assert f"{path}: " in capsys.readouterr().err
+    assert f"{path}: not valid YAML: " in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("kind", ["non-utf8", "unreadable"])
