@@ -215,9 +215,9 @@ def test_skill_check_header_says_it_reports_one_of_the_declared(tmp_path, capsys
     assert header.startswith(f"# skills (1 of 2 declared under {tmp_path}; ")
 
 
-def test_skill_check_help_names_the_frontmatter_name_only(capsys):
+def test_skill_check_help_says_where_the_name_comes_from(capsys):
     with pytest.raises(SystemExit):
         build_parser().parse_args(["skill", "check", "--help"])
     text = " ".join(capsys.readouterr().out.split())
-    assert "frontmatter gives it" in text
-    assert "directory" not in text
+    assert "its name in skills.yaml" in text
+    assert "SKILL.md frontmatter name" in text
