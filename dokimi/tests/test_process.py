@@ -87,6 +87,12 @@ def test_output_is_utf8_whatever_the_locale():
     assert _py("import sys; sys.stdout.buffer.write(b'a\\rb')").stdout == "a\nb"  # a lone \r too
 
 
+def test_nul_fields_split_a_listing_before_decoding_so_a_carriage_return_stays():
+    done = reply(b"a\rb/AGENTS.md\x00\xff x\r\n\x00")
+    assert done.nul_fields() == ["a\rb/AGENTS.md", "� x\r\n", ""]  # bad bytes replaced, as stdout does
+    assert done.stdout.split("\0") == ["a\nb/AGENTS.md", "� x\n", ""]
+
+
 def test_input_reaches_stdin_and_stdin_is_closed_otherwise():
     echo = "import sys; sys.stdout.buffer.write(sys.stdin.buffer.read())"
     assert _py(echo, input=b"\x00bin\n").stdout_bytes == b"\x00bin\n"

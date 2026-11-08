@@ -30,7 +30,7 @@ a doc snippet) goes through :func:`run`, which holds these invariants:
   produced before the kill is kept.
 * **Output is bytes, read as UTF-8.** ``stdout``/``stderr`` decode with
   replacement and universal newlines, whatever the locale; ``stdout_bytes`` is
-  the raw stream for binary callers.
+  the raw stream for binary callers, ``nul_fields()`` a ``-z`` listing's fields with each ``\\r`` kept.
 * **Captured output is bounded.** Each stream keeps at most ``capture_limit``
   bytes in memory (:data:`CAPTURE_LIMIT`, 1 MiB, by default): its first and last
   half, joined by :data:`TRUNCATION_MARKER`, with ``truncated`` set on the result.
@@ -143,6 +143,9 @@ class Completed:
     @cached_property
     def stderr(self) -> str:
         return _decode(self.stderr_bytes)
+
+    def nul_fields(self) -> list[str]:  # a ``-z`` listing split on NUL, then each field decoded: a "\r" stays one
+        return [field.decode("utf-8", errors="replace") for field in self.stdout_bytes.split(b"\0")]
 
     @property
     def ok(self) -> bool:
