@@ -14,6 +14,7 @@ change pass -- that is the break the fixture exists to catch.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -335,6 +336,24 @@ def test_compare_against_follows_schemas_that_moved(monkeypatch, tmp_path):
     # Breaking, not a warning: only the base fixture (at its old path) shows "b" is written.
     assert list(results) == ["a.v1.json"]
     assert "/b: was unconstrained, now constrained" in results["a.v1.json"].breaking[0]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="a carriage return in a file name")
+def test_a_carriage_return_in_the_directory_the_schemas_moved_from_stays(monkeypatch, tmp_path):
+    """Read as text, git's -z listing turned the "\\r" into a newline, so the base was then
+    listed at a directory it does not have (https://github.com/intel/dokimi/issues/473)."""
+    import dokimi.schema_compat as sc
+
+    git = ["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "core.autocrlf=false"]
+    (tmp_path / "o\rld").mkdir()
+    (tmp_path / "o\rld/x.json").write_text(json.dumps(_with(description="x" * 200)), encoding="utf-8")
+    subprocess.run([*git, "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run([*git, "add", "."], cwd=tmp_path, check=True)
+    subprocess.run([*git, "commit", "-qm", "base"], cwd=tmp_path, check=True)
+    subprocess.run([*git, "mv", "o\rld", "new"], cwd=tmp_path, check=True)
+    subprocess.run([*git, "commit", "-qm", "move"], cwd=tmp_path, check=True)
+    monkeypatch.setattr(sc, "SCHEMA_DIR", tmp_path / "new")
+    assert sc._renamed_from("HEAD~1", ".") == "o\rld/"
 
 
 def test_only_a_path_the_base_lacks_reads_as_no_fixture(monkeypatch, tmp_path):
