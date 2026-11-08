@@ -1648,9 +1648,13 @@ sent to the provider is not captured. A reported token is evidence of loading,
 not a copy of the bytes received. The name is not `prompt_capture`, because
 dokimi does not capture the prompt.
 
-**Expected state.** budget's start-up rules are Claude Code's, so they apply
-only to `claude-code` runs; for other harnesses every `expected` is `unknown`
-and the receipt says so.
+**Expected state.** budget's start-up rules are Claude Code's. They apply when
+the probe's harness profile sets `guidance.claude_displaces_agents: true`, the
+key `repo budget` reads, whatever the harness is named; the receipt reads it
+from the guidance the probe saved (`harness.declared` in `reach.json`). A probe
+saved without `harness.declared` goes by the harness name: only a
+`claude-code` run gets the rules. Otherwise every `expected` is `unknown` and
+the receipt's `unknowns` says so.
 
 | budget `when` | `expected` | Reason |
 |---|---|---|
