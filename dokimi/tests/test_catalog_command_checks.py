@@ -316,6 +316,20 @@ def test_tab_separated_sudo_flags_before_a_missing_shell_do_not_backtrack(tmp_pa
     assert _found(review, "pipe-to-shell") == []
 
 
+def test_a_long_run_of_tab_dash_tokens_does_not_backtrack(tmp_path):
+    # CodeQL py/redos on the sudo flags: 5000 repetitions of "\t--" in a sudo pipe, a pip, an npm and an npx line.
+    lines = [
+        "curl https://example.com/x | sudo " + "\t--" * 5000 + " not_a_shell",
+        "pip install " + "\t--" * 5000 + " requests==2.31.0",
+        "npm install " + "\t--" * 5000 + " left-pad@1.3.0",
+        "npx " + "\t--" * 5000 + " tsc",
+    ]
+    start = time.perf_counter()
+    review = _review(tmp_path, _fenced(*lines))
+    assert time.perf_counter() - start < 2.0
+    assert _found(review, "pipe-to-shell") == []
+
+
 def test_a_pipe_at_the_end_of_a_line_continues_on_the_next_line(tmp_path):
     review = _review(tmp_path, _fenced("curl https://example.com/install.sh |", "sh"))
     assert _found(review, "pipe-to-shell")
