@@ -92,7 +92,7 @@ def test_help_lists_each_root_under_its_section():
             loop,
         ),
         **dict.fromkeys(
-            ("run", "compare", "catalog", "novelty", "repo", "skill"), subjects
+            ("docs", "catalog", "novelty", "repo", "skill"), subjects
         ),
         **dict.fromkeys(("eval",), evals),
         **dict.fromkeys(("tools", "trace", "runs", "backends", "data"), data),
@@ -161,22 +161,23 @@ def test_every_route_help_line_ends_in_its_cost_label():
         assert action.help and action.help.endswith(f" [{cost}]"), (path, action.help)
         seen.add(path)
     # A leaf with no help= is not in _choices_actions, so it is named, not counted: a count
-    # would include the root and group lines. `run` and `compare`: see the test below.
+    # would include the root and group lines. `docs check` and `docs compare`: see the test below.
     assert {leaf.path for leaf in cli_routes.LEAVES if leaf.summary is None} <= seen
 
 
-def test_run_and_compare_have_a_one_line_help_in_the_top_level_list(monkeypatch):
+def test_docs_has_a_one_line_help_in_the_top_level_list(monkeypatch):
     # argparse wraps help at COLUMNS (or the terminal width, else 80): a narrow host would
     # wrap the cost label onto a continuation line, so pin the width the label is read at.
     monkeypatch.setenv("COLUMNS", "200")
     text = build_parser().format_help()
     expected = {
-        "run": "Run the static benchmark spec and save a snapshot [free]",
-        "compare": "Compare two saved benchmark snapshots [free]",
+        "docs": "Static docs checks: the benchmark spec and saved snapshots [free]",
     }
     for name, help_line in expected.items():
         line = next(line for line in text.splitlines() if re.match(rf"^  {name}\s", line))
         assert line.split(None, 1)[1] == help_line, line
+    # The two leaves under docs are costed here, not in the parser loop above.
+    assert cli_routes.cost_of(("docs", "check")) == cli_routes.cost_of(("docs", "compare")) == "free"
 
 
 def test_route_table_matches_the_parser_leaves_and_roots():
@@ -217,8 +218,8 @@ def test_the_tombstone_check_follows_groups_aliases_and_roots():
     assert cli_routes.tombstone_problems(root) == []
     nowhere = (cli_routes.Tombstone(("old-tool",), ("no-such-root",)),)
     assert cli_routes.tombstone_problems(nowhere)
-    # compare takes positional files, so "compare x" is a live invocation, not a free old path
-    extends = (cli_routes.Tombstone(("compare", "x"), ("compare",)),)
+    # docs compare takes positional files, so "docs compare x" is a live invocation, not a free old path
+    extends = (cli_routes.Tombstone(("docs", "compare", "x"), ("docs", "compare")),)
     assert cli_routes.tombstone_problems(extends)
     # an empty old path matches every argv; an option is not a command
     assert cli_routes.tombstone_problems((cli_routes.Tombstone((), ("data",)),))

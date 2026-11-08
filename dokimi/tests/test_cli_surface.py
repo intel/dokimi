@@ -45,7 +45,7 @@ def test_dump_of_the_real_cli_is_json_and_deterministic():
     first = json.dumps(cs.dump_surface(), sort_keys=True)
     assert first == json.dumps(cs.dump_surface(), sort_keys=True)
     assert "0x" not in first  # no object addresses leaking in from defaults or types
-    assert "run" in json.loads(first)["subcommands"]
+    assert "docs" in json.loads(first)["subcommands"]
 
 
 def test_nested_subcommands_and_hidden_options_are_walked():

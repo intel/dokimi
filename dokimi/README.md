@@ -100,7 +100,7 @@ Outputs go to `results/onetbb_final/` by default. The default comparison is one 
 Optional static documentation gate for Markdown/code example quality:
 
 ```bash
-python cli.py run \
+python cli.py docs check \
   --root . \
   --spec benchmarks/spec.v1.yaml \
   --out-json baselines/current.json \

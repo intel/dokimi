@@ -35,7 +35,7 @@ PATHS = list(_command_paths(build_parser()))
 
 def test_the_walk_finds_the_command_tree():
     top = {p[0] for p in PATHS if len(p) == 1}
-    assert {"run", "eval", "tasks", "novelty", "repo"} <= top
+    assert {"docs", "eval", "tasks", "novelty", "repo"} <= top
     assert any(len(p) == 2 for p in PATHS)
 
 

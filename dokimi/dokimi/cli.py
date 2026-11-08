@@ -121,9 +121,8 @@ def build_parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="cmd", required=True, parser_class=argparse.ArgumentParser)
 
     # Order preserved to keep --help output stable.
-    run.register(sub, positive_int)             # run
+    run.register(sub, positive_int)             # docs: check, compare (#94 M3)
     orchestrate.register(sub, positive_int)     # evaluate (one-command pipeline)
-    run.register_compare(sub, positive_int)     # compare
     baseline.register(sub, positive_int)        # baseline
     report.register(sub, positive_int)          # report
     answers.register(sub, positive_int)         # answers

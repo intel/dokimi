@@ -16,7 +16,7 @@ Runs with cwd = <workspace>/dokimi. Prints one JSON object of metrics on its las
 - run_summary:    the snapshot summary carries the metric (mean over docs, or pooled share).
 - readme_listed:  the README static-metrics table names it.
 - test_refs:      a test file in the agent's tree mentions it.
-Informational: compare_diff (cli.py compare diffs it), arch_listed (architecture.md list),
+Informational: compare_diff (cli.py docs compare diffs it), arch_listed (architecture.md list),
 report_md (markdown run report mentions it).
 """
 
@@ -140,7 +140,7 @@ def run_fixture(spec, tmp: Path):
     snaps = []
     for i in range(2):
         js, md = tmp / f"snap{i}.json", tmp / f"run{i}.md"
-        p = subprocess.run([sys.executable, "cli.py", "run", "--root", str(root), "--spec", str(sp),
+        p = subprocess.run([sys.executable, "cli.py", "docs", "check", "--root", str(root), "--spec", str(sp),
                             "--out-json", str(js), "--out-md", str(md)],
                            cwd=PROJ, capture_output=True, text=True, timeout=300)
         if p.returncode:
@@ -154,7 +154,7 @@ def run_fixture(spec, tmp: Path):
     out["run_summary"] = any(close(sv, t) for t in SUMMARY_OK)
     out["report_md"] = M in (tmp / "run0.md").read_text(encoding="utf-8")
     # compare: same snapshot twice -> diff has the metric (zero delta). Informational.
-    p = subprocess.run([sys.executable, "cli.py", "compare", "--base", str(snaps[0]),
+    p = subprocess.run([sys.executable, "cli.py", "docs", "compare", "--base", str(snaps[0]),
                         "--candidate", str(snaps[1]), "--out-json", str(tmp / "cmp.json"),
                         "--out-md", str(tmp / "cmp.md")], cwd=PROJ, capture_output=True, text=True, timeout=300)
     if p.returncode == 0:

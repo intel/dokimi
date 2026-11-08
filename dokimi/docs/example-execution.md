@@ -54,7 +54,7 @@ Set `DOC_BENCH_EXAMPLE_BACKEND` to force a backend regardless of the spec — fo
 example, to neutralize execution in a shared CI runner:
 
 ```bash
-DOC_BENCH_EXAMPLE_BACKEND=none dokimi run --spec benchmarks/spec.v1.yaml
+DOC_BENCH_EXAMPLE_BACKEND=none dokimi docs check --spec benchmarks/spec.v1.yaml
 ```
 
 ## Security notes
@@ -83,7 +83,7 @@ omitted. Windows refuses this subprocess mode even with memory omitted, because
 the CPU cap is still required.
 
 A failure to apply a requested limit prevents execution. When the host cannot apply
-the limits, the run stops with an error that names the limit (`dokimi run` exits 2)
+the limits, the run stops with an error that names the limit (`dokimi docs check` exits 2)
 instead of scoring snippets that never ran, as failures or as passes. The `docker` backend
 requires a positive memory cap and rejects `null`, zero or negative values before
 launch. Use that Linux-container backend when both limits are required.
