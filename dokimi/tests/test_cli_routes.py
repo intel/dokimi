@@ -177,7 +177,9 @@ def test_docs_has_a_one_line_help_in_the_top_level_list(monkeypatch):
         line = next(line for line in text.splitlines() if re.match(rf"^  {name}\s", line))
         assert line.split(None, 1)[1] == help_line, line
     # The two leaves under docs are costed here, not in the parser loop above.
-    assert cli_routes.cost_of(("docs", "check")) == cli_routes.cost_of(("docs", "compare")) == "free"
+    docs_help = _subparsers(build_parser()).choices["docs"].format_help()
+    assert "Run the static benchmark spec and save a snapshot [free]" in docs_help, docs_help
+    assert "Compare two saved benchmark snapshots [free]" in docs_help, docs_help
 
 
 def test_route_table_matches_the_parser_leaves_and_roots():

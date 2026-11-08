@@ -156,7 +156,7 @@ def register(sub, positive_int) -> None:
     """Add the `docs` group: `docs check` (was `run`) and `docs compare` (was `compare`), #94 M3."""
     docs_p = sub.add_parser("docs", help="Static docs checks: the benchmark spec and saved snapshots")
     docs_sub = docs_p.add_subparsers(dest="docs_cmd", required=True)
-    check_p = docs_sub.add_parser("check")
+    check_p = docs_sub.add_parser("check", help="Run the static benchmark spec and save a snapshot")
     check_p.add_argument("--root", default=".")
     check_p.add_argument("--spec", default="benchmarks/spec.v1.yaml")
     check_p.add_argument("--out-json", default="baselines/current.json")
@@ -168,7 +168,7 @@ def register(sub, positive_int) -> None:
 
 def register_compare(sub, positive_int) -> None:
     """Add the `docs compare` subparser."""
-    cmp_p = sub.add_parser("compare")
+    cmp_p = sub.add_parser("compare", help="Compare two saved benchmark snapshots")
     cmp_p.add_argument("--base", required=True)
     cmp_p.add_argument("--candidate", required=True)
     cmp_p.add_argument("--spec", default=None, help="Spec file for regression thresholds")
