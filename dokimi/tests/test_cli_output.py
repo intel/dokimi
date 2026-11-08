@@ -237,6 +237,24 @@ def test_trace_consistency_json_is_failed_when_no_trace_reads(tmp_path, capsys):
     assert schema_errors("cli_output.v1", doc) == []
 
 
+def test_trace_consistency_json_is_partial_when_some_trace_reads(tmp_path, capsys):
+    good = tmp_path / "good.jsonl"
+    usage = {"input_tokens": 5, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0, "output_tokens": 1}
+    good.write_text(json.dumps({"type": "system", "subtype": "init", "model": "m", "tools": []}) + "\n"
+                    + json.dumps({"type": "assistant", "parent_tool_use_id": None,
+                                  "message": {"id": "m1", "usage": usage, "content": []}}) + "\n"
+                    + json.dumps({"type": "result", "subtype": "success", "is_error": False, "result": "ok",
+                                  "num_turns": 1, "usage": usage}) + "\n", encoding="utf-8")
+    args = cli.parse_args(["trace", "consistency", "--arm", f"base={good}",
+                           "--arm", f"base={tmp_path}/missing.jsonl", "--json"])
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 1
+    doc = json.loads(capsys.readouterr().out)
+    assert doc["kind"] == "trace consistency" and doc["status"] == "partial" and doc["reason"]
+    assert schema_errors("cli_output.v1", doc) == []
+
+
 def test_a_trace_leaf_refused_before_any_read_prints_a_failed_document(tmp_path, capsys):
     args = cli.parse_args(["trace", "prefilter", str(tmp_path / "none.md"), str(tmp_path / "x.jsonl"), "--json"])
     with pytest.raises(SystemExit) as exc:
