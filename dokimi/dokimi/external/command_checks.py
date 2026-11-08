@@ -70,9 +70,9 @@ PIP_VALUE_OPTIONS = frozenset({
 NPM_VALUE_OPTIONS = frozenset({
     "--prefix", "--registry", "--cache", "--userconfig", "--workspace", "-w", "--tag", "--loglevel",
     "--omit", "--include", "--before", "--scope", "--save-prefix", "--otp", "--proxy", "--fetch-timeout"})
-# npx's own options that take a value; --package and -p are not here, since their value is a selection
-NPX_VALUE_OPTIONS = frozenset({
-    "-w", "--workspace", "--registry", "-c", "--call", "--cache", "--userconfig"})
+# npx takes npm's config options, so its value options are npm's, plus its own --call; --package and -p are not
+# here, since their value is a selection
+NPX_VALUE_OPTIONS = NPM_VALUE_OPTIONS | frozenset({"-c", "--call"})
 NON_PACKAGE_SUFFIXES = (".txt", ".whl", ".gz", ".zip", ".tgz", ".tar", ".cfg", ".toml", ".lock")
 FENCE_OPEN = re.compile(r"^[ \t]{0,3}(`{3,}|~{3,})")
 

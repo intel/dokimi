@@ -393,6 +393,8 @@ def test_npx_flags_after_the_program_are_not_packages(tmp_path):
     assert "npx pkg" in registry
     workspace = _found(_review(tmp_path / "ws", _fenced("npx -w ws pkg")), "install-unpinned")[0].message
     assert "npx pkg" in workspace and "npx ws" not in workspace
+    loglevel = _found(_review(tmp_path / "loglevel", _fenced("npx --loglevel warn pkg@1")), "install-unpinned")
+    assert loglevel == []  # npm's --loglevel takes its value: warn is not the program
 
 
 def test_an_unreadable_subdirectory_does_not_abort_the_scan(tmp_path):
