@@ -1200,22 +1200,27 @@ And the retention oracle runs retrieval → NLI locally, escalating to an LLM on
 ambiguous band, with a disk cache (`--cache-dir`) keyed on (atom, text). Full sweeps stay opt-in
 (`--all-atoms`).
 
-The cache key carries a version (`retention-cache-v3`). Entries written before failed
-adjudications were kept out of the cache can hold a failure stored as `absent`, and entries written
-before a hedged verdict (`retained?`) counted as no verdict can hold it stored as `retained`; both
-look like real ones, so none of them is read. The old files stay in `--cache-dir` and can be deleted. The
+The cache key carries a version (`retention-cache-v4`). Entries written before failed
+adjudications were kept out of the cache can hold a failure stored as `absent`, entries written
+before a hedged verdict (`retained?`) counted as no verdict can hold it stored as `retained`, and
+entries written before a reply cut at the output ceiling was an error can hold a verdict parsed
+from a truncated reply; all of them look like real ones, so none of them is read. The old files stay in `--cache-dir` and can be deleted. The
 first run after upgrading therefore pays one adjudication call per pair the old cache held, unless
-`DOKIMI_RESPONSE_CACHE` replays it: the prompt is unchanged, so its entries still hit.
+`DOKIMI_RESPONSE_CACHE` replays it, but the response-cache key carries `max_tokens`, and novelty
+calls now send 16384 where they sent none, so those entries miss too.
 
-**Pass `--max-tokens` when the provider has a low default output ceiling.** litellm sends
-4096 to Bedrock-hosted Claude when none is given, and on a dense skill a 25-span extraction
-batch can need more than that: in the run below, replies came back with `finish_reason=length`
-at exactly 4096 tokens, cut mid-array. Extraction recovers by splitting an unparseable batch (or one whose rows are
-all unusable) in half and re-asking, down to one span per call, so a truncation costs extra calls rather than
+**Pass `--max-tokens` when a reply can outgrow the output ceiling.** Novelty calls ask for
+16384 output tokens unless `--max-tokens` names a ceiling. litellm sends 4096 to Bedrock-hosted
+Claude when none is given, and on a dense skill a 25-span extraction batch can need more than
+that: in the run below, replies came back with `finish_reason=length` at exactly 4096 tokens,
+cut mid-array. A reply cut at the ceiling (`finish_reason` `length` or `max_tokens`) is an error,
+not a parse that happens to succeed: its cost is still recorded, and the call fails with
+"reply cut at the output ceiling". Extraction recovers by splitting a batch that was cut or
+unparseable (or one whose rows are all unusable) in half and re-asking, down to one span per call, so a truncation costs extra calls rather than
 atoms: up to 2n−1 calls for an n-span batch that never parses. The artifact's `extraction`
 block counts them (`calls` against `batches`, the calls the run would make with no splitting; a
 capped run asks every batch too), and a warning (`atom extraction re-asked N
-unparseable batches as halves`) says what they cost; `--max-tokens 16000` avoids the truncated ones, not those with unusable rows. A call
+unparseable batches as halves`) says what they cost; a higher `--max-tokens` avoids the truncated ones, not those with unusable rows. A call
 that fails or returns an empty reply is not split, since half a batch fails the same way.
 
 Spans that still cannot be read are *unread*, not text that carries nothing. The warning
@@ -1260,9 +1265,10 @@ response cache, so a reply that fails it is never stored or replayed: extraction
 judges and the oracle pass their parse test; the probe grader, the faithfulness check and the
 need graph also require the field they read (a named verdict, a node), so `{"verdict": null}`
 or `{"nodes": []}` parses and is still asked again; routing requires a `pick`; and the answerer
-requires the closing `confidence:` line it was asked for, so an answer cut at the ceiling is
-re-asked, and its truncation warning logged, on every run. An empty answer is a failed probe run
-(its pair is dropped), not a wrong answer.
+requires the closing `confidence:` line it was asked for. An answer the provider reports as cut
+at the ceiling errors its pair, which is dropped, and replays as the same error from the cache;
+one cut without a reported reason lacks that line, so it is graded but never stored. An empty
+answer is a failed probe run (its pair is dropped), not a wrong answer.
 
 ## Limits to state when quoting these numbers
 
