@@ -859,6 +859,23 @@ def test_a_path_git_ignores_under_a_shared_directory_selects_nothing_whatever_it
     assert evaluate_catalog(tmp_path, [], [f"tools/{cache}"])["selection"]["selected"] == ["alpha"]  # not known as ignored
 
 
+@pytest.mark.parametrize("shared", ["tools", "scripts", "dokimi", ".github"])
+def test_an_ignored_file_of_a_bundle_under_a_shared_directory_selects_only_that_bundle(tmp_path, shared):
+    from dokimi.external.catalog_eval import evaluate_catalog
+
+    for name, where in (("alpha", f"{shared}/alpha"), ("beta", "skills/beta")):
+        (tmp_path / where).mkdir(parents=True)
+        (tmp_path / where / "SKILL.md").write_text(
+            f"---\nname: {name}\ndescription: Use when inspecting {name} inputs.\n---\nInspect safely.\n", encoding="utf-8")
+    (tmp_path / "skills.yaml").write_text(f"skills:\n  - catalog_path: {shared}/alpha\n  - catalog_path: skills/beta\n")
+    log = f"{shared}/alpha/build.log"
+    (tmp_path / log).write_text("log", encoding="utf-8")
+    selection = evaluate_catalog(tmp_path, [], [log], None, {log})["selection"]
+    assert selection["selected"] == ["alpha"]  # alpha's bundle hashes it; beta's input is unchanged
+    assert selection["reasons"] == {"alpha": [f"owned input changed: {log}"]}
+    assert evaluate_catalog(tmp_path, [log], [])["selection"]["selected"] == ["alpha", "beta"]  # tracked: shared
+
+
 def test_a_moved_task_selects_the_skill_that_owned_it_at_the_base(tmp_path):
     skill(tmp_path)
     skill(tmp_path, "beta")

@@ -39,8 +39,8 @@ def _impact(root: Path, rows: list[dict], changed: list[str] | None, untracked: 
     selection["changed_paths"] = paths
     selection["removed"] = [path for path in paths if not (root / path).exists()]
     reasons: dict[str, set[str]] = {}
-    for path in paths:
-        owners, reason = _owners(path, rows)
+    for path in paths:  # a loose path selects only the bundles that hash it, as it was kept above
+        owners, reason = _owners(path, rows, hashed=path not in tracked, ignored=path in ignored)
         task = task_dir(path)
         if task in base_owners and base_owners[task] in names and base_owners[task] not in owners:
             owners, reason = [*owners, base_owners[task]], f"task moved or removed: {path}"
