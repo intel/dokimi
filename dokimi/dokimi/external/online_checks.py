@@ -158,8 +158,12 @@ def _pip_names(args: list[str]) -> Iterator[str]:
             skip = False
         elif tok in _PIP_VALUE_OPTIONS or tok in _SPEC_OPERATORS:
             skip = True
+        elif tok.lower() in _PROSE_STOP:
+            return  # prose after the list: "pip install foo for development"
         elif _is_package_word(tok) and "@" not in tok:
             requirement = _requirement(tok)
+            if requirement.endswith(tuple(_SPEC_OPERATORS)):
+                skip = True  # "foo>= 1.0": the version is the next word
             match = _PYPI_NAME_RE.fullmatch(requirement)
             if match and any(c.isalpha() for c in match.group(1)) and not requirement.lower().endswith(_NON_PACKAGE_SUFFIXES):
                 yield match.group(1)
@@ -185,7 +189,7 @@ def _npm_names(args: list[str]) -> Iterator[str]:
             skip = False
         elif tok in _NPM_VALUE_OPTIONS:
             skip = True
-        elif tok == "--":
+        elif tok == "--" or tok.lower() in _PROSE_STOP:
             return
         elif not tok.startswith("-") and (name := _npm_name(tok)):
             yield name
@@ -238,11 +242,11 @@ def _command_kind(tokens: list[str], i: int) -> Optional[str]:
 
 
 def _list_end(tokens: list[str], start: int, end: int) -> int:
-    """Where the package list that starts at ``tokens[start]`` stops, at most at ``end``: before a prose word (a
-    conjunction or a common English word such as ``in`` or ``for``, see ``_PROSE_STOP``), or after the first word
-    that ends in ``:`` (the prose after a colon is not a list)."""
+    """Where the package list that starts at ``tokens[start]`` stops, at most at ``end``: before a ``then``, or after
+    the first word that ends in ``:`` (the prose after a colon is not a list). A common English word ends the list
+    in the name readers (see ``_PROSE_STOP``), where an option's value is known."""
     for j in range(start, end):
-        if tokens[j].lower() == "then" or tokens[j].lower() in _PROSE_STOP:
+        if tokens[j].lower() == "then":
             return j
         if tokens[j].endswith(":"):
             return j + 1

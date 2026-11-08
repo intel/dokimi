@@ -226,6 +226,15 @@ def test_uv_pip_value_options_and_npm_access_take_their_argument():
     assert online_checks.extract_packages("npm install --access public foo\n") == [("npm", "foo")]
 
 
+def test_a_stop_word_that_is_an_option_value_is_the_value_not_prose():
+    assert online_checks.extract_packages("pip install --progress-bar on foo\n") == [("pypi", "foo")]
+    assert online_checks.extract_packages("npm install --omit in lodash\n") == [("npm", "lodash")]
+
+
+def test_a_version_glued_to_an_operator_is_not_a_name():
+    assert online_checks.extract_packages("pip install foo>= 1.0rc1\n") == [("pypi", "foo")]
+
+
 def test_markdown_link_inside_emphasis_table_or_next_to_another_link_keeps_only_the_url():
     assert online_checks.extract_urls("_[docs](https://x.com/a)_") == ["https://x.com/a"]
     assert online_checks.extract_urls("|[docs](https://x.com/a)|desc|") == ["https://x.com/a"]
