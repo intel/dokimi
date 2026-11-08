@@ -109,13 +109,12 @@ def bootstrap_ci(
     Returns ``{"mean", "lo", "hi", "n"}``. Deterministic for a given ``seed``,
     so it is safe to use in tests and reproducible runs.
 
-    This is the only bootstrap in dokimi. Its seed is an integer fed to
-    ``random.Random(seed)``, the scheme every other resampler in the package
-    already used (binary McNemar intervals, grounding, the t-interval fallback).
-    The one that used a string seed (``random.Random(f"novelty-ci-{seed}")``)
-    was retired so that one input has one interval; the integer form is also
-    what ``seed`` means everywhere else (``--seed`` on the CLI). Callers pass
-    ``n_resamples`` when they need a count other than the default.
+    This is the eval-side bootstrap. Its seed is an integer fed to
+    ``random.Random(seed)``, the scheme the McNemar and grounding intervals
+    already used, and the one ``--seed`` means on the CLI. Novelty's atom-clustered ``clustered_ci``
+    (``novelty/controls.py``) is a separate resampler with its own string seed;
+    this module does not change it. Callers pass ``n_resamples`` when they need
+    a count other than the default.
 
     Prefer :func:`mean_ci` on continuous data: the percentile bootstrap
     under-covers badly at the sample sizes this module targets (measured ~87.5%

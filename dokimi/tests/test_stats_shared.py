@@ -4,8 +4,9 @@
 """One bootstrap and one paired delta for the whole package (eval/stats.py).
 
 The tool-preference cluster CI used to resample with its own RNG stream. It now calls ``eval.stats.bootstrap_ci``;
-these tests pin the wiring (resample counts, seed, output shape) and the golden values so a second resampler cannot
-come back unnoticed. Novelty's CI is out of scope here: main's #418 clusters its paraphrases by atom.
+these tests pin the wiring (resample counts, seed, output shape) and the golden values. The resampler inventory matches
+functions by name ("bootstrap" or "boot"), so it does not see a resampler under another name: novelty's
+``clustered_ci`` (main's #418) is one, and is out of scope here.
 """
 
 from __future__ import annotations
