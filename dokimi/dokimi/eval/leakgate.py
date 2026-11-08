@@ -468,7 +468,7 @@ def _split_lines(split: Mapping[str, Any]) -> list[str]:
         if moved:
             lines.append(f"  {len(moved)} items moved since the old lock: {_listed(moved)}")
     if split["state"] == "not_relocked":
-        lines.append(f"  lock not overwritten: the run is blocked, so the old lock stands (digest {shown})")
+        lines.append(f"  lock not overwritten: the run did not pass, so the old lock stands (digest {shown})")
         if moved:
             lines.append(f"  {len(moved)} items would move at relock: {_listed(moved)}")
     return lines

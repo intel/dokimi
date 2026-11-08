@@ -586,7 +586,7 @@ def test_the_table_says_a_relock_that_did_not_run_left_the_old_lock(tmp_path):
                  relock=True)
     table = format_table(result)
     assert table.splitlines()[0].startswith("split not relocked: digest ")
-    assert "the run is blocked, so the old lock stands" in table
+    assert "the run did not pass, so the old lock stands" in table
 
 
 # --- verbatim run rule: N words copied from an answer, whatever the share ------------------------

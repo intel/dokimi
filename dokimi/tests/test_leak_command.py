@@ -363,7 +363,7 @@ def test_a_relock_of_a_blocked_run_exits_1_and_leaves_the_old_lock(tmp_path, cap
     leaky = _skill(tmp_path / "leaky", f"Copied: {ANSWER}.")
     assert _exit_code(_args(leaky, questions, split=str(moved), lock=str(lock), relock=True)) == 1
     assert lock.read_bytes() == before
-    assert "lock not overwritten: the run is blocked, so the old lock stands" in capsys.readouterr().out
+    assert "lock not overwritten: the run did not pass, so the old lock stands" in capsys.readouterr().out
 
 
 def test_the_verbatim_words_flag_defaults_to_twelve_and_refuses_zero(capsys):
