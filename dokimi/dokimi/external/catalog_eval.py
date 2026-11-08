@@ -31,6 +31,7 @@ def _impact(root: Path, rows: list[dict], changed: list[str] | None, untracked: 
         literal = os.name != "nt"
         tracked = {relative_path(path, literal_backslash=literal) for path in changed}
         loose = {relative_path(path, literal_backslash=literal) for path in untracked}
+        ignored = {relative_path(path, literal_backslash=literal) for path in ignored}
     except UnsafePath as exc:
         raise ValueError(f"invalid changed path: {exc}") from exc
     # An untracked or ignored file changes a digest only if a bundle hashes it.
