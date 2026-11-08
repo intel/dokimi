@@ -197,7 +197,7 @@ def test_prose_with_an_apostrophe_still_splits_its_commands():
 
 def test_prose_after_an_install_is_read_as_names_known_limit():
     # Known limit (warn-only): words after an install on the same line are names, and a conjunction does not end
-    # the list ("pip install a and b" reads both). "done" is a false name here.
+    # the list ("pip install foo and bar" reads both). "done" is a false name here.
     body = "Don't worry; pip install requests and you're done\n"
     assert online_checks.extract_packages(body) == [("pypi", "requests"), ("pypi", "done")]
 
@@ -224,6 +224,8 @@ def test_uv_pip_value_options_and_npm_access_take_their_argument():
     assert online_checks.extract_packages("uv pip install --resolution lowest --link-mode copy foo\n") == [
         ("pypi", "foo")]
     assert online_checks.extract_packages("npm install --access public foo\n") == [("npm", "foo")]
+    assert online_checks.extract_packages("uv pip install -p python3.12 foo\n") == [("pypi", "foo")]
+    assert online_checks.extract_packages("uv pip install --torch-backend cu126 vllm\n") == [("pypi", "vllm")]
 
 
 def test_a_stop_word_that_is_an_option_value_is_the_value_not_prose():

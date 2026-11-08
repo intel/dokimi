@@ -69,7 +69,7 @@ _PIP_VALUE_OPTIONS = {
     "--only-binary", "--no-binary", "--cert", "--client-cert", "--root-user-action",
     # uv pip's value options ("uv pip install --prerelease allow foo")
     "--prerelease", "--resolution", "--link-mode", "--index-strategy", "--python-platform", "--extra", "--group",
-    "--color",
+    "--color", "-p", "--torch-backend", "--fork-strategy", "--directory", "--project",
 }
 _NPM_VALUE_OPTIONS = {
     "--prefix", "--registry", "--workspace", "-w", "--tag", "--cache", "--userconfig", "--omit", "--include",
@@ -295,7 +295,7 @@ def extract_packages(body: str) -> list[tuple[str, str]]:
 def _clean_url(raw: str) -> Optional[str]:
     """``raw`` without what a sentence, a table cell, emphasis or a markdown link puts after it: the URL ends before
     the first ``)`` or ``]`` that closes no ``(`` or ``[`` of the URL, and before a ``|``; then trailing punctuation
-    goes. A balanced bracket stays ("f[0]=1", "[2001:db8::1]"). None for an empty result."""
+    and ``*`` emphasis go. A balanced bracket stays ("f[0]=1", "[2001:db8::1]"). None for an empty result."""
     parens = brackets = 0
     end = len(raw)
     for i, ch in enumerate(raw):
