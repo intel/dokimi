@@ -80,7 +80,7 @@ def test_allowed_tools_mcp_and_pattern_entries_are_not_flagged(tmp_path):
     _skill(
         tmp_path,
         "patterns",
-        extra="allowed-tools: Read, Grep, Bash(git add *), mcp__github__create_issue\n",
+        extra="allowed-tools: Read, Grep, Bash(git add *), mcp__github__create_issue, PowerShell(Get-ChildItem:*)\n",
     )
     _skill(tmp_path, "yaml-list", extra="allowed-tools:\n  - Read\n  - Edit\n  - Bash(npm test)\n")
 

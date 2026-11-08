@@ -102,7 +102,7 @@ CLAUDE_TOOLS = frozenset(
         "Skill", "AskUserQuestion", "ExitPlanMode", "BashOutput", "KillShell", "KillBash",
         "SlashCommand", "ToolSearch", "Monitor", "TaskStop", "SendMessage", "EnterPlanMode",
         "EnterWorktree", "ExitWorktree", "ListMcpResourcesTool", "ReadMcpResourceTool",
-        "CronCreate", "CronDelete", "CronList", "Workflow", "LSP", "Computer",
+        "CronCreate", "CronDelete", "CronList", "Workflow", "LSP", "Computer", "PowerShell",
     }
 )
 # A body over either limit is ``body-too-large``. Tokens are estimated as characters / 4, so no tokenizer is needed.
