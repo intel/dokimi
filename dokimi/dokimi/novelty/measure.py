@@ -164,7 +164,7 @@ class MeasureResult:
     with_arm: str = "full"
     # (probe, arm) jobs the spend cap stopped before they were answered; 0 for a whole run.
     not_run: int = 0
-    # (reason, message) of the first call the cap refused; None when nothing was stopped.
+    # (reason, message) of a call the cap refused; None when nothing was stopped.
     stop: tuple[str, str] | None = None
 
     def paired(self, scoring: str) -> dict:
