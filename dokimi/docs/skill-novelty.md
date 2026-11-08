@@ -250,6 +250,52 @@ not mean NumPy's BLAS is wired to it", "fits in VRAM does not mean it will launc
 tokens, invisible to any frequency or perplexity ranking, expensive to lose. That is what the
 `protection` axis and the amber colour exist for.
 
+## Choosing the extractor and the judge
+
+Three roles touch a run. The **answerer** (`--model`) is the model under measurement. The
+**extractor** (`--extract-model`) reads the artifact and writes the atoms, the answer key.
+The **judge** (`--judge-model`) grades each answer against that key. The answerer must
+not grade itself (refused unless `--allow-self-judge`), and the extractor must not be the
+answerer (`probe` warns when it is). Nothing else separates the extractor from the judge,
+so the same model, or one vendor family, can write the key and grade against it.
+
+Defaults, unchanged: `analyze` and `probe` leave `--extract-model` unset, and the extractor
+then is the judge. With no judge flags and the default answerer, that is
+`anthropic/claude-sonnet-5-5`, so a plain run has the extractor and the judge on one model.
+`atoms` and the `shorten` adjudicator differ: there `--model` is the extractor (or the
+retention adjudicator), not the model under measurement, and it defaults to the judge model,
+`anthropic/claude-sonnet-5-5`. A plain `atoms` run therefore has the extractor and the judge on
+one model: pass `--extract-model` of another family there (with `--provider` when it is not
+Anthropic's).
+
+`analyze` checks the extractor against the judge before it spends anything; `probe` checks the
+model that wrote the saved answer key (the atoms file's `extractor`) against the judge. The same model,
+or two models of one vendor family (the vendor is read off the model id: `claude`, `sonnet`,
+`haiku`, `opus` and `anthropic` are one family; `gpt` and `openai` another; `gemini` and
+`mistral` likewise), prints a `WARNING` on stderr. The vendor is read off the name, so a model
+served locally under a vendor's name (`gpt-oss-120b` is OpenAI's) counts as that vendor; ids that
+name no known vendor never match. `analyze` records the result in the artifact's
+`run_config.extractor_judge` (`extractor`, `judge`, `same_model`, `same_vendor`); `probe`
+prints the warning only. The warning does not refuse the run.
+
+To clear the warning, give the extractor a different family from the judge. `probe` reads the key
+from the saved atoms file, so its own `--extract-model` does not clear it: pick another judge, or
+write the atoms file again with another `atoms --extract-model` (and `--provider`). Here the
+extractor is Anthropic's, the judge OpenAI's:
+
+```bash
+python cli.py skill novelty analyze --artifact skill:path/to/skill \
+    --model claude-opus-5-5 --provider anthropic \
+    --judge-model gpt-6.1-sol --judge-provider openai \
+    --extract-model claude-haiku-5-5 --extract-provider anthropic
+```
+
+With two vendors available, one role must share a family with another. Keep the judge and the
+extractor apart, since the judge grades against the extractor's key. The answerer may share a
+family with one of them, and the warning does not check that; say so when you quote the numbers.
+A third family keeps all three apart. Changing the extractor changes the atoms, so compare
+only cells that name the same extractor.
+
 ## Using it as an authoring tool
 
 The commands in order, with the costs and the three free steps that come first, are in

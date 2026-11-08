@@ -547,8 +547,9 @@ def _names_a_faithfulness_verdict(reply: dict) -> bool:
 
 def save_atoms(
     atoms: list[Atom], spans: list[Span], path, *,
-    extractor: str | None = None, cap: int | None = None, bundle: dict | None = None,
-    extraction: ExtractionReport | None = None, sample: list[Atom] | None = None,
+    extractor: str | None = None, extractor_provider: str | None = None, cap: int | None = None,
+    bundle: dict | None = None, extraction: ExtractionReport | None = None,
+    sample: list[Atom] | None = None,
 ) -> None:
     """Write atoms plus their spans as one JSON file (input to ``skill novelty probe``).
 
@@ -574,6 +575,7 @@ def save_atoms(
     record["unread_tokens"] = sum(span.tokens for span in spans if span.unread)
     payload = {
         "extractor": extractor,
+        "extractor_provider": extractor_provider,
         "cap": cap,
         "bundle": bundle or {},
         "extraction": record,
