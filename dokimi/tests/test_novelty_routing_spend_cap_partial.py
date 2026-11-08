@@ -357,6 +357,21 @@ def test_a_last_call_with_no_price_that_ends_the_run_leaves_no_partial_marker(tm
     assert len(calls) == 1 and payload["model"]["n_calls"] == 1
 
 
+def test_an_all_vs_all_last_call_with_no_price_leaves_no_partial_marker(tmp_path, monkeypatch):
+    # Two skills, one query for db: the last planned call has no price, so the run is complete.
+    calls = _provider(monkeypatch, None)
+    root, queries = _catalog(tmp_path)
+    queries.write_text(json.dumps({"db": ["add an index"]}), encoding="utf-8")
+    out = tmp_path / "o.json"
+    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
+                  "--queries-by-skill", str(queries), "--out", str(out),
+                  "--model", "m", "--max-usd", "5")
+    args.func(args)
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    assert "partial" not in payload and payload.get("status") != "partial"
+    assert len(calls) == 1
+
+
 def test_an_unpriced_call_stops_the_later_repeats_and_skills_too(tmp_path, monkeypatch):
     calls = _provider(monkeypatch, None)
     root, queries = _catalog(tmp_path)
