@@ -322,14 +322,15 @@ def extractor_judge_relation(extractor_model: str, judge: LLMClient,
     names a CLI model only, so a record that lacks the provider (saved before it was recorded)
     is read as the CLI's.
     """
-    from dokimi.llm_cli import CLAUDE_CLI, _full_id, same_model
+    from dokimi.llm_cli import CLAUDE_CLI, _full_id
+    from dokimi.utils import same_model
 
     if not extractor_provider and _full_id(extractor_model) in CLAUDE_CLI.aliases:
         extractor_provider = CLAUDE_CLI.name
     # the same id behind a routing prefix or a Bedrock spelling is one model; a version suffix is not dropped
     identical = (extractor_model == judge.model
                  or _full_id(extractor_model) == _full_id(judge.model)
-                 or same_model(extractor_provider, extractor_model, judge.provider, judge.model))
+                 or same_model(extractor_model, judge.model))
     vendor = vendor_of(extractor_model)
     return {
         "extractor": extractor_model,
