@@ -77,6 +77,7 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "task_inspect": "task_inspect.v1",
     "headroom": "headroom.v1",
     "redteam": "redteam.v1",
+    "leak": "leak.v1",
     "cli_routes": "cli_routes.v1",
     "repo_ledger": "repo_ledger.v1",
     "dokimi_config": "dokimi_config.v1",

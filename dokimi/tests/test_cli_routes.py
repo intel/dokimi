@@ -92,7 +92,7 @@ def test_help_lists_each_root_under_its_section():
             loop,
         ),
         **dict.fromkeys(
-            ("run", "compare", "library", "catalog", "novelty", "repo", "skill"), subjects
+            ("run", "compare", "catalog", "novelty", "repo", "skill"), subjects
         ),
         **dict.fromkeys(("eval",), evals),
         **dict.fromkeys(("tools", "trace", "runs", "backends", "data"), data),
@@ -188,12 +188,12 @@ def test_route_table_matches_the_parser_leaves_and_roots():
     names = set(sub.choices)
     aliases = {alias for root in cli_routes.ROOTS for alias in root.aliases}
     assert names - aliases == {root.name for root in cli_routes.ROOTS}
-    assert aliases == {"product"}
+    assert aliases == set()  # `product` was the alias of `library`, which M3 moved to `catalog`
 
 
 def test_a_root_costs_paid_when_any_of_its_leaves_is_paid():
     assert cli_routes.cost_of(("repo",)) == "paid"
-    assert cli_routes.cost_of(("library",)) == "free"
+    assert cli_routes.cost_of(("catalog", "list")) == "free"
     assert cli_routes.cost_of(("data",)) == "free"
     assert cli_routes.cost_of(("eval", "judge")) == "paid"
     assert cli_routes.cost_of(("no", "such", "route")) is None
@@ -208,13 +208,13 @@ def test_the_tombstone_table_is_clean_and_its_check_finds_a_live_route():
 
 def test_the_tombstone_check_follows_groups_aliases_and_roots():
     # moved_argv matches by prefix: a group tombstone shadows the live routes under it.
-    shadows = (cli_routes.Tombstone(("repo", "tasks"), ("tasks", "run")),)
+    shadows = (cli_routes.Tombstone(("repo", "hits"), ("tasks", "run")),)
     assert cli_routes.tombstone_problems(shadows)
-    # an alias is a live route too
-    alias = (cli_routes.Tombstone(("product",), ("library", "list")),)
-    assert cli_routes.tombstone_problems(alias)
+    # a leaf that is still live is a live route too
+    live = (cli_routes.Tombstone(("catalog", "list"), ("catalog", "show")),)
+    assert cli_routes.tombstone_problems(live)
     # a root is a valid destination, and an unknown name is a valid old path
-    root = (cli_routes.Tombstone(("old-tool",), ("library",)),)
+    root = (cli_routes.Tombstone(("old-tool",), ("catalog",)),)
     assert cli_routes.tombstone_problems(root) == []
     nowhere = (cli_routes.Tombstone(("old-tool",), ("no-such-root",)),)
     assert cli_routes.tombstone_problems(nowhere)
@@ -226,27 +226,29 @@ def test_the_tombstone_check_follows_groups_aliases_and_roots():
     assert cli_routes.tombstone_problems((cli_routes.Tombstone(("--version",), ("data",)),))
 
 
-def test_a_tombstone_matches_an_alias_typed_on_the_command_line():
-    tombs = (cli_routes.Tombstone(("library", "old-intents"), ("library", "intents")),)
-    assert cli_routes.moved_argv(["product", "old-intents"], tombs) == ["library", "intents"]
-    assert cli_routes.moved_argv(["library", "old-intents", "x"], tombs) == [
-        "library",
-        "intents",
+def test_a_tombstone_adds_its_flags_after_the_new_path():
+    tombs = (cli_routes.Tombstone(("subjects", "old-list"), ("catalog", "list"), ("--kind", "subject")),)
+    assert cli_routes.moved_argv(["subjects", "old-list", "--subjects-root", "x"], tombs) == [
+        "catalog",
+        "list",
+        "--kind",
+        "subject",
+        "--subjects-root",
         "x",
     ]
-    assert cli_routes.moved_argv(["library", "list"], tombs) is None
+    assert cli_routes.moved_argv(["subjects", "list"], tombs) is None
 
 
 def test_a_tombstone_keeps_the_arguments_after_the_old_path_whatever_the_lengths():
-    longer_old = (cli_routes.Tombstone(("product", "old-intents", "all"), ("library", "intents")),)
-    assert cli_routes.moved_argv(["product", "old-intents", "all", "x"], longer_old) == [
-        "library",
+    longer_old = (cli_routes.Tombstone(("catalog", "old-intents", "all"), ("catalog", "intents")),)
+    assert cli_routes.moved_argv(["catalog", "old-intents", "all", "x"], longer_old) == [
+        "catalog",
         "intents",
         "x",
     ]
-    longer_new = (cli_routes.Tombstone(("product", "old"), ("library", "show", "intents")),)
-    assert cli_routes.moved_argv(["product", "old", "x"], longer_new) == [
-        "library",
+    longer_new = (cli_routes.Tombstone(("catalog", "old"), ("catalog", "show", "intents")),)
+    assert cli_routes.moved_argv(["catalog", "old", "x"], longer_new) == [
+        "catalog",
         "show",
         "intents",
         "x",
@@ -254,7 +256,7 @@ def test_a_tombstone_keeps_the_arguments_after_the_old_path_whatever_the_lengths
 
 
 def test_an_empty_argv_matches_no_tombstone():
-    tombs = (cli_routes.Tombstone(("old-tool",), ("library",)),)
+    tombs = (cli_routes.Tombstone(("old-tool",), ("catalog",)),)
     assert cli_routes.moved_argv([], tombs) is None
     with pytest.raises(SystemExit) as exc:  # argparse still asks for a command
         parse_args([])
@@ -300,9 +302,8 @@ def test_the_route_document_reports_each_roots_section_aliases_and_cost():
     doc = cli_routes.document()
     assert doc["sections"] == ["The loop", "Subjects", "Evals", "Analysis and data"]
     roots = {root["name"]: root for root in doc["roots"]}
-    assert roots["library"] == {
-        "name": "library", "section": "Subjects", "aliases": ["product"], "cost": "free"
-    }
+    assert "library" not in roots  # M3 moved it to `catalog list|show`
+    assert roots["catalog"] == {"name": "catalog", "section": "Subjects", "aliases": [], "cost": "paid"}
     assert roots["repo"] == {"name": "repo", "section": "Subjects", "aliases": [], "cost": "paid"}
     assert roots["data"]["section"] == "Analysis and data"
     assert roots["evaluate"]["cost"] == "paid"
@@ -312,7 +313,7 @@ def test_the_route_document_reports_each_roots_section_aliases_and_cost():
 def test_data_schema_list_names_the_kinds(capsys):
     args = parse_args(["data", "schema", "list"])
     args.func(args)
-    assert capsys.readouterr().out.split() == ["cli_routes"]
+    assert capsys.readouterr().out.split() == ["cli_routes", "cli_output.v1"]
 
 
 def test_data_schema_show_rejects_an_unknown_kind():
@@ -347,7 +348,7 @@ def test_the_data_help_promises_only_the_kinds_it_has():
     from dokimi.commands.data import SCHEMA_KINDS
 
     helps = {path: action.help for path, action in _help_actions(build_parser())}
-    assert set(SCHEMA_KINDS) == {"cli_routes"}  # widen the help below when a kind is added
+    assert set(SCHEMA_KINDS) == {"cli_routes", "cli_output.v1"}  # widen the help below when a kind is added
     for path in (("data",), ("data", "schema")):
         assert "artifact" not in helps[path].lower(), helps[path]
     assert "route" in helps[("data", "schema")].lower(), helps[("data", "schema")]

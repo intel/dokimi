@@ -87,6 +87,21 @@ def test_build_lists_only_the_packages_it_built(tmp_path: Path,
     assert build.collect(scratch.parent, out) == [out / "dokimi-0.2.0-py3-none-any.whl"]
 
 
+def test_build_leaves_a_package_under_a_broken_directory_in_place(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """conda-build moves a package that fails its tests to broken/: collect neither moves nor lists it."""
+    build = _script("build", monkeypatch)
+    out, scratch = tmp_path / "out", tmp_path / "scratch"
+    (scratch / "broken").mkdir(parents=True)
+    (scratch / "linux-64").mkdir()
+    failed = scratch / "broken" / "dokimi-0.2.0-py_0.conda"
+    failed.write_bytes(b"failed")
+    (scratch / "linux-64" / "dokimi-0.2.0-py_0.tar.bz2").write_bytes(b"built")
+    assert build.collect(scratch, out) == [out / "dokimi-0.2.0-py_0.tar.bz2"]
+    assert failed.read_bytes() == b"failed"
+    assert not (out / failed.name).exists()
+
+
 def test_the_data_check_covers_the_files_of_the_test_it_replaces(monkeypatch: pytest.MonkeyPatch) -> None:
     """ci/test.py deselects test_default_data_files_ship_in_the_wheel: it checks the same files."""
     shown = subprocess.run([sys.executable, "-c", _script("test", monkeypatch).CHECK_DATA],
@@ -137,6 +152,8 @@ def _pyproject(tmp_path: Path, classifiers: list[str], requires: str = "") -> Pa
     ("<=3.13", [13], "3.13"),
     (">=3.10,!=3.12.*", [10, 12, 13], "3.12"),
     ("~=3.12", [11, 12], "3.11"),
+    ("~=3.12.1", [12, 13], "3.13"),
+    ("==3.12.*", [12, 13], "3.13"),
 ])
 def test_every_classified_python_is_one_requires_python_admits(
         requires: str, minors: list[int], excluded: str, tmp_path: Path,

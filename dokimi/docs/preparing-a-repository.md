@@ -165,7 +165,7 @@ Recurring review comments are review knowledge a repository already has.
 - **Mine them from history.** Take inline comments that the PR author then
   addressed, keep issues raised in at least two PRs, and scope each rule to the
   paths it applies to.
-- **Measure what the guidance would have caught.** `dokimi repo tasks replay`
+- **Measure what the guidance would have caught.** `dokimi eval tasks generate --from replay`
   turns the review threads of merged PRs into `dokimi:review_replay` tasks
   ([contract §4.6](repo-evaluation-contract.md#46-replay-tasks-from-review-threads)).
   Run them with `guidance:none` and `guidance:rev:<sha>` of the guidance under

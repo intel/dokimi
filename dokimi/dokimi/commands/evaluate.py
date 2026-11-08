@@ -80,6 +80,13 @@ def _run_ragas_eval(answers, output_path, args) -> None:
         print(f"\n⚠️  RAGAS evaluation failed: {exc}")
 
 
+def _print_left_out(rows: list, valid: list) -> None:
+    """The mean covers only the questions in `valid`; say how many it leaves out, so it is not read as the whole set."""
+    left_out = len(rows) - len(valid)
+    if left_out:
+        print(f"Questions left out (no quorum or no answer): {left_out}/{len(rows)}")
+
+
 def cmd_eval_panel_score(args: argparse.Namespace) -> None:
     """Score answers using a multi-judge panel (parallel, role-diverse judges)."""
     from dokimi.eval.panel import JudgePanel, JudgeConfig, DEFAULT_PANEL, JUDGE_ROLES
@@ -146,15 +153,19 @@ def cmd_eval_panel_score(args: argparse.Namespace) -> None:
     # Summary: the context arm's own quality, not a comparison.
     from dokimi.records import CONTEXT, records
 
-    valid = [r.scores[CONTEXT] for r in records(results, kind="evaluations") if r.score(CONTEXT) is not None]
+    rows = list(records(results, kind="evaluations"))
+    valid = [r.scores[CONTEXT] for r in rows if r.score(CONTEXT) is not None]
     if valid:
         mean_score = sum(s.aggregate or 0 for s in valid) / len(valid)
-        mean_agree = sum(s.raw.get("agreement_score", 1) for s in valid) / len(valid)
+        # A question judged by one panelist has no spread, so no agreement score.
+        agreed = [s.agreement for s in valid if s.agreement is not None]
         flagged = sum(1 for s in valid if s.raw.get("disagreement_flag", False))
         print(f"\n{'─'*50}")
         print(f"Panel score (context arm): {mean_score:.1f}/100")
-        print(f"Mean agreement score:     {mean_agree:.3f}  (1.0 = perfect)")
+        print("Mean agreement score:     " + (f"{sum(agreed) / len(agreed):.3f}  (1.0 = perfect)"
+                                               if agreed else "n/a"))
         print(f"Disagreement flags:       {flagged}/{len(valid)} questions")
+    _print_left_out(rows, valid)
 
     print(f"\n✅ Saved to {output_path}")
 
@@ -577,6 +588,9 @@ def register(sub, positive_int):
     from dokimi.commands import skill_coverage
 
     skill_coverage.register_eval(eval_sub)  # eval skill-coverage
+    from dokimi.commands import leak
+
+    leak.register_eval(eval_sub)  # eval leak
 
     # eval score panel
     panel_p = score_sub.add_parser("panel", help="Score answers using a multi-judge panel")

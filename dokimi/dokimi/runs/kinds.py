@@ -76,6 +76,7 @@ FIELDS: dict[str, KindFields] = {
     "headroom": KindFields(counts=("items", "inputs")),
     "redteam": KindFields(subject=("questions_path",), model=("judge_model",),
                           counts=("violations", "questions")),
+    "leak": KindFields(subject=("questions_path",), counts=("violations", "items")),
     "need_graph": KindFields(subject=("artifact_name",), counts=("nodes", "edges")),
     "eval_coverage": KindFields(subject=("graph.artifact_name",), counts=("gaps", "evals", "problems")),
     "skill_coverage": KindFields(subject=("skill.name",), model=("model.model",),
