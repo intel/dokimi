@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Collection
 from pathlib import Path, PurePosixPath
 
 from dokimi.skills.loader import VENDORED_DIR_NAMES
@@ -16,7 +17,7 @@ from .catalog_eval_inventory import inventory_skills, inventory_suites, inventor
 
 
 def _impact(root: Path, rows: list[dict], changed: list[str] | None, untracked: list[str],
-            base_owners: dict[str, str]) -> dict:
+            base_owners: dict[str, str], ignored: Collection[str] = ()) -> dict:
     names = sorted({row["name"] for row in rows})
     selection: dict = {"mode": "all" if changed is None else "changed", "changed_paths": [],
                        "selected": [], "reasons": {}, "unclaimed": [], "removed": []}
@@ -30,10 +31,11 @@ def _impact(root: Path, rows: list[dict], changed: list[str] | None, untracked: 
         literal = os.name != "nt"
         tracked = {relative_path(path, literal_backslash=literal) for path in changed}
         loose = {relative_path(path, literal_backslash=literal) for path in untracked}
+        ignored = {relative_path(path, literal_backslash=literal) for path in ignored}
     except UnsafePath as exc:
         raise ValueError(f"invalid changed path: {exc}") from exc
     # An untracked or ignored file changes a digest only if a bundle hashes it.
-    loose = set(hashed_paths(rows, sorted(loose)))
+    loose = set(hashed_paths(rows, sorted(loose), ignored))
     paths = sorted(tracked | loose)
     selection["changed_paths"] = paths
     selection["removed"] = [path for path in paths if not (root / path).exists()]
@@ -55,9 +57,12 @@ def _impact(root: Path, rows: list[dict], changed: list[str] | None, untracked: 
     return selection
 
 
-def hashed_paths(rows: list[dict], paths: list[str]) -> list[str]:
-    """The untracked or ignored *paths* that some bundle hashes or a shared rule covers."""
-    return [path for path in paths if _owners(path, rows, hashed=True)[0]]
+def hashed_paths(rows: list[dict], paths: list[str], ignored: Collection[str] = ()) -> list[str]:
+    """The untracked or ignored *paths* that some bundle hashes or a shared rule covers.
+
+    *ignored* are the paths git ignores: a tool cache there is no shared input, whatever its name.
+    """
+    return [path for path in paths if _owners(path, rows, hashed=True, ignored=path in ignored)[0]]
 
 
 def _bundled(path: str, prefix: str) -> bool:
@@ -67,11 +72,11 @@ def _bundled(path: str, prefix: str) -> bool:
     return not rest or (rest[-1] != ".git" and not VENDORED_DIR_NAMES.intersection(rest[:-1]))
 
 
-def _owners(path: str, rows: list[dict], hashed: bool = False) -> tuple[list[str], str]:
+def _owners(path: str, rows: list[dict], hashed: bool = False, ignored: bool = False) -> tuple[list[str], str]:
     if path in {"skills.yaml", DEFAULT_SUITES_MANIFEST}:
         return [row["name"] for row in rows], f"catalog metadata changed: {path}"
     if path.startswith((".github/", "tools/", "scripts/", "dokimi/")) and not (
-            hashed and VENDORED_DIR_NAMES.intersection(PurePosixPath(path).parts)):
+            hashed and (ignored or VENDORED_DIR_NAMES.intersection(PurePosixPath(path).parts))):
         return [row["name"] for row in rows], f"shared evaluator changed: {path}"
     owners = []
     for row in rows:
@@ -117,14 +122,16 @@ def shared_problems(problems: list[dict], rows: list[dict]) -> list[dict]:
 
 
 def evaluate_catalog(root: Path, changed_paths: list[str] | None = None, untracked_paths: list[str] | None = None,
-                     base_owners: dict[str, str] | None = None) -> dict:
+                     base_owners: dict[str, str] | None = None, ignored_paths: Collection[str] = ()) -> dict:
     """Check catalog data without executing payloads or claiming runtime benefit.
 
     ``None`` selects every skill; a path list selects affected skills while catalog
     integrity is always checked. Only the selected skills and the catalog-wide
     problems decide the status. ``untracked_paths`` select only when a bundle
-    hashes them; ``base_owners`` maps a changed task directory to its owner at the base. Malformed/unreadable inputs raise ``ValueError``
-    naming their path. Content validation failures remain structured report data.
+    hashes them, and never as a shared input when git ignores them
+    (``ignored_paths``); ``base_owners`` maps a changed task directory to its
+    owner at the base. Malformed/unreadable inputs raise ``ValueError`` naming
+    their path. Content validation failures remain structured report data.
     """
     resolved = checked_root(root)
     inputs = Inputs(resolved)
@@ -142,7 +149,7 @@ def evaluate_catalog(root: Path, changed_paths: list[str] | None = None, untrack
     inputs.verify()
     rows.sort(key=lambda row: (row["name"], row["path"]))
     problems = sorted((dict(item) for item in problems), key=lambda item: (item["path"], item["code"], item["message"]))
-    selection = _impact(resolved, rows, changed_paths, untracked_paths or [], base_owners or {})
+    selection = _impact(resolved, rows, changed_paths, untracked_paths or [], base_owners or {}, ignored_paths)
     selected = set(selection["selected"])
     failed = any(item["level"] == "error" for item in shared_problems(problems, rows)) or any(
         row["checks"]["status"] == "fail" for row in rows if row["name"] in selected)
