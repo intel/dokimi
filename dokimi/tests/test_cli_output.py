@@ -121,11 +121,13 @@ def test_a_json_leaf_prints_one_envelope_on_an_input_error_and_exits_2(monkeypat
         raise InputError("--provider wants a model")
 
     monkeypatch.setattr(backends, "cmd_backends", refuse)
+    monkeypatch.setenv("DOKIMI_RUN_ID", "review-run")
     with pytest.raises(SystemExit) as exc:
         _run_main(monkeypatch, ["backends", "--json"])
     assert exc.value.code == 2
     out = capsys.readouterr()
     doc = json.loads(out.out)  # exactly one document on stdout
+    assert doc["run_id"] == "review-run"
     assert doc["kind"] == "backends" and doc["error"]["code"] == "input"
     assert doc["error"]["message"] == "--provider wants a model" and doc["status"] == "failed"
     assert schema_errors("cli_output.v1", doc) == []
@@ -138,11 +140,13 @@ def test_a_json_leaf_that_crashes_prints_the_infra_envelope_and_exits_5(monkeypa
         raise RuntimeError("probe fell over")
 
     monkeypatch.setattr(backends, "cmd_backends", crash)
+    monkeypatch.setenv("DOKIMI_RUN_ID", "review-run")
     with pytest.raises(SystemExit) as exc:
         _run_main(monkeypatch, ["backends", "--json"])
     assert exc.value.code == 5
     out = capsys.readouterr()
     doc = json.loads(out.out)
+    assert doc["run_id"] == "review-run"
     assert doc["error"]["code"] == "infra" and "RuntimeError: probe fell over" in doc["error"]["message"]
     assert schema_errors("cli_output.v1", doc) == []
     assert "RuntimeError" in out.err  # the traceback goes to stderr, not stdout
