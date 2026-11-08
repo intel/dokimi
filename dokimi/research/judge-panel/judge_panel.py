@@ -30,8 +30,8 @@ llm.CACHE = OUT / "cache"
 llm.CACHE.mkdir(exist_ok=True)
 llm.LOG = OUT / "llm_calls.jsonl"
 llm.NO_TEMPERATURE.update(
-    {"gpt-6-luna", "kimi-k3"}
-)  # both reject temperature=0 (gpt-6 runs at t=1)
+    {"gpt-6-luna", "kimi-k3", "gpt-6-sol", "claude-opus-5-5"}
+)  # these reject temperature=0 and run at their default
 
 ANSWER_MODELS = [
     "claude-opus-5",
@@ -50,6 +50,9 @@ JUDGES = [
     "glm-5",
     "qwen3-vl-235b",
 ]
+# The generations comparison (gen.py) re-graded with:
+#   --judges gpt-6-sol,kimi-k2.5,claude-haiku-4-5,claude-opus-5-5,deepseek-r1,
+#            nemotron-super-3-120b,minimax-m2.5
 
 
 def key(r):

@@ -1,0 +1,16 @@
+judge,mean_kappa_vs_others
+claude-haiku-4-5,0.614
+claude-opus-5-5,0.627
+claude-sonnet-5,0.622
+deepseek-r1,0.561
+deepseek-v3.2,0.605
+glm-5,0.621
+gpt-5.6-luna,0.584
+gpt-6-luna,0.541
+gpt-6-sol,0.562
+grok-4.6,0.606
+kimi-k2.5,0.622
+kimi-k3,0.643
+minimax-m2.5,0.576
+nemotron-super-3-120b,0.507
+qwen3-vl-235b,0.605
