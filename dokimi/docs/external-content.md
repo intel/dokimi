@@ -305,7 +305,8 @@ timeout per request. `--online` does not combine with `--per-skill` (its workers
 each hold their own cache, and `--resume` would keep rows no network check made), and
 it applies to skills only.
 The package scan reads one line at a time: a requirement in quotes or on a `\` continuation
-line is not checked, and a prose word after an install command can be read as a package name.
+line is not checked, and a word after an install command on the same line is read as a package name unless it is
+a common English word that ends the list (such as `in`, `for` or `to`).
 
 ```console
 $ python cli.py catalog check --root C:/Users/Public/content-repo --online

@@ -197,16 +197,21 @@ def test_prose_with_an_apostrophe_still_splits_its_commands():
 
 def test_prose_after_an_install_is_read_as_names_known_limit():
     # Known limit (warn-only): words after an install on the same line are names until the line or an operator
-    # ends; "done" is a false name here, and "requests" is checked.
+    # ends, and a conjunction does not end the list ("and pandas" is a name); "done" is a false name here.
     body = "Don't worry; pip install requests and you're done\n"
     assert online_checks.extract_packages(body) == [("pypi", "requests"), ("pypi", "done")]
 
 
-def test_markdown_link_inside_emphasis_table_or_next_to_another_link_keeps_only_the_url():
-    assert online_checks.extract_urls("_[docs](https://x.com/a)_") == ["https://x.com/a"]
-    assert online_checks.extract_urls("|[docs](https://x.com/a)|desc|") == ["https://x.com/a"]
-    assert online_checks.extract_urls("[a](https://x.com/a)[b](https://y.com/b)") == [
-        "https://x.com/a", "https://y.com/b"]
+def test_prose_word_that_is_not_a_stop_word_is_read_as_a_name_known_limit():
+    # Known limit (warn-only): "quickly" is not on the stop list, so it is a false name here.
+    assert online_checks.extract_packages("pip install requests quickly\n") == [
+        ("pypi", "requests"), ("pypi", "quickly")]
+
+
+def test_prose_words_after_a_bare_install_are_not_package_names():
+    assert online_checks.extract_packages("Run npm install in the project directory.\n") == []
+    assert online_checks.extract_packages("pip install foo for development\n") == [("pypi", "foo")]
+    assert online_checks.extract_packages("run npm install locally to test\n") == []
 
 
 def test_a_spaced_version_operator_takes_the_version_after_it():
@@ -219,6 +224,13 @@ def test_uv_pip_value_options_and_npm_access_take_their_argument():
     assert online_checks.extract_packages("uv pip install --resolution lowest --link-mode copy foo\n") == [
         ("pypi", "foo")]
     assert online_checks.extract_packages("npm install --access public foo\n") == [("npm", "foo")]
+
+
+def test_markdown_link_inside_emphasis_table_or_next_to_another_link_keeps_only_the_url():
+    assert online_checks.extract_urls("_[docs](https://x.com/a)_") == ["https://x.com/a"]
+    assert online_checks.extract_urls("|[docs](https://x.com/a)|desc|") == ["https://x.com/a"]
+    assert online_checks.extract_urls("[a](https://x.com/a)[b](https://y.com/b)") == [
+        "https://x.com/a", "https://y.com/b"]
 
 
 def test_process_substitution_is_a_documented_miss_not_a_wrong_name():

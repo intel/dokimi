@@ -45,6 +45,12 @@ _LEAD = {"$", "sudo", "run", "Run", "RUN", "use", "Use", "-m", "uv", "env", "and
 # Prose conjunctions: never package names (they are dropped from a name list, and they start a command when one
 # follows them, see _LEAD).
 _PROSE_CONJUNCTIONS = {"and", "or", "but", "then"}
+# Common English words that end a package list on a prose line ("pip install foo for development"): the list stops
+# before them. A real package with one of these names is missed, which is a warn-only miss, not a false warning.
+_PROSE_STOP = {
+    "a", "an", "the", "in", "on", "for", "to", "of", "at", "by", "from", "into", "with", "as", "is", "are",
+    "it", "this", "that", "here", "there", "locally", "globally", "again",
+}
 # The operators of a version spec written with spaces ("pip install foo == 1.0"): the version after one is not a name.
 _SPEC_OPERATORS = {"==", "===", "!=", "~=", ">=", "<=", ">", "<"}
 # A ``#`` that starts a word is a shell comment; one inside a word ("C#", "docs#setup") is not.
@@ -232,10 +238,11 @@ def _command_kind(tokens: list[str], i: int) -> Optional[str]:
 
 
 def _list_end(tokens: list[str], start: int, end: int) -> int:
-    """Where the package list that starts at ``tokens[start]`` stops, at most at ``end``: before a ``then``, or after
-    the first word that ends in ``:`` (the prose after a colon is not a list)."""
+    """Where the package list that starts at ``tokens[start]`` stops, at most at ``end``: before a prose word (a
+    conjunction or a common English word such as ``in`` or ``for``, see ``_PROSE_STOP``), or after the first word
+    that ends in ``:`` (the prose after a colon is not a list)."""
     for j in range(start, end):
-        if tokens[j].lower() == "then":
+        if tokens[j].lower() == "then" or tokens[j].lower() in _PROSE_STOP:
             return j
         if tokens[j].endswith(":"):
             return j + 1
@@ -265,8 +272,8 @@ def extract_packages(body: str) -> list[tuple[str, str]]:
     Line-based: after an install command, the words up to the next shell operator, a ``#`` comment or the end of
     the line are read; words that are not valid package names, option flags and option values are dropped.
     Known limits, warn-only: quotes, parentheses and continuation lines are not read (a package there is missed);
-    prose words after an install on the same line are read as names; a command inside prose is read when it
-    follows a word in ``_LEAD``.
+    a prose word that is not in ``_PROSE_STOP`` after an install on the same line is read as a name; a command
+    inside prose is read when it follows a word in ``_LEAD``.
     """
     found: dict[tuple[str, str], None] = {}
     for line in _lines(body):
