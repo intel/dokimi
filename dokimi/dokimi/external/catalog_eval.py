@@ -128,8 +128,10 @@ def evaluate_catalog(root: Path, changed_paths: list[str] | None = None, untrack
     ``None`` selects every skill; a path list selects affected skills while catalog
     integrity is always checked. Only the selected skills and the catalog-wide
     problems decide the status. ``untracked_paths`` select only when a bundle
-    hashes them, and never as a shared input when git ignores them (``ignored_paths``); ``base_owners`` maps a changed task directory to its owner at the base. Malformed/unreadable inputs raise ``ValueError``
-    naming their path. Content validation failures remain structured report data.
+    hashes them, and never as a shared input when git ignores them
+    (``ignored_paths``); ``base_owners`` maps a changed task directory to its
+    owner at the base. Malformed/unreadable inputs raise ``ValueError`` naming
+    their path. Content validation failures remain structured report data.
     """
     resolved = checked_root(root)
     inputs = Inputs(resolved)
