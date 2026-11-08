@@ -135,13 +135,20 @@ def check_saved_reach(reach: dict[str, Any], repo_id: str, harness_name: str, tr
 
 def check_saved_guidance(reach: dict[str, Any], guidance: dict[str, Any]) -> None:
     """Refuse a receipt of a saved probe whose declared guidance (``harness.declared``) is not the profile's now: budget's
-    expectations come from the profile and the gate from the probe, so they must be one declaration. A probe saved
-    without the declaration has none to compare."""
+    expectations come from the profile and the gate from the probe, so they must be one declaration. The free-text
+    ``notes`` declare nothing and are not compared. A probe saved without the declaration has none to compare."""
     declared = reach["harness"].get("declared")
-    current = json.loads(json.dumps(guidance, default=str))  # the profile's guidance as reach.json would hold it
-    if isinstance(declared, dict) and declared != current:
+    if not isinstance(declared, dict):
+        return
+    declared = _without_notes(declared)
+    current = _without_notes(json.loads(json.dumps(guidance, default=str)))  # as reach.json would hold it
+    if declared != current:
         raise ReachError(f"reach.json was probed with the guidance {json.dumps(declared, sort_keys=True)}, the harness "
                          f"profile now declares {json.dumps(current, sort_keys=True)}; probe again for its receipt")
+
+
+def _without_notes(guidance: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in guidance.items() if key != "notes"}
 
 
 def check_receipt_provenance(reach: dict[str, Any], tree_sha: str | None) -> None:

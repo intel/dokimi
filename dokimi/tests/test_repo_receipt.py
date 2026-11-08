@@ -461,6 +461,16 @@ def test_a_saved_probe_is_compared_with_the_profiles_guidance_only_when_it_holds
         check_saved_guidance(reach, {"names": ["CLAUDE.md"], "claude_displaces_agents": True})
 
 
+def test_a_saved_probe_accepts_a_profile_whose_guidance_changed_only_in_its_notes():
+    reach = _reach([_record("AGENTS.md", "cwd=.", "loaded")], [ROOT_ROW])
+    reach["harness"]["declared"] = {"names": ["CLAUDE.md"], "notes": "measured on 2.1.286"}
+    check_saved_guidance(reach, {"names": ["CLAUDE.md"], "notes": "measured on 2.1.316 too"})
+    check_saved_guidance(reach, {"names": ["CLAUDE.md"]})  # the notes dropped
+    with pytest.raises(ReachError, match="now declares .*AGENTS.md.*probe again") as exc:
+        check_saved_guidance(reach, {"names": ["CLAUDE.md", "AGENTS.md"], "notes": "measured on 2.1.286"})
+    assert "measured on" not in str(exc.value)
+
+
 def test_a_lazy_guidance_is_expected_only_in_the_subtree_it_activates(tmp_path):
     tree = _tree(tmp_path, {"shared.md": "x\n", "sub/AGENTS.md": "s\n"})
     records = [_record(f, s, "not_loaded") for f in ("shared.md", "sub/AGENTS.md") for s in ("cwd=.", "read=sub")]
