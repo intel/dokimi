@@ -12,6 +12,7 @@ from types import SimpleNamespace as NS
 
 import pytest
 
+from dokimi.utils import InputError
 from dokimi.cli import build_parser
 from dokimi.eval.agent_runner import _summarize_tool_usage
 from dokimi.eval.arm_summary import summarize_skill_selection
@@ -226,13 +227,13 @@ def test_trigger_set_cli(tmp_path, catalog, capsys):
     data = json.loads(out.read_text(encoding="utf-8"))
     assert [q["expected_skill"] for q in data["queries"]] == ["linux-perf", None]
     assert '"exam_framing": 1' in capsys.readouterr().out
-    with pytest.raises(SystemExit):
+    with pytest.raises(SystemExit):  # --strict is a lint gate: 1, as on main
         _run_cli(["eval", "triggers", "generate", "--catalog", str(catalog), "--strict",
                   "--questions", f"{qfile}=@metadata.skill_under_test", "--out", str(out)])
-    with pytest.raises(SystemExit, match="PATH=LABEL"):
+    with pytest.raises(InputError, match="PATH=LABEL"):
         _run_cli(["eval", "triggers", "generate", "--catalog", str(catalog),
                   "--questions", str(qfile), "--out", str(out)])
-    with pytest.raises(SystemExit, match="--target"):
+    with pytest.raises(InputError, match="--target"):
         _run_cli(["eval", "triggers", "generate", "--catalog", str(catalog), "--format", "skill-creator",
                   "--questions", f"{qfile}=none", "--out", str(out)])
 
@@ -257,10 +258,9 @@ def test_trigger_set_cli_rejects_a_label_path_that_never_resolves(tmp_path, cata
     qfile.write_text(json.dumps({"questions": [
         {"id": "1", "text": "perf shows low IPC", "metadata": {"skill_under_test": "linux-perf"}},
     ]}), encoding="utf-8")
-    with pytest.raises(SystemExit, match="resolves for none of 1 questions") as exc:
+    with pytest.raises(InputError, match="resolves for none of 1 questions"):
         _run_cli(["eval", "triggers", "generate", "--catalog", str(catalog),
                   "--questions", f"{qfile}=@metadata.skil_under_test", "--out", str(tmp_path / "o.json")])
-    assert exc.value.code == 2  # a path typo is an input refusal (docs/quickstart.md)
 
 
 @pytest.mark.parametrize(
@@ -453,17 +453,17 @@ def test_trigger_set_cli_checks_each_source_and_inputs(tmp_path, catalog, capsys
     typo = _qfile(tmp_path, "typo.json", [{"id": "2", "text": "y", "metadata": {"skill": "linux-perf"}}])
     out = tmp_path / "o.json"
     base = ["eval", "triggers", "generate", "--catalog", str(catalog), "--out", str(out)]
-    with pytest.raises(SystemExit, match=r"typo\.json=@metadata\.skill_under_test: .* none of 1"):
+    with pytest.raises(InputError, match=r"typo\.json=@metadata\.skill_under_test: .* none of 1"):
         _run_cli(base + ["--questions", f"{good}=@metadata.skill_under_test",
                          "--questions", f"{typo}=@metadata.skill_under_test"])
-    with pytest.raises(SystemExit, match="--rewrite needs --model"):
+    with pytest.raises(InputError, match="--rewrite needs --model"):
         _run_cli(base + ["--questions", f"{good}=none", "--rewrite"])
-    with pytest.raises(SystemExit, match="not a directory"):
+    with pytest.raises(InputError, match="not a directory"):
         _run_cli(["eval", "triggers", "generate", "--catalog", str(tmp_path / "nope"),
                   "--questions", f"{good}=none", "--out", str(out)])
     bad = tmp_path / "bad.json"
     bad.write_text(json.dumps({"questions": ["just a string"]}), encoding="utf-8")
-    with pytest.raises(SystemExit, match="list of question objects"):
+    with pytest.raises(InputError, match="list of question objects"):
         _run_cli(base + ["--questions", f"{bad}=none"])
     named = _qfile(tmp_path, "named.json", [{"id": "3", "text": "use linux-perf here"}])
     with pytest.raises(SystemExit) as exc:
@@ -491,10 +491,9 @@ def test_trigger_set_cli_exits_with_a_message_when_out_cannot_be_written(tmp_pat
     q = _qfile(tmp_path, "q.json", [{"id": "1", "text": "profile it", "skills": ["linux-perf"]}])
     out = tmp_path / "taken"
     out.mkdir()  # a directory where the file should go
-    with pytest.raises(SystemExit, match=rf"Error: cannot write --out {re.escape(str(out))}: ") as exc:
+    with pytest.raises(InputError, match=rf"cannot write --out {re.escape(str(out))}: "):
         _run_cli(["eval", "triggers", "generate", "--catalog", str(catalog), "--out", str(out),
                   "--questions", f"{q}=@skills", "--format", fmt, "--target", "linux-perf"])
-    assert exc.value.code == 2
     assert list(out.iterdir()) == []
 
 
@@ -507,7 +506,7 @@ def test_trigger_set_cli_reports_a_schema_rejection_not_a_write_failure(tmp_path
 
     monkeypatch.setattr(artifact, "save_questions_artifact", reject)
     q = _qfile(tmp_path, "q.json", [{"id": "1", "text": "profile it", "skills": ["linux-perf"]}])
-    with pytest.raises(SystemExit, match=r"Error: questions set rejected: record 1: bad shape") as exc:
+    with pytest.raises(InputError, match=r"questions set rejected: record 1: bad shape") as exc:
         _run_cli(["eval", "triggers", "generate", "--catalog", str(catalog), "--out", str(tmp_path / "o.json"),
                   "--questions", f"{q}=@skills", "--format", "questions"])
     assert "cannot write" not in str(exc.value)
@@ -516,10 +515,9 @@ def test_trigger_set_cli_reports_a_schema_rejection_not_a_write_failure(tmp_path
 @pytest.mark.parametrize("fmt", ["reach", "skill-creator", "questions"])
 def test_trigger_set_cli_exits_with_a_message_when_out_is_empty(tmp_path, catalog, fmt):
     q = _qfile(tmp_path, "q.json", [{"id": "1", "text": "profile it", "skills": ["linux-perf"]}])
-    with pytest.raises(SystemExit, match=r"Error: cannot write --out : ") as exc:
+    with pytest.raises(InputError, match=r"cannot write --out : "):
         _run_cli(["eval", "triggers", "generate", "--catalog", str(catalog), "--out", "",
                   "--questions", f"{q}=@skills", "--format", fmt, "--target", "linux-perf"])
-    assert exc.value.code == 2
 
 
 # ── review round 3 ───────────────────────────────────────────────────────
@@ -674,7 +672,7 @@ def _ts(catalog, out, *extra):
 def test_trigger_set_cli_rejects_an_unknown_skill_creator_target(tmp_path, catalog):
     q = _qfile(tmp_path, "q.json", [{"id": "1", "text": "profile it"}])
     out = tmp_path / "o.json"
-    with pytest.raises(SystemExit, match="'linux-perff' is not a skill"):
+    with pytest.raises(InputError, match="'linux-perff' is not a skill"):
         _run_cli(_ts(catalog, out, "--questions", f"{q}=linux-perf", "--format", "skill-creator",
                      "--target", "linux-perff"))
     assert not out.exists()
@@ -697,7 +695,7 @@ def test_trigger_set_cli_rejects_questions_without_text(tmp_path, catalog):
     out = tmp_path / "o.json"
     for bad in ({"id": "1", "title": "t"}, {"id": "1", "text": "  "}, {"id": "1", "text": ["x"]}):
         q = _qfile(tmp_path, "q.json", [bad])
-        with pytest.raises(SystemExit, match="question 1 has no text"):
+        with pytest.raises(InputError, match="question 1 has no text"):
             _run_cli(_ts(catalog, out, "--questions", f"{q}=none"))
         assert not out.exists()
 
@@ -707,7 +705,7 @@ def test_trigger_set_rejects_an_empty_rewrite_and_duplicate_ids_cleanly(tmp_path
         ts.build_trigger_set([([{"id": "a", "text": "x"}], "none")], discover_skills(catalog),
                              rewrite=lambda t: " ")
     q = _qfile(tmp_path, "q.json", [{"id": "1", "text": "a"}, {"id": "1", "text": "b"}])
-    with pytest.raises(SystemExit, match="duplicate question id"):
+    with pytest.raises(InputError, match="duplicate question id"):
         _run_cli(_ts(catalog, tmp_path / "o.json", "--questions", f"{q}=none"))
 
 

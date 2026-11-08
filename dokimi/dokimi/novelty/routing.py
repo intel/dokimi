@@ -331,8 +331,9 @@ def model_routing(
         ``n_failed`` count calls), ``n_abstained``, ``n_failed``, the per-query pick
         with the position the gold card was shown at, the raw reply of every abstention or
         unparseable pick, and the caveat that this bounds harness behaviour from above.
-        With ``repeats > 1``, ``noise`` holds each query's agreement across its repeats and
-        the run-to-run spread of the selection rate; it is ``None`` for one repeat.
+        ``noise`` is always an object (see :func:`repeat_noise`). With ``repeats > 1`` it holds
+        each query's agreement across its repeats and the run-to-run spread of the selection rate;
+        with one repeat ``n_repeats`` is 1 and the agreement and spread fields are ``None``.
 
         When the client's ``--max-usd`` cap refuses a call, or a call comes back unpriced, the
         loop stops and the result holds the calls made so far, with ``cap_stop`` (the cap's
@@ -378,7 +379,7 @@ def model_routing(
         "selection_rate_among_answered": (
             round(hits / len(answered), 4) if answered else None
         ),
-        "noise": repeat_noise(groups) if repeats > 1 and groups else None,
+        "noise": repeat_noise(groups, repeats),
         "per_query": picks,
         "note": (
             "An upper bound on harness behaviour, not a harness measurement: a harness "
@@ -431,8 +432,8 @@ def headings_as_queries(body: str, *, limit: int = 40) -> list[str]:
     return [h for h in headings if len(tokenize(h)) >= 2][:limit]
 
 
-# A selection reply is one JSON object, ``{"pick": N}``: a few tokens.
-PICK_REPLY_TOKENS = 10
+# Output tokens per selection call, measured on one run (360 calls drew 23.3k tokens).
+SELECTION_REPLY_TOKENS = 65
 
 
 def selection_prompt_tokens(candidates: list[Candidate], queries: list[str]) -> list[int]:
@@ -452,8 +453,9 @@ def selection_estimate(candidates: list[Candidate], queries: list[str], *,
                        repeats: int = 1) -> dict:
     """The calls and tokens :func:`model_routing` would make, counted without making them.
 
-    Every repeat sends the same prompts (see :func:`selection_prompt_tokens`). The reply is one
-    JSON pick, :data:`PICK_REPLY_TOKENS`. Zero repeats send nothing, so no query is sent.
+    Every repeat sends the same prompts (see :func:`selection_prompt_tokens`). Each reply is
+    billed at :data:`SELECTION_REPLY_TOKENS` output tokens, the measured figure, and
+    ``output_tokens_per_call`` says which. Zero repeats send nothing, so no query is sent.
     """
     prompts = selection_prompt_tokens(candidates, queries) if repeats else []
     calls = len(prompts) * repeats
@@ -462,7 +464,8 @@ def selection_estimate(candidates: list[Candidate], queries: list[str], *,
         "n_queries_sent": len(prompts),
         "n_calls": calls,
         "input_tokens": sum(prompts) * repeats,
-        "output_tokens": calls * PICK_REPLY_TOKENS,
+        "output_tokens_per_call": SELECTION_REPLY_TOKENS,
+        "output_tokens": calls * SELECTION_REPLY_TOKENS,
     }
 
 

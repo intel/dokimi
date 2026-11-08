@@ -9,6 +9,7 @@ from .catalog import (
     read_skill_manifest,
     read_task_manifest,
 )
+from .catalog_review import nested_in_bundles, review_skill_dir
 from .validate import Finding, SkillReview, review_skills
 
 __all__ = [
@@ -18,5 +19,7 @@ __all__ = [
     "read_task_manifest",
     "Finding",
     "SkillReview",
+    "review_skill_dir",
     "review_skills",
+    "nested_in_bundles",
 ]

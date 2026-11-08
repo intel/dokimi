@@ -544,6 +544,7 @@ def test_the_saved_result_lists_the_kept_skills_over_the_limit(tmp_path, all_vs_
     _catalog_skill(root, "perf", "profile a slow binary with perf")
     _catalog_skill(root, "wide", "x" * 1100)
     _catalog_skill(root, "edge", "x" * 1024)  # exactly at the limit: valid, no warning
+    _catalog_skill(root, "over", "x" * 1025)  # one character over: warns
     _catalog_skill(root, "db", "tune a slow database query")
     out = tmp_path / "r.json"
     if all_vs_all:
@@ -559,9 +560,9 @@ def test_the_saved_result_lists_the_kept_skills_over_the_limit(tmp_path, all_vs_
     args.func(args)
     field = json.loads(out.read_text(encoding="utf-8"))["field"]
     assert "wide" in field["competitors"] and field["left_out"] == []
-    assert "edge" in field["competitors"]
+    assert "edge" in field["competitors"] and "over" in field["competitors"]
     assert [(w["skill"], w["length"], w["limit"]) for w in field["spec_warnings"]] == [
-        ("wide", 1100, 1024)]
+        ("over", 1025, 1024), ("wide", 1100, 1024)]
 
 
 def test_the_saved_field_rule_records_include_invalid(tmp_path):
@@ -683,6 +684,20 @@ def test_a_skill_competitor_records_every_rule_that_left_it_out(tmp_path):
     dropped: dict[str, set[str]] = {}
     assert routing_field(args, set(), [], dropped) == []
     assert dropped == {"long": {"invalid"}, "both": {"disabled", "invalid"}}
+
+
+def test_routing_artifact_with_broken_frontmatter_names_the_yaml_line(tmp_path):
+    from dokimi.commands.novelty_routing_inputs import load_routing_field
+
+    broken = tmp_path / "software-factory"
+    broken.mkdir()
+    (broken / "SKILL.md").write_text(
+        "---\nname: software-factory\ndescription: Use when: the user wants a factory\n---\n\n# b\n",
+        encoding="utf-8")
+    args = _parse("novelty", "routing", "--artifact", f"skill:{broken}")
+    with pytest.raises(InputError, match="line 3") as info:
+        load_routing_field(args)
+    assert "quote" in str(info.value) and "missing a 'description'" not in str(info.value)
 
 
 def test_the_skill_under_test_over_the_limit_is_warned_and_saved(tmp_path, capsys):

@@ -267,12 +267,15 @@ def test_a_partial_run_skips_a_sidecar_that_holds_a_finished_result(tmp_path, mo
     assert str(third) in str(stop.value)
 
 
-def test_a_single_run_capped_before_any_query_finished_has_no_noise_block(tmp_path, monkeypatch):
+def test_a_single_run_capped_before_any_query_finished_has_an_empty_noise_block(tmp_path, monkeypatch):
+    # noise is always an object (main's contract): with no query finished it names the repeats
+    # asked for and measures nothing.
     _provider(monkeypatch, UsageRecord(cost_usd=0.6))
     args, out = _single(tmp_path, QUERIES, "--repeats", "3", "--max-usd", "0.5")
     with pytest.raises(SystemExit):
         args.func(args)
-    assert json.loads(out.read_text(encoding="utf-8"))["model"]["noise"] is None
+    noise = json.loads(out.read_text(encoding="utf-8"))["model"]["noise"]
+    assert (noise["n_repeats"], noise["n_queries_compared"], noise["mean_agreement"]) == (3, 0, None)
 
 
 def test_a_command_that_writes_no_partial_still_says_nothing_was_written():

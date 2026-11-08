@@ -208,16 +208,17 @@ directory name and description but different `SKILL.md` text are a `warn` on bot
 `disable-model-invocation: true` are exempt from the description checks.
 
 Frontmatter that is not valid YAML (a bare colon in `description:`, say) stops
-the skill from loading, since the loader reads it as having no description. The
-scan reports that as a `frontmatter-parse` error carrying the YAML message, and
-it exits 1 with or without `--strict`, as a load error does. The YAML message is
-on the indented `frontmatter-parse` line under the skill (and in its `findings`
-in JSON); the row's main line and its JSON `error` field still say the skill is
-missing a `description`.
+the skill from loading. The scan reports that as a `frontmatter-parse` error
+carrying the YAML message, and it exits 1 with or without `--strict`, as a load
+error does. The YAML message is on the indented `frontmatter-parse` line under
+the skill (and in its `findings` in JSON); the row's main line and its JSON
+`error` field say the frontmatter has invalid YAML, with the line, not that the
+skill is missing a `description`.
 
 `--strict` makes `catalog check` a gate on the spec as well as on loading. The
 text output and `--format json` (one object: `state`, `findings`,
-`content_sha256`, `duplicate_of`, for a script or a CI gate) are the same either way.
+`content_sha256` of the `SKILL.md`, `skill_sha256` of the skill directory,
+`duplicate_of`, for a script or a CI gate) are the same either way.
 
 Restrict the scan with `--kind`:
 
@@ -230,6 +231,30 @@ demo-later      planned executable      skipped: no task.toml or task.md under C
 $ echo $?
 0
 ```
+
+A large catalog is easier to scan one skill at a time:
+
+- `--per-skill` reviews each skill alone. The four cross-catalog checks
+  (`duplicate`, `name-conflict`, `mirror-drift`, `description-near-duplicate`)
+  compare a skill with the others, so they do not run in this mode; every other
+  check does.
+- A `SKILL.md` inside another skill's directory is marked with `nested_in`
+  (the enclosing skill's path) in JSON and with a `note` in text. It is counted
+  by default; `--skip-nested` leaves it out of the scan.
+- `--jsonl PATH` writes one JSON row per skill as it is reviewed and prints only
+  the counts. `--jobs N` reviews N skills in parallel. `--resume` keeps the rows
+  already in PATH and reviews only the skills without one (a half-written last
+  line from a killed run is dropped). Each row carries `skill_sha256`, the
+  digest of every file in the skill's directory, and `--resume` keeps a row only
+  while that is unchanged: a skill whose `SKILL.md` or bundled file changed (or
+  a row without the field) is reviewed again. Without `--resume`, PATH is replaced.
+  Every `SKILL.md` is loaded before the first row, so memory still grows with
+  the catalog. A `--jobs` worker that dies ends the scan with exit 1.
+
+`--jsonl`, `--jobs` and `--resume` need `--per-skill`, and `--jsonl` does not
+combine with `--format json`; any other misuse exits 2. From Python,
+`dokimi.external.review_skill_dir(path)` returns the `SkillReview` of the one
+skill in `path`.
 
 ## 2. The awareness half: question sets
 
@@ -469,11 +494,11 @@ Worth knowing before you read a suspiciously clean result:
 
 | Command | Root missing | Exit |
 |---|---|---|
-| `catalog check --root <missing>` | `--root is not a directory: <path>` | 2 |
+| `catalog check --root <missing>` | `Error: --root is not a directory: <path>` | 2 |
 | `catalog check --root <no SKILL.md> --kind skills` | `no SKILL.md found under <path>` | 1 |
-| `tasks run --tasks-root <missing>` | `--tasks-root is not a directory: <path>` | 2 |
-| `eval tasks list --tasks-root <missing>` | `--tasks-root is not a directory: <path>` | 2 |
-| `explore list --tasks-root <missing>` | `--tasks-root is not a directory: <path>` | 2 |
+| `tasks run --tasks-root <missing>` | `Error: --tasks-root is not a directory: <path>` | 2 |
+| `eval tasks list --tasks-root <missing>` | `Error: --tasks-root is not a directory: <path>` | 2 |
+| `explore list --tasks-root <missing>` | `Error: --tasks-root is not a directory: <path>` | 2 |
 | `coverage` with no roots | every product reads `no`/`0`, plus an explicit note | 0 |
 | `evaluate`/`benchmark run` with a root lacking the golden set | `WARNING ... has no golden set for <product>` and continues | — |
 

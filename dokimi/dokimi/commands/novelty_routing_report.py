@@ -54,15 +54,15 @@ def estimate_routing_usd(model: str, provider: str, prompts: list[int],
     """The list-price USD of the calls of a routing run, priced one call at a time.
 
     A long-context tier applies to the prompt of one call, so the run's total prompt is not
-    priced as one completion: each query's prompt and one pick are priced on their own, then
-    summed and multiplied by the repeats. ``None`` when a call has no list price.
+    priced as one completion: each query's prompt and ``SELECTION_REPLY_TOKENS`` of reply are
+    priced on their own, then summed and multiplied by the repeats. ``None`` when a call has no list price.
     """
     from dokimi.llm_pricing import list_cost_usd
-    from dokimi.novelty.routing import PICK_REPLY_TOKENS
+    from dokimi.novelty.routing import SELECTION_REPLY_TOKENS
 
     total = 0.0
     for prompt in prompts:
-        cost = list_cost_usd(model, provider, prompt, PICK_REPLY_TOKENS)
+        cost = list_cost_usd(model, provider, prompt, SELECTION_REPLY_TOKENS)
         if cost is None:
             return None
         total += cost
@@ -200,6 +200,10 @@ def check_all_vs_all_args(args: argparse.Namespace) -> None:
     if missing:
         raise InputError(f"--all-vs-all needs {' and '.join(missing)}: "
                          + "; ".join(f"{flag} is {what}" for flag, what in missing.items()))
+    if args.out and not args.estimate_only:
+        from dokimi.commands.novelty_routing_inputs import checked_out_path
+
+        checked_out_path(args.out, "--all-vs-all")
 
 
 def check_all_vs_all_field(args: argparse.Namespace, field: list, dropped: dict[str, set[str]],
@@ -302,7 +306,7 @@ def drop_queries_left_out(queries_by_skill: dict[str, list[str]], field: list[Ca
 def _print_estimate(args: argparse.Namespace, candidates: list, sent: list[str],
                     estimate: dict) -> None:
     """The estimate as JSON, with the list-price USD of the calls ``sent`` makes; nothing is sent."""
-    from dokimi.novelty.routing import selection_prompt_tokens
+    from dokimi.novelty.routing import SELECTION_REPLY_TOKENS, selection_prompt_tokens
 
     usd: float | None = 0.0
     if args.model and estimate["n_calls"]:
@@ -313,7 +317,8 @@ def _print_estimate(args: argparse.Namespace, candidates: list, sent: list[str],
                       "n_candidates": len(candidates), **estimate,
                       "expected_usd": usd}, indent=2))
     print("Estimate only, nothing was measured. Input is the selection prompt at chars / 4 per "
-          "call; output is one JSON pick. A reasoning model bills more output than this.",
+          f"call; output is {SELECTION_REPLY_TOKENS} tokens a call, the measured average of a "
+          "routing run (output_tokens_per_call). Another model, or a reasoning model, can differ.",
           file=sys.stderr)
     if args.model and estimate["n_calls"] and usd is None:
         print(f"expected_usd is null: {args.model} has no list price in the litellm price map",
@@ -392,8 +397,10 @@ def print_routing_summary(payload: dict, n_competitors: int, self_derived: bool)
 
 
 def print_noise(model_arm: dict) -> None:
-    """The repeat noise of a model arm, as its one console line."""
+    """The repeat noise of a model arm, as its one console line; silent with one repeat."""
     noise = model_arm["noise"]
+    if noise["n_repeats"] < 2:
+        return
     print(f"noise    {model_arm['repeats']} repeats per query: mean agreement "
           f"{noise['mean_agreement']}, {noise['unstable_queries']} queries picked "
           f"differently across repeats; selection by repeat "

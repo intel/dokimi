@@ -168,7 +168,7 @@ def test_an_unreadable_placebo_text_exits_with_a_message(tmp_path, make_path):
     placebo = make_path(tmp_path)
     args = _parse("skill", "novelty", "analyze", "--artifact", f"skill:{skill}",
                   "--placebo-text", str(placebo))
-    with pytest.raises(SystemExit, match=f"^cannot read --placebo-text {re.escape(str(placebo))}"):
+    with pytest.raises(InputError, match=f"^cannot read --placebo-text {re.escape(str(placebo))}"):
         args.func(args)
 
 
@@ -190,7 +190,7 @@ def test_placebo_text_is_read_before_a_model_client_is_built(tmp_path, monkeypat
 
     monkeypatch.setattr("dokimi.commands.novelty._clients", built)
     args = _parse(*argv)
-    with pytest.raises(SystemExit, match="^cannot read --placebo-text"):
+    with pytest.raises(InputError, match="^cannot read --placebo-text"):
         args.func(args)
 
 
@@ -216,7 +216,7 @@ def test_analyze_exits_with_the_message_when_the_arms_cannot_run(
 
     monkeypatch.setattr("dokimi.commands.novelty._clients", built)
     args = _parse(*argv)
-    with pytest.raises(SystemExit, match=message):
+    with pytest.raises(InputError, match=message):
         args.func(args)
 
 
@@ -505,7 +505,7 @@ def test_probe_exits_with_a_message_on_an_unreadable_placebo_text(tmp_path):
     missing = tmp_path / "missing.txt"
     args = _parse("skill", "novelty", "probe", "--artifact", f"skill:{root}", "--atoms", str(atoms),
                   "--placebo-text", str(missing))
-    with pytest.raises(SystemExit, match=f"^cannot read --placebo-text {re.escape(str(missing))}"):
+    with pytest.raises(InputError, match=f"^cannot read --placebo-text {re.escape(str(missing))}"):
         args.func(args)
 
 

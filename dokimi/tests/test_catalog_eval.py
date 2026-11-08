@@ -831,6 +831,22 @@ def test_untracked_files_select_only_the_skills_whose_bundle_hashes_them(tmp_pat
         assert untracked(tmp_path, [], [path])["selection"]["selected"] == selected, path
 
 
+def test_an_ignored_cache_under_a_shared_directory_selects_nothing_and_a_tracked_file_there_selects_all(tmp_path):
+    from dokimi.external.catalog_eval import hashed_paths
+
+    skill(tmp_path)
+    skill(tmp_path, "beta")
+    report = untracked(tmp_path, ["skills/alpha/a.md"], ["tools/__pycache__/x.pyc"])
+    assert report["selection"]["selected"] == ["alpha"]
+    assert report["selection"]["changed_paths"] == ["skills/alpha/a.md"]
+    assert hashed_paths(report["skills"], ["tools/__pycache__/x.pyc"]) == []  # so the CLI's source stamp stays clean
+    for path in ("tools/__pycache__/x.pyc", "tools/check.py"):  # a tracked change there is a shared input
+        selection = untracked(tmp_path, [path], [])["selection"]
+        assert selection["selected"] == ["alpha", "beta"], path
+        assert selection["unclaimed"] == [], path
+        assert selection["reasons"]["beta"] == [f"shared evaluator changed: {path}"]
+
+
 def test_a_moved_task_selects_the_skill_that_owned_it_at_the_base(tmp_path):
     skill(tmp_path)
     skill(tmp_path, "beta")

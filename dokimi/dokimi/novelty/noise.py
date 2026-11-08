@@ -15,8 +15,12 @@ def partial_record(message: str, calls_done: int, calls_planned: int) -> dict:
             "message": message}
 
 
-def repeat_noise(groups: list[list[dict]]) -> dict:
+def repeat_noise(groups: list[list[dict]], repeats: int | None = None) -> dict:
     """Agreement across the repeats of each query, and the run-to-run spread of the rate.
+
+    Always returns the same keys. ``n_repeats`` is ``repeats``, else the length of the first
+    group. With one repeat the agreement and spread fields are ``None``; the rate stays in
+    ``selection_rate_by_repeat``.
 
     A query's agreement is the share of its answered repeats that gave its most common
     pick; an abstention counts as a pick. ``selection_rate_by_repeat`` reads each repeat as
@@ -28,7 +32,10 @@ def repeat_noise(groups: list[list[dict]]) -> dict:
 
     Args:
         groups: One list per query, holding that query's rows in repeat order.
+        repeats: The repeat count the run asked for; ``None`` reads it from ``groups``.
     """
+    if repeats is None:
+        repeats = len(groups[0]) if groups else 0
     per_query: list[dict] = []
     for group in groups:
         labels = [
@@ -38,7 +45,8 @@ def repeat_noise(groups: list[list[dict]]) -> dict:
         modal, agreement = None, None
         if labels:
             modal, count = Counter(labels).most_common(1)[0]
-            agreement = round(count / len(labels), 4)
+            if repeats > 1:  # one repeat agrees with itself by construction: nothing to measure
+                agreement = round(count / len(labels), 4)
         per_query.append({
             "query": group[0]["query"],
             "modal_pick": modal,
@@ -46,10 +54,9 @@ def repeat_noise(groups: list[list[dict]]) -> dict:
             "picks": labels,
             "n_correct": sum(1 for row in group if row.get("correct")),
         })
-    repeats = len(groups[0]) if groups else 0
     rates: list[float | None] = []
-    # Every repeat's rate covers the same queries, those with no failed call in any repeat: a
-    # per-repeat denominator would report a transient provider error as sampling noise.
+    # Every repeat's rate covers the same queries (no failed call in any repeat): a per-repeat
+    # denominator would report a transient provider error as sampling noise.
     complete = [group for group in groups if not any(row.get("error") for row in group)]
     for repeat in range(repeats):
         rates.append(round(sum(1 for g in complete if g[repeat].get("correct")) / len(complete), 4)
@@ -57,8 +64,10 @@ def repeat_noise(groups: list[list[dict]]) -> dict:
     known = [rate for rate in rates if rate is not None]
     agreements = [row["agreement"] for row in per_query if row["agreement"] is not None]
     return {
+        "n_repeats": repeats,
         "mean_agreement": round(sum(agreements) / len(agreements), 4) if agreements else None,
-        "unstable_queries": sum(1 for a in agreements if a < 1),
+        # None, not 0, with one repeat: a count of 0 would read as a stable selector.
+        "unstable_queries": sum(1 for a in agreements if a < 1) if repeats > 1 else None,
         "selection_rate_by_repeat": rates,
         "n_queries_compared": len(complete),
         "half_range": round((max(known) - min(known)) / 2, 4) if len(known) > 1 else None,

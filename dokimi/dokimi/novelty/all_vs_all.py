@@ -92,13 +92,13 @@ def all_vs_all(candidates: list[Candidate], queries_by_skill: dict[str, list[str
         ``confusion`` (gold skill to picked skill to count, ``(none)`` and ``(tie)`` included),
         ``own_rate`` per gold skill (``None`` when none of its queries was scored), ``n_scored``
         and ``n_unscored`` per gold skill, and ``attractors`` ordered by ``wrongly_picked``. The
-        model arm also records ``model``, ``seed``, ``repeats``, ``noise`` (``None`` for one
-        repeat; otherwise as :func:`dokimi.novelty.routing.model_routing` reports it, pooled over
-        every skill's queries), ``n_failed``, ``n_abstained`` and ``first_error``. With repeats
-        the model arm's counts are calls, one per query per repeat. When the client's
-        ``--max-usd`` cap stops the arm before every planned call is made, it also holds
-        ``partial`` (``reason``, ``calls_done``,
-        ``calls_planned``, ``message``): the calls made are scored, the calls never made are in
+        model arm also records ``model``, ``seed``, ``repeats``, ``noise`` (always an object: as
+        :func:`dokimi.novelty.routing.repeat_noise` reports it, pooled over every skill's queries,
+        with ``n_repeats`` 1 and null agreement for one repeat), ``n_failed``, ``n_abstained`` and
+        ``first_error``. With repeats the model arm's counts are calls, one per query per repeat.
+        When the client's ``--max-usd`` cap stops the arm before every planned call is made, it
+        also holds ``partial`` (``reason``, ``calls_done``, ``calls_planned``, ``message``): the
+        calls made are scored, the calls never made are in
         ``n_unscored``, and a skill the arm never reached has an ``own_rate`` of ``None``.
 
     Raises:
@@ -251,10 +251,9 @@ def _model_arm(candidates: list[Candidate], queries_by_skill: dict[str, list[str
         unscored_here = routed["n_failed"] + (len(queries) * repeats - len(rows) if capped else 0)
         if unscored_here:
             unscored[name] = unscored.get(name, 0) + unscored_here
-    noise = repeat_noise(groups) if repeats > 1 and groups else None
-    if noise is not None:
-        for row, gold in zip(noise["per_query"], golds, strict=True):
-            row["gold"] = gold
+    noise = repeat_noise(groups, repeats)
+    for row, gold in zip(noise["per_query"], golds, strict=True):
+        row["gold"] = gold
     arm = dict(_attractor_table(model, unscored, names, _tied_groups(candidates)),
                model=client.model, seed=seed, repeats=repeats, noise=noise,
                n_failed=n_failed, n_abstained=n_abstained, first_error=first_error)
