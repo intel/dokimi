@@ -131,6 +131,10 @@ def _check_scan_flags(args: argparse.Namespace) -> None:
     unknown = sorted(set(args.ignore or ()) - set(FINDING_CODES))
     if unknown:
         raise InputError(f"--ignore {', '.join(unknown)}: not a finding code; the codes are {', '.join(FINDING_CODES)}")
+    if "frontmatter-parse" in (args.ignore or ()):
+        # The skill did not load, so its state is error whatever is ignored: refuse rather than hide the cause.
+        raise InputError("--ignore frontmatter-parse: a skill whose frontmatter is not valid YAML does not load, "
+                         "and a load error always fails")
     if args.jsonl and args.format == "json":
         raise InputError("--jsonl writes one row per skill to a file; drop --format json")
     if args.resume and not args.jsonl:

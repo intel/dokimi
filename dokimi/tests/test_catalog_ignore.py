@@ -155,3 +155,19 @@ def test_resume_reviews_again_rows_written_under_other_ignore_codes(tmp_path, ca
     ]  # no row was kept: every code set differs
     assert "resumed" not in out
     assert code == 0
+
+
+def test_frontmatter_parse_cannot_be_ignored(tmp_path, capsys):
+    # A skill whose frontmatter is not valid YAML does not load, and a load error always fails:
+    # ignoring its code would leave the state at error with no finding to explain it.
+    skill_dir = tmp_path / "skills" / "broken"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text("---\nname: [unclosed\n---\n# Body\n", encoding="utf-8")
+
+    out, code = _run(
+        ["--root", str(tmp_path), "--kind", "skills", "--strict", "--ignore", "frontmatter-parse"],
+        capsys,
+    )
+
+    assert code == 2
+    assert out == ""
