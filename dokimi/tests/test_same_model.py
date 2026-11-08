@@ -18,6 +18,8 @@ CASES = [
     ("claude-sonnet-4-5-20250929", "claude-sonnet-4-5", True),  # a snapshot and its undated alias
     ("claude-3-5-sonnet-20240620", "claude-3-5-sonnet-20241022", False),  # two snapshots
     ("claude-sonnet-4-5@20250929", "claude-sonnet-4-5-20250929", True),  # Vertex date form
+    ("qwen3[8b]", "qwen3[32b]", False),  # only the [1m] context form is dropped; other brackets are the id
+    ("llama[8b]", "llama[70b]", False),
     ("claude-sonnet-4-5", "claude-opus-4-5-20251101", False),
     ("claude-sonnet-4-5", "claude-sonnet-4-5-1", False),
     ("haiku", "claude-haiku-3", True),  # a Claude CLI alias runs one of its family's ids

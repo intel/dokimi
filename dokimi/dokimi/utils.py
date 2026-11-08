@@ -584,8 +584,9 @@ def _model_core(model: str) -> tuple[str, str | None]:
     ``org/name`` id stays, so a re-upload under another organization is another model; a known vendor
     (``qwen/``, ``z-ai/``) goes, as its Bedrock ``vendor.`` prefix does, unless a ``huggingface/`` route precedes it.
     """
-    # sonnet[1m] is the same model with a larger window: the context suffix goes
-    name = llm_cli.CONTEXT_SUFFIX.sub("", (model or "").strip().lower())
+    # sonnet[1m] is the same model with a larger window: the 1M context form goes, and no other bracket
+    # (qwen3[8b] and qwen3[32b] are two models)
+    name = re.sub(r"\[1m\]$", "", (model or "").strip().lower())
     arn = _BEDROCK_ARN.search(name)  # only a Bedrock ARN's tail: ``foundation-model/X`` alone is an org/name id
     if arn:
         name = name[arn.end():]
