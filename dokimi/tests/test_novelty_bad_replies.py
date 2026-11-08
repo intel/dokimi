@@ -50,11 +50,12 @@ MALFORMED_VERDICT_ROWS = [
     # the number is outside this batch: below 1 or past its last statement
     lambda n: {"n": n + 100, "needed": True},
     lambda n: {"n": 0, "needed": True},
+    lambda n: {"n": 6, "needed": True},  # one past the last statement of a 5-statement batch
 ]
 
 
 @pytest.mark.parametrize("row", MALFORMED_VERDICT_ROWS, ids=[
-    "needed-string", "needed-missing", "n-missing", "n-past-batch", "n-zero"])
+    "needed-string", "needed-missing", "n-missing", "n-past-batch", "n-zero", "n-one-past-last"])
 def test_a_judge_reply_with_no_usable_row_is_split_and_never_cached(monkeypatch, row):
     atoms = _atoms(10)
     seen = _cache_verdicts(monkeypatch, lambda p: json.dumps([row(n) for n in _numbers(p)]))
@@ -155,8 +156,10 @@ def test_conflict_rows_that_cannot_be_used_are_counted_and_warned():
     assert warning.startswith("2 conflict rows could not be used")
 
 
-@pytest.mark.parametrize("bad", [{"a": 1, "b": 0}, {"a": 0, "b": 1}, {"a": 99, "b": 1}],
-                         ids=["b-zero", "a-zero", "a-past-batch"])
+@pytest.mark.parametrize("bad", [{"a": 1, "b": 0}, {"a": 0, "b": 1}, {"a": 99, "b": 1},
+                                 {"a": 5, "b": 1}, {"a": 1, "b": 5}],
+                         ids=["b-zero", "a-zero", "a-past-batch", "a-one-past-last",
+                              "b-one-past-last"])
 def test_a_conflict_row_outside_the_batch_on_either_side_is_dropped(bad):
     atoms = _atoms(4)
     reply = json.dumps({"conflicts": [bad, {"a": 1, "b": 2, "why": "x"}]})
@@ -166,6 +169,18 @@ def test_a_conflict_row_outside_the_batch_on_either_side_is_dropped(bad):
     )
     assert conflicts == [{"a": atoms[0].id, "b": atoms[1].id, "why": "x"}]
     assert report.conflict_rows_dropped == 1
+
+
+@pytest.mark.parametrize("row", [{"a": 2, "b": 1}, {"a": 4, "b": 1}], ids=["b-one", "a-last"])
+def test_a_conflict_row_at_the_edge_of_the_batch_is_kept(row):
+    atoms = _atoms(4)
+    reply = json.dumps({"conflicts": [{**row, "why": "x"}]})
+    report = ClassifyReport()
+    conflicts = detect_conflicts(
+        atoms, client=LLMClient(model="x", transport=lambda p, s: (reply, None)), report=report,
+    )
+    assert len(conflicts) == 1 and report.conflict_rows_dropped == 0
+    assert {conflicts[0]["a"], conflicts[0]["b"]} == {atoms[0].id, atoms[row["a"] - 1].id}
 
 
 def test_a_judge_retry_for_unusable_rows_does_not_blame_max_tokens():
