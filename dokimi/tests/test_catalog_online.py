@@ -197,7 +197,8 @@ def test_prose_with_an_apostrophe_still_splits_its_commands():
 
 def test_prose_after_an_install_is_read_as_names_known_limit():
     # Known limit (warn-only): words after an install on the same line are names until the line or an operator
-    # ends, and a conjunction does not end the list ("and pandas" is a name); "done" is a false name here.
+    # ends; a conjunction is dropped but does not end the list ("pip install a and b" reads both); "done" is a
+    # false name here.
     body = "Don't worry; pip install requests and you're done\n"
     assert online_checks.extract_packages(body) == [("pypi", "requests"), ("pypi", "done")]
 
@@ -239,6 +240,13 @@ def test_a_prose_stop_word_with_a_full_stop_after_it_ends_the_list():
 
 def test_a_version_glued_to_an_operator_is_not_a_name():
     assert online_checks.extract_packages("pip install foo>= 1.0rc1\n") == [("pypi", "foo")]
+
+
+def test_balanced_brackets_and_underscores_are_part_of_the_url():
+    assert online_checks.extract_urls("see https://x.dev/api?f[0]=1 now") == ["https://x.dev/api?f[0]=1"]
+    assert online_checks.extract_urls("see https://host.dev/docs/__main__") == ["https://host.dev/docs/__main__"]
+    assert online_checks.extract_urls("http://[2001:db8::1]/x") == ["http://[2001:db8::1]/x"]
+    assert online_checks.extract_urls("[see https://x.com/a] for more") == ["https://x.com/a"]
 
 
 def test_markdown_link_inside_emphasis_table_or_next_to_another_link_keeps_only_the_url():
