@@ -77,6 +77,13 @@ def test_model_id_inside_a_longer_name_or_a_version_step_is_not_matched(tmp_path
     assert _messages(tmp_path, "legacy-model-id") == []
 
 
+def test_model_id_touching_cjk_text_is_matched(tmp_path):
+    _skill(tmp_path / "skills", "cjk-id", body="# C\n\n使用gpt-4模型\n")
+
+    [message] = _messages(tmp_path, "legacy-model-id")
+    assert "'gpt-4'" in message
+
+
 def test_model_id_match_is_case_sensitive_so_prose_names_do_not_match(tmp_path):
     _skill(tmp_path / "skills", "prose", body="Compared with Claude 3 Opus and GPT-4 in the docs.\n")
 

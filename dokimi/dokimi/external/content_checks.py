@@ -56,9 +56,9 @@ def _legacy_index() -> tuple[re.Pattern, dict[str, dict], dict[str, str]]:
             by_id[model_id] = entry
     # Longest first, so a listed ID that extends another (claude-sonnet-4-5-20250929) wins over its prefix.
     alternatives = "|".join(re.escape(m) for m in sorted(by_id, key=len, reverse=True))
-    # Whole token, case-sensitive: not inside a longer name (a letter, digit, "-" or "_" around it), and not
-    # before a version step ("gpt-4" in "gpt-4.1").
-    pattern = re.compile(rf"(?<![\w.\-])(?:{alternatives})(?![\w\-]|\.\w)")
+    # Whole token, case-sensitive, ASCII neighbours only (CJK text has no spaces), not before a version step
+    # ("gpt-4" in "gpt-4.1").
+    pattern = re.compile(rf"(?<![A-Za-z0-9_.\-])(?:{alternatives})(?![A-Za-z0-9_\-]|\.[A-Za-z0-9])")
     return pattern, by_id, data["sources"]
 
 
