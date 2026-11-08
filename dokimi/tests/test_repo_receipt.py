@@ -146,6 +146,23 @@ def test_other_harnesses_get_no_expectations_and_say_so(tmp_path):
     assert any("no source has an expected state for codex" in u for u in receipt["unknowns"])
 
 
+def _declared(reach: dict, **guidance) -> dict:
+    reach["harness"]["declared"] = guidance
+    return reach
+
+
+def test_start_up_rules_follow_the_profile_key_not_the_harness_name(tmp_path):
+    tree = _tree(tmp_path, {"AGENTS.md": "a\n", "CLAUDE.md": "c\n", "sub/AGENTS.md": "s\n", "docs/style.md": "d\n"})
+    records = [_record("AGENTS.md", "cwd=.", "not_loaded")]
+    named = _declared(_reach(records, [ROOT_ROW], harness="my-claude-fork"), claude_displaces_agents=True)
+    src = _sources(build_receipt(named, BUDGET, tree), "cwd=.")
+    assert src["AGENTS.md"]["expected"] is False and src["CLAUDE.md"]["expected"] is True
+    plain = _declared(_reach(records, [ROOT_ROW]), names=["AGENTS.md"])  # claude-code's name, but no key
+    receipt = build_receipt(plain, BUDGET, tree)
+    assert _sources(receipt, "cwd=.")["AGENTS.md"]["expected"] == "unknown"
+    assert any("no source has an expected state for claude-code" in u for u in receipt["unknowns"])
+
+
 def test_a_link_is_an_adapter_with_the_targets_observation(tmp_path):
     tree = _tree(tmp_path, {"AGENTS.md": "a\n", "sub/AGENTS.md": "s\n"})
     files = [{"path": "AGENTS.md", "head": "RC000001", "tail": "RC000002", "aliases": ["CLAUDE.md"]},

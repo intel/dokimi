@@ -55,7 +55,7 @@ def build_receipt(reach: dict[str, Any], budget: dict[str, Any], tree: RepoTree)
     """The ``effective_instructions.v1`` artifact: one ``effective-instructions/v0`` receipt per reach scenario, the
     shadow scenarios left out."""
     harness = reach["harness"]
-    rules = harness["name"] == "claude-code"  # budget's start-up rules are Claude Code's
+    rules = _applies_rules(harness)
     when_of = _budget_when(reach, budget) if rules else {}
     own = _own_guidance(reach, budget, tree)
     start_up = [p for p, when in when_of.items() if when in ("start", "off") and p not in _known(reach)]
@@ -78,6 +78,15 @@ def build_receipt(reach: dict[str, Any], budget: dict[str, Any], tree: RepoTree)
         "unknowns": _global_unknowns(harness["name"], rules, pinned=bool(getattr(tree, "sha", None))),
         "receipts": receipts,
     }
+
+
+def _applies_rules(harness: dict[str, Any]) -> bool:
+    """Budget's start-up rules are Claude Code's: the profile says so with ``guidance.claude_displaces_agents``, as
+    ``repo budget`` reads it. A reach file without the profile's declared guidance falls back to the harness name."""
+    declared = harness.get("declared")
+    if isinstance(declared, dict):
+        return declared.get("claude_displaces_agents") is True
+    return harness["name"] == "claude-code"
 
 
 _REV_SUFFIX = re.compile(r"@[0-9a-f]{7,40}$")  # the pinned revision a git source's label ends with
