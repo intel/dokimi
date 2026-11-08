@@ -81,6 +81,8 @@ CONCEPTS: tuple[Concept, ...] = (
         canonical=(
             Flag("--judge", "PROVIDER/MODEL", _MODEL_REF, repeatable=True,
                  meaning="the judge; repeated, it is a panel"),
+            Flag("--judge-aggregate", "{median,majority,unanimous}", "choice",
+                 meaning="how a judge panel's verdicts become one"),
             Flag("--extract-model", "PROVIDER/MODEL", _MODEL_REF),
             Flag("--escalate-model", "PROVIDER/MODEL", _MODEL_REF),
             Flag("--fill-model", "PROVIDER/MODEL", _MODEL_REF),

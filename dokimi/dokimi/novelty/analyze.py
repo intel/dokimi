@@ -25,6 +25,7 @@ from . import atoms as atoms_mod
 from . import attribute, bundle as bundle_mod
 from . import classify, items as items_mod
 from . import measure, needs, probes, report, retention, shorten, spans
+from . import panel as panel_mod
 from .artifact import load_artifact_text  # noqa: F401  (public path: novelty.analyze)
 from .client import LLMClient, roll_up_cost, same_client, warn_extractor_judge
 from .retention import RetentionOracle
@@ -153,6 +154,8 @@ def analyze(
     ref_digest: str | None = None,
     artifact_bundle: "bundle_mod.Bundle | None" = None,
     tier: dict | None = None,
+    panel: tuple[LLMClient, ...] = (),
+    aggregate: str = "median",
 ) -> AnalyzeResult:
     """Run the full pipeline over one artifact's text.
 
@@ -173,8 +176,11 @@ def analyze(
             per-file provenance: every span, atom and outcome can then be traced to the
             file it came from, which is the cut an author needs to decide what belongs in
             the body. Without it the run is entry-point-only and says so.
+        panel: More judges besides ``judge`` (see :func:`measure.run_measurement`).
+        aggregate: The panel's rule for one verdict per answer.
     """
-    measure.check_self_judge(judge, answerer, config.allow_self_judge)
+    for member in (judge, *panel):
+        measure.check_self_judge(member, answerer, config.allow_self_judge)
     relation = warn_extractor_judge(extractor.model, judge, extractor.provider)
     warnings: list[str] = []
     span_list = spans.segment(text)
@@ -250,7 +256,10 @@ def analyze(
         answerer=answerer, judge=judge, arms=config.arms,
         concurrency=config.concurrency, allow_self_judge=config.allow_self_judge,
         placebo_text=config.placebo_text, seed=config.seed, framing=config.context_framing,
+        panel=panel, aggregate=aggregate,
     )
+    judge_panel = panel_mod.panel_record(measure_result, aggregate)
+    warnings.extend(panel_mod.panel_warnings(judge_panel))
     if config.allow_self_judge and same_client(judge, answerer):
         warnings.append(
             "judge and answerer are the same model (--allow-self-judge): scores are inflated"
@@ -391,12 +400,14 @@ def analyze(
         conflicts=conflicts,
         conflict_coverage=conflict_coverage,
         extraction=extraction.as_dict(),
-        cost=roll_up_cost([extractor, answerer, judge]),
+        cost=roll_up_cost([extractor, answerer, judge, *panel]),
         warnings=warnings,
     )
     payload["run_config"] = _run_config(config)
     payload["run_config"]["tier"] = settings.tier_record(sampled=capped)
     payload["run_config"]["extractor_judge"] = relation
+    if judge_panel:
+        payload["judge_panel"] = judge_panel
     return AnalyzeResult(
         artifact=payload,
         attributions=attributions,

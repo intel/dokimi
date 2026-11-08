@@ -131,6 +131,8 @@ class ProbeRun:
     response: str
     verdict: str
     confidence: float | None = None  # recorded, never scored
+    # With a judge panel: each judge's own verdict, by model; ``verdict`` is the panel's.
+    judge_verdicts: dict[str, str] | None = None
 
     def correct(self, scoring: str) -> bool:
         """Whether this run counts as correct under ``lenient`` or ``strict``."""
@@ -152,6 +154,7 @@ class ProbeRun:
             "response": self.response,
             "verdict": self.verdict,
             "confidence": self.confidence,
+            **({"judge_verdicts": self.judge_verdicts} if self.judge_verdicts else {}),
         }
 
 
@@ -258,6 +261,8 @@ def run_measurement(
     placebo_text: str | None = None,
     seed: int = 0,
     framing: str = "reference",
+    panel: tuple[LLMClient, ...] = (),
+    aggregate: str = "median",
 ) -> MeasureResult:
     """Answer every probe in every arm and grade the answers.
 
@@ -276,8 +281,19 @@ def run_measurement(
             irrelevant context actively harms them.
         seed: Seed for the ``shuffled`` control, so the control is reproducible.
         framing: One of :data:`FRAMINGS`; how the context is introduced in the prompt.
+        panel: More judges besides ``judge``. Each grades every answer; ``aggregate``
+            (see :func:`~dokimi.novelty.panel.aggregate`) turns their verdicts into one,
+            and each judge's own verdict is kept on the run.
+        aggregate: The panel rule: ``median``, ``majority`` or ``unanimous``.
     """
-    check_self_judge(judge, answerer, allow_self_judge)
+    from .panel import RULES
+    from .panel import aggregate as aggregate_votes
+
+    judges = (judge, *panel)
+    for member in judges:
+        check_self_judge(member, answerer, allow_self_judge)
+    if aggregate not in RULES:
+        raise InputError(f"unknown judge aggregation rule {aggregate!r}; known: {list(RULES)}")
     check_arms(arms, placebo_text)
     if framing not in FRAMINGS:
         raise InputError(f"unknown context framing {framing!r}; known: {list(FRAMINGS)}")
@@ -293,6 +309,7 @@ def run_measurement(
 
     def one(job: tuple[Probe, str]) -> ProbeRun:
         probe, arm = job
+        by_judge: dict[str, str] | None = None
         try:
             response, confidence = _answer(
                 probe.question, contexts.get(arm), answerer,
@@ -302,11 +319,16 @@ def run_measurement(
             response, confidence = f"<error: {exc}>", None
             verdict = ERRORED
         else:
-            verdict = _grade(probe, response, judge)
+            if panel:
+                by_judge = {m.model: _grade(probe, response, m) for m in judges}
+                votes = [v for v in by_judge.values() if v != ERRORED]
+                verdict = aggregate_votes(votes, aggregate) or ERRORED
+            else:
+                verdict = _grade(probe, response, judge)
         return ProbeRun(
             atom_id=probe.atom_id, probe_kind=probe.kind, arm=arm,
             question=probe.question, response=response, verdict=verdict,
-            confidence=confidence,
+            confidence=confidence, judge_verdicts=by_judge,
         )
 
     with ThreadPoolExecutor(max_workers=max(1, concurrency)) as pool:

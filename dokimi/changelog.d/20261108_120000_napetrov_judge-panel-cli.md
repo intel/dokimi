@@ -1,0 +1,3 @@
+### Added
+
+- **Judge panel for skill novelty**: `skill novelty analyze` and `probe` now take `--judge PROVIDER/MODEL`. Repeat the flag to form a panel. `--judge-aggregate {median,majority,unanimous}` (default `median`) turns the panel's verdicts into one per answer. The record gets a `judge_panel` block: each judge's own paired 2×2, the judge range of the added share, and a `judge_sensitive` flag set when that range exceeds 0.10. Each run keeps every judge's verdict. A warning is printed when two judges share a vendor family. The `--estimate-only` figure includes the extra judges. Background: `docs/judge-panel-study.md`.

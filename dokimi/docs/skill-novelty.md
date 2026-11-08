@@ -298,6 +298,43 @@ family with one of them, and the warning does not check that; say so when you qu
 A third family keeps all three apart. Changing the extractor changes the atoms, so compare
 only cells that name the same extractor.
 
+## A judge panel
+
+One judge is one opinion. The [judge-panel study](judge-panel-study.md) graded the same answers with
+seven judges. The added share of one answer model moved by up to 0.23 with the judge. The
+original single judge was the most lenient of all, so its added shares sat at or near the
+bottom of the panel's range. `analyze` and `probe` take a panel:
+
+```bash
+python cli.py skill novelty probe --artifact skill:path/to/skill --atoms atoms.json     --model grok-4.6 --provider openrouter     --judge openrouter/openai/gpt-6-luna --judge openrouter/anthropic/claude-sonnet-5     --judge openrouter/moonshotai/kimi-k3 --judge-aggregate median
+```
+
+- `--judge PROVIDER/MODEL`, repeated, is the panel. It replaces `--judge-model` and
+  `--judge-provider`, and the two forms cannot be mixed. The first judge is the default
+  extractor. Every judge is checked against the answerer like a single judge.
+- `--judge-aggregate` turns the verdicts into one per answer:
+  - `median` (default): the median of the verdict scale, rounding toward wrong on an even
+    panel.
+  - `majority`: correct when more than half the judges say so.
+  - `unanimous`: correct only when all of them say so.
+
+  In the study, median and majority matched Dawid-Skene on 99.3% of rows. Unanimous and
+  any-correct moved the headline by up to 0.20. A judge whose grade fails is left out of the
+  vote.
+- The record gets a `judge_panel` block with:
+  - the judges and the rule;
+  - each judge's own paired 2×2 (`per_judge_paired`);
+  - the judge range of the added share (`added_share_range`);
+  - `judge_sensitive`, set when the lenient range exceeds 0.10 (the study's noise floor).
+
+  Each run keeps every judge's verdict in `judge_verdicts`.
+- Two judges of one vendor family print a warning. Same-family judges agree with each other
+  more than with the rest, so the panel then has fewer independent votes than judges. Three
+  judges from three families cut the spread across panels from SD 0.039 to 0.025.
+
+Each extra judge grades every answer again, so it adds the judge's share of the cost.
+`--estimate-only` counts it, and `--max-usd` caps the whole panel.
+
 ## Using it as an authoring tool
 
 The commands in order, with the costs and the three free steps that come first, are in

@@ -118,6 +118,7 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
 
     placebo_text = placebo_text_for_arms_or_exit(args.placebo_text, _arms(args.arms))
     extractor, answerer, judge = _clients(args)
+    panel = _panel_clients(args)
     config = AnalyzeConfig(
         artifact_ref=args.artifact,
         artifact_kind=artifact_bundle.kind,
@@ -138,7 +139,8 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
     try:
         result = analyze(artifact_bundle.text, config,
                          extractor=extractor, answerer=answerer, judge=judge,
-                         artifact_bundle=artifact_bundle)
+                         artifact_bundle=artifact_bundle,
+                         panel=panel, aggregate=args.judge_aggregate)
     except SelfJudgeError as exc:  # the judge is the answering model: the flags contradict
         raise InputError(str(exc)) from exc
     except (ExtractionError, ValueError) as exc:  # a model failure under way
@@ -199,6 +201,7 @@ def cmd_novelty_probe(args: argparse.Namespace) -> None:
     from dokimi.novelty.atoms import load_atoms_record
     from dokimi.novelty.bundle import check_answer_key
     from dokimi.novelty.measure import SelfJudgeError, check_self_judge, run_measurement
+    from dokimi.novelty.panel import panel_record, panel_warnings
     from dokimi.novelty.probes import build_probe_set
     from dokimi.novelty.report import build_probe_record
 
@@ -213,9 +216,11 @@ def cmd_novelty_probe(args: argparse.Namespace) -> None:
     settings = _settings(args)
     placebo_text = placebo_text_for_arms_or_exit(args.placebo_text, _arms(args.arms))
     extractor, answerer, judge = _clients(args)
+    panel = _panel_clients(args)
     warn_answer_key(saved, answerer, judge)
     try:  # before the paraphrase calls below, which are paid
-        check_self_judge(judge, answerer, args.allow_self_judge)
+        for member in (judge, *panel):
+            check_self_judge(member, answerer, args.allow_self_judge)
     except SelfJudgeError as exc:
         raise InputError(str(exc)) from exc
     paraphrases, reversals = settings.values["paraphrases"], settings.values["reversals"]
@@ -235,6 +240,7 @@ def cmd_novelty_probe(args: argparse.Namespace) -> None:
             arms=_arms(args.arms), concurrency=args.concurrency,
             allow_self_judge=args.allow_self_judge, seed=args.seed,
             placebo_text=placebo_text, framing=args.context_framing,
+            panel=panel, aggregate=args.judge_aggregate,
         )
     except ValueError as exc:  # a model failure under way
         raise SystemExit(str(exc)) from None
@@ -245,6 +251,11 @@ def cmd_novelty_probe(args: argparse.Namespace) -> None:
         probe_set=probe_set, measure_result=result,
         sampling=sampling_record(args, atoms, saved), framing=args.context_framing,
     )
+    judge_panel = panel_record(result, args.judge_aggregate)
+    if judge_panel:
+        payload["judge_panel"] = judge_panel
+        for note in panel_warnings(judge_panel):
+            print(f"WARNING: {note}", file=sys.stderr)
     out = Path(args.out) if args.out else _default_dir(args.artifact) / "probes.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -714,6 +725,19 @@ def _add_model_args(parser: argparse.ArgumentParser, positive_int) -> None:
                         help="Provider for the judge. Without --judge-model, the default judge "
                              "that runs on this provider; if none does, the run exits asking "
                              "for --judge-model")
+    parser.add_argument("--judge", action="append", default=None, dest="judges",
+                        metavar="PROVIDER/MODEL",
+                        help="A judge, as PROVIDER/MODEL; repeated, it is a panel: every judge "
+                             "grades every answer and --judge-aggregate decides. Pick judges "
+                             "from different vendors (docs/judge-panel-study.md: three from "
+                             "three families cut the judge spread by a third). Replaces "
+                             "--judge-model/--judge-provider; the first judge is the default "
+                             "extractor")
+    parser.add_argument("--judge-aggregate", default="median", dest="judge_aggregate",
+                        choices=("median", "majority", "unanimous"),
+                        help="How a panel's verdicts become one: median of the verdict scale "
+                             "(default), lenient majority, or unanimous (conservative; moved "
+                             "the study's headline by up to 0.20)")
     parser.add_argument("--extract-model", default=None, dest="extract_model",
                         help="Extractor/adjudicator model (defaults to --judge-model, so the "
                              "answering model never writes its own answer key)")
@@ -746,7 +770,10 @@ def _role_models(args: argparse.Namespace) -> dict[str, tuple[str, str]]:
     """The (model, provider) of each role, defaulting so roles never silently collapse."""
     from dokimi.novelty.client import default_judge
 
-    if args.judge_model:
+    panel = _judge_refs(args)
+    if panel:
+        judge_model, judge_provider = panel[0]
+    elif args.judge_model:
         judge_model, judge_provider = args.judge_model, args.judge_provider or args.provider
     else:
         # a CLI answerer with no judge provider judges on the same CLI, another family
@@ -758,6 +785,32 @@ def _role_models(args: argparse.Namespace) -> dict[str, tuple[str, str]]:
         "answerer": (args.model, args.provider),
         "judge": (judge_model, judge_provider),
     }
+
+
+def _judge_refs(args: argparse.Namespace) -> list[tuple[str, str]]:
+    """The ``--judge PROVIDER/MODEL`` list as (model, provider) pairs; empty without the flag."""
+    refs = getattr(args, "judges", None) or []
+    if refs and (getattr(args, "judge_model", None) or getattr(args, "judge_provider", None)):
+        raise ValueError("--judge replaces --judge-model and --judge-provider; pass one form")
+    out: list[tuple[str, str]] = []
+    for ref in refs:
+        provider, sep, model = ref.partition("/")
+        if not sep or not model or provider not in PROVIDERS:
+            raise ValueError(f"--judge {ref!r} is not PROVIDER/MODEL with PROVIDER one of "
+                             f"{', '.join(PROVIDERS)}")
+        if (model, provider) in out:
+            raise ValueError(f"--judge {ref!r} is given twice")
+        out.append((model, provider))
+    return out
+
+
+def _panel_clients(args: argparse.Namespace) -> tuple:
+    """Clients for the judges after the first ``--judge`` (the first is ``_clients``' judge)."""
+    try:
+        refs = _judge_refs(args)
+    except ValueError as exc:
+        raise InputError(str(exc)) from exc
+    return tuple(_client(model, provider, "judge", args) for model, provider in refs[1:])
 
 
 def _estimate_usd(
@@ -778,6 +831,14 @@ def _estimate_usd(
         print(f"The USD estimate is unavailable: {exc}", file=sys.stderr)
         return None
     usd = estimate_usd(by_role, n_tokens, models, tier, context_share)
+    for model, provider in _judge_refs(args)[1:]:  # each panel judge grades every answer again
+        if usd is None:
+            break
+        extra = estimate_usd({"judge": by_role.get("judge", 0)}, n_tokens,
+                             {"judge": (model, provider)}, tier, context_share)
+        if extra is None:
+            models[f"judge {model}"] = (model, provider)
+        usd = None if extra is None else round(usd + extra, 6)
     if usd is None:
         unpriced = sorted(
             f"{role} ({model})"
