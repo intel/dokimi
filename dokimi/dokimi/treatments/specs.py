@@ -26,8 +26,9 @@ second a path containing ``++``), and a spec that *starts* with ``mcp:`` is neve
 split, because an MCP reference may carry ``+`` in a URL query.
 
 :func:`split_parts` is the one ``+`` splitter. ``repo run --arm`` specs
-(``repos/workspace.py``) use it with their own heads (``guidance:``, ``patch:``,
-``skill:``, ``skill-catalog:``) and without whitespace stripping; that grammar stays
+(``repos/workspace.py``) use it with their own heads (the ``ARMS`` names, ``guidance:rev:``,
+``guidance:format=``, ``patch:``, ``skill:``, ``skill-catalog:``) and without whitespace
+stripping; that grammar stays
 in ``repos/workspace.py``, and the two are pinned side by side in ``tests/test_arm_grammar.py``.
 """
 
@@ -154,8 +155,8 @@ def split_parts(spec: str, starts_part: Callable[[str], bool], *, strip: bool = 
     A ``+`` starts a new part only when the piece after it satisfies ``starts_part``; any
     other ``+`` belongs to the part before it (a path may hold a ``+``). Each grammar
     supplies its own ``starts_part``: treatment specs split on their kinds
-    (:func:`split_combined`), ``repo run --arm`` on its guidance and skill heads
-    (``repos/workspace.py``). ``strip`` removes the whitespace around the spec and each
+    (:func:`split_combined`), ``repo run --arm`` on its ``ARMS`` names and its
+    ``guidance:rev:``, ``guidance:format=``, ``patch:`` and skill heads (``repos/workspace.py``). ``strip`` removes the whitespace around the spec and each
     piece; the repo grammar keeps it, so ``guidance:none + skill:x`` stays rejected there.
     """
     if strip:
