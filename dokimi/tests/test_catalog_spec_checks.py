@@ -126,6 +126,13 @@ def test_apostrophe_in_a_pattern_does_not_hide_the_entries_after_it():
     assert _unknown_tools("Bash(echo don't), Frobnicate") == ["Frobnicate"]
 
 
+def test_closing_parenthesis_inside_quotes_does_not_end_the_pattern():
+    from dokimi.external.validate import _unknown_tools
+
+    assert _unknown_tools('Bash(echo ")") Frobnicate') == ["Frobnicate"]
+    assert _unknown_tools('Bash(echo "it\'s") Frobnicate') == ["Frobnicate"]
+
+
 def test_allowed_tools_pattern_that_never_closes_is_dropped_in_linear_time():
     from dokimi.external.validate import _unknown_tools
 
