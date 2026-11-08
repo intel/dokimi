@@ -813,7 +813,8 @@ python cli.py eval skill-coverage skills/demo/SKILL.md evals/evals.json \
   the eval set's structure. This one maps requirements of the skill's text to checks, so the
   two can disagree; neither reads the other's output.
 - `--out` writes a `skill_coverage.v1` artifact (`dokimi runs show` reads it). A bad reply from
-  the model, or a SKILL.md or evals set that cannot be read, exits 1 or 2 respectively.
+  the model, or a SKILL.md or evals set that cannot be read, exits 1 or 2 respectively. An `--out` that
+  would overwrite an input or cannot be written, and an empty eval set, exit 2 before any paid call.
 
 ## Scope and caveats
 
