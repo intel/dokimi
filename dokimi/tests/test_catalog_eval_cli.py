@@ -147,6 +147,19 @@ def test_changed_report_says_how_many_rows_its_selection_left_out(tmp_path):
     assert "Excluded rows: 3 (rows whose skill no changed path owns)." in text
 
 
+def test_changed_report_counts_rows_chosen_apart_from_names_selected(tmp_path):
+    root = _shared_name_catalog(tmp_path)
+    sha = _commit(root)
+    (root / "skills/alpha/reference.md").write_text("new guidance", encoding="utf-8")
+    out = tmp_path / "out"
+    assert _run(root, out, "--changed-from", sha).returncode in (0, 1)
+    report = json.loads((out / "catalog.json").read_text())
+    assert report["selection"]["selected"] == ["alpha"]
+    text = (out / "report.md").read_text()
+    assert "Selected skills: 2 of 4 rows (1 distinct name)." in text
+    assert "Excluded rows: 2 (rows whose skill no changed path owns)." in text
+
+
 def test_unresolvable_base_reports_conservative_selection(tmp_path):
     root = _catalog(tmp_path)
     _commit(root)
