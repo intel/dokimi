@@ -388,7 +388,10 @@ test on the deltas minus theta does not reject at 5%, so it excludes zero exactl
 when the raw p < 0.05. It is uncorrected: an arm whose interval excludes zero can
 still read `no` once Holm lifts its p past 0.05. Under a shift the tied pairs
 count again, so both ends are open (`null`, printed `-inf` / `+inf`) at 5 or
-fewer pairs and bounded from 6 on. `ci_method` is `sign_flip_inversion`; an
+fewer pairs and bounded from 6 on. Six or more pairs that all tie get the
+interval [0, 0] with no p and a `—`: nothing speaks against 0, and every other
+shift moves all the pairs to one side, which the test rejects, as it does every
+shift but +20 for eight +20 pairs. `ci_method` is `sign_flip_inversion`; an
 `arms.json` written before this method holds `student_t`, `percentile_bootstrap`
 or `degenerate` there, and `p_ttest` (with `p_wilcoxon`, `n_wilcoxon`) instead of
 `p`, and the report still renders it.

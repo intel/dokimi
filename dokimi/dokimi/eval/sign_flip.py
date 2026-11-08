@@ -151,7 +151,11 @@ def sign_flip_interval(deltas: list[float], p_zero: float | None, seed: int = 0,
     ``rounded``, even for an exact p: an end is only known within :data:`TOL`, so its further digits are noise.
 
     ``p_zero`` is the row's p, :func:`sign_flip_p` of ``deltas`` (``None``: every delta tied, no evidence
-    against 0): it decides whether 0 is inside."""
+    against 0): it decides whether 0 is inside.
+
+    Every delta tied gives ``(0.0, 0.0)`` from 6 deltas on, and ``p_zero`` is ``None``: no evidence against 0, but
+    any shift off 0 moves all n deltas to one side, which the test rejects at ``2 / 2**n``, as eight +20 deltas give
+    ``(20.0, 20.0)``. At 5 or fewer the ends are open, as at every row of so few."""
     test, mean = ShiftTest(deltas, seed), math.fsum(deltas) / len(deltas)
     zero_inside, low, high = p_zero is None or p_zero >= ALPHA, min(*deltas, 0.0), max(*deltas, 0.0)
     # far is 1 past the extreme, or twice it from 1 on: 1e16 + 1.0 rounds back onto 1e16, all tied

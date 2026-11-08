@@ -53,6 +53,12 @@ def test_a_constant_shift_gets_its_p_and_verdict_and_no_d_z():
     assert stats.paired_test([0.0] * 8, [0.0] * 8)["cohens_d"] == 0.0
 
 
+def test_every_pair_tied_gets_no_p_and_the_interval_0_0_from_six_pairs():
+    six, five = stats.paired_test([0.0] * 6, [0.0] * 6), stats.paired_test([0.0] * 5, [0.0] * 5)
+    assert (six["p"], six["ci_lo"], six["ci_hi"], six["significant"]) == (None, 0.0, 0.0, None)
+    assert (five["p"], five["ci_lo"], five["ci_hi"], five["significant"]) == (None, None, None, None)
+
+
 def test_the_displayed_mean_stays_inside_a_narrow_interval():
     # 20.004 at 2 places is 20.0, outside the interval [20.004, 20.004] of a constant shift
     res = stats.paired_test([20.004] * 8, [0.0] * 8)
