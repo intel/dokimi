@@ -548,6 +548,28 @@ def test_command_refuses_a_symlink_into_a_read_only_folder_as_out_before_any_pai
         locked.chmod(0o755)
 
 
+@pytest.mark.skipif(hasattr(os, "geteuid") and os.geteuid() == 0, reason="root writes into a read-only folder")
+def test_a_symlink_in_a_read_only_folder_is_refused_even_when_its_target_folder_is_writable(tmp_path, monkeypatch):
+    from dokimi.commands import skill_coverage as cmd
+
+    def no_client(args):
+        raise AssertionError("a paid call was made before the --out check")
+
+    monkeypatch.setattr(cmd, "_client", no_client)
+    target = tmp_path / "out" / "coverage.json"
+    target.parent.mkdir()
+    locked = tmp_path / "ro"
+    locked.mkdir()
+    link = locked / "coverage.json"
+    link.symlink_to(target)
+    locked.chmod(0o555)
+    try:
+        with pytest.raises(InputError, match="cannot write"):
+            _run(monkeypatch, [str(_skill(tmp_path)), str(_evals(tmp_path)), "--out", str(link)])
+    finally:
+        locked.chmod(0o755)
+
+
 def test_a_dangling_symlink_into_a_writable_folder_is_written_through_as_out(tmp_path, monkeypatch):
     target = tmp_path / "later.json"
     link = tmp_path / "coverage.json"
