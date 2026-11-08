@@ -189,3 +189,18 @@ def test_default_judge_keeps_the_organization_of_the_model_it_measures():
     assert default_judge("myorg/sonnet", "claude-cli") == ("opus", "claude-cli")
     assert default_judge("myorg/sonnet", DEFAULT_JUDGE_PROVIDER) == (DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER)
     assert default_judge("myorg/sonnet", "anthropic", "openrouter") == (DEFAULT_JUDGE_MODEL, "anthropic")
+
+
+def test_default_judge_skips_a_snapshot_and_a_context_form_of_the_answerers_family():
+    from dokimi.novelty.client import DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER, default_judge
+
+    # the judge of an Anthropic answerer is the default generator, the other family
+    assert default_judge("claude-sonnet-5-5-20260101") == (DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER)
+    assert default_judge("sonnet[1m]") == (DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER)
+
+
+def test_an_explicit_anthropic_judge_for_an_anthropic_answerer_has_no_judge_and_raises():
+    from dokimi.novelty.client import default_judge
+
+    with pytest.raises(ValueError):
+        default_judge("claude-sonnet-5-5-20260101", "anthropic")
