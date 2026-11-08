@@ -166,7 +166,11 @@ def _hook_source(opt: str, value: str, line: int) -> Source | None:
 
 
 def _filter_sources(scan: Scan, flows: list[str]) -> list[Source]:
-    """The ``branches`` and ``branches-ignore`` globs of each event of ``_EVENTS``, workflow by workflow."""
+    """The ``branches`` and ``branches-ignore`` globs of each event of ``_EVENTS``, workflow by workflow.
+
+    A glob that excludes branches (``branches-ignore``, a leading ``!``) names them as one that includes them does: the
+    workflow skips ``release/x`` under ``['**', '!release/**']``, but it is still a branch, not a path.
+    """
     out: list[Source] = []
     for path in flows:
         doc = _load(scan, path)

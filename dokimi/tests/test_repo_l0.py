@@ -375,6 +375,9 @@ _PUSH = {".github/workflows/ci.yml": 'name: ci\non:\n  push:\n    branches: [mai
      "branch of no-commit-to-branch (.pre-commit-config.yaml:17)"),
     ("dependabot/*", {".github/workflows/pr.yaml": "on:\n  pull_request:\n    branches-ignore:\n      - 'dependabot/**'\n"},
      "branch filter of on.pull_request (.github/workflows/pr.yaml:4)"),
+    # a branch a `!` entry excludes is still a branch: the entry names it, not `**`, which names no path
+    ("release/x", {".github/workflows/ci.yml": "on: {push: {branches: ['**', '!release/**']}}\n"},
+     "branch filter of on.push (.github/workflows/ci.yml:1)"),
     ("release/*", {".github/workflows/pr.yml": "on:\n  pull_request_target:\n    branches: ['release/**']\n"},
      "branch filter of on.pull_request_target (.github/workflows/pr.yml:3)"),
     ("release/*", {".github/workflows/after.yml": "on: {workflow_run: {workflows: [ci], branches: ['release/**']}}\n"},
