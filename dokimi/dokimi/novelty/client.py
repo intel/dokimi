@@ -109,9 +109,9 @@ class LLMClient:
         provider: Provider name understood by :mod:`dokimi.llm`.
         role: What this client is for (``extractor``, ``answerer``, ``judge``, …).
             Recorded on every usage row so cost can be attributed per role.
-        max_tokens: Output ceiling. Reasoning models can spend the provider default
-            entirely on internal reasoning and return empty content, so novelty runs
-            against them need this raised.
+        max_tokens: Output ceiling; ``DEFAULT_MAX_TOKENS`` (16384) when unset.
+            Reasoning models can spend it entirely on internal reasoning and return
+            empty content, so novelty runs against them need this raised.
         transport: Injected call function; defaults to the real LLM on first use.
         cap: Spend limit shared with the run's other clients; ``None`` is unmetered.
     """
