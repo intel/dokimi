@@ -15,8 +15,10 @@ Design principles:
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import math
+import re
 import statistics
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
@@ -28,6 +30,7 @@ from dokimi.judged import judged_reply
 from dokimi.llm import llm_call
 from dokimi.llm_cli import check_sampling
 from dokimi.defaults import DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER
+from dokimi.eval.judge import MAX_GROUND_TRUTH_CHARS, _clip_ground_truth
 from dokimi.eval.question_text import require_question_texts
 # The panel had no numeric-claims criterion (see `eval/rubric.py`) until it was
 # measured against the gate's own `wrong_numbers` degradation (Haiku 4.5, 3
@@ -104,7 +107,7 @@ Library: __LIBRARY__
 Question: __QUESTION__
 Answer: __ANSWER__
 Documentation context: __CONTEXT__
-
+__GROUND_BLOCK__
 Rate each dimension 0–100. Use these calibration anchors:
 __ANCHORS__
 
@@ -136,7 +139,31 @@ JUDGE_ROLES: Dict[str, str] = {
     for role, intro in _ROLE_INTROS.items()
 }
 
+#: Inserted for a question with a ground-truth passage; the single judge's
+#: grounded prompt makes the same contradiction rule.
+_GROUND_BLOCK = (
+    "Reference (the documentation passage the answer should agree with):\n"
+    "__GROUND_TRUTH__\n"
+    "A claim the reference contradicts is incorrect, whatever else the answer gets right.\n"
+)
+_PLACEHOLDER = re.compile(r"__(LIBRARY|QUESTION|ANSWER|CONTEXT|GROUND_TRUTH)__")
+
 DEFAULT_PANEL = ["technical_expert", "developer_advocate", "doc_reviewer"]
+
+#: Panel std above this flags disagreement.
+DISAGREEMENT_STD = 15.0
+
+
+def _aggregation_policy() -> Dict[str, Any]:
+    """How votes become a verdict; part of the panel digest, so a change is visible."""
+    return {
+        "method": "role-weighted mean of valid votes",
+        "weights": ROLE_WEIGHTS,
+        "quorum": "majority of panelists",
+        "spread": "sample stdev, needs two valid votes",
+        "disagreement_std": DISAGREEMENT_STD,
+    }
+
 
 # ── Data classes ──────────────────────────────────────────────────────────────
 
@@ -165,14 +192,21 @@ class PanelVerdict:
     std_aggregate: Optional[float]
     agreement_score: Optional[float]   # 0–1; 1.0 = perfect agreement
     mean_dimensions: Dict[str, float] = field(default_factory=dict)
+    #: Valid votes needed for a verdict (a majority of the panelists); 0 = no rule.
+    quorum: int = 0
+    grounded: bool = False
 
     @property
     def valid_votes(self) -> List[JudgeVote]:
         return [v for v in self.votes if v.aggregate is not None]
 
     @property
+    def insufficient_evidence(self) -> bool:
+        return len(self.valid_votes) < self.quorum
+
+    @property
     def disagreement_flag(self) -> bool:
-        return self.std_aggregate is not None and self.std_aggregate > 15.0
+        return self.std_aggregate is not None and self.std_aggregate > DISAGREEMENT_STD
 
 
 @dataclass
@@ -215,17 +249,30 @@ class JudgePanel:
         the artifact's judge provenance, and ``replicate_key`` keys on those. A
         panel exposing neither wrote nulls, which made two runs judged by
         *different* panels indistinguishable — and so poolable as replicates.
-        Roles are listed in configured order; models are collapsed when the
-        panel shares one.
+        Each role is paired with its model, in configured order: the same models
+        on swapped roles are a different panel.
         """
-        roles = "+".join(j.role for j in self.judges)
-        models = sorted({j.model for j in self.judges})
-        return f"panel[{roles}]:{models[0] if len(models) == 1 else ','.join(models)}"
+        return "panel[" + ",".join(f"{j.role}={j.model}" for j in self.judges) + "]"
 
     @property
     def prompt_sha256(self) -> str:
-        """Digest of the role prompts this panel sends, in configured order."""
-        text = "\0".join(JUDGE_ROLES.get(j.role, JUDGE_ROLES["technical_expert"]) for j in self.judges)
+        """Digest of what this panel sends and how it combines the votes.
+
+        Covers the role prompts in configured order, the grounding block and its
+        ground-truth clip limit (both reach the prompt when a question has a
+        reference), each judge's role, provider, model, temperature and seed, and
+        the aggregation policy. The name is kept because saved artifacts already
+        store it.
+        """
+        config = {
+            "prompts": [JUDGE_ROLES.get(j.role, JUDGE_ROLES["technical_expert"]) for j in self.judges],
+            "ground_block": _GROUND_BLOCK,
+            "ground_truth_max_chars": MAX_GROUND_TRUTH_CHARS,
+            "judges": [{"role": j.role, "provider": j.provider, "model": j.model,
+                        "temperature": j.temperature, "seed": j.seed} for j in self.judges],
+            "aggregation": _aggregation_policy(),
+        }
+        text = json.dumps(config, sort_keys=True)
         return "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
 
     @property
@@ -240,17 +287,18 @@ class JudgePanel:
         return providers[0] if len(providers) == 1 else "mixed:" + ",".join(providers)
 
     def _build_prompt(self, role: str, question: str, answer: str,
-                      library_name: str, context: str) -> str:
+                      library_name: str, context: str,
+                      ground_truth: Optional[str] = None) -> str:
         template = JUDGE_ROLES.get(role, JUDGE_ROLES["technical_expert"])
-        # Use sequential replace with unique sentinels to avoid injection
-        # (each placeholder is distinct so no cross-substitution is possible)
-        return (
-            template
-            .replace("__LIBRARY__", library_name)
-            .replace("__QUESTION__", question)
-            .replace("__ANSWER__", answer)
-            .replace("__CONTEXT__", context or "(No documentation provided)")
-        )
+        template = template.replace("__GROUND_BLOCK__", _GROUND_BLOCK if ground_truth else "")
+        values = {
+            "LIBRARY": library_name, "QUESTION": question, "ANSWER": answer,
+            "CONTEXT": context or "(No documentation provided)",
+            "GROUND_TRUTH": _clip_ground_truth(ground_truth),
+        }
+        # One pass: text put in for one placeholder is never scanned for another,
+        # so a question or answer that names a placeholder stays what it is.
+        return _PLACEHOLDER.sub(lambda m: values[m.group(1)], template)
 
     @staticmethod
     def _compute_aggregate(role: str, scores: Dict[str, float]) -> float:
@@ -266,8 +314,10 @@ class JudgePanel:
         return extract_json_object(text)
 
     def _call_judge(self, config: JudgeConfig, question: str, answer: str,
-                    library_name: str, context: str) -> JudgeVote:
-        prompt = self._build_prompt(config.role, question, answer, library_name, context)
+                    library_name: str, context: str,
+                    ground_truth: Optional[str] = None) -> JudgeVote:
+        prompt = self._build_prompt(config.role, question, answer, library_name, context,
+                                    ground_truth)
 
         def parse(raw: str) -> "tuple[Dict[str, Any], Dict[str, float]]":
             data = self._extract_json(raw)
@@ -335,18 +385,21 @@ class JudgePanel:
         reason to prefer a panel: they expose grader disagreement that a single
         judge cannot report.
 
-        ``ground_truth`` is accepted for signature compatibility and ignored —
-        the panel's per-role prompts do not currently take a ground-truth chunk.
+        ``ground_truth`` is the question's reference passage; every role prompt
+        carries it when given, as the single judge's grounded prompt does.
         """
         verdict = self.evaluate(
             question=question, answer=answer,
-            library_name=library_name, context=context,
+            library_name=library_name, context=context, ground_truth=ground_truth,
         )
         out: Dict[str, Any] = dict(verdict.mean_dimensions)
         out["aggregate"] = verdict.mean_aggregate
         out["panel"] = {
             "n_judges": len(verdict.votes),
             "n_valid": len(verdict.valid_votes),
+            "quorum": verdict.quorum,
+            "insufficient_evidence": verdict.insufficient_evidence,
+            "grounded": verdict.grounded,
             "std_aggregate": verdict.std_aggregate,
             "agreement_score": verdict.agreement_score,
             "disagreement_flag": verdict.disagreement_flag,
@@ -356,31 +409,37 @@ class JudgePanel:
                 for v in verdict.votes
             ],
         }
-        if verdict.mean_aggregate is None:
-            out["error"] = "all panel judges failed"
+        error = _verdict_error(verdict)
+        if error:
+            out["error"] = error
         return out
 
     def evaluate(self, question: str, answer: str, library_name: str,
-                 context: str = "") -> PanelVerdict:
+                 context: str = "", ground_truth: Optional[str] = None) -> PanelVerdict:
         votes: List[JudgeVote] = []
         with ThreadPoolExecutor(max_workers=self.concurrency) as pool:
             futures = {
-                pool.submit(self._call_judge, cfg, question, answer, library_name, context): cfg
+                pool.submit(self._call_judge, cfg, question, answer, library_name, context,
+                            ground_truth): cfg
                 for cfg in self.judges
             }
             for future in as_completed(futures):
                 votes.append(future.result())
-        return self._aggregate(votes)
+        return self._aggregate(votes, grounded=bool(ground_truth))
 
-    def _aggregate(self, votes: List[JudgeVote]) -> PanelVerdict:
+    def _aggregate(self, votes: List[JudgeVote], grounded: bool = False) -> PanelVerdict:
+        # One vote per panelist, errors included; a verdict needs a majority of
+        # valid votes, else insufficient evidence.
+        quorum = len(votes) // 2 + 1
         valid = [v for v in votes if v.aggregate is not None]
-        if not valid:
-            return PanelVerdict(votes=votes, mean_aggregate=None,
-                                std_aggregate=None, agreement_score=None)
+        if len(valid) < quorum:
+            return PanelVerdict(votes=votes, mean_aggregate=None, std_aggregate=None,
+                                agreement_score=None, quorum=quorum, grounded=grounded)
         aggs = [v.aggregate for v in valid if v.aggregate is not None]
         mean_agg = round(statistics.mean(aggs), 1)
-        std_agg = round(statistics.stdev(aggs), 1) if len(aggs) > 1 else 0.0
-        agreement = round(max(0.0, 1.0 - std_agg / 50.0), 3)
+        # One vote has no spread to measure: report none, not a perfect agreement.
+        std_agg = round(statistics.stdev(aggs), 1) if len(aggs) > 1 else None
+        agreement = round(max(0.0, 1.0 - std_agg / 50.0), 3) if std_agg is not None else None
         mean_dims: Dict[str, float] = {}
         for dim in SCORE_FIELDS:
             vals = [v.scores[dim] for v in valid if dim in v.scores]
@@ -388,17 +447,19 @@ class JudgePanel:
                 mean_dims[dim] = round(statistics.mean(vals), 1)
         return PanelVerdict(votes=votes, mean_aggregate=mean_agg,
                             std_aggregate=std_agg, agreement_score=agreement,
-                            mean_dimensions=mean_dims)
+                            mean_dimensions=mean_dims, quorum=quorum, grounded=grounded)
 
     def _score_answer_entry(self, answer: Optional[Answer], question: str,
-                            library_name: str) -> Optional[PanelVerdict]:
+                            library_name: str,
+                            ground_truth: Optional[str] = None) -> Optional[PanelVerdict]:
         if answer is None or not answer.text:
             return None
         # answers.v1 keeps only each doc's 200-char ``snippet``; the full text the
         # answerer was given is not persisted. That is also what the single judge
         # shows (``Judge._format_context``), so both judges see the same material.
         ctx = "\n".join(answer.context)
-        return self.evaluate(question, answer.text, library_name, ctx)
+        return self.evaluate(question, answer.text, library_name, ctx,
+                             ground_truth=ground_truth)
 
     def evaluate_answers(self, answers: List[RecordLike], library_name: str,
                          output_path: Optional[Path] = None,
@@ -414,8 +475,10 @@ class JudgePanel:
             q_id = rec.question_id
             question = rec.question_text
             print(f"[{i}/{n}] Panel: {q_id}…", flush=True)
-            with_v = self._score_answer_entry(rec.answer(CONTEXT), question, library_name)
-            without_v = self._score_answer_entry(rec.answer(BASELINE), question, library_name)
+            with_v = self._score_answer_entry(rec.answer(CONTEXT), question, library_name,
+                                              rec.ground_truth)
+            without_v = self._score_answer_entry(rec.answer(BASELINE), question, library_name,
+                                                 rec.ground_truth)
             delta = None
             if (with_v and with_v.mean_aggregate is not None
                     and without_v and without_v.mean_aggregate is not None):
@@ -452,14 +515,27 @@ def _numeric_fields(vote: JudgeVote) -> Dict[str, Any]:
     return fields
 
 
+def _verdict_error(v: PanelVerdict) -> Optional[str]:
+    """Why the verdict has no score, in the words both the summary and the artifact use."""
+    if not v.valid_votes:
+        return "all panel judges failed"
+    if v.insufficient_evidence:
+        return (f"insufficient evidence: {len(v.valid_votes)} of "
+                f"{len(v.votes)} panelists valid, quorum is {v.quorum}")
+    return None
+
+
 def _verdict_to_dict(v: Optional[PanelVerdict]) -> Optional[Dict[str, Any]]:
     if v is None:
         return None
-    return {
+    out: Dict[str, Any] = {
         "aggregate": v.mean_aggregate,
         "std": v.std_aggregate,
         "agreement_score": v.agreement_score,
         "disagreement_flag": v.disagreement_flag,
+        "quorum": v.quorum,
+        "insufficient_evidence": v.insufficient_evidence,
+        "grounded": v.grounded,
         "dimensions": v.mean_dimensions,
         "votes": [
             {"role": vt.role, "model": vt.model, "aggregate": vt.aggregate,
@@ -468,6 +544,11 @@ def _verdict_to_dict(v: Optional[PanelVerdict]) -> Optional[Dict[str, Any]]:
             for vt in v.votes
         ],
     }
+    # A cell with no score carries its reason, as score_answer's does, so readers that count Score.error see it.
+    error = _verdict_error(v)
+    if error:
+        out["error"] = error
+    return out
 
 
 def _save_incremental(results: List[Dict], path: Path, library_name: str,

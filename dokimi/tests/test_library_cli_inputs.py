@@ -7,17 +7,19 @@ from __future__ import annotations
 
 import pytest
 
+from tests.cli_refusal import refusal
+
 from dokimi.cli import build_parser
 
 _PRODUCTS = "products:\n  demo:\n    name: Demo\n    description: d\n"
 
 
-def _run(argv, capsys):
+def _run(argv):
     args = build_parser().parse_args(argv)
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as out:
         args.func(args)
-    assert exc.value.code == 2
-    return capsys.readouterr().err
+    assert out.code == 2
+    return out.err
 
 
 def _bad_files(tmp_path):
@@ -30,34 +32,34 @@ def _bad_files(tmp_path):
 
 @pytest.mark.parametrize("kind", ["binary", "broken"])
 @pytest.mark.parametrize("command", ["list", "show demo"])
-def test_a_registry_that_cannot_be_parsed_is_named(tmp_path, capsys, kind, command):
+def test_a_registry_that_cannot_be_parsed_is_named(tmp_path, kind, command):
     bad = _bad_files(tmp_path)[kind]
-    err = _run(["library", *command.split(), "--registry", str(bad)], capsys)
+    err = _run(["library", *command.split(), "--registry", str(bad)])
     assert f"Error: cannot read --registry {bad}" in err
 
 
 @pytest.mark.parametrize("kind", ["binary", "broken"])
-def test_an_intents_file_that_cannot_be_parsed_is_named(tmp_path, capsys, kind):
+def test_an_intents_file_that_cannot_be_parsed_is_named(tmp_path, kind):
     bad = _bad_files(tmp_path)[kind]
-    err = _run(["catalog", "intents", "--intents", str(bad)], capsys)
+    err = _run(["catalog", "intents", "--intents", str(bad)])
     assert f"Error: cannot read --intents {bad}" in err
 
 
-def test_a_bad_intents_file_is_named_by_list_with_a_domain(tmp_path, capsys):
+def test_a_bad_intents_file_is_named_by_list_with_a_domain(tmp_path):
     products = tmp_path / "products.yaml"
     products.write_text(_PRODUCTS, encoding="utf-8")
     bad = _bad_files(tmp_path)["broken"]
     err = _run(["library", "list", "--registry", str(products), "--intents", str(bad),
-                "--domain", "x"], capsys)
+                "--domain", "x"])
     assert f"Error: cannot read --intents {bad}" in err
 
 
-def test_a_missing_registry_is_not_an_empty_registry(tmp_path, capsys):
+def test_a_missing_registry_is_not_an_empty_registry(tmp_path):
     missing = tmp_path / "nope.yaml"
-    err = _run(["library", "list", "--registry", str(missing)], capsys)
+    err = _run(["library", "list", "--registry", str(missing)])
     assert f"Error: --registry {missing}: not a file" in err
 
 
-def test_a_directory_as_intents_is_rejected(tmp_path, capsys):
-    err = _run(["catalog", "intents", "--intents", str(tmp_path)], capsys)
+def test_a_directory_as_intents_is_rejected(tmp_path):
+    err = _run(["catalog", "intents", "--intents", str(tmp_path)])
     assert f"Error: --intents {tmp_path}: not a file" in err

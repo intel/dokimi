@@ -132,6 +132,23 @@ def _read_frontmatter(skill_file: Path) -> Tuple[Dict[str, Any], str]:
         ) from exc
 
 
+def _frontmatter_block_problem(skill_file: Path) -> Optional[str]:
+    """What is wrong with the frontmatter block of ``skill_file``, as the rest of a load error sentence.
+
+    None when there is a closed block (the description is then missing from it). Only read on the
+    error path, so the file is read a second time at most.
+    """
+    lines = skill_file.read_text(encoding="utf-8").lstrip("\ufeff").splitlines()
+    if not lines or lines[0].rstrip() != "---":
+        return (
+            "no frontmatter: the file does not start with a '---' line, so it has no name or "
+            "description. Add a YAML block between two '---' lines."
+        )
+    if not any(line.strip() == "---" for line in lines[1:]):
+        return "an unclosed frontmatter block: there is no closing '---' line."
+    return None
+
+
 def load_skill(path) -> Skill:
     """Load a single skill from a ``SKILL.md`` file or its containing directory.
 
@@ -153,6 +170,9 @@ def load_skill(path) -> Skill:
         raise ValueError(f"Skill at '{skill_file}' has an empty 'name' after normalization.")
     description = str(meta.get("description") or "").strip()
     if not description:
+        problem = _frontmatter_block_problem(skill_file)
+        if problem is not None:
+            raise ValueError(f"Skill '{name}' ({skill_file}) has {problem}")
         raise ValueError(
             f"Skill '{name}' ({skill_file}) is missing a 'description' in its "
             "frontmatter; the description is the skill's trigger hint."

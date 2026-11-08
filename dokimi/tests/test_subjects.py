@@ -11,6 +11,8 @@ from pathlib import Path
 import pytest
 
 import dokimi.eval.arm_runner as arm_runner_mod
+from tests.cli_refusal import refusal
+from dokimi.utils import InputError
 from dokimi import __version__
 from dokimi.artifacts import validate_artifact
 from dokimi.cli import build_parser
@@ -868,11 +870,10 @@ tasks = ["{missing_task.as_posix()}"]
         "codex",
     ])
 
-    with pytest.raises(SystemExit) as excinfo:
+    with refusal() as out:
         args.func(args)
-
-    assert excinfo.value.code == 2
-    assert "Error loading subject work: Task directory not found" in capsys.readouterr().err
+    assert out.code == 2
+    assert "Error: cannot load subject work: Task directory not found" in capsys.readouterr().err
 
 
 def test_subjects_run_writes_work_task_runs_when_requested(tmp_path: Path, monkeypatch):
@@ -1001,17 +1002,15 @@ plugins = []
 
 def test_subjects_list_without_a_root_names_the_flag():
     """Descriptors live in a content checkout, so there is no in-repo default root."""
-    parser = build_parser()
-    args = parser.parse_args(["subjects", "list"])
-    with pytest.raises(SystemExit) as excinfo:
+    args = build_parser().parse_args(["subjects", "list"])
+    with pytest.raises(InputError) as excinfo:
         args.func(args)
     assert "--subjects-root" in str(excinfo.value)
 
 
 def test_subjects_list_rejects_a_root_that_is_not_a_directory(tmp_path: Path):
-    parser = build_parser()
-    args = parser.parse_args(["subjects", "list", "--subjects-root", str(tmp_path / "typo")])
-    with pytest.raises(SystemExit) as excinfo:
+    args = build_parser().parse_args(["subjects", "list", "--subjects-root", str(tmp_path / "typo")])
+    with pytest.raises(InputError) as excinfo:
         args.func(args)
     assert "--subjects-root is not a directory" in str(excinfo.value)
 
