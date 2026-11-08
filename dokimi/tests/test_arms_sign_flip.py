@@ -190,6 +190,20 @@ def test_arms_report_prints_an_open_end_as_open():
     assert _fmt_ci(1e-4, 0.3) == "[+0.0001, +0.3]"  # an end off 0 keeps its side of 0 at one decimal
 
 
+def test_arms_report_prints_a_small_estimate_inside_its_interval():
+    # eight +0.04 deltas, in the arm and in the contrast: at one decimal the estimate would print +0.0
+    ev = _arm_evaluations({"docs": [0.04] * 8, "skill:x": [0.0] * 8, "docs+skill:x": [0.08] * 8})
+    arms = ["baseline", "docs", "skill:x", "docs+skill:x"]
+    per_arm: dict = {arm: {"avg_aggregate": 50.0, "n": 8} for arm in arms}
+    for arm, sig in stats.arm_significance(ev, "baseline", arms).items():
+        per_arm[arm]["significance"] = sig
+    summary = {"per_arm": per_arm, "interactions": interaction_significance(ev, arms, "baseline")}
+    arm, interaction = _rows(render_arms_report({"arms": arms, "baseline_arm": "baseline", "answers": [],
+                                                 "summary": summary}))
+    assert arm.startswith("| `docs` | +0.04 | [+0.04, +0.04] |") and arm.endswith("| yes | 8 |")
+    assert "| **+0.04** | [+0.04, +0.04] | 0.0078 |" in interaction
+
+
 def test_eval_report_prints_the_sign_flip_p_and_no_t_or_wilcoxon_row(tmp_path):
     def report(deltas: list[float]) -> str:
         evaluations = [{"question_id": f"q{i}", "with_docs": {"aggregate": 50.0 + d},

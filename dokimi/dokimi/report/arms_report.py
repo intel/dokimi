@@ -37,6 +37,12 @@ def _ci_end(end: float) -> str:
     return f"{end:+.2g}" if end and float(text) == 0 else text
 
 
+def _fmt_estimate(value: Any) -> str:
+    """The estimate beside a 95% CI, printed as :func:`_ci_end` prints the ends, or a dash when absent: the stored
+    estimate lies inside its stored ends, so the printed one lies inside the printed interval (0.04 in [+0.04, +0.04])."""
+    return _ci_end(value) if isinstance(value, (int, float)) else "—"
+
+
 def _fmt_num(value: Any, digits: int = 1) -> str:
     """Signed fixed-point, or a dash when the value is genuinely absent.
 
@@ -94,7 +100,7 @@ def _significance_lines(
         # when it is None would report an uncorrected claim under a column
         # header that promises correction.
         lines.append(
-            f"| `{arm}` | {_fmt_num(sig.get('delta_mean'))} | "
+            f"| `{arm}` | {_fmt_estimate(sig.get('delta_mean'))} | "
             f"{_fmt_ci(sig.get('ci_lo'), sig.get('ci_hi'))} | "
             f"{_fmt_num(sig.get('cohens_d'), 2)} | {sig.get('effect', '—')} | "
             f"{_fmt_p(_raw_p(sig))} | {_fmt_p(sig.get('p_adjusted'))} | "
@@ -131,7 +137,7 @@ def _interaction_lines(summary: Dict[str, Any]) -> List[str]:
             f"{_fmt_num(it.get('delta_a'))} | {_fmt_num(it.get('delta_b'))} | "
             f"{_fmt_num(it.get('additive_expectation'))} | "
             f"{_fmt_num(it.get('delta_combined'))} | "
-            f"**{_fmt_num(it.get('interaction'))}** | "
+            f"**{_fmt_estimate(it.get('interaction'))}** | "
             f"{_fmt_ci(it.get('ci_lo'), it.get('ci_hi'))} | "
             f"{_fmt_p(_raw_p(it))} | {_fmt_p(it.get('p_adjusted'))} | "
             f"{_fmt_sig(it.get('significant_adjusted'))} | {it.get('n', 0)} |"
