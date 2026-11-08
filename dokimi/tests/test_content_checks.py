@@ -49,6 +49,8 @@ def test_retired_model_id_in_skill_body_is_a_warning_with_its_replacement(tmp_pa
     assert message.startswith("SKILL.md line 7:")
     assert "retired by anthropic on 2026-04-20" in message
     assert "use claude-haiku-4-5-20251001" in message
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert {f.level for f in review.findings if f.code == "legacy-model-id"} == {"warn"}
 
 
 def test_deprecated_id_names_its_retirement_date(tmp_path):
@@ -117,6 +119,8 @@ def test_bidi_override_is_reported_with_line_and_codepoint(tmp_path):
     [message] = _messages(tmp_path, "hidden-unicode")
     assert "line 8" in message
     assert "U+202E" in message
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert {f.level for f in review.findings if f.code == "hidden-unicode"} == {"warn"}
 
 
 def test_tag_characters_are_reported(tmp_path):
