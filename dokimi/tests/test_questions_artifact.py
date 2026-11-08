@@ -25,6 +25,7 @@ from dokimi.datasets_export import export_artifact
 from dokimi.questions.artifact import load_questions, save_questions_artifact, upgrade_questions
 from dokimi.questions.normalizer import canonical_question, normalize_question
 from tests.artifact_fixtures import artifact_fixture
+from tests.cli_refusal import refusal
 
 GOLDEN = Path(__file__).resolve().parent / "fixtures" / "questions"
 GOLDEN_EXCERPTS = sorted(GOLDEN.glob("*_golden.excerpt.json"))
@@ -564,9 +565,9 @@ def test_answers_generate_refuses_an_unusable_set_before_any_call(tmp_path, monk
     monkeypatch.setattr("dokimi.mcp.factory.create_doc_source_client", no_client)
     args = build_parser().parse_args(["answers", "generate", "--product", "oneTBB",
                                       "--questions", str(src)])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2
+    assert exc.code == 2
     assert "record 0 (id 'q1'), `question`: '' should be non-empty" in capsys.readouterr().err
 
 
@@ -623,9 +624,9 @@ def test_report_generate_refuses_malformed_questions_with_error_exit(tmp_path, m
     out = tmp_path / "report.md"
     args = build_parser().parse_args(["report", "generate", "--product", "oneTBB", "--eval", str(ev),
                                       "--questions", str(src), "--output", str(out)])
-    with pytest.raises(SystemExit) as exc_info:
+    with refusal() as exc_info:
         args.func(args)
-    assert exc_info.value.code == 2
+    assert exc_info.code == 2
     assert "Error:" in capsys.readouterr().err
 
 
@@ -638,9 +639,9 @@ def test_questions_refine_refuses_malformed_questions_with_error_exit(tmp_path, 
     out = tmp_path / "refined.json"
     args = build_parser().parse_args(["eval", "questions", "refine", "--product", "oneTBB",
                                       "--questions", str(src), "--output", str(out)])
-    with pytest.raises(SystemExit) as exc_info:
+    with refusal() as exc_info:
         args.func(args)
-    assert exc_info.value.code == 2
+    assert exc_info.code == 2
     assert "Error:" in capsys.readouterr().err
 
 
@@ -652,9 +653,9 @@ def test_questions_refine_names_an_unreadable_questions_file(tmp_path, capsys, k
         src.mkdir()
     args = build_parser().parse_args(["eval", "questions", "refine", "--product", "oneTBB",
                                       "--questions", str(src), "--output", str(tmp_path / "out.json")])
-    with pytest.raises(SystemExit) as exc_info:
+    with refusal() as exc_info:
         args.func(args)
-    assert exc_info.value.code == 2
+    assert exc_info.code == 2
     assert f"Error: cannot read {src}" in capsys.readouterr().err
 
 
@@ -698,9 +699,9 @@ def test_report_generate_prints_an_error_for_an_empty_question(tmp_path, capsys)
     src.write_text(json.dumps({"questions": [{"id": "q1", "question": ""}]}), encoding="utf-8")
     args = build_parser().parse_args(["report", "generate", "--product", "oneTBB", "--eval", str(ev),
                                       "--questions", str(src), "--output", str(tmp_path / "r.md")])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2
+    assert exc.code == 2
     assert capsys.readouterr().err.startswith("Error: ")
 
 
@@ -763,9 +764,9 @@ def test_questions_refine_prints_an_error_when_the_refined_set_is_invalid(tmp_pa
     out = tmp_path / "refined.json"
     args = build_parser().parse_args(["eval", "questions", "refine", "--product", "oneTBB",
                                       "--questions", str(src), "--output", str(out)])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 1
+    assert exc.code == 1
     assert "Error:" in capsys.readouterr().err
     assert not out.exists()
 
@@ -788,9 +789,9 @@ def test_questions_refine_fill_gaps_refuses_an_invalid_set_before_any_model_call
     args = build_parser().parse_args(["eval", "questions", "refine", "--product", "oneTBB",
                                       "--questions", str(src), "--output", str(out),
                                       "--fill-gaps"])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2
+    assert exc.code == 2
     assert "Error:" in capsys.readouterr().err
     assert not out.exists()
 

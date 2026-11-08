@@ -15,6 +15,7 @@ import pytest
 from dokimi import cli
 from dokimi.cli import build_parser
 from dokimi.commands import baseline as baseline_mod
+from tests.cli_refusal import refusal
 
 _EVAL = {"evaluations": [{"question_id": "q1", "with_docs": {"aggregate": 7.0},
                           "without_docs": {"aggregate": 5.0}, "delta": 2.0}]}
@@ -35,9 +36,9 @@ def run(tmp_path, monkeypatch):
 def test_save_exits_2_on_an_invalid_eval_file(run, tmp_path, capsys, content):
     bad = tmp_path / "bad.json"
     bad.write_text(content, encoding="utf-8")
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         run("save", "--from-eval", str(bad), "--name", "b")
-    assert exc.value.code == 2
+    assert exc.code == 2
     err = capsys.readouterr().err
     assert str(bad) in err
     assert not (tmp_path / "baselines" / "b.json").exists()
@@ -61,24 +62,24 @@ def test_a_non_object_eval_file_is_reported_by_its_json_type(run, tmp_path, caps
 def test_save_exits_2_on_an_eval_file_that_is_not_utf8(run, tmp_path, capsys):
     bad = tmp_path / "bad.json"
     bad.write_bytes(b"\xff\xfe")
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         run("save", "--from-eval", str(bad), "--name", "b")
-    assert exc.value.code == 2
+    assert exc.code == 2
     assert str(bad) in capsys.readouterr().err
 
 
 def test_save_exits_2_on_a_directory_given_as_the_eval_file(run, tmp_path, capsys):
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         run("save", "--from-eval", str(tmp_path), "--name", "b")
-    assert exc.value.code == 2
+    assert exc.code == 2
     assert str(tmp_path) in capsys.readouterr().err
 
 
 def test_compare_exits_2_on_a_missing_eval_file(run, tmp_path, capsys):
     missing = tmp_path / "missing.json"
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         run("compare", "--eval", str(missing))
-    assert exc.value.code == 2  # 1 is the --strict verdict
+    assert exc.code == 2  # 1 is the --strict verdict
     assert str(missing) in capsys.readouterr().err
 
 
@@ -89,9 +90,9 @@ def test_compare_exits_2_on_an_invalid_eval_file(run, tmp_path, capsys, content)
     run("save", "--from-eval", str(good), "--name", "b")
     bad = tmp_path / "bad.json"
     bad.write_text(content, encoding="utf-8")
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         run("compare", "--baseline", "b", "--eval", str(bad))
-    assert exc.value.code == 2  # 1 is the --strict verdict
+    assert exc.code == 2  # 1 is the --strict verdict
     assert str(bad) in capsys.readouterr().err
 
 
@@ -105,9 +106,9 @@ def test_a_corrupt_manifest_exits_with_a_message_in_every_subcommand(run, tmp_pa
     manifest.write_text(content, encoding="utf-8")
     for argv, code in ((("save", "--from-eval", str(good)), 2), (("list",), 2),
                        (("compare", "--eval", str(good)), 2)):
-        with pytest.raises(SystemExit) as exc:
+        with refusal() as exc:
             run(*argv)
-        assert exc.value.code == code
+        assert exc.code == code
         err = capsys.readouterr().err
         assert str(manifest) in err
         if type_name:
@@ -121,9 +122,9 @@ def test_save_reports_a_corrupt_manifest_before_an_invalid_eval_file(run, tmp_pa
     manifest = tmp_path / "baselines" / "manifest.json"
     manifest.parent.mkdir()
     manifest.write_text("{truncated", encoding="utf-8")
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         run("save", "--from-eval", str(bad), "--name", "b")
-    assert exc.value.code == 2
+    assert exc.code == 2
     err = capsys.readouterr().err
     assert str(manifest) in err
     assert str(bad) not in err
@@ -149,9 +150,9 @@ def test_a_manifest_entry_of_the_wrong_shape_exits_with_a_message_in_every_subco
     manifest.write_text('{"baselines": [%s, %s]}' % (_GOOD_ENTRY, entry), encoding="utf-8")
     for argv, code in ((("save", "--from-eval", str(good)), 2), (("list",), 2),
                        (("compare", "--eval", str(good)), 2)):
-        with pytest.raises(SystemExit) as exc:
+        with refusal() as exc:
             run(*argv)
-        assert exc.value.code == code
+        assert exc.code == code
         err = capsys.readouterr().err
         assert str(manifest) in err
         assert "baselines[1]" in err
@@ -223,9 +224,9 @@ def test_compare_exits_2_when_the_saved_baseline_file_is_corrupt(run, tmp_path, 
     run("save", "--from-eval", str(good), "--name", "b")
     saved = tmp_path / "baselines" / "b.json"
     saved.write_text("{truncated", encoding="utf-8")
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         run("compare", "--baseline", "b", "--eval", str(good))
-    assert exc.value.code == 2
+    assert exc.code == 2
     assert str(saved) in capsys.readouterr().err
 
 
@@ -233,10 +234,10 @@ def test_compare_with_no_saved_baseline_exits_2_and_says_to_save_one(run, tmp_pa
     # Nothing saved is a missing input, the same class as a named baseline that is not there (exit 2).
     eval_file = tmp_path / "eval.json"
     eval_file.write_text(json.dumps(_EVAL), encoding="utf-8")
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         run("compare", "--eval", str(eval_file))
-    assert exc.value.code == 2
-    assert "No baselines found. Save one first" in capsys.readouterr().out
+    assert exc.code == 2
+    assert "No baselines found. Save one first" in capsys.readouterr().err
 
 
 def test_compare_refuses_an_eval_record_it_cannot_read_with_the_error_line_and_exit_2(
@@ -247,9 +248,9 @@ def test_compare_refuses_an_eval_record_it_cannot_read_with_the_error_line_and_e
     bad = tmp_path / "bad.json"
     bad.write_text(json.dumps({"evaluations": [{"with_docs": {"aggregate": 1.0}}]}), encoding="utf-8")
     monkeypatch.setattr("sys.argv", ["dokimi", "baseline", "compare", "--baseline", "b", "--eval", str(bad)])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cli.main()
-    assert exc.value.code == 2
+    assert exc.code == 2
     err = capsys.readouterr().err
     assert err.startswith("Error: "), err
     assert str(bad) in err

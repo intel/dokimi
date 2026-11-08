@@ -18,6 +18,7 @@ from dokimi.novelty.needs import NeedGraph, NeedNode
 from dokimi.novelty.needs import load_graph as novelty_load_graph
 from dokimi.novelty.needs import save_graph
 from dokimi.utils import InputError
+from tests.cli_refusal import refusal
 
 NODES = [
     {"id": "n1", "text": "convert with asnumpy before numpy.save", "path_class": "core"},
@@ -53,13 +54,10 @@ ROWS = [
 
 def _run(capsys, *argv: str) -> SimpleNamespace:
     args = build_parser().parse_args(["eval", "coverage", *argv])
-    code = 0
-    try:
+    with refusal() as outcome:
         args.func(args)
-    except SystemExit as exc:
-        code = int(exc.code or 0)
     out = capsys.readouterr()
-    return SimpleNamespace(returncode=code, stdout=out.out, stderr=out.err)
+    return SimpleNamespace(returncode=outcome.code, stdout=out.out, stderr=out.err)
 
 
 @pytest.mark.outcome("cjm-eval-coverage-gaps")
@@ -164,7 +162,7 @@ def test_cli_writes_artifact_and_fails_under_floor(tmp_path, capsys):
     assert load_artifact("eval_coverage", out)["coverage"]["weights"]["branch"] == 0.7
 
 
-def test_cli_unknown_need_id_and_bad_inputs_exit_2(tmp_path, capsys):
+def test_cli_unknown_need_id_exits_1_and_bad_inputs_exit_2(tmp_path, capsys):
     graph = _graph(tmp_path)
     typo = _skill(tmp_path, [{"id": "save", "needs": ["n9"]}])
     broken = tmp_path / "evals.json"
@@ -176,7 +174,7 @@ def test_cli_unknown_need_id_and_bad_inputs_exit_2(tmp_path, capsys):
     missing = _run(capsys, str(tmp_path / "nope"), "--graph", str(graph))
     no_graph = _run(capsys, str(typo), "--graph", str(tmp_path / "none.json"))
 
-    assert unknown.returncode == 2
+    assert unknown.returncode == 1  # a problem with the needs labels
     assert load_artifact("eval_coverage", out)["problems"] == [
         {"eval": "save", "source": "evals.json", "kind": "unknown_need", "need": "n9"}]
     assert (bad.returncode, missing.returncode, no_graph.returncode) == (2, 2, 2)
@@ -185,9 +183,9 @@ def test_cli_unknown_need_id_and_bad_inputs_exit_2(tmp_path, capsys):
 
 def test_cli_rejects_a_floor_outside_0_1(capsys):
     for value in ("1.5", "high", "recall=0.5"):
-        with pytest.raises(SystemExit) as exc:
+        with refusal() as exc:
             build_parser().parse_args(["eval", "coverage", "x", "--graph", "g", "--min", value])
-        assert exc.value.code == 2
+        assert exc.code == 2
     err = capsys.readouterr().err
     assert "must lie in 0-1, got 1.5" in err and "got 'recall'" in err
 
@@ -196,7 +194,7 @@ def test_markdown_lists_problems_and_says_none_without_gaps(tmp_path, capsys):
     rows = [{"id": "all", "needs": ["n1", "n2", "n3", "n9"]}]
     res = _run(capsys, str(_skill(tmp_path, rows)), "--graph", str(_graph(tmp_path)))
 
-    assert res.returncode == 2
+    assert res.returncode == 1  # a problem with the needs labels
     assert "- none" in res.stdout
     assert "Problems:\n- all (evals.json): unknown need id 'n9'" in res.stdout
 
@@ -206,7 +204,7 @@ def test_needs_that_is_not_a_list_of_ids_is_a_problem(tmp_path, capsys, needs):
     res = _run(capsys, str(_skill(tmp_path, [{"id": "e", "needs": needs}])), "--graph",
                str(_graph(tmp_path)))
 
-    assert res.returncode == 2
+    assert res.returncode == 1  # a problem with the needs labels
     assert "- e (evals.json): needs is not a list of node ids" in res.stdout
 
 

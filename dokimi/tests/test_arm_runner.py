@@ -11,6 +11,7 @@ from dokimi.eval.arm_runner import ArmRunner
 from dokimi.treatments import BaselineTreatment, SkillAgentTreatment, SkillTreatment
 from dokimi.skills import load_skill
 from dokimi.plugins import create_plugins, plugin_set_metadata, wrap_treatments
+from tests.cli_refusal import refusal
 
 
 def _patch_llm(monkeypatch, captured):
@@ -463,9 +464,9 @@ def test_arm_runner_judge_keeps_a_null_arm_as_an_unscored_row():
 
 def test_cli_rejects_an_unknown_judge_panel_role_before_running(capsys):
     assert _parse_arms_run(["--judge-panel", "technical_expert"]).judge_panel == "technical_expert"
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         _parse_arms_run(["--judge-panel", "technical_expert,doc_reveiwer"])
-    assert exc.value.code == 2 and "doc_reveiwer" in capsys.readouterr().err
+    assert exc.code == 2 and "doc_reveiwer" in capsys.readouterr().err
 
 
 def test_build_output_records_judge_temperature_and_prompt_digest(monkeypatch):
@@ -519,9 +520,8 @@ def test_matrix_run_checks_every_cell_before_running_the_first(monkeypatch, tmp_
         ["arms", "matrix-run", "--product", "oneTBB", "--questions", str(questions),
          "--arms", "baseline", "--matrix-cells", str(cells), "--seed", "1",
          "--out-dir", str(tmp_path / "out")])
-    with pytest.raises(SystemExit):
-        args.func(args)
-    assert ran == []
+    with refusal() as exc: args.func(args)
+    assert exc.code == 2 and ran == []
 
 
 def test_probe_rejects_a_sampling_value_the_provider_refuses(monkeypatch):

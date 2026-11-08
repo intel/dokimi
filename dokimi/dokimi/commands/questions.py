@@ -14,8 +14,8 @@ from typing import Any, Dict
 from dokimi.llm import ANSWER_PROVIDERS, CALLER_CHOICES
 from dokimi.commands._output import exit_on_unwritable
 from dokimi.defaults import DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER
-from dokimi.exit_codes import EXIT_USAGE
 from dokimi.utils import warn_recorded_self_judge
+from dokimi.utils import InputError
 
 
 def _load_questions_json(path: str):
@@ -23,8 +23,7 @@ def _load_questions_json(path: str):
     try:
         return json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, ValueError, RecursionError) as exc:
-        print(f"Error: cannot read questions from {path}: {exc}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError(f"cannot read questions from {path}: {exc}") from exc
 
 
 def _extract_questions(questions_data, source: str) -> list:
@@ -34,11 +33,9 @@ def _extract_questions(questions_data, source: str) -> list:
     elif isinstance(questions_data, list):
         raw = questions_data
     else:
-        print(f"Error: expected a JSON object or list of questions in {source}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError(f"expected a JSON object or list of questions in {source}")
     if not isinstance(raw, list):
-        print(f"Error: 'questions' must be a list in {source}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError(f"'questions' must be a list in {source}")
     return raw
 
 
@@ -47,8 +44,7 @@ def _read_json_input(path: str):
     try:
         return json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:  # ValueError covers JSONDecodeError and bad UTF-8
-        print(f"Error: cannot read {path}: {exc}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError(f"cannot read {path}: {exc}") from exc
 
 
 def _load_personas(path: str) -> list:
@@ -56,13 +52,11 @@ def _load_personas(path: str) -> list:
     data = _read_json_input(path)
     personas = data.get("personas") if isinstance(data, dict) else None
     if not isinstance(personas, list):
-        print(f"Error: {path} must be a JSON object with a 'personas' list", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError(f"{path} must be a JSON object with a 'personas' list")
     for persona in personas:
         if not isinstance(persona, dict) or not {"id", "name", "skill_level"} <= persona.keys():
-            print(f"Error: each persona in {path} must be an object with 'id', 'name' and "
-                  f"'skill_level', got: {persona!r}", file=sys.stderr)
-            sys.exit(EXIT_USAGE)
+            raise InputError(f"each persona in {path} must be an object with 'id', 'name' and "
+                             f"'skill_level', got: {persona!r}")
     return personas
 
 
@@ -73,8 +67,7 @@ def cmd_questions_panel_review(args: argparse.Namespace) -> None:
     reviewers = [r.strip() for r in args.reviewers.split(",") if r.strip()] if args.reviewers else DEFAULT_REVIEWERS
     unknown = [r for r in reviewers if r not in DEFAULT_REVIEWERS]
     if unknown:
-        print(f"Error: unknown reviewers: {unknown}. Valid: {DEFAULT_REVIEWERS}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError(f"unknown reviewers: {unknown}. Valid: {DEFAULT_REVIEWERS}")
 
     questions_data = _load_questions_json(args.questions)
     # The model an answers file records answered the questions; it did not write them.
@@ -92,8 +85,7 @@ def cmd_questions_panel_review(args: argparse.Namespace) -> None:
             try:
                 answers = read(questions_data, source=args.questions, section="answers")
             except RecordError as exc:
-                print(f"Error: {exc}", file=sys.stderr)
-                sys.exit(EXIT_USAGE)
+                raise InputError(str(exc)) from exc
             raw = [{"question": r.question_text} for r in answers]
             recorded = {}
         else:
@@ -101,8 +93,7 @@ def cmd_questions_panel_review(args: argparse.Namespace) -> None:
     else:
         raw = questions_data
     if not isinstance(raw, list):
-        print("Error: expected a list of questions", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError("expected a list of questions")
     questions = [
         (q.get("question") or q.get("text") or "").strip() if isinstance(q, dict) else str(q)
         for q in raw if q
@@ -148,11 +139,9 @@ def cmd_questions_refine(args: argparse.Namespace) -> None:
     try:
         raw = load_questions(args.questions, validate=False).questions
     except OSError as exc:
-        print(f"Error: cannot read {args.questions}: {exc}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError(f"cannot read {args.questions}: {exc}") from exc
     except ValueError as exc:  # ArtifactValidationError: malformed JSON structure
-        print(f"Error: {exc}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError(str(exc)) from exc
 
     target = {
         "beginner":     args.target_beginner,
@@ -191,8 +180,7 @@ def cmd_questions_refine(args: argparse.Namespace) -> None:
     try:
         report = refiner.refine(raw, before_fill=_validate_before_fill if gap_filler else None)
     except ArtifactValidationError as exc:  # the input set cannot be gap-filled (refused by before_fill)
-        print(f"Error: {exc}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError(str(exc)) from exc
     print(report.summary())
 
     if not args.dry_run:
@@ -312,8 +300,7 @@ def cmd_questions_generate(args: argparse.Namespace) -> None:
     if args.topics:
         topics = _read_json_input(args.topics)
         if not isinstance(topics, list):
-            print(f"Error: {args.topics} must be a JSON list of topics", file=sys.stderr)
-            sys.exit(EXIT_USAGE)
+            raise InputError(f"{args.topics} must be a JSON list of topics")
     else:
         print(f"Extracting seed topics for {args.product}...")
 
@@ -332,8 +319,7 @@ def cmd_questions_generate(args: argparse.Namespace) -> None:
                 args.product, mcp_client, explicit_id=context7_id
             )
         except ValueError as exc:
-            print(f"Error: {exc}", file=sys.stderr)
-            raise SystemExit(EXIT_USAGE) from exc
+            raise InputError(str(exc)) from exc
 
         extractor = RagasSeedExtractor(mcp_client=mcp_client, cache_dir=Path(".cache/topics"))
         topics = extractor.extract_topics(

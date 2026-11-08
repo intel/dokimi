@@ -18,6 +18,7 @@ from dokimi.metrics.usage import UsageRecord
 from dokimi.skills import load_skill
 from dokimi.treatments import BaselineTreatment, SkillTreatment
 from dokimi.treatments.base import AgentConfig, Tool, Treatment
+from tests.cli_refusal import refusal
 
 SESSION_Q = {
     "id": "q1",
@@ -509,9 +510,9 @@ def test_a_session_artifact_is_refused_by_every_judge_command(cmd, fake_llm, tmp
     argv = [a.format(questions=questions) for a in cmd]
     monkeypatch.setattr(sys, "argv", ["dokimi", *argv, "--answers", str(answers)])
 
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cli.main()
-    assert exc.value.code == 2 and "measurement-only" in capsys.readouterr().err
+    assert exc.code == 2 and "measurement-only" in capsys.readouterr().err
     assert len(fake_llm.requests) == 4  # the answers only: no judge call
 
 
@@ -545,7 +546,7 @@ def test_arms_run_exits_2_on_a_session_question_without_follow_ups(fake_llm, mon
     args = build_parser().parse_args(["arms", "run", "--product", "oneTBB", "--questions", str(questions),
                                       "--arms", "baseline", "--session-turns", "2"])
 
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2
+    assert exc.code == 2
     assert fake_llm.requests == []

@@ -12,6 +12,7 @@ import pytest
 
 from dokimi.cli import build_parser
 from dokimi.repos.report import _SAFE_MAGNITUDE
+from tests.cli_refusal import refusal
 
 
 def _batch(tmp_path, name: str, files: dict[str, bytes]):
@@ -42,9 +43,9 @@ _CORRUPT = [
 @pytest.mark.parametrize("content", _CORRUPT)
 def test_report_exits_2_naming_a_corrupt_result_file(tmp_path, capsys, content):
     batch = _batch(tmp_path, "b1", {"t__a__m__r1/result.json": content})
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         _run("report", str(batch))
-    assert exc.value.code == 2
+    assert exc.code == 2
     err = capsys.readouterr().err
     assert str(batch / "t__a__m__r1" / "result.json") in err
     assert "Traceback" not in err
@@ -53,26 +54,26 @@ def test_report_exits_2_naming_a_corrupt_result_file(tmp_path, capsys, content):
 @pytest.mark.parametrize("content", _CORRUPT)
 def test_compare_exits_2_naming_a_corrupt_result_file(tmp_path, capsys, content):
     batch = _batch(tmp_path, "b1", {"t__a__m__r1/result.json": content})
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         _run("compare", str(batch), "--baseline", "a")
-    assert exc.value.code == 2
+    assert exc.code == 2
     assert str(batch / "t__a__m__r1" / "result.json") in capsys.readouterr().err
 
 
 def test_report_exits_2_naming_a_corrupt_unsupported_file(tmp_path, capsys):
     batch = _batch(tmp_path, "b1", {"t__a__m__r1/unsupported.json": b"{not json"})
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         _run("report", str(batch))
-    assert exc.value.code == 2
+    assert exc.code == 2
     assert str(batch / "t__a__m__r1" / "unsupported.json") in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("content", [b"{not json", b"{}", b'{"cells": 3}', b'{"cells": [1]}'])
 def test_report_exits_2_naming_a_corrupt_plan_file(tmp_path, capsys, content):
     batch = _batch(tmp_path, "b1", {"_eval/plan.json": content})
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         _run("report", str(batch))
-    assert exc.value.code == 2
+    assert exc.code == 2
     assert str(batch / "_eval" / "plan.json") in capsys.readouterr().err
 
 
@@ -95,9 +96,9 @@ _NO_GRADE = [
 @pytest.mark.parametrize("argv", [("report",), ("compare", "--baseline", "a")], ids=["report", "compare"])
 def test_a_result_file_without_a_usable_grade_exits_2(tmp_path, capsys, argv, content):
     batch = _batch(tmp_path, "b1", {"t__a__m__r1/result.json": content})
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         _run(argv[0], str(batch), *argv[1:])
-    assert exc.value.code == 2
+    assert exc.code == 2
     err = capsys.readouterr().err
     assert f"{batch / 't__a__m__r1' / 'result.json'} has no usable `grade`" in err
     assert "Traceback" not in err
@@ -153,9 +154,9 @@ def test_a_result_file_without_usable_agent_task_arm_or_model_exits_2(tmp_path, 
     if value is not None:
         rec[key] = value
     batch = _batch(tmp_path, "b1", {"t__a__m__r1/result.json": json.dumps(rec).encode()})
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         _run(argv[0], str(batch), *argv[1:])
-    assert exc.value.code == 2
+    assert exc.code == 2
     err = capsys.readouterr().err
     assert f"{batch / 't__a__m__r1' / 'result.json'} has no usable `{key}`" in err
     assert "Traceback" not in err
@@ -210,9 +211,9 @@ def _three_task_batch(tmp_path, cost_a, cost_b):
 @pytest.mark.parametrize("cmd", [("report",), ("compare", "--baseline", "a")], ids=["report", "compare"])
 def test_deltas_that_would_overflow_when_squared_are_rejected_with_a_message(tmp_path, capsys, cmd, cost):
     batch = _three_task_batch(tmp_path, cost, -cost)
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         _run(cmd[0], str(batch), *cmd[1:])
-    assert exc.value.code == 2
+    assert exc.code == 2
     assert "has no usable `agent`" in capsys.readouterr().err
 
 
@@ -233,9 +234,9 @@ def test_a_result_file_with_a_score_task_and_no_score_only_is_accepted(tmp_path,
 
 def test_a_deeply_nested_result_file_exits_2_naming_the_file(tmp_path, capsys):
     batch = _batch(tmp_path, "b1", {"t__a__m__r1/result.json": b"[" * 100000})
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         _run("report", str(batch))
-    assert exc.value.code == 2
+    assert exc.code == 2
     err = capsys.readouterr().err
     assert str(batch / "t__a__m__r1" / "result.json") in err and "Traceback" not in err
 
@@ -243,9 +244,9 @@ def test_a_deeply_nested_result_file_exits_2_naming_the_file(tmp_path, capsys):
 def test_an_unreadable_result_file_exits_2_naming_the_file(tmp_path, capsys):
     batch = _batch(tmp_path, "b1", {})
     (batch / "t__a__m__r1" / "result.json").mkdir(parents=True)  # a directory where the file belongs
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         _run("report", str(batch))
-    assert exc.value.code == 2
+    assert exc.code == 2
     err = capsys.readouterr().err
     assert f"cannot read {batch / 't__a__m__r1' / 'result.json'}" in err and "Traceback" not in err
 
@@ -254,18 +255,18 @@ def test_an_unreadable_result_file_exits_2_naming_the_file(tmp_path, capsys):
 def test_a_result_file_missing_an_agent_key_exits_2(tmp_path, capsys, key):
     agent = {k: v for k, v in _GOOD["agent"].items() if k != key}
     batch = _batch(tmp_path, "b1", {"t__a__m__r1/result.json": json.dumps({**_GOOD, "agent": agent}).encode()})
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         _run("report", str(batch))
-    assert exc.value.code == 2
+    assert exc.code == 2
     assert "has no usable `agent`" in capsys.readouterr().err
 
 
 def test_a_result_file_without_grade_status_exits_2(tmp_path, capsys):
     grade = {k: v for k, v in _GOOD["grade"].items() if k != "status"}
     batch = _batch(tmp_path, "b1", {"t__a__m__r1/result.json": json.dumps({**_GOOD, "grade": grade}).encode()})
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         _run("report", str(batch))
-    assert exc.value.code == 2
+    assert exc.code == 2
     assert "has no usable `grade`" in capsys.readouterr().err
 
 
@@ -274,9 +275,9 @@ def test_a_result_file_without_grade_status_exits_2(tmp_path, capsys):
 def test_a_result_file_with_a_non_finite_cost_exits_2(tmp_path, capsys, cmd, cost):
     text = json.dumps(_GOOD).replace("0.1", cost)
     batch = _batch(tmp_path, "b1", {"t__a__m__r1/result.json": text.encode()})
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         _run(cmd[0], str(batch), *cmd[1:])
-    assert exc.value.code == 2
+    assert exc.code == 2
     err = capsys.readouterr().err
     assert "has no usable `agent`" in err and "Traceback" not in err
 
@@ -284,9 +285,9 @@ def test_a_result_file_with_a_non_finite_cost_exits_2(tmp_path, capsys, cmd, cos
 def test_a_score_task_result_file_without_grade_score_exits_2(tmp_path, capsys):
     rec = {**_GOOD, "score_task": True, "grade": {"status": "ok", "success": True}}
     batch = _batch(tmp_path, "b1", {"t__a__m__r1/result.json": json.dumps(rec).encode()})
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         _run("report", str(batch))
-    assert exc.value.code == 2
+    assert exc.code == 2
     assert "has no usable `grade`" in capsys.readouterr().err
 
 
@@ -301,18 +302,18 @@ def test_a_score_task_result_file_with_a_null_grade_score_is_accepted(tmp_path, 
 def test_a_result_file_with_a_non_bool_score_task_exits_2(tmp_path, capsys, value):
     rec = {**_GOOD, "score_task": value, "grade": {"status": "ok", "score": 1.0, "success": True}}
     batch = _batch(tmp_path, "b1", {"t__a__m__r1/result.json": json.dumps(rec).encode()})
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         _run("report", str(batch))
-    assert exc.value.code == 2
+    assert exc.code == 2
     assert "has no usable `score_task`" in capsys.readouterr().err
 
 
 def test_a_score_task_result_file_without_grade_success_exits_2(tmp_path, capsys):
     rec = {**_GOOD, "score_task": True, "grade": {"status": "ok", "score": 1.0}}
     batch = _batch(tmp_path, "b1", {"t__a__m__r1/result.json": json.dumps(rec).encode()})
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         _run("report", str(batch))
-    assert exc.value.code == 2
+    assert exc.code == 2
     assert "has no usable `grade`" in capsys.readouterr().err
 
 
@@ -330,9 +331,9 @@ def test_a_cell_shape_the_checks_miss_exits_2_naming_the_cell(tmp_path, capsys, 
 
     monkeypatch.setattr(report, "_check_cell", lambda path, rec: None)
     batch = _two_arm_batch(tmp_path, {**_GOOD, "grade": "x"})
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         _run(cmd[0], str(batch), *cmd[1:])
-    assert exc.value.code == 2
+    assert exc.code == 2
     err = capsys.readouterr().err
     assert "t__a__m__r1" in err and "result.json" in err and "unexpected shape" in err
 
@@ -349,9 +350,9 @@ def test_each_cell_shape_error_exits_2_naming_the_cell(tmp_path, capsys, monkeyp
     monkeypatch.setattr(report, "process_means", boom)
     monkeypatch.setattr(compare_values, "process_lists", boom)  # the compare path reads process counts here
     batch = _two_arm_batch(tmp_path, _GOOD)
-    with pytest.raises(SystemExit) as raised:
+    with refusal() as raised:
         _run(cmd[0], str(batch), *cmd[1:])
-    assert raised.value.code == 2
+    assert raised.code == 2
     err = capsys.readouterr().err
     assert "t__a__m__r1" in err and f"unexpected shape ({type(exc).__name__}" in err
 
@@ -431,7 +432,7 @@ def test_a_grade_metric_beyond_the_bound_is_left_out(tmp_path, capsys, huge):
 def test_compare_with_a_baseline_no_cell_matches_exits_2_naming_it(tmp_path, capsys):
     # An unusable --baseline is an input refusal (exit 2), not a failed gate (exit 1).
     batch = _two_arm_batch(tmp_path, _GOOD)
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         _run("compare", str(batch), "--baseline", "nosucharm")
-    assert exc.value.code == 2
+    assert exc.code == 2
     assert "no finished cell matches the baseline 'nosucharm'" in capsys.readouterr().err

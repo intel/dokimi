@@ -14,6 +14,7 @@ import pytest
 from dokimi.cli import build_parser
 from dokimi.repos.budget import budget as _budget
 from dokimi.repos.source import GitTree, SourceError, WorkTree
+from tests.cli_refusal import refusal
 
 NAMES = ("CLAUDE.md", "CLAUDE.local.md", "AGENTS.md")
 budget = partial(_budget, claude_displaces_agents=True)  # as `repo budget --harness claude-code` calls it
@@ -306,9 +307,9 @@ def _run(argv, capsys):
 @pytest.mark.outcome("cjm-repo-budget")
 def test_cli_table_and_gate(tmp_path, capsys):
     _tree(tmp_path, {"CLAUDE.md": "c" * 20, "AGENTS.md": "a" * 10, ".mcp.json": '{"mcpServers": {"docs": {}}}'})
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         _run(["repo", "budget", str(tmp_path), "--fail-on-warning"], capsys)
-    assert exc.value.code == 1
+    assert exc.code == 1
     out = _run(["repo", "budget", str(tmp_path)], capsys).out
     assert "start 20 chars, lazy 0, on demand 0, off 10" in out
     assert "| start | guidance | CLAUDE.md | 20 |" in out
@@ -321,9 +322,9 @@ def test_cli_json_and_bad_source(tmp_path, capsys):
     _tree(tmp_path, {"AGENTS.md": "a"})
     data = json.loads(_run(["repo", "budget", str(tmp_path), "--json"], capsys).out)
     assert data["totals"]["start"] == 1
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         _run(["repo", "budget", str(tmp_path / "missing")], capsys)
-    assert exc.value.code == 2
+    assert exc.code == 2
 
 
 @pytest.mark.outcome("cjm-repo-budget")
@@ -333,9 +334,9 @@ def test_cli_out_writes_the_inventory(tmp_path, capsys):
     out = _run(["repo", "budget", str(tmp_path), "--out", str(dest)], capsys).out
     assert json.loads(dest.read_text(encoding="utf-8"))["totals"]["start"] == 1
     assert "| start | guidance | AGENTS.md | 1 |" in out  # the table still prints
-    with pytest.raises(SystemExit) as exc:  # a parent that is a file cannot become a directory
+    with refusal() as exc:  # a parent that is a file cannot become a directory
         _run(["repo", "budget", str(tmp_path), "--out", str(tmp_path / "AGENTS.md" / "b.json")], capsys)
-    assert exc.value.code == 2
+    assert exc.code == 2
 
 
 def test_imports_must_exist_to_be_counted(tmp_path):

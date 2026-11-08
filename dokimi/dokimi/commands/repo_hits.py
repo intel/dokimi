@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, Callable, NoReturn
 
 from dokimi.exit_codes import EXIT_FAILURE, EXIT_USAGE
+from dokimi.utils import InputError
 
 from ._output import exit_on_unwritable
 
@@ -34,8 +35,7 @@ def _judge_ref(text: str) -> tuple[str, str]:
 def _batch(args: argparse.Namespace) -> Path:
     batch_dir = Path(args.batch_dir)
     if not batch_dir.is_dir():
-        print(f"✗ not a directory: {batch_dir}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError(f"not a directory: {batch_dir}")
     return batch_dir
 
 
@@ -50,8 +50,7 @@ def _read(batch_dir: Path, args: argparse.Namespace) -> tuple[dict[str, Any], li
         check_judge(args.judge, answer_models(batch_dir))
         labels = read_labels(Path(args.labels), pairs) if args.labels else None
     except (CellFileError, HitsInputError) as exc:  # before any judge call
-        print(f"✗ {exc}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError(str(exc)) from exc
     return found, pairs, labels
 
 
@@ -75,7 +74,7 @@ def _locked(batch_dir: Path) -> Iterator[None]:
             stack.enter_context(batch_lock(batch_dir))
         except BatchBusy as exc:
             print(f"✗ {exc}", file=sys.stderr)
-            sys.exit(EXIT_USAGE)
+            sys.exit(EXIT_FAILURE)
         except OSError as exc:  # a read-only batch: an output that cannot be written, as `sheet`'s
             print(f"✗ cannot lock {batch_dir / '_eval' / 'lock'}: {exc.strerror or exc}", file=sys.stderr)
             sys.exit(EXIT_USAGE)
@@ -126,13 +125,11 @@ def cmd_repo_hits_sheet(args: argparse.Namespace) -> None:
         _, pairs = read_pairs(batch_dir)
         labelled = labelled_entries(out)  # an existing file that cannot be read is not replaced
     except (CellFileError, HitsInputError) as exc:
-        print(f"✗ {exc}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError(str(exc)) from exc
     entries = sheet(pairs, args.per_arm, args.seed)
     if labelled:  # a person's labels are not replaced by a fresh sheet
-        print(f"✗ {out} holds a sheet with {labelled} labelled entr{'y' if labelled == 1 else 'ies'}; move it aside "
-              "or pass another --out", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError(f"{out} holds a sheet with {labelled} labelled entr{'y' if labelled == 1 else 'ies'}; "
+                         "move it aside or pass another --out")
     with exit_on_unwritable(out):
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(json.dumps(entries, indent=2) + "\n", encoding="utf-8")

@@ -19,6 +19,7 @@ from dokimi.cli import build_parser
 from dokimi.repos import parse_manifest
 from dokimi.repos.l0 import scan_repo
 from dokimi.repos.source import READ_MANY_LIMIT, GitTree, WorkTree
+from tests.cli_refusal import refusal
 
 FENCE = "```"
 U = "https://github.com/acme/case"
@@ -806,11 +807,9 @@ def _cli(tmp_path, root: Path, *extra: str) -> int:
         "schema": "repo_manifest.v1", "id": "case", "eval_dir": "ev", "guidance": {"globs": ["**/AGENTS.md"]},
         "entry_points": {"grade": "true"}, "tasks": "ev/tasks"}), encoding="utf-8")
     args = build_parser().parse_args(["repo", "scan", str(root), "--manifest-file", str(manifest), *extra])
-    try:
+    with refusal() as outcome:
         args.func(args)
-    except SystemExit as exc:
-        return int(exc.code or 0)
-    return 0
+    return outcome.code
 
 
 def test_cli_exit_codes(tmp_path, capsys):
@@ -837,16 +836,16 @@ def test_scan_exits_2_with_a_message_on_a_file_that_is_not_utf8(tmp_path, capsys
     binary.write_bytes(b'{"schema": "\xff\xfe"}')
     assert _cli(tmp_path, root, "--static", str(binary)) == 2
     err = capsys.readouterr().err
-    assert err.startswith("✗ ") and "utf-8" in err
+    assert err.startswith("Error: ") and "utf-8" in err
 
     manifest = tmp_path / "m.yaml"
     manifest.write_bytes(b"id: \xff\xfe\n")
     args = build_parser().parse_args(["repo", "scan", str(root), "--manifest-file", str(manifest)])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2
+    assert exc.code == 2
     err = capsys.readouterr().err
-    assert err.startswith("✗ ") and str(manifest) in err
+    assert err.startswith("Error: ") and str(manifest) in err
 
 
 def _linked_repo(root: Path, files: dict[str, str], links: dict[str, str]) -> GitTree:
@@ -919,9 +918,9 @@ def test_gate_fails_when_globbed_guidance_deleted(tmp_path, monkeypatch, capsys)
     manifest = framework / "benchmarks" / "self-scan.repo-eval.yaml"
     args = build_parser().parse_args(["repo", "scan", str(framework.parent), "--manifest-file", str(manifest),
                                       "--fail-on-fail"])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 1
+    assert exc.code == 1
     assert "guidance/also_scan matches no file: AGENTS.md" in capsys.readouterr().out
 
 

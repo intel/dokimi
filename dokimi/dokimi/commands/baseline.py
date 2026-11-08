@@ -15,6 +15,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from dokimi.utils import model_identity, same_model
 from dokimi.commands import baseline_regression
 from dokimi.exit_codes import EXIT_USAGE
+from dokimi.utils import InputError
 
 BASELINES_DIR = Path("baselines/eval")
 
@@ -212,14 +213,12 @@ def cmd_baseline_save(args: argparse.Namespace) -> None:
     try:
         summary = _compute_summary(eval_data)
     except RecordError as exc:
-        print(f"❌ {eval_path}: {exc}", file=sys.stderr)
-        raise SystemExit(EXIT_USAGE) from exc
+        raise InputError(f"{eval_path}: {exc}") from exc
 
     BASELINES_DIR.mkdir(parents=True, exist_ok=True)
     dest = BASELINES_DIR / f"{name}.json"
     if dest.exists():
-        print(f"❌ Baseline already exists: {dest} (choose a different --name)", file=sys.stderr)
-        raise SystemExit(EXIT_USAGE)
+        raise InputError(f"Baseline already exists: {dest} (choose a different --name)")
     dest.write_text(json.dumps(eval_data, indent=2), encoding="utf-8")
 
     manifest["baselines"].append({
@@ -266,8 +265,7 @@ def _pick_entry(args: argparse.Namespace, baselines: list, eval_data: dict) -> d
     if args.baseline:
         entry = next((b for b in baselines if b["name"] == args.baseline), None)
         if not entry:
-            print(f"❌ Baseline '{args.baseline}' not found.")
-            raise SystemExit(EXIT_USAGE)
+            raise InputError(f"Baseline '{args.baseline}' not found.")
     else:
         product = args.product or eval_data.get("product")
         candidates = [b for b in baselines if b.get("product") == product] if product else baselines
@@ -327,9 +325,8 @@ def cmd_baseline_compare(args: argparse.Namespace) -> None:
     baselines = manifest.get("baselines", [])
 
     if not baselines:
-        print("No baselines found. Save one first:")
-        print("  dokimi baseline save --from-eval eval/oneTBB.json --product oneTBB")
-        raise SystemExit(EXIT_USAGE)
+        raise InputError("No baselines found. Save one first:\n"
+                         "  dokimi baseline save --from-eval eval/oneTBB.json --product oneTBB")
 
     entry = _pick_entry(args, baselines, eval_data)
     baseline_data = _read_json_object(Path(entry["path"]), 2)

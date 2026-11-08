@@ -26,6 +26,7 @@ from dokimi.repos.environment.structure import _assign, analyze, detect_prefix, 
 from dokimi.repos.errors import CodeIndexError
 from dokimi.repos.source import WorkTree
 from tests.test_repo_environment import _repo
+from tests.cli_refusal import refusal
 
 FIXTURES = Path(__file__).parent / "fixtures" / "code_index"
 
@@ -402,7 +403,7 @@ def test_cli_exits_2_on_an_unusable_index(tmp_path, capsys, content, error):
         shutil.copy(FIXTURES / "sample.scip", index)
     path = "" if content == "" else str(index)
     args = build_parser().parse_args(["repo", "inspect", str(tmp_path / "toy"), "--index", path])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2
+    assert exc.code == 2
     assert error in capsys.readouterr().err

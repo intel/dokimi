@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 
 from dokimi.exit_codes import EXIT_FAILURE, EXIT_USAGE
+from dokimi.utils import InputError
 
 
 METRICS = ("weighted", "core_rare_critical", "rare_critical")
@@ -57,8 +58,7 @@ def _refuse_out_over_input(args: argparse.Namespace, root: Path) -> None:
         print(f"Error: cannot resolve {args.out}: {exc}", file=sys.stderr)
         sys.exit(EXIT_USAGE)
     if clobbers:
-        print(f"Error: --out would overwrite an input file: {args.out}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError(f"--out would overwrite an input file: {args.out}")
 
 
 def cmd_eval_coverage(args: argparse.Namespace) -> None:
@@ -68,17 +68,18 @@ def cmd_eval_coverage(args: argparse.Namespace) -> None:
 
     root = Path(args.evals)
     try:
-        if not root.exists():
-            print(f"Error: {root} does not exist", file=sys.stderr)
-            sys.exit(EXIT_USAGE)
+        present = root.exists()
+    except OSError as exc:  # an evals directory this user cannot stat
+        raise InputError(f"cannot read {root}: {exc.strerror or exc}") from exc
+    if not present:
+        raise InputError(f"{root} does not exist")
+    try:
         graph = load_graph(Path(args.graph))
         evals = read_labels(root)
     except (OSError, ValueError, ArtifactValidationError) as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError(str(exc)) from exc
     if not evals:
-        print(f"Error: no evals.json rows or tasks under {root}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError(f"no evals.json rows or tasks under {root}")
     if args.out:
         _refuse_out_over_input(args, root)
     report = coverage_report(graph, evals, str(root))
@@ -92,7 +93,7 @@ def cmd_eval_coverage(args: argparse.Namespace) -> None:
     if report["problems"]:
         print(f"Error: {len(report['problems'])} problem(s) with the evals' needs labels",
               file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        sys.exit(EXIT_FAILURE)
     failed = _below(report, args.min or [])
     if failed:
         print("FAIL: " + "; ".join(failed), file=sys.stderr)

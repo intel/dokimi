@@ -10,11 +10,12 @@ import json
 import re
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, NoReturn
 
 from dokimi.commands.repo_skill_reach import add_skill_reach_parser
 from dokimi.exit_codes import EXIT_USAGE
 from dokimi.commands.repo_scan import _print_scan_text, _typecheck_or_exit
+from dokimi.utils import InputError
 
 
 def _normalize_whitespace(text: str, max_len: int | None = 100) -> str:
@@ -41,15 +42,13 @@ def _source_tree(args: argparse.Namespace) -> tuple:
     try:
         source = RepoSource.parse(args.source)
     except SourceError as exc:
-        print(f"✗ {exc}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError(str(exc)) from exc
     # 2 = malformed source string, unpinned remote, pinned local path inside a repository, manifest/profile errors; 1 = clone/fetch/resolve of a pin
     # (incl. pinned local non-git source, pin absent locally, remote pin missing from origin).
     try:
         return source, open_source(source, _cache_dir(args))
     except SourceArgumentError as exc:  # a pinned local path that is not the repository root
-        print(f"✗ {exc}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError(str(exc)) from exc
     except SourceError as exc:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(1)
@@ -69,8 +68,7 @@ def _manifest_or_exit(tree, args: argparse.Namespace, *, guidance_default: bool 
     try:
         return _load_manifest(tree, args, guidance_default=guidance_default)
     except (SourceArgumentError, ManifestError, *also_usage) as exc:
-        print(f"✗ {exc}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError(str(exc)) from exc
     except SourceError as exc:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(1)
@@ -119,8 +117,7 @@ def _read_static(path: str) -> Any:
     try:
         return json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, ValueError, RecursionError) as exc:  # ValueError: bad JSON or UTF-8
-        print(f"✗ --static {path}: {exc}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError(f"--static {path}: {exc}") from exc
 
 
 def cmd_repo_scan(args: argparse.Namespace) -> None:
@@ -176,8 +173,7 @@ def _code_index(path: str | None) -> Any:
     try:
         return load(path)
     except (OSError, CodeIndexError) as exc:
-        print(f"✗ cannot read the code index {path}: {exc}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError(f"cannot read the code index {path}: {exc}") from exc
 
 
 def _print_structure(section: dict[str, Any] | None) -> None:
@@ -203,8 +199,7 @@ def cmd_repo_inspect(args: argparse.Namespace) -> None:
     _, tree = _source_tree(args)
     payload = inspect_repo(tree, large=args.large_bytes, index=_code_index(args.index))
     if "structure" in payload and not payload["structure"]["index"]["documents_in_tree"]:
-        print(f"✗ no document of the code index {args.index} is a file of this tree", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError(f"no document of the code index {args.index} is a file of this tree")
     if args.out:
         try:
             save_artifact("repo_environment", payload, Path(args.out))
@@ -245,13 +240,11 @@ def cmd_repo_fetch(args: argparse.Namespace) -> None:
         if source.rev is None:
             raise SourceError("fetch needs a pinned source: <url-or-path>@<rev>")
     except SourceError as exc:
-        print(f"✗ {exc}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError(str(exc)) from exc
     try:  # the clone and fetch: a runtime failure (network, git, unknown revision)
         tree = open_source(source, _cache_dir(args))
     except SourceArgumentError as exc:  # a pinned local path that is not the repository root
-        print(f"✗ {exc}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError(str(exc)) from exc
     except (SourceError, OSError, ValueError) as exc:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(1)
@@ -319,13 +312,11 @@ def _reach_from_saved(args: argparse.Namespace) -> None:
     try:  # the arguments and the saved file as typed: a usage error
         profile, source, reach = _saved_reach_inputs(args)
     except (SourceError, ProfileError, ReachError, OSError, ValueError) as exc:
-        print(f"✗ {exc}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError(str(exc)) from exc
     try:  # the clone and fetch: a runtime failure
         tree = open_source(source, _cache_dir(args))
     except SourceArgumentError as exc:  # a pinned local path that is not the repository root
-        print(f"✗ {exc}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError(str(exc)) from exc
     except (SourceError, OSError, ValueError) as exc:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(1)
@@ -335,8 +326,7 @@ def _reach_from_saved(args: argparse.Namespace) -> None:
         if args.format == "receipt":
             check_receipt_provenance(reach, getattr(tree, "sha", None))
     except (SourceError, ManifestError, ReachError) as exc:
-        print(f"✗ {exc}", file=sys.stderr)
-        sys.exit(_tree_read_exit_code(exc))
+        _refuse_tree_read(exc)
     if args.format == "receipt":
         _print_receipt(tree, profile, reach, Path(args.from_file).parent)
         print(f"wrote {_receipt_path(args.from_file)}", file=sys.stderr)
@@ -356,6 +346,14 @@ def _tree_read_exit_code(exc: Exception) -> int:
     return 1 if git_failure else EXIT_USAGE
 
 
+def _refuse_tree_read(exc: Exception) -> NoReturn:
+    """Report a failed read of the tree: a usage error (2) raised as InputError; a failed git read (1) printed as ``✗``."""
+    if _tree_read_exit_code(exc) == EXIT_USAGE:
+        raise InputError(str(exc)) from exc
+    print(f"✗ {exc}", file=sys.stderr)
+    sys.exit(1)
+
+
 def _refuse_receipt_over_probe(args: argparse.Namespace, out_dir: Path) -> None:
     """Exit as a usage error when ``--format receipt`` would write the receipt over the probe it is built from, or
     when an output path is a link that cannot be resolved (a loop)."""
@@ -366,12 +364,10 @@ def _refuse_receipt_over_probe(args: argparse.Namespace, out_dir: Path) -> None:
     try:
         overwrite = _receipt_would_overwrite(out_dir / "reach.json", out_dir / RECEIPT_NAME)
     except ReachError as exc:
-        print(f"✗ {exc}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError(str(exc)) from exc
     if overwrite:
-        print(f"✗ {out_dir / RECEIPT_NAME} is the probe itself (a link to {out_dir / 'reach.json'}): "
-              "remove the link", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError(f"{out_dir / RECEIPT_NAME} is the probe itself (a link to {out_dir / 'reach.json'}): "
+                         "remove the link")
 
 
 def _reach_plan(args: argparse.Namespace, tree, profile, kinds: tuple[str, ...],
@@ -389,8 +385,7 @@ def _reach_plan(args: argparse.Namespace, tree, profile, kinds: tuple[str, ...],
         manifest = _load_manifest(tree, args, guidance_default=True)
         files = probe_files(tree, manifest, profile)
     except (SourceError, ManifestError, ReachError) as exc:
-        print(f"✗ {exc}", file=sys.stderr)
-        sys.exit(_tree_read_exit_code(exc))
+        _refuse_tree_read(exc)
     try:  # what run_reach plans from, with its guards: a file to probe, no scenario for a link it drops
         check_files(files, profile)
         probed = followable(tree, files)[0]
@@ -407,8 +402,7 @@ def _reach_plan(args: argparse.Namespace, tree, profile, kinds: tuple[str, ...],
         if not planned_count:
             raise ReachError("no scenario selected (check --scenarios and --only)")
     except (SourceError, ManifestError, ReachError) as exc:
-        print(f"✗ {exc}", file=sys.stderr)
-        sys.exit(_tree_read_exit_code(exc))
+        _refuse_tree_read(exc)
     return manifest, files, planned_count
 
 
@@ -428,13 +422,11 @@ def cmd_repo_reach(args: argparse.Namespace) -> None:
         check_shadow(profile, kinds)
         source = RepoSource.parse(args.source)
     except (SourceError, ProfileError, ReachError) as exc:
-        print(f"✗ {exc}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError(str(exc)) from exc
     try:  # the clone and fetch: a runtime failure
         tree = open_source(source, _cache_dir(args))
     except SourceArgumentError as exc:  # a pinned local path that is not the repository root
-        print(f"✗ {exc}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError(str(exc)) from exc
     except (SourceError, OSError, ValueError) as exc:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(1)
@@ -529,8 +521,7 @@ def cmd_repo_budget(args: argparse.Namespace) -> None:
     try:  # the harness profile: a usage error
         profile = load_profile(args.harness)
     except ProfileError as exc:
-        print(f"✗ {exc}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError(str(exc)) from exc
     _, tree = _source_tree(args)
     payload = budget(tree, profile.guidance_names, profile.import_max_depth, profile.reads_claude_rules,
                      claude_displaces_agents=profile.claude_displaces_agents,

@@ -17,6 +17,7 @@ from dokimi.repos import WorkTree
 from dokimi.repos.receipt import build_receipt, check_receipt_provenance, check_saved_reach, source_digests
 from dokimi.repos.reach import ReachError, format_matrix, load_reach
 from tests.test_repo_reach import _profile, _repo
+from tests.cli_refusal import refusal
 
 ROOT_ROW = {"id": "cwd=.", "cwd": "", "tools": "none", "read": None, "error": None, "prose": 0, "unknown": []}
 SUB_ROW = {"id": "read=sub", "cwd": "", "tools": "read", "read": "sub/REACH_PROBE.txt", "error": None,
@@ -310,9 +311,9 @@ def test_from_prints_the_matrix_of_the_saved_probe_and_runs_nothing(tmp_path, mo
 def test_from_a_missing_file_is_a_usage_error(tmp_path, monkeypatch, capsys):
     live = _end_to_end_args(tmp_path, monkeypatch)
     args = build_parser().parse_args(_from_argv(live, "--from", str(tmp_path / "nope.json")))
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2 and "nope.json" in capsys.readouterr().err
+    assert exc.code == 2 and "nope.json" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("text", ["{not json", "[1, 2]", '{"schema": "guidance_reach.v1"}'])
@@ -321,9 +322,9 @@ def test_from_a_malformed_or_wrong_shaped_file_is_a_usage_error(tmp_path, monkey
     bad = tmp_path / "bad.json"
     bad.write_text(text, encoding="utf-8")
     args = build_parser().parse_args(_from_argv(live, "--from", str(bad)))
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2 and capsys.readouterr().err.startswith("\u2717")
+    assert exc.code == 2 and capsys.readouterr().err.startswith("Error: ")
 
 
 def test_from_refuses_a_saved_probe_of_another_repository_or_harness(tmp_path, monkeypatch, capsys):
@@ -335,17 +336,17 @@ def test_from_refuses_a_saved_probe_of_another_repository_or_harness(tmp_path, m
         other = tmp_path / f"{key}.json"
         other.write_text(json.dumps({**data, key: value}), encoding="utf-8")
         args = build_parser().parse_args(_from_argv(live, "--from", str(other)))
-        with pytest.raises(SystemExit) as exc:
+        with refusal() as exc:
             args.func(args)
-        assert exc.value.code == 2 and text in capsys.readouterr().err
+        assert exc.code == 2 and text in capsys.readouterr().err
 
 
 def test_from_refuses_the_probe_only_flags(tmp_path, monkeypatch, capsys):
     live = _end_to_end_args(tmp_path, monkeypatch)
     args = build_parser().parse_args(_from_argv(live, "--from", _saved(tmp_path), "--budget", "0.5", "--model", "m"))
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2
+    assert exc.code == 2
     err = capsys.readouterr().err
     assert "--model, --budget" in err  # both named, in one message
 
@@ -354,9 +355,9 @@ def test_a_probe_needs_a_model(tmp_path, monkeypatch, capsys):
     live = _end_to_end_args(tmp_path, monkeypatch)
     no_model = live[:live.index("--model")] + live[live.index("--model") + 2:]
     args = build_parser().parse_args(no_model)
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2 and "--model is required" in capsys.readouterr().err
+    assert exc.code == 2 and "--model is required" in capsys.readouterr().err
 
 
 def test_a_saved_probe_must_match_the_commit_it_is_read_against(tmp_path):
@@ -386,9 +387,9 @@ def test_from_a_receipt_refuses_a_pinned_probe_read_against_a_working_tree(tmp_p
     working = _from_argv(live, "--from", _saved(tmp_path), "--format", "receipt")
     working[2] = str(tmp_path / "repo")  # the same directory, read as a working tree (no revision)
     args = build_parser().parse_args(working)
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2 and "--format receipt needs a pinned source" in capsys.readouterr().err
+    assert exc.code == 2 and "--format receipt needs a pinned source" in capsys.readouterr().err
 
 
 def test_from_a_receipt_refuses_an_unpinned_source_where_the_matrix_runs(tmp_path, monkeypatch, capsys):
@@ -396,10 +397,10 @@ def test_from_a_receipt_refuses_an_unpinned_source_where_the_matrix_runs(tmp_pat
     build_parser().parse_args(live).func(build_parser().parse_args(live))  # an unpinned probe: repo.sha is null
     capsys.readouterr()
     args = build_parser().parse_args(_from_argv(live, "--from", _saved(tmp_path), "--format", "receipt"))
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
     err = capsys.readouterr().err
-    assert exc.value.code == 2 and "--format receipt needs a pinned source" in err
+    assert exc.code == 2 and "--format receipt needs a pinned source" in err
     assert not (tmp_path / "out" / "effective_instructions.json").exists()
     args = build_parser().parse_args(_from_argv(live, "--from", _saved(tmp_path)))  # the matrix needs no commit
     args.func(args)
@@ -412,10 +413,10 @@ def test_from_a_receipt_refuses_an_unpinned_probe_read_against_a_pinned_source(t
     capsys.readouterr()
     pinned = _pinned(live)  # the same repository, committed, now read at HEAD
     args = build_parser().parse_args(_from_argv(pinned, "--from", _saved(tmp_path), "--format", "receipt"))
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
     err = capsys.readouterr().err
-    assert exc.value.code == 2 and "probed from a working tree (repo.sha is null)" in err
+    assert exc.code == 2 and "probed from a working tree (repo.sha is null)" in err
 
 
 def test_a_lazy_guidance_is_expected_only_in_the_subtree_it_activates(tmp_path):
@@ -465,10 +466,10 @@ def test_a_schema_valid_probe_without_what_its_format_needs_is_a_usage_error(tmp
     bad.write_text(json.dumps(data), encoding="utf-8")
     argv = _from_argv(live, "--from", str(bad), *(["--format", "receipt"] if fmt == "receipt" else []))
     args = build_parser().parse_args(argv)
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
     err = capsys.readouterr().err
-    assert exc.value.code == 2 and key in err and "Traceback" not in err
+    assert exc.code == 2 and key in err and "Traceback" not in err
 
 
 @pytest.mark.parametrize("link", [False, True], ids=["renamed", "symlink"])
@@ -485,9 +486,9 @@ def test_from_never_writes_the_receipt_over_the_probe_it_reads(tmp_path, monkeyp
         saved.rename(receipt)
         saved = receipt
     args = build_parser().parse_args(_from_argv(live, "--from", str(saved), "--format", "receipt"))
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2 and "Traceback" not in capsys.readouterr().err
+    assert exc.code == 2 and "Traceback" not in capsys.readouterr().err
     assert receipt.resolve().read_text(encoding="utf-8") == before
 
 
@@ -497,10 +498,10 @@ def test_a_receipt_that_cannot_be_written_is_a_runtime_failure_not_a_traceback(t
     capsys.readouterr()
     (tmp_path / "out" / "effective_instructions.json").mkdir()  # a directory where the receipt goes
     args = build_parser().parse_args(_from_argv(live, "--from", _saved(tmp_path), "--format", "receipt"))
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
     err = capsys.readouterr().err
-    assert exc.value.code == 1 and "cannot write" in err and "Traceback" not in err
+    assert exc.code == 1 and "cannot write" in err and "Traceback" not in err
 
 
 def test_a_live_receipt_that_cannot_be_written_is_a_runtime_failure(tmp_path, monkeypatch, capsys):
@@ -508,9 +509,9 @@ def test_a_live_receipt_that_cannot_be_written_is_a_runtime_failure(tmp_path, mo
     (tmp_path / "out").mkdir()
     (tmp_path / "out" / "effective_instructions.json").mkdir()
     args = build_parser().parse_args(live)
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 1 and "cannot write" in capsys.readouterr().err
+    assert exc.code == 1 and "cannot write" in capsys.readouterr().err
 
 
 def test_a_matrix_of_a_probe_saved_without_unknown_tokens_renders(tmp_path, monkeypatch, capsys):
@@ -594,10 +595,10 @@ def test_a_saved_matrix_with_a_malformed_row_or_cell_is_a_usage_error(tmp_path, 
     (tmp_path / "out" / "malformed.json").write_text(json.dumps(data), encoding="utf-8")
     capsys.readouterr()
     args = build_parser().parse_args(_from_argv(live, "--from", str(tmp_path / "out" / "malformed.json")))
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
     err = capsys.readouterr().err
-    assert exc.value.code == 2 and "cannot be shown as a matrix" in err and "Traceback" not in err
+    assert exc.code == 2 and "cannot be shown as a matrix" in err and "Traceback" not in err
 
 
 def test_a_receipt_output_link_that_loops_is_a_usage_error_before_the_harness_runs(tmp_path, monkeypatch, capsys):
@@ -606,10 +607,10 @@ def test_a_receipt_output_link_that_loops_is_a_usage_error_before_the_harness_ru
     loop = tmp_path / "out" / "effective_instructions.json"
     loop.symlink_to(loop)  # a link to itself: it cannot be resolved
     args = build_parser().parse_args(live)
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
     err = capsys.readouterr().err
-    assert exc.value.code == 2 and "cannot resolve" in err and "Traceback" not in err
+    assert exc.code == 2 and "cannot resolve" in err and "Traceback" not in err
     assert not (tmp_path / "out" / "reach.json").exists()  # the probe never ran
 
 
@@ -620,10 +621,10 @@ def test_from_a_receipt_output_link_that_loops_is_a_usage_error_not_a_traceback(
     loop = tmp_path / "out" / "effective_instructions.json"
     loop.symlink_to(loop)
     args = build_parser().parse_args(_from_argv(live, "--from", _saved(tmp_path), "--format", "receipt"))
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
     err = capsys.readouterr().err
-    assert exc.value.code == 2 and "cannot resolve" in err and "Traceback" not in err
+    assert exc.code == 2 and "cannot resolve" in err and "Traceback" not in err
 
 
 @pytest.mark.parametrize("cls", ["truncated", "error"])
@@ -641,17 +642,17 @@ def test_the_unknowns_name_a_truncated_record_and_an_error_record_apart(tmp_path
 def test_from_refuses_a_probe_flag_given_at_its_default_value(tmp_path, monkeypatch, capsys, flags):
     live = _end_to_end_args(tmp_path, monkeypatch)
     args = build_parser().parse_args(_from_argv(live, "--from", _saved(tmp_path), *flags))
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2 and flags[0] in capsys.readouterr().err
+    assert exc.code == 2 and flags[0] in capsys.readouterr().err
 
 
 def test_from_an_empty_file_name_is_a_usage_error_and_runs_no_probe(tmp_path, monkeypatch, capsys):
     live = _end_to_end_args(tmp_path, monkeypatch)
     args = build_parser().parse_args([*live, "--from", ""])  # a shell variable that holds no file name
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2 and "--from needs a file name" in capsys.readouterr().err
+    assert exc.code == 2 and "--from needs a file name" in capsys.readouterr().err
     assert not (tmp_path / "out" / "reach.json").exists()
 
 

@@ -11,6 +11,7 @@ from dokimi.cli import build_parser
 from dokimi.repos.harness_profile import ProfileError, load_profile
 from dokimi.repos.manifest import ManifestError, load_manifest
 from dokimi.repos.source import RepoSource, open_source
+from tests.cli_refusal import refusal
 
 DEEP = "[" * 100000
 
@@ -21,9 +22,9 @@ def _run(*argv: str) -> None:
 
 
 def _exits_2_naming(capsys, path, *argv: str) -> None:
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         _run(*argv)
-    assert exc.value.code == 2
+    assert exc.code == 2
     assert str(path) in capsys.readouterr().err
 
 
@@ -46,11 +47,11 @@ def test_a_deeply_nested_static_file_exits_2(repo, tmp_path, capsys):
     static.write_text(DEEP, encoding="utf-8")
     manifest = tmp_path / "m.yaml"
     manifest.write_text("schema: repo_manifest.v1\nid: toy\nguidance:\n  globs: ['AGENTS.md']\n", encoding="utf-8")
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         _run("scan", str(repo), "--manifest-file", str(manifest), "--static", str(static))
-    assert exc.value.code == 2
+    assert exc.code == 2
     err = capsys.readouterr().err
-    assert err.startswith("✗ ") and str(static) in err
+    assert err.startswith("Error: ") and str(static) in err
 
 
 @pytest.mark.parametrize("command", [["budget"], ["reach", "--model", "m", "--dry-run"]])

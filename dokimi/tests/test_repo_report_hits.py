@@ -19,6 +19,7 @@ from dokimi.repos.graders import main, review
 from dokimi.repos.report import format_hits, format_report, load_hits, summarize
 from tests.test_repo_builtin_graders import GOLD, _f, fence
 from tests.test_repo_compare import _cell
+from tests.cli_refusal import refusal
 
 REPLAY = "dokimi:review_replay"
 
@@ -165,10 +166,10 @@ def test_hits_refuse_a_cell_with_no_rep_as_the_table_refuses_a_malformed_cell(tm
     rec = json.loads(path.read_text())
     del rec["rep"]  # the table never reads it; --hits sorts by it
     path.write_text(json.dumps(rec))
-    with pytest.raises(SystemExit) as stopped:
+    with refusal() as stopped:
         _cli(capsys, str(batch), "--hits")
-    assert stopped.value.code == 2  # an input refusal exits 2 (the exit-code audit)
-    assert capsys.readouterr().err.strip() == f"✗ {path} has no usable `rep`"
+    assert stopped.code == 2  # an input refusal exits 2 (the exit-code audit)
+    assert capsys.readouterr().err.strip() == f"Error: {path} has no usable `rep`"
 
 
 def test_a_grade_nested_too_deep_or_linked_out_of_the_batch_is_no_grade(tmp_path):

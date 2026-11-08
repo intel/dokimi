@@ -11,6 +11,7 @@ import pytest
 
 from dokimi.cli import build_parser
 from dokimi.repos.harness_profile import ProfileError, load_profile
+from tests.cli_refusal import refusal
 
 
 def _run(*argv: str) -> None:
@@ -51,9 +52,9 @@ def test_load_profile_names_a_file_whose_read_raises_oserror(tmp_path, monkeypat
 @pytest.mark.parametrize("kind", ["non-utf8", "unreadable"])
 def test_repo_budget_exits_2_on_a_harness_file_it_cannot_read(tmp_path, capsys, kind):
     path = _bad_profile(tmp_path, kind)
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         _run("budget", str(tmp_path), "--harness", str(path))
-    assert exc.value.code == 2
+    assert exc.code == 2
     assert f"{path}: cannot read: " in capsys.readouterr().err
 
 
@@ -62,16 +63,16 @@ def test_repo_budget_exits_2_on_a_harness_file_whose_yaml_does_not_load(tmp_path
     # The message of a YAML syntax error, as the changelog promises; PyYAML words the rest.
     path = tmp_path / "profile.yaml"
     path.write_text(text, encoding="utf-8")
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         _run("budget", str(tmp_path), "--harness", str(path))
-    assert exc.value.code == 2
+    assert exc.code == 2
     assert f"{path}: not valid YAML: " in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("kind", ["non-utf8", "unreadable"])
 def test_repo_reach_exits_2_on_a_harness_file_it_cannot_read(tmp_path, capsys, kind):
     path = _bad_profile(tmp_path, kind)
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         _run("reach", str(tmp_path), "--model", "m", "--harness", str(path), "--dry-run")
-    assert exc.value.code == 2
+    assert exc.code == 2
     assert str(path) in capsys.readouterr().err

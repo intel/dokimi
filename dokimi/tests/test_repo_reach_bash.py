@@ -32,6 +32,7 @@ from dokimi.repos.receipt import build_receipt
 from tests.test_repo_reach import _write
 from tests.test_repo_receipt import BUDGET, _record, _sources, _tree
 from tests.test_repo_receipt import _reach as _saved_reach
+from tests.cli_refusal import refusal
 
 BASH_HARNESS = r'''
 import json, os, re, shlex, sys
@@ -183,9 +184,9 @@ def test_a_profile_without_a_bash_mode_is_a_usage_error(tmp_path, capsys, harnes
     root, _ = _setup(tmp_path)
     args = build_parser().parse_args(["repo", "reach", str(root), "--manifest", "evals/repo-eval.yaml", "--harness",
                                       harness, "--model", "m", "--scenarios", "root,bash", "--dry-run"])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2
+    assert exc.code == 2
     assert f"profile {harness} has no `bash` tool mode" in capsys.readouterr().err
 
 

@@ -10,6 +10,7 @@ import json
 import pytest
 
 from dokimi.cli import build_parser
+from tests.cli_refusal import refusal
 
 ONE_EVALUATION = json.dumps({"evaluations": [
     {"question_id": "q1", "question_text": "How?", "with_docs": {"aggregate": 80.0},
@@ -27,9 +28,9 @@ def _generate(tmp_path, eval_path, fmt="markdown"):
 
 
 def _err(tmp_path, eval_path, capsys, fmt="markdown", code=2):
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         _generate(tmp_path, eval_path, fmt)
-    assert exc.value.code == code
+    assert exc.code == code
     return capsys.readouterr().err
 
 
@@ -79,9 +80,9 @@ def test_an_unwritable_output_exits_2_naming_the_path(tmp_path, capsys, monkeypa
         "report", "generate", "--product", "p", "--eval", str(ev),
         "--questions", str(questions), "--output", str(out),
     ])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2
+    assert exc.code == 2
     assert f"Error: cannot write {out}" in capsys.readouterr().err
 
 
@@ -131,9 +132,9 @@ def test_generate_unreadable_questions_exits_2_naming_the_path(tmp_path, capsys,
         "report", "generate", "--product", "p", "--eval", str(ev),
         "--questions", str(qs), "--output", str(tmp_path / "r.md"),
     ])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2
+    assert exc.code == 2
     err = capsys.readouterr().err
     assert err.startswith("Error: cannot read ") and str(qs) in err
     assert "Traceback" not in err
@@ -148,9 +149,9 @@ def test_report_eval_unwritable_out_exits_2_naming_the_path(tmp_path, capsys):
     args = build_parser().parse_args([
         "report", "eval", "--product", "P", "--eval", str(ev), "--out", str(out),
     ])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2
+    assert exc.code == 2
     err = capsys.readouterr().err
     assert err.startswith("Error: cannot write ") and str(out) in err
 
@@ -168,8 +169,8 @@ def test_model_compare_unwritable_out_exits_2_naming_the_path(tmp_path, capsys):
     args = build_parser().parse_args([
         "report", "model-compare", "--regular-runs", str(run), "--run-ids", "a", "--out", str(out),
     ])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2
+    assert exc.code == 2
     err = capsys.readouterr().err
     assert err.startswith("Error: cannot write ") and str(out) in err

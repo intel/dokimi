@@ -13,11 +13,10 @@ import re
 import shlex
 from pathlib import Path
 
-import pytest
-
 import dokimi
 from dokimi import cli
 from dokimi.commands import personas as personas_cmd
+from tests.cli_refusal import refusal
 
 # A hint names its program, then a subcommand (lower case). `dokimi` is the console script from
 # pyproject.toml [project.scripts]; `python cli.py` is the source-checkout shim, which hints must not name.
@@ -83,9 +82,10 @@ def test_baseline_compare_hint_parses(tmp_path, monkeypatch, capsys):
     eval_file = tmp_path / "eval.json"
     eval_file.write_text("{}", encoding="utf-8")
     args = cli.parse_args(["baseline", "compare", "--eval", str(eval_file)])
-    with pytest.raises(SystemExit):  # no baseline to compare against
+    with refusal() as exc:  # no baseline to compare against
         args.func(args)
-    _assert_hints_parse(capsys.readouterr().out)
+    assert exc.code == 2
+    _assert_hints_parse(capsys.readouterr().err)
 
 
 def test_baseline_only_report_hint_parses():

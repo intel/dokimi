@@ -21,7 +21,7 @@ from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.eval.judge_validity import DEFAULT_MIN_ACCURACY
 from dokimi.utils import InputError, read_json_input, warn_recorded_self_judge
 from dokimi.commands._output import write_text_or_exit
-from dokimi.exit_codes import EXIT_FAILURE, EXIT_USAGE
+from dokimi.exit_codes import EXIT_FAILURE
 
 if TYPE_CHECKING:
     from dokimi.eval.cross_judge import Measure
@@ -114,9 +114,8 @@ def _check_judge_temperature(judges: list[tuple[str, str]], temperature) -> None
 
     for model, provider in dict.fromkeys(judges):
         if unsupported_sampling_params(model, provider, temperature=temperature):
-            print(f"Error: --judge-temperature {temperature} is rejected by judge {provider}/{model}: "
-                  f"provider '{provider}' does not support temperature for model '{model}'", file=sys.stderr)
-            sys.exit(EXIT_USAGE)
+            raise InputError(f"--judge-temperature {temperature} is rejected by judge {provider}/{model}: "
+                             f"provider '{provider}' does not support temperature for model '{model}'")
         try:
             probe_sampling(model, provider, temperature, None)
         except ProbeError as exc:
@@ -124,9 +123,7 @@ def _check_judge_temperature(judges: list[tuple[str, str]], temperature) -> None
                   file=sys.stderr)
             sys.exit(EXIT_FAILURE)
         except ValueError as exc:  # refused by litellm's provider table before any request
-            print(f"Error: --judge-temperature {temperature} is rejected by judge {provider}/{model}: {exc}",
-                  file=sys.stderr)
-            sys.exit(EXIT_USAGE)
+            raise InputError(f"--judge-temperature {temperature} is rejected by judge {provider}/{model}: {exc}") from exc
 
 
 def _pairwise_judges(args: argparse.Namespace) -> list[tuple[str, str]]:

@@ -17,6 +17,7 @@ import pytest
 from dokimi.utils import InputError
 from dokimi import tool_preference as tp
 from dokimi.artifacts import validate_artifact
+from tests.cli_refusal import refusal
 
 GROUPS = Path(__file__).resolve().parent / "fixtures" / "tool_preference" / "groups.json"
 
@@ -270,9 +271,9 @@ def test_cli_exits_nonzero_when_every_call_failed(monkeypatch, tmp_path, capsys)
     out = tmp_path / "pref.json"
     args = build_parser().parse_args(["tools", "preference", "--groups", str(GROUPS), "--model", "m",
                                       "--reps", "1", "--factors", "assertive", "--out-json", str(out)])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2
+    assert exc.code == 1
     assert "all 16 call(s) failed" in capsys.readouterr().err
     data = json.loads(out.read_text(encoding="utf-8"))  # the evidence is kept
     validate_artifact("tool_preference", data)
@@ -575,9 +576,9 @@ def test_cli_cost_cap_keeps_the_partial_artifact_and_exits_nonzero(monkeypatch, 
     args = build_parser().parse_args(["tools", "preference", "--groups", str(GROUPS), "--model", "m",
                                       "--reps", "1", "--factors", "assertive", "--concurrency", "1",
                                       "--max-cost-usd", "0.02", "--out-json", str(out)])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2
+    assert exc.code == 3
     assert "--max-cost-usd 0.02 reached; 14 of 16 call(s) not run" in capsys.readouterr().err
     data = json.loads(out.read_text(encoding="utf-8"))
     validate_artifact("tool_preference", data)
@@ -599,9 +600,9 @@ def test_cli_cut_reply_is_billed_and_stops_the_run(monkeypatch, tmp_path, capsys
     args = build_parser().parse_args(["tools", "preference", "--groups", str(GROUPS), "--model", "m",
                                       "--reps", "1", "--factors", "assertive", "--concurrency", "1",
                                       "--max-cost-usd", "0.02", "--out-json", str(out)])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2
+    assert exc.code == 3
     assert "reached; 14 of 16 call(s) not run" in capsys.readouterr().err
     data = json.loads(out.read_text(encoding="utf-8"))
     validate_artifact("tool_preference", data)
@@ -619,9 +620,9 @@ def test_cli_unpriced_model_stops_and_says_why(monkeypatch, tmp_path, capsys):
     args = build_parser().parse_args(["tools", "preference", "--groups", str(GROUPS), "--model", "m",
                                       "--reps", "1", "--factors", "assertive", "--concurrency", "1",
                                       "--max-cost-usd", "5", "--out-json", str(out)])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2
+    assert exc.code == 3
     err = capsys.readouterr().err
     assert "no price, so --max-cost-usd cannot be enforced; 15 of 16 call(s) not run" in err
     assert "reached" not in err
@@ -773,9 +774,9 @@ def test_cli_skipping_exactly_one_call(monkeypatch, tmp_path, capsys):
     args = build_parser().parse_args(["tools", "preference", "--groups", str(GROUPS), "--model", "m",
                                       "--reps", "1", "--factors", "assertive", "--concurrency", "1",
                                       "--max-cost-usd", "0.15", "--out-json", str(out)])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2
+    assert exc.code == 3
     err = capsys.readouterr().err
     assert "1 of 16 call(s) not run" in err
 
@@ -865,9 +866,9 @@ def test_an_unwritable_out_json_exits_with_a_message(monkeypatch, tmp_path, caps
     out = blocker / "o.json"
     args = build_parser().parse_args(["tools", "preference", "--groups", str(GROUPS), "--model", "m",
                                       "--reps", "1", "--factors", "assertive", "--out-json", str(out)])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2
+    assert exc.code == 2
     assert f"Error: cannot write {out}: " in capsys.readouterr().err
 
 
@@ -879,9 +880,9 @@ def test_an_empty_out_json_exits_with_a_message(monkeypatch, capsys):
                         lambda messages, model, provider="openai", tools=None, **kw: _Resp([tools[-1]["function"]["name"]]))
     args = build_parser().parse_args(["tools", "preference", "--groups", str(GROUPS), "--model", "m",
                                       "--reps", "1", "--factors", "assertive", "--out-json", ""])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2
+    assert exc.code == 2
     assert "Error: cannot write : " in capsys.readouterr().err
 
 
@@ -898,9 +899,9 @@ def test_a_schema_rejected_artifact_is_not_reported_as_a_write_failure(monkeypat
     monkeypatch.setattr(artifacts, "save_artifact", reject)
     args = build_parser().parse_args(["tools", "preference", "--groups", str(GROUPS), "--model", "m",
                                       "--reps", "1", "--factors", "assertive", "--out-json", str(tmp_path / "o.json")])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
     err = capsys.readouterr().err
-    assert exc.value.code == 1
+    assert exc.code == 1
     assert "tool_preference artifact rejected" in err
     assert "cannot write" not in err

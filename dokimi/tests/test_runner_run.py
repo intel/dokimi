@@ -11,6 +11,7 @@ from unittest.mock import patch
 import pytest
 
 from dokimi.runner.run import _weighted_score, _load_spec, run_benchmark, save_snapshot
+from tests.cli_refusal import refusal
 
 
 def test_weighted_score_basic():
@@ -141,8 +142,8 @@ def test_run_command_exits_2_without_a_traceback_when_a_doc_does_not_load(tmp_pa
                                       "--out-json", str(tmp_path / "o.json"), "--out-md", str(tmp_path / "o.md")])
     with patch("dokimi.runner.run.discover_markdown", return_value=found), \
          patch("dokimi.runner.run.load_docs", return_value={}):
-        with pytest.raises(SystemExit) as exc:
+        with refusal() as exc:
             args.func(args)
-    assert exc.value.code == 2
+    assert exc.code == 2
     assert "1 of 1 selected document(s) did not load" in capsys.readouterr().err
     assert not (tmp_path / "o.json").exists()  # no snapshot over the docs that did load

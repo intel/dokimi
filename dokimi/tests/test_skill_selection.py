@@ -20,6 +20,7 @@ from dokimi.external import trigger_set as ts
 from dokimi.report.arms_report import render_arms_report
 from dokimi.skills import discover_skills
 from dokimi.treatments import SkillCatalogTreatment, create_treatment
+from tests.cli_refusal import refusal
 
 
 def _write_skill(root: Path, name: str, description: str) -> None:
@@ -288,9 +289,9 @@ def test_trigger_set_exits_2_with_a_message_on_an_unreadable_questions_file(
     out = tmp_path / "o.json"
     monkeypatch.setattr("sys.argv", ["dokimi", "eval", "triggers", "generate", "--catalog", str(catalog),
                                      "--questions", f"{qfile}=none", "--out", str(out)])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cli.main()
-    assert exc.value.code == 2  # bad input; 1 is the verdict of the gates
+    assert exc.code == 2  # bad input; 1 is the verdict of the gates
     err = capsys.readouterr().err
     prefix = f"Error: --questions {qfile}: "
     assert err.startswith(prefix)
@@ -466,9 +467,9 @@ def test_trigger_set_cli_checks_each_source_and_inputs(tmp_path, catalog, capsys
     with pytest.raises(InputError, match="list of question objects"):
         _run_cli(base + ["--questions", f"{bad}=none"])
     named = _qfile(tmp_path, "named.json", [{"id": "3", "text": "use linux-perf here"}])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         _run_cli(base + ["--strict", "--questions", f"{named}=linux-perf"])
-    assert exc.value.code == 1 and not out.exists()  # --strict is a lint gate: 1, as on main
+    assert exc.code == 1 and not out.exists()  # --strict is a lint gate: 1, as on main
 
 
 def test_trigger_set_cli_writes_each_format(tmp_path, catalog, capsys):
@@ -619,10 +620,10 @@ def test_arms_run_refuses_bad_expected_skill_before_any_call(monkeypatch, tmp_pa
     monkeypatch.setattr(ArmRunner, "run", no_calls)
     q = _qfile(tmp_path, "q.json", [{"id": "ok", "text": "a", "expected_skill": None},
                                     {"id": "bad", "text": "b", "expected_skill": label}])
-    with pytest.raises(SystemExit):
+    with refusal() as exc:
         _run_cli(["arms", "run", "--product", "x", "--arms", f"skill-catalog:{catalog}",
                   "--questions", str(q), "--out-json", str(tmp_path / "o.json")])
-    assert match in capsys.readouterr().err
+    assert exc.code == 2 and match in capsys.readouterr().err
 
 
 def test_arms_run_accepts_labels_from_any_skill_arm(catalog):
@@ -686,9 +687,9 @@ def test_trigger_set_cli_strict_rejects_unresolved_labels(tmp_path, catalog, cap
     captured = capsys.readouterr()
     assert "1 questions have an unresolved" in captured.err and "(reach, 1 queries" in captured.out
     out.unlink()
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         _run_cli(_ts(catalog, out, "--strict", "--questions", f"{q}=@metadata.s"))
-    assert exc.value.code == 1 and not out.exists()  # --strict is a lint gate: 1, as on main
+    assert exc.code == 1 and not out.exists()  # --strict is a lint gate: 1, as on main
 
 
 def test_trigger_set_cli_rejects_questions_without_text(tmp_path, catalog):

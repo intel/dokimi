@@ -42,6 +42,7 @@ from dokimi.repos.reach import (
     seed_text,
     token,
 )
+from tests.cli_refusal import refusal
 
 FAKE_HARNESS = r'''
 import json, os, re, sys
@@ -709,17 +710,17 @@ def test_repo_reach_cli_manifest_file_and_a_failed_scenario(tmp_path, monkeypatc
     args.func(args)
     assert json.loads(capsys.readouterr().out)["files"] == ["AGENTS.md", "CLAUDE.md", "sub/AGENTS.md", "sub/CLAUDE.md"]
     args = build_parser().parse_args([*base, "--manifest-file", str(tmp_path / "nope.yaml"), "--dry-run"])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2 and "nope.yaml" in capsys.readouterr().err
+    assert exc.code == 2 and "nope.yaml" in capsys.readouterr().err
 
     monkeypatch.setenv("FAKE_MODE", "crash")
     (tmp_path / "work").mkdir()
     args = build_parser().parse_args([*base, "--out", str(tmp_path / "o"), "--work-dir", str(tmp_path / "work"),
                                       "--scenarios", "root"])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 1 and (tmp_path / "o" / "reach.json").is_file()
+    assert exc.code == 1 and (tmp_path / "o" / "reach.json").is_file()
 
 
 @pytest.mark.outcome("cjm-repo-reach")
@@ -766,9 +767,9 @@ def test_repo_reach_dry_run_shows_the_run_budget_and_turns(tmp_path, capsys):
 def test_repo_reach_rejects_selections_that_would_drop_scenarios(tmp_path, capsys, extra, message):
     args = build_parser().parse_args(["repo", "reach", str(_repo(tmp_path)), "--manifest", "evals/repo-eval.yaml",
                                       "--model", "m", "--dry-run", *extra])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2
+    assert exc.code == 2
     assert message in capsys.readouterr().err
 
 

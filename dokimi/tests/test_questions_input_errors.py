@@ -10,6 +10,7 @@ import argparse
 import pytest
 
 from dokimi.commands.questions import cmd_questions_analyze, cmd_questions_panel_review
+from tests.cli_refusal import refusal
 
 
 def _args(path, tmp_path):
@@ -35,10 +36,10 @@ def _bad_files(tmp_path):
 def test_unreadable_questions_file_exits_2_with_a_message(cmd, case, tmp_path, capsys):
     path = _bad_files(tmp_path)[case]
 
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cmd(_args(path, tmp_path))
 
-    assert exc.value.code == 2
+    assert exc.code == 2
     err = capsys.readouterr().err
     assert err.startswith("Error: ")
     assert str(path) in err
