@@ -167,13 +167,15 @@ def test_frontmatter_parse_cannot_be_ignored(tmp_path, capsys):
     skill_dir.mkdir(parents=True)
     (skill_dir / "SKILL.md").write_text("---\nname: [unclosed\n---\n# Body\n", encoding="utf-8")
 
-    out, code = _run(
-        ["--root", str(tmp_path), "--kind", "skills", "--strict", "--ignore", "frontmatter-parse"],
-        capsys,
+    args = build_parser().parse_args(
+        ["catalog", "check", "--root", str(tmp_path), "--kind", "skills", "--ignore", "frontmatter-parse"]
     )
 
-    assert code == 2
-    assert out == ""
+    with pytest.raises(InputError) as exc:
+        args.func(args)
+
+    assert "frontmatter-parse" in str(exc.value) and "does not load" in str(exc.value)
+    assert capsys.readouterr().out == ""
 
 
 def _emitted_codes() -> set[str]:
@@ -196,4 +198,7 @@ def _emitted_codes() -> set[str]:
 
 def test_every_emitted_finding_code_can_be_ignored():
     # --ignore accepts FINDING_CODES only: a code a review reports and the tuple lacks is refused.
-    assert _emitted_codes() - set(FINDING_CODES) == set()
+    codes = _emitted_codes()
+    # The scan itself must find codes from both sources, or the check below proves nothing.
+    assert {"name-mismatch", "legacy-model-id", "hidden-unicode"} <= codes
+    assert codes - set(FINDING_CODES) == set()

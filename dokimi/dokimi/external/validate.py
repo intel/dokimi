@@ -158,8 +158,8 @@ FINDING_CODES = (
     "mirror-drift",
     "name-conflict",
     "name-format",
-    "name-missing",
     "name-mismatch",
+    "name-missing",
     "not-loaded",
     "path-escapes-skill",
 )
