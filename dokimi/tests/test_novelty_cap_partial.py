@@ -180,6 +180,14 @@ def test_analyze_names_the_run_cost_before_it_spends(tmp_path, monkeypatch, caps
     assert "Expected ~$0.42 for this run at list prices (--tier triage)" in err
 
 
+def test_an_unpriced_model_prints_no_run_estimate_and_does_not_raise(monkeypatch, capsys):
+    budget = importlib.import_module("dokimi.commands.novelty_budget")
+    monkeypatch.setattr(budget, "run_estimate", lambda *a, **kw: ({"expected_usd": None}, 10))
+    budget.print_run_estimate(None, None, "text", lambda *a, **kw: None)
+    captured = capsys.readouterr()
+    assert captured.err == "" and captured.out == ""
+
+
 def test_an_unpriced_answer_stops_every_queued_probe_not_only_the_one_that_raised():
     from dokimi.novelty import measure
     from dokimi.novelty.probes import Probe
