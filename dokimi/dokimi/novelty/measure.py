@@ -131,6 +131,11 @@ class ProbeRun:
     response: str
     verdict: str
     confidence: float | None = None  # recorded, never scored
+    #: Set only when the probe carries ``grading``: the judge's own verdict, which ``verdict``
+    #: may overrule, where the verdict came from (``judge`` or ``check``) and the check results.
+    judge_verdict: str | None = None
+    verdict_source: str = "judge"
+    checks: list[dict] = field(default_factory=list)
 
     def correct(self, scoring: str) -> bool:
         """Whether this run counts as correct under ``lenient`` or ``strict``."""
@@ -152,6 +157,8 @@ class ProbeRun:
             "response": self.response,
             "verdict": self.verdict,
             "confidence": self.confidence,
+            **({"judge_verdict": self.judge_verdict, "verdict_source": self.verdict_source,
+                "checks": self.checks} if self.checks else {}),
         }
 
 
@@ -209,6 +216,31 @@ class MeasureResult:
         xs = [float(r.confidence) for r in rows]  # type: ignore[arg-type]
         ys = [1.0 if r.correct("lenient") else 0.0 for r in rows]
         return _pearson(xs, ys)
+
+    def checks_summary(self) -> dict | None:
+        """The judge against the program checks, on the runs whose probe had any.
+
+        ``vetoed`` counts answers a veto check failed; ``judge_passed_vetoed`` how many of
+        those the judge had called lenient-correct (the judge's miss on invented identifiers).
+        ``decided`` counts answers a ``sufficient`` check decided, and ``judge_agreed`` how
+        often the judge's lenient collapse matched it. ``None`` when no run was checked.
+        """
+        rows = [r for r in self.runs if r.checks and not r.errored]
+        if not rows:
+            return None
+        vetoed = [r for r in rows if any(c["role"] == "veto" and c["passed"] is False
+                                         for c in r.checks)]
+        decided = [r for r in rows if r.verdict_source == "check" and r not in vetoed]
+        return {
+            "checked_runs": len(rows),
+            "overruled": sum(1 for r in rows if r.verdict != r.judge_verdict),
+            "vetoed": len(vetoed),
+            "judge_passed_vetoed": sum(1 for r in vetoed if r.judge_verdict in LENIENT_CORRECT),
+            "decided": len(decided),
+            "judge_agreed": sum(1 for r in decided
+                                if (r.judge_verdict in LENIENT_CORRECT)
+                                == (r.verdict in LENIENT_CORRECT)),
+        }
 
 
 def parse_arms(spec: str) -> tuple[str, ...]:
@@ -303,16 +335,56 @@ def run_measurement(
             verdict = ERRORED
         else:
             verdict = _grade(probe, response, judge)
-        return ProbeRun(
+        run = ProbeRun(
             atom_id=probe.atom_id, probe_kind=probe.kind, arm=arm,
             question=probe.question, response=response, verdict=verdict,
             confidence=confidence,
         )
+        if probe.grading and verdict != ERRORED:
+            run.checks = run_checks(probe.grading, probe.question, response)
+            run.judge_verdict = verdict
+            run.verdict, run.verdict_source = resolve_verdict(verdict, run.checks)
+        return run
 
     with ThreadPoolExecutor(max_workers=max(1, concurrency)) as pool:
         runs = list(pool.map(one, jobs))
 
     return MeasureResult(runs=runs, arms=tuple(arms), with_arm="full")
+
+
+def run_checks(grading: dict, question: str, response: str) -> list[dict]:
+    """The program checks of ``grading`` on one answer; ``judge`` checks are left out.
+
+    The novelty judge already grades every answer, so a second model call per check would
+    only add cost. Each result keeps the check's ``role`` and ``tier``.
+    """
+    from dokimi.eval.reference_checks import DETERMINISTIC, check_role, grade_check
+    out = []
+    for check in grading.get("checks", []):
+        if check.get("type") not in DETERMINISTIC:
+            continue
+        result = grade_check(check, question, response, None).as_dict()
+        result["role"] = check_role(check)
+        if check.get("tier"):
+            result["tier"] = check["tier"]
+        out.append(result)
+    return out
+
+
+def resolve_verdict(judge_verdict: str, checks: list[dict]) -> tuple[str, str]:
+    """The final verdict and its source, from the judge's verdict and the check results.
+
+    A failed ``veto`` makes the answer ``wrong_other`` whatever the judge said. Otherwise a
+    ``sufficient`` check that passed or failed decides (``correct_complete`` or
+    ``wrong_other``). Otherwise, ``evidence`` checks only, the judge's verdict stands. An
+    abstention is never overruled into a pass: the answer stated nothing to check.
+    """
+    if any(c["role"] == "veto" and c["passed"] is False for c in checks):
+        return "wrong_other", "check"
+    decisive = [c["passed"] for c in checks if c["role"] == "sufficient" and c["passed"] is not None]
+    if decisive and judge_verdict != "abstained":
+        return ("correct_complete" if all(decisive) else "wrong_other"), "check"
+    return judge_verdict, "judge"
 
 
 # Named ``*_PROMPT`` so the run's ``prompts_sha256`` covers them.

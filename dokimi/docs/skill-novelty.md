@@ -874,6 +874,14 @@ python cli.py skill novelty probe --artifact skill:s --atoms atoms.json --model 
 python cli.py skill novelty items --probes m1.json m2.json m3.json
 ```
 
+**Program checks.** An atom may carry `meta.grading`, the `grading.checks` block of
+[reference checks](answer-formats.md); every probe built from it except the reversal gets it,
+and its non-judge checks run on each answer next to the judge. `skill novelty ground --atoms
+atoms.json --tool "perf report"` writes one such check: a veto that fails an answer naming a
+`perf report --flag` the tool's own `--help` does not list. The judge's verdict is kept on
+each checked run and the record's `checks` block counts how often the judge passed an answer
+a veto failed. Design and evidence: [grading-tiers.md](grading-tiers.md).
+
 Three **distinct models** is the minimum; below that — including three runs of one model,
 which are repeated measurements of one respondent — the command says the statistic is not
 computable rather than printing one. Runs of one model are folded into one respondent

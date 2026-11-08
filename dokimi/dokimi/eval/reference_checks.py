@@ -22,6 +22,10 @@ type       passes when                                   native names it maps
            the target letters                            ``multiple_choice``)
 ``json``   the answer parses as JSON (equal to a value,  OpenAI ``JsonMatch``, promptfoo
            when values are given)                        ``is-json``/``contains-json``
+``identifiers`` every identifier the answer names    the grading ladder's veto
+           (``pattern``, long flags by default, inside   (:doc:`grading-tiers`)
+           ``within`` matches) is in ``known``, a list
+           taken from a pinned source (``--help``)
 ``judge``  the judge says the answer meets ``criterion``  Inspect ``model_graded_*``, OpenAI
            (or agrees with ``reference``)                ``ModelBasedClassify``, promptfoo
                                                          ``llm-rubric``/``factuality``,
@@ -57,7 +61,13 @@ from dokimi.measure import as_float
 REGEX_TIMEOUT = 1.0
 
 #: Check types this module grades without a model.
-DETERMINISTIC = frozenset({"match", "exact", "fuzzy", "regex", "choice", "json"})
+DETERMINISTIC = frozenset({"match", "exact", "fuzzy", "regex", "choice", "json", "identifiers"})
+#: What a check may do to a verdict that another grader (the novelty judge) gave: see :func:`check_role`.
+ROLES = ("evidence", "veto", "sufficient")
+#: How objective a check is: decided by a program, by a pinned external source, or by a model.
+TIERS = ("verifiable", "grounded", "judge")
+#: The identifiers check's default: long command-line options (``--stdio``).
+LONG_FLAG = r"(?<![\w-])(--[A-Za-z][\w-]*)"
 JUDGED = frozenset({"judge"})
 UNSUPPORTED = "unsupported"
 KNOWN = DETERMINISTIC | JUDGED | {UNSUPPORTED}
@@ -323,7 +333,39 @@ def _deterministic(check: Mapping[str, Any], answer: str) -> tuple[Optional[bool
         if not ok:
             return False, "not JSON"
         return (not values or any(parsed == v for v in values)), ""
+    if kind == "identifiers":
+        return _identifiers(check, answer)
     raise CheckError(f"unknown check type {kind!r}")
+
+
+def _identifiers(check: Mapping[str, Any], answer: str) -> tuple[Optional[bool], str]:
+    """Every identifier the answer names (inside ``within``) is one the source lists in ``known``.
+
+    The tier-1/2 veto of the grading ladder: an answer that names a ``perf report --stdin`` flag
+    the tool's own ``--help`` does not list is wrong whatever a judge reads into it. An answer
+    that names none passes: the check only rules names out, it never asks for one.
+    """
+    known = {str(k) for k in check.get("known") or ()}
+    pattern = str(check.get("pattern") or LONG_FLAG)
+    within = check.get("within")
+    scopes = [m.group(0) for m in re.finditer(str(within), answer)] if within else [answer]
+    unknown: list[str] = []
+    for scope in scopes:
+        for m in re.finditer(pattern, scope):
+            name = (m.group(1) if m.groups() else m.group(0)).split("=", 1)[0]
+            if name in known or (check.get("negations", True) and name.startswith("--no-")
+                                 and "--" + name[5:] in known):
+                continue
+            if name not in unknown:
+                unknown.append(name)
+    if unknown:
+        return False, "not in source: " + ", ".join(unknown[:10])
+    return True, "" if scopes else "nothing to check"
+
+
+def check_role(check: Mapping[str, Any]) -> str:
+    """``role`` of a check, ``evidence`` when it sets none."""
+    return str(check.get("role") or "evidence")
 
 
 def judge_point(check: Mapping[str, Any]) -> str:
@@ -405,7 +447,21 @@ def _check_problems(kind: str, c: Mapping[str, Any]) -> list[str]:
     weight = c.get("weight", 1.0)
     out = ["weight is not a number"] if as_float(weight) is None else (
         ["weight must not be negative"] if weight < 0 else [])
-    if kind in DETERMINISTIC and kind != "json":
+    if c.get("role") is not None and c.get("role") not in ROLES:
+        out.append(f"role must be one of {', '.join(ROLES)}, not {c.get('role')!r}")
+    if c.get("tier") is not None and c.get("tier") not in TIERS:
+        out.append(f"tier must be one of {', '.join(TIERS)}, not {c.get('tier')!r}")
+    if kind == "identifiers":
+        known = c.get("known")
+        if not isinstance(known, list) or not known or not all(isinstance(k, str) and k for k in known):
+            out.append("identifiers needs `known`: a non-empty list of names")
+        for key in ("pattern", "within"):
+            if c.get(key) is not None:
+                try:
+                    re.compile(str(c[key]))
+                except re.error as exc:
+                    out.append(f"identifiers {key} {c[key]!r} does not compile: {exc}")
+    if kind in DETERMINISTIC and kind not in ("json", "identifiers"):
         values = check_values(c)
         if not values:
             out.append(f"{kind} has no values")

@@ -5,8 +5,12 @@ SPDX-License-Identifier: Apache-2.0
 
 # Design note: a grading ladder beyond the LLM judge
 
-**Status:** research. Nothing here is implemented. The prototype numbers come from
-scratch scripts run over stored probe results; they are not part of the CLI.
+**Status:** partly implemented. Implemented: `grading` on atoms and probes, check roles
+(`veto`, `sufficient`, `evidence`), the `identifiers` check, `skill novelty ground` (a veto
+from a tool's own `--help`) and the judge-against-checks block of the probe record (see
+[What is implemented](#what-is-implemented)). Proposed only: the `exec` and `source` checks,
+derived answer slots, key verification and source drift. The prototype numbers come from
+scratch scripts run over stored probe results.
 
 Today a novelty probe is graded by one LLM judge, and the only check on that judge is
 agreement with a second judge. Two judges can agree and both be wrong. This note proposes
@@ -14,9 +18,8 @@ grading each probe with the most objective grader available to it, in tiers:
 
 1. **Verifiable**: a program decides. A command is run, code is compiled, a test passes,
    a document parses against a schema, a flag appears in the tool's own `--help`.
-2. **Grounded**: the correct answer is looked up in an external source that is not the
-   skill (official docs, man pages, Sphinx inventories, package metadata, Wikipedia) and
-   the answer is compared with what the source says.
+2. **Grounded**: a name or value in the answer is looked up in a pinned external source
+   that is not the skill (official docs, man pages, Sphinx inventories, package metadata).
 3. **Judge**: the LLM judge, as it works now. Used only when neither tier above applies.
 
 Every run keeps the judge's verdict too, so wherever tier 1 or 2 decides, the judge's
@@ -37,7 +40,45 @@ So the deterministic machinery already exists in two places (reference checks, r
 but the novelty flow, where the reviewer's concern applies, cannot use either. A probe has no
 field that says how it should be graded.
 
-## Proposed design
+### What a source can and cannot replace
+
+A novelty probe asks whether the model knows what the skill says, so `expected` is the
+skill's claim, and that is the right answer key for this measurement. An external source does
+not replace it: an answer can agree with the docs and still miss the skill's point, and a
+skill may knowingly differ from the docs (a version, a workaround). A source is used for two
+other things:
+
+* **checking the answer for names that do not exist** (a veto): an option the tool's own
+  help does not list is wrong in any case, and the prototype found the judge passing such
+  answers;
+* **checking the answer key itself** (key verification, proposed): whether the identifiers in
+  the skill's claim exist in the source at all.
+
+An earlier draft of this note proposed a "grounded judge" that would be given a retrieved
+passage instead of `expected`. That is dropped: it changes what the probe measures (agreement
+with the docs, not knowledge of the skill) and is still a model grading free text.
+
+## What is implemented
+
+| Piece | Where |
+|---|---|
+| `meta.grading` on an atom, validated and copied to the direct and paraphrase probes (`Probe.grading`) | `dokimi/novelty/probes.py` `atom_grading` |
+| Non-judge checks run on each answer, next to the judge | `dokimi/novelty/measure.py` `run_checks` |
+| Roles: a failed `veto` gives `wrong_other`; a `sufficient` check decides; `evidence` is recorded only; an abstention is never overruled into a pass | `measure.py` `resolve_verdict` |
+| `judge_verdict`, `verdict_source`, `checks` on each checked run; a record-level `checks` block (`checked_runs`, `overruled`, `vetoed`, `judge_passed_vetoed`, `decided`, `judge_agreed`) | `measure.py` `ProbeRun`, `MeasureResult.checks_summary`, `report.py` |
+| `identifiers` check: every identifier the answer names (long options by default, inside `within`) is in `known`; `--no-x` counts when `--x` is known. `role` and `tier` validated on every check | `dokimi/eval/reference_checks.py` |
+| `skill novelty ground --atoms A --tool "perf report" [--tool ...]`: runs the tool's `--help`, writes an `identifiers` veto with the help's sha256 into the atoms that name the tool | `dokimi/novelty/grounding.py`, `commands/novelty.py` |
+
+A `--tool` check applies only where the tool's name is followed directly by an option, so a
+`perf` check does not judge `perf report --stdio`: give each subcommand as its own `--tool`.
+An answer that names no option of the tool passes the veto.
+
+```bash
+python cli.py skill novelty ground --atoms atoms.json --tool "perf report" --tool "perf record" --tool-version 6.17
+python cli.py skill novelty probe --artifact skill:linux-perf --atoms atoms.json --out probes.json
+```
+
+## Proposed design (the rest)
 
 ### 1. A probe may carry `grading`, in the same vocabulary as reference checks
 
@@ -67,7 +108,7 @@ New check kinds:
 | Type | Tier | Decides |
 |---|---|---|
 | `exec` | verifiable | Runs a command in the grading container (the `dokimi/repos/graders` mount) with the answer's code or command substituted in; passes on an exit code or an output predicate. Compiles a snippet, runs `--help`, runs a test. |
-| `cli_help` | verifiable | A token is (`expect: present`) or is not (`expect: absent`) an option or subcommand in the pinned tool's own `-h`/`--help`. Negations generated by the argument parser (`--no-x` for `--x`) count as present. |
+| `cli_help` | verifiable | A token is (`expect: present`) or is not (`expect: absent`) an option or subcommand in the pinned tool's own `-h`/`--help`. Negations generated by the argument parser (`--no-x` for `--x`) count as present. The answer-side half (no unlisted option) is implemented as `identifiers`; the `expect: present`/`absent` form for checking a claim is not. |
 | `source` | grounded | A `snapshot` (URL, `retrieved_at`, `sha256`, the extracted passage or inventory) and a predicate over it: `contains`, `absent`, `equals` on an extracted value (a version, a default, a limit). |
 
 New fields on every check:
@@ -114,9 +155,10 @@ For each (probe, arm) answer:
 4. Record all of it on `ProbeRun`:
 
 ```json
-{"verdict": "wrong_other", "verdict_source": "verifiable",
+{"verdict": "wrong_other", "verdict_source": "check",
  "judge_verdict": "correct_complete",
- "checks": [{"type": "cli_help", "token": "--stdin", "passed": false, "role": "veto"}]}
+ "checks": [{"type": "identifiers", "passed": false, "role": "veto", "tier": "verifiable",
+             "score": 0.0, "detail": "not in source: --stdin"}]}
 ```
 
 Because `judge_verdict` is kept next to the tier-1/2 result, a new block in the novelty
@@ -233,12 +275,10 @@ The sample is tiny, but it is the failure the judge is known to have
 
 ## Open questions
 
-1. **Relation-level grounding.** Tokens prove a name exists, not that the claim about it
-   holds ("`parallel_reduce` is not deterministic in floating point"). The next step is a
-   grounded judge: the judge gets the retrieved passage instead of the skill's `expected`.
-   That is still a model, but its reference is no longer the artifact under test, so it
-   removes the circularity of grading a skill against itself. Is that a tier 2 or a
-   tier 2.5?
+1. **Relation-level claims.** Tokens prove a name exists, not that the claim about it
+   holds ("`parallel_reduce` is not deterministic in floating point"). Such a claim stays
+   with the judge; a source is not a better answer key for a skill's own claim (see
+   [What a source can and cannot replace](#what-a-source-can-and-cannot-replace)).
 2. **Who writes `answer_slot`.** The author model can propose it; whether its slots are
    right needs its own check, like the screening pass the lab study ran on its probes (a second model reviewing each one).
 3. **Version pinning.** Which version is "the" source for a skill that supports several
@@ -260,6 +300,5 @@ The sample is tiny, but it is the failure the judge is known to have
 The three scripts and their outputs are kept outside the repo, on the lab box
 (`/localdisk/napetrov/detpilot/tier2_proto.py`, `tier2_round2.py`, `tier2_round3.py` and
 the `tier2_*.json` they write). They read `skill-content-intel/data/{atoms,probes,probe_results}.jsonl`
-and need perf, gcc, binutils, cmake and outbound HTTPS. If this design is accepted, the
-router and the `cli_help`/`source` checks would move into `dokimi/eval/reference_checks.py`
-with tests, and the scripts would be retired.
+and need perf, gcc, binutils, cmake and outbound HTTPS. Round 3's perf check is now
+`skill novelty ground`; the router of round 2 and the `source` check are not in the repo.
