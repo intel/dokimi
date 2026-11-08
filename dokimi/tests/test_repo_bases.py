@@ -79,7 +79,10 @@ def test_globs_and_bases_are_checked_at_every_task_base(tmp_path, capsys):
     assert out["warnings"] == []  # .github/instructions/*.md still matches at a task base
     assert out["guidance_files"] == ["AGENTS.md"]
     assert out["guidance_by_base"] == {old: 2, f"{old}^": 0, bare: 0}
-    assert len(out["notes"]) == 1 and "fix_bare, fix_older" in out["notes"][0]
+    assert len(out["notes"]) == 1 and out["notes"][0].endswith(": fix_bare, fix_older")
+    # rev: and patch: bring their own files, so the note must not cover them (#481)
+    assert "guidance:none, raw and bridge give the same workspace" in out["notes"][0]
+    assert "(guidance:rev:, patch: and +skill: parts bring their own files)" in out["notes"][0]
 
     _task(root, "fix_gone", "f" * 40)
     _commit_all(root, "unknown base")
