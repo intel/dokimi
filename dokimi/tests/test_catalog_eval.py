@@ -876,6 +876,15 @@ def test_an_ignored_file_of_a_bundle_under_a_shared_directory_selects_only_that_
     assert evaluate_catalog(tmp_path, [log], [])["selection"]["selected"] == ["alpha", "beta"]  # tracked: shared
 
 
+def test_an_ignored_path_matches_its_untracked_path_however_either_is_spelled(tmp_path):
+    from dokimi.external.catalog_eval import evaluate_catalog
+
+    skill(tmp_path)
+    for spelling in ("tools/cache/", "./tools/cache", "tools//cache"):
+        assert evaluate_catalog(tmp_path, [], [spelling], None, {spelling})["selection"]["selected"] == [], spelling
+        assert evaluate_catalog(tmp_path, [], ["tools/cache"], None, {spelling})["selection"]["selected"] == [], spelling
+
+
 def test_a_moved_task_selects_the_skill_that_owned_it_at_the_base(tmp_path):
     skill(tmp_path)
     skill(tmp_path, "beta")

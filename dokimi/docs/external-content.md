@@ -47,6 +47,8 @@ under a vendored directory such as `node_modules` and any `.git` are not hashed,
 they select nothing). Skill resources and owned tasks select their skill, and a
 changed or removed task also selects the skill that owned it at the base;
 registry, suite, shared machinery and unclaimed changes select conservatively.
+A file git ignores under the shared machinery (`tools/`, `scripts/`, `dokimi/`,
+`.github/`) selects nothing and does not mark the source `dirty`, whatever its name.
 Selection limits what can fail: a finding in a skill that is not selected is
 listed in the report but does not fail the run, while a catalog-wide problem
 (manifest, suites, tasks root, a task with no known owner) always does.
@@ -89,11 +91,44 @@ implicit default that points at a sibling checkout:
 | `--questions` | one question-set file | `arms run`, `answers generate` |
 
 Skills, profiles and subjects are named by path inside the arm spec itself
-(`skill:<path>`, `profile:<path>`, `subjects show <descriptor>`), so they need
+(`skill:<path>`, `profile:<path>`, `catalog show --kind subject <descriptor>`), so they need
 no root flag.
 
 The transcripts below are real runs against a small demo checkout laid out the
 way the readers expect. Substitute your own checkout path.
+
+## Content checks: retired model IDs and hidden characters
+
+`catalog check` also reads the text of each loaded skill: its `SKILL.md` and the text
+files beside it (`.md`, `.py`, `.sh`, `.json`, `.yaml`, `.toml` and similar, up to 1 MB;
+hidden folders, `node_modules` and symlinks are skipped). A `SKILL.md` at the checkout root
+is checked alone, since its directory is the whole repository. It needs no key and calls no model.
+Two checks, both `warn`:
+
+- **`legacy-model-id`**: the text names a model ID its vendor has deprecated or retired.
+  The finding gives the file and line, the vendor's status and date, and the replacement
+  the vendor names. IDs match whole tokens and case-sensitively: `gpt-4.1` does not match
+  `gpt-4`, and `GPT-4` in prose does not match at all. The list is
+  `dokimi/external/legacy_models.toml`; its header names the three vendor pages it was
+  checked against and the date. Update it by editing that file, with no code change. An entry
+  lists only IDs the vendor labels deprecated or retired on the `checked` date; `status` is
+  `deprecated` (still served, date ahead) or `retired` (no longer served); `date` and
+  `replacement` are the vendor's, verbatim, or empty when it gives none.
+- **`hidden-unicode`**: a bidi control (U+202A to U+202E, U+2066 to U+2069), a Unicode
+  tag character (U+E0000 to U+E007F), or a stray zero-width character (U+200B, U+2060, or
+  a U+FEFF after the start of the file). Each is reported with its line and codepoint; five
+  per file are listed. A zero-width joiner (U+200C, U+200D) is not reported next to an emoji
+  or symbol (U+2600 to U+27BF, U+1F000 to U+1FAFF) or in Arabic and Indic script, where it is correct.
+  Vendored folders (`site-packages`, `node_modules`, `.venv` and the like) are not scanned, and
+  a folder that holds another skill's `SKILL.md` is checked as that skill only.
+
+Limits of the model list: it is a snapshot, so a model a vendor has announced but not yet
+labelled deprecated is not listed. Some listed IDs are short names (`o1`, `o3-mini`,
+`gpt-4`, `dall-e-2`) that can also appear in prose about a model; a finding there is a
+prompt to reword it; a code span does not silence the warning, and there is no suppression yet. A few rows
+name no replacement (`sora-2`, `gpt-5.4-cyber`), and the finding then points at the vendor page.
+The list includes Imagen and Veo IDs, so it reaches past the text models. Warnings do not fail
+`--strict`, which gates on `error` rows only.
 
 ## The layout the readers expect
 
@@ -215,10 +250,39 @@ the skill (and in its `findings` in JSON); the row's main line and its JSON
 `error` field say the frontmatter has invalid YAML, with the line, not that the
 skill is missing a `description`.
 
+A `SKILL.md` with no frontmatter at all (it does not start with a `---` line) also
+stops the skill from loading, and its error says "no frontmatter". One whose
+`---` block is opened and never closed says "unclosed frontmatter". Neither says
+"missing a `description`", which is reserved for a closed block without one.
+
+The scan also checks the size and the vocabulary of a loaded skill. A frontmatter
+key that neither the Agent Skills spec nor Claude Code names (a typo such as
+`colour:`) is a `warn` (`frontmatter-unknown-key`). An `allowed-tools` entry that is
+not a Claude Code tool is a `warn` (`allowed-tools-unknown`); `mcp__*` tools are not
+checked, and a `Tool(pattern)` entry is checked by its tool name. A body over 500
+lines, or about 5,000 tokens (characters / 4, no tokenizer), is a `warn`
+(`body-too-large`): move the detail into bundled files. A name over 64 characters is
+the `name-format` error, and its message says the length. These are warnings, so
+they do not change the exit code.
+
 `--strict` makes `catalog check` a gate on the spec as well as on loading. The
 text output and `--format json` (one object: `state`, `findings`,
 `content_sha256` of the `SKILL.md`, `skill_sha256` of the skill directory,
 `duplicate_of`, for a script or a CI gate) are the same either way.
+
+After the skill rows, `catalog check` prints a `# granularity` section: skill pairs
+that look like merge candidates (similar descriptions, shared trigger clauses, overlapping
+bodies, duplicated sections or code blocks) and skills that look like split candidates
+(two of: a body past 12,000 characters, three or more `when` clauses with no word in
+common, two or more section topics that share little vocabulary and do not reference each
+other). It reads the skills a harness would list: a skill with `disable-model-invocation`,
+a spec error other than an over-long description, or an identical copy of another skill
+is left out, and two skills with the same directory name are shown by their path. It is
+free, runs no model, and is hints only: it never changes the exit code, and the JSON
+carries it under `granularity` with `hints_only: true` and no verdict. Its `next:` line
+names a planned, paid follow-up command (a model run over the candidates), which is not
+yet available; its flags may change before it lands. The thresholds are conservative and
+the section is a shortlist, not a judgement.
 
 Restrict the scan with `--kind`:
 
@@ -237,7 +301,10 @@ A large catalog is easier to scan one skill at a time:
 - `--per-skill` reviews each skill alone. The four cross-catalog checks
   (`duplicate`, `name-conflict`, `mirror-drift`, `description-near-duplicate`)
   compare a skill with the others, so they do not run in this mode; every other
-  check does.
+  check does. The granularity hints (merge and split candidates) need the whole
+  catalog too, so they are not run here; the text output says so in a
+  `# granularity: not run with --per-skill` line; `--format json` has no
+  `granularity` key in this mode.
 - A `SKILL.md` inside another skill's directory is marked with `nested_in`
   (the enclosing skill's path) in JSON and with a `note` in text. It is counted
   by default; `--skip-nested` leaves it out of the scan.
@@ -415,12 +482,12 @@ FileNotFoundError: Skill path does not exist: C:\Users\Public\no-such-checkout\s
 ```
 
 A subject descriptor bundles the artifact with the suite it should be measured
-on, and may point at the external checkout throughout. `subjects show`
+on, and may point at the external checkout throughout. `catalog show --kind subject`
 resolves it — including the arm specs it will run — without executing
 anything:
 
 ```console
-$ python cli.py subjects show C:/Users/Public/content-repo/demo-subject.toml
+$ python cli.py catalog show --kind subject C:/Users/Public/content-repo/demo-subject.toml
 {
   "id": "demo-skill",
   "subject": {

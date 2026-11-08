@@ -871,11 +871,11 @@ review thread of a merged PR, anchored on a line of the reviewed revision.
   thread, a lower bound on precision. Humans miss problems and raise
   non-defects, so neither is a verdict.
 - The oracle answer is one finding per thread, at its anchor.
-- `repo tasks replay` writes these tasks from recorded review threads (§4.6).
+- `eval tasks generate --from replay` writes these tasks from recorded review threads (§4.6).
 
 ### 4.6 Replay tasks from review threads
 
-`repo tasks replay` writes `dokimi:review_replay` tasks (§4.5) from the review
+`eval tasks generate --from replay` writes `dokimi:review_replay` tasks (§4.5) from the review
 threads of merged pull requests, so `gold.json` is not written by hand. It
 makes no GitHub call: the threads come from a file `gh api graphql` wrote, so a
 private repository works the same way and the command needs no network for a
@@ -885,7 +885,7 @@ local source.
 # a window of merged PRs with their threads; --slurp writes the pages as one JSON list
 gh api graphql --paginate --slurp -F query=@replay-threads.graphql \
     -F q='repo:IntelPython/dpnp is:pr is:merged merged:2026-10-01..2026-10-27' > threads.json
-python cli.py repo tasks replay ~/dpnp --threads threads.json --out ~/dpnp/.agent-eval/tasks
+python cli.py eval tasks generate ~/dpnp --from replay --threads threads.json --out ~/dpnp/.agent-eval/tasks
 ```
 
 `replay-threads.graphql` asks for the fields the command reads. A search
@@ -2171,7 +2171,7 @@ python cli.py eval tasks generate ~/dpnp@<sha> --from graph --index index.scip -
 
 ```bash
 # review tasks from the threads of merged PRs (§4.6): no LLM, no docker, no GitHub call
-python cli.py repo tasks replay ~/dpnp --threads threads.json --out ~/dpnp/.agent-eval/tasks
+python cli.py eval tasks generate ~/dpnp --from replay --threads threads.json --out ~/dpnp/.agent-eval/tasks
 # a task starts from its PR's base: guidance:rev:<sha> runs the guidance under review there
 # (replace <sha> with that revision; the quotes keep the shell from reading <sha> as a redirect)
 python cli.py repo run ~/dpnp --task review_replay_pr3107 --arm 'guidance:none,guidance:rev:<sha>' \

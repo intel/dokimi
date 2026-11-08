@@ -593,6 +593,16 @@ def test_cli_dry_run_refuses_a_catalogue_location_a_run_would_refuse(tmp_path, c
     assert out.code == EXIT_USAGE and "must be project:|home:|config:" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize("text", [CATALOGUE_HEAD + "  - {id: a, at: 2026-99-99}\n", "[" * 100000],
+                         ids=["bad-date", "deep"])
+def test_cli_dry_run_refuses_a_catalogue_whose_yaml_does_not_load(tmp_path, capsys, text):
+    path = tmp_path / "cat.yaml"
+    path.write_text(text, encoding="utf-8")
+    with refusal() as out:
+        _cli("--harness", str(_profile(tmp_path)), "--catalogue", str(path), "--dry-run")
+    assert out.code == EXIT_USAGE and f"{path}: cannot read the catalogue" in capsys.readouterr().err
+
+
 @pytest.mark.skipif(not Path("/dev/fd").is_dir(), reason="needs /dev/fd")
 def test_the_digest_is_of_the_catalogue_bytes_read_from_a_pipe(tmp_path):
     data = _catalogue("{id: project-client, at: 'project:{client_project}'}").encode()
@@ -767,7 +777,8 @@ def test_the_bundled_agents_dir_collision_places_one_copy(tmp_path):
     assert [s["case"] for s in fixture.skipped] == ["dup-project-client2"]
 
 
-@pytest.mark.parametrize("name", ["null", "true", "123", "a: b", "project-client"])
+@pytest.mark.parametrize("name", ["null", "true", "123", "a: b", "project-client", "2026-99-99",
+                                  pytest.param("[" * 100000, id="deep")])
 def test_the_skill_name_loads_back_as_the_same_string(name):
     text = skill_text(Case(id="c", at="project:x", name=name, dirname="c"), "SK000001", "SB000001")
     assert yaml.safe_load(text.split("---")[1])["name"] == name

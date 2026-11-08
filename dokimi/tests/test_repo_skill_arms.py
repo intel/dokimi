@@ -707,6 +707,20 @@ def test_the_base_check_matches_a_skill_directory_not_a_name_prefix(tmp_path):
                root / ".git")
 
 
+@pytest.mark.skipif(os.name == "nt", reason="a carriage return in a file name")
+def test_the_base_check_drops_a_guidance_file_with_a_carriage_return_in_its_path(tmp_path):
+    write(tmp_path / "toy", ".claude/skills/lint/a\rb/AGENTS.md", "# lint guidance\n")  # the only file under lint
+    root, base = make_repo(tmp_path)
+    _skill(root, ".agent-eval/skills/lint", "lint")
+    git(root, "add", "-A")
+    git(root, "commit", "-qm", "skills")
+    tasks = [Task("t", {"base": base}, root)]
+    with pytest.raises(ArmError, match="base of task t already has .claude/skills/lint"):
+        check_arms([parse_arm("skill:skills/lint")], root / ".agent-eval", tasks, root / ".git", ["**/AGENTS.md"])
+    check_arms([parse_arm("guidance:none+skill:skills/lint")], root / ".agent-eval", tasks, root / ".git",
+               ["**/AGENTS.md"])  # the arm removes that file first: nothing is left under lint
+
+
 def test_the_base_check_counts_only_the_files_the_revision_writes_back(tmp_path):
     root, base = make_repo(tmp_path)
     _skill(root, ".agent-eval/skills/lint", "lint")
