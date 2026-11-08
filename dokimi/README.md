@@ -148,7 +148,7 @@ Results and registries
   baseline            Save and compare evaluation baselines
   dashboard           Generate dashboard Markdown/JSON
   dataset             Export artifacts to JSONL/Parquet/Hugging Face
-  library             List/show registered products and intent domains (alias: product)
+  catalog             List/show products and subject descriptors; check external skill catalogs
 ```
 
 That is the curated set; `python cli.py --help` lists every group.
@@ -173,7 +173,7 @@ Two YAML registries, bundled in the package (`dokimi/products.yaml`,
 
 - **`products.yaml`** — *what products exist*: identity, description, repo, and
   doc sources for each product (oneTBB, oneMKL, VTune, dpnp, …). Used by
-  `python cli.py library …` (alias: `product`) and `python cli.py benchmark …`.
+  `python cli.py catalog list --kind product` and `python cli.py benchmark …`.
 - **`intents.yaml`** — *what user problems exist*: broad scenario domains
   (data science, machine learning, performance optimization, debugging, …),
   each mapped to the products that serve it, with example user intents. A
@@ -187,8 +187,8 @@ Explore the mapping with:
 
 ```bash
 python cli.py catalog intents                       # list domains + products
-python cli.py library list --domain data-science    # products for a domain
-python cli.py library show vtune                    # includes the product's domains
+python cli.py catalog list --kind product --domain data-science    # products for a domain
+python cli.py catalog show --kind product vtune     # includes the product's domains
 ```
 
 ## Static benchmark metrics

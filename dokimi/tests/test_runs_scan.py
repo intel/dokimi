@@ -55,6 +55,7 @@ EXPECTED: dict[str, tuple[dict, str | None, str | None, str | None]] = {
     "dokimi_config.v1": ({}, "skill/onetbb, repo", None, None),
     "headroom.v1": ({}, None, None, None),
     "redteam.v1": ({}, "questions.json", None, None),
+    "leak.v1": ({}, "questions.json", None, None),
     "need_graph.v1": ({}, "dpnp-io", None, None),
     "eval_coverage.v1": ({}, "dpnp-io", None, None),
     "catalog_eval.v1": ({}, "demo-catalog", None, None),

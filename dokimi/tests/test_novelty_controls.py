@@ -10,7 +10,7 @@ import pytest
 
 from dokimi.novelty.atoms import Atom
 from dokimi.novelty.client import LLMClient
-from dokimi.novelty.controls import clustered_ci
+from dokimi.novelty.controls import PLACEBO_ARM, clustered_ci, placebo_gated
 from dokimi.novelty.measure import ERRORED, ProbeRun, paired_outcomes, run_measurement
 from dokimi.novelty.probes import Probe
 from dokimi.novelty.report import build_probe_record
@@ -178,6 +178,14 @@ def test_clustered_ci_has_a_minimum_of_five_atoms_and_a_pinned_interval():
     assert clustered_ci(five) == [0.2, 1.0]
 
 
+def test_clustered_ci_weights_by_probes_and_pins_both_percentile_bounds():
+    # Unequal clusters: the rate divides by the probes picked, not the atoms picked,
+    # so atom a weighs three times f; with equal sizes the two would agree.
+    per_atom = {"a": [1.0, 1.0, 1.0], "b": [0.0, 1.0], "c": [0.0], "d": [0.0], "e": [0.0],
+                "f": [1.0]}
+    assert clustered_ci(per_atom) == [0.1429, 0.8571]
+
+
 class _Stub:
     """Empty stand-ins for the measure result and the probe set that the record reads."""
 
@@ -249,6 +257,15 @@ def test_added_over_placebo_carries_the_atom_clustered_interval():
                      "full": [RIGHT, RIGHT] + [WRONG] * 6})
     gated = paired_outcomes(runs)["added_over_placebo"]
     assert (gated["rate"], gated["ci95"]) == (0.25, [0.0, 0.625])
+
+
+def test_placebo_gated_does_not_measure_the_placebo_against_itself():
+    runs = _arms_of({"no_artifact": [WRONG] * 5, "placebo": [RIGHT, WRONG, WRONG, WRONG, WRONG],
+                     "full": [RIGHT] * 5})
+    assert placebo_gated(runs, baseline_arm="no_artifact", with_arm=PLACEBO_ARM,
+                         scoring="lenient") is None
+    gated = placebo_gated(runs, baseline_arm="no_artifact", with_arm="full", scoring="lenient")
+    assert gated is not None and gated["count"] == 4
 
 
 def _skill_with_atoms(tmp_path, monkeypatch, seen):

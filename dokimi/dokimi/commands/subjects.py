@@ -20,7 +20,6 @@ from dokimi.defaults import (
     JUDGE_MODEL_FOR_PROVIDER,
     JUDGE_MODEL_HELP,
 )
-from dokimi.exit_codes import EXIT_USAGE
 from dokimi.utils import InputError
 
 
@@ -52,8 +51,7 @@ def cmd_subjects_show(args: argparse.Namespace) -> None:
     try:
         descriptor = load_subject(args.subject)
     except (ValueError, FileNotFoundError) as exc:
-        print(f"Error loading subject: {exc}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError(f"cannot load subject: {exc}") from exc
 
     if descriptor.subject.kind == "repo":
         print(json.dumps({
@@ -98,12 +96,9 @@ def cmd_subjects_run(args: argparse.Namespace) -> None:
     try:
         descriptor = load_subject(args.subject)
     except (ValueError, FileNotFoundError) as exc:
-        print(f"Error loading subject: {exc}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError(f"cannot load subject: {exc}") from exc
     if descriptor.subject.kind == "repo":
-        print("Error: repo subjects are not run by `subjects run` yet; "
-              "check them with `repo validate`", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError("repo subjects are not run by `subjects run` yet; check them with `repo validate`")
     # Attached, not produced: `skill novelty analyze` makes it, so a bad path fails here,
     # before any cell runs.
     try:
@@ -111,13 +106,11 @@ def cmd_subjects_run(args: argparse.Namespace) -> None:
             list(getattr(args, "novelty_artifact", None) or [])
         )
     except (ValueError, FileNotFoundError, json.JSONDecodeError) as exc:
-        print(f"Error loading novelty artifact: {exc}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError(f"cannot load novelty artifact: {exc}") from exc
     try:
         work_tasks = _validate_subject_work_args(descriptor, args)
     except (ValueError, FileNotFoundError) as exc:
-        print(f"Error loading subject work: {exc}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError(f"cannot load subject work: {exc}") from exc
 
     out_dir, baseline_arm, questions = _run_plan(descriptor, args)
     matrix_path = out_dir / "matrix.cells.json"
@@ -125,8 +118,7 @@ def cmd_subjects_run(args: argparse.Namespace) -> None:
         out_dir.mkdir(parents=True, exist_ok=True)
         matrix_path.write_text(json.dumps(_matrix_config_for_run(descriptor, args), indent=2), encoding="utf-8")
     except OSError as exc:
-        print(f"Error: cannot write {out_dir}: {exc}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError(f"cannot write {out_dir}: {exc}") from exc
 
     awareness_runs: list[dict] = []
     for product, questions_path in zip(descriptor.suite.products, questions, strict=True):
@@ -205,30 +197,27 @@ def cmd_subjects_evidence(args: argparse.Namespace) -> None:
     print(f"OK Saved skill evidence: {out} ({len(evidence['results'])} results)")
 
 
+def add_list_show_subject(catalog_list_p) -> None:
+    """The subject-kind argument of `catalog list --kind subject` (#94 M3: `subjects list`)."""
+    catalog_list_p.add_argument(
+        "--subjects-root",
+        default=None,
+        dest="subjects_root",
+        help=(
+            "Directory holding subject descriptors (*.toml/*.json). Required with --kind subject; the "
+            "descriptors live in a separate evaluation-content checkout, e.g. "
+            "--subjects-root /path/to/content-repo/evaluation/subjects"
+        ),
+    )
+
+
 def register(sub, positive_int) -> None:
-    """Add the `subjects` subcommand group."""
+    """Add the `subjects` subcommand group: run and evidence (`list|show` are `catalog`, #94 M3)."""
     subjects_p = sub.add_parser(
         "subjects",
         help="Run evaluation subjects (artifact + suite) into scorecards",
     )
     subjects_sub = subjects_p.add_subparsers(dest="subjects_cmd", required=True)
-
-    list_p = subjects_sub.add_parser("list", help="List subject descriptors")
-    list_p.add_argument(
-        "--subjects-root",
-        default=None,
-        dest="subjects_root",
-        help=(
-            "Directory holding subject descriptors (*.toml/*.json). Required; the "
-            "descriptors live in a separate evaluation-content checkout, e.g. "
-            "--subjects-root /path/to/content-repo/evaluation/subjects"
-        ),
-    )
-    list_p.set_defaults(func=cmd_subjects_list)
-
-    show_p = subjects_sub.add_parser("show", help="Show normalized subject descriptor")
-    show_p.add_argument("subject", help="Subject descriptor path (.toml or .json)")
-    show_p.set_defaults(func=cmd_subjects_show)
 
     run_p = subjects_sub.add_parser("run", help="Run subject awareness matrix and write scorecard")
     run_p.add_argument("subject", help="Subject descriptor path (.toml or .json)")
@@ -326,8 +315,7 @@ def _run_plan(descriptor, args: argparse.Namespace) -> tuple[Path, str, list[str
         questions = _questions_for_products(descriptor.suite.products, descriptor.suite.questions)
         _validate_unique_product_output_dirs(descriptor.suite.products)
     except ValueError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError(str(exc)) from exc
     return out_dir, baseline_arm, questions
 
 
