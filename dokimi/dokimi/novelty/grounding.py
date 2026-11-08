@@ -18,9 +18,9 @@ from __future__ import annotations
 import hashlib
 import re
 import shlex
-import subprocess
 
 from dokimi.eval.reference_checks import LONG_FLAG
+from dokimi.process import Env, run
 from dokimi.utils import InputError
 
 #: Options every argument parser adds; never listed as an atom's claim.
@@ -36,13 +36,12 @@ def help_text(tool: str, *, timeout: float = 20.0) -> str:
     argv = shlex.split(tool)
     for flag in ("--help", "-h"):
         try:
-            done = subprocess.run([*argv, flag], capture_output=True, text=True,
-                                  timeout=timeout, check=False)
+            done = run([*argv, flag], timeout=timeout, env=Env.inherit())
         except FileNotFoundError:
             raise InputError(f"{argv[0]!r} is not installed; cannot read its help") from None
-        except subprocess.TimeoutExpired:
+        if done.timed_out:
             continue
-        text = (done.stdout or "") + (done.stderr or "")
+        text = done.stdout + done.stderr
         if re.search(LONG_FLAG, text):
             return text
     raise InputError(f"`{tool} --help` lists no long options")

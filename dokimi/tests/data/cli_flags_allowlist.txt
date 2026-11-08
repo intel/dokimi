@@ -259,3 +259,5 @@
 --relock  # eval leak (#220 A3) adds it: no registry concept yet; a F1b migration names it
 --verbatim-words  # eval leak (#220 A3) adds it: no registry concept yet; a F1b migration names it
 --proposer  # eval leak (#220 A3) adds it: no registry concept yet; a F1b migration names it
+--tool  # skill novelty ground (#472): the command whose --help is the source; no registry concept yet
+--tool-version  # skill novelty ground (#472): recorded with the help snapshot; no registry concept yet

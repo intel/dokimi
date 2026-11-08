@@ -67,7 +67,7 @@ with the docs, not knowledge of the skill) and is still a model grading free tex
 | Roles: a failed `veto` gives `wrong_other`; a `sufficient` check decides; `evidence` is recorded only; an abstention is never overruled into a pass | `measure.py` `resolve_verdict` |
 | `judge_verdict`, `verdict_source`, `checks` on each checked run; a record-level `checks` block (`checked_runs`, `overruled`, `vetoed`, `judge_passed_vetoed`, `decided`, `judge_agreed`) | `measure.py` `ProbeRun`, `MeasureResult.checks_summary`, `report.py` |
 | `identifiers` check: every identifier the answer names (long options by default, inside `within`) is in `known`; `--no-x` counts when `--x` is known. `role` and `tier` validated on every check | `dokimi/eval/reference_checks.py` |
-| `skill novelty ground --atoms A --tool "perf report" [--tool ...]`: runs the tool's `--help`, writes an `identifiers` veto with the help's sha256 into the atoms that name the tool | `dokimi/novelty/grounding.py`, `commands/novelty.py` |
+| `skill novelty ground --atoms A --tool "perf report" [--tool ...]`: runs the tool's `--help`, writes an `identifiers` veto with the help's sha256 into the atoms that name the tool | `dokimi/novelty/grounding.py`, `commands/novelty_ground.py` |
 
 A `--tool` check applies only where the tool's name is followed directly by an option, so a
 `perf` check does not judge `perf report --stdio`: give each subcommand as its own `--tool`.
@@ -116,12 +116,13 @@ New fields on every check:
 * `tier`: `verifiable`, `grounded` or `judge`. Lets a report group results by how objective
   they are, without inferring it from the type.
 * `role`: what the check may do to the final verdict.
-  * `veto`: failing makes the answer wrong, whatever the judge says. Passing decides nothing.
-  * `sufficient`: passing makes the answer correct and failing makes it wrong. Only for a
-    probe whose whole expected answer is one checkable value ("which flag", "which
-    version").
-  * `evidence`: recorded and reported, never changes the verdict. The default, and the
-    safe setting while a check kind is new.
+
+    * `veto`: failing makes the answer wrong, whatever the judge says. Passing decides nothing.
+    * `sufficient`: passing makes the answer correct and failing makes it wrong. Only for a
+      probe whose whole expected answer is one checkable value ("which flag", "which
+      version").
+    * `evidence`: recorded and reported, never changes the verdict. The default, and the
+      safe setting while a check kind is new.
 
 The prototype below explains why `veto` matters more than `sufficient`: naming the right
 identifier is necessary but rarely sufficient, while naming one that does not exist is

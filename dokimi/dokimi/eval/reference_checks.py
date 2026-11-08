@@ -442,32 +442,47 @@ def blank_value(kind: str, c: Mapping[str, Any], value: Any) -> bool:
     return not text.strip()
 
 
+def _ladder_problems(c: Mapping[str, Any]) -> list[str]:
+    """A ``role`` or ``tier`` outside its vocabulary."""
+    out = []
+    for key, allowed in (("role", ROLES), ("tier", TIERS)):
+        if c.get(key) is not None and c.get(key) not in allowed:
+            out.append(f"{key} must be one of {', '.join(allowed)}, not {c.get(key)!r}")
+    return out
+
+
+def _identifiers_problems(c: Mapping[str, Any]) -> list[str]:
+    """An ``identifiers`` check without names, or with a regex that does not compile."""
+    known = c.get("known")
+    out = [] if isinstance(known, list) and known and all(isinstance(k, str) and k for k in known)         else ["identifiers needs `known`: a non-empty list of names"]
+    for key in ("pattern", "within"):
+        if c.get(key) is not None:
+            try:
+                re.compile(str(c[key]))
+            except re.error as exc:
+                out.append(f"identifiers {key} {c[key]!r} does not compile: {exc}")
+    return out
+
+
+def _values_problems(kind: str, c: Mapping[str, Any]) -> list[str]:
+    """A value check with no values, or a blank one."""
+    values = check_values(c)
+    if not values:
+        return [f"{kind} has no values"]
+    # A blank value is found in every answer (match, regex), so it would pass everything.
+    return [f"{kind} has a blank value"] if any(blank_value(kind, c, v) for v in values) else []
+
+
 def _check_problems(kind: str, c: Mapping[str, Any]) -> list[str]:
     # An absent weight is 1.0; an explicit null is not a number, and grade_check would raise on it.
     weight = c.get("weight", 1.0)
     out = ["weight is not a number"] if as_float(weight) is None else (
         ["weight must not be negative"] if weight < 0 else [])
-    if c.get("role") is not None and c.get("role") not in ROLES:
-        out.append(f"role must be one of {', '.join(ROLES)}, not {c.get('role')!r}")
-    if c.get("tier") is not None and c.get("tier") not in TIERS:
-        out.append(f"tier must be one of {', '.join(TIERS)}, not {c.get('tier')!r}")
+    out += _ladder_problems(c)
     if kind == "identifiers":
-        known = c.get("known")
-        if not isinstance(known, list) or not known or not all(isinstance(k, str) and k for k in known):
-            out.append("identifiers needs `known`: a non-empty list of names")
-        for key in ("pattern", "within"):
-            if c.get(key) is not None:
-                try:
-                    re.compile(str(c[key]))
-                except re.error as exc:
-                    out.append(f"identifiers {key} {c[key]!r} does not compile: {exc}")
+        out += _identifiers_problems(c)
     if kind in DETERMINISTIC and kind not in ("json", "identifiers"):
-        values = check_values(c)
-        if not values:
-            out.append(f"{kind} has no values")
-        elif any(blank_value(kind, c, v) for v in values):
-            # A blank value is found in every answer (match, regex), so it would pass everything.
-            out.append(f"{kind} has a blank value")
+        out += _values_problems(kind, c)
     if kind in DETERMINISTIC and str(c.get("mode", "any")) not in ("any", "all"):
         out.append(f"mode must be 'any' or 'all', not {c.get('mode')!r}")
     if kind == "match" and str(c.get("location", "end")) not in _LOCATIONS:

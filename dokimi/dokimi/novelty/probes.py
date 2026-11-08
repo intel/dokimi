@@ -166,9 +166,7 @@ class Probe:
     # For a reversal probe the graded answer key is "refuse the premise", so the
     # judge is told to score agreement as wrong rather than matching `expected`.
     expect_refusal: bool = False
-    #: Program checks of the answer, in the ``grading.checks`` schema of
-    #: :mod:`dokimi.eval.reference_checks` (``atom.meta["grading"]``). A check's ``role`` says
-    #: whether it may overrule the judge; see :func:`dokimi.novelty.measure.resolve_verdict`.
+    #: ``atom.meta["grading"]`` in the reference-check schema; roles: ``measure.resolve_verdict``.
     grading: dict | None = None
 
     def as_dict(self) -> dict:

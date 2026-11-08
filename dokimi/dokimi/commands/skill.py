@@ -30,7 +30,6 @@ def register_skill(skill_sub, positive_int) -> None:
         _stops_at_cap,
         cmd_novelty_analyze,
         cmd_novelty_atoms,
-        cmd_novelty_ground,
         cmd_novelty_items,
         cmd_novelty_probe,
         cmd_novelty_shorten,
@@ -112,6 +111,8 @@ def register_skill(skill_sub, positive_int) -> None:
     ground_p.add_argument("--tool-version", default=None, dest="tool_version",
                           help="Version recorded with the help snapshot")
     ground_p.add_argument("--out", default=None, help="Default: rewrite --atoms in place")
+    from dokimi.commands.novelty_ground import cmd_novelty_ground
+
     ground_p.set_defaults(func=cmd_novelty_ground)
 
     items_p = novelty_sub.add_parser(
