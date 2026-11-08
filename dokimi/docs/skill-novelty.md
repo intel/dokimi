@@ -118,8 +118,9 @@ be right or wrong) and `harmful_conflicting` (below), which overrides the other 
   at once"), was non-inferior on pooled data (+0.005, CI [−0.045, +0.057]) and *worse* on
   `nemotron-nano-12b` for `dpnp-quickstart` ([§10.6](skill-novelty-evidence.md)).
 - An atom the value judge did not answer for gets no category. The artifact says how many
-  (`N of M atoms got no need/scaffolding verdict`, split into calls that failed and rows the reply
-  skipped), rather than counting them as inert, and its span is labelled from what was measured
+  (`N of M atoms got no need/scaffolding verdict`, split into calls that failed, rows the reply
+  skipped, malformed rows, and replies with no usable verdict row; an empty list for a batch is
+  one of those, split and re-asked, never cached), rather than counting them as inert, and its span is labelled from what was measured
   (`still_missing`, or `unscored` when nothing was) rather than `redundant` or `inert`.
 
 ### `harmful_conflicting` (judged)
@@ -145,11 +146,12 @@ marked. Read it as a review queue:
   `harmful_conflicting` row reads `not measured (0 found)`. An artifact written before
   `conflict_coverage` existed has no such field and keeps the old reading, a 0 that counts as
   cleared, unless its atom set was capped; re-run `analyze` to check it.
-- **Unchecked atoms.** A call whose reply does not parse is split and re-asked only while both
+- **Unchecked atoms.** A call whose reply does not parse, or whose rows name no pair of the batch
+  (an empty list is fine: it means no conflicts), is split and re-asked only while both
   halves keep two atoms, since one statement has no pair to look at; a chunk of two or three whose
   reply does not parse fails with its error. Atoms in a call that failed, and an atom left alone in
   a chunk (the 41st, say), are counted in `N of M atoms were not checked for conflicts`, split by
-  cause (`K in calls that failed (last error: …)`, `K alone in a batch, with no pair to check`).
+  cause (`K in calls that failed (last error: …)`, `K whose reply named no usable pair`, `K alone in a batch, with no pair to check`).
   Their ids are not written to the artifact.
 - **False positives (anecdotal, not a rate).** Spot-checking 7 of the 31 pairs one run reported
   ([mattpocock/skills](https://github.com/mattpocock/skills) @ `49dd158`) found 4 real, 1
@@ -249,6 +251,52 @@ propositions but *negative edges*: one-clause blocks on an inference the model w
 not mean NumPy's BLAS is wired to it", "fits in VRAM does not mean it will launch now". Cheap in
 tokens, invisible to any frequency or perplexity ranking, expensive to lose. That is what the
 `protection` axis and the amber colour exist for.
+
+## Choosing the extractor and the judge
+
+Three roles touch a run. The **answerer** (`--model`) is the model under measurement. The
+**extractor** (`--extract-model`) reads the artifact and writes the atoms, the answer key.
+The **judge** (`--judge-model`) grades each answer against that key. The answerer must
+not grade itself (refused unless `--allow-self-judge`), and the extractor must not be the
+answerer (`probe` warns when it is). Nothing else separates the extractor from the judge,
+so the same model, or one vendor family, can write the key and grade against it.
+
+Defaults, unchanged: `analyze` and `probe` leave `--extract-model` unset, and the extractor
+then is the judge. With no judge flags and the default answerer, that is
+`anthropic/claude-sonnet-5-5`, so a plain run has the extractor and the judge on one model.
+`atoms` and the `shorten` adjudicator differ: there `--model` is the extractor (or the
+retention adjudicator), not the model under measurement, and it defaults to the judge model,
+`anthropic/claude-sonnet-5-5`. A plain `atoms` run therefore has the extractor and the judge on
+one model: pass `--extract-model` of another family there (with `--provider` when it is not
+Anthropic's).
+
+`analyze` checks the extractor against the judge before it spends anything; `probe` checks the
+model that wrote the saved answer key (the atoms file's `extractor`) against the judge. The same model,
+or two models of one vendor family (the vendor is read off the model id: `claude`, `sonnet`,
+`haiku`, `opus` and `anthropic` are one family; `gpt` and `openai` another; `gemini` and
+`mistral` likewise), prints a `WARNING` on stderr. The vendor is read off the name, so a model
+served locally under a vendor's name (`gpt-oss-120b` is OpenAI's) counts as that vendor; ids that
+name no known vendor never match. `analyze` records the result in the artifact's
+`run_config.extractor_judge` (`extractor`, `judge`, `same_model`, `same_vendor`); `probe`
+prints the warning only. The warning does not refuse the run.
+
+To clear the warning, give the extractor a different family from the judge. `probe` reads the key
+from the saved atoms file, so its own `--extract-model` does not clear it: pick another judge, or
+write the atoms file again with another `atoms --extract-model` (and `--provider`). Here the
+extractor is Anthropic's, the judge OpenAI's:
+
+```bash
+python cli.py skill novelty analyze --artifact skill:path/to/skill \
+    --model claude-opus-5-5 --provider anthropic \
+    --judge-model gpt-6.1-sol --judge-provider openai \
+    --extract-model claude-haiku-5-5 --extract-provider anthropic
+```
+
+With two vendors available, one role must share a family with another. Keep the judge and the
+extractor apart, since the judge grades against the extractor's key. The answerer may share a
+family with one of them, and the warning does not check that; say so when you quote the numbers.
+A third family keeps all three apart. Changing the extractor changes the atoms, so compare
+only cells that name the same extractor.
 
 ## Using it as an authoring tool
 
@@ -1184,22 +1232,27 @@ And the retention oracle runs retrieval → NLI locally, escalating to an LLM on
 ambiguous band, with a disk cache (`--cache-dir`) keyed on (atom, text). Full sweeps stay opt-in
 (`--all-atoms`).
 
-The cache key carries a version (`retention-cache-v3`). Entries written before failed
-adjudications were kept out of the cache can hold a failure stored as `absent`, and entries written
-before a hedged verdict (`retained?`) counted as no verdict can hold it stored as `retained`; both
-look like real ones, so none of them is read. The old files stay in `--cache-dir` and can be deleted. The
+The cache key carries a version (`retention-cache-v4`). Entries written before failed
+adjudications were kept out of the cache can hold a failure stored as `absent`, entries written
+before a hedged verdict (`retained?`) counted as no verdict can hold it stored as `retained`, and
+entries written before a reply cut at the output ceiling was an error can hold a verdict parsed
+from a truncated reply; all of them look like real ones, so none of them is read. The old files stay in `--cache-dir` and can be deleted. The
 first run after upgrading therefore pays one adjudication call per pair the old cache held, unless
-`DOKIMI_RESPONSE_CACHE` replays it: the prompt is unchanged, so its entries still hit.
+`DOKIMI_RESPONSE_CACHE` replays it, but the response-cache key carries `max_tokens`, and novelty
+calls now send 16384 where they sent none, so those entries miss too.
 
-**Pass `--max-tokens` when the provider has a low default output ceiling.** litellm sends
-4096 to Bedrock-hosted Claude when none is given, and on a dense skill a 25-span extraction
-batch can need more than that: in the run below, replies came back with `finish_reason=length`
-at exactly 4096 tokens, cut mid-array. Extraction recovers by splitting an unparseable batch (or one whose rows are
-all unusable) in half and re-asking, down to one span per call, so a truncation costs extra calls rather than
+**Pass `--max-tokens` when a reply can outgrow the output ceiling.** Novelty calls ask for
+16384 output tokens unless `--max-tokens` names a ceiling. litellm sends 4096 to Bedrock-hosted
+Claude when none is given, and on a dense skill a 25-span extraction batch can need more than
+that: in the run below, replies came back with `finish_reason=length` at exactly 4096 tokens,
+cut mid-array. A reply cut at the ceiling (`finish_reason` `length` or `max_tokens`) is an error,
+not a parse that happens to succeed: its cost is still recorded, and the call fails with
+"reply cut at the output ceiling". Extraction recovers by splitting a batch that was cut or
+unparseable (or one whose rows are all unusable) in half and re-asking, down to one span per call, so a truncation costs extra calls rather than
 atoms: up to 2n−1 calls for an n-span batch that never parses. The artifact's `extraction`
 block counts them (`calls` against `batches`, the calls the run would make with no splitting; a
 capped run asks every batch too), and a warning (`atom extraction re-asked N
-unparseable batches as halves`) says what they cost; `--max-tokens 16000` avoids the truncated ones, not those with unusable rows. A call
+unparseable batches as halves`) says what they cost; a higher `--max-tokens` avoids the truncated ones, not those with unusable rows. A call
 that fails or returns an empty reply is not split, since half a batch fails the same way.
 
 Spans that still cannot be read are *unread*, not text that carries nothing. The warning
@@ -1237,16 +1290,20 @@ verdict (`retention.llm_errors`); each is answered `absent` for that decision an
 on disk or in `DOKIMI_RESPONSE_CACHE`, so carrier confirmation and shortening scores under-count
 retention by up to that many decisions. A hedged verdict (`"retained?"`) counts as no verdict.
 `analyze` and `shorten` both print it, and `shorten` repeats it beside its best candidate
-(`knowledge under-counted: N adjudications got no usable verdict`). The value judge and the conflict check split an
-unparseable batch the same way as extraction, and say so (`content classification re-asked N
-unparseable batches as halves`). Every novelty call passes a test of a usable reply to the
+(`knowledge under-counted: N adjudications got no usable verdict`). The value judge and the conflict check split a
+batch whose reply does not parse, or has no row it can use, the same way as extraction, and say so
+(`content classification re-asked N unparseable batches as halves`, or `unusable` when no row was
+usable; only the first is cured by `--max-tokens`). A judge row whose `needed` is not a real boolean
+is counted as malformed, apart from a statement the judge skipped, unless no row of its reply is usable (then the batch is split and the atoms count as `unusable`); a conflict row that names no pair
+of its batch is dropped and counted. Every novelty call passes a test of a usable reply to the
 response cache, so a reply that fails it is never stored or replayed: extraction, the batched
 judges and the oracle pass their parse test; the probe grader, the faithfulness check and the
 need graph also require the field they read (a named verdict, a node), so `{"verdict": null}`
 or `{"nodes": []}` parses and is still asked again; routing requires a `pick`; and the answerer
-requires the closing `confidence:` line it was asked for, so an answer cut at the ceiling is
-re-asked, and its truncation warning logged, on every run. An empty answer is a failed probe run
-(its pair is dropped), not a wrong answer.
+requires the closing `confidence:` line it was asked for. An answer the provider reports as cut
+at the ceiling errors its pair, which is dropped, and replays as the same error from the cache;
+one cut without a reported reason lacks that line, so it is graded but never stored. An empty
+answer is a failed probe run (its pair is dropped), not a wrong answer.
 
 ## Limits to state when quoting these numbers
 

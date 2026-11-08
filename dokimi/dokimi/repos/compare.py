@@ -474,7 +474,7 @@ def _compare_measure(treatment: str, model: str, measure: str, shared: list[str]
         flag = headroom(pairs, tops, failed)
         extra = {"unmeasured": sum(failed)} if exact else {}  # the ledger reads it; plain rows are unchanged
     return {"treatment": treatment, "model": model, "measure": measure,
-            **paired_summary(pairs, measure, seed=seed, exact=exact), "headroom": flag, **extra}
+            **sign_flip_summary(pairs, measure, seed=seed, exact=exact), "headroom": flag, **extra}
 
 
 def headroom(pairs: list[dict[str, Any]], tops: list[tuple[float | None, float | None]],
@@ -561,9 +561,13 @@ def _pair(task: str, base: dict[str, Any], treat: dict[str, Any], measure: str) 
     return out
 
 
-def paired_summary(pairs: list[dict[str, Any]], measure: str = "gate", seed: int = 0, *,
+def sign_flip_summary(pairs: list[dict[str, Any]], measure: str = "gate", seed: int = 0, *,
                    exact: bool = False) -> dict[str, Any]:
     """Statistics over per-task pairs ``{task, baseline, treatment, delta, ...}``.
+
+    This is the sign-flip summary of one repo-compare row: a permutation test on the signs of the deltas. It is not
+    :func:`dokimi.eval.stats.paired_summary`, which describes eval records and runs no test; the two shared a name
+    until this one was renamed ``sign_flip_summary``.
 
     The values are taken at full precision and rounded only in the output: rounded rates such as 1/3 and 2/3
     no longer sum to the same totals, which would move sign patterns across the observed one in the

@@ -357,9 +357,10 @@ def _answer(
 def _is_complete_answer(reply: str) -> bool:
     """A reply worth caching: it reached the closing ``confidence:`` line it was asked for.
 
-    A reply cut at the output ceiling stops before that line, so it is graded on this run
-    (the truncation warning is logged with it) but never stored and replayed without the
-    warning. A complete answer that omits the line is only not cached.
+    A reply the provider reports as cut is tested here too, and may be stored; ``text`` then
+    raises ``OutputTruncated`` on the replay as on the live call, so the pair is errored.
+    A reply cut without a reported reason stops before that line and is graded, not stored.
+    A complete answer that omits the line is only not cached.
     """
     # A reasoning model that spends its ceiling can return ``None`` for the text.
     return isinstance(reply, str) and bool(reply.strip()) and _parse_confidence(reply) is not None

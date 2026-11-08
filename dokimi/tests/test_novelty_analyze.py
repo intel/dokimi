@@ -906,6 +906,12 @@ def test_a_negative_or_string_pair_count_fails_the_schema(tmp_path):
             validate_artifact("novelty", broken)
 
 
+def test_the_run_config_records_how_the_extractor_relates_to_the_judge(tmp_path):
+    artifact = _analyze(tmp_path).artifact
+    assert artifact["run_config"]["extractor_judge"] == {
+        "extractor": "extractor-m", "judge": "judge-m", "same_model": False, "same_vendor": False}
+
+
 def test_an_analyze_artifact_keeps_the_control_fields_and_the_cluster_marker(tmp_path):
     result = _analyze(tmp_path, arms=("no_artifact", "full", "placebo", "no_artifact_repeat"),
                       placebo_text="Lemon cake: fold the egg whites in slowly, then bake.")

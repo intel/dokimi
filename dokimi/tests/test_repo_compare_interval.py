@@ -16,7 +16,7 @@ import pytest
 from dokimi.cli import build_parser
 from dokimi.eval.stats import mean_ci
 from dokimi.repos import compare, compare_interval
-from dokimi.repos.compare import paired_summary, sign_flip_p
+from dokimi.repos.compare import sign_flip_summary, sign_flip_p
 from dokimi.repos.compare_interval import ShiftTest, format_interval, sign_flip_interval
 
 from test_repo_compare import _cell
@@ -46,7 +46,7 @@ def _includes_zero(delta: dict) -> bool:
 
 def test_the_issue_n_findings_row_now_excludes_zero_as_its_p_says():
     assert mean_ci(N_FINDINGS_26)["lo"] < 0 < mean_ci(N_FINDINGS_26)["hi"]  # the t interval it had: across 0
-    row = paired_summary(_pairs(N_FINDINGS_26), "metric:n_findings")
+    row = sign_flip_summary(_pairs(N_FINDINGS_26), "metric:n_findings")
     assert row["p"] == 0.049798 and row["interval_p_disagree"] is False
     assert row["delta"] == {"mean": 0.8846, "lo": 0.0588, "hi": 1.8182, "method": "sign_flip_inversion"}
 
@@ -106,7 +106,7 @@ def test_tied_tasks_count_once_shifted_off_zero():
 
 def test_twenty_tasks_with_few_changed_agree_with_the_exact_p():
     # p is exact over the changed tasks, the interval Monte Carlo over all 20: 0 still falls where p says
-    six, five = paired_summary(_pairs([1.0] * 6 + [0.0] * 14)), paired_summary(_pairs([1.0] * 5 + [0.0] * 15))
+    six, five = sign_flip_summary(_pairs([1.0] * 6 + [0.0] * 14)), sign_flip_summary(_pairs([1.0] * 5 + [0.0] * 15))
     assert six["p"] == 0.03125 and (six["delta"]["lo"], six["delta"]["hi"]) == (0.1, 0.5)
     assert five["p"] == 0.0625 and (five["delta"]["lo"], five["delta"]["hi"]) == (0.0, 0.4545)
 
@@ -130,7 +130,7 @@ def test_the_row_p_places_zero_where_large_deltas_round_p_at_zero_apart(monkeypa
     # printed p itself is sum()'s, 0.0625 compensated (3.12 on) and 0.047 left to right (3.11): 0 follows either
     monkeypatch.setattr(compare, "sum", summed, raising=False)
     a, b, c = 1e9 + 1 / 3, 1e9 + 0.1, 2e9 + 0.2
-    row = paired_summary(_pairs([a, b, c, a, -b, a, b]))
+    row = sign_flip_summary(_pairs([a, b, c, a, -b, a, b]))
     assert row["p"] == p and row["delta"]["lo"] == lo and row["interval_p_disagree"] is False
 
 
@@ -142,7 +142,7 @@ def test_the_interval_excludes_zero_exactly_when_p_is_below_005():
     for n, changed in shapes:
         d = _deltas(rng, n, changed)
         for exact in (False, True) if n % 4 == 0 else (False,):
-            row = paired_summary(_pairs(d), exact=exact)
+            row = sign_flip_summary(_pairs(d), exact=exact)
             if row["p"] is not None:
                 assert _includes_zero(row["delta"]) == (row["p"] >= 0.05), (d, row["p"], row["delta"])
                 seen.add((n > 16, row["p"] < 0.05))
@@ -175,16 +175,16 @@ def test_rounding_keeps_an_end_on_its_side_of_zero():
 
 
 def test_a_mean_rounded_to_zero_is_zero_not_negative_zero():
-    mean = paired_summary(_pairs([-1e-5, 0.0, 0.0]), "turns")["delta"]["mean"]  # -3.3e-6 at 4 places
+    mean = sign_flip_summary(_pairs([-1e-5, 0.0, 0.0]), "turns")["delta"]["mean"]  # -3.3e-6 at 4 places
     assert json.dumps(mean) == "0.0" and f"{mean:+.3f}" == "+0.000"
 
 
 @pytest.mark.parametrize("sign", [1, -1])
 def test_a_tiny_mean_stays_inside_its_interval_kept_off_zero(sign):
     # both ends of six deltas of 4e-5 round to 0 and are kept at 0.0001; the mean at 4 places was 0.0, outside them
-    delta = paired_summary(_pairs([sign * 4e-5] * 6))["delta"]
+    delta = sign_flip_summary(_pairs([sign * 4e-5] * 6))["delta"]
     assert (delta["lo"], delta["mean"], delta["hi"]) == (sign * 1e-4,) * 3
-    assert paired_summary(_pairs([4e-5] * 5 + [-1e-5]))["delta"]["mean"] == 0.0  # interval [-0.0001, +0.0001]
+    assert sign_flip_summary(_pairs([4e-5] * 5 + [-1e-5]))["delta"]["mean"] == 0.0  # interval [-0.0001, +0.0001]
 
 
 def test_an_open_end_prints_as_inf():
