@@ -640,8 +640,8 @@ def review_skills(
             reviews.append(_unloaded_review(entry))
             continue
         skill = entry.skill
-        at_root = skill.path.parent.resolve() == entry.source_root.resolve()
         try:  # any read of SKILL.md after it loaded: an error row, not a crash
+            at_root = skill.path.parent.resolve() == entry.source_root.resolve()
             findings, hidden = _frontmatter_findings(skill, at_root=at_root)
             review = SkillReview(findings=findings, disable_model_invocation=hidden)
             review.findings += _bundle_findings(skill, entry.source_root)

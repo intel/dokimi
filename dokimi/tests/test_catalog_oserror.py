@@ -95,6 +95,28 @@ def test_every_read_failure_kind_on_a_loaded_skill_is_an_error_review(tmp_path, 
     assert [f.code for f in reviews["sib"].findings] == ["unreadable"]
 
 
+@pytest.mark.parametrize("error", [OSError(errno.ELOOP, "Too many levels of symbolic links"), RuntimeError("loop")],
+                         ids=["OSError", "RuntimeError"])
+def test_resolve_error_on_a_loaded_skill_is_an_error_review(tmp_path, monkeypatch, error):
+    # The root check resolves the skill's directory: a loaded skill whose path cannot be resolved is its error row too.
+    _skill(tmp_path, "good")
+    _skill(tmp_path, "sib")
+    entries = read_skill_manifest(tmp_path)
+    real_resolve = Path.resolve
+
+    def refuse_for_sib(self, *args, **kwargs):
+        if self.name == "sib":
+            raise error
+        return real_resolve(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "resolve", refuse_for_sib)
+    reviews = dict(zip((e.name for e in entries), review_skills(entries), strict=True))
+
+    assert reviews["good"].state == "ok"
+    assert reviews["sib"].state == "error"
+    assert [f.code for f in reviews["sib"].findings] == ["unreadable"]
+
+
 @pytest.mark.parametrize("method", ["is_dir", "is_file"])
 def test_stat_error_on_an_unloaded_sibling_is_no_review_and_no_crash(tmp_path, monkeypatch, method):
     _skill(tmp_path, "good")
