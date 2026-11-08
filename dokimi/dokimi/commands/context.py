@@ -98,7 +98,7 @@ def _trace_arms(args: argparse.Namespace) -> dict[str, list[str]]:
 
 
 def _refuse(args: argparse.Namespace, message: str) -> NoReturn:
-    """Stop before any trace is read: exit 1 with the message on stderr. Under --json the leaf's
+    """Stop with the message: exit 1 with it on stderr. Under --json the leaf's
     document with status ``failed`` is printed first, so stdout is never empty."""
     from dokimi import cli_output
 
