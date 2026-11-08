@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import pytest
 
+from tests.cli_refusal import refusal
+
 from dokimi.cli import build_parser
 
 TASK = "id: t\nproduct: p\nquery: q\nreferences:\n  - path: a.py\n"
@@ -32,9 +34,9 @@ def _blocker(tmp_path):
 @pytest.mark.parametrize("flag", ["--out-json", "--out-md"])
 def test_an_unwritable_output_is_reported_not_a_traceback(tmp_path, capsys, flag):
     target = _blocker(tmp_path) / "report"
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as out:
         _run(tmp_path, flag, str(target))
-    assert exc.value.code == 2
+    assert out.code == 2 and out.err.startswith("Error: "), out.err
     assert f"Error: cannot write {target}" in capsys.readouterr().err
 
 
