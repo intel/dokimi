@@ -21,9 +21,25 @@ def _fmt_p(p: Any) -> str:
     return "<0.0001" if p < 0.0001 else f"{p:.4f}"
 
 
-def _raw_p(result: Dict[str, Any]) -> Any:
-    """The sign-flip ``p``; an ``arms.json`` written before it existed holds ``p_ttest`` instead."""
-    return result["p"] if "p" in result else result.get("p_ttest")
+_TTEST_MARK = "†"
+_TTEST_NOTE = f"_{_TTEST_MARK} t-test p, and p (adj) its correction: the record predates the sign-flip test._"
+
+
+def _is_ttest_p(result: Dict[str, Any]) -> bool:
+    """True where an ``arms.json`` written before the sign-flip ``p`` existed holds a ``p_ttest`` instead."""
+    return "p" not in result and result.get("p_ttest") is not None
+
+
+def _fmt_raw_p(result: Dict[str, Any]) -> str:
+    """The sign-flip ``p``, or an old record's ``p_ttest`` marked with :data:`_TTEST_MARK`."""
+    if _is_ttest_p(result):
+        return _fmt_p(result["p_ttest"]) + _TTEST_MARK
+    return _fmt_p(result.get("p"))
+
+
+def _ttest_note(results: List[Dict[str, Any]]) -> List[str]:
+    """The note under a table that printed a ``p_ttest``, so it is not read as the sign-flip p."""
+    return ["", _TTEST_NOTE] if any(_is_ttest_p(r) for r in results) else []
 
 
 def _fmt_ci(lo: Any, hi: Any) -> str:
@@ -103,9 +119,10 @@ def _significance_lines(
             f"| `{arm}` | {_fmt_estimate(sig.get('delta_mean'))} | "
             f"{_fmt_ci(sig.get('ci_lo'), sig.get('ci_hi'))} | "
             f"{_fmt_num(sig.get('cohens_d'), 2)} | {sig.get('effect', '—')} | "
-            f"{_fmt_p(_raw_p(sig))} | {_fmt_p(sig.get('p_adjusted'))} | "
+            f"{_fmt_raw_p(sig)} | {_fmt_p(sig.get('p_adjusted'))} | "
             f"{_fmt_sig(sig.get('significant_adjusted'))} | {sig.get('n', 0)} |"
         )
+    lines += _ttest_note([sig for _, sig in rows])
     lines.append("")
     return lines
 
@@ -139,9 +156,10 @@ def _interaction_lines(summary: Dict[str, Any]) -> List[str]:
             f"{_fmt_num(it.get('delta_combined'))} | "
             f"**{_fmt_estimate(it.get('interaction'))}** | "
             f"{_fmt_ci(it.get('ci_lo'), it.get('ci_hi'))} | "
-            f"{_fmt_p(_raw_p(it))} | {_fmt_p(it.get('p_adjusted'))} | "
+            f"{_fmt_raw_p(it)} | {_fmt_p(it.get('p_adjusted'))} | "
             f"{_fmt_sig(it.get('significant_adjusted'))} | {it.get('n', 0)} |"
         )
+    lines += _ttest_note(interactions)
     lines.append("")
     return lines
 

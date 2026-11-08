@@ -181,12 +181,17 @@ def _rows(md: str) -> list[str]:
 
 
 def test_arms_report_prints_p_from_a_new_record_and_p_ttest_from_an_old_one():
-    new, old = _rows(render_arms_report(_arms_data({"p": 0.0312}))), _rows(render_arms_report(_arms_data({"p_ttest": 0.0339})))
+    new_md, old_md = render_arms_report(_arms_data({"p": 0.0312})), render_arms_report(_arms_data({"p_ttest": 0.0339}))
+    new, old = _rows(new_md), _rows(old_md)
     assert new[0].endswith("| [+1.0, +9.0] | +0.80 | large | 0.0312 | 0.0625 | no | 6 |")
-    assert old[0].endswith("| [+1.0, +9.0] | +0.80 | large | 0.0339 | 0.0625 | no | 6 |")
-    assert new[1].endswith("| 0.0312 | — | — | 6 |") and old[1].endswith("| 0.0339 | — | — | 6 |")  # interaction
+    assert old[0].endswith("| [+1.0, +9.0] | +0.80 | large | 0.0339† | 0.0625 | no | 6 |")
+    assert new[1].endswith("| 0.0312 | — | — | 6 |") and old[1].endswith("| 0.0339† | — | — | 6 |")  # interaction
+    # the old record's t-test p is named under each table; a new record's p gets no note
+    note = "† t-test p, and p (adj) its correction: the record predates the sign-flip test."
+    assert old_md.count(note) == 2 and note not in new_md
     # a new record whose every pair tied has no p, whatever an old field might say
-    assert "| — | 0.0625 |" in _rows(render_arms_report(_arms_data({"p": None, "p_ttest": 0.01})))[0]
+    tied = render_arms_report(_arms_data({"p": None, "p_ttest": 0.01}))
+    assert "| — | 0.0625 |" in _rows(tied)[0] and note not in tied
 
 
 def test_arms_report_prints_an_open_end_as_open():

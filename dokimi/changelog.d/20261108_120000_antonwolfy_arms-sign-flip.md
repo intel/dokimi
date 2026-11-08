@@ -10,7 +10,8 @@
   `p_wilcoxon` and `n_wilcoxon` and add `p` and `n_changed` (the pairs whose delta
   is not 0); `ci_method` is `sign_flip_inversion`. `arms.v1.json` is widened in
   place, so an `arms.json` written before still validates, and the arms report
-  still renders it (its p column falls back to `p_ttest`).
+  still renders it (its p column falls back to `p_ttest`, marked `†`, with a note
+  under the table that the record predates the sign-flip test).
   Verdicts near 0.05 move, almost always toward significant: the old rule (t test
   *and* Wilcoxon below 0.05) was conservative, about 3% false positives at a
   nominal 5% on simulated judge deltas, against 5% now. A constant shift now gets

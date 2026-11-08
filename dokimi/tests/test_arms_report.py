@@ -140,7 +140,7 @@ def test_sig_column_follows_the_adjusted_verdict_not_the_raw_one():
     """
     md = render_arms_report(
         _sig_data(
-            p_ttest=0.0339, p_adjusted=0.0678,
+            p=0.0339, p_adjusted=0.0678,
             significant=True, significant_adjusted=False,
         )
     )
@@ -175,7 +175,7 @@ def test_interaction_row_reports_its_own_adjusted_verdict():
                 "combined_arm": "docs+skill:x", "baseline_arm": "baseline",
                 "delta_a": 2.0, "delta_b": 12.0, "delta_combined": 6.0,
                 "additive_expectation": 14.0, "interaction": -8.0,
-                "ci_lo": -10.0, "ci_hi": -6.0, "p_ttest": 0.03,
+                "ci_lo": -10.0, "ci_hi": -6.0, "p": 0.03,
                 "p_adjusted": 0.06, "significant": True,
                 "significant_adjusted": False, "correction": "holm",
                 "family_size": 2, "n": 6,
