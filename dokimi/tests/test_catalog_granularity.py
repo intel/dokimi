@@ -410,6 +410,15 @@ def test_an_e_g_or_i_e_abbreviation_is_not_a_clause_end_nor_a_word():
     )
 
 
+def test_an_abbreviation_match_ignores_case_and_needs_a_word_boundary():
+    assert g.trigger_clauses("Use when you have files, E.g. Excel sheets") == ("have files excel sheets",)
+    assert g.trigger_clauses("Use when you open fee.g. sheets and more") == ("open fee g",)
+
+
+def test_a_fence_line_indented_four_spaces_is_indented_code_not_an_opener():
+    assert g._fenced(["    ```x", "## A", "text"])[1] == []
+
+
 def test_an_inline_code_line_with_backticks_on_both_ends_is_not_a_fence_opener():
     lines = "intro\n```inline``` text\nmore prose\n## Next\nprose".splitlines()
 
