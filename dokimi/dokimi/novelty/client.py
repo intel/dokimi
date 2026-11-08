@@ -327,10 +327,8 @@ def extractor_judge_relation(extractor_model: str, judge: LLMClient,
 
     if not extractor_provider and _full_id(extractor_model) in CLAUDE_CLI.aliases:
         extractor_provider = CLAUDE_CLI.name
-    # the same id behind a routing prefix or a Bedrock spelling is one model; a version suffix is not dropped
-    identical = (extractor_model == judge.model
-                 or _full_id(extractor_model) == _full_id(judge.model)
-                 or same_model(extractor_model, judge.model))
+    # the same id behind a routing prefix or a Bedrock spelling is one model (utils.same_model, the one rule)
+    identical = extractor_model == judge.model or same_model(extractor_model, judge.model)
     vendor = vendor_of(extractor_model)
     return {
         "extractor": extractor_model,

@@ -58,6 +58,11 @@ def test_another_model_of_the_same_vendor_is_flagged_as_same_vendor_only():
     assert relation["same_vendor"] is True
 
 
+def test_two_sizes_or_two_organizations_of_one_model_are_two_models():
+    assert _relation("qwen3[8b]", _judge("qwen3[32b]", provider="openai"))["same_model"] is False
+    assert _relation("myorg/qwen3-8b", _judge("otherorg/qwen3-8b", provider="openai"))["same_model"] is False
+
+
 def test_different_vendors_are_not_flagged():
     relation = _relation("claude-haiku-5-5", _judge("gpt-6.1-sol", provider="openai"))
     assert relation["same_model"] is False
