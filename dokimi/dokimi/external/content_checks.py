@@ -174,7 +174,7 @@ def content_findings(skill: Skill, *, at_root: bool = False) -> list[Hit]:
         try:
             text = path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
-            continue  # unreadable: the loader or the scan reports it
+            continue  # unreadable or not UTF-8: a bundled file is skipped unread, SKILL.md is the loader's
         where = path.relative_to(skill_dir).as_posix()
         hits += _legacy_hits(where, text)
         hits += _hidden_hits(where, text)

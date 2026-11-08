@@ -250,6 +250,13 @@ def test_symlinked_text_file_is_not_scanned(tmp_path):
     assert _messages(tmp_path, "legacy-model-id") == []
 
 
+def test_bundled_file_that_is_not_utf8_is_skipped_without_a_crash(tmp_path):
+    skill_dir = _skill(tmp_path / "skills", "latin")
+    (skill_dir / "notes.md").write_bytes(b"\xff\xfe gpt-4 \x80")
+
+    assert _messages(tmp_path, "legacy-model-id") == []
+
+
 def test_oversize_text_file_is_not_scanned(tmp_path):
     big = 'Model: "claude-2.1"\n' + "a" * (MAX_BYTES + 1 - len('Model: "claude-2.1"\n'))
     skill_dir = _skill(tmp_path / "skills", "big", files={"big.md": big})
