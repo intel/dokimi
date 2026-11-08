@@ -201,10 +201,11 @@ are common, so `--strict` does not fail on them. A link, or a `../` code span,
 that reaches a file outside the skill directory is a `warn`
 (`link-escapes-skill`, `path-escapes-skill`), since it breaks when the skill is
 installed alone. A description with no "when" clause (`use when ...`, `when deploying ...`) is a `warn`
-(`description-no-when`); the cue is read in English, Spanish, French, German, Portuguese, Russian, Chinese,
-Japanese and Korean, and a description in a script none of them covers (Arabic, Thai, Hebrew, …) is not checked. A Latin-script
-language without a list of its own (Polish, Dutch, Turkish, Vietnamese) is checked against these cues. So is one that overlaps another skill's by at least
-half and shares three words (`description-near-duplicate`). Two skills in different paths with the same
+(`description-no-when`), and so is one that overlaps another skill's by at least
+half and shares three words (`description-near-duplicate`). The `description-no-when` cue is read in English,
+Spanish, French, German, Portuguese, Russian, Chinese, Japanese and Korean, and a description in a script none
+of them covers (Arabic, Thai, Hebrew, …) is not checked. A Latin-script language without a list of its own
+(Polish, Dutch, Turkish, Vietnamese) is checked against these cues. Two skills in different paths with the same
 directory name and description but different `SKILL.md` text are a `warn` on both
 (`mirror-drift`), naming the other copies. Skills with
 `disable-model-invocation: true` are exempt from the description checks.
