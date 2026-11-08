@@ -244,7 +244,7 @@ def cmd_novelty_probe(args: argparse.Namespace) -> None:
     )
     out = Path(args.out) if args.out else _default_dir(args.artifact) / "probes.json"
     # A run the cap stopped keeps the answers it paid for, as a partial result (and exits).
-    save_probe_run(payload, out, done=len(result.runs), not_run=result.not_run)
+    save_probe_run(payload, out, done=len(result.runs), not_run=result.not_run, stop=result.stop)
     print(f"OK Saved {len(result.runs)} probe runs: {out}")
     for scoring in ("lenient", "strict"):
         row = payload["paired"][scoring]

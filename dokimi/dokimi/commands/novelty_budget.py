@@ -51,12 +51,20 @@ def write_run(payload: dict, out: Path, partial: dict | None = None) -> Path:
     return dest
 
 
-def save_probe_run(payload: dict, out: Path, *, done: int, not_run: int) -> Path:
-    """Write a probe measurement; one the cap stopped keeps its ``done`` answers and exits."""
+def save_probe_run(payload: dict, out: Path, *, done: int, not_run: int,
+                   stop: tuple[str, str] | None = None) -> Path:
+    """Write a probe measurement; one the cap stopped keeps its ``done`` answers and exits.
+
+    ``stop`` is the reason and message of the call the cap refused: a call with no known price
+    is named as such, not as a ``--max-usd`` stop."""
     if not not_run:
         return write_run(payload, out)
-    message = f"--max-usd stopped the probes with {done} of {done + not_run} answers"
-    partial = {"reason": "spend_cap", "calls_done": done, "calls_planned": done + not_run,
+    reason, cause = stop or ("spend_cap", "")
+    if reason == "spend_cap":
+        message = f"--max-usd stopped the probes with {done} of {done + not_run} answers"
+    else:
+        message = f"the probes stopped with {done} of {done + not_run} answers: {cause}"
+    partial = {"reason": reason, "calls_done": done, "calls_planned": done + not_run,
                "message": message}
     exit_partial(message, write_run(payload, out, partial))
 
@@ -81,13 +89,15 @@ def verify_or_partial(sample, spans, client) -> dict | None:
 
     try:
         verify_atoms(sample, spans, client=client)
-    except SpendCapReached:
+    except SpendCapReached as exc:
         # Extraction may have left spans unread before the check ran: count those as unread.
         read = len(spans) - sum(span.unread for span in spans)
-        return {"reason": "spend_cap", "stage": "verify", "spans_read": read,
-                "spans_total": len(spans),
-                "message": (f"--max-usd stopped the faithfulness check with {read} of "
-                            f"{len(spans)} spans read")}
+        message = (f"--max-usd stopped the faithfulness check with {read} of {len(spans)} "
+                   "spans read") if exc.reason == "spend_cap" else (
+                   f"the faithfulness check stopped with {read} of {len(spans)} spans read: "
+                   f"{exc}")
+        return {"reason": exc.reason, "stage": "verify", "spans_read": read,
+                "spans_total": len(spans), "message": message}
     return None
 
 

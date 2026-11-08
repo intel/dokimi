@@ -41,6 +41,11 @@ class SpendCapReached(BaseException):
     call at a time and the run would carry on with every later call refused.
     """
 
+    def __init__(self, message: str, *, reason: str = "spend_cap") -> None:
+        super().__init__(message)
+        # "spend_cap" for the limit; "no_price" for a call the cap cannot meter.
+        self.reason = reason
+
 
 @dataclass
 class SpendCap:
@@ -66,7 +71,8 @@ class SpendCap:
             if self._unpriced:
                 raise SpendCapReached(
                     f"the run stopped on a call with no known price; not calling {model}. "
-                    "Drop --max-usd to run unmetered"
+                    "Drop --max-usd to run unmetered",
+                    reason="no_price",
                 )
             if self.spent_usd >= self.limit_usd:
                 raise SpendCapReached(
@@ -84,7 +90,8 @@ class SpendCap:
                 self._unpriced = True
                 raise SpendCapReached(
                     f"no price is known for {model}, so --max-usd cannot be enforced; "
-                    f"stopped after {self.calls} calls. Drop --max-usd to run unmetered"
+                    f"stopped after {self.calls} calls. Drop --max-usd to run unmetered",
+                    reason="no_price",
                 )
             self.spent_usd += usage.cost_usd
 

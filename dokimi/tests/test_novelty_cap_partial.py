@@ -302,3 +302,40 @@ def test_an_earlier_file_that_is_not_json_is_kept_and_not_taken_for_a_partial_on
     # A file this cannot read is not a partial result, so it is never written over.
     assert partial_destination(finished) == tmp_path / "probes.partial2.json"
 
+
+def test_an_unpriced_probe_stop_names_the_missing_price_not_max_usd(tmp_path):
+    from dokimi.commands.novelty_budget import save_probe_run
+    from dokimi.novelty import measure
+    from dokimi.novelty.probes import Probe
+
+    def unpriced(prompt, system=None):
+        return "an answer", None  # no usage, so no price to meter it with
+
+    answerer = LLMClient(model="a", role="answerer", cap=SpendCap(limit_usd=1.0),
+                         transport=unpriced)
+    probes = [Probe(atom_id=f"a{i}", kind="proposition", question=f"q{i}", expected="x")
+              for i in range(3)]
+    result = measure.run_measurement([], probes, "artifact", answerer=answerer,
+                                     judge=LLMClient(model="j", role="judge"),
+                                     arms=("no_artifact", "full"), concurrency=1)
+    out = tmp_path / "probes.json"
+    with pytest.raises(SystemExit):
+        save_probe_run({"runs": []}, out, done=len(result.runs), not_run=result.not_run,
+                       stop=result.stop)
+    partial = json.loads((tmp_path / "probes.partial.json").read_text(encoding="utf-8"))["partial"]
+    assert partial["reason"] == "no_price"
+    assert partial["message"].startswith("the probes stopped with 0 of 6 answers: ")
+    assert "no price is known for a" in partial["message"]
+
+
+def test_an_unpriced_extraction_stop_names_the_missing_price_not_max_usd():
+    from dokimi.novelty.atoms import ExtractionReport, extract_atoms
+    from dokimi.novelty.spans import segment
+
+    report = ExtractionReport()
+    extract_atoms(segment(ROWS), client=LLMClient(
+        model="e", role="extractor", cap=SpendCap(limit_usd=1.0),
+        transport=lambda prompt, system=None: ("[]", None)), report=report)
+    assert report.partial["reason"] == "no_price"
+    assert "no price is known for e" in report.partial["message"]
+    assert "--max-usd stopped" not in report.partial["message"]

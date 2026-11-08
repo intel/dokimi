@@ -304,16 +304,20 @@ class ExtractionReport:
         }
 
 
-def _stop_at_cap(spans: list[Span], batch: list[Span], pending: list, report: ExtractionReport) -> None:
+def _stop_at_cap(spans: list[Span], batch: list[Span], pending: list, report: ExtractionReport,
+                 stop: SpendCapReached) -> None:
     """The cap ends extraction: ``batch`` and the batches queued behind it go unread, and the
     atoms read so far stand (the caller saves them as a partial result)."""
     for rest in [batch, *(queued for queued, _is_half in pending)]:
         _mark_unread(rest, report)
     pending.clear()
     read = len(spans) - sum(span.unread for span in spans)
+    message = (f"--max-usd stopped extraction with {read} of {len(spans)} spans read"
+               if stop.reason == "spend_cap" else
+               f"extraction stopped with {read} of {len(spans)} spans read: {stop}")
     report.partial = {
-        "reason": "spend_cap", "stage": "extraction", "spans_read": read, "spans_total": len(spans),
-        "message": f"--max-usd stopped extraction with {read} of {len(spans)} spans read",
+        "reason": stop.reason, "stage": "extraction", "spans_read": read,
+        "spans_total": len(spans), "message": message,
     }
 
 
@@ -414,8 +418,8 @@ def extract_atoms(
                 continue
             unparseable = True
             rows = parse(reply)
-        except SpendCapReached:
-            _stop_at_cap(spans, batch, pending, report)
+        except SpendCapReached as exc:
+            _stop_at_cap(spans, batch, pending, report, exc)
             break
         except Exception as exc:
             if unparseable and len(batch) > 1:

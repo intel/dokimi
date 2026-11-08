@@ -164,6 +164,8 @@ class MeasureResult:
     with_arm: str = "full"
     # (probe, arm) jobs the spend cap stopped before they were answered; 0 for a whole run.
     not_run: int = 0
+    # (reason, message) of the first call the cap refused; None when nothing was stopped.
+    stop: tuple[str, str] | None = None
 
     def paired(self, scoring: str) -> dict:
         """The 2×2 for one scoring (see :func:`paired_outcomes`)."""
@@ -311,17 +313,21 @@ def run_measurement(
             confidence=confidence,
         )
 
+    stops: list[SpendCapReached] = []
+
     def guarded(job: tuple[Probe, str]) -> ProbeRun | None:
         try:
             return one(job)
-        except SpendCapReached:  # the cap stops the measurement: this job is not run
+        except SpendCapReached as exc:  # the cap stops the measurement: this job is not run
+            stops.append(exc)
             return None
 
     with ThreadPoolExecutor(max_workers=max(1, concurrency)) as pool:
         answered = list(pool.map(guarded, jobs))
     runs = [run for run in answered if run is not None]
+    stop = (stops[0].reason, str(stops[0])) if stops else None
     return MeasureResult(runs=runs, arms=tuple(arms), with_arm="full",
-                         not_run=len(jobs) - len(runs))
+                         not_run=len(jobs) - len(runs), stop=stop)
 
 
 # Named ``*_PROMPT`` so the run's ``prompts_sha256`` covers them.
