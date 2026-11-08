@@ -457,6 +457,21 @@ def test_ignored_files_count_as_changes_and_dirty_state(tmp_path):
     assert report["source"]["dirty"] is True
 
 
+def test_an_ignored_tool_cache_under_a_shared_directory_leaves_the_run_clean(tmp_path):
+    root = _catalog(tmp_path)
+    (root / ".gitignore").write_text(".ruff_cache/\n")
+    (root / "tools").mkdir()
+    (root / "tools/check.py").write_text("pass\n")
+    sha = _commit(root)
+    (root / "tools/.ruff_cache").mkdir()
+    (root / "tools/.ruff_cache/x").write_text("cache")
+    out = tmp_path / "out"
+    assert _run(root, out, "--changed-from", sha).returncode == 0
+    report = json.loads((out / "catalog.json").read_text())
+    assert report["selection"]["selected"] == []
+    assert report["source"]["dirty"] is False
+
+
 @pytest.mark.skipif(os.name == "nt", reason="backslash is a path separator on Windows")
 def test_backslash_in_a_changed_filename_is_a_literal_name(tmp_path):
     root = _catalog(tmp_path)
