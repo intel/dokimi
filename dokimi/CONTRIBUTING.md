@@ -181,7 +181,7 @@ x86_64, CPython 3.12+): `pip install --require-hashes -r
 requirements-fuzz.lock.txt`, then from `dokimi/` `PYTHONPATH=. python
 fuzz/fuzz_parsers.py fuzz/corpus -max_total_time=60`, and `PYTHONPATH=. python fuzz/fuzz_parsers.py crash-<sha1>` to replay a
 crash. A new parser of untrusted text gets a target and seeds (byte 0 is the
-target's index in sorted `TARGETS`, the rest is the UTF-8 text; see
+target's index in `targets.NAMES` (append-only), the rest is the UTF-8 text; see
 `targets.decode`).
 
 Dependencies install from `requirements.lock.txt`; the docs build's from
