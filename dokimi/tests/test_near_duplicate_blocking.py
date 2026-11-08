@@ -175,6 +175,31 @@ def test_pairs_at_the_thresholds_are_kept():
     assert [code for code, _ in _findings(fast)[0]] == ["description-near-duplicate"]
 
 
+def test_equal_frequency_words_are_ordered_the_same_for_every_skill():
+    # Ten words, and for each size 3..7 every cyclic run of that size: each word is in the same number of
+    # descriptions, so all ten have one frequency and only the tiebreak orders them. The runs overlap, so
+    # many pairs are near-duplicates. Each description lists its words in a shuffled order, and sets of
+    # different sizes iterate differently, so without the tiebreak the prefixes of two skills can miss a
+    # shared word.
+    words = [f"tie{letter}" for letter in "abcdefghij"]
+    flagged = 0
+    for shuffle_seed in range(4):
+        rng = random.Random(shuffle_seed)
+        rows = []
+        for size in (3, 4, 5, 6, 7):
+            for start in range(10):
+                subset = [words[(start + j) % 10] for j in range(size)]
+                rng.shuffle(subset)
+                n = len(rows)
+                rows.append(("checkout-a", f"skill-{n}", " ".join(subset), f"digest-{n}", False))
+        fast, slow = _loaded(rows), _loaded(rows)
+        _near_duplicates(fast)
+        _brute_force(slow)
+        flagged += sum(1 for _, _, review in slow if review.findings)
+        assert _findings(fast) == _findings(slow), f"shuffle seed {shuffle_seed}"
+    assert flagged > 0  # the corpus has near-duplicates, so the comparison is not vacuous
+
+
 def test_scale_of_5000_skills_is_a_few_seconds():
     # A catalog-like corpus: a long word tail and few near-copies. The dense corpus above is the
     # worst case for the prefix filter, and is kept for the equivalence checks only.
