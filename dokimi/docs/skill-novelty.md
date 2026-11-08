@@ -909,8 +909,8 @@ number can be traced to what produced it:
 `--judge2 MODEL` regrades a seeded `--judge2-frac` share (default 0.15) of the graded runs with a
 second judge (`--judge2-provider`, default the judge's provider) and writes `judge2`:
 `lenient_agreement`, `kappa_lenient` (Cohen's kappa on the lenient collapse) and `exact_agreement`
-over `n_compared` runs, plus that judge's cost. A second judge that is the answering model is
-refused unless `--allow-self-judge`.
+over `n_compared` runs, plus that judge's cost. A second judge that is the answering model, or the
+same model as the first judge, is refused unless `--allow-self-judge`.
 
 `controls.reversal_resisted` is the with-artifact arm's share of refused planted inversions.
 `reversal_resisted_by_arm` gives it for the baseline too, and `reversal_paired` pairs each

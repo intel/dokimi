@@ -62,7 +62,7 @@ def add_judge2_args(parser: argparse.ArgumentParser, providers) -> None:
                         help="Regrade a seeded subset of the graded runs with this second judge "
                              "and report lenient agreement, kappa on lenient and exact verdict "
                              "agreement (`judge2` in the output). Refused when it is the "
-                             "answering model, unless --allow-self-judge")
+                             "answering model or the first judge, unless --allow-self-judge")
     parser.add_argument("--judge2-frac", type=float, default=DEFAULT_FRAC, dest="judge2_frac",
                         help=f"Share of the graded runs the second judge regrades "
                              f"(default: {DEFAULT_FRAC})")
@@ -78,7 +78,7 @@ def judge2_client(args: argparse.Namespace, answerer, judge, make_client):
     if not getattr(args, "judge2", None):
         return None
     client = make_client(args.judge2, args.judge2_provider or judge.provider, "judge2", args)
-    check_judge2(client, answerer, args.judge2_frac, args.allow_self_judge)
+    check_judge2(client, answerer, args.judge2_frac, args.allow_self_judge, judge)
     return client
 
 

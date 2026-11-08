@@ -21,19 +21,33 @@ from .provenance import vendor_of
 DEFAULT_FRAC = 0.15
 
 
-def check_judge2(judge2: LLMClient, answerer: LLMClient, frac: float, allow_self_judge: bool) -> None:
-    """Refuse a second judge that is the answering model, or a fraction outside (0, 1], before any call.
+def check_judge2(judge2: LLMClient, answerer: LLMClient, frac: float, allow_self_judge: bool,
+                 judge: LLMClient | None = None) -> None:
+    """Refuse a second judge that is the answering model or the first judge, or a fraction outside (0, 1].
+
+    The model test is the repo's model-identity rule (``same_client``, which reads
+    ``same_model``): an alias, an equivalent API id and a Bedrock id of one model are one model.
+    Two verdicts from one model are not an independent second opinion, so the same model
+    as the first judge is refused like the answerer, before any call.
 
     Raises:
-        InputError: The second judge is the answerer without ``allow_self_judge``, or a bad ``frac``.
+        InputError: The second judge is the answerer or the first judge without ``allow_self_judge``,
+            or a bad ``frac``.
     """
     if not 0 < frac <= 1:
         raise InputError(f"--judge2-frac must be in (0, 1], got {frac}")
-    if same_client(judge2, answerer) and not allow_self_judge:
+    if allow_self_judge:
+        return
+    if same_client(judge2, answerer):
         raise InputError(
             f"--judge2 {judge2.model!r} is the answering model; grading a response with the "
             "model that produced it inflates the score. Pass another --judge2, or "
             "--allow-self-judge to do it deliberately.")
+    if judge is not None and same_client(judge2, judge):
+        raise InputError(
+            f"--judge2 {judge2.model!r} is the same model as the first judge {judge.model!r}; "
+            "its agreement with that judge is not an independent second opinion. Pass another "
+            "--judge2, or --allow-self-judge to do it deliberately.")
 
 
 def cohen_kappa(a: list[bool], b: list[bool]) -> float | None:

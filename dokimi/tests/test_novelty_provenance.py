@@ -158,6 +158,37 @@ def test_an_equivalent_id_of_the_answering_model_is_refused(judge_model):
     check_judge2(LLMClient(model="gpt-6-luna", provider="openai"), answerer, 0.15, False)
 
 
+@pytest.mark.parametrize("second", ["claude-sonnet-5-5", "anthropic/claude-sonnet-5-5",
+                                    "us.anthropic.claude-sonnet-5-5-v1:0"])
+def test_a_second_judge_that_is_the_first_judge_is_refused_unless_allowed(second):
+    answerer = LLMClient(model="m-answer", provider="p")
+    judge = LLMClient(model="claude-sonnet-5-5", provider="anthropic")
+    with pytest.raises(InputError, match="first judge"):
+        judge2_client(_args(judge2=second, judge2_provider="anthropic"), answerer, judge, _make)
+    allowed = judge2_client(_args(judge2=second, judge2_provider="anthropic", allow_self_judge=True),
+                            answerer, judge, _make)
+    assert allowed.model == second and allowed.role == "judge2"
+    assert judge2_client(_args(judge2="gpt-6-luna", judge2_provider="openai"), answerer, judge, _make)
+
+
+def test_a_second_judge_inherits_the_first_judges_provider_and_is_checked_on_it():
+    answerer = LLMClient(model="m-answer", provider="p")
+    judge = LLMClient(model="claude-sonnet-5-5", provider="anthropic")
+    inherited = judge2_client(_args(judge2="gpt-6-luna", judge2_provider=None), answerer, judge, _make)
+    assert (inherited.model, inherited.provider) == ("gpt-6-luna", "anthropic")
+    with pytest.raises(InputError, match="first judge"):
+        judge2_client(_args(judge2="claude-sonnet-5-5", judge2_provider=None), answerer, judge, _make)
+
+
+def test_a_cli_alias_judge_and_its_full_id_second_judge_are_one_model():
+    from dokimi.novelty.judge2 import check_judge2
+
+    judge = LLMClient(model="sonnet", provider="claude-cli")
+    with pytest.raises(InputError, match="first judge"):
+        check_judge2(LLMClient(model="claude-sonnet-5-5", provider="anthropic"),
+                     LLMClient(model="m-answer", provider="p"), 0.15, False, judge)
+
+
 def _git(cwd, *args):
     return subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.com", *args],
                           cwd=cwd, check=True, capture_output=True, text=True).stdout.strip()
