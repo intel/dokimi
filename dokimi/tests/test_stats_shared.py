@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""One bootstrap and one paired delta for the whole package (eval/stats.py).
+"""One eval-side bootstrap and one paired delta (eval/stats.py).
 
 The tool-preference cluster CI used to resample with its own RNG stream. It now calls ``eval.stats.bootstrap_ci``;
 these tests pin the wiring (resample counts, seed, output shape) and the golden values. The resampler inventory matches
@@ -92,7 +92,7 @@ def _bootstrap_definitions() -> set[tuple[str, str]]:
     return found
 
 
-def test_the_package_has_no_second_bootstrap_resampler():
+def test_no_second_resampler_named_bootstrap_or_boot():
     # A new resampler must be added here on purpose, after checking it cannot be a call to eval.stats.bootstrap_ci.
     assert _bootstrap_definitions() == {
         ("eval/stats.py", "bootstrap_ci"),
