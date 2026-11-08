@@ -141,7 +141,7 @@ def _strict_meta(text: str) -> tuple[dict, Optional[Finding]]:
         return {}, Finding(
             "error", "frontmatter-parse", f"frontmatter is not valid YAML: {describe_yaml_error(exc)}"
         )
-    except RecursionError as exc:  # nesting too deep for the YAML parser: no line to name
+    except (RecursionError, ValueError) as exc:  # deep nesting, a bad date (2026-99-99): no line to name
         message = " ".join(str(exc).split())  # the YAML message is several lines; keep one
         return {}, Finding(
             "error", "frontmatter-parse", f"frontmatter is not valid YAML: {message}"

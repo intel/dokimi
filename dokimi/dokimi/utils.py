@@ -44,6 +44,8 @@ def parse_frontmatter_strict(text: str) -> "Tuple[Dict[str, Any], str]":
 
     Raises:
         yaml.YAMLError: The frontmatter block is not valid YAML.
+        ValueError: A value PyYAML cannot build, such as the date ``2026-99-99``.
+        RecursionError: The block is nested too deeply for the parser.
     """
     return _split_frontmatter(text, strict=True)
 
@@ -84,7 +86,7 @@ def _split_frontmatter(text: str, *, strict: bool) -> "Tuple[Dict[str, Any], str
             body = "\n".join(lines[idx + 1:]).lstrip("\n")
             try:
                 meta = yaml.safe_load(raw_meta) or {}
-            except yaml.YAMLError:
+            except (yaml.YAMLError, ValueError, RecursionError):  # ValueError: a bad date; RecursionError: deep nesting
                 if strict:
                     raise
                 meta = {}

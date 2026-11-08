@@ -27,10 +27,14 @@ def _bad_files(tmp_path):
     binary.write_bytes(bytes([0xFF, 0xFE, 0x00]))
     broken = tmp_path / "broken.yaml"
     broken.write_text("products: [unclosed\n", encoding="utf-8")
-    return {"binary": binary, "broken": broken}
+    bad_date = tmp_path / "date.yaml"
+    bad_date.write_text("products: 2026-99-99\n", encoding="utf-8")
+    deep = tmp_path / "deep.yaml"
+    deep.write_text("[" * 100000, encoding="utf-8")
+    return {"binary": binary, "broken": broken, "bad-date": bad_date, "deep": deep}
 
 
-@pytest.mark.parametrize("kind", ["binary", "broken"])
+@pytest.mark.parametrize("kind", ["binary", "broken", "bad-date", "deep"])
 @pytest.mark.parametrize("command", ["list", "show demo"])
 def test_a_registry_that_cannot_be_parsed_is_named(tmp_path, kind, command):
     bad = _bad_files(tmp_path)[kind]
@@ -38,7 +42,7 @@ def test_a_registry_that_cannot_be_parsed_is_named(tmp_path, kind, command):
     assert f"Error: cannot read --registry {bad}" in err
 
 
-@pytest.mark.parametrize("kind", ["binary", "broken"])
+@pytest.mark.parametrize("kind", ["binary", "broken", "bad-date", "deep"])
 def test_an_intents_file_that_cannot_be_parsed_is_named(tmp_path, kind):
     bad = _bad_files(tmp_path)[kind]
     err = _run(["catalog", "intents", "--intents", str(bad)])

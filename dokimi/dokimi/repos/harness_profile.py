@@ -219,6 +219,8 @@ def load_profile(name_or_path: str | Path) -> HarnessProfile:
         raise ProfileError(f"{path}: not valid YAML: {exc}") from exc
     except (OSError, UnicodeDecodeError, RecursionError) as exc:  # RecursionError: deeply nested `[`
         raise ProfileError(f"{path}: cannot read: {exc}") from exc
+    except ValueError as exc:  # a date PyYAML cannot build (2026-99-99), an integer over 4300 digits
+        raise ProfileError(f"{path}: not valid YAML: {exc}") from exc
     return parse_profile(raw, str(path))
 
 

@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""`repo budget` and `repo reach` exit 2 with a message on a --harness file that cannot be read."""
+"""`repo budget` and `repo reach` exit 2 with a message on a --harness file that cannot be read or loaded."""
 
 from __future__ import annotations
 
@@ -55,6 +55,16 @@ def test_repo_budget_exits_2_on_a_harness_file_it_cannot_read(tmp_path, capsys, 
         _run("budget", str(tmp_path), "--harness", str(path))
     assert exc.value.code == 2
     assert str(path) in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("text", ["name: 2026-99-99\n", "[" * 100000], ids=["bad-date", "deep"])
+def test_repo_budget_exits_2_on_a_harness_file_whose_yaml_does_not_load(tmp_path, capsys, text):
+    path = tmp_path / "profile.yaml"
+    path.write_text(text, encoding="utf-8")
+    with pytest.raises(SystemExit) as exc:
+        _run("budget", str(tmp_path), "--harness", str(path))
+    assert exc.value.code == 2
+    assert f"{path}: " in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("kind", ["non-utf8", "unreadable"])

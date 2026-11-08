@@ -65,7 +65,7 @@ def split_frontmatter(text: str) -> Tuple[Dict[str, Any], str]:
             body = "".join(lines[idx + 1:]).lstrip("\n")
             try:
                 frontmatter = yaml.safe_load(fm_text)
-            except yaml.YAMLError as exc:
+            except (yaml.YAMLError, ValueError, RecursionError) as exc:  # ValueError: a bad date; deep nesting
                 logger.debug("OKFClient: malformed frontmatter, ignoring: %s", exc)
                 frontmatter = None
             if not isinstance(frontmatter, dict):
