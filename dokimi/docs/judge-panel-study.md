@@ -20,7 +20,7 @@ seven more judges from seven model families. It asks four questions:
 Short answer: judge choice moves the lenient added share by up to 0.23 for one answer model.
 The original judge is the most lenient of the eight, so the published lenient added shares sit
 at the low end of the panel. The ranking of answer models does not change. Majority, median
-and Dawid-Skene give the same answers to within 1%. Three judges from three families get most
+and Dawid-Skene agree on 99.3% of rows. Three judges from three families get most
 of the stability of seven.
 
 ## Setup
@@ -99,13 +99,13 @@ What changes and what does not:
 
 - **The original judge is the most lenient.** Its lenient rate over all graded rows is 0.76,
   against 0.62–0.72 for the other judges. It accepts more no-skill answers, so "known" goes up
-  and "added" goes down. It sits at the bottom of the panel's lenient added share for opus,
+  and "added" goes down. It sits at or next to the bottom of the panel's lenient added share for opus,
   GPT-5.6 and Haiku. The paper's lenient added shares are therefore conservative. The extreme
   case is Haiku: the original judge says 0.10, the 7-judge majority 0.32. That moves Haiku
   from "the skill adds little" to the same level as Grok.
-- **The strict scale moves less in relative terms.** Strict gated added varies by 0.06–0.20
+- **The strict scale moves less in relative terms.** Strict gated added varies by 0.06–0.23
   per model. gpt-6-luna is the outlier: it gives the lowest strict rate of any judge (0.27,
-  against 0.34–0.53), because it marks dropped qualifiers more often. Its strict added share
+  against 0.35–0.53), because it marks dropped qualifiers more often. Its strict added share
   is the lowest for four of the five models.
 - **Grok-4.6 answers are judge-proof.** Gated added is 0.32–0.37 under every judge. Its
   answers are the most clear-cut: only 11% of the rows lack unanimity, against 20–35% for
@@ -210,7 +210,7 @@ Agreement of each rater with the 7-judge Dawid-Skene consensus, over all rows
 | | | | gpt-5.6-luna (original) | 0.912 |
 
 - **Majority, median and Dawid-Skene are the same rule in practice** here. They agree on
-  99.3% of rows and give the same headline numbers to within 0.03. Dawid-Skene estimates
+  99.3% of rows and give the same headline numbers to within 0.035. Dawid-Skene estimates
   that gpt-6-luna (specificity 0.79) and kimi-k3 (0.81) say "correct" too easily, while
   glm-5 (0.98) and grok-4.6 (0.96) rarely do. With seven judges that knowledge changes almost
   nothing. With two or three judges, one of them lenient, it could matter. That was not
