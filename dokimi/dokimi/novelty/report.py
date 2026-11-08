@@ -190,7 +190,9 @@ def build_probe_record(
         "reversal_resisted": measure_result.reversal_resisted(),
         "confidence_correlation": measure_result.confidence_correlation(),
         "runs": [row.as_dict() for row in measure_result.runs],
-        **({"checks": checks} if (checks := measure_result.checks_summary()) else {}),
+        # getattr: callers may pass a stand-in that predates program checks.
+        **({"checks": checks} if (checks := getattr(measure_result, "checks_summary",
+                                                    lambda: None)()) else {}),
     }
 
 
