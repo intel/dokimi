@@ -6,7 +6,9 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -484,6 +486,25 @@ def test_a_backslash_in_a_branch_filter_escapes_the_next_character():
 def test_stacked_quantifiers_of_a_branch_filter_fold_into_one(pattern, regex):
     """Nested, `release/a++++++b` backtracks exponentially on `release/aaaaaaaaaaac`; folded, it matches the same branches."""
     assert branches._filter_regex(pattern).pattern == regex
+
+
+def test_a_branch_filter_with_many_stars_matches_in_linear_time():
+    """With `re`, `[^/]*a` per star backtracks polynomially: about 4 s here for 80 `a` and a `c`."""
+    glob = branches._filter_regex("release/*a*a*a*a*a*a*b")
+    start = time.perf_counter()
+    assert not glob.match("release/" + "a" * 80 + "c")
+    assert glob.match("release/" + "a" * 80 + "b")
+    assert time.perf_counter() - start < 1
+
+
+@pytest.mark.parametrize("pattern", ["release/*", "release/**", "release/v?1.x", "release/[0-9]+.x", "release/a?+b",
+                                     "release/v[9-0]+", r"release/c\+\+", "!release/*-rc?"])
+@pytest.mark.parametrize("text", ["release/1.x", "release/v1.x", "release/12.x", "release/.x", "release/b", "release/aab",
+                                  "release/v[9-0]]]", "release/c++", "release/x/y", "release/2-rc", "release/2-r", "release/"])
+def test_a_branch_filter_matches_what_its_regex_matches(pattern, text):
+    """Walked atom by atom, a filter names the same branches as the regex it reads as."""
+    glob = branches._filter_regex(pattern)
+    assert glob.match(text) == bool(re.fullmatch(glob.pattern, text))
 
 
 def test_read_many_fetches_missing_blobs_of_a_partial_clone(toy, tmp_path):

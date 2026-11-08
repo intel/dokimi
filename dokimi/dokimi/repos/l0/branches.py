@@ -55,7 +55,7 @@ class Source:
     """One branch name (``rx`` is None) or pattern, and the reason naming where it is."""
 
     text: str
-    rx: re.Pattern[str] | None
+    rx: re.Pattern[str] | _Glob | None
     why: str
 
     def names(self, claim: str, fills: list[str], file: bool = False) -> bool:
@@ -182,12 +182,35 @@ _FILTER_TOKEN = re.compile(r"\\(.)|(\*\*?)|\[([a-zA-Z0-9-]+)\]|([?+])|(.)", re.S
 _KINDS = ("abcdefghijklmnopqrstuvwxyz", "ABCDEFGHIJKLMNOPQRSTUVWXYZ", "0123456789")
 
 
-def _filter_regex(pattern: str) -> re.Pattern[str]:
+class _Glob:
+    """A branch filter as one-character atoms, each with its quantifier, matched by tracking every atom the text can
+    be at: linear in the text, where ``re`` backtracks polynomially on ``release/*a*a*a*a*a*a*b``."""
+
+    def __init__(self, atoms: list[list[str]]) -> None:
+        self.pattern = "".join(a + q for a, q in atoms) + r"\Z"  # the regex it matches as
+        self._atoms = [(re.compile(a), q) for a, q in atoms]
+
+    def _skip(self, at: set[int]) -> set[int]:
+        for i, (_, q) in enumerate(self._atoms):  # an optional atom can be passed over
+            if i in at and q in ("?", "*"):
+                at.add(i + 1)
+        return at
+
+    def match(self, text: str) -> bool:
+        """The whole of ``text`` matches."""
+        at = self._skip({0})
+        for ch in text:
+            at = self._skip({j for i in at if i < len(self._atoms) and self._atoms[i][0].fullmatch(ch)
+                             for j in ((i, i + 1) if self._atoms[i][1] in ("+", "*") else (i + 1,))})
+        return len(self._atoms) in at
+
+
+def _filter_regex(pattern: str) -> _Glob:
     """A GitHub branch filter: ``**`` matches any characters, ``*`` any but ``/``, ``?`` and ``+`` make what is
     before them optional or repeated, ``[...]`` is one of its letters, digits or ranges, ``\\`` escapes; a leading ``!`` is dropped.
-    Stacked ``?`` and ``+`` fold into one quantifier (``a++`` is ``a+``, ``a?+`` is ``a*``, ``*+`` is ``*``), as nesting backtracks exponentially.
+    Stacked ``?`` and ``+`` fold into one quantifier (``a++`` is ``a+``, ``a?+`` is ``a*``, ``*+`` is ``*``).
     """
-    atoms: list[list[str]] = []  # [one regex atom, its quantifier]
+    atoms: list[list[str]] = []  # [one regex atom of one character, its quantifier]
     for m in _FILTER_TOKEN.finditer(pattern.removeprefix("!")):
         escaped, star, body, repeat, char = m.groups()
         if repeat and atoms:
@@ -195,9 +218,11 @@ def _filter_regex(pattern: str) -> re.Pattern[str]:
             atoms[-1][1] = repeat if not q else q if q in ("*", repeat) else "*"
         elif star:
             atoms.append(["." if star == "**" else "[^/]", "*"])
-        else:
-            atoms.append([(_class(body) if body else None) or re.escape(escaped or repeat or char or m[0]), ""])
-    return re.compile("".join(a + q for a, q in atoms) + r"\Z")
+        elif body and (cls := _class(body)):
+            atoms.append([cls, ""])
+        else:  # a `[...]` _class refuses is its characters, one atom each
+            atoms += [[re.escape(c), ""] for c in escaped or repeat or char or m[0]]
+    return _Glob(atoms)
 
 
 def _class(body: str) -> str | None:
