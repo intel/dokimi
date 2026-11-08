@@ -215,6 +215,21 @@ the skill (and in its `findings` in JSON); the row's main line and its JSON
 `error` field say the frontmatter has invalid YAML, with the line, not that the
 skill is missing a `description`.
 
+A `SKILL.md` with no frontmatter at all (it does not start with a `---` line) also
+stops the skill from loading, and its error says "no frontmatter". One whose
+`---` block is opened and never closed says "unclosed frontmatter". Neither says
+"missing a `description`", which is reserved for a closed block without one.
+
+The scan also checks the size and the vocabulary of a loaded skill. A frontmatter
+key that neither the Agent Skills spec nor Claude Code names (a typo such as
+`colour:`) is a `warn` (`frontmatter-unknown-key`). An `allowed-tools` entry that is
+not a Claude Code tool is a `warn` (`allowed-tools-unknown`); `mcp__*` tools are not
+checked, and a `Tool(pattern)` entry is checked by its tool name. A body over 500
+lines, or about 5,000 tokens (characters / 4, no tokenizer), is a `warn`
+(`body-too-large`): move the detail into bundled files. A name over 64 characters is
+the `name-format` error, and its message says the length. These are warnings, so
+they do not change the exit code.
+
 `--strict` makes `catalog check` a gate on the spec as well as on loading. The
 text output and `--format json` (one object: `state`, `findings`,
 `content_sha256` of the `SKILL.md`, `skill_sha256` of the skill directory,
