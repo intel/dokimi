@@ -114,8 +114,10 @@ def test_stat_error_on_an_unloaded_sibling_is_no_review_and_no_crash(tmp_path, m
     assert reviews["good"].state == "ok"
 
 
-def test_unreadable_skill_fails_the_scan_like_a_load_error(tmp_path, monkeypatch):
-    # A load error always exits 1; a SKILL.md read failure after load must not exit 0 without --strict.
+@pytest.mark.parametrize("extra", [[], ["--per-skill"]], ids=["whole-catalog", "per-skill"])
+def test_unreadable_skill_fails_the_scan_like_a_load_error(tmp_path, monkeypatch, extra):
+    # A load error always exits 1; a SKILL.md read failure after load must not exit 0 without --strict,
+    # on the whole-catalog scan and on --per-skill (whose row has no error, only the unreadable finding).
     _skill(tmp_path, "good")
     _skill(tmp_path, "sib")
     real_read_bytes = Path.read_bytes
@@ -126,7 +128,7 @@ def test_unreadable_skill_fails_the_scan_like_a_load_error(tmp_path, monkeypatch
         return real_read_bytes(self)
 
     monkeypatch.setattr(Path, "read_bytes", read_bytes)
-    args = build_parser().parse_args(["catalog", "check", "--root", str(tmp_path), "--kind", "skills"])
+    args = build_parser().parse_args(["catalog", "check", "--root", str(tmp_path), "--kind", "skills", *extra])
     with pytest.raises(SystemExit) as exc_info:
         args.func(args)
     assert exc_info.value.code == 1
