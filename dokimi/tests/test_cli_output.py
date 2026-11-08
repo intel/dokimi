@@ -25,8 +25,7 @@ from dokimi.utils import InputError
 NOT_YET_ENVELOPE = {
     ("catalog", "formats"), ("eval", "inspect"), ("repo", "budget"), ("repo", "compare"),
     ("repo", "fetch"), ("repo", "hits", "judge"), ("repo", "inspect"), ("repo", "report"),
-    ("repo", "scan"), ("repo", "validate"), ("runs", "list"), ("runs", "show"),
-    ("trace", "consistency"), ("trace", "inspect"), ("trace", "prefilter"),
+    ("repo", "scan"), ("repo", "validate"),
 }
 
 
@@ -165,14 +164,14 @@ def test_a_crash_without_json_is_not_wrapped(monkeypatch, capsys):
 
 
 def test_a_json_leaf_outside_the_opt_in_that_crashes_re_raises_and_prints_no_envelope(monkeypatch, capsys):
-    from dokimi.commands import runs
+    from dokimi.commands import repo
 
     def crash(args):
-        raise RuntimeError("runs fell over")
+        raise RuntimeError("repo fell over")
 
-    monkeypatch.setattr(runs, "cmd_runs_list", crash)
+    monkeypatch.setattr(repo, "cmd_repo_validate", crash)
     with pytest.raises(RuntimeError):
-        _run_main(monkeypatch, ["runs", "list", "--json"])
+        _run_main(monkeypatch, ["repo", "validate", "x", "--json"])
     assert capsys.readouterr().out == ""
 
 
@@ -190,6 +189,50 @@ def test_a_malformed_run_id_still_gets_the_input_document_with_a_null_run_id(mon
 def test_the_inventory_every_json_leaf_is_enveloped_or_named_as_not_yet():
     leaves = _json_leaves()
     enveloped = {path for path, p in leaves.items() if p.get_default("emits_cli_output")}
-    assert enveloped == {("backends",)}
+    assert enveloped == {("backends",), ("runs", "list"), ("runs", "show"), ("trace", "inspect"),
+                         ("trace", "consistency"), ("trace", "prefilter")}
     assert set(leaves) == enveloped | NOT_YET_ENVELOPE
     assert not enveloped & NOT_YET_ENVELOPE
+    assert all(leaves[path].get_default("cli_kind") for path in enveloped - {("backends",)})
+
+
+def test_a_group_leaf_names_itself_on_a_crash_document(monkeypatch, capsys):
+    from dokimi.commands import runs
+
+    def crash(args):
+        raise RuntimeError("runs fell over")
+
+    monkeypatch.setattr(runs, "cmd_runs_list", crash)
+    with pytest.raises(SystemExit) as exc:
+        _run_main(monkeypatch, ["runs", "list", "--json"])
+    assert exc.value.code == 5
+    doc = json.loads(capsys.readouterr().out)
+    assert doc["kind"] == "runs list" and doc["error"]["code"] == "infra"
+    assert schema_errors("cli_output.v1", doc) == []
+
+
+def test_trace_inspect_json_is_partial_when_a_trace_does_not_read(tmp_path, capsys):
+    good = tmp_path / "good.jsonl"
+    usage = {"input_tokens": 5, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0, "output_tokens": 1}
+    good.write_text(json.dumps({"type": "system", "subtype": "init", "model": "m", "tools": []}) + "\n"
+                    + json.dumps({"type": "assistant", "parent_tool_use_id": None,
+                                  "message": {"id": "m1", "usage": usage, "content": []}}) + "\n", encoding="utf-8")
+    args = cli.parse_args(["trace", "inspect", str(tmp_path / "missing.jsonl"), str(good), "--json"])
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 1
+    doc = json.loads(capsys.readouterr().out)
+    assert doc["kind"] == "trace inspect" and doc["status"] == "partial" and doc["reason"]
+    assert doc["verdict"] is None and doc["error"] is None
+    assert schema_errors("cli_output.v1", doc) == []
+
+
+def test_a_trace_leaf_refused_before_any_read_prints_a_failed_document(tmp_path, capsys):
+    args = cli.parse_args(["trace", "prefilter", str(tmp_path / "none.md"), str(tmp_path / "x.jsonl"), "--json"])
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert isinstance(exc.value.code, str)  # sys.exit(message): the interpreter exits 1
+    doc = json.loads(capsys.readouterr().out)  # one document; the exit message is the same text
+    assert doc["kind"] == "trace prefilter" and doc["status"] == "failed" and doc["data"] is None
+    assert exc.value.code == doc["reason"]
+    assert schema_errors("cli_output.v1", doc) == []

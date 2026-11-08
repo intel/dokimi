@@ -55,9 +55,9 @@ run.jsonl: prompt tokens per call: 21390 21673
   trace gives no token count for them. The line under the table names the
   tools whose results weighed most.
 
-`--json` prints a list with one object per trace, also for a single trace. A
-trace that cannot be read is reported on stderr and left out; the others still
-print, and the command exits 1.
+`--json` prints one `cli_output.v1` document (`kind` `trace inspect`) whose `data` is a list with one
+object per trace, also for a single trace. A trace that cannot be read is reported on stderr and left
+out; the others still print, the document has `status` `partial`, and the command exits 1.
 
 ## Comparing context layers
 

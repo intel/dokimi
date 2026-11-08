@@ -193,7 +193,7 @@ def test_cli_arms_outcomes_and_json(tmp_path, capsys):
         "--arm", f"skill={tmp_path}/skill/*.jsonl", "--outcomes", str(outcomes),
         "--contract", str(contract), "--json"])
     args.func(args)
-    rep = json.loads(capsys.readouterr().out)
+    rep = json.loads(capsys.readouterr().out)["data"]
     assert rep["base"]["result"]["success_rate"] == 0.5
     assert rep["skill"]["result"]["pass^2"] == 1.0
     assert rep["skill"]["path"]["order_distance"] == 0
@@ -412,7 +412,7 @@ def test_a_trace_given_twice_counts_once(tmp_path, capsys):
         f"{tmp_path}/a/./r1.jsonl", f"{tmp_path}/a/r1.jsonl", "--contract", str(contract), "--json"])
     args.func(args)
     out = capsys.readouterr()
-    rep = json.loads(out.out)
+    rep = json.loads(out.out)["data"]
     assert rep["A"]["result"]["runs"] == 2 and rep["A"]["contract"]["conformance_rate"] == 0.5
     assert rep["runs"]["result"]["runs"] == 1
     assert out.err.count("given twice") == 2

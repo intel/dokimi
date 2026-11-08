@@ -80,6 +80,11 @@ def emit(doc: dict[str, Any]) -> None:
     print(json.dumps(doc, indent=2))
 
 
+def emit_leaf(kind: str, data: Any, **fields: Any) -> None:
+    """Print a leaf's success document: its payload under ``data``, this process's run id."""
+    emit(envelope(kind, run_id=current_run_id(), data=data, **fields))
+
+
 def schema_document() -> dict[str, Any]:
     """The schema itself, for ``dokimi data schema show cli_output.v1``."""
     return json.loads((SCHEMA_DIR / f"{SCHEMA_VERSION}.json").read_text(encoding="utf-8"))

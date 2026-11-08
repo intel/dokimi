@@ -268,7 +268,7 @@ def test_the_command_reads_a_quoted_glob_and_prints_json(tmp_path, capsys):
     args = build_parser().parse_args(["trace", "prefilter", str(guide), f"{logs}/*.jsonl",
                                       "--min-sessions", "1", "--json"])
     args.func(args)
-    report = json.loads(capsys.readouterr().out)
+    report = json.loads(capsys.readouterr().out)["data"]
     assert report["format"] == "session_prefilter" and report["format_version"] == 1
     assert report["sessions"] == 3
 

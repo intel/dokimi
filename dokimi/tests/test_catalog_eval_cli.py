@@ -94,7 +94,7 @@ def test_saved_catalog_receipt_opens_through_runs_show(tmp_path):
         capture_output=True, text=True, timeout=30, check=False,
     )
     assert done.returncode == 0, done.stderr
-    shown = json.loads(done.stdout)
+    shown = json.loads(done.stdout)["data"]
     assert shown["schema_valid"]
     assert shown["contents"]["skills"] == 2
 

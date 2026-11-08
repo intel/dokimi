@@ -65,7 +65,7 @@ def test_a_missing_default_root_is_no_runs_and_exits_0(tmp_path, monkeypatch, ca
 
     out = _list(monkeypatch, capsys).out
     assert out == "no runs under results/ (it does not exist; DOKIMI_RUNS_DIR names another root)\n"
-    data = json.loads(_list(monkeypatch, capsys, "--json").out)
+    data = json.loads(_list(monkeypatch, capsys, "--json").out)["data"]
     assert (data["root"], data["artifacts"], data["total"]) == ("results", [], 0)
 
 
@@ -127,7 +127,7 @@ def test_kind_is_repeatable_and_subject_matches_exactly(monkeypatch, capsys, fil
 
 
 def test_json_has_the_vocabulary_fields_and_every_count(monkeypatch, capsys, filled):
-    data = json.loads(_list(monkeypatch, capsys, "--json", "--kind", "arms").out)
+    data = json.loads(_list(monkeypatch, capsys, "--json", "--kind", "arms").out)["data"]
 
     assert data["artifacts"] == [{
         "schema_version": "arms.v1", "kind": "arms", "run_id": run_id(), "subject": "onetbb",

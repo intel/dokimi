@@ -153,7 +153,7 @@ def test_cli_json_single_trace(tmp_path, capsys):
     a = tmp_path / "a.jsonl"
     a.write_text("garbage\n" + RUN, encoding="utf-8")
     got = _run_cli(["trace", "inspect", str(a), "--json"], capsys)
-    (data,) = json.loads(got.out)  # a list for one trace too
+    (data,) = json.loads(got.out)["data"]  # a list for one trace too
     assert data["trace"] == str(a) and data["peak_prompt_tokens"] == 20815
     assert "per_call" not in data and "compaction_events" not in data
     assert "line 1: not JSON" in got.err
@@ -336,7 +336,7 @@ def test_one_unreadable_trace_does_not_lose_the_others(tmp_path, capsys):
         got = capsys.readouterr()
         assert exc.value.code == 1 and "empty.jsonl" in got.err
         if extra:
-            assert [r["trace"] for r in json.loads(got.out)] == [str(a)]
+            assert [r["trace"] for r in json.loads(got.out)["data"]] == [str(a)]
         else:
             assert f"| {a} | 5 |" in got.out
 

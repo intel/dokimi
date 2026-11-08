@@ -184,7 +184,7 @@ def test_show_without_a_root_exits_2(tmp_path, monkeypatch, capsys):
 
 
 def test_json_has_the_list_fields_the_schema_check_and_the_neighbours(monkeypatch, capsys, root):
-    data = json.loads(_show(monkeypatch, capsys, "arms/onetbb.json", "--json").out)
+    data = json.loads(_show(monkeypatch, capsys, "arms/onetbb.json", "--json").out)["data"]
 
     assert data == {
         "schema_version": "arms.v1", "kind": "arms", "run_id": run_id(), "subject": "onetbb",
@@ -203,7 +203,7 @@ def test_json_of_an_invalid_artifact_carries_its_errors(monkeypatch, capsys, roo
     (root / "arms" / "bad.json").write_text(json.dumps({"schema_version": "arms.v1"}),
                                             encoding="utf-8")
 
-    data = json.loads(_show(monkeypatch, capsys, "arms/bad.json", "--json").out)
+    data = json.loads(_show(monkeypatch, capsys, "arms/bad.json", "--json").out)["data"]
 
     assert data["schema_valid"] is False
     assert sorted(data["schema_errors"]) == ["<root>: 'answers' is a required property",
@@ -215,7 +215,7 @@ def test_a_crowded_directory_names_the_first_neighbours_and_counts_the_rest(monk
     for i in range(MAX_SIBLINGS + 5):
         (root / "arms" / f"z{i:02}.log").write_text("", encoding="utf-8")
 
-    data = json.loads(_show(monkeypatch, capsys, "arms/onetbb.json", "--json").out)
+    data = json.loads(_show(monkeypatch, capsys, "arms/onetbb.json", "--json").out)["data"]
     text = _show(monkeypatch, capsys, "arms/onetbb.json").out
 
     assert len(data["siblings"]) == MAX_SIBLINGS and data["siblings_total"] == MAX_SIBLINGS + 8
@@ -227,7 +227,7 @@ def test_a_superseded_version_is_checked_against_its_own_schema(monkeypatch, cap
            **{k: v for k, v in _fixture("questions.v1").items() if k != "schema_version"}}
     (root / "q.json").write_text(json.dumps(old, indent=2), encoding="utf-8")
 
-    data = json.loads(_show(monkeypatch, capsys, "q.json", "--json").out)
+    data = json.loads(_show(monkeypatch, capsys, "q.json", "--json").out)["data"]
 
     assert (data["schema"], data["schema_valid"], data["kind"]) == ("questions.v1", True,
                                                                     "questions")
@@ -244,7 +244,7 @@ def test_the_count_is_kept_for_every_list_of_every_kind(tmp_path):
 def test_a_fifo_is_named_as_a_neighbour_and_refused_as_an_address(monkeypatch, capsys, root):
     os.mkfifo(root / "arms" / "pipe.json")  # opening it would block
 
-    data = json.loads(_show(monkeypatch, capsys, "arms/onetbb.json", "--json").out)
+    data = json.loads(_show(monkeypatch, capsys, "arms/onetbb.json", "--json").out)["data"]
     assert {"name": "pipe.json", "schema_version": None} in data["siblings"]
     assert _fails(monkeypatch, capsys, "arms/pipe.json") == "Error: arms/pipe.json is not a regular file\n"
 
@@ -253,7 +253,7 @@ def test_a_fifo_is_named_as_a_neighbour_and_refused_as_an_address(monkeypatch, c
 def test_a_neighbour_that_cannot_be_stated_is_named_not_a_crash(monkeypatch, capsys, root):
     (root / "arms" / "loop").symlink_to(root / "arms" / "loop")
 
-    data = json.loads(_show(monkeypatch, capsys, "arms/onetbb.json", "--json").out)
+    data = json.loads(_show(monkeypatch, capsys, "arms/onetbb.json", "--json").out)["data"]
 
     assert {"name": "loop", "schema_version": None} in data["siblings"]
 
@@ -263,7 +263,7 @@ def test_a_neighbour_that_cannot_be_stated_is_named_not_a_crash(monkeypatch, cap
 def test_a_directory_that_cannot_be_listed_still_shows_its_artifact(monkeypatch, capsys, root):
     (root / "arms").chmod(0o311)  # files can be opened by name, the directory cannot be listed
     try:
-        data = json.loads(_show(monkeypatch, capsys, "arms/onetbb.json", "--json").out)
+        data = json.loads(_show(monkeypatch, capsys, "arms/onetbb.json", "--json").out)["data"]
         text = _show(monkeypatch, capsys, "arms/onetbb.json").out
     finally:
         (root / "arms").chmod(0o755)
@@ -334,7 +334,7 @@ def test_a_symlink_that_leads_outside_the_root_is_not_read(monkeypatch, capsys, 
 def test_a_symlink_inside_the_root_is_shown_by_its_own_name(monkeypatch, capsys, root):
     (root / "latest.json").symlink_to(root / "arms" / "onetbb.json")
 
-    data = json.loads(_show(monkeypatch, capsys, "latest.json", "--json").out)
+    data = json.loads(_show(monkeypatch, capsys, "latest.json", "--json").out)["data"]
 
     assert (data["path"], data["kind"]) == ("latest.json", "arms")
 
@@ -346,7 +346,7 @@ def test_the_real_path_of_a_symlinked_root_is_inside_it(monkeypatch, capsys, tmp
     save_artifact("eval", _fixture("eval.v1"), tmp_path / "store" / "e.json")
     (tmp_path / "results").symlink_to(tmp_path / "store", target_is_directory=True)
 
-    data = json.loads(_show(monkeypatch, capsys, str(tmp_path / "store" / "e.json"), "--json").out)
+    data = json.loads(_show(monkeypatch, capsys, str(tmp_path / "store" / "e.json"), "--json").out)["data"]
 
     assert data["path"] == "e.json"
 
@@ -357,7 +357,7 @@ def test_a_neighbour_that_links_outside_the_root_is_named_not_read(monkeypatch, 
     (root / "arms" / "ext.json").symlink_to(root.parent / "ext" / "eval.json")
     (root / "arms" / "in.json").symlink_to(root / "arms" / "plugin_delta.json")
 
-    data = json.loads(_show(monkeypatch, capsys, "arms/onetbb.json", "--json").out)
+    data = json.loads(_show(monkeypatch, capsys, "arms/onetbb.json", "--json").out)["data"]
 
     assert {"name": "ext.json", "schema_version": None} in data["siblings"]
     assert {"name": "in.json", "schema_version": "plugin_delta.v1"} in data["siblings"]
@@ -389,7 +389,7 @@ def test_dot_dot_after_a_symlink_is_the_file_the_filesystem_opens(monkeypatch, c
     (root / "nested" / "deep").mkdir()
     (root / "link").symlink_to(root / "nested" / "deep", target_is_directory=True)
 
-    data = json.loads(_show(monkeypatch, capsys, "link/../eval.json", "--json").out)
+    data = json.loads(_show(monkeypatch, capsys, "link/../eval.json", "--json").out)["data"]
 
     assert (data["kind"], data["path"]) == ("eval", "nested/eval.json")
 
@@ -400,7 +400,7 @@ def test_neighbours_are_never_listed_from_outside_the_root(monkeypatch, capsys, 
     (root / "linked").symlink_to(root.parent / "ext", target_is_directory=True)
     (root.parent / "ext" / "return.json").symlink_to(root / "arms" / "onetbb.json")
 
-    data = json.loads(_show(monkeypatch, capsys, "linked/return.json", "--json").out)
+    data = json.loads(_show(monkeypatch, capsys, "linked/return.json", "--json").out)["data"]
 
     assert data["kind"] == "arms"
     assert [s["name"] for s in data["siblings"]] == ["onetbb-matrix/", "onetbb.md",
@@ -414,8 +414,8 @@ def test_an_absolute_address_under_a_root_named_with_dot_dot(tmp_path, monkeypat
     monkeypatch.setenv("DOKIMI_RUNS_DIR", os.path.join("..", "results"))
 
     by_path = json.loads(_show(monkeypatch, capsys, str(tmp_path / "results" / "e.json"),
-                               "--json").out)
-    by_name = json.loads(_show(monkeypatch, capsys, "e.json", "--json").out)
+                               "--json").out)["data"]
+    by_name = json.loads(_show(monkeypatch, capsys, "e.json", "--json").out)["data"]
 
     assert (by_path["path"], by_path["kind"]) == (by_name["path"], by_name["kind"]) == ("e.json",
                                                                                        "eval")

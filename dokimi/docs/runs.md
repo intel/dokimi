@@ -66,8 +66,8 @@ skipped: 1 JSON with no leading schema_version, 1 JSON of an unknown schema_vers
   parsed). The text summary names the first one's reason; `--json` lists all.
 - `--kind KIND` (repeatable, for example `--kind arms --kind eval`) and
   `--subject NAME` (an exact, case-sensitive match) filter the rows.
-- `--json` prints `root`, `artifacts`, `total` (before filtering), `skipped`,
-  `unknown_versions` and `unreadable`. Each artifact has `schema_version`,
+- `--json` prints one `cli_output.v1` document (`kind` `runs list`) with `root`, `artifacts`, `total`
+  (before filtering), `skipped`, `unknown_versions` and `unreadable` under `data`. Each artifact has `schema_version`,
   `kind`, `run_id`, `subject`, `model`, `generated_at` (the time the artifact
   records, `evaluated_at` for an eval; `null` when none), `path` (relative to
   the root) and `size_bytes`.
@@ -117,9 +117,9 @@ the version it declares. An artifact that fails the check prints
 `- (saved before the envelope)`, `- (an input kind: no envelope)`, or
 `- (not a run id: see the schema errors)`. `contents` gives the length of the lists
 the kind holds, and `next to it` the first 20 entries of the artifact's
-directory. `--json` prints the fields of a `runs list` row plus `root`,
-`schema`, `schema_valid`, `schema_errors`, `contents`, `siblings`,
-`siblings_total` and `siblings_error`.
+directory. `--json` prints one `cli_output.v1` document (`kind` `runs show`) whose `data` holds the
+fields of a `runs list` row plus `root`, `schema`, `schema_valid`, `schema_errors`, `contents`,
+`siblings`, `siblings_total` and `siblings_error`.
 
 ## Exit codes
 

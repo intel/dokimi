@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 from datetime import datetime, timezone
 
 from dokimi.artifacts import INPUT_KINDS, SCHEMA_VERSIONS
@@ -81,17 +80,18 @@ def _summary(result: ScanResult, shown: list[Artifact], root: str) -> list[str]:
 
 def cmd_runs_list(args: argparse.Namespace) -> None:
     """One row per artifact under the runs root, newest first, and the count of what was skipped."""
+    from dokimi import cli_output
     root = runs_root()
     exists = root.exists()
     result = scan(root.path) if exists else ScanResult(root=root.path)
     shown = select(result.artifacts, args.kind, args.subject)
     if args.json:
-        print(json.dumps({
+        cli_output.emit_leaf("runs list", {
             "root": root.path.as_posix(), "artifacts": [a.to_json() for a in shown],
             "total": len(result.artifacts), "skipped": dict(sorted(result.skipped.items())),
             "unknown_versions": dict(sorted(result.unknown_versions.items())),
             "unreadable": [u.to_json() for u in result.unreadable],
-        }, indent=2))
+        }, summary={"shown": len(shown), "total": len(result.artifacts)})
         return
     shown_root = plain(root.path.as_posix().rstrip("/") + "/")
     if not exists:
@@ -148,13 +148,15 @@ def _show_text(shown: Shown) -> list[str]:
 def cmd_runs_show(args: argparse.Namespace) -> None:
     """One artifact: its kind, schema check, fields, contents and neighbours. A failed schema
     check is printed, and the exit code stays 0."""
+    from dokimi import cli_output
     root = runs_root()
     if not root.exists():
         raise InputError(f"no runs root: {plain(root.path.as_posix())}/ does not exist "
                          f"(DOKIMI_RUNS_DIR names another root)")
     shown = show(root.path, args.path)
     if args.json:
-        print(json.dumps(_show_json(shown, root.path.as_posix()), indent=2))
+        cli_output.emit_leaf("runs show", _show_json(shown, root.path.as_posix()),
+                             summary={"schema_valid": not shown.errors})
     else:
         print("\n".join(_show_text(shown)))
 
@@ -175,8 +177,8 @@ def register(sub: argparse._SubParsersAction, positive_int) -> None:
                         help="Only artifacts whose subject is exactly this (a product, a repo id, "
                              "a skill ref)")
     list_p.add_argument("--json", action="store_true",
-                        help="Print the artifacts and the skip counts as JSON")
-    list_p.set_defaults(func=cmd_runs_list)
+                        help="Print cli_output.v1 on stdout (the artifacts and skip counts under data)")
+    list_p.set_defaults(func=cmd_runs_list, emits_cli_output=True, cli_kind="runs list")
 
     show_p = runs_sub.add_parser(
         "show",
@@ -186,5 +188,6 @@ def register(sub: argparse._SubParsersAction, positive_int) -> None:
     show_p.add_argument("path", help="The artifact: its path as runs list prints it (relative to "
                                      "the root), or an absolute path inside the root")
     show_p.add_argument("--json", action="store_true",
-                        help="Print the artifact's fields, schema errors and neighbours as JSON")
-    show_p.set_defaults(func=cmd_runs_show)
+                        help="Print cli_output.v1 on stdout (the artifact's fields, schema errors and "
+                             "neighbours under data)")
+    show_p.set_defaults(func=cmd_runs_show, emits_cli_output=True, cli_kind="runs show")
