@@ -231,6 +231,12 @@ def test_a_stop_word_that_is_an_option_value_is_the_value_not_prose():
     assert online_checks.extract_packages("npm install --omit in lodash\n") == [("npm", "lodash")]
 
 
+def test_a_prose_stop_word_with_a_full_stop_after_it_ends_the_list():
+    assert online_checks.extract_packages("pip install -e . locally.\n") == []
+    assert online_checks.extract_packages("npm install -g typescript globally.\n") == [("npm", "typescript")]
+    assert online_checks.extract_packages("pip install requests here.\n") == [("pypi", "requests")]
+
+
 def test_a_version_glued_to_an_operator_is_not_a_name():
     assert online_checks.extract_packages("pip install foo>= 1.0rc1\n") == [("pypi", "foo")]
 

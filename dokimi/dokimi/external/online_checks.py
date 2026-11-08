@@ -151,6 +151,11 @@ def _requirement(tok: str) -> str:
     return tok.split(";", 1)[0].strip().rstrip(".,:!?")
 
 
+def _is_prose(tok: str) -> bool:
+    """A word of ``_PROSE_STOP``, with the sentence punctuation after it ("locally.")."""
+    return tok.rstrip(".,:!?").lower() in _PROSE_STOP
+
+
 def _pip_names(args: list[str]) -> Iterator[str]:
     skip = False
     for tok in args:
@@ -158,7 +163,7 @@ def _pip_names(args: list[str]) -> Iterator[str]:
             skip = False
         elif tok in _PIP_VALUE_OPTIONS or tok in _SPEC_OPERATORS:
             skip = True
-        elif tok.lower() in _PROSE_STOP:
+        elif _is_prose(tok):
             return  # prose after the list: "pip install foo for development"
         elif _is_package_word(tok) and "@" not in tok:
             requirement = _requirement(tok)
@@ -189,7 +194,7 @@ def _npm_names(args: list[str]) -> Iterator[str]:
             skip = False
         elif tok in _NPM_VALUE_OPTIONS:
             skip = True
-        elif tok == "--" or tok.lower() in _PROSE_STOP:
+        elif tok == "--" or _is_prose(tok):
             return
         elif not tok.startswith("-") and (name := _npm_name(tok)):
             yield name
