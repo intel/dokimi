@@ -351,6 +351,10 @@ code.
   the novelty numbers come from: method, K0 per model, the 2×2, need-graph
   statistics, content categories, shortening with measured behaviour, and the
   caveats each result carries.
+- [grading-tiers.md](grading-tiers.md) — design note (research, not implemented):
+  grading probes with verifiable and grounded checks before the LLM judge, keeping the
+  judge's verdict beside them so its accuracy against ground truth can be measured, with
+  prototype numbers from stored probe results.
 
 ## Repository evaluation
 
