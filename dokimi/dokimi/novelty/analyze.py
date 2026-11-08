@@ -147,10 +147,18 @@ def _refuse_cut_short(measure_result: measure.MeasureResult) -> None:
     """A measurement the cap cut short is not a finished report, and analyze has no partial
     result to keep it in: stop before the paid classify and attribution stages."""
     if measure_result.not_run:
+        not_run = measure_result.not_run
+        reason, cause = measure_result.stop or ("spend_cap", "")
+        if reason == "spend_cap":
+            raise SpendCapReached(
+                f"spend cap reached during the measurement: {not_run} probe answers were not "
+                "run; nothing was written. Raise --max-usd, or measure less (a cheaper --tier, "
+                "a lower --max-atoms)"
+            )
+        # A call with no known price: raising --max-usd would not help, so the cause is named.
         raise SpendCapReached(
-            f"spend cap reached during the measurement: {measure_result.not_run} probe answers "
-            "were not run; nothing was written. Raise --max-usd, or measure less (a cheaper "
-            "--tier, a lower --max-atoms)"
+            f"the measurement stopped with {not_run} probe answers not run: {cause}; "
+            "nothing was written", reason=reason,
         )
 
 

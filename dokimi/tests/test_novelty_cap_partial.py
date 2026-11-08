@@ -339,3 +339,35 @@ def test_an_unpriced_extraction_stop_names_the_missing_price_not_max_usd():
     assert report.partial["reason"] == "no_price"
     assert "no price is known for e" in report.partial["message"]
     assert "--max-usd stopped" not in report.partial["message"]
+
+
+def test_analyze_names_a_missing_price_when_the_measurement_stops_on_one(tmp_path, monkeypatch):
+    from dokimi.novelty import measure
+    from dokimi.novelty.analyze import AnalyzeConfig, analyze, load_artifact_text
+    from dokimi.novelty.client import SpendCapReached
+
+    from tests.test_novelty_analyze import SKILL, _clients
+
+    path = tmp_path / "accel-tuning" / "SKILL.md"
+    path.parent.mkdir(parents=True)
+    path.write_text(SKILL, encoding="utf-8")
+    kind, name, description, frontmatter, body = load_artifact_text(f"skill:{path}")
+    config = AnalyzeConfig(
+        artifact_ref=f"skill:{path}", artifact_kind=kind, name=name,
+        description=description, frontmatter=frontmatter, concurrency=1,
+    )
+    real = measure.run_measurement
+
+    def stopped_on_a_price(*a, **kw):
+        result = real(*a, **kw)
+        result.runs, result.not_run = result.runs[:1], 2
+        result.stop = ("no_price", "no price is known for judge, so --max-usd cannot be enforced")
+        return result
+
+    monkeypatch.setattr(measure, "run_measurement", stopped_on_a_price)
+    extractor, answerer, judge = _clients()
+    with pytest.raises(SpendCapReached) as refused:
+        analyze(body, config, extractor=extractor, answerer=answerer, judge=judge)
+    assert refused.value.reason == "no_price"
+    assert "Raise --max-usd" not in str(refused.value)
+    assert "no price is known for judge" in str(refused.value)
