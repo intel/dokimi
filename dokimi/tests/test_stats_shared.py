@@ -3,9 +3,9 @@
 
 """One bootstrap and one paired delta for the whole package (eval/stats.py).
 
-The novelty CI and the tool-preference cluster CI used to resample with their own RNG streams. They now call
-``eval.stats.bootstrap_ci``; these tests pin the wiring (resample counts, seed, output shape) and the golden values
-so a second resampler cannot come back unnoticed.
+The tool-preference cluster CI used to resample with its own RNG stream. It now calls ``eval.stats.bootstrap_ci``;
+these tests pin the wiring (resample counts, seed, output shape) and the golden values so a second resampler cannot
+come back unnoticed. Novelty's CI is out of scope here: main's #418 clusters its paraphrases by atom.
 """
 
 from __future__ import annotations
@@ -19,31 +19,9 @@ import dokimi
 from dokimi.eval import arm_runner
 from dokimi.eval import stats
 from dokimi.records import BASELINE, CONTEXT
-from dokimi.novelty.measure import _bootstrap_ci as novelty_ci
 from dokimi.tool_preference import _boot as group_boot
 
 PKG = Path(dokimi.__file__).parent
-
-
-def test_novelty_ci_is_the_shared_bootstrap_at_400_resamples_seed_0():
-    # 120 ones then 280 zeros: the string-seeded stream gives [0.2575, 0.345], the shared one [0.2575, 0.3475].
-    values = [1.0] * 120 + [0.0] * 280
-    shared = stats.bootstrap_ci(values, n_resamples=400, seed=0)
-    assert novelty_ci(values) == [shared["lo"], shared["hi"]]
-    # Golden: the integer seed 0 stream, 400 resamples, on this input. A reverted novelty CI misses it.
-    assert novelty_ci(values) == [0.2575, 0.3475]
-
-
-def test_novelty_ci_needs_five_probes_and_returns_a_pair():
-    assert novelty_ci([1.0, 0.0, 1.0, 0.0]) is None
-    pair = novelty_ci([1.0, 0.0, 1.0, 0.0, 1.0])
-    assert isinstance(pair, list) and len(pair) == 2
-    assert all(isinstance(x, float) for x in pair)
-
-
-def test_novelty_ci_is_deterministic():
-    values = [float(i % 3 == 0) for i in range(25)]
-    assert novelty_ci(values) == novelty_ci(values)
 
 
 def test_group_boot_is_the_shared_cluster_bootstrap_at_2000_resamples():
@@ -117,7 +95,6 @@ def test_the_package_has_no_second_bootstrap_resampler():
     # A new resampler must be added here on purpose, after checking it cannot be a call to eval.stats.bootstrap_ci.
     assert _bootstrap_definitions() == {
         ("eval/stats.py", "bootstrap_ci"),
-        ("novelty/measure.py", "_bootstrap_ci"),
         ("tool_preference.py", "_boot"),
     }
 
