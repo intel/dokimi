@@ -25,3 +25,10 @@
   `dokimi.repos.compare_interval` and `dokimi.repos.compare_reach` to
   `dokimi.eval.sign_flip`: code that imported them from `dokimi.repos` imports
   them from there. `repo compare` output is unchanged.
+  In the Python API, a `confidence` other than 0.95 now raises `ValueError` where
+  it was accepted, since the interval inverts the test at 0.05: in `paired_test`
+  and `arm_significance` of `dokimi.eval.stats` and in `interaction_test` and
+  `interaction_significance` of `dokimi.eval.interactions`, for any row with 2 or
+  more pairs. `dokimi.eval.stats.MIN_PAIRS_FOR_TEST` is gone, and so is the
+  `HAS_SCIPY` of `dokimi.report.model_compare` and `dokimi.report.eval_report`
+  (`dokimi.eval.stats.HAS_SCIPY` stays).
