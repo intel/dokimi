@@ -311,7 +311,7 @@ def test_the_route_document_reports_each_roots_section_aliases_and_cost():
 def test_data_schema_list_names_the_kinds(capsys):
     args = parse_args(["data", "schema", "list"])
     args.func(args)
-    assert capsys.readouterr().out.split() == ["cli_routes"]
+    assert capsys.readouterr().out.split() == ["cli_routes", "cli_output.v1"]
 
 
 def test_data_schema_show_rejects_an_unknown_kind():
@@ -346,7 +346,7 @@ def test_the_data_help_promises_only_the_kinds_it_has():
     from dokimi.commands.data import SCHEMA_KINDS
 
     helps = {path: action.help for path, action in _help_actions(build_parser())}
-    assert set(SCHEMA_KINDS) == {"cli_routes"}  # widen the help below when a kind is added
+    assert set(SCHEMA_KINDS) == {"cli_routes", "cli_output.v1"}  # widen the help below when a kind is added
     for path in (("data",), ("data", "schema")):
         assert "artifact" not in helps[path].lower(), helps[path]
     assert "route" in helps[("data", "schema")].lower(), helps[("data", "schema")]
