@@ -29,7 +29,9 @@ makes for that seed, so the Monte Carlo ``p(0)`` is the printed p up to the roun
 ``p(theta)`` is a step function and the ends are its step points, within :data:`TOL`: there is no mid-p, which would
 no longer agree with the exact p a row prints.
 
-This module imports nothing of :mod:`dokimi.eval.stats`, which imports it.
+This module imports nothing of :mod:`dokimi.eval.stats`, which imports it. It imports numpy where an interval is
+computed, not at import: CI's static job imports the package (``config_check``, ``cli.py repo scan``) with its tools
+only, no numpy, and :func:`sign_flip_p` needs none.
 """
 
 from __future__ import annotations
@@ -38,8 +40,10 @@ import functools
 import itertools
 import math
 import random
+from typing import TYPE_CHECKING
 
-import numpy as np
+if TYPE_CHECKING:
+    import numpy as np
 
 #: The level p is read at (two-sided) and the interval is inverted at.
 ALPHA = 0.05
@@ -86,6 +90,8 @@ def sign_flip_p(deltas: list[float], seed: int = 0, n_resamples: int = N_RESAMPL
 @functools.cache
 def _patterns(k: int) -> np.ndarray:
     """Every sign pattern of k deltas, one per row: ``2**k x k``, as floats for the product."""
+    import numpy as np
+
     bits = (np.arange(2 ** k)[:, None] >> np.arange(k)) & 1
     out = 1.0 - 2.0 * bits
     out.flags.writeable = False
@@ -96,6 +102,8 @@ def _patterns(k: int) -> np.ndarray:
 def _draws(seed: int, changed: int, n: int, n_resamples: int) -> np.ndarray:
     """``n_resamples x n`` random signs: the first ``changed`` columns are the draws of
     :func:`sign_flip_p`, resample by resample; the other columns continue the same stream."""
+    import numpy as np
+
     key = random.Random(seed).getstate()[1]
     stream = np.random.RandomState()  # random.Random's Mersenne Twister, its state copied: the same doubles
     stream.set_state(("MT19937", np.array(key[:624], dtype=np.uint32), int(key[624]), 0, 0.0))
@@ -113,12 +121,16 @@ class ShiftTest:
     row's own p, not ``p(0)``, places 0 (:func:`sign_flip_interval`)."""
 
     def __init__(self, deltas: list[float], seed: int = 0, n_resamples: int = N_RESAMPLES) -> None:
+        import numpy as np
+
         changed = [x for x in deltas if abs(x) > EPS]
         self.d = np.array(changed + [x for x in deltas if abs(x) <= EPS], dtype=float)  # sign_flip_p's order first
         self.changed, self.seed, self.n_resamples = len(changed), seed, n_resamples
 
     def p(self, theta: float) -> float | None:
         """``None`` when every shifted delta ties, as :func:`sign_flip_p` has no p then."""
+        import numpy as np
+
         x = self.d - theta
         x[np.abs(x) <= EPS] = 0.0
         moved = x[x != 0.0]

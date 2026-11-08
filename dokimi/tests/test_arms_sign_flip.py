@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import json
 import random
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -221,6 +223,26 @@ def test_model_compare_prints_one_sign_flip_p_column():
     # Holm over both runs: 2 x 2/64 and 1 x 2/32; the run of five changed pairs is in the family, with no verdict
     assert "| **six** | +10.0 | 0.0312 | 0.0625 | 6 of 6 | N/A | unknown | No |" in section
     assert "| **five** | +8.3 | 0.0625 | 0.0625 | 5 of 6 | +2.0 | large | N/A |" in section
+
+
+# CI's static job imports the package with its tools only: config_check and `cli.py repo scan` run without numpy.
+NO_NUMPY = (
+    "import importlib.abc, sys\n"
+    "class Block(importlib.abc.MetaPathFinder):\n"
+    "    def find_spec(self, name, path=None, target=None):\n"
+    "        if name.split('.')[0] in ('numpy', 'scipy'):\n"
+    "            raise ModuleNotFoundError(name)\n"
+    "sys.meta_path.insert(0, Block())\n"
+    "import cli, dokimi.config_check\n"
+    "from dokimi.eval import stats\n"
+    "print(stats.sign_flip_p([1.0] * 6))\n"
+)
+
+
+def test_the_package_imports_without_numpy_as_the_static_job_runs_it():
+    done = subprocess.run([sys.executable, "-c", NO_NUMPY], capture_output=True, text=True,
+                          cwd=Path(__file__).parents[1], check=False)
+    assert (done.returncode, done.stdout) == (0, "0.03125\n"), done.stderr
 
 
 def test_a_new_arms_json_and_one_written_before_both_validate():
