@@ -741,9 +741,8 @@ def _add_model_args(parser: argparse.ArgumentParser, positive_int) -> None:
                              "reacts to any long context'")
     parser.add_argument("--concurrency", type=positive_int, default=5)
     parser.add_argument("--allow-self-judge", action="store_true", dest="allow_self_judge",
-                        help="Let the answering model grade itself (inflates scores; recorded as "
-                             "a warning on the artifact), or let --judge2 be the first judge's "
-                             "model (its agreement figures are then not independent)")
+                        help="Let the answering model grade itself (inflates scores), or --judge2 be"
+                             " the first judge's model (its agreement is not independent)")
     add_judge2_args(parser, PROVIDERS)
     parser.add_argument("--no-paraphrase", action="store_true", dest="no_paraphrase")
     parser.add_argument("--no-reversal", action="store_true", dest="no_reversal")
