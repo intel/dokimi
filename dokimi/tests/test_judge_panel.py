@@ -231,6 +231,9 @@ def test_evaluate_partial_failure():
     with patch("dokimi.eval.panel.llm_call", side_effect=lambda *a, **kw: next(it)):
         verdict = panel.evaluate("Q?", "A.", "oneTBB", "")
     assert len(verdict.valid_votes) == 1
+    # One of two panelists is not a majority: no verdict from it.
+    assert verdict.insufficient_evidence
+    assert verdict.mean_aggregate is None
 
 
 # ── defaults ──────────────────────────────────────────────────────────────────

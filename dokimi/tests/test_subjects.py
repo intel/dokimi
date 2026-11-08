@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 import dokimi.eval.arm_runner as arm_runner_mod
+from tests.cli_refusal import refusal
 from dokimi.utils import InputError
 from dokimi import __version__
 from dokimi.artifacts import validate_artifact
@@ -869,11 +870,10 @@ tasks = ["{missing_task.as_posix()}"]
         "codex",
     ])
 
-    with pytest.raises(SystemExit) as excinfo:
+    with refusal() as out:
         args.func(args)
-
-    assert excinfo.value.code == 2
-    assert "Error loading subject work: Task directory not found" in capsys.readouterr().err
+    assert out.code == 2
+    assert "Error: cannot load subject work: Task directory not found" in capsys.readouterr().err
 
 
 def test_subjects_run_writes_work_task_runs_when_requested(tmp_path: Path, monkeypatch):

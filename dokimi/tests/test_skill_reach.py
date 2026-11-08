@@ -18,6 +18,8 @@ from types import SimpleNamespace
 import pytest
 import yaml
 
+from tests.cli_refusal import refusal
+
 from dokimi import process
 from dokimi.artifacts import validate_artifact
 from dokimi.cli import build_parser
@@ -334,9 +336,9 @@ def test_cli_dry_run_and_unknown_case(tmp_path, capsys):
     args.func(args)
     assert json.loads(capsys.readouterr().out)["cases"] == ["project-client"]
     args = build_parser().parse_args([*base, "--only", "nope"])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as out:
         args.func(args)
-    assert exc.value.code == 2 and "nope" in capsys.readouterr().err
+    assert out.code == 2 and "nope" in capsys.readouterr().err
 
 
 def _cli(*argv: str) -> None:
@@ -353,9 +355,9 @@ def _cli(*argv: str) -> None:
 ])
 def test_cli_dry_run_refuses_what_a_run_would_refuse(tmp_path, capsys, changes, message):
     profile = _edit_profile(tmp_path, "refused.yaml", **changes)
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as out:
         _cli("--harness", str(profile), "--dry-run")
-    assert exc.value.code == EXIT_USAGE and message in capsys.readouterr().err
+    assert out.code == EXIT_USAGE and message in capsys.readouterr().err
 
 
 @pytest.fixture
@@ -368,24 +370,24 @@ def _real_ancestor_guard(monkeypatch):
 
 def test_cli_dry_run_refuses_when_no_selected_case_has_a_skill_dir_in_the_profile(tmp_path, capsys):
     profile = _edit_profile(tmp_path, "no-user.yaml", skills={"project_dirs": [".fake/skills"]})
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as out:
         _cli("--harness", str(profile), "--only", "user-client", "--dry-run")
-    assert exc.value.code == EXIT_USAGE and "no case could be placed" in capsys.readouterr().err
+    assert out.code == EXIT_USAGE and "no case could be placed" in capsys.readouterr().err
 
 
 def test_cli_dry_run_refuses_a_work_dir_under_guidance_as_a_run_would(tmp_path, capsys, _real_ancestor_guard):
     (tmp_path / "CLAUDE.md").write_text("guidance\n", encoding="utf-8")
     work = tmp_path / "work"
     work.mkdir()
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as out:
         _cli("--harness", str(_profile(tmp_path)), "--only", "project-client", "--dry-run", "--work-dir", str(work))
-    assert exc.value.code == EXIT_USAGE and "guidance files above the workspace" in capsys.readouterr().err
+    assert out.code == EXIT_USAGE and "guidance files above the workspace" in capsys.readouterr().err
 
 
 def test_cli_dry_run_refuses_a_work_dir_that_is_not_a_directory(tmp_path, capsys):
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as out:
         _cli("--harness", str(_profile(tmp_path)), "--dry-run", "--work-dir", str(tmp_path / "missing"))
-    assert exc.value.code == EXIT_USAGE and "is not a directory" in capsys.readouterr().err
+    assert out.code == EXIT_USAGE and "is not a directory" in capsys.readouterr().err
 
 
 def test_the_ancestor_guard_also_refuses_the_profiles_own_guidance_names(tmp_path, _real_ancestor_guard):
@@ -413,9 +415,9 @@ def test_cli_run_passes_its_timeout_salt_and_budget_to_the_run(tmp_path, capsys,
 
 @pytest.mark.parametrize("budget", ["0", "-1", "nan"])
 def test_cli_refuses_a_budget_that_is_not_a_positive_number(tmp_path, capsys, budget):
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as out:
         _cli("--harness", str(_profile(tmp_path)), "--budget", budget)
-    assert exc.value.code == EXIT_USAGE
+    assert out.code == EXIT_USAGE
     assert "--budget must be > 0" in capsys.readouterr().err
 
 
@@ -445,17 +447,17 @@ def test_cli_run_exits_1_when_a_scenario_errors(tmp_path, capsys, monkeypatch):
 
 def test_cli_run_reports_a_missing_work_dir_and_a_blocked_out_dir(tmp_path, capsys):
     profile = _profile(tmp_path)
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as out:
         _cli("--harness", str(profile), "--only", "project-client", "--out", str(tmp_path / "out"),
              "--work-dir", str(tmp_path / "no-such-parent" / "work"))
-    assert exc.value.code == EXIT_USAGE and "is not a directory" in capsys.readouterr().err
+    assert out.code == EXIT_USAGE and "is not a directory" in capsys.readouterr().err
     blocked = tmp_path / "blocked"  # a file where the output directory should be
     blocked.write_text("not a directory", encoding="utf-8")
     work = tmp_path / "work"
     work.mkdir()
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as out:
         _cli("--harness", str(profile), "--only", "project-client", "--out", str(blocked), "--work-dir", str(work))
-    assert exc.value.code == EXIT_USAGE and "is not a directory" in capsys.readouterr().err
+    assert out.code == EXIT_USAGE and "is not a directory" in capsys.readouterr().err
     assert not (tmp_path / "out").exists()
 
 
@@ -498,9 +500,9 @@ def test_cli_run_with_keep_leaves_the_fixture_and_names_it(tmp_path, capsys):
 
 
 def test_cli_refuses_a_budget_for_a_harness_with_no_spend_cap(capsys):
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as out:
         _cli("--harness", "codex", "--budget", "0.01", "--dry-run")
-    assert exc.value.code == EXIT_USAGE
+    assert out.code == EXIT_USAGE
     assert "has no spend-cap flag" in capsys.readouterr().err
 
 
@@ -516,9 +518,9 @@ def test_cli_run_without_a_budget_says_a_spend_cap_is_not_enforced(tmp_path, cap
 
 def test_cli_run_refuses_a_profile_without_a_skills_block(tmp_path, capsys):
     profile = _edit_profile(tmp_path, "noskills.yaml", skills=None)
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as out:
         _cli("--harness", str(profile), "--out", str(tmp_path / "out"))
-    assert exc.value.code == EXIT_USAGE
+    assert out.code == EXIT_USAGE
     err = capsys.readouterr().err
     assert "declares no `skills` block" in err and "cases," not in err
 
@@ -527,9 +529,9 @@ def test_cli_run_refuses_a_profile_without_a_skills_block(tmp_path, capsys):
 def test_cli_dry_run_refuses_a_profile_skill_dir_that_escapes(tmp_path, capsys, only):
     profile = _edit_profile(tmp_path, "escape.yaml", skills={"project_dirs": [".fake/skills"],
                                                              "user_dirs": ["config:../x"]})
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as out:
         _cli("--harness", str(profile), *only, "--dry-run")
-    assert exc.value.code == EXIT_USAGE and "must be project:|home:|config:" in capsys.readouterr().err
+    assert out.code == EXIT_USAGE and "must be project:|home:|config:" in capsys.readouterr().err
 
 
 CATALOGUE_HEAD = "schema: skill_fixtures.v1\ncases:\n"
@@ -586,9 +588,9 @@ def test_a_bad_catalogue_is_refused(tmp_path, text, message):
 def test_cli_dry_run_refuses_a_catalogue_location_a_run_would_refuse(tmp_path, capsys, at):
     path = tmp_path / "cat.yaml"
     path.write_text(_catalogue(f"{{id: a, at: '{at}'}}"), encoding="utf-8")
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as out:
         _cli("--harness", str(_profile(tmp_path)), "--catalogue", str(path), "--dry-run")
-    assert exc.value.code == EXIT_USAGE and "must be project:|home:|config:" in capsys.readouterr().err
+    assert out.code == EXIT_USAGE and "must be project:|home:|config:" in capsys.readouterr().err
 
 
 @pytest.mark.skipif(not Path("/dev/fd").is_dir(), reason="needs /dev/fd")

@@ -39,7 +39,7 @@ def _panel_eval(failed=()):
     panel = JudgePanel.__new__(JudgePanel)
     panel.judges = [object(), object()]
 
-    def evaluate(question, answer, library_name, context=""):
+    def evaluate(question, answer, library_name, context="", ground_truth=None):
         dead = answer.startswith("context") and any(question.endswith(f" {i}?") for i in failed)
         agg = None if dead else float(60 + len(answer) % 7 + (10 if answer.startswith("context") else 0))
         return PanelVerdict(votes=[], mean_aggregate=agg, std_aggregate=None if dead else 1.0,

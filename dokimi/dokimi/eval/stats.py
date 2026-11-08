@@ -19,6 +19,9 @@ adjust_pvalues(pvals, method)
     Holm-Bonferroni (default) or Benjamini-Hochberg adjusted p-values.
 paired_vectors(evaluations, arm_a, arm_b)
     Per-question paired score vectors for two arms, complete cases only.
+paired_delta(evaluations, baseline_arm, arm_name)
+    Mean of ``arm - baseline`` over the complete pairs, rounded to one place (the
+    arm table's delta column); ``None`` with no pairs.
 paired_summary(evaluations)
     Both arms and their delta over the complete pairs, with the unpaired count.
     Called by the eval report, the report generator and the pipeline summary; the
@@ -105,6 +108,13 @@ def bootstrap_ci(
 
     Returns ``{"mean", "lo", "hi", "n"}``. Deterministic for a given ``seed``,
     so it is safe to use in tests and reproducible runs.
+
+    This is the eval-side bootstrap. Its seed is an integer fed to
+    ``random.Random(seed)``, the scheme the McNemar and grounding intervals
+    already used, and the one ``--seed`` means on the CLI. Novelty's atom-clustered ``clustered_ci``
+    (``novelty/controls.py``) is a separate resampler with its own string seed;
+    this module does not change it. Callers pass ``n_resamples`` when they need
+    a count other than the default.
 
     Prefer :func:`mean_ci` on continuous data: the percentile bootstrap
     under-covers badly at the sample sizes this module targets (measured ~87.5%
@@ -342,6 +352,17 @@ def paired_vectors(
             a_vals.append(float(a))
             b_vals.append(float(b))
     return a_vals, b_vals
+
+
+def paired_delta(evaluations: Iterable[Any], baseline_arm: str, arm_name: str) -> Optional[float]:
+    """The mean of ``arm - baseline`` over the questions that both arms scored; ``None`` if none.
+
+    A question one arm errored on (or left unscored) is not in the delta at all: the
+    difference of two unpaired means would compare different questions.
+    """
+    arm_vals, base_vals = paired_vectors(evaluations, arm_name, baseline_arm)
+    diffs = [a - b for a, b in zip(arm_vals, base_vals, strict=True)]
+    return round(sum(diffs) / len(diffs), 1) if diffs else None
 
 
 @dataclass(frozen=True)
