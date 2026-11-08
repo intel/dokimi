@@ -219,5 +219,6 @@ def test_skill_check_help_says_where_the_name_comes_from(capsys):
     with pytest.raises(SystemExit):
         build_parser().parse_args(["skill", "check", "--help"])
     text = " ".join(capsys.readouterr().out.split())
-    assert "its name in skills.yaml" in text
+    assert "a skill that loads" in text
+    assert "its skills.yaml name" in text
     assert "SKILL.md frontmatter name" in text
