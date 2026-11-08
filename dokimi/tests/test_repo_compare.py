@@ -14,9 +14,11 @@ from pathlib import Path
 import pytest
 
 from dokimi.cli import build_parser
+from dokimi.eval import sign_flip
 from dokimi.eval.binary_stats import mcnemar_test
+from dokimi.eval.sign_flip import sign_flip_p
 from dokimi.repos import compare as compare_mod
-from dokimi.repos.compare import CompareError, compare, format_compare, parse_selector, sign_flip_p
+from dokimi.repos.compare import CompareError, compare, format_compare, parse_selector
 
 
 def _cell(batch: Path, task: str, arm: str, rep: int, *, success: bool | None = True, score: float | None = None,
@@ -105,7 +107,7 @@ def test_sign_flip_has_no_p_when_every_task_tied():
 
 def test_sign_flip_monte_carlo_counts_the_observed_pattern_and_follows_its_seed():
     # 18 identical wins: no resample beats the observed sum by chance alone, so p is 1 / (N + 1), never 0
-    assert compare_mod.EXACT_MAX == 16 and compare_mod.N_RESAMPLES == 20_000
+    assert sign_flip.EXACT_MAX == 16 and sign_flip.N_RESAMPLES == 20_000
     assert sign_flip_p([1.0] * 18) == pytest.approx(1 / 20_001, abs=1e-6)
     assert sign_flip_p([1.0] * 16) == pytest.approx(2 / 2 ** 16, abs=1e-6)  # 16 changed tasks: still exact
     d18 = [1.0] * 12 + [-1.0] * 6
@@ -135,7 +137,7 @@ def test_sign_flip_monte_carlo_tracks_the_exact_distribution(monkeypatch):
     deltas = [0.33, -0.67, 1.0, 0.33, 0.33, -0.33, 0.67, 0.33, 1.0, -0.33, 0.67, 0.33, 0.33, 0.67, -1.0, 0.33,
               0.67, 0.33]
     sampled = sign_flip_p(deltas)  # 18 non-zero deltas: above EXACT_MAX
-    monkeypatch.setattr(compare_mod, "EXACT_MAX", 18)
+    monkeypatch.setattr(sign_flip, "EXACT_MAX", 18)
     assert sampled == pytest.approx(sign_flip_p(deltas), abs=0.01)
 
 

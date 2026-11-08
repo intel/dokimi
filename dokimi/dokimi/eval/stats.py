@@ -3,11 +3,13 @@
 
 """Small statistics helpers for evaluation rigor.
 
-Pure-Python by default: bootstrap CIs, effect sizes, and multiple-comparison
-correction need no third-party packages. The parametric/rank hypothesis tests
-(:func:`paired_test`, and :func:`dokimi.eval.interactions.interaction_test`)
-additionally use SciPy and return ``p_*`` keys of ``None`` when it is not
-installed — everything else in the result stays populated.
+Bootstrap CIs, effect sizes, and multiple-comparison correction need no
+third-party packages. The paired tests (:func:`paired_test`,
+:func:`arm_significance`, and the interaction contrasts of
+:mod:`dokimi.eval.interactions`) are one two-sided sign-flip test on the
+per-question deltas, and their 95% interval inverts it
+(:mod:`dokimi.eval.sign_flip`, NumPy only), so the interval excludes 0 exactly
+when the raw p is below :data:`ALPHA`. Only :func:`mean_ci` reads SciPy.
 
 Public API
 ----------
@@ -27,15 +29,16 @@ paired_summary(evaluations)
     Called by the eval report, the report generator and the pipeline summary; the
     dashboard and the model-compare run summary average both arms over the same pairs.
 mean_ci(values, ...)
-    Student-t CI for the mean, coherent with ``p_ttest``; bootstrap fallback.
+    Student-t CI for the mean; bootstrap fallback. For the checklist and
+    cross-judge summaries, not the paired tests.
 point_biserial(flags, totals)
     Item-analysis discrimination: correlation of one binary item against the
     respondents' total scores.
 paired_test(treatment, control, ...)
-    Paired t-test + Wilcoxon + Cohen's d_z + CI on the deltas.
+    Sign-flip p + its inverted 95% interval + Cohen's d_z on the deltas.
 arm_significance(evaluations, baseline_arm, ...)
     Every non-baseline arm tested against one *shared* baseline, with
-    family-wise correction across the arms.
+    family-wise correction of the sign-flip p across the arms.
 
 The 2x2 interaction contrasts between arms (``detect_factorial_cells``,
 ``interaction_test``, ``interaction_significance``) are built on these helpers
@@ -55,6 +58,8 @@ import random
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
+from dokimi.eval.sign_flip import (ALPHA, EPS, METHOD, _rounded, min_sign_flip_p, sign_flip_interval,
+                                   sign_flip_p, within)
 from dokimi.records import BASELINE, CONTEXT, RecordLike, records
 
 try:
@@ -65,28 +70,11 @@ except ImportError:  # pragma: no cover - environment dependent
     _sp_stats = None
     HAS_SCIPY = False
 
-#: Minimum complete pairs before a hypothesis test is attempted.
-#:
-#: Six, not five, because :func:`_describe_deltas` requires *both* the t-test
-#: and the Wilcoxon test to clear ALPHA. The smallest attainable two-sided exact
-#: Wilcoxon p at n=5 is 0.0625 — above 0.05 — so at five pairs no data
-#: whatsoever could produce a positive verdict. A threshold that admits an
-#: unwinnable regime is worse than a slightly higher one.
-MIN_PAIRS_FOR_TEST = 6
-
-#: Default significance level.
-ALPHA = 0.05
-
 #: Accepted multiple-comparison corrections (see :func:`adjust_pvalues`).
 CORRECTIONS = ("holm", "bh")
 
-#: Relative tolerance for calling a delta vector's spread zero.
-#:
-#: An exact ``sd == 0.0`` test is a cliff edge: judge aggregates are weighted
-#: means, so a constant shift computed in floating point often lands at
-#: ``sd = 3e-15`` rather than exactly zero, which then yields ``d_z = 2.8e13``,
-#: ``p = 1e-68`` and an "effect: large" verdict on what is really a degenerate
-#: sample. Scaled by the mean so the test is unit-free.
+#: Relative spread (scaled by the mean) below which d_z is undefined: a float constant shift has sd ~ 3e-15,
+#: not 0, and d_z ~ 2.8e13 ("large"). The sign-flip p needs no such guard.
 ZERO_VARIANCE_REL_TOL = 1e-9
 
 
@@ -158,11 +146,11 @@ def bootstrap_ci(
 def mean_ci(values, confidence: float = 0.95, seed: int = 0, ndigits: Optional[int] = 4) -> dict:
     """Confidence interval for the mean: Student-t when SciPy is available.
 
-    The t interval is both better calibrated at small n and *coherent* with the
-    reported ``p_ttest`` — the interval excludes zero exactly when the t-test
-    rejects. A bootstrap interval next to a t p-value can disagree (measured:
-    5.7% of runs at n=10), which reads as a rendering bug rather than as the
-    two different inferences it really is.
+    The t interval is better calibrated than the percentile bootstrap at small
+    n, and excludes zero exactly when a one-sample t test rejects. The paired
+    tests do not use it: their interval inverts their sign-flip test
+    (:func:`paired_test`); this one serves the checklist and cross-judge
+    summaries.
 
     Falls back to :func:`bootstrap_ci` without SciPy, and for degenerate
     samples where the interval collapses to the mean.
@@ -468,109 +456,80 @@ def point_biserial(flags: Sequence[bool], totals: Sequence[float]) -> Dict[str, 
     return {"r": round(r, 4), "n": n, "n_pass": n_pass, "reason": None}
 
 
-def _one_sample_pvalues(deltas: Sequence[float]) -> Dict[str, Any]:
-    """Two-sided p-values for ``mean(deltas) != 0`` (t-test and Wilcoxon).
-
-    p-values come back at **full precision**; rounding happens in
-    :func:`_finalize`, after any multiplicity correction. Correcting an
-    already-rounded p multiplies its quantization error by the family size: a
-    true p of 0.016666 in a family of three gives an exact Holm p of 0.049998
-    (significant), but 3 x round(0.016666, 4) = 0.0501 (not significant).
-
-    Returns ``None`` for both p-values when the deltas have zero variance: the
-    t statistic is then infinite and SciPy reports ``p == 0``, which would read
-    as overwhelming significance on what is really a degenerate sample (often a
-    stub judge returning a constant). The CI still describes it.
-
-    ``n_wilcoxon`` is the number of pairs the signed-rank test actually used.
-    """
-    res: Dict[str, Any] = {"p_ttest": None, "p_wilcoxon": None, "n_wilcoxon": 0}
-    if not HAS_SCIPY or len(deltas) < MIN_PAIRS_FOR_TEST:
-        return res
-    if _is_degenerate(_mean(deltas), _sample_sd(deltas)):
-        return res
-    try:
-        _, p_t = _sp_stats.ttest_1samp(list(deltas), 0.0)
-        res["p_ttest"] = float(p_t)
-    except Exception:  # pragma: no cover - degenerate input
-        pass
-    try:
-        # Wilcoxon is undefined when every delta is zero.
-        if any(d != 0 for d in deltas):
-            # zero_method="zsplit" keeps tied pairs in the sample size and
-            # splits their rank sum. SciPy's default ("wilcox") *discards*
-            # them, which on judged scores — where ties are routine — silently
-            # runs the test on a fraction of the pairs while ``n`` reports the
-            # full count. Measured on 20 pairs with 15 ties: 0.0253 discarding
-            # versus 0.0764 splitting, i.e. the verdict flips.
-            _, p_w = _sp_stats.wilcoxon(
-                list(deltas), zero_method="zsplit", alternative="two-sided"
-            )
-            res["p_wilcoxon"] = float(p_w)
-            res["n_wilcoxon"] = len(deltas)
-    except Exception:  # pragma: no cover - degenerate input
-        pass
-    return res
+def _cohens_d(d_mean: float, d_sd: float) -> Optional[float]:
+    """Cohen's d_z of the deltas (sample SD), descriptive: no verdict reads it."""
+    if not _is_degenerate(d_mean, d_sd):
+        return round(d_mean / d_sd, 3)
+    # Every pair identical: the limit of 0/0 here is a genuine null, and "0.0 (negligible)" says more than
+    # "unknown"; a constant non-zero shift has an unbounded d_z, which None renders as "unknown".
+    return 0.0 if d_mean == 0 else None
 
 
 def _describe_deltas(
     deltas: Sequence[float], *, confidence: float, seed: int
 ) -> Dict[str, Any]:
-    """Effect size, CI, and hypothesis tests for a delta vector.
+    """Effect size, the sign-flip p, and the interval that inverts it, for a delta vector.
 
-    p-values are left unrounded for the caller to correct and then
-    :func:`_finalize`.
+    ``p`` is the two-sided sign-flip p over the deltas not within ``EPS`` of 0
+    (:func:`dokimi.eval.sign_flip.sign_flip_p`, exact up to 16 of them, Monte
+    Carlo from ``seed`` above), left unrounded for the caller to correct and
+    then :func:`_finalize`. Correcting an already-rounded p multiplies its
+    quantization error by the family size: a true p of 0.016666 in a family of
+    three gives an exact Holm p of 0.049998 (significant), but
+    3 x round(0.016666, 4) = 0.0501 (not significant).
+
+    ``ci_lo``/``ci_hi`` are every shift the same test does not reject at
+    :data:`ALPHA`, uncorrected (``ci_method`` ``sign_flip_inversion``), placed
+    on 0 by that same ``p``: they exclude 0 exactly when ``p < ALPHA``. An end
+    is ``None`` where it is open, as both are at 5 or fewer pairs. ``exact``
+    holds the unrounded ends; the displayed ones are rounded to 4 places, never
+    onto or across 0, and ``delta_mean`` (2 places) is held inside them.
+
+    ``significant`` is ``None`` ("could not tell", not "no") when there is no
+    p, every delta tied, or when the floor ``2 / 2**k`` over the
+    ``n_changed`` = k changed pairs is not below :data:`ALPHA`: at 5 or fewer
+    changed pairs no data whatsoever could give a positive verdict, however many
+    tied pairs there are. Otherwise it is ``p < ALPHA``.
+
+    ``confidence`` must be 0.95: the interval inverts the test at
+    :data:`ALPHA`, so another level would no longer agree with the verdict.
     """
-    d_mean = _mean(deltas)
-    d_sd = _sample_sd(deltas)
-    degenerate = _is_degenerate(d_mean, d_sd)
-    if not degenerate:
-        cohens_d = round(d_mean / d_sd, 3)
-    elif d_mean == 0:
-        # Every pair identical: the limit of 0/0 here is a genuine null, and
-        # "0.0 (negligible)" says more than "unknown" would.
-        cohens_d = 0.0
-    else:
-        # d_z is *unbounded* when the deltas are constant and non-zero, not
-        # zero: reporting 0.0 would label a flawless, perfectly consistent
-        # shift "negligible". None renders as "unknown" — what we actually know.
-        cohens_d = None
-    exact_ci = mean_ci(deltas, confidence=confidence, seed=seed, ndigits=None)
-    ci = {k: round(v, 4) if k in ("lo", "hi") and v is not None else v for k, v in exact_ci.items()}
+    if not math.isclose(confidence, 1.0 - ALPHA):
+        raise ValueError(f"confidence must be {1.0 - ALPHA}: the interval inverts the test at alpha {ALPHA}")
+    d = [float(x) for x in deltas]
+    d_mean = _mean(d)
+    d_sd = _sample_sd(d)
+    cohens_d = _cohens_d(d_mean, d_sd)
+    p = sign_flip_p(d, seed=seed, exact=True)
+    lo, hi = sign_flip_interval(d, p, seed=seed, rounded=False)
+    shown_lo, shown_hi = _rounded(lo), _rounded(hi)
+    n_changed = sum(1 for x in d if abs(x) > EPS)
 
-    result: Dict[str, Any] = {
-        "n": len(deltas),
-        "delta_mean": round(d_mean, 2),
+    return {
+        "n": len(d),
+        "delta_mean": within(round(d_mean, 2) + 0.0, shown_lo, shown_hi),
         "delta_std": round(d_sd, 2),
         "cohens_d": cohens_d,
         "effect": effect_label(cohens_d),
-        "ci_lo": ci["lo"],
-        "ci_hi": ci["hi"],
+        "ci_lo": shown_lo,
+        "ci_hi": shown_hi,
         "ci_confidence": confidence,
-        "ci_method": ci.get("method"),
+        "ci_method": METHOD,
         # The fields above are rounded for display; a consumer that re-derives a verdict
         # or publishes the effect reads these. p_adjusted is set with the family correction.
-        "exact": {"delta_mean": d_mean, "ci_lo": exact_ci["lo"], "ci_hi": exact_ci["hi"]},
+        "exact": {"delta_mean": d_mean, "ci_lo": lo, "ci_hi": hi},
+        "p": p,
+        "n_changed": n_changed,
+        "significant": None if p is None or min_sign_flip_p(n_changed) >= ALPHA else p < ALPHA,
+        # Filled in by _apply_correction() once the family size is known.
+        "p_adjusted": None,
+        "significant_adjusted": None,
     }
-    result.update(_one_sample_pvalues(deltas))
-
-    p_t, p_w = result["p_ttest"], result["p_wilcoxon"]
-    # None, not False, when no test could run: "we could not tell" is not "we
-    # showed no difference". A constant +20 shift would otherwise render
-    # identically to a true null.
-    result["significant"] = (
-        None if p_t is None
-        else bool(p_t < ALPHA and (p_w is None or p_w < ALPHA))
-    )
-    # Filled in by arm_significance() once the family size is known.
-    result["p_adjusted"] = None
-    result["significant_adjusted"] = None
-    return result
 
 
 def _finalize(result: Dict[str, Any]) -> Dict[str, Any]:
-    """Round every p-value in ``result`` in place, once, at the end."""
-    for key in ("p_ttest", "p_wilcoxon", "p_adjusted"):
+    """Round ``p`` and ``p_adjusted`` in ``result`` in place, once, at the end."""
+    for key in ("p", "p_adjusted"):
         if key in result:
             result[key] = _round_p(result[key])
     return result
@@ -584,13 +543,14 @@ def paired_test(
     seed: int = 0,
     rounded: bool = True,
 ) -> Optional[Dict[str, Any]]:
-    """Paired comparison of ``treatment`` against ``control``.
+    """Paired comparison of ``treatment`` against ``control``: :func:`_describe_deltas` of their differences.
 
     Returns ``None`` when the vectors are empty, mismatched in length, or hold
-    fewer than two pairs. Effect size and CI are always computed;
-    ``p_ttest``/``p_wilcoxon`` are ``None`` without SciPy or below
-    :data:`MIN_PAIRS_FOR_TEST` pairs. ``rounded=False`` leaves the p-values
-    unrounded for a caller that corrects them first, then :func:`_finalize`.
+    fewer than two pairs. From two pairs on the sign-flip test runs and ``p`` is
+    reported; ``significant`` is ``None`` where it has no p or the floor rule
+    leaves no verdict. No multiplicity correction: ``p_adjusted`` and
+    ``significant_adjusted`` stay ``None``. ``rounded=False`` leaves ``p``
+    unrounded for a caller that corrects it first, then :func:`_finalize`.
     """
     if len(treatment) != len(control) or len(treatment) < 2:
         return None
@@ -612,8 +572,10 @@ def arm_significance(
 
     Pairing happens per question against the same baseline sample, so the arms
     are mutually comparable — the deltas differ only by treatment, not by a
-    re-sampled control. p-values are then corrected across the arms tested in
-    this call (see :func:`adjust_pvalues`).
+    re-sampled control. Each arm with 2+ pairs gets :func:`_describe_deltas`;
+    its sign-flip ``p`` is then corrected across the arms tested in this call
+    (:func:`_apply_correction`, :func:`adjust_pvalues`). The interval stays
+    uncorrected.
     """
     evaluations = records(evaluations, source="evaluations", kind="evaluations")
     if arms is None:
@@ -647,8 +609,8 @@ def arm_significance(
 
 
 def set_exact_p_adjusted(results: Sequence[Dict[str, Any]], *, method: str) -> None:
-    """Set ``exact.p_adjusted`` to the family correction of ``p_ttest`` before rounding."""
-    exact = adjust_pvalues([r["p_ttest"] for r in results], method=method, rounded=False)
+    """Set ``exact.p_adjusted`` to the family correction of ``p`` before rounding."""
+    exact = adjust_pvalues([r["p"] for r in results], method=method, rounded=False)
     for res, p in zip(results, exact, strict=True):
         if "exact" in res:
             res["exact"]["p_adjusted"] = p
@@ -657,16 +619,19 @@ def set_exact_p_adjusted(results: Sequence[Dict[str, Any]], *, method: str) -> N
 def _apply_correction(
     results: Sequence[Dict[str, Any]], *, correction: str, label: str
 ) -> None:
-    """Correct ``p_ttest`` across one family of results, in place.
+    """Correct the sign-flip ``p`` across one family of results, in place.
 
     ``results`` must still hold unrounded p-values. ``label`` names the family
     so a reader can tell which hypotheses were corrected together — arms and
     interaction contrasts are separate families, and pooling them would inflate
-    the multiplier on both.
+    the multiplier on both. Every result with a p is in the family, one under
+    the floor rule included (as in ``repo compare``), and ``family_tested``
+    counts them. ``significant_adjusted`` is ``None`` wherever ``significant``
+    is (no p, or the floor rule), else the corrected verdict.
     """
-    decided = correct_family([r["p_ttest"] for r in results], method=correction)
+    decided = correct_family([r["p"] for r in results], method=correction)
     set_exact_p_adjusted(results, method=correction)
-    tested = sum(1 for r in results if r["p_ttest"] is not None)
+    tested = sum(1 for r in results if r["p"] is not None)
     for res, (adj, adj_significant) in zip(results, decided, strict=True):
         res["p_adjusted"] = adj
         res["correction"] = correction
@@ -675,9 +640,4 @@ def _apply_correction(
         # effective multiplier — see adjust_pvalues).
         res["family_size"] = len(results)
         res["family_tested"] = tested
-        p_w = res["p_wilcoxon"]
-        # None, not False, when there was no p to adjust: see _describe_deltas.
-        res["significant_adjusted"] = (
-            None if adj_significant is None
-            else bool(adj_significant and (p_w is None or p_w < ALPHA))
-        )
+        res["significant_adjusted"] = None if res["significant"] is None else adj_significant

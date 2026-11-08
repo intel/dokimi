@@ -132,8 +132,8 @@ What this table teaches:
 
 *Where the stats come from:* every report path shares
 `dokimi/eval/stats.py`, so the numbers cannot drift apart. The two-arm
-(with/without) report and `report model-compare` each compute a paired t-test,
-Wilcoxon signed-rank, Cohen's d_z, and a 95% CI on the deltas. The N-way
+(with/without) report and `report model-compare` each compute a paired sign-flip
+test, Cohen's d_z, and the 95% CI that inverts the test on the deltas. The N-way
 `arms run` report does the same for *every* arm against the one shared baseline,
 then corrects the p-values for multiplicity across the arms (Holm-Bonferroni by
 default, `--stats-correction bh` for FDR) and reports factorial-interaction

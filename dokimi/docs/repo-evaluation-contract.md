@@ -2377,7 +2377,7 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   delta against the baseline with a 95% interval over tasks, the tasks up, down and tied, and a two-sided
   sign-flip permutation p (exact up to 16 changed tasks, Monte Carlo above with a fixed seed; at one cell per
   task and arm it equals McNemar's exact test). Every measure's interval inverts that test
-  (`dokimi/repos/compare_interval.py`; `delta.method` is `sign_flip_inversion` in `--json`): it is every
+  (`dokimi/eval/sign_flip.py`, which the arms track shares; `delta.method` is `sign_flip_inversion` in `--json`): it is every
   shift theta at which the test on the per-task deltas minus theta does not reject at the uncorrected two-sided
   5% level, each end found by bisection between the mean and a far bound. It excludes 0 exactly when p is below
   0.05: the row's own p places 0, and above 16 changed tasks the interval's Monte Carlo draws are those of p, drawn

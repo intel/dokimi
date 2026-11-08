@@ -30,8 +30,6 @@ generate_section_report(runs, run_ids, section_name, treatment_arm=None,
 
 from __future__ import annotations
 
-import math
-import statistics
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -41,11 +39,6 @@ from dokimi.records import Record, arm_answers, arm_names, arm_scores, records
 from dokimi.eval.judge_context import PROTOCOL_MIXED as JUDGE_CONTEXT_MIXED
 from dokimi.eval import stats as arm_stats
 from dokimi.utils import InputError, read_json_input
-
-#: Mirrors :data:`dokimi.eval.stats.HAS_SCIPY` — the hypothesis tests
-#: now live there, so probing for SciPy twice could only ever disagree. Still a
-#: module-level name so reports can gate their statistics section on it.
-HAS_SCIPY = arm_stats.HAS_SCIPY
 
 try:
     from zoneinfo import ZoneInfo
@@ -604,20 +597,13 @@ def _fmt_delta(d: float | None) -> str:
 def significance_test(
     with_scores: list[float], without_scores: list[float], *, rounded: bool = True
 ) -> dict | None:
-    """Paired t-test, Wilcoxon, and Cohen's d_z (sample SD).  Requires scipy.
+    """Sign-flip p, its inverted 95% interval and Cohen's d_z (sample SD); ``None`` below two pairs.
 
     Delegates to :func:`dokimi.eval.stats.paired_test` so this report
-    and the arms report cannot drift apart on effect-size bands, p-value
-    rounding, or the zero-variance guard (SciPy reports ``p == 0`` on constant
-    deltas, which would read here as overwhelming significance).
-
-    ``t_stat`` is kept for continuity with existing artifacts. It is the
-    one-sample statistic on the deltas, which for paired data is the same
-    quantity ``ttest_rel`` reported.
+    and the arms report cannot drift apart on the test, effect-size bands or
+    p-value rounding. ``significant`` is ``None`` with no p (every pair tied)
+    or where the floor ``2 / 2**k`` over the k changed pairs is not below 0.05.
     """
-    if not HAS_SCIPY or len(with_scores) < arm_stats.MIN_PAIRS_FOR_TEST:
-        return None
-
     result = arm_stats.paired_test(with_scores, without_scores, rounded=rounded)
     if result is None:
         return None
@@ -626,18 +612,6 @@ def significance_test(
     # would read as "corrected and unremarkable" rather than "not corrected".
     result.pop("p_adjusted", None)
     result.pop("significant_adjusted", None)
-
-    if result["p_ttest"] is None:
-        # No test ran; "not significant" would overstate what is known.
-        result["significant"] = None
-
-    deltas = [w - wo for w, wo in zip(with_scores, without_scores, strict=True)]
-    sd = statistics.stdev(deltas)
-    result["t_stat"] = (
-        round(statistics.mean(deltas) / (sd / math.sqrt(len(deltas))), 3)
-        if sd > 0
-        else None
-    )
     return result
 
 
@@ -768,8 +742,7 @@ def generate_section_report(
         lines += _BASELINE_ONLY_LIMITATION
     lines += _resource_usage_lines(runs, bool(replicate_note))
     lines += _overall_summary_lines(run_ids, summary_stats, arm_label)
-    if HAS_SCIPY:
-        lines += _significance_lines(run_ids, all_run_scores, has_treatment, correction)
+    lines += _significance_lines(run_ids, all_run_scores, has_treatment, correction)
     lines += _difficulty_lines(run_ids, all_run_scores, has_treatment)
     lines += _head_to_head_lines(run_ids, all_run_scores, common_questions, has_treatment)
     lines += _benefit_lines(run_ids, summary_stats, has_treatment, arm_label if len(scored) == 1 else None)
@@ -986,33 +959,28 @@ def _adjusted_significance(
         else:
             sigs[run_id] = None
 
-    tested = [sig for rid in run_ids if (sig := sigs[rid]) and sig["p_ttest"] is not None]
-    decided = arm_stats.correct_family([sig["p_ttest"] for sig in tested], method=correction)
-    for sig, (p_adj, adj_significant) in zip(tested, decided, strict=True):
-        sig["p_adjusted"] = p_adj
-        # Same conjunction as the raw verdict, with the adjusted verdict in place of the raw one.
-        sig["significant_adjusted"] = bool(adj_significant and (
-            sig["p_wilcoxon"] is None or sig["p_wilcoxon"] < arm_stats.ALPHA))
-    arm_stats.set_exact_p_adjusted(tested, method=correction)
+    # The arms' own correction, so the two verdicts cannot drift; a run with no p stays out of the multiplier.
+    family = [sig for rid in run_ids if (sig := sigs[rid])]
+    arm_stats._apply_correction(family, correction=correction, label="runs")
     # Correct on the exact p-values, then round: 3 * round(0.016666, 4) is 0.0501.
-    return {rid: sig and arm_stats._finalize(sig) for rid, sig in sigs.items()}, len(tested)
+    tested = sum(sig["p"] is not None for sig in family)
+    return {rid: sig and arm_stats._finalize(sig) for rid, sig in sigs.items()}, tested
 
 
 def _significance_row(run_id: str, sig: dict) -> str:
-    # p-values are None when no test could run (zero-variance deltas); "N/A" is
+    # p is None when every pair tied, the verdict also under the floor rule; "N/A" is
     # honest where "None" would just look broken.
     verdict = sig.get("significant_adjusted")
     if sig["significant"] is None or verdict is None:
         sig_mark = "N/A"
     else:
         sig_mark = "OK Yes" if verdict else "No"
-    p_ttest = sig["p_ttest"] if sig["p_ttest"] is not None else "N/A"
+    p = sig["p"] if sig["p"] is not None else "N/A"
     p_adj = sig.get("p_adjusted")
     p_adj_str = p_adj if p_adj is not None else "N/A"
-    p_wilcox = sig["p_wilcoxon"] if sig["p_wilcoxon"] is not None else "N/A"
     return (
-        f"| **{run_id}** | {_fmt_delta(sig['delta_mean'])} | {p_ttest} | "
-        f"{p_adj_str} | {p_wilcox} | {_fmt_delta(sig['cohens_d'])} "
+        f"| **{run_id}** | {_fmt_delta(sig['delta_mean'])} | {p} | "
+        f"{p_adj_str} | {sig['n_changed']} of {sig['n']} | {_fmt_delta(sig['cohens_d'])} "
         f"| {sig['effect']} | {sig_mark} |"
     )
 
@@ -1033,10 +1001,11 @@ def _significance_lines(
     label = "Holm-Bonferroni" if correction == "holm" else "Benjamini-Hochberg"
     lines += [
         f"_p-values are adjusted across the {n_tested} run(s) compared here "
-        f"({label}); the raw column is shown for reference. "
-        "Significant = adjusted p < 0.05 and Wilcoxon < 0.05 (or unavailable)._",
+        f"({label}); the raw column is shown for reference. p is the two-sided "
+        "sign-flip test on the paired deltas. Significant = adjusted p < 0.05; N/A where every pair tied "
+        "or no p over the changed pairs can reach 0.05._",
         "",
-        "| Run | Delta | p (t-test) | p (adjusted) | p (Wilcoxon) | Cohen's d_z "
+        "| Run | Delta | p (sign-flip) | p (adjusted) | Changed pairs | Cohen's d_z "
         "| Effect | Significant? |",
         "|---|---:|---:|---:|---:|---:|---|---|",
     ]

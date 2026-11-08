@@ -171,27 +171,39 @@
                     "exclusiveMinimum": 0,
                     "exclusiveMaximum": 1
                   },
+                  "p": {
+                    "description": "Two-sided sign-flip p of the per-question deltas (each sign a fair coin under the null), over the pairs whose delta is not within 1e-9 of 0: exact up to 16 of them, Monte Carlo (20 000 draws, fixed seed) above. Uncorrected. Null when every one is within 1e-9 of 0: there is no evidence either way.",
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "n_changed": {
+                    "description": "Pairs whose delta is not within 1e-9 of 0, the ones p is computed over. The smallest p is 2 / 2^n_changed (exact), so at 5 or fewer no p can go below 0.05 and significant is null.",
+                    "type": "integer"
+                  },
                   "p_ttest": {
-                    "description": "Two-sided paired t-test. Null when SciPy is absent, fewer than 6 pairs exist (see eval.stats.MIN_PAIRS_FOR_TEST), or the deltas have zero variance.",
+                    "description": "Held by records written before the sign-flip test (issue #421); a new record does not write it: the two-sided paired t-test p.",
                     "type": [
                       "number",
                       "null"
                     ]
                   },
                   "p_wilcoxon": {
-                    "description": "Two-sided Wilcoxon signed-rank, zero_method=zsplit so tied pairs stay in the sample. Null under the same conditions as p_ttest, or when every delta is zero.",
+                    "description": "Held by records written before the sign-flip test (issue #421); a new record does not write it: the two-sided Wilcoxon signed-rank p (zero_method=zsplit).",
                     "type": [
                       "number",
                       "null"
                     ]
                   },
                   "n_wilcoxon": {
-                    "description": "Pairs the signed-rank test actually used. Zero when it did not run.",
+                    "description": "Held by records written before the sign-flip test (issue #421); a new record does not write it: the pairs the signed-rank test used.",
                     "type": "integer"
                   },
                   "ci_method": {
-                    "description": "How ci_lo/ci_hi were computed. student_t is coherent with p_ttest; percentile_bootstrap is the SciPy-absent fallback.",
+                    "description": "How ci_lo/ci_hi were computed. sign_flip_inversion: every shift the sign-flip test behind p does not reject at 0.05, uncorrected, so the interval excludes 0 exactly when p < 0.05; an end is null where it is open, as both are at 5 or fewer pairs. student_t (coherent with p_ttest), percentile_bootstrap and degenerate are what records written before the sign-flip test hold.",
                     "enum": [
+                      "sign_flip_inversion",
                       "student_t",
                       "percentile_bootstrap",
                       "degenerate",
@@ -199,21 +211,21 @@
                     ]
                   },
                   "significant": {
-                    "description": "Unadjusted verdict at alpha = 0.05. Null when no test could run, which is not the same as a negative verdict. Prefer significant_adjusted.",
+                    "description": "Unadjusted verdict, p < 0.05. Null when there is no verdict, which is not the same as a negative one: no p, or 2 / 2^n_changed is not below 0.05 (in a record written before the sign-flip test: no test could run).",
                     "type": [
                       "boolean",
                       "null"
                     ]
                   },
                   "p_adjusted": {
-                    "description": "p_ttest after multiplicity correction across the treatment arms in this run.",
+                    "description": "p corrected across the treatment arms in this run (in a record written before the sign-flip test: p_ttest corrected).",
                     "type": [
                       "number",
                       "null"
                     ]
                   },
                   "significant_adjusted": {
-                    "description": "Verdict at alpha = 0.05 using p_adjusted. Null when no test could run.",
+                    "description": "Verdict at alpha = 0.05 using p_adjusted. Null wherever significant is null.",
                     "type": [
                       "boolean",
                       "null"
@@ -234,7 +246,7 @@
                     "type": "integer"
                   },
                   "family_tested": {
-                    "description": "Arms that yielded a testable p-value — the effective correction multiplier.",
+                    "description": "Treatment arms with a p, the effective correction multiplier; one whose significant is null because of 2 / 2^n_changed still counts.",
                     "type": "integer"
                   }
                 }
@@ -319,45 +331,61 @@
               "ci_confidence": {
                 "type": "number"
               },
+              "p": {
+                "description": "Two-sided sign-flip p of the per-question contrasts (each sign a fair coin under the null), over the questions whose contrast is not within 1e-9 of 0: exact up to 16 of them, Monte Carlo (20 000 draws, fixed seed) above. Uncorrected. Null when every one is within 1e-9 of 0: there is no evidence either way.",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "n_changed": {
+                "description": "Questions whose contrast is not within 1e-9 of 0, the ones p is computed over. The smallest p is 2 / 2^n_changed (exact), so at 5 or fewer no p can go below 0.05 and significant is null.",
+                "type": "integer"
+              },
               "ci_method": {
                 "enum": [
+                  "sign_flip_inversion",
                   "student_t",
                   "percentile_bootstrap",
                   "degenerate",
                   "none"
-                ]
+                ],
+                "description": "How ci_lo/ci_hi were computed. sign_flip_inversion: every shift the sign-flip test behind p does not reject at 0.05, uncorrected, so the interval excludes 0 exactly when p < 0.05; an end is null where it is open, as both are at 5 or fewer pairs. student_t (coherent with p_ttest), percentile_bootstrap and degenerate are what records written before the sign-flip test hold."
               },
               "p_ttest": {
                 "type": [
                   "number",
                   "null"
-                ]
+                ],
+                "description": "Held by records written before the sign-flip test (issue #421); a new record does not write it: the two-sided paired t-test p."
               },
               "p_wilcoxon": {
                 "type": [
                   "number",
                   "null"
-                ]
+                ],
+                "description": "Held by records written before the sign-flip test (issue #421); a new record does not write it: the two-sided Wilcoxon signed-rank p (zero_method=zsplit)."
               },
               "n_wilcoxon": {
-                "type": "integer"
+                "type": "integer",
+                "description": "Held by records written before the sign-flip test (issue #421); a new record does not write it: the pairs the signed-rank test used."
               },
               "significant": {
-                "description": "Unadjusted verdict at alpha = 0.05. Null when no test could run.",
+                "description": "Unadjusted verdict, p < 0.05. Null when there is no verdict, which is not the same as a negative one: no p, or 2 / 2^n_changed is not below 0.05 (in a record written before the sign-flip test: no test could run).",
                 "type": [
                   "boolean",
                   "null"
                 ]
               },
               "p_adjusted": {
-                "description": "p_ttest corrected across the interaction contrasts in this run — their own family, not pooled with the per-arm comparisons.",
+                "description": "p corrected across the interaction contrasts in this run — their own family, not pooled with the per-arm comparisons (in a record written before the sign-flip test: p_ttest corrected).",
                 "type": [
                   "number",
                   "null"
                 ]
               },
               "significant_adjusted": {
-                "description": "Verdict at alpha = 0.05 using p_adjusted. Null when no test could run.",
+                "description": "Verdict at alpha = 0.05 using p_adjusted. Null wherever significant is null.",
                 "type": [
                   "boolean",
                   "null"
@@ -377,7 +405,7 @@
                 "type": "integer"
               },
               "family_tested": {
-                "description": "Contrasts that yielded a testable p-value.",
+                "description": "Interaction contrasts with a p, the effective correction multiplier; one whose significant is null because of 2 / 2^n_changed still counts.",
                 "type": "integer"
               }
             }

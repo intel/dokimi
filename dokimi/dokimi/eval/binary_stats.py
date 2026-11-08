@@ -4,7 +4,7 @@
 """Paired statistics for **binary** outcomes (the execution-verified track).
 
 The judged Q&A track produces 0–100 scores, so
-:mod:`dokimi.eval.stats` tests them with a paired t-test on the
+:mod:`dokimi.eval.stats` tests them with a paired sign-flip test on the
 deltas. The executable-task track produces a single bit per cell — the task's
 own test suite exited 0 or it did not — and a t-test on 0/1 data is the wrong
 instrument: with 20 tasks the deltas are ``{-1, 0, +1}``, badly non-normal, and

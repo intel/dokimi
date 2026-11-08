@@ -4,7 +4,13 @@
 """Factorial (2x2) interaction contrasts between arms.
 
 Built on the paired-delta helpers of :mod:`dokimi.eval.stats`, which does
-not import this module back.
+not import this module back. Each contrast gets the arms' test: the two-sided
+sign-flip test on the per-question contrast ``AB - A - B + baseline``, its
+inverted 95% interval (uncorrected) and the floor rule, with the sign-flip p
+corrected across the contrasts as a family of its own. The test needs the
+contrast symmetric about 0 when there is no interaction, which independent
+judge noise in the four cells gives: a weaker assumption than a t test's
+normality.
 
 Public API
 ----------
@@ -66,8 +72,11 @@ def _interaction_contrast(
 ) -> Optional[Dict[str, Any]]:
     """Unrounded interaction result, or ``None`` when too few complete rows.
 
-    Left unrounded so :func:`interaction_significance` can correct across the
-    family before display rounding; see :func:`dokimi.eval.stats.adjust_pvalues`.
+    The fields of :func:`dokimi.eval.stats._describe_deltas` on the per-question
+    contrasts (sign-flip ``p``, its inverted interval, ``n_changed``,
+    ``significant``), plus the per-arm deltas. Left unrounded so
+    :func:`interaction_significance` can correct ``p`` across the family before
+    display rounding; see :func:`dokimi.eval.stats.adjust_pvalues`.
     """
     rows: List[Tuple[float, float, float, float]] = []
     for ev in records(evaluations, source="evaluations", kind="evaluations"):
@@ -117,6 +126,12 @@ def interaction_test(
     means. A negative value means the treatments interfere; positive means they
     reinforce.
 
+    The test is the two-sided sign-flip test on those contrasts, and the 95%
+    interval inverts it, so it excludes 0 exactly when ``p < 0.05``; it assumes
+    the contrast symmetric about 0 under no interaction, which independent judge
+    noise in the four cells gives. ``significant`` is ``None`` with no p or under
+    the floor rule (:func:`dokimi.eval.stats._describe_deltas`).
+
     Only questions where all four arms produced a score contribute. Returns
     ``None`` if fewer than two such questions exist.
 
@@ -156,6 +171,11 @@ def interaction_significance(
     arms table applies one standard to some claims and none to others. Pooling
     the two families instead would inflate the multiplier on both, since the
     contrasts answer a different question than the main effects.
+
+    Each contrast's sign-flip ``p`` is corrected (``p_adjusted``,
+    ``significant_adjusted``, :func:`dokimi.eval.stats._apply_correction`); a
+    contrast under the floor rule stays in the family, with
+    ``significant_adjusted`` ``None``. The interval is uncorrected.
     """
     evaluations = records(evaluations, source="evaluations", kind="evaluations")
     results: List[Dict[str, Any]] = []

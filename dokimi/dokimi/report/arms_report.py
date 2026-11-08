@@ -21,10 +21,20 @@ def _fmt_p(p: Any) -> str:
     return "<0.0001" if p < 0.0001 else f"{p:.4f}"
 
 
+def _raw_p(result: Dict[str, Any]) -> Any:
+    """The sign-flip ``p``; an ``arms.json`` written before it existed holds ``p_ttest`` instead."""
+    return result["p"] if "p" in result else result.get("p_ttest")
+
+
 def _fmt_ci(lo: Any, hi: Any) -> str:
-    if lo is None or hi is None:
-        return "—"
-    return f"[{lo:+.1f}, {hi:+.1f}]"
+    """``[lo, hi]`` at 1 decimal, an open end (``None``) as ``-inf`` / ``+inf``; a non-zero end 1 decimal would
+    print as 0.0 gets 2 significant digits, so it keeps its side of 0."""
+    return f"[{'-inf' if lo is None else _ci_end(lo)}, {'+inf' if hi is None else _ci_end(hi)}]"
+
+
+def _ci_end(end: float) -> str:
+    text = f"{end:+.1f}"
+    return f"{end:+.2g}" if end and float(text) == 0 else text
 
 
 def _fmt_num(value: Any, digits: int = 1) -> str:
@@ -41,9 +51,10 @@ def _fmt_num(value: Any, digits: int = 1) -> str:
 def _fmt_sig(significant: Any) -> str:
     """Render a significance verdict, keeping "unknown" distinct from "no".
 
-    ``None`` means no test could run (too few pairs, no SciPy, or a degenerate
-    sample). Printing ``no`` there asserts the absence of an effect on the
-    strength of absent evidence.
+    ``None`` means no verdict: no p (every pair tied), or too few changed pairs
+    for any p to reach 0.05 (and, in a record written before the sign-flip
+    test, too few pairs or a degenerate sample). Printing ``no`` there asserts
+    the absence of an effect on the strength of absent evidence.
     """
     if significant is None:
         return "—"
@@ -73,7 +84,7 @@ def _significance_lines(
         "",
         f"_Each arm is paired per question against `{baseline}`. "
         f"p-values are {label}-adjusted across the {len(rows)} treatment "
-        "arm(s); **Sig.** uses the adjusted value._",
+        "arm(s); **Sig.** uses the adjusted value. The 95% CI is not adjusted._",
         "",
         "| Arm | Δ (paired) | 95% CI | Cohen's d_z | Effect | p | p (adj) | Sig. | n |",
         "| --- | ---: | :---: | ---: | --- | ---: | ---: | :---: | ---: |",
@@ -86,7 +97,7 @@ def _significance_lines(
             f"| `{arm}` | {_fmt_num(sig.get('delta_mean'))} | "
             f"{_fmt_ci(sig.get('ci_lo'), sig.get('ci_hi'))} | "
             f"{_fmt_num(sig.get('cohens_d'), 2)} | {sig.get('effect', '—')} | "
-            f"{_fmt_p(sig.get('p_ttest'))} | {_fmt_p(sig.get('p_adjusted'))} | "
+            f"{_fmt_p(_raw_p(sig))} | {_fmt_p(sig.get('p_adjusted'))} | "
             f"{_fmt_sig(sig.get('significant_adjusted'))} | {sig.get('n', 0)} |"
         )
     lines.append("")
@@ -122,7 +133,7 @@ def _interaction_lines(summary: Dict[str, Any]) -> List[str]:
             f"{_fmt_num(it.get('delta_combined'))} | "
             f"**{_fmt_num(it.get('interaction'))}** | "
             f"{_fmt_ci(it.get('ci_lo'), it.get('ci_hi'))} | "
-            f"{_fmt_p(it.get('p_ttest'))} | {_fmt_p(it.get('p_adjusted'))} | "
+            f"{_fmt_p(_raw_p(it))} | {_fmt_p(it.get('p_adjusted'))} | "
             f"{_fmt_sig(it.get('significant_adjusted'))} | {it.get('n', 0)} |"
         )
     lines.append("")

@@ -59,7 +59,7 @@ def test_correct_family_display_matches_adjust_pvalues():
 
 
 def test_apply_correction_boundary_is_significant_for_the_arms_family():
-    results = [{"p_ttest": BOUNDARY_IN, "p_wilcoxon": None} for _ in range(3)]
+    results = [{"p": BOUNDARY_IN, "significant": True} for _ in range(3)]
     stats._apply_correction(results, correction="holm", label="arms")
     for res in results:
         assert res["p_adjusted"] == 0.05  # display stays rounded
@@ -67,32 +67,34 @@ def test_apply_correction_boundary_is_significant_for_the_arms_family():
 
 
 def test_apply_correction_boundary_just_above_alpha_is_not_significant():
-    results = [{"p_ttest": BOUNDARY_OUT, "p_wilcoxon": None} for _ in range(3)]
+    results = [{"p": BOUNDARY_OUT, "significant": True} for _ in range(3)]
     stats._apply_correction(results, correction="holm", label="arms")
     assert [r["significant_adjusted"] for r in results] == [False, False, False]
 
 
-def test_apply_correction_wilcoxon_still_gates_the_verdict():
-    results = [{"p_ttest": BOUNDARY_IN, "p_wilcoxon": 0.2} for _ in range(3)]
+def test_apply_correction_leaves_no_verdict_under_the_floor_rule():
+    # significant is None under the floor (2 / 2**5 at five changed pairs): the corrected verdict follows it
+    results = [{"p": BOUNDARY_IN, "significant": None}, {"p": BOUNDARY_IN, "significant": True}]
     stats._apply_correction(results, correction="holm", label="arms")
-    assert [r["significant_adjusted"] for r in results] == [False, False, False]
+    assert [r["significant_adjusted"] for r in results] == [None, True]
 
 
 def test_apply_correction_records_family_fields_and_none_entries():
     results = [
-        {"p_ttest": 0.01, "p_wilcoxon": 0.02},
-        {"p_ttest": None, "p_wilcoxon": None},
-        {"p_ttest": 0.04, "p_wilcoxon": 0.5},
+        {"p": 0.01, "significant": True},
+        {"p": None, "significant": None},
+        {"p": 0.04, "significant": True},
+        {"p": 0.0625, "significant": None},  # under the floor: no verdict, still in the family
     ]
     stats._apply_correction(results, correction="holm", label="interactions")
-    # Holm over the two testable p-values: 2*0.01 = 0.02, then max(0.02, 1*0.04).
-    assert [r["p_adjusted"] for r in results] == [0.02, None, 0.04]
-    assert [r["significant_adjusted"] for r in results] == [True, None, False]
+    # Holm over the three p-values: 3*0.01 = 0.03, 2*0.04 = 0.08, then max(0.08, 1*0.0625).
+    assert [r["p_adjusted"] for r in results] == [0.03, None, 0.08, 0.08]
+    assert [r["significant_adjusted"] for r in results] == [True, None, False, None]
     for res in results:
         assert res["correction"] == "holm"
         assert res["correction_family"] == "interactions"
-        assert res["family_size"] == 3
-        assert res["family_tested"] == 2
+        assert res["family_size"] == 4
+        assert res["family_tested"] == 3
 
 
 # On [0.01, 0.02, 0.03] the two methods differ. Holm steps down: 3 * 0.01 = 0.03,
@@ -100,7 +102,7 @@ def test_apply_correction_records_family_fields_and_none_entries():
 # min(0.03, 0.02 * 3/2) = 0.03, min(0.03, 0.01 * 3) = 0.03.
 @pytest.mark.parametrize("correction, adjusted", [("bh", [0.03, 0.03, 0.03]), ("holm", [0.03, 0.04, 0.04])])
 def test_apply_correction_uses_the_requested_method(correction, adjusted):
-    results = [{"p_ttest": p, "p_wilcoxon": None} for p in (0.01, 0.02, 0.03)]
+    results = [{"p": p, "significant": True} for p in (0.01, 0.02, 0.03)]
     stats._apply_correction(results, correction=correction, label="arms")
     assert [r["p_adjusted"] for r in results] == adjusted
     assert all(r["correction"] == correction for r in results)
@@ -117,8 +119,8 @@ def test_apply_correction_on_an_empty_family_adds_nothing():
 # ---------------------------------------------------------------------------
 
 
-def _three_runs(monkeypatch, p_ttest, p_wilcoxon=None):
-    fake = {"p_ttest": p_ttest, "p_wilcoxon": p_wilcoxon, "significant": True}
+def _three_runs(monkeypatch, p):
+    fake = {"p": p, "significant": True}
     monkeypatch.setattr(model_compare, "significance_test", lambda *_, **__: dict(fake))
     run_ids = ["a", "b", "c"]
     all_run_scores = {rid: [{"with_docs": 60, "without_docs": 50}] * 6 for rid in run_ids}
@@ -139,33 +141,33 @@ def test_model_compare_boundary_just_above_alpha_is_not_significant(monkeypatch)
     assert all(sig["significant_adjusted"] is False for sig in sigs.values())
 
 
-# Real scores whose per-run t-test p is 0.0166623, displayed 0.0167.
-SHIFTS = [-10, -5, 0, 5, 10, 15, 20, -15, 25, 30]
+# Real scores whose per-run sign-flip p is exact, 546 / 2**15 = 0.0166626, displayed 0.0167.
+SHIFTS = [21, 23, 24, -19, 25, 18, 2, 30, 25, -22, 19, 2, 2, 13, 11]
 
 
 def test_paired_test_rounds_by_default_and_on_request_leaves_p_exact():
-    treatment, control = [56.543 + s for s in SHIFTS], [50.0] * len(SHIFTS)
-    assert stats.paired_test(treatment, control)["p_ttest"] == 0.0167
-    exact = stats.paired_test(treatment, control, rounded=False)["p_ttest"]
-    assert 0.01665 < exact < 0.05 / 3
+    treatment, control = [50.0 + s for s in SHIFTS], [50.0] * len(SHIFTS)
+    assert stats.paired_test(treatment, control)["p"] == 0.0167
+    exact = stats.paired_test(treatment, control, rounded=False)["p"]
+    assert exact == 546 / 2 ** 15 < 0.05 / 3
 
 
 def test_model_compare_corrects_real_scores_before_rounding():
-    # Unmocked: Holm on the exact p is 0.049987 (significant); on the displayed
+    # Unmocked: Holm on the exact p is 0.049988 (significant); on the displayed
     # 0.0167 it would be 0.0501.
-    rows = [{"with_docs": 56.543 + s, "without_docs": 50.0} for s in SHIFTS]
+    rows = [{"with_docs": 50.0 + s, "without_docs": 50.0} for s in SHIFTS]
     run_ids = ["a", "b", "c"]
     sigs, tested = model_compare._adjusted_significance(
         run_ids, {rid: rows for rid in run_ids}, "holm"
     )
     assert tested == 3
     for sig in sigs.values():
-        assert (sig["p_ttest"], sig["p_adjusted"]) == (0.0167, 0.05)  # displayed rounded
+        assert (sig["p"], sig["p_adjusted"]) == (0.0167, 0.05)  # displayed rounded
         assert sig["significant_adjusted"] is True
 
 
 def test_model_compare_skips_runs_without_pairs(monkeypatch):
-    fake = {"p_ttest": BOUNDARY_IN, "p_wilcoxon": None, "significant": True}
+    fake = {"p": BOUNDARY_IN, "significant": True}
     monkeypatch.setattr(model_compare, "significance_test", lambda *_, **__: dict(fake))
     all_run_scores = {
         "a": [{"with_docs": 60, "without_docs": 50}] * 6,

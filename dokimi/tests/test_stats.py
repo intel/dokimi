@@ -133,33 +133,27 @@ def test_identical_scores_are_a_genuine_zero_effect():
     assert res["effect"] == "negligible"
 
 
-def test_paired_test_suppresses_pvalues_on_zero_variance_deltas():
-    # A constant delta makes t infinite; SciPy would report p == 0, which must
-    # not be surfaced as overwhelming significance.
+def test_paired_test_gives_a_constant_shift_its_sign_flip_p_and_verdict():
+    # The sign-flip test has no zero-variance failure: six +10 deltas are 2 / 2**6 under the null.
     res = stats.paired_test([60] * 6, [50] * 6)
     assert res["delta_std"] == pytest.approx(0.0)
-    assert res["p_ttest"] is None
-    assert res["p_wilcoxon"] is None
-    # None, not False: no test ran, so "not significant" would be a claim we
-    # cannot make. A constant +10 shift is not evidence of no difference.
-    assert res["significant"] is None
+    assert (res["p"], res["n_changed"], res["significant"]) == (0.0312, 6, True)
+    assert (res["ci_lo"], res["ci_hi"], res["cohens_d"]) == (10.0, 10.0, None)
 
 
-def test_paired_test_detects_a_real_effect_when_scipy_present():
-    pytest.importorskip("scipy")
+def test_paired_test_detects_a_real_effect():
     control = [50, 52, 48, 51, 49, 50, 53, 47]
     treatment = [62, 65, 59, 64, 60, 63, 66, 58]
     res = stats.paired_test(treatment, control)
     assert res["delta_mean"] > 10
-    assert res["p_ttest"] < 0.05
+    assert res["p"] == 0.0078  # every one of the 8 deltas positive: 2 / 2**8
     assert res["significant"] is True
     assert res["effect"] == "large"
     # CI on a clear effect must exclude zero.
-    assert res["ci_lo"] > 0
+    assert (res["ci_lo"], res["ci_hi"]) == (11.0, 13.0)
 
 
 def test_paired_test_finds_no_effect_in_noise():
-    pytest.importorskip("scipy")
     control = [50, 55, 45, 60, 40, 52, 48, 58]
     treatment = [51, 54, 46, 59, 41, 51, 49, 57]
     res = stats.paired_test(treatment, control)
@@ -172,12 +166,12 @@ def test_paired_test_rejects_mismatched_or_tiny_input():
     assert stats.paired_test([], []) is None
 
 
-def test_paired_test_skips_pvalues_below_minimum_pairs():
-    # 4 pairs is under MIN_PAIRS_FOR_TEST, so no p-values, but CI still returned.
+def test_paired_test_reports_p_under_the_floor_with_no_verdict_and_open_ends():
+    # 4 changed pairs: p cannot go below 2 / 2**4, so the test runs and gives no verdict.
     res = stats.paired_test([60, 61, 62, 63], [50, 51, 52, 53])
-    assert res["n"] == 4
-    assert res["p_ttest"] is None
+    assert (res["n"], res["n_changed"], res["p"]) == (4, 4, 0.125)
     assert res["significant"] is None
+    assert (res["ci_lo"], res["ci_hi"]) == (None, None)
     assert res["delta_mean"] == pytest.approx(10.0)
 
 
@@ -189,9 +183,9 @@ def test_paired_test_skips_pvalues_below_minimum_pairs():
 def _factorial_evaluations():
     """Six questions x four arms; skill helps a lot, docs barely.
 
-    Per-question jitter keeps the deltas from being constant, so the
-    hypothesis tests are exercised rather than short-circuited by the
-    zero-variance guard. Mean deltas remain exactly +2 / +12 / +6.
+    Per-question jitter keeps the deltas from being constant, so d_z is
+    defined. Mean deltas remain exactly +2 / +12 / +6; docs has one tied pair
+    (5 changed, under the floor), the other two arms 6 changed pairs of one sign.
     """
     base = [50, 52, 48, 51, 49, 53]
     jitter = [1, -1, 2, -2, 1, -1]  # sums to zero
@@ -219,9 +213,8 @@ def test_arm_significance_shares_one_baseline_across_arms():
     for sig in res.values():
         assert sig["correction"] == "holm"
         assert sig["family_size"] == 3
-        # Without SciPy there are no p-values to correct, but the family of
-        # arms is still reported so the artifact records what was compared.
-        assert sig["family_tested"] == (3 if stats.HAS_SCIPY else 0)
+        # docs has 5 changed pairs (no verdict under the floor) and still counts in the family.
+        assert sig["family_tested"] == 3
 
 
 def test_arm_significance_infers_arms_when_not_given():
@@ -230,10 +223,9 @@ def test_arm_significance_infers_arms_when_not_given():
 
 
 def test_arm_significance_adjusted_p_is_never_below_raw():
-    pytest.importorskip("scipy")
     res = stats.arm_significance(_factorial_evaluations(), "baseline")
     for sig in res.values():
-        assert sig["p_adjusted"] >= sig["p_ttest"]
+        assert sig["p_adjusted"] >= sig["p"]
         # A corrected verdict can only be stricter than the uncorrected one.
         assert not (sig["significant_adjusted"] and not sig["significant"])
 
@@ -400,23 +392,24 @@ def test_bootstrap_percentile_indices_are_symmetric():
 
 
 def test_mean_ci_is_coherent_with_the_t_test():
-    """The interval must exclude zero exactly when p_ttest rejects.
+    """mean_ci's interval excludes zero exactly when a one-sample t test rejects."""
+    sp_stats = pytest.importorskip("scipy.stats")
+    shifted = [3, 2, 2, 3, 2, 2, 3, 2]
+    noise = [1, -1, 1, -1, 1, -1, 1, -1]
+    for deltas, rejects in ((shifted, True), (noise, False)):
+        ci = stats.mean_ci(deltas)
+        assert ci["method"] == "student_t"
+        assert bool(sp_stats.ttest_1samp(deltas, 0.0).pvalue < stats.ALPHA) is rejects
+        assert bool(ci["lo"] > 0 or ci["hi"] < 0) is rejects
 
-    A bootstrap interval beside a t p-value can disagree, which reads as a
-    rendering bug rather than as the two different inferences it really is.
-    """
-    pytest.importorskip("scipy")
-    control = [50, 52, 48, 51, 49, 50, 53, 47]
-    treatment = [53, 54, 50, 54, 51, 52, 56, 49]
-    res = stats.paired_test(treatment, control)
-    assert res["ci_method"] == "student_t"
-    excludes_zero = bool(res["ci_lo"] > 0 or res["ci_hi"] < 0)
-    assert excludes_zero == (res["p_ttest"] < stats.ALPHA)
-    # And the reverse direction, on a sample the t-test does not reject.
-    noise = stats.paired_test([51, 54, 46, 59, 41, 51, 49, 57],
-                              [50, 55, 45, 60, 40, 52, 48, 58])
-    assert noise["p_ttest"] > stats.ALPHA
-    assert noise["ci_lo"] < 0 < noise["ci_hi"]
+
+def test_paired_test_interval_is_coherent_with_its_sign_flip_p():
+    """The paired interval inverts the sign-flip test: it excludes zero exactly when p < ALPHA."""
+    res = stats.paired_test([53, 54, 50, 54, 51, 52, 56, 49], [50, 52, 48, 51, 49, 50, 53, 47])
+    assert res["ci_method"] == "sign_flip_inversion"
+    assert (res["p"], res["ci_lo"], res["ci_hi"]) == (0.0078, 2.0, 3.0)
+    noise = stats.paired_test([51, 54, 46, 59, 41, 51, 49, 57], [50, 55, 45, 60, 40, 52, 48, 58])
+    assert (noise["p"], noise["ci_lo"], noise["ci_hi"]) == (1.0, -1.0, 1.0)
 
 
 def test_mean_ci_falls_back_and_collapses_on_degenerate_input():
@@ -442,34 +435,26 @@ def test_near_zero_variance_is_treated_as_degenerate():
 
     Judge aggregates are weighted means, so a constant shift computed in
     floating point lands at sd ~ 1e-15, which an exact ``sd == 0.0`` guard lets
-    through as d_z ~ 1e13 and p ~ 1e-68.
+    through as d_z ~ 1e13. The guard is for d_z only: the shift gets its sign-flip p.
     """
     control = [50.0] * 6
     treatment = [60.0, 60.0, 60.0, 60.0, 60.0, 60.0 + 1e-13]
     res = stats.paired_test(treatment, control)
     assert res["cohens_d"] is None
     assert res["effect"] == "unknown"
-    assert res["p_ttest"] is None
-    assert res["significant"] is None
+    assert (res["p"], res["significant"]) == (0.0312, True)
 
 
-def test_wilcoxon_keeps_tied_pairs_in_the_sample():
-    """zsplit, because SciPy's default silently drops tied pairs.
-
-    Dropping them runs the test on a fraction of the data while ``n`` still
-    reports the full count, which can flip the verdict.
-    """
-    pytest.importorskip("scipy")
+def test_tied_pairs_leave_the_sign_flip_p_and_set_its_floor():
+    """At 0 a tied pair carries no sign: 20 pairs with 15 ties cannot go below 2 / 2**5."""
     control = [50] * 20
     treatment = [50] * 15 + [51, 52, 53, 54, 55]  # 15 ties, 5 positive deltas
     res = stats.paired_test(treatment, control)
-    assert res["n"] == 20
-    assert res["n_wilcoxon"] == 20
-    # Discarding the ties runs the test on 5 of 20 pairs and yields p = 0.0431,
-    # i.e. significant. Keeping them in the rank sum gives 0.0770 — the verdict
-    # flips, and only the second answer matches the n the artifact reports.
-    assert res["p_wilcoxon"] == pytest.approx(0.077, abs=0.001)
-    assert res["p_wilcoxon"] > stats.ALPHA
+    assert (res["n"], res["n_changed"], res["p"]) == (20, 5, 0.0625)
+    # Under the floor no data could give a positive verdict: None ("could not tell"), not False.
+    assert res["significant"] is None
+    # Off 0 the ties count again, so the interval is bounded even with 5 changed pairs.
+    assert (res["ci_lo"], res["ci_hi"]) == (0.0, 1.5)
 
 
 def test_correction_runs_on_unrounded_pvalues():
@@ -503,9 +488,9 @@ def test_interaction_significance_corrects_within_its_own_family():
     res = results[0]
     assert res["correction_family"] == "interactions"
     assert res["family_size"] == 1
-    # Single-member family: the adjusted p equals the raw one.
-    assert res["p_adjusted"] == pytest.approx(res["p_ttest"])
-    assert res["significant_adjusted"] is not None
+    # Single-member family: the adjusted p equals the raw one. The contrasts are -8 + jitter, all negative.
+    assert res["p_adjusted"] == res["p"] == 0.0312
+    assert (res["significant_adjusted"], res["ci_lo"], res["ci_hi"]) == (True, -10.0, -6.0)
 
 
 def test_interaction_family_is_not_pooled_with_the_arm_family():
@@ -535,13 +520,13 @@ def test_interaction_test_alone_reports_no_adjusted_keys():
 def test_arm_significance_leaves_the_adjusted_verdict_unknown_when_no_test_ran():
     """None, not False: an untestable arm is not a demonstrated null."""
     evaluations = [
-        _ev(baseline=50, docs=60, **{"skill:x": 50 + i}) for i in range(6)
+        _ev(baseline=50, docs=50, **{"skill:x": 50 + i}) for i in range(6)
     ]
     res = stats.arm_significance(
         evaluations, "baseline", ["baseline", "docs", "skill:x"]
     )
-    # `docs` is a constant +10 shift -> degenerate, so no test could run.
-    assert res["docs"]["p_ttest"] is None
+    # Every `docs` pair is tied: no sign to flip, so there is no p.
+    assert res["docs"]["p"] is None
     assert res["docs"]["p_adjusted"] is None
     assert res["docs"]["significant_adjusted"] is None
     # The untestable arm must not inflate the tested arm's multiplier.
@@ -555,32 +540,25 @@ def test_arm_significance_leaves_the_adjusted_verdict_unknown_when_no_test_ran()
 # ---------------------------------------------------------------------------
 
 
-def test_a_wilcoxon_above_alpha_vetoes_a_significant_t_test():
-    """One outlier keeps the signed-rank test above 0.05 while the t-test is below."""
-    pytest.importorskip("scipy")
+def test_one_opposite_delta_keeps_the_sign_flip_p_above_alpha():
+    """Flipping the -1 gives a larger |sum|, so 4 of 64 patterns reach it: p 0.0625 (a t test gave 0.0068)."""
     res = stats.paired_test([10, 11, 12, 10, 11, -1], [0] * 6)
-    assert res["p_ttest"] == 0.0068
-    assert res["p_wilcoxon"] == 0.0625
-    assert res["n_wilcoxon"] == 6
-    assert res["significant"] is False
+    assert (res["p"], res["n_changed"]) == (0.0625, 6)
+    assert res["significant"] is False  # 6 changed pairs: the floor 2 / 2**6 is below 0.05, so this is a "no"
+    assert (res["ci_lo"], res["ci_hi"]) == (-1.0, 12.0)
 
 
-def test_min_pairs_for_test_is_the_smallest_n_that_can_be_significant():
-    """An exact two-sided Wilcoxon cannot reach 0.05 at five pairs (smallest p 0.0625)."""
-    pytest.importorskip("scipy")
-    assert stats.MIN_PAIRS_FOR_TEST == 6
+def test_six_changed_pairs_are_the_fewest_that_can_be_significant():
+    """The floor 2 / 2**k: 0.0625 at five changed pairs, 0.03125 at six."""
     five = stats.paired_test([1.0, 2.0, 3.0, 4.0, 5.0], [0.0] * 5)
-    assert (five["n"], five["p_ttest"], five["p_wilcoxon"], five["significant"]) == (5, None, None, None)
+    assert (five["n"], five["p"], five["significant"]) == (5, 0.0625, None)
     six = stats.paired_test([1.0, 2.0, 3.0, 4.0, 5.0, 6.0], [0.0] * 6)
-    assert six["p_wilcoxon"] == 0.0312
+    assert (six["p"], six["significant"], six["ci_lo"], six["ci_hi"]) == (0.0312, True, 1.0, 6.0)
 
 
-def test_below_min_pairs_no_test_runs():
-    pytest.importorskip("scipy")
-    n = stats.MIN_PAIRS_FOR_TEST - 1
-    res = stats.paired_test([float(i) for i in range(n)], [0.5 * i for i in range(n)])
-    assert res["n"] == n
-    assert (res["p_ttest"], res["p_wilcoxon"], res["n_wilcoxon"]) == (None, None, 0)
+def test_under_the_floor_the_test_still_runs_and_reports_p():
+    res = stats.paired_test([float(i) for i in range(5)], [0.5 * i for i in range(5)])
+    assert (res["n"], res["n_changed"], res["p"]) == (5, 4, 0.125)  # the first pair is tied
     assert res["significant"] is None
 
 
@@ -680,10 +658,10 @@ def test_adjusted_pvalues_are_rounded_to_four_places_by_default():
     assert stats.adjust_pvalues([0.0123456]) == [0.0123]
 
 
-def test_paired_test_rounds_the_wilcoxon_p():
-    pytest.importorskip("scipy")
-    res = stats.paired_test([3, 5, 4, 6, 2, 7, 5], [1, 2, 2, 1, 2, 3, 1])
-    assert res["p_wilcoxon"] == 0.0312
+def test_paired_test_rounds_the_sign_flip_p():
+    treatment, control = [3, 5, 4, 6, 2, 7, 5], [1, 2, 2, 1, 2, 3, 1]
+    assert stats.paired_test(treatment, control)["p"] == 0.0312
+    assert stats.paired_test(treatment, control, rounded=False)["p"] == 2 / 2 ** 6
 
 
 @pytest.mark.parametrize(
@@ -704,14 +682,11 @@ def test_point_biserial_says_why_it_is_undefined(flags, totals, n_pass, reason):
     assert res["reason"] == reason
 
 
-def test_arm_significance_passes_the_confidence_through():
-    pytest.importorskip("scipy")
-    wide = stats.arm_significance(_factorial_evaluations(), "baseline")
-    narrow = stats.arm_significance(_factorial_evaluations(), "baseline", confidence=0.8)
-    for arm in wide:
-        assert wide[arm]["ci_confidence"] == 0.95
-        assert narrow[arm]["ci_confidence"] == 0.8
-        assert wide[arm]["ci_lo"] < narrow[arm]["ci_lo"] < narrow[arm]["ci_hi"] < wide[arm]["ci_hi"]
+def test_arm_significance_refuses_a_confidence_its_interval_cannot_have():
+    # The interval inverts the test at ALPHA; at another level it would disagree with the verdict.
+    assert all(sig["ci_confidence"] == 0.95 for sig in stats.arm_significance(_factorial_evaluations(), "baseline").values())
+    with pytest.raises(ValueError, match="confidence"):
+        stats.arm_significance(_factorial_evaluations(), "baseline", confidence=0.8)
 
 
 def test_arm_significance_includes_an_arm_with_two_pairs():
@@ -726,11 +701,10 @@ def test_arm_significance_leaves_out_an_arm_with_fewer_than_two_pairs():
 
 
 def test_arm_significance_correction_changes_the_adjusted_p():
-    pytest.importorskip("scipy")
     holm = stats.arm_significance(_factorial_evaluations(), "baseline")
     bh = stats.arm_significance(_factorial_evaluations(), "baseline", correction="bh")
-    # Holm multiplies the second-smallest p by 2, BH by 3/2.
-    assert holm["docs+skill:x"]["p_adjusted"] == 0.0004
-    assert bh["docs+skill:x"]["p_adjusted"] == 0.0003
-    assert holm["skill:x"]["significant_adjusted"] is True
-    assert holm["docs"]["significant_adjusted"] is False
+    # p is 0.03125, 0.03125 and 0.0625 (docs): Holm takes 3 x 0.03125, BH 3/2 x 0.03125.
+    assert holm["docs+skill:x"]["p_adjusted"] == 0.0938
+    assert bh["docs+skill:x"]["p_adjusted"] == 0.0469
+    assert holm["skill:x"]["significant_adjusted"] is False and bh["skill:x"]["significant_adjusted"] is True
+    assert holm["docs"]["significant_adjusted"] is None  # under the floor, yet in the family of 3
