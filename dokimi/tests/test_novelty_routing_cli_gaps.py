@@ -431,3 +431,30 @@ def test_an_out_symlink_loop_is_refused_before_the_call(tmp_path):
     b.symlink_to(a)
     with pytest.raises(InputError, match="symlink loop"):
         checked_out_path(str(a), "routing")
+
+
+def test_no_out_and_no_default_is_refused_with_the_command_name():
+    from dokimi.commands.novelty_routing_inputs import checked_out_path
+    with pytest.raises(InputError) as err:
+        checked_out_path(None, "--all-vs-all")
+    assert str(err.value) == "--all-vs-all needs --out <file>"
+
+
+@pytest.mark.parametrize("given_out, label, ending", [
+    (False, "the default output", " (pass --out <file>)"),
+    (True, "--out", ""),
+], ids=["default-asks-for-out", "out-given-no-hint"])
+def test_the_pass_out_hint_follows_a_refused_default_only(tmp_path, given_out, label, ending):
+    from dokimi.commands.novelty_routing_inputs import checked_out_path
+    blocker = tmp_path / "blocker"
+    blocker.write_text("x", encoding="utf-8")
+    target = str(blocker / "sub" / "routing.json")
+    with pytest.raises(InputError) as err:
+        if given_out:
+            checked_out_path(target, "routing", default=str(tmp_path / "unused.json"))
+        else:
+            checked_out_path(None, "routing", default=target)
+    message = str(err.value)
+    assert message.startswith(f"{label} {target}: ")
+    assert message.endswith(f"is not a directory, so the file cannot be created under it{ending}")
+    assert message.count("(pass --out <file>)") == (0 if given_out else 1)
