@@ -39,8 +39,8 @@ def register_check(skill_sub) -> None:
     check_p = skill_sub.add_parser(
         "check", help="Check one skill under --root: the catalog check's findings for it (same rules)"
     )
-    check_p.add_argument("skill", help="The name of a skill that loads: its skills.yaml name, or with no skills.yaml "
-                              "its SKILL.md frontmatter name")
+    check_p.add_argument("skill", help="The name of a skill that loads: its skills.yaml name (its directory if the manifest "
+                              "omits it), or, with no skills.yaml, its SKILL.md frontmatter name")
     check_p.add_argument("--root", required=True, help="Local checkout the skill is under")
     check_p.add_argument("--strict", action="store_true",
                          help="Exit 1 on a spec error of the skill as well as on one that does not load")

@@ -221,4 +221,5 @@ def test_skill_check_help_says_where_the_name_comes_from(capsys):
     text = " ".join(capsys.readouterr().out.split())
     assert "a skill that loads" in text
     assert "its skills.yaml name" in text
+    assert "its directory if the manifest" in text
     assert "SKILL.md frontmatter name" in text
