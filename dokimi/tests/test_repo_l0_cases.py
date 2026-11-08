@@ -223,6 +223,10 @@ CASES = [
     ("no pre-commit config", _shell("pre-commit run lint"), {}, {("precommit_hook", "lint"): "fail"}),
     ("odd pre-commit config", _shell("pre-commit run lint"), {".pre-commit-config.yaml": "- not\n- a mapping\n"},
      {("precommit_hook", "lint"): "fail"}),
+    ("pre-commit config with a bad date", _shell("pre-commit run lint"),
+     {".pre-commit-config.yaml": "repos: 2026-99-99\n"}, {("precommit_hook", "lint"): "fail"}),
+    ("pre-commit config nested too deep", _shell("pre-commit run lint"),
+     {".pre-commit-config.yaml": "[" * 100000}, {("precommit_hook", "lint"): "fail"}),
     # bazel
     ("URLs and comments are not labels", "`https://x.org/a//b`, `// clang-format off`, `//github.com/acme`",
      {"BUILD": ""}, {}),

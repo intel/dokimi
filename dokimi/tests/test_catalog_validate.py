@@ -286,6 +286,33 @@ def test_strict_parse_raises_and_the_lenient_parse_still_returns_no_metadata():
         parse_frontmatter_strict(text)
 
 
+# PyYAML: ValueError, worded by CPython's datetime and not the same on 3.13 and 3.14; RecursionError.
+_UNLOADABLE = [("date: 2026-02-30", ""), ("x: " + "[" * 100000, "maximum recursion depth exceeded")]
+
+
+def test_strict_parse_raises_a_yaml_error_for_frontmatter_nested_too_deep():
+    # The bad date is pinned by test_fuzz_targets.py::test_a_date_that_is_not_real_is_invalid_frontmatter.
+    line, problem = _UNLOADABLE[1]
+    text = f"---\n{line}\n---\nbody"
+
+    assert parse_frontmatter(text) == ({}, "body")
+    with pytest.raises(yaml.YAMLError, match=problem):
+        parse_frontmatter_strict(text)
+
+
+@pytest.mark.parametrize(("line", "problem"), _UNLOADABLE, ids=["bad-date", "deep"])
+def test_a_skill_whose_frontmatter_does_not_load_is_reported_as_invalid_yaml(tmp_path, capsys, line, problem):
+    _skill(tmp_path / "skills", "claude-api", name="claude-api", extra=f"{line}\n")
+    report, code = _scan_json(tmp_path, capsys)
+
+    assert code == 1
+    [row] = report["skills"]
+    assert "has invalid YAML in its frontmatter: line unknown: " + problem in row["error"]
+    [finding] = row["findings"]
+    assert finding["code"] == "frontmatter-parse"
+    assert finding["message"].startswith(f"frontmatter is not valid YAML: line unknown: {problem}")
+
+
 # --- review follow-up: edges of the name rules, duplicates, state, JSON rows -------------------------
 
 

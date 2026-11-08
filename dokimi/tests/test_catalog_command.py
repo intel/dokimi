@@ -340,8 +340,8 @@ def test_catalog_scan_reports_clean_error_on_deeply_nested_skills_manifest(tmp_p
 
 @pytest.mark.parametrize(
     "content",
-    [None, b"\xff\xfe", _DEEP_FRONTMATTER],
-    ids=["directory", "non-utf8", "deep-frontmatter"],
+    [None, b"\xff\xfe", _DEEP_FRONTMATTER, b"---\nname: 2026-99-99\n---\nbody\n"],
+    ids=["directory", "non-utf8", "deep-frontmatter", "bad-date-frontmatter"],
 )
 def test_catalog_scan_reports_a_malformed_skill_as_an_error_row(tmp_path, capsys, content):
     skill_md = tmp_path / "broken" / "SKILL.md"

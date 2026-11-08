@@ -65,6 +65,17 @@ def test_invalid_yaml_config_exits(tmp_path, monkeypatch, capsys):
     assert "invalid YAML" in exc.err
 
 
+@pytest.mark.parametrize("text", ["products: 2026-99-99\n", "[" * 100000], ids=["bad-date", "deep"])
+def test_answers_generate_exits_on_a_config_whose_yaml_does_not_load(tmp_path, monkeypatch, text):
+    path = tmp_path / "products.yaml"
+    path.write_text(text, encoding="utf-8")
+    _point_config(monkeypatch, path)
+    with refusal() as exc:
+        answers.cmd_answers_generate(_args())
+    assert exc.code == 2
+    assert f"invalid YAML in {path}: " in exc.err
+
+
 def test_non_utf8_config_exits_with_message(tmp_path, monkeypatch, capsys):
     path = tmp_path / "products.yaml"
     path.write_bytes(b"retrieval:\n  top_k: \xff\xfe\n")

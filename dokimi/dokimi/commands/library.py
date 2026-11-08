@@ -26,7 +26,7 @@ def _load_custom(cls, flag: str, value):
         raise InputError(f"{flag} {value}: not a file")
     try:
         return cls(path=path)
-    except (OSError, ValueError, yaml.YAMLError) as exc:  # unreadable, not UTF-8, not YAML
+    except (OSError, ValueError, RecursionError, yaml.YAMLError) as exc:  # unreadable, not UTF-8, not YAML
         raise InputError(f"cannot read {flag} {value}: {exc}") from exc
 
 

@@ -129,6 +129,15 @@ def test_get_library_docs_returns_results(okf_bundle):
     assert all("content" in d and "relevance_score" in d for d in docs)
 
 
+@pytest.mark.parametrize("frontmatter", ["title: 2026-99-99", "[" * 100000], ids=["bad-date", "deep"])
+def test_get_library_docs_reads_a_card_whose_yaml_does_not_load_as_body_only(okf_bundle, frontmatter):
+    (okf_bundle / "broken.md").write_text(f"---\n{frontmatter}\n---\n# Broken\n\nparallel_for broken card.")
+    docs = OKFClient(okf_bundle).get_library_docs("okf:oneTBB", "parallel_for")
+    broken = [d for d in docs if "broken card" in d["content"]]
+    assert len(broken) == 1 and broken[0]["metadata"].get("title") is None
+    assert any(d["metadata"].get("title") == "parallel_for" for d in docs)
+
+
 def test_get_library_docs_exposes_frontmatter_metadata(okf_bundle):
     docs = OKFClient(okf_bundle).get_library_docs("okf:oneTBB", "parallel_for")
     top = docs[0]
