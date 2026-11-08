@@ -58,6 +58,11 @@ and so is one whose tokens overlap another skill's at a Jaccard similarity of at
 Mirror drift: two skills in different paths with the same directory name but different
 ``SKILL.md`` text are a ``warn`` on both (``mirror-drift``), naming the other copies: the
 same skill has probably been edited in one place and not the other.
+
+Content (:mod:`dokimi.external.content_checks`): a model ID its vendor has retired or
+deprecated is a ``warn`` (``legacy-model-id``), and so is a hidden character (bidi control,
+Unicode tag, stray zero-width character) in ``SKILL.md`` or a bundled text file
+(``hidden-unicode``), reported with its line and codepoint.
 """
 
 from __future__ import annotations
@@ -76,6 +81,7 @@ from dokimi.skills import Skill
 from dokimi.utils import describe_yaml_error, parse_frontmatter_strict
 
 from .catalog import SkillCatalogEntry, _within
+from .content_checks import content_findings
 from .skill_markdown import link_pieces, outside_fences
 from .listing import in_field
 
@@ -634,7 +640,9 @@ def _near_duplicates(loaded: list[tuple[SkillCatalogEntry, Skill, SkillReview]])
                     )
 
 
-def review_skills(entries: Sequence[SkillCatalogEntry]) -> list[Optional[SkillReview]]:
+def review_skills(
+    entries: Sequence[SkillCatalogEntry], *, standalone: bool = False
+) -> list[Optional[SkillReview]]:
     """One :class:`SkillReview` per entry, in order.
 
     None for an entry that did not load, unless its frontmatter is broken YAML: then its
@@ -642,6 +650,10 @@ def review_skills(entries: Sequence[SkillCatalogEntry]) -> list[Optional[SkillRe
     copy nearest the root is the original; every other copy names it in ``duplicate_of``.
     Mirror drift and near-duplicate descriptions are checked across all the loaded skills,
     and a skill with ``disable-model-invocation`` set is left out of the description checks.
+
+    ``standalone``: each entry is one skill directory reviewed alone (:func:`review_skill_dir`). Its
+    ``SKILL.md`` is still the root for the frontmatter and link checks, but its bundled files are
+    content-checked as in a catalog, since no checkout root stands above them.
     """
     reviews: list[Optional[SkillReview]] = []
     copies: list[tuple[SkillReview, str, str]] = []  # (review, skill directory, digest) per loaded skill
@@ -652,12 +664,15 @@ def review_skills(entries: Sequence[SkillCatalogEntry]) -> list[Optional[SkillRe
             reviews.append(_unloaded_review(entry))
             continue
         skill = entry.skill
-        findings, hidden = _frontmatter_findings(
-            skill, at_root=skill.path.parent.resolve() == entry.source_root.resolve()
-        )
+        at_root = skill.path.parent.resolve() == entry.source_root.resolve()
+        findings, hidden = _frontmatter_findings(skill, at_root=at_root)
         review = SkillReview(findings=findings, disable_model_invocation=hidden)
         review.findings += _bundle_findings(skill, entry.source_root)
         review.findings += _body_findings(skill)
+        review.findings += [
+            Finding("warn", code, message)
+            for code, message in content_findings(skill, at_root=at_root and not standalone)
+        ]
         if not hidden:
             review.findings += _description_findings(skill)
         review.content_sha256 = _skill_digest(skill)

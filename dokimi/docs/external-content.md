@@ -95,6 +95,39 @@ no root flag.
 The transcripts below are real runs against a small demo checkout laid out the
 way the readers expect. Substitute your own checkout path.
 
+## Content checks: retired model IDs and hidden characters
+
+`catalog check` also reads the text of each loaded skill: its `SKILL.md` and the text
+files beside it (`.md`, `.py`, `.sh`, `.json`, `.yaml`, `.toml` and similar, up to 1 MB;
+hidden folders, `node_modules` and symlinks are skipped). A `SKILL.md` at the checkout root
+is checked alone, since its directory is the whole repository. It needs no key and calls no model.
+Two checks, both `warn`:
+
+- **`legacy-model-id`**: the text names a model ID its vendor has deprecated or retired.
+  The finding gives the file and line, the vendor's status and date, and the replacement
+  the vendor names. IDs match whole tokens and case-sensitively: `gpt-4.1` does not match
+  `gpt-4`, and `GPT-4` in prose does not match at all. The list is
+  `dokimi/external/legacy_models.toml`; its header names the three vendor pages it was
+  checked against and the date. Update it by editing that file, with no code change. An entry
+  lists only IDs the vendor labels deprecated or retired on the `checked` date; `status` is
+  `deprecated` (still served, date ahead) or `retired` (no longer served); `date` and
+  `replacement` are the vendor's, verbatim, or empty when it gives none.
+- **`hidden-unicode`**: a bidi control (U+202A to U+202E, U+2066 to U+2069), a Unicode
+  tag character (U+E0000 to U+E007F), or a stray zero-width character (U+200B, U+2060, or
+  a U+FEFF after the start of the file). Each is reported with its line and codepoint; five
+  per file are listed. A zero-width joiner (U+200C, U+200D) is not reported next to an emoji
+  or symbol (U+2600 to U+27BF, U+1F000 to U+1FAFF) or in Arabic and Indic script, where it is correct.
+  Vendored folders (`site-packages`, `node_modules`, `.venv` and the like) are not scanned, and
+  a folder that holds another skill's `SKILL.md` is checked as that skill only.
+
+Limits of the model list: it is a snapshot, so a model a vendor has announced but not yet
+labelled deprecated is not listed. Some listed IDs are short names (`o1`, `o3-mini`,
+`gpt-4`, `dall-e-2`) that can also appear in prose about a model; a finding there is a
+prompt to reword it; a code span does not silence the warning, and there is no suppression yet. A few rows
+name no replacement (`sora-2`, `gpt-5.4-cyber`), and the finding then points at the vendor page.
+The list includes Imagen and Veo IDs, so it reaches past the text models. Warnings do not fail
+`--strict`, which gates on `error` rows only.
+
 ## The layout the readers expect
 
 ```text
