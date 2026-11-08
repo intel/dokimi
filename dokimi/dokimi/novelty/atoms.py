@@ -765,6 +765,10 @@ def load_atoms_record(path) -> tuple[list[Atom], list[Span], dict]:
     """
     data = read_json_input(path)
     if isinstance(data, dict) and "partial" in data:
+        partial = data["partial"] if isinstance(data["partial"], dict) else {}
+        if partial.get("reason") == "no_price":  # a call with no price: a higher cap will not help
+            raise InputError(f"{path} is a partial atoms file: {partial.get('message', '')}, so "
+                             "it is not a finished atom set. Drop --max-usd to run unmetered")
         raise InputError(f"{path} is a partial atoms file: --max-usd stopped the run before it "
                          "finished, so it is not a finished atom set. Rerun with a higher "
                          "--max-usd, or without the cap")

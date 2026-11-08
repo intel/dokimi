@@ -371,3 +371,16 @@ def test_analyze_names_a_missing_price_when_the_measurement_stops_on_one(tmp_pat
     assert refused.value.reason == "no_price"
     assert "Raise --max-usd" not in str(refused.value)
     assert "no price is known for judge" in str(refused.value)
+
+
+def test_an_unpriced_partial_atoms_file_is_refused_with_its_cause(tmp_path):
+    from dokimi.novelty.atoms import load_atoms_record
+
+    partial = tmp_path / "atoms.partial.json"
+    partial.write_text(json.dumps({"status": "partial", "partial": {
+        "reason": "no_price", "stage": "extraction", "spans_read": 0, "spans_total": 3,
+        "message": "extraction stopped with 0 of 3 spans read: no price is known for e"}}),
+        encoding="utf-8")
+    with pytest.raises(InputError, match="no price is known for e, so it is not") as refused:
+        load_atoms_record(partial)
+    assert "--max-usd stopped" not in str(refused.value)
