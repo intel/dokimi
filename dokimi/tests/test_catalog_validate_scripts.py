@@ -95,6 +95,21 @@ def test_a_shell_script_bash_rejects_is_an_error(tmp_path, no_linters):
     assert review.findings[0].message.startswith("run.sh does not parse as shell: ")
 
 
+def test_a_bash_suffix_file_with_crlf_line_endings_is_an_error(tmp_path, no_linters):
+    _bundle(tmp_path, {"lib.bash": b"echo hi\r\n"})
+
+    assert _codes(_reviews_by_name(tmp_path)["bundled"]) == ["script-crlf"]
+
+
+@needs_bash
+def test_a_bash_suffix_file_bash_rejects_is_an_error(tmp_path, no_linters):
+    _bundle(tmp_path, {"lib.bash": b"if true; then\n  echo x\n"})  # no fi
+
+    review = _reviews_by_name(tmp_path)["bundled"]
+    assert _codes(review) == ["script-syntax"]
+    assert review.findings[0].message.startswith("lib.bash does not parse as shell: ")
+
+
 def test_bash_n_gets_the_script_on_stdin_with_no_environment(tmp_path):
     skill = _bundle(tmp_path, {"run.sh": b"if true; then\n"})
     runner = process.FakeRunner(lambda call: process.reply(stderr="bash: line 2: syntax error\n", returncode=2))
