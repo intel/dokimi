@@ -252,7 +252,9 @@ def test_the_faithfulness_check_counts_the_spans_extraction_left_unread(monkeypa
                                   "spans read")
 
 
-def test_analyze_stops_rather_than_publish_a_measurement_the_cap_cut_short(tmp_path, monkeypatch):
+@pytest.mark.parametrize("not_run", [1, 3])
+def test_analyze_stops_rather_than_publish_a_measurement_the_cap_cut_short(tmp_path, monkeypatch,
+                                                                          not_run):
     from dokimi.novelty import measure
     from dokimi.novelty.analyze import AnalyzeConfig, analyze, load_artifact_text
     from dokimi.novelty.client import SpendCapReached
@@ -271,12 +273,13 @@ def test_analyze_stops_rather_than_publish_a_measurement_the_cap_cut_short(tmp_p
 
     def cut_short(*a, **kw):
         result = real(*a, **kw)
-        result.runs, result.not_run = result.runs[:1], 3
+        result.runs, result.not_run = result.runs[:1], not_run
         return result
 
     monkeypatch.setattr(measure, "run_measurement", cut_short)
     extractor, answerer, judge = _clients()
-    with pytest.raises(SpendCapReached, match="3 probe answers were not run; nothing was written"):
+    with pytest.raises(SpendCapReached,
+                       match=f"{not_run} probe answers were not run; nothing was written"):
         analyze(body, config, extractor=extractor, answerer=answerer, judge=judge)
 
 
@@ -298,3 +301,4 @@ def test_an_earlier_file_that_is_not_json_is_kept_and_not_taken_for_a_partial_on
     (tmp_path / "probes.partial.json").write_bytes(b"\xff\xfe not json")
     # A file this cannot read is not a partial result, so it is never written over.
     assert partial_destination(finished) == tmp_path / "probes.partial2.json"
+
