@@ -338,3 +338,16 @@ def test_panel_summary_counts_the_questions_left_out_for_no_quorum(tmp_path, mon
     printed = capsys.readouterr().out
     assert "Questions left out (no quorum or no answer): 1/2" in printed
     assert "Disagreement flags:       0/1 questions" in printed
+
+    all_bad = tmp_path / "all_bad.json"
+    all_bad.write_text(json.dumps([
+        {"question_id": q, "question_text": "Why?", "question": "Why?",
+         "with_docs": {"answer": "bad docs"}, "without_docs": {"answer": "without docs"}}
+        for q in ("Q1", "Q2")]), encoding="utf-8")
+    args = build_parser().parse_args([
+        "eval", "score", "panel", "--product", "L", "--answers", str(all_bad),
+        "--output", str(tmp_path / "panel_all_bad.json"), "--provider", "amazon-bedrock",
+        "--model", "us.anthropic.x", "--roles", "technical_expert,developer_advocate,doc_reviewer",
+        "--concurrency", "1"])
+    args.func(args)
+    assert "Questions left out (no quorum or no answer): 2/2" in capsys.readouterr().out
