@@ -235,6 +235,20 @@ text output and `--format json` (one object: `state`, `findings`,
 `content_sha256` of the `SKILL.md`, `skill_sha256` of the skill directory,
 `duplicate_of`, for a script or a CI gate) are the same either way.
 
+After the skill rows, `catalog check` prints a `# granularity` section: skill pairs
+that look like merge candidates (similar descriptions, shared trigger clauses, overlapping
+bodies, duplicated sections or code blocks) and skills that look like split candidates
+(two of: a body past 12,000 characters, three or more `when` clauses with no word in
+common, two or more section topics that share little vocabulary and do not reference each
+other). It reads the skills a harness would list: a skill with `disable-model-invocation`,
+a spec error other than an over-long description, or an identical copy of another skill
+is left out, and two skills with the same directory name are shown by their path. It is
+free, runs no model, and is hints only: it never changes the exit code, and the JSON
+carries it under `granularity` with `hints_only: true` and no verdict. Its `next:` line
+names a planned, paid follow-up command (a model run over the candidates), which is not
+yet available; its flags may change before it lands. The thresholds are conservative and
+the section is a shortlist, not a judgement.
+
 Restrict the scan with `--kind`:
 
 ```console
@@ -252,7 +266,10 @@ A large catalog is easier to scan one skill at a time:
 - `--per-skill` reviews each skill alone. The four cross-catalog checks
   (`duplicate`, `name-conflict`, `mirror-drift`, `description-near-duplicate`)
   compare a skill with the others, so they do not run in this mode; every other
-  check does.
+  check does. The granularity hints (merge and split candidates) need the whole
+  catalog too, so they are not run here; the text output says so in a
+  `# granularity: not run with --per-skill` line; `--format json` has no
+  `granularity` key in this mode.
 - A `SKILL.md` inside another skill's directory is marked with `nested_in`
   (the enclosing skill's path) in JSON and with a `note` in text. It is counted
   by default; `--skip-nested` leaves it out of the scan.
