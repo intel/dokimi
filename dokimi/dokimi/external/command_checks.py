@@ -220,12 +220,12 @@ def _bundled_texts(skill_dir: Path) -> Iterator[tuple[str, str]]:
         )
         for name in sorted(filenames):
             path = here / name
-            if here == skill_dir and name == "SKILL.md" or path.is_symlink():
+            if here == skill_dir and name == "SKILL.md":
                 continue
             if read >= BUNDLED_MAX_FILES:
                 continue  # keep walking: a stopped os.walk leaves its directory handles open
-            try:
-                if not path.is_file() or path.stat().st_size > BUNDLED_MAX_BYTES:
+            try:  # lstat (is_symlink) too: a listed file in a directory without x raises EACCES here
+                if path.is_symlink() or not path.is_file() or path.stat().st_size > BUNDLED_MAX_BYTES:
                     continue
                 data = path.read_bytes()
                 if b"\0" in data[:8192]:

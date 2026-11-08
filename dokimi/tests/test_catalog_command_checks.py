@@ -13,6 +13,8 @@ import time
 import pytest
 
 from dokimi.external import read_skill_manifest, review_skills
+from dokimi.external.command_checks import command_findings
+from dokimi.external.command_checks import command_findings
 
 
 def _skill(root: Path, rel: str, body: str) -> Path:
@@ -391,6 +393,20 @@ def test_an_unreadable_subdirectory_does_not_abort_the_scan(tmp_path):
     finally:
         locked.chmod(0o755)
     assert review.findings == []
+
+
+def test_a_listed_but_unenterable_bundled_file_does_not_raise(tmp_path):
+    if os.geteuid() == 0:
+        pytest.skip("root reads a mode 0444 directory")
+    skill_dir = _skill(tmp_path / "skills", "tool", "# Tool\n")
+    noexec = skill_dir / "noexec"
+    noexec.mkdir()
+    (noexec / "a.sh").write_text("echo hi\n", encoding="utf-8")
+    noexec.chmod(0o444)  # its names can be listed, but its entries cannot be stat'ed: lstat raises EACCES
+    try:
+        assert command_findings(skill_dir / "SKILL.md", at_root=False) == []
+    finally:
+        noexec.chmod(0o755)
 
 
 # ---- which bundled files a warning is read from ----------------------------------------------
