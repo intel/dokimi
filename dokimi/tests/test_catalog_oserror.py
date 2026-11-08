@@ -70,6 +70,31 @@ def test_read_error_on_a_loaded_skill_is_an_error_review(tmp_path, monkeypatch, 
     assert [f.code for f in reviews["sib"].findings] == ["unreadable"]
 
 
+@pytest.mark.parametrize("error", [
+    OSError(errno.ENAMETOOLONG, "File name too long"),
+    UnicodeDecodeError("utf-8", b"", 0, 1, "bad"),
+    RuntimeError("loop"),
+    ValueError("NUL"),
+], ids=["OSError", "UnicodeDecodeError", "RuntimeError", "ValueError"])
+def test_every_read_failure_kind_on_a_loaded_skill_is_an_error_review(tmp_path, monkeypatch, error):
+    _skill(tmp_path, "good")
+    _skill(tmp_path, "sib")
+    entries = read_skill_manifest(tmp_path)
+    real_read_text = Path.read_text
+
+    def fail_for_sib(self, *args, **kwargs):
+        if self.parent.name == "sib":
+            raise error
+        return real_read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", fail_for_sib)
+    reviews = dict(zip((e.name for e in entries), review_skills(entries), strict=True))
+
+    assert reviews["good"].state == "ok"
+    assert reviews["sib"].state == "error"
+    assert [f.code for f in reviews["sib"].findings] == ["unreadable"]
+
+
 @pytest.mark.parametrize("method", ["is_dir", "is_file"])
 def test_stat_error_on_an_unloaded_sibling_is_no_review_and_no_crash(tmp_path, monkeypatch, method):
     _skill(tmp_path, "good")
