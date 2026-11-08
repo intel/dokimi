@@ -202,6 +202,13 @@ def test_prose_after_an_install_is_read_as_names_known_limit():
     assert online_checks.extract_packages(body) == [("pypi", "requests"), ("pypi", "done")]
 
 
+def test_markdown_link_inside_emphasis_table_or_next_to_another_link_keeps_only_the_url():
+    assert online_checks.extract_urls("_[docs](https://x.com/a)_") == ["https://x.com/a"]
+    assert online_checks.extract_urls("|[docs](https://x.com/a)|desc|") == ["https://x.com/a"]
+    assert online_checks.extract_urls("[a](https://x.com/a)[b](https://y.com/b)") == [
+        "https://x.com/a", "https://y.com/b"]
+
+
 def test_process_substitution_is_a_documented_miss_not_a_wrong_name():
     # The operators split the line, so the value option "-r" takes nothing and "foo" is not read.
     assert online_checks.extract_packages("pip install -r <(echo x) foo\n") == []

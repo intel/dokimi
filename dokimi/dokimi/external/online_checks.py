@@ -271,10 +271,23 @@ def extract_packages(body: str) -> list[tuple[str, str]]:
 
 
 def _clean_url(raw: str) -> Optional[str]:
-    """``raw`` without the punctuation a sentence or a markdown link put after it, or None for a template."""
-    url = raw.rstrip(".,;:!?*")
-    while url[-1:] in (")", "]") and url.count(url[-1]) > url.count("(" if url[-1] == ")" else "["):
-        url = url[:-1].rstrip(".,;:!?*")
+    """``raw`` without what a sentence, a table cell, emphasis or a markdown link puts after it: the URL ends before
+    the first ``)`` that closes no ``(`` of the URL, and before a ``|``, ``[`` or ``]``; then trailing punctuation
+    and emphasis marks go. None for an empty result."""
+    depth = 0
+    end = len(raw)
+    for i, ch in enumerate(raw):
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            if depth == 0:
+                end = i
+                break
+            depth -= 1
+        elif ch in "|[]":
+            end = i
+            break
+    url = raw[:end].rstrip(".,;:!?*_")
     return url or None
 
 
