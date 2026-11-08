@@ -415,7 +415,7 @@ def _hf_confine(path: str, kwargs: Mapping[str, Any], base: Path) -> None:
 
 
 def _hf_load(args: list[Any], kwargs: dict[str, Any]) -> Any:
-    """The split from the optional ``datasets`` package; the loader's own errors are reported with its name."""
+    """The split from ``datasets`` (a required dependency); the loader's own errors are reported with its name."""
     try:
         import datasets
     except ImportError as exc:
@@ -430,9 +430,9 @@ def _hf_load(args: list[Any], kwargs: dict[str, Any]) -> Any:
 def _hf_rows(node: ast.Call, base: Path, imp: Optional[Imported] = None) -> list[dict[str, Any]]:
     """Rows of ``hf_dataset(path, split=..., ...)``, mapped through its FieldSpec.
 
-    The optional ``datasets`` package loads them (a local ``data_files=`` must sit in the task's
-    directory). A ``split=`` must be a literal: the default split is not read here. ``limit=`` is
-    Inspect's sample count, applied here, not passed to the loader.
+    The ``datasets`` package, a required dependency, loads them (a local ``data_files=`` must sit
+    in the task's directory). A ``split=`` must be a literal: the default split is not read here.
+    ``limit=`` is Inspect's sample count, applied here, not passed to the loader.
     """
     _hf_literal_keywords(node)
     _hf_sample_fields(node)

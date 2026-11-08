@@ -9,6 +9,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.cli_refusal import refusal
+
 from dokimi.cli import build_parser
 
 
@@ -32,9 +34,9 @@ questions = {questions}
     )
     monkeypatch.chdir(tmp_path)
     args = build_parser().parse_args(["subjects", "run", str(descriptor), *extra_args])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as out:
         args.func(args)
-    assert exc.value.code == 2
+    assert out.code == 2 and out.err.startswith("Error: "), out.err
 
 
 @pytest.mark.parametrize(
@@ -177,9 +179,9 @@ def _work(tmp_path, monkeypatch, work_dir: Path, save):
     args = SimpleNamespace(skip_work=False, work_harnesses="h", work_baseline_harness=None,
                            work_output_dir=str(work_dir), work_model=None, model="m",
                            work_command_template=None, work_dry_run=False, work_repeats=1)
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as out:
         _run_subject_work(descriptor, args, out_dir=tmp_path / "out", tasks=[object()])
-    assert exc.value.code == 2
+    assert out.code == 2 and out.err.startswith("Error: "), out.err
 
 
 def test_work_exits_2_when_the_task_runs_report_dir_cannot_be_created(tmp_path, monkeypatch, capsys):

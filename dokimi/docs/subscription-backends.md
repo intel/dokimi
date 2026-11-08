@@ -19,7 +19,7 @@ Pass it wherever a command takes `--provider` or `--judge-provider`, except `too
 
 ```bash
 python cli.py backends          # one row per backend: installed, version, signed in, how
-python cli.py backends --json
+python cli.py backends --json   # one cli_output.v1 document; the rows are under data.rows
 ```
 
 This calls no model. A backend that is not signed in prints how to fix it. The login is

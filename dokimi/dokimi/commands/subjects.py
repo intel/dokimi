@@ -20,7 +20,7 @@ from dokimi.defaults import (
     JUDGE_MODEL_FOR_PROVIDER,
     JUDGE_MODEL_HELP,
 )
-from dokimi.exit_codes import EXIT_USAGE, usage_exit
+from dokimi.utils import InputError
 
 
 def cmd_subjects_list(args: argparse.Namespace) -> None:
@@ -29,10 +29,10 @@ def cmd_subjects_list(args: argparse.Namespace) -> None:
     # in-repo default root. Name the flag instead of printing an empty list that
     # reads like "no subjects exist".
     if not args.subjects_root:
-        usage_exit("no subjects root given; pass --subjects-root <checkout>/evaluation/subjects")
+        raise InputError("no subjects root given; pass --subjects-root <checkout>/evaluation/subjects")
     root = Path(args.subjects_root)
     if not root.is_dir():
-        usage_exit(f"--subjects-root is not a directory: {root}")
+        raise InputError(f"--subjects-root is not a directory: {root}")
     paths = sorted([*root.glob("*.toml"), *root.glob("*.json")])
     for path in paths:
         try:
@@ -51,8 +51,7 @@ def cmd_subjects_show(args: argparse.Namespace) -> None:
     try:
         descriptor = load_subject(args.subject)
     except (ValueError, FileNotFoundError) as exc:
-        print(f"Error loading subject: {exc}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError(f"cannot load subject: {exc}") from exc
 
     if descriptor.subject.kind == "repo":
         print(json.dumps({
@@ -97,12 +96,9 @@ def cmd_subjects_run(args: argparse.Namespace) -> None:
     try:
         descriptor = load_subject(args.subject)
     except (ValueError, FileNotFoundError) as exc:
-        print(f"Error loading subject: {exc}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError(f"cannot load subject: {exc}") from exc
     if descriptor.subject.kind == "repo":
-        print("Error: repo subjects are not run by `subjects run` yet; "
-              "check them with `repo validate`", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError("repo subjects are not run by `subjects run` yet; check them with `repo validate`")
     # Attached, not produced: `skill novelty analyze` makes it, so a bad path fails here,
     # before any cell runs.
     try:
@@ -110,13 +106,11 @@ def cmd_subjects_run(args: argparse.Namespace) -> None:
             list(getattr(args, "novelty_artifact", None) or [])
         )
     except (ValueError, FileNotFoundError, json.JSONDecodeError) as exc:
-        print(f"Error loading novelty artifact: {exc}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError(f"cannot load novelty artifact: {exc}") from exc
     try:
         work_tasks = _validate_subject_work_args(descriptor, args)
     except (ValueError, FileNotFoundError) as exc:
-        print(f"Error loading subject work: {exc}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError(f"cannot load subject work: {exc}") from exc
 
     out_dir, baseline_arm, questions = _run_plan(descriptor, args)
     matrix_path = out_dir / "matrix.cells.json"
@@ -124,8 +118,7 @@ def cmd_subjects_run(args: argparse.Namespace) -> None:
         out_dir.mkdir(parents=True, exist_ok=True)
         matrix_path.write_text(json.dumps(_matrix_config_for_run(descriptor, args), indent=2), encoding="utf-8")
     except OSError as exc:
-        print(f"Error: cannot write {out_dir}: {exc}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError(f"cannot write {out_dir}: {exc}") from exc
 
     awareness_runs: list[dict] = []
     for product, questions_path in zip(descriptor.suite.products, questions, strict=True):
@@ -173,14 +166,14 @@ def cmd_subjects_evidence(args: argparse.Namespace) -> None:
     try:
         scorecard = load_artifact("subject_scorecard", Path(args.scorecard))
     except (OSError, ValueError, ArtifactValidationError) as exc:
-        usage_exit(f"cannot read subject scorecard {args.scorecard}: {exc}")
+        raise InputError(f"cannot read subject scorecard {args.scorecard}: {exc}") from exc
     try:
         evidence = build_skill_evidence(scorecard, source=str(args.scorecard))
     except (AttributeError, TypeError) as exc:
-        usage_exit(f"{args.scorecard} is not a well-formed subject scorecard: {exc}")
+        raise InputError(f"{args.scorecard} is not a well-formed subject scorecard: {exc}") from exc
     if not evidence["results"]:
-        usage_exit(f"{args.scorecard} holds no awareness arm with a baseline to compare against: "
-                   "nothing to publish")
+        raise InputError(f"{args.scorecard} holds no awareness arm with a baseline to compare against: "
+                         "nothing to publish")
     out = Path(args.out) if args.out else Path(args.scorecard).with_name("skill-evidence.json")
     try:
         out_real = out.resolve()
@@ -189,45 +182,42 @@ def cmd_subjects_evidence(args: argparse.Namespace) -> None:
         card_real = Path(args.scorecard).resolve()
     # A symlink loop raises RuntimeError before Python 3.13; "." or "/" has no name, so with_name raises ValueError.
     except (OSError, RuntimeError, ValueError) as exc:
-        usage_exit(f"cannot resolve --out {out}: {exc}")
+        raise InputError(f"cannot resolve --out {out}: {exc}") from exc
     if out_real == card_real:
-        usage_exit("--out names the scorecard itself; pick another file")
+        raise InputError("--out names the scorecard itself; pick another file")
     if stale_real == card_real:
-        usage_exit(f"{out}.rejected is the scorecard; a save to {out} would delete or overwrite it; pick another --out")
+        raise InputError(f"{out}.rejected is the scorecard; a save to {out} would delete or overwrite it; pick another --out")
     try:
         with exit_on_unwritable(out):
             save_artifact("skill_evidence", evidence, out)
     except ArtifactValidationError as exc:
-        usage_exit(f"{args.scorecard} holds a value the evidence schema rejects: {exc}")
+        raise InputError(f"{args.scorecard} holds a value the evidence schema rejects: {exc}") from exc
     for warning in evidence["warnings"]:
         print(f"WARN {warning}", file=sys.stderr)
     print(f"OK Saved skill evidence: {out} ({len(evidence['results'])} results)")
 
 
+def add_list_show_subject(catalog_list_p) -> None:
+    """The subject-kind argument of `catalog list --kind subject` (#94 M3: `subjects list`)."""
+    catalog_list_p.add_argument(
+        "--subjects-root",
+        default=None,
+        dest="subjects_root",
+        help=(
+            "Directory holding subject descriptors (*.toml/*.json). Required with --kind subject; the "
+            "descriptors live in a separate evaluation-content checkout, e.g. "
+            "--subjects-root /path/to/content-repo/evaluation/subjects"
+        ),
+    )
+
+
 def register(sub, positive_int) -> None:
-    """Add the `subjects` subcommand group."""
+    """Add the `subjects` subcommand group: run and evidence (`list|show` are `catalog`, #94 M3)."""
     subjects_p = sub.add_parser(
         "subjects",
         help="Run evaluation subjects (artifact + suite) into scorecards",
     )
     subjects_sub = subjects_p.add_subparsers(dest="subjects_cmd", required=True)
-
-    list_p = subjects_sub.add_parser("list", help="List subject descriptors")
-    list_p.add_argument(
-        "--subjects-root",
-        default=None,
-        dest="subjects_root",
-        help=(
-            "Directory holding subject descriptors (*.toml/*.json). Required; the "
-            "descriptors live in a separate evaluation-content checkout, e.g. "
-            "--subjects-root /path/to/content-repo/evaluation/subjects"
-        ),
-    )
-    list_p.set_defaults(func=cmd_subjects_list)
-
-    show_p = subjects_sub.add_parser("show", help="Show normalized subject descriptor")
-    show_p.add_argument("subject", help="Subject descriptor path (.toml or .json)")
-    show_p.set_defaults(func=cmd_subjects_show)
 
     run_p = subjects_sub.add_parser("run", help="Run subject awareness matrix and write scorecard")
     run_p.add_argument("subject", help="Subject descriptor path (.toml or .json)")
@@ -325,8 +315,7 @@ def _run_plan(descriptor, args: argparse.Namespace) -> tuple[Path, str, list[str
         questions = _questions_for_products(descriptor.suite.products, descriptor.suite.questions)
         _validate_unique_product_output_dirs(descriptor.suite.products)
     except ValueError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError(str(exc)) from exc
     return out_dir, baseline_arm, questions
 
 
@@ -453,7 +442,7 @@ def _run_subject_work(descriptor, args: argparse.Namespace, *, out_dir: Path, ta
     try:
         runner.validate_harnesses()
     except ValueError as exc:
-        usage_exit(str(exc))
+        raise InputError(str(exc)) from exc
     try:
         artifact = runner.run()
     except PreflightError as exc:
