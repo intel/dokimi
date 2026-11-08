@@ -250,7 +250,7 @@ def _kept_estimate(step: dict) -> dict:
 # the probe wordings of `probe`).
 REFUSED_BEFORE_ANY_CALL = {"run/arms-without-full", "probe/arms-without-baseline"}
 # Input refusals from the arm-set checks: main raised the message as the exit status, visible only at interpreter exit.
-# The exit-code table (docs/quickstart.md) makes these exit 2, and usage_exit prints the message before raising.
+# The exit-code table (docs/quickstart.md) makes these exit 2: cli.main prints their InputError and exits with status 2.
 ARMS_REFUSALS = {"estimate/arms-without-full", "estimate/arms-without-baseline",
                  "probe/arms-without-baseline", "run/arms-without-full"}
 
