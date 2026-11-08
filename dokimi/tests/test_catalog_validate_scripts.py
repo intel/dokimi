@@ -356,9 +356,10 @@ def test_a_shebang_option_bash_n_cannot_reproduce_leaves_the_script_unjudged(tmp
     assert runner.calls == []
 
 
-def test_a_sh_shebang_is_checked_by_bash_n(tmp_path):
-    skill = _bundle(tmp_path, {"run.sh": b"#!/bin/sh\nif true; then\n"})
-    runner = process.FakeRunner(lambda call: process.reply(stderr="sh: line 2: syntax error\n", returncode=2))
+@pytest.mark.parametrize("interpreter", ["sh", "dash", "ksh"])
+def test_a_sh_shebang_is_checked_by_bash_n(tmp_path, interpreter):
+    skill = _bundle(tmp_path, {"run.sh": f"#!/bin/{interpreter}\nif true; then\n".encode()})
+    runner = process.FakeRunner(lambda call: process.reply(stderr=f"{interpreter}: line 2: syntax error\n", returncode=2))
 
     findings = script_findings(skill, which=_tools("bash"), runner=runner)
 
