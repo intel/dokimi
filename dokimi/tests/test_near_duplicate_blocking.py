@@ -176,11 +176,8 @@ def test_pairs_at_the_thresholds_are_kept():
 
 
 def test_equal_frequency_words_are_ordered_the_same_for_every_skill():
-    # Ten words, and for each size 3..7 every cyclic run of that size: each word is in the same number of
-    # descriptions, so all ten have one frequency and only the tiebreak orders them. The runs overlap, so
-    # many pairs are near-duplicates. Each description lists its words in a shuffled order, and sets of
-    # different sizes iterate differently, so without the tiebreak the prefixes of two skills can miss a
-    # shared word.
+    # Equal-frequency words only: the tiebreak must order them, or set order leaves two prefixes disjoint.
+    # Each word is in the same number of runs, so all ten share one frequency; see the cases below.
     words = [f"tie{letter}" for letter in "abcdefghij"]
     flagged = 0
     for shuffle_seed in range(4):
