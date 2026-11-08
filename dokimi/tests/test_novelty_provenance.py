@@ -240,6 +240,25 @@ def test_git_commit_ignores_an_inherited_git_dir(monkeypatch, tmp_path):
         prov.git_commit.cache_clear()
 
 
+def test_git_commit_is_none_when_the_parent_project_is_not_dokimi(monkeypatch, tmp_path):
+    # A dokimi package under a consumer's src/ finds the consumer's pyproject.toml at parents[2]:
+    # its HEAD must not be recorded as dokimi's.
+    consumer = tmp_path / "consumer"
+    consumer.mkdir()
+    _git(consumer, "init", "-q")
+    _git(consumer, "commit", "-q", "--allow-empty", "-m", "consumer")
+    src = consumer / "src"
+    module = src / "dokimi" / "novelty" / "provenance.py"
+    module.parent.mkdir(parents=True)
+    (src / "pyproject.toml").write_text('[project]\nname = "consumer"\n', encoding="utf-8")
+    monkeypatch.setattr(prov, "__file__", str(module))
+    prov.git_commit.cache_clear()
+    try:
+        assert prov.git_commit() is None
+    finally:
+        prov.git_commit.cache_clear()
+
+
 def test_reversal_paired_difference_is_with_minus_without():
     runs = [_rev("a", "no_artifact", REVERSED), _rev("a", "full", WRONG),
             _rev("b", "no_artifact", WRONG), _rev("b", "full", WRONG)]
