@@ -135,6 +135,14 @@ def _hidden_hits(where: str, text: str) -> list[Hit]:
     return hits
 
 
+def _holds_skill(folder: Path) -> bool:
+    """Whether ``folder`` holds another skill's ``SKILL.md``. A folder the walk cannot stat holds none."""
+    try:
+        return (folder / "SKILL.md").exists()
+    except OSError:  # e.g. EACCES on a folder without search permission: the walk must not stop on it
+        return False
+
+
 def _text_files(skill_dir: Path) -> list[Path]:
     """The text files under ``skill_dir``, in walk order; hidden folders, symlinks, non-regular files and
     oversize files are left out."""
@@ -144,17 +152,17 @@ def _text_files(skill_dir: Path) -> list[Path]:
         dirnames[:] = sorted(
             d
             for d in dirnames
-            if d not in VENDORED_DIR_NAMES and not d.startswith(".") and not (here / d / "SKILL.md").exists()
+            if d not in VENDORED_DIR_NAMES and not d.startswith(".") and not _holds_skill(here / d)
         )
         for name in sorted(filenames):
             path = Path(dirpath) / name
-            # A FIFO, socket or device is not a file to read: reading a FIFO blocks until a writer opens it.
-            if path.suffix.lower() not in TEXT_SUFFIXES or path.is_symlink() or not path.is_file():
+            if path.suffix.lower() not in TEXT_SUFFIXES:
                 continue
             try:
-                if path.stat().st_size > MAX_BYTES:
+                # A FIFO, socket or device is not a file to read: reading a FIFO blocks until a writer opens it.
+                if path.is_symlink() or not path.is_file() or path.stat().st_size > MAX_BYTES:
                     continue
-            except OSError:
+            except OSError:  # lstat/stat on a listed file in a folder without search permission
                 continue
             found.append(path)
     return found
