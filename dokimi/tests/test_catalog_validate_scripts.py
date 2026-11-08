@@ -323,6 +323,22 @@ def test_extglob_from_the_shebang_is_valid_under_real_bash(tmp_path, no_linters)
     assert _reviews_by_name(tmp_path)["bundled"].findings == []
 
 
+def test_a_shopt_extglob_inside_the_script_is_given_to_bash_n(tmp_path):
+    skill = _bundle(tmp_path, {"run.sh": b"#!/bin/bash\nshopt -s extglob\ncase x in +(a|b)) : ;; esac\n"})
+    runner = process.FakeRunner()
+
+    assert script_findings(skill, which=_tools("bash"), runner=runner) == []
+    [call] = runner.calls
+    assert call.argv == ("/usr/bin/bash", "-O", "extglob", "-n")
+
+
+@needs_bash
+def test_shopt_extglob_inside_the_script_is_valid_under_real_bash(tmp_path, no_linters):
+    _bundle(tmp_path, {"run.sh": b"#!/bin/bash\nshopt -s extglob\ncase x in +(a|b)) : ;; esac\n"})
+
+    assert _reviews_by_name(tmp_path)["bundled"].findings == []
+
+
 @pytest.mark.parametrize("shebang", [b"#!/bin/bash -eu", b"#!/bin/bash -o pipefail"])
 def test_a_shebang_option_that_changes_no_parse_keeps_the_check(tmp_path, shebang):
     skill = _bundle(tmp_path, {"run.sh": shebang + b"\nif true; then\n"})

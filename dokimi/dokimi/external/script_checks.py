@@ -202,6 +202,10 @@ def _shell_options(data: bytes) -> Optional[list[str]]:
             i += 1
         else:
             return None
+    if b"extglob" in data and "extglob" not in options:
+        # A script that turns extglob on with ``shopt -s extglob`` has its patterns parsed only after that
+        # runs, and bash -n runs nothing: so the option is given when the text names it.
+        options += ["-O", "extglob"]
     return options
 
 
