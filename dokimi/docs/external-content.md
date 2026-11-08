@@ -47,6 +47,9 @@ under a vendored directory such as `node_modules` and any `.git` are not hashed,
 they select nothing). Skill resources and owned tasks select their skill, and a
 changed or removed task also selects the skill that owned it at the base;
 registry, suite, shared machinery and unclaimed changes select conservatively.
+A ROOT that git reaches only through an enclosing repository that tracks no file
+under it (a skills folder under a git-tracked `$HOME`) is not a checkout: its
+`source` has no commit and every skill is selected.
 Selection limits what can fail: a finding in a skill that is not selected is
 listed in the report but does not fail the run, while a catalog-wide problem
 (manifest, suites, tasks root, a task with no known owner) always does.

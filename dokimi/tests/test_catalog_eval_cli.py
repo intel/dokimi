@@ -717,3 +717,61 @@ def test_an_untracked_entry_at_an_owned_path_selects_its_skill_and_replaces_rece
     assert done.returncode == 0, done.stderr
     assert _selected(out) == expected
     assert (out / "catalog.json").read_bytes() != old
+
+
+def _parent_repo(tmp_path: Path) -> tuple[Path, str]:
+    parent = tmp_path / "home"
+    parent.mkdir()
+    (parent / ".profile").write_text("x\n")
+    return parent, _commit(parent)
+
+
+def test_a_root_untracked_in_an_enclosing_repository_has_no_source_commit(tmp_path):
+    # A skills folder under a git-tracked $HOME is not that repository's content.
+    parent, _ = _parent_repo(tmp_path)
+    root = _catalog(parent)
+    out = tmp_path / "out"
+    done = _run(root, out)
+    assert done.returncode == 0, done.stderr
+    assert json.loads((out / "catalog.json").read_text())["source"] == {"commit": None, "dirty": None}
+
+
+def test_an_untracked_root_ignores_the_enclosing_repositorys_filters(tmp_path):
+    parent, _ = _parent_repo(tmp_path)
+    _git(parent, "config", "filter.lfs.clean", "false")
+    root = _catalog(parent)
+    out = tmp_path / "out"
+    done = _run(root, out)
+    assert done.returncode == 0, done.stderr
+
+
+def test_a_root_tracked_by_an_enclosing_repository_keeps_its_commit(tmp_path):
+    parent, _ = _parent_repo(tmp_path)
+    root = _catalog(parent)
+    _git(parent, "add", ".")
+    _git(parent, "commit", "-qm", "skills")
+    out = tmp_path / "out"
+    done = _run(root, out)
+    assert done.returncode == 0, done.stderr
+    assert json.loads((out / "catalog.json").read_text())["source"] == {
+        "commit": _git(parent, "rev-parse", "HEAD"), "dirty": False}
+
+
+def test_an_untracked_root_with_a_base_checks_every_skill(tmp_path):
+    parent, sha = _parent_repo(tmp_path)
+    root = _catalog(parent)
+    out = tmp_path / "out"
+    done = _run(root, out, "--changed-from", sha)
+    assert done.returncode == 0, done.stderr
+    report = json.loads((out / "catalog.json").read_text())
+    assert report["source"]["commit"] is None
+    assert sorted(report["selection"]["selected"]) == ["alpha", "beta"]
+
+
+def test_an_unreadable_index_is_an_input_error_not_an_untracked_root(tmp_path):
+    root = _catalog(tmp_path)
+    _commit(root)
+    (root / ".git" / "index").write_bytes(b"not an index")
+    done = _run(root, tmp_path / "out")
+    assert done.returncode == 2, done.stderr
+    assert "cannot read source state" in done.stderr

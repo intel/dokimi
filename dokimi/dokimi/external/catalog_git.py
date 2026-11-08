@@ -66,6 +66,28 @@ def _base_owners(root: Path, base: str, paths: list[str]) -> dict[str, str] | No
     return owners
 
 
+def _refuse_unsafe_checkout(root: Path, ls_files: process.Completed) -> None:
+    """Refuse a checkout whose content filters or submodules could run code on inspection."""
+    filters = _git(root, "config", "--includes", "--name-only", "--get-regexp", r"^filter\..*\.(clean|smudge|process)$")
+    if filters.returncode == 0:
+        raise ValueError("the checkout configures git content filters, which would run on inspection: "
+                         + ", ".join(sorted({key.removeprefix("filter.").rsplit(".", 1)[0] for key in filters.stdout.splitlines()})))
+    if filters.returncode != 1:
+        raise ValueError(f"cannot read git config: {process.git_failure(filters)}")
+    if ls_files.returncode == 0 and any(entry.startswith(b"160000 ") for entry in ls_files.stdout_bytes.split(b"\0")):
+        raise ValueError("the checkout contains git submodules, whose filters cannot be ruled out")
+
+
+def _belongs_to_checkout(root: Path, ls_files: process.Completed) -> bool:
+    """Whether ROOT is part of the repository git found: its top level, or a directory with tracked files."""
+    if ls_files.returncode:
+        raise ValueError(f"cannot read source state: {process.git_failure(ls_files)}")
+    if ls_files.stdout_bytes:
+        return True
+    prefix = _git(root, "rev-parse", "--show-prefix")
+    return prefix.returncode == 0 and not prefix.stdout.strip()
+
+
 def source_and_changes(root: Path, base: str | None, out: Path) -> tuple[
         dict[str, Any], list[str] | None, list[str], dict[str, str], str | None]:
     """Source identity, tracked changes, untracked files, base task owners and the conservative-fallback reason.
@@ -74,20 +96,20 @@ def source_and_changes(root: Path, base: str | None, out: Path) -> tuple[
     Tracked edits/deletions and untracked files are included, so the receipt describes
     the bytes checked even before the caller commits them. Output files are excluded.
     ``dirty`` counts tracked edits and unignored untracked files; the caller adds ignored
-    files a bundle hashes.
+    files a bundle hashes. A ROOT that is neither a repository's top level nor holds a
+    tracked file is not a checkout, though git finds an enclosing repository: no commit,
+    and a base selects everything.
     """
-    filters = _git(root, "config", "--includes", "--name-only", "--get-regexp", r"^filter\..*\.(clean|smudge|process)$")
-    if filters.returncode == 0:
-        raise ValueError("the checkout configures git content filters, which would run on inspection: "
-                         + ", ".join(sorted({key.removeprefix("filter.").rsplit(".", 1)[0] for key in filters.stdout.splitlines()})))
-    if filters.returncode != 1:
-        raise ValueError(f"cannot read git config: {process.git_failure(filters)}")
     gitlinks = _git(root, "ls-files", "-z", "--stage", "--", ".")
-    if gitlinks.returncode == 0 and any(entry.startswith(b"160000 ") for entry in gitlinks.stdout_bytes.split(b"\0")):
-        raise ValueError("the checkout contains git submodules, whose filters cannot be ruled out")
     head = _git(root, "rev-parse", "--verify", "HEAD^{commit}")
     source: dict[str, Any] = {"commit": None, "dirty": None}
     untracked: list[str] = []
+    if head.returncode == 0 and not _belongs_to_checkout(root, gitlinks):
+        # git walked up to an enclosing repository that does not track ROOT (a skills
+        # folder under a git-tracked $HOME): its HEAD says nothing about these bytes.
+        return source, None, untracked, {}, (
+            None if base is None else f"{root} is not tracked by the enclosing git repository; checking every skill.")
+    _refuse_unsafe_checkout(root, gitlinks)
     if head.returncode == 0:
         source["commit"] = head.stdout.strip()
         status = _git(root, "status", "--porcelain=v1", "-z", "--ignore-submodules=all", "--untracked-files=all", "--", ".")

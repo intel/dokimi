@@ -734,3 +734,15 @@ def test_arm_significance_correction_changes_the_adjusted_p():
     assert bh["docs+skill:x"]["p_adjusted"] == 0.0003
     assert holm["skill:x"]["significant_adjusted"] is True
     assert holm["docs"]["significant_adjusted"] is False
+
+
+def test_importing_the_cli_does_not_load_scipy():
+    # Loading scipy starts one OpenBLAS thread per core: on a 224-core box every
+    # dokimi call, --help included, spent ~18 CPU-seconds on it.
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    code = "import sys, dokimi.cli; print(sorted(m for m in ('scipy', 'numpy') if m in sys.modules))"
+    project = Path(__file__).resolve().parents[1]
+    assert subprocess.check_output([sys.executable, "-c", code], text=True, cwd=project).strip() == "[]"
