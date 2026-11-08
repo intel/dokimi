@@ -189,6 +189,43 @@ def test_a_cli_alias_judge_and_its_full_id_second_judge_are_one_model():
                      LLMClient(model="m-answer", provider="p"), 0.15, False, judge)
 
 
+@pytest.mark.parametrize("sub", ["analyze", "probe"])
+def test_the_cli_refuses_a_judge2_that_is_the_first_judge_before_any_call(sub, tmp_path, monkeypatch):
+    # Through cli.main, not judge2_client: the refusal must stay wired into both commands,
+    # and before the first paid call.
+    import sys
+
+    from dokimi import cli
+    from dokimi.commands import novelty as novelty_cmd
+    from dokimi.defaults import DEFAULT_JUDGE_MODEL
+    from tests.cli_paths import novelty_argv
+
+    calls = []
+
+    def counting(prompt, system):
+        calls.append(prompt)
+        return ("x", None)
+
+    skill = tmp_path / "s" / "SKILL.md"
+    skill.parent.mkdir()
+    skill.write_text("---\nname: s\ndescription: d\n---\n\n# H\n\nText.\n", encoding="utf-8")
+    argv = ["dokimi", *novelty_argv(sub), "--artifact", f"skill:{skill}", "--judge2", DEFAULT_JUDGE_MODEL]
+    if sub == "probe":
+        atoms = tmp_path / "atoms.json"
+        atoms.write_text(json.dumps({
+            "atoms": [{"id": "a1", "statement": "Text.", "question": "Q?", "span_ids": ["s0001"]}],
+            "spans": [{"id": "s0001", "kind": "sentence", "text": "Text.", "start": 0, "end": 5}],
+        }), encoding="utf-8")
+        argv += ["--atoms", str(atoms)]
+    monkeypatch.setattr(novelty_cmd, "_client", lambda model, provider, role, args: LLMClient(
+        model=model, provider=provider, role=role, transport=counting))
+    monkeypatch.setattr(sys, "argv", argv)
+    with pytest.raises(SystemExit) as excinfo:
+        cli.main()
+    assert excinfo.value.code == 2
+    assert calls == []
+
+
 def _git(cwd, *args):
     return subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@example.com", *args],
                           cwd=cwd, check=True, capture_output=True, text=True).stdout.strip()
