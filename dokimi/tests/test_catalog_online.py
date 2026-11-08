@@ -209,6 +209,18 @@ def test_markdown_link_inside_emphasis_table_or_next_to_another_link_keeps_only_
         "https://x.com/a", "https://y.com/b"]
 
 
+def test_a_spaced_version_operator_takes_the_version_after_it():
+    assert online_checks.extract_packages("pip install foo == 1.0rc1\n") == [("pypi", "foo")]
+    assert online_checks.extract_packages("pip install foo >= 1.0 bar\n") == [("pypi", "foo"), ("pypi", "bar")]
+
+
+def test_uv_pip_value_options_and_npm_access_take_their_argument():
+    assert online_checks.extract_packages("uv pip install --prerelease allow foo\n") == [("pypi", "foo")]
+    assert online_checks.extract_packages("uv pip install --resolution lowest --link-mode copy foo\n") == [
+        ("pypi", "foo")]
+    assert online_checks.extract_packages("npm install --access public foo\n") == [("npm", "foo")]
+
+
 def test_process_substitution_is_a_documented_miss_not_a_wrong_name():
     # The operators split the line, so the value option "-r" takes nothing and "foo" is not read.
     assert online_checks.extract_packages("pip install -r <(echo x) foo\n") == []

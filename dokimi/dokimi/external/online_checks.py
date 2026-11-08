@@ -45,6 +45,8 @@ _LEAD = {"$", "sudo", "run", "Run", "RUN", "use", "Use", "-m", "uv", "env", "and
 # Prose conjunctions: never package names (they are dropped from a name list, and they start a command when one
 # follows them, see _LEAD).
 _PROSE_CONJUNCTIONS = {"and", "or", "but", "then"}
+# The operators of a version spec written with spaces ("pip install foo == 1.0"): the version after one is not a name.
+_SPEC_OPERATORS = {"==", "===", "!=", "~=", ">=", "<=", ">", "<"}
 # A ``#`` that starts a word is a shell comment; one inside a word ("C#", "docs#setup") is not.
 _COMMENT_RE = re.compile(r"(?:^|(?<=[\s;|&()<>]))#(?=\s|$).*$")  # "#" then a space or the end: "#12" is not a comment
 _LINE_PREFIX_RE = re.compile(r"^\s*(?:(?:[-*+]|\d+[.)])\s+|>+ ?)")  # a list marker or a quote marker
@@ -59,10 +61,14 @@ _PIP_VALUE_OPTIONS = {
     "--retries", "--use-feature", "--keyring-provider", "--resume-retries", "--default-timeout",
     "--exists-action", "--global-option", "--install-option", "--config-settings", "-C",
     "--only-binary", "--no-binary", "--cert", "--client-cert", "--root-user-action",
+    # uv pip's value options ("uv pip install --prerelease allow foo")
+    "--prerelease", "--resolution", "--link-mode", "--index-strategy", "--python-platform", "--extra", "--group",
+    "--color",
 }
 _NPM_VALUE_OPTIONS = {
     "--prefix", "--registry", "--workspace", "-w", "--tag", "--cache", "--userconfig", "--omit", "--include",
-    "--loglevel", "--otp", "--scope", "--location", "--install-strategy", "--before",
+    "--loglevel", "--otp", "--scope", "--location", "--install-strategy", "--before", "--access", "--color",
+    "--shell",
 }
 _NON_PACKAGE_SUFFIXES = (".txt", ".whl", ".tar.gz", ".tgz", ".zip", ".cfg", ".toml", ".py")
 _PYPI_NAME_RE = re.compile(
@@ -144,7 +150,7 @@ def _pip_names(args: list[str]) -> Iterator[str]:
     for tok in args:
         if skip:
             skip = False
-        elif tok in _PIP_VALUE_OPTIONS:
+        elif tok in _PIP_VALUE_OPTIONS or tok in _SPEC_OPERATORS:
             skip = True
         elif _is_package_word(tok) and "@" not in tok:
             requirement = _requirement(tok)
