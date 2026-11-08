@@ -1609,10 +1609,11 @@ the harness exits. An edit to a guidance file made while the run is in flight
 therefore appears in the receipt next to the observations of the old text;
 the receipt's `unknowns` says so for a working tree, and a pinned source
 (`<path>@<rev>`) has no such window. The matrix (without `--format receipt`)
-still accepts an unpinned source. The harness configuration is not
-pinned: `expected` comes from the harness profile as it is at conversion time,
-and its guidance names and import depth are not compared with the probe's, so
-a receipt is the same only for an unchanged profile. The receipt is written
+still accepts an unpinned source. `expected` comes from the harness profile as
+it is at conversion time, so a receipt with `--from` also needs the profile's
+`guidance` to be the one the probe saved (`harness.declared`): a different one
+is a usage error (exit 2). A probe saved without `harness.declared` is not
+compared, and its receipt is the same only for an unchanged profile. The receipt is written
 beside the saved file; a name that resolves to the saved probe is a usage error
 (exit 2), and a write that fails is a runtime failure (exit 1). The probe-only flags (`--model`,
 `--budget`, `--scenarios`, `--only` and the rest) cannot be combined with

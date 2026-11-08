@@ -14,7 +14,8 @@ import pytest
 from dokimi.artifacts import ArtifactValidationError, validate_artifact
 from dokimi.cli import build_parser
 from dokimi.repos import WorkTree
-from dokimi.repos.receipt import build_receipt, check_receipt_provenance, check_saved_reach, source_digests
+from dokimi.repos.receipt import (build_receipt, check_receipt_provenance, check_saved_guidance, check_saved_reach,
+                                  source_digests)
 from dokimi.repos.reach import ReachError, format_matrix, load_reach
 from tests.test_repo_reach import _profile, _repo
 
@@ -433,6 +434,31 @@ def test_from_a_receipt_refuses_an_unpinned_probe_read_against_a_pinned_source(t
         args.func(args)
     err = capsys.readouterr().err
     assert exc.value.code == 2 and "probed from a working tree (repo.sha is null)" in err
+
+
+def test_from_a_receipt_refuses_a_profile_whose_guidance_changed_since_the_probe(tmp_path, monkeypatch, capsys):
+    live = _pinned(_end_to_end_args(tmp_path, monkeypatch))
+    build_parser().parse_args(live).func(build_parser().parse_args(live))  # the profile sets claude_displaces_agents
+    capsys.readouterr()
+    _profile(tmp_path, name="claude-code", guidance={"names": ["CLAUDE.md", "AGENTS.md"]})  # the key removed since
+    args = build_parser().parse_args(_from_argv(live, "--from", _saved(tmp_path), "--format", "receipt"))
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    err = capsys.readouterr().err
+    assert exc.value.code == 2 and '"claude_displaces_agents": true' in err and "probe again" in err
+    assert not (tmp_path / "out" / "effective_instructions.json").exists()
+    args = build_parser().parse_args(_from_argv(live, "--from", _saved(tmp_path)))  # the matrix reads no guidance
+    args.func(args)
+    assert capsys.readouterr().out == format_matrix(load_reach(tmp_path / "out" / "reach.json")) + "\n"
+
+
+def test_a_saved_probe_is_compared_with_the_profiles_guidance_only_when_it_holds_its_own(tmp_path):
+    reach = _reach([_record("AGENTS.md", "cwd=.", "loaded")], [ROOT_ROW])
+    check_saved_guidance(reach, {"names": ["CLAUDE.md"]})  # saved without harness.declared: nothing to compare
+    reach["harness"]["declared"] = {"names": ["CLAUDE.md"]}
+    check_saved_guidance(reach, {"names": ["CLAUDE.md"]})
+    with pytest.raises(ReachError, match="now declares .*claude_displaces_agents.*probe again"):
+        check_saved_guidance(reach, {"names": ["CLAUDE.md"], "claude_displaces_agents": True})
 
 
 def test_a_lazy_guidance_is_expected_only_in_the_subtree_it_activates(tmp_path):

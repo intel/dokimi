@@ -13,6 +13,7 @@ and its limits.
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 from dataclasses import dataclass
 from pathlib import PurePosixPath
@@ -130,6 +131,17 @@ def check_saved_reach(reach: dict[str, Any], repo_id: str, harness_name: str, tr
     probed = reach["repo"].get("sha")
     if probed and tree_sha and probed != tree_sha:
         raise ReachError(f"reach.json was probed at {probed[:12]}, the source is at {tree_sha[:12]}")
+
+
+def check_saved_guidance(reach: dict[str, Any], guidance: dict[str, Any]) -> None:
+    """Refuse a receipt of a saved probe whose declared guidance (``harness.declared``) is not the profile's now: budget's
+    expectations come from the profile and the gate from the probe, so they must be one declaration. A probe saved
+    without the declaration has none to compare."""
+    declared = reach["harness"].get("declared")
+    current = json.loads(json.dumps(guidance, default=str))  # the profile's guidance as reach.json would hold it
+    if isinstance(declared, dict) and declared != current:
+        raise ReachError(f"reach.json was probed with the guidance {json.dumps(declared, sort_keys=True)}, the harness "
+                         f"profile now declares {json.dumps(current, sort_keys=True)}; probe again for its receipt")
 
 
 def check_receipt_provenance(reach: dict[str, Any], tree_sha: str | None) -> None:
