@@ -130,6 +130,7 @@ def test_judge_flag_parses_provider_model_and_sets_the_extractor():
     ({"judges": ["gpt-6-luna"]}, "PROVIDER/MODEL"),
     ({"judges": ["nope/x"]}, "PROVIDER/MODEL"),
     ({"judges": ["openrouter/a", "openrouter/a"]}, "twice"),
+    ({"judges": ["openrouter/a", "openai/a"]}, "twice"),
     ({"judges": ["openrouter/a"], "judge_model": "b"}, "one form"),
 ])
 def test_judge_flag_rejects_bad_refs(kw, match):

@@ -260,7 +260,7 @@ def analyze(
     )
     judge_panel = panel_mod.panel_record(measure_result, aggregate)
     warnings.extend(panel_mod.panel_warnings(judge_panel))
-    if config.allow_self_judge and same_client(judge, answerer):
+    if config.allow_self_judge and any(same_client(j, answerer) for j in (judge, *panel)):
         warnings.append(
             "judge and answerer are the same model (--allow-self-judge): scores are inflated"
         )

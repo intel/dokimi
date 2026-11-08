@@ -798,8 +798,9 @@ def _judge_refs(args: argparse.Namespace) -> list[tuple[str, str]]:
         if not sep or not model or provider not in PROVIDERS:
             raise ValueError(f"--judge {ref!r} is not PROVIDER/MODEL with PROVIDER one of "
                              f"{', '.join(PROVIDERS)}")
-        if (model, provider) in out:
-            raise ValueError(f"--judge {ref!r} is given twice")
+        if any(m == model for m, _ in out):
+            # the panel keys each judge's verdicts by model name
+            raise ValueError(f"--judge {ref!r}: model {model!r} is given twice")
         out.append((model, provider))
     return out
 
