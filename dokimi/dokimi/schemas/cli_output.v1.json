@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/intel/dokimi/schemas/cli_output.v1.json",
+  "title": "CLI --json output v1",
+  "description": "The one document a leaf prints on stdout with `--json`: on success, on an input error (exit 2) and on a crash (exit 5) (dokimi.cli_output). `verdict: null` means the leaf issues no verdict; a leaf that issues one exits 0 only for `pass`. `run_id` is null when DOKIMI_RUN_ID is malformed. `summary` and `artifacts` are open beyond the keys named, and `data` is the leaf's own payload; every other level is closed. `next[].argv` is the next command as an argv array.",
+  "type": "object",
+  "required": ["schema_version", "kind", "run_id", "status", "verdict", "reason", "error", "summary", "subjects",
+               "artifacts", "cost", "limits", "next", "data"],
+  "additionalProperties": false,
+  "$defs": {
+    "verdict": {"enum": ["pass", "fail", "inconclusive", "invalid", "infra_error", null]},
+    "error": {
+      "type": ["object", "null"],
+      "required": ["code", "message", "retryable", "field"],
+      "additionalProperties": false,
+      "properties": {
+        "code": {"enum": ["moved", "input", "no_credentials", "infra"]},
+        "message": {"type": "string", "minLength": 1},
+        "retryable": {"type": "boolean"},
+        "field": {"type": ["string", "null"], "description": "The flag or field the error is about."}
+      }
+    },
+    "subject": {
+      "type": "object",
+      "required": ["subject", "verdict"],
+      "additionalProperties": false,
+      "properties": {
+        "subject": {"type": "string", "minLength": 1},
+        "verdict": {"$ref": "#/$defs/verdict"}
+      }
+    },
+    "cost": {
+      "type": "object",
+      "required": ["spent_usd", "cap_usd", "remaining_usd", "estimate_kind", "calls", "priced"],
+      "additionalProperties": false,
+      "properties": {
+        "spent_usd": {"type": "number", "minimum": 0},
+        "cap_usd": {"type": ["number", "null"], "minimum": 0},
+        "remaining_usd": {"type": ["number", "null"]},
+        "estimate_kind": {"enum": ["upper_bound", "estimate", null]},
+        "calls": {"type": "integer", "minimum": 0},
+        "priced": {"type": ["boolean", "null"]}
+      }
+    },
+    "next": {
+      "type": "object",
+      "required": ["argv", "why", "spends", "est_usd", "kind"],
+      "additionalProperties": false,
+      "properties": {
+        "argv": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "why": {"type": "string", "minLength": 1},
+        "spends": {"type": "boolean"},
+        "est_usd": {"type": "number", "minimum": 0},
+        "kind": {"enum": ["sequence", "alternative"]}
+      }
+    }
+  },
+  "properties": {
+    "schema_version": {"const": "cli_output.v1"},
+    "kind": {"type": "string", "minLength": 1, "description": "What the data is: an artifact kind such as `comparison.v1`, or a leaf's name such as `backends`."},
+    "run_id": {"type": ["string", "null"], "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$", "description": "The id of the run this process writes (dokimi.artifacts.run_id); null when DOKIMI_RUN_ID is malformed."},
+    "status": {"enum": ["complete", "partial", "budget_stopped", "cancelled", "failed"]},
+    "verdict": {"$ref": "#/$defs/verdict"},
+    "reason": {"type": ["string", "null"], "description": "Why the verdict or the status is what it is (proposal §2.6)."},
+    "error": {"$ref": "#/$defs/error"},
+    "summary": {
+      "type": "object",
+      "required": ["dokimi_version"],
+      "properties": {"dokimi_version": {"type": "string", "minLength": 1}},
+      "description": "Leaf-specific headline values; open beyond `dokimi_version`."
+    },
+    "subjects": {"type": "array", "items": {"$ref": "#/$defs/subject"}, "description": "One entry per subject of a multi-subject run."},
+    "artifacts": {"type": ["object", "null"], "description": "Paths of the files the leaf wrote."},
+    "cost": {"$ref": "#/$defs/cost"},
+    "limits": {"type": "array", "items": {"type": "object", "required": ["code", "text"], "additionalProperties": false,
+                                          "properties": {"code": {"type": "string"}, "text": {"type": "string"}}}},
+    "next": {"type": "array", "items": {"$ref": "#/$defs/next"}},
+    "data": {"description": "The leaf's own payload. Open: its shape is the leaf's, named by `kind`."}
+  }
+}

@@ -786,6 +786,71 @@ no-skill arm, or when `--out` is one of the input files (or its `.rejected` sibl
 aggregate divided by 100 and are not range-checked. Only arms runs are read. The flags are descriptive: they do not
 change any score or any gate.
 
+## Leak gate and split lock: is the candidate skill carrying the answers?
+
+A skill tuned against the items it is scored on measures nothing. `eval leak` checks a
+candidate skill (a directory, or its SKILL.md) against a questions set, and checks the
+dev/val/test split against the one locked at first use:
+
+```bash
+python cli.py eval leak skills/candidate questions.json --split split.json \
+    --allow-file allow.txt --proposer proposer_ids.json --out leak.json
+```
+
+- **leak**: an item is flagged when at least `--min-fraction` (default 0.10) of the 8-word
+  runs of its expected answers and checks also occur in the skill's text, or when any single
+  verbatim run of `--verbatim-words` words (default 12) of that text occurs in the skill, whatever
+  the share (a copied passage can be a small share of a long answer). The expected text of
+  an item is the literal values of its positive checks and the `reference` of its judge checks.
+  A judge check with no `reference` counts its `criterion` instead, at the same weight as a
+  reference (there is no lower weight for a criterion), and only where there is no reference.
+  Negated checks are left out.
+  The skill's text is every UTF-8 file beside SKILL.md, each cut separately so a run does not
+  span two files. Questions are not compared: restating one is fine.
+- **threshold**: 0.10 was set on eight saved unitrace GEPA candidates and their eval items. The
+  benign candidates peaked at 0.073 of their runs in common with an item (the
+  boilerplate: headers, flag names), and the candidates that copied an answer sentence reached
+  0.136 and up. A fraction in between is a judgement call; read the table, not only the status.
+- **allowlist**: `--allow TERM` (repeatable) and `--allow-file FILE` (one term per line, `#`
+  comments) name terms that legitimately appear in both, such as API names, paths and
+  identifiers. Build the list from the question prompts and the skill, never from the expected
+  answers, or the gate stops checking what it exists to check. Whole-word runs of a term are
+  removed from both texts before the runs are cut, so a copied sentence that holds a term is
+  still caught. Single-letter flag terms (`-d`, `-v`) are plain words once cut and drop out of
+  every text: list only the longer forms. A bare command made only of allowlisted identifiers
+  is not detected; that is a known limitation. The verbatim rule needs the same allowlist: a
+  shared command line of 12 or more words (a build or install command, for example) is one
+  verbatim run, so without the allowlist a benign skill can be flagged by it.
+- **split lock**: `--split` is a JSON object `{"dev": [ids], "val": [ids], "test": [ids]}`
+  that places every question once. The lock (`--lock`, default: the split's name with
+  `.lock.json`) is written at first use with each question's split and the SHA-256 of its
+  `grading` block, so a changed expected answer or check counts as a change, not only a moved
+  id. A later run whose digest differs is blocked and names the items whose split or grading
+  block moved; the lock is never rewritten by such a run. A lock edited by hand, without
+  recomputing its digest, is refused. The lock is an accidental-edit check, not tamper-proof:
+  its digest sits beside the assignment it covers, so whoever can write the lock can also
+  write a matching digest.
+- **relock**: `--relock` (with `--split`) overwrites the lock with the current split and
+  grading blocks, after a deliberate change. It is written only when the run passes (no leak,
+  no test item given to the proposer, nothing unchecked). A blocked or inconclusive run leaves
+  the old lock as it was and reports `split not relocked`. A passing run reports
+  `split relocked`, prints the digest it replaced (`previous_digest` in the artifact) and lists
+  the items that moved. It is not a split violation. A corrupt lock is replaced, with no
+  previous digest.
+- **warnings**: a skill file that is not UTF-8 text (a UTF-16 notes file, a binary asset) or is
+  a symbolic link is not read, and so is not checked. The report and the artifact's `warnings`
+  list name each one. A warning does not block the run; a skill that ships binary assets gets
+  one warning per file.
+- **proposer**: `--proposer FILE` is a JSON list of the question ids the proposer sees. A test
+  id on it blocks the run.
+
+The table goes to stdout. The `leak.v1` artifact goes to `--out` only. Exit 0 is a pass, 1 is
+blocked (a leak, a changed split, a test item given to the proposer) or inconclusive (an item
+could not be checked, such as an answer shorter than 8 words after the allowlist, or no item
+could), and 2 is an input error (an unreadable skill or question set, a malformed split, lock
+or proposer list, or an unwritable `--out`). `--lock` needs `--split`; a proposer list needs
+a split. No model is called.
+
 ## Scope and caveats
 
 - **Three levels of fidelity for skills/MCP.** (1) `skill:` / `mcp:` inject

@@ -6,9 +6,8 @@
 from __future__ import annotations
 
 import argparse
-import sys
 from pathlib import Path
-from dokimi.exit_codes import EXIT_USAGE
+from dokimi.utils import InputError
 
 
 def cmd_dashboard_generate(args: argparse.Namespace) -> None:
@@ -24,8 +23,7 @@ def cmd_dashboard_generate(args: argparse.Namespace) -> None:
     data = aggregator.aggregate()
 
     if not data.products:
-        print("⚠ No evaluation results found. Run benchmark first.", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError("No evaluation results found. Run benchmark first.")
 
     print(f"Found {len(data.products)} product(s): {', '.join(p.product for p in data.products)}")
 
@@ -40,8 +38,7 @@ def cmd_dashboard_generate(args: argparse.Namespace) -> None:
             save_dashboard_json(data, json_path)
             print(f"✅ JSON data:          {json_path}")
     except OSError as exc:
-        print(f"Error: cannot write the dashboard to {output_dir}: {exc}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError(f"cannot write the dashboard to {output_dir}: {exc}") from exc
 
     # Print quick summary to stdout
     print(f"\n{'─'*50}")

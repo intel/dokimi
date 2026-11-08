@@ -45,8 +45,9 @@ The project is pre-1.0; only the latest `main` is supported. Fixes land on
 ## Known advisories in dependencies
 
 `pip-audit` against the locks (`requirements.lock.txt`,
-`requirements-docs.lock.txt`, `requirements-ci.lock.txt` and
-`requirements-mutation.lock.txt`) reports no advisory.
+`requirements-docs.lock.txt`, `requirements-ci.lock.txt`,
+`requirements-mutation.lock.txt` and `requirements-fuzz.lock.txt`) reports no
+advisory.
 
 The locks pin filelock 4.2.4 although every litellm release up to 1.106.6
 declares `filelock<4.0`. filelock 3.32.7, the newest version under that cap, has

@@ -180,7 +180,8 @@ def cmd_novelty_atoms(args: argparse.Namespace) -> None:
     if settings.values["verify_faithfulness"] and partial is None:
         partial = verify_or_partial(sample, spans, extractor)
     out = Path(args.out) if args.out else _default_dir(args.artifact) / "atoms.json"
-    save_atoms_run(atoms, spans, out, partial, extractor=extractor.model, cap=cap,
+    save_atoms_run(atoms, spans, out, partial, extractor=extractor.model,
+                   extractor_provider=extractor.provider, cap=cap,
                    bundle=artifact_bundle.summary(), extraction=extraction, sample=sample)
     print(f"OK Saved {len(atoms)} atoms ({len(sample)} sampled) over {len(spans)} spans: {out}")
     print(json.dumps(span_summary(spans, atoms), indent=2))
@@ -188,7 +189,8 @@ def cmd_novelty_atoms(args: argparse.Namespace) -> None:
 
 def cmd_novelty_probe(args: argparse.Namespace) -> None:
     """Run the paired probes against a saved atom set and print the 2×2."""
-    from dokimi.commands.novelty_atoms_file import measured_atoms, sampling_record, warn_unread
+    from dokimi.commands.novelty_atoms_file import (measured_atoms, sampling_record,
+                                                    warn_answer_key, warn_unread)
     from dokimi.novelty.atoms import load_atoms_record
     from dokimi.novelty.bundle import check_answer_key
     from dokimi.novelty.measure import SelfJudgeError, check_self_judge, run_measurement
@@ -207,10 +209,7 @@ def cmd_novelty_probe(args: argparse.Namespace) -> None:
     settings = _settings(args)
     placebo_text = placebo_text_for_arms_or_exit(args.placebo_text, _arms(args.arms))
     extractor, answerer, judge = _clients(args)
-    if saved.get("extractor") == answerer.model:
-        print(f"WARNING: {answerer.model} extracted these atoms, so the model under measurement "
-              "wrote its own answer key; extract with a different --extract-model",
-              file=sys.stderr)
+    warn_answer_key(saved, answerer, judge)
     try:  # before the paraphrase calls below, which are paid
         check_self_judge(judge, answerer, args.allow_self_judge)
     except SelfJudgeError as exc:

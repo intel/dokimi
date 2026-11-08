@@ -6,11 +6,9 @@
 from __future__ import annotations
 
 import argparse
-import sys
 from pathlib import Path
 from typing import NoReturn
 
-from dokimi.exit_codes import EXIT_USAGE
 from dokimi.utils import InputError
 
 _TASKS_ROOT_HELP = (
@@ -128,8 +126,7 @@ def cmd_explore_run(args: argparse.Namespace) -> None:
     try:
         save_artifact("explore_runs", output, out_json)
     except OSError as exc:
-        print(f"Error: cannot write {out_json}: {exc}", file=sys.stderr)
-        raise SystemExit(EXIT_USAGE) from exc
+        raise InputError(f"cannot write {out_json}: {exc}") from exc
     print(f"Saved explore run artifact: {out_json}")
 
     if args.out_md:

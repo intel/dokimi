@@ -263,6 +263,15 @@ def _refusal_as_exit_2(step: dict[str, Any]) -> dict[str, Any]:
 
 # `skill novelty atoms` runs whose cap binds.
 CAPPED_ATOMS = {"atoms/max-atoms-1"}
+# Intended change: a run whose extractor defaults to the judge warns on stderr that one model
+# wrote the key and grades it. Stripped before the comparison; the set names the cases.
+EXTRACTOR_JUDGE_WARNED = {
+    "run/default", "run/triage", "run/standard", "run/study", "run/study-all-atoms",
+    "run/triage-max-atoms-1", "run/standard-no-verify", "run/max-atoms-1",
+    "run/no-paraphrase-no-reversal", "run/every-stage-off",
+    "probe/default", "probe/no-paraphrase", "probe/no-reversal", "probe/no-probe-wordings",
+}
+EXTRACTOR_JUDGE_LINE = re.compile(r"^WARNING: the extractor and the judge are both \S+: .*\n", re.M)
 # Intended change: the cap warning says how far the cap reached instead of calling the
 # atoms a sample. In the warnings and on stderr alike.
 CAP_WARNING_ON_MAIN = ("atom extraction hit the cap of 1; rates describe the sampled atoms, "
@@ -309,6 +318,17 @@ EXPECTED_RUN_LINE = re.compile(r"^Expected ~\$\S+ for this run at list prices \(
                                r"default settings)\); [^\n]*\n", re.M)
 
 
+def _checked_run_estimate(name: str, steps: list[dict]) -> None:
+    """Intended change: `analyze` names the run's expected cost on stderr before its first paid
+    call. The line is checked here and taken out of the comparison."""
+    if not name.startswith("run/"):
+        return
+    for step in steps:
+        named = EXPECTED_RUN_LINE.findall(step["stderr"])
+        assert len(named) == (1 if step["status"] == 0 else 0), step["stderr"]
+        step["stderr"] = EXPECTED_RUN_LINE.sub("", step["stderr"])
+
+
 def _settings_only(step: dict) -> dict:
     """What the flags decide in a run step: its status, run_config and tier and cap warnings."""
     return {"status": step["status"], "run_config": step.get("run_config"),
@@ -327,6 +347,14 @@ def test_no_setting_bill_or_tier_record_differs_from_main(name, tmp_path):
                         .replace(CAP_FORFEIT_ON_MAIN, CAP_FORFEIT)
                         .replace(SHORTEN_FORFEIT_ON_MAIN, SHORTEN_FORFEIT))
     steps = _cap_named(_capture(name, tmp_path))
+    warned = [step for step in steps if EXTRACTOR_JUDGE_LINE.search(step["stderr"])]
+    assert bool(warned) == (name in EXTRACTOR_JUDGE_WARNED)
+    for step in warned:
+        step["stderr"] = EXTRACTOR_JUDGE_LINE.sub("", step["stderr"])
+    for step in steps:  # intended addition to run_config, see EXTRACTOR_JUDGE_WARNED
+        if "extractor_judge" in (step.get("run_config") or {}):
+            assert set(step["run_config"].pop("extractor_judge")) == {
+                "extractor", "judge", "same_model", "same_vendor"}
     coverage = [step.pop("coverage") for step in steps]
     for step_coverage in coverage:
         if step_coverage is not None:
@@ -347,13 +375,7 @@ def test_no_setting_bill_or_tier_record_differs_from_main(name, tmp_path):
             # Intended change: `skill novelty atoms` prints the cap warning `analyze` records.
             expected = [dict(step, stderr=f"{step['stderr']}WARNING {CAP_WARNING}\n",
                              **CAPPED_ATOMS_FILE) for step in expected]
-        if name.startswith("run/"):
-            # Intended change: `analyze` names the run's expected cost on stderr before its first
-            # paid call. The line is checked here and taken out of the comparison.
-            for step in steps:
-                named = EXPECTED_RUN_LINE.findall(step["stderr"])
-                assert len(named) == (1 if step["status"] == 0 else 0), step["stderr"]
-                step["stderr"] = EXPECTED_RUN_LINE.sub("", step["stderr"])
+        _checked_run_estimate(name, steps)
         if name in SPREAD_RUNS:
             steps, expected = ([_settings_only(step) for step in side] for side in (steps, expected))
             assert any(CAP_WARNING in step["warnings"] for step in steps)
