@@ -89,7 +89,7 @@ implicit default that points at a sibling checkout:
 | `--questions` | one question-set file | `arms run`, `answers generate` |
 
 Skills, profiles and subjects are named by path inside the arm spec itself
-(`skill:<path>`, `profile:<path>`, `subjects show <descriptor>`), so they need
+(`skill:<path>`, `profile:<path>`, `catalog show --kind subject <descriptor>`), so they need
 no root flag.
 
 The transcripts below are real runs against a small demo checkout laid out the
@@ -447,12 +447,12 @@ FileNotFoundError: Skill path does not exist: C:\Users\Public\no-such-checkout\s
 ```
 
 A subject descriptor bundles the artifact with the suite it should be measured
-on, and may point at the external checkout throughout. `subjects show`
+on, and may point at the external checkout throughout. `catalog show --kind subject`
 resolves it — including the arm specs it will run — without executing
 anything:
 
 ```console
-$ python cli.py subjects show C:/Users/Public/content-repo/demo-subject.toml
+$ python cli.py catalog show --kind subject C:/Users/Public/content-repo/demo-subject.toml
 {
   "id": "demo-skill",
   "subject": {

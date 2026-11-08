@@ -44,11 +44,12 @@ def _assert_helper_matches_main(argv, monkeypatch, capsys, expect):
     (lambda d: ["eval", "tasks", "list", "--tasks-root", str(d / "missing")], "--tasks-root is not a directory"),
     (lambda d: ["explore", "list", "--tasks-root", str(d / "missing")], "--tasks-root is not a directory"),
     (lambda d: ["catalog", "check", "--root", str(d / "missing")], "--root is not a directory"),
-    (lambda d: ["subjects", "list", "--subjects-root", str(d / "missing")], "--subjects-root is not a directory"),
+    (lambda d: ["catalog", "list", "--kind", "subject", "--subjects-root", str(d / "missing")],
+     "--subjects-root is not a directory"),
     (lambda d: ["eval", "personas", "validate", "--file", str(d / "missing.json")], "File not found"),
-    (lambda d: ["library", "list", "--registry", str(d / "missing.yaml")], "not a file"),
+    (lambda d: ["catalog", "list", "--kind", "product", "--registry", str(d / "missing.yaml")], "not a file"),
 ], ids=["data-export-missing-input", "judge-validate-escalation-needs-pairwise", "eval-tasks-list-root",
-        "explore-list-root", "catalog-check-root", "subjects-list-root", "personas-validate-missing-file",
+        "explore-list-root", "catalog-check-root", "catalog-list-subject-root", "personas-validate-missing-file",
         "library-list-missing-registry"])
 def test_helper_matches_cli_main_for_converted_commands(argv_for, expect, tmp_path, monkeypatch, capsys):
     _assert_helper_matches_main(argv_for(tmp_path), monkeypatch, capsys, expect)

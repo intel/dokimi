@@ -34,10 +34,15 @@ def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bo
     if args.per_skill:
         return catalog_scan.scan_per_skill(args, root, report, as_json, pairs)
     skills = [entry for entry, _ in pairs]
-    reviews = review_skills(skills)
+    reviews = review_skills(skills)  # every skill is reviewed: the cross-catalog checks need them all
+    only = getattr(args, "only", None)  # `skill check SKILL` reports this one skill (#94 M3)
+    if only is not None and only not in {entry.name for entry in skills}:
+        raise InputError(f"no skill named {only!r} under {root}")
     counts = {"ok": 0, "warn": 0, "error": 0}
     failed = False
     for (skill, nested_in), review in zip(pairs, reviews, strict=True):
+        if only is not None and skill.name != only:
+            continue
         row = skill_row(skill, review, nested_in)
         counts[row["state"]] += 1
         report["skills"].append(row)
@@ -45,8 +50,9 @@ def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bo
         if not skill.loaded or (args.strict and row["state"] == "error"):
             failed = True
     if not as_json:
+        shown = f"{sum(counts.values())} of {len(skills)}" if only is not None else f"{len(skills)}"
         print(
-            f"# skills ({len(skills)} declared under {root}; "
+            f"# skills ({shown} declared under {root}; "
             f"{counts['ok']} ok, {counts['warn']} warn, {counts['error']} error)"
         )
         for row in report["skills"]:
@@ -337,6 +343,42 @@ def _trigger_set_sources(specs: list, catalog) -> list:
     return out
 
 
+# Flags that only one --kind reads: given with the other kind, they are refused, not ignored.
+_KIND_FLAGS = {"product": ("registry", "intents", "domain"), "subject": ("subjects_root",)}
+
+
+def _refuse_other_kind_flags(args: argparse.Namespace) -> None:
+    for kind, dests in _KIND_FLAGS.items():
+        if args.kind == kind:
+            continue
+        for dest in dests:
+            if getattr(args, dest, None) is not None:
+                raise InputError(f"--{dest.replace('_', '-')} is for --kind {kind}")
+
+
+def cmd_catalog_list(args: argparse.Namespace) -> None:
+    """`catalog list --kind product|subject` (#94 M3): the registry or the subject descriptors."""
+    from dokimi.commands import library, subjects
+
+    _refuse_other_kind_flags(args)
+    if args.kind == "product":
+        library.cmd_library_list(args)
+    else:
+        subjects.cmd_subjects_list(args)
+
+
+def cmd_catalog_show(args: argparse.Namespace) -> None:
+    """`catalog show NAME --kind product|subject` (#94 M3): one product key or one subject descriptor path."""
+    from dokimi.commands import library, subjects
+
+    _refuse_other_kind_flags(args)
+    if args.kind == "product":
+        library.cmd_library_show(args)
+    else:
+        args.subject = args.name
+        subjects.cmd_subjects_show(args)
+
+
 def register(sub, positive_int, eval_sub) -> None:
     """Add the `catalog` subcommand group, and `eval triggers generate` under `eval` (#94 M1)."""
 
@@ -346,10 +388,25 @@ def register(sub, positive_int, eval_sub) -> None:
     )
     catalog_sub = catalog_p.add_subparsers(dest="catalog_cmd", required=True)
 
-    from dokimi.commands import catalog_eval, library
+    from dokimi.commands import catalog_eval, library, subjects
 
     catalog_eval.register(catalog_sub)
     library.add_intents(catalog_sub)  # catalog intents (#94 M2)
+
+    kinds = ["product", "subject"]
+    list_p = catalog_sub.add_parser(
+        "list", help="List products (--kind product) or subject descriptors (--kind subject)"
+    )
+    list_p.add_argument("--kind", required=True, choices=kinds, help="What to list")
+    list_p.set_defaults(func=cmd_catalog_list)
+    show_p = catalog_sub.add_parser(
+        "show", help="Show one product (--kind product) or one subject descriptor (--kind subject)"
+    )
+    show_p.add_argument("--kind", required=True, choices=kinds, help="What the name is")
+    show_p.add_argument("name", help="Product key (e.g. onetbb), or a subject descriptor path with --kind subject")
+    show_p.set_defaults(func=cmd_catalog_show)
+    library.add_list_show_product(list_p, show_p)
+    subjects.add_list_show_subject(list_p)
 
     scan_p = catalog_sub.add_parser(
         "check", help="Report which skills/tasks under --root load cleanly"

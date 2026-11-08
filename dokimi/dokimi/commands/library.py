@@ -3,8 +3,8 @@
 
 """library subcommand group: list, show, intents.
 
-`library` is the historical group name; `product` is accepted as an alias.
-Product identity comes from products.yaml; the domain/intent space (which
+The `library list|show` leaves are `catalog list|show --kind product` (#94 M3); this module
+keeps their handlers. Product identity comes from products.yaml; the domain/intent space (which
 products serve which user problems) comes from intents.yaml.
 """
 
@@ -106,27 +106,13 @@ def cmd_library_intents(args: argparse.Namespace) -> None:
     print(f"{len(domains)} intent domains registered.")
 
 
-def register(sub, positive_int) -> None:
-    """Add the `library` subcommand group (alias: `product`)."""
-    library_p = sub.add_parser(
-        "library", aliases=["product"], help="Product registry management"
-    )
-    library_sub = library_p.add_subparsers(dest="library_cmd", required=True)
-
-    intents_help = "Path to custom intents.yaml"
-
-    lib_list_p = library_sub.add_parser("list", help="List products in the registry")
-    lib_list_p.add_argument("--registry", default=None, help="Path to custom products.yaml")
-    lib_list_p.add_argument("--intents", default=None, help=intents_help)
-    lib_list_p.add_argument("--domain", default=None, help="Filter by intent domain (see `catalog intents`)")
-    lib_list_p.set_defaults(func=cmd_library_list)
-
-    lib_show_p = library_sub.add_parser("show", help="Show details for a product")
-    lib_show_p.add_argument("name", help="Product key (e.g., onetbb)")
-    lib_show_p.add_argument("--registry", default=None, help="Path to custom products.yaml")
-    lib_show_p.add_argument("--intents", default=None, help=intents_help)
-    lib_show_p.set_defaults(func=cmd_library_show)
-
+def add_list_show_product(catalog_list_p, catalog_show_p) -> None:
+    """The product-kind arguments of `catalog list` and `catalog show` (#94 M3: `library list|show`)."""
+    catalog_list_p.add_argument("--registry", default=None, help="Path to custom products.yaml")
+    catalog_list_p.add_argument("--intents", default=None, help="Path to custom intents.yaml")
+    catalog_list_p.add_argument("--domain", default=None, help="Filter by intent domain (see `catalog intents`)")
+    catalog_show_p.add_argument("--registry", default=None, help="Path to custom products.yaml")
+    catalog_show_p.add_argument("--intents", default=None, help="Path to custom intents.yaml")
 
 
 def add_intents(catalog_sub) -> None:

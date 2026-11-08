@@ -25,7 +25,6 @@ from dokimi.commands import (
     data,
     evaluate,
     explore,
-    library,
     novelty,
     orchestrate,
     personas,
@@ -131,7 +130,6 @@ def build_parser() -> argparse.ArgumentParser:
     eval_sub = evaluate.register(sub, positive_int)  # eval: the groups below join it (#94 M1)
     personas.register(eval_sub, positive_int)   # eval personas
     questions.register(eval_sub, positive_int)  # eval questions, eval import
-    library.register(sub, positive_int)         # library
     benchmark.register(sub, positive_int)       # benchmark
     dashboard.register(sub, positive_int)       # dashboard
     arms.register(sub, positive_int)            # arms
