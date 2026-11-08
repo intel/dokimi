@@ -86,15 +86,13 @@ def _split_frontmatter(text: str, *, strict: bool) -> "Tuple[Dict[str, Any], str
             body = "\n".join(lines[idx + 1:]).lstrip("\n")
             try:
                 meta = yaml.safe_load(raw_meta) or {}
-            except (yaml.YAMLError, ValueError, RecursionError) as exc:  # ValueError: a bad date; RecursionError: deep nesting
-                if strict and isinstance(exc, yaml.YAMLError):
+            except yaml.YAMLError:
+                if strict:
                     raise
-                if strict:  # one error type for the caller: a value PyYAML cannot build is invalid YAML too
-                    raise yaml.YAMLError(str(exc)) from exc
                 meta = {}
-            except (AttributeError, IndexError, KeyError, TypeError, ValueError) as exc:
-                # PyYAML's constructors raise these, not YAMLError, for a value that does not fit
-                # its tag (2026-02-30, !!int with no value): that is invalid frontmatter, not a crash.
+            except (AttributeError, IndexError, KeyError, TypeError, ValueError, RecursionError) as exc:
+                # PyYAML raises these, not YAMLError, for a value that does not fit its tag (2026-02-30,
+                # !!int with no value) or nesting too deep: that is invalid frontmatter, not a crash.
                 if strict:
                     raise yaml.YAMLError(str(exc)) from exc
                 meta = {}

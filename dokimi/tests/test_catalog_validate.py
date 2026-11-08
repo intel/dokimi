@@ -290,8 +290,9 @@ _UNLOADABLE = [("date: 2026-02-30", "day is out of range for month"),  # PyYAML:
                ("x: " + "[" * 100000, "maximum recursion depth exceeded")]  # PyYAML: RecursionError
 
 
-@pytest.mark.parametrize(("line", "problem"), _UNLOADABLE, ids=["bad-date", "deep"])
-def test_strict_parse_raises_a_yaml_error_for_frontmatter_pyyaml_cannot_build(line, problem):
+def test_strict_parse_raises_a_yaml_error_for_frontmatter_nested_too_deep():
+    # The bad date is pinned by test_fuzz_targets.py::test_a_date_that_is_not_real_is_invalid_frontmatter.
+    line, problem = _UNLOADABLE[1]
     text = f"---\n{line}\n---\nbody"
 
     assert parse_frontmatter(text) == ({}, "body")
