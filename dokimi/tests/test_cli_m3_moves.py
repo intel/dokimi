@@ -204,3 +204,12 @@ def test_skill_check_json_is_the_named_skills_row_only(tmp_path, capsys):
     args.func(args)
     rows = json.loads(capsys.readouterr().out)["skills"]
     assert [(row["name"], row["state"]) for row in rows] == [("uxl-alpha", "error")]
+
+
+def test_skill_check_header_says_it_reports_one_of_the_declared(tmp_path, capsys):
+    _skill_with_a_name_mismatch(tmp_path)
+    args = build_parser().parse_args(["skill", "check", "uxl-alpha", "--root", str(tmp_path)])
+    args.func(args)
+    header = capsys.readouterr().out.splitlines()[0]
+    assert header.startswith(f"# skills (1 of 2 declared under {tmp_path}; ")
+

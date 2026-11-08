@@ -50,8 +50,9 @@ def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bo
         if not skill.loaded or (args.strict and row["state"] == "error"):
             failed = True
     if not as_json:
+        shown = f"{sum(counts.values())} of {len(skills)}" if only is not None else f"{len(skills)}"
         print(
-            f"# skills ({len(skills)} declared under {root}; "
+            f"# skills ({shown} declared under {root}; "
             f"{counts['ok']} ok, {counts['warn']} warn, {counts['error']} error)"
         )
         for row in report["skills"]:
