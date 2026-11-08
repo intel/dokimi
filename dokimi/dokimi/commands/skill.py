@@ -31,7 +31,7 @@ def cmd_skill_check(args: argparse.Namespace) -> None:
     cmd_catalog_scan(argparse.Namespace(
         root=args.root, kind="skills", strict=args.strict, format=args.format,
         tasks_subdir="evaluation/harbor/tasks", per_skill=False, skip_nested=False,
-        jsonl=None, jobs=None, resume=False, only=args.skill))
+        jsonl=None, jobs=None, resume=False, ignore=None, only=args.skill))
 
 
 def register_check(skill_sub) -> None:
