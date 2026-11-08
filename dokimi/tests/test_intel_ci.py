@@ -65,6 +65,16 @@ def _script(name: str, monkeypatch: pytest.MonkeyPatch) -> types.ModuleType:
     return module
 
 
+def test_build_collects_from_a_scratch_directory_inside_a_broken_one(tmp_path: Path,
+                                                                     monkeypatch: pytest.MonkeyPatch) -> None:
+    """Only a broken/ below the scratch directory is conda-build's: one above it, in TMPDIR, is not."""
+    build = _script("build", monkeypatch)
+    out, scratch = tmp_path / "out", tmp_path / "broken" / "tmp" / "scratch"
+    (scratch / "linux-64").mkdir(parents=True)
+    (scratch / "linux-64" / "dokimi-0.2.0-0.conda").write_bytes(b"new")
+    assert build.collect(scratch, out) == [out / "dokimi-0.2.0-0.conda"]
+
+
 def test_build_lists_only_the_packages_it_built(tmp_path: Path,
                                                 monkeypatch: pytest.MonkeyPatch) -> None:
     """A package an earlier build left in --output is neither reported nor rewritten as this build's."""
