@@ -196,9 +196,8 @@ def test_prose_with_an_apostrophe_still_splits_its_commands():
 
 
 def test_prose_after_an_install_is_read_as_names_known_limit():
-    # Known limit (warn-only): words after an install on the same line are names until the line or an operator
-    # ends; a conjunction is dropped but does not end the list ("pip install a and b" reads both); "done" is a
-    # false name here.
+    # Known limit (warn-only): words after an install on the same line are names, and a conjunction does not end
+    # the list ("pip install a and b" reads both). "done" is a false name here.
     body = "Don't worry; pip install requests and you're done\n"
     assert online_checks.extract_packages(body) == [("pypi", "requests"), ("pypi", "done")]
 
