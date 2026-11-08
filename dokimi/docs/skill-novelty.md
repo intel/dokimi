@@ -771,14 +771,6 @@ so count the queries first, or pass `--max-usd` to stop the run at a spend limit
 A stored response in `DOKIMI_RESPONSE_CACHE` is replayed without a call, so a rerun can make
 fewer calls than the printed count.
 
-**Spend cap on `atoms` and `probe`.** `--max-usd` stops these at the limit and keeps the work it
-paid for. `atoms` writes `<stem>.partial.json` beside `atoms.json` (the spans read so far; the
-rest are marked unread), and `probe` writes `probes.partial.json` (the answers so far). Both exit
-with a message naming the file. A partial file is never read as a finished one: `probe` and the
-other atom readers refuse `atoms.partial.json`, and `novelty items` refuses a partial probe file.
-`analyze` and `shorten` still lose their work at the cap (a follow-up). Before its first paid
-call `analyze` prints the run's expected cost at list prices to stderr.
-
 Three properties worth knowing before quoting either:
 
 - **Competitors are mandatory.** The existing `skill-agent:` arm offers one skill, which
@@ -1009,6 +1001,15 @@ the decision costs nothing. Pricing imports litellm, which tries to fetch its pr
 from the network before it falls back to the copy bundled with the package; on a host
 with no network that is a pause of a few seconds and a warning. Setting
 `LITELLM_LOCAL_MODEL_COST_MAP=True` skips the fetch and uses the bundled prices.
+
+**Spend cap on `atoms` and `probe`.** `--max-usd` stops these at the limit and keeps the work it
+paid for. `atoms` writes `<stem>.partial.json` beside the `--out` file (`atoms.json` by default;
+the spans read so far, the rest marked unread), and `probe` does the same beside its `--out`
+file (`probes.json` by default; the answers so far). Both exit with a message naming the file. A partial file is never read as a
+finished one: `probe` and the other atom readers refuse `atoms.partial.json`, and `novelty items`
+refuses a partial probe file. A partial file is for inspection; rerun to get a finished one.
+`analyze` and `shorten` still lose their work at the cap (a follow-up). Before its first paid
+call `analyze` prints the run's expected cost at list prices to stderr.
 
 The estimate payload has `expected_calls`, the point figure between
 the two totals (stages, every probe, and half the oracle pairs, split by `by_role`), and
