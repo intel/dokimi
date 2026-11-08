@@ -144,7 +144,7 @@ def test_changed_report_says_how_many_rows_its_selection_left_out(tmp_path):
     assert report["selection"]["selected"] == ["beta"]
     text = (out / "report.md").read_text()
     assert "Selected skills: 1 of 4 rows (1 distinct name)." in text
-    assert "Excluded rows: 3, because no changed path is owned by their skill." in text
+    assert "Excluded rows: 3 (rows whose skill no changed path owns)." in text
 
 
 def test_unresolvable_base_reports_conservative_selection(tmp_path):

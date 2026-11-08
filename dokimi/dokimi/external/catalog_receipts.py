@@ -60,8 +60,8 @@ def _selection_lines(report: dict[str, Any]) -> list[str]:
     if report["selection"]["mode"] == "all":
         excluded = "Excluded rows: 0 (a full run selects every row)."
     else:
-        excluded = (f"Excluded rows: {len(rows) - chosen}, because no changed path is owned by "
-                    "their skill.")
+        excluded = (f"Excluded rows: {len(rows) - chosen} (rows whose skill no changed path "
+                    "owns).")
     plural = "" if len(selected) == 1 else "s"
     return [
         f"Selected skills: {chosen} of {len(rows)} rows ({len(selected)} distinct name{plural}).",
