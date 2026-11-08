@@ -253,7 +253,7 @@ NO_NUMPY = (
     "        if name.split('.')[0] in ('numpy', 'scipy'):\n"
     "            raise ModuleNotFoundError(name)\n"
     "sys.meta_path.insert(0, Block())\n"
-    "import cli, dokimi.config_check\n"
+    "import dokimi.cli, dokimi.config_check\n"
     "from dokimi.eval import stats\n"
     "print(stats.sign_flip_p([1.0] * 6))\n"
 )
