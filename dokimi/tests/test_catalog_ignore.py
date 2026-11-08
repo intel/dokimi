@@ -5,11 +5,14 @@
 
 from __future__ import annotations
 
+import ast
 import json
+import re
 from pathlib import Path
 
 import pytest
 
+import dokimi.external as external
 from dokimi.cli import build_parser
 from dokimi.external.validate import FINDING_CODES
 from dokimi.utils import InputError
@@ -171,3 +174,26 @@ def test_frontmatter_parse_cannot_be_ignored(tmp_path, capsys):
 
     assert code == 2
     assert out == ""
+
+
+def _emitted_codes() -> set[str]:
+    """The codes the review code emits, read from its source: the literal code of each
+    ``Finding(level, code, ...)`` call, and each kebab-case literal of the content checks, which
+    return their code with the message."""
+    package = Path(external.__file__).parent
+    kebab = re.compile(r"^[a-z]+(?:-[a-z]+)+$")
+    codes: set[str] = set()
+    for path in package.glob("*.py"):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if (isinstance(node, ast.Call) and getattr(node.func, "id", None) == "Finding"
+                    and len(node.args) >= 2 and isinstance(node.args[1], ast.Constant)):
+                codes.add(node.args[1].value)
+            if path.name == "content_checks.py" and isinstance(node, ast.Constant) and isinstance(node.value, str):
+                if kebab.match(node.value):
+                    codes.add(node.value)
+    return codes
+
+
+def test_every_emitted_finding_code_can_be_ignored():
+    # --ignore accepts FINDING_CODES only: a code a review reports and the tuple lacks is refused.
+    assert _emitted_codes() - set(FINDING_CODES) == set()

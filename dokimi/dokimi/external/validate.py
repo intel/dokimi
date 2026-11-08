@@ -141,12 +141,18 @@ LOCATION_SUFFIX_RE = re.compile(r":(?:\d+(?:[-:]\d+)?|[A-Za-z_]\w*)$")
 SKILL_DIR_VAR = "${CLAUDE_SKILL_DIR}/"
 
 # Every code a review can report: ``catalog check --ignore`` accepts these and no others.
+# tests/test_catalog_ignore.py reads the emitted codes from the source and fails on any missing here.
 FINDING_CODES = (
+    "allowed-tools-unknown",
+    "body-too-large",
     "description-near-duplicate",
     "description-no-when",
     "description-too-long",
     "duplicate",
     "frontmatter-parse",
+    "frontmatter-unknown-key",
+    "hidden-unicode",
+    "legacy-model-id",
     "link-escapes-skill",
     "link-missing",
     "mirror-drift",
@@ -154,6 +160,7 @@ FINDING_CODES = (
     "name-format",
     "name-missing",
     "name-mismatch",
+    "not-loaded",
     "path-escapes-skill",
 )
 
