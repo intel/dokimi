@@ -88,6 +88,12 @@ def _split_frontmatter(text: str, *, strict: bool) -> "Tuple[Dict[str, Any], str
                 if strict:
                     raise
                 meta = {}
+            except (AttributeError, IndexError, KeyError, TypeError, ValueError) as exc:
+                # PyYAML's constructors raise these, not YAMLError, for a value that does not fit
+                # its tag (2026-02-30, !!int with no value): that is invalid frontmatter, not a crash.
+                if strict:
+                    raise yaml.YAMLError(str(exc)) from exc
+                meta = {}
             if not isinstance(meta, dict):
                 meta = {}
             return meta, body

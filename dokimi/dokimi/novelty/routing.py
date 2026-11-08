@@ -46,7 +46,7 @@ from dokimi.skills import Skill
 from dokimi.utils import InputError, parse_frontmatter
 
 from .catalog_keep import check_keep_copies_under, keep_past_broken_copies, resolve_kept_copies
-from .client import LLMClient, SpendCapReached, parse_json_object
+from .client import LLMClient, OutputTruncated, SpendCapReached, parse_json_object
 from .noise import partial_record, repeat_noise
 
 if TYPE_CHECKING:
@@ -279,6 +279,8 @@ def _ask_once(client, prompt: str, base: dict, order: list[int], candidates: lis
         if exc.reply is None:
             return None, str(exc)
         return _pick_row(base, exc.reply, order, candidates, gold), str(exc)
+    except OutputTruncated as cut:  # cut at the ceiling: a decline, as unparseable is
+        return {**base, "picked": None, "abstained": True, "raw_reply": cut.reply}, None
     except Exception as exc:  # noqa: BLE001 - one failed query must not lose the rest
         return {**base, "picked": None, "error": str(exc)[:200] or type(exc).__name__}, None
     return _pick_row(base, reply, order, candidates, gold), None

@@ -119,7 +119,9 @@ The extractor must not be the model under measurement, or the model writes its o
 key — `probe` warns when it detects that. Without `--extract-model`/`--model`, `atoms` (and
 the `shorten` adjudicator) use the default judge, `anthropic/claude-sonnet-5-5`, the same
 model `analyze` extracts with; an extractor from another provider needs `--provider`. `probe`
-and `analyze` measure `openai/gpt-6.1-sol` unless given `--model`. `atoms.json` records which
+and `analyze` measure `openai/gpt-6.1-sol` unless given `--model`. On `atoms` and `shorten`, `--model`
+is the extractor or the adjudicator, not the answerer; see [Choosing the extractor and the judge](skill-novelty.md#choosing-the-extractor-and-the-judge).
+`atoms.json` records which
 files it came from and `probe` rebuilds exactly that set, refusing if the artifact's files changed since.
 
 With three or more models, check which probes measured anything:
