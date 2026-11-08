@@ -94,8 +94,9 @@ def test_aggregate_single_vote():
     votes = [_make_vote(agg=75.0)]
     verdict = _aggregate(votes)
     assert verdict.mean_aggregate == 75.0
-    assert verdict.std_aggregate == 0.0
-    assert verdict.agreement_score == 1.0
+    # One vote has no spread: no std and no agreement, rather than a perfect 1.0.
+    assert verdict.std_aggregate is None
+    assert verdict.agreement_score is None
 
 
 def test_aggregate_multiple_votes_mean():
@@ -131,10 +132,10 @@ def test_aggregate_no_disagreement_flag_small_std():
 
 
 def test_aggregate_skips_error_votes():
-    votes = [_make_vote(agg=70.0), _make_vote(agg=None, error="API error")]
+    votes = [_make_vote(agg=70.0), _make_vote(agg=None, error="API error"), _make_vote(agg=70.0)]
     verdict = _aggregate(votes)
     assert verdict.mean_aggregate == 70.0
-    assert len(verdict.valid_votes) == 1
+    assert len(verdict.valid_votes) == 2
 
 
 def test_aggregate_all_error_votes():

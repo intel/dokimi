@@ -59,7 +59,8 @@ def test_skill_check_reports_only_the_named_skill(tmp_path, capsys):
     args.func(args)
     out = capsys.readouterr().out
     assert "uxl-alpha" in out
-    assert "uxl-beta" not in out
+    # the granularity footer after the rows may name a pair with uxl-beta; the row for it must not appear
+    assert not any(line.startswith("uxl-beta\t") for line in out.splitlines())
 
 
 def test_skill_check_names_a_skill_the_root_does_not_hold(tmp_path, capsys):

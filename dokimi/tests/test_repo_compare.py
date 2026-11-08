@@ -958,11 +958,11 @@ def test_arms_from_batches_with_different_built_in_graders_warn(tmp_path):
 
 def test_the_printed_statistics_stay_rounded_and_full_precision_is_opt_in():
     # repo compare --json prints these as they were before the ledger; only the ledger asks for exact values.
-    from dokimi.repos.compare import paired_summary
+    from dokimi.repos.compare import sign_flip_summary
 
     deltas = [1 / 3, 1 / 3, -0.1]
     pairs = [{"task": f"t{i}", "baseline": 0.0, "treatment": d, "delta": d} for i, d in enumerate(deltas)]
-    plain, exact = paired_summary(pairs), paired_summary(pairs, exact=True)
+    plain, exact = sign_flip_summary(pairs), sign_flip_summary(pairs, exact=True)
     assert plain["delta"]["mean"] == round(sum(deltas) / 3, 4)
     assert exact["delta"]["mean"] == sum(deltas) / 3
     assert plain["p"] == round(exact["p"], 6)

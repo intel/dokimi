@@ -135,3 +135,19 @@ def no_candidate_line(candidates: list, scored: list, atoms: list) -> str:
         return "No safe candidate is shorter than the artifact; its length is its content."
     unsampled = " and unsampled atom" if len(scored) < len(atoms) else ""
     return f"No safe candidate (none kept every protected span{unsampled})."
+
+
+def warn_answer_key(saved: dict, answerer, judge) -> None:
+    """Warn when the saved answer key was written by the model under measurement, or by the judge's model or family."""
+    from dokimi.novelty.client import _REMEDY_PROBE, warn_extractor_judge
+
+    extractor = saved.get("extractor")
+    if not isinstance(extractor, str):
+        return  # a null model in an artifact names no model: nothing to compare
+    if extractor == answerer.model:
+        print(f"WARNING: {answerer.model} extracted these atoms, so the model under measurement "
+              "wrote its own answer key; write the atoms file again with another extractor (atoms --extract-model)",
+              file=sys.stderr)
+    provider = saved.get("extractor_provider")  # None in a record from before it was saved
+    warn_extractor_judge(extractor, judge, provider if isinstance(provider, str) else "",
+                         remedy=_REMEDY_PROBE)
