@@ -554,3 +554,51 @@ def test_a_dangling_symlink_into_a_writable_folder_is_written_through_as_out(tmp
     link.symlink_to(target)  # save_artifact creates the target: the run is not refused
     _run(monkeypatch, [str(_skill(tmp_path)), str(_evals(tmp_path)), "--out", str(link)], EXTRACT, MAP)
     assert json.loads(target.read_text(encoding="utf-8"))["skill"]["name"] == "demo"
+
+
+def test_command_refuses_an_out_that_cannot_be_resolved_before_any_paid_call(tmp_path, monkeypatch):
+    # Python 3.11/3.12 raise RuntimeError on a symlink loop; 3.13 does not, so the failure is simulated here.
+    _no_paid_call(monkeypatch)
+    out = tmp_path / "coverage.json"
+    real_resolve = Path.resolve
+
+    def loop_on_out(self, *args, **kwargs):
+        if self == out:
+            raise RuntimeError("Symlink loop from 'coverage.json'")
+        return real_resolve(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "resolve", loop_on_out)
+    args = build_parser().parse_args(["eval", "skill-coverage", str(_skill(tmp_path)), str(_evals(tmp_path)),
+                                      "--out", str(out)])
+    with pytest.raises(InputError, match="cannot resolve .*Symlink loop"):
+        args.func(args)
+
+
+def test_command_refuses_an_out_when_the_eval_inputs_cannot_be_listed_before_any_paid_call(tmp_path, monkeypatch):
+    from dokimi import eval_coverage
+
+    _no_paid_call(monkeypatch)
+
+    def unreadable(evals):
+        raise OSError("unreadable check folder")
+
+    monkeypatch.setattr(eval_coverage, "input_files", unreadable)
+    out = tmp_path / "coverage.json"
+    args = build_parser().parse_args(["eval", "skill-coverage", str(_skill(tmp_path)), str(_evals(tmp_path)),
+                                      "--out", str(out)])
+    with pytest.raises(InputError, match="cannot resolve the eval inputs"):
+        args.func(args)
+    assert not out.exists()
+
+
+def test_command_reports_a_failed_artifact_write_as_input_error(tmp_path, monkeypatch):
+    from dokimi import artifacts
+
+    def full_disk(*args, **kwargs):
+        raise OSError("No space left on device")
+
+    monkeypatch.setattr(artifacts, "save_artifact", full_disk)
+    out = tmp_path / "coverage.json"
+    with pytest.raises(InputError, match="cannot write .*No space left on device"):
+        _run(monkeypatch, [str(_skill(tmp_path)), str(_evals(tmp_path)), "--out", str(out)], EXTRACT, MAP)
+    assert not out.exists()
