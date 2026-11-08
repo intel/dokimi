@@ -187,6 +187,8 @@ def test_default_judge_keeps_the_organization_of_the_model_it_measures():
 
     # the org-named sonnet is not the CLI's sonnet, so the CLI judge is opus, and the API default is not it either
     assert default_judge("myorg/sonnet", "claude-cli") == ("opus", "claude-cli")
+    # an org-named opus is not the CLI's opus either: without the org guard the judge would be sonnet
+    assert default_judge("myorg/opus", "claude-cli") == ("opus", "claude-cli")
     assert default_judge("myorg/sonnet", DEFAULT_JUDGE_PROVIDER) == (DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER)
     assert default_judge("myorg/sonnet", "anthropic", "openrouter") == (DEFAULT_JUDGE_MODEL, "anthropic")
 
@@ -202,5 +204,5 @@ def test_default_judge_skips_a_snapshot_and_a_context_form_of_the_answerers_fami
 def test_an_explicit_anthropic_judge_for_an_anthropic_answerer_has_no_judge_and_raises():
     from dokimi.novelty.client import default_judge
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="no default judge runs there"):
         default_judge("claude-sonnet-5-5-20260101", "anthropic")
