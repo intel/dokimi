@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import gc
 import math
 from collections.abc import Callable
 
@@ -40,3 +41,18 @@ def test_growth_times_calls_shorter_than_a_clock_step(cost, low, high):
     clock = _SteppedClock()
     ratio, result = growth(lambda size: clock.work(cost(size)), 1_000, clock=clock)
     assert low < ratio < high and result == cost(4_000)
+
+
+@pytest.mark.parametrize("enabled", [True, False], ids=["on", "off"])
+def test_growth_times_with_gc_off_and_leaves_it_as_the_caller_had_it(enabled):
+    clock, seen = _SteppedClock(), set()
+    def timed(size):
+        work = clock.work(size * 1e-7)
+        return lambda: seen.add(gc.isenabled()) or work()
+    (gc.enable if enabled else gc.disable)()
+    try:
+        growth(timed, 1_000, clock=clock)
+        after = gc.isenabled()
+    finally:
+        gc.enable()
+    assert seen == {False} and after is enabled

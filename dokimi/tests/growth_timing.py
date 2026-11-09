@@ -23,7 +23,8 @@ def clock_step(clock: Callable[[], float] = time.process_time) -> float:
 
 
 def _sample(clock: Callable[[], float], call: Callable[[], Any], loops: int) -> tuple[float, Any]:
-    """CPU time of ``loops`` runs of ``call``, GC off, and the last run's result."""
+    """CPU time of ``loops`` runs of ``call``, GC off, and the last run's result; GC is left as it was."""
+    enabled = gc.isenabled()
     gc.disable()
     try:
         start, result = clock(), None
@@ -31,7 +32,8 @@ def _sample(clock: Callable[[], float], call: Callable[[], Any], loops: int) -> 
             result = call()
         return clock() - start, result
     finally:
-        gc.enable()
+        if enabled:
+            gc.enable()
 
 
 def growth(timed: Callable[[int], Callable[[], Any]], n: int, reps: int = 5,
