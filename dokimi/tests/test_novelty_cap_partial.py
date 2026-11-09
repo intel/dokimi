@@ -409,3 +409,14 @@ def test_an_answer_the_cap_paid_for_is_kept_when_its_grade_is_refused(monkeypatc
     assert result.runs[0].verdict == measure.ERRORED
     assert result.not_run == 5 and result.ungraded == 1
     assert result.stop[0] == "spend_cap"
+
+
+def test_an_answer_whose_grade_the_cap_refused_makes_the_probe_file_partial(tmp_path):
+    from dokimi.commands.novelty_budget import save_probe_run
+
+    out = tmp_path / "probes.json"
+    with pytest.raises(SystemExit, match="1 of them not graded"):
+        save_probe_run({"runs": []}, out, done=1, not_run=0, ungraded=1)
+    partial = json.loads((tmp_path / "probes.partial.json").read_text(encoding="utf-8"))["partial"]
+    assert partial["calls_done"] == 1 and partial["calls_planned"] == 1
+    assert not out.exists()
