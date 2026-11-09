@@ -11,6 +11,7 @@ from __future__ import annotations
 import csv
 import itertools
 import json
+import os
 import random
 import sys
 from collections import Counter, defaultdict
@@ -19,7 +20,7 @@ from pathlib import Path
 import numpy as np
 
 OUT = Path(sys.argv[1] if len(sys.argv) > 1 else "judge-panel-out")
-T = OUT / "tables"
+T = OUT / os.environ.get("JP_TABLES", "tables")  # gen.py sets tables_gen
 T.mkdir(exist_ok=True)
 V6 = [
     "correct_complete",
@@ -65,15 +66,20 @@ for f in ("sample.jsonl", "repeats.jsonl"):
         for l in p.open():
             r = json.loads(l)
             rows[f"{r['probe_id']}|{r['arm']}|{r['model']}"] = r
-V = defaultdict(dict)  # key -> judge -> verdict
+V_ALL = defaultdict(dict)  # key -> judge -> verdict, every judge in grades.jsonl
 for k, r in rows.items():
     if r.get("verdict") in SCORE:
-        V[k][ORIG] = r["verdict"]
+        V_ALL[k][ORIG] = r["verdict"]
 for l in (OUT / "grades.jsonl").open():
     g = json.loads(l)
     if g.get("verdict") in SCORE and g["key"] in rows:
-        V[g["key"]][g["judge"]] = g["verdict"]
-JUDGES = [ORIG] + sorted({j for d in V.values() for j in d} - {ORIG})
+        V_ALL[g["key"]][g["judge"]] = g["verdict"]
+# The study panel. Generation judges (gen.py) are in V_ALL only, so this analysis does not change.
+PANEL = sorted(["claude-sonnet-5", "gpt-6-luna", "grok-4.6", "kimi-k3", "deepseek-v3.2", "glm-5",
+                "qwen3-vl-235b"])  # sorted: same judge order and subsets as the published tables
+V = defaultdict(dict, {k: {j: v for j, v in d.items() if j == ORIG or j in PANEL}
+                       for k, d in V_ALL.items()})
+JUDGES = [ORIG] + PANEL
 NEW = [j for j in JUDGES if j != ORIG]
 MODELS = list(AFAM)
 cells = defaultdict(dict)  # (probe, model) -> arm -> key
@@ -247,8 +253,7 @@ summary["judge_rates"] = {
 }
 
 # ---------- 3. self-preference ----------
-# For judge j and answer model m: j's lenient (strict) rate on m minus mean rate of the
-# other judges on the same keys. Same-family pairs vs other pairs.
+# j's lenient (strict) rate minus the other judges' mean on the same keys, by family relation.
 sp = []
 for j in JUDGES:
     for m in MODELS:
@@ -380,9 +385,7 @@ for name, g in panel_rules.items():
 wcsv("agreement_with_ds.csv", ["rater", "n", "agree_with_ds_consensus"], agree)
 
 # ---------- 5. how many judges are enough ----------
-# For panel size s, sample random subsets of NEW judges; majority vote (ties -> DS of subset is
-# overkill; ties broken toward 'wrong'). Measure (a) agreement with full 7-judge DS consensus,
-# (b) spread of gated-added share across subsets (max-min over models, averaged).
+# Random subsets of NEW judges (majority, ties wrong): agreement with the DS consensus, spread.
 rnd = random.Random(3)
 sz = []
 for s in range(1, len(NEW) + 1):
@@ -438,8 +441,9 @@ for by in ("arm", "style", "adversarial", "model"):
         dis.append([by, gname, len(xs), round(float(np.mean(xs)), 3)])
 wcsv("disagreement_by_group.csv", ["by", "group", "n", "share_items_not_unanimous"], dis)
 
-(OUT / "summary.json").write_text(json.dumps(summary, indent=1, default=str))
-print(json.dumps({k: summary[k] for k in ("n_rows", "coverage", "mean_kappa_lenient")}, indent=1))
-for f in sorted(T.glob("*.csv")):
-    print("==", f.name)
-    print(f.read_text()[:2500])
+if __name__ == "__main__":  # gen.py imports this module and must not rewrite summary.json
+    (OUT / "summary.json").write_text(json.dumps(summary, indent=1, default=str))
+    print(json.dumps({k: summary[k] for k in ("n_rows", "coverage", "mean_kappa_lenient")}, indent=1))
+    for f in sorted(T.glob("*.csv")):
+        print("==", f.name)
+        print(f.read_text()[:2500])

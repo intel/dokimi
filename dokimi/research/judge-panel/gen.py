@@ -4,19 +4,21 @@
 """Old vs new judge generations on the same rows: leniency, headline shift, agreement, panels.
 
 Reuses analyze.py's loading and headline() (run with its tables dir redirected), writes
-OUT/tables_gen/*.csv and OUT/gen_summary.json.
+OUT/tables_gen/*.csv and OUT/gen_summary.json. Importing analyze.py also writes its study
+tables into tables_gen/.
 """
+import importlib.util
 import json
-import sys
+import os
 from pathlib import Path
 
 HERE = Path(__file__).parent
-src = (HERE / "analyze.py").read_text().split("# ---------- 2. pairwise agreement")[0]
-src = src.replace('T = OUT / "tables"', 'T = OUT / "tables_gen"')
-g = {"__name__": "gen", "sys": sys}
-exec(compile(src, "analyze.py", "exec"), g)
-V, rows, cells, headline, wcsv = g["V"], g["rows"], g["cells"], g["headline"], g["wcsv"]
-LEN, STR, SCORE, V6, MODELS, OUT = g["LEN"], g["STR"], g["SCORE"], g["V6"], g["MODELS"], g["OUT"]
+os.environ["JP_TABLES"] = "tables_gen"  # analyze.py writes its tables here, not into tables/
+_spec = importlib.util.spec_from_file_location("analyze", HERE / "analyze.py")
+an = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(an)
+V, rows, cells, headline, wcsv = an.V_ALL, an.rows, an.cells, an.headline, an.wcsv  # all judges
+LEN, STR, SCORE, V6, MODELS, OUT = an.LEN, an.STR, an.SCORE, an.V6, an.MODELS, an.OUT
 
 PAIRS = [  # family, old -> new
     ("openai", "gpt-5.6-luna", "gpt-6-luna"),

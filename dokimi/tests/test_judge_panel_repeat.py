@@ -101,3 +101,25 @@ def test_repeat_without_saved_file_runs_every_cell(tmp_path, monkeypatch):
 
     assert calls == ["repeat|m1|p1"]
     assert len((out / "repeats.jsonl").read_text().splitlines()) == 1
+
+
+def test_repeat_drops_grades_of_dropped_repeats(tmp_path, monkeypatch):
+    calls = []
+    jp = _load(tmp_path, monkeypatch, calls)
+    out = tmp_path / "out"
+    base = [{"probe_id": "p1", "model": "m1", "arm": "no_skill", "question": "q1"}]
+    (out / "sample.jsonl").write_text(json.dumps(base[0]) + "\n")
+    kept = {"probe_id": "p1", "model": "m1", "arm": "no_skill_repeat", "answer": "saved", "question": "q1"}
+    stale = {"probe_id": "p9", "model": "m1", "arm": "no_skill_repeat", "answer": "old", "question": "q9"}
+    (out / "repeats.jsonl").write_text(json.dumps(kept) + "\n" + json.dumps(stale) + "\n")
+    grades = [
+        {"key": "p1|no_skill_repeat|m1", "judge": "j1", "verdict": "correct_complete"},
+        {"key": "p9|no_skill_repeat|m1", "judge": "j1", "verdict": "wrong_other"},
+    ]
+    (out / "grades.jsonl").write_text("".join(json.dumps(g) + "\n" for g in grades))
+
+    jp.do_repeat(1)
+
+    assert calls == []
+    left = [json.loads(l)["key"] for l in (out / "grades.jsonl").read_text().splitlines()]
+    assert left == ["p1|no_skill_repeat|m1"]

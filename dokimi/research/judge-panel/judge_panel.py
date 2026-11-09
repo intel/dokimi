@@ -51,9 +51,8 @@ JUDGES = [
     "glm-5",
     "qwen3-vl-235b",
 ]
-# The generations comparison (gen.py) re-graded with:
-#   --judges gpt-6-sol,kimi-k2.5,claude-haiku-4-5,claude-opus-5-5,deepseek-r1,
-#            nemotron-super-3-120b,minimax-m2.5
+# gen.py judges, graded with: --judges gpt-6-sol,kimi-k2.5,claude-haiku-4-5,claude-opus-5-5,
+#   deepseek-r1,nemotron-super-3-120b,minimax-m2.5
 
 
 def key(r):
@@ -108,20 +107,35 @@ def do_sample(per_model: int):
     print("rows", len(out))
 
 
+def purge_grades(keys: set[str]):
+    """Drop grades of answers that are no longer in the sample (keys are probe|arm|model)."""
+    gp = OUT / "grades.jsonl"
+    if not keys or not gp.exists():
+        return
+    with gp.open() as fh:
+        recs = [l for l in fh if json.loads(l)["key"] not in keys]
+    tmp = gp.with_suffix(".jsonl.tmp")
+    with tmp.open("w") as fh:
+        fh.writelines(recs)
+    tmp.replace(gp)
+
+
 def do_repeat(workers: int):
     with (OUT / "sample.jsonl").open() as fh:
         rows = [json.loads(l) for l in fh]
     base = [r for r in rows if r["arm"] == "no_skill"]
     path = OUT / "repeats.jsonl"
-    # Keep the repeats already saved and call only the missing cells (a new one, or one that
-    # failed). A saved answer is never replaced: its verdicts in grades.jsonl are keyed by
-    # probe|arm|model, which does not change with the answer.
+    # Keep saved repeats and call only the missing cells (new, or failed). A saved answer is never
+    # replaced here; its grades are keyed by probe|arm|model, not by the answer.
     kept = []
     if path.exists():
         with path.open() as fh:
             kept = [json.loads(l) for l in fh]
     cells = {(r["probe_id"], r["model"]) for r in base}
-    # A saved repeat for a cell this sample no longer has is dropped with the rest of the file.
+    # A saved repeat for a cell this sample no longer has is dropped, and so are its grades: a new
+    # answer for the same key must be graded again, not skipped by do_grade.
+    dropped = [r for r in kept if (r["probe_id"], r["model"]) not in cells]
+    purge_grades({key(r) for r in dropped})
     kept = [r for r in kept if (r["probe_id"], r["model"]) in cells]
     have = {(r["probe_id"], r["model"]) for r in kept}
     todo = [r for r in base if (r["probe_id"], r["model"]) not in have]
