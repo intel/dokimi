@@ -170,8 +170,6 @@ def test_main_against_a_base(monkeypatch, tmp_path, capsys):
     fixtures = {"b.v1.json": {"a": 1}}
 
     def fake_git(*args):
-        if args[0] == "ls-tree":
-            return "\n".join([*base, "README.md"])
         rel = args[1].split(":./", 1)[1]
         if rel.startswith(sc.FIXTURE_DIR + "/"):
             name = rel.rsplit("/", 1)[1]
@@ -182,6 +180,7 @@ def test_main_against_a_base(monkeypatch, tmp_path, capsys):
 
     monkeypatch.setattr(sc, "SCHEMA_DIR", tmp_path)
     monkeypatch.setattr(sc, "_git", fake_git)
+    monkeypatch.setattr(sc, "_git_names", lambda *args: [*base, "README.md"])
     assert sc.main(["--base", "X"]) == 1
     out = capsys.readouterr()
     assert "BREAKING b.v1.json <root>: 'a' is now required" in out.out
@@ -393,10 +392,78 @@ def test_main_warns_when_the_base_has_no_schemas_to_compare(monkeypatch, tmp_pat
 
     (tmp_path / "a.v1.json").write_text(json.dumps(OBJ), encoding="utf-8")
     monkeypatch.setattr(sc, "SCHEMA_DIR", tmp_path)
-    monkeypatch.setattr(sc, "_git", lambda *args: "")
+    monkeypatch.setattr(sc, "_git_names", lambda *args: [])
     monkeypatch.setattr(sc, "_renamed_from", lambda base, rel: None)
     assert sc.main(["--base", "X"]) == 0
     assert "WARNING  - no schemas found at X to compare against" in capsys.readouterr().out
+
+
+# ── names git quotes or the shell would split: read as git stores them ──────────
+
+NO_CR_ON_WINDOWS = pytest.mark.skipif(os.name == "nt", reason="a carriage return in a file name")
+
+
+def _commit(root: Path, msg: str, *mv: str) -> None:
+    """A first commit of every file under ``root``, or with ``mv`` a commit of ``git mv *mv``."""
+    git = ["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "core.autocrlf=false"]
+    if mv:
+        subprocess.run([*git, "mv", *mv], cwd=root, check=True)
+    else:
+        subprocess.run([*git, "init", "-q"], cwd=root, check=True)
+        subprocess.run([*git, "add", "."], cwd=root, check=True)
+    subprocess.run([*git, "commit", "-qm", msg], cwd=root, check=True)
+
+
+@NO_CR_ON_WINDOWS
+def test_moved_schemas_are_found_in_a_repository_whose_root_holds_a_carriage_return(
+        monkeypatch, tmp_path):
+    """``rev-parse --show-toplevel`` read as text turned the root's "\\r" into a newline, and
+    the schemas directory was then not under that root: ``ValueError``."""
+    import dokimi.schema_compat as sc
+
+    root = tmp_path / "re\rpo"
+    old = root / "old/pkg/schemas"
+    old.mkdir(parents=True)
+    (old / "a.v1.json").write_text(json.dumps(OBJ), encoding="utf-8")
+    (old / "b.v1.json").write_text(json.dumps(_with(description="x" * 200)), encoding="utf-8")
+    _commit(root, "base")
+    _commit(root, "move", "old", "new")
+    (root / "new/pkg/schemas/a.v1.json").write_text(json.dumps(_with(required=["a", "b"])),
+                                                    encoding="utf-8")
+    monkeypatch.setattr(sc, "SCHEMA_DIR", root / "new/pkg/schemas")
+
+    assert sc._renamed_from("HEAD~1", ".") == "old/pkg/schemas/"
+    assert {n: d.breaking for n, d in sc.compare_against("HEAD~1").items()} == {
+        "a.v1.json": ["<root>: 'b' is now required"]}
+
+
+@pytest.mark.parametrize("name", [
+    pytest.param("a\rb.v1.json", marks=NO_CR_ON_WINDOWS),
+    pytest.param('q"uote.v1.json', marks=NO_CR_ON_WINDOWS),
+    "ρ.v1.json",
+    "a b.v1.json",
+])
+def test_a_breaking_change_to_a_schema_git_would_quote_is_breaking(monkeypatch, tmp_path, name):
+    """Without ``-z`` git quotes a "\\r", '"' or non-ASCII name, which then did not end in
+    ``.json`` and was skipped, so the change passed; a name with a space was split in two."""
+    import dokimi.schema_compat as sc
+
+    old = tmp_path / "old/pkg/schemas"
+    old.mkdir(parents=True)
+    # The only schema, and long enough that git still sees the move once it is narrowed.
+    schema = _with(description="x" * 200)
+    (old / name).write_text(json.dumps(schema), encoding="utf-8")
+    _commit(tmp_path, "base")
+    (old / name).write_text(json.dumps({**schema, "required": ["a", "b"]}), encoding="utf-8")
+    breaking = {name: ["<root>: 'b' is now required"]}
+
+    monkeypatch.setattr(sc, "SCHEMA_DIR", old)
+    assert sc._base_has_schemas("HEAD")
+    assert {n: d.breaking for n, d in sc.compare_against("HEAD").items()} == breaking
+    # The same schemas moved: the base is listed at the directory they came from.
+    _commit(tmp_path, "move", "old", "new")
+    monkeypatch.setattr(sc, "SCHEMA_DIR", tmp_path / "new/pkg/schemas")
+    assert {n: d.breaking for n, d in sc.compare_against("HEAD~1").items()} == breaking
 
 
 @pytest.mark.parametrize("new", [
