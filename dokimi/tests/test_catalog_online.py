@@ -43,6 +43,13 @@ class Web:
         return sum(1 for _, seen in self.requests if seen == url)
 
 
+@pytest.fixture(autouse=True)
+def _no_environment_proxy(monkeypatch):
+    """The fake network takes no proxy, so a proxy in the environment must not change a probe verdict."""
+    for name in ("HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy"):
+        monkeypatch.delenv(name, raising=False)
+
+
 def _dns_failure() -> httpx.ConnectError:
     error = httpx.ConnectError("[Errno -2] Name or service not known")
     error.__cause__ = socket.gaierror(socket.EAI_NONAME, "Name or service not known")
@@ -598,6 +605,22 @@ def test_character_reference_in_a_link_is_probed_decoded_not_as_written(tmp_path
     assert web.hits("https://docs.acme.dev/a&b") == 1
 
 
+def test_angle_bracket_destination_is_probed_decoded_like_a_plain_one(tmp_path):
+    web = Web({"https://docs.acme.dev/a&amp;b": 404, "https://docs.acme.dev/a&b": 200})
+    root = _one_skill(tmp_path, "See [docs](<https://docs.acme.dev/a&amp;b>).\n")
+
+    [review] = _reviews(root, web)
+    assert review.findings == []
+    assert web.hits("https://docs.acme.dev/a&amp;b") == 0
+    assert web.hits("https://docs.acme.dev/a&b") == 1
+
+
+def test_angle_bracket_destination_and_reference_definition_decode_character_references():
+    assert online_checks.extract_urls("[docs](<https://docs.acme.dev/a&amp;b>)") == ["https://docs.acme.dev/a&b"]
+    assert online_checks.extract_urls("[docs]: <https://docs.acme.dev/a&amp;b>") == ["https://docs.acme.dev/a&b"]
+    assert online_checks.extract_urls("<https://docs.acme.dev/a&amp;b>") == ["https://docs.acme.dev/a&amp;b"]
+
+
 @pytest.mark.parametrize("status", [403, 500, 503])
 def test_403_and_5xx_are_not_dead(tmp_path, status):
     url = "https://docs.example-tool.dev/guarded"
@@ -637,6 +660,20 @@ def test_temporary_resolver_failure_is_not_a_dead_link(tmp_path):
 
     [review] = _reviews(root, web)
     assert _codes(review) == []
+
+
+def test_resolver_failure_of_the_proxy_is_not_a_dead_link(monkeypatch):
+    # With a proxy in the environment, the resolver fails on the proxy's host, not on the link's.
+    for name in ("HTTPS_PROXY", "https_proxy"):
+        monkeypatch.setenv(name, "http://missing-proxy.invalid:8080")
+    for name in ("NO_PROXY", "no_proxy"):
+        monkeypatch.setenv(name, "")
+
+    def no_such_host(*args, **kwargs):
+        raise socket.gaierror(socket.EAI_NONAME, "Name or service not known")
+
+    monkeypatch.setattr(socket, "getaddrinfo", no_such_host)
+    assert online_checks._link_finding(online_checks.make_client(), "https://real-site.example-tool.dev/") is None
 
 
 def test_timeout_on_a_link_is_not_dead(tmp_path):
