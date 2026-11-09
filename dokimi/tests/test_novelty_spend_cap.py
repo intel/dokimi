@@ -50,6 +50,16 @@ def test_a_call_without_a_price_stops_a_capped_run():
         client.text("a")
 
 
+@pytest.mark.parametrize("truncated", [True, False], ids=["cut", "whole"])
+def test_the_stop_on_an_unpriced_reply_says_whether_the_reply_was_cut(truncated):
+    usage = UsageRecord(cost_usd=None, truncated=truncated, completion_tokens=50)
+    client = LLMClient(model="m", transport=lambda prompt, system=None: ('{"pick": 1}', usage),
+                       cap=SpendCap(limit_usd=10.0))
+    with pytest.raises(SpendCapReached, match="no price is known for m") as stop:
+        client.text("a")
+    assert (stop.value.reply, stop.value.truncated) == ('{"pick": 1}', truncated)
+
+
 def test_an_uncapped_client_ignores_missing_prices():
     transport, _ = _priced(None)
     assert LLMClient(model="m", transport=transport).text("a") == "ok"

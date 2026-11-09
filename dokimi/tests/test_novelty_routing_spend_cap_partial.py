@@ -5,7 +5,12 @@
 
 from __future__ import annotations
 
+import contextlib
+import errno
 import json
+import os
+import threading
+from pathlib import Path
 
 import pytest
 
@@ -303,6 +308,183 @@ def test_a_partial_run_skips_a_sidecar_it_cannot_read(tmp_path, monkeypatch):
     assert json.loads(third.read_text(encoding="utf-8"))["status"] == "partial"
 
 
+PARTIAL = {"reason": "spend_cap", "calls_done": 1, "calls_planned": 4, "message": "spend cap reached"}
+
+
+def _finished(tmp_path):
+    out = tmp_path / "routing.json"
+    out.write_text('{"status": "ok"}', encoding="utf-8")
+    return out
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="FIFOs are POSIX")
+def test_a_partial_run_skips_a_sidecar_that_is_a_fifo_without_opening_it(tmp_path):
+    from dokimi.commands.novelty_routing_report import save_result
+
+    out = _finished(tmp_path)
+    fifo = tmp_path / "routing.partial.json"
+    os.mkfifo(fifo)
+    saved: list = []
+    writer = threading.Thread(target=lambda: saved.append(save_result({}, out, {"partial": PARTIAL})),
+                              daemon=True)  # a read of a FIFO waits for a writer: the thread is kept apart
+    writer.start()
+    writer.join(10)
+    blocked = writer.is_alive()
+    for _ in range(30):  # open the write end so a blocked read ends
+        if not writer.is_alive():
+            break
+        with contextlib.suppress(OSError):  # ENXIO: no read of the FIFO is waiting right now
+            os.close(os.open(fifo, os.O_WRONLY | os.O_NONBLOCK))
+        writer.join(1)
+    assert not blocked, "a sidecar that is a FIFO blocked the save of the paid calls"
+    assert saved == [tmp_path / "routing.partial2.json"]
+    assert json.loads(saved[0].read_text(encoding="utf-8"))["partial"] == PARTIAL
+
+
+@pytest.mark.skipif(os.name == "nt" or os.geteuid() == 0,
+                    reason="POSIX permissions; root writes a read-only file")
+def test_a_partial_run_skips_a_partial_sidecar_it_cannot_write(tmp_path):
+    from dokimi.commands.novelty_routing_report import save_result
+
+    out = _finished(tmp_path)
+    side = tmp_path / "routing.partial.json"
+    earlier = json.dumps({"status": "partial", "partial": PARTIAL})
+    side.write_text(earlier, encoding="utf-8")
+    side.chmod(0o444)
+    try:
+        saved = save_result({"model": {}}, out, {"partial": PARTIAL})
+    finally:
+        side.chmod(0o644)
+    assert saved == tmp_path / "routing.partial2.json"
+    assert side.read_text(encoding="utf-8") == earlier
+    assert json.loads(saved.read_text(encoding="utf-8")) == {"model": {}, "status": "partial",
+                                                             "partial": PARTIAL}
+
+
+def _refusing(monkeypatch, refuses) -> list[str]:
+    """``Path.write_text`` raising ``PermissionError`` where ``refuses(path)``, as an NTFS ACL refuses
+    a file whose mode allows the write; returns the names it refused."""
+    real_write, refused = Path.write_text, []
+
+    def write_text(self, *args, **kwargs):
+        if refuses(self):
+            refused.append(self.name)
+            assert len(refused) < 50, "the sidecar search kept trying names refused alike"
+            raise PermissionError(errno.EACCES, "access is denied", os.fspath(self))
+        return real_write(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", write_text)
+    return refused
+
+
+def test_a_partial_run_skips_a_partial_sidecar_whose_write_is_refused(tmp_path, monkeypatch):
+    from dokimi.commands.novelty_routing_report import save_result
+
+    out = _finished(tmp_path)
+    side = tmp_path / "routing.partial.json"
+    earlier = json.dumps({"status": "partial", "partial": PARTIAL})
+    side.write_text(earlier, encoding="utf-8")  # its mode allows the write: os.access says yes
+    refused = _refusing(monkeypatch, lambda path: path == side)
+    saved = save_result({"model": {}}, out, {"partial": PARTIAL})
+    assert refused == [side.name]
+    assert saved == tmp_path / "routing.partial2.json"
+    assert side.read_text(encoding="utf-8") == earlier
+    assert json.loads(saved.read_text(encoding="utf-8")) == {"model": {}, "status": "partial",
+                                                             "partial": PARTIAL}
+
+
+def test_a_partial_run_stops_when_its_directory_refuses_a_new_sidecar(tmp_path, monkeypatch):
+    from dokimi.commands.novelty_routing_report import save_result
+
+    out = _finished(tmp_path)
+    refused = _refusing(monkeypatch, lambda path: path.name.startswith("routing.partial"))
+    with pytest.raises(PermissionError):
+        save_result({}, out, {"partial": PARTIAL})
+    assert refused == ["routing.partial.json"]
+    assert [p.name for p in tmp_path.iterdir()] == [out.name]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="a symlink needs a privilege on Windows")
+def test_a_partial_run_skips_a_sidecar_that_is_a_symlink_loop(tmp_path):
+    from dokimi.commands.novelty_routing_report import save_result
+
+    out = _finished(tmp_path)
+    (tmp_path / "routing.partial.json").symlink_to("routing.partial.json")
+    saved = save_result({}, out, {"partial": PARTIAL})
+    assert saved == tmp_path / "routing.partial2.json"
+    assert json.loads(saved.read_text(encoding="utf-8"))["partial"] == PARTIAL
+
+
+@pytest.mark.skipif(os.name == "nt", reason="a symlink needs a privilege on Windows")
+@pytest.mark.parametrize("earlier", [None, {"status": "partial", "partial": PARTIAL}],
+                         ids=["dangling", "to-a-partial-result"])
+def test_a_partial_run_does_not_write_through_a_sidecar_that_is_a_symlink(tmp_path, earlier):
+    from dokimi.commands.novelty_routing_report import save_result
+
+    (tmp_path / "out").mkdir()
+    out = _finished(tmp_path / "out")
+    target = tmp_path / "elsewhere.json"  # outside the directory of --out
+    if earlier is not None:
+        target.write_text(json.dumps(earlier), encoding="utf-8")
+    (tmp_path / "out" / "routing.partial.json").symlink_to(Path("..") / target.name)
+    saved = save_result({}, out, {"partial": PARTIAL})
+    assert saved == tmp_path / "out" / "routing.partial2.json"
+    assert json.loads(saved.read_text(encoding="utf-8"))["partial"] == PARTIAL
+    assert (json.loads(target.read_text(encoding="utf-8")) if target.exists() else None) == earlier
+
+
+class _WindowsError(OSError):
+    """An ``OSError`` as Windows raises it: ``errno`` from the Windows code, which ``winerror`` keeps."""
+
+    winerror: int
+
+
+def _windows_error(winerror: int, path) -> _WindowsError:
+    exc = _WindowsError(errno.EINVAL, "windows error", os.fspath(path))
+    exc.winerror = winerror
+    return exc
+
+
+def test_a_partial_run_stops_on_another_windows_error_of_its_sidecar(tmp_path, monkeypatch):
+    from dokimi.commands.novelty_routing_report import save_result
+
+    out = _finished(tmp_path)
+    real_lstat, names = os.lstat, []
+
+    def lstat(path, *args, **kwargs):  # EINVAL with WinError 123 (a bad name) fails every later name too
+        names.append(path)
+        assert len(names) < 50, "the sidecar search kept trying names that fail alike"
+        if os.path.basename(os.fspath(path)).startswith("routing.partial"):
+            raise _windows_error(123, path)
+        return real_lstat(path, *args, **kwargs)
+
+    with monkeypatch.context() as patch, pytest.raises(OSError) as error:
+        patch.setattr(os, "lstat", lstat)
+        save_result({}, out, {"partial": PARTIAL})
+    assert getattr(error.value, "winerror", None) == 123
+    assert [p.name for p in tmp_path.iterdir()] == [out.name]
+
+
+@pytest.mark.skipif(not hasattr(os, "pathconf"), reason="NAME_MAX is POSIX")
+def test_a_partial_run_whose_sidecar_name_is_too_long_stops_on_it(tmp_path, monkeypatch):
+    from dokimi.commands.novelty_routing_report import save_result
+
+    out = tmp_path / ("x" * (os.pathconf(tmp_path, "PC_NAME_MAX") - len(".json")) + ".json")
+    out.write_text('{"status": "ok"}', encoding="utf-8")
+    real_lstat, names = os.lstat, []
+
+    def lstat(path, *args, **kwargs):  # every longer sidecar name fails too: a retry never ends
+        names.append(path)
+        assert len(names) < 50, "the sidecar search kept trying longer names"
+        return real_lstat(path, *args, **kwargs)
+
+    with monkeypatch.context() as patch, pytest.raises(OSError) as error:  # unpatched for the report
+        patch.setattr(os, "lstat", lstat)
+        save_result({}, out, {"partial": PARTIAL})
+    assert error.value.errno == errno.ENAMETOOLONG
+    assert [p.name for p in tmp_path.iterdir()] == [out.name]
+
+
 def test_a_partial_model_line_with_five_answered_calls_has_no_warning(capsys):
     from dokimi.commands.novelty_routing_report import print_all_vs_all_model
 
@@ -385,6 +567,39 @@ def test_an_unpriced_call_stops_the_later_repeats_and_skills_too(tmp_path, monke
     assert len(calls) == 1
     payload = json.loads(out.read_text(encoding="utf-8"))
     assert (payload["partial"]["calls_done"], payload["partial"]["calls_planned"]) == (1, 9)
+
+
+def _cut_and_unpriced():
+    """A reply cut at the output ceiling that has no price: the cap stops on it (#517)."""
+    return UsageRecord(cost_usd=None, truncated=True, completion_tokens=50)
+
+
+def test_an_unpriced_reply_cut_at_the_ceiling_abstains_and_stops_the_run(tmp_path, monkeypatch):
+    calls = _provider(monkeypatch, _cut_and_unpriced())
+    args, out = _single(tmp_path, QUERIES, "--max-usd", "5")
+    with pytest.raises(SystemExit, match="no price is known"):
+        args.func(args)
+    assert len(calls) == 1
+    model = json.loads(out.read_text(encoding="utf-8"))["model"]
+    # The cut '{"pick": 1}' is a decline, as a priced cut reply is, not a pick of card 1.
+    assert model["per_query"] == [{"query": QUERIES[0], "repeat": 0, "picked": None,
+                                   "abstained": True, "raw_reply": '{"pick": 1}'}]
+    assert (model["n_abstained"], model["selection_rate"]) == (1, 0.0)
+
+
+def test_an_all_vs_all_unpriced_reply_cut_at_the_ceiling_is_no_pick(tmp_path, monkeypatch):
+    calls = _provider(monkeypatch, _cut_and_unpriced())
+    root, queries = _catalog(tmp_path)
+    out = tmp_path / "o.json"
+    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
+                  "--queries-by-skill", str(queries), "--out", str(out),
+                  "--model", "m", "--max-usd", "5")
+    with pytest.raises(SystemExit, match="no price is known"):
+        args.func(args)
+    assert len(calls) == 1
+    model = json.loads(out.read_text(encoding="utf-8"))["result"]["model"]
+    assert model["n_abstained"] == 1
+    assert {gold: picks for gold, picks in model["confusion"].items() if picks} == {"db": {"(none)": 1}}
 
 
 def test_an_unpriced_call_stops_the_repeats_of_a_single_artifact_run(tmp_path, monkeypatch):
