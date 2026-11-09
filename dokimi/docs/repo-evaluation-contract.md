@@ -360,8 +360,7 @@ it deletes is not.
 
 - `none` deletes every file the globs match and every overlay
   `AGENTS.<agent>.md`, which is matched by its name, not by the globs; `as-skill`
-  drops the same files, packaging only the matched ones; `raw` keeps them. The `rev:` arm keeps the overlays: a repository with overlays that wants a
-  revision without them lists `**/AGENTS.*.md` in `guidance.globs` too.
+  drops the same files, packaging only the matched ones; `raw` keeps them.
 - `bridge` exists only for a profile with a `bridge` key. It writes that file
   (for Claude Code, a `CLAUDE.md` containing `@AGENTS.md`) next to every
   matched `AGENTS.md`, not only at the root. Whether a harness needs it
@@ -384,7 +383,9 @@ it deletes is not.
   does not make a harness load its overlay: the reach probe reports that.
 - `rev:<rev>` keeps the base's code and replaces its guidance with that of
   another revision of the source: the matched files are deleted and the
-  files the globs match at `<rev>` (outside `eval_dir`) are written. It answers
+  files the globs match at `<rev>` (outside `eval_dir`) are written. It keeps
+  the overlays: a repository with overlays that wants a revision without them
+  lists `**/AGENTS.*.md` in `guidance.globs` too. It answers
   "does this PR's `AGENTS.md` help?" by running the same tasks with
   `guidance:rev:main` and with the PR's head. `<rev>` is a SHA, tag or branch
   (`/` allowed) of the source's git dir; for a remote source a branch or tag is
