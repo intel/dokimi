@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from dokimi import process
+from dokimi import process, process_io
 from dokimi.process import TIMEOUT_RC, Env, FakeRunner, Limits, reply
 
 PY = sys.executable
@@ -98,8 +98,8 @@ def test_nul_fields_on_windows_replace_a_byte_that_is_not_utf8_instead_of_raisin
     def windows_fsdecode(name):  # Windows Python reads a file name as UTF-8 with surrogatepass: 0xff raises
         return name.decode("utf-8", "surrogatepass") if isinstance(name, bytes) else name
 
-    monkeypatch.setattr(process, "_POSIX", False)
-    monkeypatch.setattr(process.os, "fsdecode", windows_fsdecode)
+    monkeypatch.setattr(process_io, "_POSIX", False)
+    monkeypatch.setattr(process_io.os, "fsdecode", windows_fsdecode)
     done = reply(b"a\rb/AGENTS.md\x00.claude/skills/l\xffint/SKILL.md\x00")  # ls-tree of a tree made on Linux
     assert done.nul_fields() == ["a\rb/AGENTS.md", ".claude/skills/l�int/SKILL.md", ""]
 

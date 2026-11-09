@@ -55,7 +55,7 @@ Code that spawns takes a ``runner`` argument defaulting to :func:`run`.
 
 from __future__ import annotations
 
-from .process_io import PipeReader, PipeReaderOwner
+from .process_io import PipeReader, PipeReaderOwner, path_text
 
 import dataclasses
 import os
@@ -145,7 +145,7 @@ class Completed:
         return _decode(self.stderr_bytes)
 
     def nul_fields(self) -> list[str]:  # split on NUL: a "\r" stays; a non-UTF-8 byte too on POSIX, where it can name a file
-        return [os.fsdecode(f) if _POSIX else f.decode("utf-8", errors="replace") for f in self.stdout_bytes.split(b"\0")]
+        return [path_text(f) for f in self.stdout_bytes.split(b"\0")]
 
     @property
     def ok(self) -> bool:

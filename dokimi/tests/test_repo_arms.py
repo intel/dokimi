@@ -445,10 +445,13 @@ def test_patch_arm_records_a_file_whose_path_is_not_utf8(toy, not_utf8_dir):
 
 @not_utf8
 def test_rev_arm_installs_a_guidance_file_whose_path_is_not_utf8(toy, not_utf8_dir):
-    _link_commit(toy, "bytes", {}, {f"{not_utf8_dir}/AGENTS.md": "# bytes\n"})
+    sha = _link_commit(toy, "bytes", {}, {f"{not_utf8_dir}/AGENTS.md": "# bytes\n"})
     meta, ws = _prep(toy, "guidance:rev:bytes")
     assert (ws / not_utf8_dir / "AGENTS.md").read_text(encoding="utf-8") == "# bytes\n"
     assert f"{not_utf8_dir}/AGENTS.md" in meta["arm_files"]
+    # the history keys the file as the arm lists it, so a leak check sees the commit that added it
+    latest = meta["arm_rev"]["guidance_latest"]
+    assert latest[f"{not_utf8_dir}/AGENTS.md"]["sha"] == sha
 
 
 @pytest.mark.skipif(os.name == "nt", reason="symbolic links")
