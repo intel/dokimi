@@ -438,8 +438,19 @@ intermediate link and the file it resolves to), by committer date;
 `guidance_commits`, the commits reachable from `<rev>` that touch a path the
 guidance globs match outside `eval_dir` (which the arm leaves out, as it does
 the files) or a path a guidance link resolves through, newest first by committer
-date, at most 200, each with its `subject`; and `guidance_commits_truncated`,
-`true` when that cap cut the list. Each commit has its `sha`, `authored` and
+date, at most 200, each with its `subject`; `guidance_commits_truncated`,
+`true` when that cap cut the list; and `guidance_imported_by`, for each guidance
+file the arm wrote that another file's `@` import chain reaches, the files whose
+chains reach it, root files first. It is read in the workspace as the agent gets
+it (the revision's guidance, the task's base elsewhere, after the review patch and
+the skills), among every file on disk, one a `.gitignore` ignores too, with `repo budget`'s import walker
+(`dokimi/repos/budget.py`) by the cell's harness profile: the chains of every
+`CLAUDE*` file and every `AGENTS.md` its `guidance.names` holds, but an `AGENTS.md`
+that `guidance.claude_displaces_agents` turns off and no root `CLAUDE*` or
+`CLAUDE*` that turns it off links to (the link is read as that `AGENTS.md`), relative to
+the importer, not in a code span or block, within `guidance.import_max_depth`,
+and none (`{}`) for a profile with no `guidance.imports`; with no profile, by
+Claude Code's rules, which follow imports. Each commit has its `sha`, `authored` and
 `committed` (strict ISO 8601, `%aI` and `%cI`; a UTC date is written `Z`,
 whichever form the git that read the history prints). The history needs the whole of it: a shallow
 git dir (a local checkout cloned with `--depth`) fails the cell's preparation
@@ -2569,8 +2580,14 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   other guidance path (`.claude/rules/*` whatever its name, `.github/copilot-instructions.md`,
   a skill) applies to every task, which errs on the strict side, and so does
   every file to a task with no `patch_files` (its entry says `scoped: false`).
-  `@` imports are not followed (`guidance_latest` holds no import graph): a nested
-  file that a root file imports counts as scoped, so it can be missed.
+  A file also applies where a file whose `@` import chain reaches it
+  (`guidance_imported_by`, §3) applies: one the chain of a root file (`CLAUDE.md`,
+  `.claude/CLAUDE.md`, `AGENTS.md`, ...) reaches applies to every task, and one only nested files import applies
+  under their directories as well as its own; the entry's `via` names the
+  importer that made it apply. An `arm_rev` with `guidance_latest` and no
+  `guidance_imported_by` (a batch from before it was recorded) is read by
+  directory alone, so a nested file another one imports can be missed there;
+  the arm's `imports_unrecorded` is `true` and the text says so.
   A task is flagged **by name** when a `guidance_commits` subject names its
   PR: `#<source_pr>`, or `<source_pr>` after `PR`, `PR#`, `PR #` or `GH-`
   (any case: `pr#3103`, `PR 3103`), not preceded by a word character, `/`, `.` or `-`,
@@ -2595,10 +2612,11 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   `rev` and `sha`), `checked`, `not_checked` (the arm's other tasks, whose
   `task.json` is not replay-style), `by_date` (task → the latest applicable
   commit that tripped it: `path`, `sha`, `committed`, `public_at`,
-  `scoped`), `by_name` (task → the commit shas), `unknown` (task → reason),
-  `clean` (flagged by neither and not unknown) and `names_truncated`. The
+  `scoped`, and `via` when an import made the file apply), `by_name` (task → the commit shas), `unknown` (task → reason),
+  `clean` (flagged by neither and not unknown), `names_truncated` and `imports_unrecorded`. The
   text prints per checked arm a line of the counts, the tasks flagged by name
-  with their commits, and, when some tasks are flagged and some are not, the
+  with their commits, the tasks flagged by date through an import with the file
+  and its importer (`sub/CLAUDE.md via CLAUDE.md`), and, when some tasks are flagged and some are not, the
   clean ones and the `not_checked` ones as `--task` options, to compare
   without the flagged tasks; a task another arm flags or reports unknown is
   left out of them. The

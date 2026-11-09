@@ -54,7 +54,7 @@ from .arms import ArmError, Skill, resolve_skills, tree_sha256
 from .errors import PrepError
 from .guidance_arms import GUIDANCE_SKILL_DESCRIPTION, _apply_as_skill, _apply_format  # noqa: F401
 from .guidance_format import FORMATS
-from .guidance_history import arm_rev_history
+from .guidance_history import arm_rev_history, record_imports
 from .harness_profile import HarnessProfile
 from .manifest import RepoManifest, _is_within, match_glob
 from .overlay_paths import _link_target, _overlay_targets, _path_hits, _supplies_a_file  # noqa: F401
@@ -412,6 +412,7 @@ def prepare_workspace(git_dir: Path, manifest: RepoManifest, task: Task, arm: st
     _git(ws, env, "add", "-A")                                                                # 6
     _git(ws, env, "commit", "-q", "--no-gpg-sign", "--no-verify", "--amend", "--allow-empty", "-m", "snapshot")
     _apply_review_patch(ws, task, patches)                                                    # 7
+    record_imports(arm_meta, ws, arm_files, profile, lambda: _workspace_files(ws, env))  # as the agent gets it
     _forget(ws, env)                                                                          # 8
     start_sha = _git(ws, env, "rev-parse", "HEAD").strip()
     meta: dict[str, Any] = {
