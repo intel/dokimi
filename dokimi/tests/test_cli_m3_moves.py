@@ -1,14 +1,14 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""The M3 moves: `catalog list|show --kind`, `skill check`, and `eval tasks generate --from replay` flags."""
+"""The M3 moves: `catalog list|show --kind`, `skill check`, and `eval tasks generate --from replay|prs` flags."""
 
 from __future__ import annotations
 
 import pytest
 
 from dokimi import cli_routes
-from dokimi.cli import build_parser
+from dokimi.cli import build_parser, parse_args
 from dokimi.commands.catalog import cmd_catalog_list, cmd_catalog_show
 from dokimi.utils import InputError
 
@@ -95,18 +95,86 @@ def test_graph_refuses_a_threads_file(tmp_path):
         args.func(args)
 
 
+def test_prs_needs_a_pull_request_file(tmp_path):
+    args = build_parser().parse_args(
+        ["eval", "tasks", "generate", str(tmp_path), "--from", "prs", "--out", str(tmp_path / "t")]
+    )
+    with pytest.raises(InputError, match="--from prs needs --prs FILE"):
+        args.func(args)
+
+
+@pytest.mark.parametrize("source", [["--from", "graph", "--index", "i.scip"], ["--from", "replay", "--threads", "t.json"]])
+def test_graph_and_replay_refuse_a_pull_request_file(tmp_path, source):
+    args = build_parser().parse_args(
+        ["eval", "tasks", "generate", str(tmp_path), *source, "--prs", "p.json", "--out", str(tmp_path / "t")]
+    )
+    with pytest.raises(InputError, match="--prs is for --from prs"):
+        args.func(args)
+
+
+def test_replay_refuses_max_lines(tmp_path):
+    args = build_parser().parse_args(
+        ["eval", "tasks", "generate", str(tmp_path), "--from", "replay", "--threads", "t.json",
+         "--max-lines", "400", "--out", str(tmp_path / "t")]
+    )
+    with pytest.raises(InputError, match="--max-lines is for --from prs"):
+        args.func(args)
+
+
+def test_prs_refuses_a_threads_file(tmp_path):
+    args = build_parser().parse_args(
+        ["eval", "tasks", "generate", str(tmp_path), "--from", "prs", "--prs", "p.json", "--threads", "t.json",
+         "--out", str(tmp_path / "t")]
+    )
+    with pytest.raises(InputError, match="--threads is for --from replay"):
+        args.func(args)
+
+
+def test_prs_takes_the_manifest_flags_and_builds_with_the_default_size_limit(tmp_path, monkeypatch):
+    from dokimi.commands import repo_run
+
+    seen = {}
+    monkeypatch.setattr(repo_run, "cmd_repo_tasks_authoring", lambda args: seen.update(vars(args)))
+    args = build_parser().parse_args(
+        ["eval", "tasks", "generate", str(tmp_path), "--from", "prs", "--prs", "p.json", "--manifest", "m.yaml",
+         "--manifest-file", "local.yaml", "--prompt-file", "p.txt", "--out", str(tmp_path / "t")]
+    )
+    args.func(args)
+    assert (seen["prs"], seen["manifest"], seen["manifest_file"], seen["prompt_file"]) == (
+        "p.json", "m.yaml", "local.yaml", "p.txt")
+    assert seen["max_lines"] == 400 and seen["window"] is None
+
+
+def test_repo_tasks_authoring_names_the_prs_argv_and_runs_nothing(capsys):
+    flags = ["--prs", "p.json", "--out", "t", "--manifest-file", "m.yaml", "--max-lines", "50", "--prompt-file",
+             "i.txt", "--force", "--cache-dir", "c"]
+    with pytest.raises(SystemExit) as exc:
+        parse_args(["repo", "tasks", "authoring", "src", *flags])
+    assert exc.value.code == 2
+    new = ["eval", "tasks", "generate", "--from", "prs", "src", *flags]
+    assert capsys.readouterr().err == "moved: dokimi " + " ".join(new) + "\n"
+    args = build_parser().parse_args(new)  # the flags kept their names: the printed argv parses as it is
+    assert (args.from_kind, args.source, args.prs, args.out, args.manifest_file, args.max_lines, args.prompt_file,
+            args.force, args.cache_dir) == ("prs", "src", "p.json", "t", "m.yaml", 50, "i.txt", True, "c")
+
+
 @pytest.mark.parametrize(
     ("old", "new"),
     [
         (["library", "list", "--domain", "x"], ["catalog", "list", "--kind", "product", "--domain", "x"]),
         (["library", "show", "onetbb"], ["catalog", "show", "--kind", "product", "onetbb"]),
+        (["library"], ["catalog"]),
         (["product", "list"], ["catalog", "list", "--kind", "product"]),
+        (["product", "show", "onetbb"], ["catalog", "show", "--kind", "product", "onetbb"]),
+        (["product", "--help"], ["catalog", "--help"]),
         (["subjects", "list", "--subjects-root", "r"], ["catalog", "list", "--kind", "subject", "--subjects-root", "r"]),
         (["subjects", "show", "s.toml"], ["catalog", "show", "--kind", "subject", "s.toml"]),
         (
             ["repo", "tasks", "replay", "src", "--threads", "t.json"],
             ["eval", "tasks", "generate", "--from", "replay", "src", "--threads", "t.json"],
         ),
+        (["run", "--spec", "s.yaml", "--strict"], ["docs", "check", "--spec", "s.yaml", "--strict"]),
+        (["compare", "--base", "a.json", "--candidate", "b.json"], ["docs", "compare", "--base", "a.json", "--candidate", "b.json"]),
     ],
 )
 def test_the_real_m3_tombstones_print_the_new_argv(old, new):
@@ -223,3 +291,19 @@ def test_skill_check_help_says_where_the_name_comes_from(capsys):
     assert "its skills.yaml name" in text
     assert "its directory if the manifest" in text
     assert "SKILL.md frontmatter name" in text
+
+
+def test_the_docs_group_answers_its_old_names_with_exit_2(capsys):
+    from dokimi.cli import parse_args
+
+    with pytest.raises(SystemExit) as exc:
+        parse_args(["run", "--spec", "s.yaml"])
+    assert exc.value.code == 2
+    assert "moved: dokimi docs check --spec s.yaml" in capsys.readouterr().err
+
+
+def test_docs_check_and_compare_keep_the_old_flags():
+    check = build_parser().parse_args(["docs", "check", "--spec", "s.yaml", "--strict"])
+    assert (check.spec, check.strict, check.out_json) == ("s.yaml", True, "baselines/current.json")
+    compare = build_parser().parse_args(["docs", "compare", "--base", "a", "--candidate", "b"])
+    assert (compare.base, compare.candidate, compare.spec) == ("a", "b", None)
