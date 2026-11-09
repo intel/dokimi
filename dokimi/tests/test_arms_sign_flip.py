@@ -266,7 +266,8 @@ def test_model_compare_prints_a_small_significant_delta_with_its_sign():
     assert "| **tied** | 0.0 | N/A | N/A | 0 of 8 | 0.0 | negligible | N/A |" in section
 
 
-# CI's static job imports the package with its tools only: config_check and `cli.py repo scan` run without numpy.
+# CI's static job runs config_check and `cli.py repo scan` without numpy. This imports dokimi.cli, not the cli.py shim
+# (not on sys.path in the wheel jobs): a numpy import in the shim itself fails that job's scan step, not this test.
 NO_NUMPY = (
     "import importlib.abc, sys\n"
     "class Block(importlib.abc.MetaPathFinder):\n"
