@@ -9,7 +9,7 @@ SPDX-License-Identifier: Apache-2.0
 (`veto`, `sufficient`, `evidence`), the `identifiers` check, `skill novelty ground` (a veto
 from a tool's own `--help`) and the judge-against-checks block of the probe record (see
 [What is implemented](#what-is-implemented)). Proposed only: the `exec` and `source` checks,
-derived answer slots, key verification and source drift. The prototype numbers come from
+derived answer slots and source drift. The prototype numbers come from
 scratch scripts run over stored probe results.
 
 Today a novelty probe is graded by one LLM judge, and the only check on that judge is
@@ -30,15 +30,15 @@ accuracy against ground truth comes out of the same run at no extra cost.
 | Piece | Where | What it grades | Tier |
 |---|---|---|---|
 | Novelty probe grading | `dokimi/novelty/measure.py` `_grade` | One judge call per (probe, arm), six verdicts: `correct_complete`, `correct_missing_qualifier`, `partially_correct`, `wrong_other`, `wrong_reversed`, `abstained`. Collapsed to `lenient`/`strict` in `STRICT_CORRECT`/`LENIENT_CORRECT`. A false-premise probe (`expect_refusal`) gets its own prompt. | 3 only |
-| Probe | `dokimi/novelty/probes.py` `Probe` | `question` plus a free-text `expected`. Nothing else describes what a right answer is. | — |
+| Probe | `dokimi/novelty/probes.py` `Probe` | `question` plus a free-text `expected`, and `grading` (`Probe.grading`) when the atom has checks. | — |
 | Reference checks | `dokimi/eval/reference_checks.py`, `eval/reference_run.py`, `commands/answer_formats.py` | Questions imported by `eval import` (Inspect, OpenAI evals, promptfoo, skill-creator) carry a `grading.checks` block: `match`, `exact`, `fuzzy`, `regex`, `choice`, `json` are deterministic; `judge` is one point asked of the checklist judge in both polarities; `unsupported` is listed and not counted. `eval score reference` scores answers against them. See [answer-formats.md](answer-formats.md). | 1 and 3, but only on the answer track |
 | Built-in repo graders | `dokimi/repos/graders/` (`typecheck`, `hidden_tests`, `graph_enum`, `review_*`) | A repo task's `task.json` names `grader: "dokimi:<name>"`, run inside the grading container. | 1, but only on the repo track |
 | Judge validity | `dokimi/eval/judge_validity.py`, `eval/degrade.py` | Pairs whose order is known by construction (an answer and a mechanically damaged copy). Reports pairwise accuracy next to a `len(answer)` baseline. | Measures the judge on synthetic damage, not on real answers |
 | Judge reliability | `dokimi/commands/judge_reliability.py`, `eval/cross_judge.py` | Wording sensitivity, inter-judge agreement. | Agreement, not accuracy |
 
 So the deterministic machinery already exists in two places (reference checks, repo graders),
-but the novelty flow, where the reviewer's concern applies, cannot use either. A probe has no
-field that says how it should be graded.
+but the novelty flow, where the reviewer's concern applies, cannot use either. Without checks, a probe
+says how it should be graded only in its free-text `expected`.
 
 ### What a source can and cannot replace
 
@@ -66,7 +66,7 @@ with the docs, not knowledge of the skill) and is still a model grading free tex
 | Non-judge checks run on each answer, next to the judge | `dokimi/novelty/measure.py` `run_checks` |
 | Roles: a failed `veto` gives `wrong_other`; a `sufficient` check decides; `evidence` is recorded only; an abstention is never overruled into a pass | `measure.py` `resolve_verdict` |
 | `judge_verdict`, `verdict_source`, `checks` on each checked run; a record-level `checks` block (`checked_runs`, `overruled`, `vetoed`, `judge_passed_vetoed`, `decided`, `judge_agreed`) | `measure.py` `ProbeRun`, `MeasureResult.checks_summary`, `report.py` |
-| `identifiers` check: every identifier the answer names (long options by default, inside `within`) is in `known`; `--no-x` counts when `--x` is known. `role` and `tier` validated on every check | `dokimi/eval/reference_checks.py` |
+| `identifiers` check: every identifier the answer names (long options by default, inside `within`) is in `known`; `--no-x` counts when `--x` is known and the check sets `negations: true` or the help lists `--[no-]x`. `role` and `tier` validated on every check | `dokimi/eval/reference_checks.py` |
 | `skill novelty ground --atoms A --tool "perf report" [--tool ...]`: runs the tool's `--help`, writes an `identifiers` veto with the help's sha256 into the atoms that name the tool | `dokimi/novelty/grounding.py`, `commands/novelty_ground.py` |
 | Key verification: the same command writes `meta.key_status` on each checked atom (`verified`, `not_found` with the `missing` names, `unverifiable` when the key names no option) and prints the counts. A `not_found` is a review flag, not an error | `grounding.py` `verify_keys` |
 
