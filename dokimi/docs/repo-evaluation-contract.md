@@ -1883,7 +1883,7 @@ check, and before the parent-directory `fail`, the used Action is `ok`, so a
 holds at the repository root (`tools/gone` beside `tools/`, or beside a root
 link `tools` to a directory, or `tools/sub/gone` where `tools/sub` is a directory
 through such a link) is judged as a path even when a step uses it, so a
-stale path still fails (below such a link it is `unresolved`, `tried ...`); a directory found only
+stale path still fails, below such a link as below a real directory (`tools/ exists but tools/gone does not`); a directory found only
 beside the guidance file does not count. A name only in a `run:` script
 does not count, and an Action no step uses is judged as any other path. When
 one of those workflows or local actions was not read (too big, binary, a dangling
@@ -1934,7 +1934,12 @@ link on a one-segment ref; a tree link on any other ref is `unresolved` (it may
 name a branch). `refs/heads/` and `refs/tags/` belong to the ref, and a link to
 a ref alone is not checked. A
 link to a directory inside the tree is followed, as in a checkout, so
-`linkdir/core.py` with `linkdir -> src/pkg` is `ok`.
+`linkdir/core.py` with `linkdir -> src/pkg` is `ok`. The `linkdir/` it makes
+is judged as that directory, also through a link higher up: `linkdir/gone` is
+`fail` (`linkdir/ exists but linkdir/gone does not`), a glob is matched in
+`src/pkg` and named below the link (`linkdir/*.py` -> `linkdir/core.py`) or
+`fail`s when nothing there matches, and `linkdir/core.py/` is a file, `fail`. A
+link that dangles or names a file makes no directory.
 
 A line that names a workflow of the tree (a code span or a link ending in
 `.yml` or `.yaml` under `.github/workflows/`, a blob or tree link to

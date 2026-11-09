@@ -212,8 +212,9 @@ class Scan:
         return None
 
     def is_file(self, path: str) -> bool:
-        """A file, not a directory (a link to a directory counts as the directory)."""
+        """A file, not a directory (a link to a directory counts as the directory), also through a link above it."""
         p = posixpath.normpath(path)
+        p = self._through_link(p) or p
         return p in self.file_set and p not in self.dir_set and self._dir_link(p) is None
 
     def _dir_link(self, path: str) -> str | None:
@@ -317,7 +318,7 @@ class Scan:
             return "unresolved", "tried " + ", ".join(cands)
         for c in cands:
             parent = posixpath.dirname(c)
-            if parent and parent in self.dir_set:
+            if parent and self._is_dir(parent):
                 return self._missing([c], rel.endswith("/"), f"{parent}/ exists but {c} does not" + self._unread_note(p, cands))
         hits = [x for x in self.by_name.get(posixpath.basename(target), []) if x.endswith("/" + target)]
         if hits:
@@ -359,8 +360,12 @@ class Scan:
 
     def _is_dir(self, path: str) -> bool:
         """``path`` is a directory of the tree or a link to one, also through a link above it (as a checkout makes it)."""
+        return self._dir_of(path) is not None
+
+    def _dir_of(self, path: str) -> str | None:
+        """The directory of the tree that ``path`` names (see :meth:`_is_dir`), or ``None``."""
         p = self._through_link(path) or path
-        return p in self.dir_set or (p in self.file_set and self._dir_link(p) is not None)
+        return p if p in self.dir_set else self._dir_link(p) if p in self.file_set else None
 
     def _unread_note(self, name: str, cands: list[str]) -> str:
         """``; <file> was not read (<why>)`` for each workflow or local action the Action reading of ``name`` skipped."""
@@ -381,12 +386,8 @@ class Scan:
                 return "ok", f"glob {full} -> e.g. {hit}"
         parent = posixpath.dirname(pat)
         if parent and not template and not any(c in parent for c in "*?["):  # a literal parent directory
-            for b in bases:
-                d = posixpath.normpath(posixpath.join(b, parent))
-                if d in self.dir_set:
-                    probes = self._probes(posixpath.normpath(posixpath.join(b, pat)))
-                    return self._missing(probes, rel.endswith("/"),
-                                         f"{d}/ exists but nothing in it matches {posixpath.basename(pat)}")
+            if found := self._in_parent(bases, pat, rel.endswith("/")):
+                return found
         if parent:
             rx = glob_regex("*/" + pat)
             hit = next((x for x in every if rx.match(x)), None)
@@ -397,6 +398,26 @@ class Scan:
         probes = [p for b in bases for p in self._probes(posixpath.normpath(posixpath.join(b, pat)))]
         return self._missing(probes, rel.endswith("/"),
                              f"glob {pat} matches nothing in the tree; a build may create it", "unresolved")
+
+    def _in_parent(self, bases: list[str], pat: str, is_dir: bool) -> tuple[str, str] | None:
+        """``fail`` for a glob no base matches whose literal parent is a directory at a base, or a link to one.
+
+        Through a link (``owner -> src/pkg``) the glob is matched in the directory it names first, as a
+        checkout lists it, and is ``ok`` with the match named below the link (``owner/x``).
+        """
+        name = posixpath.basename(pat)
+        for b in bases:
+            d, full = (posixpath.normpath(posixpath.join(b, p)) for p in (posixpath.dirname(pat), pat))
+            real = self._dir_of(d)
+            if real is None:
+                continue
+            if real != d:  # a checkout lists `real` under `d`
+                rx = glob_regex(posixpath.normpath(posixpath.join(real, name)))
+                hit = next((x for x in self._every() if rx.match(x)), None)
+                if hit:
+                    return "ok", f"glob {full} -> e.g. {posixpath.join(d, posixpath.relpath(hit, real))}"
+            return self._missing(self._probes(full), is_dir, f"{d}/ exists but nothing in it matches {name}")
+        return None
 
     def _bare_glob(self, pat: str) -> tuple[str, str] | None:
         """``ok_basename`` for a glob of a name alone (``type_dispatch*.hpp``) that names some file or directory."""
