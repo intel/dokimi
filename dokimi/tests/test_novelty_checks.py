@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import sys
+import time
 
 import pytest
 
@@ -155,3 +156,15 @@ def test_verify_keys_flags_a_claim_naming_an_option_the_help_lacks():
     assert atoms[1]["meta"]["key_status"] == {"status": "not_found", "missing": ["--stdin"]}
     assert atoms[2]["meta"]["key_status"] == {"status": "unverifiable"}
     assert "meta" not in atoms[3]
+
+
+def test_identifiers_scan_is_bounded_by_the_regex_timeout(monkeypatch):
+    # The scan of ``within`` and ``pattern`` runs under REGEX_TIMEOUT, like a regex check: a
+    # pathological pattern is left unscored instead of stalling a measurement worker.
+    from dokimi.eval import reference_checks
+    monkeypatch.setattr(reference_checks, "REGEX_TIMEOUT", 0.2)
+    check = {"type": "identifiers", "known": ["--x"], "within": r"(a|aa)+$"}
+    started = time.monotonic()
+    result = grade_check(check, "q", "a" * 34 + "!", None)
+    assert result.passed is None and "not scored" in result.detail
+    assert time.monotonic() - started < 5

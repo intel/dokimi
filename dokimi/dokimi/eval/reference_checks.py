@@ -348,19 +348,32 @@ def _identifiers(check: Mapping[str, Any], answer: str) -> tuple[Optional[bool],
     known = {str(k) for k in check.get("known") or ()}
     pattern = str(check.get("pattern") or LONG_FLAG)
     within = check.get("within")
-    scopes = [m.group(0) for m in re.finditer(str(within), answer)] if within else [answer]
-    unknown: list[str] = []
-    for scope in scopes:
-        for m in re.finditer(pattern, scope):
-            name = (m.group(1) if m.groups() else m.group(0)).split("=", 1)[0]
-            if name in known or (check.get("negations", True) and name.startswith("--no-")
-                                 and "--" + name[5:] in known):
-                continue
-            if name not in unknown:
-                unknown.append(name)
+    # Both scans share one deadline, as the regex check does: a pathological pattern is unscored.
+    deadline = time.monotonic() + REGEX_TIMEOUT
+    try:
+        scopes = ([m.group(0) for m in regex.finditer(str(within), answer, timeout=_left(deadline))]
+                  if within else [answer])
+        unknown: list[str] = []
+        for scope in scopes:
+            for m in regex.finditer(pattern, scope, timeout=_left(deadline)):
+                name = (m.group(1) if m.groups() else m.group(0)).split("=", 1)[0]
+                if name in known or (check.get("negations", True) and name.startswith("--no-")
+                                     and "--" + name[5:] in known):
+                    continue
+                if name not in unknown:
+                    unknown.append(name)
+    except TimeoutError:
+        return None, f"not scored: identifiers ran past {REGEX_TIMEOUT:g}s"
+    except regex.error as exc:
+        raise CheckError(f"identifiers pattern does not compile: {exc}") from exc
     if unknown:
         return False, "not in source: " + ", ".join(unknown[:10])
     return True, "" if scopes else "nothing to check"
+
+
+def _left(deadline: float) -> float:
+    """Seconds left before ``deadline``, never zero (a scan with no time left still times out)."""
+    return max(deadline - time.monotonic(), 0.001)
 
 
 def check_role(check: Mapping[str, Any]) -> str:
