@@ -168,3 +168,10 @@ def test_identifiers_scan_is_bounded_by_the_regex_timeout(monkeypatch):
     result = grade_check(check, "q", "a" * 34 + "!", None)
     assert result.passed is None and "not scored" in result.detail
     assert time.monotonic() - started < 5
+
+
+def test_identifiers_pattern_group_that_did_not_participate_is_the_whole_match():
+    # The first group is unset when the other alternative matches: the name is the full match.
+    check = {"type": "identifiers", "known": ["--input", "ENV_FOO"], "pattern": r"(--[a-z]+)|ENV_[A-Z]+"}
+    assert grade_check(check, "q", "ENV_FOO", None).passed is True
+    assert grade_check(check, "q", "run with --stdin", None).passed is False

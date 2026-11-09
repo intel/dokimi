@@ -356,7 +356,9 @@ def _identifiers(check: Mapping[str, Any], answer: str) -> tuple[Optional[bool],
         unknown: list[str] = []
         for scope in scopes:
             for m in regex.finditer(pattern, scope, timeout=_left(deadline)):
-                name = (m.group(1) if m.groups() else m.group(0)).split("=", 1)[0]
+                # The first group is unset when another alternative of the pattern matched.
+                name = (m.group(1) if m.groups() and m.group(1) is not None else m.group(0))
+                name = name.split("=", 1)[0]
                 if name in known or (check.get("negations", True) and name.startswith("--no-")
                                      and "--" + name[5:] in known):
                     continue
