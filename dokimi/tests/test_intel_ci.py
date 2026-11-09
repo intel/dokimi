@@ -206,16 +206,29 @@ def test_wheel_requires_land_in_the_metadata_headers(newline: str,
     assert text.count(newline * 2) == 1 and ("\r\n" in text) == (newline == "\r\n")
 
 
-def test_renovate_bumps_the_exact_pins_in_ci_config() -> None:
-    """The pins in ci/config.yml must equal requirements-test.txt, so renovate's regex has to find each one."""
+def _renovate_and_exact_pins(config_text: str) -> tuple[dict[str, str], dict[str, str]]:
+    """The pins renovate's ci/config.yml regex finds and the `==` pins of the test list, both by canonical name."""
     text = (_REPO / ".github" / "renovate.json5").read_text(encoding="utf-8")
     manager = text[text.index('managerFilePatterns: ["/^ci/config'):]
     literal = re.search(r"matchStrings: \[(\".*\")\]", manager)
     assert literal is not None
     pattern = re.compile(json.loads(literal.group(1)).replace("(?<", "(?P<"))
-    found = {m["depName"]: m["currentValue"] for m in pattern.finditer((_REPO / "ci" / "config.yml").read_text(encoding="utf-8"))}
+    found: dict[str, str] = {canonicalize_name(m["depName"]): m["currentValue"] for m in pattern.finditer(config_text)}
     exact = {n: str(next(iter(r.specifier)).version) for n, r in _requirements(
-        yaml.safe_load((_REPO / "ci" / "config.yml").read_text(encoding="utf-8"))["test"]["requires"]).items()
+        yaml.safe_load(config_text)["test"]["requires"]).items()
         if str(r.specifier).startswith("==")}
+    return found, exact
+
+
+def test_renovate_bumps_the_exact_pins_in_ci_config() -> None:
+    """The pins in ci/config.yml must equal requirements-test.txt, so renovate's regex has to find each one."""
+    found, exact = _renovate_and_exact_pins((_REPO / "ci" / "config.yml").read_text(encoding="utf-8"))
     assert found == exact
     assert "mypy" in found
+
+
+def test_renovate_finds_a_mixed_case_exact_pin_under_its_canonical_name() -> None:
+    """The regex reads "PyYAML ==6.0.1" as written, the test list as pyyaml: both sides key it by canonical name."""
+    found, exact = _renovate_and_exact_pins(
+        'test:\n  requires:\n    - "pytest >=9"\n    - "PyYAML ==6.0.1"\n    - "Foo_Bar ==1.2"\n')
+    assert found == exact == {"pyyaml": "6.0.1", "foo-bar": "1.2"}
