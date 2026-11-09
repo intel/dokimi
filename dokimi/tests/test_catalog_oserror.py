@@ -95,6 +95,24 @@ def test_every_read_failure_kind_on_a_loaded_skill_is_an_error_review(tmp_path, 
     assert [f.code for f in reviews["sib"].findings] == ["unreadable"]
 
 
+@pytest.mark.skipif(os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0),
+                    reason="needs a user the permission bits bind")
+def test_a_bundled_folder_without_search_permission_does_not_make_the_manifest_unreadable(tmp_path):
+    _skill(tmp_path, "good")
+    _skill(tmp_path, "sib")
+    folder = tmp_path / "sib" / "references"
+    folder.mkdir()
+    entries = read_skill_manifest(tmp_path)
+    folder.chmod(0)
+    try:
+        reviews = dict(zip((e.name for e in entries), review_skills(entries), strict=True))
+    finally:
+        folder.chmod(0o755)
+
+    assert reviews["sib"].state == "ok"
+    assert reviews["sib"].findings == []
+
+
 @pytest.mark.parametrize("error", [OSError(errno.ELOOP, "Too many levels of symbolic links"), RuntimeError("loop")],
                          ids=["OSError", "RuntimeError"])
 def test_resolve_error_on_a_loaded_skill_is_an_error_review(tmp_path, monkeypatch, error):

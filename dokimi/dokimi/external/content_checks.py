@@ -144,7 +144,7 @@ def _text_files(skill_dir: Path) -> list[Path]:
         dirnames[:] = sorted(
             d
             for d in dirnames
-            if d not in VENDORED_DIR_NAMES and not d.startswith(".") and not (here / d / "SKILL.md").exists()
+            if d not in VENDORED_DIR_NAMES and not d.startswith(".") and not os.access(here / d / "SKILL.md", os.F_OK)
         )
         for name in sorted(filenames):
             path = Path(dirpath) / name
