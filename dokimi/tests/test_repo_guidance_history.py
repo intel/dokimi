@@ -9,6 +9,7 @@ date is not the order git walks in. No docker, no LLM.
 
 from __future__ import annotations
 
+import dataclasses
 import os
 import shutil
 import subprocess
@@ -21,6 +22,7 @@ import pytest
 import dokimi.repos.guidance_history as guidance_history
 from dokimi.repos import RepoSource, load_manifest, open_source
 from dokimi.repos.errors import PrepError
+from dokimi.repos.harness_profile import PROFILE_DIR, load_profile
 from dokimi.repos.workspace import export_eval_dir, load_tasks, prepare_workspace, source_git_dir
 from repo_eval_fixture import git, make_repo, write
 
@@ -138,6 +140,55 @@ def test_a_commit_that_only_edits_a_guidance_named_file_under_eval_dir_is_not_li
     assert fixture not in {c["sha"] for c in rev["guidance_commits"]}
     assert rev["guidance_latest"]["AGENTS.md"]["sha"] == root and not any(p.startswith(eval_dir)
                                                                          for p in rev["guidance_latest"])
+
+
+def test_a_rev_arm_records_which_guidance_files_import_each_one_it_wrote(hist):
+    """With no profile, as Claude Code reads them: relative to the importer, not in a code span or block; an
+    import of a file that is not guidance is no entry (the arm installs only guidance)."""
+    edit = _commit_at(hist["root"], {
+        "AGENTS.md": "# guidance\n@sub/AGENTS.md and @docs/style.md\n`@src/AGENTS.md`\n```\n@src/AGENTS.md\n```\n",
+        "src/AGENTS.md": "# src guidance\n@../sub/AGENTS.md\n"}, "imports", "2030-05-01T00:00:00+00:00",
+        "2030-05-01T00:00:00+00:00")
+    rev = _prep(hist, f"guidance:rev:{edit}")["arm_rev"]
+    assert rev["guidance_imported_by"] == {"sub/AGENTS.md": ["AGENTS.md", "src/AGENTS.md"]}
+    assert _prep(hist, f"guidance:rev:{hist['added']}", "plain")["arm_rev"]["guidance_imported_by"] == {}
+    codex = load_profile(PROFILE_DIR / "codex.yaml")  # the cell's profile, which declares no import syntax
+    assert prepare_workspace(hist["git_dir"], hist["manifest"], hist["tasks"]["fix_add"], f"guidance:rev:{edit}",
+                             hist["tmp"] / "codex", codex)["arm_rev"]["guidance_imported_by"] == {}
+
+
+def test_an_import_past_the_hop_limit_is_not_recorded_for_the_chain_it_cuts(hist):
+    """Claude Code follows four hops, as ``repo budget`` reads them: the root's chain stops before ``h5``."""
+    chain = {"AGENTS.md": "@h1/AGENTS.md\n", **{f"h{n}/AGENTS.md": f"@../h{n + 1}/AGENTS.md\n" for n in range(1, 5)},
+             "h5/AGENTS.md": "# the fifth hop\n"}
+    edit = _commit_at(hist["root"], chain, "a chain", "2030-05-01T00:00:00+00:00", "2030-05-01T00:00:00+00:00")
+    imported = _prep(hist, f"guidance:rev:{edit}")["arm_rev"]["guidance_imported_by"]
+    assert imported["h4/AGENTS.md"] == ["AGENTS.md", "h1/AGENTS.md", "h2/AGENTS.md", "h3/AGENTS.md"]
+    assert imported["h5/AGENTS.md"] == ["h1/AGENTS.md", "h2/AGENTS.md", "h3/AGENTS.md", "h4/AGENTS.md"]
+
+
+@pytest.mark.parametrize("profile,imported", [
+    ("claude-code", {}),  # the root CLAUDE.md turns AGENTS.md off: its imports do not load
+    ("claude-code, no displacement", {"sub/AGENTS.md": ["AGENTS.md"]}),
+    ("codex", {}),  # no import syntax
+])
+def test_the_import_record_follows_the_profiles_rules(tmp_path, profile, imported):
+    write(tmp_path, "CLAUDE.md", "# memory\n")
+    write(tmp_path, "AGENTS.md", "@sub/AGENTS.md\n")
+    write(tmp_path, "sub/AGENTS.md", "# sub\n")
+    loaded = load_profile(PROFILE_DIR / f"{profile.split(',')[0]}.yaml")
+    if "no displacement" in profile:
+        loaded = dataclasses.replace(loaded, guidance={**loaded.guidance, "claude_displaces_agents": False})
+    assert guidance_history.guidance_imported_by(tmp_path, ["AGENTS.md", "sub/AGENTS.md"], loaded) == imported
+
+
+def test_an_import_of_a_link_records_the_guidance_file_it_resolves_to(tmp_path):
+    write(tmp_path, "AGENTS.md", "@docs/guide.md\n")
+    write(tmp_path, "sub/AGENTS.md", "# sub\n")
+    (tmp_path / "docs").mkdir()
+    os.symlink("../sub/AGENTS.md", tmp_path / "docs" / "guide.md")
+    assert guidance_history.guidance_imported_by(tmp_path, ["AGENTS.md", "sub/AGENTS.md"], None) == {
+        "sub/AGENTS.md": ["AGENTS.md"]}
 
 
 def test_raw_and_patch_arms_record_no_guidance_history(hist):

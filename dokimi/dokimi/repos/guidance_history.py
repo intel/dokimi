@@ -9,6 +9,8 @@ that last touched each guidance file at the revision, and the newest commits tha
 path, each with its author and committer date. The flag reads the committer date: ``git commit
 --amend`` and a rebase keep the author date (https://github.com/intel/dokimi/issues/290). A path
 under the manifest's ``eval_dir`` is not guidance, as the arm installs none of them.
+:func:`guidance_imported_by` records which files' ``@`` import chains reach a guidance file the arm wrote,
+read in the workspace the agent gets, so ``repo compare`` applies a nested file where its importers apply (§9).
 
 The history is one ``git log -z --raw`` over the revision, filtered with :func:`~.manifest.match_glob`.
 ``-z`` ends every field with a NUL, and each file the commit touched is a ``:``-led status record
@@ -49,9 +51,11 @@ from typing import Any
 
 from dokimi import process
 
+from .budget import imported_by
 from .errors import PrepError
+from .harness_profile import PROFILE_DIR, HarnessProfile, load_profile
 from .manifest import _is_within, match_glob
-from .source import SourceError, is_shallow, isolated_git_env
+from .source import SourceError, WorkTree, is_shallow, isolated_git_env
 
 #: At most this many commits in ``guidance_commits``; ``guidance_latest`` is not capped
 GUIDANCE_COMMITS_CAP = 200
@@ -95,6 +99,15 @@ def arm_rev_history(git_dir: Path, globs: tuple[str, ...], eval_dir: str, sha: s
     return {"guidance_latest": {p: latest[p] for p in sorted(files) if p in latest},
             "guidance_commits": [{**c.dates(), "subject": c.subject} for c in commits[:GUIDANCE_COMMITS_CAP]],
             "guidance_commits_truncated": len(commits) > GUIDANCE_COMMITS_CAP}
+
+
+def guidance_imported_by(ws: Path, files: list[str], profile: HarnessProfile | None) -> dict[str, list[str]]:
+    """``guidance_imported_by``: each of ``files`` (the guidance the arm wrote into ``ws``) that another guidance
+    file of ``ws`` imports, with the files whose ``@`` import chains reach it (:func:`~.budget.imported_by`), read
+    by ``profile``'s rules; with no profile, by Claude Code's, which follows imports."""
+    p = profile or load_profile(PROFILE_DIR / "claude-code.yaml")
+    return imported_by(WorkTree(ws), files, p.guidance_names, p.import_max_depth, p.reads_claude_rules,
+                       claude_displaces_agents=p.claude_displaces_agents, follow_imports=p.follows_imports)
 
 
 _key_locks: dict[tuple[Any, ...], threading.Lock] = {}

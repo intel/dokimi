@@ -17,8 +17,12 @@ thread because a rule was written from it (https://github.com/intel/dokimi/issue
   under its directory (``.claude/`` counts as its parent). Every other guidance path (``.claude/rules/*``
   whatever its name, ``.github/copilot-instructions.md``, a skill, ...) applies to every task, the strict side;
   so does every file to a task with no ``patch_files`` (one built before ``repo tasks replay`` wrote it), and its entry
-  says ``scoped: false``. A task with no ``public_at`` is unknown by date. ``@`` imports are not followed:
-  ``guidance_latest`` holds no import graph, so a nested file a root file imports counts as scoped.
+  says ``scoped: false``. A task with no ``public_at`` is unknown by date. A file also applies where a file that
+  ``@``-imports it applies: ``arm_rev.guidance_imported_by`` maps each guidance file the arm wrote that an import
+  chain reaches to the files whose chains reach it (the arm's build reads them with ``repo budget``'s walker), so
+  one a root file's chain reaches applies to every task, and one a nested file imports to the tasks under that
+  file's directory too; the entry's ``via`` names the importer. An ``arm_rev`` with no ``guidance_imported_by``
+  (a batch from before it was recorded) is read by directory alone, and the arm's ``imports_unrecorded`` says so.
 - **by name**: an ``arm_rev.guidance_commits`` subject names the task's PR: ``#<source_pr>``, or ``<source_pr>``
   after ``PR``, ``PR#``, ``PR #`` or ``GH-`` (any case), not preceded
   by a word character, ``/``, ``.`` or ``-`` (what a repository name holds), ``<owner>/<repo>#<source_pr>``
@@ -103,18 +107,20 @@ def _kind(cells: list[dict[str, Any]], metas: list[Any]) -> str | None:
 def _arm_entry(text: str, kind: str, read: list[tuple[str, Any, Any]]) -> dict[str, Any]:
     states: dict[str, list[tuple[_State, _State]]] = {}
     histories: dict[str, list[Any]] = {}  # task → the guidance histories its checked cells read
-    truncated = False
+    truncated = unrecorded = False
     for task, meta, spec in read:
         checked = _check_cell(kind, meta, spec)
         if checked is not None:
             states.setdefault(task, []).append(checked)
             histories.setdefault(task, []).append(rev := _history(meta))
             truncated |= isinstance(rev, dict) and rev.get("guidance_commits_truncated") is True
+            unrecorded |= isinstance(rev, dict) and "guidance_latest" in rev and "guidance_imported_by" not in rev
     for task, state in _no_spec(read, histories).items():
         states.setdefault(task, []).append((state, state))
     entry: dict[str, Any] = {"arm": text, "kind": kind, "revisions": _revisions(read), "checked": sorted(states),
                              "not_checked": sorted({task for task, _, _ in read} - set(states)),
-                             "by_date": {}, "by_name": {}, "unknown": {}, "clean": [], "names_truncated": truncated}
+                             "by_date": {}, "by_name": {}, "unknown": {}, "clean": [], "names_truncated": truncated,
+                             "imports_unrecorded": unrecorded}
     for task in sorted(states):
         date, name = _merge([d for d, _ in states[task]]), _merge([n for _, n in states[task]])
         if date[0] == "flag":
@@ -198,20 +204,45 @@ def _by_date(rev: dict[str, Any], spec: dict[str, Any]) -> _State:
         return ("unknown", "patch_files is not a list of paths")
     if not isinstance(latest, dict):
         return ("unknown", "guidance_latest is not an object")
+    imported = rev.get("guidance_imported_by", {})  # absent in a batch from before it was recorded: directories only
+    if not _path_lists(imported):
+        return ("unknown", "guidance_imported_by is not an object of path lists")
+    hits, undated = _after(latest, files, imported, public)
+    if hits:
+        _, path, commit, via = max(hits, key=lambda h: (h[0], h[1]))
+        return ("flag", {"path": path, "sha": commit.get("sha"), "committed": commit["committed"],
+                         "public_at": spec["public_at"], "scoped": files is not None, **({"via": via} if via else {})})
+    return ("unknown", f"guidance_latest has no committed date for {undated[0]}") if undated else _CLEAN
+
+
+def _after(latest: dict[str, Any], files: list[str] | None, imported: dict[str, list[str]],
+           public: datetime) -> tuple[list[tuple[datetime, str, dict[str, Any], str]], list[str]]:
+    """The applicable ``guidance_latest`` commits committed after ``public`` (with what made each apply), and the
+    applicable paths whose commit has no date."""
     hits, undated = [], []
     for path, commit in sorted(latest.items()):
-        if not applies(path, files):
+        via = _applies_via(path, files, imported.get(path, []))
+        if via is None:
             continue
         when = _when(commit.get("committed")) if isinstance(commit, dict) else None
         if when is None:
             undated.append(path)
         elif when > public:
-            hits.append((when, path, commit))
-    if hits:
-        _, path, commit = max(hits, key=lambda h: (h[0], h[1]))
-        return ("flag", {"path": path, "sha": commit.get("sha"), "committed": commit["committed"],
-                         "public_at": spec["public_at"], "scoped": files is not None})
-    return ("unknown", f"guidance_latest has no committed date for {undated[0]}") if undated else _CLEAN
+            hits.append((when, path, commit, via))
+    return hits, undated
+
+
+def _path_lists(value: Any) -> bool:
+    return isinstance(value, dict) and all(isinstance(v, list) and all(isinstance(p, str) for p in v)
+                                           for v in value.values())
+
+
+def _applies_via(path: str, patch_files: list[str] | None, importers: list[str]) -> str | None:
+    """``""`` when the guidance file at ``path`` applies to the task on its own (:func:`applies`), else the first of
+    ``importers`` (the files whose ``@`` import chains reach it) that applies, else ``None``: it does not apply."""
+    if applies(path, patch_files):
+        return ""
+    return next((f for f in importers if applies(f, patch_files)), None)
 
 
 def applies(path: str, patch_files: list[str] | None) -> bool:
@@ -299,6 +330,9 @@ def format_leak(entries: list[dict[str, Any]]) -> list[str]:
         if e["names_truncated"]:
             lines.append(f"  by name covers only the newest {GUIDANCE_COMMITS_CAP} guidance commits "
                          "(guidance_commits_truncated)")
+        if e["imports_unrecorded"]:
+            lines.append("  by date reads directories only where no guidance_imported_by was recorded (a batch from "
+                         "before it was): a nested guidance file another one imports can be missed")
         unscoped = [t for t, hit in e["by_date"].items() if not hit["scoped"]]
         if unscoped:
             lines.append("  by date, not scoped to the patch (no patch_files): " + _capped(unscoped))

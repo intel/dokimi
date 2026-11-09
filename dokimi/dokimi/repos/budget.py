@@ -500,6 +500,27 @@ def _followed_imports(tree: RepoTree, roots: list[str], *, max_depth: int | None
     return _imports(tree, roots, max_depth, rules) if follow else (set(), [])
 
 
+def imported_by(tree: RepoTree, wrote: list[str], guidance_names: tuple[str, ...], import_max_depth: int | None = None,
+                rules: bool = False, *, claude_displaces_agents: bool = False,
+                follow_imports: bool = True) -> dict[str, list[str]]:
+    """Each path of ``wrote`` that another guidance file's ``@`` import chain reaches (:func:`_imports`, one root at a
+    time), with the guidance files whose chains reach it, root files first: every CLAUDE* file and every AGENTS.md
+    that ``claude_displaces_agents`` does not turn off (as :func:`budget` reads them); ``{}`` without ``follow_imports``."""
+    if not follow_imports:
+        return {}
+    names = set(guidance_names)
+    every = [f for f in tree.files() if f.rsplit("/", 1)[-1] in names and not (rules and RULE_GLOB.match(f))]
+    claude = [f for f in every if f.rsplit("/", 1)[-1].startswith("CLAUDE")]
+    root_claude = [f for f in claude if _is_root(f) and _is_resolvable(tree, f)]
+    displaced = _displaced(tree, every, claude, root_claude, claude_displaces_agents)
+    out: dict[str, list[str]] = {}
+    for root in claude + [f for f in every if f.rsplit("/", 1)[-1] == "AGENTS.md" and f not in displaced]:
+        seen = _imports(tree, [root], import_max_depth, rules)[0]
+        for path in sorted((seen | {_target(tree, p) for p in seen}) & set(wrote) - {root}):  # a link's file too
+            out.setdefault(path, []).append(root)
+    return {p: sorted(r, key=lambda f: (not _is_root(f), f)) for p, r in sorted(out.items())}
+
+
 def _imports(tree: RepoTree, roots: list[str], max_depth: int | None = None,
              rules: bool = False) -> tuple[set[str], list[tuple[str, str, str]]]:
     """Files the CLAUDE.md ``roots`` ``@import``, transitively (relative to the importing file).
