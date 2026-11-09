@@ -38,6 +38,11 @@ metrics:
 | `subprocess` | Host subprocess with per-process CPU cap and default memory cap, minimal env, temp cwd; its process group is killed when it exits or times out. **No network isolation and no process-count cap.** Requires `allow_host: true`. | Trusted, self-owned documentation |
 | `docker` | Container with `--network none`, no capabilities (`--cap-drop ALL`, `no-new-privileges`), read-only mounts, CPU/memory/pid limits, per-example timeout | Untrusted documentation |
 
+A `python` block runs on the Python that runs dokimi in the `subprocess` backend,
+and on the image's `python3` in the `docker` backend; `bash` and `sh` blocks run on
+`bash` and `sh`. A custom `docker_image` needs each of them on its `PATH`, or its
+blocks fail with exit code 127.
+
 ### Why `none` is the default
 
 Previously, fenced `python`/`bash`/`sh` blocks were executed directly on the
