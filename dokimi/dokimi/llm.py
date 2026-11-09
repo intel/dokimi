@@ -257,7 +257,7 @@ _RETRYABLE_STATUS = re.compile(r"\b(?:status|code|http|error)\W{0,3}(?:500|502|5
 # class name so the check works whether or not litellm is importable here.
 _TRANSIENT_EXC_NAMES = frozenset({"ratelimiterror", "serviceunavailableerror", "timeout"})
 # litellm's catch-alls: transient unless their message is one of _NON_RETRYABLE_MESSAGES.
-_RETRYABLE_EXC_NAMES = _TRANSIENT_EXC_NAMES | {"internalservererror", "apiconnectionerror", "apierror"}
+_CATCH_ALL_EXC_NAMES = frozenset({"internalservererror", "apiconnectionerror", "apierror"})
 
 # Checked before the substrings: these are permanent, and their messages can
 # contain retryable-looking words ("connection" in an auth error's URL, say).
@@ -279,9 +279,9 @@ _NON_RETRYABLE_MESSAGES = ("missing credentials", "api_key client option must be
 def is_retryable(exc: BaseException) -> bool:
     """Whether *exc* is a transient provider error worth another attempt.
 
-    Exception type decides when it is recognised, prose otherwise. A permanent failure (bad key,
-    no credentials) is consulted first: a transient-sounding word in its message does not retry it,
-    and a rate limit, outage or timeout is retried whatever its message says.
+    Exception type decides when it is recognised, prose otherwise: permanent class names, then
+    transient ones (a rate limit, outage or timeout, whatever its text), then the no-credential
+    messages, then litellm's catch-alls. A permanent word in the prose outranks a transient one.
     """
     if isinstance(retryable := getattr(exc, "retryable", None), bool):  # set by an error that knows (llm_cli.CliCallError)
         return retryable
@@ -292,7 +292,7 @@ def is_retryable(exc: BaseException) -> bool:
         return True
     if any(m in msg for m in _NON_RETRYABLE_MESSAGES):
         return False
-    if name in _RETRYABLE_EXC_NAMES:
+    if name in _CATCH_ALL_EXC_NAMES:
         return True
     if any(s in msg for s in ("authenticationerror", "unsupportedparamserror", "permissiondenied",
                               "notfounderror", "badrequesterror")):
