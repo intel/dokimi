@@ -475,3 +475,6 @@ def test_a_path_or_quoted_value_after_a_flag_names_no_option():
     # "no" inside a file name is no negation: the --stdin after the path is still checked.
     assert grade_check(_veto(), "q", "perf report --input /tmp/no/data --stdin", None).passed is False
     assert grade_check(_veto(), "q", "perf report --input \"my no.data\" --stdin", None).passed is False
+    # A quoted value that holds a flag name is the file's name: the flag inside it is no option.
+    assert grade_check(_veto(), "q", 'Run perf report --input "no --stdin"', None).passed is True
+    assert grade_check(_veto(), "q", "Run perf report --input 'no --stdin'", None).passed is True

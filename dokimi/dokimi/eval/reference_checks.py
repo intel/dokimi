@@ -399,7 +399,8 @@ def scope_options(pattern: str, scope: str, *, timeout: float, negated: bool) ->
     """The option names ``pattern`` finds in ``scope``, in order.
 
     With the default pattern, an assigned value names no option (``--input=--stdin`` names
-    ``--input`` only); a custom pattern reads the text as written, its groups may take a value. With
+    ``--input`` only), and so does the value a flag takes (``--input "no --stdin"`` names ``--input``);
+    a custom pattern reads the text as written, its groups may take a value. With
     ``negated``, a mention that the clause before it negates names none (``run --stdio, not
     --stdin``): a command's scope is judged mention by mention, not only by the words before it.
     Both the veto and the key verification read a claim through this one scan.
@@ -412,6 +413,8 @@ def scope_options(pattern: str, scope: str, *, timeout: float, negated: bool) ->
         text = _ASSIGNED.sub(blank, scope)
     # The clause of a mention is read past the value a flag takes (``--sort no --stdin``).
     clause = _VALUE_WORD.sub(blank, text)
+    if pattern == LONG_FLAG:  # a flag's value (a file name, quoted or not) names no option either
+        text = clause
     names = []
     for m in regex.finditer(pattern, text, timeout=timeout):
         if negated and _negated_before(clause, m.start()):
