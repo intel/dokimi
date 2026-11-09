@@ -159,6 +159,7 @@ def _npm_pinned(spec: str | None) -> bool:
 def _unpinned_npm(rest: str) -> list[str]:
     names = []
     for word in _words(rest, NPM_VALUE_OPTIONS):
+        word = word.rstrip("\"')")
         match = NPM_NAME.fullmatch(word) if word and not word.startswith("-") else None
         if not match or word.lower().endswith(NON_PACKAGE_SUFFIXES):
             continue  # a flag, a path, a URL or a tarball
@@ -191,7 +192,7 @@ def _unpinned_npx(rest: str) -> list[str]:
         i += 1
     names = []
     for spec in selected or ([executable] if executable else []):
-        match = NPM_NAME.fullmatch(spec)
+        match = NPM_NAME.fullmatch(spec.rstrip("\"')"))
         if match is not None and not _npm_pinned(match.group(2)):
             names.append(match.group(1))
     return names
