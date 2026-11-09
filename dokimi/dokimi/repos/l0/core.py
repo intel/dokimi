@@ -329,7 +329,7 @@ class Scan:
 
         The Action is one a workflow step uses as ``uses: <name>@<ref>``, named here without the ref; the
         submodule verdict comes first, as the snapshot does not hold what the name may be there. A name
-        whose directory the tree holds at the root (``tools/gone`` beside ``tools/``) is a path, stale or not.
+        whose directory the tree holds at the root (``tools/gone`` beside ``tools/`` or a link ``tools`` to one) is a path.
         """
         sub = self.submodule_of(cands)
         if sub:
@@ -344,8 +344,7 @@ class Scan:
         whose first directory the tree holds at the root (``tools/old/x`` beside ``tools/``, or a link ``tools`` to a
         directory) is a path. Left ``unresolved``, its reason also names each file the branch reading skipped, once.
         """
-        head = name.split("/")[0]
-        if verdict[0] != "unresolved" or head in self.dir_set or (head in self.file_set and self._dir_link(head)):
+        if verdict[0] != "unresolved" or self._is_dir(name.split("/")[0]):
             return verdict
         branch = branches.branch_of(self, name, [_fill(name, f) for f in _FILLS])
         if branch:
@@ -354,9 +353,13 @@ class Scan:
         return verdict[0], verdict[1] + "".join(n for n in notes if n not in verdict[1])  # the Action note may have it
 
     def _reads_as_action(self, name: str, cands: list[str]) -> bool:
-        """``name`` has an Action's shape, no candidate holds it and its directory is not one at the root."""
+        """``name`` has an Action's shape, no candidate holds it and its directory is no root one (or link to one)."""
         return (workflows.ACTION.match(name) is not None and not any(self.exists(c) for c in cands)
-                and posixpath.dirname(name) not in self.dir_set)
+                and not self._is_dir(posixpath.dirname(name)))
+
+    def _is_dir(self, path: str) -> bool:
+        """``path`` is a directory of the tree, or a link to one (as a checkout makes it)."""
+        return path in self.dir_set or (path in self.file_set and self._dir_link(path) is not None)
 
     def _unread_note(self, name: str, cands: list[str]) -> str:
         """``; <file> was not read (<why>)`` for each workflow or local action the Action reading of ``name`` skipped."""
