@@ -309,7 +309,8 @@ A large catalog is easier to scan one skill at a time:
 - `--ignore CODE` (repeatable) leaves the findings with that code out of the scan:
   they are not printed, and they do not set the state or the `--strict` exit. The
   codes are the `code` of each finding in the JSON output (`name-mismatch`,
-  `description-no-when`, ...); an unknown code is a usage error.
+  `description-no-when`, ...); an unknown code is a usage error. `frontmatter-parse`
+  is refused (a skill that does not load always fails), and so is `--kind tasks`.
 - `--jsonl PATH` writes one JSON row per skill as it is reviewed and prints only
   the counts. `--jobs N` reviews N skills in parallel. `--resume` keeps the rows
   already in PATH and reviews only the skills without one (a half-written last
