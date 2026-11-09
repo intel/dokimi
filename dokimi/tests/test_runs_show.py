@@ -473,6 +473,21 @@ def test_a_run_id_wins_over_a_directory_or_a_path_outside_the_root(monkeypatch, 
     assert _show(monkeypatch, capsys, "nightly-2").out.startswith("run_id:     nightly-2\n")
 
 
+@pytest.mark.skipif(os.name == "nt", reason="symlinks need privileges on Windows")
+def test_a_directory_under_the_root_shadows_a_file_of_that_name_from_the_working_directory(
+        monkeypatch, capsys, runs):
+    """``runs show`` opens ``results/nightly-1`` first, as for any path, so the run is shown, and
+    with no such run the directory's error stands: the in-root file never decides alone."""
+    (runs / "nightly-1").mkdir()
+    (runs.parent / "nightly-1").symlink_to(runs / "e1.json")
+    (runs / "nightly-3").mkdir()
+    (runs.parent / "nightly-3").symlink_to(runs / "e2.json")
+
+    assert _show(monkeypatch, capsys, "nightly-1").out.startswith("run_id:     nightly-1\n")
+    assert _fails(monkeypatch, capsys, "nightly-3") == (
+        "Error: nightly-3 is a directory; runs show takes one artifact file\n")
+
+
 def test_an_artifact_file_of_the_run_ids_name_is_shown_instead(monkeypatch, capsys, runs):
     save_artifact("eval", _fixture("eval.v1"), runs / "nightly-1")
 

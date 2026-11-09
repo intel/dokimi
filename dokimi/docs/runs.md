@@ -144,7 +144,9 @@ answers.v1  onetbb   gpt-6.1-sol        2026-10-28 09:40  onetbb_r7/answers/onet
 A `run_id` from `runs list` shows the artifacts that carry it, as `runs list`
 rows, newest first, with the same `*` for a time taken from the file's mtime.
 A file `runs show` can open wins: one of that name under
-the root, or reached from the working directory and inside the root. A
+the root, or reached from the working directory and inside the root. The name
+is read as for any path, under the root first, so a directory there shadows a
+file of that name in the working directory. A
 directory of that name (a run's own, `results/nightly-7/`) does not, nor does
 a path outside the root; when no artifact has the `run_id`, such a name gets
 the error it got before. When a file or directory under the root could not be

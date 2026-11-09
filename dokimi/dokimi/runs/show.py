@@ -54,6 +54,14 @@ class Shown:
     siblings_error: str | None = None
 
 
+def _pick(root: Path, address: str) -> Path:
+    """The path ``address`` is read as: the first of ``root/address`` and ``address`` (from the
+    working directory) that exists, else ``root/address``. Raises ``OSError`` as :func:`lookup`.
+    """
+    candidates = [root / address, Path(address)]
+    return next((p for p in candidates if lookup(p)), candidates[0])
+
+
 def resolve(root: Path, address: str) -> tuple[Path, Path]:
     """The file ``address`` names, and the root its path is relative to (both absolute).
 
@@ -61,11 +69,10 @@ def resolve(root: Path, address: str) -> tuple[Path, Path]:
     working-directory path; once symlinks are resolved it must lie inside the resolved root, so
     nothing outside the root is read. Raises ``InputError`` otherwise.
     """
-    candidates = [root / address, Path(address)]
     real_root = os.path.realpath(root)
     label, shown_root = plain(address), plain(root.as_posix())  # for messages only
     try:  # lookup raises for a directory that cannot be searched, on every Python
-        path = next((p for p in candidates if lookup(p)), candidates[0])
+        path = _pick(root, address)
         if not inside(real_root, os.path.realpath(path)):
             where = "leads outside" if inside(root, path) else "is not under"  # via a symlink
             raise InputError(f"{label} {where} the runs root {shown_root}/")
@@ -156,22 +163,20 @@ class ShownRun:
 def names_a_run(root: Path, address: str) -> bool:
     """Whether ``address`` may mean a run: a run id that names no file ``runs show`` could open.
 
-    A file of that name under the root (or reached from the working directory and inside the
-    root) is the artifact, and so is a name that cannot be looked up, so the path check names
-    the reason. A directory of that name (a run's own, say), a path outside the root and a
-    missing one do not stop it.
+    It looks at the path :func:`resolve` would open (:func:`_pick`). A file there, inside the
+    root, is the artifact, and so is a name that cannot be looked up, so the path check names
+    the reason. A directory (a run's own, say), a path outside the root and a missing one do
+    not stop it.
     """
     if not is_run_id(address):
         return False
-    real_root = os.path.realpath(root)
-    for path in (root / address, Path(address)):
-        try:
-            found = lookup(path)
-        except OSError:  # no permission to look: the path check reports it
-            return False
-        if found and not stat.S_ISDIR(found.st_mode) and inside(real_root, os.path.realpath(path)):
-            return False
-    return True
+    try:
+        path = _pick(root, address)
+        found = lookup(path)
+    except OSError:  # no permission to look: the path check reports it
+        return False
+    return not (found and not stat.S_ISDIR(found.st_mode)
+                and inside(os.path.realpath(root), os.path.realpath(path)))
 
 
 def show_target(root: Path, address: str) -> Shown | ShownRun:
