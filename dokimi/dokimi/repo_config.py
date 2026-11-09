@@ -612,8 +612,8 @@ def _digest_files(files: dict[str, Path], root: Path, modes: Mapping[str, bool] 
 
 
 def _check_suite(subject: Subject, root: Path) -> None:
-    """A skill's suite claims whole directories of its skill, never single files of it (SKILL.md, scripts, references),
-    and no link in it reaches into its skill or to an ancestor of it. Declared paths and resolved links are both checked."""
+    """A skill's suite claims whole directories of its skill, or single files under its `evals` directory, never other
+    single files of it (SKILL.md, scripts, references), and no link in it reaches into its skill or to an ancestor of it. Declared paths and resolved links are both checked."""
     if subject.kind != "skill":
         return
     matches = _suite_files(root, subject.suite_globs)
