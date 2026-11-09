@@ -84,6 +84,15 @@ def test_a_registry_pipe_is_listed(tmp_path):
     assert "Demo" in out.out and "1 products registered." in out.out
 
 
+@pytest.mark.skipif(os.name == "nt", reason="no /dev/null on Windows")
+@pytest.mark.parametrize("flag,argv", [
+    ("--registry", ["catalog", "list", "--kind", "product"]), ("--intents", ["catalog", "intents"]),
+])
+def test_a_device_is_not_a_file(flag, argv):
+    err = _run([*argv, flag, "/dev/null"])
+    assert f"Error: {flag} /dev/null: not a file" in err
+
+
 @pytest.mark.skipif(os.name == "nt", reason="Windows words a long name its own way")
 @pytest.mark.parametrize("flag,argv", [
     ("--registry", ["catalog", "list", "--kind", "product"]), ("--intents", ["catalog", "intents"]),

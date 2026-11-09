@@ -174,6 +174,21 @@ def test_a_registry_pipe_is_read(spy, tmp_path, monkeypatch, capsys):
     assert kwargs["registry"].get("my_lib").description == "A library only this registry knows"
 
 
+@pytest.mark.skipif(os.name == "nt", reason="no /dev/null on Windows")
+@pytest.mark.parametrize("command", [["preflight", "--library", "my_lib"], ["run", "--library", "my_lib"]])
+def test_a_registry_device_is_not_a_file(spy, tmp_path, monkeypatch, capsys, command):
+    from dokimi import cli
+
+    monkeypatch.setattr("sys.argv", ["dokimi", "benchmark", *command, "--registry", "/dev/null",
+                                     "--output-dir", str(tmp_path / "out")])
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main()
+
+    assert exc_info.value.code == 2
+    assert capsys.readouterr().err.startswith("Error: --registry /dev/null: not a file")
+    assert spy.built == []
+
+
 @pytest.mark.skipif(os.name == "nt", reason="Windows words a long name its own way")
 @pytest.mark.parametrize("command", [["preflight", "--library", "my_lib"], ["run", "--library", "my_lib"]])
 def test_a_registry_name_the_os_cannot_stat_is_an_error_line(spy, tmp_path, monkeypatch, capsys, command):

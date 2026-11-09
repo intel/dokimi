@@ -17,7 +17,8 @@ from dokimi.utils import InputError
 def _load_custom(cls, flag: str, value):
     """``cls()`` for the bundled file, else ``cls`` over the file named by ``flag``; InputError if it cannot be read.
 
-    Only a missing path or a directory is ``not a file``: a pipe (``--registry <(cat products.yaml)``) is read.
+    A regular file or a pipe (``--registry <(cat products.yaml)``) is read. A missing path, a path under a file,
+    a directory, a device (``/dev/zero`` would be read without end) or a socket is ``not a file``.
     """
     import stat
     import yaml
@@ -32,7 +33,7 @@ def _load_custom(cls, flag: str, value):
         mode = None
     except OSError as exc:  # a name too long, a parent without search permission
         raise InputError(f"cannot read {flag} {value}: {exc}") from exc
-    if mode is None or stat.S_ISDIR(mode):
+    if mode is None or not (stat.S_ISREG(mode) or stat.S_ISFIFO(mode)):
         raise InputError(f"{flag} {value}: not a file")
     try:
         return cls(path=path)
