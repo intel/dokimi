@@ -529,6 +529,28 @@ def test_a_nested_repeat_or_overlapping_alternation_in_a_repeat_is_refused(patte
     assert branches._backtracks(pattern) is refused
 
 
+@pytest.mark.parametrize("unit", ["ab?", "(a)b?", "(?:ab?)"])
+def test_the_refusal_check_copies_a_number_of_parse_tokens_linear_in_the_pattern(monkeypatch, unit):
+    """A long accepted pattern is read once per item, not once per item over the rest of the pattern."""
+    sre = branches._SRE
+    original = sre.SubPattern.__getitem__
+    copied = []
+
+    def counting(self, index):
+        out = original(self, index)
+        if isinstance(index, slice):
+            copied[-1] += len(out)
+        return out
+
+    monkeypatch.setattr(sre.SubPattern, "__getitem__", counting)
+    totals = []
+    for n in (200, 400):
+        copied.append(0)
+        assert branches._backtracks("maintenance/(?:" + unit * n + ")+c") is False
+        totals.append(copied[-1])
+    assert totals[1] <= 2.5 * totals[0]
+
+
 def test_reading_a_hook_pattern_warns_once_as_compiling_it_does():
     """The parse for the refusal does not repeat the FutureWarning of `re.compile` (a nested set)."""
     with warnings.catch_warnings(record=True) as caught:

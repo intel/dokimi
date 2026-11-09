@@ -193,11 +193,11 @@ def _nests(sub: Any, inside: bool, end: set[str] | None) -> bool:
                 return True
         elif op is _SRE.BRANCH or op is _SRE.GROUPREF_EXISTS:  # `(?(1)yes|no)` without `no` has an empty branch
             alts = av[1] if op is _SRE.BRANCH else [av[1], av[2] or []]
-            after = _follow(sub[i + 1:], end) if inside else None
+            after = _follow(sub, i + 1, end) if inside else None
             if (inside and _overlap(alts)) or any(_nests(a, inside, after) for a in alts):
                 return True
         else:
-            after = _follow(sub[i + 1:], end) if inside and op in (_SRE.SUBPATTERN, _SRE.ATOMIC_GROUP) else None
+            after = _follow(sub, i + 1, end) if inside and op in (_SRE.SUBPATTERN, _SRE.ATOMIC_GROUP) else None
             if any(_nests(x, inside, after) for x in (av if isinstance(av, tuple) else (av,)) if isinstance(x, _SRE.SubPattern)):
                 return True
     return False
@@ -206,20 +206,22 @@ def _nests(sub: Any, inside: bool, end: set[str] | None) -> bool:
 def _nests_repeat(sub: Any, i: int, inside: bool, end: set[str] | None) -> bool:
     """The repeat ``sub[i]`` is a varying item of an outer repeat that can end two ways, or holds such a repeat."""
     lo, hi, body = sub[i][1]
-    after = _follow(sub[i + 1:], end) if inside else None
+    after = _follow(sub, i + 1, end) if inside else None
     if inside and lo < hi:  # taking the body once more or not is told by the next character, or it is not
         first = _first(body)
         if first is None or after is None or first & after:
             return True
-    again = _follow(body, None) if hi > 1 else None
+    again = _follow(body, 0, None) if hi > 1 else None
     tail = again if not inside else (None if again is None or after is None else again | after)
     return _nests(body, inside or hi > 1, tail if hi > 1 else after)
 
 
-def _follow(items: Any, end: set[str] | None) -> set[str] | None:
-    """The characters that can start ``items``, then ``end`` when all of them can be empty; None when not known."""
+def _follow(items: Any, start: int, end: set[str] | None) -> set[str] | None:
+    """The characters that can start ``items[start:]`` (read by index, not copied), then ``end`` when all of them can
+    be empty; None when not known."""
     out: set[str] = set()
-    for j, (op, av) in enumerate(items):
+    for j in range(start, len(items)):
+        op, av = items[j]
         if items[j:j + 1].getwidth()[0] > 0:
             first = _first(items[j:j + 1])
             return None if first is None else out | first
