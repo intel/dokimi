@@ -32,11 +32,16 @@ PAIRS = [  # family, old -> new
 OLD_PANEL = ["gpt-5.6-luna", "kimi-k2.5", "claude-haiku-4-5"]
 NEW_PANEL = ["gpt-6-luna", "kimi-k3", "claude-opus-5-5"]
 ALL = sorted({j for d in V.values() for j in d})
+NEED = sorted({j for _, old, new in PAIRS for j in (old, new)} | set(OLD_PANEL) | set(NEW_PANEL))
+if missing := sorted(set(NEED) - set(ALL)):
+    raise SystemExit(f"gen.py needs grades from {', '.join(missing)}; grade those judges first")
 
 
 def kappa(a, b):
     keys = [k for k in V if a in V[k] and b in V[k]]
     n = len(keys)
+    if n == 0:
+        raise SystemExit(f"no answer graded by both {a} and {b}")
     po = sum(V[k][a] == V[k][b] for k in keys) / n
     pe = sum((sum(V[k][a] == l for k in keys) / n) * (sum(V[k][b] == l for k in keys) / n)
              for l in V6)
