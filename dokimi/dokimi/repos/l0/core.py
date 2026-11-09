@@ -406,6 +406,7 @@ class Scan:
         checkout lists it, and is ``ok`` with the match named below the link (``owner/x``).
         """
         name = posixpath.basename(pat)
+        failed = None  # the first base's verdict, kept until every base has been tried for a match through a link
         for b in bases:
             d, full = (posixpath.normpath(posixpath.join(b, p)) for p in (posixpath.dirname(pat), pat))
             real = self._dir_of(d)
@@ -416,8 +417,8 @@ class Scan:
                 hit = next((x for x in self._every() if rx.match(x)), None)
                 if hit:
                     return "ok", f"glob {full} -> e.g. {posixpath.join(d, posixpath.relpath(hit, real))}"
-            return self._missing(self._probes(full), is_dir, f"{d}/ exists but nothing in it matches {name}")
-        return None
+            failed = failed or self._missing(self._probes(full), is_dir, f"{d}/ exists but nothing in it matches {name}")
+        return failed
 
     def _bare_glob(self, pat: str) -> tuple[str, str] | None:
         """``ok_basename`` for a glob of a name alone (``type_dispatch*.hpp``) that names some file or directory."""

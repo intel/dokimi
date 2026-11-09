@@ -989,3 +989,12 @@ def test_a_directory_claim_naming_a_file_through_a_root_link_fails_as_the_file(t
     """https://github.com/intel/dokimi/issues/519: `owner/f` through the link is the file `src/pkg/f`, no directory."""
     got = _owner(tmp_path, "Run `owner/f/`.\n", "f", link)
     assert got[("AGENTS.md", "owner/f/")] == ("fail", "owner/f is a file, not a directory")
+
+
+@pytest.mark.parametrize("root_owner", ["other/keep", "owner/keep"], ids=["no-root-dir", "real-root-dir"])
+def test_a_glob_matched_through_a_link_at_a_later_base_is_ok_whatever_the_earlier_base_holds(tmp_path, root_owner):
+    """`owner/` at the root, with no match in it, does not hide `docs/owner -> ../src/pkg` that holds one."""
+    files = {"docs/AGENTS.md": "Run `owner/*.cfg` and `owner/x*`.\n", "ev/tasks/t/task.json": "{}", "src/pkg/x.cfg": "", root_owner: ""}
+    got = _by_file(scan_repo(_linked_repo(tmp_path / "r", files, {"docs/owner": "../src/pkg"}), _manifest()))
+    assert got[("docs/AGENTS.md", "owner/*.cfg")] == ("ok", "glob docs/owner/*.cfg -> e.g. docs/owner/x.cfg")
+    assert got[("docs/AGENTS.md", "owner/x*")] == ("ok", "glob docs/owner/x* -> e.g. docs/owner/x.cfg")
