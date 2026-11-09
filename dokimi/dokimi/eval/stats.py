@@ -183,11 +183,14 @@ def mean_ci(values, confidence: float = 0.95, seed: int = 0, ndigits: Optional[i
         # bootstrap would report the same thing after 10k pointless resamples.
         return {"mean": _rnd(mu, ndigits), "lo": _rnd(mu, ndigits), "hi": _rnd(mu, ndigits),
                 "n": n, "method": "degenerate"}
-    half = _sp_stats.t.ppf(1.0 - (1.0 - confidence) / 2.0, n - 1) * sd / (n ** 0.5)
+    half = float(_sp_stats.t.ppf(1.0 - (1.0 - confidence) / 2.0, n - 1)) * sd / (n ** 0.5)
+    lo, hi = mu - half, mu + half
+    if math.isfinite(mu) and math.isfinite(sd) and not (math.isfinite(lo) and math.isfinite(hi)):
+        raise OverflowError("the confidence interval of the mean is beyond the float range")
     return {
         "mean": _rnd(mu, ndigits),
-        "lo": _rnd(mu - half, ndigits),
-        "hi": _rnd(mu + half, ndigits),
+        "lo": _rnd(lo, ndigits),
+        "hi": _rnd(hi, ndigits),
         "n": n,
         "method": "student_t",
     }

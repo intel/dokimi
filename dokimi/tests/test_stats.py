@@ -759,3 +759,14 @@ def test_paired_test_at_1e200_matches_the_scaled_down_deltas():
     assert res["p_ttest"] == pytest.approx(ref["p_ttest"], rel=1e-9)
     assert stats._round_p(res["p_ttest"]) == 0.2586
     assert res["p_wilcoxon"] == ref["p_wilcoxon"]
+
+
+def test_mean_ci_raises_when_the_interval_leaves_the_float_range():
+    """A finite sd of 1.27e308 puts the t interval past the largest float: an error, not [-inf, inf]."""
+    pytest.importorskip("scipy")
+    with pytest.raises(OverflowError):
+        stats.mean_ci([9e307, -9e307])
+    with pytest.raises(OverflowError):
+        stats.paired_test([9e307, -9e307], [0.0, 0.0])
+    ci = stats.mean_ci([1e300, -1e300, 1e300], ndigits=None)
+    assert ci["lo"] < 0 < ci["hi"] and ci["hi"] < float("inf")
