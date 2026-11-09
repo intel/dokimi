@@ -37,7 +37,7 @@ models someone would deploy today.
 | probes | 19524 graded probe runs over 10 models and 6 arms |
 | shortening | 462 candidate scorings, 15 candidates × 4 skills |
 | behaviour | 104 generated tasks (66 discriminating); 651 task runs over 31 of them in 4 skills |
-| routing | 891 routing decisions over 2 menu seeds (not 3 seeds; see §6) |
+| routing | 891 routing decisions over 2 menu seeds (not 3 seeds; see §7) |
 
 Four constraints shaped the design, and each was verified rather than assumed:
 
