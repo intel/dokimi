@@ -168,21 +168,27 @@ def _shebang_words(data: bytes) -> Optional[list[str]]:
 
 def _env_command(args: list[str]) -> list[str]:
     """What ``env`` runs: its options (``-u`` and ``-C`` take an operand) and the ``NAME=value`` words before the
-    command are skipped. ``-S`` takes the rest of the line as one string that env splits like a shell does, so its
-    quotes group words; a string that does not split is not a command ``env`` runs, so it gives nothing."""
-    i = 0
-    while i < len(args):
-        if args[i] in ENV_OPERAND_OPTIONS:
-            i += 2
-        elif args[i].startswith(("-S", "--split-string")):
-            head = args[i][2:] if args[i].startswith("-S") else args[i][len("--split-string"):].lstrip("=")
-            text = " ".join(([head] if head else []) + args[i + 1:])
-            return _env_command(_env_split(text) or [])
-        elif args[i].startswith("-") or "=" in args[i]:
-            i += 1
-        else:
-            break
-    return args[i:]
+    command are skipped. ``-S`` takes the rest of the line as one string that env splits as GNU env splits it (see
+    :func:`_env_split`), so its quotes group words; a string that does not split is not a command ``env`` runs, so it
+    gives nothing. A split that holds another ``-S`` is split again, in a loop: a long run of them is no recursion."""
+    while True:
+        i = 0
+        split: Optional[list[str]] = None
+        while i < len(args):
+            if args[i] in ENV_OPERAND_OPTIONS:
+                i += 2
+            elif args[i].startswith(("-S", "--split-string")):
+                head = args[i][2:] if args[i].startswith("-S") else args[i][len("--split-string"):].lstrip("=")
+                text = " ".join(([head] if head else []) + args[i + 1:])
+                split = _env_split(text) or []
+                break
+            elif args[i].startswith("-") or "=" in args[i]:
+                i += 1
+            else:
+                break
+        if split is None:
+            return args[i:]
+        args = split
 
 
 def _env_split(text: str) -> Optional[list[str]]:
@@ -192,59 +198,75 @@ def _env_split(text: str) -> Optional[list[str]]:
     words: list[str] = []
     cur: list[str] = []
     have = False  # the word has started (a quote or an escape counts, even with no text)
-    quote = ""
     i = 0
     while i < len(text):
-        c = text[i]
-        if quote == "'":
-            if c == "'":
-                quote = ""
-            else:
-                cur.append(c)
-        elif quote == '"':
-            if c == '"':
-                quote = ""
-            elif c == "$":
-                return None
-            elif c == "\\" and text[i + 1:i + 2] in ("\\", '"', "$"):
-                cur.append(text[i + 1])
-                i += 1
-            else:
-                cur.append(c)
-        elif c in " \t\n\r\f\v":
+        kind, piece, width = _env_unquoted(text, i, have)
+        if kind == "stop":
+            break
+        if kind == "bad":
+            return None
+        if kind == "sep":
             if have:
                 words.append("".join(cur))
                 cur, have = [], False
-        elif c == "\\":
-            nxt = text[i + 1:i + 2]
-            if nxt == "c":
-                break
-            if nxt == "_":
-                if have:
-                    words.append("".join(cur))
-                cur, have = [], False
-            elif nxt in ENV_S_ESCAPES:
-                cur.append(ENV_S_ESCAPES[nxt])
-                have = True
-            else:
-                return None
-            i += 2
-            continue
-        elif c == "#" and not have:
-            break
-        elif c in "'\"":
-            quote, have = c, True
-        elif c == "$":
-            return None
         else:
-            cur.append(c)
+            cur.append(piece)
             have = True
-        i += 1
-    if quote:
-        return None
+        i += width
     if have:
         words.append("".join(cur))
     return words
+
+
+def _env_unquoted(text: str, i: int, have: bool) -> tuple[str, str, int]:
+    """What env -S reads at ``text[i]`` outside quotes, as (kind, text, width). kind is ``sep`` (a blank or ``\\_``),
+    ``text``, ``stop`` (``\\c``, or a ``#`` that starts a word) or ``bad`` (a ``$``, an unknown escape, an unclosed
+    quote)."""
+    c = text[i]
+    if c == "\\":
+        return _env_escape(text[i + 1:i + 2])
+    if c in " \t\n\r\f\v":
+        return "sep", "", 1
+    if c == "#" and not have:
+        return "stop", "", 0
+    if c in "'\"":
+        got = _env_quoted(text, i)
+        return ("bad", "", 0) if got is None else ("text", got[0], got[1] - i)
+    if c == "$":
+        return "bad", "", 0
+    return "text", c, 1
+
+
+def _env_escape(nxt: str) -> tuple[str, str, int]:
+    """The unquoted escape whose letter is ``nxt``: ``\\c`` stops, ``\\_`` separates, the rest are ENV_S_ESCAPES."""
+    if nxt == "c":
+        return "stop", "", 0
+    if nxt == "_":
+        return "sep", "", 2
+    if nxt in ENV_S_ESCAPES:
+        return "text", ENV_S_ESCAPES[nxt], 2
+    return "bad", "", 0
+
+
+def _env_quoted(text: str, i: int) -> Optional[tuple[str, int]]:
+    """The text of the quoted run that opens at ``text[i]``, and the index just past its closing quote. None when it
+    is unclosed or a double-quoted run holds a ``$``; in double quotes only ``\\\\``, ``\\"`` and ``\\$`` are escapes."""
+    quote = text[i]
+    out: list[str] = []
+    j = i + 1
+    while j < len(text):
+        c = text[j]
+        if c == quote:
+            return "".join(out), j + 1
+        if quote == '"' and c == "$":
+            return None
+        if quote == '"' and c == "\\" and text[j + 1:j + 2] in ("\\", '"', "$"):
+            out.append(text[j + 1])
+            j += 2
+            continue
+        out.append(c)
+        j += 1
+    return None
 
 
 def _spawn(runner: process.Runner, argv: list[str], **kwargs) -> Optional[process.Completed]:
@@ -255,48 +277,62 @@ def _spawn(runner: process.Runner, argv: list[str], **kwargs) -> Optional[proces
         return None
 
 
+def _in_quotes(c: bytes) -> bytes:
+    """A byte inside quotes. A blank or newline there is a word's text, not a separator, so it reads as ``\\x01``:
+    ``echo 'shopt -s extglob'`` has no shopt command in it."""
+    return b"\x01" if c in (b" ", b"\t", b"\n") else c
+
+
 def _unquoted_text(data: bytes) -> bytes:
-    """The script with its comments removed and its quote marks dropped, for the shopt check. A ``#`` that starts a
-    word, outside quotes, begins a comment (``$#`` and ``${x##*/}`` do not); a quoted word is its text, so
-    ``shopt -s 'extglob'`` names extglob and ``echo "a # b"`` has no comment."""
+    """The script with its comments removed, its quote marks dropped and its line continuations joined, for the shopt
+    check. A ``#`` that starts a word, outside quotes, begins a comment (``$#`` and ``${x##*/}`` do not); a quoted
+    word is its text, so ``shopt -s 'extglob'`` names extglob and ``echo "a # b"`` has no comment (see
+    :func:`_in_quotes`)."""
     out = bytearray()
-    quote = b""
     prev = b"\n"  # the byte before, outside quotes: a # after a blank or a separator starts a word
     i = 0
     while i < len(data):
         c = data[i:i + 1]
-        if quote == b"'":
-            if c == b"'":
-                quote = b""
-            else:
-                out += c
-        elif quote == b'"':
-            if c == b'"':
-                quote = b""
-            elif c == b"\\":
-                out += data[i + 1:i + 2]
-                i += 1
-            else:
-                out += c
+        if c in (b"'", b'"'):
+            text, i = _quoted_run(data, i)
+            out += text
+            prev = b"x"
         elif c == b"#" and prev in (b" ", b"\t", b"\r", b"\n", b";", b"&", b"|", b"("):
             end = data.find(b"\n", i)
             if end < 0:
                 break
-            i = end
-            prev = b"\n"
-            continue
-        elif c in (b"'", b'"'):
-            quote, prev = c, b"x"
+            i, prev = end, b"\n"
         elif c == b"\\":
-            out += data[i:i + 2]
-            prev = b"x"
+            if data[i + 1:i + 2] != b"\n":  # a line continuation is joined, as bash joins it: nothing is kept
+                out += data[i:i + 2]
+                prev = b"x"
             i += 2
-            continue
         else:
             out += c
             prev = c
-        i += 1
+            i += 1
     return bytes(out)
+
+
+def _quoted_run(data: bytes, i: int) -> tuple[bytes, int]:
+    """The text of the quoted run that opens at ``data[i]``, and the index just past it (the end of the data when it is
+    unclosed). Blanks in it are text (:func:`_in_quotes`); in double quotes a backslash escapes, and a backslash-newline
+    is removed."""
+    quote = data[i:i + 1]
+    out = bytearray()
+    j = i + 1
+    while j < len(data):
+        c = data[j:j + 1]
+        if c == quote:
+            return bytes(out), j + 1
+        if quote == b'"' and c == b"\\":
+            if data[j + 1:j + 2] != b"\n":
+                out += _in_quotes(data[j + 1:j + 2])
+            j += 2
+        else:
+            out += _in_quotes(c)
+            j += 1
+    return bytes(out), len(data)
 
 
 def _shell_options(data: bytes) -> Optional[list[str]]:
