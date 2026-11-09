@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""eval check / eval tasks generate --from replay / repo tasks authoring / repo run / repo report / repo compare: the
+"""eval check / eval tasks generate --from replay|prs / repo run / repo report / repo compare: the
 repository-mode runner (contract §3, §4, §4.3, §4.5, §4.6, §4.8)."""
 
 from __future__ import annotations
@@ -444,8 +444,6 @@ def _common(p: argparse.ArgumentParser, source_help: str, cache_help: str, posit
 
 
 def register(repo_sub, eval_sub, positive_int, source_help: str, cache_help: str) -> None:
-    tasks_p = repo_sub.add_parser("tasks", help="Authoring tasks built from merged pull requests (no LLM)")
-    tasks_sub = tasks_p.add_subparsers(dest="repo_tasks_cmd", required=True)
     # eval check (#94 M1): the self-check that `repo tasks check` ran, now `eval check`
     check_p = eval_sub.add_parser(
         "check", help="Per task: grade on the untouched workspace must fail the gate, oracle then grade must "
@@ -464,34 +462,6 @@ def register(repo_sub, eval_sub, positive_int, source_help: str, cache_help: str
                          "which no task is ok")
     check_p.add_argument("--out", default="repo-check", help="Work directory (default: repo-check)")
     check_p.set_defaults(func=cmd_repo_tasks_check)
-
-    authoring_p = tasks_sub.add_parser(
-        "authoring", help="Write one dokimi:hidden_tests task per merged pull request of a file `gh api graphql` "
-        "wrote: the PR's description as the prompt, its test files hidden until grading, the rest of its diff as "
-        "the oracle. No LLM and no GitHub call. Exits 1 when no pull request gave a task, and on an error that is "
-        "not one pull request's own (the PR file, the source, the manifest, the prompt file, writing a task)")
-    authoring_p.add_argument("source", help=source_help)
-    authoring_p.add_argument("--prs", required=True,
-                             help="JSON holding the merged pull requests, as the query in the contract (§4.8) "
-                             "returns them; pages of --paginate --slurp are read too")
-    authoring_p.add_argument("--out", required=True,
-                             help="Directory that gets one authoring_pr<number>/ per pull request, usually the "
-                             "manifest's `tasks`")
-    authoring_p.add_argument("--manifest", default=".agent-eval/repo-eval.yaml",
-                             help="Manifest path relative to the repository root: its guidance globs and eval_dir "
-                             "are left out of every task")
-    authoring_p.add_argument("--manifest-file", default=None, dest="manifest_file",
-                             help="Read the manifest from this local file instead of from the tree")
-    authoring_p.add_argument("--max-lines", type=positive_int, default=400, dest="max_lines",
-                             help="Skip a pull request whose diff outside its tests and the left-out files adds and "
-                             "removes more lines than this (default 400)")
-    authoring_p.add_argument("--prompt-file", default=None, dest="prompt_file",
-                             help="The instruction after the PR's title and description (default: implement the "
-                             "change; its tests are hidden)")
-    authoring_p.add_argument("--force", action="store_true",
-                             help="Rewrite a task directory that has a task.json (default: keep it and its edits)")
-    authoring_p.add_argument("--cache-dir", default=None, dest="cache_dir", help=cache_help)
-    authoring_p.set_defaults(func=cmd_repo_tasks_authoring)
 
     run_p = repo_sub.add_parser(
         "run", help="Run an agent per (task, arm, model, rep) in the image and grade each run; one "
