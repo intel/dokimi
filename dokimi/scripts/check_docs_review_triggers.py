@@ -48,8 +48,14 @@ DOCS = "dokimi/docs"
 _FRONT_MATTER = re.compile(r"\A\ufeff?---[ \t]*\r?\n(.*?\n)---[ \t]*(?:\r?\n|$)", re.DOTALL)
 
 
-def _git(*args: str) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(["git", *args], cwd=REPO, capture_output=True, text=True, check=False)
+def _git_z(*args: str) -> list[str]:
+    """The NUL-separated fields of a ``-z`` listing, each read with ``os.fsdecode``: a path
+    holding a CR or a byte that is not UTF-8 comes back as the name of the file."""
+    result = subprocess.run(["git", *args], cwd=REPO, capture_output=True, check=False)
+    if result.returncode:
+        raise subprocess.CalledProcessError(result.returncode, result.args,
+                                            stderr=result.stderr.decode("utf-8", errors="replace"))
+    return [os.fsdecode(field) for field in result.stdout.split(b"\0")]
 
 
 def glob_regex(pattern: str) -> re.Pattern[str]:
@@ -127,9 +133,7 @@ def stale_globs(pages: dict[str, list[str]], files: list[str]) -> list[str]:
 
 def changed_files(base: str, head: str) -> list[str]:
     """Paths changed in ``base...head``; ``--no-renames`` keeps a moved file's old path."""
-    result = _git("diff", "-z", "--no-renames", "--name-only", f"{base}...{head}")
-    result.check_returncode()
-    return [p for p in result.stdout.split("\0") if p]
+    return [p for p in _git_z("diff", "-z", "--no-renames", "--name-only", f"{base}...{head}") if p]
 
 
 def summary(flagged: dict[str, list[str]]) -> str:

@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import argparse
 import io
+import os
 import re
 import subprocess
 import sys
@@ -48,6 +49,16 @@ _HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@", re.MULTILINE)
 def _git(*args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(["git", *args], cwd=REPO, capture_output=True, text=True,
                           encoding="utf-8", errors="replace", check=False)
+
+
+def _git_z(*args: str) -> list[str]:
+    """The NUL-separated fields of a ``-z`` listing, each read with ``os.fsdecode``: a path
+    holding a CR or a byte that is not UTF-8 comes back as the name of the file."""
+    result = subprocess.run(["git", *args], cwd=REPO, capture_output=True, check=False)
+    if result.returncode:
+        raise subprocess.CalledProcessError(result.returncode, result.args,
+                                            stderr=result.stderr.decode("utf-8", errors="replace"))
+    return [os.fsdecode(field) for field in result.stdout.split(b"\0")]
 
 
 def checked(path: str) -> bool:
@@ -106,9 +117,9 @@ def long_blocks(text: str, path: str, changed: set[int]) -> list[tuple[int, int,
 
 def changed_paths(base: str, head: str) -> list[tuple[str, ...]]:
     """(path at head, path at base if renamed) of each file ``base...head`` adds or changes."""
-    result = _git("diff", "-z", "-M", "--name-status", "--diff-filter=AMR", f"{base}...{head}")
-    result.check_returncode()
-    fields, paths, i = result.stdout.split("\0")[:-1], [], 0
+    listing = _git_z("diff", "-z", "-M", "--name-status", "--diff-filter=AMR", f"{base}...{head}")
+    fields, i = listing[:-1], 0
+    paths: list[tuple[str, ...]] = []
     while i < len(fields):
         if fields[i].startswith("R"):
             paths.append((fields[i + 2], fields[i + 1]))

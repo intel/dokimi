@@ -6,7 +6,9 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import subprocess
+import sys
 import tomllib
 import types
 from pathlib import Path
@@ -144,6 +146,15 @@ def test_a_non_ascii_package_path_is_not_quoted(repo):
     _git(repo, "add", "-A")
     _git(repo, "commit", "-qm", "accent")
     assert ccf.changed_files("main", "pr") == [("A", "dokimi/dokimi/café.yaml")]
+
+
+@pytest.mark.skipif(sys.platform in ("win32", "darwin"), reason="a CR or a 0xff byte in a file name")
+def test_a_path_with_a_cr_or_a_non_utf8_byte_comes_back_as_its_name(repo):
+    for name in (b"a\rb.py", b"r\xff.py"):
+        (repo / os.fsdecode(name)).write_text("x\n", encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "odd names")
+    assert ccf.changed_files("main", "pr") == [("A", "a\rb.py"), ("A", os.fsdecode(b"r\xff.py"))]
 
 
 @pytest.mark.parametrize("edit, needed", [

@@ -6,7 +6,9 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -152,6 +154,19 @@ def test_changed_files_ignores_what_the_base_gained_after_branching(tmp_path, mo
     _commit(tmp_path, "main advances")
     monkeypatch.setattr(cdrt, "REPO", tmp_path)
     assert cdrt.changed_files("main", "pr") == ["mine.py"]
+
+
+@pytest.mark.skipif(sys.platform in ("win32", "darwin"), reason="a CR or a 0xff byte in a file name")
+def test_changed_files_keeps_a_cr_and_a_non_utf8_byte_in_a_path(tmp_path, monkeypatch):
+    _git_repo(tmp_path)
+    (tmp_path / "base.py").write_text("x", encoding="utf-8")
+    _commit(tmp_path, "base")
+    subprocess.run(["git", "tag", "base"], cwd=tmp_path, check=True)
+    for name in (b"a\rb.py", b"r\xff.py"):
+        (tmp_path / os.fsdecode(name)).write_text("x", encoding="utf-8")
+    _commit(tmp_path, "odd names")
+    monkeypatch.setattr(cdrt, "REPO", tmp_path)
+    assert cdrt.changed_files("base", "HEAD") == ["a\rb.py", os.fsdecode(b"r\xff.py")]
 
 
 def test_main_exits_2_for_a_base_git_cannot_diff(tmp_path, monkeypatch, capsys):

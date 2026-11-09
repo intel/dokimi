@@ -22,6 +22,7 @@ gate, for changes with no user-visible effect.
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import subprocess
 import sys
@@ -47,18 +48,26 @@ def _git(*args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(["git", *args], cwd=REPO, capture_output=True, text=True, check=False)
 
 
+def _git_z(*args: str) -> list[str]:
+    """The NUL-separated fields of a ``-z`` listing, each read with ``os.fsdecode``: a path
+    holding a CR or a byte that is not UTF-8 comes back as the name of the file."""
+    result = subprocess.run(["git", *args], cwd=REPO, capture_output=True, check=False)
+    if result.returncode:
+        raise subprocess.CalledProcessError(result.returncode, result.args,
+                                            stderr=result.stderr.decode("utf-8", errors="replace"))
+    return [os.fsdecode(field) for field in result.stdout.split(b"\0")]
+
+
 def changed_files(base: str, head: str) -> list[tuple[str, str]]:
     """(status, path) pairs from ``base...head``, deletions included.
 
     ``--no-renames``: a file moved out of the package shows as a deletion of its
     package path, which is a user-visible change like any other.
     """
-    result = _git("diff", "-z", "--no-renames", "--name-status", "--diff-filter=ACDM",
-                  f"{base}...{head}")
-    result.check_returncode()
     # -z: status NUL path NUL ..., and a non-ASCII path comes back as itself,
     # not quoted as "caf\303\251".
-    fields = result.stdout.split("\0")
+    fields = _git_z("diff", "-z", "--no-renames", "--name-status", "--diff-filter=ACDM",
+                    f"{base}...{head}")
     return list(zip(fields[0:-1:2], fields[1::2], strict=True))
 
 

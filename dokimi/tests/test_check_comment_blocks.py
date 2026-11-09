@@ -6,7 +6,9 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -120,6 +122,20 @@ def test_main_passes_an_untouched_long_block_and_a_renamed_file(tmp_path, monkey
     _commit(tmp_path, "move and append")
     monkeypatch.setattr(ccb, "REPO", tmp_path)
     assert ccb.findings("base", "HEAD") == []
+
+
+@pytest.mark.skipif(sys.platform in ("win32", "darwin"), reason="a CR or a 0xff byte in a file name")
+def test_a_path_with_a_cr_or_a_non_utf8_byte_is_read(tmp_path, monkeypatch):
+    _git_repo(tmp_path)
+    (tmp_path / "f.py").write_text("x = 1\n", encoding="utf-8")
+    _commit(tmp_path, "base", tag="base")
+    names = ["a\rb.py", os.fsdecode(b"r\xff.py")]
+    for name in names:
+        (tmp_path / name).write_text(LONG, encoding="utf-8")
+    _commit(tmp_path, "odd names")
+    monkeypatch.setattr(ccb, "REPO", tmp_path)
+    assert ccb.changed_paths("base", "HEAD") == [(name,) for name in names]
+    assert ccb.findings("base", "HEAD") == [(name, 1, 3, 3) for name in names]
 
 
 def test_main_exits_2_for_a_base_git_cannot_diff(tmp_path, monkeypatch, capsys):
