@@ -269,18 +269,18 @@ def _ask_once(client, prompt: str, base: dict, order: list[int], candidates: lis
               gold: int) -> tuple[dict | None, str | None]:
     """One call of the routing loop: its row, and the cap's message when the cap stops the run.
 
-    A call the cap refused before it was made has no row. A call whose price is unknown was paid
-    for, so its reply is scored, and the caller stops after it.
+    A call the cap refused has no row; one with no price was paid for, so its reply is scored (a cut one as a decline) and the caller stops.
     """
     try:
         reply = client.text(prompt, accept=partial(_is_pick_reply, n_cards=len(order)),
                             draw=base["repeat"])
-    except SpendCapReached as exc:
+    except (SpendCapReached, OutputTruncated) as exc:
+        stop = str(exc) if isinstance(exc, SpendCapReached) else None
         if exc.reply is None:
-            return None, str(exc)
-        return _pick_row(base, exc.reply, order, candidates, gold), str(exc)
-    except OutputTruncated as cut:  # cut at the ceiling: a decline, as unparseable is
-        return {**base, "picked": None, "abstained": True, "raw_reply": cut.reply}, None
+            return None, stop
+        if isinstance(exc, OutputTruncated) or exc.truncated:  # cut at the ceiling: a decline, as unparseable is
+            return {**base, "picked": None, "abstained": True, "raw_reply": exc.reply[:_RAW_REPLY_CHARS]}, stop
+        return _pick_row(base, exc.reply, order, candidates, gold), stop
     except Exception as exc:  # noqa: BLE001 - one failed query must not lose the rest
         return {**base, "picked": None, "error": str(exc)[:200] or type(exc).__name__}, None
     return _pick_row(base, reply, order, candidates, gold), None

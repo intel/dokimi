@@ -83,6 +83,7 @@ from dokimi.skills import Skill
 from dokimi.utils import describe_yaml_error, parse_frontmatter_strict
 
 from .catalog import SkillCatalogEntry, _within
+from .command_checks import command_findings
 from .content_checks import content_findings
 from .listing import in_field
 from .paths import _exists, _in_checkout, _inside, _resolved
@@ -155,6 +156,7 @@ FINDING_CODES = (
     "frontmatter-parse",
     "frontmatter-unknown-key",
     "hidden-unicode",
+    "install-unpinned",
     "legacy-model-id",
     "link-escapes-skill",
     "link-missing",
@@ -166,6 +168,8 @@ FINDING_CODES = (
     "not-loaded",
     "path-escapes-skill",
     "unreadable",
+    "permission-bypass-flag",
+    "pipe-to-shell",
 )
 
 
@@ -694,6 +698,10 @@ def review_skills(
             review = SkillReview(findings=findings, disable_model_invocation=hidden)
             review.findings += _bundle_findings(skill, entry.source_root)
             review.findings += _body_findings(skill)
+            review.findings += [
+                Finding("warn", code, message)
+                for code, message in command_findings(skill.path, at_root=at_root and not standalone)
+            ]
             review.findings += [
                 Finding("warn", code, message)
                 for code, message in content_findings(skill, at_root=at_root and not standalone)

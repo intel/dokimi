@@ -1,0 +1,4 @@
+### Fixed
+
+- **`catalog eval` no longer stamps an unrelated repository's commit** — a ROOT that git reaches only by walking up to an enclosing repository that does not track it (a skills folder under a git-tracked `$HOME`) now records `source: {"commit": null, "dirty": null}` instead of that repository's HEAD marked dirty, so its receipt cannot name a commit of the wrong repo. With `--changed-from`, such a ROOT checks every skill. A ROOT at the top of a repository or with tracked files under it is unchanged. No action is needed.
+- **No scipy load at start-up** — `dokimi.eval.stats` imports scipy only when a hypothesis test runs. Loading it starts one OpenBLAS thread per core, so every command, `--help` included, spent ~18 CPU-seconds on a 224-core box; `catalog eval --tier static` now takes ~0.5 CPU-seconds. No action is needed.
