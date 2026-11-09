@@ -5,7 +5,8 @@
 
 Steps (each resumable; LLM calls cached in OUT/cache, never in the study cache):
   sample  -> OUT/sample.jsonl   (all arms for sampled (probe, model) cells + orig luna verdict)
-  repeat  -> OUT/repeats.jsonl  (fresh no_skill answer, cache bypassed: the noise-floor arm)
+  repeat  -> OUT/repeats.jsonl  (fresh no_skill answer, cache bypassed: the noise-floor arm;
+             saved repeats are kept, only missing cells are called)
   grade   -> OUT/grades.jsonl   (one row per (row_key, judge))
 """
 
@@ -108,8 +109,19 @@ def do_sample(per_model: int):
 
 
 def do_repeat(workers: int):
-    rows = [json.loads(l) for l in (OUT / "sample.jsonl").open()]
+    with (OUT / "sample.jsonl").open() as fh:
+        rows = [json.loads(l) for l in fh]
     base = [r for r in rows if r["arm"] == "no_skill"]
+    path = OUT / "repeats.jsonl"
+    # Keep the repeats already saved and call only the missing cells (a new one, or one that
+    # failed). A saved answer is never replaced: its verdicts in grades.jsonl are keyed by
+    # probe|arm|model, which does not change with the answer.
+    kept = []
+    if path.exists():
+        with path.open() as fh:
+            kept = [json.loads(l) for l in fh]
+    have = {(r["probe_id"], r["model"]) for r in kept}
+    todo = [r for r in base if (r["probe_id"], r["model"]) not in have]
 
     def run(r):
         rec = llm.chat(
@@ -129,11 +141,11 @@ def do_repeat(workers: int):
             "grader2": None,
         }
 
-    res = llm.pmap(run, base, workers=workers, desc="repeats")
+    res = llm.pmap(run, todo, workers=workers, desc="repeats")
     ok = [x for x in res if isinstance(x, dict)]
-    print("repeat ok", len(ok), "failed", len(res) - len(ok))
-    with (OUT / "repeats.jsonl").open("w") as fh:
-        for r in ok:
+    print("repeat ok", len(ok), "failed", len(res) - len(ok), "kept", len(kept))
+    with path.open("w") as fh:
+        for r in kept + ok:
             fh.write(json.dumps(r) + "\n")
 
 
