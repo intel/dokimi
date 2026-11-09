@@ -19,7 +19,8 @@ seven more judges from seven model families. It asks four questions:
 
 Short answer: judge choice moves the lenient added share by up to 0.23 for one answer model.
 The original judge is the most lenient of the eight, so the published lenient added shares sit
-at the low end of the panel. The ranking of answer models does not change. Majority, median
+at the low end of the panel. Nemotron-12b is first and opus-5 last under every judge (placebo-gated, lenient); the middle
+ranks change. Majority, median
 and Dawid-Skene agree on 99.3% of rows. Three judges from three families get most
 of the stability of seven. A newer generation of the same judge (section 6) is about as
 different as another vendor: κ 0.61–0.72, and up to 0.15 on one added share.
@@ -111,8 +112,10 @@ What changes and what does not:
 - **Grok-4.6 answers are judge-proof.** Gated added is 0.32–0.37 under every judge. Its
   answers are the most clear-cut: only 11% of the rows lack unanimity, against 20–35% for
   the other answer models.
-- **The ranking of answer models is stable.** Under every one of the eight judges, lenient
-  gated added puts nemotron-12b first and opus-5 last. On strict, six of eight put
+- **Only the two ends of the ranking are stable.** Under every one of the eight judges, lenient
+  gated added puts nemotron-12b first and opus-5 last. The middle ranks change: the original
+  judge puts grok-4.6 (0.34) above haiku-4.5 (0.10), and glm-5 reverses them (0.32 against 0.33).
+  On strict, six of eight put
   nemotron-12b first and grok-4.6 second. gpt-6-luna swaps the two, and grok-4.6 ranks its
   own answers first and haiku-4.5 second. All eight put opus-5 or GPT-5.6 last. Statements of the form "the skill adds more for a weaker model"
   survive any choice of judge. A single number such as "13% added for opus" does not.
