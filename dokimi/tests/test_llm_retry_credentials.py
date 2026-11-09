@@ -7,8 +7,8 @@ litellm raises a missing key under a transient-looking class (``InternalServerEr
 OpenAI, ``APIError`` for Azure, ``APIConnectionError`` for Gemini and Vertex, a missing project
 or google-auth too), so it used to be retried three times, 2 + 4 + 8 s of backoff before the
 same error. The OpenAI, Azure and Gemini cases run the production adapter: the client refuses
-before it sends anything. The rest are the
-messages litellm, openai and google-auth raise, on the class litellm wraps them in.
+before it sends anything. The rest are the messages litellm, openai and google-auth raise,
+on the class litellm wraps them in.
 """
 
 import os
