@@ -44,7 +44,7 @@ def test_every_subcommand_is_registered():
         args = _parse(*novelty_argv(sub), *(
             ["--artifact", "skill:x"] if sub != "view" else ["--novelty", "n.json"]
         ), *(["--atoms", "a.json"] if sub in ("probe", "shorten", "view") else []))
-        # The command that runs is the subcommand's own handler (`_stops_at_cap` wraps it).
+        # The command that runs is the subcommand's own handler (`stops_at_cap` wraps it).
         assert inspect.unwrap(args.func) is handler
 
 

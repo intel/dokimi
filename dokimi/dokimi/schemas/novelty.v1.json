@@ -244,7 +244,16 @@
       "properties": {
         "reversal_resisted": {
           "type": ["number", "null"],
-          "description": "Fraction of planted-inversion probes refused. Lower is worse, and it got worse with model strength in the study."
+          "description": "Fraction of planted-inversion probes the with-artifact arm refused. Lower is worse, and it got worse with model strength in the study."
+        },
+        "reversal_resisted_by_arm": {
+          "type": "object",
+          "additionalProperties": {"type": ["number", "null"]},
+          "description": "reversal_resisted for the baseline and the with-artifact arm."
+        },
+        "reversal_paired": {
+          "type": ["object", "null"],
+          "description": "Reversal resistance paired by probe: resisted_only_with, resisted_only_without, resisted_both, resisted_neither, n_paired, and difference (with minus without, over n_paired). Null when no probe has both arms."
         },
         "abstentions": {
           "type": "object",
@@ -498,6 +507,14 @@
     "warnings": {
       "type": "array",
       "items": {"type": "string"}
+    },
+    "provenance": {
+      "type": "object",
+      "description": "What produced the numbers: dokimi_version, git_commit (null outside a checkout), artifact_digest, prompts_sha256, answerer_model, judge_model, context_framing, and the vendors read off the model ids (answerer_vendor, judge_vendor, same_vendor)."
+    },
+    "judge2": {
+      "type": "object",
+      "description": "With --judge2: a seeded --judge2-frac subset of the graded runs regraded by a second judge; lenient_agreement, kappa_lenient, exact_agreement over n_compared, and that judge's cost."
     }
   },
   "$defs": {

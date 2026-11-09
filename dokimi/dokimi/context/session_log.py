@@ -25,6 +25,8 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
+from dokimi.utils import InputError, refuse_device
+
 # Input keys whose value is file content or a model-facing brief, not the agent's intent: left out of an event's text.
 _CONTENT_KEYS = frozenset({"old_string", "new_string", "content", "new_source", "edits",
                            "file_text", "old_str", "new_str"})  # the last three: Goose's editor tools
@@ -68,7 +70,10 @@ class Session:
 
 def read_session(path: Path) -> Session:
     try:
+        refuse_device(path)
         raw = path.read_text(encoding="utf-8-sig", errors="replace")
+    except InputError as exc:
+        raise SessionError(str(exc)) from exc
     except OSError as exc:
         raise SessionError(f"cannot read {path}: {exc}") from exc
     session = parse_session(raw, str(path))

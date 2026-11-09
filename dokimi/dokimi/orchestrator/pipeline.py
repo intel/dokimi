@@ -13,7 +13,7 @@ from dokimi.defaults import (ANSWERING_METHOD_VERSION, DEFAULT_ANSWER_MODEL, DEF
                              answers_method_version as answers_method_version_of)
 from dokimi.eval.stats import paired_summary
 from dokimi.mcp.factory import create_doc_source_client, resolve_library_id_for_product
-from dokimi.utils import same_evaluator
+from dokimi.utils import refuse_device, same_evaluator
 
 logger = logging.getLogger(__name__)
 
@@ -171,6 +171,7 @@ class EvaluationPipeline:
                 raise FileNotFoundError(
                     f"--custom-questions path does not exist: {_custom_path}"
                 )
+            refuse_device(_custom_path, "--custom-questions")
             self.custom_questions_path: Optional[Path] = _custom_path
         elif questions_from is None and self.questions_root is not None:
             _auto_golden = self.questions_root / f"{self.product_key.lower()}_golden.json"
@@ -222,6 +223,7 @@ class EvaluationPipeline:
                 raise FileNotFoundError(
                     f"--questions-from: questions file not found: {qf}"
                 )
+            refuse_device(qf, "--questions-from")
             self.external_questions_path: Optional[Path] = qf
             logger.info(f"Will reuse questions from: {qf}")
         else:
@@ -545,6 +547,7 @@ class EvaluationPipeline:
         path = self.custom_questions_path
         if not (path and path.exists()):
             return []
+        refuse_device(path, "--custom-questions")
         custom_questions = load_questions_payload(path)
         output = getattr(self, "questions_path", None)
         own_output = output is not None and Path(path).resolve() == Path(output).resolve()
