@@ -306,8 +306,9 @@ agreement`, `JudgePanel` / `_aggregate`, `cross_judge.label`, and `same_evaluato
 
 **CLI**
 
-```bash
-python cli.py arms run ... \
+```text
+# proposed, not implemented: the flags of `python cli.py arms run`
+arms run ... \
   --judges anthropic/claude-sonnet-5-5,openai/gpt-6-luna,bedrock/kimi-k3 \
   --aggregate majority            # majority | median | mean | unanimous | any | dawid-skene
   --judge-family-policy refuse    # refuse | warn | allow  (judge vs answer model, and judge vs judge)
