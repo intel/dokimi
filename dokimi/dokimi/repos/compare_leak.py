@@ -211,18 +211,19 @@ def _by_date(rev: dict[str, Any], spec: dict[str, Any]) -> _State:
     if hits:
         _, path, commit, via = max(hits, key=lambda h: (h[0], h[1]))
         return ("flag", {"path": path, "sha": commit.get("sha"), "committed": commit["committed"],
-                         "public_at": spec["public_at"], "scoped": files is not None, **({"via": via} if via else {})})
+                         "public_at": spec["public_at"], "scoped": files is not None, **({"via": via} if via is not None else {})})
     return ("unknown", f"guidance_latest has no committed date for {undated[0]}") if undated else _CLEAN
 
 
 def _after(latest: dict[str, Any], files: list[str] | None, imported: dict[str, list[str]],
-           public: datetime) -> tuple[list[tuple[datetime, str, dict[str, Any], str]], list[str]]:
-    """The applicable ``guidance_latest`` commits committed after ``public`` (with what made each apply), and the
-    applicable paths whose commit has no date."""
+           public: datetime) -> tuple[list[tuple[datetime, str, dict[str, Any], str | None]], list[str]]:
+    """The applicable ``guidance_latest`` commits committed after ``public`` (with the importer that made each
+    apply, ``None`` for one that applies on its own), and the applicable paths whose commit has no date."""
     hits, undated = [], []
     for path, commit in sorted(latest.items()):
-        via = _applies_via(path, files, imported.get(path, []))
-        if via is None:
+        own = applies(path, files)
+        via = None if own else _importer(imported.get(path, []), files)
+        if not own and via is None:
             continue
         when = _when(commit.get("committed")) if isinstance(commit, dict) else None
         if when is None:
@@ -237,11 +238,9 @@ def _path_lists(value: Any) -> bool:
                                            for v in value.values())
 
 
-def _applies_via(path: str, patch_files: list[str] | None, importers: list[str]) -> str | None:
-    """``""`` when the guidance file at ``path`` applies to the task on its own (:func:`applies`), else the first of
-    ``importers`` (the files whose ``@`` import chains reach it) that applies, else ``None``: it does not apply."""
-    if applies(path, patch_files):
-        return ""
+def _importer(importers: list[str], patch_files: list[str] | None) -> str | None:
+    """The first of ``importers`` (the files whose ``@`` import chains reach a guidance file) that applies to a task
+    patching ``patch_files`` (:func:`applies`), or ``None``."""
     return next((f for f in importers if applies(f, patch_files)), None)
 
 
