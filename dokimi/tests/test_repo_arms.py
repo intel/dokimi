@@ -423,26 +423,32 @@ def test_patch_arm_names_an_unknown_home_user_as_a_prep_error(tmp_path):
         parse_arm("patch:~nosuchuser-dokimi-test/x.diff")
 
 
-NOT_UTF8 = os.fsdecode(b"r\xff")  # a directory name git and the file system keep as bytes
 not_utf8 = pytest.mark.skipif(sys.platform in ("win32", "darwin"), reason="the file system takes only UTF-8 names")
 
 
+@pytest.fixture
+def not_utf8_dir() -> str:
+    """A directory name git and the file system keep as bytes. Decoded here, not at import: Windows decodes a file name
+    strictly, and a decode at import would stop the collection of the whole module before ``not_utf8`` skips."""
+    return os.fsdecode(b"r\xff")
+
+
 @not_utf8
-def test_patch_arm_records_a_file_whose_path_is_not_utf8(toy):
+def test_patch_arm_records_a_file_whose_path_is_not_utf8(toy, not_utf8_dir):
     patch = toy["tmp"] / "bytes.diff"  # git quotes the name in a diff header, a byte in octal: "b/r\377/notes.md"
     patch.write_text('diff --git "a/r\\377/notes.md" "b/r\\377/notes.md"\nnew file mode 100644\n'
                      '--- /dev/null\n+++ "b/r\\377/notes.md"\n@@ -0,0 +1 @@\n+notes\n')
     meta, ws = _prep(toy, f"patch:{patch}")
-    assert (ws / NOT_UTF8 / "notes.md").read_text(encoding="utf-8") == "notes\n"
-    assert meta["arm_files"] == meta["arm_patch"]["added"] == [f"{NOT_UTF8}/notes.md"]
+    assert (ws / not_utf8_dir / "notes.md").read_text(encoding="utf-8") == "notes\n"
+    assert meta["arm_files"] == meta["arm_patch"]["added"] == [f"{not_utf8_dir}/notes.md"]
 
 
 @not_utf8
-def test_rev_arm_installs_a_guidance_file_whose_path_is_not_utf8(toy):
-    _link_commit(toy, "bytes", {}, {f"{NOT_UTF8}/AGENTS.md": "# bytes\n"})
+def test_rev_arm_installs_a_guidance_file_whose_path_is_not_utf8(toy, not_utf8_dir):
+    _link_commit(toy, "bytes", {}, {f"{not_utf8_dir}/AGENTS.md": "# bytes\n"})
     meta, ws = _prep(toy, "guidance:rev:bytes")
-    assert (ws / NOT_UTF8 / "AGENTS.md").read_text(encoding="utf-8") == "# bytes\n"
-    assert f"{NOT_UTF8}/AGENTS.md" in meta["arm_files"]
+    assert (ws / not_utf8_dir / "AGENTS.md").read_text(encoding="utf-8") == "# bytes\n"
+    assert f"{not_utf8_dir}/AGENTS.md" in meta["arm_files"]
 
 
 @pytest.mark.skipif(os.name == "nt", reason="symbolic links")
