@@ -210,10 +210,8 @@ class RagasEvaluator:
             if self.provider in chat:
                 lc_llm = chat[self.provider](model=self.llm_model, api_key=_key(self.provider, self.api_key))
             else:
-                # RAGAS 0.2 needs a LangChain chat model, built here for openai and
-                # anthropic only. Any other provider (google/vertex/openrouter/bedrock)
-                # falls back to the default judge, so the scores still come from a
-                # model of a different family than the default answerer.
+                # ragas 0.3 needs a LangChain chat model, built here for openai and anthropic only;
+                # the default judge stays of another family than the default answerer.
                 logger.warning(
                     "RAGAS LLM: provider '%s' not directly supported; "
                     "falling back to %s/%s for judging.",
