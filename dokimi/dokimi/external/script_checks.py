@@ -29,7 +29,7 @@ ScriptFinding = tuple[str, str, str]  # (level, code, message), as ``validate.Fi
 Which = Callable[[str], Optional[str]]
 
 MAX_BYTES = 1_000_000  # a larger file is not read
-SHEBANG_BYTES = 256  # a #! line is read to this many bytes, as the kernel reads it; the rest is never judged
+SHEBANG_BYTES = 255  # a #! line is read to this many bytes, as Linux reads it (its buffer keeps one byte for a nul)
 SYNTAX_TIMEOUT_SEC = 10.0
 LINT_TIMEOUT_SEC = 60.0
 RUFF_SELECT = "S,E9,F63,F7,F82"
@@ -38,7 +38,7 @@ SCRIPT_SUFFIXES = (*SHELL_SUFFIXES, ".py")
 BASH_FAMILY = frozenset({"bash", "sh", "dash", "ksh"})  # the shebang names bash -n can judge
 ENV_OPERAND_OPTIONS = frozenset({"-u", "--unset", "-C", "--chdir"})  # env options with an operand
 PARSE_SHOPTS = frozenset({"extglob"})  # bash -O options that change how a script parses; bash -n is given them
-SHOPT_EXTGLOB = re.compile(rb"(?m)(?:^|[;&|({!]|\b(?:then|do|else|elif|if|while|until|builtin|command|exec))[ \t]*shopt[ \t]+(?:-[a-zA-Z]+[ \t]+)*-[a-zA-Z]*s[a-zA-Z]*(?:[ \t]+[^\s;&|]+)*?[ \t]+extglob\b")  # shopt -s ... extglob, on one line
+SHOPT_EXTGLOB = re.compile(rb"(?m)(?:^|[;&|({!)])[ \t]*(?:(?:then|do|else|elif|if|while|until|builtin|command|exec|time|coproc)[ \t]+)*shopt[ \t]+(?:-[a-zA-Z]+[ \t]+)*-[a-zA-Z]*s[a-zA-Z]*(?:[ \t]+[^\s;&|]+)*?[ \t]+extglob\b")  # shopt -s ... extglob, on one line
 # Escapes env -S reads outside quotes (\_ separates words and \c ends the string: see _env_split).
 ENV_S_ESCAPES = {"_": " ", "#": "#", "\\": "\\", "'": "'", '"': '"', "$": "$", "n": "\n", "t": "\t", "r": "\r",
                  "f": "\f", "v": "\v"}

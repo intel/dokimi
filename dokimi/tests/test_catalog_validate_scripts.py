@@ -475,6 +475,36 @@ def test_a_shebang_past_the_bytes_the_kernel_reads_is_not_judged_as_bash(tmp_pat
     assert runner.calls == []
 
 
+def test_a_shebang_word_that_ends_at_byte_256_is_cut_as_the_kernel_cuts_it(tmp_path):
+    shebang = b"#!/usr/bin/env -S " + b"-i " * 78 + b"bash\n"
+    assert shebang.index(b"\n") == 256  # bash ends at byte 256: a kernel that reads 255 bytes cuts it to bas
+    skill = _bundle(tmp_path, {"run.sh": shebang + b"if true; then\n"})
+    runner = process.FakeRunner(lambda call: process.reply(stderr="syntax error\n", returncode=2))
+
+    assert script_findings(skill, which=_tools("bash"), runner=runner) == []
+    assert runner.calls == []
+
+
+@needs_bash
+def test_a_shopt_extglob_in_a_case_arm_is_valid_under_real_bash(tmp_path, no_linters):
+    _bundle(tmp_path, {"run.sh": b"#!/bin/bash\ncase x in\n  *) shopt -s extglob ;;\nesac\n"
+                               b"case x in +(a|b)) : ;; esac\n"})
+
+    assert _reviews_by_name(tmp_path)["bundled"].findings == []
+
+
+@needs_bash
+def test_an_echo_of_then_shopt_extglob_is_not_given_to_bash_n(tmp_path, no_linters):
+    _bundle(tmp_path, {"run.sh": b"#!/bin/bash\necho then shopt -s extglob\nf+() { :; }\n"})
+
+    assert _reviews_by_name(tmp_path)["bundled"].findings == []
+
+
+def test_env_command_loops_over_a_long_chain_of_env_s():
+    # the split of one -S can hold another -S: a chain this long was a RecursionError when the parse recursed
+    assert script_checks._env_command(["-S"] * 1500 + ["bash"]) == ["bash"]
+
+
 def test_a_comment_mentioning_extglob_does_not_hide_an_extglob_error(tmp_path):
     skill = _bundle(tmp_path, {"run.sh": b"#!/bin/bash\n# TODO extglob\ncase x in +(a|b)) : ;; esac\n"})
     runner = process.FakeRunner(lambda call: process.reply(stderr="run.sh: line 3: syntax error\n", returncode=2))
