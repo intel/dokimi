@@ -193,7 +193,7 @@ def _task_checks(root: Path) -> list[tuple[str, str, str]]:
             text, tree = _parse(path)
             pool = shared + _pool(text, tree)
             for node in tree.body:
-                if _is_test(node):
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and _is_test(node):
                     source = _source(text, node) or node.name
                     out.append((task_dir.name, node.name, "\n\n".join([*_context(pool, node), source])))
     return out
