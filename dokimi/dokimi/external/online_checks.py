@@ -339,7 +339,7 @@ def _clean_url(raw: str, literal: bool = False) -> Optional[str]:
             brackets -= 1
     url = raw[:end]
     if literal:
-        return url or None
+        return _ESCAPE_RE.sub(r"\1", url) or None
     url = url.rstrip(".,;:!?*")
     return url or None
 

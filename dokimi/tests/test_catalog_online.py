@@ -274,6 +274,13 @@ def test_destination_and_autolink_keep_their_trailing_punctuation_and_prose_urls
     assert online_checks.extract_urls("See https://docs.acme.dev/reference.") == ["https://docs.acme.dev/reference"]
 
 
+def test_markdown_destination_and_reference_definition_decode_backslash_escapes():
+    assert online_checks.extract_urls("[docs](https://docs.example-tool.dev/guide\\_notes)") == [
+        "https://docs.example-tool.dev/guide_notes"]
+    assert online_checks.extract_urls("[guide]: https://docs.example-tool.dev/guide\\_notes") == [
+        "https://docs.example-tool.dev/guide_notes"]
+
+
 def test_balanced_brackets_and_underscores_are_part_of_the_url():
     assert online_checks.extract_urls("see https://x.dev/api?f[0]=1 now") == ["https://x.dev/api?f[0]=1"]
     assert online_checks.extract_urls("see https://host.dev/docs/__main__") == ["https://host.dev/docs/__main__"]
