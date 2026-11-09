@@ -16,7 +16,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from dokimi.commands.catalog_scan import print_skill_row, skill_row
+from dokimi.commands.catalog_scan import print_skill_row, skill_row, unrestricted_and_risky
 from dokimi.utils import InputError
 
 
@@ -47,8 +47,8 @@ def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bo
         row = skill_row(skill, review, nested_in, ignore=ignore)
         counts[row["state"]] += 1
         report["skills"].append(row)
-        # A load error always fails; a spec error fails only with --strict.
-        if not skill.loaded or (args.strict and row["state"] == "error"):
+        # A load error always fails; a spec error, or unrestricted Bash with a risky command, only with --strict.
+        if not skill.loaded or (args.strict and (row["state"] == "error" or unrestricted_and_risky(row))):
             failed = True
     if not as_json:
         shown = f"{sum(counts.values())} of {len(skills)}" if only is not None else f"{len(skills)}"
