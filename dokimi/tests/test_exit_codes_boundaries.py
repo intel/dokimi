@@ -366,6 +366,46 @@ def test_repo_manifest_read_that_fails_in_git_keeps_exit_1(command, tmp_path, mo
     assert "git show failed" in err
 
 
+def test_repo_reach_plan_scenario_read_that_fails_in_git_keeps_exit_1(tmp_path, monkeypatch, capsys):
+    # The shadow read that `repo reach` plans its scenarios from is a git read of the tree: a failure there is a
+    # fetch failure (exit 1), not a usage error. Only the manifest read was pinned before this.
+    from types import SimpleNamespace
+
+    def failing_shadow(profile, tree, kinds):
+        raise SourceError("git ls-tree failed: fatal: could not fetch the tree from promisor remote")
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    monkeypatch.setattr("dokimi.commands.repo._load_manifest", lambda tree, args, **kwargs: SimpleNamespace())
+    monkeypatch.setattr("dokimi.repos.reach.probe_files", lambda tree, manifest, profile: ["AGENTS.md"])
+    monkeypatch.setattr("dokimi.repos.reach.followable", lambda tree, files: (files, {}, []))
+    monkeypatch.setattr("dokimi.repos.reach.shadow_for", failing_shadow)
+    err = _expect_exit(monkeypatch, capsys, 1, "repo", "reach", str(repo), *REACH_ARGS[:-1],
+                       str(tmp_path / "reach-out"))
+    assert "git ls-tree failed" in err
+
+
+def test_repo_reach_from_saved_git_read_that_fails_keeps_exit_1(tmp_path, monkeypatch, capsys):
+    # A git read that fails while a saved probe is checked against its tree (check_saved_reach) is a fetch failure
+    # (exit 1), not a usage error. Only the manifest read in the same try was pinned before this.
+    from types import SimpleNamespace
+
+    def failing_check(reach, manifest_id, profile_name, sha):
+        raise SourceError("git show failed: fatal: could not fetch the blob from promisor remote")
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    saved = tmp_path / "reach.json"
+    saved.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr("dokimi.commands.repo._saved_reach_inputs",
+                        lambda args: (SimpleNamespace(name="claude-code"), SimpleNamespace(), {"scenarios": []}))
+    monkeypatch.setattr("dokimi.repos.open_source", lambda source, cache: SimpleNamespace(sha="a" * 40))
+    monkeypatch.setattr("dokimi.commands.repo._load_manifest", lambda tree, args, **kwargs: SimpleNamespace(id="m"))
+    monkeypatch.setattr("dokimi.repos.receipt.check_saved_reach", failing_check)
+    err = _expect_exit(monkeypatch, capsys, 1, "repo", "reach", str(repo), "--from", str(saved))
+    assert "git show failed" in err
+
+
 def _expect_exit(monkeypatch, capsys, code, *argv):
     _argv(monkeypatch, *argv)
     with refusal() as exc:
