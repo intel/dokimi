@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import stat
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn
@@ -516,12 +517,25 @@ def _is_partial_file(path: Path) -> bool:
     return isinstance(earlier, dict) and "partial" in earlier
 
 
+def _takes_partial(candidate: Path) -> bool:
+    """Whether a partial result may go to ``candidate``: nothing is there, or a regular file this
+    can write that holds a partial result. A FIFO or device is never opened: its read blocks (#516)."""
+    try:
+        mode = os.stat(candidate).st_mode
+    except FileNotFoundError:
+        return True
+    except OSError:  # a symlink loop, say: nothing this can write
+        return False
+    return stat.S_ISREG(mode) and os.access(candidate, os.W_OK) and _is_partial_file(candidate)
+
+
 def _partial_destination(out: Path) -> Path:
     """The first of ``<out stem>.partial.json``, ``<out stem>.partial2.json``, ... that is free
-    or holds a partial result, so a partial result never replaces a finished one."""
+    or holds a partial result it can replace (:func:`_takes_partial`), so a partial result never
+    replaces a finished one."""
     base = out.with_suffix("")
     candidate, number = base.with_name(f"{base.name}.partial.json"), 2
-    while candidate.exists() and not _is_partial_file(candidate):
+    while not _takes_partial(candidate):
         candidate, number = base.with_name(f"{base.name}.partial{number}.json"), number + 1
     return candidate
 
@@ -533,7 +547,7 @@ def save_result(payload: dict, out: Path, model_arm: dict) -> Path:
     result (:func:`partial_block`). A partial result goes to ``out`` unless ``out`` already holds
     something that is not itself a partial result (a finished measurement, or a file this cannot
     read): then it goes to the first sidecar beside it (:func:`_partial_destination`) that is free
-    or already partial, so a cap does not replace a complete run with a prefix.
+    or a writable partial result, so a cap does not replace a complete run with a prefix.
     """
     payload.update(partial_block(model_arm))
     if "partial" in payload and out.exists() and not _is_partial_file(out):

@@ -5,7 +5,10 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
+import os
+import threading
 
 import pytest
 
@@ -301,6 +304,59 @@ def test_a_partial_run_skips_a_sidecar_it_cannot_read(tmp_path, monkeypatch):
     assert side.read_text(encoding="utf-8") == "not json"    # it is left as it is
     third = out.with_name("routing.partial2.json")
     assert json.loads(third.read_text(encoding="utf-8"))["status"] == "partial"
+
+
+PARTIAL = {"reason": "spend_cap", "calls_done": 1, "calls_planned": 4, "message": "spend cap reached"}
+
+
+def _finished(tmp_path):
+    out = tmp_path / "routing.json"
+    out.write_text('{"status": "ok"}', encoding="utf-8")
+    return out
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="FIFOs are POSIX")
+def test_a_partial_run_skips_a_sidecar_that_is_a_fifo_without_opening_it(tmp_path):
+    from dokimi.commands.novelty_routing_report import save_result
+
+    out = _finished(tmp_path)
+    fifo = tmp_path / "routing.partial.json"
+    os.mkfifo(fifo)
+    saved: list = []
+    writer = threading.Thread(target=lambda: saved.append(save_result({}, out, {"partial": PARTIAL})),
+                              daemon=True)  # a read of a FIFO waits for a writer: the thread is kept apart
+    writer.start()
+    writer.join(10)
+    blocked = writer.is_alive()
+    for _ in range(30):  # open the write end so a blocked read ends
+        if not writer.is_alive():
+            break
+        with contextlib.suppress(OSError):  # ENXIO: no read of the FIFO is waiting right now
+            os.close(os.open(fifo, os.O_WRONLY | os.O_NONBLOCK))
+        writer.join(1)
+    assert not blocked, "a sidecar that is a FIFO blocked the save of the paid calls"
+    assert saved == [tmp_path / "routing.partial2.json"]
+    assert json.loads(saved[0].read_text(encoding="utf-8"))["partial"] == PARTIAL
+
+
+@pytest.mark.skipif(os.name == "nt" or os.geteuid() == 0,
+                    reason="POSIX permissions; root writes a read-only file")
+def test_a_partial_run_skips_a_partial_sidecar_it_cannot_write(tmp_path):
+    from dokimi.commands.novelty_routing_report import save_result
+
+    out = _finished(tmp_path)
+    side = tmp_path / "routing.partial.json"
+    earlier = json.dumps({"status": "partial", "partial": PARTIAL})
+    side.write_text(earlier, encoding="utf-8")
+    side.chmod(0o444)
+    try:
+        saved = save_result({"model": {}}, out, {"partial": PARTIAL})
+    finally:
+        side.chmod(0o644)
+    assert saved == tmp_path / "routing.partial2.json"
+    assert side.read_text(encoding="utf-8") == earlier
+    assert json.loads(saved.read_text(encoding="utf-8")) == {"model": {}, "status": "partial",
+                                                             "partial": PARTIAL}
 
 
 def test_a_partial_model_line_with_five_answered_calls_has_no_warning(capsys):
