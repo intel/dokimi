@@ -508,3 +508,15 @@ def test_a_code_span_closing_a_line_is_not_a_fence_opener(tmp_path):
     review = _review(tmp_path, "# Tool\n\n```pip install flask```\nThen npm install to get started.\n")
     message = _found(review, "install-unpinned")[0].message
     assert "1 install name no version (pip flask);" in message  # the hint names npm too, the count does not
+
+
+@pytest.mark.parametrize("command", [
+    "npm install tool@./pkg",
+    "npm install tool@../pkg",
+    "npm install tool@user/repo",
+    "npm install tool@user/repo#main",
+    "npx --package=tool@./pkg tool",
+    "npx --package=tool@user/repo tool",
+])
+def test_a_path_or_github_shorthand_source_is_not_an_unpinned_registry_version(tmp_path, command):
+    assert _found(_review(tmp_path, _fenced(command)), "install-unpinned") == []

@@ -157,13 +157,13 @@ def _unpinned_pip(rest: str) -> list[str]:
 
 def _npm_pinned(spec: str | None) -> bool:
     """Whether an npm version spec pins a version. An alias (``npm:<name>@<version>``) pins its target's version.
-    A URL, git, ``github:``, ``file:`` or ``link:`` source is not a registry version: it is not counted, so it is
-    treated as pinned."""
+    A URL, git, ``github:``, ``file:`` or ``link:`` source, a path, or a GitHub shorthand (``user/repo``) is not a
+    registry version: it is not counted, so it is treated as pinned. A registry version has neither ``:`` nor ``/``."""
     if spec is not None and spec.startswith("npm:"):
         target = spec[len("npm:"):]
         at = target.rfind("@")  # the last @: a scoped target's @scope is not its version
         spec = target[at + 1:] if at > 0 else None
-    if spec is not None and ":" in spec:
+    if spec is not None and (":" in spec or "/" in spec):
         return True
     return spec is not None and NPM_RANGE.match(spec) is not None
 
