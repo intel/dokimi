@@ -87,7 +87,7 @@ _NPM_NAME_RE = re.compile(r"(?:@[A-Za-z0-9._~-]+/)?[A-Za-z0-9._~-]+")
 _PLACEHOLDER_NAMES = {"package", "packages", "pkg", "name", "module", "mypackage", "my-package"}
 _URL_RE = re.compile(r"https?://[^\s\"'`<>]+", re.IGNORECASE)
 # Where a literal URL starts: after a markdown destination's ``](``, or a reference definition's ``[id]: ``.
-_LITERAL_START_RE = re.compile(r"\]\(|^[ \t]*\[[^\]\n]*\]:[ \t]*", re.MULTILINE)
+_LITERAL_START_RE = re.compile(r"\]\(|^[ \t]*\[(?!\^)[^\]\n]*\]:[ \t]*", re.MULTILINE)  # not a footnote "[^1]:"
 _ESCAPE_RE = re.compile(r"\\([!-/:-@\[-`{-~])")  # a backslash escape of ASCII punctuation, as CommonMark reads it
 _TEMPLATE_RE = re.compile(r"[{}$]")  # a template variable, such as ``{id}`` or ``${VERSION}``
 _EXAMPLE_DOMAINS = ("example.com", "example.org", "example.net")
@@ -100,6 +100,7 @@ _DESCRIPTOR_RE = re.compile(r"\d*[<>]&(?:\d+|-)")  # a descriptor duplication (2
 _AMP_REDIRECT_RE = re.compile(r"(?<=[<>])[&|]|&(?=>)")  # the & of >& and <&, the | of >|, the & of &>: one operator
 _REDIRECT_RE = re.compile(r"\d*(?:>>?(?!=)|<<?<?(?!=))")  # an operator at the start of a word: >, 2>>, <, <<<, 2>err.log
 _ATTACHED_REDIRECT_RE = re.compile(r"[<>](?!=)")  # an operator after a word: "lodash>", "lodash>log" (not ">=" or "<=")
+_PLACEHOLDER_WORD_RE = re.compile(r"<[^<>]*>")  # a template in a word: "eslint-plugin-<plugin-name>"
 # (not >= or <=: those are version specs)
 
 
@@ -118,7 +119,10 @@ def _code_span(match: re.Match[str]) -> str:
 
 def _before_comment(line: str) -> str:
     """``line`` up to a ``#`` comment that follows an install command on it, else ``line`` unchanged."""
+    spans = [span.span() for span in _CODE_SPAN_RE.finditer(line)]
     for m in _UNQUOTED_HASH_RE.finditer(line):
+        if any(start <= m.start() < end for start, end in spans):
+            continue  # inside a code span: the span is split off and its own comment is cut there
         if _SHELL_COMMAND_RE.search(line, 0, m.start()):
             return line[:m.start()]
     return line
@@ -146,7 +150,8 @@ def _without_redirects(words: list[str]) -> list[str]:
             target = True
         elif _REDIRECT_RE.match(tok):
             continue
-        elif attached := _ATTACHED_REDIRECT_RE.search(tok):  # "lodash>" or "lodash>build-log": the name, then the operator
+        elif (attached := _ATTACHED_REDIRECT_RE.search(tok)) and not _PLACEHOLDER_WORD_RE.search(tok):
+            # "lodash>" or "lodash>build-log": the name, then the operator; "eslint-<name>" is a template, not a name
             if attached.start():
                 kept.append(tok[:attached.start()])
             target = attached.end() == len(tok)

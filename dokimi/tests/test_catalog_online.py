@@ -187,6 +187,18 @@ def test_npx_with_a_package_option_that_is_not_a_registry_name_does_not_check_th
     assert online_checks.extract_packages("npx --package=https://x.dev/a.tgz mytool\n") == []
 
 
+def test_a_placeholder_inside_a_package_word_is_not_a_name_or_a_package_prefix():
+    # Self-review: "eslint-plugin-<plugin-name>" is a template, not a registry name; keeping its prefix would warn.
+    assert online_checks.extract_packages("npm install eslint-plugin-<plugin-name>\n") == []
+    assert online_checks.extract_packages("npx create-<name>-app\n") == []
+    assert online_checks.extract_packages("npm install my-lib-<version>.tgz\n") == []
+
+
+def test_a_hash_inside_a_code_span_is_not_a_comment_that_cuts_the_span():
+    # Self-review: the span is a command with a comment in it; the comment ends the command, the span is still read.
+    assert online_checks.extract_packages("Example: `pip install requests # pinned`\n") == [("pypi", "requests")]
+
+
 def test_redirection_operators_and_their_targets_are_not_packages():
     body = (
         "pip install requests > install.log\nnpm install lodash >> log.txt\n"
@@ -279,6 +291,11 @@ def test_markdown_destination_and_reference_definition_decode_backslash_escapes(
         "https://docs.example-tool.dev/guide_notes"]
     assert online_checks.extract_urls("[guide]: https://docs.example-tool.dev/guide\\_notes") == [
         "https://docs.example-tool.dev/guide_notes"]
+
+
+def test_a_footnote_label_is_prose_so_its_sentence_punctuation_goes():
+    # Self-review: "[^1]: " is a footnote, not a reference definition whose destination keeps its punctuation.
+    assert online_checks.extract_urls("[^1]: https://x.dev/paper.") == ["https://x.dev/paper"]
 
 
 def test_balanced_brackets_and_underscores_are_part_of_the_url():
