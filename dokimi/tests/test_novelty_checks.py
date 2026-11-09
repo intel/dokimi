@@ -354,6 +354,9 @@ def test_help_identifiers_reads_only_the_options_the_help_declares():
     after_value = "usage: tool [--input FILE]\n  --input FILE  --advanced belongs to another command.\n"
     assert help_identifiers(after_value) == ["--input"]
     assert grade_check(identifiers_check("tool", after_value), "q", "run tool --advanced", None).passed is False
+    # A short-only line: the gap after "-d" starts its description, and "-1  --one-line" joins its names.
+    assert help_identifiers("usage: cp\n  -d                           same as --no-dereference --preserve=links\n") == []
+    assert help_identifiers("usage: tool\n  -1  --one-line  print\n") == ["--one-line"]
     assert grade_check(_veto(), "q", "Run perf report --sort no --stdin", None).passed is False
 
 
@@ -478,3 +481,5 @@ def test_a_path_or_quoted_value_after_a_flag_names_no_option():
     # A quoted value that holds a flag name is the file's name: the flag inside it is no option.
     assert grade_check(_veto(), "q", 'Run perf report --input "no --stdin"', None).passed is True
     assert grade_check(_veto(), "q", "Run perf report --input 'no --stdin'", None).passed is True
+    # An apostrophe that closes no quote is no value: the option after it is still checked.
+    assert grade_check(_veto(), "q", "Run perf report --stdio 'cause --bogus 'x'", None).passed is False

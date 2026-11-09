@@ -382,7 +382,7 @@ _ASSIGNED = re.compile(r"""(?<![\w-])(--[A-Za-z][\w-]*)=(?:"[^"\n]*"|'[^'\n]*'|[
 _VALUE_WORD = re.compile(
     r"((?<![\w-])--[A-Za-z][\w-]*\s+)"
     r"(?!(?:not|never|without|rather|instead|avoid\w*|and|but|then|while)\b|[\w.-]*n't\b)"
-    r"(?:\"[^\"\n]*\"|'[^'\n]*'|[\w./][\w./-]*)",
+    r"(?:\"[^\"\n]*\"(?!\w)|'[^'\n]*'(?!\w)|[\w./][\w./-]*)",
     re.IGNORECASE)
 
 

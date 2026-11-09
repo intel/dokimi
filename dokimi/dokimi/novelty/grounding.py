@@ -76,6 +76,23 @@ def help_text(tool: str, *, timeout: float = 20.0) -> str:
     raise InputError(f"`{tool} --help` lists no long options")
 
 
+def _declaration(line: str) -> str:
+    """The part of an option line that declares options: up to the gap that starts its description.
+
+    A gap after a comma joins the names ("-V,  --version"), and so does a gap after a lone short name
+    that a long name follows ("-v  --verbose"). Any other gap starts the description, even when the
+    description names another command's option ("--input FILE  --advanced belongs to another command").
+    """
+    for m in re.finditer(r"\s{2,}|\t", line):
+        before, after = line[:m.start()], line[m.end():]
+        if before.endswith(","):
+            continue
+        if re.search(r"(?:^|\s)-[^\s-]$", before) and after.startswith("-"):
+            continue
+        return before
+    return line
+
+
 def _declared(text: str) -> str:
     """The lines of a help that declare options: its usage block and its option lines.
 
@@ -93,11 +110,8 @@ def _declared(text: str) -> str:
             continue
         elif not line[:1].isspace():
             in_usage = False
-        if re.match(r"\s*-", line):  # "-V,  --version": a gap after a comma joins the names
-            # A gap after a comma, or after a lone short name ("-v  --verbose"), joins the names; any
-            # other gap ends the declaration, even before a "--" (a description naming another option).
-            kept.append(re.split(r"(?<![,\s])(?<!^-[A-Za-z])(?<!\s-[A-Za-z])(?:\s{2,}|\t)", line.strip(),
-                                 maxsplit=1)[0])
+        if re.match(r"\s*-", line):
+            kept.append(_declaration(line.strip()))
         elif in_usage:  # a usage line keeps its spacing: docker writes "Usage:  tool [--x]"
             kept.append(line.strip())
     return "\n".join(kept)
