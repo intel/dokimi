@@ -248,6 +248,28 @@ def test_malformed_input_raises_with_its_path(tmp_path, file, contents):
         evaluate(tmp_path)
 
 
+def test_a_manifest_value_yaml_cannot_build_raises_with_its_path(tmp_path):
+    (tmp_path / "skills.yaml").write_text("- name: 2026-99-99\n", encoding="utf-8")
+    with pytest.raises(ValueError) as exc_info:
+        evaluate(tmp_path)
+    assert str(exc_info.value).startswith(f"invalid YAML at {tmp_path / 'skills.yaml'}: ")
+
+
+def test_manifest_read_errors_keep_their_own_messages(tmp_path):
+    from dokimi.external.catalog_eval_inputs import Inputs, UnsafePath
+    from dokimi.external.catalog_eval_inventory import _yaml
+
+    (tmp_path / "skills.yaml").write_bytes(b"- name: \xff\n")
+    with pytest.raises(ValueError) as exc_info:
+        _yaml(Inputs(tmp_path), tmp_path / "skills.yaml")
+    assert str(exc_info.value).startswith(f"input is not UTF-8: {tmp_path / 'skills.yaml'}: ")
+    (tmp_path / "real.yaml").write_text("[]\n", encoding="utf-8")
+    (tmp_path / "linked.yaml").symlink_to(tmp_path / "real.yaml")
+    with pytest.raises(UnsafePath) as unsafe:
+        _yaml(Inputs(tmp_path), tmp_path / "linked.yaml")
+    assert str(unsafe.value) == "symlink is not a catalog input: linked.yaml"
+
+
 def test_unreadable_input_has_a_controlled_path_diagnostic(tmp_path, monkeypatch):
     skill(tmp_path)
     original = Path.read_bytes
