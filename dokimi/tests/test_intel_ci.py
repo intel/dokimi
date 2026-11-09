@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import email
 import importlib.util
+import json
+import re
 import subprocess
 import sys
 import tomllib
@@ -202,3 +204,18 @@ def test_wheel_requires_land_in_the_metadata_headers(newline: str,
     assert message.get_all("Requires-Dist") == ["mkl", "numpy >=2"]
     assert message.get_payload().strip() == "Description."
     assert text.count(newline * 2) == 1 and ("\r\n" in text) == (newline == "\r\n")
+
+
+def test_renovate_bumps_the_exact_pins_in_ci_config() -> None:
+    """The pins in ci/config.yml must equal requirements-test.txt, so renovate's regex has to find each one."""
+    text = (_REPO / ".github" / "renovate.json5").read_text(encoding="utf-8")
+    manager = text[text.index('managerFilePatterns: ["/^ci/config'):]
+    literal = re.search(r"matchStrings: \[(\".*\")\]", manager)
+    assert literal is not None
+    pattern = re.compile(json.loads(literal.group(1)).replace("(?<", "(?P<"))
+    found = {m["depName"]: m["currentValue"] for m in pattern.finditer((_REPO / "ci" / "config.yml").read_text(encoding="utf-8"))}
+    exact = {n: str(next(iter(r.specifier)).version) for n, r in _requirements(
+        yaml.safe_load((_REPO / "ci" / "config.yml").read_text(encoding="utf-8"))["test"]["requires"]).items()
+        if str(r.specifier).startswith("==")}
+    assert found == exact
+    assert "mypy" in found
