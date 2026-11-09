@@ -136,6 +136,9 @@ def _check_scan_flags(args: argparse.Namespace) -> None:
         # The skill did not load, so its state is error whatever is ignored: refuse rather than hide the cause.
         raise InputError("--ignore frontmatter-parse: a skill whose frontmatter is not valid YAML does not load, "
                          "and a load error always fails")
+    if "unreadable" in (args.ignore or ()):
+        # The whole-catalog exit reads the unfiltered findings, --per-skill the filtered rows: ignoring it splits them.
+        raise InputError("--ignore unreadable: a SKILL.md the OS will not read always fails the scan, as a load error does")
     if args.jsonl and args.format == "json":
         raise InputError("--jsonl writes one row per skill to a file; drop --format json")
     if args.resume and not args.jsonl:
