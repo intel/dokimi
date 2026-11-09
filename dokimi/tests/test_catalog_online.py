@@ -552,6 +552,26 @@ def test_head_refused_but_get_working_is_not_dead(tmp_path):
     assert review.findings == []
 
 
+class _UnreadBody(httpx.SyncByteStream):
+    """A redirect body that fails the test when anything reads it, as an endless stream would hold the probe."""
+
+    def __iter__(self):
+        raise AssertionError("the body of a redirect was read")
+        yield b""  # pragma: no cover
+
+
+def test_redirect_body_is_not_read_before_following_it():
+    start, final = "https://docs.example-tool.dev/start", "https://docs.example-tool.dev/final"
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        if str(request.url) == start:
+            return httpx.Response(302, headers={"Location": final}, stream=_UnreadBody())
+        return httpx.Response(200)
+
+    client = httpx.Client(transport=httpx.MockTransport(handle), follow_redirects=True)
+    assert online_checks._status(client, start) == 200
+
+
 @pytest.mark.parametrize("status", [403, 500, 503])
 def test_403_and_5xx_are_not_dead(tmp_path, status):
     url = "https://docs.example-tool.dev/guarded"

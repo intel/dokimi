@@ -108,8 +108,8 @@ _PLACEHOLDER_WORD_RE = re.compile(r"<[^<>]*>")  # a template in a word: "eslint-
 
 
 def make_client() -> httpx.Client:
-    """The HTTP client of a run: redirects followed, :data:`TIMEOUT_SECONDS` per request."""
-    return httpx.Client(follow_redirects=True, timeout=TIMEOUT_SECONDS,
+    """The HTTP client of a run: :data:`TIMEOUT_SECONDS` per request, redirects followed by :func:`_final_status`."""
+    return httpx.Client(follow_redirects=False, timeout=TIMEOUT_SECONDS,
                         headers={"User-Agent": "dokimi-catalog-check"})
 
 
@@ -402,11 +402,22 @@ def extract_urls(body: str) -> list[str]:
 
 def _status(client: httpx.Client, url: str) -> int:
     """The final status of ``url``: HEAD, then GET when HEAD is not a 2xx or 3xx."""
-    with client.stream("HEAD", url) as response:
-        if response.status_code < 400:
-            return response.status_code
-    with client.stream("GET", url) as response:
-        return response.status_code
+    status = _final_status(client, "HEAD", url)
+    return status if status < 400 else _final_status(client, "GET", url)
+
+
+_MAX_REDIRECTS = 10
+
+
+def _final_status(client: httpx.Client, method: str, url: str) -> int:
+    """The status of ``url`` after its redirects, which are followed here and not by httpx: httpx reads the body of
+    a redirect before it follows it, so an endless body would hold the probe. No body is read here at all."""
+    for _ in range(_MAX_REDIRECTS + 1):
+        with client.stream(method, url, follow_redirects=False) as response:
+            if not response.is_redirect:
+                return response.status_code
+            url = str(response.url.join(response.headers["location"]))
+    raise httpx.TooManyRedirects(f"more than {_MAX_REDIRECTS} redirects from {url}")
 
 
 # The resolver answers that mean the host does not exist. EAI_AGAIN and the rest are a broken or
