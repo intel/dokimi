@@ -21,11 +21,10 @@ permissions:
 # Runners: pull_request runs, fork PRs too, go to dokimi-ec2 (persistent hosts); main, schedules and LINUX_RUNNER_OFF=true
 # go to intel-ubuntu-latest (ephemeral), forks of the repo to ubuntu-latest. https://github.com/intel/dokimi/pull/272
 
-# A new push to a PR supersedes the run in flight. Every other run gets a group of its
-# own (run_id): in a shared group a third queued run cancels the pending second one
-# even with cancel-in-progress false, so pushes to main would be dropped.
+# A new push to a PR supersedes the run in flight; other runs get a group of their own (run_id), as a shared one drops queued main pushes.
+# A label the steps do not read gets one too and skips its jobs, so it cancels nothing: https://github.com/intel/dokimi/actions/runs/42551017626
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  group: ${{ github.workflow }}-${{ (github.event_name == 'pull_request' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["skip-changelog","schema-break-ok"]'), github.event.label.name) && github.run_id) || github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 defaults:
@@ -47,6 +46,7 @@ jobs:
   # runner for the same reason.
   static:
     name: Static checks (ruff, schema, zizmor, licenses, pre-commit, bandit, secrets, changelog, schema compat)
+    if: ${{ !(github.event_name == 'pull_request' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["skip-changelog","schema-break-ok"]'), github.event.label.name)) }}
     runs-on: ${{ github.repository_owner != 'intel' && 'ubuntu-latest' || github.event_name == 'pull_request' && vars.LINUX_RUNNER_OFF != 'true' && 'dokimi-ec2' || 'intel-ubuntu-latest' }}
     timeout-minutes: 15
     steps:
@@ -239,6 +239,7 @@ jobs:
 
   typecheck:
     name: mypy
+    if: ${{ !(github.event_name == 'pull_request' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["skip-changelog","schema-break-ok"]'), github.event.label.name)) }}
     runs-on: ${{ github.repository_owner != 'intel' && 'ubuntu-latest' || github.event_name == 'pull_request' && vars.LINUX_RUNNER_OFF != 'true' && 'dokimi-ec2' || 'intel-ubuntu-latest' }}
     timeout-minutes: 15
     steps:
@@ -488,6 +489,7 @@ jobs:
   # Windows runners.
   windows-smoke:
     name: Windows smoke test (py3.13)
+    if: ${{ !(github.event_name == 'pull_request' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["skip-changelog","schema-break-ok"]'), github.event.label.name)) }}
     runs-on: windows-latest
     timeout-minutes: 20
     defaults:

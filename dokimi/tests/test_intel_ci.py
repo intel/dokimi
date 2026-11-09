@@ -33,7 +33,10 @@ def _workflow(name: str) -> dict:
 
 def test_every_push_and_tag_run_keeps_its_own_concurrency_group() -> None:
     """Each main push is tested: a shared group would drop a queued one, so group as ci.yml does."""
-    assert _workflow("intel-ci.yml")["concurrency"] == _workflow("ci.yml")["concurrency"]
+    ci, intel = _workflow("ci.yml")["concurrency"], _workflow("intel-ci.yml")["concurrency"]
+    assert intel["cancel-in-progress"] == ci["cancel-in-progress"]
+    assert ci["group"].endswith("|| github.event.pull_request.number || github.run_id }}")
+    assert intel["group"] == "${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}"
 
 
 def _requirements(specs: list[str]) -> dict[str, Requirement]:

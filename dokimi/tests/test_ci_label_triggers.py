@@ -12,6 +12,7 @@ the labeled and unlabeled types.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import yaml
@@ -31,3 +32,27 @@ def test_pull_request_trigger_fires_on_label_changes():
     pr = _trigger(_ci())["pull_request"] or {}
     types = set(pr.get("types") or [])
     assert {"opened", "synchronize", "reopened", "labeled", "unlabeled"} <= types
+
+
+_LABEL_GATE = re.compile(r"contains\(github\.event\.pull_request\.labels\.\*\.name, '([^']+)'\)")
+
+
+def test_a_label_no_step_reads_neither_cancels_the_run_nor_runs_the_jobs():
+    """Renovate labels its PR right after opening it; that event must not cancel the push's run."""
+    wf = _ci()
+    text = CI.read_text(encoding="utf-8")
+    read = set(_LABEL_GATE.findall(text))
+    assert read == {"skip-changelog", "schema-break-ok"}
+    group = wf["concurrency"]["group"]
+    for label in read:
+        assert f'"{label}"' in group
+    jobs = wf["jobs"]
+
+    def guarded(name: str) -> bool:
+        job = jobs[name]
+        needs = job.get("needs") or []
+        needs = [needs] if isinstance(needs, str) else needs
+        return "github.event.label.name" in str(job.get("if", "")) or (bool(needs) and all(guarded(n) for n in needs))
+
+    unguarded = [n for n in jobs if n != "test-latest" and not guarded(n)]
+    assert unguarded == []
