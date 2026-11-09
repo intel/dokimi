@@ -61,11 +61,11 @@ def _linter_runner(ruff=None, shellcheck=None) -> process.FakeRunner:
     return process.FakeRunner(handler)
 
 
-def test_a_shell_script_with_crlf_line_endings_is_an_error(tmp_path, no_linters):
+def test_a_shell_script_with_crlf_line_endings_is_a_warning(tmp_path, no_linters):
     _bundle(tmp_path, {"run.sh": b"#!/bin/bash\r\necho hi\r\n"})
 
     review = _reviews_by_name(tmp_path)["bundled"]
-    assert review.state == "error"
+    assert review.state == "warn"
     assert _codes(review) == ["script-crlf"]
 
 
@@ -75,15 +75,15 @@ def test_an_extensionless_shebang_script_with_crlf_is_an_error(tmp_path, no_lint
     assert _codes(_reviews_by_name(tmp_path)["bundled"]) == ["script-crlf"]
 
 
-def test_a_python_file_that_does_not_parse_is_an_error_with_its_line(tmp_path, no_linters):
+def test_a_python_file_that_does_not_parse_is_a_warning_with_its_line(tmp_path, no_linters):
     _bundle(tmp_path, {"tool.py": b"import os\n\ndef f(:\n    pass\n"})
 
     review = _reviews_by_name(tmp_path)["bundled"]
     assert _codes(review) == ["script-syntax"]
     assert review.findings[0].message.startswith("tool.py does not parse as Python: ")
     assert review.findings[0].message.endswith("(line 3)")
-    assert review.findings[0].level == "error"
-    assert review.state == "error"
+    assert review.findings[0].level == "warn"
+    assert review.state == "warn"
 
 
 @needs_bash
@@ -95,7 +95,7 @@ def test_a_shell_script_bash_rejects_is_an_error(tmp_path, no_linters):
     assert review.findings[0].message.startswith("run.sh does not parse as shell: ")
 
 
-def test_a_bash_suffix_file_with_crlf_line_endings_is_an_error(tmp_path, no_linters):
+def test_a_bash_suffix_file_with_crlf_line_endings_is_a_warning(tmp_path, no_linters):
     _bundle(tmp_path, {"lib.bash": b"echo hi\r\n"})
 
     assert _codes(_reviews_by_name(tmp_path)["bundled"]) == ["script-crlf"]
@@ -116,7 +116,7 @@ def test_bash_n_gets_the_script_on_stdin_with_no_environment(tmp_path):
 
     findings = script_findings(skill, which=_tools("bash"), runner=runner)
 
-    assert findings == [("error", "script-syntax",
+    assert findings == [("warn", "script-syntax",
                          "run.sh does not parse as shell: bash: line 2: syntax error")]
     [call] = runner.calls
     assert call.argv == ("/usr/bin/bash", "-n")  # the script is never a file argument

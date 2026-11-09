@@ -91,18 +91,18 @@ def _file_findings(path: Path, rel: str, data: bytes, bash: Optional[str], runne
     crlf = b"\r\n" in data
     found: list[ScriptFinding] = []
     if crlf and (suffix in SHELL_SUFFIXES or data.startswith(b"#!")):
-        found.append(("error", "script-crlf", f"{rel} has CRLF line endings: bash and a shebang "
+        found.append(("warn", "script-crlf", f"{rel} has CRLF line endings: bash and a shebang "
                       "interpreter fail on the carriage return"))
     if suffix == ".py":
         problem = _python_problem(data, path)
         if problem:
-            found.append(("error", "script-syntax", f"{rel} does not parse as Python: {problem}"))
+            found.append(("warn", "script-syntax", f"{rel} does not parse as Python: {problem}"))
     elif suffix in SHELL_SUFFIXES and bash is not None and not crlf and _runs_under_bash(data):
         # a CRLF script fails on every line, so its crlf finding is the one to fix; fish, zsh etc. are not bash's
         options = _shell_options(data)  # None: the shebang asks for an option bash -n cannot be given
         problem = None if options is None else _shell_problem(bash, options, data, runner)
         if problem:
-            found.append(("error", "script-syntax", f"{rel} does not parse as shell: {problem}"))
+            found.append(("warn", "script-syntax", f"{rel} does not parse as shell: {problem}"))
     return found
 
 

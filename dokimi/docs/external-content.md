@@ -248,9 +248,9 @@ directory name and description but different `SKILL.md` text are a `warn` on bot
 The scan also reads the scripts a skill bundles: each `.sh`, `.bash` and `.py` file, and each file that
 starts with `#!`, under the skill directory (a file over 1 MB, and a link out of the directory, is not read).
 A file with a `#!` line and no `.sh`, `.bash` or `.py` suffix is read for CRLF only.
-Nothing is run or imported. A CRLF line ending in a shell script or a `#!` file is an `error` (`script-crlf`): bash and a
+Nothing is run or imported. A CRLF line ending in a shell script or a `#!` file is a `warn` (`script-crlf`): bash and a
 shebang interpreter fail on the carriage return on Linux. A Python file that the running Python's
-`ast.parse` rejects is an `error` (`script-syntax`). So is a shell script that `bash -n` rejects: the text
+`ast.parse` rejects is a `warn` (`script-syntax`). So is a shell script that `bash -n` rejects: the text
 goes to bash on stdin with no environment, and only when bash is on PATH; a script whose shebang names
 a shell other than bash, sh, dash or ksh is not checked that way, and a `.sh` with no shebang is taken as bash. The shebang's `env` options and `NAME=value` words are looked through, and `-O extglob` is given to `bash -n` when the shebang asks for it or the script names `extglob` (`bash -n` runs no `shopt -s extglob`); a shebang argument that changes parsing and is not one of these leaves the script unchecked. When `ruff` or `shellcheck` is on
 PATH, the bundle is linted with `ruff check --select S,E9,F63,F7,F82` and `shellcheck -f json`, and one
