@@ -9,7 +9,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from dokimi.llm import ANSWER_PROVIDERS
+from dokimi.llm import CALLER_CHOICES
 from dokimi.llm_cli import SamplingError, check_sampling
 from dokimi.utils import check_bedrock_model
 from dokimi.utils import warn_judge_independence as _warn_judge_independence
@@ -21,7 +21,7 @@ from dokimi.defaults import (
     JUDGE_MODEL_FOR_PROVIDER,
     JUDGE_MODEL_HELP,
 )
-from dokimi.exit_codes import EXIT_USAGE
+from dokimi.utils import InputError
 
 
 def cmd_evaluate(args: argparse.Namespace) -> None:
@@ -29,13 +29,11 @@ def cmd_evaluate(args: argparse.Namespace) -> None:
     from dokimi.orchestrator import EvaluationPipeline
 
     if not getattr(args, "repo", None) and not getattr(args, "description", None):
-        print("Error: either --repo or --description must be provided.", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError("either --repo or --description must be provided.")
     try:  # before any persona, question or answer is paid for; the judge would refuse later
         check_sampling(args.judge_provider, getattr(args, "judge_temperature", None), None)
     except SamplingError as exc:  # the same exit as the other judge commands' sampling refusal
-        print(f"Error: {exc}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError(str(exc)) from exc
     check_bedrock_model(args.judge_provider, args.judge_model)  # InputError: exit 2, as above
 
     print(f"Starting full evaluation pipeline for {args.product}")
@@ -81,8 +79,7 @@ def cmd_evaluate(args: argparse.Namespace) -> None:
             context7_id=getattr(args, "context7_id", None),
         )
     except OSError as exc:  # a missing --custom-questions file, an unusable --output-dir
-        print(f"Error: {exc}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError(str(exc)) from exc
 
     # Run pipeline
     try:
@@ -128,7 +125,7 @@ def register(sub, positive_int) -> None:
                              "is looked up, for example a checkout of the evaluation-content "
                              "repository: --questions-root /path/to/content-repo/questions")
     eval_p.add_argument("--model", default=DEFAULT_ANSWER_MODEL, help="LLM model for generation/answering")
-    eval_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=ANSWER_PROVIDERS)
+    eval_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=CALLER_CHOICES)
     eval_p.add_argument("--judge-model", default=JUDGE_MODEL_FOR_PROVIDER, help=JUDGE_MODEL_HELP)
     eval_p.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, choices=JUDGE_PROVIDERS)
     eval_p.add_argument("--judge-temperature", type=float, default=None, dest="judge_temperature",

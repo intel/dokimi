@@ -59,13 +59,13 @@ def main(argv: list[str] | None = None) -> int:
     _check(out.strip() == f"dokimi {installed}", f"`dokimi --version` prints {out.strip()!r}")
     subprocess.run([sys.executable, "-m", "dokimi", "--help"], capture_output=True, check=True)
     _check(True, "`python -m dokimi --help`")
-    # A Windows console is cp1252, and the rule `library list` prints is not: the
+    # A Windows console is cp1252, and the rule `catalog list` prints is not: the
     # command crashes there unless the CLI tolerates the console encoding.
     env = {**os.environ, "PYTHONIOENCODING": "cp1252"}
-    listed = subprocess.run([str(exe), "library", "list"], capture_output=True, env=env, check=False)
+    listed = subprocess.run([str(exe), "catalog", "list", "--kind", "product"], capture_output=True, env=env, check=False)
     if listed.returncode != 0:
         print(listed.stderr.decode(errors="replace"), file=sys.stderr)
-    _check(listed.returncode == 0, "`dokimi library list` on a cp1252 stdout")
+    _check(listed.returncode == 0, "`dokimi catalog list --kind product` on a cp1252 stdout")
 
     products = ProductRegistry()
     _check(bool(products.keys()), f"bundled products.yaml: {len(products.keys())} products")

@@ -9,7 +9,9 @@ eval dir read-only at ``/eval/content`` and, only for a template that names
 ``{source_dir}``, the full-history source read-only at ``/eval/source``. A task
 whose ``grader`` is ``dokimi:<name>`` runs a built-in grader
 (:mod:`dokimi.repos.graders`, mounted read-only at ``/eval/graders``) in that
-container instead of the manifest's entry point (contract §4.5).
+container instead of the manifest's entry point (contract §4.5). Before
+``dokimi:hidden_tests`` grades, the framework copies the task's hidden files into
+the workspace and runs ``entry_points.test`` on them in such a container.
 
 A grader failure is a failure of the run on every gated metric: ``grade``
 exiting non-zero, timing out, writing no valid ``grade.json``, or writing
@@ -21,12 +23,13 @@ from __future__ import annotations
 
 import json
 import os
+import posixpath
 import re
 import shlex
 import shutil
 import stat
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from dokimi.artifacts import schema_errors
@@ -50,6 +53,10 @@ from .graders import HOST_DIR as GRADERS_HOST
 from .graders import NAMES as BUILTIN_NAMES
 from .graders import PREFIX as BUILTIN_PREFIX
 from .graders import builtin_name
+from .graders.hidden_tests import HIDDEN_DIR, hidden_files
+from .graders.hidden_tests import REPORT as HIDDEN_REPORT
+from .graders.hidden_tests import RUN_RECORD as HIDDEN_RECORD
+from .graders.hidden_tests import task_problems as hidden_task_problems
 from .manifest import RepoManifest
 from .workspace import Task
 
@@ -143,6 +150,8 @@ def run_entry(ctx: EvalContext, kind: str, task: Task, run_dir: Path, network: s
     for log in (f"{kind}.log", f"{kind}.err"):  # an earlier entry point's link would be opened for writing
         (run_dir / log).unlink(missing_ok=True)
     mounts = [Mount(run_dir.resolve(), RUN_DIR), Mount(ctx.content_dir.resolve(), CONTENT_DIR, read_only=True)]
+    if builtin == "hidden_tests" and kind == "grade":
+        _run_hidden_tests(ctx, task, run_dir, network, mounts, name)
     spec = ContainerSpec(image=ctx.image, argv=argv, workdir=WORKSPACE, mounts=mounts + extra + ctx.cache_mounts(),
                          env=ctx.grade_env(task), network=network, name=name)
     result = ctx.runner.run(spec, stdout=run_dir / f"{kind}.log", stderr=run_dir / f"{kind}.err",
@@ -180,6 +189,73 @@ def _builtin_entry(ctx: EvalContext, kind: str, task: Task, builtin: str) -> tup
     argv = ["python3", "-I", "-B", f"{GRADERS_DIR}/{BUILTIN_ENTRY}", kind, builtin,
             f"{CONTENT_DIR}/{rel.as_posix()}", RUN_DIR]
     return argv, [Mount(GRADERS_HOST, GRADERS_DIR, read_only=True)]
+
+
+def _run_hidden_tests(ctx: EvalContext, task: Task, run_dir: Path, network: str, mounts: list[Mount],
+                      name: str | None) -> None:
+    """For ``dokimi:hidden_tests``: copy the task's hidden files into the workspace, run ``entry_points.test`` on
+    its hidden tests, and record the exit in the run dir for the grader (contract §4.5)."""
+    template = ctx.manifest.entry_points.get("test")
+    if not template:
+        raise ContainerError("the manifest declares no `test` entry point, which dokimi:hidden_tests runs")
+    for entry in (HIDDEN_REPORT, HIDDEN_RECORD, "test.log", "test.err"):  # a stale report is never read
+        _clear(run_dir / entry)
+    problem = _stage_hidden(task, run_dir / "workspace")
+    record: dict[str, Any] = {"problem": problem}
+    if problem is None:
+        tests = [posixpath.normpath(p) for p in task.raw["hidden_tests"]]
+        values = {**CONTAINER_PATHS, "task": task.id, "out": f"{RUN_DIR}/{HIDDEN_REPORT}", "tests": " ".join(tests)}
+        argv = [w for word in shlex.split(template) for w in (tests if word == "{tests}" else [substitute(word, values)])]
+        spec = ContainerSpec(image=ctx.image, argv=argv, workdir=WORKSPACE, mounts=mounts + ctx.cache_mounts(),
+                             env=ctx.grade_env(task), network=network, name=name and f"{name}-test")
+        run = ctx.runner.run(spec, stdout=run_dir / "test.log", stderr=run_dir / "test.err",
+                             timeout_s=ctx.entry_timeout_s)
+        record = {"rc": run.returncode, "timed_out": run.timed_out, "wall_s": run.wall_s}
+    _clear(run_dir / HIDDEN_RECORD)  # the test command ran the subject's code with the run dir writable
+    fd = os.open(run_dir / HIDDEN_RECORD, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0), 0o644)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(json.dumps(record) + "\n")
+
+
+def _clear(path: Path) -> None:
+    if path.is_symlink() or path.is_file():
+        path.unlink()
+    elif path.exists():
+        shutil.rmtree(path)
+
+
+def _stage_hidden(task: Task, workspace: Path) -> str | None:
+    """Copy each hidden file into ``workspace``, replacing what is there; why it cannot, or ``None``. The agent
+    has exited, so the tree holds still: a link on the way would write outside it, and is refused."""
+    problems = hidden_task_problems(task.raw)
+    if problems:
+        return "; ".join(problems)
+    if workspace.is_symlink() or not workspace.is_dir():
+        return "the workspace is not a directory"
+    for rel in hidden_files(task.raw):
+        for parent in reversed(PurePosixPath(rel).parents[:-1]):  # a, a/b: the directories on the way
+            d = workspace / parent
+            if d.is_symlink() or (d.exists() and not d.is_dir()):
+                return f"hidden file {rel}: {parent} in the workspace is a symbolic link or not a directory"
+        if _linked_in_task(task.dir / HIDDEN_DIR, rel):
+            return f"hidden file {rel}: {HIDDEN_DIR}/{rel} in the task is a symbolic link or not a file"
+        dest = workspace / rel
+        if dest.exists() and not dest.is_symlink() and not dest.is_file():
+            return f"hidden file {rel}: the workspace has a directory there"
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.unlink(missing_ok=True)  # a link the agent left there is replaced, not written through
+        try:
+            shutil.copy(task.dir / HIDDEN_DIR / rel, dest)  # with its mode: a 100755 file stays executable
+        except OSError as exc:
+            return f"hidden file {rel}: {exc}"
+    return None
+
+
+def _linked_in_task(hidden: Path, rel: str) -> bool:
+    """Whether ``hidden/<rel>`` is no regular file or is reached through a symbolic link: the copy would
+    follow it to a host file that is not the task's."""
+    on_the_way = [hidden, *(hidden / p for p in reversed(PurePosixPath(rel).parents[:-1])), hidden / rel]
+    return any(p.is_symlink() for p in on_the_way) or not (hidden / rel).is_file()
 
 
 def _set_git_config_aside(run_dir: Path) -> None:

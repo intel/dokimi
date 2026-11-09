@@ -15,7 +15,8 @@ empty ``answer.txt`` and ``events.jsonl``):
   and has no harness guidance file in an ancestor of the workspace.
 
 A grader failure on either workspace is a grader bug: the task is ``broken``
-and stays out of paid runs. A task whose network needs the egress proxy is
+and stays out of paid runs. A ``dokimi:hidden_tests`` task runs null and oracle
+twice each, and is ``flaky`` (not ok) when the two runs of one step differ. A task whose network needs the egress proxy is
 ``unsupported`` until the proxy exists, and so is a task whose ``host``
 requirements (:mod:`.host`) the evaluation's containers do not meet: its bug
 cannot show here, so null and oracle would say nothing. ``--warm`` runs null
@@ -33,7 +34,7 @@ from typing import Any
 from .container import CONTENT_DIR, RUN_DIR, SOURCE_DIR, ContainerError, ContainerSpec, docker_network
 from .graders import builtin_name
 from .graders.typecheck import REFERENCE_DIR
-from .grading import EvalContext, outcome, read_grade_json, run_entry
+from .grading import EvalContext, outcome, read_grade, read_grade_json, run_entry
 from .host import probe_host, shortfall_kinds, unmet, validate_tasks
 from .runner import agent_layout, container_name
 from .workspace import PrepError, Task, prepare_workspace
@@ -61,7 +62,7 @@ exit $bad
 def check_task(ctx: EvalContext, task: Task, work_dir: Path, warm: bool = False,
                guidance_names: tuple[str, ...] = ANCESTOR_NAMES,
                host: dict[str, Any] | None = None) -> dict[str, Any]:
-    """Null, oracle and isolation checks for one task; ``verdict`` is ok, broken or unsupported.
+    """Null, oracle and isolation checks for one task; ``verdict`` is ok, broken, flaky or unsupported.
     An unsupported result says why in ``unsupported_by``: ``egress``, ``host`` (a hardware miss, which
     ``--allow-unsupported`` may pass) or ``host-probe`` (the probe could not run or gave no CPU count,
     which it never passes).
@@ -88,14 +89,40 @@ def check_task(ctx: EvalContext, task: Task, work_dir: Path, warm: bool = False,
         not reason or (unsupported_by == "host" and shortfall_kinds(task, facts) <= {"cpus"}))
     for kind, run_it in (("null", not reason), ("oracle", run_oracle)):
         _check_step(ctx, task, work_dir / f"{task.id}__{kind}", kind, run_it, net, res)
+        if run_it and kind in res and builtin_name(task.raw.get("grader")) == "hidden_tests":
+            _check_again(ctx, task, work_dir, kind, net, res)
     if not res["problems"]:
         res["isolation"] = isolation_probe(ctx, [task], work_dir / f"{task.id}__null", guidance_names)
         res["problems"] += [f"isolation: {p}" for p in res["isolation"]]
     if reason and not res["problems"]:
         res.update(verdict="unsupported", unsupported_by=unsupported_by or "host", problems=[f"host: {reason}"])
+    elif res.get("flaky") and not res["problems"]:
+        res.update(verdict="flaky", problems=[f"flaky: {f}" for f in res["flaky"]])
     else:
         res["verdict"] = "broken" if res["problems"] else "ok"
     return res
+
+
+def _check_again(ctx: EvalContext, task: Task, work_dir: Path, kind: str, net: str, res: dict[str, Any]) -> None:
+    """Run a ``dokimi:hidden_tests`` step a second time: tests can be flaky, and a task whose two runs of one step
+    differ (verdict, or the count of passed, failed, errored or skipped tests) goes to ``res["flaky"]``."""
+    rd = work_dir / f"{task.id}__{kind}2"
+    again: dict[str, Any] = {"problems": []}
+    _check_step(ctx, task, rd, kind, True, net, again)
+    res[f"{kind}_again"] = again.get(kind)
+    first, second = _run_print(work_dir / f"{task.id}__{kind}", res[kind]), _run_print(rd, again.get(kind))
+    if first != second:
+        res.setdefault("flaky", []).append(f"the two {kind} runs differ: {first} then {second}")
+
+
+def _run_print(rd: Path, grade: dict[str, Any] | None) -> str:
+    """What two runs of one step must share: the verdict, and the test counts of the run's grade.json."""
+    if grade is None:
+        return "not graded"
+    doc, _ = read_grade(rd)
+    metrics = (doc or {}).get("metrics") or {}
+    counts = ", ".join(f"{k} {metrics.get(k)}" for k in ("n_passed", "n_failed", "n_errors", "n_skipped"))
+    return f"{grade['status']}, pass {grade['pass']} ({counts})"
 
 
 def _oracle_applies(task: Task) -> bool:

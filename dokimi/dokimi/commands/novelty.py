@@ -34,12 +34,14 @@ from dokimi.commands.novelty_routing_report import (
     no_competitors_conflict,
     no_queries_reason,
     print_all_vs_all_estimate,
-    print_all_vs_all_model,
-    print_attractors,
+    print_all_vs_all_summary,
     print_routing_estimate,
     print_routing_summary,
     refuse_estimate_without_queries,
     routing_queries,
+    save_result,
+    stop_if_partial,
+    warn_blind_skills,
 )
 from dokimi.defaults import (
     DEFAULT_ANSWER_MODEL,
@@ -93,7 +95,7 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
         n_arms = len(_arms(args.arms))
         estimate["expected_usd"] = _estimate_usd(
             args, n_tokens, estimate["estimate"]["by_role"], settings.tier,
-            context_share=(n_arms - 1) / n_arms,
+            context_share=(n_arms - 1 - ("no_artifact_repeat" in args.arms)) / n_arms,
         )
         # Every arm but the baseline is priced as carrying the artifact; a placebo of another
         # length is not read.
@@ -128,7 +130,7 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
         budgets=tuple(args.budgets),
         concurrency=args.concurrency,
         allow_self_judge=args.allow_self_judge,
-        placebo_text=placebo_text,
+        placebo_text=placebo_text, context_framing=args.context_framing,
         cache_dir=Path(args.cache_dir) if args.cache_dir else None,
         seed=args.seed,
         include_resources=args.include_resources,
@@ -186,15 +188,16 @@ def cmd_novelty_atoms(args: argparse.Namespace) -> None:
     if settings.values["verify_faithfulness"]:
         verify_atoms(sample, spans, client=extractor)
     out = Path(args.out) if args.out else _default_dir(args.artifact) / "atoms.json"
-    save_atoms(atoms, spans, out, extractor=extractor.model, cap=cap,
-               bundle=artifact_bundle.summary(), extraction=extraction, sample=sample)
+    save_atoms(atoms, spans, out, extractor=extractor.model, extractor_provider=extractor.provider,
+               cap=cap, bundle=artifact_bundle.summary(), extraction=extraction, sample=sample)
     print(f"OK Saved {len(atoms)} atoms ({len(sample)} sampled) over {len(spans)} spans: {out}")
     print(json.dumps(span_summary(spans, atoms), indent=2))
 
 
 def cmd_novelty_probe(args: argparse.Namespace) -> None:
     """Run the paired probes against a saved atom set and print the 2×2."""
-    from dokimi.commands.novelty_atoms_file import measured_atoms, sampling_record, warn_unread
+    from dokimi.commands.novelty_atoms_file import (measured_atoms, sampling_record,
+                                                    warn_answer_key, warn_unread)
     from dokimi.novelty.atoms import load_atoms_record
     from dokimi.novelty.bundle import check_answer_key
     from dokimi.novelty.measure import SelfJudgeError, check_self_judge, run_measurement
@@ -212,10 +215,7 @@ def cmd_novelty_probe(args: argparse.Namespace) -> None:
     settings = _settings(args)
     placebo_text = placebo_text_for_arms_or_exit(args.placebo_text, _arms(args.arms))
     extractor, answerer, judge = _clients(args)
-    if saved.get("extractor") == answerer.model:
-        print(f"WARNING: {answerer.model} extracted these atoms, so the model under measurement "
-              "wrote its own answer key; extract with a different --extract-model",
-              file=sys.stderr)
+    warn_answer_key(saved, answerer, judge)
     try:  # before the paraphrase calls below, which are paid
         check_self_judge(judge, answerer, args.allow_self_judge)
     except SelfJudgeError as exc:
@@ -236,7 +236,7 @@ def cmd_novelty_probe(args: argparse.Namespace) -> None:
             atoms, probe_set.probes, verdict.text, answerer=answerer, judge=judge,
             arms=_arms(args.arms), concurrency=args.concurrency,
             allow_self_judge=args.allow_self_judge, seed=args.seed,
-            placebo_text=placebo_text,
+            placebo_text=placebo_text, framing=args.context_framing,
         )
     except ValueError as exc:  # a model failure under way
         raise SystemExit(str(exc)) from None
@@ -245,7 +245,7 @@ def cmd_novelty_probe(args: argparse.Namespace) -> None:
         artifact_ref=args.artifact, model=answerer.model, judge_model=judge.model,
         probed_bundle=verdict.bundle, atoms_bundle=saved.get("bundle"),
         probe_set=probe_set, measure_result=result,
-        sampling=sampling_record(args, atoms, saved),
+        sampling=sampling_record(args, atoms, saved), framing=args.context_framing,
     )
     out = Path(args.out) if args.out else _default_dir(args.artifact) / "probes.json"
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -346,7 +346,7 @@ def _cmd_routing_all_vs_all(args: argparse.Namespace) -> None:
     if without:
         print(f"WARNING: {len(without)} skill(s) in the field have no queries, so they only "
               f"compete: {', '.join(sorted(without))}", file=sys.stderr)
-    _warn_blind_skills(result, queries_by_skill)
+    warn_blind_skills(result, queries_by_skill)
 
     model_arm = result.get("model") or {}
     failed = model_arm.get("n_failed", 0)
@@ -363,25 +363,13 @@ def _cmd_routing_all_vs_all(args: argparse.Namespace) -> None:
     payload["field"] = field_record(args, field, left_out, dropped_queries)
     if selector is not None:
         payload["cost"] = roll_up_cost([selector])
-    out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    out = save_result(payload, out, model_arm)
+    summary = (result, len(field), len(queries_by_skill), model_arm, payload.get("cost"))
+    stop_if_partial(payload, out, lambda: print_all_vs_all_summary(*summary))
     if failed:
         exit_partial_all_vs_all(model_arm, payload.get("cost"), failed, sent, out)
     print(f"OK Saved all-vs-all routing: {out}")
-    print(f"all-vs-all: {len(field)} skills in the field, {result['n_queries']} queries over "
-          f"{len(queries_by_skill)} skills with queries")
-    print_attractors(result)
-    print_all_vs_all_model(model_arm, payload.get("cost"))
-
-
-def _warn_blind_skills(result: dict, queries_by_skill: dict[str, list[str]]) -> None:
-    """Warn when the lexical arm scores none of a skill's queries: its own rate is then None."""
-    lexical = result.get("lexical")
-    if not lexical:
-        return
-    blind = [name for name in sorted(queries_by_skill) if lexical["n_scored"].get(name) == 0]
-    if blind:
-        print(f"WARNING: the lexical arm cannot score any query of {', '.join(blind)} "
-              "(no content word in them), so their lexical own_rate is None", file=sys.stderr)
+    print_all_vs_all_summary(*summary)
 
 
 def cmd_novelty_routing(args: argparse.Namespace) -> None:
@@ -437,7 +425,9 @@ def cmd_novelty_routing(args: argparse.Namespace) -> None:
         )
         payload["cost"] = roll_up_cost([selector])
 
-    out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    out = save_result(payload, out, payload.get("model", {}))
+    stop_if_partial(payload, out,
+                    lambda: print_routing_summary(payload, len(competitors), self_derived))
     print(f"OK Saved routing measurement: {out}")
 
     print_routing_summary(payload, len(competitors), self_derived)
@@ -725,7 +715,12 @@ def _add_model_args(parser: argparse.ArgumentParser, positive_int) -> None:
                         help="Output-token ceiling. Raise for reasoning models, which can "
                              "spend the provider default on reasoning and return empty text")
     parser.add_argument("--arms", default="no_artifact,full",
-                        help="Arms to run: no_artifact,full[,placebo][,shuffled]")
+                        help="Arms to run: no_artifact,full[,placebo][,shuffled]"
+                             "[,no_artifact_repeat] (the last is the noise floor)")
+    parser.add_argument("--context-framing", default="reference", dest="context_framing",
+                        choices=("reference", "neutral"),
+                        help="How the context is introduced: as reference material, or as a "
+                             "document that may be irrelevant (the placebo framing control)")
     parser.add_argument("--placebo-text", default=None, dest="placebo_text",
                         help="File of domain-mismatched text for the placebo control: it "
                              "separates 'this artifact carries knowledge' from 'this model "
@@ -833,7 +828,8 @@ def _stops_at_cap(command):
         try:
             command(args)
         except SpendCapReached as exc:
-            raise SystemExit(str(exc)) from None
+            # A command that keeps its partial result catches the cap itself and never gets here.
+            raise SystemExit(f"{exc}; nothing was written") from None
 
     return run
 

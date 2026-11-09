@@ -82,7 +82,11 @@ RATTLER_BUILD_RELEASES = {
 
 
 class BuildError(Exception):
-    """Raised when the build cannot start or produced nothing."""
+    """
+    Raised when the build cannot start, or what it built cannot be handed
+    on: no package, two packages of one file name, or a [tool.ci-build]
+    wheel-requires that is not a list of specs.
+    """
 
 
 def ensure_rattler_build(tools: Path) -> None:
@@ -274,19 +278,27 @@ def commands(
 def collect(scratch: Path, output: Path) -> list[Path]:
     """
     Moves built packages into output, flat, and lists them, not those an
-    earlier build left there.
+    earlier build left there. Two packages with the same file name are an
+    error, because moved flat one would overwrite the other: it is raised
+    before any package is moved, so both are still where the error names them.
     """
     output.mkdir(parents=True, exist_ok=True)
-    built: list[Path] = []
+    found: dict[str, Path] = {}
     for package in sorted(scratch.rglob("*")):
         if (
             package.is_file()
             and package.name.endswith(PACKAGE_SUFFIXES)
-            and "broken" not in package.parts
+            and "broken" not in package.relative_to(scratch).parts
         ):
-            shutil.move(str(package), output / package.name)
-            built.append(output / package.name)
-    built.sort()
+            if package.name in found:
+                raise BuildError(
+                    f"two packages named {package.name}: "
+                    f"{found[package.name]} and {package}"
+                )
+            found[package.name] = package
+    for name, package in found.items():
+        shutil.move(str(package), output / name)
+    built = sorted(output / name for name in found)
     if not built:
         raise BuildError("the build produced no package")
     return built

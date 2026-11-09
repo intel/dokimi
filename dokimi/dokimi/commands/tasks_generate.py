@@ -1,12 +1,17 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""eval tasks generate: build repository tasks from a source (contract §4.7). ``--from graph`` reads a code index."""
+"""eval tasks generate: build repository tasks from a source (contract §4.7).
+
+``--from graph`` reads a SCIP code index; ``--from replay`` reads a threads file of merged pull requests
+(the former ``repo tasks replay``, #94 D11 and M3).
+"""
 
 from __future__ import annotations
 
 import argparse
 import sys
+from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -15,12 +20,56 @@ from dokimi.utils import InputError
 if TYPE_CHECKING:
     from dokimi.repos.graph_tasks import Plan
 
-SOURCES = ("graph",)
+SOURCES = ("graph", "replay")
 SOURCE_HELP = ("Repository source pinned at the revision the index was built from: <dir>@<rev> or "
                "<https-or-ssh-url>@<rev> (cloned bare into the cache). The revision's full SHA is each task's base")
 
 
+# A flag the parser leaves at None when not given, so an explicit value is visible, even one equal to the
+# default. The source that reads a flag refuses it from the other source: a flag is refused, never dropped.
+GRAPH_ONLY = {"index": "--index", "references": "--references", "derives": "--derives", "seed": "--seed",
+              "max_turns": "--max-turns", "dry_run": "--dry-run"}
+REPLAY_ONLY = {"threads": "--threads", "manifest": "--manifest", "manifest_file": "--manifest-file",
+               "window": "--window", "prompt_file": "--prompt-file"}
+GRAPH_DEFAULTS = {"references": 9, "derives": 3, "seed": 7, "max_turns": 40}
+REPLAY_DEFAULTS = {"window": 5, "manifest": ".agent-eval/repo-eval.yaml"}
+
+
 def cmd_eval_tasks_generate(args: argparse.Namespace) -> None:
+    """Build tasks from ``--from``: graph (enumeration tasks, gold from a SCIP index) or replay (review threads)."""
+    if args.from_kind == "replay":
+        _check_replay_flags(args)
+        _fill_defaults(args, REPLAY_DEFAULTS)
+        from .repo_run import cmd_repo_tasks_replay
+
+        return cmd_repo_tasks_replay(args)
+    _refuse_given(args, REPLAY_ONLY, "replay")
+    _fill_defaults(args, GRAPH_DEFAULTS)
+    _generate_graph(args)
+
+
+def _check_replay_flags(args: argparse.Namespace) -> None:
+    """``--from replay`` reads a threads file and no code index."""
+    if args.threads is None:
+        raise InputError("--from replay needs --threads FILE, the merged pull requests with their reviewThreads")
+    _refuse_given(args, GRAPH_ONLY, "graph")
+
+
+def _refuse_given(args: argparse.Namespace, flags: dict[str, str], source: str) -> None:
+    """Refuse a flag of the other source that was given: ``False`` (a store_true flag not given) and None are unset."""
+    for dest, flag in flags.items():
+        value = getattr(args, dest, None)
+        if value is not None and value is not False:
+            raise InputError(f"{flag} is for --from {source}")
+
+
+def _fill_defaults(args: argparse.Namespace, defaults: Mapping[str, object]) -> None:
+    for dest, value in defaults.items():
+        if getattr(args, dest, None) is None:
+            setattr(args, dest, value)
+
+
+def _generate_graph(args: argparse.Namespace) -> None:
     """Enumeration tasks with gold from a SCIP index (no LLM, no docker)."""
     from dokimi.repos.graph_tasks import Options, plan, write
     from dokimi.repos.source import GitTree
@@ -97,23 +146,37 @@ def add_parser(eval_tasks_sub, positive_int) -> None:
     gen_p = eval_tasks_sub.add_parser(
         "generate", help="Write repository tasks from a source, no LLM: --from graph writes dokimi:graph_enum "
         "tasks (which files or functions reference a function, which classes derive from a class) with gold "
-        "from a SCIP code index. Exits 2 on a usage error or an index that does not read or matches no file "
+        "from a SCIP code index; --from replay writes one dokimi:review_replay task per merged pull request of a "
+        "threads file. Exits 2 on a usage error or an index that does not read or matches no file "
         "of the source, 1 when no target gave a task, a task cannot be written or the source cannot be resolved at "
         "the revision")
     gen_p.add_argument("source", help=SOURCE_HELP)
     gen_p.add_argument("--from", required=True, choices=SOURCES, dest="from_kind",
-                       help="What the tasks are built from: graph (a code index)")
+                       help="What the tasks are built from: graph (a code index) or replay (a threads file)")
+    gen_p.add_argument("--threads", default=None, metavar="FILE",
+                       help="--from replay: JSON holding the merged pull requests with their reviewThreads, as the "
+                       "query in the contract (§4.6) returns them; pages of --paginate --slurp are read too")
+    gen_p.add_argument("--manifest", default=None,
+                       help="--from replay: manifest path relative to the repository root (default "
+                       ".agent-eval/repo-eval.yaml): its guidance globs and eval_dir are left out of every patch")
+    gen_p.add_argument("--manifest-file", default=None, dest="manifest_file",
+                       help="--from replay: read the manifest from this local file instead of from the tree")
+    gen_p.add_argument("--window", type=positive_int, default=None,
+                       help="--from replay: task.json `window`, and how near a thread's line a later commit of the PR "
+                       "must change the file for `addressed` (default 5)")
+    gen_p.add_argument("--prompt-file", default=None, dest="prompt_file",
+                       help="--from replay: the agent's prompt (default: a review prompt asking for the findings JSON)")
     gen_p.add_argument("--index", default=None, metavar="FILE",
                        help="A SCIP code index of the source at its revision (scip-python, scip-clang, ...); "
                        "dokimi never builds one")
     gen_p.add_argument("--out", required=True,
                        help="Directory that gets one <task id>/ per task, usually the manifest's `tasks`")
-    gen_p.add_argument("--references", type=_count, default=9, metavar="N",
+    gen_p.add_argument("--references", type=_count, default=None, metavar="N",
                        help="Reference tasks to write (default 9); about half with a name other symbols share")
-    gen_p.add_argument("--derives", type=_count, default=3, metavar="N",
+    gen_p.add_argument("--derives", type=_count, default=None, metavar="N",
                        help="Direct-subclass tasks to write (default 3)")
-    gen_p.add_argument("--seed", type=int, default=7, help="Seed of the choice among the candidates (default 7)")
-    gen_p.add_argument("--max-turns", type=positive_int, default=40, dest="max_turns",
+    gen_p.add_argument("--seed", type=int, default=None, help="Seed of the choice among the candidates (default 7)")
+    gen_p.add_argument("--max-turns", type=positive_int, default=None, dest="max_turns",
                        help="task.json max_turns (default 40)")
     gen_p.add_argument("--force", action="store_true",
                        help="Rewrite a task directory that has a task.json (default: keep it and its edits)")

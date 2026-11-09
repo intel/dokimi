@@ -97,12 +97,11 @@ PROVIDERS: Dict[str, str] = {
 #: ``--provider`` choices: the API providers, then the CLI backends.
 ANSWER_PROVIDERS: Tuple[str, ...] = (*PROVIDERS, *llm_cli.BACKENDS)
 
-#: Providers the answerer, judge and generators take: the table but openai-codex, with
-#: the spellings google, gemini and vertex_ai, then the CLI backends.
-CALLER_PROVIDERS: Tuple[str, ...] = (
-    "openai", "anthropic", "google", "gemini", "google-vertex", "openrouter", "amazon-bedrock",
-    "vertex_ai", *llm_cli.BACKENDS,
-)
+#: ``--provider`` choices of the commands that build the answerer or generators: not openai-codex.
+CALLER_CHOICES: Tuple[str, ...] = tuple(p for p in ANSWER_PROVIDERS if p != "openai-codex")
+
+#: Providers the answerer, judge and generators take: those, and google, gemini and vertex_ai.
+CALLER_PROVIDERS: Tuple[str, ...] = (*CALLER_CHOICES, "google", "gemini", "vertex_ai")
 
 
 def check_caller_provider(provider: str) -> None:
@@ -470,8 +469,8 @@ class Reply:
 
     @property
     def truncated(self) -> bool:
-        """Whether the reply was cut at the output ceiling."""
-        return self.finish_reason in _TRUNCATED
+        """Whether the reply was cut at the output ceiling (a cached reply keeps the flag)."""
+        return self.finish_reason in _TRUNCATED or self.usage.truncated
 
 
 #: One provider request, no retry/cache/metering: ``(Request) -> Reply``.
@@ -767,7 +766,7 @@ class LLM:
         # A content-less reply (None) is not stored: keeps() refuses it, so it is never replayed.
         text = reply.text
         if text is not None and caching.keeps(cache_if, text):
-            caching.store_response(key, text, reply.usage)
+            caching.store_response(key, text, replace(reply.usage, truncated=reply.truncated))
         return reply
 
     def ask(self, prompt: str, *, draw: int = 0,
@@ -1003,7 +1002,7 @@ def llm_call_with_usage(
               seed=seed, max_retries=max_retries, retry_delay=retry_delay)
     reply = llm.complete(prompt, system=system, cache_prefix=cache_prefix, stream=stream,
                          draw=draw, cache_if=cache_if)
-    return cast(str, reply.text), reply.usage
+    return cast(str, reply.text), replace(reply.usage, truncated=reply.truncated)
 
 
 def chat_completion(

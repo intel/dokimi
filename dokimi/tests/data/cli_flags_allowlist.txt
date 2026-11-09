@@ -116,6 +116,7 @@
 --max-file-words
 --max-iterations
 --max-lift-drop  # baseline compare score tolerance in points, not a spend cap; moves to the gate policy (#94)
+--max-lines  # repo tasks authoring (#294) adds it: a size filter, not a spend cap; no registry concept yet
 --max-resource-words
 --max-tokens
 --max-turns
@@ -160,6 +161,7 @@
 --product
 --prompt-file  # repo tasks replay (#265) adds it: no registry concept yet; a F1b migration names it
 --provider
+--prs  # repo tasks authoring (#294) adds it: no registry concept yet; a F1b migration names it
 --python-env  # repo scan --typecheck: the interpreter whose site-packages the fences resolve against; no registry concept yet
 --queries
 --queries-by-skill  # novelty routing (#172) adds it: no registry concept yet; a F1b migration names it
@@ -196,6 +198,7 @@
 --shell  # trace consistency (#155) adds it: no registry concept yet; a F1b migration names it
 --sim-threshold
 --skip-nested  # catalog check --skip-nested (#413 A4): no registry concept yet; a F1b migration names it
+--ignore  # catalog check --ignore CODE (#413 A8): no registry concept yet; a F1b migration names it
 --skip-work
 --source-dir
 --spec
@@ -249,3 +252,11 @@
 --min-reps  # eval headroom (#279) adds it: no registry concept yet; a F1b migration names it
 --graph  # eval coverage: the frozen need graph input, a file no registry concept names yet (#331)
 --min  # eval coverage gate floor, [METRIC=]X like --timeout [PHASE=]SEC (#331)
+--allow  # eval leak (#220 A3) adds it: no registry concept yet; a F1b migration names it
+--allow-file  # eval leak (#220 A3) adds it: no registry concept yet; a F1b migration names it
+--min-fraction  # eval leak (#220 A3) adds it: no registry concept yet; a F1b migration names it
+--split  # eval leak (#220 A3) adds it: no registry concept yet; a F1b migration names it
+--lock  # eval leak (#220 A3) adds it: no registry concept yet; a F1b migration names it
+--relock  # eval leak (#220 A3) adds it: no registry concept yet; a F1b migration names it
+--verbatim-words  # eval leak (#220 A3) adds it: no registry concept yet; a F1b migration names it
+--proposer  # eval leak (#220 A3) adds it: no registry concept yet; a F1b migration names it

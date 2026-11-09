@@ -108,6 +108,12 @@ CONCEPTS: tuple[Concept, ...] = (
         banned=("--arms",),
     ),
     Concept(
+        name="context-framing",
+        help="the context preamble a novelty measurement puts before the artifact",
+        canonical=(Flag("--context-framing", "reference|neutral", "text",
+                        meaning="neutral says the text may be irrelevant (the placebo-abstention control)"),),
+    ),
+    Concept(
         name="cell",
         help="one cell of a matrix",
         canonical=(Flag("--cell", "k=v,...", "text", repeatable=True),),

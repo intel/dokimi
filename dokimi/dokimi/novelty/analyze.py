@@ -26,7 +26,7 @@ from . import attribute, bundle as bundle_mod
 from . import classify, items as items_mod
 from . import measure, needs, probes, report, retention, shorten, spans
 from .artifact import load_artifact_text  # noqa: F401  (public path: novelty.analyze)
-from .client import LLMClient, roll_up_cost, same_client
+from .client import LLMClient, roll_up_cost, same_client, warn_extractor_judge
 from .retention import RetentionOracle
 from .tiers import DEFAULT_SETTINGS, RunSettings
 
@@ -56,6 +56,7 @@ class AnalyzeConfig:
     # cited file, so a run that skips this must not present attribution as confirmed.
     confirm_carriers: bool = DEFAULT_SETTINGS["confirm_carriers"]
     placebo_text: str | None = None
+    context_framing: str = "reference"
     cache_dir: Path | None = None
     seed: int = 0
     # Measured over the study corpus, 0.72 of a skill's words live outside `SKILL.md`, so
@@ -81,7 +82,10 @@ def _prompts_sha256() -> str:
 
 def _run_config(config: "AnalyzeConfig") -> dict:
     """What decided this cell's numbers beyond the models: two cells compare only if these match."""
+    framing = {} if config.context_framing == "reference" else {
+        "context_framing": config.context_framing}
     return {
+        **framing,
         "seed": config.seed,
         "max_atoms": config.max_atoms,
         "paraphrases": config.paraphrases,
@@ -171,6 +175,7 @@ def analyze(
             the body. Without it the run is entry-point-only and says so.
     """
     measure.check_self_judge(judge, answerer, config.allow_self_judge)
+    relation = warn_extractor_judge(extractor.model, judge, extractor.provider)
     warnings: list[str] = []
     span_list = spans.segment(text)
     extraction = atoms_mod.ExtractionReport()
@@ -244,7 +249,7 @@ def analyze(
         atom_list, probe_list, text,
         answerer=answerer, judge=judge, arms=config.arms,
         concurrency=config.concurrency, allow_self_judge=config.allow_self_judge,
-        placebo_text=config.placebo_text, seed=config.seed,
+        placebo_text=config.placebo_text, seed=config.seed, framing=config.context_framing,
     )
     if config.allow_self_judge and same_client(judge, answerer):
         warnings.append(
@@ -391,6 +396,7 @@ def analyze(
     )
     payload["run_config"] = _run_config(config)
     payload["run_config"]["tier"] = settings.tier_record(sampled=capped)
+    payload["run_config"]["extractor_judge"] = relation
     return AnalyzeResult(
         artifact=payload,
         attributions=attributions,

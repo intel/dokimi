@@ -1,0 +1,8 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+# The fuzzing tool (.github/workflows/fuzz.yml, fuzz/), compiled with hashes into
+# requirements-fuzz.lock.txt. Kept apart like requirements-mutation.txt: only the
+# fuzz workflow installs it. atheris ships Linux x86_64 wheels for CPython 3.12+
+# and no sdist, so the lock is compiled for that platform, not --universal.
+atheris==3.1.0

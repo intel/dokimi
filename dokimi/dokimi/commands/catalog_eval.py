@@ -19,7 +19,7 @@ from typing import Any
 
 from dokimi import __version__
 from dokimi.artifacts import save_artifact
-from dokimi.exit_codes import usage_exit
+from dokimi.utils import InputError
 
 _OUTPUTS = ("catalog.json", "plan.json", "result.json", "report.md")
 _REPORT_HEADER = "# Catalog static evaluation"
@@ -150,7 +150,7 @@ def _checker() -> dict[str, str]:
 
 def cmd_catalog_eval(args: argparse.Namespace) -> None:
     from dokimi.external.catalog_eval import evaluate_catalog, hashed_paths
-    from dokimi.external.catalog_git import source_and_changes
+    from dokimi.external.catalog_git import ignored_paths, source_and_changes
     from dokimi.external.catalog_receipts import receipts
     from dokimi.external.catalog_eval_inputs import checked_root
 
@@ -163,8 +163,10 @@ def cmd_catalog_eval(args: argparse.Namespace) -> None:
         output_valid = True
         root = checked_root(supplied_root)
         source, changed, untracked, base_owners, note = source_and_changes(root, args.changed_from, out)
-        report = evaluate_catalog(root, changed_paths=changed, untracked_paths=untracked, base_owners=base_owners)
-        if source["dirty"] is False and hashed_paths(report["skills"], untracked):
+        ignored = ignored_paths(root) if source["commit"] else frozenset()
+        report = evaluate_catalog(root, changed_paths=changed, untracked_paths=untracked, base_owners=base_owners,
+                                  ignored_paths=ignored)
+        if source["dirty"] is False and hashed_paths(report["skills"], untracked, ignored):
             source["dirty"] = True
         report["source"] = source
         report["checker"] = _checker()
@@ -178,8 +180,8 @@ def cmd_catalog_eval(args: argparse.Namespace) -> None:
             try:
                 _write_error(out, exc)
             except OSError as write_exc:
-                usage_exit(f"catalog eval: {exc}; cannot invalidate earlier receipts: {write_exc}")
-        usage_exit(f"catalog eval: {exc}")
+                raise InputError(f"catalog eval: {exc}; cannot invalidate earlier receipts: {write_exc}") from write_exc
+        raise InputError(f"catalog eval: {exc}") from exc
     print(f"Static catalog checks: {report['status']}; receipts: {out}")
     if report["status"] != "pass":
         raise SystemExit(1)

@@ -18,6 +18,7 @@ from pathlib import Path
 
 import pytest
 
+from dokimi.utils import InputError
 from dokimi.artifacts import validate_artifact
 from dokimi.explore import (
     ExploreRunner,
@@ -206,10 +207,9 @@ def test_explore_without_bundled_tasks_says_so(tmp_path, monkeypatch, argv, caps
 
     monkeypatch.setattr(tasks_mod, "EXPLORE_TASKS_ROOT", tmp_path / "absent")
     args = build_parser().parse_args(argv)
-    with pytest.raises(SystemExit) as exc:
+    with pytest.raises(InputError) as exc:
         args.func(args)
-    assert exc.value.code == 2
-    err = capsys.readouterr().err
+    err = str(exc.value)
     assert "ship with a source checkout" in err
     assert "--tasks-root" in err
     assert "--repo-root" in err

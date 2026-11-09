@@ -45,6 +45,7 @@ CONTENTS = {
     "repo_ledger.v1": {"rules": 2},
     "headroom.v1": {"items": 2, "inputs": 1},
     "redteam.v1": {"violations": 2, "questions": 2},
+    "leak.v1": {"violations": 1, "items": 2},
     "eval_coverage.v1": {"gaps": 1, "evals": 2, "problems": 0},
     "catalog_eval.v1": {"skills": 1, "problems": 0},
     "need_graph.v1": {"nodes": 3, "edges": 1},
@@ -296,7 +297,7 @@ def test_an_mtime_past_the_year_9999_is_shown_as_seconds(monkeypatch, capsys, ro
     real = show(root, "arms/plugin_delta.json")
     far = Shown(artifact=dataclasses.replace(real.artifact, mtime=253402300800.0),
                 schema=real.schema, errors=[], contents=real.contents)
-    monkeypatch.setattr(runs_cmd, "show", lambda root, address: far)
+    monkeypatch.setattr(runs_cmd, "show_target", lambda root, address: far)
 
     out = _show(monkeypatch, capsys, "arms/plugin_delta.json").out
 
@@ -312,9 +313,7 @@ def test_an_address_in_a_directory_that_cannot_be_searched_exits_2(monkeypatch, 
     finally:
         (root / "arms").chmod(0o755)
 
-    # Python 3.11-3.13 raise PermissionError on the lookup; 3.14 reports the file as missing.
-    assert err in ("Error: arms/onetbb.json: cannot read: Permission denied\n",
-                   "Error: no file arms/onetbb.json under the runs root results/\n")
+    assert err == "Error: arms/onetbb.json: cannot read: Permission denied\n"  # 3.14 too
 
 
 @pytest.mark.skipif(os.name == "nt", reason="symlinks need privileges on Windows")
@@ -418,3 +417,187 @@ def test_an_absolute_address_under_a_root_named_with_dot_dot(tmp_path, monkeypat
 
     assert (by_path["path"], by_path["kind"]) == (by_name["path"], by_name["kind"]) == ("e.json",
                                                                                        "eval")
+
+
+@pytest.fixture
+def runs(root, monkeypatch):
+    """Run ``nightly-1``: the arms run (saved again) and an eval; run ``nightly-2``: one eval.
+    ``plugin_delta`` stays in this process's run."""
+    for run, path in (("nightly-1", "e1.json"), ("nightly-2", "e2.json")):
+        monkeypatch.setenv("DOKIMI_RUN_ID", run)
+        save_artifact("eval", {**_fixture("eval.v1"), "evaluated_at": "2026-10-30T08:00:00Z"},
+                      root / path)
+    monkeypatch.setenv("DOKIMI_RUN_ID", "nightly-1")
+    save_artifact("arms", {**_fixture("arms.v1"), "generated_at": "2026-10-31T09:00:00Z"},
+                  root / "arms" / "onetbb.json")
+    monkeypatch.delenv("DOKIMI_RUN_ID")
+    return root
+
+
+def test_a_run_id_shows_the_artifacts_of_that_run(monkeypatch, capsys, runs):
+    lines = _show(monkeypatch, capsys, "nightly-1").out.splitlines()
+
+    assert lines[:3] == ["run_id:     nightly-1", "artifacts:  2 (arms: 1, eval: 1)", ""]
+    assert lines[3].split() == ["SCHEMA", "SUBJECT", "MODEL", "TIME", "(UTC)", "PATH"]
+    assert [row.split()[-1] for row in lines[4:]] == ["arms/onetbb.json", "e1.json"]
+
+
+def test_a_run_with_an_untimed_artifact_explains_the_star(monkeypatch, capsys, runs):
+    """``plugin_delta`` records no time and stays in this process's run."""
+    lines = _show(monkeypatch, capsys, run_id()).out.splitlines()
+
+    assert lines[-2].split()[4].endswith("*") and lines[-2].endswith("arms/plugin_delta.json")
+    assert lines[-1] == "* the file's mtime: the artifact records no time"
+
+
+def test_json_of_a_run_has_its_artifacts_as_runs_list_rows(monkeypatch, capsys, runs):
+    data = json.loads(_show(monkeypatch, capsys, "nightly-2", "--json").out)
+
+    assert (data["root"], data["run_id"], data["unreadable"]) == ("results", "nightly-2", [])
+    (row,) = data["artifacts"]
+    assert (row["path"], row["kind"], row["run_id"]) == ("e2.json", "eval", "nightly-2")
+
+
+def test_json_of_a_run_lists_every_artifact_newest_first(monkeypatch, capsys, runs):
+    data = json.loads(_show(monkeypatch, capsys, "nightly-1", "--json").out)
+
+    assert [row["path"] for row in data["artifacts"]] == ["arms/onetbb.json", "e1.json"]
+
+
+def test_a_run_id_is_matched_whole_not_as_a_prefix_of_another(monkeypatch, capsys, runs):
+    for run, path in (("r1", "r1.json"), ("r10", "r10.json")):
+        monkeypatch.setenv("DOKIMI_RUN_ID", run)
+        save_artifact("eval", _fixture("eval.v1"), runs / path)
+
+    data = json.loads(_show(monkeypatch, capsys, "r1", "--json").out)
+
+    assert [row["path"] for row in data["artifacts"]] == ["r1.json"]
+
+
+def test_a_run_id_wins_over_a_directory_or_a_path_outside_the_root(monkeypatch, capsys, runs):
+    """``DOKIMI_RUN_ID=nightly-1`` writing into ``results/nightly-1/`` is the natural layout."""
+    (runs / "nightly-1").mkdir()
+    (runs.parent / "nightly-2").write_text("{}", encoding="utf-8")  # in the working directory
+
+    assert _show(monkeypatch, capsys, "nightly-1").out.startswith("run_id:     nightly-1\n")
+    assert _show(monkeypatch, capsys, "nightly-2").out.startswith("run_id:     nightly-2\n")
+
+
+@pytest.mark.skipif(os.name == "nt", reason="symlinks need privileges on Windows")
+def test_a_directory_under_the_root_shadows_a_file_of_that_name_from_the_working_directory(
+        monkeypatch, capsys, runs):
+    """``runs show`` opens ``results/nightly-1`` first, as for any path, so the run is shown, and
+    with no such run the directory's error stands: the in-root file never decides alone."""
+    (runs / "nightly-1").mkdir()
+    (runs.parent / "nightly-1").symlink_to(runs / "e1.json")
+    (runs / "nightly-3").mkdir()
+    (runs.parent / "nightly-3").symlink_to(runs / "e2.json")
+
+    assert _show(monkeypatch, capsys, "nightly-1").out.startswith("run_id:     nightly-1\n")
+    assert _fails(monkeypatch, capsys, "nightly-3") == (
+        "Error: nightly-3 is a directory; runs show takes one artifact file\n")
+
+
+def test_an_artifact_file_of_the_run_ids_name_is_shown_instead(monkeypatch, capsys, runs):
+    save_artifact("eval", _fixture("eval.v1"), runs / "nightly-1")
+
+    assert _show(monkeypatch, capsys, "nightly-1").out.startswith("path:       nightly-1\n")
+
+
+def test_with_no_such_run_a_directory_or_an_outside_path_keeps_its_error(monkeypatch, capsys,
+                                                                         runs):
+    (runs / "nightly-3").mkdir()
+    (runs.parent / "nightly-4").write_text("{}", encoding="utf-8")
+
+    assert _fails(monkeypatch, capsys, "nightly-3") == (
+        "Error: nightly-3 is a directory; runs show takes one artifact file\n")
+    assert _fails(monkeypatch, capsys, "nightly-4") == (
+        "Error: nightly-4 is not under the runs root results/\n")
+
+
+@pytest.mark.skipif(os.name == "nt" or os.geteuid() == 0,
+                    reason="POSIX permissions; root searches every directory")
+def test_a_name_that_cannot_be_looked_up_gets_the_reason_not_the_run_id_error(monkeypatch, capsys,
+                                                                              runs):
+    runs.chmod(0o600)
+    try:
+        err = _fails(monkeypatch, capsys, "e1.json")
+    finally:
+        runs.chmod(0o755)
+
+    assert err == "Error: e1.json: cannot read: Permission denied\n"
+
+
+def test_a_run_id_no_artifact_has_exits_2(monkeypatch, capsys, runs):
+    assert _fails(monkeypatch, capsys, "nightly-3") == (
+        "Error: no file nightly-3 under the runs root results/, and no artifact there has that "
+        "run_id\n")
+    assert _fails(monkeypatch, capsys, "Nightly-1").startswith("Error: no file Nightly-1 ")
+
+
+def test_a_run_id_no_artifact_has_counts_the_files_that_could_not_be_read(monkeypatch, capsys,
+                                                                          runs):
+    (runs / "broken.json").write_text('{"schema_version": "eval.v1", "x": [', encoding="utf-8")
+
+    assert _fails(monkeypatch, capsys, "nightly-3").endswith(
+        "has that run_id; 1 entry under the root could not be read\n")
+
+
+def test_an_input_kinds_stray_run_id_does_not_make_it_part_of_the_run(monkeypatch, capsys, runs):
+    stray = {**_fixture("questions.v2"), "run_id": "nightly-2"}
+    (runs / "q.json").write_text(json.dumps({"schema_version": "questions.v2", **stray}),
+                                 encoding="utf-8")
+
+    data = json.loads(_show(monkeypatch, capsys, "nightly-2", "--json").out)
+
+    assert [row["path"] for row in data["artifacts"]] == ["e2.json"]
+
+
+def test_a_run_names_the_files_that_could_not_be_read(monkeypatch, capsys, runs):
+    (runs / "broken.json").write_text('{"schema_version": "eval.v1", "x": [', encoding="utf-8")
+
+    lines = _show(monkeypatch, capsys, "nightly-2").out.splitlines()
+
+    assert lines[2] == ("unreadable: 1 entry under the root, which may belong to it "
+                        "(first: broken.json: not valid JSON: Expecting value at line 1)")
+
+
+def test_the_kinds_of_a_run_are_sorted(monkeypatch, capsys, runs):
+    monkeypatch.setenv("DOKIMI_RUN_ID", "nightly-5")
+    save_artifact("eval", {**_fixture("eval.v1"), "evaluated_at": "2026-11-02T10:00:00Z"},
+                  runs / "e5.json")
+    save_artifact("arms", {**_fixture("arms.v1"), "generated_at": "2026-11-02T08:00:00Z"},
+                  runs / "a5.json")
+
+    lines = _show(monkeypatch, capsys, "nightly-5").out.splitlines()
+
+    assert lines[1] == "artifacts:  2 (arms: 1, eval: 1)"
+    assert [row.split()[-1] for row in lines[4:]] == ["e5.json", "a5.json"]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows file names cannot hold control characters")
+def test_a_run_names_the_first_unreadable_file_escaped_and_json_lists_them_all(
+        monkeypatch, capsys, runs):
+    for name in ("a\nbad.json", "b-bad.json"):
+        (runs / name).write_text('{"schema_version": "eval.v1", "x": [', encoding="utf-8")
+
+    lines = _show(monkeypatch, capsys, "nightly-2").out.splitlines()
+    assert lines[2].startswith("unreadable: 2 entries under the root, which may belong to it "
+                               "(first: a\\nbad.json: not valid JSON")
+
+    data = json.loads(_show(monkeypatch, capsys, "nightly-2", "--json").out)
+    assert [u["path"] for u in data["unreadable"]] == ["a\nbad.json", "b-bad.json"]
+    assert data["unreadable"][0]["schema_version"] == "eval.v1"
+
+
+@pytest.mark.skipif(os.name == "nt" or os.geteuid() == 0,
+                    reason="POSIX permissions; root lists every directory")
+def test_a_run_id_under_a_root_that_cannot_be_listed_says_so(monkeypatch, capsys, runs):
+    runs.chmod(0o311)  # searchable, so e1.json would open, but not listable
+    try:
+        err = _fails(monkeypatch, capsys, "nightly-1")
+    finally:
+        runs.chmod(0o755)
+
+    assert err == ("Error: the runs root results/ cannot be listed, so run_id nightly-1 cannot be "
+                   "looked up (cannot list: Permission denied)\n")

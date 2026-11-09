@@ -31,7 +31,7 @@ import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from dokimi import process
+from dokimi import docker_cmd, process
 from dokimi.container_policy import ContainerPolicy
 
 
@@ -217,8 +217,8 @@ def _run_docker(lang: str, code: str, policy: ExecutionPolicy,
         script.chmod(0o644)
         flags = ContainerPolicy(network="none", no_new_privileges=True, cap_drop_all=True, cpus=policy.cpus,
                                 memory_mb=policy.mem_mb, pids_limit=64, read_only=True)
-        cmd = [
-            "docker", "run", "--rm",
+        cmd = docker_cmd.argv(
+            "run", "--rm",
             *flags.hardening_argv(),
             *flags.network_argv(),
             *flags.resource_argv(),
@@ -228,7 +228,7 @@ def _run_docker(lang: str, code: str, policy: ExecutionPolicy,
             policy.docker_image,
             "timeout", str(policy.timeout),
             *argv_prefix, f"/work/{script.name}",
-        ]
+        )
         try:  # the docker CLI needs the caller's DOCKER_HOST / config; the snippet sees none of it
             result = runner(cmd, timeout=policy.timeout + 30, env=process.Env.inherit())
         except FileNotFoundError:

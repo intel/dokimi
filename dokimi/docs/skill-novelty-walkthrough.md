@@ -76,7 +76,9 @@ counted calls at nine (skill, tier) points, on content that did not escalate.
 follows the artifact's length and the models. Pass `--max-usd <n>` to every step that calls a
 model: the run stops once its calls across all roles have cost that much (calls already in
 flight can overshoot it), and a call with no known price stops it too,
-since the cap cannot see that spend. One measured pair, a 19k-token skill: triage 103 calls,
+since the cap cannot see that spend. A step that stops at the cap writes nothing, except
+`novelty routing`, which saves the calls it made as a `partial` result (see
+[skill-novelty.md](skill-novelty.md)). One measured pair, a 19k-token skill: triage 103 calls,
 about $1.80; `study` 1,901 calls, about $14.50.
 
 ## 3. Triage: is there anything in here? (~100 calls)
@@ -117,7 +119,9 @@ The extractor must not be the model under measurement, or the model writes its o
 key — `probe` warns when it detects that. Without `--extract-model`/`--model`, `atoms` (and
 the `shorten` adjudicator) use the default judge, `anthropic/claude-sonnet-5-5`, the same
 model `analyze` extracts with; an extractor from another provider needs `--provider`. `probe`
-and `analyze` measure `openai/gpt-6.1-sol` unless given `--model`. `atoms.json` records which
+and `analyze` measure `openai/gpt-6.1-sol` unless given `--model`. On `atoms` and `shorten`, `--model`
+is the extractor or the adjudicator, not the answerer; see [Choosing the extractor and the judge](skill-novelty.md#choosing-the-extractor-and-the-judge).
+`atoms.json` records which
 files it came from and `probe` rebuilds exactly that set, refusing if the artifact's files changed since.
 
 With three or more models, check which probes measured anything:

@@ -197,7 +197,7 @@ def test_an_agentic_empty_reply_keeps_the_tool_usage_the_selection_summary_score
 
 def test_delta_vs_baseline_is_built_on_the_stats_pairing(monkeypatch):
     """One pairing rule for the delta and the significance test: paired_delta reads stats.paired_vectors."""
-    import dokimi.eval.arm_summary as arm_summary_mod
+    import dokimi.eval.stats as stats_mod
 
     calls = []
 
@@ -205,8 +205,8 @@ def test_delta_vs_baseline_is_built_on_the_stats_pairing(monkeypatch):
         calls.append((arm_a, arm_b))
         return [5.0, 1.0], [2.0, 0.0]
 
-    monkeypatch.setattr(arm_summary_mod, "paired_vectors", stub)
-    assert arm_summary_mod.paired_delta([], "baseline", "skill") == 2.0
+    monkeypatch.setattr(stats_mod, "paired_vectors", stub)
+    assert stats_mod.paired_delta([], "baseline", "skill") == 2.0
     assert calls == [("skill", "baseline")]
 
 

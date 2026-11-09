@@ -52,7 +52,7 @@ def novelty_cell(artifact: dict, *, source: str | None = None) -> dict[str, Any]
             scoring: {
                 key: (paired.get(scoring) or {}).get(key)
                 for key in ("added", "redundant", "degraded", "still_missing",
-                            "n_paired", "ci95_added")
+                            "n_paired", "ci95_added", "ci_cluster")
             }
             for scoring in ("lenient", "strict")
             if paired.get(scoring)

@@ -19,6 +19,7 @@ from pathlib import Path
 
 import pytest
 
+from dokimi.utils import InputError
 from dokimi.cli import build_parser
 from dokimi.harnesses import create_harness
 from dokimi.harnesses import swebench_grade as grader
@@ -407,7 +408,7 @@ def test_tasks_run_stages_swe_bench_rows_for_a_dry_run(tmp_path):
 
 
 def test_tasks_run_names_a_missing_swe_bench_instance(tmp_path):
-    with pytest.raises(SystemExit, match="--swe-bench: .*no instance x__y-1"):
+    with pytest.raises(InputError, match="--swe-bench: .*no instance x__y-1"):
         _run(["tasks", "run", "--swe-bench", str(FIXTURE), "--tasks", "x__y-1",
               "--harnesses", "docker-oracle", "--output-dir", str(tmp_path)])
 
@@ -418,7 +419,7 @@ def test_tasks_run_refuses_an_all_selection_with_no_runnable_row(tmp_path):
     data = tmp_path / "bad.json"
     data.write_text(json.dumps([dict(rows[0], instance_id="psf__requests-863")]), encoding="utf-8")
     out = tmp_path / "out"
-    with pytest.raises(SystemExit, match="no runnable rows"):
+    with pytest.raises(InputError, match="no runnable rows"):
         _run(["tasks", "run", "--swe-bench", str(data), "--all",
               "--harnesses", "docker-oracle", "--output-dir", str(out), "--dry-run"])
     assert not (out / "task_runs.json").exists()

@@ -87,7 +87,7 @@ The defaults live in `dokimi/defaults.py` and changed on 2026-10-13; scores from
 
 `benchmark`, `eval score pointwise`, `eval score panel` and `evaluate` warn when the normalized answer model and judge model match, and so do `arms run --judge` and `subjects run --judge`. Commands that read a saved answers or questions file warn when the judge is the model the file records. Evaluation artifacts also store model/provider metadata and `question_set_hash` so later comparisons can prove they used the same question set.
 
-Supported providers in the main pipeline include OpenAI, Anthropic, Google Vertex, OpenRouter, Amazon Bedrock, and OpenAI Codex where wired by the CLI.
+Supported providers in the main pipeline (`evaluate`, `benchmark`, `answers generate`, `eval questions generate`, `eval personas discover`) are OpenAI, Anthropic, Google Vertex, OpenRouter, Amazon Bedrock and `claude-cli`; `openai-codex` only on the commands that call `dokimi.llm` directly (`arms`, `subjects run`, `skill novelty`, `skill shorten`, `novelty routing`, `eval questions analyze|review`, `eval score panel`, `tools preference`).
 
 ## Question Sources
 
@@ -191,7 +191,7 @@ The optional judge panel uses three roles:
 - `developer_advocate`: emphasizes practical usefulness and actionability.
 - `doc_reviewer`: emphasizes completeness and fidelity to context.
 
-Panel aggregates are computed in Python from role-specific weights. The panel report includes mean score, standard deviation, agreement score, and disagreement flags. Every panel role carries the single judge's numeric-claims criterion and lists `numeric_claims` first; Python holds the same wrong-figure cap per vote, keeping the judged score under the vote's `caps`. Panel correctness scores from before this change had neither and are not comparable with later ones.
+Panel aggregates are computed in Python from role-specific weights. The panel report includes mean score, standard deviation, agreement score, and disagreement flags. A panel verdict needs a majority of its judges to return a valid vote; below that the question reports insufficient evidence, with no mean, spread or agreement, and a one-judge panel reports a score with no spread or agreement. Every panel role carries the single judge's numeric-claims criterion and lists `numeric_claims` first; Python holds the same wrong-figure cap per vote, keeping the judged score under the vote's `caps`. Panel correctness scores from before this change had neither and are not comparable with later ones.
 
 RAGAS meta-evaluation can be run after answer generation to add faithfulness and answer-relevancy signals, especially for the `with_docs` condition.
 

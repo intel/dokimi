@@ -530,6 +530,23 @@ def test_a_hedged_verdict_stored_by_the_v2_cache_is_not_read(tmp_path, monkeypat
     assert oracle.verdict(atom, text).method == "llm"
 
 
+def test_a_verdict_cached_by_the_v3_cache_is_re_adjudicated(tmp_path, monkeypatch):
+    from dokimi.novelty import retention
+
+    atom, text = _AMBIGUOUS
+    monkeypatch.setattr(retention, "_CACHE_VERSION", b"retention-cache-v3\0")
+    old_key = _key(atom, text)
+    monkeypatch.undo()
+    # A v3 entry from a reply cut at the ceiling that still parsed: the v4 cache must not read it.
+    (tmp_path / f"{old_key}.json").write_text('{"verdict": "retained", "score": 0.5}',
+                                              encoding="utf-8")
+    oracle = RetentionOracle(
+        client=LLMClient(model="x", transport=lambda p, s: ('{"verdict": "absent"}', None)),
+        cache_dir=tmp_path,
+    )
+    assert oracle.verdict(atom, text).method == "llm"
+
+
 def test_a_cut_answer_logs_the_truncation_on_every_run(monkeypatch, tmp_path, caplog):
     from dokimi import llm
 
@@ -667,8 +684,10 @@ def test_a_judge_row_without_a_real_verdict_is_unjudged_not_a_default(row):
         atoms, client=LLMClient(model="x", transport=lambda p, s: (json.dumps([row]), None)),
         task="t", report=report,
     )
+    # The one row is no verdict, so the reply has no usable row: it is split down to a call
+    # of one, which fails, rather than counted as a row the judge skipped.
     assert verdicts == {} and report.unjudged == [atoms[0].id]
-    assert report.unjudged_skipped == 1
+    assert report.unjudged_skipped == 0 and report.unjudged_unusable == 1 and report.value_error == ""
 
 
 def test_a_malformed_judge_row_does_not_cost_the_atoms_beside_it():

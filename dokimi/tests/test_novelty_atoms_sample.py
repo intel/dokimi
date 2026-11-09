@@ -320,12 +320,12 @@ def test_shorten_refuses_a_sample_the_entry_point_leaves_empty(tmp_path, monkeyp
     out = tmp_path / "short.md"
     argv = ("shorten", "--artifact", f"skill:{skill}", "--atoms", str(path), "--lexical-only",
             "--budgets", "0.5", "--out", str(out))
-    with pytest.raises(SystemExit) as exit_info:
+    with pytest.raises(InputError) as exit_info:
         _cli(monkeypatch, *argv)
-    assert exit_info.value.code == 2 and not out.exists()
+    assert not out.exists()
     assert (f"shorten: {path} records a sample of 1 atom(s), none of them among the 2 of its 7 "
             "atoms shorten measures here, so it would score nothing; pass --all-atoms to measure "
-            "those 2") in capsys.readouterr().err
+            "those 2") in str(exit_info.value)
     _cli(monkeypatch, *argv, "--all-atoms")
     assert "OK Wrote candidate" in capsys.readouterr().out and out.exists()
 

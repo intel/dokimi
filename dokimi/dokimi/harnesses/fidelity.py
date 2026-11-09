@@ -35,7 +35,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Callable, Iterable, List, Optional, Sequence
 
-from dokimi import process
+from dokimi import docker_cmd, process
 from dokimi.harnesses.agent_sandbox import agent_env
 from dokimi.harnesses.payload_audit import Leak, new_leaks
 
@@ -488,9 +488,9 @@ def run_docker(image: str, binary: str, args: List[str], *, workdir: Path, plugi
         env_args: List[str] = []
         for key, value in env.items():
             env_args += ["-e", f"{key}={value}"]
-        cmd = ["docker", "run", "--rm", "--network", "host", "-u", f"{uid}:{gid}",
+        cmd = docker_cmd.argv("run", "--rm", "--network", "host", "-u", f"{uid}:{gid}",
                "--tmpfs", f"{_CONTAINER_HOME}:uid={uid},gid={gid}", "-w", str(workdir),
-               *mounts, *env_args, image, "/opt/agent/claude", *args]
+               *mounts, *env_args, image, "/opt/agent/claude", *args)
         _require_ok(process.run(cmd, timeout=timeout, env=process.Env.inherit()), binary)
 
     return run

@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""``repo tasks replay``: ``dokimi:review_replay`` tasks from recorded review threads (contract §4.5).
+"""``eval tasks generate --from replay``: ``dokimi:review_replay`` tasks from recorded review threads (contract §4.5).
 
 The threads files here have the shape ``gh api graphql --paginate --slurp`` writes, with the
 SHAs of a toy history built per test. No network, no docker.
@@ -200,7 +200,8 @@ def _pages(*prs):
 def _replay(root: Path, doc, out: Path, *extra: str, source: str | None = None) -> None:
     path = root.parent / "threads.json"
     path.write_text(json.dumps(doc), encoding="utf-8")
-    args = build_parser().parse_args(["repo", "tasks", "replay", source or str(root), "--threads", str(path),
+    args = build_parser().parse_args(["eval", "tasks", "generate", source or str(root), "--from", "replay",
+                                      "--threads", str(path),
                                       "--out", str(out), *extra])
     args.func(args)
 
@@ -362,7 +363,9 @@ def test_a_pr_that_edits_an_agents_overlay_leaves_it_out_and_applies_under_guida
 
 
 def test_prs_without_a_task_say_why_and_rewritten_history_is_flagged(hist, tmp_path, capsys):
+    unrelated = git(hist["root"], "commit-tree", f"{hist['rev']}^{{tree}}", "-m", "no parent")
     prs = [_pr(8, hist["rev8"], hist["merge8"], [_t("AGENTS.md", 3, hist["rev8"])]),
+           _pr(18, hist["r2"], hist["merge7"], [_t("src/long.py", 10, unrelated)]),  # reviewed on no history of main
            _pr(9, hist["r2"], None, [_t("src/long.py", 10, hist["rev"])]),
            _pr(10, None, hist["merge7"], [_t("src/long.py", 10, hist["rev"])]),
            _pr(11, hist["r2"], hist["merge7"], []),
@@ -380,6 +383,7 @@ def test_prs_without_a_task_say_why_and_rewritten_history_is_flagged(hist, tmp_p
                  "PR 11: skipped: no review thread on a line by a reviewer",
                  f"PR 16: skipped: the reviewed revision {hist['c0'][:12]} changes nothing against the base branch",
                  "PR 17: skipped: no gold thread is left",
+                 f"PR 18: skipped: the reviewed revision {unrelated[:12]} shares no history with the base branch",
                  f"PR 13: skipped: its mergeCommit {NOT_IN_SOURCE[:12]} is not in the source "
                  "(fetch the base branch)",
                  "PR 12: written review_replay_pr12: 1 gold thread(s), 1 addressed",
@@ -586,7 +590,8 @@ def test_an_unusable_threads_file_exits_1_with_the_reason(hist, tmp_path, capsys
     path = tmp_path / "threads.json"
     if content is not None:
         path.write_text(content, encoding="utf-8")
-    args = build_parser().parse_args(["repo", "tasks", "replay", str(hist["root"]), "--threads", str(path),
+    args = build_parser().parse_args(["eval", "tasks", "generate", str(hist["root"]), "--from", "replay",
+                                      "--threads", str(path),
                                       "--out", str(tmp_path / "tasks")])
     with pytest.raises(SystemExit) as exc:
         args.func(args)
@@ -603,7 +608,8 @@ def test_a_threads_file_nested_past_the_parsers_limit_exits_1(hist, tmp_path, ca
     monkeypatch.setattr(threads_module, "json", SimpleNamespace(loads=too_deep))
     path = tmp_path / "threads.json"
     path.write_text("[[]]", encoding="utf-8")
-    args = build_parser().parse_args(["repo", "tasks", "replay", str(hist["root"]), "--threads", str(path),
+    args = build_parser().parse_args(["eval", "tasks", "generate", str(hist["root"]), "--from", "replay",
+                                      "--threads", str(path),
                                       "--out", str(tmp_path / "tasks")])
     with pytest.raises(SystemExit) as exc:
         args.func(args)

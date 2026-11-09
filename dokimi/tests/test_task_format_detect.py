@@ -27,6 +27,7 @@ from pathlib import Path
 
 import pytest
 
+from dokimi.utils import InputError
 from dokimi.cli import build_parser
 from dokimi.external.trigger_set import TriggerQuery, to_reach, to_skill_creator
 from dokimi.harnesses import discover_tasks
@@ -415,7 +416,7 @@ def test_cli_inspect_shows_ambiguity_and_problems(tmp_path, capsys):
 
 
 def test_cli_inspect_missing_path_exits_with_a_message(tmp_path):
-    with pytest.raises(SystemExit) as excinfo:
+    with pytest.raises(InputError) as excinfo:
         _run(["eval", "inspect", str(tmp_path / "nope")])
     assert "no such file or directory" in str(excinfo.value)
 
@@ -435,7 +436,7 @@ def test_cli_inspect_json_is_a_stamped_artifact_and_out_writes_the_same(tmp_path
 def test_cli_inspect_out_to_an_unwritable_path_exits_with_a_message(tmp_path):
     _tb1(tmp_path)
     (tmp_path / "f").write_text("")
-    with pytest.raises(SystemExit) as excinfo:
+    with pytest.raises(InputError) as excinfo:
         _run(["eval", "inspect", str(tmp_path), "--out", str(tmp_path / "f" / "r.json")])
     assert "cannot write" in str(excinfo.value)
 

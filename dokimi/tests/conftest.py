@@ -11,6 +11,9 @@ from pathlib import Path
 # it ships. With the download, cost assertions depend on upstream pricing edits and every
 # test run needs the network. Set before anything imports litellm.
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
+# Reaches xdist workers (one process has numpy loaded already, by pytest-randomly). On 8 busy cores, OpenBLAS
+# threads took test_the_interval_excludes_zero_exactly_when_p_is_below_005 to 27 s under xdist, one thread 3 s.
+os.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 
 import pytest
 

@@ -26,7 +26,7 @@ from dokimi.defaults import DEFAULT_ANSWER_MODEL, DEFAULT_ANSWER_PROVIDER
 from dokimi.eval import stats as arm_stats
 from dokimi.eval.interactions import interaction_significance
 from dokimi.eval.arm_summary import (
-    cell_values, cost_summary, empty_reply_cell, paired_delta, summarize_agentic_usage, summarize_skill_selection, unjudged_cell,
+    cell_values, cost_summary, empty_reply_cell, summarize_agentic_usage, summarize_skill_selection, unjudged_cell,
 )
 from dokimi.eval.cells import Cell
 from dokimi.eval.question_text import question_text_of, require_question_texts
@@ -767,7 +767,7 @@ class ArmRunner:
         # Always present: null for the baseline, and for an arm with no question both arms scored.
         for arm_name, stats in summary["per_arm"].items():
             stats["delta_vs_baseline"] = (
-                paired_delta(evaluations, baseline_arm, arm_name) if arm_name != baseline_arm else None
+                arm_stats.paired_delta(evaluations, baseline_arm, arm_name) if arm_name != baseline_arm else None
             )
 
         # Paired statistics. Every arm is tested against the *same* baseline

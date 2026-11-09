@@ -237,8 +237,8 @@ def _read_probe_file(raw: str):
 
 
 def _check_probe_strings(raw: str, data: dict) -> None:
-    """Refuse a probe file whose model, artifact or ref_digest is not a string."""
-    for key in ("model", "artifact", "ref_digest"):
+    """Refuse a probe file whose model, artifact, ref_digest or framing is not a string."""
+    for key in ("model", "artifact", "ref_digest", "context_framing"):
         value = data.get(key)
         if value is None and key != "model":  # older output records no artifact or digest
             continue
@@ -259,6 +259,13 @@ def _check_run_strings(raw: str, row: dict) -> None:
             )
 
 
+_TEXTS = ("measured different texts", "pass runs of one artifact at one revision")
+_POOLED_AS_ONE = (
+    ("artifact", *_TEXTS), ("ref_digest", *_TEXTS),
+    ("context_framing", "used different context framings", "pass runs of one framing"),
+)
+
+
 def load_probe_cells(paths: list[str]) -> tuple[list[dict], list[str]]:
     """Read ``skill novelty probe`` outputs into item-analysis cells, one per file.
 
@@ -266,15 +273,15 @@ def load_probe_cells(paths: list[str]) -> tuple[list[dict], list[str]]:
     probed text. Atom ids are content hashes, so ids collide across artifacts only for
     identical statements -- but then the "same atom" was asked with different context. A
     file that does not record ``artifact`` or ``ref_digest`` (older output) is not held
-    against the rest.
+    against the rest; one without ``context_framing`` ran the reference framing.
 
     Returns:
         ``(cells, warnings)``; each cell is ``{"model", "runs", "source", "artifact",
-        "ref_digest"}`` as :func:`discrimination` reads it.
+        "ref_digest", "context_framing"}`` as :func:`discrimination` reads it.
 
     Raises:
         ProbeFileError: A file that cannot be read, is not JSON, is not probe output, or
-            files that measured different texts.
+            files that measured different texts or used different framings.
     """
     cells = []
     for raw in paths:
@@ -312,16 +319,17 @@ def load_probe_cells(paths: list[str]) -> tuple[list[dict], list[str]]:
         if not runs:
             raise ProbeFileError(f"{raw} carries no probe runs; item analysis needs "
                                  "`skill novelty probe` output, not a novelty.json")
+        # A file from before `--context-framing` was probed with the reference preamble.
         cells.append({"model": data.get("model", raw), "runs": runs, "source": raw,
-                      "artifact": data.get("artifact"), "ref_digest": data.get("ref_digest")})
+                      "artifact": data.get("artifact"), "ref_digest": data.get("ref_digest"),
+                      "context_framing": data.get("context_framing", "reference")})
 
-    for name in ("artifact", "ref_digest"):
+    for name, what, fix in _POOLED_AS_ONE:
         values = {cell[name] for cell in cells if cell[name] is not None}
         if len(values) > 1:
             raise ProbeFileError(
-                f"these probe runs measured different texts ({name}: "
-                f"{', '.join(sorted(values))}); item analysis correlates one artifact's "
-                "atoms across models, so pass runs of one artifact at one revision"
+                f"these probe runs {what} ({name}: {', '.join(sorted(values))}); "
+                f"item analysis correlates one artifact's atoms across models, so {fix}"
             )
 
     warnings = []

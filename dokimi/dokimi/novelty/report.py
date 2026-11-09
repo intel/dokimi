@@ -25,6 +25,10 @@ from dokimi.gate.novelty_gate import uncleared_conflicts
 from .attribute import COLOURS, LEGEND, SpanAttribution
 from .bundle import Coverage, named_exclusions
 
+# The per-scoring control keys of ``paired_outcomes``; an analyze artifact keeps them too.
+CONTROL_KEYS = ("added_over_placebo", "noise_floor", "added_net_of_noise",
+                "degraded_within_noise")
+
 _CAVEATS = (
     "Rates are paired per probe; trust signs and rankings, not second decimals. "
     "Two independent judges agreed 0.664 on the 6-way verdict scale and 0.852 on the "
@@ -106,6 +110,9 @@ def build_novelty_artifact(
                 "n_paired": row["n_paired"],
                 "n_unpaired_dropped": row["n_unpaired_dropped"],
                 "ci95_added": row["ci95_added"],
+                "ci_cluster": row["ci_cluster"],
+                # A control key exists only when its arm ran; copy the ones there are.
+                **{k: row[k] for k in CONTROL_KEYS if k in row},
             }
             for scoring, row in paired.items()
         },
@@ -154,6 +161,7 @@ def build_probe_record(
     probe_set,
     measure_result,
     sampling: dict | None = None,
+    framing: str = "reference",
 ) -> dict:
     """The ``skill novelty probe`` output: the paired runs of one model over a saved answer key.
 
@@ -173,6 +181,8 @@ def build_probe_record(
         "ref_digest": None if probed_bundle is None else probed_bundle.measured_digest(),
         "atoms_ref_digest": (atoms_bundle or {}).get("measured_digest"),
         "sampling": sampling,
+        # The preamble is not in the saved runs, so the record names the framing it used.
+        "context_framing": framing,
         "probes": probe_set.as_dict(),
         "paired": {s: measure_result.paired(s) for s in ("lenient", "strict")},
         "arms": {s: measure_result.arm_means(s) for s in ("lenient", "strict")},
@@ -186,8 +196,8 @@ def build_probe_record(
 def _order_independent(measure_result) -> bool | None:
     """True when the shuffled control scored at least as high as the artifact as written.
 
-    Measured on four of five models in the study, which is why prose order is not where
-    authoring effort pays off. ``None`` when the control was not run.
+    A study result on this control does not carry over: its shuffled arm injected more
+    files than the artifact did (see ``shuffle_text``). ``None`` when the control was not run.
     """
     means = measure_result.arm_means("lenient")
     if "shuffled" not in means or measure_result.with_arm not in means:

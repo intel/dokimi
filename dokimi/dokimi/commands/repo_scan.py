@@ -8,9 +8,8 @@ from __future__ import annotations
 import argparse
 import os
 import shutil
-import sys
 
-from dokimi.exit_codes import EXIT_USAGE
+from dokimi.utils import InputError
 
 
 def _typecheck_or_exit(args: argparse.Namespace):
@@ -19,20 +18,16 @@ def _typecheck_or_exit(args: argparse.Namespace):
 
     if not args.typecheck:
         if args.python_env is not None:
-            print("✗ --python-env needs --typecheck", file=sys.stderr)
-            sys.exit(EXIT_USAGE)
+            raise InputError("--python-env needs --typecheck")
         if args.typecheck_tool is not None:
-            print("✗ --typecheck-tool needs --typecheck", file=sys.stderr)
-            sys.exit(EXIT_USAGE)
+            raise InputError("--typecheck-tool needs --typecheck")
         return None
     tool = args.typecheck_tool or "mypy"
     # a directory is X_OK too: only a regular file can be the interpreter
     if args.python_env is not None and not (os.path.isfile(args.python_env) and os.access(args.python_env, os.X_OK)):
-        print(f"✗ --python-env {args.python_env}: not an executable interpreter", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError(f"--python-env {args.python_env}: not an executable interpreter")
     if tool != "mypy" and shutil.which(tool) is None:
-        print(f"✗ --typecheck-tool {tool}: not on PATH", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError(f"--typecheck-tool {tool}: not on PATH")
     python = os.path.abspath(args.python_env) if args.python_env is not None else None  # the tool runs elsewhere
     return Check(tool, python)
 

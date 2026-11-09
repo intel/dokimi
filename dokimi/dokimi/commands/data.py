@@ -3,7 +3,8 @@
 
 """data: schemas, dataset export and imports of other formats (#94 M2).
 
-``data schema show KIND`` prints one schema as JSON; ``cli_routes`` is the only kind so far.
+``data schema show KIND`` prints one schema as JSON: ``cli_routes`` (the route table) and
+``cli_output.v1`` (the document every ``--json`` leaf prints).
 """
 
 from __future__ import annotations
@@ -12,10 +13,11 @@ import argparse
 import json
 from collections.abc import Callable
 
-from dokimi import cli_routes
+from dokimi import cli_output, cli_routes
 
 SCHEMA_KINDS: dict[str, Callable[[], dict]] = {
     "cli_routes": cli_routes.document,
+    "cli_output.v1": cli_output.schema_document,
 }
 
 
@@ -34,7 +36,7 @@ def register(sub, positive_int):  # noqa: ARG001 - the registry passes it to eve
     data_p = sub.add_parser("data", help="Schemas, dataset export, and imports of other formats")
     data_sub = data_p.add_subparsers(dest="data_cmd", required=True)
 
-    schema_p = data_sub.add_parser("schema", help="List schema kinds and print one as JSON (today the CLI route table)")
+    schema_p = data_sub.add_parser("schema", help="List schema kinds and print one as JSON (the CLI route table, the --json document)")
     schema_sub = schema_p.add_subparsers(dest="schema_cmd", required=True)
 
     list_p = schema_sub.add_parser("list", help="List the schema kinds")

@@ -301,6 +301,19 @@ def test_runs_of_different_texts_are_not_correlated(tmp_path):
         load_probe_cells([a, b])
 
 
+def test_runs_of_different_framings_are_not_correlated(tmp_path):
+    ref = _probe_file(tmp_path, "a.json", ["x"], context_framing="reference")
+    older = _probe_file(tmp_path, "b.json", ["x"])  # predates the flag: reference framing
+    neutral = _probe_file(tmp_path, "c.json", ["x"], context_framing="neutral")
+    assert len(load_probe_cells([ref, older])[0]) == 2
+    with pytest.raises(ProbeFileError, match=r"different context framings \(context_framing: "
+                                             r"neutral, reference\)"):
+        load_probe_cells([older, neutral])
+    odd = _probe_file(tmp_path, "d.json", ["x"], context_framing=["neutral"])
+    with pytest.raises(ProbeFileError, match="`context_framing` as list, not a string"):
+        load_probe_cells([ref, odd])
+
+
 def test_item_analysis_respects_arm_parameter_in_discrimination():
     # item_analysis() must pass arm= through to discrimination(), not hardcode "full".
     # Discrimination needs three models as respondents. Full passes every atom for

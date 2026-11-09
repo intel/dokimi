@@ -9,7 +9,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from dokimi.llm import ANSWER_PROVIDERS
+from dokimi.llm import CALLER_CHOICES
 from dokimi.commands.evaluate import _require_ragas, _run_ragas_eval
 from dokimi.defaults import (
     DEFAULT_ANSWER_MODEL,
@@ -34,11 +34,11 @@ def _load_runtime_config() -> dict:
         return {}
     try:
         loaded = yaml.safe_load(config_path.read_text(encoding="utf-8"))
-    except yaml.YAMLError as exc:
-        print(f"Error: invalid YAML in {config_path}: {exc}", file=sys.stderr)
-        raise SystemExit(EXIT_USAGE) from exc
-    except (OSError, ValueError) as exc:  # ValueError covers bad UTF-8
+    except (OSError, UnicodeDecodeError) as exc:
         print(f"Error: cannot read {config_path}: {exc}", file=sys.stderr)
+        raise SystemExit(EXIT_USAGE) from exc
+    except (yaml.YAMLError, ValueError, RecursionError) as exc:  # ValueError: a bad date; RecursionError: deep nesting
+        print(f"Error: invalid YAML in {config_path}: {exc}", file=sys.stderr)
         raise SystemExit(EXIT_USAGE) from exc
     if loaded is not None and not isinstance(loaded, dict):
         print(f"Error: expected a mapping in {config_path}", file=sys.stderr)
@@ -164,7 +164,7 @@ def register(sub, positive_int) -> None:
                               "Sets output to results/{product}_{run_id}/answers/{product}.json")
     gen_a_p.add_argument("--output", default=None, help="Output file (default: answers/{product}.json)")
     gen_a_p.add_argument("--model", default=DEFAULT_ANSWER_MODEL, help="LLM model for answering")
-    gen_a_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=ANSWER_PROVIDERS)
+    gen_a_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=CALLER_CHOICES)
     gen_a_p.add_argument("--max-tokens", type=int, default=DEFAULT_MAX_TOKENS_PER_QUESTION, help="Max tokens to retrieve per question")
     gen_a_p.add_argument("--top-k", type=positive_int, default=None, help=f"Number of docs to retrieve before reranking (default from config/products.yaml retrieval.top_k or {DEFAULT_RETRIEVAL_TOP_K})")
     gen_a_p.add_argument("--rerank-threshold", type=float, default=0.3, help="Min relevance score (0-1) to keep docs")

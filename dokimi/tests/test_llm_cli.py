@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.cli_refusal import refusal
 from dokimi import llm, llm_cli, process
 from dokimi.metrics.usage import UsageRecord
 from dokimi.process import FakeRunner, reply
@@ -375,8 +376,14 @@ def test_backends_command_prints_one_row_per_backend(monkeypatch, capsys):
     text = capsys.readouterr().out
     assert "| claude-cli | claude | 2.1.304 (Claude Code) | signed in (settings file) | third_party (bedrock) |" in text
     cmd_backends(argparse.Namespace(json=True))
-    (row,) = json.loads(capsys.readouterr().out)
+    doc = json.loads(capsys.readouterr().out)  # one cli_output.v1 document
+    assert doc["kind"] == "backends" and doc["verdict"] is None and doc["status"] == "complete"
+    (row,) = doc["data"]["rows"]
     assert row["backend"] == "claude-cli" and row["authenticated"] is True
+    assert doc["summary"]["backends"] == len(doc["data"]["rows"])
+    assert doc["summary"]["installed"] == 1
+    from dokimi import artifacts
+    assert doc["run_id"] == artifacts.run_id()  # the id this process writes, as the artifacts carry it
 
 
 def test_an_installed_cli_that_prints_no_version_is_unknown_not_not_installed(monkeypatch, capsys):
@@ -430,10 +437,10 @@ def test_a_cli_judge_given_a_temperature_is_an_error_line_and_exit_2(argv, tmp_p
     answers = tmp_path / "answers.json"
     answers.write_text("[]", encoding="utf-8")
     monkeypatch.setattr("sys.argv", ["dokimi", *argv, "--product", "p", "--answers", str(answers)])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as out:
         cli.main()
     err = capsys.readouterr().err
-    assert exc.value.code == 2 and err.startswith("Error: claude-cli takes no temperature")
+    assert out.code == 2 and err.startswith("Error: claude-cli takes no temperature")
     assert "Traceback" not in err
 
 
@@ -479,9 +486,9 @@ def test_a_cli_judge_given_a_non_claude_model_is_refused_at_parse_time(command):
     from dokimi.cli import parse_args
 
     base = [*command, "--judge-provider", "claude-cli"]
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as out:
         parse_args([*base, "--judge-model", "gpt-6.1-sol"])  # refused before persona or answer work
-    assert exc.value.code == 2
+    assert out.code == 2
     assert parse_args([*base, "--judge-model", "claude-sonnet-5-5"]).judge_model == "claude-sonnet-5-5"
     assert parse_args(base).judge_model  # left out, the default judge is a Claude model and parses
 
@@ -630,9 +637,9 @@ def test_a_cli_judge_given_a_temperature_stops_the_full_pipeline_before_any_work
     monkeypatch.setattr(orchestrator, "EvaluationPipeline", pipeline_must_not_start)
     args = argparse.Namespace(repo="owner/repo", description=None, product="demo",
                               judge_provider="claude-cli", judge_temperature=0.0)
-    with pytest.raises(SystemExit):
+    with refusal() as out:
         orchestrate.cmd_evaluate(args)
-    assert "takes no temperature" in capsys.readouterr().err
+    assert out.code == 2 and "takes no temperature" in out.err
 
 
 def test_every_command_with_a_hidden_or_default_model_refuses_the_cli_without_a_claude_model(capsys):
@@ -753,9 +760,9 @@ def _matrix_run(monkeypatch, tmp_path, cli_model, arms_spec, capsys):
     monkeypatch.setattr(sys, "argv", ["dokimi", "arms", "matrix-run", "--product", "p",
                                       "--questions", str(questions), "--arms", arms_spec,
                                       "--matrix-cells", str(cells), "--out-dir", str(tmp_path / "out")])
-    with pytest.raises(SystemExit) as exc:  # a usage error: exit 2, as the other input errors
+    with refusal() as out:  # a usage error: exit 2, as the other input errors
         cli.main()
-    assert exc.value.code == 2
+    assert out.code == 2
     return capsys.readouterr().err
 
 
@@ -811,10 +818,10 @@ def test_evaluate_with_a_cli_judge_given_a_temperature_exits_2_like_the_other_ju
 
     monkeypatch.setattr("sys.argv", ["dokimi", "evaluate", "--product", "demo", "--description", "demo",
                                      "--judge-provider", "claude-cli", "--judge-temperature", "0"])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as out:
         cli.main()
     err = capsys.readouterr().err
-    assert exc.value.code == 2 and err.startswith("Error: claude-cli takes no temperature")
+    assert out.code == 2 and err.startswith("Error: claude-cli takes no temperature")
     assert "Traceback" not in err
 
 
@@ -826,10 +833,10 @@ def test_benchmark_run_with_a_cli_judge_given_a_temperature_refuses_before_any_a
     monkeypatch.setattr(orchestrator, "EvaluationPipeline", lambda **kwargs: built.append(kwargs))
     monkeypatch.setattr("sys.argv", ["dokimi", "benchmark", "run", "--library", "onetbb",
                                      "--judge-provider", "claude-cli", "--judge-temperature", "0"])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as out:
         cli.main()
     err = capsys.readouterr().err
-    assert exc.value.code == 2 and err.startswith("Error: claude-cli takes no temperature")
+    assert out.code == 2 and err.startswith("Error: claude-cli takes no temperature")
     assert built == []
 
 
@@ -966,9 +973,9 @@ def test_benchmark_preflight_exit_status_follows_the_cli_login(monkeypatch, tmp_
         "--output-dir", str(tmp_path / "out"),
     ])
     if exits:
-        with pytest.raises(SystemExit) as exc:
+        with refusal() as out:
             args.func(args)
-        assert exc.value.code == 2
+        assert out.code == 2
     else:
         args.func(args)
     captured = capsys.readouterr()

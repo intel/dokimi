@@ -273,6 +273,9 @@ def test_an_all_miss_run_scores_its_misses_as_zero_with_no_delta(tmp_path):
      "delta": None},
     {**_miss("q2", 60), "error": "judge failed"},
     {**_miss("q2", 60), "with_docs": {"error": "judge failed"}},
+    # A panel cell that failed quorum carries its error (panel._verdict_to_dict): a judge failure, not a miss.
+    {**_miss("q2", 60), "with_docs": {"aggregate": None, "insufficient_evidence": True,
+                                      "error": "insufficient evidence: 1 of 3 panelists valid, quorum is 2"}},
 ])
 def test_a_miss_without_a_clean_baseline_score_leaves_the_doc_score_alone(tmp_path, miss):
     # Only a retrieval miss that the baseline answered and no error touched counts as a context zero.
