@@ -358,8 +358,9 @@ class Scan:
                 and not self._is_dir(posixpath.dirname(name)))
 
     def _is_dir(self, path: str) -> bool:
-        """``path`` is a directory of the tree, or a link to one (as a checkout makes it)."""
-        return path in self.dir_set or (path in self.file_set and self._dir_link(path) is not None)
+        """``path`` is a directory of the tree or a link to one, also through a link above it (as a checkout makes it)."""
+        p = self._through_link(path) or path
+        return p in self.dir_set or (p in self.file_set and self._dir_link(p) is not None)
 
     def _unread_note(self, name: str, cands: list[str]) -> str:
         """``; <file> was not read (<why>)`` for each workflow or local action the Action reading of ``name`` skipped."""

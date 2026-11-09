@@ -6,4 +6,6 @@
   a checkout makes `owner/` a directory and a real `owner/` keeps such a name a path. A root link
   that resolves to a directory now counts as that root directory, so the claim keeps its path
   verdict (`unresolved`, `tried owner/name`) and its reason names no workflow the Action reading
-  skipped. A link to a file is still no directory.
+  skipped. The same holds for a deeper name whose directory the link leads to: with `owner ->
+  src/pkg` and a tracked `src/pkg/repo/x`, `owner/repo/path` is `unresolved` (`tried
+  owner/repo/path`) as well. A link to a file is still no directory.

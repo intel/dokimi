@@ -1867,7 +1867,8 @@ even when a step uses it, as the snapshot does not hold what is there; after tha
 check, and before the parent-directory `fail`, the used Action is `ok`, so a
 `.github/actions/` beside it does not fail it. A name whose directory the tree
 holds at the repository root (`tools/gone` beside `tools/`, or beside a root
-link `tools` to a directory) is judged as a path even when a step uses it, so a
+link `tools` to a directory, or `tools/sub/gone` where `tools/sub` is a directory
+through such a link) is judged as a path even when a step uses it, so a
 stale path still fails (below such a link it is `unresolved`, `tried ...`); a directory found only
 beside the guidance file does not count. A name only in a `run:` script
 does not count, and an Action no step uses is judged as any other path. When
