@@ -348,6 +348,9 @@ def test_a_shopt_extglob_inside_the_script_is_given_to_bash_n(tmp_path):
     b"set -e; shopt -s extglob",
     b"if true; then shopt -s extglob; fi",
     b"builtin shopt -s extglob",
+    b"name=${0##*/}; shopt -s extglob",
+    b"[[ $# -gt 0 ]] && shopt -qs extglob",
+    b"shopt -s nullglob extglob",
 ])
 def test_a_shopt_extglob_after_another_command_is_given_to_bash_n(tmp_path, line):
     skill = _bundle(tmp_path, {"run.sh": b"#!/bin/bash\n" + line + b"\ncase x in +(a|b)) : ;; esac\n"})
@@ -356,6 +359,16 @@ def test_a_shopt_extglob_after_another_command_is_given_to_bash_n(tmp_path, line
     assert script_findings(skill, which=_tools("bash"), runner=runner) == []
     [call] = runner.calls
     assert call.argv == ("/usr/bin/bash", "-O", "extglob", "-n")
+
+
+@pytest.mark.parametrize("line", [b"# shopt -s extglob", b"echo ok # shopt -s extglob", b"shopt -u extglob"])
+def test_a_commented_or_unset_shopt_extglob_is_not_given_to_bash_n(tmp_path, line):
+    skill = _bundle(tmp_path, {"run.sh": b"#!/bin/bash\n" + line + b"\nf+() { :; }\n"})
+    runner = process.FakeRunner()
+
+    assert script_findings(skill, which=_tools("bash"), runner=runner) == []
+    [call] = runner.calls
+    assert call.argv == ("/usr/bin/bash", "-n")
 
 
 @needs_bash

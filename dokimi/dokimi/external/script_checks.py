@@ -38,7 +38,8 @@ SCRIPT_SUFFIXES = (*SHELL_SUFFIXES, ".py")
 BASH_FAMILY = frozenset({"bash", "sh", "dash", "ksh"})  # the shebang names bash -n can judge
 ENV_OPERAND_OPTIONS = frozenset({"-u", "--unset", "-C", "--chdir"})  # env options with an operand
 PARSE_SHOPTS = frozenset({"extglob"})  # bash -O options that change how a script parses; bash -n is given them
-SHOPT_EXTGLOB = re.compile(rb"^[^#\n]*\bshopt\s+-s\b[^\n#]*\bextglob\b", re.M)  # a command that turns extglob on, not a comment
+SHOPT_EXTGLOB = re.compile(rb"\bshopt\s+(?:-[a-zA-Z]+\s+)*-[a-zA-Z]*s[a-zA-Z]*(?:\s+[^\s;&|]+)*?\s+extglob\b")  # shopt -s ... extglob
+WORD_COMMENT = re.compile(rb"(?:^|(?<=[\s;&|(]))#[^\n]*", re.M)  # a # that starts a word (not $#, ${x##*/}): a comment
 PARSE_NEUTRAL_FLAGS = frozenset("BEPTeuxh")  # shebang flags, as letters, that change no parse
 PARSE_NEUTRAL_OPTIONS = frozenset({"errexit", "nounset", "pipefail", "xtrace"})  # shebang -o names likewise
 SYNTAX_CODES = frozenset({"E999", "invalid-syntax"})  # a syntax error is script-syntax's, not the lint's
@@ -213,7 +214,7 @@ def _shell_options(data: bytes) -> Optional[list[str]]:
             i += 1
         else:
             return None
-    if SHOPT_EXTGLOB.search(data) and "extglob" not in options:
+    if SHOPT_EXTGLOB.search(WORD_COMMENT.sub(b"", data)) and "extglob" not in options:
         # A script that turns extglob on with ``shopt -s extglob`` has its patterns parsed only after that
         # runs, and bash -n runs nothing: so the option is given when a line of the script turns it on.
         options += ["-O", "extglob"]
