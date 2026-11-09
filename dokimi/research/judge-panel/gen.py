@@ -4,8 +4,7 @@
 """Old vs new judge generations on the same rows: leniency, headline shift, agreement, panels.
 
 Reuses analyze.py's loading and headline() (run with its tables dir redirected), writes
-OUT/tables_gen/*.csv and OUT/gen_summary.json. Importing analyze.py also writes its study
-tables into tables_gen/.
+OUT/tables_gen/*.csv and OUT/gen_summary.json.
 """
 import importlib.util
 import json

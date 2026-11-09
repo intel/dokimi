@@ -213,9 +213,12 @@ def test_grade_regrades_a_repeat_whose_grades_were_purged(tmp_path, monkeypatch)
     (out / "repeats.jsonl").write_text(json.dumps({
         "probe_id": "p1", "model": "m1", "arm": "no_skill_repeat", "answer": "y", "question": "q1",
         "adversarial": False, "style": "plain"}) + "\n")
+    # The sampled row keeps its grade; only the purged repeat must be asked again.
+    (out / "grades.jsonl").write_text(json.dumps(
+        {"key": "p1|no_skill|m1", "judge": "j1", "verdict": "correct_complete"}) + "\n")
     asked = []
     jp = _load(tmp_path, monkeypatch, [], asked=asked)
 
     jp.do_grade(1, ["j1"])
 
-    assert sorted(asked) == sorted([("j1", "grade|j1|p1|no_skill|m1"), ("j1", "grade|j1|p1|no_skill_repeat|m1")])
+    assert asked == [("j1", "grade|j1|p1|no_skill_repeat|m1")]

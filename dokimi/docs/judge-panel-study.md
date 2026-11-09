@@ -411,7 +411,7 @@ What a generation update does to judgment:
   are therefore not comparable with ones graded by gpt-6. The deltas also mix row sets: gpt-5.6-luna
   has 2,664 graded rows (no repeat grades), the new judges 2,932, so the OpenAI delta is not a
   same-rows comparison.
-- **One answer model's added share moves by up to 0.15 between generations.** For haiku-4.5 answers, deepseek-r1 0.15 vs v3.2 0.30; for the same answers, sonnet-5 0.30 vs opus-5.5 0.20. The generation CSVs have no noise column, and there are no repeat grades for gpt-6-sol, opus-5.5, kimi-k2.5 or deepseek-r1, so the shift is not set against a noise floor.
+- **One answer model's added share moves by up to 0.15 between generations.** For haiku-4.5 answers, deepseek-r1 0.15 vs v3.2 0.30; for the same answers, sonnet-5 0.30 vs opus-5.5 0.20. The generation CSVs have no noise column, and the generation run did not compute a noise floor for gpt-6-sol, opus-5.5, kimi-k2.5 or deepseek-r1 (their repeat grades exist but are not tabulated), so the shift is not set against a noise floor.
 - **Newer judges are mixed against the consensus.** Five of seven old-to-new pairs move closer
   to the panel, two move away (both OpenAI pairs). gpt-6-luna has the lowest mean κ of the
   OpenAI, Anthropic, Kimi, DeepSeek, xAI, GLM and Qwen judges (0.54, against 0.58 for gpt-5.6-luna). kimi-k3 has the highest (0.64).
