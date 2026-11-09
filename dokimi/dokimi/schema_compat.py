@@ -263,7 +263,9 @@ def _renamed_from(base: str, rel: str) -> str | None:
     git's rename detection says where the files came from: the first renamed file under the
     directory gives the old directory, as a path from the repository root with a trailing ``/``.
     """
-    top = Path(_git("rev-parse", "--show-toplevel").strip()).resolve()
+    # Decoded from the bytes, less git's newline only: a root ending in "\r" or a space keeps it.
+    out = _git_proc("rev-parse", "--show-toplevel").stdout_bytes.decode("utf-8", errors="replace")
+    top = Path(out.removesuffix("\n")).resolve()
     prefix = (SCHEMA_DIR / rel).resolve().relative_to(top).as_posix() + "/"
     fields = _git_proc("-C", str(top), "diff", "--name-status", "-M", "-z", base).nul_fields()
     i = 0
@@ -280,9 +282,15 @@ def _renamed_from(base: str, rel: str) -> str | None:
     return None
 
 
+def _ls_tree_names(*args: str) -> list[str]:
+    """The names ``git ls-tree -z --name-only <args>`` lists, split on NUL: unquoted, with a
+    ``\\r``, a space or a non-ASCII character as git stores it."""
+    return [name for name in _git_proc("ls-tree", "-z", "--name-only", *args).nul_fields() if name]
+
+
 def _base_has_schemas(base: str) -> bool:
     """Whether ``base`` has schemas here, or at a path git says they were moved from."""
-    if any(n.endswith(".json") for n in _git("ls-tree", "--name-only", base, "./").split()):
+    if any(n.endswith(".json") for n in _ls_tree_names(base, "./")):
         return True
     return _renamed_from(base, ".") is not None
 
@@ -301,12 +309,11 @@ def compare_against(base: str) -> dict[str, Diff]:
     If the schemas were moved since ``base``, the base side is read from where they were.
     """
     schema_dir, fixture_dir = "./", f"./{FIXTURE_DIR}/"
-    names = [n for n in _git("ls-tree", "--name-only", base, "./").split() if n.endswith(".json")]
+    names = [n for n in _ls_tree_names(base, "./") if n.endswith(".json")]
     if not names and (moved := _renamed_from(base, ".")):
         schema_dir = moved
         fixture_dir = _renamed_from(base, FIXTURE_DIR) or fixture_dir
-        names = [n for n in _git("ls-tree", "--full-tree", "--name-only", f"{base}:{moved}").split()
-                 if n.endswith(".json")]
+        names = [n for n in _ls_tree_names("--full-tree", f"{base}:{moved}") if n.endswith(".json")]
     results: dict[str, Diff] = {}
     for name in names:
         old = json.loads(_git("show", f"{base}:{schema_dir}{name}"))

@@ -170,8 +170,6 @@ def test_main_against_a_base(monkeypatch, tmp_path, capsys):
     fixtures = {"b.v1.json": {"a": 1}}
 
     def fake_git(*args):
-        if args[0] == "ls-tree":
-            return "\n".join([*base, "README.md"])
         rel = args[1].split(":./", 1)[1]
         if rel.startswith(sc.FIXTURE_DIR + "/"):
             name = rel.rsplit("/", 1)[1]
@@ -182,6 +180,7 @@ def test_main_against_a_base(monkeypatch, tmp_path, capsys):
 
     monkeypatch.setattr(sc, "SCHEMA_DIR", tmp_path)
     monkeypatch.setattr(sc, "_git", fake_git)
+    monkeypatch.setattr(sc, "_ls_tree_names", lambda *args: [*base, "README.md"])
     assert sc.main(["--base", "X"]) == 1
     out = capsys.readouterr()
     assert "BREAKING b.v1.json <root>: 'a' is now required" in out.out
@@ -393,7 +392,7 @@ def test_main_warns_when_the_base_has_no_schemas_to_compare(monkeypatch, tmp_pat
 
     (tmp_path / "a.v1.json").write_text(json.dumps(OBJ), encoding="utf-8")
     monkeypatch.setattr(sc, "SCHEMA_DIR", tmp_path)
-    monkeypatch.setattr(sc, "_git", lambda *args: "")
+    monkeypatch.setattr(sc, "_ls_tree_names", lambda *args: [])
     monkeypatch.setattr(sc, "_renamed_from", lambda base, rel: None)
     assert sc.main(["--base", "X"]) == 0
     assert "WARNING  - no schemas found at X to compare against" in capsys.readouterr().out
@@ -408,3 +407,61 @@ def test_widening_a_oneof_branch_is_a_narrowing(new):
     old = {"oneOf": [{"type": "string"}, {"type": "integer"}]}
     assert Draft202012Validator(old).is_valid("x") and not Draft202012Validator(new).is_valid("x")
     assert compare(old, new).breaking
+
+
+# ── names git quotes or splits, and a repository root with a CR in its name ──
+
+_NOT_ON_WINDOWS = pytest.mark.skipif(os.name == "nt", reason="a file name Windows does not allow")
+# Without -z, ls-tree C-quotes these names (core.quotePath), so they do not end in .json.
+QUOTED = [pytest.param("ρ.v1.json", id="non-ASCII"),
+          pytest.param('a"b.v1.json', id="quote", marks=_NOT_ON_WINDOWS),
+          pytest.param("a\rb.v1.json", id="carriage-return", marks=_NOT_ON_WINDOWS)]
+
+
+def _commit_all(repo, message="base"):
+    git = ["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "core.autocrlf=false"]
+    if not (repo / ".git").exists():
+        subprocess.run([*git, "init", "-q"], cwd=repo, check=True)
+    subprocess.run([*git, "add", "-A"], cwd=repo, check=True)
+    subprocess.run([*git, "commit", "-qm", message], cwd=repo, check=True)
+
+
+@pytest.mark.parametrize("name", [*QUOTED, pytest.param("a b.v1.json", id="space")])
+def test_compare_against_compares_a_schema_whose_name_git_quotes(monkeypatch, tmp_path, name):
+    """Listed as ``"a\\rb.v1.json"`` in quotes, the schema was dropped and its breaking edit
+    passed; a space cut the name in two."""
+    import dokimi.schema_compat as sc
+
+    (tmp_path / name).write_text(json.dumps(_with(required=[])), encoding="utf-8")
+    _commit_all(tmp_path)
+    (tmp_path / name).write_text(json.dumps(OBJ), encoding="utf-8")
+    monkeypatch.setattr(sc, "SCHEMA_DIR", tmp_path)
+    assert {n: d.breaking for n, d in sc.compare_against("HEAD").items()} == {
+        name: ["<root>: 'a' is now required"]}
+
+
+@pytest.mark.parametrize("name", QUOTED)
+def test_the_base_has_a_schema_whose_name_git_quotes(monkeypatch, tmp_path, name):
+    import dokimi.schema_compat as sc
+
+    (tmp_path / name).write_text(json.dumps(OBJ), encoding="utf-8")
+    _commit_all(tmp_path)
+    monkeypatch.setattr(sc, "SCHEMA_DIR", tmp_path)
+    assert sc._base_has_schemas("HEAD") is True
+
+
+@_NOT_ON_WINDOWS
+@pytest.mark.parametrize("root", ["ro\rot", "root\r", "root "])
+def test_the_moved_directory_under_a_root_with_a_cr_or_trailing_space(monkeypatch, tmp_path, root):
+    """Read as text, the root came back with a newline for the "\\r" or lost a trailing
+    "\\r" or space to strip(), and relative_to() raised ValueError."""
+    import dokimi.schema_compat as sc
+
+    repo = tmp_path / root
+    (repo / "old").mkdir(parents=True)
+    (repo / "old/x.json").write_text(json.dumps(_with(description="x" * 200)), encoding="utf-8")
+    _commit_all(repo)
+    (repo / "old").rename(repo / "new")
+    _commit_all(repo, "move")
+    monkeypatch.setattr(sc, "SCHEMA_DIR", repo / "new")
+    assert sc._renamed_from("HEAD~1", ".") == "old/"
