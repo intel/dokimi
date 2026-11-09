@@ -736,7 +736,8 @@ def test_a_workflow_the_scan_does_not_read_is_named_in_the_reason_of_an_unused_a
         "fail", ".github/actions/ exists but .github/actions/only does not" + note)
     assert got[("AGENTS.md", "actions/checkout")] == ("ok", "used by .github/workflows/ci.yml")
     assert got[("AGENTS.md", "build/out")] == ("unresolved", "tried build/out" + note)
-    assert got[("AGENTS.md", "build/out/")] == ("unresolved", "tried build/out")  # no Action's shape
+    assert got[("AGENTS.md", "build/out/")] == (  # no Action's shape: only the workflow a branch filter could be in
+        "unresolved", f"tried build/out; .github/workflows/big.yml was not read ({len(big)} bytes, over the 2 MB read limit)")
     assert got[("AGENTS.md", "gen/x")] == ("unresolved", "tried gen/x" + note + "; .gitignore:1 (`gen/`) ignores it, "
                                            "so it is likely generated rather than tracked")
     assert got[("AGENTS.md", "tools/gone")] == ("fail", "tools/ exists but tools/gone does not")  # a path, not read as an Action
