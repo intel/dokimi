@@ -245,6 +245,21 @@ def test_an_arm_delta_reads_the_same_in_the_arm_and_the_interaction_table():
     assert _fmt_estimate(cell["delta_a"]) == _fmt_estimate(arm_row["delta_mean"]) == "+0.0035"
 
 
+@pytest.mark.parametrize("docs, skill, both", [(0.049, 0.0, 0.049), (0.014, 0.014, 0.014), (-0.014, 0.014, 0.0)])
+def test_an_estimate_at_a_rounding_boundary_prints_alike_in_both_tables_and_the_row_adds_up(docs, skill, both):
+    # eight identical pairs: 0.049 rounds to 0.05 and would print +0.1; the arm table prints the estimate held inside its interval
+    ev = _arm_evaluations({"docs": [docs] * 8, "skill:x": [skill] * 8, "docs+skill:x": [both] * 8})
+    arms = ["baseline", "docs", "skill:x", "docs+skill:x"]
+    table = stats.arm_significance(ev, "baseline", arms)
+    cell = interaction_significance(ev, arms, "baseline")[0]
+    assert cell["delta_a"] == table["docs"]["delta_mean"] and cell["delta_b"] == table["skill:x"]["delta_mean"]
+    assert cell["delta_combined"] == table["docs+skill:x"]["delta_mean"]
+    assert cell["additive_expectation"] == pytest.approx(cell["delta_a"] + cell["delta_b"], abs=1e-12)
+    assert _fmt_estimate(cell["delta_a"]) == _fmt_estimate(table["docs"]["delta_mean"])
+    if docs == 0.049:
+        assert _fmt_estimate(cell["delta_a"]) == "+0.049" and _fmt_estimate(cell["additive_expectation"]) == "+0.049"
+
+
 def test_eval_report_prints_the_sign_flip_p_and_no_t_or_wilcoxon_row(tmp_path):
     def report(deltas: list[float]) -> str:
         evaluations = [{"question_id": f"q{i}", "with_docs": {"aggregate": 50.0 + d},

@@ -29,12 +29,10 @@ from __future__ import annotations
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from dokimi.records import RecordLike, records
-from dokimi.eval.sign_flip import round_mean
 from dokimi.eval.stats import (
     _apply_correction,
     _describe_deltas,
     _finalize,
-    _mean,
 )
 from dokimi.treatments.specs import split_combined_name
 
@@ -93,20 +91,28 @@ def _interaction_contrast(
 
     contrasts = [ab - a - b + base for ab, a, b, base in rows]
     res = _describe_deltas(contrasts, confidence=confidence, seed=seed)
+    delta_a = _arm_delta([a - base for _, a, _, base in rows], confidence, seed)
+    delta_b = _arm_delta([b - base for _, _, b, base in rows], confidence, seed)
     res.update(
         {
             "arm_a": arm_a,
             "arm_b": arm_b,
             "combined_arm": combined_arm,
             "baseline_arm": baseline_arm,
-            "delta_a": round_mean(_mean([a - base for _, a, _, base in rows])),
-            "delta_b": round_mean(_mean([b - base for _, _, b, base in rows])),
-            "delta_combined": round_mean(_mean([ab - base for ab, _, _, base in rows])),
+            "delta_a": delta_a,
+            "delta_b": delta_b,
+            "delta_combined": _arm_delta([ab - base for ab, _, _, base in rows], confidence, seed),
             "interaction": res["delta_mean"],
+            # the sum of the two printed deltas, so the row adds up; round() only drops float noise
+            "additive_expectation": round(delta_a + delta_b, 12) + 0.0,
         }
     )
-    res["additive_expectation"] = round_mean(res["delta_a"] + res["delta_b"])
     return res
+
+
+def _arm_delta(deltas: List[float], confidence: float, seed: int) -> float:
+    """The ``delta_mean`` the arms table prints for these deltas: rounded and held inside their own interval."""
+    return _describe_deltas(deltas, confidence=confidence, seed=seed)["delta_mean"]
 
 
 def interaction_test(
