@@ -415,6 +415,24 @@ def test_a_partial_run_skips_a_sidecar_that_is_a_symlink_loop(tmp_path):
     assert json.loads(saved.read_text(encoding="utf-8"))["partial"] == PARTIAL
 
 
+@pytest.mark.skipif(os.name == "nt", reason="a symlink needs a privilege on Windows")
+@pytest.mark.parametrize("earlier", [None, {"status": "partial", "partial": PARTIAL}],
+                         ids=["dangling", "to-a-partial-result"])
+def test_a_partial_run_does_not_write_through_a_sidecar_that_is_a_symlink(tmp_path, earlier):
+    from dokimi.commands.novelty_routing_report import save_result
+
+    (tmp_path / "out").mkdir()
+    out = _finished(tmp_path / "out")
+    target = tmp_path / "elsewhere.json"  # outside the directory of --out
+    if earlier is not None:
+        target.write_text(json.dumps(earlier), encoding="utf-8")
+    (tmp_path / "out" / "routing.partial.json").symlink_to(Path("..") / target.name)
+    saved = save_result({}, out, {"partial": PARTIAL})
+    assert saved == tmp_path / "out" / "routing.partial2.json"
+    assert json.loads(saved.read_text(encoding="utf-8"))["partial"] == PARTIAL
+    assert (json.loads(target.read_text(encoding="utf-8")) if target.exists() else None) == earlier
+
+
 class _WindowsError(OSError):
     """An ``OSError`` as Windows raises it: ``errno`` from the Windows code, which ``winerror`` keeps."""
 
@@ -427,40 +445,21 @@ def _windows_error(winerror: int, path) -> _WindowsError:
     return exc
 
 
-def test_a_partial_run_skips_a_sidecar_windows_reports_as_a_symlink_loop(tmp_path, monkeypatch):
-    from dokimi.commands.novelty_routing_report import save_result
-
-    out = _finished(tmp_path)
-    loop = tmp_path / "routing.partial.json"
-    real_stat = os.stat
-
-    def stat(path, *args, **kwargs):  # Windows: a loop is EINVAL with WinError 1921, not ELOOP
-        if os.fspath(path) == os.fspath(loop):
-            raise _windows_error(1921, path)
-        return real_stat(path, *args, **kwargs)
-
-    with monkeypatch.context() as patch:
-        patch.setattr(os, "stat", stat)
-        saved = save_result({}, out, {"partial": PARTIAL})
-    assert saved == tmp_path / "routing.partial2.json"
-    assert json.loads(saved.read_text(encoding="utf-8"))["partial"] == PARTIAL
-
-
 def test_a_partial_run_stops_on_another_windows_error_of_its_sidecar(tmp_path, monkeypatch):
     from dokimi.commands.novelty_routing_report import save_result
 
     out = _finished(tmp_path)
-    real_stat, names = os.stat, []
+    real_lstat, names = os.lstat, []
 
-    def stat(path, *args, **kwargs):  # EINVAL with another WinError (123, a bad name) is no loop
+    def lstat(path, *args, **kwargs):  # EINVAL with WinError 123 (a bad name) fails every later name too
         names.append(path)
         assert len(names) < 50, "the sidecar search kept trying names that fail alike"
         if os.path.basename(os.fspath(path)).startswith("routing.partial"):
             raise _windows_error(123, path)
-        return real_stat(path, *args, **kwargs)
+        return real_lstat(path, *args, **kwargs)
 
     with monkeypatch.context() as patch, pytest.raises(OSError) as error:
-        patch.setattr(os, "stat", stat)
+        patch.setattr(os, "lstat", lstat)
         save_result({}, out, {"partial": PARTIAL})
     assert getattr(error.value, "winerror", None) == 123
     assert [p.name for p in tmp_path.iterdir()] == [out.name]
@@ -472,15 +471,15 @@ def test_a_partial_run_whose_sidecar_name_is_too_long_stops_on_it(tmp_path, monk
 
     out = tmp_path / ("x" * (os.pathconf(tmp_path, "PC_NAME_MAX") - len(".json")) + ".json")
     out.write_text('{"status": "ok"}', encoding="utf-8")
-    real_stat, names = os.stat, []
+    real_lstat, names = os.lstat, []
 
-    def stat(path, *args, **kwargs):  # every longer sidecar name fails too: a retry never ends
+    def lstat(path, *args, **kwargs):  # every longer sidecar name fails too: a retry never ends
         names.append(path)
         assert len(names) < 50, "the sidecar search kept trying longer names"
-        return real_stat(path, *args, **kwargs)
+        return real_lstat(path, *args, **kwargs)
 
     with monkeypatch.context() as patch, pytest.raises(OSError) as error:  # unpatched for the report
-        patch.setattr(os, "stat", stat)
+        patch.setattr(os, "lstat", lstat)
         save_result({}, out, {"partial": PARTIAL})
     assert error.value.errno == errno.ENAMETOOLONG
     assert [p.name for p in tmp_path.iterdir()] == [out.name]

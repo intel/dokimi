@@ -10,7 +10,6 @@ its growth cap. Nothing here builds a client; a model arm is always the caller's
 from __future__ import annotations
 
 import argparse
-import errno
 import json
 import os
 import stat
@@ -521,16 +520,13 @@ def _is_partial_file(path: Path) -> bool:
 def _takes_partial(candidate: Path) -> bool:
     """Whether a partial result may go to ``candidate``: nothing is there, or a regular file holding
     one (:func:`_wrote` tries the write). A FIFO or device is never opened: its read blocks (#516).
-    A symlink loop is this name's own and is skipped; any other error is raised, since every later
-    name can fail the same way and the search would not end (a name too long only grows longer)."""
+    A symlink, dangling or a loop, is not followed and is skipped: a write would land at its target.
+    Any other error is raised, since every later name can fail the same way and the search would
+    not end (a name too long only grows longer)."""
     try:
-        mode = os.stat(candidate).st_mode
+        mode = os.lstat(candidate).st_mode
     except FileNotFoundError:
         return True
-    except OSError as exc:  # Windows reports a loop as WinError 1921, not ELOOP
-        if exc.errno != errno.ELOOP and getattr(exc, "winerror", None) != 1921:
-            raise
-        return False
     return stat.S_ISREG(mode) and _is_partial_file(candidate)
 
 
