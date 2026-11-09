@@ -9,6 +9,8 @@ date is not the order git walks in. No docker, no LLM.
 
 from __future__ import annotations
 
+import dataclasses
+import json
 import os
 import shutil
 import subprocess
@@ -17,12 +19,14 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
+import yaml
 
 import dokimi.repos.guidance_history as guidance_history
 from dokimi.repos import RepoSource, load_manifest, open_source
 from dokimi.repos.errors import PrepError
+from dokimi.repos.harness_profile import PROFILE_DIR, load_profile
 from dokimi.repos.workspace import export_eval_dir, load_tasks, prepare_workspace, source_git_dir
-from repo_eval_fixture import git, make_repo, write
+from repo_eval_fixture import MANIFEST, git, make_repo, write
 
 TOOLING_PATCH = """diff --git a/Makefile b/Makefile
 new file mode 100644
@@ -138,6 +142,136 @@ def test_a_commit_that_only_edits_a_guidance_named_file_under_eval_dir_is_not_li
     assert fixture not in {c["sha"] for c in rev["guidance_commits"]}
     assert rev["guidance_latest"]["AGENTS.md"]["sha"] == root and not any(p.startswith(eval_dir)
                                                                          for p in rev["guidance_latest"])
+
+
+def test_a_rev_arm_records_which_guidance_files_import_each_one_it_wrote(hist):
+    """With no profile, as Claude Code reads them: relative to the importer, not in a code span or block; an
+    import of a file that is not guidance is no entry (the arm installs only guidance)."""
+    edit = _commit_at(hist["root"], {
+        "AGENTS.md": "# guidance\n@sub/AGENTS.md and @docs/style.md\n`@src/AGENTS.md`\n```\n@src/AGENTS.md\n```\n",
+        "src/AGENTS.md": "# src guidance\n@../sub/AGENTS.md\n"}, "imports", "2030-05-01T00:00:00+00:00",
+        "2030-05-01T00:00:00+00:00")
+    rev = _prep(hist, f"guidance:rev:{edit}")["arm_rev"]
+    assert rev["guidance_imported_by"] == {"sub/AGENTS.md": ["AGENTS.md", "src/AGENTS.md"]}
+    assert _prep(hist, f"guidance:rev:{hist['added']}", "plain")["arm_rev"]["guidance_imported_by"] == {}
+    codex = load_profile(PROFILE_DIR / "codex.yaml")  # the cell's profile, which declares no import syntax
+    assert prepare_workspace(hist["git_dir"], hist["manifest"], hist["tasks"]["fix_add"], f"guidance:rev:{edit}",
+                             hist["tmp"] / "codex", codex)["arm_rev"]["guidance_imported_by"] == {}
+
+
+def test_an_import_past_the_hop_limit_is_not_recorded_for_the_chain_it_cuts(hist):
+    """Claude Code follows four hops, as ``repo budget`` reads them: the root's chain stops before ``h5``."""
+    chain = {"AGENTS.md": "@h1/AGENTS.md\n", **{f"h{n}/AGENTS.md": f"@../h{n + 1}/AGENTS.md\n" for n in range(1, 5)},
+             "h5/AGENTS.md": "# the fifth hop\n"}
+    edit = _commit_at(hist["root"], chain, "a chain", "2030-05-01T00:00:00+00:00", "2030-05-01T00:00:00+00:00")
+    imported = _prep(hist, f"guidance:rev:{edit}")["arm_rev"]["guidance_imported_by"]
+    assert imported["h4/AGENTS.md"] == ["AGENTS.md", "h1/AGENTS.md", "h2/AGENTS.md", "h3/AGENTS.md"]
+    assert imported["h5/AGENTS.md"] == ["h1/AGENTS.md", "h2/AGENTS.md", "h3/AGENTS.md", "h4/AGENTS.md"]
+
+
+@pytest.mark.parametrize("profile,imported", [
+    ("claude-code", {}),  # the root CLAUDE.md turns AGENTS.md off: its imports do not load
+    ("claude-code, no displacement", {"sub/AGENTS.md": ["AGENTS.md"]}),
+    ("codex", {}),  # no import syntax
+])
+def test_the_import_record_follows_the_profiles_rules(tmp_path, profile, imported):
+    write(tmp_path, "CLAUDE.md", "# memory\n")
+    write(tmp_path, "AGENTS.md", "@sub/AGENTS.md\n")
+    write(tmp_path, "sub/AGENTS.md", "# sub\n")
+    loaded = load_profile(PROFILE_DIR / f"{profile.split(',')[0]}.yaml")
+    if "no displacement" in profile:
+        loaded = dataclasses.replace(loaded, guidance={**loaded.guidance, "claude_displaces_agents": False})
+    assert guidance_history.guidance_imported_by(tmp_path, ["AGENTS.md", "sub/AGENTS.md"], loaded) == imported
+
+
+@pytest.mark.parametrize("where", ["a/", ""])
+def test_an_agents_md_its_claude_file_links_to_records_its_imports_from_its_own_directory(tmp_path, where):
+    """The review of #502: the ``.claude/CLAUDE.md`` beside it (or at the root) turns the AGENTS.md off, but it is
+    that file, so the AGENTS.md chain counts, read from its own directory as ``repo budget`` reads it."""
+    write(tmp_path, f"{where}AGENTS.md", "@../b/AGENTS.md\n" if where else "@b/AGENTS.md\n")
+    write(tmp_path, "b/AGENTS.md", "# b\n")
+    (tmp_path / where / ".claude").mkdir(parents=True)
+    os.symlink("../AGENTS.md", tmp_path / where / ".claude" / "CLAUDE.md")
+    assert guidance_history.guidance_imported_by(tmp_path, [f"{where}AGENTS.md", "b/AGENTS.md"], None) == {
+        "b/AGENTS.md": [f"{where}AGENTS.md"]}
+
+
+def test_an_import_of_a_link_records_the_guidance_file_it_resolves_to(tmp_path):
+    write(tmp_path, "AGENTS.md", "@docs/guide.md\n")
+    write(tmp_path, "sub/AGENTS.md", "# sub\n")
+    (tmp_path / "docs").mkdir()
+    os.symlink("../sub/AGENTS.md", tmp_path / "docs" / "guide.md")
+    assert guidance_history.guidance_imported_by(tmp_path, ["AGENTS.md", "sub/AGENTS.md"], None) == {
+        "sub/AGENTS.md": ["AGENTS.md"]}
+
+
+CHAIN_PATCH = """From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Upstream Person <upstream@example.com>
+Date: Mon, 1 Jan 2024 00:00:00 +0000
+Subject: [PATCH] chain
+
+---
+diff --git a/docs/chain.md b/docs/chain.md
+--- a/docs/chain.md
++++ b/docs/chain.md
+@@ -1 +1 @@
+-# chain
++@../sub/AGENTS.md
+--
+2.40.0
+"""
+
+
+def _replay_imports(tmp: Path, base: dict[str, str], rev: dict[str, str], review_patch: str | None = None) -> dict:
+    """The ``guidance_imported_by`` of a review task on ``base`` (with ``review_patch``), arm ``guidance:rev:`` of a
+    commit that adds ``rev`` (``git add -f``: the base may ignore it)."""
+    root = tmp / "repo"
+    for rel, text in base.items():
+        write(root, rel, text)
+    git(root, "init", "-q")
+    git(root, "add", "-A")
+    git(root, "commit", "-qm", "base")
+    task = {"id": "t1", "base": git(root, "rev-parse", "HEAD"), "family": "review", "grader": "review",
+            "score": {"metric": "recall", "max": 1.0}, "prompt": "Review HEAD."}
+    for rel, text in rev.items():
+        write(root, rel, text)
+        git(root, "add", "-f", rel)
+    pinned = _commit_at(root, {}, "guidance", "2030-05-01T00:00:00+00:00", "2030-05-01T00:00:00+00:00", stage=False)
+    write(root, ".agent-eval/repo-eval.yaml", yaml.safe_dump(MANIFEST))
+    write(root, ".agent-eval/tasks/t1/task.json", json.dumps({**task, **({"review_patch": "change.patch"}
+                                                                         if review_patch else {})}))
+    if review_patch:
+        write(root, ".agent-eval/tasks/t1/change.patch", review_patch)
+    git(root, "add", "-A")
+    git(root, "commit", "-qm", "evals")
+    source = RepoSource.parse(f"{root}@HEAD")
+    tree = open_source(source)
+    manifest = load_manifest(tree, ".agent-eval/repo-eval.yaml")
+    [loaded] = load_tasks(export_eval_dir(tree, manifest, tmp / "content"), manifest)
+    meta = prepare_workspace(source_git_dir(source, tree), manifest, loaded, f"guidance:rev:{pinned}", tmp / "rd")
+    return meta["arm_rev"]["guidance_imported_by"]
+
+
+@pytest.mark.parametrize("where", ["the base's .gitignore", "the host's global excludes"])
+def test_the_import_record_reads_a_root_file_git_ignores_as_the_agent_does(tmp_path, monkeypatch, where):
+    """The review of #502: the agent loads a root AGENTS.md the revision installs whatever git ignores, so its
+    chain counts, by every host's git configuration alike."""
+    base = {"src/x.py": "x = 1\n", "sub/AGENTS.md": "# sub\n"}
+    if where == "the base's .gitignore":
+        base[".gitignore"] = "/AGENTS.md\n"
+    else:
+        write(tmp_path, "ignore", "/AGENTS.md\n")
+        write(tmp_path, "gitconfig", f"[core]\n\texcludesFile = {(tmp_path / 'ignore').as_posix()}\n")
+        monkeypatch.setenv("GIT_CONFIG_GLOBAL", str(tmp_path / "gitconfig"))
+    assert _replay_imports(tmp_path, base, {"AGENTS.md": "@sub/AGENTS.md\n"}) == {"sub/AGENTS.md": ["AGENTS.md"]}
+
+
+def test_the_import_record_reads_the_workspace_after_the_review_patch(tmp_path):
+    """The review patch makes docs/chain.md, which the root file imports, import sub/AGENTS.md: the agent starts
+    with that chain, so the record has it."""
+    base = {"src/x.py": "x = 1\n", "sub/AGENTS.md": "# sub\n", "docs/chain.md": "# chain\n"}
+    assert _replay_imports(tmp_path, base, {"AGENTS.md": "@docs/chain.md\n"}, CHAIN_PATCH) == {
+        "sub/AGENTS.md": ["AGENTS.md"]}
 
 
 def test_raw_and_patch_arms_record_no_guidance_history(hist):

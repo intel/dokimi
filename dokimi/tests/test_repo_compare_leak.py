@@ -38,13 +38,16 @@ def _commit(sha: str, committed: str, subject: str = "Update guidance", authored
     return {"sha": sha, "authored": authored or committed, "committed": committed, "subject": subject}
 
 
-def _rev(latest: dict[str, dict], commits: list[dict] | None = None, truncated: bool = False) -> dict:
-    """A ``meta.json`` of a ``guidance:rev:`` cell: ``latest`` maps each guidance file to its last commit."""
+def _rev(latest: dict[str, dict], commits: list[dict] | None = None, truncated: bool = False,
+         imported: dict[str, list[str]] | None = None) -> dict:
+    """A ``meta.json`` of a ``guidance:rev:`` cell: ``latest`` maps each guidance file to its last commit,
+    ``imported`` each imported one to the files whose import chains reach it (none by default)."""
     commits = sorted([*latest.values(), *(commits or [])], key=lambda c: c["committed"], reverse=True)
     return {"arm": REV, "arm_rev": {"rev": "main", "sha": "f" * 40, "removed": [],
                                     "guidance_latest": {p: {k: c[k] for k in ("sha", "authored", "committed")}
                                                         for p, c in latest.items()},
-                                    "guidance_commits": commits, "guidance_commits_truncated": truncated}}
+                                    "guidance_commits": commits, "guidance_commits_truncated": truncated,
+                                    "guidance_imported_by": imported or {}}}
 
 
 def _spec(pr: int, *, public: str | None = PUBLIC, files: list[str] | None = None) -> dict:
@@ -149,6 +152,50 @@ def test_a_task_without_patch_files_is_read_strictly_and_says_so(tmp_path):
     assert leak["by_date"] == {"review_replay_pr1": {"path": "sub/AGENTS.md", "sha": SHA["sub"], "committed": LATE,
                                                      "public_at": PUBLIC, "scoped": False}}
     assert leak["clean"] == ["review_replay_pr2"]
+
+
+def test_a_nested_file_a_root_file_imports_applies_to_every_task_and_names_the_import(tmp_path):
+    """The review of #392: Claude Code loads a root CLAUDE.md's ``@sub/CLAUDE.md`` at start, so its edit after
+    ``public_at`` reaches a task that patches ``src/x.py`` only."""
+    meta = _rev({"CLAUDE.md": _commit(SHA["root"], EARLY), "sub/CLAUDE.md": _commit(SHA["sub"], LATE)},
+                imported={"sub/CLAUDE.md": ["CLAUDE.md"]})
+    summary = compare([_batch(tmp_path, meta, {"review_replay_pr1": _spec(1, files=["src/x.py"])})], "guidance:none")
+    leak = _leak(summary)
+    assert leak["by_date"] == {"review_replay_pr1": {"path": "sub/CLAUDE.md", "sha": SHA["sub"], "committed": LATE,
+                                                     "public_at": PUBLIC, "scoped": True, "via": "CLAUDE.md"}}
+    assert leak["clean"] == [] and leak["imports_unrecorded"] is False
+    assert "  by date, through an import: review_replay_pr1 (sub/CLAUDE.md via CLAUDE.md)" in format_compare(
+        summary).splitlines()
+
+
+def test_a_nested_file_a_nested_file_imports_applies_under_both_directories(tmp_path):
+    """``a/CLAUDE.md`` imports ``@../b/CLAUDE.md``: Claude Code loads it with a/'s file, not for work in c/."""
+    meta = _rev({"a/CLAUDE.md": _commit(SHA["root"], EARLY), "b/CLAUDE.md": _commit(SHA["sub"], LATE)},
+                imported={"b/CLAUDE.md": ["a/CLAUDE.md"]})
+    specs = {"review_replay_pr1": _spec(1, files=["a/x.py"]), "review_replay_pr2": _spec(2, files=["b/y.py"]),
+             "review_replay_pr3": _spec(3, files=["c/z.py"])}
+    summary = compare([_batch(tmp_path, meta, specs)], "guidance:none")
+    leak = _leak(summary)
+    assert {task: (hit["path"], hit.get("via")) for task, hit in leak["by_date"].items()} == {
+        "review_replay_pr1": ("b/CLAUDE.md", "a/CLAUDE.md"), "review_replay_pr2": ("b/CLAUDE.md", None)}
+    assert leak["clean"] == ["review_replay_pr3"]
+    # pr2 patches under b/, where the file applies on its own: the text gives it no importer
+    assert [line for line in format_compare(summary).splitlines() if "via" in line or "import" in line] == [
+        "  by date, through an import: review_replay_pr1 (b/CLAUDE.md via a/CLAUDE.md)"]
+
+
+def test_a_batch_recorded_before_the_imports_reads_directories_only_and_says_so(tmp_path):
+    meta = _rev({"CLAUDE.md": _commit(SHA["root"], EARLY), "sub/CLAUDE.md": _commit(SHA["sub"], LATE)})
+    del meta["arm_rev"]["guidance_imported_by"]
+    specs = {"review_replay_pr1": _spec(1, files=["src/x.py"]), "review_replay_pr2": _spec(2, files=["sub/y.py"])}
+    summary = compare([_batch(tmp_path, meta, specs)], "guidance:none")
+    leak = _leak(summary)
+    assert list(leak["by_date"]) == ["review_replay_pr2"] and "via" not in leak["by_date"]["review_replay_pr2"]
+    assert leak["clean"] == ["review_replay_pr1"] and leak["unknown"] == {} and leak["imports_unrecorded"] is True
+    assert ("  by date reads directories only where no guidance_imported_by was recorded (a batch from before it "
+            "was): a nested guidance file another one imports can be missed") in format_compare(summary).splitlines()
+    assert format_compare(compare([_batch(tmp_path / "new", _rev({}), specs)], "guidance:none")).count(
+        "guidance_imported_by") == 0
 
 
 @pytest.mark.parametrize("authored,committed,flagged", [
@@ -377,6 +424,11 @@ def test_the_cells_of_one_task_flag_it_together(tmp_path):
      "a guidance_commits entry has no subject"),
     ({"arm": REV, "arm_rev": {"guidance_latest": {}}}, _spec(1), "no guidance_commits recorded"),
     (None, _spec(1) | {"source_pr": "9" * 5000}, "source_pr is not a PR number"),
+    ({"arm": REV, "arm_rev": {"guidance_latest": {}, "guidance_commits": [], "guidance_imported_by": []}},
+     _spec(1), "guidance_imported_by is not an object of path lists"),
+    ({"arm": REV, "arm_rev": {"guidance_latest": {}, "guidance_commits": [],
+                              "guidance_imported_by": {"sub/CLAUDE.md": "CLAUDE.md"}}},
+     _spec(1), "guidance_imported_by is not an object of path lists"),
 ])
 def test_a_cell_file_of_the_wrong_shape_makes_its_task_unknown(tmp_path, meta, spec, reason):
     batch = tmp_path / "b1"

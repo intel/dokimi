@@ -765,6 +765,32 @@ def test_a_name_under_a_root_directory_stays_a_path_when_a_workflow_uses_the_sam
     assert got[("AGENTS.md", "tools/gone")] == ("fail", "tools/ exists but tools/gone does not")
 
 
+@pytest.mark.parametrize("links, verdict", [
+    ({"owner": "src/pkg"}, ("unresolved", "tried owner/name")),  # judged as a path: no Action reading
+    ({"owner": "src/pkg/x"}, ("ok", "used by .github/workflows/ci.yml")),  # a link to a file is no directory
+    ({}, ("fail", "owner/ exists but owner/name does not")),  # a real `owner/` beside it (`owner/keep`)
+])
+def test_a_root_link_to_a_directory_keeps_a_used_action_name_below_it_a_path(tmp_path, links, verdict):
+    """https://github.com/intel/dokimi/issues/483: a root link `owner` to a directory is the `owner/` a checkout makes."""
+    files = {"AGENTS.md": "Run `owner/name`.\n", "ev/tasks/t/task.json": "{}", "src/pkg/x": "",
+             ".github/workflows/ci.yml": "jobs:\n  x:\n    steps: [{uses: owner/name@v1}]\n"}
+    tree = _linked_repo(tmp_path / "r", files if links else {**files, "owner/keep": ""}, links)
+    assert _by_file(scan_repo(tree, _manifest()))[("AGENTS.md", "owner/name")] == verdict
+
+
+@pytest.mark.parametrize("links, held, verdict", [
+    ({"owner": "src/pkg"}, "src/pkg/repo/x", ("unresolved", "tried owner/repo/path")),  # `owner/repo/` through the link
+    ({"owner": "src/pkg"}, "src/pkg/repo", ("ok", "used by .github/workflows/ci.yml")),  # through it, a file
+    ({}, "owner/repo/x", ("fail", "owner/repo/ exists but owner/repo/path does not")),  # a real `owner/repo/`
+])
+def test_a_directory_through_a_root_link_keeps_a_deeper_used_action_name_a_path(tmp_path, links, held, verdict):
+    """Review of https://github.com/intel/dokimi/pull/506: the name's directory may lie below the link, not at it."""
+    files = {"AGENTS.md": "Run `owner/repo/path`.\n", "ev/tasks/t/task.json": "{}", held: "",
+             ".github/workflows/ci.yml": "jobs:\n  x:\n    steps: [{uses: owner/repo/path@v1}]\n"}
+    got = _by_file(scan_repo(_linked_repo(tmp_path / "r", files, links), _manifest()))
+    assert got[("AGENTS.md", "owner/repo/path")] == verdict
+
+
 def test_a_used_action_inside_a_submodule_keeps_the_submodule_verdict(tmp_path):
     got = _by_file(_scan(tmp_path, "Call `third/dep/lib`, `third/dep/lib@v1` and `tools/lib`.\n",
                          {".gitmodules": '[submodule "d"]\n\tpath = third/dep\n', "third/README": "",
