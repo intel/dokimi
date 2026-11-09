@@ -428,7 +428,8 @@ def _commit_all(repo, message="base"):
 
 
 @pytest.mark.parametrize("name", [*QUOTED, pytest.param("a b.v1.json", id="space")])
-def test_compare_against_compares_a_schema_whose_name_git_quotes(monkeypatch, tmp_path, name):
+def test_compare_against_compares_a_schema_whose_name_git_quotes_or_splits(
+        monkeypatch, tmp_path, name):
     """Listed as ``"a\\rb.v1.json"`` in quotes, the schema was dropped and its breaking edit
     passed; a space cut the name in two."""
     import dokimi.schema_compat as sc
