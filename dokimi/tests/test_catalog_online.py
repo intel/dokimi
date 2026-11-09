@@ -293,6 +293,13 @@ def test_markdown_destination_and_reference_definition_decode_backslash_escapes(
         "https://docs.example-tool.dev/guide_notes"]
 
 
+def test_an_escaped_paren_bracket_or_pipe_stays_in_a_destination():
+    # CommonMark: "\)", "\]" and "\|" do not end a destination; the escape is decoded after the cut.
+    assert online_checks.extract_urls("[docs](https://docs.acme.dev/a\\)b)") == ["https://docs.acme.dev/a)b"]
+    assert online_checks.extract_urls("[docs](https://docs.acme.dev/a\\]b)") == ["https://docs.acme.dev/a]b"]
+    assert online_checks.extract_urls("| [x](https://acme.dev/a\\|b) | y |") == ["https://acme.dev/a|b"]
+
+
 def test_a_backslash_in_an_autolink_is_not_decoded_and_a_hash_after_a_command_word_is_prose():
     # Self-review: CommonMark has no escapes inside an autolink; and "npm (see #setup)" is prose, not an install.
     assert online_checks.extract_urls("<https://x.dev/a\\_b>") == ["https://x.dev/a\\_b"]

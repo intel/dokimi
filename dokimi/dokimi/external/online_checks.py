@@ -320,6 +320,12 @@ def extract_packages(body: str) -> list[tuple[str, str]]:
     return list(found)
 
 
+def _mask_escapes(raw: str, decode: bool) -> str:
+    """``raw`` with each backslash escape of a destination replaced by two NULs: the same length, and no character of
+    the escape ends the URL or counts as a bracket ("\\)", "\\(", "\\|")."""
+    return _ESCAPE_RE.sub("\0\0", raw) if decode else raw
+
+
 def _clean_url(raw: str, literal: bool = False, decode: bool = False) -> Optional[str]:
     """``raw`` without what a sentence, a table cell, emphasis or a markdown link puts after it: the URL ends before
     the first ``)`` or ``]`` that closes no ``(`` or ``[`` of the URL, and before a ``|``; then trailing punctuation
@@ -327,11 +333,12 @@ def _clean_url(raw: str, literal: bool = False, decode: bool = False) -> Optiona
 
     ``literal`` is a markdown destination, a reference definition or an autolink: its punctuation is part of the
     URL. ``decode`` (a destination or a reference definition, not an autolink, where CommonMark has no escapes) also
-    decodes its backslash escapes (``guide\\_notes`` is ``guide_notes``).
+    decodes its backslash escapes (``guide\\_notes`` is ``guide_notes``), and an escaped character never ends it
+    (``a\\)b`` is ``a)b``).
     """
     parens = brackets = 0
     end = len(raw)
-    for i, ch in enumerate(raw):
+    for i, ch in enumerate(_mask_escapes(raw, decode)):
         if ch == "(":
             parens += 1
         elif ch == "[":
