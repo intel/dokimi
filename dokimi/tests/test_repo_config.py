@@ -512,6 +512,14 @@ def test_an_individual_file_outside_the_evals_directory_is_refused(tmp_path, sui
     assert claimed in str(err.value) and "skills/a/evals" in str(err.value)
 
 
+def test_a_file_named_evals_is_not_under_the_evals_directory(tmp_path):
+    body = HEADER + "subjects:\n  - id: skill/a\n    path: skills/a\n    suite: '{skill}/evals'\n"
+    root = _tree(tmp_path / "repo", {".github/dokimi/config.yaml": body, "skills/a/SKILL.md": "a\n", "skills/a/evals": "n\n"})
+    with pytest.raises(ConfigError, match="skill/a") as err:
+        load_repo_config(root).subjects(hashes=False)
+    assert "claims the file skills/a/evals of its skill" in str(err.value)
+
+
 def test_a_file_whose_path_starts_with_a_claimed_directory_name_is_still_refused(tmp_path):
     # ref/ is claimed whole; refs.md is a file of the skill outside it, though its path starts with "skills/a/ref"
     body = HEADER + "subjects:\n  - id: skill/a\n    path: skills/a\n    suite: '{skill}/*'\n"

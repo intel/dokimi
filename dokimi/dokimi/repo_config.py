@@ -753,7 +753,7 @@ def _check_claims(subject: Subject, matches: dict[str, Path], real_skill: Path) 
                 "so the skill's hash would cover the suite's files"
             )
         inside = _within(rel, subject.path) or into
-        if path.is_dir() or not inside or any(_within(rel, d) for d in dirs) or _within(rel, evals):
+        if path.is_dir() or not inside or any(_within(rel, d) for d in dirs) or rel.startswith(evals + "/"):
             continue
         raise ConfigError(
             f"subject {subject.id}: its suite claims the file {rel} of its skill, not a whole directory or a file under "
