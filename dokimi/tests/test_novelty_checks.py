@@ -210,3 +210,11 @@ def test_help_is_not_listed_unless_the_help_lists_it():
 def test_help_text_refuses_an_empty_or_unparsable_tool(tool, message):
     with pytest.raises(InputError, match=message):
         help_text(tool)
+
+
+def test_a_check_attaches_to_an_atom_that_names_the_tool_without_an_option():
+    # The answer "perf report" names the tool with no option yet: the veto must still attach,
+    # or a later answer's invented --stdin would go unchecked.
+    atoms = [{"statement": "perf report displays recorded samples", "answer": "perf report"}]
+    assert add_checks(atoms, [_veto()], ["perf report"]) == 1
+    assert len(atoms[0]["meta"]["grading"]["checks"]) == 1

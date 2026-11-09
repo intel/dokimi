@@ -42,6 +42,11 @@ def _argv(tool: str) -> list[str]:
     return argv
 
 
+def _mention(tool: str) -> str:
+    """A regex for the tool's name as the words of a command line, not inside another word."""
+    return r"(?<![\w/-])" + r"\s+".join(re.escape(word) for word in _argv(tool))
+
+
 def help_text(tool: str, *, timeout: float = 20.0) -> str:
     """``<tool> --help`` output (stdout and stderr), falling back to ``-h``.
 
@@ -75,13 +80,13 @@ def identifiers_check(tool: str, text: str, *, version: str | None = None) -> di
     directly by an option, up to a shell comment (``#``). A flag of another command, or of a subcommand (``perf`` then
     ``report``), is then not judged against this help: give each subcommand as its own tool.
     """
-    head = r"\s+".join(re.escape(word) for word in _argv(tool))
+    head = _mention(tool)
     source = {"tool": tool, "sha256": hashlib.sha256(text.encode()).hexdigest()}
     if version:
         source["version"] = version
     return {
         "type": "identifiers", "tier": "verifiable", "role": "veto",
-        "within": r"(?<![\w/-])" + head + r"(?=\s+-)[^\n`|;&#]*",
+        "within": head + r"(?=\s+-)[^\n`|;&#]*",
         "known": help_identifiers(text),
         "source": source,
     }
@@ -98,7 +103,7 @@ def add_checks(atoms: list[dict], checks: list[dict], tools: list[str]) -> int:
     for atom in atoms:
         text = " ".join(str(atom.get(k, "")) for k in ("statement", "question", "answer"))
         mine = [c for c, tool in zip(checks, tools, strict=True)
-                if re.search(c["within"], text)]
+                if re.search(_mention(tool), text)]
         if not mine:
             continue
         meta = atom.setdefault("meta", {})
