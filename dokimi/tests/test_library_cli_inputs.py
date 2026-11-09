@@ -10,7 +10,7 @@ import os
 import pytest
 
 from tests.cli_refusal import refusal
-from tests.test_benchmark_registry_wiring import fifo_fed_with
+from tests.test_benchmark_registry_wiring import fifo_fed_with, too_long_name
 
 from dokimi.cli import build_parser
 
@@ -98,6 +98,6 @@ def test_a_device_is_not_a_file(flag, argv):
     ("--registry", ["catalog", "list", "--kind", "product"]), ("--intents", ["catalog", "intents"]),
 ])
 def test_a_name_the_os_cannot_stat_is_named(tmp_path, flag, argv):
-    long_name = tmp_path / ("a" * 300)
+    long_name = too_long_name(tmp_path)
     err = _run([*argv, flag, str(long_name)])
     assert f"Error: cannot read {flag} {long_name}: " in err and "Traceback" not in err

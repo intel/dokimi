@@ -160,6 +160,11 @@ def fifo_fed_with(path, text):
         writer.join(timeout=5)
 
 
+def too_long_name(directory):
+    """A path in ``directory`` one character over the longest name its filesystem takes: ``stat`` fails on it."""
+    return directory / ("a" * (os.pathconf(directory, "PC_NAME_MAX") + 1))
+
+
 @pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="no named pipes on Windows")
 def test_a_registry_pipe_is_read(spy, tmp_path, monkeypatch, capsys):
     from dokimi import cli
@@ -194,7 +199,7 @@ def test_a_registry_device_is_not_a_file(spy, tmp_path, monkeypatch, capsys, com
 def test_a_registry_name_the_os_cannot_stat_is_an_error_line(spy, tmp_path, monkeypatch, capsys, command):
     from dokimi import cli
 
-    registry = tmp_path / ("a" * 300)
+    registry = too_long_name(tmp_path)
     monkeypatch.setattr("sys.argv", ["dokimi", "benchmark", *command, "--registry", str(registry),
                                      "--output-dir", str(tmp_path / "out")])
     with pytest.raises(SystemExit) as exc_info:
