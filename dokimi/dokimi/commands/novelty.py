@@ -196,7 +196,7 @@ def cmd_novelty_probe(args: argparse.Namespace) -> None:
     from dokimi.novelty.measure import SelfJudgeError, check_self_judge, run_measurement
     from dokimi.novelty.probes import build_probe_set
     from dokimi.novelty.report import build_probe_record
-    from dokimi.commands.novelty_budget import save_probe_run
+    from dokimi.commands.novelty_budget import save_probe_measure
 
     atoms, saved_spans, saved = load_atoms_record(args.atoms)
     atoms = measured_atoms(args, atoms, saved, "probe")
@@ -243,7 +243,7 @@ def cmd_novelty_probe(args: argparse.Namespace) -> None:
     )
     out = Path(args.out) if args.out else _default_dir(args.artifact) / "probes.json"
     # A run the cap stopped keeps the answers it paid for, as a partial result (and exits).
-    save_probe_run(payload, out, done=len(result.runs), not_run=result.not_run, stop=result.stop)
+    save_probe_measure(payload, out, result)
     print(f"OK Saved {len(result.runs)} probe runs: {out}")
     for scoring in ("lenient", "strict"):
         row = payload["paired"][scoring]

@@ -279,7 +279,7 @@ def test_analyze_stops_rather_than_publish_a_measurement_the_cap_cut_short(tmp_p
     monkeypatch.setattr(measure, "run_measurement", cut_short)
     extractor, answerer, judge = _clients()
     with pytest.raises(SpendCapReached,
-                       match=f"{not_run} probe answers were not run; nothing was written"):
+                       match=f"{not_run} probe answers were not run or graded; nothing was written"):
         analyze(body, config, extractor=extractor, answerer=answerer, judge=judge)
 
 
@@ -384,3 +384,28 @@ def test_an_unpriced_partial_atoms_file_is_refused_with_its_cause(tmp_path):
     with pytest.raises(InputError, match="no price is known for e, so it is not") as refused:
         load_atoms_record(partial)
     assert "--max-usd stopped" not in str(refused.value)
+
+
+def test_an_answer_the_cap_paid_for_is_kept_when_its_grade_is_refused(monkeypatch):
+    from dokimi.novelty import measure
+    from dokimi.novelty.probes import Probe
+
+    def answer(question, context, answerer, **kwargs):
+        answerer.text(question)  # $0.60 against a $0.50 cap: the answer is paid for
+        return "an answer", None
+
+    monkeypatch.setattr(measure, "_answer", answer)
+    cap = SpendCap(limit_usd=0.5)
+    paid = LLMClient(model="a", role="answerer", cap=cap, transport=lambda p, system=None:
+                     ("x", UsageRecord(cost_usd=0.6)))
+    # The judge shares the cap, so its call is refused before it reaches the transport.
+    judge = LLMClient(model="j", role="judge", cap=cap, transport=lambda p, system=None:
+                      ('{"verdict": "correct_complete"}', UsageRecord(cost_usd=0.01)))
+    probes = [Probe(atom_id=f"a{i}", kind="proposition", question=f"q{i}", expected="x")
+              for i in range(3)]
+    result = measure.run_measurement([], probes, "artifact", answerer=paid, judge=judge,
+                                     arms=("no_artifact", "full"), concurrency=1)
+    assert len(result.runs) == 1 and result.runs[0].response == "an answer"
+    assert result.runs[0].verdict == measure.ERRORED
+    assert result.not_run == 5 and result.ungraded == 1
+    assert result.stop[0] == "spend_cap"

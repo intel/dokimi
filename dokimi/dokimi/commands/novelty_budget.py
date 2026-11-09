@@ -52,21 +52,29 @@ def write_run(payload: dict, out: Path, partial: dict | None = None) -> Path:
 
 
 def save_probe_run(payload: dict, out: Path, *, done: int, not_run: int,
-                   stop: tuple[str, str] | None = None) -> Path:
+                   stop: tuple[str, str] | None = None, ungraded: int = 0) -> Path:
     """Write a probe measurement; one the cap stopped keeps its ``done`` answers and exits.
 
     ``stop`` is the reason and message of the call the cap refused: a call with no known price
-    is named as such, not as a ``--max-usd`` stop."""
-    if not not_run:
+    is named as such, not as a ``--max-usd`` stop. ``ungraded`` answers were paid for and kept,
+    but never graded, so the file is partial too."""
+    if not not_run and not ungraded:
         return write_run(payload, out)
     reason, cause = stop or ("spend_cap", "")
+    left = f"; {ungraded} of them not graded" if ungraded else ""
     if reason == "spend_cap":
-        message = f"--max-usd stopped the probes with {done} of {done + not_run} answers"
+        message = f"--max-usd stopped the probes with {done} of {done + not_run} answers{left}"
     else:
-        message = f"the probes stopped with {done} of {done + not_run} answers: {cause}"
+        message = f"the probes stopped with {done} of {done + not_run} answers{left}: {cause}"
     partial = {"reason": reason, "calls_done": done, "calls_planned": done + not_run,
                "message": message}
     exit_partial(message, write_run(payload, out, partial))
+
+
+def save_probe_measure(payload: dict, out: Path, result) -> Path:
+    """Save a probe measurement from its :class:`~dokimi.novelty.measure.MeasureResult`."""
+    return save_probe_run(payload, out, done=len(result.runs), not_run=result.not_run,
+                          stop=result.stop, ungraded=result.ungraded)
 
 
 def save_atoms_run(atoms, spans, out: Path, partial: dict | None, **record) -> Path:

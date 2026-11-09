@@ -164,6 +164,9 @@ class MeasureResult:
     with_arm: str = "full"
     # (probe, arm) jobs the spend cap stopped before they were answered; 0 for a whole run.
     not_run: int = 0
+    # Answers the cap paid for but the judge call was refused: kept in ``runs`` as ``ERRORED``
+    # (no datum), and counted here so the run is not taken as finished.
+    ungraded: int = 0
     # (reason, message) of a call the cap refused; None when nothing was stopped.
     stop: tuple[str, str] | None = None
 
@@ -295,6 +298,9 @@ def run_measurement(
     }
     jobs = [(probe, arm) for arm in arms for probe in probes]
 
+    stops: list[SpendCapReached] = []
+    ungraded: list[ProbeRun] = []
+
     def one(job: tuple[Probe, str]) -> ProbeRun:
         probe, arm = job
         try:
@@ -306,14 +312,24 @@ def run_measurement(
             response, confidence = f"<error: {exc}>", None
             verdict = ERRORED
         else:
-            verdict = _grade(probe, response, judge)
+            try:
+                verdict = _grade(probe, response, judge)
+            except SpendCapReached as exc:
+                # The answer was paid for: keep it as an ungraded run (no datum, so it is
+                # dropped from the pairs), and stop the measurement here.
+                stops.append(exc)
+                run = ProbeRun(
+                    atom_id=probe.atom_id, probe_kind=probe.kind, arm=arm,
+                    question=probe.question, response=response, verdict=ERRORED,
+                    confidence=confidence,
+                )
+                ungraded.append(run)
+                return run
         return ProbeRun(
             atom_id=probe.atom_id, probe_kind=probe.kind, arm=arm,
             question=probe.question, response=response, verdict=verdict,
             confidence=confidence,
         )
-
-    stops: list[SpendCapReached] = []
 
     def guarded(job: tuple[Probe, str]) -> ProbeRun | None:
         try:
@@ -327,7 +343,7 @@ def run_measurement(
     runs = [run for run in answered if run is not None]
     stop = (stops[0].reason, str(stops[0])) if stops else None
     return MeasureResult(runs=runs, arms=tuple(arms), with_arm="full",
-                         not_run=len(jobs) - len(runs), stop=stop)
+                         not_run=len(jobs) - len(runs), ungraded=len(ungraded), stop=stop)
 
 
 # Named ``*_PROMPT`` so the run's ``prompts_sha256`` covers them.
