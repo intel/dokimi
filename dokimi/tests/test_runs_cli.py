@@ -272,7 +272,7 @@ def test_the_artifacts_of_one_run_are_listed_together_and_the_runs_newest_first(
 
 
 def test_json_lists_the_runs_in_the_order_of_the_rows(monkeypatch, capsys, two_runs):
-    data = json.loads(_list(monkeypatch, capsys, "--json").out)
+    data = json.loads(_list(monkeypatch, capsys, "--json").out)["data"]
 
     assert [a["path"] for a in data["artifacts"]] == ["a/eval.json", "a/arms.json", "q.json",
                                                       "b/eval.json"]
@@ -290,7 +290,7 @@ def test_a_filter_groups_only_the_rows_it_keeps(monkeypatch, capsys, two_runs):
     out = _list(monkeypatch, capsys, "--kind", "eval").out
     assert out.split("\n\n")[1].splitlines()[1] == "runs: 2 (2 artifacts)"
 
-    data = json.loads(_list(monkeypatch, capsys, "--json", "--kind", "questions").out)
+    data = json.loads(_list(monkeypatch, capsys, "--json", "--kind", "questions").out)["data"]
     assert data["runs"] == []
     out = _list(monkeypatch, capsys, "--kind", "questions").out
     assert out.split("\n\n")[1].splitlines()[1] == "runs: 0; no run_id: 1 (runs show PATH says why)"
