@@ -320,13 +320,13 @@ def run_measurement(
                 # ungraded run (no datum, so it is dropped from the pairs). Either way the
                 # measurement stops here.
                 stops.append(exc)
-                verdict = _reply_verdict(exc.reply)
+                named = _reply_verdict(exc.reply)
                 run = ProbeRun(
                     atom_id=probe.atom_id, probe_kind=probe.kind, arm=arm,
-                    question=probe.question, response=response, verdict=verdict or ERRORED,
+                    question=probe.question, response=response, verdict=named or ERRORED,
                     confidence=confidence,
                 )
-                if verdict is None:
+                if named is None:
                     ungraded.append(run)
                 return run
         return ProbeRun(

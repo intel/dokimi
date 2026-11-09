@@ -93,7 +93,8 @@ What a stopped run leaves behind depends on the step:
   `calls_planned`, and the difference counts the probe jobs not run. An answer whose judge
   call the cap refused before it was sent is kept with verdict `error`: it was paid for but
   never graded, so equal counts do not show that every answer was graded. A judge reply the cap
-  refused after it came back keeps the verdict it names. If the cap stops it while the
+  refused after it came back keeps the verdict it names; one that names none is kept as
+  `error` too. If the cap stops it while the
   paraphrase or reversal wordings are built, nothing is written.
 - Each exits with a message that names the partial file. A partial file is never read as a
   finished one: the atom readers and `novelty items` refuse it. A later stopped run replaces

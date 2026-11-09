@@ -474,3 +474,18 @@ def test_a_judge_reply_the_cap_refused_after_it_came_back_keeps_its_verdict(monk
     assert [run.verdict for run in result.runs] == ["correct_complete"]
     assert result.ungraded == 0 and result.not_run == 0
     assert result.stop[0] == "no_price"
+
+
+def test_a_judge_reply_the_cap_refused_that_names_no_verdict_stays_ungraded(monkeypatch):
+    from dokimi.novelty import measure
+    from dokimi.novelty.probes import Probe
+
+    monkeypatch.setattr(measure, "_answer", lambda question, context, answerer, **kwargs:
+                        ("an answer", None))
+    judge = LLMClient(model="j", role="judge", cap=SpendCap(limit_usd=1.0), transport=lambda p,
+                      system=None: ("not json", UsageRecord()))
+    probes = [Probe(atom_id="a0", kind="proposition", question="q0", expected="x")]
+    result = measure.run_measurement([], probes, "artifact", answerer=LLMClient(model="a",
+                                     role="answerer"), judge=judge, arms=("full",), concurrency=1)
+    assert [run.verdict for run in result.runs] == ["error"]
+    assert result.ungraded == 1 and result.stop[0] == "no_price"
