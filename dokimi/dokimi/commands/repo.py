@@ -37,14 +37,14 @@ def _write_json(path: str, payload: dict) -> None:
 
 
 def _parse_source(args: argparse.Namespace) -> RepoSource:
-    """The source as typed: a malformed string, an unpinned remote or a local path that is not a directory is a usage error (2)."""
+    """The source as typed: a malformed string, an unpinned remote or a local path that is not a directory is a usage error (2); a local path the filesystem refuses to stat (no permission to traverse it) is 1."""
     from dokimi.repos import RepoSource, SourceError
 
     try:
         return RepoSource.parse(args.source)
-    except SourceError as exc:
+    except (SourceError, OSError) as exc:  # OSError: Path.is_dir raises PermissionError on Python 3.11-3.13
         print(f"✗ {exc}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        sys.exit(EXIT_USAGE if isinstance(exc, SourceError) else 1)
 
 
 def _source_tree(args: argparse.Namespace) -> tuple:
