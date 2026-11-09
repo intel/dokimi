@@ -55,7 +55,8 @@ def _ci_end(end: float) -> str:
 
 def _fmt_estimate(value: Any) -> str:
     """The estimate beside a 95% CI, printed as :func:`_ci_end` prints the ends, or a dash when absent: the stored
-    estimate lies inside its stored ends, so the printed one lies inside the printed interval (0.04 in [+0.04, +0.04])."""
+    estimate lies inside its stored ends, so the printed one lies inside the printed interval (0.04 in [+0.04, +0.04]).
+    The interaction table's arm deltas print the same way, so an arm's +0.04 reads +0.04 in both tables."""
     return _ci_end(value) if isinstance(value, (int, float)) else "—"
 
 
@@ -151,9 +152,9 @@ def _interaction_lines(summary: Dict[str, Any]) -> List[str]:
     for it in interactions:
         lines.append(
             f"| `{it.get('arm_a')}` | `{it.get('arm_b')}` | "
-            f"{_fmt_num(it.get('delta_a'))} | {_fmt_num(it.get('delta_b'))} | "
-            f"{_fmt_num(it.get('additive_expectation'))} | "
-            f"{_fmt_num(it.get('delta_combined'))} | "
+            f"{_fmt_estimate(it.get('delta_a'))} | {_fmt_estimate(it.get('delta_b'))} | "
+            f"{_fmt_estimate(it.get('additive_expectation'))} | "
+            f"{_fmt_estimate(it.get('delta_combined'))} | "
             f"**{_fmt_estimate(it.get('interaction'))}** | "
             f"{_fmt_ci(it.get('ci_lo'), it.get('ci_hi'))} | "
             f"{_fmt_raw_p(it)} | {_fmt_p(it.get('p_adjusted'))} | "
