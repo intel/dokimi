@@ -1609,10 +1609,11 @@ the harness exits. An edit to a guidance file made while the run is in flight
 therefore appears in the receipt next to the observations of the old text;
 the receipt's `unknowns` says so for a working tree, and a pinned source
 (`<path>@<rev>`) has no such window. The matrix (without `--format receipt`)
-still accepts an unpinned source. The harness configuration is not
-pinned: `expected` comes from the harness profile as it is at conversion time,
-and its guidance names and import depth are not compared with the probe's, so
-a receipt is the same only for an unchanged profile. The receipt is written
+still accepts an unpinned source. `expected` comes from the harness profile as
+it is at conversion time, so a receipt with `--from` also needs the profile's
+`guidance` to be the one the probe saved (`harness.declared`), its free-text
+`notes` aside: a different one is a usage error (exit 2). A probe saved without `harness.declared` is not
+compared, and its receipt is the same only for an unchanged profile. The receipt is written
 beside the saved file; a name that resolves to the saved probe is a usage error
 (exit 2), and a write that fails is a runtime failure (exit 1). The probe-only flags (`--model`,
 `--budget`, `--scenarios`, `--only` and the rest) cannot be combined with
@@ -1647,9 +1648,13 @@ sent to the provider is not captured. A reported token is evidence of loading,
 not a copy of the bytes received. The name is not `prompt_capture`, because
 dokimi does not capture the prompt.
 
-**Expected state.** budget's start-up rules are Claude Code's, so they apply
-only to `claude-code` runs; for other harnesses every `expected` is `unknown`
-and the receipt says so.
+**Expected state.** budget's start-up rules are Claude Code's. They apply when
+the probe's harness profile sets `guidance.claude_displaces_agents: true`, the
+key `repo budget` reads, whatever the harness is named; the receipt reads it
+from the guidance the probe saved (`harness.declared` in `reach.json`). A probe
+saved without `harness.declared` goes by the harness name: only a
+`claude-code` run gets the rules. Otherwise every `expected` is `unknown` and
+the receipt's `unknowns` says so.
 
 | budget `when` | `expected` | Reason |
 |---|---|---|

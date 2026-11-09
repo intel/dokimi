@@ -19,7 +19,7 @@ is cut. The first release is 0.1.0.
 The version lives in `project.version` in `pyproject.toml`, with a copy in
 `package.version` of `../conda-recipe/meta.yaml` that `tests/test_conda_recipe.py`
 keeps equal to it. `dokimi --version`, `dokimi.__version__` and the `dokimi_version` field of the
-`dokimi run` manifest and of the subject scorecard `run_manifest` all read it. A source checkout reads `pyproject.toml` itself, an
+`dokimi docs check` manifest and of the subject scorecard `run_manifest` all read it. A source checkout reads `pyproject.toml` itself, an
 installed wheel its package metadata.
 
 dokimi follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Before
@@ -32,7 +32,7 @@ dokimi follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Befor
 
 A scoring change is a minor bump even when no interface changes: results from
 two versions are comparable only when the scoring is the same, and the version
-in the `dokimi run` manifest or the scorecard is how a reader tells.
+in the `dokimi docs check` manifest or the scorecard is how a reader tells.
 
 Artifact formats are versioned separately, by the `schema_version` of each file
 under `dokimi/schemas/` and the `schema_compat vs the PR base` step in `ci.yml`'s
