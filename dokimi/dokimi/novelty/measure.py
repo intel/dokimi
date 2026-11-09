@@ -315,10 +315,8 @@ def run_measurement(
             try:
                 verdict = _grade(probe, response, judge)
             except SpendCapReached as exc:
-                # The answer was paid for. A judge reply the cap refused after it came back
-                # still names its verdict, so keep that; otherwise keep the answer as an
-                # ungraded run (no datum, so it is dropped from the pairs). Either way the
-                # measurement stops here.
+                # The answer was paid for: keep the verdict a refused judge reply names, else
+                # keep it ungraded (no datum). Either way the measurement stops here.
                 stops.append(exc)
                 named = _reply_verdict(exc.reply)
                 run = ProbeRun(
