@@ -210,8 +210,13 @@ class _Glob:
         """The whole of ``text`` matches; the walk stops at the first character no atom it can be at takes."""
         at = self._skip({0})
         for ch in text:
-            at = self._skip({j for i in at if i < len(self._atoms) and self._atoms[i][0].fullmatch(ch)
-                             for j in ((i, i + 1) if self._atoms[i][1] in ("+", "*") else (i + 1,))})
+            took: set[int] = set()
+            for i in at:
+                if i < len(self._atoms):
+                    atom, q = self._atoms[i]
+                    if atom.fullmatch(ch):
+                        took.update((i, i + 1) if q in ("+", "*") else (i + 1,))
+            at = self._skip(took)
             if not at:
                 return False
         return len(self._atoms) in at
