@@ -5,7 +5,7 @@
 
 Both compare the summary ``score`` against the gate's ``min_score``; they differ only in the
 spec key and in what the caller does with a failure. The soft gate is report-only (the static
-run records it in its snapshot); on a failed hard gate ``dokimi run`` exits 1. Neither
+run records it in its snapshot); on a failed hard gate ``dokimi docs check`` exits 1. Neither
 check raises or exits itself.
 """
 

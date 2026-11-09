@@ -25,11 +25,11 @@ VENV_ABS := $(abspath $(VENV))
 VPY := $(VENV_ABS)/bin/python
 
 benchmark-run:
-	python cli.py run --root . --spec benchmarks/spec.v1.yaml --out-json baselines/current.json --out-md reports/current.md
+	python cli.py docs check --root . --spec benchmarks/spec.v1.yaml --out-json baselines/current.json --out-md reports/current.md
 
 benchmark-compare:
 	@test -f "$(BASE)" || { echo "ERROR: base snapshot $(BASE) not found. Take one with 'make benchmark-run', copy baselines/current.json to it, or pass BASE=<path>."; exit 1; }
-	python cli.py compare --base $(BASE) --candidate baselines/current.json --out-json reports/compare.json --out-md reports/compare.md
+	python cli.py docs compare --base $(BASE) --candidate baselines/current.json --out-json reports/compare.json --out-md reports/compare.md
 
 # Regenerate the CLI snapshot after a command or flag changes. tests/test_cli_flags.py fails
 # while docs/reference/cli-interface.json is stale. It uses the venv's Python (the one

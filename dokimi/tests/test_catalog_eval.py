@@ -248,6 +248,28 @@ def test_malformed_input_raises_with_its_path(tmp_path, file, contents):
         evaluate(tmp_path)
 
 
+def test_a_manifest_value_yaml_cannot_build_raises_with_its_path(tmp_path):
+    (tmp_path / "skills.yaml").write_text("- name: 2026-99-99\n", encoding="utf-8")
+    with pytest.raises(ValueError) as exc_info:
+        evaluate(tmp_path)
+    assert str(exc_info.value).startswith(f"invalid YAML at {tmp_path / 'skills.yaml'}: ")
+
+
+def test_manifest_read_errors_keep_their_own_messages(tmp_path):
+    from dokimi.external.catalog_eval_inputs import Inputs, UnsafePath
+    from dokimi.external.catalog_eval_inventory import _yaml
+
+    (tmp_path / "skills.yaml").write_bytes(b"- name: \xff\n")
+    with pytest.raises(ValueError) as exc_info:
+        _yaml(Inputs(tmp_path), tmp_path / "skills.yaml")
+    assert str(exc_info.value).startswith(f"input is not UTF-8: {tmp_path / 'skills.yaml'}: ")
+    (tmp_path / "real.yaml").write_text("[]\n", encoding="utf-8")
+    (tmp_path / "linked.yaml").symlink_to(tmp_path / "real.yaml")
+    with pytest.raises(UnsafePath) as unsafe:
+        _yaml(Inputs(tmp_path), tmp_path / "linked.yaml")
+    assert str(unsafe.value) == "symlink is not a catalog input: linked.yaml"
+
+
 def test_unreadable_input_has_a_controlled_path_diagnostic(tmp_path, monkeypatch):
     skill(tmp_path)
     original = Path.read_bytes
@@ -845,6 +867,44 @@ def test_an_ignored_cache_under_a_shared_directory_selects_nothing_and_a_tracked
         assert selection["selected"] == ["alpha", "beta"], path
         assert selection["unclaimed"] == [], path
         assert selection["reasons"]["beta"] == [f"shared evaluator changed: {path}"]
+
+
+def test_a_path_git_ignores_under_a_shared_directory_selects_nothing_whatever_its_name(tmp_path):
+    from dokimi.external.catalog_eval import evaluate_catalog, hashed_paths
+
+    skill(tmp_path)
+    cache = ".ruff_cache/0.1/x"
+    report = evaluate_catalog(tmp_path, [], [f"tools/{cache}"], None, {f"tools/{cache}"})
+    assert report["selection"]["selected"] == []
+    assert hashed_paths(report["skills"], [f"tools/{cache}"], {f"tools/{cache}"}) == []
+    assert hashed_paths(report["skills"], [f"tools/{cache}", "tools/new.py"], {f"tools/{cache}"}) == ["tools/new.py"]
+    assert evaluate_catalog(tmp_path, [], [f"tools/{cache}"])["selection"]["selected"] == ["alpha"]  # not known as ignored
+
+
+@pytest.mark.parametrize("shared", ["tools", "scripts", "dokimi", ".github"])
+def test_an_ignored_file_of_a_bundle_under_a_shared_directory_selects_only_that_bundle(tmp_path, shared):
+    from dokimi.external.catalog_eval import evaluate_catalog
+
+    for name, where in (("alpha", f"{shared}/alpha"), ("beta", "skills/beta")):
+        (tmp_path / where).mkdir(parents=True)
+        (tmp_path / where / "SKILL.md").write_text(
+            f"---\nname: {name}\ndescription: Use when inspecting {name} inputs.\n---\nInspect safely.\n", encoding="utf-8")
+    (tmp_path / "skills.yaml").write_text(f"skills:\n  - catalog_path: {shared}/alpha\n  - catalog_path: skills/beta\n")
+    log = f"{shared}/alpha/build.log"
+    (tmp_path / log).write_text("log", encoding="utf-8")
+    selection = evaluate_catalog(tmp_path, [], [log], None, {log})["selection"]
+    assert selection["selected"] == ["alpha"]  # alpha's bundle hashes it; beta's input is unchanged
+    assert selection["reasons"] == {"alpha": [f"owned input changed: {log}"]}
+    assert evaluate_catalog(tmp_path, [log], [])["selection"]["selected"] == ["alpha", "beta"]  # tracked: shared
+
+
+def test_an_ignored_path_matches_its_untracked_path_however_either_is_spelled(tmp_path):
+    from dokimi.external.catalog_eval import evaluate_catalog
+
+    skill(tmp_path)
+    for spelling in ("tools/cache/", "./tools/cache", "tools//cache"):
+        assert evaluate_catalog(tmp_path, [], [spelling], None, {spelling})["selection"]["selected"] == [], spelling
+        assert evaluate_catalog(tmp_path, [], ["tools/cache"], None, {spelling})["selection"]["selected"] == [], spelling
 
 
 def test_a_moved_task_selects_the_skill_that_owned_it_at_the_base(tmp_path):
