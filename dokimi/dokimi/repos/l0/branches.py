@@ -14,6 +14,7 @@ from __future__ import annotations
 import importlib
 import posixpath
 import re
+import warnings
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -173,26 +174,60 @@ _REPEATS = (_SRE.MAX_REPEAT, _SRE.MIN_REPEAT, _SRE.POSSESSIVE_REPEAT)
 
 
 def _backtracks(pattern: str) -> bool:
-    """A repeat that can run more than once (``*``, ``+``, ``{m,n}`` with n over 1) holds one whose count varies (the
-    same, with m under n), or an alternation two of whose branches can start with the same character or one be empty:
-    ``(a+)+``, ``(a*)*``, ``(a{1,5})+``, ``(a|aa)+``. Other slow shapes pass (``.*a.*a.*a.*b``)."""
-    return _nests(_SRE.parse(pattern), False)
+    """A repeat that can run more than once (``*``, ``+``, ``{m,n}`` with n over 1) holds a varying item (a repeat with
+    m under n, ``?`` too) that can end at the same place two ways, as the next character can be one it takes or one
+    that follows it, or an alternation two of whose branches can start with the same character or one be empty:
+    ``(a+)+``, ``(a*)*``, ``(a{1,5})+``, ``(a?a?)+``, ``(a|aa)+``. ``([0-9]+\\.)+`` ends each pass at a ``.``: it passes,
+    as do the other slow shapes (``.*a.*a.*a.*b``)."""
+    with warnings.catch_warnings():  # `re.compile` of the pattern warned already (a nested set)
+        warnings.simplefilter("ignore")
+        return _nests(_SRE.parse(pattern), False, None)
 
 
-def _nests(sub: Any, inside: bool) -> bool:
-    """``sub`` holds such a repeat; ``inside`` one, a repeat whose count varies or an overlapping alternation counts."""
-    for op, av in sub:
+def _nests(sub: Any, inside: bool, end: set[str] | None) -> bool:
+    """``sub`` holds such a repeat; ``inside`` one. ``end``: the characters that can come after the end of ``sub``
+    (None: not known)."""
+    for i, (op, av) in enumerate(sub):
         if op in _REPEATS:
-            lo, hi = av[0], av[1]
-            if (inside and lo < hi and hi > 1) or _nests(av[2], inside or hi > 1):
+            if _nests_repeat(sub, i, inside, end):
                 return True
         elif op is _SRE.BRANCH or op is _SRE.GROUPREF_EXISTS:  # `(?(1)yes|no)` without `no` has an empty branch
             alts = av[1] if op is _SRE.BRANCH else [av[1], av[2] or []]
-            if (inside and _overlap(alts)) or any(_nests(a, inside) for a in alts):
+            after = _follow(sub[i + 1:], end) if inside else None
+            if (inside and _overlap(alts)) or any(_nests(a, inside, after) for a in alts):
                 return True
-        elif any(_nests(x, inside) for x in (av if isinstance(av, tuple) else (av,)) if isinstance(x, _SRE.SubPattern)):
-            return True
+        else:
+            after = _follow(sub[i + 1:], end) if inside and op in (_SRE.SUBPATTERN, _SRE.ATOMIC_GROUP) else None
+            if any(_nests(x, inside, after) for x in (av if isinstance(av, tuple) else (av,)) if isinstance(x, _SRE.SubPattern)):
+                return True
     return False
+
+
+def _nests_repeat(sub: Any, i: int, inside: bool, end: set[str] | None) -> bool:
+    """The repeat ``sub[i]`` is a varying item of an outer repeat that can end two ways, or holds such a repeat."""
+    lo, hi, body = sub[i][1]
+    after = _follow(sub[i + 1:], end) if inside else None
+    if inside and lo < hi:  # taking the body once more or not is told by the next character, or it is not
+        first = _first(body)
+        if first is None or after is None or first & after:
+            return True
+    again = _follow(body, None) if hi > 1 else None
+    tail = again if not inside else (None if again is None or after is None else again | after)
+    return _nests(body, inside or hi > 1, tail if hi > 1 else after)
+
+
+def _follow(items: Any, end: set[str] | None) -> set[str] | None:
+    """The characters that can start ``items``, then ``end`` when all of them can be empty; None when not known."""
+    out: set[str] = set()
+    for j, (op, av) in enumerate(items):
+        if items[j:j + 1].getwidth()[0] > 0:
+            first = _first(items[j:j + 1])
+            return None if first is None else out | first
+        first = _first(av[-1]) if op in _REPEATS else None  # a repeat that can be skipped; else not known
+        if first is None:
+            return None
+        out |= first
+    return None if end is None else out | end
 
 
 def _overlap(alts: list[Any]) -> bool:
@@ -234,7 +269,14 @@ def _class_chars(items: list[Any]) -> set[str] | None:
 
 
 def _cased(code: int) -> set[str]:
-    return {chr(code), chr(code).lower(), chr(code).upper()}
+    """The characters a case-insensitive ``re`` takes for ``chr(code)`` (a superset). ``re`` folds one character to one
+    (``İ`` to ``i``), where ``str.lower`` gives ``i̇``: the first character of a longer result counts too."""
+    out = {chr(code)}
+    for _ in range(2):
+        for c in out.copy():
+            for s in (c.lower(), c.upper()):
+                out |= {s, s[0]}
+    return out
 
 
 def _filter_sources(scan: Scan, flows: list[str]) -> list[Source]:

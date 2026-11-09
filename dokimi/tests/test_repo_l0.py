@@ -9,6 +9,7 @@ import json
 import re
 import subprocess
 import time
+import warnings
 from pathlib import Path
 
 import pytest
@@ -370,6 +371,8 @@ _PUSH = {".github/workflows/ci.yml": 'name: ci\non:\n  push:\n    branches: [mai
     # a repeat with no repeat inside, or of an alternation whose branches start apart, does not backtrack exponentially
     ("release/12", _pre_commit("[-p, 'release/[0-9]+']"), "branch pattern of no-commit-to-branch (.pre-commit-config.yaml:17)"),
     ("maintenance/abcd", _pre_commit("[-p, 'maintenance/(ab|cd)+']"), "branch pattern of no-commit-to-branch (.pre-commit-config.yaml:17)"),
+    # each pass of the repeat ends at a `.`, which the digits do not take: one way to match, though `[0-9]+` is in a repeat
+    ("release/1.2.3", _pre_commit("[-p, 'release/([0-9]+\\.)+[0-9]+']"), "branch pattern of no-commit-to-branch (.pre-commit-config.yaml:17)"),
     ("release/1.x", _pre_commit("\n        -   --branch\n        -   release/1.x"),
      "branch of no-commit-to-branch (.pre-commit-config.yaml:19)"),
     ("release/*", _PUSH, "branch filter of on.push (.github/workflows/ci.yml:4)"),
@@ -437,6 +440,9 @@ _NO_GLOB = "glob {} matches nothing in the tree; a build may create it"
      ("unresolved", "tried maintenance/" + "a" * 24 + "c")),
     ("maintenance/aa", _pre_commit("[--pattern, 'maintenance/(a*)*']"), ("unresolved", "tried maintenance/aa")),
     ("maintenance/aaa", _pre_commit("[--pattern, 'maintenance/(a|aa)+']"), ("unresolved", "tried maintenance/aaa")),
+    ("maintenance/aab", _pre_commit("[--pattern, 'maintenance/(a?a?)+b']"), ("unresolved", "tried maintenance/aab")),
+    # `İ` and `i` are one character to a case-insensitive `re`, so both alternatives can take an `i`
+    ("maintenance/iib", _pre_commit("[--pattern, 'maintenance/(?i:(i|İi)+)b']"), ("unresolved", "tried maintenance/iib")),
     ("maintenance/*", {".pre-commit-config.yaml": "repos: [{hooks: [{id: no-commit-to-branch, args: [-p, 'maintenance/.*']\n"},
      ("unresolved", _NO_GLOB.format("maintenance/*"))),
     ("release/*", {".github/workflows/ci.yml": "env: {D: 2026-02-30}\non: {push: {branches: ['release/**']}}\n"},
@@ -508,11 +514,27 @@ def test_a_hook_pattern_that_backtracks_exponentially_gives_no_source_to_match()
     ("(a{1,5})+", True), ("(a+){1,100}", True), ("(a|aa){2,30}", True),
     ("maintenance/.*", False), ("release/[0-9]+", False), ("maintenance/(ab|cd)+", False), ("(a|b)+", False),
     ("^(?!main$).*", False), ("release/(v|rc)[0-9]+", False), ("(a+)b(c+)", False), ("(a{2})+", False), ("(ab?)+", False),
+    # an item of the repeat that can be skipped or repeated, and be followed by what it takes
+    ("maintenance/(a?a?)+b", True), ("(a?a)+", True), ("(a+b?)+", True), ("([a-z]+/?)+", True), ("((ab)?a)+", True),
+    # `İ` is `i` to a case-insensitive `re`; so are the Kelvin sign and `k`
+    ("maintenance/(?i:(i|\u0130i)+)b", True), ("maintenance/(?i:\u0130|ii)+b", True),
+    ("maintenance/(?i:([i\u212a]|[\u0130J]i)+)b", True), ("(?i:[\u0130x]a|[i-j]b)+", True),
+    # each pass ends at a character the item does not take
+    ("release/([0-9]+\\.)+[0-9]+", False), ("(\\.[0-9]+)+", False), ("(a(bc)?)+", False), ("(v?[0-9]+\\.)+", False),
+    ("(a+b)+", False), ("(ab*)+", False),
 ])
 def test_a_nested_repeat_or_overlapping_alternation_in_a_repeat_is_refused(pattern, refused):
     """A repeat that can run more than once around one whose count varies, or around branches that can start alike
     or be empty, at any depth, lazy or not."""
     assert branches._backtracks(pattern) is refused
+
+
+def test_reading_a_hook_pattern_warns_once_as_compiling_it_does():
+    """The parse for the refusal does not repeat the FutureWarning of `re.compile` (a nested set)."""
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        assert branches._hook_source("--pattern", "maintenance/[[x]]+", 17) is not None
+    assert len([w for w in caught if issubclass(w.category, FutureWarning)]) == 1
 
 
 def test_a_backslash_in_a_branch_filter_escapes_the_next_character():
