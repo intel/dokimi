@@ -137,12 +137,22 @@ def test_the_default_metrics_score_both_arms_on_the_installed_ragas():
     }
 
 
-def test_context_recall_scores_the_ground_truth_and_skips_answers_without_one():
-    no_truth = {**ANSWER, "question_id": "q2", "ground_truth_chunk": None}
-    result, stderr = _evaluate([ANSWER, no_truth], ["faithfulness", "context_recall"])
+NO_TRUTH = {**ANSWER, "question_id": "q2", "ground_truth_chunk": None}
+
+
+# ragas checks the required columns on the first row only: q2 first once erased every score.
+@pytest.mark.parametrize("answers", [[ANSWER, NO_TRUTH], [NO_TRUTH, ANSWER]], ids=["truth-first", "truth-second"])
+def test_context_recall_scores_the_ground_truth_and_skips_answers_without_one(answers):
+    result, stderr = _evaluate(answers, ["faithfulness", "context_recall"])
     assert result["ragas_per_question"]["with_docs"] == {
         "q1": {"faithfulness": 0.75, "context_recall": 0.25},
         "q2": {"faithfulness": 0.75},
     }, stderr
     assert result["ragas_summary"]["with_docs"] == {"faithfulness": 0.75, "context_recall": 0.25}
     assert result["ragas_per_question"]["without_docs"] == {}
+
+
+def test_context_recall_without_any_ground_truth_keeps_the_other_scores():
+    result, stderr = _evaluate([NO_TRUTH], ["faithfulness", "context_recall"])
+    assert result["ragas_per_question"]["with_docs"] == {"q2": {"faithfulness": 0.75}}, stderr
+    assert result["ragas_summary"]["with_docs"] == {"faithfulness": 0.75}

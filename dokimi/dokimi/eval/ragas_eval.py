@@ -129,9 +129,10 @@ class RagasEvaluator:
             raise ImportError("ragas and datasets packages are required. "
                               "If the ragas extra is not installed: pip install 'dokimi[ragas]'") from exc
 
-        rows_with = []
+        # ragas 0.3's column names. Recall rows go apart: ragas checks the columns of the first row only.
+        rows_with: List[Dict[str, Any]] = []
+        rows_recall: List[Dict[str, Any]] = []
         rows_without: List[Dict[str, Any]] = []
-        # ragas 0.3's column names. A row with reference None loses only its context_recall.
         recall = "context_recall" in self._requested
 
         for i, rec in enumerate(records(answers, source="answers", kind="answers")):
@@ -148,9 +149,9 @@ class RagasEvaluator:
                     "retrieved_contexts": wd.context,
                     "question_id": rec.question_id,
                 }
-                if recall:
-                    row["reference"] = rec.ground_truth
                 rows_with.append(row)
+                if recall and rec.ground_truth:
+                    rows_recall.append({**row, "reference": rec.ground_truth})
 
             # --- BASELINE (answer_relevancy only) ---
             if include_without_docs and "answer_relevancy" in self._requested:
@@ -164,7 +165,14 @@ class RagasEvaluator:
                     })
 
         with_scores, summary_with = self._score(
-            Dataset, ragas_evaluate, rows_with, self._metric_objects, "with_docs")
+            Dataset, ragas_evaluate, rows_with,
+            [m for m in self._metric_objects if m.name != "context_recall"], "with_docs")
+        recall_scores, summary_recall = self._score(
+            Dataset, ragas_evaluate, rows_recall,
+            [m for m in self._metric_objects if m.name == "context_recall"], "context_recall")
+        for qid, scores in recall_scores.items():
+            with_scores.setdefault(qid, {}).update(scores)
+        summary_with.update(summary_recall)
         without_scores, summary_without = self._score(
             Dataset, ragas_evaluate, rows_without,
             [self._metric("answer_relevancy")] if rows_without else [], "without_docs")
@@ -224,7 +232,7 @@ class RagasEvaluator:
         Scores are read by the names of *metrics*: the result frame also holds the input
         columns, whose names ragas has changed before.
         """
-        if not rows:
+        if not rows or not metrics:
             return {}, {}
         try:
             df = ragas_evaluate(

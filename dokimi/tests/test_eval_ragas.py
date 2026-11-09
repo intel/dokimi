@@ -202,16 +202,27 @@ class TestRagasEvaluator:
         }
         assert result.summary_with_docs == {"faithfulness": 0.8, "context_precision": 0.85}
 
-    def test_context_recall_sends_the_ground_truth_as_reference(self, sample_answers):
+    def test_context_recall_scores_apart_and_its_failure_keeps_the_other_scores(self, sample_answers):
         sample_answers[0]["ground_truth_chunk"] = "parallel_for splits a range."
-        evaluator = self._mock_evaluator(["context_recall"])
-        fake_dataset_cls = Mock()
-        with patch('dokimi.eval.ragas_eval._import_ragas_runtime',
-                   return_value=(fake_dataset_cls, Mock(side_effect=Exception("not run")))):
-            evaluator.evaluate(sample_answers, include_without_docs=False)
+        evaluator = self._mock_evaluator(["faithfulness", "context_recall"])
+        sent = []
 
-        rows = fake_dataset_cls.from_list.call_args.args[0]
-        assert [row["reference"] for row in rows] == ["parallel_for splits a range.", None]
+        def ragas_evaluate(rows, metrics, **kwargs):
+            sent.append(([m.name for m in metrics], rows))
+            if any(m.name == "context_recall" for m in metrics):
+                raise ValueError("requires the following additional columns ['reference']")
+            return _FakeRagasResult(_make_ragas_result_df(len(rows)))
+
+        fake_dataset_cls = Mock(from_list=list)
+        with patch('dokimi.eval.ragas_eval._import_ragas_runtime',
+                   return_value=(fake_dataset_cls, ragas_evaluate)):
+            result = evaluator.evaluate(sample_answers, include_without_docs=False)
+
+        assert [names for names, _ in sent] == [["faithfulness"], ["context_recall"]]
+        assert [(row["question_id"], row["reference"]) for row in sent[1][1]] == [
+            ("q_001", "parallel_for splits a range.")]
+        assert "reference" not in sent[0][1][0]
+        assert result.with_docs_scores == {"q_001": {"faithfulness": 0.8}, "q_002": {"faithfulness": 0.8}}
 
     def test_evaluate_skips_missing_context(self, sample_answers):
         """Answers without retrieved_docs should not appear in with_docs evaluation."""
