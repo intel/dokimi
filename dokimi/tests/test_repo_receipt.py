@@ -443,10 +443,9 @@ def test_from_a_receipt_refuses_a_profile_whose_guidance_changed_since_the_probe
     capsys.readouterr()
     _profile(tmp_path, name="claude-code", guidance={"names": ["CLAUDE.md", "AGENTS.md"]})  # the key removed since
     args = build_parser().parse_args(_from_argv(live, "--from", _saved(tmp_path), "--format", "receipt"))
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    err = capsys.readouterr().err
-    assert exc.value.code == 2 and '"claude_displaces_agents": true' in err and "probe again" in err
+    assert exc.code == 2 and '"claude_displaces_agents": true' in exc.err and "probe again" in exc.err
     assert not (tmp_path / "out" / "effective_instructions.json").exists()
     args = build_parser().parse_args(_from_argv(live, "--from", _saved(tmp_path)))  # the matrix reads no guidance
     args.func(args)
