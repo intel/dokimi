@@ -441,8 +441,9 @@ the files) or a path a guidance link resolves through, newest first by committer
 date, at most 200, each with its `subject`; `guidance_commits_truncated`,
 `true` when that cap cut the list; and `guidance_imported_by`, for each guidance
 file the arm wrote that another file's `@` import chain reaches, the files whose
-chains reach it, root files first. It is read in the workspace (the revision's
-guidance, the task's base elsewhere) with `repo budget`'s import walker
+chains reach it, root files first. It is read in the workspace as the agent gets
+it (the revision's guidance, the task's base elsewhere, after the review patch and
+the skills), among every file on disk, one a `.gitignore` ignores too, with `repo budget`'s import walker
 (`dokimi/repos/budget.py`) by the cell's harness profile: the chains of every
 `CLAUDE*` file and every `AGENTS.md` its `guidance.names` holds, but an `AGENTS.md`
 that `guidance.claude_displaces_agents` turns off, relative to

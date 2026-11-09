@@ -54,7 +54,7 @@ from .arms import ArmError, Skill, resolve_skills, tree_sha256
 from .errors import PrepError
 from .guidance_arms import GUIDANCE_SKILL_DESCRIPTION, _apply_as_skill, _apply_format  # noqa: F401
 from .guidance_format import FORMATS
-from .guidance_history import arm_rev_history, guidance_imported_by
+from .guidance_history import arm_rev_history, record_imports
 from .harness_profile import HarnessProfile
 from .manifest import RepoManifest, _is_within, match_glob
 from .overlay_paths import _link_target, _overlay_targets, _path_hits, _supplies_a_file  # noqa: F401
@@ -405,13 +405,14 @@ def prepare_workspace(git_dir: Path, manifest: RepoManifest, task: Task, arm: st
     _git(ws, env, "commit", "-q", "--no-gpg-sign", "--allow-empty", "--no-verify", "-m", "snapshot")
     patches = _apply_setup_patches(ws, env, task)                                            # 4
     try:
-        arm_files, arm_meta = _apply_arm(ws, env, git_dir, manifest, arm, bridge, overlay, profile)   # 5
+        arm_files, arm_meta = _apply_arm(ws, env, git_dir, manifest, arm, bridge, overlay)   # 5
     except PrepError as exc:
         raise PrepError(f"task {task.id}: {exc}") from exc
     installed = _install_skills(ws, task, skills)  # the catalog's skills; a guidance:as-skill skill is in arm_meta
     _git(ws, env, "add", "-A")                                                                # 6
     _git(ws, env, "commit", "-q", "--no-gpg-sign", "--no-verify", "--amend", "--allow-empty", "-m", "snapshot")
     _apply_review_patch(ws, task, patches)                                                    # 7
+    record_imports(arm_meta, ws, arm_files, profile, lambda: _workspace_files(ws, env))  # as the agent gets it
     _forget(ws, env)                                                                          # 8
     start_sha = _git(ws, env, "rev-parse", "HEAD").strip()
     meta: dict[str, Any] = {
@@ -468,8 +469,8 @@ def _forget(ws: Path, env: dict[str, str]) -> None:
     _git(ws, env, "prune", "--expire=now")
 
 
-def _apply_arm(ws: Path, env: dict[str, str], git_dir: Path, manifest: RepoManifest, arm: Arm, bridge: dict[str, str] | None,
-               overlay: str | None = None, profile: HarnessProfile | None = None) -> tuple[list[str], dict[str, Any]]:
+def _apply_arm(ws: Path, env: dict[str, str], git_dir: Path, manifest: RepoManifest, arm: Arm,
+               bridge: dict[str, str] | None, overlay: str | None = None) -> tuple[list[str], dict[str, Any]]:
     """The files the arm removed (none), wrote (bridge, rev) or changed (patch), and its other
     ``meta.json`` fields: bridge targets left alone, the revision, the patch file, the overlay kept."""
     if arm.base == "guidance:raw":
@@ -483,7 +484,7 @@ def _apply_arm(ws: Path, env: dict[str, str], git_dir: Path, manifest: RepoManif
     if arm.base.startswith(FORMAT_ARM):
         return _apply_format(ws, matched, arm.base[len(FORMAT_ARM):])
     if arm.base in ("guidance:none", "guidance:as-skill") or arm.rev_sha is not None:
-        return _apply_removal(ws, env, git_dir, manifest, arm, matched, profile)
+        return _apply_removal(ws, env, git_dir, manifest, arm, matched)
     assert bridge is not None
     return _apply_bridge(ws, matched, bridge)
 
@@ -495,7 +496,7 @@ def _dropped_overlays(ws: Path, env: dict[str, str], matched: list[str], arm: st
 
 
 def _apply_removal(ws: Path, env: dict[str, str], git_dir: Path, manifest: RepoManifest, arm: Arm,
-                   matched: list[str], profile: HarnessProfile | None = None) -> tuple[list[str], dict[str, Any]]:
+                   matched: list[str]) -> tuple[list[str], dict[str, Any]]:
     """``guidance:none`` and ``guidance:as-skill`` (the matched files and every overlay removed, as-skill packaging
     the matched ones) or a pinned revision (the matched files replaced, the overlays kept)."""
     dropped = _dropped_overlays(ws, env, matched, arm.base) if arm.rev_sha is None else {}
@@ -509,11 +510,11 @@ def _apply_removal(ws: Path, env: dict[str, str], git_dir: Path, manifest: RepoM
         canon.unlink()
     if arm.rev_sha is None:
         return sorted([*matched, *dropped.values()]), meta
-    return _apply_rev(ws, git_dir, manifest, arm, matched, profile)
+    return _apply_rev(ws, git_dir, manifest, arm, matched)
 
 
 def _apply_rev(ws: Path, git_dir: Path, manifest: RepoManifest, arm: Arm,
-               removed: list[str], profile: HarnessProfile | None = None) -> tuple[list[str], dict[str, Any]]:
+               removed: list[str]) -> tuple[list[str], dict[str, Any]]:
     """The guidance files of ``arm.rev_sha`` into ``ws``, whose own were ``removed``."""
     assert arm.rev_sha is not None
     written, links, chains = _guidance_at(git_dir, manifest, arm.rev_sha)
@@ -553,8 +554,7 @@ def _apply_rev(ws: Path, git_dir: Path, manifest: RepoManifest, arm: Arm,
     # arm_files: the files it wrote and the base's guidance it deleted (contract §3 meta.json)
     history = arm_rev_history(git_dir, manifest.guidance_globs, manifest.run_paths()[0], arm.rev_sha, written, chains)
     return sorted(set(written) | set(removed)), {"arm_rev": {"rev": arm.rev, "sha": arm.rev_sha,
-                                                             "removed": sorted(set(removed) - set(written)), **history,
-                                                             "guidance_imported_by": guidance_imported_by(ws, written, profile)}}
+                                                             "removed": sorted(set(removed) - set(written)), **history}}
 
 
 def _apply_bridge(ws: Path, matched: list[str], bridge: dict[str, str]) -> tuple[list[str], dict[str, Any]]:
