@@ -54,9 +54,8 @@ def test_a_missing_key_fails_on_the_first_attempt(no_credentials, sleeps, provid
     assert len(no_credentials) == 1 and sleeps == []
 
 
-# The messages as their sources word them: openai>=2.20 (the oldest litellm takes) and the
-# current openai, litellm's Vertex auth (no credentials, no project), google-auth's ADC lookup,
-# Vertex without google-auth.
+# As their sources word them: openai>=2.20 (the oldest litellm takes) and the current one,
+# litellm's Vertex auth (no credentials, no project), google-auth's ADC, no google-auth.
 MISSING_CREDENTIALS = [
     litellm.InternalServerError(
         "OpenAIException - The api_key client option must be set either by passing api_key to the "
