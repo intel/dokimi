@@ -9,9 +9,9 @@ sign-flip test on the per-question contrast ``AB - A - B + baseline``, its
 inverted 95% interval (uncorrected) and the floor rule, with the sign-flip p
 corrected across the contrasts as a family of its own. The test assumes the
 contrast symmetric about 0 when there is no interaction, a weaker assumption
-than a t test's normality; independent noise in the four cells gives it only
-if the four are also identically distributed. Only under that assumption is
-its level 5%: a skewed contrast of mean 0 is rejected more often (7 to 10% for
+than a t test's normality; independent noise in the four cells gives it if
+the four are also identically distributed (sufficient, not necessary). Only
+under that assumption is its level 5%: a skewed contrast of mean 0 is rejected more often (7 to 10% for
 ``Exp(1) - 1`` at 10 to 20 pairs).
 
 Public API
