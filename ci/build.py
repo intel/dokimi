@@ -82,7 +82,11 @@ RATTLER_BUILD_RELEASES = {
 
 
 class BuildError(Exception):
-    """Raised when the build cannot start or produced nothing."""
+    """
+    Raised when the build cannot start, or what it built cannot be handed
+    on: no package, two packages of one file name, or a [tool.ci-build]
+    wheel-requires that is not a list of specs.
+    """
 
 
 def ensure_rattler_build(tools: Path) -> None:
