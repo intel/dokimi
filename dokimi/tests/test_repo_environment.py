@@ -444,10 +444,10 @@ def test_deeply_nested_yaml_does_not_crash(tmp_path):
     validate_artifact("repo_environment", {"schema_version": "repo_environment.v1", **payload})
 
 
-def test_npm_install_1mb_completes_quickly(tmp_path):
-    """A hook command of many options, up to just under the settings cap, is parsed in linear time."""
+def test_npm_hook_of_many_options_is_linear(tmp_path):
+    """A hook command of many options, 25 KB at n and 100 KB at 4n, is parsed in linear time."""
     ratio, payload = growth(_inspected(tmp_path, lambda k: _hook_files("npm " + "-npm " * k)), 5_000)
-    assert ratio < GROWTH_LIMIT  # at 4n, 750 KB: under MAX_SETTINGS_BYTES, so the hook is parsed
+    assert ratio < GROWTH_LIMIT
     assert [c["note"] for c in payload["capabilities"]] == ["hooks on SessionStart"]
 
 
@@ -564,7 +564,7 @@ def test_test_file_case_insensitive_and_mjs(tmp_path):
 
 
 def test_unbalanced_quote_in_hook_completes_quickly(tmp_path):
-    """A hook with an unbalanced quote, up to just under the settings cap, is parsed in linear time."""
+    """A hook with an unbalanced quote, 60 KB at n and 240 KB at 4n, is parsed in linear time."""
     ratio, payload = growth(_inspected(tmp_path, lambda k: _hook_files("echo '" + "a" * k)), 60_000)
     assert ratio < GROWTH_LIMIT  # shlex over the whole quote (no _MAX_SHLEX_LINE) is quadratic
     assert [c["note"] for c in payload["capabilities"]] == ["hooks on SessionStart"]
