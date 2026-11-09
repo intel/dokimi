@@ -60,6 +60,15 @@ def test_the_novelty_default_judge_on_the_cli_is_another_family(answerer):
     assert provider == "claude-cli" and not same_model(judge, answerer)
 
 
+@pytest.mark.parametrize("answerer", ["sonnet", "opus", "sonnet[1m]", "opus[1m]", "claude-sonnet-5-5"])
+def test_the_novelty_default_judge_follows_a_cli_answerer_with_no_judge_provider(answerer):
+    # The call novelty makes with no --judge-provider: the CLI answerer's provider is the third argument.
+    from dokimi.novelty.client import default_judge
+
+    judge, provider = default_judge(answerer, None, "claude-cli")
+    assert provider == "claude-cli" and not same_model(judge, answerer)
+
+
 def test_a_novelty_judge_of_the_answerers_family_counts_as_the_answerer():
     # run_measurement refuses a judge that same_client matches with the answerer, unless allowed.
     from dokimi.novelty.client import LLMClient, same_client
