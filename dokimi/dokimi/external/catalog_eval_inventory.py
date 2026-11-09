@@ -20,9 +20,10 @@ from .validate import review_skills
 
 
 def _yaml(inputs: Inputs, path: Path) -> Any:
+    text = inputs.text(path)  # its own errors (unsafe path, unreadable, not UTF-8) keep their messages
     try:
-        return yaml.safe_load(inputs.text(path))
-    except (yaml.YAMLError, RecursionError) as exc:
+        return yaml.safe_load(text)
+    except (yaml.YAMLError, ValueError, RecursionError) as exc:  # ValueError: a value PyYAML cannot build
         raise ValueError(f"invalid YAML at {path}: {exc}") from exc
 
 

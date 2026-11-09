@@ -104,3 +104,32 @@ def test_an_mcp_source_id_wins_over_the_entry_id(spy, tmp_path):
     real = EvaluationPipeline(**kwargs)
     assert real._library_id(_DeclaredIdClient()) == "org/declared"
     assert real._library_id(_SourceIdClient()) == "my/override"
+
+
+@pytest.mark.parametrize("command", [
+    ["preflight", "--library", "my_lib"], ["run", "--library", "my_lib"], ["batch", "--all"],
+])
+@pytest.mark.parametrize("text,message", [
+    ("products: [unclosed\n", "cannot read --registry {path}: "),
+    ("products: 2026-99-99\n", "cannot read --registry {path}: "),
+    (None, "--registry {path}: not a file"),
+    ("", "--registry {path}: not a file"),
+], ids=["syntax", "bad-date", "missing", "directory"])
+def test_a_bad_registry_file_is_an_error_line_not_a_traceback(spy, tmp_path, monkeypatch, capsys, command, text,
+                                                              message):
+    from dokimi import cli
+
+    registry = tmp_path / "my.yaml"
+    if text == "":
+        registry.mkdir()
+    elif text is not None:
+        registry.write_text(text, encoding="utf-8")
+    monkeypatch.setattr("sys.argv", ["dokimi", "benchmark", *command, "--registry", str(registry),
+                                     "--output-dir", str(tmp_path / "out")])
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main()
+
+    err = capsys.readouterr().err
+    assert exc_info.value.code == 2
+    assert err.startswith("Error: " + message.format(path=registry)) and "Traceback" not in err
+    assert spy.built == []
