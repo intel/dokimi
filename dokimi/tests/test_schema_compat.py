@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -385,6 +386,24 @@ def test_a_git_timeout_is_not_read_as_no_fixture(monkeypatch):
     with pytest.raises(sc.GitError, match="timed out") as err:
         sc._base_fixture("HEAD", "a.v1.json")
     assert not isinstance(err.value, sc.GitPathMissing)
+
+
+@pytest.mark.skipif(sys.platform in ("win32", "darwin"), reason="the file system takes only UTF-8 names")
+def test_a_byte_that_is_not_utf8_in_the_directory_the_schemas_moved_from_stays(monkeypatch, tmp_path):
+    """Decoded with replacement, the byte became U+FFFD and named a directory the base does not have."""
+    import dokimi.schema_compat as sc
+
+    old = os.fsdecode(b"o\xffld")
+    git = ["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "core.autocrlf=false"]
+    (tmp_path / old).mkdir()
+    (tmp_path / old / "x.json").write_text(json.dumps(_with(description="x" * 200)), encoding="utf-8")
+    subprocess.run([*git, "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run([*git, "add", "."], cwd=tmp_path, check=True)
+    subprocess.run([*git, "commit", "-qm", "base"], cwd=tmp_path, check=True)
+    subprocess.run([*git, "mv", old, "new"], cwd=tmp_path, check=True)
+    subprocess.run([*git, "commit", "-qm", "move"], cwd=tmp_path, check=True)
+    monkeypatch.setattr(sc, "SCHEMA_DIR", tmp_path / "new")
+    assert sc._renamed_from("HEAD~1", ".") == f"{old}/"
 
 
 def test_main_warns_when_the_base_has_no_schemas_to_compare(monkeypatch, tmp_path, capsys):

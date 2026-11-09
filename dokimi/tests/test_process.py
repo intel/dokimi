@@ -87,9 +87,10 @@ def test_output_is_utf8_whatever_the_locale():
     assert _py("import sys; sys.stdout.buffer.write(b'a\\rb')").stdout == "a\nb"  # a lone \r too
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX file names are bytes; Windows decodes them strictly")
 def test_nul_fields_split_a_listing_before_decoding_so_a_carriage_return_stays():
     done = reply(b"a\rb/AGENTS.md\x00\xff x\r\n\x00")
-    assert done.nul_fields() == ["a\rb/AGENTS.md", "� x\r\n", ""]  # bad bytes replaced, as stdout does
+    assert done.nul_fields() == ["a\rb/AGENTS.md", "\udcff x\r\n", ""]  # a bad byte kept, as os.fsdecode does
     assert done.stdout.split("\0") == ["a\nb/AGENTS.md", "� x\n", ""]
 
 

@@ -9,6 +9,7 @@ import dataclasses
 import json
 import os
 import shutil
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -678,6 +679,38 @@ def test_overlay_arm_removes_a_chained_directory_alias_listing_without_failing(t
     assert not os.path.lexists(tmp_path / "AGENTS.copilot.md")
     assert not (tmp_path / "real" / "AGENTS.copilot.md").exists()
     assert (tmp_path / "AGENTS.claude.md").is_file()
+
+
+NOT_UTF8 = os.fsdecode(b"r\xff")  # a directory name git and the file system keep as bytes
+not_utf8 = pytest.mark.skipif(sys.platform in ("win32", "darwin"), reason="the file system takes only UTF-8 names")
+
+
+def _bytes_workspace(tmp_path: Path, files: tuple[str, ...]) -> Path:
+    """A committed workspace holding ``files``, whose paths may hold a byte that is not UTF-8."""
+    ws = tmp_path / "ws"
+    for rel in files:
+        write(ws, rel, "guidance\n")
+    git(ws, "init", "-q")
+    git(ws, "add", "-A")
+    git(ws, "commit", "-q", "-m", "base")
+    return ws
+
+
+@not_utf8
+def test_overlay_arm_removes_a_foreign_overlay_whose_path_is_not_utf8(tmp_path):
+    ws = _bytes_workspace(tmp_path, ("AGENTS.md", "AGENTS.claude.md", f"{NOT_UTF8}/AGENTS.codex.md"))
+    removed, _ = _apply_arm(ws, _git_env(SNAPSHOT_AUTHOR), tmp_path, None, parse_arm(OVERLAY_ARM), None, "claude")
+    assert removed == [f"{NOT_UTF8}/AGENTS.codex.md"]
+    assert not (ws / NOT_UTF8 / "AGENTS.codex.md").exists() and (ws / "AGENTS.claude.md").is_file()
+
+
+@not_utf8
+def test_guidance_none_removes_a_guidance_file_whose_path_is_not_utf8(tmp_path):
+    ws = _bytes_workspace(tmp_path, ("AGENTS.md", f"{NOT_UTF8}/AGENTS.md", "src/calc.py"))
+    manifest = SimpleNamespace(guidance_globs=["**/AGENTS.md"])
+    removed, _ = _apply_arm(ws, _git_env(SNAPSHOT_AUTHOR), tmp_path, manifest, parse_arm("guidance:none"), None)
+    assert removed == ["AGENTS.md", f"{NOT_UTF8}/AGENTS.md"]
+    assert not (ws / NOT_UTF8 / "AGENTS.md").exists() and (ws / "src/calc.py").is_file()
 
 
 def test_native_in_probe_counts_only_the_native_names_a_probed_file_or_link_carries():

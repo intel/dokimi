@@ -1,0 +1,3 @@
+### Fixed
+
+- **A guidance or skill file whose path is not valid UTF-8 is now found** — git's `-z` listings were decoded as UTF-8 with replacement, so a byte that is not UTF-8 became U+FFFD and the path named no file: `guidance:overlay` left such an overlay in place, `guidance:none` failed on a file it could not find, a `guidance:rev:` arm could not check its file out, a `patch:` arm recorded a wrong path, the base check of a skill arm missed a skill the base already ships, and `python -m dokimi.schema_compat` looked for schemas moved out of such a directory at a path the base does not have. Each field of those listings is now decoded as a file name (`os.fsdecode`), so it keeps its bytes.
