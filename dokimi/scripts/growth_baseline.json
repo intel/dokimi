@@ -34,7 +34,6 @@
     "dokimi/eval/judge_context.py::JudgeContextStore.from_artifact": {"complexity": 13},
     "dokimi/eval/judge_sequential.py::run_sequential": {"complexity": 12, "rationale": "grew on main in #73 (judge-validity --context stored) from 6 to 12 before the ratchet landed; split it in its own PR"},
     "dokimi/eval/plugin_delta.py::_validate_pair": {"complexity": 14},
-    "dokimi/eval/ragas_eval.py::RagasEvaluator.evaluate": {"complexity": 17},
     "dokimi/eval/validity_scoring.py::_score_pairs": {"complexity": 13},
     "dokimi/gate/novelty_gate.py::evaluate_novelty": {"complexity": 27, "rationale": "grew on main in #72 and #101 before the ratchet landed; split it in its own PR"},
     "dokimi/harnesses/benchflow.py::BenchflowHarness.run": {"complexity": 19},

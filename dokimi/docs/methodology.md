@@ -193,7 +193,12 @@ The optional judge panel uses three roles:
 
 Panel aggregates are computed in Python from role-specific weights. The panel report includes mean score, standard deviation, agreement score, and disagreement flags. A panel verdict needs a majority of its judges to return a valid vote; below that the question reports insufficient evidence, with no mean, spread or agreement, and a one-judge panel reports a score with no spread or agreement. Every panel role carries the single judge's numeric-claims criterion and lists `numeric_claims` first; Python holds the same wrong-figure cap per vote, keeping the judged score under the vote's `caps`. Panel correctness scores from before this change had neither and are not comparable with later ones.
 
-RAGAS meta-evaluation can be run after answer generation to add faithfulness and answer-relevancy signals, especially for the `with_docs` condition.
+RAGAS meta-evaluation (`eval score ragas`, or `answers generate --ragas`) can be run after answer generation to add signals from ragas 0.3, mostly for the `with_docs` condition:
+
+- `faithfulness`: the share of the `with_docs` answer's statements that the retrieved documents support.
+- `answer_relevancy`: how well the answer addresses the question, for both conditions; the only metric of `without_docs`.
+- `context_precision`: whether the retrieved documents were useful in reaching the `with_docs` answer, with the useful ones ranked first. It is ragas's reference-free `LLMContextPrecisionWithoutReference`: the judge compares the documents with the answer, not with a reference answer.
+- `context_recall`, which the commands leave out and `RagasEvaluator(metrics=[...])` computes on request: how much of the question's `ground_truth_chunk` the retrieved documents cover; answers without one get no `context_recall` score.
 
 ## Trust And Reproducibility
 

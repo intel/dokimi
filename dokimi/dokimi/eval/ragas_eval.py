@@ -3,12 +3,14 @@
 
 """RAGAS meta-evaluation layer for dokimi.
 
-Computes reference-free metrics on top of existing answer pairs:
+Computes metrics on top of existing answer pairs with ragas 0.3; all but context_recall
+need no reference answer:
   - faithfulness:        Does the with_docs answer stay faithful to the retrieved context?
   - answer_relevancy:    Is the answer relevant to the question? (both modes)
-  - context_precision:   Is the retrieved context actually useful (high signal, low noise)?
-  - context_recall:      Did the retrieved context cover what was needed?
-                         (only when ground_truth_chunk is available)
+  - context_precision:   Did the retrieved documents help reach the with_docs answer, the
+                         useful ones ranked first? (ragas's LLMContextPrecisionWithoutReference)
+  - context_recall:      Did the retrieved context cover the ground truth?
+                         (only when requested, scored for answers with a ground_truth_chunk)
 
 Usage:
     from dokimi.eval.ragas_eval import RagasEvaluator
@@ -20,7 +22,7 @@ Usage:
 
 import logging
 import os
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 
 from dokimi.eval.question_text import require_question_text
 from dokimi.defaults import DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER
@@ -28,6 +30,8 @@ from dokimi.llm import credential_env_var, resolve_api_key
 from dokimi.records import BASELINE, CONTEXT, RecordLike, records
 
 logger = logging.getLogger(__name__)
+
+_METRICS = ("faithfulness", "answer_relevancy", "context_precision", "context_recall")
 
 
 def _key(provider: str, api_key: Optional[str] = None) -> Optional[str]:
@@ -127,6 +131,8 @@ class RagasEvaluator:
 
         rows_with = []
         rows_without: List[Dict[str, Any]] = []
+        # ragas 0.3's column names. A row with reference None loses only its context_recall.
+        recall = "context_recall" in self._requested
 
         for i, rec in enumerate(records(answers, source="answers", kind="answers")):
             q = rec.question_text
@@ -137,14 +143,13 @@ class RagasEvaluator:
                 # Rows are all built before the first RAGAS call: refuse, do not grade against "".
                 require_question_text(rec.raw, i)
                 row: Dict[str, Any] = {
-                    "question": q,
-                    "answer": wd.text,
-                    "contexts": wd.context,
+                    "user_input": q,
+                    "response": wd.text,
+                    "retrieved_contexts": wd.context,
                     "question_id": rec.question_id,
                 }
-                # Add ground truth if available (enables context_recall)
-                if rec.ground_truth and "context_recall" in self._requested:
-                    row["ground_truth"] = rec.ground_truth
+                if recall:
+                    row["reference"] = rec.ground_truth
                 rows_with.append(row)
 
             # --- BASELINE (answer_relevancy only) ---
@@ -153,75 +158,16 @@ class RagasEvaluator:
                 if wod is not None and wod.text:
                     require_question_text(rec.raw, i)
                     rows_without.append({
-                        "question": q,
-                        "answer": wod.text,
-                        "contexts": [""],   # RAGAS requires contexts field
+                        "user_input": q,
+                        "response": wod.text,
                         "question_id": rec.question_id,
                     })
 
-        # Evaluate with_docs
-        with_scores: Dict[str, Dict] = {}
-        summary_with: Dict[str, float] = {}
-        if rows_with:
-            ds = Dataset.from_list(rows_with)
-            active_metrics = self._metric_objects  # all requested metrics
-            try:
-                result = ragas_evaluate(
-                    ds,
-                    metrics=active_metrics,
-                    llm=self._ragas_llm,
-                    embeddings=self._ragas_embeddings,
-                    raise_exceptions=False,
-                )
-                df = result.to_pandas()
-                for idx, row_data in enumerate(rows_with):
-                    qid = row_data["question_id"]
-                    with_scores[qid] = {
-                        col: float(df.iloc[idx][col])
-                        for col in df.columns
-                        if col not in ("question", "answer", "contexts", "ground_truth",
-                                       "question_id")
-                        and not df.iloc[idx][col] != df.iloc[idx][col]  # skip NaN
-                    }
-                # Aggregate averages
-                for col in df.columns:
-                    if col not in ("question", "answer", "contexts", "ground_truth",
-                                   "question_id"):
-                        vals = df[col].dropna().tolist()
-                        if vals:
-                            summary_with[col] = round(sum(vals) / len(vals), 4)
-            except Exception as exc:
-                logger.error("RAGAS with_docs evaluation failed: %s", exc)
-
-        # Evaluate without_docs (answer_relevancy only)
-        without_scores: Dict[str, Dict] = {}
-        summary_without: Dict[str, float] = {}
-        if rows_without:
-            from ragas.metrics import answer_relevancy as ar_metric
-            ar_metric.llm = self._ragas_llm
-            ds_wod = Dataset.from_list(rows_without)
-            try:
-                result_wod = ragas_evaluate(
-                    ds_wod,
-                    metrics=[ar_metric],
-                    llm=self._ragas_llm,
-                    embeddings=self._ragas_embeddings,
-                    raise_exceptions=False,
-                )
-                df_wod = result_wod.to_pandas()
-                for idx, row_data in enumerate(rows_without):
-                    qid = row_data["question_id"]
-                    without_scores[qid] = {
-                        col: float(df_wod.iloc[idx][col])
-                        for col in df_wod.columns
-                        if col not in ("question", "answer", "contexts", "question_id")
-                        and not df_wod.iloc[idx][col] != df_wod.iloc[idx][col]
-                    }
-                vals = df_wod["answer_relevancy"].dropna().tolist()
-                if vals:
-                    summary_without["answer_relevancy"] = round(sum(vals) / len(vals), 4)
-            except Exception as exc:
-                logger.error("RAGAS without_docs evaluation failed: %s", exc)
+        with_scores, summary_with = self._score(
+            Dataset, ragas_evaluate, rows_with, self._metric_objects, "with_docs")
+        without_scores, summary_without = self._score(
+            Dataset, ragas_evaluate, rows_without,
+            [self._metric("answer_relevancy")] if rows_without else [], "without_docs")
 
         return RagasResult(
             with_docs_scores=with_scores,
@@ -271,31 +217,62 @@ class RagasEvaluator:
                 "If the ragas extra is not installed: pip install 'dokimi[ragas]'"
             ) from exc
 
+    def _score(self, Dataset, ragas_evaluate, rows: List[Dict[str, Any]], metrics: list,
+               arm: str) -> Tuple[Dict[str, Dict[str, float]], Dict[str, float]]:
+        """Per-question scores and their means for one arm; empty when ragas fails (logged).
+
+        Scores are read by the names of *metrics*: the result frame also holds the input
+        columns, whose names ragas has changed before.
+        """
+        if not rows:
+            return {}, {}
+        try:
+            df = ragas_evaluate(
+                Dataset.from_list(rows),
+                metrics=metrics,
+                llm=self._ragas_llm,
+                embeddings=self._ragas_embeddings,
+                raise_exceptions=False,
+            ).to_pandas()
+            names = [m.name for m in metrics if m.name in df.columns]
+            scores = {
+                row["question_id"]: {n: float(df.iloc[idx][n]) for n in names
+                                     if df.iloc[idx][n] == df.iloc[idx][n]}  # skip NaN
+                for idx, row in enumerate(rows)
+            }
+            summary = {n: round(sum(vals) / len(vals), 4)
+                       for n in names if (vals := df[n].dropna().tolist())}
+        except Exception as exc:
+            logger.error("RAGAS %s evaluation failed: %s", arm, exc)
+            return {}, {}
+        return scores, summary
+
+    def _metric(self, name: str):
+        """A new ragas 0.3 metric object for dokimi metric *name*, judged by this evaluator's LLM.
+
+        context_precision is ragas's reference-free variant, named as dokimi names it: dokimi
+        sends no reference answer to grade the context against.
+        """
+        from ragas.metrics import (
+            AnswerRelevancy,
+            ContextRecall,
+            Faithfulness,
+            LLMContextPrecisionWithoutReference,
+        )
+        classes = {
+            "faithfulness": Faithfulness,
+            "answer_relevancy": AnswerRelevancy,
+            "context_precision": LLMContextPrecisionWithoutReference,
+            "context_recall": ContextRecall,
+        }
+        return classes[name](name=name, llm=self._ragas_llm)
+
     def _build_metrics(self) -> list:
         """Instantiate requested RAGAS metric objects."""
-        from ragas.metrics import (
-            faithfulness,
-            answer_relevancy,
-            context_precision,
-        )
-        mapping = {
-            "faithfulness": faithfulness,
-            "answer_relevancy": answer_relevancy,
-            "context_precision": context_precision,
-        }
-        # context_recall needs ground_truth — add only if explicitly requested
-        if "context_recall" in self._requested:
-            from ragas.metrics import context_recall
-            mapping["context_recall"] = context_recall
-
-        metrics = [mapping[k] for k in self._requested if k in mapping]
+        metrics = [self._metric(k) for k in sorted(self._requested) if k in _METRICS]
         if not metrics:
             raise ValueError(f"No valid metrics in {self._requested}. "
-                             "Choose from: faithfulness, answer_relevancy, "
-                             "context_precision, context_recall.")
-        # Attach LLM to each metric
-        for m in metrics:
-            m.llm = self._ragas_llm
+                             f"Choose from: {', '.join(_METRICS)}.")
         return metrics
 
     def _build_ragas_embeddings(self):
