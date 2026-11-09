@@ -417,6 +417,16 @@ def test_an_out_equal_to_the_evals_file_is_refused_before_any_paid_call(tmp_path
     assert json.loads(evals.read_text(encoding="utf-8"))["evals"][0]["id"] == "e1"
 
 
+def test_an_out_whose_rejected_sibling_is_an_input_is_refused_before_any_paid_call(tmp_path, monkeypatch):
+    _no_paid_call(monkeypatch)
+    evals = _evals(tmp_path).rename(tmp_path / "cov.json.rejected")
+    out = tmp_path / "cov.json"
+    args = build_parser().parse_args(["eval", "skill-coverage", str(_skill(tmp_path)), str(evals), "--out", str(out)])
+    with pytest.raises(InputError, match="would overwrite an input"):
+        args.func(args)
+    assert evals.exists()
+
+
 def test_an_out_in_a_missing_folder_says_the_folder_is_missing(tmp_path, monkeypatch):
     _no_paid_call(monkeypatch)
     out = tmp_path / "results" / "new" / "cov.json"
