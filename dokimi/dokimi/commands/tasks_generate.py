@@ -22,8 +22,11 @@ if TYPE_CHECKING:
     from dokimi.repos.graph_tasks import Plan
 
 SOURCES = ("graph", "prs", "replay")
-SOURCE_HELP = ("Repository source pinned at the revision the index was built from: <dir>@<rev> or "
-               "<https-or-ssh-url>@<rev> (cloned bare into the cache). The revision's full SHA is each task's base")
+SOURCE_HELP = ("Repository source: a local directory, <dir>@<rev> or <https-or-ssh-url>@<rev> (cloned bare into the "
+               "cache). --from graph needs <rev>, the revision the index was built from, and its full SHA is the base "
+               "of every graph task; replay and prs read the pull requests' commits from the source's git history, "
+               "and a task's base is the merge base of a revision of its pull request with the base branch as it "
+               "merged (mergeCommit^1)")
 
 
 # A flag the parser leaves at None when not given, so an explicit value is visible, even one equal to the
@@ -159,9 +162,9 @@ def add_parser(eval_tasks_sub, positive_int) -> None:
         "threads file; --from prs writes one dokimi:hidden_tests task per merged pull request of a pull request "
         "file (its description as the prompt, its test files hidden until grading, the rest of its diff as the "
         "oracle). Exits 2 on a usage error or an index that does not read or matches no file "
-        "of the source, 1 when no target gave a task, a task cannot be written or the source cannot be resolved at "
-        "the revision; with replay or prs also 1 when the threads or pull request file, the manifest or the prompt "
-        "file cannot be used")
+        "of the source, 1 when no target of the index (graph) or no pull request (replay, prs) gave a task, a task "
+        "cannot be written or the source cannot be resolved at the revision; with replay or prs also 1 when the "
+        "threads or pull request file, the manifest or the prompt file cannot be used")
     gen_p.add_argument("source", help=SOURCE_HELP)
     gen_p.add_argument("--from", required=True, choices=SOURCES, dest="from_kind",
                        help="What the tasks are built from: graph (a code index), prs (a pull request file) or replay "
