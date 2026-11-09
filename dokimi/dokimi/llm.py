@@ -36,9 +36,8 @@ What a caller can rely on:
 - **Sampling.** ``max_tokens``, ``temperature`` and ``seed`` are sent only when
   set. :func:`unsupported_sampling_params` names the ones a provider would
   reject, so a run can refuse before it pays.
-- **Retry.** Transient errors (:func:`is_retryable`) are retried
-  ``max_retries`` times with doubling backoff; anything else is raised on the
-  first attempt.
+- **Retry.** Transient errors (:func:`is_retryable`) are retried ``max_retries`` times with
+  doubling backoff; anything else is raised on the first attempt.
 - **Response cache** (:mod:`dokimi.caching`, off unless ``DOKIMI_RESPONSE_CACHE`` is set).
   ``complete`` is cached, ``chat`` never is: replaying a completion would skip the tool calls an
   agent loop measures. The key holds the litellm model (on openai the caller's name, as the route
@@ -275,27 +274,28 @@ _NON_RETRYABLE_EXC_NAMES = frozenset({
     "unsupportedparamserror",
     "contentpolicyviolationerror",
 })
+# So are these messages, under a class litellm also raises for transients: no key for OpenAI
+# (InternalServerError), Azure (APIError) or Vertex (APIConnectionError, also no google-auth).
+_NON_RETRYABLE_MESSAGES = ("missing credentials", "api_key client option must be set",
+                           "could not resolve credentials", "default credentials were not found",
+                           "google cloud sdk not found")
 
 
 def is_retryable(exc: BaseException) -> bool:
     """Whether *exc* is a transient provider error worth another attempt.
 
-    Exception type decides when it is recognised; prose is the fallback. A
-    permanent failure (bad key, unsupported param) must stay non-retryable even
-    if its message happens to contain a transient-sounding word, so the
-    non-retryable set is consulted first.
+    Exception type decides when it is recognised, prose otherwise. A permanent failure (bad key,
+    no credentials) is consulted first: a transient-sounding word in its message does not retry it.
     """
     if isinstance(retryable := getattr(exc, "retryable", None), bool):  # set by an error that knows (llm_cli.CliCallError)
         return retryable
-    name = type(exc).__name__.lower()
-    if name in _NON_RETRYABLE_EXC_NAMES:
+    name, msg = type(exc).__name__.lower(), str(exc).lower()
+    if name in _NON_RETRYABLE_EXC_NAMES or any(m in msg for m in _NON_RETRYABLE_MESSAGES):
         return False
     if name in _RETRYABLE_EXC_NAMES:
         return True
-    msg = str(exc).lower()
-    if any(s in msg for s in ("authenticationerror", "unsupportedparamserror",
-                              "permissiondenied", "notfounderror",
-                              "badrequesterror")):
+    if any(s in msg for s in ("authenticationerror", "unsupportedparamserror", "permissiondenied",
+                              "notfounderror", "badrequesterror")):
         return False
     return (any(s in msg for s in _RETRYABLE_SUBSTRINGS)
             or _RETRYABLE_STATUS.search(msg) is not None)

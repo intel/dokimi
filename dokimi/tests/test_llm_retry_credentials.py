@@ -1,0 +1,104 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+"""A call with no credentials fails on its first attempt; a transient error is still retried.
+
+litellm raises a missing key under a transient-looking class (``InternalServerError`` for
+OpenAI, ``APIError`` for Azure, ``APIConnectionError`` for Vertex), so it used to be retried
+three times, 2 + 4 + 8 s of backoff before the same error. The OpenAI and Azure cases run the
+production adapter: the OpenAI client refuses before it sends anything. The rest are the
+messages litellm, openai and google-auth raise, on the class litellm wraps them in.
+"""
+
+import litellm
+import pytest
+
+from dokimi import caching
+from dokimi.llm import LLM, is_retryable
+
+CREDENTIAL_ENV = ("OPENAI_API_KEY", "OPENAI_ADMIN_KEY", "OPENAI_API_BASE", "OPENAI_BASE_URL",
+                  "AZURE_API_KEY", "AZURE_OPENAI_API_KEY", "AZURE_OPENAI_AD_TOKEN",
+                  "AZURE_API_BASE", "AZURE_OPENAI_ENDPOINT")
+
+
+@pytest.fixture
+def sleeps(monkeypatch):
+    slept: list = []
+    monkeypatch.setattr("time.sleep", slept.append)
+    monkeypatch.delenv(caching.RESPONSE_CACHE_ENV, raising=False)
+    return slept
+
+
+@pytest.fixture
+def no_credentials(monkeypatch):
+    """No key in the environment; the real ``litellm.completion`` runs, each call counted."""
+    for var in CREDENTIAL_ENV:
+        monkeypatch.delenv(var, raising=False)
+    real, calls = litellm.completion, []
+
+    def completion(**kwargs):
+        calls.append(kwargs["model"])
+        return real(**kwargs)
+
+    monkeypatch.setattr(litellm, "completion", completion)
+    return calls
+
+
+@pytest.mark.parametrize("provider, model", [("openai", "gpt-4o"), ("azure", "gpt-4o")])
+def test_a_missing_key_fails_on_the_first_attempt(no_credentials, sleeps, provider, model):
+    with pytest.raises(Exception, match="(?i)missing credentials|api_key client option must be set"):
+        LLM(model, provider).ask("p")
+    assert len(no_credentials) == 1 and sleeps == []
+
+
+# The messages as their sources word them: openai>=2.20 (the oldest litellm takes) and the
+# current openai, litellm's Vertex auth, google-auth's ADC lookup, Vertex without google-auth.
+MISSING_CREDENTIALS = [
+    litellm.InternalServerError(
+        "OpenAIException - The api_key client option must be set either by passing api_key to the "
+        "client or by setting the OPENAI_API_KEY environment variable", "openai", "gpt-4o"),
+    litellm.InternalServerError(
+        "OpenAIException - Missing credentials. Please pass an `api_key`, `workload_identity`, "
+        "`admin_api_key`, or set the `OPENAI_API_KEY` or `OPENAI_ADMIN_KEY` environment variable.",
+        "openai", "gpt-4o"),
+    litellm.APIConnectionError(
+        "Could not resolve credentials - either dynamically or from environment, for project_id: "
+        "None", "vertex_ai", "gemini-2.5-pro"),
+    litellm.APIConnectionError(
+        "Your default credentials were not found. To set up Application Default Credentials, see "
+        "https://cloud.google.com/docs/authentication/external/set-up-adc for more information.",
+        "vertex_ai", "gemini-2.5-pro"),
+    litellm.APIConnectionError(
+        "Google Cloud SDK not found. Install it with: pip install 'litellm[google]' or pip "
+        "install google-cloud-aiplatform", "vertex_ai", "gemini-2.5-pro"),
+]
+
+
+@pytest.mark.parametrize("error", MISSING_CREDENTIALS, ids=lambda e: str(e)[:48])
+def test_a_credential_error_under_a_transient_class_is_not_retried(error, fake_llm, sleeps):
+    fake_llm.push(error, "ok")
+    with pytest.raises(type(error)):
+        LLM("gemini-2.5-pro", "vertex_ai").ask("p")
+    assert len(fake_llm.requests) == 1 and sleeps == []
+
+
+TRANSIENT = [
+    litellm.RateLimitError("OpenAIException - Rate limit reached for gpt-4o", "openai", "gpt-4o"),
+    litellm.ServiceUnavailableError("OpenAIException - Error code: 503", "openai", "gpt-4o"),
+    litellm.InternalServerError("OpenAIException - The server had an error while processing your "
+                                "request. Sorry about that!", "openai", "gpt-4o"),
+    litellm.APIConnectionError("Connection error.", "vertex_ai", "gemini-2.5-pro"),
+]
+
+
+@pytest.mark.parametrize("error", TRANSIENT, ids=lambda e: type(e).__name__)
+def test_a_transient_error_is_still_retried(error, fake_llm, sleeps):
+    fake_llm.push(error, error, "ok")
+    assert LLM("gpt-4o", "openai").ask("p") == "ok"
+    assert len(fake_llm.requests) == 3 and sleeps == [2.0, 4.0]
+
+
+def test_a_credential_word_in_an_explicit_retryable_flag_does_not_override_it():
+    error = RuntimeError("missing credentials, but the caller knows better")
+    error.retryable = True  # type: ignore[attr-defined]
+    assert is_retryable(error)
