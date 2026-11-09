@@ -248,10 +248,13 @@ of the lenient gated added share between subsets of that size (`panel_size.csv`)
 | 6 | 7 | 0.982 | 0.973 | 0.011 | 0.029 |
 
 Two judges are barely better than one, because a tie counts as wrong, so two judges act as a
-unanimity rule. Three judges are the first real gain: the SD of the gated added share across
-subsets falls from 0.039 to 0.025. Five judges add little more. Recommendation: **three
-judges from three families with majority vote** for routine runs, and **five** for a published
-number. Report the per-judge numbers alongside either.
+unanimity rule. The SD gain comes at two judges: the SD of the gated added share across subsets
+falls from 0.039 to 0.026. A third judge changes it by 0.001. Three judges are recommended for
+their agreement with the full panel (0.943 to 0.966), which is measured against a consensus that
+includes the subset. Five judges agree more (0.980) but have the same SD as four; only six halve
+the spread (0.011). Recommendation: **three judges from three families with majority vote** for
+routine runs, and **five** for a published number, for the agreement, not the spread. Report the
+per-judge numbers alongside either.
 
 ## 4. Judge panels in Dokimi today
 
