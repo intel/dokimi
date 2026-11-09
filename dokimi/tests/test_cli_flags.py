@@ -173,7 +173,7 @@ def test_every_spelling_on_the_tree_is_canonical_or_allowlisted():
 def test_the_walk_covers_the_whole_tree():
     found = uses(cli.build_parser())
     leaves = {use.leaf for use in found}
-    assert {"dokimi run", "dokimi repo scan"} <= leaves
+    assert {"dokimi docs check", "dokimi repo scan"} <= leaves
     assert len({use.option for use in found}) > 200
     assert all(use.dest for use in found)
 
@@ -183,12 +183,12 @@ def test_a_new_flag_outside_the_registry_fails_the_ratchet(monkeypatch):
 
     def with_new_flag() -> argparse.ArgumentParser:
         parser = real()
-        _subparser(parser, "run").add_argument("--sample-size", type=int, default=1)
+        _subparser(parser, "docs", "check").add_argument("--sample-size", type=int, default=1)
         return parser
 
     monkeypatch.setattr(cli, "build_parser", with_new_flag)
     problems = _tree_violations()
-    assert any("dokimi run: `--sample-size` is neither a canonical spelling" in p
+    assert any("dokimi docs check: `--sample-size` is neither a canonical spelling" in p
                and f"add `--sample-size  # <reason>` to {_ALLOWLIST_REL}" in p for p in problems), problems
 
 
@@ -197,7 +197,7 @@ def test_a_new_banned_synonym_fails_and_names_the_registry_spelling(monkeypatch)
 
     def with_banned_flag() -> argparse.ArgumentParser:
         parser = real()
-        _subparser(parser, "run").add_argument("--trials", type=int, default=1)
+        _subparser(parser, "docs", "check").add_argument("--trials", type=int, default=1)
         return parser
 
     monkeypatch.setattr(cli, "build_parser", with_banned_flag)
@@ -207,7 +207,7 @@ def test_a_new_banned_synonym_fails_and_names_the_registry_spelling(monkeypatch)
     problems = violations(uses(cli.build_parser()), allow)
     # Anchored on the injected leaf: catalog trigger-probe's own --trials gives the same text.
     assert any(
-        p.startswith("dokimi run: ") and "`--trials` is a banned synonym of `reps`" in p and "`--reps`" in p
+        p.startswith("dokimi docs check: ") and "`--trials` is a banned synonym of `reps`" in p and "`--reps`" in p
         for p in problems
     ), problems
 
@@ -267,7 +267,7 @@ def test_the_snapshot_check_notices_a_new_flag(monkeypatch):
 
     def with_new_flag() -> argparse.ArgumentParser:
         parser = real()
-        _subparser(parser, "run").add_argument("--sample-size", type=int, default=1)
+        _subparser(parser, "docs", "check").add_argument("--sample-size", type=int, default=1)
         return parser
 
     monkeypatch.setattr(cli, "build_parser", with_new_flag)

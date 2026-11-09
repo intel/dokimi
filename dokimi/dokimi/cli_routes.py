@@ -47,12 +47,15 @@ class Leaf:
 class Tombstone:
     """An old argv prefix that now moved: it answers with ``new`` and exits 2, never forwards.
 
+    ``flags`` are inserted after ``new`` in the printed argv, for a move that also sets a flag.
+
     A group that stays in place (``eval score``) is the exception when no option follows it: see
     ``moved_argv``.
     """
 
     old: tuple[str, ...]
     new: tuple[str, ...]
+    flags: tuple[str, ...] = ()
 
 
 ROOTS: tuple[Root, ...] = (
@@ -66,10 +69,8 @@ ROOTS: tuple[Root, ...] = (
     Root("subjects", "The loop"),
     Root("tasks", "The loop"),
     Root("explore", "The loop"),
-    Root("run", "Subjects"),
-    Root("compare", "Subjects"),
-    Root("library", "Subjects", aliases=("product",)),
     Root("catalog", "Subjects"),
+    Root("docs", "Subjects"),
     Root("skill", "Subjects"),
     Root("novelty", "Subjects"),
     Root("repo", "Subjects"),
@@ -97,29 +98,28 @@ LEAVES: tuple[Leaf, ...] = (
     Leaf(("arms", "run"), PAID),
     Leaf(("arms", "matrix-run"), PAID),
     Leaf(("arms", "plugin-delta"), FREE),
-    Leaf(("subjects", "list"), FREE),
-    Leaf(("subjects", "show"), FREE),
     Leaf(("subjects", "run"), PAID),
     Leaf(("subjects", "evidence"), FREE),
     Leaf(("tasks", "harnesses"), FREE),
     Leaf(("tasks", "run"), PAID),
     Leaf(("explore", "list"), FREE),
     Leaf(("explore", "run"), PAID),
-    Leaf(("run",), FREE, "Run the static benchmark spec and save a snapshot"),
-    Leaf(("compare",), FREE, "Compare two saved benchmark snapshots"),
-    Leaf(("library", "list"), FREE),
-    Leaf(("library", "show"), FREE),
+    Leaf(("catalog", "list"), FREE),
+    Leaf(("catalog", "show"), FREE),
     Leaf(("catalog", "intents"), FREE),
     Leaf(("catalog", "check"), FREE),
     Leaf(("catalog", "eval"), FREE),
     Leaf(("catalog", "formats"), FREE),
     Leaf(("catalog", "trigger-probe"), PAID),
+    Leaf(("docs", "check"), FREE, "Run the static benchmark spec and save a snapshot"),
+    Leaf(("docs", "compare"), FREE, "Compare two saved benchmark snapshots"),
     Leaf(("skill", "novelty", "analyze"), PAID),
     Leaf(("skill", "novelty", "atoms"), PAID),
     Leaf(("skill", "novelty", "probe"), PAID),
     Leaf(("skill", "novelty", "ground"), FREE),
     Leaf(("skill", "novelty", "items"), FREE),
     Leaf(("skill", "shorten"), PAID),
+    Leaf(("skill", "check"), FREE),
     Leaf(("novelty", "routing"), PAID),
     Leaf(("novelty", "view"), FREE),
     Leaf(("repo", "validate"), FREE),
@@ -129,7 +129,6 @@ LEAVES: tuple[Leaf, ...] = (
     Leaf(("repo", "reach"), PAID),
     Leaf(("repo", "skill-reach"), PAID),
     Leaf(("repo", "budget"), FREE),
-    Leaf(("repo", "tasks", "replay"), FREE),
     Leaf(("repo", "tasks", "authoring"), FREE),
     Leaf(("repo", "run"), PAID),
     Leaf(("repo", "report"), FREE),
@@ -176,7 +175,7 @@ LEAVES: tuple[Leaf, ...] = (
     Leaf(("data", "schema", "show"), FREE),
 )
 
-# The moves of #94 M1 (`eval`) and M2 (`skill`, `catalog`, `trace`, `data`); M3 adds its entries.
+# The moves of #94 M1-M3 (`eval`, `skill`, `catalog`, `trace`, `data`, replay, `docs`). Not yet: `novelty routing`.
 # A bare retired root comes last: the first match wins, and a root matches every path under it.
 TOMBSTONES: tuple[Tombstone, ...] = (
     Tombstone(("tasks", "inspect"), ("eval", "inspect")),
@@ -207,15 +206,26 @@ TOMBSTONES: tuple[Tombstone, ...] = (
     Tombstone(("novelty", "shorten"), ("skill", "shorten")),
     Tombstone(("catalog", "scan"), ("catalog", "check")),
     Tombstone(("library", "intents"), ("catalog", "intents")),
+    Tombstone(("library", "list"), ("catalog", "list"), ("--kind", "product")),
+    Tombstone(("library", "show"), ("catalog", "show"), ("--kind", "product")),
+    Tombstone(("product", "list"), ("catalog", "list"), ("--kind", "product")),
+    Tombstone(("product", "show"), ("catalog", "show"), ("--kind", "product")),
+    Tombstone(("subjects", "list"), ("catalog", "list"), ("--kind", "subject")),
+    Tombstone(("subjects", "show"), ("catalog", "show"), ("--kind", "subject")),
+    Tombstone(("repo", "tasks", "replay"), ("eval", "tasks", "generate"), ("--from", "replay")),
     Tombstone(("context", "trace"), ("trace", "inspect")),
     Tombstone(("context", "consistency"), ("trace", "consistency")),
     Tombstone(("context", "prefilter"), ("trace", "prefilter")),
     Tombstone(("dataset", "export"), ("data", "export")),
     Tombstone(("ingest", "docling"), ("data", "import", "docling")),
+    Tombstone(("run",), ("docs", "check")),
+    Tombstone(("compare",), ("docs", "compare")),
     # The retired roots: a bare `personas` or `questions` (or its help) points at `eval`.
     Tombstone(("personas",), ("eval", "personas")),
     Tombstone(("questions",), ("eval", "questions")),
     Tombstone(("context",), ("trace",)),
+    Tombstone(("library",), ("catalog",)),
+    Tombstone(("product",), ("catalog",)),
     Tombstone(("dataset",), ("data", "export")),
     Tombstone(("ingest",), ("data", "import")),
 )
@@ -275,7 +285,7 @@ def moved_argv(
             all(a in ("-h", "--help") for a in argv[n:]) or not argv[n].startswith("-")
         ):
             continue
-        return [*tomb.new, *argv[n:]]
+        return [*tomb.new, *tomb.flags, *argv[n:]]
     return None
 
 
@@ -346,5 +356,7 @@ def document() -> dict:
             for root in ROOTS
         ],
         "leaves": [{"path": list(leaf.path), "cost": leaf.cost} for leaf in LEAVES],
-        "tombstones": [{"old": list(tomb.old), "new": list(tomb.new)} for tomb in TOMBSTONES],
+        "tombstones": [
+            {"old": list(tomb.old), "new": list(tomb.new), "flags": list(tomb.flags)} for tomb in TOMBSTONES
+        ],
     }

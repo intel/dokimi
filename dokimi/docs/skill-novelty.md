@@ -118,8 +118,9 @@ be right or wrong) and `harmful_conflicting` (below), which overrides the other 
   at once"), was non-inferior on pooled data (+0.005, CI [−0.045, +0.057]) and *worse* on
   `nemotron-nano-12b` for `dpnp-quickstart` ([§10.6](skill-novelty-evidence.md)).
 - An atom the value judge did not answer for gets no category. The artifact says how many
-  (`N of M atoms got no need/scaffolding verdict`, split into calls that failed and rows the reply
-  skipped), rather than counting them as inert, and its span is labelled from what was measured
+  (`N of M atoms got no need/scaffolding verdict`, split into calls that failed, rows the reply
+  skipped, malformed rows, and replies with no usable verdict row; an empty list for a batch is
+  one of those, split and re-asked, never cached), rather than counting them as inert, and its span is labelled from what was measured
   (`still_missing`, or `unscored` when nothing was) rather than `redundant` or `inert`.
 
 ### `harmful_conflicting` (judged)
@@ -145,11 +146,12 @@ marked. Read it as a review queue:
   `harmful_conflicting` row reads `not measured (0 found)`. An artifact written before
   `conflict_coverage` existed has no such field and keeps the old reading, a 0 that counts as
   cleared, unless its atom set was capped; re-run `analyze` to check it.
-- **Unchecked atoms.** A call whose reply does not parse is split and re-asked only while both
+- **Unchecked atoms.** A call whose reply does not parse, or whose rows name no pair of the batch
+  (an empty list is fine: it means no conflicts), is split and re-asked only while both
   halves keep two atoms, since one statement has no pair to look at; a chunk of two or three whose
   reply does not parse fails with its error. Atoms in a call that failed, and an atom left alone in
   a chunk (the 41st, say), are counted in `N of M atoms were not checked for conflicts`, split by
-  cause (`K in calls that failed (last error: …)`, `K alone in a batch, with no pair to check`).
+  cause (`K in calls that failed (last error: …)`, `K whose reply named no usable pair`, `K alone in a batch, with no pair to check`).
   Their ids are not written to the artifact.
 - **False positives (anecdotal, not a rate).** Spot-checking 7 of the 31 pairs one run reported
   ([mattpocock/skills](https://github.com/mattpocock/skills) @ `49dd158`) found 4 real, 1
@@ -817,6 +819,30 @@ so count the queries first, or pass `--max-usd` to stop the run at a spend limit
 A stored response in `DOKIMI_RESPONSE_CACHE` is replayed without a call, so a rerun can make
 fewer calls than the printed count.
 
+**A routing run stopped by `--max-usd` keeps what it paid for.** `novelty routing --model`, single
+artifact or `--all-vs-all`, writes the result of the calls made before the cap (or a call with no
+known price) stopped it, prints the summary and `cost` lines, and still exits non-zero with the
+cap message and the path of the file. The file carries
+`"partial": {"reason": "spend_cap", "calls_done": N, "calls_planned": M, "message": ...}` at the
+top level (and under the model arm), and no `partial` key when the run finished. The record's
+`status` is then `"partial"` instead of `"ok"` (a single run; an all-vs-all file carries `status`
+only when partial), so a script that checks `status == "ok"` does not take a prefix of the run for
+a finished measurement. The model line says `partial: N of M calls` in place of the query count,
+and warns when fewer than five calls were answered. When `--out` already holds a result that is
+not itself partial, the partial one goes to the first of `<out stem>.partial.json`,
+`<out stem>.partial2.json`, ... beside it that is free or already partial, and the exit
+message names that path, so a cap never replaces a finished measurement. The calls made are
+scored as in a run with failed calls: a single run's `model.per_query` holds them, and
+`model.n_calls` is `N` rather than queries times repeats. In all-vs-all the calls never made are
+in `n_unscored`, a skill the run never reached has an `own_rate` of `null`, and a query stopped
+between repeats keeps its picks but is left out of `noise`. The lexical arm is complete either way.
+Treat a `partial` file as a prefix of the run, not a measurement of the whole field: the skills
+and queries reached first are over-represented. To finish, raise `--max-usd` and rerun with
+`DOKIMI_RESPONSE_CACHE` set (it must also have been set on the capped run), which replays the
+calls already paid for at no cost. The
+`skill novelty` steps (`analyze`, `atoms`, `probe`) and `skill shorten` still write nothing when the
+cap stops them.
+
 Three properties worth knowing before quoting either:
 
 - **Competitors are mandatory.** The existing `skill-agent:` arm offers one skill, which
@@ -1266,9 +1292,12 @@ verdict (`retention.llm_errors`); each is answered `absent` for that decision an
 on disk or in `DOKIMI_RESPONSE_CACHE`, so carrier confirmation and shortening scores under-count
 retention by up to that many decisions. A hedged verdict (`"retained?"`) counts as no verdict.
 `analyze` and `shorten` both print it, and `shorten` repeats it beside its best candidate
-(`knowledge under-counted: N adjudications got no usable verdict`). The value judge and the conflict check split an
-unparseable batch the same way as extraction, and say so (`content classification re-asked N
-unparseable batches as halves`). Every novelty call passes a test of a usable reply to the
+(`knowledge under-counted: N adjudications got no usable verdict`). The value judge and the conflict check split a
+batch whose reply does not parse, or has no row it can use, the same way as extraction, and say so
+(`content classification re-asked N unparseable batches as halves`, or `unusable` when no row was
+usable; only the first is cured by `--max-tokens`). A judge row whose `needed` is not a real boolean
+is counted as malformed, apart from a statement the judge skipped, unless no row of its reply is usable (then the batch is split and the atoms count as `unusable`); a conflict row that names no pair
+of its batch is dropped and counted. Every novelty call passes a test of a usable reply to the
 response cache, so a reply that fails it is never stored or replayed: extraction, the batched
 judges and the oracle pass their parse test; the probe grader, the faithfulness check and the
 need graph also require the field they read (a named verdict, a node), so `{"verdict": null}`

@@ -56,7 +56,8 @@
         "additionalProperties": false,
         "properties": {
           "old": {"$ref": "#/$defs/path"},
-          "new": {"$ref": "#/$defs/path"}
+          "new": {"$ref": "#/$defs/path"},
+          "flags": {"type": "array", "items": {"type": "string"}}
         }
       }
     }

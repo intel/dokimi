@@ -684,8 +684,10 @@ def test_a_judge_row_without_a_real_verdict_is_unjudged_not_a_default(row):
         atoms, client=LLMClient(model="x", transport=lambda p, s: (json.dumps([row]), None)),
         task="t", report=report,
     )
+    # The one row is no verdict, so the reply has no usable row: it is split down to a call
+    # of one, which fails, rather than counted as a row the judge skipped.
     assert verdicts == {} and report.unjudged == [atoms[0].id]
-    assert report.unjudged_skipped == 1
+    assert report.unjudged_skipped == 0 and report.unjudged_unusable == 1 and report.value_error == ""
 
 
 def test_a_malformed_judge_row_does_not_cost_the_atoms_beside_it():

@@ -18,7 +18,6 @@ import hashlib
 import json
 import logging
 import math
-import os
 import re
 import statistics
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -26,6 +25,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
+from dokimi.artifacts import save_artifact
 from dokimi.judged import judged_reply
 from dokimi.llm import llm_call
 from dokimi.llm_cli import check_sampling
@@ -553,8 +553,6 @@ def _verdict_to_dict(v: Optional[PanelVerdict]) -> Optional[Dict[str, Any]]:
 
 def _save_incremental(results: List[Dict], path: Path, library_name: str,
                       panel: JudgePanel, run_metadata: Optional[Dict[str, Any]] = None) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
     output = {
         "evaluated_at": _timestamp(),
         "judge_model": f"panel({len(panel.judges)})",
@@ -571,9 +569,8 @@ def _save_incremental(results: List[Dict], path: Path, library_name: str,
     }
     if run_metadata:
         output["run_metadata"] = run_metadata
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(output, f, indent=2)
-    os.replace(tmp, path)
+    # Through save_artifact: the eval.v1 stamp, the run envelope, and a schema check on every save.
+    save_artifact("eval", output, path)
 
 
 def _timestamp() -> str:

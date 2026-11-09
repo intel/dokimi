@@ -47,6 +47,8 @@ under a vendored directory such as `node_modules` and any `.git` are not hashed,
 they select nothing). Skill resources and owned tasks select their skill, and a
 changed or removed task also selects the skill that owned it at the base;
 registry, suite, shared machinery and unclaimed changes select conservatively.
+A file git ignores under the shared machinery (`tools/`, `scripts/`, `dokimi/`,
+`.github/`) selects nothing and does not mark the source `dirty`, whatever its name.
 Selection limits what can fail: a finding in a skill that is not selected is
 listed in the report but does not fail the run, while a catalog-wide problem
 (manifest, suites, tasks root, a task with no known owner) always does.
@@ -89,11 +91,44 @@ implicit default that points at a sibling checkout:
 | `--questions` | one question-set file | `arms run`, `answers generate` |
 
 Skills, profiles and subjects are named by path inside the arm spec itself
-(`skill:<path>`, `profile:<path>`, `subjects show <descriptor>`), so they need
+(`skill:<path>`, `profile:<path>`, `catalog show --kind subject <descriptor>`), so they need
 no root flag.
 
 The transcripts below are real runs against a small demo checkout laid out the
 way the readers expect. Substitute your own checkout path.
+
+## Content checks: retired model IDs and hidden characters
+
+`catalog check` also reads the text of each loaded skill: its `SKILL.md` and the text
+files beside it (`.md`, `.py`, `.sh`, `.json`, `.yaml`, `.toml` and similar, up to 1 MB;
+hidden folders, `node_modules` and symlinks are skipped). A `SKILL.md` at the checkout root
+is checked alone, since its directory is the whole repository. It needs no key and calls no model.
+Two checks, both `warn`:
+
+- **`legacy-model-id`**: the text names a model ID its vendor has deprecated or retired.
+  The finding gives the file and line, the vendor's status and date, and the replacement
+  the vendor names. IDs match whole tokens and case-sensitively: `gpt-4.1` does not match
+  `gpt-4`, and `GPT-4` in prose does not match at all. The list is
+  `dokimi/external/legacy_models.toml`; its header names the three vendor pages it was
+  checked against and the date. Update it by editing that file, with no code change. An entry
+  lists only IDs the vendor labels deprecated or retired on the `checked` date; `status` is
+  `deprecated` (still served, date ahead) or `retired` (no longer served); `date` and
+  `replacement` are the vendor's, verbatim, or empty when it gives none.
+- **`hidden-unicode`**: a bidi control (U+202A to U+202E, U+2066 to U+2069), a Unicode
+  tag character (U+E0000 to U+E007F), or a stray zero-width character (U+200B, U+2060, or
+  a U+FEFF after the start of the file). Each is reported with its line and codepoint; five
+  per file are listed. A zero-width joiner (U+200C, U+200D) is not reported next to an emoji
+  or symbol (U+2600 to U+27BF, U+1F000 to U+1FAFF) or in Arabic and Indic script, where it is correct.
+  Vendored folders (`site-packages`, `node_modules`, `.venv` and the like) are not scanned, and
+  a folder that holds another skill's `SKILL.md` is checked as that skill only.
+
+Limits of the model list: it is a snapshot, so a model a vendor has announced but not yet
+labelled deprecated is not listed. Some listed IDs are short names (`o1`, `o3-mini`,
+`gpt-4`, `dall-e-2`) that can also appear in prose about a model; a finding there is a
+prompt to reword it; a code span does not silence the warning, and there is no suppression yet. A few rows
+name no replacement (`sora-2`, `gpt-5.4-cyber`), and the finding then points at the vendor page.
+The list includes Imagen and Veo IDs, so it reaches past the text models. Warnings do not fail
+`--strict`, which gates on `error` rows only.
 
 ## The layout the readers expect
 
@@ -273,13 +308,20 @@ A large catalog is easier to scan one skill at a time:
 - A `SKILL.md` inside another skill's directory is marked with `nested_in`
   (the enclosing skill's path) in JSON and with a `note` in text. It is counted
   by default; `--skip-nested` leaves it out of the scan.
+- `--ignore CODE` (repeatable) leaves the findings with that code out of the scan:
+  they are not printed, and they do not set the state or the `--strict` exit. The
+  codes are the `code` of each finding in the JSON output (`name-mismatch`,
+  `description-no-when`, ...); an unknown code is a usage error. `frontmatter-parse`
+  is refused (a skill that does not load always fails), and so is `--kind tasks`.
 - `--jsonl PATH` writes one JSON row per skill as it is reviewed and prints only
   the counts. `--jobs N` reviews N skills in parallel. `--resume` keeps the rows
   already in PATH and reviews only the skills without one (a half-written last
   line from a killed run is dropped). Each row carries `skill_sha256`, the
-  digest of every file in the skill's directory, and `--resume` keeps a row only
-  while that is unchanged: a skill whose `SKILL.md` or bundled file changed (or
-  a row without the field) is reviewed again. Without `--resume`, PATH is replaced.
+  digest of every file in the skill's directory, and `ignored`, the sorted
+  `--ignore` codes in effect (`[]` when none). `--resume` keeps a row only
+  while that is unchanged and the `--ignore` codes are the same: a skill whose
+  `SKILL.md` or bundled file changed, a row written under other codes, or a row
+  without `skill_sha256` is reviewed again. Without `--resume`, PATH is replaced.
   Every `SKILL.md` is loaded before the first row, so memory still grows with
   the catalog. A `--jobs` worker that dies ends the scan with exit 1.
 
@@ -447,12 +489,12 @@ FileNotFoundError: Skill path does not exist: C:\Users\Public\no-such-checkout\s
 ```
 
 A subject descriptor bundles the artifact with the suite it should be measured
-on, and may point at the external checkout throughout. `subjects show`
+on, and may point at the external checkout throughout. `catalog show --kind subject`
 resolves it — including the arm specs it will run — without executing
 anything:
 
 ```console
-$ python cli.py subjects show C:/Users/Public/content-repo/demo-subject.toml
+$ python cli.py catalog show --kind subject C:/Users/Public/content-repo/demo-subject.toml
 {
   "id": "demo-skill",
   "subject": {

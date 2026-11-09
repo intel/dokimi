@@ -755,9 +755,10 @@ def _pre_commit(scan: Scan, file: str, line: int, toks: list[str], text: str) ->
     def make() -> set[str] | None:
         if ".pre-commit-config.yaml" not in scan.file_set:
             return None
+        text = scan.text(".pre-commit-config.yaml")  # outside the try: a failed git read (SourceError) is no YAML error
         try:
-            cfg = yaml.safe_load(scan.text(".pre-commit-config.yaml")) or {}
-        except yaml.YAMLError:
+            cfg = yaml.safe_load(text) or {}
+        except (yaml.YAMLError, ValueError, RecursionError):  # ValueError: a bad date; RecursionError: deep nesting
             return set()
         ids: set[str] = set()
         repos = cfg.get("repos") if isinstance(cfg, dict) else None

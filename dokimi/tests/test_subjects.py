@@ -87,11 +87,11 @@ tasks = []
         encoding="utf-8",
     )
 
-    args = build_parser().parse_args(["subjects", "show", str(descriptor_path)])
+    args = build_parser().parse_args(["catalog", "show", "--kind", "subject", str(descriptor_path)])
 
-    assert args.cmd == "subjects"
-    assert args.subjects_cmd == "show"
-    assert Path(args.subject) == descriptor_path
+    assert args.cmd == "catalog"
+    assert args.catalog_cmd == "show"
+    assert Path(args.name) == descriptor_path
     assert load_subject(descriptor_path).id == "demo-skill"
 
 
@@ -1002,14 +1002,14 @@ plugins = []
 
 def test_subjects_list_without_a_root_names_the_flag():
     """Descriptors live in a content checkout, so there is no in-repo default root."""
-    args = build_parser().parse_args(["subjects", "list"])
+    args = build_parser().parse_args(["catalog", "list", "--kind", "subject"])
     with pytest.raises(InputError) as excinfo:
         args.func(args)
     assert "--subjects-root" in str(excinfo.value)
 
 
 def test_subjects_list_rejects_a_root_that_is_not_a_directory(tmp_path: Path):
-    args = build_parser().parse_args(["subjects", "list", "--subjects-root", str(tmp_path / "typo")])
+    args = build_parser().parse_args(["catalog", "list", "--kind", "subject", "--subjects-root", f"{tmp_path}/typo"])
     with pytest.raises(InputError) as excinfo:
         args.func(args)
     assert "--subjects-root is not a directory" in str(excinfo.value)
@@ -1039,7 +1039,7 @@ plugins = []
         encoding="utf-8",
     )
     parser = build_parser()
-    args = parser.parse_args(["subjects", "list", "--subjects-root", str(root)])
+    args = parser.parse_args(["catalog", "list", "--kind", "subject", "--subjects-root", str(root)])
     args.func(args)
     out = capsys.readouterr().out
     assert "demo-subject" in out

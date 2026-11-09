@@ -13,6 +13,7 @@ silently. Nothing here prints or exits.
 
 from __future__ import annotations
 
+import errno
 import json
 import os
 import re
@@ -34,6 +35,24 @@ HEAD_BYTES = 256
 _HEAD = re.compile(rb'\A\s*\{\s*"schema_version"\s*:\s*"([^"\\\x00-\x1f]{1,100})"')
 
 
+#: What ``Path.exists()`` reads as "not there" on Python 3.11-3.13; any other error is raised.
+_ABSENT = frozenset({errno.ENOENT, errno.ENOTDIR, errno.EBADF, errno.ELOOP})
+
+
+def lookup(path: Path | str) -> os.stat_result | None:
+    """``os.stat(path)`` (symlinks followed), or ``None`` when nothing is there.
+
+    Raises ``OSError`` for any other error, such as no permission to search a parent: on
+    Python 3.14 ``Path.exists()`` returns ``False`` for that, and the reason is lost.
+    """
+    try:
+        return os.stat(path)
+    except OSError as exc:
+        if exc.errno in _ABSENT:
+            return None
+        raise
+
+
 @dataclass(frozen=True)
 class RunsRoot:
     """The directory ``runs`` reads, and whether ``DOKIMI_RUNS_DIR`` chose it."""
@@ -48,12 +67,12 @@ class RunsRoot:
         when the root is something other than a directory, or when it cannot be looked up.
         """
         named = plain(f"{ENV_VAR}={self.path}" if self.from_env else str(self.path))
-        try:  # Python 3.11-3.13 raise PermissionError here for a parent that cannot be searched
-            if self.path.is_dir():
-                return True
-            found = self.path.exists()
-        except OSError as exc:
+        try:
+            found = lookup(self.path)
+        except OSError as exc:  # a parent that cannot be searched
             raise InputError(f"runs root {named}: {read_error_reason(exc)}") from exc
+        if found and stat.S_ISDIR(found.st_mode):
+            return True
         if found:
             raise InputError(f"runs root {named} is not a directory")
         if self.from_env:
@@ -293,6 +312,25 @@ def scan(root: Path) -> ScanResult:
     result.artifacts = newest_first(result.artifacts)
     result.skipped = +result.skipped  # drop the zero counts
     return result
+
+
+def by_run(artifacts: list[Artifact]) -> list[list[Artifact]]:
+    """``artifacts`` in groups, one per ``run_id``, in their order (newest first from :func:`scan`).
+
+    A group stands where its first artifact stood, so the runs are newest first too, and keeps
+    the order of its artifacts. An artifact with no ``run_id`` is a group of its own.
+    """
+    groups: list[list[Artifact]] = []
+    runs: dict[str, list[Artifact]] = {}
+    for artifact in artifacts:
+        if artifact.run_id is None:
+            groups.append([artifact])
+            continue
+        if artifact.run_id not in runs:
+            runs[artifact.run_id] = []
+            groups.append(runs[artifact.run_id])
+        runs[artifact.run_id].append(artifact)
+    return groups
 
 
 def select(artifacts: list[Artifact], kinds: list[str] | None = None,

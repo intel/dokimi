@@ -2,24 +2,29 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """One artifact under the runs root: its kind, whether it meets its schema, what it holds and
-what lies next to it. A failed schema is reported, not raised: showing is not a gate."""
+what lies next to it; or one run, the artifacts that share a ``run_id``. A failed schema is
+reported, not raised: showing is not a gate."""
 
 from __future__ import annotations
 
 import os
+import stat
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from dokimi.artifacts import schema_errors, schema_version_for
+from dokimi.artifacts import is_run_id, schema_errors, schema_version_for
 from dokimi.runs.kinds import VERSION_KINDS, contents
 from dokimi.runs.scan import (
     Artifact,
+    Unreadable,
     head_version,
     inside,
     load_document,
+    lookup,
     plain,
     read_artifact,
     read_error_reason,
+    scan,
 )
 from dokimi.utils import InputError
 
@@ -49,6 +54,14 @@ class Shown:
     siblings_error: str | None = None
 
 
+def _pick(root: Path, address: str) -> Path:
+    """The path ``address`` is read as: the first of ``root/address`` and ``address`` (from the
+    working directory) that exists, else ``root/address``. Raises ``OSError`` as :func:`lookup`.
+    """
+    candidates = [root / address, Path(address)]
+    return next((p for p in candidates if lookup(p)), candidates[0])
+
+
 def resolve(root: Path, address: str) -> tuple[Path, Path]:
     """The file ``address`` names, and the root its path is relative to (both absolute).
 
@@ -56,19 +69,19 @@ def resolve(root: Path, address: str) -> tuple[Path, Path]:
     working-directory path; once symlinks are resolved it must lie inside the resolved root, so
     nothing outside the root is read. Raises ``InputError`` otherwise.
     """
-    candidates = [root / address, Path(address)]
     real_root = os.path.realpath(root)
     label, shown_root = plain(address), plain(root.as_posix())  # for messages only
-    try:  # Python 3.11-3.13 raise PermissionError here for a directory that cannot be searched
-        path = next((p for p in candidates if p.exists()), candidates[0])
+    try:  # lookup raises for a directory that cannot be searched, on every Python
+        path = _pick(root, address)
         if not inside(real_root, os.path.realpath(path)):
             where = "leads outside" if inside(root, path) else "is not under"  # via a symlink
             raise InputError(f"{label} {where} the runs root {shown_root}/")
-        if not path.exists():
+        found = lookup(path)
+        if found is None:
             raise InputError(f"no file {label} under the runs root {shown_root}/")
-        if path.is_dir():
+        if stat.S_ISDIR(found.st_mode):
             raise InputError(f"{label} is a directory; runs show takes one artifact file")
-        if not path.is_file():
+        if not stat.S_ISREG(found.st_mode):
             raise InputError(f"{label} is not a regular file")
     except OSError as exc:
         raise InputError(f"{label}: {read_error_reason(exc)}") from exc
@@ -135,3 +148,59 @@ def show(root: Path, address: str) -> Shown:
                   contents=contents(kind, data))
     _siblings(shown, path, os.path.realpath(root))
     return shown
+
+
+@dataclass
+class ShownRun:
+    """What ``runs show RUN_ID`` prints: the artifacts that carry the ``run_id``, newest first,
+    and the files under the root that could not be read (one of them may belong to the run)."""
+
+    run_id: str
+    artifacts: list[Artifact]
+    unreadable: list[Unreadable]
+
+
+def names_a_run(root: Path, address: str) -> bool:
+    """Whether ``address`` may mean a run: a run id that names no file ``runs show`` could open.
+
+    It looks at the path :func:`resolve` would open (:func:`_pick`). A file there, inside the
+    root, is the artifact, and so is a name that cannot be looked up, so the path check names
+    the reason. A directory (a run's own, say), a path outside the root and a missing one do
+    not stop it.
+    """
+    if not is_run_id(address):
+        return False
+    try:
+        path = _pick(root, address)
+        found = lookup(path)
+    except OSError:  # no permission to look: the path check reports it
+        return False
+    return not (found and not stat.S_ISDIR(found.st_mode)
+                and inside(os.path.realpath(root), os.path.realpath(path)))
+
+
+def show_target(root: Path, address: str) -> Shown | ShownRun:
+    """The run ``address`` names when it is a run id that names no openable file and some
+    artifact under ``root`` has it; otherwise the artifact, as :func:`show` finds it.
+
+    Raises ``InputError`` as :func:`show` does, and when ``address`` names neither a run nor
+    anything on disk.
+    """
+    if not names_a_run(root, address):
+        return show(root, address)
+    result = scan(root)
+    found = [a for a in result.artifacts if a.run_id == address]
+    if found:
+        return ShownRun(run_id=address, artifacts=found, unreadable=result.unreadable)
+    if any(os.path.lexists(p) for p in (root / address, address)):
+        return show(root, address)  # a directory, a path outside the root: say which
+    shown_root = plain(root.as_posix())
+    unlisted = next((u for u in result.unreadable if u.path == Path(".")), None)
+    if unlisted:  # the scan saw nothing at all
+        raise InputError(f"the runs root {shown_root}/ cannot be listed, so run_id "
+                         f"{plain(address)} cannot be looked up ({plain(unlisted.reason)})")
+    unread = len(result.unreadable)
+    note = (f"; {unread} {'entry' if unread == 1 else 'entries'} under the root could not be read"
+            if unread else "")
+    raise InputError(f"no file {plain(address)} under the runs root {shown_root}/, "
+                     f"and no artifact there has that run_id{note}")

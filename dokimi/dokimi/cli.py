@@ -2,7 +2,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""CLI for dokimi: run, compare, report."""
+"""CLI for dokimi: docs check, docs compare, report."""
 
 from __future__ import annotations
 
@@ -25,7 +25,6 @@ from dokimi.commands import (
     data,
     evaluate,
     explore,
-    library,
     novelty,
     orchestrate,
     personas,
@@ -122,16 +121,14 @@ def build_parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="cmd", required=True, parser_class=argparse.ArgumentParser)
 
     # Order preserved to keep --help output stable.
-    run.register(sub, positive_int)             # run
+    run.register(sub, positive_int)             # docs: check, compare (#94 M3)
     orchestrate.register(sub, positive_int)     # evaluate (one-command pipeline)
-    run.register_compare(sub, positive_int)     # compare
     baseline.register(sub, positive_int)        # baseline
     report.register(sub, positive_int)          # report
     answers.register(sub, positive_int)         # answers
     eval_sub = evaluate.register(sub, positive_int)  # eval: the groups below join it (#94 M1)
     personas.register(eval_sub, positive_int)   # eval personas
     questions.register(eval_sub, positive_int)  # eval questions, eval import
-    library.register(sub, positive_int)         # library
     benchmark.register(sub, positive_int)       # benchmark
     dashboard.register(sub, positive_int)       # dashboard
     arms.register(sub, positive_int)            # arms

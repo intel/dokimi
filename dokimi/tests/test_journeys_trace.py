@@ -390,8 +390,9 @@ def test_a_cli_scenario_that_parsed_its_command_passes(tmp_path):
     assert report["verdict"] == "pass"
 
 
-def test_an_alias_reaches_the_same_command():
-    assert journeys.invoked(ROOT, "library list", [["product", "list"]])
+def test_the_product_list_reaches_the_catalog_command():
+    # `library list` moved to `catalog list --kind product` (#94 M3); there is no alias to test any more.
+    assert journeys.invoked(ROOT, "catalog list", [["catalog", "list", "--kind", "product"]])
 
 
 def test_the_report_states_its_provenance_and_stubs(tmp_path):

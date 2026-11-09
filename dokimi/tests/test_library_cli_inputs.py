@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""`library list|show|intents`: an unreadable --registry or --intents file exits 1 with a message."""
+"""`catalog list|show --kind product` and `catalog intents`: an unreadable --registry or --intents file exits 2 with a message."""
 
 from __future__ import annotations
 
@@ -27,18 +27,23 @@ def _bad_files(tmp_path):
     binary.write_bytes(bytes([0xFF, 0xFE, 0x00]))
     broken = tmp_path / "broken.yaml"
     broken.write_text("products: [unclosed\n", encoding="utf-8")
-    return {"binary": binary, "broken": broken}
+    bad_date = tmp_path / "date.yaml"
+    bad_date.write_text("products: 2026-99-99\n", encoding="utf-8")
+    deep = tmp_path / "deep.yaml"
+    deep.write_text("[" * 100000, encoding="utf-8")
+    return {"binary": binary, "broken": broken, "bad-date": bad_date, "deep": deep}
 
 
-@pytest.mark.parametrize("kind", ["binary", "broken"])
+@pytest.mark.parametrize("kind", ["binary", "broken", "bad-date", "deep"])
 @pytest.mark.parametrize("command", ["list", "show demo"])
 def test_a_registry_that_cannot_be_parsed_is_named(tmp_path, kind, command):
     bad = _bad_files(tmp_path)[kind]
-    err = _run(["library", *command.split(), "--registry", str(bad)])
+    verb, *rest = command.split()
+    err = _run(["catalog", verb, "--kind", "product", *rest, "--registry", str(bad)])
     assert f"Error: cannot read --registry {bad}" in err
 
 
-@pytest.mark.parametrize("kind", ["binary", "broken"])
+@pytest.mark.parametrize("kind", ["binary", "broken", "bad-date", "deep"])
 def test_an_intents_file_that_cannot_be_parsed_is_named(tmp_path, kind):
     bad = _bad_files(tmp_path)[kind]
     err = _run(["catalog", "intents", "--intents", str(bad)])
@@ -49,14 +54,14 @@ def test_a_bad_intents_file_is_named_by_list_with_a_domain(tmp_path):
     products = tmp_path / "products.yaml"
     products.write_text(_PRODUCTS, encoding="utf-8")
     bad = _bad_files(tmp_path)["broken"]
-    err = _run(["library", "list", "--registry", str(products), "--intents", str(bad),
+    err = _run(["catalog", "list", "--kind", "product", "--registry", str(products), "--intents", str(bad),
                 "--domain", "x"])
     assert f"Error: cannot read --intents {bad}" in err
 
 
 def test_a_missing_registry_is_not_an_empty_registry(tmp_path):
     missing = tmp_path / "nope.yaml"
-    err = _run(["library", "list", "--registry", str(missing)])
+    err = _run(["catalog", "list", "--kind", "product", "--registry", str(missing)])
     assert f"Error: --registry {missing}: not a file" in err
 
 

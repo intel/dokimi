@@ -245,3 +245,49 @@ def test_each_process_has_its_own_run_id_and_dokimi_run_id_joins_them(tmp_path):
     assert len(own) == 2 and run_id() not in own
     assert joined == {"ci-42"}
     assert json.loads((tmp_path / "d.json").read_text(encoding="utf-8"))["run_id"] == "ci-42"
+
+
+def test_the_panel_judge_output_is_an_eval_artifact_with_the_envelope(tmp_path, monkeypatch):
+    """`eval score panel` wrote its incremental output with no schema_version, so `runs list` could
+    not see it and it had no run_id (#277 B1b). It is saved through save_artifact now."""
+    from dokimi.eval.panel import JudgeConfig, JudgePanel, _save_incremental
+
+    monkeypatch.setenv(artifacts.RUN_ID_ENV, "panel-run")
+    panel = JudgePanel(judges=[JudgeConfig(role="r", model="m", provider="anthropic")])
+    path = tmp_path / "panel.json"
+    row = {"question_id": "q1", "question": "Q?", "panel_size": 1, "with_docs": None,
+           "without_docs": None, "delta": None, "retrieval_hit": None}
+    _save_incremental([row], path, "lib", panel, {"answer_model": "a"})
+
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert list(data)[:3] == ["schema_version", "run_id", "dokimi_version"]
+    assert (data["schema_version"], data["run_id"], data["dokimi_version"]) == ("eval.v1", "panel-run", __version__)
+    assert load_artifact("eval", path)["total_evaluations"] == 1
+    (found,) = [a for a in scan(tmp_path).artifacts if a.path.name == "panel.json"]
+    assert (found.schema_version, found.run_id) == ("eval.v1", "panel-run")
+
+
+def test_a_rejected_panel_save_writes_nothing_and_keeps_the_payload(tmp_path):
+    """A question id the eval schema rejects is refused on the first save, not after the last paid
+    judge call; the payload is kept beside the path."""
+    from dokimi.eval.panel import JudgeConfig, JudgePanel, _save_incremental
+
+    panel = JudgePanel(judges=[JudgeConfig(role="r", model="m", provider="anthropic")])
+    path = tmp_path / "panel.json"
+    row = {"question_id": None, "question": "Q?", "panel_size": 1, "with_docs": None,
+           "without_docs": None, "delta": None, "retrieval_hit": None}
+    with pytest.raises(ArtifactValidationError, match="question_id"):
+        _save_incremental([row], path, "lib", panel)
+    assert not path.exists()
+    kept = json.loads((tmp_path / "panel.json.rejected").read_text(encoding="utf-8"))
+    assert kept["evaluations"][0]["question_id"] is None
+
+
+def test_the_panel_creates_a_missing_output_directory(tmp_path):
+    """The writer it replaced made the parent directory; save_artifact does too."""
+    from dokimi.eval.panel import JudgeConfig, JudgePanel, _save_incremental
+
+    panel = JudgePanel(judges=[JudgeConfig(role="r", model="m", provider="anthropic")])
+    path = tmp_path / "new" / "dir" / "panel.json"
+    _save_incremental([], path, "lib", panel)
+    assert load_artifact("eval", path)["total_evaluations"] == 0
