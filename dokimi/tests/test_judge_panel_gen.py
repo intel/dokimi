@@ -81,3 +81,19 @@ def test_gen_runs_when_two_judges_agree_on_every_row(tmp_path):
     summary = json.loads((out / "gen_summary.json").read_text())
     pair = next(p for p in summary["pairs"] if p["old"] == "kimi-k2.5")
     assert pair["kappa_old_new"] == 1.0
+
+
+def test_gen_names_a_judge_with_no_complete_triplet_for_a_model(tmp_path):
+    # kimi-k2.5 has no grades for one answer model, so no complete no_skill/full/placebo triplet exists.
+    out = tmp_path / "out"
+    _write(out, GEN_JUDGES)
+    grades = [json.loads(line) for line in (out / "grades.jsonl").read_text().splitlines()]
+    grades = [g for g in grades if not (g["judge"] == "kimi-k2.5" and g["key"].endswith("|claude-opus-5"))]
+    (out / "grades.jsonl").write_text("".join(json.dumps(g) + "\n" for g in grades))
+
+    r = _gen(out)
+
+    assert r.returncode != 0
+    assert "kimi-k2.5" in r.stderr
+    assert "claude-opus-5" in r.stderr
+    assert "Traceback" not in r.stderr

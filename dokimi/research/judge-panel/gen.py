@@ -68,6 +68,17 @@ def jget(j, good):
     return lambda k: (V[k][j] in good) if j in V[k] else None
 
 
+# A pair or panel judge with no complete no_skill/full/placebo triplet for an answer model has a None
+# headline. Name it here, before any output is written, instead of failing on the rounding below.
+for good in (LEN, STR):
+    gets = [(j, jget(j, good)) for j in NEED] + [(f"panel {'+'.join(p)}", panel_get(p, good))
+                                                 for p in (OLD_PANEL, NEW_PANEL)]
+    for name, get in gets:
+        for m in MODELS:
+            if headline(get, m, good)["added"] is None:
+                raise SystemExit(f"gen.py has no complete no_skill/full/placebo triplet for {m} under {name}; "
+                                 "grade it on every arm first")
+
 out = {"judges": ALL, "per_judge": {}, "pairs": [], "panels": {}}
 tab = []
 for j in ALL:
