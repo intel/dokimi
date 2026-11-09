@@ -5,9 +5,12 @@
 
 from __future__ import annotations
 
+import os
+
 import pytest
 
 from tests.cli_refusal import refusal
+from tests.test_benchmark_registry_wiring import fifo_fed_with
 
 from dokimi.cli import build_parser
 
@@ -68,3 +71,24 @@ def test_a_missing_registry_is_not_an_empty_registry(tmp_path):
 def test_a_directory_as_intents_is_rejected(tmp_path):
     err = _run(["catalog", "intents", "--intents", str(tmp_path)])
     assert f"Error: --intents {tmp_path}: not a file" in err
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="no named pipes on Windows")
+def test_a_registry_pipe_is_listed(tmp_path):
+    with fifo_fed_with(tmp_path / "products.fifo", _PRODUCTS) as fifo:
+        args = build_parser().parse_args(["catalog", "list", "--kind", "product", "--registry", str(fifo)])
+        with refusal() as out:
+            args.func(args)
+
+    assert out.code == 0
+    assert "Demo" in out.out and "1 products registered." in out.out
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows words a long name its own way")
+@pytest.mark.parametrize("flag,argv", [
+    ("--registry", ["catalog", "list", "--kind", "product"]), ("--intents", ["catalog", "intents"]),
+])
+def test_a_name_the_os_cannot_stat_is_named(tmp_path, flag, argv):
+    long_name = tmp_path / ("a" * 300)
+    err = _run([*argv, flag, str(long_name)])
+    assert f"Error: cannot read {flag} {long_name}: " in err and "Traceback" not in err
