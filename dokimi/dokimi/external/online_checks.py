@@ -223,7 +223,7 @@ def _npx_names(args: list[str]) -> Iterator[str]:
     """The packages ``npx`` runs: every ``-p`` or ``--package`` value, or else the first word after its flags
     when there is none. The command that follows the packages is not a package."""
     packages: list[str] = []
-    take_next = skip = False
+    take_next = skip = explicit = False  # explicit: a -p or --package was given, whether or not its value is a name
     for tok in args:
         if skip:
             skip = False
@@ -233,13 +233,14 @@ def _npx_names(args: list[str]) -> Iterator[str]:
         elif tok in {"-c", "--call"}:
             break  # a shell command follows, not a package
         elif tok.startswith("--package="):
+            explicit = True
             packages.extend(_npm_names([tok[len("--package="):]]))
         elif tok in {"-p", "--package"}:
-            take_next = True
+            take_next = explicit = True
         elif tok in _NPM_VALUE_OPTIONS:
             skip = True
         elif not tok.startswith("-"):
-            if not packages:
+            if not explicit:
                 packages.extend(name for name in _npm_names([tok]) if name not in _NPX_PROSE)
             break
     yield from packages

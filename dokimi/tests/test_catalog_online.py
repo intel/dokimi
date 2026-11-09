@@ -179,6 +179,14 @@ def test_a_redirection_attached_to_the_package_word_keeps_the_package():
     assert online_checks.extract_packages("pip install requests>build-log\n") == [("pypi", "requests")]
 
 
+def test_npx_with_a_package_option_that_is_not_a_registry_name_does_not_check_the_command():
+    # The option names a local, git or URL package: the word after it is the command that package supplies, not a
+    # registry package, so no fallback to the first word.
+    assert online_checks.extract_packages("npx --package=./local-cli mytool\n") == []
+    assert online_checks.extract_packages("npx -p github:acme/cli mytool\n") == []
+    assert online_checks.extract_packages("npx --package=https://x.dev/a.tgz mytool\n") == []
+
+
 def test_redirection_operators_and_their_targets_are_not_packages():
     body = (
         "pip install requests > install.log\nnpm install lodash >> log.txt\n"
