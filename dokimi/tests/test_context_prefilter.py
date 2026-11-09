@@ -289,6 +289,35 @@ def test_the_command_prints_a_table_and_still_reports_a_bad_session(tmp_path, ca
     assert "no prompt and no tool call" in err
 
 
+def test_the_command_json_is_partial_when_one_session_cannot_be_read(tmp_path, capsys):
+    guide = tmp_path / "AGENTS.md"
+    guide.write_text(GUIDE, encoding="utf-8")
+    good = _write(tmp_path / "good.jsonl", [_prompt("push the branch now")])
+    bad = tmp_path / "bad.jsonl"
+    bad.write_text("not json at all\n", encoding="utf-8")
+    args = build_parser().parse_args(["trace", "prefilter", str(guide), str(good), str(bad),
+                                      "--min-sessions", "1", "--json"])
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    got = capsys.readouterr()
+    doc = json.loads(got.out)
+    assert exc.value.code == 1
+    assert doc["kind"] == "trace prefilter" and doc["status"] == "partial" and doc["reason"]
+    assert doc["data"]["sessions"] == 1  # the readable session is still reported
+
+
+def test_the_command_json_is_complete_when_every_session_reads(tmp_path, capsys):
+    guide = tmp_path / "AGENTS.md"
+    guide.write_text(GUIDE, encoding="utf-8")
+    good = _write(tmp_path / "good.jsonl", [_prompt("push the branch now")])
+    args = build_parser().parse_args(["trace", "prefilter", str(guide), str(good),
+                                      "--min-sessions", "1", "--json"])
+    args.func(args)
+    doc = json.loads(capsys.readouterr().out)
+    assert doc["kind"] == "trace prefilter" and doc["status"] == "complete" and doc.get("reason") is None
+    assert doc["data"]["sessions"] == 1
+
+
 def test_the_command_refuses_a_guidance_file_it_cannot_read(tmp_path):
     args = build_parser().parse_args(["trace", "prefilter", str(tmp_path / "none.md"), str(tmp_path / "x.jsonl")])
     with pytest.raises(SystemExit, match="cannot read"):
