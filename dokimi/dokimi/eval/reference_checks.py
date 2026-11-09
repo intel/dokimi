@@ -377,6 +377,8 @@ def _identifiers(check: Mapping[str, Any], answer: str) -> tuple[Optional[bool],
 _NEGATED = re.compile(r"(?i)\bnot\b|n't\b|\bnever\b|\bno\b|\bavoid\w*|\bwithout\b|\binstead of\b|\brather than\b")
 #: An option with an assigned value (``--input=--stdin``): the value is a file name, not an option.
 _ASSIGNED = re.compile(r"""(?<![\w-])(--[A-Za-z][\w-]*)=(?:"[^"\n]*"|'[^'\n]*'|[^\s,;|&]+)""")
+#: A quoted value a flag takes after a space (``--input "no --stdin"``) is a file name, not options.
+_SPACED_QUOTED = re.compile(r"""((?<![\w-])--[A-Za-z][\w-]*\s+)(?:"[^"\n]*"|'[^'\n]*')""")
 #: A word a flag takes after a space (``--sort no``) is its value, so no negation of the clause.
 #: Negation and clause words after a flag (``--stdio doesn't``, ``--tui then``) are kept.
 _VALUE_WORD = re.compile(
@@ -409,7 +411,7 @@ def scope_options(pattern: str, scope: str, *, timeout: float, negated: bool) ->
 
     text = scope
     if pattern == LONG_FLAG:  # the value of --input=--stdin is a file name, not an option
-        text = _ASSIGNED.sub(blank, scope)
+        text = _SPACED_QUOTED.sub(blank, _ASSIGNED.sub(blank, scope))
     # The clause of a mention is read past the value a flag takes (``--sort no --stdin``).
     clause = _VALUE_WORD.sub(blank, text)
     names = []
