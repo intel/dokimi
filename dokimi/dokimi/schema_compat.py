@@ -271,7 +271,10 @@ def _renamed_from(base: str, rel: str) -> str | None:
     git's rename detection says where the files came from: the first renamed file under the
     directory gives the old directory, as a path from the repository root with a trailing ``/``.
     """
-    top = Path(_git_names("rev-parse", "--show-toplevel")[0]).resolve()
+    top_names = _git_names("rev-parse", "--show-toplevel")
+    if not top_names:  # git before 2.25, outside a work tree, prints nothing and exits 0
+        raise GitError("git rev-parse --show-toplevel: printed no work tree to follow moved schemas in")
+    top = Path(top_names[0]).resolve()
     prefix = (SCHEMA_DIR / rel).resolve().relative_to(top).as_posix() + "/"
     fields = _git_proc("-C", str(top), "diff", "--name-status", "-M", "-z", base).nul_fields()
     i = 0

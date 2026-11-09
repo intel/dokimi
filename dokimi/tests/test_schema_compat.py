@@ -386,6 +386,26 @@ def test_a_git_timeout_is_not_read_as_no_fixture(monkeypatch):
     assert not isinstance(err.value, sc.GitPathMissing)
 
 
+@pytest.mark.skipif(os.name == "nt", reason="the stub git is a shell script")
+def test_a_git_that_prints_no_work_tree_is_a_git_error(monkeypatch, tmp_path):
+    """git before 2.25, in a bare repository, prints nothing for ``rev-parse --show-toplevel``
+    and exits 0: that is a ``GitError`` saying so, not an ``IndexError``."""
+    import shutil
+
+    import dokimi.schema_compat as sc
+
+    stub = tmp_path / "bin/git"
+    stub.parent.mkdir()
+    stub.write_text('#!/bin/sh\n[ "$1 $2" = "rev-parse --show-toplevel" ] && exit 0\n'
+                    f'exec "{shutil.which("git")}" "$@"\n', encoding="utf-8")
+    stub.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{stub.parent}{os.pathsep}{os.environ['PATH']}")
+    subprocess.run(["git", "init", "-q", "--bare", str(tmp_path / "bare.git")], check=True)
+    monkeypatch.setattr(sc, "SCHEMA_DIR", tmp_path / "bare.git")
+    with pytest.raises(sc.GitError, match="printed no work tree to follow moved schemas in"):
+        sc._renamed_from("HEAD", ".")
+
+
 def test_main_warns_when_the_base_has_no_schemas_to_compare(monkeypatch, tmp_path, capsys):
     """Zero base schemas against a tree that has some is how the gate went vacuous: say so."""
     import dokimi.schema_compat as sc
