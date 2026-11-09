@@ -359,10 +359,7 @@ def _identifiers(check: Mapping[str, Any], answer: str) -> tuple[Optional[bool],
             scopes = [answer]
         unknown: list[str] = []
         for scope in scopes:
-            for m in regex.finditer(pattern, scope, timeout=_left(deadline)):
-                # The first group is unset when another alternative of the pattern matched.
-                name = (m.group(1) if m.groups() and m.group(1) is not None else m.group(0))
-                name = name.split("=", 1)[0]
+            for name in scope_options(pattern, scope, timeout=_left(deadline), negated=bool(within)):
                 if name in known or (check.get("negations", False) and name.startswith("--no-")
                                      and "--" + name[5:] in known):
                     continue
@@ -378,6 +375,15 @@ def _identifiers(check: Mapping[str, Any], answer: str) -> tuple[Optional[bool],
 
 
 _NEGATED = re.compile(r"(?i)\bnot\b|n't\b|\bnever\b|\bno\b|\bavoid\w*|\bwithout\b|\binstead of\b|\brather than\b")
+#: An option with an assigned value (``--input=--stdin``): the value is a file name, not an option.
+_ASSIGNED = re.compile(r"""(?<![\w-])(--[A-Za-z][\w-]*)=(?:"[^"\n]*"|'[^'\n]*'|[^\s,;|&]+)""")
+#: The word a flag takes after a space (``--sort no``) is a value, so it is no negation word of the
+#: clause. A negation phrase after a flag (``--stdio rather than --stdin``, ``--stdio doesn't``) and
+#: a clause word (``--tui then --stdin``) stay: they split or negate the clause, they are no value.
+_VALUE_WORD = re.compile(
+    r"((?<![\w-])--[A-Za-z][\w-]*\s+)"
+    r"(?!(?:not|never|without|rather|instead|avoid\w*|and|but|then|while)\b|[\w.-]*n't\b)[\w.][\w.-]*",
+    re.IGNORECASE)
 
 
 def _negated_before(answer: str, start: int) -> bool:
@@ -387,6 +393,33 @@ def _negated_before(answer: str, start: int) -> bool:
     clause = re.sub(r"(?i)\bnot\s+only\b|\bno\s+problem\b", " ", clause)
     clause = re.sub(r"(?<![\w-])--?[A-Za-z][\w-]*", " ", clause)  # flags are no words
     return _NEGATED.search(clause) is not None
+
+
+def scope_options(pattern: str, scope: str, *, timeout: float, negated: bool) -> list[str]:
+    """The option names ``pattern`` finds in ``scope``, in order.
+
+    With the default pattern, an assigned value names no option (``--input=--stdin`` names
+    ``--input`` only); a custom pattern reads the text as written, its groups may take a value. With
+    ``negated``, a mention that the clause before it negates names none (``run --stdio, not
+    --stdin``): a command's scope is judged mention by mention, not only by the words before it.
+    Both the veto and the key verification read a claim through this one scan.
+    """
+    def blank(m: regex.Match) -> str:  # keeps group 1, blanks the rest: same length as the scope
+        return m.group(1) + " " * (m.end() - m.start() - len(m.group(1)))
+
+    text = scope
+    if pattern == LONG_FLAG:  # the value of --input=--stdin is a file name, not an option
+        text = _ASSIGNED.sub(blank, scope)
+    # The clause of a mention is read past the value a flag takes (``--sort no --stdin``).
+    clause = _VALUE_WORD.sub(blank, text)
+    names = []
+    for m in regex.finditer(pattern, text, timeout=timeout):
+        if negated and _negated_before(clause, m.start()):
+            continue
+        # The first group is unset when another alternative of the pattern matched.
+        name = (m.group(1) if m.groups() and m.group(1) is not None else m.group(0))
+        names.append(name.split("=", 1)[0])
+    return names
 
 
 def _left(deadline: float) -> float:

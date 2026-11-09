@@ -300,6 +300,94 @@ def test_a_correct_answer_with_two_commands_on_one_line_is_not_judged_against_th
     assert grade_check(check, "q", answer.replace("--stdio", "--stdin"), None).passed is False
 
 
+def test_a_negated_mention_later_in_a_retained_scope_is_no_claim():
+    # "not --stdin" negates its own mention, though the command's scope runs on past the comma.
+    assert grade_check(_veto(), "q", "Run perf report --stdio, not --stdin.", None).passed is True
+    # A negation phrase right after a flag still negates its mention; a flag's value does not.
+    assert grade_check(_veto(), "q", "Run perf report --stdio rather than --stdin.", None).passed is True
+    assert grade_check(_veto(), "q", "Run perf report --stdio not --stdin.", None).passed is True
+    assert grade_check(_veto(), "q", "Run perf report --stdio, not --stdin, with --stdin.", None).passed is False
+
+
+def test_a_clause_word_or_a_contraction_after_a_flag_keeps_its_clause():
+    # "then" starts a clause that affirms the flag after it: that flag is judged.
+    assert grade_check(_veto(), "q", "Run perf report --stdio, not --tui then --stdin.", None).passed is False
+    # "doesn't" after a flag still negates the mention that follows it.
+    assert grade_check(_veto(), "q", "Run perf report --stdio doesn't take --stdin.", None).passed is True
+    # A comma ends an assigned value: the flag after it is no value of --input, so "not" does not reach it.
+    answer = "perf report --stdio not --input=a.data, --stdin"
+    assert "--stdin" in grade_check(_veto(), "q", answer, None).detail
+    # A flag is no value of the flag before it: the "no" after --sort is --sort's value, not a negation.
+    assert grade_check(_veto(), "q", "Run perf report --stdio --sort no --stdin.", None).passed is False
+    assert grade_check(_veto(), "q", "perf report --input=perf.data --sort no --stdin", None).passed is False
+
+
+def test_an_assigned_value_is_no_option_of_its_own():
+    # The value of --input is a file name that happens to look like an option.
+    assert grade_check(_veto(), "q", "perf report --input=--stdin", None).passed is True
+    assert grade_check(_veto(), "q", "perf report --input=--stdin --stdin", None).passed is False
+    # A custom pattern reads the text as written: its group may take the value itself.
+    custom = {"type": "identifiers", "known": ["comm", "dso"], "pattern": r"--sort=(\w+)"}
+    assert grade_check(custom, "q", "perf report --sort=bogus", None).passed is False
+
+
+def test_help_identifiers_reads_only_the_options_the_help_declares():
+    # A description that names another command's option declares nothing about this tool.
+    text = ("usage: tool [--input FILE]\n  --input FILE  Input file\n"
+            "For advanced processing, run other --advanced.\n")
+    assert help_identifiers(text) == ["--input"]
+    assert grade_check(identifiers_check("tool", text), "q", "run tool --advanced", None).passed is False
+    # A usage line keeps its spacing (docker writes "Usage:  tool"), and a value is no negation word.
+    docker = "Usage:  tool [--bar]\n\nOptions:\n  --foo  Set foo\n"
+    assert help_identifiers(docker) == ["--bar", "--foo"]
+    # wget pads the column after a short name with two spaces: the long name is still declared.
+    wget = "Usage: wget [OPTION]... [URL]...\n\n  -V,  --version           display the version\n"
+    assert help_identifiers(wget) == ["--version"]
+    assert help_identifiers("Usage: tool\n  -V,    --version  display\n") == ["--version"]
+    # A short name with no comma before the long one: the gap before "--verbose" is no split.
+    assert help_identifiers("Usage: tool\n  -v  --verbose   be loud\n  -q   --quiet  be quiet\n") == [
+        "--quiet", "--verbose"]
+    # A tab separates the description from the names, as it does in some tools' help.
+    assert help_identifiers("Usage: tool\n  -a,\t--all\tall files\n") == ["--all"]
+    assert grade_check(_veto(), "q", "Run perf report --sort no --stdin", None).passed is False
+
+
+def test_verify_keys_does_not_verify_a_key_while_a_check_could_not_finish(monkeypatch):
+    from dokimi.eval import reference_checks
+    from dokimi.novelty import grounding
+    real = grounding.grade_check
+
+    def stalled_for_one(check, question, answer, ask):
+        if check.get("within") == "stalled":
+            return reference_checks.CheckResult("identifiers", None, None, detail="not scored")
+        return real(check, question, answer, ask)
+
+    monkeypatch.setattr(grounding, "grade_check", stalled_for_one)
+    atoms = [{"statement": "x", "answer": "Run perf report --stdio.",
+              "meta": {"grading": {"checks": [_veto(), dict(_veto(), within="stalled")]}}}]
+    assert verify_keys(atoms) == {"verified": 0, "not_found": 0, "unverifiable": 1}
+    assert atoms[0]["meta"]["key_status"] == {"status": "unverifiable"}
+
+
+def test_novelty_ground_creates_the_output_directory(tmp_path, monkeypatch):
+    import argparse
+
+    from dokimi.commands import novelty_ground
+    from dokimi.novelty import grounding
+    from dokimi.novelty.atoms import Atom, Span, load_atoms_record, save_atoms
+    atoms_path = tmp_path / "atoms.json"
+    span = Span(id="s1", kind="prose", text="perf report shows samples", start=0, end=25)
+    save_atoms([Atom(statement="perf report shows samples", question="How?",
+                     answer="perf report --stdio", span_ids=("s1",))], [span], atoms_path)
+    monkeypatch.setattr(grounding, "help_text", lambda tool, **k: PERF_HELP)
+    out = tmp_path / "new-dir" / "atoms.json"
+    args = argparse.Namespace(atoms=str(atoms_path), out=str(out), tool=["perf report"],
+                              tool_version=None)
+    novelty_ground.cmd_novelty_ground(args)
+    _, _, data = load_atoms_record(out)
+    assert data["atoms"][0]["meta"]["grading"]["checks"][0]["type"] == "identifiers"
+
+
 def test_verify_keys_counts_a_key_only_once_a_checked_option_passed(monkeypatch):
     from dokimi.eval import reference_checks
     from dokimi.novelty import grounding

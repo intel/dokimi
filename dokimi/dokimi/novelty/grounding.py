@@ -21,7 +21,8 @@ import shlex
 
 import regex
 
-from dokimi.eval.reference_checks import LONG_FLAG, REGEX_TIMEOUT, _negated_before, grade_check
+from dokimi.eval.reference_checks import (LONG_FLAG, REGEX_TIMEOUT, _negated_before, grade_check,
+                                          scope_options)
 from dokimi.process import Env, run
 from dokimi.utils import InputError
 
@@ -75,14 +76,41 @@ def help_text(tool: str, *, timeout: float = 20.0) -> str:
     raise InputError(f"`{tool} --help` lists no long options")
 
 
+def _declared(text: str) -> str:
+    """The lines of a help that declare options: its usage block and its option lines.
+
+    A usage block opens at ``usage:`` and runs over the indented lines after it. An option line
+    opens with ``-``; from its first run of two spaces on it is the description, which may name
+    another command's options (``run other --advanced``), so that part is dropped.
+    """
+    kept: list[str] = []
+    in_usage = False
+    for line in text.splitlines():
+        if re.match(r"\s*usage:", line, re.IGNORECASE):
+            in_usage = True
+        elif not line.strip():
+            in_usage = False
+            continue
+        elif not line[:1].isspace():
+            in_usage = False
+        if re.match(r"\s*-", line):  # "-V,  --version": a gap after a comma joins the names
+            kept.append(re.split(r"(?<![,\s])(?:\s{2,}|\t)(?![\s-])", line.strip(), maxsplit=1)[0])
+        elif in_usage:  # a usage line keeps its spacing: docker writes "Usage:  tool [--x]"
+            kept.append(line.strip())
+    return "\n".join(kept)
+
+
 def help_identifiers(text: str) -> list[str]:
     """The long options a help text lists, sorted. ``--help`` only when the text lists it.
 
-    A bracketed ``--[no-]x`` lists both ``--x`` and ``--no-x``: the help establishes that the
-    parser negates ``x``. A boolean that the help does not show that way gets no ``--no-x``.
+    Only the declared options count (see ``_declared``): a name a description mentions is no
+    option of this tool. A bracketed ``--[no-]x`` lists both ``--x`` and ``--no-x``: the help
+    establishes that the parser negates ``x``. A boolean that the help does not show that way
+    gets no ``--no-x``.
     """
-    names = {m.group(1) for m in re.finditer(LONG_FLAG, text)}
-    for m in re.finditer(_NEGATABLE, text):
+    declared = _declared(text)
+    names = {m.group(1) for m in re.finditer(LONG_FLAG, declared)}
+    for m in re.finditer(_NEGATABLE, declared):
         names |= {"--" + m.group(1), "--no-" + m.group(1)}
     return sorted(names)
 
@@ -139,14 +167,13 @@ def _key_names(check: dict, key: str) -> list[str]:
     The same engine and bound as the check's own scan; a scan past the bound names none.
     """
     pattern = str(check.get("pattern") or LONG_FLAG)
+    within = check.get("within")
     try:
-        scopes = ([m.group(0) for m in regex.finditer(str(check["within"]), key, timeout=REGEX_TIMEOUT)
-                   if not _negated_before(key, m.start())] if check.get("within") else [key])
-        names = []
+        scopes = ([m.group(0) for m in regex.finditer(str(within), key, timeout=REGEX_TIMEOUT)
+                   if not _negated_before(key, m.start())] if within else [key])
+        names: list[str] = []
         for scope in scopes:
-            for m in regex.finditer(pattern, scope, timeout=REGEX_TIMEOUT):
-                name = (m.group(1) if m.groups() and m.group(1) is not None else m.group(0))
-                names.append(name.split("=", 1)[0])
+            names += scope_options(pattern, scope, timeout=REGEX_TIMEOUT, negated=bool(within))
     except TimeoutError:
         return []
     return names
@@ -157,9 +184,10 @@ def verify_keys(atoms: list[dict]) -> dict[str, int]:
 
     Writes ``meta["key_status"]``: ``verified`` (the key names an option on a checked command
     line, and every such option is in the help), ``not_found`` (with the ``missing`` names), or
-    ``unverifiable`` (the key names no checked option). This checks the skill's claim, not a model's
-    answer. A ``not_found`` is a review flag, not an error: a negative claim ("there is no
-    ``--device xpu``") or a version-bound one names an option the help rightly lacks.
+    ``unverifiable`` (the key names no checked option, or one of its checks could not finish).
+    This checks the skill's claim, not a model's answer. A ``not_found`` is a review flag, not an
+    error: a negative claim ("there is no ``--device xpu``") or a version-bound one names an option
+    the help rightly lacks.
     """
     counts = {"verified": 0, "not_found": 0, "unverifiable": 0}
     for atom in atoms:
@@ -168,15 +196,18 @@ def verify_keys(atoms: list[dict]) -> dict[str, int]:
         if not checks:
             continue
         key = " ".join(str(atom.get(k, "")) for k in ("answer", "statement"))
-        missing, named = [], False
+        missing, named, unfinished = [], False, False
         for check in checks:
             result = grade_check(check, "", key, None)
-            if result.passed is False:
+            if result.passed is None:
+                unfinished = True  # a check that did not finish says nothing of the key
+            elif result.passed is False:
                 missing += [n for n in result.detail.removeprefix("not in source: ").split(", ")
                             if n not in missing]
-            elif result.passed is True and _key_names(check, key):
+            elif _key_names(check, key):
                 named = True  # an option the key names on a checked line, and the help lists it
-        status = "not_found" if missing else ("verified" if named else "unverifiable")
+        status = ("not_found" if missing
+                  else "verified" if named and not unfinished else "unverifiable")
         atom["meta"]["key_status"] = {"status": status, **({"missing": missing} if missing else {})}
         counts[status] += 1
     return counts

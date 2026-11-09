@@ -11,6 +11,8 @@ import shutil
 import sys
 from pathlib import Path
 
+from dokimi.utils import InputError
+
 
 def cmd_novelty_ground(args: argparse.Namespace) -> None:
     """Write ``identifiers`` vetoes from each ``--tool``'s own ``--help`` into an atoms file."""
@@ -23,6 +25,10 @@ def cmd_novelty_ground(args: argparse.Namespace) -> None:
     changed = add_checks(data.get("atoms", []), checks, args.tool)
     keys = verify_keys(data.get("atoms", []))
     out = Path(args.out or args.atoms).resolve()  # a symlink: its target is what is rewritten
+    try:  # as save_atoms does, an output in a new directory creates it
+        out.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        raise InputError(f"cannot create the output directory {out.parent}: {exc.strerror or exc}") from None
     # Write beside the target and replace it only after the write succeeds: the default --out is
     # the atoms file itself, and a failed write must not leave it truncated.
     tmp = out.with_name(f".{out.name}.{os.getpid()}.tmp")  # own name: two runs do not share it
