@@ -87,6 +87,11 @@ def test_a_date_that_is_not_real_is_invalid_frontmatter() -> None:
         parse_frontmatter_strict(text)
 
 
+def test_the_frontmatter_target_holds_deep_nesting_to_its_contract() -> None:  # test-quality: ok the target asserts its contract
+    # Both parsers read nesting past the recursion limit as invalid frontmatter, so the target skips no RecursionError.
+    TARGETS["frontmatter"]("---\nx: " + "[" * 100000 + "\n---\nbody")
+
+
 @pytest.mark.parametrize(
     "text",
     [

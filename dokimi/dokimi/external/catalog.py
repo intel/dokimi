@@ -147,7 +147,7 @@ def _manifest_items(manifest_path: Path) -> tuple[list, bool]:
         data = yaml.safe_load(manifest_path.read_text(encoding="utf-8")) or {}
     except OSError as exc:
         raise ValueError(f"cannot read skills.yaml at {manifest_path}: {exc}") from exc
-    except (yaml.YAMLError, UnicodeDecodeError, RecursionError) as exc:
+    except (yaml.YAMLError, ValueError, RecursionError) as exc:  # ValueError: not UTF-8, or a date PyYAML cannot build
         raise ValueError(f"invalid skills.yaml at {manifest_path}: {exc}") from exc
 
     if isinstance(data, dict):

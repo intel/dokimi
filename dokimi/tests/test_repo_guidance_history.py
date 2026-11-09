@@ -232,6 +232,18 @@ def test_a_carriage_return_in_a_guidance_path_or_a_subject_is_kept(hist):
                                           "committed": "2030-05-01T00:00:00Z", "subject": "guidance\redit"}
 
 
+@pytest.mark.skipif(os.name == "nt", reason="a carriage return in a file name")
+def test_a_rev_arm_installs_a_guidance_file_with_a_carriage_return_in_its_path(hist):
+    """The arm's own ``ls-tree -z`` listing is split as bytes too: the file is written and has its history."""
+    cr = _commit_at(hist["root"], {"a\rb/AGENTS.md": "# cr\n"}, "cr guidance", "2030-05-01T00:00:00+00:00",
+                    "2030-05-01T00:00:00+00:00")
+    meta = _prep(hist, f"guidance:rev:{cr}")
+    assert (hist["tmp"] / "rd" / "workspace" / "a\rb" / "AGENTS.md").read_text(encoding="utf-8") == "# cr\n"
+    assert meta["arm_files"] == ["AGENTS.md", "a\rb/AGENTS.md", "src/AGENTS.md", "sub/AGENTS.md"]
+    assert meta["arm_rev"]["guidance_latest"]["a\rb/AGENTS.md"] == {
+        "sha": cr, "authored": "2030-05-01T00:00:00Z", "committed": "2030-05-01T00:00:00Z"}
+
+
 def _three_commits(tmp: Path) -> tuple[Path, dict[str, str]]:
     """guidance v1, guidance v2, then a code-only commit, in a repository of its own."""
     root = tmp / "three"

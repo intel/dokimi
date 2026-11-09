@@ -50,6 +50,8 @@ registry, suite, shared machinery and unclaimed changes select conservatively.
 A ROOT that git reaches only through an enclosing repository that tracks no file
 under it (a skills folder under a git-tracked `$HOME`) is not a checkout: its
 `source` has no commit and every skill is selected.
+A file git ignores under the shared machinery (`tools/`, `scripts/`, `dokimi/`,
+`.github/`) selects nothing and does not mark the source `dirty`, whatever its name.
 Selection limits what can fail: a finding in a skill that is not selected is
 listed in the report but does not fail the run, while a catalog-wide problem
 (manifest, suites, tasks root, a task with no known owner) always does.
