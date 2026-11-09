@@ -311,6 +311,21 @@ def test_env_options_and_assignments_do_not_hide_the_shell(tmp_path, shebang):
     assert len(runner.calls) == 1
 
 
+@pytest.mark.parametrize("shebang", [
+    b"#!/usr/bin/env -S bash\\_-eu",  # an unquoted \_ separates words in env's -S string
+    b"#!/usr/bin/env -S bash\\_\\_-eu",
+    b"#!/usr/bin/env -S 'bash'\\_-eu",
+])
+def test_env_s_escaped_separators_do_not_hide_the_shell(tmp_path, shebang):
+    skill = _bundle(tmp_path, {"run.sh": shebang + b"\nif true; then\n"})
+    runner = process.FakeRunner(lambda call: process.reply(stderr="bash: line 3: syntax error\n", returncode=2))
+
+    findings = script_findings(skill, which=_tools("bash"), runner=runner)
+
+    assert [code for _, code, _ in findings] == ["script-syntax"]
+    assert len(runner.calls) == 1
+
+
 def test_an_env_s_string_with_an_unclosed_quote_is_not_checked_as_bash(tmp_path):
     skill = _bundle(tmp_path, {"run.sh": b"#!/usr/bin/env -S 'bash -eu\nif true; then\n"})
     runner = process.FakeRunner()
@@ -398,6 +413,21 @@ def test_an_extglob_word_in_a_comment_is_valid_under_real_bash(tmp_path, no_lint
     _bundle(tmp_path, {"run.sh": b"#!/bin/bash\n# extglob mention\nf+() { :; }\n"})
 
     assert _reviews_by_name(tmp_path)["bundled"].findings == []
+
+
+@pytest.mark.parametrize("line", [
+    b"shopt -s 'extglob'",
+    b'shopt -s "extglob"',
+    b"shopt -s 'nullglob' extglob",
+    b'echo "a # note"; shopt -s extglob',  # a # inside quotes is no comment
+])
+def test_a_quoted_or_quote_adjacent_shopt_extglob_is_given_to_bash_n(tmp_path, line):
+    skill = _bundle(tmp_path, {"run.sh": b"#!/bin/bash\n" + line + b"\ncase x in +(a|b)) : ;; esac\n"})
+    runner = process.FakeRunner()
+
+    assert script_findings(skill, which=_tools("bash"), runner=runner) == []
+    [call] = runner.calls
+    assert call.argv == ("/usr/bin/bash", "-O", "extglob", "-n")
 
 
 def test_a_comment_mentioning_extglob_does_not_hide_an_extglob_error(tmp_path):

@@ -16,7 +16,6 @@ import ast
 import json
 import os
 import re
-import shlex
 import shutil
 import warnings
 from collections import Counter
@@ -39,7 +38,9 @@ BASH_FAMILY = frozenset({"bash", "sh", "dash", "ksh"})  # the shebang names bash
 ENV_OPERAND_OPTIONS = frozenset({"-u", "--unset", "-C", "--chdir"})  # env options with an operand
 PARSE_SHOPTS = frozenset({"extglob"})  # bash -O options that change how a script parses; bash -n is given them
 SHOPT_EXTGLOB = re.compile(rb"\bshopt[ \t]+(?:-[a-zA-Z]+[ \t]+)*-[a-zA-Z]*s[a-zA-Z]*(?:[ \t]+[^\s;&|]+)*?[ \t]+extglob\b")  # shopt -s ... extglob, on one line
-WORD_COMMENT = re.compile(rb"(?:^|(?<=[\s;&|(]))#[^\n]*", re.M)  # a # that starts a word (not $#, ${x##*/}): a comment
+# Escapes env -S reads outside quotes (\_ separates words and \c ends the string: see _env_split).
+ENV_S_ESCAPES = {"_": " ", "#": "#", "\\": "\\", "'": "'", '"': '"', "$": "$", "n": "\n", "t": "\t", "r": "\r",
+                 "f": "\f", "v": "\v"}
 PARSE_NEUTRAL_FLAGS = frozenset("BEPTeuxh")  # shebang flags, as letters, that change no parse
 PARSE_NEUTRAL_OPTIONS = frozenset({"errexit", "nounset", "pipefail", "xtrace"})  # shebang -o names likewise
 SYNTAX_CODES = frozenset({"E999", "invalid-syntax"})  # a syntax error is script-syntax's, not the lint's
@@ -176,15 +177,74 @@ def _env_command(args: list[str]) -> list[str]:
         elif args[i].startswith(("-S", "--split-string")):
             head = args[i][2:] if args[i].startswith("-S") else args[i][len("--split-string"):].lstrip("=")
             text = " ".join(([head] if head else []) + args[i + 1:])
-            try:
-                return _env_command(shlex.split(text))
-            except ValueError:  # an unclosed quote
-                return []
+            return _env_command(_env_split(text) or [])
         elif args[i].startswith("-") or "=" in args[i]:
             i += 1
         else:
             break
     return args[i:]
+
+
+def _env_split(text: str) -> Optional[list[str]]:
+    """The words of an ``env -S`` string, split as GNU env splits it: blanks separate words, quotes group them, an
+    unquoted ``\\_`` is a separator, ``\\c`` ends the string, and a ``#`` that starts a word begins a comment. None
+    for what env refuses: an unknown escape, a ``$`` expansion, an unclosed quote."""
+    words: list[str] = []
+    cur: list[str] = []
+    have = False  # the word has started (a quote or an escape counts, even with no text)
+    quote = ""
+    i = 0
+    while i < len(text):
+        c = text[i]
+        if quote == "'":
+            if c == "'":
+                quote = ""
+            else:
+                cur.append(c)
+        elif quote == '"':
+            if c == '"':
+                quote = ""
+            elif c == "$":
+                return None
+            elif c == "\\" and text[i + 1:i + 2] in ("\\", '"', "$"):
+                cur.append(text[i + 1])
+                i += 1
+            else:
+                cur.append(c)
+        elif c in " \t\n\r\f\v":
+            if have:
+                words.append("".join(cur))
+                cur, have = [], False
+        elif c == "\\":
+            nxt = text[i + 1:i + 2]
+            if nxt == "c":
+                break
+            if nxt == "_":
+                if have:
+                    words.append("".join(cur))
+                cur, have = [], False
+            elif nxt in ENV_S_ESCAPES:
+                cur.append(ENV_S_ESCAPES[nxt])
+                have = True
+            else:
+                return None
+            i += 2
+            continue
+        elif c == "#" and not have:
+            break
+        elif c in "'\"":
+            quote, have = c, True
+        elif c == "$":
+            return None
+        else:
+            cur.append(c)
+            have = True
+        i += 1
+    if quote:
+        return None
+    if have:
+        words.append("".join(cur))
+    return words
 
 
 def _spawn(runner: process.Runner, argv: list[str], **kwargs) -> Optional[process.Completed]:
@@ -193,6 +253,50 @@ def _spawn(runner: process.Runner, argv: list[str], **kwargs) -> Optional[proces
         return runner(argv, **kwargs)
     except OSError:
         return None
+
+
+def _unquoted_text(data: bytes) -> bytes:
+    """The script with its comments removed and its quote marks dropped, for the shopt check. A ``#`` that starts a
+    word, outside quotes, begins a comment (``$#`` and ``${x##*/}`` do not); a quoted word is its text, so
+    ``shopt -s 'extglob'`` names extglob and ``echo "a # b"`` has no comment."""
+    out = bytearray()
+    quote = b""
+    prev = b"\n"  # the byte before, outside quotes: a # after a blank or a separator starts a word
+    i = 0
+    while i < len(data):
+        c = data[i:i + 1]
+        if quote == b"'":
+            if c == b"'":
+                quote = b""
+            else:
+                out += c
+        elif quote == b'"':
+            if c == b'"':
+                quote = b""
+            elif c == b"\\":
+                out += data[i + 1:i + 2]
+                i += 1
+            else:
+                out += c
+        elif c == b"#" and prev in (b" ", b"\t", b"\r", b"\n", b";", b"&", b"|", b"("):
+            end = data.find(b"\n", i)
+            if end < 0:
+                break
+            i = end
+            prev = b"\n"
+            continue
+        elif c in (b"'", b'"'):
+            quote, prev = c, b"x"
+        elif c == b"\\":
+            out += data[i:i + 2]
+            prev = b"x"
+            i += 2
+            continue
+        else:
+            out += c
+            prev = c
+        i += 1
+    return bytes(out)
 
 
 def _shell_options(data: bytes) -> Optional[list[str]]:
@@ -214,7 +318,7 @@ def _shell_options(data: bytes) -> Optional[list[str]]:
             i += 1
         else:
             return None
-    if SHOPT_EXTGLOB.search(WORD_COMMENT.sub(b"", data)) and "extglob" not in options:
+    if SHOPT_EXTGLOB.search(_unquoted_text(data)) and "extglob" not in options:
         # A script that turns extglob on with ``shopt -s extglob`` has its patterns parsed only after that
         # runs, and bash -n runs nothing: so the option is given when a line of the script turns it on.
         options += ["-O", "extglob"]
