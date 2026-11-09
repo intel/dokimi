@@ -65,8 +65,8 @@ def _stopped(exc: Exception, done: Any, code: int, more: str = "") -> NoReturn:
 
 @contextlib.contextmanager
 def _locked(batch_dir: Path) -> Iterator[None]:
-    """``repo run``'s :func:`.runner.batch_lock` while the run reads and writes the cells; exit 2 when another
-    holds it (``repo run`` rewrites ``_eval/content`` and regrades cells) or it cannot be taken."""
+    """``repo run``'s :func:`.runner.batch_lock` while the run reads and writes the cells; exit 1 when another
+    holds it (``repo run`` rewrites ``_eval/content`` and regrades cells), exit 2 when it cannot be taken."""
     from dokimi.repos.runner import BatchBusy, batch_lock
 
     with contextlib.ExitStack() as stack:
