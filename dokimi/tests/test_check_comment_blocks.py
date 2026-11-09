@@ -138,6 +138,21 @@ def test_a_path_with_a_cr_or_a_non_utf8_byte_is_read(tmp_path, monkeypatch):
     assert ccb.findings("base", "HEAD") == [(name, 1, 3, 3) for name in names]
 
 
+@pytest.mark.skipif(sys.platform in ("win32", "darwin"), reason="a 0xff byte in a file name")
+def test_main_names_a_non_utf8_path_escaped_and_flags_the_files_after_it(tmp_path, monkeypatch, capsys):
+    _git_repo(tmp_path)
+    (tmp_path / "f.py").write_text("x = 1\n", encoding="utf-8")
+    _commit(tmp_path, "base", tag="base")
+    for name in (os.fsdecode(b"r\xff.py"), "z.py"):
+        (tmp_path / name).write_text(LONG, encoding="utf-8")
+    _commit(tmp_path, "odd name")
+    monkeypatch.setattr(ccb, "REPO", tmp_path)
+    assert ccb.main(["--base", "base", "--head", "HEAD"]) == 1
+    out = capsys.readouterr().out
+    assert [line.split(",title=")[0] for line in out.splitlines()] == [
+        "::error file=r\\xff.py,line=1,endLine=3", "::error file=z.py,line=1,endLine=3"]
+
+
 def test_main_exits_2_for_a_base_git_cannot_diff(tmp_path, monkeypatch, capsys):
     _git_repo(tmp_path)
     (tmp_path / "f.py").write_text("x = 1\n", encoding="utf-8")

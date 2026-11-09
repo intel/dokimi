@@ -58,6 +58,11 @@ def _git_z(*args: str) -> list[str]:
     return [os.fsdecode(field) for field in result.stdout.split(b"\0")]
 
 
+def _shown(path: str) -> str:
+    """``path`` as text any UTF-8 stream takes: a byte that is not UTF-8 reads ``\\xff``."""
+    return os.fsencode(path).decode("utf-8", errors="backslashreplace")
+
+
 def glob_regex(pattern: str) -> re.Pattern[str]:
     """The regex a ``depends_on`` glob compiles to (whole-path match)."""
     out, i = [], 0
@@ -159,9 +164,10 @@ def main(argv: list[str] | None = None) -> int:
         pages = load_pages()
     except ValueError as exc:
         page, _, why = str(exc).partition(": ")
-        print(f"::error file={page},title=Docs review::{why}")
+        print(f"::error file={_shown(page)},title=Docs review::{why}")
         return 1
-    flagged = triggers(pages, changed)
+    flagged = {_shown(page): [_shown(h) for h in hits]
+               for page, hits in triggers(pages, changed).items()}
     text = summary(flagged)
     print(text)
     for page, hits in flagged.items():

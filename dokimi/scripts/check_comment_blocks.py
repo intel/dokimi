@@ -61,6 +61,11 @@ def _git_z(*args: str) -> list[str]:
     return [os.fsdecode(field) for field in result.stdout.split(b"\0")]
 
 
+def _shown(path: str) -> str:
+    """``path`` as text any UTF-8 stream takes: a byte that is not UTF-8 reads ``\\xff``."""
+    return os.fsencode(path).decode("utf-8", errors="backslashreplace")
+
+
 def checked(path: str) -> bool:
     """Whether the check reads ``path`` (repository-relative, ``/``-separated)."""
     name = path.rsplit("/", 1)[-1]
@@ -165,7 +170,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"cannot diff {args.base}...{args.head}: {exc.stderr.strip()}", file=sys.stderr)
         return 2
     for path, first, last, size in found:
-        print(f"::error file={path},line={first},endLine={last},title=Comment block::"
+        print(f"::error file={_shown(path)},line={first},endLine={last},title=Comment block::"
               f"{size} comment lines; keep it to {MAX_LINES} that say the reason, "
               "and link an issue or PR for the rest (AGENTS.md)")
     if found:

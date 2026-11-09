@@ -75,6 +75,19 @@ def test_main_writes_summary_and_warnings(tmp_path, monkeypatch, capsys):
     assert f"`{PAGE}`" in summary.read_text(encoding="utf-8")
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="os.fsdecode refuses a 0xff byte")
+def test_main_names_a_non_utf8_path_escaped(tmp_path, monkeypatch, capsys):
+    hit = os.fsdecode(b"dokimi/dokimi/novelty/r\xff.py")
+    monkeypatch.setattr(cdrt, "changed_files", lambda base, head: [hit])
+    monkeypatch.setattr(cdrt, "load_pages", lambda: PAGES)
+    summary = tmp_path / "summary.md"
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
+    assert cdrt.main(["--base", "b", "--head", "h"]) == 0
+    shown = "dokimi/dokimi/novelty/r\\xff.py"
+    assert f"::warning file={PAGE},title=Docs review::{shown} changed;" in capsys.readouterr().out
+    assert f"| `{PAGE}` | `{shown}` |" in summary.read_text(encoding="utf-8")
+
+
 def _tracked_files() -> list[str]:
     result = subprocess.run(["git", "ls-files", "-z"], cwd=cdrt.REPO,
                             capture_output=True, text=True, check=False)
@@ -199,3 +212,15 @@ def test_a_malformed_page_is_named_and_exits_1_not_a_traceback(tmp_path, monkeyp
     out = capsys.readouterr().out
     assert "::error file=dokimi/docs/bad.md" in out
     assert len(out.strip().splitlines()) == 1
+
+
+@pytest.mark.skipif(sys.platform in ("win32", "darwin"), reason="a 0xff byte in a file name")
+def test_a_malformed_page_with_a_non_utf8_name_is_named_escaped(tmp_path, monkeypatch, capsys):
+    docs = tmp_path / "dokimi" / "docs"
+    docs.mkdir(parents=True)
+    (docs / os.fsdecode(b"bad\xff.md")).write_text("---\ndepends_on: a/**\n---\n", encoding="utf-8")
+    monkeypatch.setattr(cdrt, "changed_files", lambda base, head: [])
+    real = cdrt.load_pages
+    monkeypatch.setattr(cdrt, "load_pages", lambda: real(tmp_path))
+    assert cdrt.main([]) == 1
+    assert capsys.readouterr().out.startswith("::error file=dokimi/docs/bad\\xff.md,title=Docs review::")
