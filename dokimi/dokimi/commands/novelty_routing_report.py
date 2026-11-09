@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, NoReturn
 from dokimi.utils import InputError
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Iterator
     from dokimi.novelty.routing import Candidate
 
 
@@ -519,8 +519,8 @@ def _is_partial_file(path: Path) -> bool:
 
 
 def _takes_partial(candidate: Path) -> bool:
-    """Whether a partial result may go to ``candidate``: nothing is there, or a regular file this
-    can write that holds a partial result. A FIFO or device is never opened: its read blocks (#516).
+    """Whether a partial result may go to ``candidate``: nothing is there, or a regular file holding
+    one (:func:`_wrote` tries the write). A FIFO or device is never opened: its read blocks (#516).
     A symlink loop is this name's own and is skipped; any other error is raised, since every later
     name can fail the same way and the search would not end (a name too long only grows longer)."""
     try:
@@ -531,18 +531,32 @@ def _takes_partial(candidate: Path) -> bool:
         if exc.errno != errno.ELOOP and getattr(exc, "winerror", None) != 1921:
             raise
         return False
-    return stat.S_ISREG(mode) and os.access(candidate, os.W_OK) and _is_partial_file(candidate)
+    return stat.S_ISREG(mode) and _is_partial_file(candidate)
 
 
-def _partial_destination(out: Path) -> Path:
-    """The first of ``<out stem>.partial.json``, ``<out stem>.partial2.json``, ... that is free
-    or holds a partial result it can replace (:func:`_takes_partial`), so a partial result never
-    replaces a finished one."""
+def _partial_destinations(out: Path) -> Iterator[Path]:
+    """Each of ``<out stem>.partial.json``, ``<out stem>.partial2.json``, ... in turn that is free
+    or holds a partial result (:func:`_takes_partial`), so a partial result never replaces a
+    finished one."""
     base = out.with_suffix("")
     candidate, number = base.with_name(f"{base.name}.partial.json"), 2
-    while not _takes_partial(candidate):
+    while True:
+        if _takes_partial(candidate):
+            yield candidate
         candidate, number = base.with_name(f"{base.name}.partial{number}.json"), number + 1
-    return candidate
+
+
+def _wrote(path: Path, text: str) -> bool:
+    """Write ``text`` to ``path``; False when the file is there and refuses the write. The write is
+    the test, since ``os.access`` on Windows reads the read-only attribute and not the file's ACL.
+    A refused new file is raised: the directory refuses it, and would refuse every later name."""
+    try:
+        path.write_text(text, encoding="utf-8")
+    except PermissionError:
+        if not path.exists():
+            raise
+        return False
+    return True
 
 
 def save_result(payload: dict, out: Path, model_arm: dict) -> Path:
@@ -551,13 +565,14 @@ def save_result(payload: dict, out: Path, model_arm: dict) -> Path:
     ``model_arm`` is the arm the cap may have stopped: its ``partial`` block, if any, marks the
     result (:func:`partial_block`). A partial result goes to ``out`` unless ``out`` already holds
     something that is not itself a partial result (a finished measurement, or a file this cannot
-    read): then it goes to the first sidecar beside it (:func:`_partial_destination`) that is free
+    read): then it goes to the first sidecar beside it (:func:`_partial_destinations`) that is free
     or a writable partial result, so a cap does not replace a complete run with a prefix.
     """
     payload.update(partial_block(model_arm))
+    text = json.dumps(payload, indent=2)
     if "partial" in payload and out.exists() and not _is_partial_file(out):
-        out = _partial_destination(out)
-    out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        return next(side for side in _partial_destinations(out) if _wrote(side, text))
+    out.write_text(text, encoding="utf-8")
     return out
 
 

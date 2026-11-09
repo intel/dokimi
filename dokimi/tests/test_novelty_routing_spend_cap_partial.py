@@ -10,6 +10,7 @@ import errno
 import json
 import os
 import threading
+from pathlib import Path
 
 import pytest
 
@@ -358,6 +359,49 @@ def test_a_partial_run_skips_a_partial_sidecar_it_cannot_write(tmp_path):
     assert side.read_text(encoding="utf-8") == earlier
     assert json.loads(saved.read_text(encoding="utf-8")) == {"model": {}, "status": "partial",
                                                              "partial": PARTIAL}
+
+
+def _refusing(monkeypatch, refuses) -> list[str]:
+    """``Path.write_text`` raising ``PermissionError`` where ``refuses(path)``, as an NTFS ACL refuses
+    a file whose mode allows the write; returns the names it refused."""
+    real_write, refused = Path.write_text, []
+
+    def write_text(self, *args, **kwargs):
+        if refuses(self):
+            refused.append(self.name)
+            assert len(refused) < 50, "the sidecar search kept trying names refused alike"
+            raise PermissionError(errno.EACCES, "access is denied", os.fspath(self))
+        return real_write(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", write_text)
+    return refused
+
+
+def test_a_partial_run_skips_a_partial_sidecar_whose_write_is_refused(tmp_path, monkeypatch):
+    from dokimi.commands.novelty_routing_report import save_result
+
+    out = _finished(tmp_path)
+    side = tmp_path / "routing.partial.json"
+    earlier = json.dumps({"status": "partial", "partial": PARTIAL})
+    side.write_text(earlier, encoding="utf-8")  # its mode allows the write: os.access says yes
+    refused = _refusing(monkeypatch, lambda path: path == side)
+    saved = save_result({"model": {}}, out, {"partial": PARTIAL})
+    assert refused == [side.name]
+    assert saved == tmp_path / "routing.partial2.json"
+    assert side.read_text(encoding="utf-8") == earlier
+    assert json.loads(saved.read_text(encoding="utf-8")) == {"model": {}, "status": "partial",
+                                                             "partial": PARTIAL}
+
+
+def test_a_partial_run_stops_when_its_directory_refuses_a_new_sidecar(tmp_path, monkeypatch):
+    from dokimi.commands.novelty_routing_report import save_result
+
+    out = _finished(tmp_path)
+    refused = _refusing(monkeypatch, lambda path: path.name.startswith("routing.partial"))
+    with pytest.raises(PermissionError):
+        save_result({}, out, {"partial": PARTIAL})
+    assert refused == ["routing.partial.json"]
+    assert [p.name for p in tmp_path.iterdir()] == [out.name]
 
 
 @pytest.mark.skipif(os.name == "nt", reason="a symlink needs a privilege on Windows")
