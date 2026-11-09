@@ -204,3 +204,9 @@ def test_help_is_not_listed_unless_the_help_lists_it():
     text = "usage: tool [-h] [--input INPUT]\n  -h\n  --input INPUT\n"
     assert help_identifiers(text) == ["--input"]
     assert grade_check(identifiers_check("tool", text), "q", "run tool --help", None).passed is False
+
+
+@pytest.mark.parametrize("tool, message", [("", "empty"), ('perf "report', "does not parse")])
+def test_help_text_refuses_an_empty_or_unparsable_tool(tool, message):
+    with pytest.raises(InputError, match=message):
+        help_text(tool)

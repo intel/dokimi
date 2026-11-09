@@ -31,13 +31,25 @@ _REJECTION = re.compile(
     r"|unrecognized arguments")
 
 
+def _argv(tool: str) -> list[str]:
+    """The words of ``tool``; refused when they do not parse or there are none."""
+    try:
+        argv = shlex.split(tool)
+    except ValueError as exc:
+        raise InputError(f"--tool {tool!r} does not parse: {exc}") from None
+    if not argv:
+        raise InputError("--tool is empty: name the command, for example 'perf report'")
+    return argv
+
+
 def help_text(tool: str, *, timeout: float = 20.0) -> str:
     """``<tool> --help`` output (stdout and stderr), falling back to ``-h``.
 
     Raises:
-        InputError: The tool is not installed, or neither form prints any long option.
+        InputError: The tool is empty or does not parse, is not installed, or neither form
+            prints any long option.
     """
-    argv = shlex.split(tool)
+    argv = _argv(tool)
     for flag in ("--help", "-h"):
         try:
             done = run([*argv, flag], timeout=timeout, env=Env.inherit())
@@ -63,7 +75,7 @@ def identifiers_check(tool: str, text: str, *, version: str | None = None) -> di
     directly by an option, up to a shell comment (``#``). A flag of another command, or of a subcommand (``perf`` then
     ``report``), is then not judged against this help: give each subcommand as its own tool.
     """
-    head = r"\s+".join(re.escape(word) for word in shlex.split(tool))
+    head = r"\s+".join(re.escape(word) for word in _argv(tool))
     source = {"tool": tool, "sha256": hashlib.sha256(text.encode()).hexdigest()}
     if version:
         source["version"] = version
