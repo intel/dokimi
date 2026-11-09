@@ -473,14 +473,23 @@ def _package_finding(client: httpx.Client, eco: str, name: str) -> Optional[Find
 def _proxied(url: str) -> bool:
     """Whether an environment proxy carries ``url``: its resolver failure then names the proxy, not the link."""
     parts = urlsplit(url)
-    return parts.scheme in getproxies() and not proxy_bypass(parts.hostname or "")
+    proxies = getproxies()
+    return (parts.scheme in proxies or "all" in proxies) and not proxy_bypass(parts.hostname or "")
+
+
+def _failed_url(exc: BaseException, url: str) -> str:
+    """The URL of the request that failed: the redirect hop it was on, else ``url``."""
+    try:
+        return str(exc.request.url)  # type: ignore[attr-defined]
+    except (AttributeError, RuntimeError):
+        return url
 
 
 def _link_finding(client: httpx.Client, url: str) -> Optional[Finding]:
     try:
         status = _status(client, url)
     except _PROBE_ERRORS as exc:
-        if _is_dns_failure(exc) and not _proxied(url):
+        if _is_dns_failure(exc) and not _proxied(_failed_url(exc, url)):
             return Finding("warn", "link-dead", f"link {url} does not resolve (DNS failure)")
         return None
     if status not in _DEAD_LINK_STATUSES:

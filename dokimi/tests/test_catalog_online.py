@@ -676,6 +676,35 @@ def test_resolver_failure_of_the_proxy_is_not_a_dead_link(monkeypatch):
     assert online_checks._link_finding(online_checks.make_client(), "https://real-site.example-tool.dev/") is None
 
 
+def test_resolver_failure_with_only_all_proxy_set_is_not_a_dead_link(monkeypatch):
+    monkeypatch.setenv("ALL_PROXY", "http://missing-proxy.invalid:8080")
+    for name in ("NO_PROXY", "no_proxy"):
+        monkeypatch.setenv(name, "")
+
+    def no_such_host(*args, **kwargs):
+        raise socket.gaierror(socket.EAI_NONAME, "Name or service not known")
+
+    monkeypatch.setattr(socket, "getaddrinfo", no_such_host)
+    assert online_checks._link_finding(online_checks.make_client(), "https://real-site.example-tool.dev/") is None
+
+
+def test_resolver_failure_of_the_proxy_after_a_redirect_is_not_a_dead_link(monkeypatch):
+    # The first host bypasses the proxy; the redirect target goes through it, and the proxy's host fails.
+    monkeypatch.setenv("HTTPS_PROXY", "http://missing-proxy.invalid:8080")
+    for name in ("NO_PROXY", "no_proxy"):
+        monkeypatch.setenv(name, "start.example-tool.dev")
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "start.example-tool.dev":
+            return httpx.Response(302, headers={"location": "https://docs.example-tool.dev/"})
+        error = httpx.ConnectError("[Errno -2] Name or service not known", request=request)
+        error.__cause__ = socket.gaierror(socket.EAI_NONAME, "Name or service not known")
+        raise error
+
+    client = httpx.Client(transport=httpx.MockTransport(handle))
+    assert online_checks._link_finding(client, "https://start.example-tool.dev/") is None
+
+
 def test_timeout_on_a_link_is_not_dead(tmp_path):
     url = "https://slow.example-tool.dev/"
     root = _one_skill(tmp_path, f"See {url}\n")
