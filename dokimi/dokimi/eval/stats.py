@@ -50,6 +50,7 @@ instead.
 
 from __future__ import annotations
 
+import importlib.util
 import math
 import random
 from dataclasses import dataclass
@@ -57,13 +58,16 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from dokimi.records import BASELINE, CONTEXT, RecordLike, records
 
-try:
-    from scipy import stats as _sp_stats
+#: Checked without importing scipy, whose OpenBLAS starts a thread per core
+#: (~18 CPU-seconds per dokimi call on a 224-core box); :func:`_sp_stats` imports it.
+HAS_SCIPY = importlib.util.find_spec("scipy") is not None
 
-    HAS_SCIPY = True
-except ImportError:  # pragma: no cover - environment dependent
-    _sp_stats = None
-    HAS_SCIPY = False
+
+def _sp_stats() -> Any:
+    """``scipy.stats``, imported on first use."""
+    from scipy import stats
+
+    return stats
 
 #: Minimum complete pairs before a hypothesis test is attempted.
 #:
@@ -183,7 +187,11 @@ def mean_ci(values, confidence: float = 0.95, seed: int = 0, ndigits: Optional[i
         # bootstrap would report the same thing after 10k pointless resamples.
         return {"mean": _rnd(mu, ndigits), "lo": _rnd(mu, ndigits), "hi": _rnd(mu, ndigits),
                 "n": n, "method": "degenerate"}
-    half = float(_sp_stats.t.ppf(1.0 - (1.0 - confidence) / 2.0, n - 1)) * sd / (n ** 0.5)
+    try:
+        t_crit = _sp_stats().t.ppf(1.0 - (1.0 - confidence) / 2.0, n - 1)
+    except ImportError:  # find_spec sees scipy, but it does not load here (a native dependency)
+        return bootstrap_ci(vals, confidence=confidence, seed=seed, ndigits=ndigits)
+    half = float(t_crit) * sd / (n ** 0.5)
     lo, hi = mu - half, mu + half
     if math.isfinite(mu) and math.isfinite(sd) and not (math.isfinite(lo) and math.isfinite(hi)):
         raise OverflowError("the confidence interval of the mean is beyond the float range")
@@ -503,7 +511,7 @@ def _one_sample_pvalues(deltas: Sequence[float]) -> Dict[str, Any]:
     try:
         # t is scale-free; scaled, SciPy's variance of deltas at 1e200 does not overflow to p = 1.0.
         scale = _pow2_scale(deltas)
-        _, p_t = _sp_stats.ttest_1samp([d / scale for d in deltas], 0.0)
+        _, p_t = _sp_stats().ttest_1samp([d / scale for d in deltas], 0.0)
         res["p_ttest"] = float(p_t)
     except Exception:  # pragma: no cover - degenerate input
         pass
@@ -516,7 +524,7 @@ def _one_sample_pvalues(deltas: Sequence[float]) -> Dict[str, Any]:
             # runs the test on a fraction of the pairs while ``n`` reports the
             # full count. Measured on 20 pairs with 15 ties: 0.0253 discarding
             # versus 0.0764 splitting, i.e. the verdict flips.
-            _, p_w = _sp_stats.wilcoxon(
+            _, p_w = _sp_stats().wilcoxon(
                 list(deltas), zero_method="zsplit", alternative="two-sided"
             )
             res["p_wilcoxon"] = float(p_w)

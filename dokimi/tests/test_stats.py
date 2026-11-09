@@ -636,6 +636,18 @@ def test_mean_ci_forwards_the_confidence_and_the_seed_to_the_bootstrap_fallback(
     assert seen == {"seed": 7, "confidence": 0.8, "ndigits": 4}
 
 
+def test_mean_ci_falls_back_to_bootstrap_when_scipy_is_found_but_does_not_import(monkeypatch):
+    # find_spec sees scipy even when a native dependency makes the import raise.
+    def broken():
+        raise ImportError("libgomp.so.1: cannot open shared object file")
+
+    monkeypatch.setattr(stats, "HAS_SCIPY", True)
+    monkeypatch.setattr(stats, "_sp_stats", broken)
+    ci = stats.mean_ci([1.0, 2.0, 3.0])
+    assert ci["method"] == "percentile_bootstrap"
+    assert ci["n"] == 3
+
+
 def test_bootstrap_ci_defaults_are_pinned():
     """grounding.py calls bootstrap_ci with every default, so the default seed and
     n_resamples set the stored grounding_score interval."""
@@ -770,3 +782,15 @@ def test_mean_ci_raises_when_the_interval_leaves_the_float_range():
         stats.paired_test([9e307, -9e307], [0.0, 0.0])
     ci = stats.mean_ci([1e300, -1e300, 1e300], ndigits=None)
     assert ci["lo"] < 0 < ci["hi"] and ci["hi"] < float("inf")
+
+
+def test_importing_the_cli_does_not_load_scipy():
+    # Loading scipy starts one OpenBLAS thread per core: on a 224-core box every
+    # dokimi call, --help included, spent ~18 CPU-seconds on it.
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    code = "import sys, dokimi.cli; print(sorted(m for m in ('scipy', 'numpy') if m in sys.modules))"
+    project = Path(__file__).resolve().parents[1]
+    assert subprocess.check_output([sys.executable, "-c", code], text=True, cwd=project).strip() == "[]"
