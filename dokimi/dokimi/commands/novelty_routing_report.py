@@ -527,8 +527,8 @@ def _takes_partial(candidate: Path) -> bool:
         mode = os.stat(candidate).st_mode
     except FileNotFoundError:
         return True
-    except OSError as exc:
-        if exc.errno != errno.ELOOP:
+    except OSError as exc:  # Windows reports a loop as WinError 1921, not ELOOP
+        if exc.errno != errno.ELOOP and getattr(exc, "winerror", None) != 1921:
             raise
         return False
     return stat.S_ISREG(mode) and os.access(candidate, os.W_OK) and _is_partial_file(candidate)

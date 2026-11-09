@@ -371,6 +371,57 @@ def test_a_partial_run_skips_a_sidecar_that_is_a_symlink_loop(tmp_path):
     assert json.loads(saved.read_text(encoding="utf-8"))["partial"] == PARTIAL
 
 
+class _WindowsError(OSError):
+    """An ``OSError`` as Windows raises it: ``errno`` from the Windows code, which ``winerror`` keeps."""
+
+    winerror: int
+
+
+def _windows_error(winerror: int, path) -> _WindowsError:
+    exc = _WindowsError(errno.EINVAL, "windows error", os.fspath(path))
+    exc.winerror = winerror
+    return exc
+
+
+def test_a_partial_run_skips_a_sidecar_windows_reports_as_a_symlink_loop(tmp_path, monkeypatch):
+    from dokimi.commands.novelty_routing_report import save_result
+
+    out = _finished(tmp_path)
+    loop = tmp_path / "routing.partial.json"
+    real_stat = os.stat
+
+    def stat(path, *args, **kwargs):  # Windows: a loop is EINVAL with WinError 1921, not ELOOP
+        if os.fspath(path) == os.fspath(loop):
+            raise _windows_error(1921, path)
+        return real_stat(path, *args, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(os, "stat", stat)
+        saved = save_result({}, out, {"partial": PARTIAL})
+    assert saved == tmp_path / "routing.partial2.json"
+    assert json.loads(saved.read_text(encoding="utf-8"))["partial"] == PARTIAL
+
+
+def test_a_partial_run_stops_on_another_windows_error_of_its_sidecar(tmp_path, monkeypatch):
+    from dokimi.commands.novelty_routing_report import save_result
+
+    out = _finished(tmp_path)
+    real_stat, names = os.stat, []
+
+    def stat(path, *args, **kwargs):  # EINVAL with another WinError (123, a bad name) is no loop
+        names.append(path)
+        assert len(names) < 50, "the sidecar search kept trying names that fail alike"
+        if os.path.basename(os.fspath(path)).startswith("routing.partial"):
+            raise _windows_error(123, path)
+        return real_stat(path, *args, **kwargs)
+
+    with monkeypatch.context() as patch, pytest.raises(OSError) as error:
+        patch.setattr(os, "stat", stat)
+        save_result({}, out, {"partial": PARTIAL})
+    assert getattr(error.value, "winerror", None) == 123
+    assert [p.name for p in tmp_path.iterdir()] == [out.name]
+
+
 @pytest.mark.skipif(not hasattr(os, "pathconf"), reason="NAME_MAX is POSIX")
 def test_a_partial_run_whose_sidecar_name_is_too_long_stops_on_it(tmp_path, monkeypatch):
     from dokimi.commands.novelty_routing_report import save_result
