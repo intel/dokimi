@@ -121,8 +121,10 @@ What changes and what does not:
   nemotron-12b first and grok-4.6 second. gpt-6-luna swaps the two, and grok-4.6 ranks its
   own answers first and haiku-4.5 second. All eight put opus-5 or GPT-5.6 last. Statements of the form "the skill adds more for a weaker model"
   survive any choice of judge. A single number such as "13% added for opus" does not.
-- **Degraded stays small under every judge**: 0.00–0.07 lenient and 0.00–0.07 strict, within
-  the noise floor.
+- **Degraded stays small under every judge**: 0.00–0.07 lenient and 0.00–0.07 strict. Repeat
+  estimates exist only for some answer models and judges (none for opus-5 or GPT-5.6 answers, or
+  the original judge), and three rows per scale have a degraded share above their repeat
+  estimate, so the range is not shown to be within noise.
 
 ### Noise floor per judge
 
