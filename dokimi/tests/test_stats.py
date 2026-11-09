@@ -734,3 +734,28 @@ def test_arm_significance_correction_changes_the_adjusted_p():
     assert bh["docs+skill:x"]["p_adjusted"] == 0.0003
     assert holm["skill:x"]["significant_adjusted"] is True
     assert holm["docs"]["significant_adjusted"] is False
+
+
+def test_sample_sd_of_values_at_1e300_is_finite_and_scales_linearly():
+    """Squaring a deviation of 1e300 overflowed: https://github.com/intel/dokimi/issues/475."""
+    # [1, -1, 1, -1, 1, 1]: mean 1/3, squared deviations sum to 16/3, sd = sqrt(16/15).
+    assert stats._sample_sd([1e300, -1e300, 1e300, -1e300, 1e300, 1e300]) == pytest.approx(
+        4 / 15 ** 0.5 * 1e300, rel=1e-12
+    )
+
+
+def test_paired_test_at_1e200_matches_the_scaled_down_deltas():
+    """The sd and SciPy's t-test variance overflowed here: https://github.com/intel/dokimi/issues/475."""
+    pytest.importorskip("scipy")
+    small = [1.0, -1.0, 3.0, 2.0, 1.0, -1.0]
+    ref = stats.paired_test(small, [0.0] * 6, rounded=False)
+    res = stats.paired_test([d * 1e200 for d in small], [0.0] * 6, rounded=False)
+    # Deltas with mean 5/6 and squared deviations summing to 77/6: sd = sqrt(77/30).
+    assert res["delta_std"] == pytest.approx((77 / 30) ** 0.5 * 1e200, rel=1e-12)
+    assert res["delta_mean"] == pytest.approx(5 / 6 * 1e200, rel=1e-12)
+    assert res["cohens_d"] == ref["cohens_d"] == 0.52
+    assert res["exact"]["ci_lo"] == pytest.approx(ref["exact"]["ci_lo"] * 1e200, rel=1e-9)
+    assert res["exact"]["ci_hi"] == pytest.approx(ref["exact"]["ci_hi"] * 1e200, rel=1e-9)
+    assert res["p_ttest"] == pytest.approx(ref["p_ttest"], rel=1e-9)
+    assert stats._round_p(res["p_ttest"]) == 0.2586
+    assert res["p_wilcoxon"] == ref["p_wilcoxon"]

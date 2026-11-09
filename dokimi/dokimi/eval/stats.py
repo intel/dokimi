@@ -309,11 +309,19 @@ def _mean(vals: Sequence[float]) -> float:
     return sum(vals) / len(vals)
 
 
+def _pow2_scale(vals: Sequence[float]) -> float:
+    """The power of two at or below ``max(abs(vals))``: dividing by it is exact and leaves each value under 2."""
+    return math.ldexp(1.0, math.frexp(max(abs(v) for v in vals))[1] - 1)
+
+
 def _sample_sd(vals: Sequence[float]) -> float:
     if len(vals) < 2:
         return 0.0
     mu = _mean(vals)
-    return (sum((x - mu) ** 2 for x in vals) / (len(vals) - 1)) ** 0.5
+    devs = [x - mu for x in vals]
+    # Scaled so that squaring a deviation of 1e200 cannot overflow: https://github.com/intel/dokimi/issues/475
+    scale = _pow2_scale(devs)
+    return scale * math.sqrt(sum((d / scale) ** 2 for d in devs) / (len(vals) - 1))
 
 
 #: z for a two-sided 95% interval.
@@ -490,7 +498,9 @@ def _one_sample_pvalues(deltas: Sequence[float]) -> Dict[str, Any]:
     if _is_degenerate(_mean(deltas), _sample_sd(deltas)):
         return res
     try:
-        _, p_t = _sp_stats.ttest_1samp(list(deltas), 0.0)
+        # t is scale-free; scaled, SciPy's variance of deltas at 1e200 does not overflow to p = 1.0.
+        scale = _pow2_scale(deltas)
+        _, p_t = _sp_stats.ttest_1samp([d / scale for d in deltas], 0.0)
         res["p_ttest"] = float(p_t)
     except Exception:  # pragma: no cover - degenerate input
         pass
