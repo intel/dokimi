@@ -13,7 +13,7 @@ results. Run all commands from `dokimi/`.
 `dokimi` has four practical comparison modes:
 
 - **Static snapshot comparison**: compare documentation quality snapshots from
-  `python cli.py run`.
+  `python cli.py docs check`.
 - **LLM context comparison**: compare one answer model's context-arm and
   baseline answers. Persisted JSON keeps the legacy `with_docs` and
   `without_docs` keys for compatibility.
@@ -31,7 +31,7 @@ Use the static benchmark when the question is "did this documentation snapshot
 get structurally better or worse?"
 
 ```bash
-python cli.py run \
+python cli.py docs check \
   --root . \
   --spec benchmarks/spec.v1.yaml \
   --out-json baselines/current.json \
@@ -49,7 +49,7 @@ so keep the first `baselines/current.json` you are happy with:
 ```bash
 cp baselines/current.json baselines/baseline.json   # once, after a clean run
 
-python cli.py compare \
+python cli.py docs compare \
   --base baselines/baseline.json \
   --candidate baselines/current.json \
   --spec benchmarks/spec.v1.yaml \
