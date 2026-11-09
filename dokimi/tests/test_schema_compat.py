@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -465,3 +466,61 @@ def test_the_moved_directory_under_a_root_with_a_cr_or_trailing_space(monkeypatc
     _commit_all(repo, "move")
     monkeypatch.setattr(sc, "SCHEMA_DIR", repo / "new")
     assert sc._renamed_from("HEAD~1", ".") == "old/"
+
+
+# ── names that are not valid UTF-8: os.fsdecode keeps the byte, errors="replace" made it U+FFFD ──
+
+_BYTE_NAMES = pytest.mark.skipif(sys.platform in ("win32", "darwin"),
+                                 reason="a file system that rejects a name that is not UTF-8")
+
+
+@_BYTE_NAMES
+def test_the_moved_directory_under_a_root_whose_name_is_not_utf8(monkeypatch, tmp_path):
+    """With U+FFFD for the byte, the root was not the directory SCHEMA_DIR.resolve() is under,
+    and relative_to() raised ValueError."""
+    import dokimi.schema_compat as sc
+
+    repo = tmp_path / os.fsdecode(b"ro\xffot")
+    (repo / "old").mkdir(parents=True)
+    (repo / "old/x.json").write_text(json.dumps(_with(description="x" * 200)), encoding="utf-8")
+    _commit_all(repo)
+    (repo / "old").rename(repo / "new")
+    _commit_all(repo, "move")
+    monkeypatch.setattr(sc, "SCHEMA_DIR", repo / "new")
+    assert sc._renamed_from("HEAD~1", ".") == "old/"
+
+
+@_BYTE_NAMES
+def test_compare_against_reads_schemas_moved_from_a_directory_whose_name_is_not_utf8(
+        monkeypatch, tmp_path):
+    """With U+FFFD for the byte, the old directory was no tree of the base and ls-tree failed."""
+    import dokimi.schema_compat as sc
+
+    old = tmp_path / "pkg" / os.fsdecode(b"ol\xffd")
+    old.mkdir(parents=True)
+    (old / "x.v1.json").write_text(json.dumps(_with(required=[], description="x" * 200)),
+                                   encoding="utf-8")
+    _commit_all(tmp_path)
+    old.rename(tmp_path / "pkg/new")
+    _commit_all(tmp_path, "move")
+    (tmp_path / "pkg/new/x.v1.json").write_text(json.dumps(_with(description="x" * 200)),
+                                                encoding="utf-8")
+    monkeypatch.setattr(sc, "SCHEMA_DIR", tmp_path / "pkg/new")
+    assert {n: d.breaking for n, d in sc.compare_against("HEAD~1").items()} == {
+        "x.v1.json": ["<root>: 'a' is now required"]}
+
+
+@_BYTE_NAMES
+def test_main_reports_a_breaking_edit_to_a_schema_whose_name_is_not_utf8(
+        monkeypatch, tmp_path, capsys):
+    """With U+FFFD for the byte, git show had no such path and the check stopped; printed as
+    it is, the name stopped it on UnicodeEncodeError."""
+    import dokimi.schema_compat as sc
+
+    name = os.fsdecode(b"r\xff.v1.json")
+    (tmp_path / name).write_text(json.dumps(_with(required=[])), encoding="utf-8")
+    _commit_all(tmp_path)
+    (tmp_path / name).write_text(json.dumps(OBJ), encoding="utf-8")
+    monkeypatch.setattr(sc, "SCHEMA_DIR", tmp_path)
+    assert sc.main(["--base", "HEAD"]) == 1
+    assert "BREAKING r?.v1.json <root>: 'a' is now required" in capsys.readouterr().out

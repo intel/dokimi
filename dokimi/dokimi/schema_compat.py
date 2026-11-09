@@ -34,12 +34,14 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from dokimi import process
+from dokimi.console import tolerate_console_encoding
 
 SCHEMA_DIR = Path(__file__).resolve().parent / "schemas"
 
@@ -252,7 +254,13 @@ def _git_proc(*args: str) -> process.Completed:
     return proc
 
 
-FIXTURE_DIR = "../../tests/fixtures/artifacts"
+def _nul_paths(*args: str) -> list[str]:
+    """``git <args>``'s ``-z`` listing split on NUL, each path by :func:`os.fsdecode`: a name that is
+    not valid UTF-8 comes back as the path that names the file, not with U+FFFD in it."""
+    return [os.fsdecode(field) for field in _git_proc(*args).stdout_bytes.split(b"\0")]
+
+
+FIXTURE_DIR ="../../tests/fixtures/artifacts"
 
 
 def _renamed_from(base: str, rel: str) -> str | None:
@@ -263,11 +271,11 @@ def _renamed_from(base: str, rel: str) -> str | None:
     git's rename detection says where the files came from: the first renamed file under the
     directory gives the old directory, as a path from the repository root with a trailing ``/``.
     """
-    # Decoded from the bytes, less git's newline only: a root ending in "\r" or a space keeps it.
-    out = _git_proc("rev-parse", "--show-toplevel").stdout_bytes.decode("utf-8", errors="replace")
+    # By fsdecode, as SCHEMA_DIR.resolve() names it, less git's newline only: a final "\r" or space stays.
+    out = os.fsdecode(_git_proc("rev-parse", "--show-toplevel").stdout_bytes)
     top = Path(out.removesuffix("\n")).resolve()
     prefix = (SCHEMA_DIR / rel).resolve().relative_to(top).as_posix() + "/"
-    fields = _git_proc("-C", str(top), "diff", "--name-status", "-M", "-z", base).nul_fields()
+    fields = _nul_paths("-C", str(top), "diff", "--name-status", "-M", "-z", base)
     i = 0
     while i < len(fields) - 2:
         status = fields[i]
@@ -284,8 +292,8 @@ def _renamed_from(base: str, rel: str) -> str | None:
 
 def _ls_tree_names(*args: str) -> list[str]:
     """The names ``git ls-tree -z --name-only <args>`` lists, split on NUL: unquoted, with a
-    ``\\r``, a space or a non-ASCII character as git stores it."""
-    return [name for name in _git_proc("ls-tree", "-z", "--name-only", *args).nul_fields() if name]
+    ``\\r``, a space or a non-ASCII byte as git stores it."""
+    return [name for name in _nul_paths("ls-tree", "-z", "--name-only", *args) if name]
 
 
 def _base_has_schemas(base: str) -> bool:
@@ -334,6 +342,7 @@ def main(argv: list[str] | None = None) -> int:
                                      description=__doc__.split("\n\n")[0])
     parser.add_argument("--base", required=True, help="git revision to compare against")
     args = parser.parse_args(argv)
+    tolerate_console_encoding()  # a schema name that is not UTF-8 prints with "?", not UnicodeEncodeError
 
     results = compare_against(args.base)
     n_breaking = 0
