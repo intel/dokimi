@@ -13,7 +13,8 @@ a test can swap the transport for a stub:
 
 A check is one ``evals.json`` row (its id) or one top-level ``test_*`` function under a task's
 ``tests/`` (named by the function; a function whose text differs between tasks gets a number). A task check's
-text is the function with the module-level code it reads: its constants, helpers and imports.
+text is the function with the module-level code it reads: its constants, helpers, imports and the ``conftest.py``
+fixtures of its folder that it names.
 A requirement that no check names is uncovered: it is a *candidate check* to write.
 
 The map is LLM-estimated and unverified beyond a labelled calibration set (88 items: item precision
