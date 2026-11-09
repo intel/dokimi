@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import threading
 from pathlib import Path
 
 import pytest
@@ -172,14 +173,61 @@ def test_trace_prefilter_refuses_a_device_as_the_guidance_file(monkeypatch, tmp_
     assert capsys.readouterr().err.strip() == "Error: guidance /dev/null: not a file"
 
 
-def test_trace_prefilter_reports_a_device_session_and_still_reads_the_others(monkeypatch, tmp_path, capsys):
-    """A device among the sessions is reported like any unreadable session: the rest are read, exit 1."""
+def _prefilter_inputs(tmp_path):
+    """A guidance file and one readable session, as the paths ``trace prefilter`` takes."""
     guide = tmp_path / "AGENTS.md"
     guide.write_text("# Rules\n\n- Always run `make ci-local` before a commit.\n", encoding="utf-8")
     good = tmp_path / "good.jsonl"
     good.write_text(json.dumps({"type": "user", "message": {"role": "user", "content": "hi"}}) + "\n",
                     encoding="utf-8")
-    assert _main(monkeypatch, "trace", "prefilter", str(guide), str(good), DEVICE, "--min-sessions", "1") == 1
+    return str(guide), str(good)
+
+
+def test_trace_prefilter_reports_a_device_session_and_still_reads_the_others(monkeypatch, tmp_path, capsys):
+    """A device among the sessions is reported like any unreadable session: the rest are read, exit 1."""
+    guide, good = _prefilter_inputs(tmp_path)
+    assert _main(monkeypatch, "trace", "prefilter", guide, good, DEVICE, "--min-sessions", "1") == 1
     out, err = capsys.readouterr()
     assert "✗ /dev/null: not a file" in err
+    assert "1 session(s)" in out
+
+
+def test_trace_prefilter_reports_a_device_subagent_transcript_and_still_reads_its_session(monkeypatch, tmp_path,
+                                                                                          capsys):
+    """``read_session`` keeps its own check: a subagent transcript is read there, past ``_read_sessions``."""
+    guide, good = _prefilter_inputs(tmp_path)
+    subagents = tmp_path / "good" / "subagents"
+    subagents.mkdir(parents=True)
+    (subagents / "agent-1.jsonl").symlink_to(DEVICE)
+    monkeypatch.setattr("sys.argv", ["dokimi", "trace", "prefilter", guide, good, "--min-sessions", "1"])
+    cli.main()  # exit 0: the session itself was read
+    out, err = capsys.readouterr()
+    assert f"{subagents / 'agent-1.jsonl'}: not a file" in err
+    assert "1 session(s)" in out
+
+
+def test_trace_prefilter_refuses_a_terminal_session_before_its_format_is_sniffed(monkeypatch, tmp_path, capsys):
+    """The Goose header check reads the file: on an idle terminal (``/dev/pts/N``) that read never returns."""
+    import pty  # POSIX only: termios does not import on Windows
+
+    try:
+        master, slave = pty.openpty()
+    except OSError:
+        pytest.skip("no pseudo-terminal")
+    guide, good = _prefilter_inputs(tmp_path)
+    terminal = os.ttyname(slave)
+    codes = []
+    run = threading.Thread(daemon=True, target=lambda: codes.append(
+        _main(monkeypatch, "trace", "prefilter", guide, good, terminal, "--min-sessions", "1")))
+    run.start()
+    run.join(20)
+    blocked = run.is_alive()
+    os.write(master, b"x" * 16 + b"\n")  # a line of the header's 16 bytes ends a read blocked on it
+    run.join(20)
+    os.close(slave)
+    os.close(master)
+    assert not blocked, f"trace prefilter blocked reading {terminal}"
+    assert codes == [1]
+    out, err = capsys.readouterr()
+    assert f"✗ {terminal}: not a file" in err
     assert "1 session(s)" in out

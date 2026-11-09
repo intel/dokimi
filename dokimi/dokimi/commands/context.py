@@ -13,7 +13,7 @@ import os
 import sys
 from pathlib import Path
 
-from dokimi.utils import refuse_device
+from dokimi.utils import InputError, refuse_device
 
 
 def cmd_context_trace(args: argparse.Namespace) -> None:
@@ -194,9 +194,10 @@ def _read_sessions(names: list[str]) -> tuple[list, bool]:
         unreadable: list = []  # Goose sessions of unreadable messages only: not counted, still reported
         try:
             source = Path(path)
+            refuse_device(source)  # before is_goose_store's header read, which blocks on an idle terminal
             sessions = (read_goose_store(source, unreadable) if is_goose_store(source)
                         else [read_session_tree(source)])
-        except SessionError as exc:  # report it, and still read the sessions that do
+        except (SessionError, InputError) as exc:  # report it, and still read the sessions that do
             print(f"✗ {exc}", file=sys.stderr)
             failed = True
             sessions = []
