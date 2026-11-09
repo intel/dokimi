@@ -22,8 +22,8 @@ and the known share by up to 0.32 (haiku-4.5).
 The original judge is the most lenient of the eight, so the published lenient added shares sit
 at the low end of the panel. Nemotron-12b is first and opus-5 last under every judge (placebo-gated, lenient); the middle
 ranks change. Majority, median
-and Dawid-Skene agree on 99.3% of rows. Three judges from three families get most
-of the stability of seven. A newer generation of the same judge (section 6) is about as
+and Dawid-Skene agree on 99.3% of rows. Three judges from three families agree with the
+full panel on 96.6% of rows (one judge: 94.1%); the second judge gives most of the drop in spread. A newer generation of the same judge (section 6) is about as
 different as another vendor: κ 0.61–0.72, and up to 0.15 on one added share.
 
 ## Setup
@@ -253,7 +253,7 @@ wrong, so two judges act as a unanimity rule. The SD gain comes at two judges: t
 falls from 0.039 to 0.026. A third judge changes it by 0.001. Three judges are recommended for
 their agreement with the full panel (0.943 to 0.966), which is measured against a consensus that
 includes the subset. Five judges agree more (0.980) but have the same SD as four; only six halve
-the spread (0.011). Recommendation: **three judges from three families with majority vote** for
+the value for five (0.021 to 0.011). Recommendation: **three judges from three families with majority vote** for
 routine runs, and **five** for a published number, for the agreement, not the spread. Report the
 per-judge numbers alongside either.
 
@@ -392,6 +392,7 @@ Script: `research/judge-panel/gen.py`. Tables: `docs/assets/judge-panel/generati
 | openai: gpt-5.6-luna → gpt-6-sol | 0.70 | 0.756 → 0.713 | 0.13→0.16 / 0.12→0.18 / 0.15→0.16 / 0.34→0.29 / 0.43→0.50 |
 | moonshot: kimi-k2.5 → kimi-k3 | 0.65 | 0.599 → 0.716 | 0.26→0.23 / 0.32→0.23 / 0.31→0.23 / 0.37→0.35 / 0.52→0.45 |
 | anthropic: haiku-4.5 → sonnet-5 | 0.66 | 0.651 → 0.652 | 0.15→0.21 / 0.20→0.30 / 0.21→0.23 / 0.34→0.32 / 0.53→0.55 |
+| anthropic: haiku-4.5 → opus-5.5 | 0.63 | 0.651 → 0.718 | 0.15→0.18 / 0.20→0.20 / 0.21→0.23 / 0.34→0.36 / 0.53→0.58 |
 | anthropic: sonnet-5 → opus-5.5 | 0.71 | 0.652 → 0.718 | 0.21→0.18 / 0.30→0.20 / 0.23→0.23 / 0.32→0.35 / 0.55→0.58 |
 | deepseek: r1 → v3.2 | 0.61 | 0.735 → 0.639 | 0.13→0.18 / 0.15→0.30 / 0.15→0.21 / 0.37→0.35 / 0.47→0.57 |
 
@@ -412,8 +413,8 @@ What a generation update does to judgment:
   has 2,664 graded rows (no repeat grades), the new judges 2,932, so the OpenAI delta is not a
   same-rows comparison.
 - **One answer model's added share moves by up to 0.15 between generations.** For haiku-4.5 answers, deepseek-r1 0.15 vs v3.2 0.30; for the same answers, sonnet-5 0.30 vs opus-5.5 0.20. The generation CSVs have no noise column, so the shift is not set against a noise floor: the study's floor covers only its own panel, and claude-haiku-4-5, gpt-6-sol, claude-opus-5-5, kimi-k2.5 and deepseek-r1 are outside it (their repeat grades are in judge_leniency.csv but not tabulated).
-- **Newer judges are mixed against the consensus.** Five of seven old-to-new pairs move closer
-  to the panel, two move away (both OpenAI pairs). gpt-6-luna has the lowest mean κ of the
+- **Newer judges are mixed on mean κ against the other judges.** Five of seven old-to-new pairs
+  raise it, and both OpenAI pairs lower it. gpt-6-luna has the lowest mean κ of the
   OpenAI, Anthropic, Kimi, DeepSeek, xAI, GLM and Qwen judges (0.54, against 0.58 for gpt-5.6-luna). kimi-k3 has the highest (0.64).
   Recency does not stand in for judge quality.
 - **A three-family panel absorbs most of the change.** The median panel
