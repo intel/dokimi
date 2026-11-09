@@ -378,11 +378,11 @@ _NEGATED = re.compile(r"(?i)\bnot\b|n't\b|\bnever\b|\bno\b|\bavoid\w*|\bwithout\
 #: An option with an assigned value (``--input=--stdin``): the value is a file name, not an option.
 _ASSIGNED = re.compile(r"""(?<![\w-])(--[A-Za-z][\w-]*)=(?:"[^"\n]*"|'[^'\n]*'|[^\s,;|&]+)""")
 #: A word a flag takes after a space (``--sort no``) is its value: it negates no clause and, with the
-#: default pattern, names no option (``--input "no --stdin"``). ``--stdio doesn't`` keeps its negation.
+#: default pattern, names no option (``--input "no --stdin"``; a quoted ``--x`` still does).
 _VALUE_WORD = re.compile(
     r"((?<![\w-])--[A-Za-z][\w-]*\s+)"
     r"(?!(?:not|never|without|rather|instead|avoid\w*|and|but|then|while)\b|[\w.-]*n't\b)"
-    r"(?:\"[^\"\n]*\"(?!\w)|'[^'\n]*'(?!\w)|[\w./][\w./-]*)",
+    r"(?:\"(?!-)[^\"\n]*\"(?!\w)|'(?!-)[^'\n]*'(?!\w)|[\w./][\w./-]*)",
     re.IGNORECASE)
 
 

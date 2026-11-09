@@ -87,7 +87,7 @@ def _declaration(line: str) -> str:
         before, after = line[:m.start()], line[m.end():]
         if before.endswith(","):
             continue
-        if re.search(r"(?:^|\s)-[^\s-]$", before) and after.startswith("-"):
+        if re.search(r"(?:^|\s)-[^\s-]$", before) and after.startswith("--"):
             continue
         return before
     return line
