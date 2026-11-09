@@ -171,7 +171,8 @@ def _env_command(args: list[str]) -> list[str]:
     """What ``env`` runs: its options (``-u`` and ``-C`` take an operand) and the ``NAME=value`` words before the
     command are skipped. ``-S`` takes the rest of the line as one string that env splits as GNU env splits it (see
     :func:`_env_split`), so its quotes group words; a string that does not split is not a command ``env`` runs, so it
-    gives nothing. A split that holds another ``-S`` is split again, in a loop: a long run of them is no recursion."""
+    gives nothing. A split that holds another ``-S`` is split again, in a loop: a long run of them is no recursion, and
+    the loop ends because each split is shorter than the text it came from."""
     while True:
         i = 0
         split: Optional[list[str]] = None
@@ -285,20 +286,32 @@ def _in_quotes(c: bytes) -> bytes:
     return b"\x01" if c in (b" ", b"\t", b"\n") else c
 
 
+HEREDOC_OPEN = re.compile(rb"<<(-?)[ \t]*(?:'([^'\n]*)'|\"([^\"\n]*)\"|\\?([^\s;&|<>()'\"]+))")  # not <<<, which has no word
+
+
 def _unquoted_text(data: bytes) -> bytes:
     """The script with its comments removed, its quote marks dropped and its line continuations joined, for the shopt
     check. A ``#`` that starts a word, outside quotes, begins a comment (``$#`` and ``${x##*/}`` do not); a quoted
     word is its text, so ``shopt -s 'extglob'`` names extglob and ``echo "a # b"`` has no comment (see
-    :func:`_in_quotes`)."""
+    :func:`_in_quotes`). A heredoc body is text for the shell, not script, so it is left out; a quote mark with no
+    closing mark is a character."""
     out = bytearray()
     prev = b"\n"  # the byte before, outside quotes: a # after a blank or a separator starts a word
+    resume = -1  # where the bodies of the heredocs opened on this line end: the line's newline skips to it
     i = 0
     while i < len(data):
         c = data[i:i + 1]
-        if c in (b"'", b'"'):
-            text, i = _quoted_run(data, i)
-            out += text
-            prev = b"x"
+        if c == b"\n" and resume >= 0:
+            out += c
+            i, resume, prev = resume, -1, b"\n"
+        elif c in (b"'", b'"'):
+            got = _quoted_run(data, i)
+            if got is None:
+                out += c
+                prev, i = c, i + 1
+            else:
+                out += got[0]
+                prev, i = b"x", got[1]
         elif c == b"#" and prev in (b" ", b"\t", b"\r", b"\n", b";", b"&", b"|", b"("):
             end = data.find(b"\n", i)
             if end < 0:
@@ -309,6 +322,10 @@ def _unquoted_text(data: bytes) -> bytes:
                 out += data[i:i + 2]
                 prev = b"x"
             i += 2
+        elif c == b"<" and prev != b"<" and (opened := _heredoc_at(data, i, resume)) is not None:
+            end, resume = opened
+            out += data[i:end]
+            prev, i = b"x", end
         else:
             out += c
             prev = c
@@ -316,31 +333,69 @@ def _unquoted_text(data: bytes) -> bytes:
     return bytes(out)
 
 
-def _quoted_run(data: bytes, i: int) -> tuple[bytes, int]:
-    """The text of the quoted run that opens at ``data[i]``, and the index just past it (the end of the data when it is
-    unclosed). Blanks in it are text (:func:`_in_quotes`). In double quotes, as in bash, a backslash before ``$``, a
-    backtick, ``"`` or a backslash is that character, a backslash-newline is removed, and any other backslash is kept."""
+def _heredoc_at(data: bytes, i: int, resume: int) -> Optional[tuple[int, int]]:
+    """For a heredoc operator at ``data[i]``: the index just past the operator, and the index just past its body. The
+    body starts on the line after the operator, or after the body of an earlier heredoc on that line (``resume``)."""
+    match = HEREDOC_OPEN.match(data, i)
+    if match is None:
+        return None
+    delim = next(group for group in match.groups()[1:] if group is not None)
+    if resume < 0:
+        eol = data.find(b"\n", match.end())
+        resume = len(data) if eol < 0 else eol + 1
+    return match.end(), _heredoc_body_end(data, resume, match.group(1) == b"-", delim)
+
+
+def _heredoc_body_end(data: bytes, start: int, dash: bool, delim: bytes) -> int:
+    """The index just past the line that ends a heredoc body: the first line from ``start`` that is ``delim`` (after its
+    leading tabs with ``<<-``). The end of the data when there is no such line."""
+    j = start
+    while j < len(data):
+        eol = data.find(b"\n", j)
+        line = data[j:len(data) if eol < 0 else eol]
+        if (line.lstrip(b"\t") if dash else line) == delim:
+            return len(data) if eol < 0 else eol + 1
+        if eol < 0:
+            break
+        j = eol + 1
+    return len(data)
+
+
+def _quoted_run(data: bytes, i: int) -> Optional[tuple[bytes, int]]:
+    """The text of the quoted run that opens at ``data[i]``, and the index just past its closing mark; None when it is
+    unclosed. Blanks in it are text (:func:`_in_quotes`). In double quotes, as in bash, a backslash before ``$``, a
+    backtick, ``"`` or a backslash is that character, a backslash-newline is removed, and any other backslash is kept.
+    In ``$'...'`` a backslash escapes the next byte, so ``$'it\\'s'`` closes at its last mark."""
     quote = data[i:i + 1]
+    ansi = quote == b"'" and data[i - 1:i] == b"$"
     out = bytearray()
     j = i + 1
     while j < len(data):
         c = data[j:j + 1]
         if c == quote:
             return bytes(out), j + 1
-        if quote == b'"' and c == b"\\":
-            nxt = data[j + 1:j + 2]
-            if nxt == b"\n":
-                j += 2
-            elif nxt in (b"$", b"`", b'"', b"\\"):
-                out += nxt
-                j += 2
-            else:
-                out += c
-                j += 1
+        if c == b"\\" and ansi:
+            out += _in_quotes(data[j + 1:j + 2])
+            j += 2
+        elif c == b"\\" and quote == b'"':
+            text, width = _dq_backslash(data, j)
+            out += text
+            j += width
         else:
             out += _in_quotes(c)
             j += 1
-    return bytes(out), len(data)
+    return None
+
+
+def _dq_backslash(data: bytes, j: int) -> tuple[bytes, int]:
+    """What a backslash at ``data[j]`` inside double quotes stands for, and its width: a backslash-newline is nothing,
+    a backslash before ``$``, a backtick, ``"`` or a backslash is that character, any other backslash is itself."""
+    nxt = data[j + 1:j + 2]
+    if nxt == b"\n":
+        return b"", 2
+    if nxt in (b"$", b"`", b'"', b"\\"):
+        return nxt, 2
+    return b"\\", 1
 
 
 def _shell_options(data: bytes) -> Optional[list[str]]:
