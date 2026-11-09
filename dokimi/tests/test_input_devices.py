@@ -76,6 +76,18 @@ def test_read_json_input_refuses_a_device_instead_of_reading_it_as_empty_json():
         read_json_input(DEVICE, flag="--trigger-set")
 
 
+@pytest.mark.parametrize("suffix", ["/", "/."])
+def test_a_device_spelled_with_a_trailing_slash_or_dot_is_still_refused(monkeypatch, capsys, suffix):
+    """``os.stat("/dev/null/")`` is ENOTDIR, but ``Path`` drops the suffix and opens the device."""
+    device = DEVICE + suffix
+    with pytest.raises(InputError, match=rf"^--trigger-set {device}: not a file$"):
+        read_json_input(device, flag="--trigger-set")
+    with pytest.raises(InputError, match=rf"^--placebo-text {device}: not a file$"):
+        read_text_or_exit(device, "--placebo-text")
+    assert _main(monkeypatch, "eval", "questions", "generate", "--product", "p", "--personas", device) == 2
+    assert capsys.readouterr().err.strip() == f"Error: --personas {device}: not a file"
+
+
 def test_read_json_input_still_reports_a_missing_file_as_before(tmp_path):
     with pytest.raises(InputError, match="No such file or directory"):
         read_json_input(tmp_path / "missing.json", flag="--trigger-set")

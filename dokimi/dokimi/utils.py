@@ -745,10 +745,11 @@ def refuse_device(path: str | os.PathLike[str], flag: str | None = None) -> None
 
     A regular file, a pipe (``<(cat x.json)``) and a directory pass; so does a path that cannot be
     stat'ed, left to the read to report. ``/dev/zero`` would otherwise be read until memory runs out
-    (https://github.com/intel/dokimi/issues/504).
+    (https://github.com/intel/dokimi/issues/504). The path is stat'ed as :class:`~pathlib.Path` spells it,
+    the way the callers read it: ``/dev/zero/`` and ``/dev/zero/.`` are ``/dev/zero`` to ``Path``.
     """
     try:
-        mode = os.stat(path).st_mode
+        mode = Path(path).stat().st_mode  # not os.stat(path): ENOTDIR on /dev/zero/, which Path opens
     except (OSError, ValueError):  # missing, a path under a file, an embedded null byte
         return
     if not (stat.S_ISREG(mode) or stat.S_ISFIFO(mode) or stat.S_ISDIR(mode)):
