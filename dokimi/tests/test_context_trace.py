@@ -166,6 +166,17 @@ def test_cli_missing_trace_exits_1(tmp_path, capsys):
     assert exc.value.code == 1
 
 
+@pytest.mark.outcome("cjm-context-trace")
+def test_cli_json_with_no_trace_read_is_failed_with_no_data(tmp_path, capsys):
+    """Nothing read is `failed`, not `partial`: a consumer that reads only `status` must see total failure."""
+    with pytest.raises(SystemExit) as exc:
+        _run_cli(["trace", "inspect", str(tmp_path / "missing.jsonl"), "--json"], capsys)
+    got = capsys.readouterr()
+    doc = json.loads(got.out)
+    assert exc.value.code == 1
+    assert doc["kind"] == "trace inspect" and doc["status"] == "failed" and doc["data"] == []
+
+
 @pytest.mark.parametrize("sep", [chr(0x2028), chr(0x2029), chr(0x85)])
 def test_unicode_line_separators_inside_a_record_do_not_split_it(sep):
     """json.dumps(ensure_ascii=False) and JSON.stringify keep these raw inside strings."""
