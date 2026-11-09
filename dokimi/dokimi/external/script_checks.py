@@ -13,6 +13,7 @@ note. Each file is read only inside the skill directory, and only up to :data:`M
 from __future__ import annotations
 
 import ast
+import bisect
 import json
 import os
 import re
@@ -20,7 +21,7 @@ import shutil
 import warnings
 from collections import Counter
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Callable, NamedTuple, Optional
 
 from dokimi import process
 from dokimi.skills.loader import TEMPLATE_DIR_NAMES, VENDORED_DIR_NAMES
@@ -280,6 +281,14 @@ def _spawn(runner: process.Runner, argv: list[str], **kwargs) -> Optional[proces
         return None
 
 
+def _escaped(data: bytes, j: int) -> bool:
+    """True when ``data[j]`` is escaped: an odd number of backslashes come right before it."""
+    k = j
+    while k > 0 and data[k - 1:k] == b"\\":
+        k -= 1
+    return (j - k) % 2 == 1
+
+
 def _in_quotes(c: bytes) -> bytes:
     """A byte inside quotes. A blank or newline there is a word's text, not a separator, so it reads as ``\\x01``:
     ``echo 'shopt -s extglob'`` has no shopt command in it."""
@@ -299,6 +308,7 @@ def _unquoted_text(data: bytes) -> bytes:
     out = bytearray()
     prev = b"\n"  # the byte before, outside quotes: a # after a blank or a separator starts a word
     resume = -1  # where the bodies of the heredocs opened on this line end: the line's newline skips to it
+    lines = _script_lines(data)
     i = 0
     while i < len(data):
         c = data[i:i + 1]
@@ -323,7 +333,7 @@ def _unquoted_text(data: bytes) -> bytes:
                 out += data[i:i + 2]
                 prev = b"x"
             i += 2
-        elif c == b"<" and prev != b"<" and (opened := _heredoc_at(data, i, resume)) is not None:
+        elif c == b"<" and prev != b"<" and (opened := _heredoc_at(data, i, resume, lines)) is not None:
             end, resume = opened
             out += data[i:end]
             prev, i = b"x", end
@@ -334,7 +344,26 @@ def _unquoted_text(data: bytes) -> bytes:
     return bytes(out)
 
 
-def _heredoc_at(data: bytes, i: int, resume: int) -> Optional[tuple[int, int]]:
+class _Lines(NamedTuple):
+    """Where the lines of a script are, so a heredoc's terminator is found by a bisect, not a walk to the end."""
+    plain: dict[bytes, list[tuple[int, int]]]  # a line's text -> its (start, end) offsets, in order
+    dashed: dict[bytes, list[tuple[int, int]]]  # the same with the leading tabs off, for <<-
+    newlines: list[int]
+
+
+def _script_lines(data: bytes) -> _Lines:
+    plain: dict[bytes, list[tuple[int, int]]] = {}
+    dashed: dict[bytes, list[tuple[int, int]]] = {}
+    start = 0
+    for line in data.split(b"\n"):
+        span = (start, start + len(line))
+        plain.setdefault(line, []).append(span)
+        dashed.setdefault(line.lstrip(b"\t"), []).append(span)
+        start += len(line) + 1
+    return _Lines(plain, dashed, [m.start() for m in re.finditer(b"\n", data)])
+
+
+def _heredoc_at(data: bytes, i: int, resume: int, lines: _Lines) -> Optional[tuple[int, int]]:
     """For a heredoc operator at ``data[i]``: the index just past the operator, and the index just past its body. The
     body starts on the line after the operator, or after the body of an earlier heredoc on that line (``resume``)."""
     match = HEREDOC_OPEN.match(data, i)
@@ -342,26 +371,19 @@ def _heredoc_at(data: bytes, i: int, resume: int) -> Optional[tuple[int, int]]:
         return None
     delim = HEREDOC_PART.sub(lambda part: part.group(1) or part.group(2) or part.group(3) or b"", match.group(2))
     if resume < 0:
-        eol = data.find(b"\n", match.end())
-        resume = len(data) if eol < 0 else eol + 1
-    body_end = _heredoc_body_end(data, resume, match.group(1) == b"-", delim)
+        k = bisect.bisect_left(lines.newlines, match.end())
+        resume = lines.newlines[k] + 1 if k < len(lines.newlines) else len(data)
+    body_end = _heredoc_body_end(data, lines, resume, match.group(1) == b"-", delim)
     return None if body_end is None else (match.end(), body_end)
 
 
-def _heredoc_body_end(data: bytes, start: int, dash: bool, delim: bytes) -> Optional[int]:
+def _heredoc_body_end(data: bytes, lines: _Lines, start: int, dash: bool, delim: bytes) -> Optional[int]:
     """The index just past the line that ends a heredoc body: the first line from ``start`` that is ``delim`` (after its
     leading tabs with ``<<-``). None when no line is ``delim``: then the ``<<`` is a shift in arithmetic, not a heredoc,
     since bash needs the terminator for a heredoc."""
-    j = start
-    while j < len(data):
-        eol = data.find(b"\n", j)
-        line = data[j:len(data) if eol < 0 else eol]
-        if (line.lstrip(b"\t") if dash else line) == delim:
-            return len(data) if eol < 0 else eol + 1
-        if eol < 0:
-            break
-        j = eol + 1
-    return None
+    spans = (lines.dashed if dash else lines.plain).get(delim, [])
+    k = bisect.bisect_left(spans, (start,))
+    return None if k == len(spans) else min(spans[k][1] + 1, len(data))
 
 
 def _quoted_run(data: bytes, i: int) -> Optional[tuple[bytes, int]]:
@@ -370,7 +392,7 @@ def _quoted_run(data: bytes, i: int) -> Optional[tuple[bytes, int]]:
     backtick, ``"`` or a backslash is that character, a backslash-newline is removed, and any other backslash is kept.
     In ``$'...'`` a backslash escapes the next byte, so ``$'it\\'s'`` closes at its last mark."""
     quote = data[i:i + 1]
-    ansi = quote == b"'" and data[i - 1:i] == b"$" and (len(data[:i - 1]) - len(data[:i - 1].rstrip(b"\\"))) % 2 == 0
+    ansi = quote == b"'" and data[i - 1:i] == b"$" and not _escaped(data, i - 1) and data[i - 2:i - 1] != b"$"
     out = bytearray()
     j = i + 1
     while j < len(data):
