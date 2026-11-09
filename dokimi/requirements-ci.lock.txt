@@ -531,9 +531,9 @@ deptry==0.25.1 \
     --hash=sha256:e3fa3321078e11cd1ac3f10ce3ff0547731c53f9253b87c757a8749c76fe8fa9 \
     --hash=sha256:e6f7b8fa72932e51e86799b10dcd29381b2132dc799c790dca3b28ab08dffb28
     # via -r requirements-ci.txt
-diff-cover==10.6.0 \
-    --hash=sha256:8d1194dfb537f70480ac97c9c45dd40721cf4c326c9903fbe997db67a4db6195 \
-    --hash=sha256:a701553060f72d59b81f9cb1645b75ef66204427eb9dd99873c91092220e52ce
+diff-cover==11.0.0 \
+    --hash=sha256:5450247cc885ac0c252f0d7a4cf91608f454377c6f88e579bc9ead410af50c36 \
+    --hash=sha256:8b0a5b356d525718ee18c14b163ce179c75ccdc5b8d5474ef22ade6a0e1fa65d
     # via
     #   -c requirements.lock.txt
     #   -r requirements-ci.txt
