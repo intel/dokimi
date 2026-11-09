@@ -29,7 +29,7 @@ from dataclasses import dataclass, field
 
 from dokimi.utils import InputError
 from .atoms import Atom
-from .client import LLMClient, SpendCapReached, same_client
+from .client import LLMClient, SpendCapReached, parse_json_object, same_client
 from .controls import REPEAT_ARM, clustered_ci, control_fields
 from .probes import Probe
 
@@ -315,15 +315,19 @@ def run_measurement(
             try:
                 verdict = _grade(probe, response, judge)
             except SpendCapReached as exc:
-                # The answer was paid for: keep it as an ungraded run (no datum, so it is
-                # dropped from the pairs), and stop the measurement here.
+                # The answer was paid for. A judge reply the cap refused after it came back
+                # still names its verdict, so keep that; otherwise keep the answer as an
+                # ungraded run (no datum, so it is dropped from the pairs). Either way the
+                # measurement stops here.
                 stops.append(exc)
+                verdict = _reply_verdict(exc.reply)
                 run = ProbeRun(
                     atom_id=probe.atom_id, probe_kind=probe.kind, arm=arm,
-                    question=probe.question, response=response, verdict=ERRORED,
+                    question=probe.question, response=response, verdict=verdict or ERRORED,
                     confidence=confidence,
                 )
-                ungraded.append(run)
+                if verdict is None:
+                    ungraded.append(run)
                 return run
         return ProbeRun(
             atom_id=probe.atom_id, probe_kind=probe.kind, arm=arm,
@@ -409,6 +413,17 @@ def _grade(probe: Probe, response: str, judge: LLMClient) -> str:
 
 def _names_a_verdict(reply: dict) -> bool:
     return reply.get("verdict") in VERDICTS
+
+
+def _reply_verdict(reply: str | None) -> str | None:
+    """The verdict in a judge reply the cap refused after it came back, or None."""
+    if not reply:
+        return None
+    try:
+        value = parse_json_object(reply)
+    except Exception:
+        return None
+    return value["verdict"] if _names_a_verdict(value) else None
 
 
 def _parse_confidence(text: str) -> float | None:

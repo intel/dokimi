@@ -91,8 +91,9 @@ What a stopped run leaves behind depends on the step:
   `<stem>.partial.json` beside its output (for `probes.json`, that is `probes.partial.json`).
   The file holds only the answers received; its `partial` field gives `calls_done` and
   `calls_planned`, and the difference counts the probe jobs not run. An answer whose judge
-  call the cap refused is kept with verdict `error`: it was paid for but never graded, so equal
-  counts do not show that every answer was graded. If the cap stops it while the
+  call the cap refused before it was sent is kept with verdict `error`: it was paid for but
+  never graded, so equal counts do not show that every answer was graded. A judge reply the cap
+  refused after it came back keeps the verdict it names. If the cap stops it while the
   paraphrase or reversal wordings are built, nothing is written.
 - Each exits with a message that names the partial file. A partial file is never read as a
   finished one: the atom readers and `novelty items` refuse it. A later stopped run replaces
