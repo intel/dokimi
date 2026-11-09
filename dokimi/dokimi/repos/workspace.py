@@ -479,7 +479,7 @@ def _apply_arm(ws: Path, env: dict[str, str], git_dir: Path, manifest: RepoManif
     if arm.base == OVERLAY_ARM:
         return _apply_overlay(ws, _workspace_files(ws, env), overlay or "")
     # the workspace, not the index: a setup patch's added file is untracked and its deleted one still indexed (#495)
-    matched = [p for p in _workspace_files(ws, env) if any(match_glob(g, p) for g in manifest.guidance_globs)]
+    matched = sorted(p for p in _workspace_files(ws, env) if any(match_glob(g, p) for g in manifest.guidance_globs))
     if arm.base.startswith(FORMAT_ARM):
         return _apply_format(ws, matched, arm.base[len(FORMAT_ARM):])
     if arm.base in ("guidance:none", "guidance:as-skill") or arm.rev_sha is not None:
