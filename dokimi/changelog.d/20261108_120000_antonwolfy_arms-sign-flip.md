@@ -16,7 +16,7 @@
   0.0 prints at 2 significant digits, as the interval ends do (`+0.04`, not `+0.0`).
   Verdicts near 0.05 move, almost always toward significant: the old rule (t test
   *and* Wilcoxon below 0.05) was conservative, about 3% false positives at a
-  nominal 5% on simulated judge deltas, against 5% now. A constant shift now gets
+  nominal 5% on simulated judge deltas, against 5% now for deltas symmetric about 0 (skewed deltas of mean 0 reject 7 to 10% at 10 to 20 pairs). A constant shift now gets
   a p and a verdict (eight +20 deltas: p 0.0078) where it had none; Cohen's d_z
   stays undefined there. Fewer than 6 pairs now get a p too: `significant` is
   `None` where the floor `2 / 2**k` over the k changed pairs is not below 0.05,

@@ -500,8 +500,11 @@ def _describe_deltas(
     d_mean = _mean(d)
     d_sd = _sample_sd(d)
     cohens_d = _cohens_d(d_mean, d_sd)
-    p = sign_flip_p(d, seed=seed, exact=True)
-    lo, hi = sign_flip_interval(d, p, seed=seed, rounded=False)
+    if all(math.isfinite(x) for x in d):
+        p = sign_flip_p(d, seed=seed, exact=True)
+        lo, hi = sign_flip_interval(d, p, seed=seed, rounded=False)
+    else:  # a NaN delta is no evidence either way: no p, no verdict, open ends
+        p, lo, hi = None, None, None
     shown_lo, shown_hi = _rounded(lo), _rounded(hi)
     n_changed = sum(1 for x in d if abs(x) > EPS)
 

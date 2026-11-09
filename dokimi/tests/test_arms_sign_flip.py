@@ -59,6 +59,11 @@ def test_every_pair_tied_gets_no_p_and_the_interval_0_0_from_six_pairs():
     assert (five["p"], five["ci_lo"], five["ci_hi"], five["significant"]) == (None, None, None, None)
 
 
+def test_a_nan_delta_gets_no_p_and_no_verdict():
+    res = stats.paired_test([float("nan"), 0.2, 0.3, 0.25, 0.3, 0.2, 0.4], [0.0] * 7)
+    assert (res["p"], res["significant"], res["ci_lo"], res["ci_hi"]) == (None, None, None, None)
+
+
 def test_the_displayed_mean_stays_inside_a_narrow_interval():
     # 20.004 at 2 places is 20.0, outside the interval [20.004, 20.004] of a constant shift
     res = stats.paired_test([20.004] * 8, [0.0] * 8)
