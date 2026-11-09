@@ -1921,8 +1921,21 @@ in a tree with a `.md` file), which reads as a file. The reason names the first 
 its value: `branch pattern of no-commit-to-branch (.pre-commit-config.yaml:17)`,
 `branch of no-commit-to-branch (.pre-commit-config.yaml:19)` or `branch filter of
 on.push (.github/workflows/ci.yml:3)`. A file that is missing, not read or does not parse, an
-`args` that is not a list, a value that is not a string, an invalid regex, another hook's `args` and a name only in a `run:` script give no branch, and the
-claim keeps its path verdict. When `.pre-commit-config.yaml` or one of those
+`args` that is not a list, a value that is not a string, an invalid regex, a hook pattern that can backtrack exponentially, another hook's `args` and a name only in a `run:` script give no branch, and the
+claim keeps its path verdict. Such a pattern is refused before any claim is
+matched against it, read from the parse `re` makes of it: a repeat that can run
+more than once (`*`, `+`, `{m,n}` with n over 1) around, at any depth and
+lookarounds included, a repeat whose count varies (`*`, `+`, `{m,n}` with m
+under n and n over 1, not `?`) or an alternation two of whose branches can start
+with the same character, in either case, or can match nothing, lazy and
+possessive repeats alike: `(a+)+b`, `(a*)*`, `(a{1,5})+`, `(a|aa)+`. A branch
+is read by its first character, a `[...]` of characters and ranges of at most
+256, or a group or repeat that starts with one; a branch that starts with
+anything else (`.`, a class such as `\w` or `[^a]`, an anchor, a group holding
+an alternation, something that can match nothing as in `a?b`) overlaps any
+other. So `(ab|Ab)+` and `release/([0-9]+\.)+[0-9]+`, which match fast, are
+refused too. Other slow shapes pass and can still take long on a long claim,
+such as `maintenance/.*a.*a.*a.*b`. When `.pre-commit-config.yaml` or one of those
 workflows was not read, the reason of a claim that stays `unresolved` here also
 names it, as `<file> was not read (<why>)` after the rest, in tree order and once
 even when the Action note above names it too. A link or path into a submodule is `unresolved`. A

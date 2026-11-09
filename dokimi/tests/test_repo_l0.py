@@ -367,6 +367,9 @@ _PUSH = {".github/workflows/ci.yml": 'name: ci\non:\n  push:\n    branches: [mai
      "branch pattern of no-commit-to-branch (.pre-commit-config.yaml:17)"),
     # `maintenance/\w+` matches `maintenance/*` only once its `*` is filled in
     ("maintenance/*", _pre_commit("[-p, 'maintenance/\\w+']"), "branch pattern of no-commit-to-branch (.pre-commit-config.yaml:17)"),
+    # a repeat with no repeat inside, or of an alternation whose branches start apart, does not backtrack exponentially
+    ("release/12", _pre_commit("[-p, 'release/[0-9]+']"), "branch pattern of no-commit-to-branch (.pre-commit-config.yaml:17)"),
+    ("maintenance/abcd", _pre_commit("[-p, 'maintenance/(ab|cd)+']"), "branch pattern of no-commit-to-branch (.pre-commit-config.yaml:17)"),
     ("release/1.x", _pre_commit("\n        -   --branch\n        -   release/1.x"),
      "branch of no-commit-to-branch (.pre-commit-config.yaml:19)"),
     ("release/*", _PUSH, "branch filter of on.push (.github/workflows/ci.yml:4)"),
@@ -428,6 +431,12 @@ _NO_GLOB = "glob {} matches nothing in the tree; a build may create it"
     # `--patterns` is no prefix of `--pattern`, and `-x` takes no value of the hook's
     ("maintenance/*", _pre_commit("[--patterns, maintenance/.*, -xmaintenance/.*]"), ("unresolved", _NO_GLOB.format("maintenance/*"))),
     ("maintenance/*", _pre_commit("[--pattern, 'maintenance/(.*']"), ("unresolved", _NO_GLOB.format("maintenance/*"))),
+    # a pattern that backtracks exponentially is refused, even where it matches: `re` would stall on the long claim
+    ("maintenance/aab", _pre_commit("[--pattern, 'maintenance/(a+)+b']"), ("unresolved", "tried maintenance/aab")),
+    ("maintenance/" + "a" * 24 + "c", _pre_commit("[--pattern, 'maintenance/(a+)+b']"),
+     ("unresolved", "tried maintenance/" + "a" * 24 + "c")),
+    ("maintenance/aa", _pre_commit("[--pattern, 'maintenance/(a*)*']"), ("unresolved", "tried maintenance/aa")),
+    ("maintenance/aaa", _pre_commit("[--pattern, 'maintenance/(a|aa)+']"), ("unresolved", "tried maintenance/aaa")),
     ("maintenance/*", {".pre-commit-config.yaml": "repos: [{hooks: [{id: no-commit-to-branch, args: [-p, 'maintenance/.*']\n"},
      ("unresolved", _NO_GLOB.format("maintenance/*"))),
     ("release/*", {".github/workflows/ci.yml": "env: {D: 2026-02-30}\non: {push: {branches: ['release/**']}}\n"},
@@ -484,6 +493,26 @@ def test_a_branch_source_the_scan_does_not_read_is_named_in_the_reason(tmp_path)
     assert _path_verdict(tmp_path, "maintenance/*", files) == (
         "unresolved", _NO_GLOB.format("maintenance/*") + f"; .github/workflows/ci.yml was not read ({len(big)} bytes, "
         "over the 2 MB read limit); .pre-commit-config.yaml was not read (binary (a NUL byte))")
+
+
+def test_a_hook_pattern_that_backtracks_exponentially_gives_no_source_to_match():
+    """https://github.com/intel/dokimi/issues/420: refused before any claim, so `re.match` never runs on `(a+)+b`."""
+    assert branches._hook_source("--pattern", "maintenance/(a+)+b", 17) is None
+    kept = branches._hook_source("--pattern", "maintenance/(a+)b", 17)
+    assert kept is not None and kept.names("maintenance/aab", ["maintenance/aab"])
+
+
+@pytest.mark.parametrize("pattern, refused", [
+    ("maintenance/(a+)+b", True), ("(a*)*", True), ("(a|aa)+", True), ("(?:a{2,})+", True), ("(a+?)*", True),
+    ("(ab|a)+", True), ("(\\w|ab)+", True), ("((?=a+)b)+", True), ("(?i)(A|ab)+", True), ("(x)?(?(1)a)+", True),
+    ("(a{1,5})+", True), ("(a+){1,100}", True), ("(a|aa){2,30}", True),
+    ("maintenance/.*", False), ("release/[0-9]+", False), ("maintenance/(ab|cd)+", False), ("(a|b)+", False),
+    ("^(?!main$).*", False), ("release/(v|rc)[0-9]+", False), ("(a+)b(c+)", False), ("(a{2})+", False), ("(ab?)+", False),
+])
+def test_a_nested_repeat_or_overlapping_alternation_in_a_repeat_is_refused(pattern, refused):
+    """A repeat that can run more than once around one whose count varies, or around branches that can start alike
+    or be empty, at any depth, lazy or not."""
+    assert branches._backtracks(pattern) is refused
 
 
 def test_a_backslash_in_a_branch_filter_escapes_the_next_character():

@@ -11,6 +11,7 @@ The path rule (:mod:`.core`) takes a path-like claim one of them names for a bra
 
 from __future__ import annotations
 
+import importlib
 import posixpath
 import re
 from dataclasses import dataclass
@@ -155,14 +156,85 @@ def _option(arg: str) -> tuple[str | None, str | None]:
 
 
 def _hook_source(opt: str, value: str, line: int) -> Source | None:
-    """A ``--branch`` name, or a ``--pattern`` the hook tries with ``re.match``; an invalid regex gives none."""
+    """A ``--branch`` name, or a ``--pattern`` the hook tries with ``re.match``; an invalid regex, or one
+    :func:`_backtracks` refuses, gives none."""
     where = f"{HOOK} ({PRE_COMMIT}:{line})"
     if opt == "--branch":
         return Source(value, None, f"branch of {where}")
     try:
-        return Source(value, re.compile(value), f"branch pattern of {where}")
+        rx = re.compile(value)
+        return None if _backtracks(value) else Source(value, rx, f"branch pattern of {where}")
     except (re.error, OverflowError, RecursionError):  # `a{999999999999}`, a deep nest of groups
         return None
+
+
+_SRE: Any = importlib.import_module("re._parser")  # the parse re.compile reads; private, and no public API gives it
+_REPEATS = (_SRE.MAX_REPEAT, _SRE.MIN_REPEAT, _SRE.POSSESSIVE_REPEAT)
+
+
+def _backtracks(pattern: str) -> bool:
+    """A repeat that can run more than once (``*``, ``+``, ``{m,n}`` with n over 1) holds one whose count varies (the
+    same, with m under n), or an alternation two of whose branches can start with the same character or one be empty:
+    ``(a+)+``, ``(a*)*``, ``(a{1,5})+``, ``(a|aa)+``. Other slow shapes pass (``.*a.*a.*a.*b``)."""
+    return _nests(_SRE.parse(pattern), False)
+
+
+def _nests(sub: Any, inside: bool) -> bool:
+    """``sub`` holds such a repeat; ``inside`` one, a repeat whose count varies or an overlapping alternation counts."""
+    for op, av in sub:
+        if op in _REPEATS:
+            lo, hi = av[0], av[1]
+            if (inside and lo < hi and hi > 1) or _nests(av[2], inside or hi > 1):
+                return True
+        elif op is _SRE.BRANCH or op is _SRE.GROUPREF_EXISTS:  # `(?(1)yes|no)` without `no` has an empty branch
+            alts = av[1] if op is _SRE.BRANCH else [av[1], av[2] or []]
+            if (inside and _overlap(alts)) or any(_nests(a, inside) for a in alts):
+                return True
+        elif any(_nests(x, inside) for x in (av if isinstance(av, tuple) else (av,)) if isinstance(x, _SRE.SubPattern)):
+            return True
+    return False
+
+
+def _overlap(alts: list[Any]) -> bool:
+    """Two of ``alts`` can start with the same character, or one can match the empty string."""
+    seen: set[str] = set()
+    for alt in alts:
+        first = _first(alt)
+        if first is None or seen & first:
+            return True
+        seen |= first
+    return False
+
+
+def _first(sub: Any) -> set[str] | None:
+    """The characters ``sub`` can start with, in either case; None when it can be empty or they are not read."""
+    if not sub or sub[0:1].getwidth()[0] == 0:
+        return None
+    op, av = sub[0]
+    if op is _SRE.LITERAL:
+        return _cased(av)
+    if op is _SRE.IN:
+        return _class_chars(av)
+    if op in (*_REPEATS, _SRE.SUBPATTERN, _SRE.ATOMIC_GROUP):
+        return _first(av if op is _SRE.ATOMIC_GROUP else av[-1])
+    return None
+
+
+def _class_chars(items: list[Any]) -> set[str] | None:
+    """The characters of a parsed ``[...]``; None for a negated one, a category such as ``\\w`` or a wide range."""
+    out: set[str] = set()
+    for op, av in items:
+        if op is _SRE.LITERAL:
+            out |= _cased(av)
+        elif op is _SRE.RANGE and av[1] - av[0] < 256:
+            out |= {c for i in range(av[0], av[1] + 1) for c in _cased(i)}
+        else:
+            return None
+    return out
+
+
+def _cased(code: int) -> set[str]:
+    return {chr(code), chr(code).lower(), chr(code).upper()}
 
 
 def _filter_sources(scan: Scan, flows: list[str]) -> list[Source]:
