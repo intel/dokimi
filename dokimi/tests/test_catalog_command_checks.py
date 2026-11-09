@@ -499,3 +499,12 @@ def test_unpinned_installs_are_counted_across_files(tmp_path):
     review = _review(tmp_path, "# Tool\n", {"scripts/a.sh": "pip install flask\n", "scripts/b.sh": "npm i left-pad\n"})
     message = _found(review, "install-unpinned")[0].message
     assert "2 installs" in message
+
+
+# ---- review of PR #456 (round 2): code spans, non-registry sources, the read budget ---------
+
+def test_a_code_span_closing_a_line_is_not_a_fence_opener(tmp_path):
+    # ```pip install flask``` is one code span: the install is pip's, and the prose after it is not code.
+    review = _review(tmp_path, "# Tool\n\n```pip install flask```\nThen npm install to get started.\n")
+    message = _found(review, "install-unpinned")[0].message
+    assert "1 install name no version (pip flask);" in message  # the hint names npm too, the count does not

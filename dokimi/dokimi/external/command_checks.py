@@ -96,7 +96,8 @@ def _code_text(text: str, markdown: bool) -> str:
     for line in text.splitlines():
         if fence is None:
             opened = FENCE_OPEN.match(line)
-            if opened:
+            # CommonMark: a backtick fence's info string has no backtick, so ```pip install x``` is a code span
+            if opened and not (opened.group(1)[0] == "`" and "`" in line[opened.end():]):
                 fence = opened.group(1)
             else:
                 prose.append(line)
