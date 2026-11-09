@@ -339,6 +339,33 @@ def test_shopt_extglob_inside_the_script_is_valid_under_real_bash(tmp_path, no_l
     assert _reviews_by_name(tmp_path)["bundled"].findings == []
 
 
+def test_an_extglob_word_in_a_comment_does_not_turn_extglob_on(tmp_path):
+    skill = _bundle(tmp_path, {"run.sh": b"#!/bin/bash\n# extglob mention\nf+() { :; }\n"})
+    runner = process.FakeRunner()
+
+    assert script_findings(skill, which=_tools("bash"), runner=runner) == []
+    [call] = runner.calls
+    assert call.argv == ("/usr/bin/bash", "-n")
+
+
+@needs_bash
+def test_an_extglob_word_in_a_comment_is_valid_under_real_bash(tmp_path, no_linters):
+    _bundle(tmp_path, {"run.sh": b"#!/bin/bash\n# extglob mention\nf+() { :; }\n"})
+
+    assert _reviews_by_name(tmp_path)["bundled"].findings == []
+
+
+def test_a_comment_mentioning_extglob_does_not_hide_an_extglob_error(tmp_path):
+    skill = _bundle(tmp_path, {"run.sh": b"#!/bin/bash\n# TODO extglob\ncase x in +(a|b)) : ;; esac\n"})
+    runner = process.FakeRunner(lambda call: process.reply(stderr="run.sh: line 3: syntax error\n", returncode=2))
+
+    findings = script_findings(skill, which=_tools("bash"), runner=runner)
+
+    assert [code for _, code, _ in findings] == ["script-syntax"]
+    [call] = runner.calls
+    assert call.argv == ("/usr/bin/bash", "-n")
+
+
 @pytest.mark.parametrize("shebang", [b"#!/bin/bash -eu", b"#!/bin/bash -o pipefail"])
 def test_a_shebang_option_that_changes_no_parse_keeps_the_check(tmp_path, shebang):
     skill = _bundle(tmp_path, {"run.sh": shebang + b"\nif true; then\n"})

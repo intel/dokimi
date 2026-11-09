@@ -15,6 +15,7 @@ from __future__ import annotations
 import ast
 import json
 import os
+import re
 import shutil
 import warnings
 from collections import Counter
@@ -36,6 +37,7 @@ SCRIPT_SUFFIXES = (*SHELL_SUFFIXES, ".py")
 BASH_FAMILY = frozenset({"bash", "sh", "dash", "ksh"})  # the shebang names bash -n can judge
 ENV_OPERAND_OPTIONS = frozenset({"-u", "--unset", "-C", "--chdir"})  # env options with an operand
 PARSE_SHOPTS = frozenset({"extglob"})  # bash -O options that change how a script parses; bash -n is given them
+SHOPT_EXTGLOB = re.compile(rb"^\s*shopt\s+-s\b[^\n#]*\bextglob\b", re.M)  # a line that turns extglob on, not a comment
 PARSE_NEUTRAL_FLAGS = frozenset("BEPTeuxh")  # shebang flags, as letters, that change no parse
 PARSE_NEUTRAL_OPTIONS = frozenset({"errexit", "nounset", "pipefail", "xtrace"})  # shebang -o names likewise
 SYNTAX_CODES = frozenset({"E999", "invalid-syntax"})  # a syntax error is script-syntax's, not the lint's
@@ -202,9 +204,9 @@ def _shell_options(data: bytes) -> Optional[list[str]]:
             i += 1
         else:
             return None
-    if b"extglob" in data and "extglob" not in options:
+    if SHOPT_EXTGLOB.search(data) and "extglob" not in options:
         # A script that turns extglob on with ``shopt -s extglob`` has its patterns parsed only after that
-        # runs, and bash -n runs nothing: so the option is given when the text names it.
+        # runs, and bash -n runs nothing: so the option is given when a line of the script turns it on.
         options += ["-O", "extglob"]
     return options
 
