@@ -23,10 +23,8 @@ from dokimi.eval.reference_checks import LONG_FLAG, grade_check
 from dokimi.process import Env, run
 from dokimi.utils import InputError
 
-#: A tool's rejection of an argument it does not know, which names that argument (so the
-#: flag matches LONG_FLAG). Exit status does not tell this apart from a listing: some tools
-#: exit nonzero after printing real help.
-#: A line that opens with an option is an option listing, whatever words its description uses.
+#: A rejection names the unknown argument, and exit status cannot tell it from a listing
+#: (some tools exit nonzero after printing real help). A line opening with an option is a listing.
 _LISTING = re.compile(r"(?m)^\s*-")
 #: The bracketed negation notation of a help (``--[no-]children``): both spellings are options.
 _NEGATABLE = re.compile(r"--\[no-\]([A-Za-z][\w-]*)")
