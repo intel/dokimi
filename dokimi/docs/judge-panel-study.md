@@ -140,9 +140,12 @@ This is the added and degraded share between `no_skill` and a fresh repeat of th
 | 7-judge majority | .03 / .02 | .03 / .02 | .05 / .08 |
 
 The floor is 0.00–0.10 for every judge, in line with the paper's 0.05–0.10. The judges
-running at default temperature (gpt-6-luna, kimi-k3) are at the high end. The shift from the
-original judge to the panel is larger than the floor for opus-5, GPT-5.6, Haiku and Nemotron.
-For Grok it is not.
+running at default temperature (gpt-6-luna, kimi-k3) are at the high end. On the ungated added share, the shift from the original judge to the
+7-judge majority is 0.20 for Haiku against a floor of 0.03, so it is above the floor. For
+Nemotron it is 0.05 (0.433 to 0.483), equal to its floor of 0.05, so it is not above it. Grok
+does not move (0.00, floor 0.03). The placebo-gated shift for Nemotron is 0.07 (0.367 to 0.433),
+but no gated floor was measured, so that comparison is not made. Opus-5 and GPT-5.6 have no
+repeats, so no floor exists for them.
 
 ## 2. Agreement and self-preference
 
