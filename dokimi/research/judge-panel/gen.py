@@ -109,11 +109,17 @@ wcsv("generation_added_share.csv", ["family", "old_judge", "new_judge", "mode", 
                                     "added_old", "added_new", "delta"], tab)
 
 # agreement with the rest of the panel: does a newer judge sit closer to the consensus?
+# Pairs with no answer graded by both have no kappa: left out; no partner gives None.
+def shared(a, b):
+    return any(a in V[k] and b in V[k] for k in V)
+
+
 tab = []
 for j in ALL:
-    ks = [kappa(j, o)[0] for o in ALL if o != j]
-    out["per_judge"][j]["mean_kappa_vs_others"] = round(sum(ks) / len(ks), 3)
-    tab.append([j, round(sum(ks) / len(ks), 3)])
+    ks = [kappa(j, o)[0] for o in ALL if o != j and shared(j, o)]
+    mk = round(sum(ks) / len(ks), 3) if ks else None
+    out["per_judge"][j]["mean_kappa_vs_others"] = mk
+    tab.append([j, mk])
 wcsv("judge_mean_kappa.csv", ["judge", "mean_kappa_vs_others"], tab)
 
 tab = []
@@ -130,7 +136,8 @@ wcsv("generation_panels.csv", ["panel", "judges", "mode", "answer_model", "n", "
 print("judge leniency strict mean_kappa")
 for j in ALL:
     p = out["per_judge"][j]
-    print(f"  {j:24s} {p['lenient_rate']:.3f} {p['strict_rate']:.3f} {p['mean_kappa_vs_others']:.3f}")
+    mk = "n/a" if p["mean_kappa_vs_others"] is None else f"{p['mean_kappa_vs_others']:.3f}"
+    print(f"  {j:24s} {p['lenient_rate']:.3f} {p['strict_rate']:.3f} {mk}")
 print("pairs (kappa old-new, lenient-rate delta, lenient added old->new per answer model)")
 for r in out["pairs"]:
     adds = " ".join(f"{k.split(':')[1][:10]}={v[0]:.2f}->{v[1]:.2f}" for k, v in r["added"].items()

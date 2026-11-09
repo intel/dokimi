@@ -97,3 +97,20 @@ def test_gen_names_a_judge_with_no_complete_triplet_for_a_model(tmp_path):
     assert "kimi-k2.5" in r.stderr
     assert "claude-opus-5" in r.stderr
     assert "Traceback" not in r.stderr
+
+
+def test_gen_skips_optional_judges_that_share_no_answer(tmp_path):
+    # Two optional judges grade disjoint rows: their common answers are empty, so kappa is undefined.
+    out = tmp_path / "out"
+    _write(out, GEN_JUDGES)
+    extra = [{"key": "p0|no_skill|claude-opus-5", "judge": "only-p0", "verdict": "correct_complete"},
+             {"key": "p1|no_skill|claude-opus-5", "judge": "only-p1", "verdict": "correct_complete"}]
+    with (out / "grades.jsonl").open("a") as f:
+        f.write("".join(json.dumps(g) + "\n" for g in extra))
+
+    r = _gen(out)
+
+    assert r.returncode == 0, r.stderr[-800:]
+    assert "Traceback" not in r.stderr
+    assert (out / "gen_summary.json").exists()  # the outputs after the pair loop are written
+    assert "only-p0" in (out / "tables_gen" / "judge_mean_kappa.csv").read_text()
