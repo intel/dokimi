@@ -38,7 +38,7 @@ SCRIPT_SUFFIXES = (*SHELL_SUFFIXES, ".py")
 BASH_FAMILY = frozenset({"bash", "sh", "dash", "ksh"})  # the shebang names bash -n can judge
 ENV_OPERAND_OPTIONS = frozenset({"-u", "--unset", "-C", "--chdir"})  # env options with an operand
 PARSE_SHOPTS = frozenset({"extglob"})  # bash -O options that change how a script parses; bash -n is given them
-SHOPT_EXTGLOB = re.compile(rb"^\s*shopt\s+-s\b[^\n#]*\bextglob\b", re.M)  # a line that turns extglob on, not a comment
+SHOPT_EXTGLOB = re.compile(rb"^[^#\n]*\bshopt\s+-s\b[^\n#]*\bextglob\b", re.M)  # a command that turns extglob on, not a comment
 PARSE_NEUTRAL_FLAGS = frozenset("BEPTeuxh")  # shebang flags, as letters, that change no parse
 PARSE_NEUTRAL_OPTIONS = frozenset({"errexit", "nounset", "pipefail", "xtrace"})  # shebang -o names likewise
 SYNTAX_CODES = frozenset({"E999", "invalid-syntax"})  # a syntax error is script-syntax's, not the lint's
@@ -172,8 +172,9 @@ def _env_command(args: list[str]) -> list[str]:
     while i < len(args):
         if args[i] in ENV_OPERAND_OPTIONS:
             i += 2
-        elif args[i].startswith("-S"):
-            text = " ".join(([args[i][2:]] if len(args[i]) > 2 else []) + args[i + 1:])
+        elif args[i].startswith(("-S", "--split-string")):
+            head = args[i][2:] if args[i].startswith("-S") else args[i][len("--split-string"):].lstrip("=")
+            text = " ".join(([head] if head else []) + args[i + 1:])
             try:
                 return _env_command(shlex.split(text))
             except ValueError:  # an unclosed quote

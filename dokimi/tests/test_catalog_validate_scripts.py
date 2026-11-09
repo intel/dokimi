@@ -299,6 +299,7 @@ def test_review_skill_dir_checks_the_scripts_of_a_skill_reviewed_alone(tmp_path,
     b"#!/usr/bin/env -S 'bash' -eu",
     b'#!/usr/bin/env -S "bash" -eu',
     b"#!/usr/bin/env -S'bash' -eu",
+    b"#!/usr/bin/env --split-string=bash -eu",
 ])
 def test_env_options_and_assignments_do_not_hide_the_shell(tmp_path, shebang):
     skill = _bundle(tmp_path, {"run.sh": shebang + b"\nif true; then\n"})
@@ -336,6 +337,20 @@ def test_extglob_from_the_shebang_is_valid_under_real_bash(tmp_path, no_linters)
 
 def test_a_shopt_extglob_inside_the_script_is_given_to_bash_n(tmp_path):
     skill = _bundle(tmp_path, {"run.sh": b"#!/bin/bash\nshopt -s extglob\ncase x in +(a|b)) : ;; esac\n"})
+    runner = process.FakeRunner()
+
+    assert script_findings(skill, which=_tools("bash"), runner=runner) == []
+    [call] = runner.calls
+    assert call.argv == ("/usr/bin/bash", "-O", "extglob", "-n")
+
+
+@pytest.mark.parametrize("line", [
+    b"set -e; shopt -s extglob",
+    b"if true; then shopt -s extglob; fi",
+    b"builtin shopt -s extglob",
+])
+def test_a_shopt_extglob_after_another_command_is_given_to_bash_n(tmp_path, line):
+    skill = _bundle(tmp_path, {"run.sh": b"#!/bin/bash\n" + line + b"\ncase x in +(a|b)) : ;; esac\n"})
     runner = process.FakeRunner()
 
     assert script_findings(skill, which=_tools("bash"), runner=runner) == []
