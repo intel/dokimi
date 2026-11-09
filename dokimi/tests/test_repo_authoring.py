@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""``repo tasks authoring`` and ``dokimi:hidden_tests``: authoring tasks from merged pull requests (contract §4.8).
+"""``eval tasks generate --from prs`` and ``dokimi:hidden_tests``: authoring tasks from merged pull requests (contract §4.8).
 
 The pull request files have the shape ``gh api graphql --paginate --slurp`` writes, with the SHAs of
 a toy history built per test. ``eval check`` runs on :class:`FakeRunner`, which runs each container's
@@ -143,8 +143,8 @@ def _pages(*prs):
 def _authoring(root: Path, doc, out: Path, *extra: str, raw: str | None = None, source: str | None = None) -> None:
     path = root.parent / "prs.json"
     path.write_text(raw if raw is not None else json.dumps(doc), encoding="utf-8")
-    args = build_parser().parse_args(["repo", "tasks", "authoring", source or str(root), "--prs", str(path),
-                                      "--out", str(out), *extra])
+    args = build_parser().parse_args(["eval", "tasks", "generate", source or str(root), "--from", "prs",
+                                      "--prs", str(path), "--out", str(out), *extra])
     args.func(args)
 
 
@@ -397,8 +397,8 @@ def test_an_unusable_pr_file_exits_1_with_the_reason(toy, tmp_path, capsys, raw,
     path = tmp_path / "prs.json"
     if raw is not None:
         path.write_text(raw, encoding="utf-8")
-    args = build_parser().parse_args(["repo", "tasks", "authoring", str(toy["root"]), "--prs", str(path),
-                                      "--out", str(tmp_path / "tasks")])
+    args = build_parser().parse_args(["eval", "tasks", "generate", str(toy["root"]), "--from", "prs",
+                                      "--prs", str(path), "--out", str(tmp_path / "tasks")])
     with pytest.raises(SystemExit) as exc:
         args.func(args)
     err = capsys.readouterr().err
