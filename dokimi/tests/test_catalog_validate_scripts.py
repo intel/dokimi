@@ -430,7 +430,8 @@ def test_a_quoted_or_quote_adjacent_shopt_extglob_is_given_to_bash_n(tmp_path, l
     assert call.argv == ("/usr/bin/bash", "-O", "extglob", "-n")
 
 
-def test_a_shebang_with_thousands_of_env_s_options_is_not_a_crash(tmp_path):
+def test_a_shebang_cut_at_its_byte_limit_among_env_s_options_is_not_a_crash(tmp_path):
+    # the 1500 -S of the line are cut at SHEBANG_BYTES: the parse of what is left is bounded, not the whole line
     shebang = b"#!/usr/bin/env " + b"-S " * 1500 + b"bash\n"
     skill = _bundle(tmp_path, {"run.sh": shebang + b"if true; then\n"})
     runner = process.FakeRunner(lambda call: process.reply(stderr="bash: line 3: syntax error\n", returncode=2))
@@ -541,6 +542,30 @@ def test_a_heredoc_with_a_partly_quoted_delimiter_is_read_under_real_bash(tmp_pa
 @needs_bash
 def test_a_dollar_escaped_before_a_quote_is_not_ansi_c_under_real_bash(tmp_path, no_linters):
     _bundle(tmp_path, {"run.sh": b"#!/bin/bash\necho \\$'a\\'\nshopt -s extglob\n"
+                               b"case x in +(a|b)) : ;; esac\n"})
+
+    assert _reviews_by_name(tmp_path)["bundled"].findings == []
+
+
+@needs_bash
+def test_a_shift_in_a_let_on_the_line_of_a_heredoc_is_not_hiding_it_under_real_bash(tmp_path, no_linters):
+    _bundle(tmp_path, {"run.sh": b"#!/bin/bash\nlet x=1; cat <<EOF\ndon't\nEOF\nshopt -s extglob\n"
+                               b"case x in +(a|b)) : ;; esac\necho 'x'\n"})
+
+    assert _reviews_by_name(tmp_path)["bundled"].findings == []
+
+
+@needs_bash
+def test_a_deprecated_arithmetic_shift_is_not_a_heredoc_under_real_bash(tmp_path, no_linters):
+    _bundle(tmp_path, {"run.sh": b"#!/bin/bash\necho $[1<<2]\nshopt -s extglob\n"
+                               b"case x in +(a|b)) : ;; esac\n"})
+
+    assert _reviews_by_name(tmp_path)["bundled"].findings == []
+
+
+@needs_bash
+def test_an_escaped_backslash_before_an_ansi_c_string_is_read_as_one_under_real_bash(tmp_path, no_linters):
+    _bundle(tmp_path, {"run.sh": b"#!/bin/bash\necho \\\\$'a\\'b'\nshopt -s extglob\n"
                                b"case x in +(a|b)) : ;; esac\n"})
 
     assert _reviews_by_name(tmp_path)["bundled"].findings == []

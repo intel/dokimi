@@ -29,7 +29,7 @@ ScriptFinding = tuple[str, str, str]  # (level, code, message), as ``validate.Fi
 Which = Callable[[str], Optional[str]]
 
 MAX_BYTES = 1_000_000  # a larger file is not read
-SHEBANG_BYTES = 255  # a #! line is read to this many bytes, as Linux reads it (its buffer keeps one byte for a nul)
+SHEBANG_BYTES = 255  # a #! line is read to this many bytes, as Linux 5.1 and later reads it (one byte is kept for a nul)
 SYNTAX_TIMEOUT_SEC = 10.0
 LINT_TIMEOUT_SEC = 60.0
 RUFF_SELECT = "S,E9,F63,F7,F82"
@@ -287,7 +287,8 @@ def _in_quotes(c: bytes) -> bytes:
 
 
 HEREDOC_OPEN = re.compile(rb"<<(-?)[ \t]*((?:[^\s;&|<>()'\"\\]|\\.|'[^'\n]*'|\"[^\"\n]*\")+)")  # not <<<, which has no word
-LET_WORD = re.compile(rb"\blet\b")
+LET_COMMAND = re.compile(rb"[ \t]*let\b")
+HEREDOC_PART = re.compile(rb"\\(.)|'([^'\n]*)'|\"([^\"\n]*)\"")  # an escape or a quoted part of a heredoc delimiter
 
 
 def _unquoted_text(data: bytes) -> bytes:
@@ -340,7 +341,7 @@ def _heredoc_at(data: bytes, i: int, resume: int) -> Optional[tuple[int, int]]:
     match = HEREDOC_OPEN.match(data, i)
     if match is None or _in_arithmetic(data, i):
         return None
-    delim = re.sub(rb"[\\'\"]", b"", match.group(2))  # the word with its quotes and escapes taken off
+    delim = HEREDOC_PART.sub(lambda part: part.group(1) or part.group(2) or part.group(3) or b"", match.group(2))
     if resume < 0:
         eol = data.find(b"\n", match.end())
         resume = len(data) if eol < 0 else eol + 1
@@ -348,10 +349,11 @@ def _heredoc_at(data: bytes, i: int, resume: int) -> Optional[tuple[int, int]]:
 
 
 def _in_arithmetic(data: bytes, i: int) -> bool:
-    """True when an arithmetic context (``$((``, ``((`` or ``let``) is still open on the line before ``data[i]``: a
-    ``<<`` there is a shift, not a heredoc."""
-    prefix = data[data.rfind(b"\n", 0, i) + 1:i]
-    return prefix.count(b"((") > prefix.count(b"))") or LET_WORD.search(prefix) is not None
+    """True when the command that ``data[i]`` is in has an arithmetic context open before it (``$((``, ``((``, ``$[``, or
+    a ``let`` command): a ``<<`` there is a shift, not a heredoc. A quoted ``((`` counts, which is rare enough to accept."""
+    command = re.split(rb"[;&|]", data[data.rfind(b"\n", 0, i) + 1:i])[-1]
+    opened = command.count(b"((") > command.count(b"))") or command.count(b"$[") > command.count(b"]")
+    return opened or LET_COMMAND.match(command) is not None
 
 
 def _heredoc_body_end(data: bytes, start: int, dash: bool, delim: bytes) -> int:
@@ -375,7 +377,7 @@ def _quoted_run(data: bytes, i: int) -> Optional[tuple[bytes, int]]:
     backtick, ``"`` or a backslash is that character, a backslash-newline is removed, and any other backslash is kept.
     In ``$'...'`` a backslash escapes the next byte, so ``$'it\\'s'`` closes at its last mark."""
     quote = data[i:i + 1]
-    ansi = quote == b"'" and data[i - 1:i] == b"$" and data[i - 2:i - 1] != b"\\"  # \$' is a dollar, then a quote
+    ansi = quote == b"'" and data[i - 1:i] == b"$" and (len(data[:i - 1]) - len(data[:i - 1].rstrip(b"\\"))) % 2 == 0
     out = bytearray()
     j = i + 1
     while j < len(data):
