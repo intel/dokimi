@@ -44,7 +44,7 @@ def kappa(a, b):
     po = sum(V[k][a] == V[k][b] for k in keys) / n
     pe = sum((sum(V[k][a] == l for k in keys) / n) * (sum(V[k][b] == l for k in keys) / n)
              for l in V6)
-    return (po - pe) / (1 - pe), n
+    return ((po - pe) / (1 - pe) if pe < 1 else 1.0), n  # as analyze.py: chance agreement 1 is perfect
 
 
 def lenient_rate(j):

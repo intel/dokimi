@@ -63,3 +63,21 @@ def test_gen_names_a_missing_judge(tmp_path):
     assert r.returncode != 0
     assert "kimi-k3" in r.stderr
     assert "Traceback" not in r.stderr
+
+
+def test_gen_runs_when_two_judges_agree_on_every_row(tmp_path):
+    # Both judges give one label on every row, so the chance agreement is 1 and kappa is undefined.
+    out = tmp_path / "out"
+    _write(out, GEN_JUDGES)
+    grades = [json.loads(line) for line in (out / "grades.jsonl").read_text().splitlines()]
+    for g in grades:
+        if g["judge"] in ("kimi-k2.5", "kimi-k3"):
+            g["verdict"] = "correct_complete"
+    (out / "grades.jsonl").write_text("".join(json.dumps(g) + "\n" for g in grades))
+
+    r = _gen(out)
+
+    assert r.returncode == 0, r.stderr[-800:]
+    summary = json.loads((out / "gen_summary.json").read_text())
+    pair = next(p for p in summary["pairs"] if p["old"] == "kimi-k2.5")
+    assert pair["kappa_old_new"] == 1.0
