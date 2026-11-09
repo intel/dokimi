@@ -780,6 +780,19 @@ def test_an_untracked_root_ignores_the_enclosing_repositorys_filters(tmp_path):
     assert done.returncode == 0, done.stderr
 
 
+def test_an_untracked_root_in_an_unborn_enclosing_repository_ignores_its_filters(tmp_path):
+    parent = tmp_path / "home"
+    parent.mkdir()
+    (parent / ".profile").write_text("x\n")
+    _git(parent, "init", "-q")
+    _git(parent, "config", "filter.lfs.clean", "false")
+    root = _catalog(parent)
+    out = tmp_path / "out"
+    done = _run(root, out)
+    assert done.returncode == 0, done.stderr
+    assert json.loads((out / "catalog.json").read_text())["source"] == {"commit": None, "dirty": None}
+
+
 def test_a_root_tracked_by_an_enclosing_repository_keeps_its_commit(tmp_path):
     parent, _ = _parent_repo(tmp_path)
     root = _catalog(parent)

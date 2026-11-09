@@ -109,7 +109,10 @@ def source_and_changes(root: Path, base: str | None, out: Path) -> tuple[
     head = _git(root, "rev-parse", "--verify", "HEAD^{commit}")
     source: dict[str, Any] = {"commit": None, "dirty": None}
     untracked: list[str] = []
-    if head.returncode == 0 and not _belongs_to_checkout(root, gitlinks):
+    # Membership comes from the index, not from HEAD: an enclosing repository with no commit yet
+    # (unborn HEAD) still answers ls-files, and its filters must not run on ROOT's bytes.
+    inside_repo = head.returncode == 0 or gitlinks.returncode == 0
+    if inside_repo and not _belongs_to_checkout(root, gitlinks):
         # git walked up to an enclosing repository that does not track ROOT (a skills
         # folder under a git-tracked $HOME): its HEAD says nothing about these bytes.
         return source, None, untracked, {}, (
