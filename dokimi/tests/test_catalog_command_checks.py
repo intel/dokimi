@@ -267,6 +267,12 @@ def test_prose_in_a_text_file_is_not_an_install(tmp_path, name, text):
     assert _found(review, "install-unpinned") == []
 
 
+def test_a_stray_backtick_does_not_turn_prose_after_it_into_code(tmp_path):
+    prose = "Press the ` key to exit.\n\nRun pip install flask to start.\n\nAnd `code` here.\n"
+    review = _review(tmp_path, "# Tool\n", {"docs/guide.md": prose})
+    assert _found(review, "install-unpinned") == []
+
+
 @pytest.mark.parametrize("command", [
     "curl -s https://example.com/x | sudo -u root sh",
     "curl -s https://example.com/x |& sh",

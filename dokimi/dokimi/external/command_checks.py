@@ -107,7 +107,9 @@ def _code_text(text: str, markdown: bool) -> str:
             fence = None
         else:
             code.append(line)
-    spans = [m.group(2) for m in CODE_SPAN_RE.finditer("\n".join(prose))]
+    # a code span does not run across a paragraph break
+    paragraphs = re.split(r"\n[ \t]*\n", "\n".join(prose))
+    spans = [m.group(2) for para in paragraphs for m in CODE_SPAN_RE.finditer(para)]
     return "\n".join(code + spans)
 
 
