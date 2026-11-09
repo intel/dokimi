@@ -333,9 +333,7 @@ def format_leak(entries: list[dict[str, Any]]) -> list[str]:
         if e["imports_unrecorded"]:
             lines.append("  by date reads directories only where no guidance_imported_by was recorded (a batch from "
                          "before it was): a nested guidance file another one imports can be missed")
-        unscoped = [t for t, hit in e["by_date"].items() if not hit["scoped"]]
-        if unscoped:
-            lines.append("  by date, not scoped to the patch (no patch_files): " + _capped(unscoped))
+        lines += _date_lines(e["by_date"])
         by_reason: dict[str, list[str]] = {}
         for task, reason in e["unknown"].items():
             by_reason.setdefault(reason, []).append(task)
@@ -344,6 +342,19 @@ def format_leak(entries: list[dict[str, Any]]) -> list[str]:
         keep = sorted({*e["clean"], *e["not_checked"]} - flagged)
         if keep and (e["by_date"] or e["by_name"]):
             lines.append("  clean: " + " ".join(f"--task {t}" for t in keep))
+    return lines
+
+
+def _date_lines(by_date: dict[str, dict[str, Any]]) -> list[str]:
+    """The tasks flagged by date that the counts alone would not explain: those read with no ``patch_files``, and
+    those an import made a file apply to, with the file and its importer (``via``)."""
+    lines = []
+    unscoped = [t for t, hit in by_date.items() if not hit["scoped"]]
+    if unscoped:
+        lines.append("  by date, not scoped to the patch (no patch_files): " + _capped(unscoped))
+    imported = [f"{t} ({hit['path']} via {hit['via']})" for t, hit in by_date.items() if hit.get("via")]
+    if imported:
+        lines.append("  by date, through an import: " + _capped(imported))
     return lines
 
 

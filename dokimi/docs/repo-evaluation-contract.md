@@ -2613,7 +2613,8 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   `scoped`, and `via` when an import made the file apply), `by_name` (task → the commit shas), `unknown` (task → reason),
   `clean` (flagged by neither and not unknown), `names_truncated` and `imports_unrecorded`. The
   text prints per checked arm a line of the counts, the tasks flagged by name
-  with their commits, and, when some tasks are flagged and some are not, the
+  with their commits, the tasks flagged by date through an import with the file
+  and its importer (`sub/CLAUDE.md via CLAUDE.md`), and, when some tasks are flagged and some are not, the
   clean ones and the `not_checked` ones as `--task` options, to compare
   without the flagged tasks; a task another arm flags or reports unknown is
   left out of them. The

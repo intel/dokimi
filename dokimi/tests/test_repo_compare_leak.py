@@ -159,11 +159,13 @@ def test_a_nested_file_a_root_file_imports_applies_to_every_task_and_names_the_i
     ``public_at`` reaches a task that patches ``src/x.py`` only."""
     meta = _rev({"CLAUDE.md": _commit(SHA["root"], EARLY), "sub/CLAUDE.md": _commit(SHA["sub"], LATE)},
                 imported={"sub/CLAUDE.md": ["CLAUDE.md"]})
-    leak = _leak(compare([_batch(tmp_path, meta, {"review_replay_pr1": _spec(1, files=["src/x.py"])})],
-                         "guidance:none"))
+    summary = compare([_batch(tmp_path, meta, {"review_replay_pr1": _spec(1, files=["src/x.py"])})], "guidance:none")
+    leak = _leak(summary)
     assert leak["by_date"] == {"review_replay_pr1": {"path": "sub/CLAUDE.md", "sha": SHA["sub"], "committed": LATE,
                                                      "public_at": PUBLIC, "scoped": True, "via": "CLAUDE.md"}}
     assert leak["clean"] == [] and leak["imports_unrecorded"] is False
+    assert "  by date, through an import: review_replay_pr1 (sub/CLAUDE.md via CLAUDE.md)" in format_compare(
+        summary).splitlines()
 
 
 def test_a_nested_file_a_nested_file_imports_applies_under_both_directories(tmp_path):
@@ -172,10 +174,14 @@ def test_a_nested_file_a_nested_file_imports_applies_under_both_directories(tmp_
                 imported={"b/CLAUDE.md": ["a/CLAUDE.md"]})
     specs = {"review_replay_pr1": _spec(1, files=["a/x.py"]), "review_replay_pr2": _spec(2, files=["b/y.py"]),
              "review_replay_pr3": _spec(3, files=["c/z.py"])}
-    leak = _leak(compare([_batch(tmp_path, meta, specs)], "guidance:none"))
+    summary = compare([_batch(tmp_path, meta, specs)], "guidance:none")
+    leak = _leak(summary)
     assert {task: (hit["path"], hit.get("via")) for task, hit in leak["by_date"].items()} == {
         "review_replay_pr1": ("b/CLAUDE.md", "a/CLAUDE.md"), "review_replay_pr2": ("b/CLAUDE.md", None)}
     assert leak["clean"] == ["review_replay_pr3"]
+    # pr2 patches under b/, where the file applies on its own: the text gives it no importer
+    assert [line for line in format_compare(summary).splitlines() if "via" in line or "import" in line] == [
+        "  by date, through an import: review_replay_pr1 (b/CLAUDE.md via a/CLAUDE.md)"]
 
 
 def test_a_batch_recorded_before_the_imports_reads_directories_only_and_says_so(tmp_path):
