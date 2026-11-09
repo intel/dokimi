@@ -274,10 +274,10 @@ _NON_RETRYABLE_EXC_NAMES = frozenset({
     "unsupportedparamserror",
     "contentpolicyviolationerror",
 })
-# So are these messages, under a class litellm also raises for transients: no key for OpenAI
-# (InternalServerError), Azure (APIError) or Vertex (APIConnectionError, also no google-auth).
+# So are these messages, which litellm raises under transient classes: no key, project or SDK.
 _NON_RETRYABLE_MESSAGES = ("missing credentials", "api_key client option must be set",
-                           "could not resolve credentials", "default credentials were not found",
+                           "missing gemini api key", "could not resolve credentials",
+                           "could not resolve project_id", "default credentials were not found",
                            "google cloud sdk not found")
 
 

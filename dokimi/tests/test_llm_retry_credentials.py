@@ -4,9 +4,10 @@
 """A call with no credentials fails on its first attempt; a transient error is still retried.
 
 litellm raises a missing key under a transient-looking class (``InternalServerError`` for
-OpenAI, ``APIError`` for Azure, ``APIConnectionError`` for Vertex), so it used to be retried
-three times, 2 + 4 + 8 s of backoff before the same error. The OpenAI and Azure cases run the
-production adapter: the OpenAI client refuses before it sends anything. The rest are the
+OpenAI, ``APIError`` for Azure, ``APIConnectionError`` for Gemini and Vertex, a missing project
+or google-auth too), so it used to be retried three times, 2 + 4 + 8 s of backoff before the
+same error. The OpenAI, Azure and Gemini cases run the production adapter: the client refuses
+before it sends anything. The rest are the
 messages litellm, openai and google-auth raise, on the class litellm wraps them in.
 """
 
@@ -18,7 +19,7 @@ from dokimi.llm import LLM, is_retryable
 
 CREDENTIAL_ENV = ("OPENAI_API_KEY", "OPENAI_ADMIN_KEY", "OPENAI_API_BASE", "OPENAI_BASE_URL",
                   "AZURE_API_KEY", "AZURE_OPENAI_API_KEY", "AZURE_OPENAI_AD_TOKEN",
-                  "AZURE_API_BASE", "AZURE_OPENAI_ENDPOINT")
+                  "AZURE_API_BASE", "AZURE_OPENAI_ENDPOINT", "GEMINI_API_KEY", "GOOGLE_API_KEY")
 
 
 @pytest.fixture
@@ -44,15 +45,17 @@ def no_credentials(monkeypatch):
     return calls
 
 
-@pytest.mark.parametrize("provider, model", [("openai", "gpt-4o"), ("azure", "gpt-4o")])
+@pytest.mark.parametrize("provider, model", [("openai", "gpt-4o"), ("azure", "gpt-4o"),
+                                             ("google-vertex", "gemini/gemini-2.5-pro")])
 def test_a_missing_key_fails_on_the_first_attempt(no_credentials, sleeps, provider, model):
-    with pytest.raises(Exception, match="(?i)missing credentials|api_key client option must be set"):
+    with pytest.raises(Exception, match="(?i)missing (gemini api key|credentials)|api_key client"):
         LLM(model, provider).ask("p")
     assert len(no_credentials) == 1 and sleeps == []
 
 
 # The messages as their sources word them: openai>=2.20 (the oldest litellm takes) and the
-# current openai, litellm's Vertex auth, google-auth's ADC lookup, Vertex without google-auth.
+# current openai, litellm's Vertex auth (no credentials, no project), google-auth's ADC lookup,
+# Vertex without google-auth.
 MISSING_CREDENTIALS = [
     litellm.InternalServerError(
         "OpenAIException - The api_key client option must be set either by passing api_key to the "
@@ -64,6 +67,7 @@ MISSING_CREDENTIALS = [
     litellm.APIConnectionError(
         "Could not resolve credentials - either dynamically or from environment, for project_id: "
         "None", "vertex_ai", "gemini-2.5-pro"),
+    litellm.APIConnectionError("Could not resolve project_id", "vertex_ai", "gemini-2.5-pro"),
     litellm.APIConnectionError(
         "Your default credentials were not found. To set up Application Default Credentials, see "
         "https://cloud.google.com/docs/authentication/external/set-up-adc for more information.",
