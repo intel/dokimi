@@ -164,6 +164,14 @@ def test_shell_comments_are_removed_before_the_command_is_split():
     assert online_checks.extract_packages(body) == [("pypi", "requests"), ("npm", "lodash")]
 
 
+def test_a_hash_comment_with_no_space_after_it_hides_the_rest_of_the_line():
+    # The hash starts a word and an install is already on the line: shell reads the rest as a comment.
+    assert online_checks.extract_packages("pip install requests #note; pip install nosuch-pkg-xyz\n") == [
+        ("pypi", "requests")]
+    assert online_checks.extract_packages("pip install requests # `pip install nosuch-pkg-xyz`\n") == [
+        ("pypi", "requests")]
+
+
 def test_redirection_operators_and_their_targets_are_not_packages():
     body = (
         "pip install requests > install.log\nnpm install lodash >> log.txt\n"

@@ -55,6 +55,10 @@ _PROSE_STOP = {
 _SPEC_OPERATORS = {"==", "===", "!=", "~=", ">=", "<=", ">", "<"}
 # A ``#`` that starts a word is a shell comment; one inside a word ("C#", "docs#setup") is not.
 _COMMENT_RE = re.compile(r"(?:^|(?<=[\s;|&()<>]))#(?=\s|$).*$")  # "#" then a space or the end: "#12" is not a comment
+# A ``#`` after a space that follows an install command starts a shell comment whatever comes after it ("#note;"),
+# and it is cut before code spans are split off (the commented-out command in backticks is not a command).
+_UNQUOTED_HASH_RE = re.compile(r"(?:^|(?<=\s))#(?!\d)")
+_SHELL_COMMAND_RE = re.compile(r"\b(?:pip3?|npm|npx|uv)\b")
 _LINE_PREFIX_RE = re.compile(r"^\s*(?:(?:[-*+]|\d+[.)])\s+|>+ ?)")  # a list marker or a quote marker
 # English words that follow ``npx`` in prose ("npx is great", "Use npx to run it"), not package names.
 _NPX_PROSE = {"a", "an", "and", "are", "can", "could", "for", "get", "in", "is", "it", "may", "might", "must",
@@ -108,8 +112,18 @@ def _code_span(match: re.Match[str]) -> str:
     return f"\n{text}\n" if words and words[0] in _COMMAND_START else f" {text} "
 
 
+def _before_comment(line: str) -> str:
+    """``line`` up to a ``#`` comment that follows an install command on it, else ``line`` unchanged."""
+    for m in _UNQUOTED_HASH_RE.finditer(line):
+        if _SHELL_COMMAND_RE.search(line, 0, m.start()):
+            return line[:m.start()]
+    return line
+
+
 def _lines(body: str) -> Iterator[str]:
-    """The lines of ``body``: code spans split off, stray backticks and list or quote markers removed."""
+    """The lines of ``body``: shell comments after a command cut, code spans split off, stray backticks and list or
+    quote markers removed."""
+    body = "\n".join(_before_comment(line) for line in body.splitlines())
     body = _CODE_SPAN_RE.sub(_code_span, body)
     body = body.replace("`", " ")
     for line in body.splitlines():
