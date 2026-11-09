@@ -832,3 +832,11 @@ def test_a_root_at_the_top_of_a_repository_with_an_empty_first_commit_keeps_its_
     assert done.returncode == 0, done.stderr
     assert json.loads((out / "catalog.json").read_text())["source"]["commit"] == _git(root, "rev-parse", "HEAD")
 
+
+def test_an_untracked_root_without_a_base_has_no_selection_note(tmp_path):
+    parent, _ = _parent_repo(tmp_path)
+    root = _catalog(parent)
+    out = tmp_path / "out"
+    done = _run(root, out)
+    assert done.returncode == 0, done.stderr
+    assert "selection_note" not in json.loads((out / "catalog.json").read_text())
