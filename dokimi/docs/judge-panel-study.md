@@ -106,11 +106,12 @@ What changes and what does not:
   GPT-5.6 and Haiku. The paper's lenient added shares are therefore conservative. The extreme
   case is Haiku: the original judge says 0.10, the 7-judge majority 0.32. That moves Haiku
   from "the skill adds little" to the same level as Grok.
-- **The strict scale moves less in relative terms.** Strict gated added varies by 0.06–0.23
-  per model. gpt-6-luna is the outlier: it gives the lowest strict rate of any judge (0.27,
+- **The strict scale is not more stable.** Strict gated added varies by 0.06–0.23 per model,
+  and for three of five models (gpt-5.6, grok, nemotron) its range is wider than the lenient one. gpt-6-luna is the outlier: it gives the lowest strict rate of any judge (0.27,
   against 0.35–0.53), because it marks dropped qualifiers more often. Its strict added share
   is the lowest for four of the five models.
-- **Grok-4.6 answers are judge-proof.** Gated added is 0.32–0.37 under every judge. Its
+- **On the lenient scale, grok-4.6 answers are judge-stable.** Lenient gated added is 0.32–0.37
+  under every judge; under strict it spans 0.29–0.45. Its
   answers are the most clear-cut: only 11% of the rows lack unanimity, against 20–35% for
   the other answer models.
 - **Only the two ends of the ranking are stable.** Under every one of the eight judges, lenient

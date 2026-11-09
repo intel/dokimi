@@ -89,7 +89,7 @@ From the studies so far ([evidence](skill-novelty-evidence.md)):
   may already know, so every verdict is per model.
 - **The judge moves the numbers, not the ends of the ranking.** Changing the judge
   moves one model's lenient placebo-gated added share by up to 0.23, but nemotron-12b
-  stays first and opus-5 last under all eight judges ([judge panel](judge-panel-study.md)).
+  stays first and opus-5 last under all eight judges on the lenient scale ([judge panel](judge-panel-study.md)).
 
 ## What can be compared (arms)
 
