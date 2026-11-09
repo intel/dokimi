@@ -121,7 +121,8 @@ def do_repeat(workers: int):
         with path.open() as fh:
             kept = [json.loads(l) for l in fh]
     cells = {(r["probe_id"], r["model"]) for r in base}
-    kept = [r for r in kept if (r["probe_id"], r["model"]) in cells]  # not a cell of this sample
+    # A saved repeat for a cell this sample no longer has is dropped with the rest of the file.
+    kept = [r for r in kept if (r["probe_id"], r["model"]) in cells]
     have = {(r["probe_id"], r["model"]) for r in kept}
     todo = [r for r in base if (r["probe_id"], r["model"]) not in have]
 

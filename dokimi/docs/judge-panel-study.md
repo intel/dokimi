@@ -115,7 +115,7 @@ What changes and what does not:
   the other answer models.
 - **Only the two ends of the ranking are stable.** Under every one of the eight judges, lenient
   gated added puts nemotron-12b first and opus-5 last. The middle ranks change: the original
-  judge puts grok-4.6 (0.34) above haiku-4.5 (0.10), and glm-5 reverses them (0.32 against 0.33).
+  judge puts grok-4.6 (0.34) above haiku-4.5 (0.10), and glm-5 reverses them (grok-4.6 0.32, haiku-4.5 0.33).
   On strict, six of eight put
   nemotron-12b first and grok-4.6 second. gpt-6-luna swaps the two, and grok-4.6 ranks its
   own answers first and haiku-4.5 second. All eight put opus-5 or GPT-5.6 last. Statements of the form "the skill adds more for a weaker model"
