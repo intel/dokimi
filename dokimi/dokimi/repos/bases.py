@@ -104,11 +104,13 @@ def check_bases(report: RepoCheckReport, open_base: Callable[[str], RepoTree],
         f"guidance glob matches no file at the eval tree or at {where}: {p}"
         for p in unmatched_at_eval_tree if p not in matched_somewhere
     )
-    bare = sorted(t.id for t in report.tasks if report.guidance_by_base.get(t.base) == 0 and t.base not in overlaid)
+    bare = sorted(t.id for t in report.tasks if report.guidance_by_base.get(t.base) == 0 and t.base not in overlaid
+                  and not t.setup_patches)  # setup patches apply before the arm, which sees what they add
     if bare:
         report.notes.append(
-            f"no file the guidance globs match and no AGENTS.<agent>.md overlay at the base of {len(bare)} task(s); "
-            "there guidance:none, raw and bridge give the same "
+            f"no file the guidance globs match and no AGENTS.<agent>.md overlay at the base of {len(bare)} task(s) "
+            "without setup patches (a patch can add an overlay, which guidance:none removes and guidance:overlay "
+            "keeps); there guidance:none, raw and bridge give the same "
             "workspace and as-skill, overlay and format= fail preparation, so leave these tasks out of comparisons "
             f"among those arms (guidance:rev:, patch: and +skill: parts bring their own files): {', '.join(bare)}"
         )

@@ -81,7 +81,7 @@ def test_globs_and_bases_are_checked_at_every_task_base(tmp_path, capsys):
     assert out["guidance_by_base"] == {old: 2, f"{old}^": 0, bare: 0}
     assert len(out["notes"]) == 1 and out["notes"][0].endswith(": fix_bare, fix_older")
     assert out["notes"][0].startswith("no file the guidance globs match and no AGENTS.<agent>.md overlay at the base "
-                                      "of 2 task(s); ")
+                                      "of 2 task(s) without setup patches (")
     # rev: and patch: bring their own files, so the note must not cover them (#481)
     assert "guidance:none, raw and bridge give the same workspace" in out["notes"][0]
     assert "(guidance:rev:, patch: and +skill: parts bring their own files)" in out["notes"][0]
@@ -100,7 +100,8 @@ def _workspace_files(ws: Path) -> list[str]:
 
 def test_bases_note_leaves_out_a_base_whose_overlay_the_globs_miss(tmp_path, capsys):
     """guidance:none removes an overlay and guidance:overlay keeps it whatever the globs match, so a base with one is
-    no bare base: there none differs from raw and the overlay arm prepares (PR #485 review)."""
+    no bare base: there none differs from raw and the overlay arm prepares. Setup patches apply before the arm, so
+    one that adds an overlay does the same at a bare base (PR #485 review)."""
     from dokimi.repos.workspace import PrepError, export_eval_dir, load_tasks, prepare_workspace, source_git_dir
 
     root = tmp_path / "toy"
@@ -116,12 +117,19 @@ def test_bases_note_leaves_out_a_base_whose_overlay_the_globs_miss(tmp_path, cap
     _write(root, "dev/evals/repo-eval.yaml", yaml.safe_dump(raw))
     _task(root, "fix_plain", plain)
     _task(root, "fix_overlaid", overlaid)
+    patch = "--- /dev/null\n+++ b/AGENTS.claude.md\n@@ -0,0 +1 @@\n+# for claude, from a setup patch\n"
+    _write(root, "dev/evals/tasks/fix_patched/setup.patch", patch)
+    _write(root, "dev/evals/tasks/fix_patched/task.json", json.dumps(
+        {"id": "fix_patched", "family": "fix", "base": plain, "grader": "tests", "prompt": "Fix the bug.",
+         "setup_patches": ["setup.patch"]}))
     _commit_all(root, "evals")
 
     _run_cli(["repo", "validate", f"{root}@HEAD", "--manifest", "dev/evals/repo-eval.yaml", "--json"])
     out = json.loads(capsys.readouterr().out)
+    assert out["ok"] is True, out["errors"]
     assert out["guidance_by_base"] == {plain: 0, overlaid: 0}
     assert len(out["notes"]) == 1 and out["notes"][0].endswith("own files): fix_plain"), out["notes"]
+    assert "1 task(s) without setup patches (a patch can add an overlay, which guidance:none removes" in out["notes"][0]
 
     source = RepoSource.parse(f"{root}@HEAD")
     tree = open_source(source)
@@ -139,6 +147,9 @@ def test_bases_note_leaves_out_a_base_whose_overlay_the_globs_miss(tmp_path, cap
     assert files("fix_overlaid", "guidance:raw") == ["AGENTS.claude.md", "AGENTS.md"]
     assert files("fix_overlaid", "guidance:none") == ["AGENTS.md"]
     assert files("fix_overlaid", "guidance:overlay") == ["AGENTS.claude.md", "AGENTS.md"]
+    assert files("fix_patched", "guidance:raw") == ["AGENTS.claude.md", "AGENTS.md"]
+    assert files("fix_patched", "guidance:none") == ["AGENTS.md"]
+    assert files("fix_patched", "guidance:overlay") == ["AGENTS.claude.md", "AGENTS.md"]
 
 
 def test_glob_matching_nothing_anywhere_still_warns(tmp_path):
