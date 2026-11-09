@@ -107,12 +107,12 @@ class RepoTree(Protocol):
 
 
 class WorkTree:
-    """A directory on disk, read as it is (uncommitted changes included)."""
+    """A directory on disk, read as it is (uncommitted changes included); ``files``, when given, is its listing."""
 
-    def __init__(self, root: str | Path):
+    def __init__(self, root: str | Path, files: list[str] | None = None):
         self.root = Path(root).resolve()
         self.label = str(self.root)
-        self._files: list[str] | None = None
+        self._files: list[str] | None = sorted(files) if files is not None else None
 
     def _resolve(self, path: str) -> Path:
         target = (self.root / path).resolve()
