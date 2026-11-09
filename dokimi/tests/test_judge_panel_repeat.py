@@ -74,6 +74,22 @@ def test_repeat_keeps_saved_answers_and_calls_only_missing_cells(tmp_path, monke
     assert rows["p2"]["answer"] == "new answer for repeat|m1|p2"
 
 
+def test_repeat_drops_saved_rows_for_cells_no_longer_sampled(tmp_path, monkeypatch):
+    calls = []
+    jp = _load(tmp_path, monkeypatch, calls)
+    out = tmp_path / "out"
+    base = [{"probe_id": "p1", "model": "m1", "arm": "no_skill", "question": "q1"}]
+    (out / "sample.jsonl").write_text(json.dumps(base[0]) + "\n")
+    stale = {"probe_id": "p9", "model": "m1", "arm": "no_skill_repeat", "answer": "old", "question": "q9"}
+    (out / "repeats.jsonl").write_text(json.dumps(stale) + "\n")
+
+    jp.do_repeat(1)
+
+    assert calls == ["repeat|m1|p1"]
+    rows = [json.loads(l) for l in (out / "repeats.jsonl").read_text().splitlines()]
+    assert [r["probe_id"] for r in rows] == ["p1"]
+
+
 def test_repeat_without_saved_file_runs_every_cell(tmp_path, monkeypatch):
     calls = []
     jp = _load(tmp_path, monkeypatch, calls)

@@ -120,6 +120,8 @@ def do_repeat(workers: int):
     if path.exists():
         with path.open() as fh:
             kept = [json.loads(l) for l in fh]
+    cells = {(r["probe_id"], r["model"]) for r in base}
+    kept = [r for r in kept if (r["probe_id"], r["model"]) in cells]  # not a cell of this sample
     have = {(r["probe_id"], r["model"]) for r in kept}
     todo = [r for r in base if (r["probe_id"], r["model"]) not in have]
 
@@ -144,9 +146,12 @@ def do_repeat(workers: int):
     res = llm.pmap(run, todo, workers=workers, desc="repeats")
     ok = [x for x in res if isinstance(x, dict)]
     print("repeat ok", len(ok), "failed", len(res) - len(ok), "kept", len(kept))
-    with path.open("w") as fh:
+    # Write a temp file and rename it: a crash mid-write must not drop the saved repeats.
+    tmp = path.with_suffix(".jsonl.tmp")
+    with tmp.open("w") as fh:
         for r in kept + ok:
             fh.write(json.dumps(r) + "\n")
+    tmp.replace(path)
 
 
 def do_grade(workers: int, judges: list[str]):
