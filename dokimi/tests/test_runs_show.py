@@ -515,7 +515,7 @@ def test_a_run_id_no_artifact_has_counts_the_files_that_could_not_be_read(monkey
     (runs / "broken.json").write_text('{"schema_version": "eval.v1", "x": [', encoding="utf-8")
 
     assert _fails(monkeypatch, capsys, "nightly-3").endswith(
-        "has that run_id; 1 file under the root could not be read\n")
+        "has that run_id; 1 entry under the root could not be read\n")
 
 
 def test_an_input_kinds_stray_run_id_does_not_make_it_part_of_the_run(monkeypatch, capsys, runs):
@@ -533,7 +533,7 @@ def test_a_run_names_the_files_that_could_not_be_read(monkeypatch, capsys, runs)
 
     lines = _show(monkeypatch, capsys, "nightly-2").out.splitlines()
 
-    assert lines[2] == ("unreadable: 1 file under the root, which may belong to it "
+    assert lines[2] == ("unreadable: 1 entry under the root, which may belong to it "
                         "(first: broken.json: not valid JSON: Expecting value at line 1)")
 
 
@@ -557,10 +557,22 @@ def test_a_run_names_the_first_unreadable_file_escaped_and_json_lists_them_all(
         (runs / name).write_text('{"schema_version": "eval.v1", "x": [', encoding="utf-8")
 
     lines = _show(monkeypatch, capsys, "nightly-2").out.splitlines()
-    assert lines[2].startswith("unreadable: 2 files under the root, which may belong to it "
+    assert lines[2].startswith("unreadable: 2 entries under the root, which may belong to it "
                                "(first: a\\nbad.json: not valid JSON")
 
     data = json.loads(_show(monkeypatch, capsys, "nightly-2", "--json").out)
     assert [u["path"] for u in data["unreadable"]] == ["a\nbad.json", "b-bad.json"]
     assert data["unreadable"][0]["schema_version"] == "eval.v1"
 
+
+@pytest.mark.skipif(os.name == "nt" or os.geteuid() == 0,
+                    reason="POSIX permissions; root lists every directory")
+def test_a_run_id_under_a_root_that_cannot_be_listed_says_so(monkeypatch, capsys, runs):
+    runs.chmod(0o311)  # searchable, so e1.json would open, but not listable
+    try:
+        err = _fails(monkeypatch, capsys, "nightly-1")
+    finally:
+        runs.chmod(0o755)
+
+    assert err == ("Error: the runs root results/ cannot be listed, so run_id nightly-1 cannot be "
+                   "looked up (cannot list: Permission denied)\n")

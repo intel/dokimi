@@ -47,8 +47,8 @@ def _mtime(artifact: Artifact) -> str:
         return f"@{artifact.mtime:.0f}"
 
 
-def _count(n: int, noun: str) -> str:
-    return f"{n} {noun}" if n == 1 else f"{n} {noun}s"
+def _count(n: int, noun: str, plural: str = "") -> str:
+    return f"{n} {noun}" if n == 1 else f"{n} {plural or noun + 's'}"
 
 
 def _table(artifacts: list[Artifact], with_run: bool = True) -> list[str]:
@@ -179,7 +179,7 @@ def _run_text(run: ShownRun) -> list[str]:
              + ", ".join(f"{kind}: {n}" for kind, n in sorted(kinds.items())) + ")"]
     if run.unreadable:
         first = run.unreadable[0]
-        lines.append(f"{'unreadable:':<12}{_count(len(run.unreadable), 'file')} under the root, "
+        lines.append(f"{'unreadable:':<12}{_count(len(run.unreadable), 'entry', 'entries')} under the root, "
                      f"which may belong to it (first: {plain(first.path.as_posix())}: "
                      f"{plain(first.reason)})")
     table = _table(run.artifacts, with_run=False)

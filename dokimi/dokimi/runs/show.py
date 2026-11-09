@@ -189,8 +189,13 @@ def show_target(root: Path, address: str) -> Shown | ShownRun:
         return ShownRun(run_id=address, artifacts=found, unreadable=result.unreadable)
     if any(os.path.lexists(p) for p in (root / address, address)):
         return show(root, address)  # a directory, a path outside the root: say which
+    shown_root = plain(root.as_posix())
+    unlisted = next((u for u in result.unreadable if u.path == Path(".")), None)
+    if unlisted:  # the scan saw nothing at all
+        raise InputError(f"the runs root {shown_root}/ cannot be listed, so run_id "
+                         f"{plain(address)} cannot be looked up ({plain(unlisted.reason)})")
     unread = len(result.unreadable)
-    note = (f"; {unread} {'file' if unread == 1 else 'files'} under the root could not be read"
+    note = (f"; {unread} {'entry' if unread == 1 else 'entries'} under the root could not be read"
             if unread else "")
-    raise InputError(f"no file {plain(address)} under the runs root {plain(root.as_posix())}/, "
+    raise InputError(f"no file {plain(address)} under the runs root {shown_root}/, "
                      f"and no artifact there has that run_id{note}")
