@@ -148,11 +148,15 @@ def _unpinned_pip(rest: str) -> list[str]:
 
 
 def _npm_pinned(spec: str | None) -> bool:
-    """Whether an npm version spec pins a version. An alias (``npm:<name>@<version>``) pins its target's version."""
+    """Whether an npm version spec pins a version. An alias (``npm:<name>@<version>``) pins its target's version.
+    A URL, git, ``github:``, ``file:`` or ``link:`` source is not a registry version: it is not counted, so it is
+    treated as pinned."""
     if spec is not None and spec.startswith("npm:"):
         target = spec[len("npm:"):]
         at = target.rfind("@")  # the last @: a scoped target's @scope is not its version
         spec = target[at + 1:] if at > 0 else None
+    if spec is not None and ":" in spec:
+        return True
     return spec is not None and NPM_RANGE.match(spec) is not None
 
 
@@ -193,7 +197,7 @@ def _unpinned_npx(rest: str) -> list[str]:
     names = []
     for spec in selected or ([executable] if executable else []):
         match = NPM_NAME.fullmatch(spec.rstrip("\"')"))
-        if match is not None and not _npm_pinned(match.group(2)):
+        if match is not None and not spec.lower().endswith(NON_PACKAGE_SUFFIXES) and not _npm_pinned(match.group(2)):
             names.append(match.group(1))
     return names
 

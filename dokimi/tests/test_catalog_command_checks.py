@@ -370,6 +370,18 @@ def test_a_quoted_comparison_specifier_is_still_a_pin(tmp_path):
     assert _found(_review(tmp_path, _fenced("pip install 'requests>=2' > install.log")), "install-unpinned") == []
 
 
+@pytest.mark.parametrize("command", [
+    "npm install tool@https://example.com/download",
+    "npm install tool@git+https://example.com/repo.git",
+    "npm install tool@github:user/repo",
+    "npm install tool@file:../x",
+    "npx tool@https://example.com/download",
+    "npx tool.tgz",
+])
+def test_a_non_registry_source_or_archive_is_not_counted(tmp_path, command):
+    assert _found(_review(tmp_path, _fenced(command)), "install-unpinned") == []
+
+
 def test_every_npx_package_selection_is_judged(tmp_path):
     assert _found(_review(tmp_path, _fenced("npx --package=typescript@5.0.0 tsc")), "install-unpinned") == []
     assert _found(_review(tmp_path / "sep", _fenced("npx --package typescript@5.0.0 tsc")), "install-unpinned") == []
