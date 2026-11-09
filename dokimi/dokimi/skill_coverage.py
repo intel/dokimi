@@ -260,14 +260,14 @@ Reply with JSON only: {{"items": {{"<requirement id>": ["<check name>", ...]}}}}
 
 
 def _usable_items(reply: dict[str, Any], ids: set[str]) -> bool:
-    """A mapping the run can use: ``items`` is an object, every requirement id it names holds a list of check
-    names, and at least one does (an explicit empty list is a valid answer). The cache keeps only what this
-    accepts, and the run refuses what it rejects, so an identical rerun asks the model again."""
+    """A mapping the run can use: ``items`` is an object and every requirement id holds a list of check names
+    (an explicit empty list is a valid answer). An omitted id is not: it would read as uncovered, when the model
+    never mapped it. The cache keeps only what this accepts, and the run refuses what it rejects, so an identical
+    rerun asks the model again."""
     items = reply.get("items")
-    if not isinstance(items, dict):
+    if not isinstance(items, dict) or not ids:
         return False
-    named = [items[rid] for rid in ids if rid in items]
-    return bool(named) and all(isinstance(v, list) for v in named)
+    return all(isinstance(items.get(rid), list) for rid in ids)
 
 
 def catalogue_text(checks: list[Check]) -> str:
@@ -302,8 +302,8 @@ def map_requirements(requirements: list[Requirement], checks: list[Check], clien
     except ValueError as exc:
         raise SkillCoverageError(f"no usable mapping from the model: {exc}") from exc
     if not usable(reply):  # ``usable`` guards the cache only; an injected transport skips it
-        raise SkillCoverageError("no usable mapping from the model: each requirement id it names must hold a list "
-                                 "of check names, and at least one must")
+        raise SkillCoverageError("no usable mapping from the model: every requirement id must hold a list of check "
+                                 "names (an empty list when none fits)")
     known = {c.name for c in checks}
     by_requirement: dict[str, tuple[str, ...]] = {}
     dropped = 0
