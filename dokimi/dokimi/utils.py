@@ -740,13 +740,29 @@ def check_bedrock_model(provider: str, model: str) -> None:
                          f"{', '.join(BEDROCK_MODEL_IDS)}")
 
 
+def refuse_device(path: str | os.PathLike[str], flag: str | None = None) -> None:
+    """:class:`InputError` ``<flag> <path>: not a file`` for a device or a socket, before it is read whole.
+
+    A regular file, a pipe (``<(cat x.json)``) and a directory pass; so does a path that cannot be
+    stat'ed, left to the read to report. ``/dev/zero`` would otherwise be read until memory runs out
+    (https://github.com/intel/dokimi/issues/504).
+    """
+    try:
+        mode = os.stat(path).st_mode
+    except (OSError, ValueError):  # missing, a path under a file, an embedded null byte
+        return
+    if not (stat.S_ISREG(mode) or stat.S_ISFIFO(mode) or stat.S_ISDIR(mode)):
+        raise InputError(f"{flag} {path}: not a file" if flag else f"{path}: not a file")
+
+
 def read_json_input(path: str | os.PathLike[str], *, flag: str | None = None) -> Any:
     """The parsed JSON at ``path``, or :class:`InputError` naming the file and the reason.
 
-    Covers a missing or unreadable file, bytes that are not UTF-8, text that is not JSON and
-    JSON nested too deeply to parse. With ``flag`` (the option the file was given to) the
-    message is that option's own, ``<flag> <path>: <reason>``.
+    Covers a missing or unreadable file, a device (:func:`refuse_device`), bytes that are not
+    UTF-8, text that is not JSON and JSON nested too deeply to parse. With ``flag`` (the option
+    the file was given to) the message is that option's own, ``<flag> <path>: <reason>``.
     """
+    refuse_device(path, flag)
     try:
         return json.loads(Path(path).read_text(encoding="utf-8"))
     except OSError as exc:

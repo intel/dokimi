@@ -13,6 +13,8 @@ import os
 import sys
 from pathlib import Path
 
+from dokimi.utils import refuse_device
+
 
 def cmd_context_trace(args: argparse.Namespace) -> None:
     """Per-call prompt size, peak, compactions and tool-output weight of one or more traces."""
@@ -155,6 +157,7 @@ def cmd_context_prefilter(args: argparse.Namespace) -> None:
     from dokimi.context.prefilter import build_report, render_table
 
     guidance = Path(args.guidance)
+    refuse_device(guidance, "guidance")
     try:
         text = guidance.read_text(encoding="utf-8", errors="replace")
     except OSError as exc:
