@@ -39,7 +39,6 @@ def test_help_identifiers_lists_long_options_and_help():
 
 @pytest.mark.parametrize("answer, passed", [
     ("Run `perf report --stdio --sort=dso`.", True),
-    ("Run `perf report --no-children`.", True),  # parser-made negation of a listed option
     ("Run `perf report --stdin`.", False),  # the invented flag of the study
     ("Use `perf record --call-graph dwarf` then read it.", True),  # another command: not checked
     ("No command line at all.", True),
@@ -175,3 +174,9 @@ def test_identifiers_pattern_group_that_did_not_participate_is_the_whole_match()
     check = {"type": "identifiers", "known": ["--input", "ENV_FOO"], "pattern": r"(--[a-z]+)|ENV_[A-Z]+"}
     assert grade_check(check, "q", "ENV_FOO", None).passed is True
     assert grade_check(check, "q", "run with --stdin", None).passed is False
+
+
+def test_a_negated_flag_passes_only_when_the_check_opts_in_to_negations():
+    assert grade_check(_veto(), "q", "Run `perf report --no-input`.", None).passed is False
+    opted = grade_check(_veto(negations=True), "q", "Run `perf report --no-input`.", None)
+    assert opted.passed is True
