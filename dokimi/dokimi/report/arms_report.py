@@ -6,6 +6,7 @@
 from typing import Any, Dict, List
 
 from dokimi.eval.arm_summary import TOOL_COUNTS
+from dokimi.eval.sign_flip import fmt_small
 from dokimi.records import records
 
 
@@ -50,7 +51,7 @@ def _fmt_ci(lo: Any, hi: Any) -> str:
 
 def _ci_end(end: float) -> str:
     text = f"{end:+.1f}"
-    return f"{end:+.2g}" if end and float(text) == 0 else text
+    return fmt_small(end) if end and float(text) == 0 else text
 
 
 def _fmt_estimate(value: Any) -> str:

@@ -29,6 +29,7 @@ from __future__ import annotations
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from dokimi.records import RecordLike, records
+from dokimi.eval.sign_flip import round_mean
 from dokimi.eval.stats import (
     _apply_correction,
     _describe_deltas,
@@ -98,13 +99,13 @@ def _interaction_contrast(
             "arm_b": arm_b,
             "combined_arm": combined_arm,
             "baseline_arm": baseline_arm,
-            "delta_a": round(_mean([a - base for _, a, _, base in rows]), 2),
-            "delta_b": round(_mean([b - base for _, _, b, base in rows]), 2),
-            "delta_combined": round(_mean([ab - base for ab, _, _, base in rows]), 2),
+            "delta_a": round_mean(_mean([a - base for _, a, _, base in rows])),
+            "delta_b": round_mean(_mean([b - base for _, _, b, base in rows])),
+            "delta_combined": round_mean(_mean([ab - base for ab, _, _, base in rows])),
             "interaction": res["delta_mean"],
         }
     )
-    res["additive_expectation"] = round(res["delta_a"] + res["delta_b"], 2)
+    res["additive_expectation"] = round_mean(res["delta_a"] + res["delta_b"])
     return res
 
 

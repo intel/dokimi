@@ -58,7 +58,7 @@ import random
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
-from dokimi.eval.sign_flip import (ALPHA, EPS, METHOD, _rounded, min_sign_flip_p, sign_flip_interval,
+from dokimi.eval.sign_flip import (ALPHA, EPS, METHOD, _rounded, min_sign_flip_p, round_mean, sign_flip_interval,
                                    sign_flip_p, within)
 from dokimi.records import BASELINE, CONTEXT, RecordLike, records
 
@@ -483,7 +483,8 @@ def _describe_deltas(
     on 0 by that same ``p``: they exclude 0 exactly when ``p < ALPHA``. An end
     is ``None`` where it is open, as both are at 5 or fewer pairs. ``exact``
     holds the unrounded ends; the displayed ones are rounded to 4 places, never
-    onto or across 0, and ``delta_mean`` (2 places) is held inside them.
+    onto or across 0, and ``delta_mean`` (:func:`round_mean`: 2 places, or 2
+    significant digits under 0.005) is held inside them.
 
     ``significant`` is ``None`` ("could not tell", not "no") when there is no
     p, every delta tied, or when the floor ``2 / 2**k`` over the
@@ -510,7 +511,7 @@ def _describe_deltas(
 
     return {
         "n": len(d),
-        "delta_mean": within((round(d_mean, 2) or float(f"{d_mean:.2g}")) + 0.0, shown_lo, shown_hi),
+        "delta_mean": within(round_mean(d_mean), shown_lo, shown_hi),
         "delta_std": round(d_sd, 2),
         "cohens_d": cohens_d,
         "effect": effect_label(cohens_d),

@@ -37,7 +37,7 @@ from typing import Any
 
 from dokimi.records import Record, arm_answers, arm_names, arm_scores, records
 from dokimi.eval.judge_context import PROTOCOL_MIXED as JUDGE_CONTEXT_MIXED
-from dokimi.eval import stats as arm_stats
+from dokimi.eval import sign_flip, stats as arm_stats
 from dokimi.utils import InputError, read_json_input
 
 try:
@@ -589,9 +589,7 @@ def _rank_key(field: str):
 def _fmt_delta(d: float | None) -> str:
     if d is None:
         return "N/A"
-    if isinstance(d, float):
-        d = round(d, 1) or float(f"{d:.2g}")  # under 0.05, 2 significant digits: a significant +0.04 reads +0.04
-    return f"+{d}" if d > 0 else str(d)
+    return sign_flip.fmt_delta(d)
 
 
 def significance_test(

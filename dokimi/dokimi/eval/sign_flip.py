@@ -191,6 +191,24 @@ def _rounded(end: float | None) -> float | None:
     return math.copysign(1e-4, end) if out == 0 and end != 0 else out + 0.0  # + 0.0: no -0.0
 
 
+def round_mean(mean: float) -> float:
+    """``mean`` at 2 places, or at 2 significant digits where that would be 0.0: a mean of 0.0035 stays 0.0035."""
+    return (round(mean, 2) or float(f"{mean:.2g}")) + 0.0  # + 0.0: no -0.0
+
+
+def fmt_small(value: float) -> str:
+    """A non-zero ``value`` under 0.05 in magnitude, signed, at 2 significant digits in fixed point: 1e-05 is +0.00001."""
+    return f"{value:+.{1 - math.floor(math.log10(abs(value)))}f}".rstrip("0")
+
+
+def fmt_delta(value: float) -> str:
+    """``value`` at one decimal, ``+`` when positive; a non-zero one that would read 0.0 goes through :func:`fmt_small`."""
+    rounded = round(value, 1)
+    if value and not rounded:
+        return fmt_small(value)
+    return f"+{rounded}" if rounded > 0 else str(rounded)
+
+
 def within(mean: float, lo: float | None, hi: float | None) -> float:
     """``mean`` held inside ``[lo, hi]``, an open end unbounded: :func:`_rounded` puts an end below 5e-5 at ±0.0001,
     past a mean 4 places put at 0, and a mean at fewer places can step out of a narrow interval."""
