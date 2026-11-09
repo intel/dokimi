@@ -24,6 +24,7 @@ from __future__ import annotations
 import hashlib
 import json
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from dokimi.utils import InputError, read_json_input
@@ -298,6 +299,20 @@ class ExtractionReport:
         }
 
 
+def _unread_at_cap(stop: SpendCapReached, batch: list[Span], parse: Callable[[str], list],
+                   valid_ids: set[str], seen: set[str], atoms: list[Atom]) -> list[Span]:
+    """The batch the cap leaves unread. A call with no price is paid for and its reply comes back
+    on the exception: when that reply is usable its atoms are kept here, and the batch is read."""
+    if not stop.reply:
+        return batch
+    try:
+        rows = parse(stop.reply)
+    except Exception:  # not usable: the batch is unread, as after any failed call
+        return batch
+    _keep_atoms(rows, valid_ids, seen, atoms)
+    return []
+
+
 def _stop_at_cap(spans: list[Span], batch: list[Span], pending: list, report: ExtractionReport,
                  stop: SpendCapReached) -> None:
     """The cap ends extraction: ``batch`` and the batches queued behind it go unread, and the
@@ -413,16 +428,8 @@ def extract_atoms(
             unparseable = True
             rows = parse(reply)
         except SpendCapReached as exc:
-            # A call with no price is paid for, and its reply comes back on the exception: a
-            # usable one is kept, so only the batch behind it and the queue go unread.
-            kept = False
-            if exc.reply:
-                try:
-                    _keep_atoms(parse(exc.reply), valid_ids, seen, atoms)
-                    kept = True
-                except Exception:  # not usable: this batch is unread, as after any failed call
-                    pass
-            _stop_at_cap(spans, [] if kept else batch, pending, report, exc)
+            _stop_at_cap(spans, _unread_at_cap(exc, batch, parse, valid_ids, seen, atoms),
+                         pending, report, exc)
             break
         except Exception as exc:
             cut = isinstance(exc, OutputTruncated)
