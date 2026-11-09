@@ -84,6 +84,29 @@ def test_a_registry_pipe_is_listed(tmp_path):
     assert "Demo" in out.out and "1 products registered." in out.out
 
 
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="no named pipes on Windows")
+@pytest.mark.parametrize("flag,argv", [
+    ("--registry", ["catalog", "list", "--kind", "product"]), ("--intents", ["catalog", "intents"]),
+])
+def test_a_pipe_that_gives_nothing_is_not_an_empty_registry(tmp_path, flag, argv):
+    with fifo_fed_with(tmp_path / "empty.fifo", "") as fifo:
+        err = _run([*argv, flag, str(fifo)])
+
+    assert f"Error: {flag} {fifo}: the pipe was empty" in err
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="no named pipes on Windows")
+def test_an_intents_pipe_is_listed(tmp_path):
+    intents = "domains:\n  perf:\n    name: Perf\n    description: d\n    products: [demo]\n"
+    with fifo_fed_with(tmp_path / "intents.fifo", intents) as fifo:
+        args = build_parser().parse_args(["catalog", "intents", "--intents", str(fifo)])
+        with refusal() as out:
+            args.func(args)
+
+    assert out.code == 0
+    assert "Perf" in out.out
+
+
 @pytest.mark.skipif(os.name == "nt", reason="no /dev/null on Windows")
 @pytest.mark.parametrize("flag,argv", [
     ("--registry", ["catalog", "list", "--kind", "product"]), ("--intents", ["catalog", "intents"]),
