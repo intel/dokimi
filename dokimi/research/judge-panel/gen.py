@@ -12,7 +12,7 @@ import os
 from pathlib import Path
 
 HERE = Path(__file__).parent
-os.environ["JP_TABLES"] = "tables_gen"  # analyze.py writes its tables here, not into tables/
+os.environ["JP_TABLES"] = "tables_gen"  # analyze.py's table dir (T) if run_study() is called: keep it out of tables/
 _spec = importlib.util.spec_from_file_location("analyze", HERE / "analyze.py")
 an = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(an)

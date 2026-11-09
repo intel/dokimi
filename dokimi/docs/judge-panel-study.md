@@ -392,8 +392,8 @@ Script: `research/judge-panel/gen.py`. Tables: `docs/assets/judge-panel/generati
 | openai: gpt-5.6-luna → gpt-6-sol | 0.70 | 0.756 → 0.713 | 0.13→0.16 / 0.12→0.18 / 0.15→0.16 / 0.34→0.29 / 0.43→0.50 |
 | moonshot: kimi-k2.5 → kimi-k3 | 0.65 | 0.599 → 0.716 | 0.26→0.23 / 0.32→0.23 / 0.31→0.23 / 0.37→0.35 / 0.52→0.45 |
 | anthropic: haiku-4.5 → sonnet-5 | 0.66 | 0.651 → 0.652 | 0.15→0.21 / 0.20→0.30 / 0.21→0.23 / 0.34→0.32 / 0.53→0.55 |
-| anthropic: haiku-4.5 → opus-5.5 | 0.63 | 0.651 → 0.718 | 0.15→0.18 / 0.20→0.20 / 0.21→0.23 / 0.34→0.36 / 0.53→0.58 |
-| anthropic: sonnet-5 → opus-5.5 | 0.71 | 0.652 → 0.718 | 0.21→0.18 / 0.30→0.20 / 0.23→0.23 / 0.32→0.36 / 0.55→0.58 |
+| anthropic: haiku-4.5 → opus-5.5 | 0.63 | 0.651 → 0.718 | 0.15→0.18 / 0.20→0.20 / 0.21→0.23 / 0.34→0.35 / 0.53→0.58 |
+| anthropic: sonnet-5 → opus-5.5 | 0.71 | 0.652 → 0.718 | 0.21→0.18 / 0.30→0.20 / 0.23→0.23 / 0.32→0.35 / 0.55→0.58 |
 | deepseek: r1 → v3.2 | 0.61 | 0.735 → 0.639 | 0.13→0.18 / 0.15→0.30 / 0.15→0.21 / 0.37→0.35 / 0.47→0.57 |
 
 The lenient rate is the share of a judge's verdicts that count as correct under lenient
@@ -412,7 +412,7 @@ What a generation update does to judgment:
   are therefore not comparable with ones graded by gpt-6. The deltas also mix row sets: gpt-5.6-luna
   has 2,664 graded rows (no repeat grades), the new judges 2,932, so the OpenAI delta is not a
   same-rows comparison.
-- **One answer model's added share moves by up to 0.15 between generations.** For haiku-4.5 answers, deepseek-r1 0.15 vs v3.2 0.30; for the same answers, sonnet-5 0.30 vs opus-5.5 0.20. The generation CSVs have no noise column, so the shift is not set against a noise floor: the study's floor covers only its own panel, and claude-haiku-4-5, gpt-6-sol, claude-opus-5-5, kimi-k2.5 and deepseek-r1 are outside it (their repeat grades are counted in judge_leniency.csv (n=2932) but not tabulated).
+- **One answer model's added share moves by up to 0.15 between generations.** For haiku-4.5 answers, deepseek-r1 0.15 vs v3.2 0.30; for the same answers, sonnet-5 0.30 vs opus-5.5 0.20. The generation CSVs have no noise column, so the shift is not set against a noise floor: the study's floor covers only its own panel, and claude-haiku-4-5, gpt-6-sol, claude-opus-5-5, kimi-k2.5 and deepseek-r1 are outside it (their repeat grades are counted in the n of 2,932 in judge_leniency.csv but not tabulated).
 - **Newer judges are mixed on mean κ against the other judges.** Five of seven old-to-new pairs
   raise it, and both OpenAI pairs lower it. gpt-6-luna has the lowest mean κ of the
   OpenAI, Anthropic, Kimi, DeepSeek, xAI, GLM and Qwen judges (0.54, against 0.58 for gpt-5.6-luna). kimi-k3 has the highest (0.64).
