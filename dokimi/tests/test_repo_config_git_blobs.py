@@ -164,7 +164,7 @@ def test_odd_names_beyond_one_command_line_digest_the_same_edited_and_committed(
 
 @pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
 @pytest.mark.skipif(os.name == "nt", reason="Windows file names cannot hold a newline")
-def test_a_failed_batch_of_odd_names_hashes_their_bytes(tmp_path, monkeypatch):
+def test_a_failed_batch_of_odd_names_raises_instead_of_hashing_their_bytes(tmp_path, monkeypatch):
     monkeypatch.setattr("dokimi.utils._ARG_BUDGET", 30)
     root = _repo(tmp_path / "r", {**FILES, **{f"we\nird{i}.txt": "one\n" for i in range(4)}})
     odd = [p for p in root.iterdir() if "\n" in p.name]
@@ -181,9 +181,19 @@ def test_a_failed_batch_of_odd_names_hashes_their_bytes(tmp_path, monkeypatch):
         return real(top, rels, as_args=as_args)
 
     monkeypatch.setattr(utils, "_hash_objects", second_fails)
-    got = utils.file_contents(odd, tree)
+    with pytest.raises(OSError, match="hash-object"):
+        utils.file_contents(odd, tree)
     assert calls.count(True) == 2  # the batches were tried in turn, and the failure stopped them
-    assert got == {p: hashlib.sha256(p.read_bytes()).digest() for p in odd}
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
+def test_a_hash_object_that_fails_raises_instead_of_moving_the_digest(tmp_path, monkeypatch):
+    root = _repo(tmp_path / "r", FILES)
+    (root / "skills/a/SKILL.md").write_text("edited\n")  # not the index's blob: git must hash it
+    tree = git_tree(root)
+    monkeypatch.setattr(utils, "_hash_objects", lambda *a, **k: None)
+    with pytest.raises(OSError, match="hash-object"):
+        utils.file_contents([root / "skills/a/SKILL.md"], tree)
 
 
 def test_a_committed_lf_to_crlf_change_moves_suite_hash(tmp_path):

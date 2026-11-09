@@ -361,8 +361,8 @@ def _hash_objects(top: Path, rels: list[str], *, as_args: bool) -> list[str] | N
 
 def file_contents(paths: Iterable[Path], tree: GitTree | None) -> dict[Path, bytes]:
     """What a digest holds for each file: git's blob id for a file in ``tree`` (the index's when git finds it unchanged,
-    else ``hash-object``'s with the work tree's filters). Otherwise the sha256 of its bytes: no tree, a file outside it,
-    or git failing."""
+    else ``hash-object``'s with the work tree's filters). Otherwise the sha256 of its bytes: no tree or a file outside
+    it. A ``hash-object`` that fails raises ``OSError``, as a repository git cannot read does."""
     found = list(dict.fromkeys(paths))
     out = _blob_contents(found, tree) if tree is not None else {}
     for path in found:
@@ -385,8 +385,9 @@ def _blob_contents(paths: list[Path], tree: GitTree) -> dict[Path, bytes]:
             (odd if "\n" in rel or rel.startswith('"') or rel.endswith("\r") else plain).append((path, rel))
     for hashed, as_args in ((plain, False), (odd, True)):
         ids = _blob_ids(tree.top, [rel for _, rel in hashed], as_args=as_args) if hashed else []
-        if ids is not None:
-            out.update({path: bytes.fromhex(blob) for (path, _), blob in zip(hashed, ids, strict=True)})
+        if ids is None:  # a sha256 of the bytes here would move the digest with the host load that failed git
+            raise OSError(errno.EIO, "git hash-object failed", os.fspath(tree.top))
+        out.update({path: bytes.fromhex(blob) for (path, _), blob in zip(hashed, ids, strict=True)})
     return out
 
 
