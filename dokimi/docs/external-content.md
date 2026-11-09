@@ -47,6 +47,8 @@ under a vendored directory such as `node_modules` and any `.git` are not hashed,
 they select nothing). Skill resources and owned tasks select their skill, and a
 changed or removed task also selects the skill that owned it at the base;
 registry, suite, shared machinery and unclaimed changes select conservatively.
+A file git ignores under the shared machinery (`tools/`, `scripts/`, `dokimi/`,
+`.github/`) selects nothing and does not mark the source `dirty`, whatever its name.
 Selection limits what can fail: a finding in a skill that is not selected is
 listed in the report but does not fail the run, while a catalog-wide problem
 (manifest, suites, tasks root, a task with no known owner) always does.
