@@ -2358,7 +2358,7 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   A run that judges holds the batch's lock (`<batch>/_eval/lock`, which
   `repo run` holds while it rewrites `_eval/content` and regrades cells)
   from before it reads the pairs to its end; when another run holds it, the
-  command exits 2 with the message `repo run` gives, and when it cannot be
+  command exits 1 with the message `repo run` gives, and when it cannot be
   taken (a read-only batch) it exits 2 naming the lock, both before any
   call. `--dry-run` writes nothing and takes no lock.
   `--max-usd X` starts no new call once X is spent: a cell not fully judged
