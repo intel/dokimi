@@ -18,4 +18,7 @@ SPDX-License-Identifier: Apache-2.0
   directory and inside the root); a directory of that name, such as the run's own, does not. A
   run id that no artifact has exits 2, as a missing file did; so a missing file whose name could
   be a run id (`missing.json`) now says "no file missing.json under the runs root results/, and
-  no artifact there has that run_id".
+  no artifact there has that run_id". A
+  name under a directory that cannot be searched now says "cannot read: Permission denied" on
+  Python 3.14 too, for `runs show` and for the runs root of both commands, where 3.14 said the
+  file was missing.

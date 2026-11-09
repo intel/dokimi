@@ -221,10 +221,8 @@ def test_a_root_under_a_directory_that_cannot_be_searched_exits_2(tmp_path, monk
         (tmp_path / "locked").chmod(0o755)
 
     assert exc.value.code == 2
-    # Python 3.11-3.13 raise PermissionError on the lookup; 3.14 reports the path as missing.
-    assert capsys.readouterr().err in (
-        f"Error: runs root DOKIMI_RUNS_DIR={named}: cannot read: Permission denied\n",
-        f"Error: runs root DOKIMI_RUNS_DIR={named} does not exist\n")
+    assert capsys.readouterr().err == (  # Python 3.14 too, where Path.exists() says False
+        f"Error: runs root DOKIMI_RUNS_DIR={named}: cannot read: Permission denied\n")
 
 
 def test_a_time_that_is_not_iso_8601_is_shown_as_written(monkeypatch, capsys, root):

@@ -313,9 +313,7 @@ def test_an_address_in_a_directory_that_cannot_be_searched_exits_2(monkeypatch, 
     finally:
         (root / "arms").chmod(0o755)
 
-    # Python 3.11-3.13 raise PermissionError on the lookup; 3.14 reports the file as missing.
-    assert err in ("Error: arms/onetbb.json: cannot read: Permission denied\n",
-                   "Error: no file arms/onetbb.json under the runs root results/\n")
+    assert err == "Error: arms/onetbb.json: cannot read: Permission denied\n"  # 3.14 too
 
 
 @pytest.mark.skipif(os.name == "nt", reason="symlinks need privileges on Windows")
@@ -565,3 +563,4 @@ def test_a_run_names_the_first_unreadable_file_escaped_and_json_lists_them_all(
     data = json.loads(_show(monkeypatch, capsys, "nightly-2", "--json").out)
     assert [u["path"] for u in data["unreadable"]] == ["a\nbad.json", "b-bad.json"]
     assert data["unreadable"][0]["schema_version"] == "eval.v1"
+

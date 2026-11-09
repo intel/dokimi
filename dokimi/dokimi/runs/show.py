@@ -20,6 +20,7 @@ from dokimi.runs.scan import (
     head_version,
     inside,
     load_document,
+    lookup,
     plain,
     read_artifact,
     read_error_reason,
@@ -63,16 +64,17 @@ def resolve(root: Path, address: str) -> tuple[Path, Path]:
     candidates = [root / address, Path(address)]
     real_root = os.path.realpath(root)
     label, shown_root = plain(address), plain(root.as_posix())  # for messages only
-    try:  # Python 3.11-3.13 raise PermissionError here for a directory that cannot be searched
-        path = next((p for p in candidates if p.exists()), candidates[0])
+    try:  # lookup raises for a directory that cannot be searched, on every Python
+        path = next((p for p in candidates if lookup(p)), candidates[0])
         if not inside(real_root, os.path.realpath(path)):
             where = "leads outside" if inside(root, path) else "is not under"  # via a symlink
             raise InputError(f"{label} {where} the runs root {shown_root}/")
-        if not path.exists():
+        found = lookup(path)
+        if found is None:
             raise InputError(f"no file {label} under the runs root {shown_root}/")
-        if path.is_dir():
+        if stat.S_ISDIR(found.st_mode):
             raise InputError(f"{label} is a directory; runs show takes one artifact file")
-        if not path.is_file():
+        if not stat.S_ISREG(found.st_mode):
             raise InputError(f"{label} is not a regular file")
     except OSError as exc:
         raise InputError(f"{label}: {read_error_reason(exc)}") from exc
@@ -164,12 +166,10 @@ def names_a_run(root: Path, address: str) -> bool:
     real_root = os.path.realpath(root)
     for path in (root / address, Path(address)):
         try:
-            mode = os.stat(path).st_mode
-        except (FileNotFoundError, NotADirectoryError):
-            continue
+            found = lookup(path)
         except OSError:  # no permission to look: the path check reports it
             return False
-        if not stat.S_ISDIR(mode) and inside(real_root, os.path.realpath(path)):
+        if found and not stat.S_ISDIR(found.st_mode) and inside(real_root, os.path.realpath(path)):
             return False
     return True
 
