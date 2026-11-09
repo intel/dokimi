@@ -303,6 +303,21 @@ def test_markdown_destination_and_reference_definition_decode_backslash_escapes(
         "https://docs.example-tool.dev/guide_notes"]
 
 
+def test_markdown_destination_and_reference_definition_decode_character_references():
+    assert online_checks.extract_urls("[docs](https://docs.acme.dev/a&amp;b)") == ["https://docs.acme.dev/a&b"]
+    assert online_checks.extract_urls("[docs]: https://docs.acme.dev/a&amp;b") == ["https://docs.acme.dev/a&b"]
+    assert online_checks.extract_urls("[docs](https://docs.acme.dev/x&#x2F;y&#47;z)") == [
+        "https://docs.acme.dev/x/y/z"]
+
+
+def test_character_reference_that_is_not_a_reference_or_is_escaped_stays_as_written():
+    assert online_checks.extract_urls("[docs](https://docs.acme.dev/a&notanentity;b)") == [
+        "https://docs.acme.dev/a&notanentity;b"]
+    assert online_checks.extract_urls("[docs](https://docs.acme.dev/a&amp)") == ["https://docs.acme.dev/a&amp"]
+    assert online_checks.extract_urls("[docs](https://docs.acme.dev/a\\&amp;b)") == [
+        "https://docs.acme.dev/a&amp;b"]
+
+
 def test_an_escaped_paren_bracket_or_pipe_stays_in_a_destination():
     # CommonMark: "\)", "\]" and "\|" do not end a destination; the escape is decoded after the cut.
     assert online_checks.extract_urls("[docs](https://docs.acme.dev/a\\)b)") == ["https://docs.acme.dev/a)b"]
@@ -570,6 +585,16 @@ def test_redirect_body_is_not_read_before_following_it():
 
     client = httpx.Client(transport=httpx.MockTransport(handle), follow_redirects=True)
     assert online_checks._status(client, start) == 200
+
+
+def test_character_reference_in_a_link_is_probed_decoded_not_as_written(tmp_path):
+    web = Web({"https://docs.acme.dev/a&amp;b": 404, "https://docs.acme.dev/a&b": 200})
+    root = _one_skill(tmp_path, "See [docs](https://docs.acme.dev/a&amp;b).\n")
+
+    [review] = _reviews(root, web)
+    assert review.findings == []
+    assert web.hits("https://docs.acme.dev/a&amp;b") == 0
+    assert web.hits("https://docs.acme.dev/a&b") == 1
 
 
 @pytest.mark.parametrize("status", [403, 500, 503])

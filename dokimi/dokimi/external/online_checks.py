@@ -15,10 +15,12 @@ the HEAD answer is not a 2xx or 3xx.
 
 from __future__ import annotations
 
+import html
 import ipaddress
 import re
 import socket
 from concurrent.futures import ThreadPoolExecutor
+from html.entities import html5
 from typing import TYPE_CHECKING, Iterator, Optional, Sequence
 from urllib.parse import quote, urlsplit
 
@@ -92,6 +94,8 @@ _URL_RE = re.compile(r"https?://[^\s\"'`<>]+", re.IGNORECASE)
 # Where a literal URL starts: after a markdown destination's ``](``, or a reference definition's ``[id]: ``.
 _LITERAL_START_RE = re.compile(r"\]\(|^[ \t]*\[(?!\^)[^\]\n]*\]:[ \t]*", re.MULTILINE)  # not a footnote "[^1]:"
 _ESCAPE_RE = re.compile(r"\\([!-/:-@\[-`{-~])")  # a backslash escape of ASCII punctuation, as CommonMark reads it
+# An escape or a character reference of a destination, in one pass so that "\&amp;" is the text "&amp;".
+_DECODE_RE = re.compile(r"\\([!-/:-@\[-`{-~])|&(#[xX][0-9a-fA-F]{1,6}|#[0-9]{1,7}|[A-Za-z][A-Za-z0-9]{1,31});")
 _TEMPLATE_RE = re.compile(r"[{}$]")  # a template variable, such as ``{id}`` or ``${VERSION}``
 _EXAMPLE_DOMAINS = ("example.com", "example.org", "example.net")
 _RESERVED_SUFFIXES = (".localhost", ".test", ".invalid", ".example")
@@ -329,6 +333,16 @@ def _mask_escapes(raw: str, decode: bool) -> str:
     return _ESCAPE_RE.sub("\0\0", raw) if decode else raw
 
 
+def _decode(match: re.Match[str]) -> str:
+    """The character of a backslash escape, or the text of a character reference (``&amp;`` is ``&``); an unknown
+    name stays as written."""
+    if match.group(1):
+        return match.group(1)
+    text = match.group()
+    # html.unescape also takes legacy names without a ";" ("&not" in "&notanentity;"): only a name with one counts
+    return html.unescape(text) if text[1] == "#" or text[1:] in html5 else text
+
+
 def _clean_url(raw: str, literal: bool = False, decode: bool = False) -> Optional[str]:
     """``raw`` without what a sentence, a table cell, emphasis or a markdown link puts after it: the URL ends before
     the first ``)`` or ``]`` that closes no ``(`` or ``[`` of the URL, and before a ``|``; then trailing punctuation
@@ -336,7 +350,8 @@ def _clean_url(raw: str, literal: bool = False, decode: bool = False) -> Optiona
 
     ``literal`` is a markdown destination, a reference definition or an autolink: its punctuation is part of the
     URL. ``decode`` (a destination or a reference definition, not an autolink, where CommonMark has no escapes) also
-    decodes its backslash escapes (``guide\\_notes`` is ``guide_notes``), and an escaped character never ends it
+    decodes its backslash escapes (``guide\\_notes`` is ``guide_notes``) and its character references (``a&amp;b``
+    is ``a&b``), and an escaped character never ends it
     (``a\\)b`` is ``a)b``).
     """
     parens = brackets = 0
@@ -355,7 +370,7 @@ def _clean_url(raw: str, literal: bool = False, decode: bool = False) -> Optiona
             brackets -= 1
     url = raw[:end]
     if decode:
-        url = _ESCAPE_RE.sub(r"\1", url)
+        url = _DECODE_RE.sub(_decode, url)
     if literal:
         return url or None
     url = url.rstrip(".,;:!?*")
