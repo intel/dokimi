@@ -486,3 +486,8 @@ def test_a_path_or_quoted_value_after_a_flag_names_no_option():
     assert grade_check(_veto(), "q", "Run perf report --stdio 'cause --bogus 'x'", None).passed is False
     # A quoted value that is an option is no file name: the option it names is checked.
     assert grade_check(_veto(), "q", 'Run perf report --sort "--bogus"', None).passed is False
+
+
+def test_an_option_inside_a_quoted_flag_value_is_a_file_name_not_an_option():
+    assert grade_check(_veto(), "q", "perf report --input \"no --stdin\"", None).passed is True
+    assert grade_check(_veto(), "q", "perf report --input 'no --stdin'", None).passed is True
