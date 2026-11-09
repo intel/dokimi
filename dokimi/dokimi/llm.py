@@ -255,14 +255,9 @@ _RETRYABLE_STATUS = re.compile(r"\b(?:status|code|http|error)\W{0,3}(?:500|502|5
 
 # litellm's typed exceptions are a more reliable signal than prose. Matched by
 # class name so the check works whether or not litellm is importable here.
-_RETRYABLE_EXC_NAMES = frozenset({
-    "ratelimiterror",
-    "serviceunavailableerror",
-    "internalservererror",
-    "timeout",
-    "apiconnectionerror",
-    "apierror",
-})
+_TRANSIENT_EXC_NAMES = frozenset({"ratelimiterror", "serviceunavailableerror", "timeout"})
+# litellm's catch-alls: transient unless their message is one of _NON_RETRYABLE_MESSAGES.
+_RETRYABLE_EXC_NAMES = _TRANSIENT_EXC_NAMES | {"internalservererror", "apiconnectionerror", "apierror"}
 
 # Checked before the substrings: these are permanent, and their messages can
 # contain retryable-looking words ("connection" in an auth error's URL, say).
@@ -274,7 +269,7 @@ _NON_RETRYABLE_EXC_NAMES = frozenset({
     "unsupportedparamserror",
     "contentpolicyviolationerror",
 })
-# So are these messages, which litellm raises under transient classes: no key, project or SDK.
+# So are these messages, which litellm raises under its catch-alls: no key, project or SDK.
 _NON_RETRYABLE_MESSAGES = ("missing credentials", "api_key client option must be set",
                            "missing gemini api key", "could not resolve credentials",
                            "could not resolve project_id", "default credentials were not found",
@@ -285,12 +280,17 @@ def is_retryable(exc: BaseException) -> bool:
     """Whether *exc* is a transient provider error worth another attempt.
 
     Exception type decides when it is recognised, prose otherwise. A permanent failure (bad key,
-    no credentials) is consulted first: a transient-sounding word in its message does not retry it.
+    no credentials) is consulted first: a transient-sounding word in its message does not retry it,
+    and a rate limit, outage or timeout is retried whatever its message says.
     """
     if isinstance(retryable := getattr(exc, "retryable", None), bool):  # set by an error that knows (llm_cli.CliCallError)
         return retryable
     name, msg = type(exc).__name__.lower(), str(exc).lower()
-    if name in _NON_RETRYABLE_EXC_NAMES or any(m in msg for m in _NON_RETRYABLE_MESSAGES):
+    if name in _NON_RETRYABLE_EXC_NAMES:
+        return False
+    if name in _TRANSIENT_EXC_NAMES:
+        return True
+    if any(m in msg for m in _NON_RETRYABLE_MESSAGES):
         return False
     if name in _RETRYABLE_EXC_NAMES:
         return True

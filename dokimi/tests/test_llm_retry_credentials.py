@@ -110,3 +110,27 @@ def test_a_credential_word_in_an_explicit_retryable_flag_does_not_override_it():
     error = RuntimeError("missing credentials, but the caller knows better")
     error.retryable = True  # type: ignore[attr-defined]
     assert is_retryable(error)
+
+
+#: litellm's classes that are transient whatever their text says (only the catch-alls
+#: InternalServerError, APIError and APIConnectionError also carry a missing key).
+TRANSIENT_ONLY = [
+    lambda text: litellm.RateLimitError(f"Rate limit reached; {text}", "openai", "gpt-4o"),
+    lambda text: litellm.ServiceUnavailableError(f"Error code: 503; {text}", "openai", "gpt-4o"),
+    lambda text: litellm.Timeout(f"Request timed out; {text}", "gpt-4o", "openai"),
+]
+
+
+@pytest.mark.parametrize("marker", ["Missing credentials", "The api_key client option must be set",
+                                    "Missing Gemini API key", "Could not resolve credentials",
+                                    "Could not resolve project_id",
+                                    "Your default credentials were not found",
+                                    "Google Cloud SDK not found"])
+@pytest.mark.parametrize("make", TRANSIENT_ONLY,
+                         ids=["RateLimitError", "ServiceUnavailableError", "Timeout"])
+def test_a_rate_limit_or_outage_echoing_a_credential_message_is_still_retried(make, marker,
+                                                                              fake_llm, sleeps):
+    error = make(marker)
+    fake_llm.push(error, "ok")
+    assert LLM("gpt-4o", "openai").ask("p") == "ok"
+    assert len(fake_llm.requests) == 2 and sleeps == [2.0]
