@@ -401,27 +401,20 @@ What a generation update does to judgment:
   family is 0.61–0.72. The mean κ of a judge against the other 14 is 0.51–0.64
   (`judge_mean_kappa.csv`). Re-grading with a newer judge of the same family is a judge change,
   not a re-run.
-- **Leniency moves, with no common direction.**
-  - Kimi and Anthropic got more lenient (+0.12, +0.07).
-  - OpenAI and DeepSeek got stricter (−0.04, −0.10).
-  - OpenAI's strict rate fell most: gpt-5.6-luna marks 36% of answers `correct_complete`,
-    gpt-6-luna 27%. Strict headlines graded by gpt-5.6-luna are therefore not comparable with
-    ones graded by gpt-6.
-- **One answer model's added share moves by up to 0.15 between generations.** Two cases:
-  - haiku-4.5 answers: deepseek-r1 0.15 vs v3.2 0.30.
-  - The same answers: sonnet-5 0.30 vs opus-5.5 0.20.
-
-  That is two-thirds of the cross-family range in section 1 (0.23), and above the 0.10 noise floor.
+- **Leniency moves, with no common direction.** Kimi and Anthropic got more lenient (+0.12, +0.07);
+  OpenAI and DeepSeek got stricter (−0.04, −0.10). OpenAI's strict rate fell most: gpt-5.6-luna
+  marks 36% of answers `correct_complete`, gpt-6-luna 27%. Strict headlines graded by gpt-5.6-luna
+  are therefore not comparable with ones graded by gpt-6.
+- **One answer model's added share moves by up to 0.15 between generations.** For haiku-4.5 answers, deepseek-r1 0.15 vs v3.2 0.30; for the same answers, sonnet-5 0.30 vs opus-5.5 0.20. That is two-thirds of the cross-family range in section 1 (0.23), and above the 0.10 noise floor.
 - **Newer is not closer to the consensus.** gpt-6-luna has the lowest mean κ of the
   OpenAI, Anthropic, Kimi, DeepSeek, xAI, GLM and Qwen judges (0.54, against 0.58 for gpt-5.6-luna). kimi-k3 has the highest (0.64).
   Recency does not stand in for judge quality.
 - **A three-family panel absorbs most of the change.** The median panel
-  {gpt-5.6-luna, kimi-k2.5, haiku-4.5} vs {gpt-6-luna, kimi-k3, opus-5.5} (`generation_panels.csv`):
-  - Lenient added share moves by at most 0.067 (haiku-4.5 answers, 0.27 → 0.20), within the
-    noise floor. On opus-5 and grok-4.6 answers it does not move.
-  - Strict moves more, by up to 0.11 (gpt-5.6 answers, 0.40 → 0.29), which follows the
-    OpenAI strict shift above.
-  - In both panels, opus-5 answers gain least and nemotron-nano answers gain most.
+  {gpt-5.6-luna, kimi-k2.5, haiku-4.5} vs {gpt-6-luna, kimi-k3, opus-5.5} (`generation_panels.csv`).
+  Lenient added share moves by at most 0.067 (haiku-4.5 answers, 0.27 → 0.20), within the noise
+  floor; on opus-5 and grok-4.6 answers it does not move. Strict moves more, by up to 0.11
+  (gpt-5.6 answers, 0.40 → 0.29), which follows the OpenAI strict shift above. In both panels,
+  opus-5 answers gain least and nemotron-nano answers gain most.
 
 For Dokimi: record the judge's exact model id with every grade (it does), and treat a
 judge-generation upgrade like a judge change: re-grade the baseline with the new judge
