@@ -1877,12 +1877,14 @@ its steps'), and only an action's `runs.steps` when its `runs.using` is
 even when a step uses it, as the snapshot does not hold what is there; after that
 check, and before the parent-directory `fail`, the used Action is `ok`, so a
 `.github/actions/` beside it does not fail it. A name whose directory the tree
-holds at the repository root (`tools/gone` beside `tools/`) is judged as a path
-even when a step uses it, so a stale path still fails; a directory found only
+holds at the repository root (`tools/gone` beside `tools/`, or beside a root
+link `tools` to a directory, or `tools/sub/gone` where `tools/sub` is a directory
+through such a link) is judged as a path even when a step uses it, so a
+stale path still fails (below such a link it is `unresolved`, `tried ...`); a directory found only
 beside the guidance file does not count. A name only in a `run:` script
 does not count, and an Action no step uses is judged as any other path. When
 one of those workflows or local actions was not read (too big, binary, a dangling
-link), an `owner/name` the tree does not hold, outside a root directory, that no
+link), an `owner/name` the tree does not hold, outside a root directory (or a link to one), that no
 read file uses keeps its `unresolved` (`tried ...`) or `fail` (`<dir>/ exists but
 ...`) verdict, and its reason also names each such file, as `<file> was not read
 (<why>)`, joined with `; `. A path or glob the rules above leave `unresolved`,
