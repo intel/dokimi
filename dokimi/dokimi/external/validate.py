@@ -416,7 +416,10 @@ def _unloaded_review(entry: SkillCatalogEntry) -> Optional[SkillReview]:
     except (OSError, UnicodeDecodeError):
         return None  # the loader already reported why the skill did not load
     lines = text.lstrip("\ufeff").splitlines()
-    if not lines or lines[0].rstrip() != "---":
+    first = next((line.rstrip() for line in lines if line.strip()), "")
+    if first == "---" and lines[0].rstrip() != "---":
+        return None  # frontmatter after blank lines: a broken skill, not prose; the loader's error stands
+    if first != "---":
         return SkillReview(findings=[Finding("error", NO_FRONTMATTER, no_frontmatter_message(lines, _dir_name_of(candidate.parent)))])
     _, parse_error = _strict_meta(text)
     return None if parse_error is None else SkillReview(findings=[parse_error])
