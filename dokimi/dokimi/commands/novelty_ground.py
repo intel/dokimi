@@ -21,7 +21,7 @@ def cmd_novelty_ground(args: argparse.Namespace) -> None:
               for tool in args.tool]
     changed = add_checks(data.get("atoms", []), checks, args.tool)
     keys = verify_keys(data.get("atoms", []))
-    out = Path(args.out or args.atoms)
+    out = Path(args.out or args.atoms).resolve()  # a symlink: its target is what is rewritten
     # Write beside the target and replace it only after the write succeeds: the default --out is
     # the atoms file itself, and a failed write must not leave it truncated.
     tmp = out.with_name(out.name + ".tmp")

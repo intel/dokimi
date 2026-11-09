@@ -277,6 +277,9 @@ def test_an_affirmative_not_only_or_no_problem_does_not_hide_an_invented_flag():
     assert grade_check(check, "q", "Not only does perf report --stdin show output.", None).passed is False
     assert grade_check(check, "q", "No problem: perf report --stdin works.", None).passed is False
     assert grade_check(check, "q", "Not perf report --stdin but --stdio.", None).passed is True
+    # A negation before a colon still negates what follows it.
+    assert grade_check(check, "q", "There is no such option: perf report --stdin", None).passed is True
+    assert grade_check(check, "q", "Never run this: perf report --stdin", None).passed is True
 
 
 def test_help_text_accepts_a_help_whose_only_options_are_bracketed_negations(tmp_path):

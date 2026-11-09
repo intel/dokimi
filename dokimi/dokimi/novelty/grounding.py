@@ -19,7 +19,9 @@ import hashlib
 import re
 import shlex
 
-from dokimi.eval.reference_checks import LONG_FLAG, _negated_before, grade_check
+import regex
+
+from dokimi.eval.reference_checks import LONG_FLAG, REGEX_TIMEOUT, _negated_before, grade_check
 from dokimi.process import Env, run
 from dokimi.utils import InputError
 
@@ -92,7 +94,8 @@ def identifiers_check(tool: str, text: str, *, version: str | None = None) -> di
     directly by an option, up to a shell comment (``#``), a sentence end, or the next command
     (two words and an option, as in ``perf record --call-graph``). A flag of another command,
     or of a subcommand (``perf`` then ``report``), is then not judged against this help: give
-    each subcommand as its own tool.
+    each subcommand as its own tool. Two bare words before an option end the scope too, so an
+    option after ``--sort comm dso`` is not checked: that errs toward passing.
     """
     head = _mention(tool)
     source = {"tool": tool, "sha256": hashlib.sha256(text.encode()).hexdigest()}
@@ -131,15 +134,21 @@ def add_checks(atoms: list[dict], checks: list[dict], tools: list[str]) -> int:
 
 
 def _key_names(check: dict, key: str) -> list[str]:
-    """The option names a key names on the lines of ``check`` (its ``within``), as the check reads them."""
+    """The option names the key names on the lines of ``check``'s ``within``, as the check reads them.
+
+    The same engine and bound as the check's own scan; a scan past the bound names none.
+    """
     pattern = str(check.get("pattern") or LONG_FLAG)
-    scopes = ([m.group(0) for m in re.finditer(str(check["within"]), key)
-               if not _negated_before(key, m.start())] if check.get("within") else [key])
-    names = []
-    for scope in scopes:
-        for m in re.finditer(pattern, scope):
-            name = (m.group(1) if m.groups() and m.group(1) is not None else m.group(0))
-            names.append(name.split("=", 1)[0])
+    try:
+        scopes = ([m.group(0) for m in regex.finditer(str(check["within"]), key, timeout=REGEX_TIMEOUT)
+                   if not _negated_before(key, m.start())] if check.get("within") else [key])
+        names = []
+        for scope in scopes:
+            for m in regex.finditer(pattern, scope, timeout=REGEX_TIMEOUT):
+                name = (m.group(1) if m.groups() and m.group(1) is not None else m.group(0))
+                names.append(name.split("=", 1)[0])
+    except TimeoutError:
+        return []
     return names
 
 
@@ -148,7 +157,7 @@ def verify_keys(atoms: list[dict]) -> dict[str, int]:
 
     Writes ``meta["key_status"]``: ``verified`` (the key names an option on a checked command
     line, and every such option is in the help), ``not_found`` (with the ``missing`` names), or
-    ``unverifiable`` (the key names none, or a check could not be scored). This checks the skill's claim, not a model's
+    ``unverifiable`` (the key names no checked option). This checks the skill's claim, not a model's
     answer. A ``not_found`` is a review flag, not an error: a negative claim ("there is no
     ``--device xpu``") or a version-bound one names an option the help rightly lacks.
     """
