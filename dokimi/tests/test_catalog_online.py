@@ -247,6 +247,7 @@ def test_prose_words_after_a_bare_install_are_not_package_names():
     assert online_checks.extract_packages("Run npm install in the project directory.\n") == []
     assert online_checks.extract_packages("pip install foo for development\n") == [("pypi", "foo")]
     assert online_checks.extract_packages("run npm install locally to test\n") == []
+    assert online_checks.extract_packages("Run pip install requests. The tool needs it\n") == [("pypi", "requests")]
 
 
 def test_a_spaced_version_operator_takes_the_version_after_it():
@@ -280,6 +281,7 @@ def test_a_connective_after_a_package_list_ends_the_list():
     assert online_checks.extract_packages("pip install foo before running\n") == [("pypi", "foo")]
     assert online_checks.extract_packages("pip install foo if you want\n") == [("pypi", "foo")]
     assert online_checks.extract_packages("pip install pyyaml, which is needed\n") == [("pypi", "pyyaml")]
+    assert online_checks.extract_packages("npm i express if needed\n") == [("npm", "express")]
 
 
 def test_a_version_glued_to_an_operator_is_not_a_name():
@@ -306,6 +308,9 @@ def test_an_escaped_paren_bracket_or_pipe_stays_in_a_destination():
     assert online_checks.extract_urls("[docs](https://docs.acme.dev/a\\)b)") == ["https://docs.acme.dev/a)b"]
     assert online_checks.extract_urls("[docs](https://docs.acme.dev/a\\]b)") == ["https://docs.acme.dev/a]b"]
     assert online_checks.extract_urls("| [x](https://acme.dev/a\\|b) | y |") == ["https://acme.dev/a|b"]
+    # An escaped "(" opens no paren, so the ")" after it closes the destination; "\\\\" is an escaped backslash.
+    assert online_checks.extract_urls("[x](https://x.dev/a\\(b)") == ["https://x.dev/a(b"]
+    assert online_checks.extract_urls("[x](https://x.dev/p\\\\)") == ["https://x.dev/p\\"]
 
 
 def test_a_backslash_in_an_autolink_is_not_decoded_and_a_hash_after_a_command_word_is_prose():
@@ -322,6 +327,9 @@ def test_a_footnote_label_is_prose_so_its_sentence_punctuation_goes():
 
 def test_balanced_brackets_and_underscores_are_part_of_the_url():
     assert online_checks.extract_urls("see https://x.dev/api?f[0]=1 now") == ["https://x.dev/api?f[0]=1"]
+    assert online_checks.extract_urls("[x](https://en.wikipedia.org/wiki/Foo_(bar))") == [
+        "https://en.wikipedia.org/wiki/Foo_(bar)"]
+    assert online_checks.extract_urls("[x](https://acme.dev/a\\-b\\~c\\&d)") == ["https://acme.dev/a-b~c&d"]
     assert online_checks.extract_urls("see https://host.dev/docs/__main__") == ["https://host.dev/docs/__main__"]
     assert online_checks.extract_urls("http://[2001:db8::1]/x") == ["http://[2001:db8::1]/x"]
     assert online_checks.extract_urls("[see https://x.com/a] for more") == ["https://x.com/a"]
