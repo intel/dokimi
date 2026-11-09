@@ -96,7 +96,7 @@ Lives under `dokimi/{ingest,metrics,gate,runner,report}`. `gate/` and
 3. `runner/run.py` reads `benchmarks/spec.v1.yaml`, runs the enabled
    metrics, normalizes weights, and writes a snapshot JSON.
 4. `gate/` applies soft gates, hard gates, critical bands, and regression
-   thresholds (`runner/compare.py` powers `cli.py compare`).
+   thresholds (`runner/compare.py` powers `cli.py docs compare`).
 5. `report/` turns snapshots and comparisons into Markdown
    (`markdown_report.py`, `json_report.py`). It also renders the other tracks'
    artifacts: `eval_report.py` and `generator.py` (LLM track), `arms_report.py`
@@ -104,7 +104,7 @@ Lives under `dokimi/{ingest,metrics,gate,runner,report}`. `gate/` and
    `subject_report.py` (subject scorecards), `exploration_report.py`
    (ExploreBench), and the model, matrix-rollup and plugin-delta comparisons.
 
-Entry points: `python cli.py run`, `python cli.py compare`, `python cli.py
+Entry points: `python cli.py docs check`, `python cli.py docs compare`, `python cli.py
 report`.
 
 ## LLM evaluation track
@@ -382,7 +382,7 @@ next release.
   `grade` must fail the untouched workspace and pass it after `oracle`, and an
   isolation probe must not see the tasks or the source from the agent's
   container.
-- `dokimi/repos/replay/` — `repo tasks replay`: one `dokimi:review_replay`
+- `dokimi/repos/replay/` — `eval tasks generate --from replay`: one `dokimi:review_replay`
   task per merged pull request of a threads file `gh api graphql` wrote (the
   change as reviewed, gold from the reviewers' threads on its lines, and
   `addressed` from the PR's own later commits), read with git and no GitHub
@@ -394,10 +394,10 @@ next release.
 - `dokimi/repos/graph_tasks.py` — `eval tasks generate --from graph`:
   `dokimi:graph_enum` tasks (references to a function, direct subclasses of a
   class) with gold from a SCIP index of a pinned revision, read with
-  `dokimi/repos/code_index/`. It, `repo tasks replay` and `repo tasks
+  `dokimi/repos/code_index/`. It, `eval tasks generate --from replay` and `repo tasks
   authoring` are the commands that write into a repository's tasks directory.
 
-Entry points: `python cli.py repo {validate,scan,fetch,reach,budget,tasks replay,tasks authoring,run,report}`
+Entry points: `python cli.py repo {validate,scan,fetch,reach,budget,tasks authoring,run,report}` (replay tasks: `eval tasks generate --from replay`)
 (`python cli.py repo --help` is the current list). The interface a repository
 codes against is [repo-evaluation-contract.md](repo-evaluation-contract.md),
 still marked PROPOSED: the per-host egress proxy (§2) is not implemented, so
@@ -490,7 +490,7 @@ Both are deterministic; `python cli.py trace prefilter`. Guide:
   answers, eval, arms and task-run artifacts to JSONL, Parquet or a Hugging Face
   dataset, with a dataset card.
 - `dokimi/registry.py` — product registry loaded from
-  `products.yaml`; powers `cli.py library` (alias `product`) and
+  `products.yaml`; powers `cli.py catalog list|show --kind product` and
   `cli.py benchmark`.
 - `dokimi/intents.py` — intent registry loaded from `intents.yaml`:
   the problem/intent space mapping domains (data science, debugging,

@@ -197,30 +197,27 @@ def cmd_subjects_evidence(args: argparse.Namespace) -> None:
     print(f"OK Saved skill evidence: {out} ({len(evidence['results'])} results)")
 
 
+def add_list_show_subject(catalog_list_p) -> None:
+    """The subject-kind argument of `catalog list --kind subject` (#94 M3: `subjects list`)."""
+    catalog_list_p.add_argument(
+        "--subjects-root",
+        default=None,
+        dest="subjects_root",
+        help=(
+            "Directory holding subject descriptors (*.toml/*.json). Required with --kind subject; the "
+            "descriptors live in a separate evaluation-content checkout, e.g. "
+            "--subjects-root /path/to/content-repo/evaluation/subjects"
+        ),
+    )
+
+
 def register(sub, positive_int) -> None:
-    """Add the `subjects` subcommand group."""
+    """Add the `subjects` subcommand group: run and evidence (`list|show` are `catalog`, #94 M3)."""
     subjects_p = sub.add_parser(
         "subjects",
         help="Run evaluation subjects (artifact + suite) into scorecards",
     )
     subjects_sub = subjects_p.add_subparsers(dest="subjects_cmd", required=True)
-
-    list_p = subjects_sub.add_parser("list", help="List subject descriptors")
-    list_p.add_argument(
-        "--subjects-root",
-        default=None,
-        dest="subjects_root",
-        help=(
-            "Directory holding subject descriptors (*.toml/*.json). Required; the "
-            "descriptors live in a separate evaluation-content checkout, e.g. "
-            "--subjects-root /path/to/content-repo/evaluation/subjects"
-        ),
-    )
-    list_p.set_defaults(func=cmd_subjects_list)
-
-    show_p = subjects_sub.add_parser("show", help="Show normalized subject descriptor")
-    show_p.add_argument("subject", help="Subject descriptor path (.toml or .json)")
-    show_p.set_defaults(func=cmd_subjects_show)
 
     run_p = subjects_sub.add_parser("run", help="Run subject awareness matrix and write scorecard")
     run_p.add_argument("subject", help="Subject descriptor path (.toml or .json)")

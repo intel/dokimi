@@ -43,7 +43,9 @@ def parse_frontmatter_strict(text: str) -> "Tuple[Dict[str, Any], str]":
     every other caller.
 
     Raises:
-        yaml.YAMLError: The frontmatter block is not valid YAML.
+        yaml.YAMLError: The frontmatter block is not valid YAML, or does not load: a value
+            PyYAML cannot build (the date ``2026-99-99``) or nesting too deep for the parser,
+            raised by PyYAML as ``ValueError`` or ``RecursionError`` and re-raised as this.
     """
     return _split_frontmatter(text, strict=True)
 
@@ -87,6 +89,12 @@ def _split_frontmatter(text: str, *, strict: bool) -> "Tuple[Dict[str, Any], str
             except yaml.YAMLError:
                 if strict:
                     raise
+                meta = {}
+            except (AttributeError, IndexError, KeyError, TypeError, ValueError, RecursionError) as exc:
+                # PyYAML raises these, not YAMLError, for a value that does not fit its tag (2026-02-30,
+                # !!int with no value) or nesting too deep: that is invalid frontmatter, not a crash.
+                if strict:
+                    raise yaml.YAMLError(str(exc)) from exc
                 meta = {}
             if not isinstance(meta, dict):
                 meta = {}

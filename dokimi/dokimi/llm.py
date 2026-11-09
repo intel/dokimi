@@ -469,8 +469,8 @@ class Reply:
 
     @property
     def truncated(self) -> bool:
-        """Whether the reply was cut at the output ceiling."""
-        return self.finish_reason in _TRUNCATED
+        """Whether the reply was cut at the output ceiling (a cached reply keeps the flag)."""
+        return self.finish_reason in _TRUNCATED or self.usage.truncated
 
 
 #: One provider request, no retry/cache/metering: ``(Request) -> Reply``.
@@ -766,7 +766,7 @@ class LLM:
         # A content-less reply (None) is not stored: keeps() refuses it, so it is never replayed.
         text = reply.text
         if text is not None and caching.keeps(cache_if, text):
-            caching.store_response(key, text, reply.usage)
+            caching.store_response(key, text, replace(reply.usage, truncated=reply.truncated))
         return reply
 
     def ask(self, prompt: str, *, draw: int = 0,
@@ -1002,7 +1002,7 @@ def llm_call_with_usage(
               seed=seed, max_retries=max_retries, retry_delay=retry_delay)
     reply = llm.complete(prompt, system=system, cache_prefix=cache_prefix, stream=stream,
                          draw=draw, cache_if=cache_if)
-    return cast(str, reply.text), reply.usage
+    return cast(str, reply.text), replace(reply.usage, truncated=reply.truncated)
 
 
 def chat_completion(

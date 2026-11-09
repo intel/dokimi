@@ -192,7 +192,7 @@ def test_library_list_filters_by_domain_from_a_custom_intents_file(tmp_path, cap
     })
 
     args = build_parser().parse_args([
-        "library", "list",
+        "catalog", "list", "--kind", "product",
         "--registry", str(products_path),
         "--intents", str(intents_path),
         "--domain", "synthetic-domain",

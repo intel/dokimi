@@ -2,14 +2,16 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""CLI for dokimi: run, compare, report."""
+"""CLI for dokimi: docs check, docs compare, report."""
 
 from __future__ import annotations
 
 import argparse
 import sys
 import threading
+import traceback
 from collections.abc import Sequence
+from typing import NoReturn
 
 from dokimi.commands import (
     answers,
@@ -23,7 +25,6 @@ from dokimi.commands import (
     data,
     evaluate,
     explore,
-    library,
     novelty,
     orchestrate,
     personas,
@@ -120,16 +121,14 @@ def build_parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="cmd", required=True, parser_class=argparse.ArgumentParser)
 
     # Order preserved to keep --help output stable.
-    run.register(sub, positive_int)             # run
+    run.register(sub, positive_int)             # docs: check, compare (#94 M3)
     orchestrate.register(sub, positive_int)     # evaluate (one-command pipeline)
-    run.register_compare(sub, positive_int)     # compare
     baseline.register(sub, positive_int)        # baseline
     report.register(sub, positive_int)          # report
     answers.register(sub, positive_int)         # answers
     eval_sub = evaluate.register(sub, positive_int)  # eval: the groups below join it (#94 M1)
     personas.register(eval_sub, positive_int)   # eval personas
     questions.register(eval_sub, positive_int)  # eval questions, eval import
-    library.register(sub, positive_int)         # library
     benchmark.register(sub, positive_int)       # benchmark
     dashboard.register(sub, positive_int)       # dashboard
     arms.register(sub, positive_int)            # arms
@@ -185,6 +184,19 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     return args
 
 
+def _emits_cli_output(args: argparse.Namespace) -> bool:
+    """True for a leaf that opted in (``emits_cli_output``) and was run with ``--json``."""
+    return bool(getattr(args, "emits_cli_output", False) and getattr(args, "json", False))
+
+
+def _exit_with_document(args: argparse.Namespace, code: str, message: str) -> NoReturn:
+    """Print the cli_output.v1 error document on stdout and exit with the code §2.6 gives it."""
+    from dokimi import cli_output
+
+    cli_output.emit(cli_output.error_document(args.cmd, code, message, run_id=cli_output.current_run_id()))
+    sys.exit(cli_output.EXIT_OF_ERROR[code])
+
+
 def main() -> None:
     """Entry point."""
     if threading.current_thread() is threading.main_thread():  # signal.signal works only there
@@ -198,10 +210,18 @@ def main() -> None:
         run_id()  # a malformed DOKIMI_RUN_ID stops here, not at the first save after paid calls
         args.func(args)
     except (InputError, llm_cli.SamplingError) as exc:  # bad input, not a bug: no traceback
+        if _emits_cli_output(args):
+            _exit_with_document(args, "input", str(exc) or type(exc).__name__)
         print(f"Error: {exc}", file=sys.stderr)
         # 2 is the one code for bad input: 1 is the verdict of `eval judge validate` and of the
         # --strict gates, and a malformed file must not read as a failed gate.
         sys.exit(2)
+    except Exception as exc:
+        if not _emits_cli_output(args):
+            raise
+        # A --json leaf still prints its one document on a crash, and the crash exits 5 (§2.6).
+        traceback.print_exc()
+        _exit_with_document(args, "infra", f"{type(exc).__name__}: {exc}")
 
 
 if __name__ == "__main__":

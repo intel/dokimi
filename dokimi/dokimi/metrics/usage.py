@@ -44,6 +44,8 @@ class UsageRecord:
     cost_known_calls: int = 0
     # served from the response cache: cost_usd is the original call's, not this process's bill
     replayed: bool = False
+    # The reply hit the output ceiling (finish_reason length). Per call: a sum does not carry it.
+    truncated: bool = False
     # The model the provider resolved the request to, when it says (a CLI alias names a
     # version). A sum of rows that resolved differently lists each, comma-separated.
     resolved_model: str = ""

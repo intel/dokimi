@@ -77,7 +77,9 @@ self-judge; `arms run` and `subjects run` warn on stderr and do not refuse, so n
   tiers cost 5–20 times more, so run them only when whoever asked agrees to
   the bill. Pass `--max-usd` to `novelty` steps: the run stops once it has
   spent that much (calls in flight can overshoot), writes no artifact when the
-  cap trips, and stops at the first call to a model with no known price. Set
+  cap trips (except `novelty routing --model`, which saves the calls it made as
+  a `partial` result), and stops at the first call to a model with no known
+  price. Set
   the cap above the expected dollar spend: the triage example below was about
   $1.80. `arms run` and `tasks run` have no cap, so size them first: questions
   times arms, or tasks times harnesses. One measured example: triage on a

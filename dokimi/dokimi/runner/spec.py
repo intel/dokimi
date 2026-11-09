@@ -71,7 +71,7 @@ def load_spec(spec_path: Path, *, validate: bool = True) -> dict:
 
     try:
         data = yaml.safe_load(content)
-    except yaml.YAMLError as exc:
+    except (yaml.YAMLError, ValueError, RecursionError) as exc:  # ValueError: a bad date; RecursionError: deep nesting
         raise RuntimeError(f"Invalid YAML in spec file: {spec_path}: {exc}") from exc
 
     if not isinstance(data, dict):

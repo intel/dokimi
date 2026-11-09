@@ -871,11 +871,11 @@ review thread of a merged PR, anchored on a line of the reviewed revision.
   thread, a lower bound on precision. Humans miss problems and raise
   non-defects, so neither is a verdict.
 - The oracle answer is one finding per thread, at its anchor.
-- `repo tasks replay` writes these tasks from recorded review threads (§4.6).
+- `eval tasks generate --from replay` writes these tasks from recorded review threads (§4.6).
 
 ### 4.6 Replay tasks from review threads
 
-`repo tasks replay` writes `dokimi:review_replay` tasks (§4.5) from the review
+`eval tasks generate --from replay` writes `dokimi:review_replay` tasks (§4.5) from the review
 threads of merged pull requests, so `gold.json` is not written by hand. It
 makes no GitHub call: the threads come from a file `gh api graphql` wrote, so a
 private repository works the same way and the command needs no network for a
@@ -885,7 +885,7 @@ local source.
 # a window of merged PRs with their threads; --slurp writes the pages as one JSON list
 gh api graphql --paginate --slurp -F query=@replay-threads.graphql \
     -F q='repo:IntelPython/dpnp is:pr is:merged merged:2026-10-01..2026-10-27' > threads.json
-python cli.py repo tasks replay ~/dpnp --threads threads.json --out ~/dpnp/.agent-eval/tasks
+python cli.py eval tasks generate ~/dpnp --from replay --threads threads.json --out ~/dpnp/.agent-eval/tasks
 ```
 
 `replay-threads.graphql` asks for the fields the command reads. A search
@@ -1609,10 +1609,11 @@ the harness exits. An edit to a guidance file made while the run is in flight
 therefore appears in the receipt next to the observations of the old text;
 the receipt's `unknowns` says so for a working tree, and a pinned source
 (`<path>@<rev>`) has no such window. The matrix (without `--format receipt`)
-still accepts an unpinned source. The harness configuration is not
-pinned: `expected` comes from the harness profile as it is at conversion time,
-and its guidance names and import depth are not compared with the probe's, so
-a receipt is the same only for an unchanged profile. The receipt is written
+still accepts an unpinned source. `expected` comes from the harness profile as
+it is at conversion time, so a receipt with `--from` also needs the profile's
+`guidance` to be the one the probe saved (`harness.declared`), its free-text
+`notes` aside: a different one is a usage error (exit 2). A probe saved without `harness.declared` is not
+compared, and its receipt is the same only for an unchanged profile. The receipt is written
 beside the saved file; a name that resolves to the saved probe is a usage error
 (exit 2), and a write that fails is a runtime failure (exit 1). The probe-only flags (`--model`,
 `--budget`, `--scenarios`, `--only` and the rest) cannot be combined with
@@ -1647,9 +1648,13 @@ sent to the provider is not captured. A reported token is evidence of loading,
 not a copy of the bytes received. The name is not `prompt_capture`, because
 dokimi does not capture the prompt.
 
-**Expected state.** budget's start-up rules are Claude Code's, so they apply
-only to `claude-code` runs; for other harnesses every `expected` is `unknown`
-and the receipt says so.
+**Expected state.** budget's start-up rules are Claude Code's. They apply when
+the probe's harness profile sets `guidance.claude_displaces_agents: true`, the
+key `repo budget` reads, whatever the harness is named; the receipt reads it
+from the guidance the probe saved (`harness.declared` in `reach.json`). A probe
+saved without `harness.declared` goes by the harness name: only a
+`claude-code` run gets the rules. Otherwise every `expected` is `unknown` and
+the receipt's `unknowns` says so.
 
 | budget `when` | `expected` | Reason |
 |---|---|---|
@@ -1869,7 +1874,42 @@ one of those workflows or local actions was not read (too big, binary, a danglin
 link), an `owner/name` the tree does not hold, outside a root directory, that no
 read file uses keeps its `unresolved` (`tried ...`) or `fail` (`<dir>/ exists but
 ...`) verdict, and its reason also names each such file, as `<file> was not read
-(<why>)`, joined with `; `. A link or path into a submodule is `unresolved`. A
+(<why>)`, joined with `; `. A path or glob the rules above leave `unresolved`,
+whose first directory is not one at the repository root (nor a link to a
+directory there), is `ok` when the
+repository configures it as a branch (a `fail`, `ok_suffix` or other verdict
+stays): a `--branch` name or a `--pattern` regex, in each form the hook's
+argparse reads (`-b X`, `-bX`, `-b=X`, `--branch=X`, a prefix such as `--bra X`;
+the same of `-p`), in the `args` of a `no-commit-to-branch` hook of the
+root `.pre-commit-config.yaml`, or a `branches` or `branches-ignore` filter of
+`on.push`, `on.pull_request`, `on.pull_request_target`, `on.merge_group` or
+`on.workflow_run` in the same workflows. The claim matches when it
+equals the name or pattern, or when the pattern starts (after a leading `^` or
+`!`) with the claim's first directory and a slash, and matches the claim with each
+wildcard filled in: a hook pattern as the hook reads it (`re.match`, so
+`maintenance/*` matches `maintenance/.*`), a filter as GitHub does (`*` stops at
+`/`, `**` does not, `?` and `+` make the character or `[...]` before them
+optional or repeated, stacked ones fold into one (`a++` is `a+`, `a?+` is `a*`,
+and after `*` or `**` they add nothing), `[...]` is one of its letters, digits or ranges such as
+`0-9`, `\` escapes the next character; a leading `!` is dropped), so
+`release/*` matches `release/**`, `release/v1` matches `release/v[12]`, and
+`**` alone names no path. A filter that excludes branches, a `branches-ignore`
+entry or one with a leading `!`, names them as one that includes them does: the
+workflow skips `release/x` under `branches: ['**', '!release/**']`, but `release/x`
+is still a branch, so it is `ok`, and `release/1.x` equals the entry `!release/1.x`
+as it does `release/1.x`. A range that runs backwards or mixes lowercase,
+uppercase and digits (`9-0`, `a-Z`) makes its `[...]` literal text. A
+`--branch` name matches only when equal, and so does any source for a claim whose
+last segment ends in an extension some file of the tree has (`release/CHANGELOG.md`
+in a tree with a `.md` file), which reads as a file. The reason names the first match, hooks before workflows, with the line of
+its value: `branch pattern of no-commit-to-branch (.pre-commit-config.yaml:17)`,
+`branch of no-commit-to-branch (.pre-commit-config.yaml:19)` or `branch filter of
+on.push (.github/workflows/ci.yml:3)`. A file that is missing, not read or does not parse, an
+`args` that is not a list, a value that is not a string, an invalid regex, another hook's `args` and a name only in a `run:` script give no branch, and the
+claim keeps its path verdict. When `.pre-commit-config.yaml` or one of those
+workflows was not read, the reason of a claim that stays `unresolved` here also
+names it, as `<file> was not read (<why>)` after the rest, in tree order and once
+even when the Action note above names it too. A link or path into a submodule is `unresolved`. A
 blob or tree link to `source.url` holds `<ref>/<path>` and the ref may contain
 slashes. A default branch, a commit or a version tag is one segment; any other
 ref is tried at each slash, shortest first, and the link is `ok` if some
@@ -2166,7 +2206,7 @@ python cli.py eval tasks generate ~/dpnp@<sha> --from graph --index index.scip -
 
 ```bash
 # review tasks from the threads of merged PRs (§4.6): no LLM, no docker, no GitHub call
-python cli.py repo tasks replay ~/dpnp --threads threads.json --out ~/dpnp/.agent-eval/tasks
+python cli.py eval tasks generate ~/dpnp --from replay --threads threads.json --out ~/dpnp/.agent-eval/tasks
 # a task starts from its PR's base: guidance:rev:<sha> runs the guidance under review there
 # (replace <sha> with that revision; the quotes keep the shell from reading <sha> as a redirect)
 python cli.py repo run ~/dpnp --task review_replay_pr3107 --arm 'guidance:none,guidance:rev:<sha>' \
