@@ -667,6 +667,26 @@ def test_removal_arms_skip_the_guidance_a_setup_patch_deletes(tmp_path, arm):
         assert "## File: AGENTS.md\n" in skill and "sub/AGENTS.md" not in skill
 
 
+def test_rev_arm_writes_back_the_guidance_a_setup_patch_deletes(tmp_path):
+    """The deleted file is not unlinked again; the revision, which holds it, writes it back."""
+    meta, ws = _prep_patched(tmp_path, DELETES_GUIDANCE_PATCH, "guidance:rev:HEAD", "rev-deleted")
+    assert meta["arm_files"] == ["AGENTS.md", "sub/AGENTS.md"]
+    assert meta["arm_rev"]["removed"] == []
+    assert _guidance_on_disk(ws) == ["AGENTS.md", "sub/AGENTS.md"]
+    assert (ws / "sub/AGENTS.md").read_text(encoding="utf-8") == "# sub guidance\n"
+
+
+def test_bridge_and_format_arms_skip_the_guidance_a_setup_patch_deletes(tmp_path):
+    """Neither writes a bridge into, nor renders, the ``sub/`` the patch emptied."""
+    meta, ws = _prep_patched(tmp_path, DELETES_GUIDANCE_PATCH, "guidance:bridge", "bridge-deleted")
+    assert meta["arm_files"] == ["CLAUDE.md"]
+    assert _guidance_on_disk(ws) == ["AGENTS.md", "CLAUDE.md"]
+    meta, ws = _prep_patched(tmp_path, DELETES_GUIDANCE_PATCH, "guidance:format=xml", "xml-deleted")
+    assert meta["arm_files"] == ["AGENTS.md"]
+    assert (ws / "AGENTS.md").read_bytes().decode("utf-8") == to_format("# guidance\n", "xml")
+    assert not (ws / "sub").exists()
+
+
 @pytest.mark.skipif(os.name == "nt", reason="a carriage return in a file name")
 def test_guidance_none_removes_a_guidance_file_with_a_carriage_return_in_its_path(tmp_path):
     ws = _cr_workspace(tmp_path, ("AGENTS.md", "a\rb/AGENTS.md", "src/calc.py"))
