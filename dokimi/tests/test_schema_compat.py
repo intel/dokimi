@@ -400,7 +400,8 @@ def test_main_warns_when_the_base_has_no_schemas_to_compare(monkeypatch, tmp_pat
 
 # ── names git quotes or the shell would split: read as git stores them ──────────
 
-NO_CR_ON_WINDOWS = pytest.mark.skipif(os.name == "nt", reason="a carriage return in a file name")
+NOT_A_WINDOWS_NAME = pytest.mark.skipif(
+    os.name == "nt", reason="Windows file names cannot hold a carriage return or a quote")
 
 
 def _commit(root: Path, msg: str, *mv: str) -> None:
@@ -414,7 +415,7 @@ def _commit(root: Path, msg: str, *mv: str) -> None:
     subprocess.run([*git, "commit", "-qm", msg], cwd=root, check=True)
 
 
-@NO_CR_ON_WINDOWS
+@NOT_A_WINDOWS_NAME
 def test_moved_schemas_are_found_in_a_repository_whose_root_holds_a_carriage_return(
         monkeypatch, tmp_path):
     """``rev-parse --show-toplevel`` read as text turned the root's "\\r" into a newline, and
@@ -438,8 +439,8 @@ def test_moved_schemas_are_found_in_a_repository_whose_root_holds_a_carriage_ret
 
 
 @pytest.mark.parametrize("name", [
-    pytest.param("a\rb.v1.json", marks=NO_CR_ON_WINDOWS),
-    pytest.param('q"uote.v1.json', marks=NO_CR_ON_WINDOWS),
+    pytest.param("a\rb.v1.json", marks=NOT_A_WINDOWS_NAME),
+    pytest.param('q"uote.v1.json', marks=NOT_A_WINDOWS_NAME),
     "ρ.v1.json",
     "a b.v1.json",
 ])
