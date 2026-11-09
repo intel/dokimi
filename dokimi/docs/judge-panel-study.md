@@ -248,8 +248,8 @@ of the lenient gated added share between subsets of that size (`panel_size.csv`)
 | 5 | 21 | 0.980 | 0.970 | 0.021 | 0.069 |
 | 6 | 7 | 0.982 | 0.973 | 0.011 | 0.029 |
 
-Two judges are barely better than one, because a tie counts as wrong, so two judges act as a
-unanimity rule. The SD gain comes at two judges: the SD of the gated added share across subsets
+Two judges barely improve agreement with the full panel (0.941 to 0.943), because a tie counts as
+wrong, so two judges act as a unanimity rule. The SD gain comes at two judges: the SD of the gated added share across subsets
 falls from 0.039 to 0.026. A third judge changes it by 0.001. Three judges are recommended for
 their agreement with the full panel (0.943 to 0.966), which is measured against a consensus that
 includes the subset. Five judges agree more (0.980) but have the same SD as four; only six halve
@@ -411,7 +411,7 @@ What a generation update does to judgment:
   are therefore not comparable with ones graded by gpt-6. The deltas also mix row sets: gpt-5.6-luna
   has 2,664 graded rows (no repeat grades), the new judges 2,932, so the OpenAI delta is not a
   same-rows comparison.
-- **One answer model's added share moves by up to 0.15 between generations.** For haiku-4.5 answers, deepseek-r1 0.15 vs v3.2 0.30; for the same answers, sonnet-5 0.30 vs opus-5.5 0.20. The generation CSVs have no noise column, and the generation run did not compute a noise floor for gpt-6-sol, opus-5.5, kimi-k2.5 or deepseek-r1 (their repeat grades exist but are not tabulated), so the shift is not set against a noise floor.
+- **One answer model's added share moves by up to 0.15 between generations.** For haiku-4.5 answers, deepseek-r1 0.15 vs v3.2 0.30; for the same answers, sonnet-5 0.30 vs opus-5.5 0.20. The generation CSVs have no noise column, so the shift is not set against a noise floor: the study's floor covers only its own panel, and claude-haiku-4-5, gpt-6-sol, claude-opus-5-5, kimi-k2.5 and deepseek-r1 are outside it (their repeat grades are in judge_leniency.csv but not tabulated).
 - **Newer judges are mixed against the consensus.** Five of seven old-to-new pairs move closer
   to the panel, two move away (both OpenAI pairs). gpt-6-luna has the lowest mean κ of the
   OpenAI, Anthropic, Kimi, DeepSeek, xAI, GLM and Qwen judges (0.54, against 0.58 for gpt-5.6-luna). kimi-k3 has the highest (0.64).

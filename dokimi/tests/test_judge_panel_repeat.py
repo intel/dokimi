@@ -198,9 +198,9 @@ def test_purge_drops_only_the_grades_of_the_dropped_cell(tmp_path, monkeypatch):
     assert left == ["p1|no_skill_repeat|m1"]
 
 
-def test_grade_regrades_a_repeat_whose_grades_were_purged(tmp_path, monkeypatch):
-    # After a purge the cell has no grade, so grade must ask the judge for it again; a grade
-    # step that skips every existing row would leave the regraded answer unjudged.
+def test_grade_asks_only_for_rows_without_a_grade(tmp_path, monkeypatch):
+    # A repeat whose grades were purged has none, so grade must ask for it again; a row that
+    # still has its grade must not be asked again.
     study = tmp_path / "study" / "data"
     study.mkdir(parents=True)
     (study / "probes.jsonl").write_text(json.dumps({

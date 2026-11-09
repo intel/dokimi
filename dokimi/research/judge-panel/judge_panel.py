@@ -60,7 +60,7 @@ def key(r):
 
 
 def do_sample(per_model: int):
-    rows = [json.loads(l) for l in (STUDY / "data/probe_results.jsonl").open()]
+    rows = [json.loads(l) for l in (STUDY / "data/probe_results.jsonl").read_text().splitlines()]
     cell = defaultdict(dict)
     for r in rows:
         if r.get("verdict") and r["verdict"] != "ungraded":
