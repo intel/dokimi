@@ -153,11 +153,18 @@ def _binds(node: ast.stmt) -> set[str]:
     return {n.id for n in ast.walk(node) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store)}
 
 
-def _context(text: str, tree: ast.Module, test: ast.stmt) -> list[str]:
-    """The module-level code a test reads, in source order: each statement that binds a name the test reads
-    (a constant, a helper, an import, a fixture), and the names that statement reads in turn. Other module code
-    stays out, so a check's source is what decides it and no more."""
-    pool = [(_binds(n), _reads(n), _source(text, n)) for n in tree.body if not _is_test(n)]
+_Stmt = tuple[set[str], set[str], str]  # the names a module-level statement binds and reads, and its source
+
+
+def _pool(text: str, tree: ast.Module) -> list[_Stmt]:
+    return [(_binds(n), _reads(n), _source(text, n)) for n in tree.body if not _is_test(n)]
+
+
+def _context(pool: list[_Stmt], test: ast.stmt) -> list[str]:
+    """The module-level code a test reads, in source order: each statement of ``pool`` (the test's file, after the
+    ``conftest.py`` of its tests folder) that binds a name the test reads (a constant, a helper, an import, a
+    fixture), and the names that statement reads in turn. Other module code stays out, so a check's source is what
+    decides it and no more."""
     need = _reads(test)
     picked: set[int] = set()
     grew = True
@@ -173,21 +180,30 @@ def _context(text: str, tree: ast.Module, test: ast.stmt) -> list[str]:
 
 def _task_checks(root: Path) -> list[tuple[str, str, str]]:
     """(task, function name, source) for each top-level ``test_*`` function under a task's ``tests/``. The source
-    is the function with the module-level code it reads (see :func:`_context`)."""
+    is the function with the module-level code it reads (see :func:`_context`), and the ``conftest.py`` fixtures
+    of that folder are module code of every file in it."""
     out: list[tuple[str, str, str]] = []
     for task_dir in sorted(p for p in root.iterdir() if _is_task(p)):
-        for path in sorted((task_dir / "tests").glob("*.py")):
-            try:
-                text = path.read_text(encoding="utf-8")
-                tree = ast.parse(text, filename=str(path))
-            except (OSError, UnicodeDecodeError, SyntaxError, ValueError) as exc:
-                raise ValueError(f"{path}: unreadable test file ({exc})") from exc
+        tests = task_dir / "tests"
+        shared: list[_Stmt] = []
+        if (tests / "conftest.py").is_file():
+            shared = _pool(*_parse(tests / "conftest.py"))
+        for path in sorted(tests.glob("*.py")):
+            text, tree = _parse(path)
+            pool = shared + _pool(text, tree)
             for node in tree.body:
                 if _is_test(node):
                     source = _source(text, node) or node.name
-                    context = _context(text, tree, node)
-                    out.append((task_dir.name, node.name, "\n\n".join([*context, source])))
+                    out.append((task_dir.name, node.name, "\n\n".join([*_context(pool, node), source])))
     return out
+
+
+def _parse(path: Path) -> tuple[str, ast.Module]:
+    try:
+        text = path.read_text(encoding="utf-8")
+        return text, ast.parse(text, filename=str(path))
+    except (OSError, UnicodeDecodeError, SyntaxError, ValueError) as exc:
+        raise ValueError(f"{path}: unreadable test file ({exc})") from exc
 
 
 def _named(found: list[tuple[str, str, str]]) -> list[Check]:

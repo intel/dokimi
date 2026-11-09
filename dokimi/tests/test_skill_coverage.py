@@ -210,6 +210,20 @@ def test_module_code_a_test_does_not_read_stays_out_of_its_check(tmp_path):
     assert check.source == "def test_answer():\n    assert True"
 
 
+def test_a_conftest_fixture_a_test_reads_is_part_of_its_check(tmp_path):
+    root = tmp_path / "tasks"
+    for task, flag in (("t1", "-x"), ("t2", "-y")):  # the test is the same; the fixture supplies the flag
+        _task(root, task, {
+            "conftest.py": f"import pytest\n\n@pytest.fixture\ndef answer():\n    return '{flag}'\n\n"
+                           "@pytest.fixture\ndef unrelated():\n    return 0\n",
+            "test_answer.py": "def test_answer(answer):\n    assert answer\n"})
+    checks = sc.load_checks(root)
+    assert sorted(c.name for c in checks) == ["test_answer#1", "test_answer#2"]
+    assert any("return '-x'" in c.source for c in checks)
+    assert any("return '-y'" in c.source for c in checks)
+    assert all("unrelated" not in c.source for c in checks)  # a fixture the test does not name stays out
+
+
 # --- the two model calls ------------------------------------------------------
 
 def test_extract_requirements_numbers_by_section_and_skips_bad_rows(tmp_path):

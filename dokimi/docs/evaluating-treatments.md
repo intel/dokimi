@@ -792,7 +792,9 @@ change any score or any gate.
 scope, must hold, success criteria, failure modes) and names, for each one, the eval checks
 that would fail if a run violated it. Requirements no check names are printed as **candidate
 checks** to write. The eval set is either an `evals.json`, a skill directory, or a tasks root;
-a check is an evals row (by id) or a `test_*` function under a task's `tests/`.
+a check is an evals row (by id) or a `test_*` function under a task's `tests/`. A task check's text is the
+function with the module-level code it reads (constants, helpers, imports, and the `conftest.py` fixtures it names),
+so two tests with the same body but different constants or fixtures are two checks.
 
 ```bash
 python cli.py eval skill-coverage skills/demo/SKILL.md evals/evals.json \
