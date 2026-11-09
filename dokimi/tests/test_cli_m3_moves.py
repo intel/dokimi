@@ -163,13 +163,18 @@ def test_repo_tasks_authoring_names_the_prs_argv_and_runs_nothing(capsys):
     [
         (["library", "list", "--domain", "x"], ["catalog", "list", "--kind", "product", "--domain", "x"]),
         (["library", "show", "onetbb"], ["catalog", "show", "--kind", "product", "onetbb"]),
+        (["library"], ["catalog"]),
         (["product", "list"], ["catalog", "list", "--kind", "product"]),
+        (["product", "show", "onetbb"], ["catalog", "show", "--kind", "product", "onetbb"]),
+        (["product", "--help"], ["catalog", "--help"]),
         (["subjects", "list", "--subjects-root", "r"], ["catalog", "list", "--kind", "subject", "--subjects-root", "r"]),
         (["subjects", "show", "s.toml"], ["catalog", "show", "--kind", "subject", "s.toml"]),
         (
             ["repo", "tasks", "replay", "src", "--threads", "t.json"],
             ["eval", "tasks", "generate", "--from", "replay", "src", "--threads", "t.json"],
         ),
+        (["run", "--spec", "s.yaml", "--strict"], ["docs", "check", "--spec", "s.yaml", "--strict"]),
+        (["compare", "--base", "a.json", "--candidate", "b.json"], ["docs", "compare", "--base", "a.json", "--candidate", "b.json"]),
     ],
 )
 def test_the_real_m3_tombstones_print_the_new_argv(old, new):
@@ -286,3 +291,19 @@ def test_skill_check_help_says_where_the_name_comes_from(capsys):
     assert "its skills.yaml name" in text
     assert "its directory if the manifest" in text
     assert "SKILL.md frontmatter name" in text
+
+
+def test_the_docs_group_answers_its_old_names_with_exit_2(capsys):
+    from dokimi.cli import parse_args
+
+    with pytest.raises(SystemExit) as exc:
+        parse_args(["run", "--spec", "s.yaml"])
+    assert exc.value.code == 2
+    assert "moved: dokimi docs check --spec s.yaml" in capsys.readouterr().err
+
+
+def test_docs_check_and_compare_keep_the_old_flags():
+    check = build_parser().parse_args(["docs", "check", "--spec", "s.yaml", "--strict"])
+    assert (check.spec, check.strict, check.out_json) == ("s.yaml", True, "baselines/current.json")
+    compare = build_parser().parse_args(["docs", "compare", "--base", "a", "--candidate", "b"])
+    assert (compare.base, compare.candidate, compare.spec) == ("a", "b", None)

@@ -96,7 +96,7 @@ Lives under `dokimi/{ingest,metrics,gate,runner,report}`. `gate/` and
 3. `runner/run.py` reads `benchmarks/spec.v1.yaml`, runs the enabled
    metrics, normalizes weights, and writes a snapshot JSON.
 4. `gate/` applies soft gates, hard gates, critical bands, and regression
-   thresholds (`runner/compare.py` powers `cli.py compare`).
+   thresholds (`runner/compare.py` powers `cli.py docs compare`).
 5. `report/` turns snapshots and comparisons into Markdown
    (`markdown_report.py`, `json_report.py`). It also renders the other tracks'
    artifacts: `eval_report.py` and `generator.py` (LLM track), `arms_report.py`
@@ -104,7 +104,7 @@ Lives under `dokimi/{ingest,metrics,gate,runner,report}`. `gate/` and
    `subject_report.py` (subject scorecards), `exploration_report.py`
    (ExploreBench), and the model, matrix-rollup and plugin-delta comparisons.
 
-Entry points: `python cli.py run`, `python cli.py compare`, `python cli.py
+Entry points: `python cli.py docs check`, `python cli.py docs compare`, `python cli.py
 report`.
 
 ## LLM evaluation track
