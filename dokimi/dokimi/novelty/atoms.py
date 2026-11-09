@@ -305,11 +305,13 @@ def _unread_at_cap(stop: SpendCapReached, batch: list[Span], parse: Callable[[st
     on the exception: when that reply is usable its atoms are kept here, and the batch is read."""
     if not stop.reply:
         return batch
-    try:
-        rows = parse(stop.reply)
-    except Exception:  # not usable: the batch is unread, as after any failed call
+    kept: list[Atom] = []
+    try:  # all or nothing: a reply that fails part-way keeps no atoms, and its batch is unread
+        _keep_atoms(parse(stop.reply), valid_ids, set(seen), kept)
+    except Exception:  # not usable, as after any failed call
         return batch
-    _keep_atoms(rows, valid_ids, seen, atoms)
+    atoms.extend(kept)
+    seen.update(atom.id for atom in kept)
     return []
 
 

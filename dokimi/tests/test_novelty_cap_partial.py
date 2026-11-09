@@ -360,6 +360,24 @@ def test_an_unpriced_extraction_call_keeps_the_atoms_its_reply_carried():
     assert all(span.unread for span in spans[25:])
 
 
+def test_an_unpriced_reply_that_fails_part_way_keeps_no_atoms_and_its_batch_stays_unread():
+    from dokimi.novelty.atoms import ExtractionReport, extract_atoms
+    from dokimi.novelty.spans import segment
+
+    spans = segment(ROWS)
+    report = ExtractionReport()
+    good = [{"statement": "a default", "question": "what default?", "span_ids": [spans[0].id]}]
+    # The second row is malformed (its span_ids is not a list): the reply is not usable as a whole.
+    bad = [{"statement": "s", "question": "q", "span_ids": 5}]
+    atoms = extract_atoms(spans, client=LLMClient(
+        model="e", role="extractor", cap=SpendCap(limit_usd=1.0),
+        transport=lambda prompt, system=None: (json.dumps(good + bad), UsageRecord())),
+        batch_spans=25, report=report)
+    assert atoms == []
+    assert report.partial["reason"] == "no_price"
+    assert all(span.unread for span in spans[:25])
+
+
 def test_analyze_names_a_missing_price_when_the_measurement_stops_on_one(tmp_path, monkeypatch):
     from dokimi.novelty import measure
     from dokimi.novelty.analyze import AnalyzeConfig, analyze, load_artifact_text
