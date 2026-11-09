@@ -278,8 +278,8 @@ def commands(
 def collect(scratch: Path, output: Path) -> list[Path]:
     """
     Moves built packages into output, flat, and lists them, not those an
-    earlier build left there. Two packages of one name are an error, as
-    flat they would overwrite each other.
+    earlier build left there. Two packages with the same file name are an
+    error, because moved flat one would overwrite the other.
     """
     output.mkdir(parents=True, exist_ok=True)
     moved: dict[str, Path] = {}
