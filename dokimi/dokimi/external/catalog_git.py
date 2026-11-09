@@ -40,6 +40,11 @@ def _others(root: Path) -> list[str]:
     return _paths(_git(root, "ls-files", "--others", "-z", "--", "."))
 
 
+def ignored_paths(root: Path) -> frozenset[str]:
+    """The untracked files git ignores (``.gitignore`` and ``info/exclude``), one path each."""
+    return frozenset(_paths(_git(root, "ls-files", "--others", "--ignored", "--exclude-standard", "-z", "--", ".")))
+
+
 def _base_owners(root: Path, base: str, paths: list[str]) -> dict[str, str] | None:
     """The ``metadata.skill`` owner at *base* of each changed task directory that existed there.
 

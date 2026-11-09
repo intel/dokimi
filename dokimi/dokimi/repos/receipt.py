@@ -13,6 +13,7 @@ and its limits.
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 from dataclasses import dataclass
 from pathlib import PurePosixPath
@@ -55,7 +56,7 @@ def build_receipt(reach: dict[str, Any], budget: dict[str, Any], tree: RepoTree)
     """The ``effective_instructions.v1`` artifact: one ``effective-instructions/v0`` receipt per reach scenario, the
     shadow scenarios left out."""
     harness = reach["harness"]
-    rules = harness["name"] == "claude-code"  # budget's start-up rules are Claude Code's
+    rules = _applies_rules(harness)
     when_of = _budget_when(reach, budget) if rules else {}
     own = _own_guidance(reach, budget, tree)
     start_up = [p for p, when in when_of.items() if when in ("start", "off") and p not in _known(reach)]
@@ -78,6 +79,15 @@ def build_receipt(reach: dict[str, Any], budget: dict[str, Any], tree: RepoTree)
         "unknowns": _global_unknowns(harness["name"], rules, pinned=bool(getattr(tree, "sha", None))),
         "receipts": receipts,
     }
+
+
+def _applies_rules(harness: dict[str, Any]) -> bool:
+    """Budget's start-up rules are Claude Code's: the profile says so with ``guidance.claude_displaces_agents``, as
+    ``repo budget`` reads it. A reach file without the profile's declared guidance falls back to the harness name."""
+    declared = harness.get("declared")
+    if isinstance(declared, dict):
+        return declared.get("claude_displaces_agents") is True
+    return harness["name"] == "claude-code"
 
 
 _REV_SUFFIX = re.compile(r"@[0-9a-f]{7,40}$")  # the pinned revision a git source's label ends with
@@ -121,6 +131,24 @@ def check_saved_reach(reach: dict[str, Any], repo_id: str, harness_name: str, tr
     probed = reach["repo"].get("sha")
     if probed and tree_sha and probed != tree_sha:
         raise ReachError(f"reach.json was probed at {probed[:12]}, the source is at {tree_sha[:12]}")
+
+
+def check_saved_guidance(reach: dict[str, Any], guidance: dict[str, Any]) -> None:
+    """Refuse a receipt of a saved probe whose declared guidance (``harness.declared``) is not the profile's now: budget's
+    expectations come from the profile and the gate from the probe, so they must be one declaration. The free-text
+    ``notes`` declare nothing and are not compared. A probe saved without the declaration has none to compare."""
+    declared = reach["harness"].get("declared")
+    if not isinstance(declared, dict):
+        return
+    declared = _without_notes(declared)
+    current = _without_notes(json.loads(json.dumps(guidance, default=str)))  # as reach.json would hold it
+    if declared != current:
+        raise ReachError(f"reach.json was probed with the guidance {json.dumps(declared, sort_keys=True)}, the harness "
+                         f"profile now declares {json.dumps(current, sort_keys=True)}; probe again for its receipt")
+
+
+def _without_notes(guidance: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in guidance.items() if key != "notes"}
 
 
 def check_receipt_provenance(reach: dict[str, Any], tree_sha: str | None) -> None:

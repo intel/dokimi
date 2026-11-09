@@ -137,7 +137,7 @@ def test_run_command_exits_2_without_a_traceback_when_a_doc_does_not_load(tmp_pa
     from dokimi.cli import build_parser
 
     found = [tmp_path / "docs/a.md"]
-    args = build_parser().parse_args(["run", "--root", str(tmp_path), "--spec", str(_spec(tmp_path)),
+    args = build_parser().parse_args(["docs", "check", "--root", str(tmp_path), "--spec", str(_spec(tmp_path)),
                                       "--out-json", str(tmp_path / "o.json"), "--out-md", str(tmp_path / "o.md")])
     with patch("dokimi.runner.run.discover_markdown", return_value=found), \
          patch("dokimi.runner.run.load_docs", return_value={}):
