@@ -354,9 +354,11 @@ belongs to the repository's grader and is passed through unread, except `grader`
 
 Every `guidance:*` arm is made by the framework from `guidance.globs`, the
 harness profile and the source's own history; a repository supplies no arm
-content:
+content. The globs are matched against the files the workspace holds after
+step 4, not against git's index: a file a setup patch adds is matched, and one
+it deletes is not.
 
-- `none` deletes every file the globs match at the base and every overlay
+- `none` deletes every file the globs match and every overlay
   `AGENTS.<agent>.md`, which is matched by its name, not by the globs; `as-skill`
   drops the same files, packaging only the matched ones; `raw` keeps them. The `rev:` arm keeps the overlays: a repository with overlays that wants a
   revision without them lists `**/AGENTS.*.md` in `guidance.globs` too.
@@ -381,7 +383,7 @@ content:
   or an overlay with no base by accident. The arm
   does not make a harness load its overlay: the reach probe reports that.
 - `rev:<rev>` keeps the base's code and replaces its guidance with that of
-  another revision of the source: the base's matched files are deleted and the
+  another revision of the source: the matched files are deleted and the
   files the globs match at `<rev>` (outside `eval_dir`) are written. It answers
   "does this PR's `AGENTS.md` help?" by running the same tasks with
   `guidance:rev:main` and with the PR's head. `<rev>` is a SHA, tag or branch
