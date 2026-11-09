@@ -77,6 +77,7 @@ NO_WHEN = [
     pytest.param("任意のタイミングでの自動圧縮ではなく、手動で行う。", id="ja-taimingu-not-when"),
     pytest.param("ときどきエラーを直す補助ツールです。", id="ja-tokidoki-not-toki"),
     pytest.param("그때그때 빌드 결과를 정리합니다.", id="ko-geuttae-not-ttae"),
+    pytest.param("한때 사용되던 API를 최신 버전으로 마이그레이션하는 도구입니다.", id="ko-hanttae-not-ttae"),
     pytest.param("当前项目支持按时间排序的依赖分析工具。", id="zh-dangqian-shijian-not-when"),
     pytest.param("Formats output and falls back to plain text on error.", id="en-falls-not-german-falls"),
     pytest.param("相当于一个代码格式化工具，支持实时预览。", id="zh-xiangdang-shishi-not-when"),
