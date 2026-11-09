@@ -79,11 +79,15 @@ MISSING_CREDENTIALS = [
 ]
 
 
+#: The caller each error comes back to: litellm's provider name -> (model, dokimi provider).
+ROUTES = {"openai": ("gpt-4o", "openai"), "vertex_ai": ("gemini-2.5-pro", "google-vertex")}
+
+
 @pytest.mark.parametrize("error", MISSING_CREDENTIALS, ids=lambda e: str(e)[:48])
 def test_a_credential_error_under_a_transient_class_is_not_retried(error, fake_llm, sleeps):
     fake_llm.push(error, "ok")
     with pytest.raises(type(error)):
-        LLM("gemini-2.5-pro", "vertex_ai").ask("p")
+        LLM(*ROUTES[error.llm_provider]).ask("p")
     assert len(fake_llm.requests) == 1 and sleeps == []
 
 
@@ -99,7 +103,7 @@ TRANSIENT = [
 @pytest.mark.parametrize("error", TRANSIENT, ids=lambda e: type(e).__name__)
 def test_a_transient_error_is_still_retried(error, fake_llm, sleeps):
     fake_llm.push(error, error, "ok")
-    assert LLM("gpt-4o", "openai").ask("p") == "ok"
+    assert LLM(*ROUTES[error.llm_provider]).ask("p") == "ok"
     assert len(fake_llm.requests) == 3 and sleeps == [2.0, 4.0]
 
 
