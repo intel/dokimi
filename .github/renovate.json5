@@ -137,6 +137,12 @@
       semanticCommitType: "ci",
     },
     {
+      // A replacement keeps the version, so there is no release date to age and the stability-days status stays pending.
+      // https://github.com/intel/dokimi/pull/490
+      matchUpdateTypes: ["replacement"],
+      minimumReleaseAge: null,
+    },
+    {
       // The Python setup-python installs is a CI choice, not a dependency.
       matchManagers: ["github-actions"],
       matchDepNames: ["python"],
