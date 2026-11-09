@@ -25,6 +25,12 @@ from dokimi.utils import InputError
 
 #: Options every argument parser adds; never listed as an atom's claim.
 _ALWAYS = ("--help",)
+#: A tool's rejection of an argument it does not know, which names that argument (so the
+#: flag matches LONG_FLAG). Exit status does not tell this apart from a listing: some tools
+#: exit nonzero after printing real help.
+_REJECTION = re.compile(
+    r"(?i)\b(?:unrecognized|unknown|invalid|not recognized|no such)\b[^\n]*\b(?:option|argument|flag)s?\b"
+    r"|unrecognized arguments")
 
 
 def help_text(tool: str, *, timeout: float = 20.0) -> str:
@@ -42,7 +48,7 @@ def help_text(tool: str, *, timeout: float = 20.0) -> str:
         if done.timed_out:
             continue
         text = done.stdout + done.stderr
-        if re.search(LONG_FLAG, text):
+        if re.search(LONG_FLAG, text) and not _REJECTION.search(text):
             return text
     raise InputError(f"`{tool} --help` lists no long options")
 

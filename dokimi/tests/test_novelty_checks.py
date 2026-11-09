@@ -180,3 +180,16 @@ def test_a_negated_flag_passes_only_when_the_check_opts_in_to_negations():
     assert grade_check(_veto(), "q", "Run `perf report --no-input`.", None).passed is False
     opted = grade_check(_veto(negations=True), "q", "Run `perf report --no-input`.", None)
     assert opted.passed is True
+
+
+def test_help_text_does_not_take_a_rejected_help_flag_for_a_listing(tmp_path):
+    # A tool that knows only -h rejects --help by naming it on stderr: that is no help listing.
+    tool = tmp_path / "honly.py"
+    tool.write_text(
+        "import sys\n"
+        "if '-h' in sys.argv:\n"
+        "    print('usage: honly [--input X]\\n  --input X'); sys.exit(0)\n"
+        "print(\"unrecognized option '--help'\", file=sys.stderr); sys.exit(2)\n",
+        encoding="utf-8")
+    text = help_text(f'"{sys.executable}" "{tool}"')
+    assert "--input" in help_identifiers(text)
