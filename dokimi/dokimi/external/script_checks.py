@@ -286,7 +286,8 @@ def _in_quotes(c: bytes) -> bytes:
     return b"\x01" if c in (b" ", b"\t", b"\n") else c
 
 
-HEREDOC_OPEN = re.compile(rb"<<(-?)[ \t]*(?:'([^'\n]*)'|\"([^\"\n]*)\"|\\?([^\s;&|<>()'\"]+))")  # not <<<, which has no word
+HEREDOC_OPEN = re.compile(rb"<<(-?)[ \t]*((?:[^\s;&|<>()'\"\\]|\\.|'[^'\n]*'|\"[^\"\n]*\")+)")  # not <<<, which has no word
+LET_WORD = re.compile(rb"\blet\b")
 
 
 def _unquoted_text(data: bytes) -> bytes:
@@ -337,13 +338,20 @@ def _heredoc_at(data: bytes, i: int, resume: int) -> Optional[tuple[int, int]]:
     """For a heredoc operator at ``data[i]``: the index just past the operator, and the index just past its body. The
     body starts on the line after the operator, or after the body of an earlier heredoc on that line (``resume``)."""
     match = HEREDOC_OPEN.match(data, i)
-    if match is None:
+    if match is None or _in_arithmetic(data, i):
         return None
-    delim = next(group for group in match.groups()[1:] if group is not None)
+    delim = re.sub(rb"[\\'\"]", b"", match.group(2))  # the word with its quotes and escapes taken off
     if resume < 0:
         eol = data.find(b"\n", match.end())
         resume = len(data) if eol < 0 else eol + 1
     return match.end(), _heredoc_body_end(data, resume, match.group(1) == b"-", delim)
+
+
+def _in_arithmetic(data: bytes, i: int) -> bool:
+    """True when an arithmetic context (``$((``, ``((`` or ``let``) is still open on the line before ``data[i]``: a
+    ``<<`` there is a shift, not a heredoc."""
+    prefix = data[data.rfind(b"\n", 0, i) + 1:i]
+    return prefix.count(b"((") > prefix.count(b"))") or LET_WORD.search(prefix) is not None
 
 
 def _heredoc_body_end(data: bytes, start: int, dash: bool, delim: bytes) -> int:
@@ -367,7 +375,7 @@ def _quoted_run(data: bytes, i: int) -> Optional[tuple[bytes, int]]:
     backtick, ``"`` or a backslash is that character, a backslash-newline is removed, and any other backslash is kept.
     In ``$'...'`` a backslash escapes the next byte, so ``$'it\\'s'`` closes at its last mark."""
     quote = data[i:i + 1]
-    ansi = quote == b"'" and data[i - 1:i] == b"$"
+    ansi = quote == b"'" and data[i - 1:i] == b"$" and data[i - 2:i - 1] != b"\\"  # \$' is a dollar, then a quote
     out = bytearray()
     j = i + 1
     while j < len(data):

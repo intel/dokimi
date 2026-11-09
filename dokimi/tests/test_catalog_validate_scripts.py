@@ -522,6 +522,30 @@ def test_a_shopt_extglob_after_an_ansi_c_string_with_an_escaped_mark_is_valid_un
     assert _reviews_by_name(tmp_path)["bundled"].findings == []
 
 
+@needs_bash
+def test_a_shift_in_arithmetic_is_not_a_heredoc_under_real_bash(tmp_path, no_linters):
+    _bundle(tmp_path, {"run.sh": b"#!/bin/bash\nn=2\necho $((1 << 2)) $((1<<n)) $((n <<= 1))\n"
+                               b"shopt -s extglob\ncase x in +(a|b)) : ;; esac\n"})
+
+    assert _reviews_by_name(tmp_path)["bundled"].findings == []
+
+
+@needs_bash
+def test_a_heredoc_with_a_partly_quoted_delimiter_is_read_under_real_bash(tmp_path, no_linters):
+    _bundle(tmp_path, {"run.sh": b"#!/bin/bash\ncat <<E\"OF\"\nit's\nEOF\nshopt -s extglob\n"
+                               b"case x in +(a|b)) : ;; esac\n"})
+
+    assert _reviews_by_name(tmp_path)["bundled"].findings == []
+
+
+@needs_bash
+def test_a_dollar_escaped_before_a_quote_is_not_ansi_c_under_real_bash(tmp_path, no_linters):
+    _bundle(tmp_path, {"run.sh": b"#!/bin/bash\necho \\$'a\\'\nshopt -s extglob\n"
+                               b"case x in +(a|b)) : ;; esac\n"})
+
+    assert _reviews_by_name(tmp_path)["bundled"].findings == []
+
+
 def test_env_command_loops_over_a_long_chain_of_env_s():
     # the split of one -S can hold another -S: a chain this long was a RecursionError when the parse recursed
     assert script_checks._env_command(["-S"] * 1500 + ["bash"]) == ["bash"]
