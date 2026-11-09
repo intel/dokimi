@@ -86,6 +86,9 @@ _PYPI_NAME_RE = re.compile(
 _NPM_NAME_RE = re.compile(r"(?:@[A-Za-z0-9._~-]+/)?[A-Za-z0-9._~-]+")
 _PLACEHOLDER_NAMES = {"package", "packages", "pkg", "name", "module", "mypackage", "my-package"}
 _URL_RE = re.compile(r"https?://[^\s\"'`<>]+", re.IGNORECASE)
+# Where a literal URL starts: after a markdown destination's ``](``, or a reference definition's ``[id]: ``.
+_LITERAL_START_RE = re.compile(r"\]\(|^[ \t]*\[[^\]\n]*\]:[ \t]*", re.MULTILINE)
+_ESCAPE_RE = re.compile(r"\\([!-/:-@\[-`{-~])")  # a backslash escape of ASCII punctuation, as CommonMark reads it
 _TEMPLATE_RE = re.compile(r"[{}$]")  # a template variable, such as ``{id}`` or ``${VERSION}``
 _EXAMPLE_DOMAINS = ("example.com", "example.org", "example.net")
 _RESERVED_SUFFIXES = (".localhost", ".test", ".invalid", ".example")
@@ -312,10 +315,14 @@ def extract_packages(body: str) -> list[tuple[str, str]]:
     return list(found)
 
 
-def _clean_url(raw: str) -> Optional[str]:
+def _clean_url(raw: str, literal: bool = False) -> Optional[str]:
     """``raw`` without what a sentence, a table cell, emphasis or a markdown link puts after it: the URL ends before
     the first ``)`` or ``]`` that closes no ``(`` or ``[`` of the URL, and before a ``|``; then trailing punctuation
-    and ``*`` emphasis go. A balanced bracket stays ("f[0]=1", "[2001:db8::1]"). None for an empty result."""
+    and ``*`` emphasis go. A balanced bracket stays ("f[0]=1", "[2001:db8::1]"). None for an empty result.
+
+    ``literal`` is a markdown destination, a reference definition or an autolink: its punctuation is part of the
+    URL, and its backslash escapes are decoded (``guide\\_notes`` is ``guide_notes``), as CommonMark reads them.
+    """
     parens = brackets = 0
     end = len(raw)
     for i, ch in enumerate(raw):
@@ -330,7 +337,10 @@ def _clean_url(raw: str) -> Optional[str]:
             parens -= 1
         elif ch == "]":
             brackets -= 1
-    url = raw[:end].rstrip(".,;:!?*")
+    url = raw[:end]
+    if literal:
+        return url or None
+    url = url.rstrip(".,;:!?*")
     return url or None
 
 
@@ -359,11 +369,13 @@ def extract_urls(body: str) -> list[str]:
     A URL followed by ``<``, ``{`` or ``$`` is a template (``https://api.x.com/<id>``), not a link.
     """
     urls: dict[str, None] = {}
-    body = body.replace("](", " ")  # a markdown link's text and its target are both URLs
+    literal = {m.end() for m in _LITERAL_START_RE.finditer(body)}
+    body = body.replace("](", "  ")  # a markdown link's text and its target are both URLs; the length is kept
     for m in _URL_RE.finditer(body):
         if _TEMPLATE_RE.search(m.group()) or body[m.end():m.end() + 1] in ("<", "{", "$"):
             continue
-        url = _clean_url(m.group())
+        autolink = m.start() > 0 and body[m.start() - 1] == "<" and body[m.end():m.end() + 1] == ">"
+        url = _clean_url(m.group(), literal=autolink or m.start() in literal)
         if url is not None and not _placeholder_url(url):
             urls.setdefault(url)
     return list(urls)[:MAX_URLS_PER_SKILL]

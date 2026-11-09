@@ -266,6 +266,14 @@ def test_a_version_glued_to_an_operator_is_not_a_name():
     assert online_checks.extract_packages("pip install foo>= 1.0rc1\n") == [("pypi", "foo")]
 
 
+def test_destination_and_autolink_keep_their_trailing_punctuation_and_prose_urls_lose_it():
+    # A markdown destination or an autolink ends where its syntax ends: "!" and "." are part of the path there.
+    assert online_checks.extract_urls("[docs](https://docs.acme.dev/reference!)") == [
+        "https://docs.acme.dev/reference!"]
+    assert online_checks.extract_urls("<https://docs.acme.dev/a.>") == ["https://docs.acme.dev/a."]
+    assert online_checks.extract_urls("See https://docs.acme.dev/reference.") == ["https://docs.acme.dev/reference"]
+
+
 def test_balanced_brackets_and_underscores_are_part_of_the_url():
     assert online_checks.extract_urls("see https://x.dev/api?f[0]=1 now") == ["https://x.dev/api?f[0]=1"]
     assert online_checks.extract_urls("see https://host.dev/docs/__main__") == ["https://host.dev/docs/__main__"]
