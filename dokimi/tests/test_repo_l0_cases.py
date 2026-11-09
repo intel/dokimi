@@ -223,6 +223,10 @@ CASES = [
     ("no pre-commit config", _shell("pre-commit run lint"), {}, {("precommit_hook", "lint"): "fail"}),
     ("odd pre-commit config", _shell("pre-commit run lint"), {".pre-commit-config.yaml": "- not\n- a mapping\n"},
      {("precommit_hook", "lint"): "fail"}),
+    ("pre-commit config with a bad date", _shell("pre-commit run lint"),
+     {".pre-commit-config.yaml": "repos: 2026-99-99\n"}, {("precommit_hook", "lint"): "fail"}),
+    ("pre-commit config nested too deep", _shell("pre-commit run lint"),
+     {".pre-commit-config.yaml": "[" * 100000}, {("precommit_hook", "lint"): "fail"}),
     # bazel
     ("URLs and comments are not labels", "`https://x.org/a//b`, `// clang-format off`, `//github.com/acme`",
      {"BUILD": ""}, {}),
@@ -732,7 +736,8 @@ def test_a_workflow_the_scan_does_not_read_is_named_in_the_reason_of_an_unused_a
         "fail", ".github/actions/ exists but .github/actions/only does not" + note)
     assert got[("AGENTS.md", "actions/checkout")] == ("ok", "used by .github/workflows/ci.yml")
     assert got[("AGENTS.md", "build/out")] == ("unresolved", "tried build/out" + note)
-    assert got[("AGENTS.md", "build/out/")] == ("unresolved", "tried build/out")  # no Action's shape
+    assert got[("AGENTS.md", "build/out/")] == (  # no Action's shape: only the workflow a branch filter could be in
+        "unresolved", f"tried build/out; .github/workflows/big.yml was not read ({len(big)} bytes, over the 2 MB read limit)")
     assert got[("AGENTS.md", "gen/x")] == ("unresolved", "tried gen/x" + note + "; .gitignore:1 (`gen/`) ignores it, "
                                            "so it is likely generated rather than tracked")
     assert got[("AGENTS.md", "tools/gone")] == ("fail", "tools/ exists but tools/gone does not")  # a path, not read as an Action
@@ -757,6 +762,32 @@ def test_a_name_under_a_root_directory_stays_a_path_when_a_workflow_uses_the_sam
                           "      - uses: tools/lint@v1\n      - uses: tools/gone@v1\n"}))
     assert got[("AGENTS.md", "tools/lint")] == ("ok", "tools/lint")
     assert got[("AGENTS.md", "tools/gone")] == ("fail", "tools/ exists but tools/gone does not")
+
+
+@pytest.mark.parametrize("links, verdict", [
+    ({"owner": "src/pkg"}, ("unresolved", "tried owner/name")),  # judged as a path: no Action reading
+    ({"owner": "src/pkg/x"}, ("ok", "used by .github/workflows/ci.yml")),  # a link to a file is no directory
+    ({}, ("fail", "owner/ exists but owner/name does not")),  # a real `owner/` beside it (`owner/keep`)
+])
+def test_a_root_link_to_a_directory_keeps_a_used_action_name_below_it_a_path(tmp_path, links, verdict):
+    """https://github.com/intel/dokimi/issues/483: a root link `owner` to a directory is the `owner/` a checkout makes."""
+    files = {"AGENTS.md": "Run `owner/name`.\n", "ev/tasks/t/task.json": "{}", "src/pkg/x": "",
+             ".github/workflows/ci.yml": "jobs:\n  x:\n    steps: [{uses: owner/name@v1}]\n"}
+    tree = _linked_repo(tmp_path / "r", files if links else {**files, "owner/keep": ""}, links)
+    assert _by_file(scan_repo(tree, _manifest()))[("AGENTS.md", "owner/name")] == verdict
+
+
+@pytest.mark.parametrize("links, held, verdict", [
+    ({"owner": "src/pkg"}, "src/pkg/repo/x", ("unresolved", "tried owner/repo/path")),  # `owner/repo/` through the link
+    ({"owner": "src/pkg"}, "src/pkg/repo", ("ok", "used by .github/workflows/ci.yml")),  # through it, a file
+    ({}, "owner/repo/x", ("fail", "owner/repo/ exists but owner/repo/path does not")),  # a real `owner/repo/`
+])
+def test_a_directory_through_a_root_link_keeps_a_deeper_used_action_name_a_path(tmp_path, links, held, verdict):
+    """Review of https://github.com/intel/dokimi/pull/506: the name's directory may lie below the link, not at it."""
+    files = {"AGENTS.md": "Run `owner/repo/path`.\n", "ev/tasks/t/task.json": "{}", held: "",
+             ".github/workflows/ci.yml": "jobs:\n  x:\n    steps: [{uses: owner/repo/path@v1}]\n"}
+    got = _by_file(scan_repo(_linked_repo(tmp_path / "r", files, links), _manifest()))
+    assert got[("AGENTS.md", "owner/repo/path")] == verdict
 
 
 def test_a_used_action_inside_a_submodule_keeps_the_submodule_verdict(tmp_path):

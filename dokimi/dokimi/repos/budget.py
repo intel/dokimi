@@ -127,9 +127,7 @@ def budget(tree: RepoTree, guidance_names: tuple[str, ...], import_max_depth: in
 
     # An AGENTS.md read on its own expands its @imports from hop 0. One a CLAUDE* displaces is read only through
     # an import, whose chain follows it at its real hop count, unless a root CLAUDE* or a CLAUDE* beside it aliases it.
-    agents = [f for f in every if f.rsplit("/", 1)[-1] == "AGENTS.md" and _is_resolvable(tree, f)
-              and (f not in displaced or any(a in root_claude or a in displaced[f]
-                                             for a in groups.get(_target(tree, f), [f])))]
+    agents = _agents_read(tree, every, groups, root_claude, displaced)
     agents_at_start, cut_agents_start = imports([f for f in agents if _is_root(f)])
     agents_lazy, cut_agents_lazy = imports([f for f in agents if not _is_root(f)])
     at_start |= agents_at_start
@@ -373,6 +371,15 @@ def _displaced(tree: RepoTree, every: list[str], claude: list[str], root_claude:
     return out
 
 
+def _agents_read(tree: RepoTree, every: list[str], groups: dict[str, list[str]], root_claude: list[str],
+                 displaced: dict[str, list[str]]) -> list[str]:
+    """The AGENTS.md files read on their own, imports relative to their own directory: each that resolves and no
+    CLAUDE* turns off, or that a root CLAUDE* or one in ``displaced`` aliases (``groups``: the paths of each file)."""
+    return [f for f in every if f.rsplit("/", 1)[-1] == "AGENTS.md" and _is_resolvable(tree, f)
+            and (f not in displaced or any(a in root_claude or a in displaced[f]
+                                           for a in groups.get(_target(tree, f), [f])))]
+
+
 def _off_warnings(off: list[str], displaced: dict[str, list[str]], root_claude: list[str]) -> list[str]:
     """One warning for the AGENTS.md files a root CLAUDE* turns off, else one per file its own directory's CLAUDE* does."""
     if root_claude:
@@ -498,6 +505,30 @@ def _followed_imports(tree: RepoTree, roots: list[str], *, max_depth: int | None
                       rules: bool) -> tuple[set[str], list[tuple[str, str, str]]]:
     """:func:`_imports` of ``roots``, or none when the profile declares no import syntax."""
     return _imports(tree, roots, max_depth, rules) if follow else (set(), [])
+
+
+def imported_by(tree: RepoTree, wrote: list[str], guidance_names: tuple[str, ...], import_max_depth: int | None = None,
+                rules: bool = False, *, claude_displaces_agents: bool = False,
+                follow_imports: bool = True) -> dict[str, list[str]]:
+    """Each path of ``wrote`` that another guidance file's ``@`` import chain reaches (:func:`_imports`, one root at a
+    time), with the guidance files whose chains reach it, root files first: every CLAUDE* file and every AGENTS.md
+    read on its own (:func:`_agents_read`, as :func:`budget` reads them); ``{}`` without ``follow_imports``."""
+    if not follow_imports:
+        return {}
+    names = set(guidance_names)
+    every = [f for f in tree.files() if f.rsplit("/", 1)[-1] in names and not (rules and RULE_GLOB.match(f))]
+    claude = [f for f in every if f.rsplit("/", 1)[-1].startswith("CLAUDE")]
+    root_claude = [f for f in claude if _is_root(f) and _is_resolvable(tree, f)]
+    displaced = _displaced(tree, every, claude, root_claude, claude_displaces_agents)
+    groups: dict[str, list[str]] = {}
+    for f in every:
+        groups.setdefault(_target(tree, f), []).append(f)
+    out: dict[str, list[str]] = {}
+    for root in claude + _agents_read(tree, every, groups, root_claude, displaced):
+        seen = _imports(tree, [root], import_max_depth, rules)[0]
+        for path in sorted((seen | {_target(tree, p) for p in seen}) & set(wrote) - {root}):  # a link's file too
+            out.setdefault(path, []).append(root)
+    return {p: sorted(r, key=lambda f: (not _is_root(f), f)) for p, r in sorted(out.items())}
 
 
 def _imports(tree: RepoTree, roots: list[str], max_depth: int | None = None,

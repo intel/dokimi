@@ -201,7 +201,7 @@ jobs:
         run: pip install --no-deps --require-hashes -r requirements.lock.txt
       - name: Run benchmark
         run: |
-          python cli.py run --root . --spec benchmarks/spec.v1.yaml \
+          python cli.py docs check --root . --spec benchmarks/spec.v1.yaml \
             --out-json baselines/current.json --out-md reports/current.md \
             --strict
       - name: Upload artifacts

@@ -791,9 +791,9 @@ datasets==5.1.0 \
     --hash=sha256:1561347daa8841b51351ef2ad1647b4ee4af406852c0f7bd1df587ac1ca7888e \
     --hash=sha256:86fd08b280485aab82894d2c81842c4151d93b575efea0054315104cb7bc3cec
     # via -r requirements.txt
-diff-cover==10.6.0 \
-    --hash=sha256:8d1194dfb537f70480ac97c9c45dd40721cf4c326c9903fbe997db67a4db6195 \
-    --hash=sha256:a701553060f72d59b81f9cb1645b75ef66204427eb9dd99873c91092220e52ce
+diff-cover==11.0.0 \
+    --hash=sha256:5450247cc885ac0c252f0d7a4cf91608f454377c6f88e579bc9ead410af50c36 \
+    --hash=sha256:8b0a5b356d525718ee18c14b163ce179c75ccdc5b8d5474ef22ade6a0e1fa65d
     # via -r requirements-test.txt
 dill==0.4.1 \
     --hash=sha256:1e1ce33e978ae97fcfcff5638477032b801c46c7c65cf717f95fbc2248f79a9d \
