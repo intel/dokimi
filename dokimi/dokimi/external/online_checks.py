@@ -58,7 +58,7 @@ _COMMENT_RE = re.compile(r"(?:^|(?<=[\s;|&()<>]))#(?=\s|$).*$")  # "#" then a sp
 # A ``#`` after a space that follows an install command starts a shell comment whatever comes after it ("#note;"),
 # and it is cut before code spans are split off (the commented-out command in backticks is not a command).
 _UNQUOTED_HASH_RE = re.compile(r"(?:^|(?<=\s))#(?!\d)")
-_SHELL_COMMAND_RE = re.compile(r"\b(?:pip3?|npm|npx|uv)\b")
+_SHELL_COMMAND_RE = re.compile(r"\b(?:pip3? install|npm (?:install|i|add)|uv pip install|npx)\b")  # a command, not prose
 _LINE_PREFIX_RE = re.compile(r"^\s*(?:(?:[-*+]|\d+[.)])\s+|>+ ?)")  # a list marker or a quote marker
 # English words that follow ``npx`` in prose ("npx is great", "Use npx to run it"), not package names.
 _NPX_PROSE = {"a", "an", "and", "are", "can", "could", "for", "get", "in", "is", "it", "may", "might", "must",
@@ -320,13 +320,14 @@ def extract_packages(body: str) -> list[tuple[str, str]]:
     return list(found)
 
 
-def _clean_url(raw: str, literal: bool = False) -> Optional[str]:
+def _clean_url(raw: str, literal: bool = False, decode: bool = False) -> Optional[str]:
     """``raw`` without what a sentence, a table cell, emphasis or a markdown link puts after it: the URL ends before
     the first ``)`` or ``]`` that closes no ``(`` or ``[`` of the URL, and before a ``|``; then trailing punctuation
     and ``*`` emphasis go. A balanced bracket stays ("f[0]=1", "[2001:db8::1]"). None for an empty result.
 
     ``literal`` is a markdown destination, a reference definition or an autolink: its punctuation is part of the
-    URL, and its backslash escapes are decoded (``guide\\_notes`` is ``guide_notes``), as CommonMark reads them.
+    URL. ``decode`` (a destination or a reference definition, not an autolink, where CommonMark has no escapes) also
+    decodes its backslash escapes (``guide\\_notes`` is ``guide_notes``).
     """
     parens = brackets = 0
     end = len(raw)
@@ -343,8 +344,10 @@ def _clean_url(raw: str, literal: bool = False) -> Optional[str]:
         elif ch == "]":
             brackets -= 1
     url = raw[:end]
+    if decode:
+        url = _ESCAPE_RE.sub(r"\1", url)
     if literal:
-        return _ESCAPE_RE.sub(r"\1", url) or None
+        return url or None
     url = url.rstrip(".,;:!?*")
     return url or None
 
@@ -379,8 +382,9 @@ def extract_urls(body: str) -> list[str]:
     for m in _URL_RE.finditer(body):
         if _TEMPLATE_RE.search(m.group()) or body[m.end():m.end() + 1] in ("<", "{", "$"):
             continue
+        destination = m.start() in literal
         autolink = m.start() > 0 and body[m.start() - 1] == "<" and body[m.end():m.end() + 1] == ">"
-        url = _clean_url(m.group(), literal=autolink or m.start() in literal)
+        url = _clean_url(m.group(), literal=destination or autolink, decode=destination)
         if url is not None and not _placeholder_url(url):
             urls.setdefault(url)
     return list(urls)[:MAX_URLS_PER_SKILL]

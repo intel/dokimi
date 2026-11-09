@@ -293,6 +293,13 @@ def test_markdown_destination_and_reference_definition_decode_backslash_escapes(
         "https://docs.example-tool.dev/guide_notes"]
 
 
+def test_a_backslash_in_an_autolink_is_not_decoded_and_a_hash_after_a_command_word_is_prose():
+    # Self-review: CommonMark has no escapes inside an autolink; and "npm (see #setup)" is prose, not an install.
+    assert online_checks.extract_urls("<https://x.dev/a\\_b>") == ["https://x.dev/a\\_b"]
+    assert online_checks.extract_packages("Works with npm (see #setup): `npm install nosuch-pkg-xyz`\n") == [
+        ("npm", "nosuch-pkg-xyz")]
+
+
 def test_a_footnote_label_is_prose_so_its_sentence_punctuation_goes():
     # Self-review: "[^1]: " is a footnote, not a reference definition whose destination keeps its punctuation.
     assert online_checks.extract_urls("[^1]: https://x.dev/paper.") == ["https://x.dev/paper"]
