@@ -349,6 +349,11 @@ def test_help_identifiers_reads_only_the_options_the_help_declares():
         "--quiet", "--verbose"]
     # A tab separates the description from the names, as it does in some tools' help.
     assert help_identifiers("Usage: tool\n  -a,\t--all\tall files\n") == ["--all"]
+    # Two spaces after a declared option with a value end its declaration, even when the
+    # description starts with a long option of another command: that option is no option here.
+    after_value = "usage: tool [--input FILE]\n  --input FILE  --advanced belongs to another command.\n"
+    assert help_identifiers(after_value) == ["--input"]
+    assert grade_check(identifiers_check("tool", after_value), "q", "run tool --advanced", None).passed is False
     assert grade_check(_veto(), "q", "Run perf report --sort no --stdin", None).passed is False
 
 

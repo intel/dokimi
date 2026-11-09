@@ -94,7 +94,10 @@ def _declared(text: str) -> str:
         elif not line[:1].isspace():
             in_usage = False
         if re.match(r"\s*-", line):  # "-V,  --version": a gap after a comma joins the names
-            kept.append(re.split(r"(?<![,\s])(?:\s{2,}|\t)(?![\s-])", line.strip(), maxsplit=1)[0])
+            # A gap after a comma, or after a lone short name ("-v  --verbose"), joins the names; any
+            # other gap ends the declaration, even before a "--" (a description naming another option).
+            kept.append(re.split(r"(?<![,\s])(?<!^-[A-Za-z])(?<!\s-[A-Za-z])(?:\s{2,}|\t)", line.strip(),
+                                 maxsplit=1)[0])
         elif in_usage:  # a usage line keeps its spacing: docker writes "Usage:  tool [--x]"
             kept.append(line.strip())
     return "\n".join(kept)
