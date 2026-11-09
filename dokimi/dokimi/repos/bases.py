@@ -107,7 +107,7 @@ def check_bases(report: RepoCheckReport, open_base: Callable[[str], RepoTree],
     bare = sorted(t.id for t in report.tasks if report.guidance_by_base.get(t.base) == 0 and t.base not in overlaid)
     if bare:
         report.notes.append(
-            f"no guidance file and no AGENTS.<agent>.md overlay at the base of {len(bare)} task(s); "
+            f"no file the guidance globs match and no AGENTS.<agent>.md overlay at the base of {len(bare)} task(s); "
             "there guidance:none, raw and bridge give the same "
             "workspace and as-skill, overlay and format= fail preparation, so leave these tasks out of comparisons "
             f"among those arms (guidance:rev:, patch: and +skill: parts bring their own files): {', '.join(bare)}"

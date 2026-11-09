@@ -80,7 +80,8 @@ def test_globs_and_bases_are_checked_at_every_task_base(tmp_path, capsys):
     assert out["guidance_files"] == ["AGENTS.md"]
     assert out["guidance_by_base"] == {old: 2, f"{old}^": 0, bare: 0}
     assert len(out["notes"]) == 1 and out["notes"][0].endswith(": fix_bare, fix_older")
-    assert out["notes"][0].startswith("no guidance file and no AGENTS.<agent>.md overlay at the base of 2 task(s); ")
+    assert out["notes"][0].startswith("no file the guidance globs match and no AGENTS.<agent>.md overlay at the base "
+                                      "of 2 task(s); ")
     # rev: and patch: bring their own files, so the note must not cover them (#481)
     assert "guidance:none, raw and bridge give the same workspace" in out["notes"][0]
     assert "(guidance:rev:, patch: and +skill: parts bring their own files)" in out["notes"][0]
