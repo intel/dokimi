@@ -274,19 +274,25 @@ def commands(
 def collect(scratch: Path, output: Path) -> list[Path]:
     """
     Moves built packages into output, flat, and lists them, not those an
-    earlier build left there.
+    earlier build left there. Two packages of one name are an error, as
+    flat they would overwrite each other.
     """
     output.mkdir(parents=True, exist_ok=True)
-    built: list[Path] = []
+    moved: dict[str, Path] = {}
     for package in sorted(scratch.rglob("*")):
         if (
             package.is_file()
             and package.name.endswith(PACKAGE_SUFFIXES)
             and "broken" not in package.relative_to(scratch).parts
         ):
+            if package.name in moved:
+                raise BuildError(
+                    f"two packages named {package.name}: "
+                    f"{moved[package.name]} and {package}"
+                )
             shutil.move(str(package), output / package.name)
-            built.append(output / package.name)
-    built.sort()
+            moved[package.name] = package
+    built = sorted(output / name for name in moved)
     if not built:
         raise BuildError("the build produced no package")
     return built
