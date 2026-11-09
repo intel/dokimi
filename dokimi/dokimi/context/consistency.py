@@ -416,9 +416,10 @@ class Matcher:
 def load_contract(path: Path) -> dict[str, Any]:
     import yaml
 
+    text = path.read_text(encoding="utf-8")  # outside the try: bad UTF-8 is a ValueError, not a YAML error
     try:
-        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    except yaml.YAMLError as exc:
+        data = yaml.safe_load(text) or {}
+    except (yaml.YAMLError, ValueError, RecursionError) as exc:  # ValueError: a bad date; RecursionError: deep nesting
         raise ValueError(f"{path}: not valid YAML ({exc})") from exc
     return parse_contract(data, str(path))
 

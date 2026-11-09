@@ -144,7 +144,7 @@ def read_catalogue(path: Path | None = None) -> tuple[list[Case], str]:
     try:
         data = path.read_bytes()
         raw = yaml.safe_load(data.decode("utf-8"))
-    except (OSError, UnicodeDecodeError, yaml.YAMLError) as exc:
+    except (OSError, ValueError, RecursionError, yaml.YAMLError) as exc:  # ValueError: bad UTF-8, a bad date
         raise SkillReachError(f"{path}: cannot read the catalogue: {exc}") from exc
     if not isinstance(raw, dict) or raw.get("schema") != "skill_fixtures.v1" or not isinstance(raw.get("cases"), list):
         raise SkillReachError(f"{path}: not a skill_fixtures.v1 catalogue (needs `schema` and a `cases` list)")
@@ -242,7 +242,7 @@ def _yaml_str(value: str) -> str:
     (``null``, ``true`` and ``123`` would otherwise load as another type)."""
     try:
         loaded = yaml.safe_load(f"v: {value}\n")
-    except yaml.YAMLError:
+    except (yaml.YAMLError, ValueError, RecursionError):  # 2026-99-99 resolves as a date that does not exist
         loaded = None
     return value if isinstance(loaded, dict) and loaded.get("v") == value else json.dumps(value)
 

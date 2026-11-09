@@ -59,12 +59,8 @@ def json_array(text: str) -> None:
 
 
 def frontmatter(text: str) -> None:
-    # Nesting past the interpreter's limit raises RecursionError from both parsers on
-    # purpose: the novelty commands catch it and name the file (tests/test_novelty_cli.py).
-    try:
-        meta, body = parse_frontmatter(text)
-    except RecursionError:
-        return
+    # Nesting past the interpreter's limit is invalid frontmatter: no metadata, or yaml.YAMLError.
+    meta, body = parse_frontmatter(text)
     assert isinstance(meta, dict) and isinstance(body, str)
     try:
         strict = parse_frontmatter_strict(text)

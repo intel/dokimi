@@ -525,6 +525,25 @@ def test_overlay_arm_reads_the_workspace_after_setup_patches_not_the_index(tmp_p
     assert not (ws / "AGENTS.codex.md").exists() and (ws / "AGENTS.claude.md").exists()
 
 
+def _cr_workspace(tmp_path: Path, files: tuple[str, ...]) -> Path:
+    """A committed workspace holding ``files``, which may have a carriage return in their path."""
+    ws = tmp_path / "ws"
+    for rel in files:
+        write(ws, rel, f"{rel}\n")
+    git(ws, "init", "-q")
+    git(ws, "add", "-A")
+    git(ws, "commit", "-q", "-m", "base")
+    return ws
+
+
+@pytest.mark.skipif(os.name == "nt", reason="a carriage return in a file name")
+def test_overlay_arm_removes_a_foreign_overlay_with_a_carriage_return_in_its_path(tmp_path):
+    ws = _cr_workspace(tmp_path, ("AGENTS.md", "AGENTS.claude.md", "a\rb/AGENTS.codex.md"))
+    removed, _ = _apply_arm(ws, _git_env(SNAPSHOT_AUTHOR), tmp_path, None, parse_arm(OVERLAY_ARM), None, "claude")
+    assert removed == ["a\rb/AGENTS.codex.md"]
+    assert not (ws / "a\rb" / "AGENTS.codex.md").exists() and (ws / "AGENTS.claude.md").exists()
+
+
 def test_overlay_arm_does_not_unlink_through_a_setup_patch_that_made_a_directory_a_link(tmp_path):
     """A setup patch replaces the tracked directory sub/ with a link to a host directory. The index still lists
     sub/AGENTS.codex.md and it now resolves outside the workspace: the arm must refuse, not delete the host file."""
@@ -562,6 +581,15 @@ def test_guidance_none_reads_the_workspace_after_setup_patches_not_the_index(tmp
     removed, _ = _apply_arm(ws, _git_env(SNAPSHOT_AUTHOR), tmp_path, manifest, parse_arm("guidance:none"), None)
     assert removed == ["AGENTS.claude.md", "AGENTS.codex.md", "AGENTS.md"]
     assert not any(ws.glob("AGENTS*"))
+
+
+@pytest.mark.skipif(os.name == "nt", reason="a carriage return in a file name")
+def test_guidance_none_removes_a_guidance_file_with_a_carriage_return_in_its_path(tmp_path):
+    ws = _cr_workspace(tmp_path, ("AGENTS.md", "a\rb/AGENTS.md", "src/calc.py"))
+    manifest = SimpleNamespace(guidance_globs=["**/AGENTS.md"])
+    removed, _ = _apply_arm(ws, _git_env(SNAPSHOT_AUTHOR), tmp_path, manifest, parse_arm("guidance:none"), None)
+    assert removed == ["AGENTS.md", "a\rb/AGENTS.md"]
+    assert not (ws / "a\rb" / "AGENTS.md").exists() and (ws / "src/calc.py").is_file()
 
 
 def test_guidance_none_does_not_unlink_through_a_setup_patch_that_made_a_directory_a_link(tmp_path):
