@@ -54,7 +54,7 @@ from .arms import ArmError, Skill, resolve_skills, tree_sha256
 from .errors import PrepError
 from .guidance_arms import GUIDANCE_SKILL_DESCRIPTION, _apply_as_skill, _apply_format  # noqa: F401
 from .guidance_format import FORMATS
-from .guidance_history import arm_rev_history
+from .guidance_history import arm_rev_history, record_imports
 from .harness_profile import HarnessProfile
 from .manifest import RepoManifest, _is_within, match_glob
 from .overlay_paths import _link_target, _overlay_targets, _path_hits, _supplies_a_file  # noqa: F401
@@ -412,6 +412,7 @@ def prepare_workspace(git_dir: Path, manifest: RepoManifest, task: Task, arm: st
     _git(ws, env, "add", "-A")                                                                # 6
     _git(ws, env, "commit", "-q", "--no-gpg-sign", "--no-verify", "--amend", "--allow-empty", "-m", "snapshot")
     _apply_review_patch(ws, task, patches)                                                    # 7
+    record_imports(arm_meta, ws, arm_files, profile, lambda: _workspace_files(ws, env))  # as the agent gets it
     _forget(ws, env)                                                                          # 8
     start_sha = _git(ws, env, "rev-parse", "HEAD").strip()
     meta: dict[str, Any] = {
@@ -478,8 +479,8 @@ def _apply_arm(ws: Path, env: dict[str, str], git_dir: Path, manifest: RepoManif
         return _apply_patch(ws, env, manifest, arm)
     if arm.base == OVERLAY_ARM:
         return _apply_overlay(ws, _workspace_files(ws, env), overlay or "")
-    tracked = [p for p in _git(ws, env, "ls-files", "-z").split("\0") if p]
-    matched = sorted(p for p in tracked if any(match_glob(g, p) for g in manifest.guidance_globs))
+    # the workspace, not the index: a setup patch's added file is untracked and its deleted one still indexed (#495)
+    matched = sorted(p for p in _workspace_files(ws, env) if any(match_glob(g, p) for g in manifest.guidance_globs))
     if arm.base.startswith(FORMAT_ARM):
         return _apply_format(ws, matched, arm.base[len(FORMAT_ARM):])
     if arm.base in ("guidance:none", "guidance:as-skill") or arm.rev_sha is not None:
@@ -573,7 +574,7 @@ def _apply_bridge(ws: Path, matched: list[str], bridge: dict[str, str]) -> tuple
 def _workspace_files(ws: Path, env: dict[str, str]) -> list[str]:
     """The paths the workspace holds now: the indexed ones and the untracked ones (ignored ones too), since a setup
     patch applied with ``git apply`` changes the tree and not the index. A path that is gone is no path."""
-    listed = _git(ws, env, "ls-files", "-z", "--cached", "--others").split("\0")
+    listed = _git_proc(ws, env, "ls-files", "-z", "--cached", "--others").nul_fields()
     return sorted({p for p in listed if p and os.path.lexists(ws / p)})
 
 
@@ -630,9 +631,9 @@ def _guidance_at(git_dir: Path, manifest: RepoManifest,
     one that is a symbolic link the file it resolves to in that commit and every path its resolution goes through
     (:func:`_link_chain`). A link out of the tree, into ``eval_dir`` or to nothing is refused."""
     eval_dir = manifest.run_paths()[0]
-    listing = _run(["git", "-C", str(git_dir), "ls-tree", "-r", "-z", "--full-tree", sha], env=_git_env(SNAPSHOT_AUTHOR))
+    listing = _run_proc(["git", "-C", str(git_dir), "ls-tree", "-r", "-z", "--full-tree", sha], env=_git_env(SNAPSHOT_AUTHOR))
     entries = {}
-    for entry in filter(None, listing.split("\0")):
+    for entry in filter(None, listing.nul_fields()):
         info, _, path = entry.partition("\t")
         mode, kind, oid = info.split()
         if kind == "blob":
@@ -677,12 +678,12 @@ def _apply_patch(ws: Path, env: dict[str, str], manifest: RepoManifest, arm: Arm
         path = Path(tmp) / "arm.patch"
         path.write_bytes(arm.patch)
         try:
-            touched = _patch_paths(_git(ws, env, "apply", "--numstat", "-z", str(path)))
+            touched = _patch_paths(_git_proc(ws, env, "apply", "--numstat", "-z", str(path)).nul_fields())
             _git(ws, env, "apply", "--whitespace=nowarn", str(path))
         except PrepError as exc:
             raise PrepError(f"arm {arm}: patch {arm.patch_path} does not apply: {exc}") from exc
     _git(ws, env, "add", "-A")
-    status = _git(ws, env, "diff", "--cached", "--name-status", "--no-renames", "-z", before).split("\0")
+    status = _git_proc(ws, env, "diff", "--cached", "--name-status", "--no-renames", "-z", before).nul_fields()
     changed = sorted(p for p in status[1::2] if p)
     eval_dir = manifest.run_paths()[0]
     # the patch's own paths too: a file .gitignore hides is written but never staged
@@ -705,11 +706,10 @@ def _apply_patch(ws: Path, env: dict[str, str], manifest: RepoManifest, arm: Arm
                                  "mcp_servers": mcp_servers(ws, files, base)}}
 
 
-def _patch_paths(numstat: str) -> set[str]:
-    """Every path ``git apply --numstat -z`` names: ``added<TAB>deleted<TAB>path``, or for a rename an empty path
-    followed by the old and the new one."""
+def _patch_paths(fields: list[str]) -> set[str]:
+    """Every path ``git apply --numstat -z`` names (``fields``, its output split on NUL): ``added<TAB>deleted<TAB>path``,
+    or for a rename an empty path followed by the old and the new one."""
     paths: set[str] = set()
-    fields = numstat.split("\0")
     i = 0
     while i < len(fields):
         rest = fields[i].split("\t", 2)
@@ -754,15 +754,23 @@ def _git_env(author: tuple[str, str]) -> dict[str, str]:
 
 
 def _git(ws: Path, env: dict[str, str], *args: str, check: bool = True) -> str:
+    return _git_proc(ws, env, *args, check=check).stdout
+
+
+def _git_proc(ws: Path, env: dict[str, str], *args: str, check: bool = True) -> process.Completed:
     # no gc --auto: on a large tree a commit starts a detached one that packs what _forget must drop
     argv = ["git", "-C", str(ws), "-c", "init.defaultBranch=main", "-c", "core.autocrlf=false",
             "-c", "gc.auto=0", "-c", "maintenance.auto=false", *args]
-    return _run(argv, env=env, check=check)
+    return _run_proc(argv, env=env, check=check)
 
 
 def _run(argv: list[str], env: dict[str, str] | None = None, check: bool = True) -> str:
+    return _run_proc(argv, env=env, check=check).stdout
+
+
+def _run_proc(argv: list[str], env: dict[str, str] | None = None, check: bool = True) -> process.Completed:
     """``argv`` (a git command) with exactly ``env``, or the caller's env when it is ``None``
-    (a clone or fetch needs its credential helpers); git never prompts either way."""
+    (a clone or fetch needs its credential helpers); git never prompts either way. :func:`_run` gives its stdout."""
     policy = process.GIT_ENV if env is None else process.Env.only((), {**env, "GIT_TERMINAL_PROMPT": "0"})
     try:
         proc = process.run(argv, env=policy, timeout=_GIT_TIMEOUT_S, capture_limit=None)  # e.g. ls-files
@@ -776,7 +784,7 @@ def _run(argv: list[str], env: dict[str, str] | None = None, check: bool = True)
         if why in lines:  # no hint: the last lines, as a patch failing on two files names both
             why = " | ".join(lines[-3:])
         raise PrepError(f"{' '.join(argv[:5])} exited {proc.returncode}: {why}")
-    return proc.stdout
+    return proc
 
 
 def _checkout_tree(git_dir: Path, treeish: str, dest: Path, prefix: str | None = None,

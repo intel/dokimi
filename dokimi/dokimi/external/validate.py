@@ -68,11 +68,13 @@ Unicode tag, stray zero-width character) in ``SKILL.md`` or a bundled text file
 from __future__ import annotations
 
 import hashlib
+import math
 import os
 import re
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
-from typing import Optional, Sequence
+from typing import Iterable, Optional, Sequence
 from urllib.parse import unquote
 
 import yaml
@@ -141,6 +143,30 @@ FILE_SUFFIX_RE = re.compile(r"\d+(?:[-:]\d+)?|[A-Za-z_]\w*")
 LOCATION_SUFFIX_RE = re.compile(r":(?:\d+(?:[-:]\d+)?|[A-Za-z_]\w*)$")
 SKILL_DIR_VAR = "${CLAUDE_SKILL_DIR}/"
 
+# Every code a review can report: ``catalog check --ignore`` accepts these and no others.
+# tests/test_catalog_ignore.py reads the emitted codes from the source and fails on any missing here.
+FINDING_CODES = (
+    "allowed-tools-unknown",
+    "body-too-large",
+    "description-near-duplicate",
+    "description-no-when",
+    "description-too-long",
+    "duplicate",
+    "frontmatter-parse",
+    "frontmatter-unknown-key",
+    "hidden-unicode",
+    "legacy-model-id",
+    "link-escapes-skill",
+    "link-missing",
+    "mirror-drift",
+    "name-conflict",
+    "name-format",
+    "name-mismatch",
+    "name-missing",
+    "not-loaded",
+    "path-escapes-skill",
+)
+
 
 @dataclass
 class Finding:
@@ -149,6 +175,12 @@ class Finding:
     level: str
     code: str
     message: str
+
+
+def state_of(findings: Iterable[Finding]) -> str:
+    """``error`` if any finding is an error, else ``warn`` if any is a warning, else ``ok``."""
+    levels = {f.level for f in findings}
+    return "error" if "error" in levels else "warn" if "warn" in levels else "ok"
 
 
 @dataclass
@@ -165,8 +197,7 @@ class SkillReview:
     @property
     def state(self) -> str:
         """``error`` if any finding is an error, else ``warn`` if any is a warning, else ``ok``."""
-        levels = {f.level for f in self.findings}
-        return "error" if "error" in levels else "warn" if "warn" in levels else "ok"
+        return state_of(self.findings)
 
 
 def _strict_meta(text: str) -> tuple[dict, Optional[Finding]]:
@@ -177,11 +208,6 @@ def _strict_meta(text: str) -> tuple[dict, Optional[Finding]]:
         # The same line and hint as the loader's load error, so the row and this finding agree.
         return {}, Finding(
             "error", "frontmatter-parse", f"frontmatter is not valid YAML: {describe_yaml_error(exc)}"
-        )
-    except RecursionError as exc:  # nesting too deep for the YAML parser: no line to name
-        message = " ".join(str(exc).split())  # the YAML message is several lines; keep one
-        return {}, Finding(
-            "error", "frontmatter-parse", f"frontmatter is not valid YAML: {message}"
         )
     return meta, None
 
@@ -606,18 +632,39 @@ def _mirror_drift(loaded: list[tuple[SkillCatalogEntry, Skill, SkillReview]]) ->
                 )
 
 
+def _min_overlap(size: int) -> int:
+    """The fewest words a skill of ``size`` words shares with any pair that passes the near-duplicate test.
+
+    A passing pair shares at least NEAR_DUPLICATE_MIN_SHARED words and a Jaccard similarity of at least
+    NEAR_DUPLICATE_JACCARD; its shared words are then that fraction of the union, which is at least
+    the skill's own size. The epsilon only ever lowers the bound, so it stays a safe under-estimate.
+    """
+    return max(NEAR_DUPLICATE_MIN_SHARED, math.ceil(NEAR_DUPLICATE_JACCARD * size - 1e-9))
+
+
 def _near_duplicates(loaded: list[tuple[SkillCatalogEntry, Skill, SkillReview]]) -> None:
-    """``description-near-duplicate`` on both skills of each pair whose descriptions overlap."""
+    """``description-near-duplicate`` on both skills of each pair whose descriptions overlap.
+
+    Only candidate pairs are compared, found by a prefix filter: each skill's words are ordered
+    rarest first across all the skills, and only its first ``size - _min_overlap(size) + 1`` words are
+    indexed. A passing pair with ``s`` shared words has at least ``_min_overlap`` of them, so its
+    rarest shared word sits inside both skills' prefixes and the pair is a candidate. Non-candidates
+    could not pass, so the findings, and their order, match comparing every pair.
+    """
     shown = [item for item in loaded if not item[2].disable_model_invocation]
     tokens = [_tokens(" ".join(item[1].description.split())) for item in shown]
     names = [_dir_name(item) for item in shown]
-    by_token: dict[str, list[int]] = {}
+    frequency = Counter(word for words in tokens for word in words)
+    prefixes: list[list[str]] = []
+    by_prefix_word: dict[str, list[int]] = {}
     for index, words in enumerate(tokens):
-        for word in words:
-            by_token.setdefault(word, []).append(index)
+        ordered = sorted(words, key=lambda word: (frequency[word], word))
+        prefix = ordered[: max(0, len(ordered) - _min_overlap(len(ordered)) + 1)]
+        prefixes.append(prefix)
+        for word in prefix:
+            by_prefix_word.setdefault(word, []).append(index)
     for i, (entry, _, review) in enumerate(shown):
-        # only a pair that shares a word can overlap
-        for j in sorted({k for word in tokens[i] for k in by_token[word] if k > i}):
+        for j in sorted({k for word in prefixes[i] for k in by_prefix_word[word] if k > i}):
             o_entry, _, o_review = shown[j]
             if o_review.content_sha256 == review.content_sha256:
                 continue  # an identical SKILL.md: already a duplicate

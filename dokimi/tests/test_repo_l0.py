@@ -6,7 +6,9 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
+import time
 from pathlib import Path
 
 import pytest
@@ -14,8 +16,8 @@ import pytest
 from dokimi.artifacts import load_artifact
 from dokimi.cli import build_parser
 from dokimi.repos import parse_manifest
-from dokimi.repos.l0 import scan_repo
-from dokimi.repos.source import GitTree, WorkTree
+from dokimi.repos.l0 import branches, scan_repo
+from dokimi.repos.source import READ_MANY_LIMIT, GitTree, WorkTree
 
 MANIFEST = {
     "schema": "repo_manifest.v1",
@@ -332,6 +334,194 @@ def test_a_glob_that_matches_nothing_alone_keeps_the_scan_complete(tmp_path, cap
     data = load_artifact("repo_readiness", out)
     assert data["warnings"] == [NO_CLAUDE]
     assert data["incomplete"] is False and data["incomplete_reasons"] == []
+
+
+def _pre_commit(args: str, hook: str = "no-commit-to-branch") -> dict[str, str]:
+    """dpnp's `.pre-commit-config.yaml` shape: the hook's `args:` on line 17, as there."""
+    fillers = "".join(f"    -   id: filler-{i}\n" for i in range(11))
+    return {".pre-commit-config.yaml": "repos:\n-   repo: https://github.com/pre-commit/pre-commit-hooks\n"
+                                       f"    rev: v5.0.0\n    hooks:\n{fillers}    -   id: {hook}\n        args: {args}\n"}
+
+
+def _path_verdict(tmp_path: Path, claim: str, files: dict[str, str], guide: str = "AGENTS.md") -> tuple[str, str]:
+    root = tmp_path / "b"
+    sha = _repo(root, {guide: f"Work on a branch, not on `{claim}`.\n", **files})
+    payload = scan_repo(GitTree(root / ".git", sha), parse_manifest(MANIFEST))
+    return next((c["status"], c["why"]) for c in payload["claims"] if c["claim"] == claim)
+
+
+_DPNP = '[--branch, "master", --pattern, "maintenance/.*"]'
+_PUSH = {".github/workflows/ci.yml": 'name: ci\non:\n  push:\n    branches: [main, "release/**"]\njobs: {}\n'}
+
+
+@pytest.mark.parametrize("claim, files, why", [
+    ("maintenance/*", _pre_commit(_DPNP), "branch pattern of no-commit-to-branch (.pre-commit-config.yaml:17)"),
+    ("maintenance/*", _pre_commit("[--pattern=maintenance/.*]"), "branch pattern of no-commit-to-branch (.pre-commit-config.yaml:17)"),
+    # what the hook's argparse also reads: a value attached to `-p`/`-b`, and a prefix of the long option
+    ("maintenance/*", _pre_commit("[-pmaintenance/.*]"), "branch pattern of no-commit-to-branch (.pre-commit-config.yaml:17)"),
+    ("maintenance/*", _pre_commit("[--pat, maintenance/.*]"), "branch pattern of no-commit-to-branch (.pre-commit-config.yaml:17)"),
+    ("release/1.x", _pre_commit("[--bra=release/1.x]"), "branch of no-commit-to-branch (.pre-commit-config.yaml:17)"),
+    ("release/1.x", _pre_commit("[-b=release/1.x]"), "branch of no-commit-to-branch (.pre-commit-config.yaml:17)"),
+    # an arg that is not a string, and an option whose value is not one, are passed over
+    ("maintenance/*", _pre_commit("[7, -b, 8, --pattern, 'maintenance/.*']"),
+     "branch pattern of no-commit-to-branch (.pre-commit-config.yaml:17)"),
+    # `maintenance/\w+` matches `maintenance/*` only once its `*` is filled in
+    ("maintenance/*", _pre_commit("[-p, 'maintenance/\\w+']"), "branch pattern of no-commit-to-branch (.pre-commit-config.yaml:17)"),
+    ("release/1.x", _pre_commit("\n        -   --branch\n        -   release/1.x"),
+     "branch of no-commit-to-branch (.pre-commit-config.yaml:19)"),
+    ("release/*", _PUSH, "branch filter of on.push (.github/workflows/ci.yml:4)"),
+    # `.x` is an extension the tree uses, so `release/1.x` reads as a file, but a name equal to it still counts
+    ("release/1.x", {**_pre_commit("[--branch, release/1.x]"), "src/gen.x": ""},
+     "branch of no-commit-to-branch (.pre-commit-config.yaml:17)"),
+    # and so does a filter entry that excludes it, without its `!`
+    ("release/1.x", {".github/workflows/ci.yml": "on: {push: {branches: ['**', '!release/1.x']}}\n", "src/gen.x": ""},
+     "branch filter of on.push (.github/workflows/ci.yml:1)"),
+    ("dependabot/*", {".github/workflows/pr.yaml": "on:\n  pull_request:\n    branches-ignore:\n      - 'dependabot/**'\n"},
+     "branch filter of on.pull_request (.github/workflows/pr.yaml:4)"),
+    # a branch a `!` entry excludes is still a branch: the entry names it, not `**`, which names no path
+    ("release/x", {".github/workflows/ci.yml": "on: {push: {branches: ['**', '!release/**']}}\n"},
+     "branch filter of on.push (.github/workflows/ci.yml:1)"),
+    ("release/*", {".github/workflows/pr.yml": "on:\n  pull_request_target:\n    branches: ['release/**']\n"},
+     "branch filter of on.pull_request_target (.github/workflows/pr.yml:3)"),
+    ("release/*", {".github/workflows/after.yml": "on: {workflow_run: {workflows: [ci], branches: ['release/**']}}\n"},
+     "branch filter of on.workflow_run (.github/workflows/after.yml:1)"),
+    ("release/*", {".github/workflows/queue.yml": "on: {merge_group: {branches: ['release/**']}}\n"},
+     "branch filter of on.merge_group (.github/workflows/queue.yml:1)"),
+    ("release/v*", {".github/workflows/ci.yml": '"on": {push: {branches: ["release/v*"]}}\n'},
+     "branch filter of on.push (.github/workflows/ci.yml:1)"),
+    # GitHub's `[...]`, `+` and `?`: one character of a set, one or more and zero or one of the one before
+    ("release/v1", {".github/workflows/ci.yml": "on: {push: {branches: ['release/v[12]']}}\n"},
+     "branch filter of on.push (.github/workflows/ci.yml:1)"),
+    ("release/12.x", {".github/workflows/ci.yml": "on: {push: {branches: ['release/[0-9]+.x']}}\n"},
+     "branch filter of on.push (.github/workflows/ci.yml:1)"),
+    ("release/1.x", {".github/workflows/ci.yml": "on: {push: {branches: ['release/v?1.x']}}\n"},
+     "branch filter of on.push (.github/workflows/ci.yml:1)"),
+    # re.compile raises OverflowError and RecursionError, not re.error, for these two: the filter still counts
+    ("maintenance/*", {**_pre_commit("[-p, 'maintenance/a{999999999999}', -p, 'maintenance/" + "(" * 3000 + ")" * 3000
+                                     + "']"), ".github/workflows/ci.yml": "on: {push: {branches: ['maintenance/**']}}\n"},
+     "branch filter of on.push (.github/workflows/ci.yml:1)"),
+    # 3000 `?` fold into one, so the filter compiles (nested, they were past what re.compile parses)
+    ("release/a", {".github/workflows/ci.yml": "on: {push: {branches: ['release/a" + "?" * 3000 + "']}}\n"},
+     "branch filter of on.push (.github/workflows/ci.yml:1)"),
+])
+def test_a_branch_name_or_pattern_the_repository_configures_is_ok(tmp_path, claim, files, why):
+    """https://github.com/intel/dokimi/issues/410: `maintenance/*` names the branches a hook protects, not a path."""
+    assert _path_verdict(tmp_path, claim, files) == ("ok", why)
+
+
+_NO_GLOB = "glob {} matches nothing in the tree; a build may create it"
+
+
+@pytest.mark.parametrize("claim, files, verdict", [
+    ("feature/*", {**_pre_commit(_DPNP), **_PUSH}, ("unresolved", _NO_GLOB.format("feature/*"))),
+    # a last segment with an extension some tracked file has is a file: a pattern does not name it
+    ("release/CHANGELOG.md", _PUSH, ("unresolved", "tried release/CHANGELOG.md")),
+    ("maintenance/*.yaml", _pre_commit(_DPNP), ("unresolved", _NO_GLOB.format("maintenance/*.yaml"))),
+    ("release/1.x", {**_pre_commit("[--pattern, 'release/.*']"), "src/gen.x": ""}, ("unresolved", "tried release/1.x")),
+    # a root `maintenance/` makes it a path: one stale glob still fails
+    ("maintenance/*.zzz", {**_pre_commit(_DPNP), "maintenance/notes.md": ""},
+     ("fail", "maintenance/ exists but nothing in it matches *.zzz")),
+    # and keeps one the path rules leave `unresolved` a path too
+    ("tools/old/x", {**_pre_commit("[-p, 'tools/.*']"), "tools/keep/a": ""}, ("unresolved", "tried tools/old/x")),
+    ("maintenance/*", _pre_commit(_DPNP, hook="forbid-new-submodules"), ("unresolved", _NO_GLOB.format("maintenance/*"))),
+    ("maintenance/*", _pre_commit("--pattern maintenance/.*"), ("unresolved", _NO_GLOB.format("maintenance/*"))),
+    # `--patterns` is no prefix of `--pattern`, and `-x` takes no value of the hook's
+    ("maintenance/*", _pre_commit("[--patterns, maintenance/.*, -xmaintenance/.*]"), ("unresolved", _NO_GLOB.format("maintenance/*"))),
+    ("maintenance/*", _pre_commit("[--pattern, 'maintenance/(.*']"), ("unresolved", _NO_GLOB.format("maintenance/*"))),
+    ("maintenance/*", {".pre-commit-config.yaml": "repos: [{hooks: [{id: no-commit-to-branch, args: [-p, 'maintenance/.*']\n"},
+     ("unresolved", _NO_GLOB.format("maintenance/*"))),
+    ("release/*", {".github/workflows/ci.yml": "env: {D: 2026-02-30}\non: {push: {branches: ['release/**']}}\n"},
+     ("unresolved", _NO_GLOB.format("release/*"))),
+    # a control character YAML refuses before parsing, in either file
+    ("maintenance/*", {".pre-commit-config.yaml": _pre_commit(_DPNP)[".pre-commit-config.yaml"] + "# \x01\n"},
+     ("unresolved", _NO_GLOB.format("maintenance/*"))),
+    ("release/*", {".github/workflows/ci.yml": "on: {push: {branches: ['release/**']}}\n# \x01\n"},
+     ("unresolved", _NO_GLOB.format("release/*"))),
+    ("release/1.x", {".github/workflows/ci.yml": "on: push\njobs: {x: {steps: [{run: git push origin release/1.x}]}}\n"},
+     ("unresolved", "tried release/1.x")),
+    ("src/gone.py", {".github/workflows/ci.yml": "on: {push: {branches: ['**']}}\n"}, ("unresolved", "tried src/gone.py")),
+    ("release/1.x/notes", {".github/workflows/ci.yml": "on: {push: {branches: ['release/*']}}\n"},  # `*` stops at `/`
+     ("unresolved", "tried release/1.x/notes")),
+    # `\*` is a literal star; a backwards range makes `[9-0]` literal text too
+    ("release/*", {".github/workflows/ci.yml": "on: {push: {branches: ['release/\\*']}}\n"},
+     ("unresolved", _NO_GLOB.format("release/*"))),
+    ("release/v1", {".github/workflows/ci.yml": "on: {push: {branches: ['release/v[9-0]']}}\n"},
+     ("unresolved", "tried release/v1")),
+])
+def test_a_path_like_claim_no_branch_source_names_keeps_its_path_verdict(tmp_path, claim, files, verdict):
+    """No match, a file extension the tree uses, a root directory, another hook's id, a string `args`, a bad regex, malformed YAML, a `run:` script
+    a filter whose pattern does not start with the claim's first directory, a `*` across `/`, an escaped `*` and a
+    backwards range: today's verdict."""
+    assert _path_verdict(tmp_path, claim, files) == verdict
+
+
+@pytest.mark.parametrize("guide, claim, held, verdict", [
+    ("sub/AGENTS.md", "release/gone", "sub/release/a", ("fail", "sub/release/ exists but sub/release/gone does not")),
+    ("sub/AGENTS.md", "release/v*", "sub/release/a", ("fail", "sub/release/ exists but nothing in it matches v*")),
+    ("AGENTS.md", "release/notes", "pkg/release/notes",
+     ("ok_suffix", "below a directory the text does not name; 1 match(es), e.g. pkg/release/notes")),
+])
+def test_a_branch_filter_names_only_a_path_that_would_be_unresolved(tmp_path, guide, claim, held, verdict):
+    """A `fail` or `ok_suffix` found the path's directory, or the path below another one: `release/**` does not wave it through."""
+    assert _path_verdict(tmp_path, claim, {held: "", **_PUSH}, guide) == verdict
+
+
+@pytest.mark.parametrize("target, verdict", [
+    ("src/pkg", ("unresolved", "tried tools/old/x")),
+    ("src/pkg/keep", ("ok", "branch pattern of no-commit-to-branch (.pre-commit-config.yaml:17)")),
+])
+def test_a_root_link_to_a_directory_keeps_a_path_below_it_a_path(tmp_path, target, verdict):
+    """A link `tools` to a directory is the root directory `tools/` a checkout makes; a link to a file is no directory."""
+    (tmp_path / "b").mkdir()
+    (tmp_path / "b/tools").symlink_to(target)
+    assert _path_verdict(tmp_path, "tools/old/x", {**_pre_commit("[-p, 'tools/.*']"), "src/pkg/keep": ""}) == verdict
+
+
+def test_a_branch_source_the_scan_does_not_read_is_named_in_the_reason(tmp_path):
+    """A binary `.pre-commit-config.yaml` and a workflow over the read limit could hold `maintenance/*`: the reason says so."""
+    big = "on: {push: {branches: ['maintenance/**']}}\n" + "#" * READ_MANY_LIMIT + "\n"
+    files = {".pre-commit-config.yaml": _pre_commit(_DPNP)[".pre-commit-config.yaml"] + "\0", ".github/workflows/ci.yml": big}
+    assert _path_verdict(tmp_path, "maintenance/*", files) == (
+        "unresolved", _NO_GLOB.format("maintenance/*") + f"; .github/workflows/ci.yml was not read ({len(big)} bytes, "
+        "over the 2 MB read limit); .pre-commit-config.yaml was not read (binary (a NUL byte))")
+
+
+def test_a_backslash_in_a_branch_filter_escapes_the_next_character():
+    """`release/c\\+\\+` is GitHub's filter for the branch `release/c++`, not `+` repeating a `\\`."""
+    rx = branches._filter_regex(r"release/c\+\+")
+    assert rx.match("release/c++") and not rx.match("release/c") and not rx.match("release/c\\\\")
+
+
+@pytest.mark.parametrize("pattern, regex", [
+    ("release/a++++++b", r"release/a+b\Z"),
+    ("release/a??b", r"release/a?b\Z"),
+    ("release/a?+b", r"release/a*b\Z"),
+    ("release/a+?b", r"release/a*b\Z"),
+    ("release/*+b", r"release/[^/]*b\Z"),
+    ("release/**?", r"release/.*\Z"),
+])
+def test_stacked_quantifiers_of_a_branch_filter_fold_into_one(pattern, regex):
+    """Nested, `release/a++++++b` backtracks exponentially on `release/aaaaaaaaaaac`; folded, it matches the same branches."""
+    assert branches._filter_regex(pattern).pattern == regex
+
+
+def test_a_branch_filter_with_many_stars_matches_in_linear_time():
+    """With `re`, `[^/]*a` per star backtracks polynomially: about 4 s here for 80 `a` and a `c`."""
+    glob = branches._filter_regex("release/*a*a*a*a*a*a*b")
+    start = time.perf_counter()
+    assert not glob.match("release/" + "a" * 80 + "c")
+    assert glob.match("release/" + "a" * 80 + "b")
+    assert time.perf_counter() - start < 1
+
+
+@pytest.mark.parametrize("pattern", ["release/*", "release/**", "release/v?1.x", "release/[0-9]+.x", "release/a?+b",
+                                     "release/v[9-0]+", r"release/c\+\+", "!release/*-rc?"])
+@pytest.mark.parametrize("text", ["release/1.x", "release/v1.x", "release/12.x", "release/.x", "release/b", "release/aab",
+                                  "release/v[9-0]]]", "release/c++", "release/x/y", "release/2-rc", "release/2-r", "release/"])
+def test_a_branch_filter_matches_what_its_regex_matches(pattern, text):
+    """Walked atom by atom, a filter names the same branches as the regex it reads as."""
+    glob = branches._filter_regex(pattern)
+    assert glob.match(text) == bool(re.fullmatch(glob.pattern, text))
 
 
 def test_read_many_fetches_missing_blobs_of_a_partial_clone(toy, tmp_path):
