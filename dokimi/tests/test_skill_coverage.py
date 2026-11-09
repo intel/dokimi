@@ -203,6 +203,17 @@ def test_a_module_helper_a_test_calls_is_part_of_its_check(tmp_path):
     assert any("return '-y'" in c.source for c in checks)
 
 
+def test_a_constant_that_a_helper_reads_is_part_of_the_check(tmp_path):
+    root = tmp_path / "tasks"  # the test reads expected(), which reads FLAG: two steps from the test
+    for task, flag in (("t1", "-x"), ("t2", "-y")):
+        _task(root, task, {"test_answer.py": f'FLAG = "{flag}"\n\ndef expected():\n    return FLAG\n\n'
+                                             "def test_answer(answer):\n    assert answer == expected()\n"})
+    checks = sc.load_checks(root)
+    assert sorted(c.name for c in checks) == ["test_answer#1", "test_answer#2"]
+    assert any('FLAG = "-x"' in c.source for c in checks)
+    assert any('FLAG = "-y"' in c.source for c in checks)
+
+
 def test_module_code_a_test_does_not_read_stays_out_of_its_check(tmp_path):
     root = tmp_path / "tasks"
     _task(root, "t1", {"test_answer.py": "NOISE = 'unrelated'\n\ndef test_answer():\n    assert True\n"})
