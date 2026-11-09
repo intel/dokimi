@@ -130,6 +130,25 @@ def test_prs_refuses_a_threads_file(tmp_path):
         args.func(args)
 
 
+@pytest.mark.parametrize("flags", [["--from", "replay", "--threads"], ["--from", "prs", "--prs"]])
+@pytest.mark.parametrize(("source", "message"), [
+    ("", "✗ invalid repository source: ''"),
+    ("missing", "✗ local source is not a directory: {missing}"),
+    ("https://example.invalid/r", "✗ a remote source must be pinned to a revision: https://example.invalid/r@<sha>"),
+])
+def test_replay_and_prs_refuse_a_bad_source_as_a_usage_error(tmp_path, capsys, flags, source, message):
+    """A source refused as typed exits 2, as with --from graph; 1 is for one that cannot be opened."""
+    prs = tmp_path / "prs.json"
+    prs.write_text('[{"number": 7, "reviewThreads": {"nodes": []}, "mergeCommit": null}]', encoding="utf-8")
+    missing = tmp_path / "missing"
+    spec = str(missing) if source == "missing" else source
+    args = build_parser().parse_args(["eval", "tasks", "generate", spec, *flags, str(prs), "--out", str(tmp_path / "t")])
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 2
+    assert capsys.readouterr().err.strip() == message.format(missing=missing)
+
+
 def test_prs_takes_the_manifest_flags_and_builds_with_the_default_size_limit(tmp_path, monkeypatch):
     from dokimi.commands import repo_run
 
