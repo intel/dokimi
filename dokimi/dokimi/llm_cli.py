@@ -284,7 +284,7 @@ def backend(provider: str) -> Optional[CliBackend]:
 
 
 #: The 1M-context suffix ``claude --model`` takes after an alias or a full id: ``sonnet[1m]``.
-CONTEXT_SUFFIX = re.compile(r"\[[^\]]*\]$")
+CONTEXT_SUFFIX = re.compile(r"\[1m\]$")
 
 
 def _without_context(model: str) -> str:
