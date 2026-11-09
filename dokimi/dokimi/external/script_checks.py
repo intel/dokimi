@@ -38,7 +38,7 @@ SCRIPT_SUFFIXES = (*SHELL_SUFFIXES, ".py")
 BASH_FAMILY = frozenset({"bash", "sh", "dash", "ksh"})  # the shebang names bash -n can judge
 ENV_OPERAND_OPTIONS = frozenset({"-u", "--unset", "-C", "--chdir"})  # env options with an operand
 PARSE_SHOPTS = frozenset({"extglob"})  # bash -O options that change how a script parses; bash -n is given them
-SHOPT_EXTGLOB = re.compile(rb"\bshopt\s+(?:-[a-zA-Z]+\s+)*-[a-zA-Z]*s[a-zA-Z]*(?:\s+[^\s;&|]+)*?\s+extglob\b")  # shopt -s ... extglob
+SHOPT_EXTGLOB = re.compile(rb"\bshopt[ \t]+(?:-[a-zA-Z]+[ \t]+)*-[a-zA-Z]*s[a-zA-Z]*(?:[ \t]+[^\s;&|]+)*?[ \t]+extglob\b")  # shopt -s ... extglob, on one line
 WORD_COMMENT = re.compile(rb"(?:^|(?<=[\s;&|(]))#[^\n]*", re.M)  # a # that starts a word (not $#, ${x##*/}): a comment
 PARSE_NEUTRAL_FLAGS = frozenset("BEPTeuxh")  # shebang flags, as letters, that change no parse
 PARSE_NEUTRAL_OPTIONS = frozenset({"errexit", "nounset", "pipefail", "xtrace"})  # shebang -o names likewise

@@ -361,7 +361,13 @@ def test_a_shopt_extglob_after_another_command_is_given_to_bash_n(tmp_path, line
     assert call.argv == ("/usr/bin/bash", "-O", "extglob", "-n")
 
 
-@pytest.mark.parametrize("line", [b"# shopt -s extglob", b"echo ok # shopt -s extglob", b"shopt -u extglob"])
+@pytest.mark.parametrize("line", [
+    b"# shopt -s extglob",
+    b"echo ok # shopt -s extglob",
+    b"shopt -u extglob",
+    b"shopt -s nullglob\nshopt -u extglob",
+    b"shopt -s nullglob\necho extglob",
+])
 def test_a_commented_or_unset_shopt_extglob_is_not_given_to_bash_n(tmp_path, line):
     skill = _bundle(tmp_path, {"run.sh": b"#!/bin/bash\n" + line + b"\nf+() { :; }\n"})
     runner = process.FakeRunner()
