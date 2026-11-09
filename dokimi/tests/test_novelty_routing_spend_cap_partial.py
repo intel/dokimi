@@ -387,6 +387,39 @@ def test_an_unpriced_call_stops_the_later_repeats_and_skills_too(tmp_path, monke
     assert (payload["partial"]["calls_done"], payload["partial"]["calls_planned"]) == (1, 9)
 
 
+def _cut_and_unpriced():
+    """A reply cut at the output ceiling that has no price: the cap stops on it (#517)."""
+    return UsageRecord(cost_usd=None, truncated=True, completion_tokens=50)
+
+
+def test_an_unpriced_reply_cut_at_the_ceiling_abstains_and_stops_the_run(tmp_path, monkeypatch):
+    calls = _provider(monkeypatch, _cut_and_unpriced())
+    args, out = _single(tmp_path, QUERIES, "--max-usd", "5")
+    with pytest.raises(SystemExit, match="no price is known"):
+        args.func(args)
+    assert len(calls) == 1
+    model = json.loads(out.read_text(encoding="utf-8"))["model"]
+    # The cut '{"pick": 1}' is a decline, as a priced cut reply is, not a pick of card 1.
+    assert model["per_query"] == [{"query": QUERIES[0], "repeat": 0, "picked": None,
+                                   "abstained": True, "raw_reply": '{"pick": 1}'}]
+    assert (model["n_abstained"], model["selection_rate"]) == (1, 0.0)
+
+
+def test_an_all_vs_all_unpriced_reply_cut_at_the_ceiling_is_no_pick(tmp_path, monkeypatch):
+    calls = _provider(monkeypatch, _cut_and_unpriced())
+    root, queries = _catalog(tmp_path)
+    out = tmp_path / "o.json"
+    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
+                  "--queries-by-skill", str(queries), "--out", str(out),
+                  "--model", "m", "--max-usd", "5")
+    with pytest.raises(SystemExit, match="no price is known"):
+        args.func(args)
+    assert len(calls) == 1
+    model = json.loads(out.read_text(encoding="utf-8"))["result"]["model"]
+    assert model["n_abstained"] == 1
+    assert {gold: picks for gold, picks in model["confusion"].items() if picks} == {"db": {"(none)": 1}}
+
+
 def test_an_unpriced_call_stops_the_repeats_of_a_single_artifact_run(tmp_path, monkeypatch):
     calls = _provider(monkeypatch, None)
     args, out = _single(tmp_path, QUERIES[:2], "--repeats", "3", "--max-usd", "5")

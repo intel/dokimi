@@ -62,10 +62,12 @@ class SpendCapReached(BaseException):
     call at a time and the run would carry on with every later call refused.
 
     ``reply`` is set when the refused call came back with a reply (a call with no price): that
-    call was paid for, so the caller can still score the reply before it stops.
+    call was paid for, so the caller can still score the reply before it stops. ``truncated`` says
+    the reply was also cut at the output ceiling: this stop is raised in place of :class:`OutputTruncated`.
     """
 
     reply: str | None = None
+    truncated: bool = False
 
 
 @dataclass
@@ -163,6 +165,7 @@ class LLMClient:
                 self.cap.record(usage, self.model)
             except SpendCapReached as exc:
                 exc.reply = reply or ""  # the call is paid for: the caller keeps its reply
+                exc.truncated = usage is not None and usage.truncated
                 raise
         # After the record: the cut call was paid for, whatever its text is worth. An empty
         # reply is no reply: its caller's empty-reply path handles it, and a split cannot help.
