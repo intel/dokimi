@@ -45,6 +45,7 @@ CONTENTS = {
     "repo_ledger.v1": {"rules": 2},
     "headroom.v1": {"items": 2, "inputs": 1},
     "redteam.v1": {"violations": 2, "questions": 2},
+    "leak.v1": {"violations": 1, "items": 2},
     "eval_coverage.v1": {"gaps": 1, "evals": 2, "problems": 0},
     "catalog_eval.v1": {"skills": 1, "problems": 0},
     "need_graph.v1": {"nodes": 3, "edges": 1},

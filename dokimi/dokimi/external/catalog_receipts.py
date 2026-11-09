@@ -51,12 +51,34 @@ def _skill_status(report: dict[str, Any], name: str) -> str:
                          if row["name"] == name) else "pass"
 
 
+def _selection_lines(report: dict[str, Any]) -> list[str]:
+    """The selection count, its rule and the rows excluded, counted from the same rows as the table."""
+    rows = report["skills"]
+    selected = set(report["selection"]["selected"])
+    chosen = sum(1 for row in rows if row["name"] in selected)
+    shared = len(rows) - len({row["name"] for row in rows})
+    if report["selection"]["mode"] == "all":
+        excluded = "Excluded rows: 0 (a full run selects every row)."
+    else:
+        excluded = (f"Excluded rows: {len(rows) - chosen} (rows whose skill no changed path "
+                    "owns).")
+    plural = "" if len(selected) == 1 else "s"
+    return [
+        f"Selected skills: {chosen} of {len(rows)} rows ({len(selected)} distinct name{plural}).",
+        "Selection is by skill name. Every SKILL.md the catalog lists is a row, nested and "
+        f"load-error rows included; {shared} row(s) share a name with an earlier row and are "
+        "selected with it, as the duplicate check reports.",
+        excluded,
+        "",
+    ]
+
+
 def render(report: dict[str, Any]) -> str:
     """A human receipt whose pass is explicitly scoped to deterministic checks."""
     lines = ["# Catalog static evaluation", "", f"Static checks: **{report['status']}**", "",
              "No model, Docker, skill script, oracle or task verifier was run. "
-             "This result does not validate skill utility or hardware performance.", "",
-             f"Selected skills: {len(report['selection']['selected'])}", ""]
+             "This result does not validate skill utility or hardware performance.", ""]
+    lines.extend(_selection_lines(report))
     note = report.get("selection_note")
     if note:
         lines.extend([str(note), ""])

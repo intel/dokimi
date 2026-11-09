@@ -13,6 +13,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.cli_refusal import refusal
 from dokimi.cli import build_parser
 from dokimi.repos import parse_manifest
 from dokimi.repos.l0 import Check, scan_repo
@@ -131,9 +132,9 @@ def test_the_scan_command_refuses_python_env_without_typecheck(tmp_path, capsys)
     args = build_parser().parse_args(["repo", "scan", str(tmp_path), "--python-env", sys.executable])
     from dokimi.commands.repo import _typecheck_or_exit
 
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as out:
         _typecheck_or_exit(args)
-    assert exc.value.code == 2
+    assert out.code == 2
     assert "needs --typecheck" in capsys.readouterr().err
 
 
@@ -142,9 +143,9 @@ def test_the_scan_command_refuses_a_python_env_that_is_not_executable(tmp_path, 
     args = build_parser().parse_args(["repo", "scan", str(tmp_path), "--typecheck", "--python-env", str(missing)])
     from dokimi.commands.repo import _typecheck_or_exit
 
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as out:
         _typecheck_or_exit(args)
-    assert exc.value.code == 2
+    assert out.code == 2
     assert "not an executable interpreter" in capsys.readouterr().err
 
 
@@ -173,9 +174,9 @@ def test_typecheck_tool_without_typecheck_is_refused(tmp_path, capsys):
     from dokimi.commands.repo import _typecheck_or_exit
 
     args = build_parser().parse_args(["repo", "scan", str(tmp_path), "--typecheck-tool", "mypy"])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as out:
         _typecheck_or_exit(args)
-    assert exc.value.code == 2
+    assert out.code == 2
     assert "needs --typecheck" in capsys.readouterr().err
 
 
@@ -216,9 +217,9 @@ def test_a_tool_failure_is_a_usage_error_not_a_traceback(tmp_path, capsys, monke
 
     monkeypatch.setattr(l0_typecheck, "_run", broken)
     args = _scan_args(tmp_path, "--typecheck", "--python-env", sys.executable)
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as out:
         args.func(args)
-    assert exc.value.code == 2
+    assert out.code == 2
     assert "repo scan --typecheck: mypy exited 2: broken" in capsys.readouterr().err
 
 
@@ -230,9 +231,9 @@ def test_an_interpreter_that_reports_no_version_is_not_labelled_as_the_tool(tmp_
 
     monkeypatch.setattr(l0_typecheck, "python_version", no_version)
     args = _scan_args(tmp_path, "--typecheck", "--python-env", sys.executable)
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as out:
         args.func(args)
-    assert exc.value.code == 2
+    assert out.code == 2
     err = capsys.readouterr().err
     assert "did not report its version" in err and "--typecheck-tool" not in err
 
@@ -242,9 +243,9 @@ def test_basedpyright_missing_from_path_is_a_usage_error(tmp_path, capsys, monke
     empty.mkdir()
     monkeypatch.setenv("PATH", str(empty))
     args = _scan_args(tmp_path, "--typecheck", "--typecheck-tool", "basedpyright")
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as out:
         args.func(args)
-    assert exc.value.code == 2
+    assert out.code == 2
     assert "--typecheck-tool basedpyright: not on PATH" in capsys.readouterr().err
 
 
@@ -347,9 +348,9 @@ def test_a_python_env_that_reports_no_version_is_a_usage_error_not_a_traceback(t
     silent.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
     silent.chmod(0o755)
     args = _scan_args(tmp_path, "--typecheck", "--python-env", str(silent))
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as out:
         args.func(args)
-    assert exc.value.code == 2
+    assert out.code == 2
     assert "did not report its version" in capsys.readouterr().err
 
 
@@ -500,9 +501,9 @@ def test_a_fence_is_parsed_by_the_repository_interpreter_not_the_host(monkeypatc
 def test_a_true_python_env_is_a_usage_error_not_a_traceback(tmp_path, capsys):
     # /bin/true exits 0 with no output: it reports no version, so the scan refuses it cleanly
     args = _scan_args(tmp_path, "--typecheck", "--python-env", "/bin/true")
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as out:
         args.func(args)
-    assert exc.value.code == 2
+    assert out.code == 2
     assert "did not report its version" in capsys.readouterr().err
 
 
@@ -904,7 +905,7 @@ def test_the_scan_command_refuses_a_python_env_that_is_a_directory(tmp_path, cap
     args = build_parser().parse_args(["repo", "scan", str(tmp_path), "--typecheck", "--python-env", str(tmp_path)])
     from dokimi.commands.repo import _typecheck_or_exit
 
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as out:
         _typecheck_or_exit(args)
-    assert exc.value.code == 2
+    assert out.code == 2
     assert "not an executable interpreter" in capsys.readouterr().err

@@ -282,7 +282,7 @@ def collect(scratch: Path, output: Path) -> list[Path]:
         if (
             package.is_file()
             and package.name.endswith(PACKAGE_SUFFIXES)
-            and "broken" not in package.parts
+            and "broken" not in package.relative_to(scratch).parts
         ):
             shutil.move(str(package), output / package.name)
             built.append(output / package.name)

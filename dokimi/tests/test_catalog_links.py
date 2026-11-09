@@ -83,7 +83,8 @@ def test_a_body_of_unclosed_links_is_reviewed_in_linear_time(tmp_path):
            body="[](" * 20000 + "\n")
 
     [review] = review_skills(read_skill_manifest(tmp_path))
-    assert review.findings == []
+    # The body is 60 KB on purpose, so only its size is reported: no link finding.
+    assert [f.code for f in review.findings] == ["body-too-large"]
 
 
 def test_a_link_destination_nested_deeper_than_one_level_outside_the_skill_escapes(tmp_path):

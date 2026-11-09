@@ -12,7 +12,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-from dokimi.exit_codes import EXIT_USAGE
+from dokimi.utils import InputError
 
 DEFAULT_BUDGET = 0.10  # USD per scenario, for a harness whose invoke passes {budget}
 
@@ -48,8 +48,7 @@ def cmd_repo_skill_reach(args: argparse.Namespace) -> None:
         selected = [c for c in cases if not only or c.id in only]
         _refuse_what_a_run_would_refuse(args, profile, selected)
     except (ProfileError, SkillReachError, ReachError) as exc:
-        print(f"✗ {exc}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError(str(exc)) from exc
     if args.dry_run:
         argv = profile.argv(prompt="<ask>", model=args.model, tools="skills", max_turns=args.max_turns,
                             budget_usd=budget, bin_path=args.bin)

@@ -247,7 +247,7 @@ def parse_json(answer: str, *, contains: bool = False) -> tuple[bool, Any]:
         text = fenced.group(1)
     try:
         return True, json.loads(text)
-    except ValueError:
+    except (ValueError, RecursionError):
         pass
     if contains:
         decoder = json.JSONDecoder()
@@ -255,7 +255,7 @@ def parse_json(answer: str, *, contains: bool = False) -> tuple[bool, Any]:
             if ch in "{[":
                 try:
                     return True, decoder.raw_decode(text[i:])[0]
-                except ValueError:
+                except (ValueError, RecursionError):
                     continue
     return False, None
 

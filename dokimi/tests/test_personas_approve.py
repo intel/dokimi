@@ -44,7 +44,7 @@ def test_approve_exits_2_with_a_message_on_an_invalid_file(tmp_path, monkeypatch
     f.write_bytes(content)
     assert _approve(f, monkeypatch) == 2
     err = capsys.readouterr().err
-    assert err.startswith("✗ ") and "Traceback" not in err
+    assert err.startswith("Error: ") and "Traceback" not in err
     if content.startswith(b"\xff"):
         assert f"Cannot parse {f}" in err
     if content.endswith(b'["not-an-object"]}'):

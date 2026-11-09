@@ -17,7 +17,8 @@ from pathlib import Path
 
 from dokimi.llm import PROVIDERS as API_PROVIDERS
 from dokimi.defaults import DEFAULT_ANSWER_PROVIDER
-from dokimi.exit_codes import EXIT_USAGE, usage_exit
+from dokimi.exit_codes import EXIT_USAGE
+from dokimi.utils import InputError
 
 PROVIDERS = list(API_PROVIDERS)  # tool calling: no CLI backend
 
@@ -145,11 +146,11 @@ def cmd_tools_preference(args: argparse.Namespace) -> None:
     try:
         doc = tp.load_groups(json.loads(Path(args.groups).read_text(encoding="utf-8")))
     except (OSError, RecursionError, ValueError, tp.GroupsError) as exc:
-        usage_exit(f"--groups {args.groups}: {exc}")
+        raise InputError(f"--groups {args.groups}: {exc}") from exc
     factors = list(dict.fromkeys(f for f in args.factors.split(",") if f)) if args.factors else list(tp.FACTORS)
     unknown = sorted(set(factors) - set(tp.FACTORS))
     if unknown:
-        usage_exit(f"--factors: unknown {unknown} (known: {', '.join(tp.FACTORS)})")
+        raise InputError(f"--factors: unknown {unknown} (known: {', '.join(tp.FACTORS)})")
     items = tp.build_items(doc, factors)
     n_pair = sum(i["kind"] == "pair" for i in items)
     print(f"{len(doc['groups'])} groups -> {len(items)} items ({n_pair} pair, {len(items) - n_pair} control)"
@@ -162,7 +163,7 @@ def cmd_tools_preference(args: argparse.Namespace) -> None:
     if args.dry_run:
         return
     if not args.model:
-        usage_exit("--model is required unless --dry-run")
+        raise InputError("--model is required unless --dry-run")
     _check_out_json_writable(args.out_json)
 
     def progress(done: int, total: int) -> None:

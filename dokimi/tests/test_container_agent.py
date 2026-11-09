@@ -1137,21 +1137,21 @@ def test_url_entries_survive_normalisation_and_lose_a_trailing_dot():
 
 
 def test_an_ipv6_entry_from_open_reaches_an_ipv6_host():
-    srv = socket.socket(socket.AF_INET6)
     try:
-        srv.bind(("::1", 0))
+        srv = socket.create_server(("::1", 0), family=socket.AF_INET6)  # closes itself if it cannot bind
     except OSError:
-        srv.close()
         pytest.skip("no IPv6 loopback")
-    srv.listen()
+    srv.settimeout(5)  # accept ends within 5 s and is joined before srv closes: an EBADF would fail a later test
     port = srv.getsockname()[1]
-    threading.Thread(target=lambda: srv.accept()[0].close(), daemon=True).start()
+    server = threading.Thread(target=lambda: srv.accept()[0].close(), daemon=True)
+    server.start()
     proxy = EgressProxy(bind="127.0.0.1", allow=[normalize_entry(f"[::1]:{port}")]).start()
     try:
         head, sock = _connect(proxy, f"[::1]:{port}")
         sock.close()
     finally:
         proxy.stop()
+        server.join(10)
         srv.close()
     assert b" 200 " in head and proxy.allowed("::1", port)
 

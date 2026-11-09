@@ -46,7 +46,7 @@ from dokimi.skills import Skill
 from dokimi.utils import InputError, parse_frontmatter
 
 from .catalog_keep import check_keep_copies_under, keep_past_broken_copies, resolve_kept_copies
-from .client import LLMClient, parse_json_object
+from .client import LLMClient, OutputTruncated, parse_json_object
 
 if TYPE_CHECKING:
     from dokimi.external.validate import SkillReview
@@ -290,12 +290,12 @@ def model_routing(
                 reply = client.text(
                     prompt, accept=partial(_is_pick_reply, n_cards=len(order)), draw=repeat,
                 )
+            except OutputTruncated as cut:  # cut at the ceiling: a decline, as unparseable is
+                row = {**base, "picked": None, "abstained": True, "raw_reply": cut.reply}
             except Exception as exc:  # noqa: BLE001 - one failed query must not lose the rest
                 row = {**base, "picked": None, "error": str(exc)[:200] or type(exc).__name__}
             else:
-                # A reply that is not a usable pick is the model declining to route, not a
-                # transport failure: it stays in the denominator like an explicit abstention,
-                # and its raw text is kept so the decline can be read rather than inferred.
+                # An unusable pick is a decline, not a failure: an abstention, raw text kept.
                 try:
                     raw = _as_pick_position(parse_json_object(reply).get("pick", 0))
                 except ValueError:

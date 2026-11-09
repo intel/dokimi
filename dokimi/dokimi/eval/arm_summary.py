@@ -18,7 +18,6 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from dokimi.records import Answer, RecordLike
 from dokimi.records import records as as_records
-from dokimi.eval.stats import paired_vectors
 
 #: Stamp on an agentic answer's ``tool_usage["counts"]``: its tool counts skip
 #: calls that failed (``error`` in the transcript). Unstamped answers counted
@@ -287,17 +286,6 @@ def empty_reply_cell(rec: Any, metadata: Any, started: float, **extra: Any) -> D
     return {"error": "empty_reply", "answer": None, "token_usage": rec.as_token_usage_dict(),
             "metrics": rec.as_metrics_dict(), "metadata": metadata,
             "elapsed_sec": round(time.time() - started, 2), **extra}
-
-
-def paired_delta(evaluations: Iterable[Any], baseline_arm: str, arm_name: str) -> Optional[float]:
-    """The mean of ``arm - baseline`` over the questions that both arms scored; ``None`` if none.
-
-    A question one arm errored on (or left unscored) is not in the delta at all: the
-    difference of two unpaired means would compare different questions.
-    """
-    arm_vals, base_vals = paired_vectors(evaluations, arm_name, baseline_arm)
-    diffs = [a - b for a, b in zip(arm_vals, base_vals, strict=True)]
-    return round(sum(diffs) / len(diffs), 1) if diffs else None
 
 
 def cell_values(evaluations: Iterable[Any], arm_names: Sequence[str]) -> Tuple[Dict[str, List[float]], Dict[str, int]]:

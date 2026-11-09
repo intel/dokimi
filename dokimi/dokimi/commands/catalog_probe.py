@@ -13,7 +13,7 @@ import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from dokimi.exit_codes import usage_exit
+from dokimi.utils import InputError
 
 
 #: Status of a run whose known-positive guard failed: no labelled query ran.
@@ -27,7 +27,6 @@ def cmd_catalog_trigger_probe(args: argparse.Namespace) -> None:
     from dokimi.eval.arm_summary import summarize_skill_selection
     from dokimi.harnesses import trigger_probe as tp
     from dokimi.skills import discover_skills
-    from dokimi.utils import InputError
 
     catalog = Path(args.catalog)
     if not catalog.is_dir():
@@ -130,7 +129,6 @@ def _known_positive_guard(args: argparse.Namespace, names: set, catalog: Path, c
     if args.no_known_positive:
         return None
     from dokimi.harnesses import trigger_probe as tp
-    from dokimi.utils import InputError
 
     if not names:  # the guard's default target is the first catalog skill: with none, nothing to probe
         raise InputError(f"--catalog holds no skills: {catalog}")
@@ -154,13 +152,12 @@ def _known_positive_guard(args: argparse.Namespace, names: set, catalog: Path, c
 def _labelled_queries(args: argparse.Namespace, names: set) -> list:
     """The labelled queries to run; a label naming no *names* skill is an input error."""
     from dokimi.external import trigger_set as ts
-    from dokimi.utils import InputError
 
     try:
         data = json.loads(Path(args.trigger_set).read_text(encoding="utf-8"))
         _fmt, queries = ts.read_trigger_set(data, target=args.target)
     except (OSError, ValueError) as exc:
-        usage_exit(f"--trigger-set: {exc}")
+        raise InputError(f"--trigger-set: {exc}") from exc
     queries = [q for q in queries if q.labelled][: args.limit or None]
     if not queries:  # else nothing runs, and an empty summary reads as a probe that ran
         raise InputError(f"--trigger-set has no labelled queries: {args.trigger_set}"

@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/intel/dokimi/schemas/leak.v1.json",
+  "title": "Skill leak gate and split lock v1",
+  "description": "Whether a candidate skill carries the expected answers or checks of any eval item (dev, val or test), n-gram by n-gram outside an allowlist, and whether the dev/val/test split is the one locked at first use: no split change, and no test item given to the proposer. Written by `eval leak`; status is blocked when a violation is found, and inconclusive when an item could not be checked or none could.",
+  "type": "object",
+  "required": ["schema_version", "status", "skill_path", "questions_path", "split_path", "lock_path", "ngram", "min_fraction", "allow", "skill_files", "split", "exposed_test_items", "items", "violations", "summary"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"const": "leak.v1"},
+    "run_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}(?![\\s\\S])", "description": "The envelope: the id of the run that saved this file (dokimi.artifacts.run_id). Absent from files saved before the envelope."},
+    "dokimi_version": {"type": "string", "minLength": 1, "description": "The envelope: the dokimi version that saved this file. Absent from files saved before the envelope."},
+    "status": {"enum": ["pass", "blocked", "inconclusive"]},
+    "skill_path": {"type": "string"},
+    "questions_path": {"type": "string"},
+    "split_path": {"type": ["string", "null"], "description": "The split file; null without --split."},
+    "lock_path": {"type": ["string", "null"], "description": "The split lock file; null without --split."},
+    "ngram": {"type": "integer", "minimum": 1, "description": "Words in a run; an item shorter than this after the allowlist is unchecked."},
+    "min_fraction": {"type": "number", "exclusiveMinimum": 0, "maximum": 1, "description": "An item is flagged when this share of its runs is in the skill."},
+    "verbatim_words": {"type": "integer", "minimum": 1, "description": "Words in a verbatim run: an item with any such run copied from its expected text is flagged, whatever the share. Absent from files saved before this rule."},
+    "warnings": {"type": "array", "items": {"type": "string"}, "description": "Skill files that were not read (not UTF-8 text, or a symbolic link), one per line: the file and the reason. A file that is not read is not checked. Absent from files saved before this field."},
+    "allow": {"type": "array", "items": {"type": "string"}, "description": "The allowlisted terms, sorted."},
+    "skill_files": {"type": "array", "items": {"type": "string"}, "description": "The text files of the skill that were read, relative to the skill directory."},
+    "split": {
+      "type": ["object", "null"],
+      "description": "The split assignment and its lock; null without --split.",
+      "required": ["state", "digest", "previous_digest", "counts", "moved"],
+      "additionalProperties": false,
+      "properties": {
+        "state": {"enum": ["not_locked", "created", "matched", "changed", "relocked", "not_relocked"], "description": "created: the lock was written at this run; matched: the lock has this digest; changed: the lock has another digest and was not rewritten; relocked: the lock had another digest (or was unreadable) and was overwritten with this split (--relock, the run passed); not_relocked: --relock was given but the run did not pass, so the old lock was kept."},
+        "digest": {"type": "string", "pattern": "^[0-9a-f]{64}$", "description": "SHA-256 of the sorted (id, split, grading digest) triples; the grading digest is the SHA-256 of the item's grading block."},
+        "previous_digest": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$", "description": "The digest the lock had before --relock overwrote it; null in every other state, and when the old lock was unreadable."},
+        "counts": {"type": "object", "required": ["dev", "val", "test"], "additionalProperties": false,
+                   "properties": {"dev": {"type": "integer", "minimum": 0}, "val": {"type": "integer", "minimum": 0}, "test": {"type": "integer", "minimum": 0}}},
+        "moved": {"type": "array", "items": {"type": "string"}, "description": "Question ids whose split or grading digest differs from the lock (states changed and relocked)."}
+      }
+    },
+    "exposed_test_items": {"type": "array", "items": {"type": "string"}, "description": "Test question ids in the proposer's list."},
+    "items": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["question_id", "split", "grams", "shared", "fraction", "status", "reason", "files"],
+        "additionalProperties": false,
+        "properties": {
+          "question_id": {"type": "string"},
+          "split": {"type": ["string", "null"], "enum": ["dev", "val", "test", null]},
+          "grams": {"type": "integer", "minimum": 0, "description": "Distinct runs of the item's expected answers and checks, outside the allowlist."},
+          "shared": {"type": "integer", "minimum": 0, "description": "Those runs that occur in the skill."},
+          "fraction": {"type": ["number", "null"], "minimum": 0, "maximum": 1, "description": "shared / grams; null when unchecked."},
+          "status": {"enum": ["flagged", "clear", "unchecked"]},
+          "reason": {"type": ["string", "null"], "description": "Why the item is unchecked; null otherwise."},
+          "files": {"type": "array", "items": {"type": "string"}, "description": "Skill files that hold a shared run."},
+          "verbatim": {"type": "integer", "minimum": 0, "description": "Distinct runs of verbatim_words words of the item's expected text that occur in the skill. Absent from files saved before the verbatim rule."},
+          "flagged_by": {"type": "array", "items": {"enum": ["share", "verbatim"]}, "description": "The rules that flagged the item: share (at least min_fraction of its runs) and verbatim (any verbatim run). Empty unless flagged. Absent from files saved before the verbatim rule."}
+        }
+      }
+    },
+    "violations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind"],
+        "additionalProperties": false,
+        "properties": {
+          "kind": {"enum": ["leak", "split_changed", "test_exposed"]},
+          "question_id": {"type": "string"},
+          "moved": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "required": ["items", "checked", "flagged", "unchecked", "exposed", "violations"],
+      "additionalProperties": false,
+      "properties": {
+        "items": {"type": "integer", "minimum": 0},
+        "checked": {"type": "integer", "minimum": 0},
+        "flagged": {"type": "integer", "minimum": 0},
+        "unchecked": {"type": "integer", "minimum": 0},
+        "exposed": {"type": "integer", "minimum": 0},
+        "violations": {"type": "integer", "minimum": 0}
+      }
+    }
+  }
+}

@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""eval check / repo tasks replay / repo tasks authoring / repo run / repo report / repo compare: the
+"""eval check / eval tasks generate --from replay / repo tasks authoring / repo run / repo report / repo compare: the
 repository-mode runner (contract §3, §4, §4.3, §4.5, §4.6, §4.8)."""
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from dokimi.repos.manifest import RepoManifest
 
+from dokimi import docker_cmd
 from dokimi.repos.harness_profile import DELEGATION_MODES
 from dokimi.exit_codes import EXIT_USAGE
 from dokimi.utils import tree_digest
@@ -426,8 +427,7 @@ def _common(p: argparse.ArgumentParser, source_help: str, cache_help: str, posit
                    help="Build the image even if the tag exists")
     p.add_argument("--build-network", default=None, dest="build_network",
                    help="docker build --network (for example host, behind a local proxy)")
-    # repos.container.BUILD_TIMEOUT_S, written out to keep dokimi.repos unimported at startup
-    p.add_argument("--build-timeout", type=positive_int, default=3 * 3600, dest="build_timeout",
+    p.add_argument("--build-timeout", type=positive_int, default=docker_cmd.BUILD_TIMEOUT_S, dest="build_timeout",
                    help="Seconds the image build may run before it fails (default 10800, 3 hours)")
     p.add_argument("--cache", action="append", default=None, metavar="NAME=PATH",
                    help="Host directory for the manifest cache NAME; repeatable")
@@ -444,7 +444,7 @@ def _common(p: argparse.ArgumentParser, source_help: str, cache_help: str, posit
 
 
 def register(repo_sub, eval_sub, positive_int, source_help: str, cache_help: str) -> None:
-    tasks_p = repo_sub.add_parser("tasks", help="Review and authoring tasks built from merged pull requests (no LLM)")
+    tasks_p = repo_sub.add_parser("tasks", help="Authoring tasks built from merged pull requests (no LLM)")
     tasks_sub = tasks_p.add_subparsers(dest="repo_tasks_cmd", required=True)
     # eval check (#94 M1): the self-check that `repo tasks check` ran, now `eval check`
     check_p = eval_sub.add_parser(
@@ -464,32 +464,6 @@ def register(repo_sub, eval_sub, positive_int, source_help: str, cache_help: str
                          "which no task is ok")
     check_p.add_argument("--out", default="repo-check", help="Work directory (default: repo-check)")
     check_p.set_defaults(func=cmd_repo_tasks_check)
-
-    replay_p = tasks_sub.add_parser(
-        "replay", help="Write one dokimi:review_replay task per merged pull request of a threads file `gh api "
-        "graphql` wrote: the change as reviewed, and gold.json from the reviewers' threads on its lines. No "
-        "LLM and no GitHub call. Exits 1 when no pull request gave a task, and on an error that is not one "
-        "pull request's own (the threads file, the source, the manifest, the prompt file, writing a task)")
-    replay_p.add_argument("source", help=source_help)
-    replay_p.add_argument("--threads", required=True,
-                          help="JSON holding the merged pull requests with their reviewThreads, as the query in "
-                          "the contract (§4.6) returns them; pages of --paginate --slurp are read too")
-    replay_p.add_argument("--out", required=True,
-                          help="Directory that gets one <task id>/ per pull request, usually the manifest's `tasks`")
-    replay_p.add_argument("--manifest", default=".agent-eval/repo-eval.yaml",
-                          help="Manifest path relative to the repository root: its guidance globs and eval_dir "
-                          "are left out of every patch")
-    replay_p.add_argument("--manifest-file", default=None, dest="manifest_file",
-                          help="Read the manifest from this local file instead of from the tree")
-    replay_p.add_argument("--window", type=positive_int, default=5,
-                          help="task.json `window`, and how near a thread's line a later commit of the PR must "
-                          "change the file for `addressed` (default 5)")
-    replay_p.add_argument("--prompt-file", default=None, dest="prompt_file",
-                          help="The agent's prompt (default: a review prompt asking for the findings JSON)")
-    replay_p.add_argument("--force", action="store_true",
-                          help="Rewrite a task directory that has a task.json (default: keep it and its edits)")
-    replay_p.add_argument("--cache-dir", default=None, dest="cache_dir", help=cache_help)
-    replay_p.set_defaults(func=cmd_repo_tasks_replay)
 
     authoring_p = tasks_sub.add_parser(
         "authoring", help="Write one dokimi:hidden_tests task per merged pull request of a file `gh api graphql` "

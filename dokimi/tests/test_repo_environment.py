@@ -563,7 +563,7 @@ def test_test_file_case_insensitive_and_mjs(tmp_path):
 
 
 def test_unbalanced_quote_in_hook_completes_quickly(tmp_path):
-    """A hook with an unbalanced quote just under the settings cap should complete in under 1 second."""
+    """A hook with an unbalanced quote just under the settings cap should complete in under 3 seconds."""
     import time
     hook_cmd = "echo '" + "a" * 999_000  # under MAX_SETTINGS_BYTES, so the hook is parsed
     settings = {
@@ -574,8 +574,8 @@ def test_unbalanced_quote_in_hook_completes_quickly(tmp_path):
     _repo(tmp_path, {".claude/settings.json": json.dumps(settings), "AGENTS.md": "x"})
     start = time.monotonic()
     payload = inspect_repo(WorkTree(tmp_path))
-    elapsed = time.monotonic() - start
-    assert elapsed < 1.0, f"Took {elapsed} seconds, should be < 1s"
+    # 0.08 s alone, 1.3 s on a loaded runner; shlex over the whole quote (no _MAX_SHLEX_LINE) takes 8 s alone
+    assert (elapsed := time.monotonic() - start) < 3.0, f"Took {elapsed} seconds, should be < 3s"
     assert [c["note"] for c in payload["capabilities"]] == ["hooks on SessionStart"]
 
 

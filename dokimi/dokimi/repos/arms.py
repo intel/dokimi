@@ -181,7 +181,7 @@ def _base_skill_files(git_dir: Path, base: str) -> tuple[list[str], list[str]]:
     if proc.returncode != 0:
         return [], []
     files, links = [], []
-    for entry in proc.stdout.split("\0"):  # `<mode> <type> <sha>\t<path>`; -r lists a link, never what is behind it
+    for entry in proc.nul_fields():  # `<mode> <type> <sha>\t<path>`; -r lists a link, never what is behind it
         meta, _, path = entry.partition("\t")
         if meta.startswith("120000 ") and path in (".claude", ".claude/skills"):
             links.append(path)

@@ -243,7 +243,7 @@ def test_judge_panel_exposes_model_and_provider_for_provenance():
         JudgeConfig(role="technical_expert", model="m1", provider="amazon-bedrock"),
         JudgeConfig(role="doc_reviewer", model="m1", provider="amazon-bedrock"),
     ])
-    assert panel.model == "panel[technical_expert+doc_reviewer]:m1"
+    assert panel.model == "panel[technical_expert=m1,doc_reviewer=m1]"
     assert panel.provider == "amazon-bedrock"
 
     other = JudgePanel(judges=[

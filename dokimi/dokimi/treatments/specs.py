@@ -24,12 +24,18 @@ A combined spec joins parts with ``+``. A ``+`` only starts a new part when the
 text after it starts a known kind (``docs+skill:/x/c++`` is two parts, the
 second a path containing ``++``), and a spec that *starts* with ``mcp:`` is never
 split, because an MCP reference may carry ``+`` in a URL query.
+
+:func:`split_parts` is the one ``+`` splitter. ``repo run --arm`` specs
+(``repos/workspace.py``) use it with their own heads (the ``ARMS`` names, ``guidance:rev:``,
+``guidance:format=``, ``patch:``, ``skill:``, ``skill-catalog:``) and without whitespace
+stripping; that grammar stays
+in ``repos/workspace.py``, and the two are pinned side by side in ``tests/test_arm_grammar.py``.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Collection, Iterable, List, Optional, Tuple
+from typing import Callable, Collection, Iterable, List, Optional, Tuple
 
 #: Separator between the parts of a combined spec, and between the sub-arm
 #: names of a combined arm's name.
@@ -143,19 +149,34 @@ def _kind_of(part: str) -> Optional[ArmKind]:
     return _BY_PREFIX.get(head)
 
 
-def split_combined(spec: str) -> List[str]:
-    """Split a spec on the ``+`` that start a new part; see the module docstring."""
-    spec = spec.strip()
-    if spec.startswith("mcp:"):
-        return [spec]
+def split_parts(spec: str, starts_part: Callable[[str], bool], *, strip: bool = True) -> List[str]:
+    """The one ``+`` splitter every arm grammar uses.
+
+    A ``+`` starts a new part only when the piece after it satisfies ``starts_part``; any
+    other ``+`` belongs to the part before it (a path may hold a ``+``). Each grammar
+    supplies its own ``starts_part``: treatment specs split on their kinds
+    (:func:`split_combined`), ``repo run --arm`` on its ``ARMS`` names and its
+    ``guidance:rev:``, ``guidance:format=``, ``patch:`` and skill heads (``repos/workspace.py``). ``strip`` removes the whitespace around the spec and each
+    piece; the repo grammar keeps it, so ``guidance:none + skill:x`` stays rejected there.
+    """
+    if strip:
+        spec = spec.strip()
     out: List[str] = []
     for piece in spec.split(COMBINE):
-        piece = piece.strip()
-        if out and _kind_of(piece) is None:
+        if strip:
+            piece = piece.strip()
+        if out and not starts_part(piece):
             out[-1] += COMBINE + piece
         else:
             out.append(piece)
     return out
+
+
+def split_combined(spec: str) -> List[str]:
+    """Split a treatment spec into its parts; see the module docstring."""
+    if spec.strip().startswith("mcp:"):
+        return [spec.strip()]
+    return split_parts(spec, lambda piece: _kind_of(piece) is not None)
 
 
 def parse_part(part: str) -> ArmPart:

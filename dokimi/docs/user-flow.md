@@ -14,8 +14,8 @@ The benchmark is not split into separate user-facing benchmark types. Static che
 A target is a registered product/library key from `products.yaml`. The compatibility flag is `--library`, but `--target` is accepted for the same key.
 
 ```bash
-python cli.py library list
-python cli.py library show onetbb
+python cli.py catalog list --kind product
+python cli.py catalog show --kind product onetbb
 ```
 
 ## 2. Preflight

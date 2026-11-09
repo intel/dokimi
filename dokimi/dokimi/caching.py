@@ -383,6 +383,8 @@ def _usage_value_fits(name: str, value: object) -> bool:
     default = UsageRecord.__dataclass_fields__[name].default
     if isinstance(default, str):
         return isinstance(value, str)
+    if isinstance(default, bool):  # the reply-cut flag, stored with the reply it describes
+        return isinstance(value, bool)
     if value is None:
         return default is None
     if isinstance(value, bool) or not isinstance(value, (int, float)):
