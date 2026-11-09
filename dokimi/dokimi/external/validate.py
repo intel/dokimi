@@ -50,6 +50,9 @@ an error and does not fail ``--strict``. A link to a file outside the skill dire
 naming such a file is ``path-escapes-skill``. Code spans that name no file are not checked,
 and neither are code fences: those are usually examples or paths in the user's own project.
 
+Bundled scripts and documents that ``SKILL.md`` never names are one ``warn`` per skill
+(``bundle-file-unreferenced``, see :mod:`dokimi.external.bundle_refs`).
+
 Descriptions: one with no "when" clause is a ``warn`` (``description-no-when``),
 and so is one whose tokens overlap another skill's at a Jaccard similarity of at least
 :data:`NEAR_DUPLICATE_JACCARD` (``description-near-duplicate``). Skills with
@@ -83,6 +86,7 @@ from dokimi.skills import Skill
 from dokimi.utils import describe_yaml_error, parse_frontmatter_strict
 
 from .catalog import SkillCatalogEntry, _within
+from .bundle_refs import unreferenced_message
 from .command_checks import command_findings
 from .content_checks import content_findings
 from .skill_markdown import link_pieces, outside_fences
@@ -148,6 +152,7 @@ SKILL_DIR_VAR = "${CLAUDE_SKILL_DIR}/"
 FINDING_CODES = (
     "allowed-tools-unknown",
     "body-too-large",
+    "bundle-file-unreferenced",
     "description-near-duplicate",
     "description-no-when",
     "description-too-long",
@@ -728,6 +733,10 @@ def review_skills(
             Finding("warn", code, message)
             for code, message in content_findings(skill, at_root=at_root and not standalone)
         ]
+        links = [_file_ref(raw, link=True) for raw in link_pieces(outside_fences(skill.body))[0]]
+        unreferenced = unreferenced_message(skill.path, links, at_root=at_root and not standalone)
+        if unreferenced is not None:
+            review.findings.append(Finding("warn", "bundle-file-unreferenced", unreferenced))
         if not hidden:
             review.findings += _description_findings(skill)
         review.content_sha256 = _skill_digest(skill)
