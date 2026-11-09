@@ -17,7 +17,8 @@ seven more judges from seven model families. It asks four questions:
    and how many judges are enough?
 4. What can a Dokimi user configure today, and what is missing?
 
-Short answer: judge choice moves the lenient added share by up to 0.23 for one answer model.
+Short answer: judge choice moves the lenient placebo-gated added share by up to 0.23 for one answer model,
+and the known share by up to 0.32 (haiku-4.5).
 The original judge is the most lenient of the eight, so the published lenient added shares sit
 at the low end of the panel. Nemotron-12b is first and opus-5 last under every judge (placebo-gated, lenient); the middle
 ranks change. Majority, median
