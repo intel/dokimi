@@ -51,7 +51,8 @@ def test_the_independence_warning_fires_for_an_alias_against_its_full_id(capsys)
     assert not _warn_judge_independence("claude-cli", "sonnet", "claude-cli", "claude-opus-5-5")
 
 
-@pytest.mark.parametrize("answerer", ["sonnet", "opus", "claude-opus-5-1", "claude-sonnet-5-5"])
+@pytest.mark.parametrize("answerer", ["sonnet", "opus", "sonnet[1m]", "opus[1m]",
+                                      "claude-opus-5-1", "claude-sonnet-5-5"])
 def test_the_novelty_default_judge_on_the_cli_is_another_family(answerer):
     from dokimi.novelty.client import default_judge
 
