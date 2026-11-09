@@ -10,6 +10,7 @@ its growth cap. Nothing here builds a client; a model arm is always the caller's
 from __future__ import annotations
 
 import argparse
+import errno
 import json
 import os
 import stat
@@ -519,12 +520,16 @@ def _is_partial_file(path: Path) -> bool:
 
 def _takes_partial(candidate: Path) -> bool:
     """Whether a partial result may go to ``candidate``: nothing is there, or a regular file this
-    can write that holds a partial result. A FIFO or device is never opened: its read blocks (#516)."""
+    can write that holds a partial result. A FIFO or device is never opened: its read blocks (#516).
+    A symlink loop is this name's own and is skipped; any other error is raised, since every later
+    name can fail the same way and the search would not end (a name too long only grows longer)."""
     try:
         mode = os.stat(candidate).st_mode
     except FileNotFoundError:
         return True
-    except OSError:  # a symlink loop, say: nothing this can write
+    except OSError as exc:
+        if exc.errno != errno.ELOOP:
+            raise
         return False
     return stat.S_ISREG(mode) and os.access(candidate, os.W_OK) and _is_partial_file(candidate)
 

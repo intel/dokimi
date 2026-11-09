@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import contextlib
+import errno
 import json
 import os
 import threading
@@ -357,6 +358,37 @@ def test_a_partial_run_skips_a_partial_sidecar_it_cannot_write(tmp_path):
     assert side.read_text(encoding="utf-8") == earlier
     assert json.loads(saved.read_text(encoding="utf-8")) == {"model": {}, "status": "partial",
                                                              "partial": PARTIAL}
+
+
+@pytest.mark.skipif(os.name == "nt", reason="a symlink needs a privilege on Windows")
+def test_a_partial_run_skips_a_sidecar_that_is_a_symlink_loop(tmp_path):
+    from dokimi.commands.novelty_routing_report import save_result
+
+    out = _finished(tmp_path)
+    (tmp_path / "routing.partial.json").symlink_to("routing.partial.json")
+    saved = save_result({}, out, {"partial": PARTIAL})
+    assert saved == tmp_path / "routing.partial2.json"
+    assert json.loads(saved.read_text(encoding="utf-8"))["partial"] == PARTIAL
+
+
+@pytest.mark.skipif(not hasattr(os, "pathconf"), reason="NAME_MAX is POSIX")
+def test_a_partial_run_whose_sidecar_name_is_too_long_stops_on_it(tmp_path, monkeypatch):
+    from dokimi.commands.novelty_routing_report import save_result
+
+    out = tmp_path / ("x" * (os.pathconf(tmp_path, "PC_NAME_MAX") - len(".json")) + ".json")
+    out.write_text('{"status": "ok"}', encoding="utf-8")
+    real_stat, names = os.stat, []
+
+    def stat(path, *args, **kwargs):  # every longer sidecar name fails too: a retry never ends
+        names.append(path)
+        assert len(names) < 50, "the sidecar search kept trying longer names"
+        return real_stat(path, *args, **kwargs)
+
+    with monkeypatch.context() as patch, pytest.raises(OSError) as error:  # unpatched for the report
+        patch.setattr(os, "stat", stat)
+        save_result({}, out, {"partial": PARTIAL})
+    assert error.value.errno == errno.ENAMETOOLONG
+    assert [p.name for p in tmp_path.iterdir()] == [out.name]
 
 
 def test_a_partial_model_line_with_five_answered_calls_has_no_warning(capsys):
