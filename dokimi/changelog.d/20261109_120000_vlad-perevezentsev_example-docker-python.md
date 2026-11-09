@@ -9,7 +9,9 @@
 
 ### Changed
 
-- **`example_pass_rate` rises for documents with `python` examples in the `docker`
-  backend** — those examples ran for the first time with the fix above, so a document
-  whose python examples pass scores higher for the same inputs than before the upgrade.
-  Compare such scores with runs made after it, not with older baselines.
+- **`example_pass_rate`, and with it the document and summary `score` and the soft
+  gate, rise for documents with `python` examples in the `docker` backend** — those
+  examples ran for the first time with the fix above, so a document whose python
+  examples pass scores higher for the same inputs than before the upgrade, and a soft
+  gate that failed on them can now pass. Compare such scores with runs made after it,
+  not with older baselines.
