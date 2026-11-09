@@ -303,9 +303,8 @@ def test_vendored_dependency_folder_is_not_scanned(tmp_path):
     assert _messages(tmp_path, "legacy-model-id") == []
 
 
+@pytest.mark.skipif(os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0), reason="needs POSIX permissions")
 def test_a_listed_but_unenterable_folder_does_not_stop_the_text_walk(tmp_path):
-    if os.geteuid() == 0:
-        pytest.skip("root reads a mode 0444 folder")
     skill_dir = _skill(tmp_path / "skills", "tool")
     noexec = skill_dir / "noexec"
     noexec.mkdir()

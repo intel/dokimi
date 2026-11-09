@@ -397,9 +397,8 @@ def test_npx_flags_after_the_program_are_not_packages(tmp_path):
     assert loglevel == []  # npm's --loglevel takes its value: warn is not the program
 
 
+@pytest.mark.skipif(os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0), reason="needs POSIX permissions")
 def test_an_unreadable_subdirectory_does_not_abort_the_scan(tmp_path):
-    if os.geteuid() == 0:
-        pytest.skip("root reads a mode 000 directory")
     skill_dir = _skill(tmp_path / "skills", "tool", "# Tool\n")
     locked = skill_dir / "locked"
     locked.mkdir()
@@ -411,9 +410,8 @@ def test_an_unreadable_subdirectory_does_not_abort_the_scan(tmp_path):
     assert review.findings == []
 
 
+@pytest.mark.skipif(os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0), reason="needs POSIX permissions")
 def test_a_listed_but_unenterable_bundled_file_does_not_raise(tmp_path):
-    if os.geteuid() == 0:
-        pytest.skip("root reads a mode 0444 directory")
     skill_dir = _skill(tmp_path / "skills", "tool", "# Tool\n")
     noexec = skill_dir / "noexec"
     noexec.mkdir()
