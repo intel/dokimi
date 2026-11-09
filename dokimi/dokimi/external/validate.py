@@ -165,6 +165,7 @@ FINDING_CODES = (
     "name-missing",
     "not-loaded",
     "path-escapes-skill",
+    "unreadable",
 )
 
 
