@@ -269,3 +269,107 @@ def test_a_negation_the_help_shows_with_brackets_is_listed():
     check = identifiers_check("perf report", text)
     assert grade_check(check, "q", "Run `perf report --no-children`.", None).passed is True
     assert grade_check(_veto(), "q", "Run `perf report --no-children`.", None).passed is False
+
+
+def test_an_affirmative_not_only_or_no_problem_does_not_hide_an_invented_flag():
+    # "not only" and "no problem" affirm the sentence: the invented --stdin is still a veto.
+    check = _veto()
+    assert grade_check(check, "q", "Not only does perf report --stdin show output.", None).passed is False
+    assert grade_check(check, "q", "No problem: perf report --stdin works.", None).passed is False
+    assert grade_check(check, "q", "Not perf report --stdin but --stdio.", None).passed is True
+
+
+def test_help_text_accepts_a_help_whose_only_options_are_bracketed_negations(tmp_path):
+    tool = tmp_path / "bracketed.py"
+    tool.write_text(
+        "print('usage: bracketed [--[no-]children]')\n"
+        "print('  --[no-]children  accumulate callchains of children')\n",
+        encoding="utf-8")
+    text = help_text(f'"{sys.executable}" "{tool}"')
+    assert {"--children", "--no-children"} <= set(help_identifiers(text))
+
+
+def test_a_correct_answer_with_two_commands_on_one_line_is_not_judged_against_the_other():
+    # The second command's flag belongs to "perf record", not to "perf report".
+    check = _veto()
+    answer = "Run perf report --stdio after collecting with perf record --call-graph dwarf."
+    assert grade_check(check, "q", answer, None).passed is True
+    assert grade_check(check, "q", answer.replace("--stdio", "--stdin"), None).passed is False
+
+
+def test_verify_keys_counts_a_key_only_once_a_checked_option_passed(monkeypatch):
+    from dokimi.eval import reference_checks
+    from dokimi.novelty import grounding
+    # A key that names no long option is unverifiable, even though the command line matches.
+    atoms = [{"statement": "Read recorded samples", "answer": "perf report -i data",
+              "meta": {"grading": {"checks": [_veto()]}}}]
+    assert verify_keys(atoms) == {"verified": 0, "not_found": 0, "unverifiable": 1}
+    # A check that could not be scored (a timeout) verifies nothing.
+    atoms = [{"statement": "x", "answer": "Run perf report --stdio.",
+              "meta": {"grading": {"checks": [_veto()]}}}]
+    monkeypatch.setattr(grounding, "grade_check",
+                        lambda *a, **k: reference_checks.CheckResult("identifiers", None, None,
+                                                                     detail="not scored"))
+    assert verify_keys(atoms) == {"verified": 0, "not_found": 0, "unverifiable": 1}
+
+
+def test_novelty_ground_keeps_the_atoms_file_when_the_write_fails(tmp_path, monkeypatch):
+    import argparse
+    from pathlib import Path
+
+    from dokimi.commands import novelty_ground
+    from dokimi.novelty import grounding
+    from dokimi.novelty.atoms import Atom, Span, save_atoms
+    atoms_path = tmp_path / "atoms.json"
+    span = Span(id="s1", kind="prose", text="perf report shows samples", start=0, end=25)
+    save_atoms([Atom(statement="perf report shows samples", question="How?",
+                     answer="perf report --stdio", span_ids=("s1",))], [span], atoms_path)
+    before = atoms_path.read_bytes()
+    monkeypatch.setattr(grounding, "help_text", lambda tool, **k: PERF_HELP)
+    real_write = Path.write_text
+
+    def failing_write(self, data, *args, **kwargs):
+        real_write(self, data[: len(data) // 2], *args, **kwargs)  # the disk fills mid-write
+        raise OSError("No space left on device")
+
+    monkeypatch.setattr(Path, "write_text", failing_write)
+    args = argparse.Namespace(atoms=str(atoms_path), out=None, tool=["perf report"],
+                              tool_version=None)
+    with pytest.raises(OSError):
+        novelty_ground.cmd_novelty_ground(args)
+    assert atoms_path.read_bytes() == before
+
+
+@pytest.mark.parametrize("judge, checks, final", [
+    ("correct_complete", [{"role": "sufficient", "passed": False}], ("wrong_other", "check")),
+    ("correct_complete", [{"role": "sufficient", "passed": True},
+                          {"role": "sufficient", "passed": False}], ("wrong_other", "check")),
+    ("wrong_other", [{"role": "sufficient", "passed": True}], ("correct_complete", "check")),
+    ("abstained", [{"role": "sufficient", "passed": False}], ("abstained", "judge")),
+    ("correct_complete", [{"role": "sufficient", "passed": None}], ("correct_complete", "judge")),
+    ("correct_complete", [{"role": "veto", "passed": None}], ("correct_complete", "judge")),
+    ("correct_complete", [{"role": "veto", "passed": None},
+                          {"role": "sufficient", "passed": True}], ("correct_complete", "check")),
+])
+def test_resolve_verdict_judges_each_sufficient_and_undecided_check(judge, checks, final):
+    assert resolve_verdict(judge, checks) == final
+
+
+def test_a_failed_answer_runs_no_checks():
+    # A provider failure is a missing datum: its "<error: ...>" placeholder is not graded.
+    from dokimi.novelty.atoms import Atom
+    from dokimi.novelty.client import LLMClient
+    from dokimi.novelty.probes import build_probes
+    from dokimi.novelty.measure import run_measurement
+
+    def down(prompt, system):
+        raise RuntimeError("provider down")
+
+    atom = Atom(statement="perf report shows text with --stdio", question="How to get text?",
+                answer="perf report --stdio", span_ids=("s1",),
+                meta={"grading": {"checks": [_veto()]}})
+    answerer = LLMClient(model="a", transport=down)
+    judge = LLMClient(model="b", transport=lambda p, s: (json.dumps({"verdict": None}), None))
+    run = run_measurement([atom], build_probes([atom]), "artifact", answerer=answerer,
+                          judge=judge, concurrency=1).runs[0]
+    assert not run.checks

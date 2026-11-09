@@ -19,7 +19,7 @@ import hashlib
 import re
 import shlex
 
-from dokimi.eval.reference_checks import LONG_FLAG, grade_check
+from dokimi.eval.reference_checks import LONG_FLAG, _negated_before, grade_check
 from dokimi.process import Env, run
 from dokimi.utils import InputError
 
@@ -28,6 +28,9 @@ from dokimi.utils import InputError
 _LISTING = re.compile(r"(?m)^\s*-")
 #: The bracketed negation notation of a help (``--[no-]children``): both spellings are options.
 _NEGATABLE = re.compile(r"--\[no-\]([A-Za-z][\w-]*)")
+#: The rest of a command line after a tool's name: up to a shell comment, a sentence end, or the
+#: head of another command (two words, then an option). Only options before those are the tool's.
+_SCOPE = (r"(?=\s+-)(?:(?!\.(?:\s|$))(?!\s+\w[\w-]*\s+\w[\w-]*\s+-)[^\n`|;&#])*")
 _REJECTION = re.compile(
     r"(?i)\b(?:unrecognized|unknown|invalid|not recognized|no such)\b[^\n]*\b(?:option|argument|flag)s?\b"
     r"|unrecognized arguments")
@@ -65,7 +68,7 @@ def help_text(tool: str, *, timeout: float = 20.0) -> str:
         if done.timed_out:
             continue
         text = done.stdout + done.stderr
-        if re.search(LONG_FLAG, text) and (_LISTING.search(text) or not _REJECTION.search(text)):
+        if help_identifiers(text) and (_LISTING.search(text) or not _REJECTION.search(text)):
             return text
     raise InputError(f"`{tool} --help` lists no long options")
 
@@ -86,8 +89,10 @@ def identifiers_check(tool: str, text: str, *, version: str | None = None) -> di
     """An ``identifiers`` veto for ``tool``'s command lines, from its help ``text``.
 
     ``within`` limits the check to the rest of a line where the tool's name is followed
-    directly by an option, up to a shell comment (``#``). A flag of another command, or of a subcommand (``perf`` then
-    ``report``), is then not judged against this help: give each subcommand as its own tool.
+    directly by an option, up to a shell comment (``#``), a sentence end, or the next command
+    (two words and an option, as in ``perf record --call-graph``). A flag of another command,
+    or of a subcommand (``perf`` then ``report``), is then not judged against this help: give
+    each subcommand as its own tool.
     """
     head = _mention(tool)
     source = {"tool": tool, "sha256": hashlib.sha256(text.encode()).hexdigest()}
@@ -95,7 +100,7 @@ def identifiers_check(tool: str, text: str, *, version: str | None = None) -> di
         source["version"] = version
     return {
         "type": "identifiers", "tier": "verifiable", "role": "veto",
-        "within": head + r"(?=\s+-)[^\n`|;&#]*",
+        "within": head + _SCOPE,
         "known": help_identifiers(text),
         "source": source,
     }
@@ -125,12 +130,25 @@ def add_checks(atoms: list[dict], checks: list[dict], tools: list[str]) -> int:
     return changed
 
 
+def _key_names(check: dict, key: str) -> list[str]:
+    """The option names a key names on the lines of ``check`` (its ``within``), as the check reads them."""
+    pattern = str(check.get("pattern") or LONG_FLAG)
+    scopes = ([m.group(0) for m in re.finditer(str(check["within"]), key)
+               if not _negated_before(key, m.start())] if check.get("within") else [key])
+    names = []
+    for scope in scopes:
+        for m in re.finditer(pattern, scope):
+            name = (m.group(1) if m.groups() and m.group(1) is not None else m.group(0))
+            names.append(name.split("=", 1)[0])
+    return names
+
+
 def verify_keys(atoms: list[dict]) -> dict[str, int]:
     """Check each atom's answer key against its ``identifiers`` checks; counts per status.
 
-    Writes ``meta["key_status"]``: ``verified`` (every option the key names on a checked
-    command line is in the help), ``not_found`` (with the ``missing`` names), or
-    ``unverifiable`` (the key names none). This checks the skill's claim, not a model's
+    Writes ``meta["key_status"]``: ``verified`` (the key names an option on a checked command
+    line, and every such option is in the help), ``not_found`` (with the ``missing`` names), or
+    ``unverifiable`` (the key names none, or a check could not be scored). This checks the skill's claim, not a model's
     answer. A ``not_found`` is a review flag, not an error: a negative claim ("there is no
     ``--device xpu``") or a version-bound one names an option the help rightly lacks.
     """
@@ -141,14 +159,15 @@ def verify_keys(atoms: list[dict]) -> dict[str, int]:
         if not checks:
             continue
         key = " ".join(str(atom.get(k, "")) for k in ("answer", "statement"))
-        missing, seen = [], False
+        missing, named = [], False
         for check in checks:
-            seen = seen or not check.get("within") or re.search(check["within"], key) is not None
             result = grade_check(check, "", key, None)
             if result.passed is False:
                 missing += [n for n in result.detail.removeprefix("not in source: ").split(", ")
                             if n not in missing]
-        status = "not_found" if missing else ("verified" if seen else "unverifiable")
+            elif result.passed is True and _key_names(check, key):
+                named = True  # an option the key names on a checked line, and the help lists it
+        status = "not_found" if missing else ("verified" if named else "unverifiable")
         atom["meta"]["key_status"] = {"status": status, **({"missing": missing} if missing else {})}
         counts[status] += 1
     return counts

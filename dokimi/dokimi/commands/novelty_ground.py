@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -21,7 +22,14 @@ def cmd_novelty_ground(args: argparse.Namespace) -> None:
     changed = add_checks(data.get("atoms", []), checks, args.tool)
     keys = verify_keys(data.get("atoms", []))
     out = Path(args.out or args.atoms)
-    out.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    # Write beside the target and replace it only after the write succeeds: the default --out is
+    # the atoms file itself, and a failed write must not leave it truncated.
+    tmp = out.with_name(out.name + ".tmp")
+    try:
+        tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        os.replace(tmp, out)
+    finally:
+        tmp.unlink(missing_ok=True)
     for check in checks:
         print(f"{check['source']['tool']}: {len(check['known'])} options "
               f"(help sha256 {check['source']['sha256'][:12]})", file=sys.stderr)

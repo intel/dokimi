@@ -382,7 +382,9 @@ _NEGATED = re.compile(r"(?i)\bnot\b|n't\b|\bnever\b|\bno\b|\bavoid\w*|\bwithout\
 
 def _negated_before(answer: str, start: int) -> bool:
     """Whether the clause just before ``start`` negates or warns against what follows it."""
-    clause = re.split(r"[.;!?,\n]|\b(?:and|but|then|while)\b", answer[:start], flags=re.I)[-1]
+    clause = re.split(r"[.;:!?,\n]|\b(?:and|but|then|while)\b", answer[:start], flags=re.I)[-1]
+    # "not only" and "no problem" affirm: they are no negation of what follows.
+    clause = re.sub(r"(?i)\bnot\s+only\b|\bno\s+problem\b", " ", clause)
     clause = re.sub(r"(?<![\w-])--?[A-Za-z][\w-]*", " ", clause)  # flags are no words
     return _NEGATED.search(clause) is not None
 
