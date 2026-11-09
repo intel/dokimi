@@ -100,7 +100,10 @@ def test_graph_refuses_a_threads_file(tmp_path):
     [
         (["library", "list", "--domain", "x"], ["catalog", "list", "--kind", "product", "--domain", "x"]),
         (["library", "show", "onetbb"], ["catalog", "show", "--kind", "product", "onetbb"]),
+        (["library"], ["catalog"]),
         (["product", "list"], ["catalog", "list", "--kind", "product"]),
+        (["product", "show", "onetbb"], ["catalog", "show", "--kind", "product", "onetbb"]),
+        (["product", "--help"], ["catalog", "--help"]),
         (["subjects", "list", "--subjects-root", "r"], ["catalog", "list", "--kind", "subject", "--subjects-root", "r"]),
         (["subjects", "show", "s.toml"], ["catalog", "show", "--kind", "subject", "s.toml"]),
         (

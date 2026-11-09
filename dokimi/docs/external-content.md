@@ -308,13 +308,20 @@ A large catalog is easier to scan one skill at a time:
 - A `SKILL.md` inside another skill's directory is marked with `nested_in`
   (the enclosing skill's path) in JSON and with a `note` in text. It is counted
   by default; `--skip-nested` leaves it out of the scan.
+- `--ignore CODE` (repeatable) leaves the findings with that code out of the scan:
+  they are not printed, and they do not set the state or the `--strict` exit. The
+  codes are the `code` of each finding in the JSON output (`name-mismatch`,
+  `description-no-when`, ...); an unknown code is a usage error. `frontmatter-parse`
+  is refused (a skill that does not load always fails), and so is `--kind tasks`.
 - `--jsonl PATH` writes one JSON row per skill as it is reviewed and prints only
   the counts. `--jobs N` reviews N skills in parallel. `--resume` keeps the rows
   already in PATH and reviews only the skills without one (a half-written last
   line from a killed run is dropped). Each row carries `skill_sha256`, the
-  digest of every file in the skill's directory, and `--resume` keeps a row only
-  while that is unchanged: a skill whose `SKILL.md` or bundled file changed (or
-  a row without the field) is reviewed again. Without `--resume`, PATH is replaced.
+  digest of every file in the skill's directory, and `ignored`, the sorted
+  `--ignore` codes in effect (`[]` when none). `--resume` keeps a row only
+  while that is unchanged and the `--ignore` codes are the same: a skill whose
+  `SKILL.md` or bundled file changed, a row written under other codes, or a row
+  without `skill_sha256` is reviewed again. Without `--resume`, PATH is replaced.
   Every `SKILL.md` is loaded before the first row, so memory still grows with
   the catalog. A `--jobs` worker that dies ends the scan with exit 1.
 
