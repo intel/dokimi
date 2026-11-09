@@ -308,3 +308,16 @@ def test_vendored_dependency_folder_is_not_scanned(tmp_path):
     _skill(tmp_path / "skills", "deps", files={"site-packages/dep/doc.md": 'Model: "claude-2.1"\n'})
 
     assert _messages(tmp_path, "legacy-model-id") == []
+
+
+@pytest.mark.skipif(os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0), reason="needs POSIX permissions")
+def test_a_listed_but_unenterable_folder_does_not_stop_the_text_walk(tmp_path):
+    skill_dir = _skill(tmp_path / "skills", "tool")
+    noexec = skill_dir / "noexec"
+    noexec.mkdir()
+    (noexec / "a.md").write_text("# A\n", encoding="utf-8")
+    noexec.chmod(0o444)  # its names are listed, its entries cannot be stat'ed: the folder check and the stat both raise
+    try:
+        assert [p.name for p in _text_files(skill_dir)] == ["SKILL.md"]
+    finally:
+        noexec.chmod(0o755)
