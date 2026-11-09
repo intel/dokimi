@@ -145,7 +145,8 @@ def summary(flagged: dict[str, list[str]]) -> str:
     if not flagged:
         return "No docs page depends on a file this PR changes without the PR touching the page.\n"
     rows = ["| Page | Changed dependencies |", "|---|---|"]
-    rows += [f"| `{page}` | {', '.join(f'`{h}`' for h in hits)} |" for page, hits in flagged.items()]
+    rows += [f"| `{_shown(page)}` | {', '.join(f'`{_shown(h)}`' for h in hits)} |"
+             for page, hits in flagged.items()]
     return ("Pages whose `depends_on` files changed while the page did not; "
             "check that they still describe the code:\n\n" + "\n".join(rows) + "\n")
 
@@ -166,12 +167,11 @@ def main(argv: list[str] | None = None) -> int:
         page, _, why = str(exc).partition(": ")
         print(f"::error file={_shown(page)},title=Docs review::{why}")
         return 1
-    flagged = {_shown(page): [_shown(h) for h in hits]
-               for page, hits in triggers(pages, changed).items()}
+    flagged = triggers(pages, changed)
     text = summary(flagged)
     print(text)
     for page, hits in flagged.items():
-        print(f"::warning file={page},title=Docs review::{', '.join(hits)} changed; "
+        print(f"::warning file={_shown(page)},title=Docs review::{', '.join(map(_shown, hits))} changed; "
               "this page documents them and was not updated")
     if step_summary := os.environ.get("GITHUB_STEP_SUMMARY"):
         with open(step_summary, "a", encoding="utf-8") as fh:

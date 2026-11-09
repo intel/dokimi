@@ -88,6 +88,23 @@ def test_main_names_a_non_utf8_path_escaped(tmp_path, monkeypatch, capsys):
     assert f"| `{PAGE}` | `{shown}` |" in summary.read_text(encoding="utf-8")
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="os.fsdecode refuses a 0xff byte")
+def test_main_keeps_two_pages_whose_escaped_names_read_alike(tmp_path, monkeypatch, capsys):
+    raw_page = os.fsdecode(b"dokimi/docs/r\xff.md")
+    text_page = "dokimi/docs/r\\xff.md"
+    pages = {raw_page: ["first.py"], text_page: ["second.py"]}
+    monkeypatch.setattr(cdrt, "changed_files", lambda base, head: ["first.py", "second.py"])
+    monkeypatch.setattr(cdrt, "load_pages", lambda: pages)
+    summary = tmp_path / "summary.md"
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
+    assert cdrt.main(["--base", "b", "--head", "h"]) == 0
+    warnings = [line for line in capsys.readouterr().out.splitlines() if line.startswith("::warning")]
+    assert [w.split("::")[2] for w in warnings] == ["first.py changed; this page documents them and was not updated",
+                                                    "second.py changed; this page documents them and was not updated"]
+    rows = [line for line in summary.read_text(encoding="utf-8").splitlines() if line.startswith("| `")]
+    assert rows == ["| `dokimi/docs/r\\xff.md` | `first.py` |", "| `dokimi/docs/r\\xff.md` | `second.py` |"]
+
+
 def _tracked_files() -> list[str]:
     result = subprocess.run(["git", "ls-files", "-z"], cwd=cdrt.REPO,
                             capture_output=True, text=True, check=False)
