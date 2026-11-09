@@ -61,3 +61,14 @@ def test_the_finding_names_a_risky_command_in_the_same_skill(tmp_path):
     [grant] = [f for f in review.findings if f.code == "allowed-tools-unrestricted-bash"]
     assert "pipe-to-shell" in grant.message
     assert grant.level == "warn"
+
+
+@pytest.mark.parametrize(("risky", "strict_fails"), [([], False), (["pipe-to-shell"], True), (["permission-bypass-flag"], True)])
+def test_strict_fails_only_on_unrestricted_bash_with_a_risky_command(risky, strict_fails):
+    from dokimi.commands.catalog_scan import _Tally
+
+    findings = [{"code": "allowed-tools-unrestricted-bash"}] + [{"code": c} for c in risky]
+    for strict in (False, True):
+        tally = _Tally(strict)
+        tally.add({"state": "warn", "error": None, "findings": findings})
+        assert tally.failed is (strict and strict_fails)

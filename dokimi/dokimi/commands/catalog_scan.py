@@ -149,8 +149,20 @@ def _review_rows(pairs: list, jobs: int, review: Callable = _review_row) -> Iter
         pool.shutdown(wait=False, cancel_futures=True)
 
 
+def unrestricted_and_risky(row: dict) -> bool:
+    """Whether the row has ``allowed-tools-unrestricted-bash`` and a risky-command finding: a warn that fails ``--strict``."""
+    from dokimi.external.allowed_tools import RISKY_COMMAND_CODES
+
+    codes = {f["code"] for f in row["findings"]}
+    return "allowed-tools-unrestricted-bash" in codes and bool(codes & set(RISKY_COMMAND_CODES))
+
+
 class _Tally:
-    """Counts of the rows by state, and whether the scan must exit 1 (a load error, or a spec error under --strict)."""
+    """Counts of the rows by state, and whether the scan must exit 1.
+
+    It must on a load error; under ``--strict`` also on a spec error, and on a skill that grants
+    unrestricted Bash and also has a risky command (:func:`unrestricted_and_risky`).
+    """
 
     def __init__(self, strict: bool) -> None:
         self.strict = strict
@@ -159,7 +171,7 @@ class _Tally:
 
     def add(self, row: dict) -> None:
         self.counts[row["state"]] += 1
-        if row["error"] is not None or (self.strict and row["state"] == "error"):
+        if row["error"] is not None or (self.strict and (row["state"] == "error" or unrestricted_and_risky(row))):
             self.failed = True
 
 

@@ -241,7 +241,7 @@ that reaches a file outside the skill directory is a `warn`
 installed alone. An `allowed-tools` that grants `Bash` for every command (`Bash`
 with no pattern, or `Bash(*)`) is a `warn` (`allowed-tools-unrestricted-bash`);
 its message names a `pipe-to-shell` or `permission-bypass-flag` hit in the same
-skill, since those commands then run with no prompt. A description with no "when" clause (`use when ...`, `when deploying ...`) is a `warn`
+skill, since those commands then run with no prompt, and that pair fails `--strict`. A description with no "when" clause (`use when ...`, `when deploying ...`) is a `warn`
 (`description-no-when`), and so is one that overlaps another skill's by at least
 half and shares three words (`description-near-duplicate`). Two skills in different paths with the same
 directory name and description but different `SKILL.md` text are a `warn` on both
