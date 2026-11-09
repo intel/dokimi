@@ -155,6 +155,7 @@ FINDING_CODES = (
     "frontmatter-parse",
     "frontmatter-unknown-key",
     "hidden-unicode",
+    "install-unpinned",
     "legacy-model-id",
     "link-escapes-skill",
     "link-missing",
@@ -165,6 +166,8 @@ FINDING_CODES = (
     "name-missing",
     "not-loaded",
     "path-escapes-skill",
+    "permission-bypass-flag",
+    "pipe-to-shell",
 )
 
 
