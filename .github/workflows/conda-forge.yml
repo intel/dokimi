@@ -62,7 +62,7 @@ jobs:
       # bumps it (.github/renovate.json5).
       - uses: mamba-org/setup-micromamba@f457c30a868e4760d3a6fcea5f25dc655b8edf39  # v3.2.1
         with:
-          micromamba-version: '2.9.0-0'
+          micromamba-version: '2.10.0-0'
           init-shell: none
       - name: Build the wheel
         run: |

@@ -12,7 +12,7 @@ zizmor==1.31.1
 pre-commit==4.7.0
 bandit==1.9.4
 pip-audit==2.10.1
-mypy==2.4.0
+mypy==2.4.1
 PyYAML
 jsonschema
 # regex: the static job's registry-drift-check and guidance self-scan import dokimi.repos,
@@ -27,4 +27,4 @@ build
 # build with --no-isolation, so setuptools comes from this lock, hashed, not from PyPI.
 setuptools
 twine
-uv==0.13.5
+uv==0.13.6
