@@ -31,14 +31,12 @@ def _load_custom(cls, flag: str, value):
 
 
 def _load_registry(args):
-    from dokimi.registry import ProductRegistry
-    from pathlib import Path as _Path
-    reg_path = _Path(args.registry) if getattr(args, "registry", None) else None
-    return ProductRegistry(path=reg_path)
+    """The registry for the `benchmark` commands: the same InputError as `_load_registry_checked`."""
+    return _load_registry_checked(args)
 
 
 def _load_registry_checked(args):
-    """`_load_registry` for the `library` commands: a bad --registry file is an InputError (benchmark keeps its own)."""
+    """The registry of --registry, or the bundled one; a missing or unparsable --registry file is an InputError."""
     from dokimi.registry import ProductRegistry
     return _load_custom(ProductRegistry, "--registry", getattr(args, "registry", None))
 

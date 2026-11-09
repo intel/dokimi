@@ -13,6 +13,8 @@ import sys
 from pathlib import Path
 from typing import NoReturn
 
+from dokimi.utils import InputError, refuse_device
+
 
 def cmd_context_trace(args: argparse.Namespace) -> None:
     """Per-call prompt size, peak, compactions and tool-output weight of one or more traces."""
@@ -172,6 +174,7 @@ def cmd_context_prefilter(args: argparse.Namespace) -> None:
     from dokimi.context.prefilter import build_report, render_table
 
     guidance = Path(args.guidance)
+    refuse_device(guidance, "guidance")
     try:
         text = guidance.read_text(encoding="utf-8", errors="replace")
     except OSError as exc:
@@ -212,9 +215,10 @@ def _read_sessions(names: list[str]) -> tuple[list, bool]:
         unreadable: list = []  # Goose sessions of unreadable messages only: not counted, still reported
         try:
             source = Path(path)
+            refuse_device(source)  # before is_goose_store's header read, which blocks on an idle terminal
             sessions = (read_goose_store(source, unreadable) if is_goose_store(source)
                         else [read_session_tree(source)])
-        except SessionError as exc:  # report it, and still read the sessions that do
+        except (SessionError, InputError) as exc:  # report it, and still read the sessions that do
             print(f"✗ {exc}", file=sys.stderr)
             failed = True
             sessions = []

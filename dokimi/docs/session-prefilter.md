@@ -104,9 +104,9 @@ This slice reads **Claude Code** session logs: JSON lines under
 records merged in time order, so its tool calls count as the agent acting and `**/*.jsonl` still
 gives one session per log; a subagent transcript named without its session log is skipped with a
 warning. A resumed or forked session log repeats the records it continues, with the same
-`uuid`: logs that share a record are read as one session, each record once. A file that cannot be read, or holds
-no prompt and no tool call, is reported and the rest are still read; the exit
-code is 1 when any file failed. A line that is valid JSON but not an object, or a
+`uuid`: logs that share a record are read as one session, each record once. A file that cannot be read, is a
+device (`/dev/zero`: "not a file") or holds no prompt and no tool call, is reported and the rest are still read; the exit
+code is 1 when any file failed. A device as the guidance file exits 2, `guidance <path>: not a file`. A line that is valid JSON but not an object, or a
 record whose message or content has the wrong shape, is reported by line number and
 skipped; summaries and tool results are recognized and not reported.
 

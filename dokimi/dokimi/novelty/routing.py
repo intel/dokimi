@@ -46,7 +46,8 @@ from dokimi.skills import Skill
 from dokimi.utils import InputError, parse_frontmatter
 
 from .catalog_keep import check_keep_copies_under, keep_past_broken_copies, resolve_kept_copies
-from .client import LLMClient, OutputTruncated, parse_json_object
+from .client import LLMClient, OutputTruncated, SpendCapReached, parse_json_object
+from .noise import partial_record, repeat_noise
 
 if TYPE_CHECKING:
     from dokimi.external.validate import SkillReview
@@ -242,6 +243,74 @@ def _as_pick_position(value: object) -> int:
 _RAW_REPLY_CHARS = 2000
 
 
+def _pick_row(base: dict, reply: str, order: list[int], candidates: list[Candidate],
+              gold: int) -> dict:
+    """One model reply as a per-query row: a pick, or an abstention with the raw reply kept.
+
+    A reply that is not a usable pick is the model declining to route, not a transport failure:
+    it stays in the denominator like an explicit abstention, and its raw text is kept so the
+    decline can be read rather than inferred.
+    """
+    try:
+        raw = _as_pick_position(parse_json_object(reply).get("pick", 0))
+    except ValueError:
+        raw = 0
+    if raw < 1 or raw > len(order):
+        return {**base, "picked": None, "abstained": True,
+                "raw_reply": reply[:_RAW_REPLY_CHARS]}
+    chosen = order[raw - 1]
+    return {**base, "picked": candidates[chosen].name,
+            "correct": chosen == gold, "picked_at": raw,
+            "gold_shown_at": order.index(gold) + 1,
+            "order": [candidates[i].name for i in order]}
+
+
+def _ask_once(client, prompt: str, base: dict, order: list[int], candidates: list[Candidate],
+              gold: int) -> tuple[dict | None, str | None]:
+    """One call of the routing loop: its row, and the cap's message when the cap stops the run.
+
+    A call the cap refused has no row; one with no price was paid for, so its reply is scored (a cut one as a decline) and the caller stops.
+    """
+    try:
+        reply = client.text(prompt, accept=partial(_is_pick_reply, n_cards=len(order)),
+                            draw=base["repeat"])
+    except (SpendCapReached, OutputTruncated) as exc:
+        stop = str(exc) if isinstance(exc, SpendCapReached) else None
+        if exc.reply is None:
+            return None, stop
+        if isinstance(exc, OutputTruncated) or exc.truncated:  # cut at the ceiling: a decline, as unparseable is
+            return {**base, "picked": None, "abstained": True, "raw_reply": exc.reply[:_RAW_REPLY_CHARS]}, stop
+        return _pick_row(base, exc.reply, order, candidates, gold), stop
+    except Exception as exc:  # noqa: BLE001 - one failed query must not lose the rest
+        return {**base, "picked": None, "error": str(exc)[:200] or type(exc).__name__}, None
+    return _pick_row(base, reply, order, candidates, gold), None
+
+
+def _ask_query(client, query: str, index_of_query: int, candidates: list[Candidate], gold: int,
+               seed: int, repeats: int) -> tuple[list[dict], str | None]:
+    """The repeats of one query: its rows, and the cap's message when the cap stops the run.
+
+    The card order is seeded per query, and kept across its repeats (see :func:`model_routing`).
+    """
+    shuffler = random.Random(f"{seed}:{index_of_query}:{len(candidates)}")
+    order = list(range(len(candidates)))
+    shuffler.shuffle(order)
+    cards = "\n".join(
+        f"{position + 1}. {candidates[index].card}"
+        for position, index in enumerate(order)
+    )
+    prompt = _SELECT_PROMPT.format(query=query, cards=cards)
+    group: list[dict] = []
+    for repeat in range(repeats):
+        row, stopped = _ask_once(client, prompt, {"query": query, "repeat": repeat},
+                                 order, candidates, gold)
+        if row is not None:
+            group.append(row)
+        if stopped is not None:
+            return group, stopped
+    return group, None
+
+
 def model_routing(
     candidates: list[Candidate], queries: list[str], *, client: LLMClient, gold: int = 0,
     seed: int = 0, repeats: int = 1,
@@ -267,6 +336,13 @@ def model_routing(
         ``noise`` is always an object (see :func:`repeat_noise`). With ``repeats > 1`` it holds
         each query's agreement across its repeats and the run-to-run spread of the selection rate;
         with one repeat ``n_repeats`` is 1 and the agreement and spread fields are ``None``.
+
+        When the client's ``--max-usd`` cap refuses a call, or a call comes back unpriced, the
+        loop stops and the result holds the calls made so far, with ``cap_stop`` (the cap's
+        message). A ``partial`` block (:func:`partial_record`) is added only when planned calls
+        were left unmade (``n_calls`` below queries x repeats). A query stopped between repeats
+        keeps its rows but is left out of ``noise``. Without a cap that trips, there is no
+        ``cap_stop`` key.
     """
     if not 0 <= gold < len(candidates):
         raise ValueError(f"gold index {gold} is outside 0..{len(candidates) - 1}")
@@ -274,49 +350,20 @@ def model_routing(
         raise ValueError(f"repeats must be at least 1, not {repeats}")
     picks: list[dict] = []
     groups: list[list[dict]] = []
+    capped: str | None = None
     for index_of_query, query in enumerate(queries):
-        shuffler = random.Random(f"{seed}:{index_of_query}:{len(candidates)}")
-        order = list(range(len(candidates)))
-        shuffler.shuffle(order)
-        cards = "\n".join(
-            f"{position + 1}. {candidates[index].card}"
-            for position, index in enumerate(order)
-        )
-        prompt = _SELECT_PROMPT.format(query=query, cards=cards)
-        group: list[dict] = []
-        for repeat in range(repeats):
-            base = {"query": query, "repeat": repeat}
-            try:
-                reply = client.text(
-                    prompt, accept=partial(_is_pick_reply, n_cards=len(order)), draw=repeat,
-                )
-            except OutputTruncated as cut:  # cut at the ceiling: a decline, as unparseable is
-                row = {**base, "picked": None, "abstained": True, "raw_reply": cut.reply}
-            except Exception as exc:  # noqa: BLE001 - one failed query must not lose the rest
-                row = {**base, "picked": None, "error": str(exc)[:200] or type(exc).__name__}
-            else:
-                # An unusable pick is a decline, not a failure: an abstention, raw text kept.
-                try:
-                    raw = _as_pick_position(parse_json_object(reply).get("pick", 0))
-                except ValueError:
-                    raw = 0
-                if raw < 1 or raw > len(order):
-                    row = {**base, "picked": None, "abstained": True,
-                           "raw_reply": reply[:_RAW_REPLY_CHARS]}
-                else:
-                    chosen = order[raw - 1]
-                    row = {**base, "picked": candidates[chosen].name,
-                           "correct": chosen == gold, "picked_at": raw,
-                           "gold_shown_at": order.index(gold) + 1,
-                           "order": [candidates[i].name for i in order]}
-            picks.append(row)
-            group.append(row)
-        groups.append(group)
+        group, stopped = _ask_query(client, query, index_of_query, candidates, gold, seed, repeats)
+        picks += group  # the calls already paid for stay in ``picks`` when the cap stops
+        if len(group) == repeats:  # a query stopped half-way is no sample of the repeat noise
+            groups.append(group)
+        if stopped is not None:
+            capped = stopped
+            break
 
     answered = [p for p in picks if "correct" in p]
     hits = sum(1 for p in answered if p["correct"])
     attempted = len(picks) - sum(1 for p in picks if p.get("error"))
-    return {
+    result = {
         "method": "model_choice_over_cards",
         "model": client.model,
         "n_candidates": len(candidates),
@@ -342,67 +389,13 @@ def model_routing(
             "than this. Only a run inside the harness settles that."
         ),
     }
-
-
-def repeat_noise(groups: list[list[dict]], repeats: int | None = None) -> dict:
-    """Agreement across the repeats of each query, and the run-to-run spread of the rate.
-
-    Always returns the same keys. ``n_repeats`` is ``repeats``, else the length of the first
-    group. With one repeat the agreement and spread fields are ``None``; the rate stays in
-    ``selection_rate_by_repeat``.
-
-    A query's agreement is the share of its answered repeats that gave its most common
-    pick; an abstention counts as a pick. ``selection_rate_by_repeat`` reads each repeat as
-    its own run over the same queries, and ``half_range`` is half the gap between the
-    highest and the lowest of those rates. It is a crude sampling noise floor: a few repeats
-    estimate it coarsely, and it says nothing about a change of cards or queries. The
-    per-repeat rates cover only the queries with no failed call in any repeat
-    (``n_queries_compared``), so a transient error does not read as noise.
-
-    Args:
-        groups: One list per query, holding that query's rows in repeat order.
-        repeats: The repeat count the run asked for; ``None`` reads it from ``groups``.
-    """
-    if repeats is None:
-        repeats = len(groups[0]) if groups else 0
-    per_query: list[dict] = []
-    for group in groups:
-        labels = [
-            "(abstained)" if row.get("abstained") else row["picked"]
-            for row in group if not row.get("error")
-        ]
-        modal, agreement = None, None
-        if labels:
-            modal, count = Counter(labels).most_common(1)[0]
-            if repeats > 1:  # one repeat agrees with itself by construction: nothing to measure
-                agreement = round(count / len(labels), 4)
-        per_query.append({
-            "query": group[0]["query"],
-            "modal_pick": modal,
-            "agreement": agreement,
-            "picks": labels,
-            "n_correct": sum(1 for row in group if row.get("correct")),
-        })
-    rates: list[float | None] = []
-    # Every repeat's rate is taken over the same queries: those with no failed call in any
-    # repeat. Dividing each repeat by its own non-errored rows would compare different
-    # denominators and report a transient provider error as sampling noise.
-    complete = [group for group in groups if not any(row.get("error") for row in group)]
-    for repeat in range(repeats):
-        rates.append(round(sum(1 for g in complete if g[repeat].get("correct")) / len(complete), 4)
-                     if complete else None)
-    known = [rate for rate in rates if rate is not None]
-    agreements = [row["agreement"] for row in per_query if row["agreement"] is not None]
-    return {
-        "n_repeats": repeats,
-        "mean_agreement": round(sum(agreements) / len(agreements), 4) if agreements else None,
-        # None, not 0, with one repeat: a count of 0 would read as a stable selector.
-        "unstable_queries": sum(1 for a in agreements if a < 1) if repeats > 1 else None,
-        "selection_rate_by_repeat": rates,
-        "n_queries_compared": len(complete),
-        "half_range": round((max(known) - min(known)) / 2, 4) if len(known) > 1 else None,
-        "per_query": per_query,
-    }
+    if capped is not None:
+        # The stop is kept apart from ``partial``: a stop on the run's last planned call leaves
+        # nothing unmade, but a caller (all-vs-all) still must not ask a later skill unmetered.
+        result["cap_stop"] = capped
+        if len(picks) < len(queries) * repeats:
+            result["partial"] = partial_record(capped, len(picks), len(queries) * repeats)
+    return result
 
 
 # Only spaces indent a fence (a tab is four columns, so it makes indented code), and a

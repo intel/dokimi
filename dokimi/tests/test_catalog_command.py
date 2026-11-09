@@ -338,6 +338,15 @@ def test_catalog_scan_reports_clean_error_on_deeply_nested_skills_manifest(tmp_p
     assert f"invalid skills.yaml at {tmp_path / 'skills.yaml'}" in str(exc_info.value)
 
 
+def test_catalog_scan_names_the_manifest_when_a_value_cannot_be_built(tmp_path):
+    (tmp_path / "skills.yaml").write_text("- name: 2026-99-99\n", encoding="utf-8")
+
+    args = build_parser().parse_args(["catalog", "check", "--root", str(tmp_path), "--kind", "skills"])
+    with pytest.raises(InputError) as exc_info:
+        args.func(args)
+    assert str(exc_info.value).startswith(f"skills.yaml: invalid skills.yaml at {tmp_path / 'skills.yaml'}: ")
+
+
 @pytest.mark.parametrize(
     "content",
     [None, b"\xff\xfe", _DEEP_FRONTMATTER, b"---\nname: 2026-99-99\n---\nbody\n"],

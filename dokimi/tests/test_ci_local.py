@@ -704,3 +704,22 @@ def test_native_gitleaks_at_another_version_is_unsupported_and_keeps_other_check
     assert [call["cmd"][-1] for call in env["calls"]] == ["echo lint"]
     out = capsys.readouterr().out
     assert "unsupported host" in out and other in out
+
+
+@pytest.mark.skipif(sys.platform in ("win32", "darwin"), reason="a CR or a 0xff byte in a file name")
+def test_isolated_env_copies_a_path_with_a_cr_or_a_non_utf8_byte(tmp_path, monkeypatch) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    names = ["a\rb.py", os.fsdecode(b"r\xff.py")]
+    for name in names:
+        (repo / name).write_text("x\n", encoding="utf-8")
+    previous = cl.subprocess.run
+
+    def run(cmd, **kwargs):
+        return subprocess.CompletedProcess(cmd, 0) if cmd[0] == "uv" else previous(cmd, **kwargs)
+
+    monkeypatch.setattr(cl.subprocess, "run", run)
+    monkeypatch.setattr(cl, "REPO", repo)
+    src, _ = cl.make_isolated_env(tmp_path / "iso", PYV)
+    assert sorted(os.listdir(src)) == names

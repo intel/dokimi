@@ -109,9 +109,10 @@ Two fine-print notes:
 
 ## Example results
 
-One skill, four models, same golden question set. The numbers are
-illustrative — the skill and question set they come from are evaluation content
-and are not part of this repository; `cli.py arms run` produces the same table
+**Illustrative example, not a study result.** One skill, four models, same golden
+question set. No experiment record or raw data in this repository backs these
+numbers, so do not cite them as evidence; the skill and question set they come
+from are evaluation content and are not part of this repository; `cli.py arms run` produces the same table
 for your own content (see [evaluating-treatments.md](evaluating-treatments.md)).
 
 | Model | WITH skill | WITHOUT skill | Delta | p-value | Significant? |
@@ -299,8 +300,9 @@ code.
   personas → questions → answers → judge → report. Includes troubleshooting
   and a cost estimate.
 - [runs.md](runs.md) — what the runs have written: `cli.py runs list` lists
-  every artifact under `results/` (or `DOKIMI_RUNS_DIR`) and counts what it
-  skipped, `cli.py runs show` checks one against its schema. No LLM call.
+  every artifact under `results/` (or `DOKIMI_RUNS_DIR`), one run's together,
+  and counts what it skipped, `cli.py runs show` checks one against its schema
+  or lists one run. No LLM call.
 - [user-flow.md](user-flow.md) — the canonical end-to-end path: pick a target,
   preflight, run, then pin the question set so runs stay comparable.
 - [benchmarking-and-comparison.md](benchmarking-and-comparison.md) — how to
