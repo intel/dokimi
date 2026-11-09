@@ -12,7 +12,8 @@ a test can swap the transport for a stub:
    checks that would fail if an answer or run violated each requirement.
 
 A check is one ``evals.json`` row (its id) or one top-level ``test_*`` function under a task's
-``tests/`` (named by the function; a function whose body differs between tasks gets a number).
+``tests/`` (named by the function; a function whose text differs between tasks gets a number). A task check's
+text is the function with the module-level code it reads: its constants, helpers and imports.
 A requirement that no check names is uncovered: it is a *candidate check* to write.
 
 The map is LLM-estimated and unverified beyond a labelled calibration set (88 items: item precision
@@ -133,8 +134,46 @@ def _source(text: str, node: ast.stmt) -> str:
     return "".join(lines[start - 1:node.end_lineno]).rstrip("\n")
 
 
+def _is_test(node: ast.stmt) -> bool:
+    return isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test_")
+
+
+def _reads(node: ast.AST) -> set[str]:
+    """The names a statement reads: its Name nodes, and its parameters (a fixture is read as a parameter)."""
+    return ({n.id for n in ast.walk(node) if isinstance(n, ast.Name)}
+            | {a.arg for a in ast.walk(node) if isinstance(a, ast.arg)})
+
+
+def _binds(node: ast.stmt) -> set[str]:
+    """The names a module-level statement binds: a def or class name, an import, or an assignment target."""
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+        return {node.name}
+    if isinstance(node, (ast.Import, ast.ImportFrom)):
+        return {(a.asname or a.name).split(".")[0] for a in node.names}
+    return {n.id for n in ast.walk(node) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store)}
+
+
+def _context(text: str, tree: ast.Module, test: ast.stmt) -> list[str]:
+    """The module-level code a test reads, in source order: each statement that binds a name the test reads
+    (a constant, a helper, an import, a fixture), and the names that statement reads in turn. Other module code
+    stays out, so a check's source is what decides it and no more."""
+    pool = [(_binds(n), _reads(n), _source(text, n)) for n in tree.body if not _is_test(n)]
+    need = _reads(test)
+    picked: set[int] = set()
+    grew = True
+    while grew:
+        grew = False
+        for i, (bound, reads, _) in enumerate(pool):
+            if i not in picked and bound & need:
+                picked.add(i)
+                need |= reads
+                grew = True
+    return [pool[i][2] for i in sorted(picked)]
+
+
 def _task_checks(root: Path) -> list[tuple[str, str, str]]:
-    """(task, function name, source) for each top-level ``test_*`` function under a task's ``tests/``."""
+    """(task, function name, source) for each top-level ``test_*`` function under a task's ``tests/``. The source
+    is the function with the module-level code it reads (see :func:`_context`)."""
     out: list[tuple[str, str, str]] = []
     for task_dir in sorted(p for p in root.iterdir() if _is_task(p)):
         for path in sorted((task_dir / "tests").glob("*.py")):
@@ -144,9 +183,10 @@ def _task_checks(root: Path) -> list[tuple[str, str, str]]:
             except (OSError, UnicodeDecodeError, SyntaxError, ValueError) as exc:
                 raise ValueError(f"{path}: unreadable test file ({exc})") from exc
             for node in tree.body:
-                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test_"):
+                if _is_test(node):
                     source = _source(text, node) or node.name
-                    out.append((task_dir.name, node.name, source))
+                    context = _context(text, tree, node)
+                    out.append((task_dir.name, node.name, "\n\n".join([*context, source])))
     return out
 
 

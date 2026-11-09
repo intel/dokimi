@@ -176,7 +176,38 @@ def test_a_form_feed_or_unicode_line_separator_above_a_test_does_not_shift_its_s
     for task, answer in (("t1", "1"), ("t2", "2")):  # str.splitlines breaks on \x0c and \u2028; ast does not
         _task(root, task, {"test_answer.py": f"x = 0  # \x0c\u2028\n\ndef test_a(x):\n    assert x == {answer}\n"})
     sources = sorted(c.source for c in sc.load_checks(root))
-    assert sources == ["def test_a(x):\n    assert x == 1", "def test_a(x):\n    assert x == 2"]
+    head = "x = 0  # \x0c\u2028\n\n"  # the module line the test reads (its parameter shadows it)
+    assert sources == [head + "def test_a(x):\n    assert x == 1", head + "def test_a(x):\n    assert x == 2"]
+
+
+def test_identical_task_tests_with_different_module_constants_stay_apart(tmp_path):
+    root = tmp_path / "tasks"
+    for task, flag in (("t1", "-x"), ("t2", "-y")):  # the test body is the same; the constant decides it
+        _task(root, task, {"test_answer.py": f'EXPECTED = "{flag}"\n\ndef test_answer(answer):\n    assert answer == EXPECTED\n'})
+    checks = sc.load_checks(root)
+    assert sorted(c.name for c in checks) == ["test_answer#1", "test_answer#2"]
+    assert sorted(c.units for c in checks) == [("t1",), ("t2",)]
+    for check in checks:
+        flag = "-x" if check.units == ("t1",) else "-y"
+        assert f'EXPECTED = "{flag}"' in check.source  # the value reaches the mapper with its own check
+
+
+def test_a_module_helper_a_test_calls_is_part_of_its_check(tmp_path):
+    root = tmp_path / "tasks"
+    for task, flag in (("t1", "-x"), ("t2", "-y")):
+        _task(root, task, {"test_answer.py": f"def expected():\n    return '{flag}'\n\n"
+                                             "def test_answer(answer):\n    assert answer == expected()\n"})
+    checks = sc.load_checks(root)
+    assert sorted(c.name for c in checks) == ["test_answer#1", "test_answer#2"]
+    assert any("return '-x'" in c.source for c in checks)
+    assert any("return '-y'" in c.source for c in checks)
+
+
+def test_module_code_a_test_does_not_read_stays_out_of_its_check(tmp_path):
+    root = tmp_path / "tasks"
+    _task(root, "t1", {"test_answer.py": "NOISE = 'unrelated'\n\ndef test_answer():\n    assert True\n"})
+    [check] = sc.load_checks(root)
+    assert check.source == "def test_answer():\n    assert True"
 
 
 # --- the two model calls ------------------------------------------------------
