@@ -21,7 +21,8 @@ follow the Agent Skills spec:
   name that is no Claude Code tool (``allowed-tools-unknown``). A body over 500 lines or about
   5000 tokens (characters / 4) is a ``warn`` (``body-too-large``).
 - A file with no frontmatter at all does not load, and its load error says "no frontmatter"
-  rather than "missing a description" (a load error, so no finding; see the loader).
+  rather than "missing a description" (see the loader). Its one finding is
+  ``not-a-skill-no-frontmatter`` (``error``, see :mod:`dokimi.external.no_frontmatter`).
 
 Identical copies: of the skills whose ``SKILL.md`` bytes are the same, the one
 nearest the root (fewest path parts, ties to path order) is the original, the
@@ -87,6 +88,7 @@ from .command_checks import command_findings
 from .content_checks import content_findings
 from .skill_markdown import link_pieces, outside_fences
 from .listing import in_field
+from .no_frontmatter import NO_FRONTMATTER, no_frontmatter_message
 
 NAME_PATTERN = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 NAME_MAX = 64
@@ -164,6 +166,7 @@ FINDING_CODES = (
     "name-format",
     "name-mismatch",
     "name-missing",
+    "not-a-skill-no-frontmatter",
     "not-loaded",
     "path-escapes-skill",
     "permission-bypass-flag",
@@ -412,6 +415,9 @@ def _unloaded_review(entry: SkillCatalogEntry) -> Optional[SkillReview]:
         text = candidate.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         return None  # the loader already reported why the skill did not load
+    lines = text.lstrip("\ufeff").splitlines()
+    if not lines or lines[0].rstrip() != "---":
+        return SkillReview(findings=[Finding("error", NO_FRONTMATTER, no_frontmatter_message(lines, _dir_name_of(candidate.parent)))])
     _, parse_error = _strict_meta(text)
     return None if parse_error is None else SkillReview(findings=[parse_error])
 

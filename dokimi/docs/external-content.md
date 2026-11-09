@@ -232,6 +232,12 @@ order) is the original, the copy the `skill-catalog:` arm offers; each other cop
 names it. Warnings never change the exit code. `disable-model-invocation: true` is printed as a
 `note`, because the model is never offered that skill.
 
+A `SKILL.md` with no frontmatter (plain Markdown, often a README under the
+wrong name) does not load. Its finding, `not-a-skill-no-frontmatter`, holds a
+frontmatter block made from the file's H1 and first paragraph to start from,
+and the summary line counts these apart from the other errors
+(`3 error, of them 2 plain Markdown with no frontmatter`).
+
 The scan also checks the bundle and the description. A relative Markdown link
 to a file the skill does not have is a `warn` (`link-missing`), and says when the
 file exists from the catalog root instead. Example links such as `[Title](URL)`

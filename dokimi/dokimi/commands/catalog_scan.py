@@ -52,6 +52,18 @@ def skill_row(skill, review, nested_in: Optional[str] = None, outputs: Iterable[
     }
 
 
+def is_plain_markdown(row: dict) -> bool:
+    """Whether the row is a ``SKILL.md`` with no frontmatter: plain Markdown, not a broken skill."""
+    from dokimi.external.no_frontmatter import NO_FRONTMATTER
+
+    return any(f["code"] == NO_FRONTMATTER for f in row["findings"])
+
+
+def plain_note(plain: int) -> str:
+    """The summary's note on the errors that are plain Markdown with no frontmatter; empty for none."""
+    return f", of them {plain} plain Markdown with no frontmatter" if plain else ""
+
+
 def skill_dir_digest(entry, outputs: Iterable[Path] = ()) -> Optional[str]:
     """``tree_digest`` of the entry's skill directory by the bytes and mode bits on disk, with no git call.
 
@@ -155,10 +167,12 @@ class _Tally:
     def __init__(self, strict: bool) -> None:
         self.strict = strict
         self.counts = {"ok": 0, "warn": 0, "error": 0}
+        self.plain = 0  # error rows that are plain Markdown with no frontmatter (is_plain_markdown)
         self.failed = False
 
     def add(self, row: dict) -> None:
         self.counts[row["state"]] += 1
+        self.plain += is_plain_markdown(row)
         if row["error"] is not None or (self.strict and row["state"] == "error"):
             self.failed = True
 
@@ -268,7 +282,7 @@ def _print_text(root: Path, declared: int, tally: _Tally, resumed: int,
     counts = tally.counts
     where = f"; {resumed} resumed from {jsonl}" if jsonl is not None and resumed else ""
     print(f"# skills ({declared} declared under {root}; {counts['ok']} ok, {counts['warn']} warn, "
-          f"{counts['error']} error{where})")
+          f"{counts['error']} error{plain_note(tally.plain)}{where})")
     if jsonl is not None:
         print(f"rows written to {jsonl}")
     else:

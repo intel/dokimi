@@ -16,7 +16,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from dokimi.commands.catalog_scan import print_skill_row, skill_row
+from dokimi.commands.catalog_scan import is_plain_markdown, plain_note, print_skill_row, skill_row
 from dokimi.utils import InputError
 
 
@@ -39,6 +39,7 @@ def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bo
     if only is not None and only not in {entry.name for entry in skills}:
         raise InputError(f"no skill named {only!r} under {root}")
     counts = {"ok": 0, "warn": 0, "error": 0}
+    plain = 0
     failed = False
     ignore = frozenset(args.ignore or ())
     for (skill, nested_in), review in zip(pairs, reviews, strict=True):
@@ -46,6 +47,7 @@ def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bo
             continue
         row = skill_row(skill, review, nested_in, ignore=ignore)
         counts[row["state"]] += 1
+        plain += is_plain_markdown(row)
         report["skills"].append(row)
         # A load error always fails; a spec error fails only with --strict.
         if not skill.loaded or (args.strict and row["state"] == "error"):
@@ -54,7 +56,7 @@ def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bo
         shown = f"{sum(counts.values())} of {len(skills)}" if only is not None else f"{len(skills)}"
         print(
             f"# skills ({shown} declared under {root}; "
-            f"{counts['ok']} ok, {counts['warn']} warn, {counts['error']} error)"
+            f"{counts['ok']} ok, {counts['warn']} warn, {counts['error']} error{plain_note(plain)})"
         )
         for row in report["skills"]:
             print_skill_row(row)
@@ -135,6 +137,9 @@ def _check_scan_flags(args: argparse.Namespace) -> None:
         # The skill did not load, so its state is error whatever is ignored: refuse rather than hide the cause.
         raise InputError("--ignore frontmatter-parse: a skill whose frontmatter is not valid YAML does not load, "
                          "and a load error always fails")
+    if "not-a-skill-no-frontmatter" in (args.ignore or ()):
+        raise InputError("--ignore not-a-skill-no-frontmatter: a SKILL.md with no frontmatter does not load, "
+                         "and a load error always fails; use --kind or a narrower --root to leave it out")
     if args.jsonl and args.format == "json":
         raise InputError("--jsonl writes one row per skill to a file; drop --format json")
     if args.resume and not args.jsonl:
