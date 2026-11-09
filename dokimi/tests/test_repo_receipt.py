@@ -14,7 +14,8 @@ import pytest
 from dokimi.artifacts import ArtifactValidationError, validate_artifact
 from dokimi.cli import build_parser
 from dokimi.repos import WorkTree
-from dokimi.repos.receipt import build_receipt, check_receipt_provenance, check_saved_reach, source_digests
+from dokimi.repos.receipt import (build_receipt, check_receipt_provenance, check_saved_guidance, check_saved_reach,
+                                  source_digests)
 from dokimi.repos.reach import ReachError, format_matrix, load_reach
 from tests.test_repo_reach import _profile, _repo
 from tests.cli_refusal import refusal
@@ -145,6 +146,23 @@ def test_other_harnesses_get_no_expectations_and_say_so(tmp_path):
     assert set(src) == {"AGENTS.md", "CLAUDE.md"}  # budget's start-up chain is Claude Code's, so none is added
     assert all(s["expected"] == "unknown" for s in src.values())
     assert any("no source has an expected state for codex" in u for u in receipt["unknowns"])
+
+
+def _declared(reach: dict, **guidance) -> dict:
+    reach["harness"]["declared"] = guidance
+    return reach
+
+
+def test_start_up_rules_follow_the_profile_key_not_the_harness_name(tmp_path):
+    tree = _tree(tmp_path, {"AGENTS.md": "a\n", "CLAUDE.md": "c\n", "sub/AGENTS.md": "s\n", "docs/style.md": "d\n"})
+    records = [_record("AGENTS.md", "cwd=.", "not_loaded")]
+    named = _declared(_reach(records, [ROOT_ROW], harness="my-claude-fork"), claude_displaces_agents=True)
+    src = _sources(build_receipt(named, BUDGET, tree), "cwd=.")
+    assert src["AGENTS.md"]["expected"] is False and src["CLAUDE.md"]["expected"] is True
+    plain = _declared(_reach(records, [ROOT_ROW]), names=["AGENTS.md"])  # claude-code's name, but no key
+    receipt = build_receipt(plain, BUDGET, tree)
+    assert _sources(receipt, "cwd=.")["AGENTS.md"]["expected"] == "unknown"
+    assert any("no source has an expected state for claude-code" in u for u in receipt["unknowns"])
 
 
 def test_a_link_is_an_adapter_with_the_targets_observation(tmp_path):
@@ -417,6 +435,41 @@ def test_from_a_receipt_refuses_an_unpinned_probe_read_against_a_pinned_source(t
         args.func(args)
     err = capsys.readouterr().err
     assert exc.code == 2 and "probed from a working tree (repo.sha is null)" in err
+
+
+def test_from_a_receipt_refuses_a_profile_whose_guidance_changed_since_the_probe(tmp_path, monkeypatch, capsys):
+    live = _pinned(_end_to_end_args(tmp_path, monkeypatch))
+    build_parser().parse_args(live).func(build_parser().parse_args(live))  # the profile sets claude_displaces_agents
+    capsys.readouterr()
+    _profile(tmp_path, name="claude-code", guidance={"names": ["CLAUDE.md", "AGENTS.md"]})  # the key removed since
+    args = build_parser().parse_args(_from_argv(live, "--from", _saved(tmp_path), "--format", "receipt"))
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    err = capsys.readouterr().err
+    assert exc.value.code == 2 and '"claude_displaces_agents": true' in err and "probe again" in err
+    assert not (tmp_path / "out" / "effective_instructions.json").exists()
+    args = build_parser().parse_args(_from_argv(live, "--from", _saved(tmp_path)))  # the matrix reads no guidance
+    args.func(args)
+    assert capsys.readouterr().out == format_matrix(load_reach(tmp_path / "out" / "reach.json")) + "\n"
+
+
+def test_a_saved_probe_is_compared_with_the_profiles_guidance_only_when_it_holds_its_own(tmp_path):
+    reach = _reach([_record("AGENTS.md", "cwd=.", "loaded")], [ROOT_ROW])
+    check_saved_guidance(reach, {"names": ["CLAUDE.md"]})  # saved without harness.declared: nothing to compare
+    reach["harness"]["declared"] = {"names": ["CLAUDE.md"]}
+    check_saved_guidance(reach, {"names": ["CLAUDE.md"]})
+    with pytest.raises(ReachError, match="now declares .*claude_displaces_agents.*probe again"):
+        check_saved_guidance(reach, {"names": ["CLAUDE.md"], "claude_displaces_agents": True})
+
+
+def test_a_saved_probe_accepts_a_profile_whose_guidance_changed_only_in_its_notes():
+    reach = _reach([_record("AGENTS.md", "cwd=.", "loaded")], [ROOT_ROW])
+    reach["harness"]["declared"] = {"names": ["CLAUDE.md"], "notes": "measured on 2.1.286"}
+    check_saved_guidance(reach, {"names": ["CLAUDE.md"], "notes": "measured on 2.1.316 too"})
+    check_saved_guidance(reach, {"names": ["CLAUDE.md"]})  # the notes dropped
+    with pytest.raises(ReachError, match="now declares .*AGENTS.md.*probe again") as exc:
+        check_saved_guidance(reach, {"names": ["CLAUDE.md", "AGENTS.md"], "notes": "measured on 2.1.286"})
+    assert "measured on" not in str(exc.value)
 
 
 def test_a_lazy_guidance_is_expected_only_in_the_subtree_it_activates(tmp_path):

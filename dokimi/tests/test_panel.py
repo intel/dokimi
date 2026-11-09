@@ -354,6 +354,7 @@ def test_evaluate_answers_incremental_save(tmp_path):
     assert out.exists()
     data = json.loads(out.read_text())
     assert data["total_evaluations"] == 2
+    assert data["library_name"] == "oneTBB"
     assert "panel_config" in data
 
 

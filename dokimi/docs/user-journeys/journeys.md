@@ -584,7 +584,7 @@ what exactly differs (the declared change); what else might differ (confounds).
 2. Check inputs before spending (`python cli.py benchmark preflight`).
 3. Run each variant.
 4. Compare: effect, regressions, cost, uncertainty
-   (`python cli.py report model-compare`, `python cli.py compare`,
+   (`python cli.py report model-compare`, `python cli.py docs compare`,
    `python cli.py repo compare`).
 5. Report confounds the comparison detected.
 
