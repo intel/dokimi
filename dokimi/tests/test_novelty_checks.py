@@ -47,6 +47,8 @@ def test_help_identifiers_lists_the_long_options_the_help_lists():
     ("Use `perf report --stdio` instead of `perf report --stdin`.", True),
     ("perf report --stdio # collect with perf record --call-graph dwarf", True),  # a comment
     ("Use `perf report --stdin`, not `perf report --stdio`.", False),  # a positive mention
+    ("Instead of perf script, run `perf report --stdin`.", False),  # the negation is another tool's
+    ("If you don't have symbols, run `perf report --stdin`.", False),  # a clause before it
 ])
 def test_identifiers_check_vetoes_only_unlisted_flags_of_the_tool(answer, passed):
     result = grade_check(_veto(), "q", answer, None)
