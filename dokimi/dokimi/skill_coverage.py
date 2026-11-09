@@ -145,33 +145,76 @@ def _reads(node: ast.AST) -> set[str]:
             | {a.arg for a in ast.walk(node) if isinstance(a, ast.arg)})
 
 
+def _callee(func: ast.expr) -> str:
+    return func.attr if isinstance(func, ast.Attribute) else func.id if isinstance(func, ast.Name) else ""
+
+
+def _decorator(node: ast.stmt, name: str) -> ast.Call | None:
+    """The call of a decorator named ``name`` (``pytest.fixture(...)``, ``pytest.mark.usefixtures(...)``), if any."""
+    for dec in getattr(node, "decorator_list", []):
+        if isinstance(dec, ast.Call) and _callee(dec.func) == name:
+            return dec
+    return None
+
+
 def _binds(node: ast.stmt) -> set[str]:
-    """The names a module-level statement binds: a def or class name, an import, or an assignment target."""
+    """The names a module-level statement binds: a def or class name, a fixture's ``name=`` alias, an import, an
+    assignment target, or the list a method call on a name changes (``EXPECTED.append(...)``)."""
     if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-        return {node.name}
+        names = {node.name}
+        fixture = _decorator(node, "fixture")
+        names |= {kw.value.value for kw in (fixture.keywords if fixture else [])
+                  if kw.arg == "name" and isinstance(kw.value, ast.Constant) and isinstance(kw.value.value, str)}
+        return names
     if isinstance(node, (ast.Import, ast.ImportFrom)):
         return {(a.asname or a.name).split(".")[0] for a in node.names}
-    return {n.id for n in ast.walk(node) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store)}
+    names = {n.id for n in ast.walk(node) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store)}
+    if isinstance(node, ast.Expr) and isinstance(node.value, ast.Call) and isinstance(node.value.func, ast.Attribute):
+        base = node.value.func.value
+        while isinstance(base, ast.Attribute):
+            base = base.value
+        if isinstance(base, ast.Name):
+            names.add(base.id)
+    return names
 
 
-_Stmt = tuple[set[str], set[str], str]  # the names a module-level statement binds and reads, and its source
+_Stmt = tuple[set[str], set[str], str, bool]  # the names a module-level statement binds and reads, its source, and
+                                              # whether it is an autouse fixture (run by every test of its pool)
 
 
 def _pool(text: str, tree: ast.Module) -> list[_Stmt]:
-    return [(_binds(n), _reads(n), _source(text, n)) for n in tree.body if not _is_test(n)]
+    out: list[_Stmt] = []
+    for n in tree.body:
+        if _is_test(n):
+            continue
+        fixture = _decorator(n, "fixture")
+        autouse = fixture is not None and any(kw.arg == "autouse" and isinstance(kw.value, ast.Constant)
+                                              and kw.value.value is True for kw in fixture.keywords)
+        out.append((_binds(n), _reads(n), _source(text, n), autouse))
+    return out
+
+
+def _usefixtures(test: ast.stmt) -> set[str]:
+    """The fixture names a test asks for by string: ``@pytest.mark.usefixtures('name', ...)``, each decorator."""
+    out: set[str] = set()
+    for dec in getattr(test, "decorator_list", []):
+        if isinstance(dec, ast.Call) and _callee(dec.func) == "usefixtures":
+            out |= {a.value for a in dec.args if isinstance(a, ast.Constant) and isinstance(a.value, str)}
+    return out
 
 
 def _context(pool: list[_Stmt], test: ast.stmt) -> list[str]:
     """The module-level code a test reads, in source order: each statement of ``pool`` (the test's file, after the
     ``conftest.py`` of its tests folder) that binds a name the test reads (a constant, a helper, an import, a
-    fixture), and the names that statement reads in turn. Other module code stays out, so a check's source is what
-    decides it and no more."""
-    need = _reads(test)
+    fixture, a list a statement fills), and the names that statement reads in turn. An autouse fixture and a fixture
+    the test names in ``usefixtures`` run for the test without being read, so they are needed too. Other module code
+    stays out, so a check's source is what decides it and no more."""
+    need = _reads(test) | _usefixtures(test) | {name for bound, _, _, autouse in pool if autouse for name in bound}
     picked: set[int] = set()
     grew = True
     while grew:
         grew = False
-        for i, (bound, reads, _) in enumerate(pool):
+        for i, (bound, reads, _, _) in enumerate(pool):
             if i not in picked and bound & need:
                 picked.add(i)
                 need |= reads

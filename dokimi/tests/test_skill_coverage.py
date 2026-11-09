@@ -235,6 +235,70 @@ def test_a_conftest_fixture_a_test_reads_is_part_of_its_check(tmp_path):
     assert all("unrelated" not in c.source for c in checks)  # a fixture the test does not name stays out
 
 
+def test_a_fixture_renamed_by_its_decorator_is_part_of_its_check(tmp_path):
+    root = tmp_path / "tasks"  # the test requests ``answer``; the function is ``supplied_answer``
+    for task, flag in (("t1", "-x"), ("t2", "-y")):
+        _task(root, task, {
+            "conftest.py": "import pytest\n\n@pytest.fixture(name='answer')\n"
+                           f"def supplied_answer():\n    return '{flag}'\n",
+            "test_answer.py": "def test_answer(answer):\n    assert answer\n"})
+    checks = sc.load_checks(root)
+    assert sorted(c.name for c in checks) == ["test_answer#1", "test_answer#2"]
+    assert any("return '-x'" in c.source for c in checks)
+    assert any("return '-y'" in c.source for c in checks)
+
+
+def test_a_module_statement_that_mutates_a_name_the_test_reads_is_part_of_its_check(tmp_path):
+    root = tmp_path / "tasks"  # ``EXPECTED.append`` binds nothing, but it fills the list the test reads
+    for task, flag in (("t1", "-x"), ("t2", "-y")):
+        _task(root, task, {"test_answer.py": f"EXPECTED = []\nEXPECTED.append('{flag}')\n\n"
+                                             "def test_answer(answer):\n    assert answer in EXPECTED\n"})
+    checks = sc.load_checks(root)
+    assert sorted(c.name for c in checks) == ["test_answer#1", "test_answer#2"]
+    assert any("EXPECTED.append('-x')" in c.source for c in checks)
+    assert any("EXPECTED.append('-y')" in c.source for c in checks)
+
+
+def test_an_autouse_fixture_is_part_of_every_check_in_its_folder(tmp_path):
+    root = tmp_path / "tasks"  # the test does not name the fixture: pytest runs it anyway
+    for task, flag in (("t1", "-x"), ("t2", "-y")):
+        _task(root, task, {
+            "conftest.py": "import pytest\n\n@pytest.fixture(autouse=True)\ndef answer_file():\n"
+                           f"    assert '{flag}' in open('/app/answer.txt').read()\n",
+            "test_answer.py": "def test_answer():\n    pass\n"})
+    checks = sc.load_checks(root)
+    assert sorted(c.name for c in checks) == ["test_answer#1", "test_answer#2"]
+    assert any("assert '-x' in" in c.source for c in checks)
+    assert any("assert '-y' in" in c.source for c in checks)
+
+
+def test_a_fixture_named_in_usefixtures_is_part_of_its_check(tmp_path):
+    root = tmp_path / "tasks"  # usefixtures takes the fixture's name as a string
+    for task, flag in (("t1", "-x"), ("t2", "-y")):
+        _task(root, task, {
+            "conftest.py": f"import pytest\n\n@pytest.fixture\ndef flag_file():\n    return '{flag}'\n",
+            "test_answer.py": "import pytest\n\n@pytest.mark.usefixtures('flag_file')\n"
+                              "def test_answer():\n    pass\n"})
+    checks = sc.load_checks(root)
+    assert sorted(c.name for c in checks) == ["test_answer#1", "test_answer#2"]
+    assert any("return '-x'" in c.source for c in checks)
+    assert any("return '-y'" in c.source for c in checks)
+
+
+def test_stacked_usefixtures_decorators_keep_every_fixture_of_their_check(tmp_path):
+    root = tmp_path / "tasks"
+    for task, flag in (("t1", "-x"), ("t2", "-y")):
+        _task(root, task, {
+            "conftest.py": f"import pytest\n\n@pytest.fixture\ndef flag_file():\n    return '{flag}'\n\n"
+                           "@pytest.fixture\ndef other_file():\n    return 0\n",
+            "test_answer.py": "import pytest\n\n@pytest.mark.usefixtures('flag_file')\n"
+                              "@pytest.mark.usefixtures('other_file')\ndef test_answer():\n    pass\n"})
+    checks = sc.load_checks(root)
+    assert sorted(c.name for c in checks) == ["test_answer#1", "test_answer#2"]
+    assert any("return '-x'" in c.source and "def other_file" in c.source for c in checks)
+    assert any("return '-y'" in c.source and "def other_file" in c.source for c in checks)
+
+
 # --- the two model calls ------------------------------------------------------
 
 def test_extract_requirements_numbers_by_section_and_skips_bad_rows(tmp_path):
