@@ -254,13 +254,13 @@ def _git_proc(*args: str) -> process.Completed:
     return proc
 
 
+FIXTURE_DIR = "../../tests/fixtures/artifacts"
+
+
 def _nul_paths(*args: str) -> list[str]:
     """``git <args>``'s ``-z`` listing split on NUL, each path by :func:`os.fsdecode`: a name that is
     not valid UTF-8 comes back as the path that names the file, not with U+FFFD in it."""
     return [os.fsdecode(field) for field in _git_proc(*args).stdout_bytes.split(b"\0")]
-
-
-FIXTURE_DIR ="../../tests/fixtures/artifacts"
 
 
 def _renamed_from(base: str, rel: str) -> str | None:
