@@ -510,7 +510,7 @@ def _describe_deltas(
 
     return {
         "n": len(d),
-        "delta_mean": within(round(d_mean, 2) + 0.0, shown_lo, shown_hi),
+        "delta_mean": within((round(d_mean, 2) or float(f"{d_mean:.2g}")) + 0.0, shown_lo, shown_hi),
         "delta_std": round(d_sd, 2),
         "cohens_d": cohens_d,
         "effect": effect_label(cohens_d),

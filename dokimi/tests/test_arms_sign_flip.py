@@ -64,6 +64,13 @@ def test_a_nan_delta_gets_no_p_and_no_verdict():
     assert (res["p"], res["significant"], res["ci_lo"], res["ci_hi"]) == (None, None, None, None)
 
 
+def test_a_mean_under_a_hundredth_keeps_two_significant_digits():
+    # the mean 0.0035 is 0.0 at 2 places; it prints as 0.0035, not +0.0, beside [-0.002, 0.01]
+    res = stats.paired_test([0.01, -0.002, 0.006, 0.0, 0.004, 0.003], [0.0] * 6)
+    assert res["delta_mean"] == pytest.approx(0.0035)
+    assert res["ci_lo"] <= res["delta_mean"] <= res["ci_hi"]
+
+
 def test_the_displayed_mean_stays_inside_a_narrow_interval():
     # 20.004 at 2 places is 20.0, outside the interval [20.004, 20.004] of a constant shift
     res = stats.paired_test([20.004] * 8, [0.0] * 8)
