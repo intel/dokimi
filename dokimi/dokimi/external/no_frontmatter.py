@@ -29,7 +29,8 @@ def no_frontmatter_message(lines: list[str], dir_name: str) -> str:
     none, or there is no H1), and the description is the first paragraph after it, cut at a word
     near 300 characters. The block is a start: the description still needs a "when" clause.
     """
-    title, paragraph, in_fence = "", [], False
+    title, in_fence = "", False
+    paragraph: list[str] = []
     for line in lines:
         stripped = line.strip().lstrip("\ufeff")
         if stripped.startswith(("```", "~~~")):
