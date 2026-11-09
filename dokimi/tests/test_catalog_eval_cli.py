@@ -820,3 +820,15 @@ def test_an_unreadable_index_of_an_enclosing_repository_is_an_input_error(tmp_pa
     assert done.returncode == 2, done.stderr
     assert "cannot read source state" in done.stderr
 
+
+def test_a_root_at_the_top_of_a_repository_with_an_empty_first_commit_keeps_its_commit(tmp_path):
+    root = _catalog(tmp_path)
+    _git(root, "init", "-q")
+    _git(root, "config", "user.name", "Catalog Test")
+    _git(root, "config", "user.email", "catalog@example.invalid")
+    _git(root, "commit", "-q", "--allow-empty", "-m", "empty")
+    out = tmp_path / "out"
+    done = _run(root, out)
+    assert done.returncode == 0, done.stderr
+    assert json.loads((out / "catalog.json").read_text())["source"]["commit"] == _git(root, "rev-parse", "HEAD")
+
