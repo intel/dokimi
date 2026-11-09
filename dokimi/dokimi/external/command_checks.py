@@ -31,6 +31,8 @@ import shlex
 from pathlib import Path
 from typing import Iterator
 
+from dokimi.skills.loader import VENDORED_DIR_NAMES
+
 from .skill_markdown import CODE_SPAN_RE
 
 BUNDLED_MAX_BYTES = 256 * 1024
@@ -213,7 +215,7 @@ def _is_skill_dir(path: Path) -> bool:
 def _bundled_texts(skill_dir: Path) -> Iterator[tuple[str, str]]:
     """(path relative to the skill, text) of each bundled text file, sorted; SKILL.md is not one of them.
 
-    Symlinks, hidden directories, ``node_modules``, another skill's directory, files over
+    Symlinks, hidden directories, :data:`VENDORED_DIR_NAMES`, another skill's directory, files over
     :data:`BUNDLED_MAX_BYTES` and binary files (a NUL byte in the first 8 KiB) are not read.
     """
     read = 0
@@ -221,7 +223,7 @@ def _bundled_texts(skill_dir: Path) -> Iterator[tuple[str, str]]:
         here = Path(dirpath)
         dirnames[:] = sorted(
             d for d in dirnames
-            if not d.startswith(".") and d != "node_modules" and not _is_skill_dir(here / d)
+            if not d.startswith(".") and d not in VENDORED_DIR_NAMES and not _is_skill_dir(here / d)
         )
         for name in sorted(filenames):
             path = here / name
