@@ -312,7 +312,7 @@ def _reach_from_saved(args: argparse.Namespace) -> None:
     """The matrix or the receipt of a saved reach.json, checked against the source; no harness runs."""
     from dokimi.repos import ManifestError, SourceError, open_source
     from dokimi.repos.harness_profile import ProfileError
-    from dokimi.repos.receipt import check_receipt_provenance, check_saved_reach
+    from dokimi.repos.receipt import check_receipt_provenance, check_saved_guidance, check_saved_reach
     from dokimi.repos.reach import ReachError, format_matrix
     from dokimi.repos.source import SourceArgumentError
 
@@ -334,6 +334,7 @@ def _reach_from_saved(args: argparse.Namespace) -> None:
         check_saved_reach(reach, manifest.id, profile.name, getattr(tree, "sha", None))
         if args.format == "receipt":
             check_receipt_provenance(reach, getattr(tree, "sha", None))
+            check_saved_guidance(reach, profile.guidance)
     except (SourceError, ManifestError, ReachError) as exc:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(_tree_read_exit_code(exc))
