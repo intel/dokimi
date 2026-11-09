@@ -23,6 +23,7 @@ from concurrent.futures import ThreadPoolExecutor
 from html.entities import html5
 from typing import TYPE_CHECKING, Iterator, Optional, Sequence
 from urllib.parse import quote, urlsplit
+from urllib.request import getproxies, proxy_bypass
 
 import httpx
 
@@ -407,7 +408,7 @@ def extract_urls(body: str) -> list[str]:
     for m in _URL_RE.finditer(body):
         if _TEMPLATE_RE.search(m.group()) or body[m.end():m.end() + 1] in ("<", "{", "$"):
             continue
-        destination = m.start() in literal
+        destination = m.start() in literal or m.start() - 1 in literal  # also "](<url>)", which starts after "<"
         autolink = m.start() > 0 and body[m.start() - 1] == "<" and body[m.end():m.end() + 1] == ">"
         url = _clean_url(m.group(), literal=destination or autolink, decode=destination)
         if url is not None and not _placeholder_url(url):
@@ -469,11 +470,17 @@ def _package_finding(client: httpx.Client, eco: str, name: str) -> Optional[Find
                    f"package {name!r} is not on {_REGISTRY[eco]} ({url} returned 404)")
 
 
+def _proxied(url: str) -> bool:
+    """Whether an environment proxy carries ``url``: its resolver failure then names the proxy, not the link."""
+    parts = urlsplit(url)
+    return parts.scheme in getproxies() and not proxy_bypass(parts.hostname or "")
+
+
 def _link_finding(client: httpx.Client, url: str) -> Optional[Finding]:
     try:
         status = _status(client, url)
     except _PROBE_ERRORS as exc:
-        if _is_dns_failure(exc):
+        if _is_dns_failure(exc) and not _proxied(url):
             return Finding("warn", "link-dead", f"link {url} does not resolve (DNS failure)")
         return None
     if status not in _DEAD_LINK_STATUSES:
