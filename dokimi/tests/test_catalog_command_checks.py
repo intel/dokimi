@@ -370,12 +370,6 @@ def test_a_quoted_comparison_specifier_is_still_a_pin(tmp_path):
     assert _found(_review(tmp_path, _fenced("pip install 'requests>=2' > install.log")), "install-unpinned") == []
 
 
-def test_a_quoted_requirement_marker_does_not_hide_the_package(tmp_path):
-    message = _found(_review(tmp_path, _fenced("pip install 'flask; python_version >= \"3.10\"'")),
-                     "install-unpinned")[0].message
-    assert "1 install" in message and "flask" in message
-
-
 @pytest.mark.parametrize("command", [
     "npm install tool@https://example.com/download",
     "npm install tool@git+https://example.com/repo.git",
@@ -386,6 +380,22 @@ def test_a_quoted_requirement_marker_does_not_hide_the_package(tmp_path):
 ])
 def test_a_non_registry_source_or_archive_is_not_counted(tmp_path, command):
     assert _found(_review(tmp_path, _fenced(command)), "install-unpinned") == []
+
+
+def test_a_quoted_requirement_marker_does_not_hide_the_package(tmp_path):
+    message = _found(_review(tmp_path, _fenced("pip install 'flask; python_version >= \"3.10\"'")),
+                     "install-unpinned")[0].message
+    assert "1 install" in message and "flask" in message
+
+
+@pytest.mark.parametrize("command, name", [
+    ("pip install numpy>install.log", "numpy"),
+    ("npm install lodash>install.log", "lodash"),
+    ("npx cowsay>install.log", "cowsay"),
+])
+def test_an_attached_redirect_does_not_hide_the_package(tmp_path, command, name):
+    message = _found(_review(tmp_path, _fenced(command)), "install-unpinned")[0].message
+    assert name in message and "install.log" not in message
 
 
 def test_every_npx_package_selection_is_judged(tmp_path):

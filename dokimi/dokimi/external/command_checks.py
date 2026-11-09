@@ -117,7 +117,12 @@ def _words(rest: str, value_options: frozenset[str]) -> list[str]:
     """
     rest = re.sub(r"\\\r?\n", " ", rest)  # a continued line is the same command
     try:
-        tokens = shlex.split(rest)
+        # punctuation_chars: an unquoted ``>`` or ``<`` is a token of its own, so ``numpy>install.log`` is
+        # ``numpy`` and a redirect; a quoted one stays inside its word
+        lexer = shlex.shlex(rest, posix=True, punctuation_chars=True)
+        lexer.whitespace_split = True
+        lexer.commenters = ""
+        tokens = list(lexer)
     except ValueError:  # an unbalanced quote: split on whitespace, as the words are written
         tokens = rest.split()
     words: list[str] = []
