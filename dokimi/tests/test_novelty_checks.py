@@ -218,3 +218,24 @@ def test_a_check_attaches_to_an_atom_that_names_the_tool_without_an_option():
     atoms = [{"statement": "perf report displays recorded samples", "answer": "perf report"}]
     assert add_checks(atoms, [_veto()], ["perf report"]) == 1
     assert len(atoms[0]["meta"]["grading"]["checks"]) == 1
+
+
+def _judge_fails_check_run(answer: str, checks: list[dict]):
+    atom = Atom(statement="perf report shows text with --stdio", question="How to get text?",
+                answer="perf report --stdio", span_ids=("s1",), meta={"grading": {"checks": checks}})
+    answerer = LLMClient(model="a", transport=lambda p, s: (answer, None))
+    judge = LLMClient(model="b", transport=lambda p, s: (json.dumps({"verdict": None}), None))
+    return run_measurement([atom], build_probes([atom]), "artifact", answerer=answerer,
+                           judge=judge, concurrency=1).runs[0]
+
+
+def test_a_judge_failure_keeps_its_checks_and_a_sufficient_check_does_not_decide_it():
+    sufficient = {"type": "regex", "values": ["--stdio"], "role": "sufficient"}
+    run = _judge_fails_check_run("perf report --stdio", [sufficient])
+    assert (run.verdict, run.verdict_source) == ("error", "judge")
+    assert run.checks and run.checks[0]["passed"] is True
+
+
+def test_a_failed_veto_is_wrong_even_when_the_judge_failed():
+    run = _judge_fails_check_run("perf report --stdin", [_veto()])
+    assert (run.verdict, run.verdict_source) == ("wrong_other", "check")

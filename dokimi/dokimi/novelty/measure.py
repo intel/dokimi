@@ -325,6 +325,7 @@ def run_measurement(
 
     def one(job: tuple[Probe, str]) -> ProbeRun:
         probe, arm = job
+        answered = True
         try:
             response, confidence = _answer(
                 probe.question, contexts.get(arm), answerer,
@@ -333,6 +334,7 @@ def run_measurement(
         except Exception as exc:  # a provider failure is a missing datum, not a wrong answer
             response, confidence = f"<error: {exc}>", None
             verdict = ERRORED
+            answered = False
         else:
             verdict = _grade(probe, response, judge)
         run = ProbeRun(
@@ -340,7 +342,9 @@ def run_measurement(
             question=probe.question, response=response, verdict=verdict,
             confidence=confidence,
         )
-        if probe.grading and verdict != ERRORED:
+        if probe.grading and answered:
+            # The checks run on any answer, even when the judge failed: a failed judge is kept
+            # as its own verdict, and resolve_verdict lets only a veto decide that run.
             run.checks = run_checks(probe.grading, probe.question, response)
             run.judge_verdict = verdict
             run.verdict, run.verdict_source = resolve_verdict(verdict, run.checks)
@@ -377,12 +381,14 @@ def resolve_verdict(judge_verdict: str, checks: list[dict]) -> tuple[str, str]:
     A failed ``veto`` makes the answer ``wrong_other`` whatever the judge said. Otherwise a
     ``sufficient`` check that passed or failed decides (``correct_complete`` or
     ``wrong_other``). Otherwise, ``evidence`` checks only, the judge's verdict stands. An
-    abstention is never overruled into a pass: the answer stated nothing to check.
+    abstention is never overruled into a pass: the answer stated nothing to check. A judge
+    failure (``ERRORED``) is not decided by a ``sufficient`` check: the run stays a missing
+    datum, and only a failed veto makes it ``wrong_other``.
     """
     if any(c["role"] == "veto" and c["passed"] is False for c in checks):
         return "wrong_other", "check"
     decisive = [c["passed"] for c in checks if c["role"] == "sufficient" and c["passed"] is not None]
-    if decisive and judge_verdict != "abstained":
+    if decisive and judge_verdict not in ("abstained", ERRORED):
         return ("correct_complete" if all(decisive) else "wrong_other"), "check"
     return judge_verdict, "judge"
 
