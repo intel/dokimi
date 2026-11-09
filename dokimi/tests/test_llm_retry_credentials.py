@@ -11,15 +11,16 @@ before it sends anything. The rest are the
 messages litellm, openai and google-auth raise, on the class litellm wraps them in.
 """
 
+import os
+
 import litellm
 import pytest
 
 from dokimi import caching
 from dokimi.llm import LLM, is_retryable
 
-CREDENTIAL_ENV = ("OPENAI_API_KEY", "OPENAI_ADMIN_KEY", "OPENAI_API_BASE", "OPENAI_BASE_URL",
-                  "AZURE_API_KEY", "AZURE_OPENAI_API_KEY", "AZURE_OPENAI_AD_TOKEN",
-                  "AZURE_API_BASE", "AZURE_OPENAI_ENDPOINT", "GEMINI_API_KEY", "GOOGLE_API_KEY")
+#: Every variable these routes read a key, token, endpoint or identity from (Azure's Entra ID too).
+CREDENTIAL_ENV_PREFIXES = ("OPENAI_", "AZURE_", "GEMINI_", "GOOGLE_", "VERTEX")
 
 
 @pytest.fixture
@@ -33,8 +34,8 @@ def sleeps(monkeypatch):
 @pytest.fixture
 def no_credentials(monkeypatch):
     """No key in the environment; the real ``litellm.completion`` runs, each call counted."""
-    for var in CREDENTIAL_ENV:
-        monkeypatch.delenv(var, raising=False)
+    for var in [v for v in os.environ if v.startswith(CREDENTIAL_ENV_PREFIXES)]:
+        monkeypatch.delenv(var)
     real, calls = litellm.completion, []
 
     def completion(**kwargs):
