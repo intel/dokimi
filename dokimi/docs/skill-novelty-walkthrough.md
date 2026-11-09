@@ -77,7 +77,8 @@ follows the artifact's length and the models. Pass `--max-usd <n>` to every step
 model: the run stops once its calls across all roles have cost that much (calls already in
 flight can overshoot it), and a call with no known price stops it too,
 since the cap cannot see that spend. A step that stops at the cap writes nothing, except
-`novelty routing`, which saves the calls it made as a `partial` result (see
+`atoms`, `probe` and `novelty routing`, which save the calls they made as a `partial` result (see
+the list below and
 [skill-novelty.md](skill-novelty.md)). One measured pair, a 19k-token skill: triage 103 calls,
 about $1.80; `study` 1,901 calls, about $14.50.
 
