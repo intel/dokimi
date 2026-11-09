@@ -279,13 +279,13 @@ def test_a_single_run_capped_before_any_query_finished_has_an_empty_noise_block(
 
 
 def test_a_command_that_writes_no_partial_still_says_nothing_was_written():
-    from dokimi.commands.novelty import _stops_at_cap
+    from dokimi.commands.novelty_run import stops_at_cap
 
     def command(args):
         raise SpendCapReached("spend cap reached: $1.20 of $1.00 after 2 calls (next call: m)")
 
     with pytest.raises(SystemExit, match="nothing was written"):
-        _stops_at_cap(command)(None)
+        stops_at_cap(command)(None)
 
 
 def test_a_partial_run_skips_a_sidecar_it_cannot_read(tmp_path, monkeypatch):
