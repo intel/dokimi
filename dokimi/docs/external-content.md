@@ -242,7 +242,8 @@ directory name and description but different `SKILL.md` text are a `warn` on bot
 
 The scan also reads the scripts a skill bundles: each `.sh`, `.bash` and `.py` file, and each file that
 starts with `#!`, under the skill directory (a file over 1 MB, and a link out of the directory, is not read).
-Nothing is run or imported. A CRLF line ending in such a script is an `error` (`script-crlf`): bash and a
+A file with a `#!` line and no `.sh`, `.bash` or `.py` suffix is read for CRLF only.
+Nothing is run or imported. A CRLF line ending in a shell script or a `#!` file is an `error` (`script-crlf`): bash and a
 shebang interpreter fail on the carriage return on Linux. A Python file that the running Python's
 `ast.parse` rejects is an `error` (`script-syntax`). So is a shell script that `bash -n` rejects: the text
 goes to bash on stdin with no environment, and only when bash is on PATH; a script whose shebang names
