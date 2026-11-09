@@ -324,7 +324,8 @@ def _usable_items(reply: dict[str, Any], ids: set[str]) -> bool:
     items = reply.get("items")
     if not isinstance(items, dict) or not ids:
         return False
-    return all(isinstance(items.get(rid), list) for rid in ids)
+    return all(isinstance(items.get(rid), list) and all(isinstance(name, str) for name in items[rid])
+               for rid in ids)
 
 
 def catalogue_text(checks: list[Check]) -> str:

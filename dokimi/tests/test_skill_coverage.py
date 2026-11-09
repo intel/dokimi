@@ -553,7 +553,8 @@ def test_the_cache_and_the_guard_refuse_the_same_mappings(tmp_path):
     checks = sc.load_checks(_evals(tmp_path))
     reqs = [sc.Requirement("mh-01", "must_hold", "b"), sc.Requirement("mh-02", "must_hold", "c")]
     unusable = ('{"items": {}}', '{"items": {"zz": ["e1"]}}', '{"items": {"mh-01": null}}',
-                '{"items": {"mh-01": "e2"}}', '{"items": {"mh-01": ["e2"], "mh-02": null}}')
+                '{"items": {"mh-01": "e2"}}', '{"items": {"mh-01": ["e2"], "mh-02": null}}',
+                '{"items": {"mh-01": [{"name": "e1"}], "mh-02": []}}')
     for reply in unusable:
         fake = _Capture(json.loads(reply))
         with pytest.raises(sc.SkillCoverageError, match="no usable mapping"):
