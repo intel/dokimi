@@ -155,6 +155,7 @@ FINDING_CODES = (
     "frontmatter-unknown-key",
     "hidden-unicode",
     "legacy-model-id",
+    "link-dead",
     "link-escapes-skill",
     "link-missing",
     "mirror-drift",
@@ -163,6 +164,7 @@ FINDING_CODES = (
     "name-mismatch",
     "name-missing",
     "not-loaded",
+    "package-not-found",
     "path-escapes-skill",
 )
 
