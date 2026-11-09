@@ -187,7 +187,11 @@ def mean_ci(values, confidence: float = 0.95, seed: int = 0, ndigits: Optional[i
         # bootstrap would report the same thing after 10k pointless resamples.
         return {"mean": _rnd(mu, ndigits), "lo": _rnd(mu, ndigits), "hi": _rnd(mu, ndigits),
                 "n": n, "method": "degenerate"}
-    half = _sp_stats().t.ppf(1.0 - (1.0 - confidence) / 2.0, n - 1) * sd / (n ** 0.5)
+    try:
+        t_crit = _sp_stats().t.ppf(1.0 - (1.0 - confidence) / 2.0, n - 1)
+    except ImportError:  # find_spec sees scipy, but it does not load here (a native dependency)
+        return bootstrap_ci(vals, confidence=confidence, seed=seed, ndigits=ndigits)
+    half = t_crit * sd / (n ** 0.5)
     return {
         "mean": _rnd(mu, ndigits),
         "lo": _rnd(mu - half, ndigits),
