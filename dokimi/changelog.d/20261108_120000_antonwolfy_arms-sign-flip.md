@@ -22,7 +22,9 @@
   `None` where the floor `2 / 2**k` over the k changed pairs is not below 0.05,
   and both interval ends are open (`null`) at 5 or fewer pairs.
   `report model-compare`'s table has one sign-flip p column and a changed-pairs
-  column instead of the t and Wilcoxon columns, and its `t_stat` is gone.
+  column instead of the t and Wilcoxon columns, and its `t_stat` is gone. Its delta and
+  Cohen's d_z cells print a non-zero value that one decimal would print as 0.0 at 2
+  significant digits, so eight +0.04 pairs read `+0.04` beside `OK Yes`, not `0.0`.
   `sign_flip_p`, `min_sign_flip_p`, `ShiftTest`, `sign_flip_interval`, `within`
   and their constants (with one `ALPHA`) moved from `dokimi.repos.compare`,
   `dokimi.repos.compare_interval` and `dokimi.repos.compare_reach` to

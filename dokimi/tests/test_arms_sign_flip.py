@@ -251,6 +251,21 @@ def test_model_compare_prints_one_sign_flip_p_column():
     assert "| **five** | +8.3 | 0.0625 | 0.0625 | 5 of 6 | +2.0 | large | N/A |" in section
 
 
+def test_model_compare_prints_a_small_significant_delta_with_its_sign():
+    def run(delta: float) -> dict:
+        return {"arms": ["baseline", "docs"], "baseline_arm": "baseline", "evaluations": [
+            {"question_id": f"q{i}", "question_text": f"Q{i}",
+             "scores": {"baseline": {"aggregate": 50.0}, "docs": {"aggregate": 50.0 + delta}}} for i in range(8)]}
+
+    text = "\n".join(generate_section_report([("up", run(0.04)), ("down", run(-0.04)), ("tied", run(0.0))],
+                                             ["up", "down", "tied"], "Regular"))
+    section = text.split("## Statistical Significance")[1].split("\n## ")[0]
+    # eight constant ±0.04 shifts: p 2/2^8, Holm over the two runs with a p; one decimal printed 0.0 and -0.0
+    assert "| **up** | +0.04 | 0.0078 | 0.0156 | 8 of 8 | N/A | unknown | OK Yes |" in section
+    assert "| **down** | -0.04 | 0.0078 | 0.0156 | 8 of 8 | N/A | unknown | OK Yes |" in section
+    assert "| **tied** | 0.0 | N/A | N/A | 0 of 8 | 0.0 | negligible | N/A |" in section
+
+
 # CI's static job imports the package with its tools only: config_check and `cli.py repo scan` run without numpy.
 NO_NUMPY = (
     "import importlib.abc, sys\n"
