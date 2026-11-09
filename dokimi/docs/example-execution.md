@@ -40,8 +40,9 @@ metrics:
 
 A `python` block runs on the Python that runs dokimi in the `subprocess` backend,
 and on the image's `python3` in the `docker` backend; `bash` and `sh` blocks run on
-`bash` and `sh`. A custom `docker_image` needs each of them on its `PATH`, or its
-blocks fail with exit code 127.
+`bash` and `sh`. In the container each block runs under `timeout`, so a custom
+`docker_image` needs `timeout` and the interpreters of the languages it runs on its
+`PATH`, or those blocks fail with exit code 127.
 
 ### Why `none` is the default
 
