@@ -202,6 +202,7 @@ class Context:
             "github.event.pull_request.base.ref": base,
             "github.base_ref": base,
             "github.event_name": "pull_request",
+            "github.event.action": "synchronize",
             "matrix.python-version": py,
             "matrix.coverage": "true",
             "runner.temp": str(tmp),
