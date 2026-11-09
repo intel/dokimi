@@ -96,6 +96,7 @@ _OPERATOR_RE = re.compile(r"[;|&()]+")  # a shell operator ends the words of a c
 _DESCRIPTOR_RE = re.compile(r"\d*[<>]&(?:\d+|-)")  # a descriptor duplication (2>&1, >&2, 2>&-): not a file, not a split
 _AMP_REDIRECT_RE = re.compile(r"(?<=[<>])[&|]|&(?=>)")  # the & of >& and <&, the | of >|, the & of &>: one operator
 _REDIRECT_RE = re.compile(r"\d*(?:>>?(?!=)|<<?<?(?!=))")  # an operator at the start of a word: >, 2>>, <, <<<, 2>err.log
+_ATTACHED_REDIRECT_RE = re.compile(r"[<>](?!=)")  # an operator after a word: "lodash>", "lodash>log" (not ">=" or "<=")
 # (not >= or <=: those are version specs)
 
 
@@ -142,6 +143,10 @@ def _without_redirects(words: list[str]) -> list[str]:
             target = True
         elif _REDIRECT_RE.match(tok):
             continue
+        elif attached := _ATTACHED_REDIRECT_RE.search(tok):  # "lodash>" or "lodash>build-log": the name, then the operator
+            if attached.start():
+                kept.append(tok[:attached.start()])
+            target = attached.end() == len(tok)
         else:
             kept.append(tok)
     return kept

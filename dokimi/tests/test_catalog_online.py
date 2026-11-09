@@ -172,6 +172,13 @@ def test_a_hash_comment_with_no_space_after_it_hides_the_rest_of_the_line():
         ("pypi", "requests")]
 
 
+def test_a_redirection_attached_to_the_package_word_keeps_the_package():
+    # The operator is glued to the name ("lodash>"): the name is the package, the word after the operator its target.
+    assert online_checks.extract_packages("npm install lodash> build-log\n") == [("npm", "lodash")]
+    assert online_checks.extract_packages("npx --package=lodash> build-log tool\n") == [("npm", "lodash")]
+    assert online_checks.extract_packages("pip install requests>build-log\n") == [("pypi", "requests")]
+
+
 def test_redirection_operators_and_their_targets_are_not_packages():
     body = (
         "pip install requests > install.log\nnpm install lodash >> log.txt\n"
