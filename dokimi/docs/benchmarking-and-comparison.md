@@ -434,8 +434,8 @@ python cli.py arms run ... --temperature 0 --judge --judge-temperature 0
 Current reasoning models accept only `temperature=1` (litellm refuses any other
 value before the request is sent): Claude Opus 4.7 and later, the 5.x Claude
 models (`claude-haiku-5-5`, `claude-sonnet-5-5`, `claude-opus-5-5`,
-`claude-fable-5-1`, on Anthropic and on Bedrock), and OpenAI `gpt-5`, `gpt-5.5`
-and `gpt-6.1-sol` (`gpt-5.1` and `gpt-5.2` accept a temperature unless a reasoning
+`claude-fable-5-1`, on Anthropic and on Bedrock), and OpenAI `gpt-5`, `gpt-5.5`,
+`gpt-6.1-sol` and `gpt-6-luna` (`gpt-5.1` and `gpt-5.2` accept a temperature unless a reasoning
 effort is set, which dokimi does not do). The run stops at the probe below, before
 any answer is generated, so on these models leave
 `--temperature` and `--judge-temperature` unset. Their sampling cannot be
@@ -945,8 +945,9 @@ An artifact of a registered run kind carries the run's envelope right after its
 
 - `run_id` is made once per process, when it is first needed (a CLI command makes it at start),
   from the UTC time and 8 random hex digits. So every file one process writes shares it: a
-  pipeline's answers and eval, or a catalog run's report, plan and result. `runs list --json` and
-  `runs show` print it.
+  pipeline's answers and eval, or a catalog run's report, plan and result. `runs list` lists the
+  artifacts of one run together, and `runs show RUN_ID` lists one run
+  ([runs.md](runs.md)).
 - `DOKIMI_RUN_ID` gives several commands one id, for example the steps of a CI job. It is 1-128
   letters, digits, `.`, `_` or `-` and starts with a letter or a digit, so it can name a
   directory. Any other value exits 2 before a command runs (`--help` and `--version` still work).

@@ -298,12 +298,8 @@ def test_model_compare_prints_a_small_significant_delta_with_its_sign():
 # CI's static job runs config_check and `cli.py repo scan` without numpy. This imports dokimi.cli, not the cli.py shim
 # (not on sys.path in the wheel jobs): a numpy import in the shim itself fails that job's scan step, not this test.
 NO_NUMPY = (
-    "import importlib.abc, sys\n"
-    "class Block(importlib.abc.MetaPathFinder):\n"
-    "    def find_spec(self, name, path=None, target=None):\n"
-    "        if name.split('.')[0] in ('numpy', 'scipy'):\n"
-    "            raise ModuleNotFoundError(name)\n"
-    "sys.meta_path.insert(0, Block())\n"
+    "import sys\n"
+    "sys.modules['numpy'] = sys.modules['scipy'] = None\n"  # an import fails, find_spec("scipy") is None: as if uninstalled
     "import dokimi.cli, dokimi.config_check\n"
     "from dokimi.eval import stats\n"
     "print(stats.sign_flip_p([1.0] * 6))\n"

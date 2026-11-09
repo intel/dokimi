@@ -53,6 +53,7 @@ instead.
 
 from __future__ import annotations
 
+import importlib.util
 import math
 import random
 from dataclasses import dataclass
@@ -62,13 +63,16 @@ from dokimi.eval.sign_flip import (ALPHA, EPS, METHOD, _rounded, min_sign_flip_p
                                    sign_flip_p, within)
 from dokimi.records import BASELINE, CONTEXT, RecordLike, records
 
-try:
-    from scipy import stats as _sp_stats
+#: Checked without importing scipy, whose OpenBLAS starts a thread per core
+#: (~18 CPU-seconds per dokimi call on a 224-core box); :func:`_sp_stats` imports it.
+HAS_SCIPY = importlib.util.find_spec("scipy") is not None
 
-    HAS_SCIPY = True
-except ImportError:  # pragma: no cover - environment dependent
-    _sp_stats = None
-    HAS_SCIPY = False
+
+def _sp_stats() -> Any:
+    """``scipy.stats``, imported on first use."""
+    from scipy import stats
+
+    return stats
 
 #: Accepted multiple-comparison corrections (see :func:`adjust_pvalues`).
 CORRECTIONS = ("holm", "bh")
@@ -171,7 +175,11 @@ def mean_ci(values, confidence: float = 0.95, seed: int = 0, ndigits: Optional[i
         # bootstrap would report the same thing after 10k pointless resamples.
         return {"mean": _rnd(mu, ndigits), "lo": _rnd(mu, ndigits), "hi": _rnd(mu, ndigits),
                 "n": n, "method": "degenerate"}
-    half = _sp_stats.t.ppf(1.0 - (1.0 - confidence) / 2.0, n - 1) * sd / (n ** 0.5)
+    try:
+        t_crit = _sp_stats().t.ppf(1.0 - (1.0 - confidence) / 2.0, n - 1)
+    except ImportError:  # find_spec sees scipy, but it does not load here (a native dependency)
+        return bootstrap_ci(vals, confidence=confidence, seed=seed, ndigits=ndigits)
+    half = t_crit * sd / (n ** 0.5)
     return {
         "mean": _rnd(mu, ndigits),
         "lo": _rnd(mu - half, ndigits),
