@@ -62,7 +62,7 @@ def _refuse_out_over_input(args: argparse.Namespace, root: Path) -> None:
 
 
 def cmd_eval_coverage(args: argparse.Namespace) -> None:
-    """Print the report; exit 2 on an unreadable input or a bad ``needs`` label, 1 under a floor."""
+    """Print the report; exit 2 on an unreadable input, 1 when a ``needs`` label has problems or under a floor."""
     from dokimi.artifacts import ArtifactValidationError, save_artifact
     from dokimi.eval_coverage import coverage_report, load_graph, read_labels, render_markdown
 
