@@ -302,6 +302,16 @@ def test_patch_arm_records_a_file_it_writes_that_gitignore_hides(toy):
     assert meta["arm_files"] == [".claude/commands/check.md"]
 
 
+@pytest.mark.skipif(os.name == "nt", reason="a carriage return in a file name")
+def test_patch_arm_records_a_file_with_a_carriage_return_in_its_path(toy):
+    patch = toy["tmp"] / "cr.diff"  # git quotes the name in a diff header: "b/a\rb/notes.md"
+    patch.write_text('diff --git "a/a\\rb/notes.md" "b/a\\rb/notes.md"\nnew file mode 100644\n'
+                     '--- /dev/null\n+++ "b/a\\rb/notes.md"\n@@ -0,0 +1 @@\n+notes\n')
+    meta, ws = _prep(toy, f"patch:{patch}")
+    assert (ws / "a\rb" / "notes.md").read_text(encoding="utf-8") == "notes\n"
+    assert meta["arm_files"] == meta["arm_patch"]["added"] == ["a\rb/notes.md"]
+
+
 def _link_commit(toy, branch: str, links: dict[str, str], files: dict[str, str]) -> str:
     """A commit on ``branch`` (from the base) with ``files`` and the symbolic ``links`` (path -> target)."""
     root = toy["root"]

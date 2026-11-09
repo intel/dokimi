@@ -57,6 +57,16 @@ def test_load_spec_skips_minimal_spec(tmp_path):
     assert not is_full_spec(spec)
 
 
+@pytest.mark.parametrize("text", ["version: 2026-99-99\n", "[" * 100000], ids=["bad-date", "deep"])
+def test_schema_check_names_a_spec_whose_yaml_does_not_load(tmp_path, capsys, text):
+    from dokimi import schema_check
+
+    bad = tmp_path / "spec.yaml"
+    bad.write_text(text)
+    assert schema_check.main([str(bad)]) == 1
+    assert f"Invalid YAML in spec file: {bad}: " in capsys.readouterr().err
+
+
 def _make_docs(root: Path) -> None:
     (root / "docs").mkdir()
     (root / "docs" / "a.md").write_text("a")
