@@ -52,7 +52,9 @@ PIPE_TO_SHELL = re.compile(
 PERMISSION_BYPASS = re.compile(
     r"(?<![\w-])--dangerously-skip-permissions(?![\w-])|(?<![\w-])--yolo(?![\w-])|\bbypassPermissions\b"
 )
-WORDS = r"((?:[^\n;&|`#\\]|\\\r?\n|\\[^\n]){0,1000})"  # the rest of the command, bounded like PIPE_TO_SHELL
+# the rest of the command, bounded like PIPE_TO_SHELL; a quoted string is taken whole, so a ``;`` in a quoted
+# requirement marker (``'flask; python_version >= "3.10"'``) does not end the install
+WORDS = r"((?:'[^'\n]*'|\"[^\"\n]*\"|[^\n;&|`#\\]|\\\r?\n|\\[^\n]){0,1000})"
 PIP = re.compile(r"(?<![\w.-])(?:python3?(?:\.\d+)?[ \t]+-m[ \t]+pip|uv[ \t]+pip|pip3?(?:\.\d+)?)[ \t]+install\b" + WORDS)
 NPM = re.compile(r"(?<![\w.-])npm[ \t]+(?:install|i|add)\b" + WORDS)
 NPX = re.compile(r"(?<![\w.-])npx\b" + WORDS)

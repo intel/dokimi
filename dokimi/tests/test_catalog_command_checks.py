@@ -370,6 +370,12 @@ def test_a_quoted_comparison_specifier_is_still_a_pin(tmp_path):
     assert _found(_review(tmp_path, _fenced("pip install 'requests>=2' > install.log")), "install-unpinned") == []
 
 
+def test_a_quoted_requirement_marker_does_not_hide_the_package(tmp_path):
+    message = _found(_review(tmp_path, _fenced("pip install 'flask; python_version >= \"3.10\"'")),
+                     "install-unpinned")[0].message
+    assert "1 install" in message and "flask" in message
+
+
 @pytest.mark.parametrize("command", [
     "npm install tool@https://example.com/download",
     "npm install tool@git+https://example.com/repo.git",
