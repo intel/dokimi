@@ -20,6 +20,7 @@ Usage:
     print(results.summary)
 """
 
+import importlib
 import logging
 import os
 from typing import List, Dict, Any, Optional, Tuple
@@ -31,7 +32,13 @@ from dokimi.records import BASELINE, CONTEXT, RecordLike, records
 
 logger = logging.getLogger(__name__)
 
-_METRICS = ("faithfulness", "answer_relevancy", "context_precision", "context_recall")
+# dokimi metric name -> the ragas 0.3 class that computes it (ragas.metrics).
+_METRICS = {
+    "faithfulness": "Faithfulness",
+    "answer_relevancy": "AnswerRelevancy",
+    "context_precision": "LLMContextPrecisionWithoutReference",
+    "context_recall": "ContextRecall",
+}
 
 
 def _key(provider: str, api_key: Optional[str] = None) -> Optional[str]:
@@ -261,19 +268,8 @@ class RagasEvaluator:
         context_precision is ragas's reference-free variant, named as dokimi names it: dokimi
         sends no reference answer to grade the context against.
         """
-        from ragas.metrics import (
-            AnswerRelevancy,
-            ContextRecall,
-            Faithfulness,
-            LLMContextPrecisionWithoutReference,
-        )
-        classes = {
-            "faithfulness": Faithfulness,
-            "answer_relevancy": AnswerRelevancy,
-            "context_precision": LLMContextPrecisionWithoutReference,
-            "context_recall": ContextRecall,
-        }
-        return classes[name](name=name, llm=self._ragas_llm)
+        ragas_metrics = importlib.import_module("ragas.metrics")
+        return getattr(ragas_metrics, _METRICS[name])(name=name, llm=self._ragas_llm)
 
     def _build_metrics(self) -> list:
         """Instantiate requested RAGAS metric objects."""
