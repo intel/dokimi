@@ -47,8 +47,9 @@ not files. A note is added when the file exists from the catalog root
 instead (a wrong base). Example links such as ``[Title](URL)`` are common, so this is not
 an error and does not fail ``--strict``. A link to a file outside the skill directory is a ``warn``
 (``link-escapes-skill``): it breaks when the skill is installed alone. A ``../`` code span
-naming such a file is ``path-escapes-skill``. Code spans that name no file are not checked,
-and neither are code fences: those are usually examples or paths in the user's own project.
+naming such a file is ``path-escapes-skill``. A code span naming a bundled file the skill does
+not have is ``path-missing`` (see :mod:`dokimi.external.bundle_paths`). Other code spans, and code
+fences, are not checked: those are usually examples or paths in the user's own project.
 
 Descriptions: one with no "when" clause is a ``warn`` (``description-no-when``),
 and so is one whose tokens overlap another skill's at a Jaccard similarity of at least
@@ -86,6 +87,7 @@ from .catalog import SkillCatalogEntry, _within
 from .command_checks import command_findings
 from .content_checks import content_findings
 from .skill_markdown import link_pieces, outside_fences
+from .bundle_paths import LOCATION_SUFFIX_RE, SKILL_DIR_VAR, _exists, _in_checkout, _inside, _resolved, path_missing
 from .listing import in_field
 
 NAME_PATTERN = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
@@ -140,8 +142,6 @@ _ESCAPE_RE = re.compile(r"\\([!-/:-@\[-`{-~])")
 URI_SCHEME_RE = re.compile(r"[A-Za-z][A-Za-z0-9+\-.]*:")
 # After a file, a line or a symbol (``run.py:42``, ``run.py:10-20``, ``run.py:main``): read as the file's name.
 FILE_SUFFIX_RE = re.compile(r"\d+(?:[-:]\d+)?|[A-Za-z_]\w*")
-LOCATION_SUFFIX_RE = re.compile(r":(?:\d+(?:[-:]\d+)?|[A-Za-z_]\w*)$")
-SKILL_DIR_VAR = "${CLAUDE_SKILL_DIR}/"
 
 # Every code a review can report: ``catalog check --ignore`` accepts these and no others.
 # tests/test_catalog_ignore.py reads the emitted codes from the source and fails on any missing here.
@@ -166,6 +166,7 @@ FINDING_CODES = (
     "name-missing",
     "not-loaded",
     "path-escapes-skill",
+    "path-missing",
     "permission-bypass-flag",
     "pipe-to-shell",
 )
@@ -470,33 +471,6 @@ def _file_ref(raw: str, link: bool = False) -> Optional[str]:
     return text
 
 
-def _resolved(path: Path) -> Optional[Path]:
-    """``path`` resolved, or None when the OS refuses the name (a NUL byte, a symlink loop)."""
-    try:
-        return path.resolve()
-    except (OSError, RuntimeError, ValueError):
-        return None
-
-
-def _exists(path: Path) -> bool:
-    """``path.exists()``, where a name the OS refuses (over 255 bytes in one part, say) is absent."""
-    try:
-        return path.exists()
-    except (OSError, ValueError):
-        return False
-
-
-def _inside(path: Path, base: Path) -> bool:
-    """Whether ``path`` lies under ``base`` by its written name, with ``..`` taken away. Reads no file."""
-    return Path(os.path.abspath(path)).is_relative_to(os.path.abspath(base))
-
-
-def _in_checkout(path: Path, source_root: Path) -> Optional[Path]:
-    """``path`` resolved, or None unless it lies in the checkout both as written and where it resolves."""
-    target = _resolved(path) if _inside(path, source_root) else None
-    return target if target is not None and target.is_relative_to(source_root.resolve()) else None
-
-
 def _link_finding(raw: str, skill_dir: Path, source_root: Path, real_dir: Path) -> Optional[Finding]:
     """The finding for one link destination (inline or reference), or None when it is fine."""
     text = _file_ref(raw, link=True)
@@ -545,7 +519,9 @@ def _bundle_findings(skill: Skill, source_root: Path) -> list[Finding]:
     targets, spans = link_pieces(outside_fences(skill.body))
     found = [_link_finding(raw, skill_dir, source_root, real_dir) for raw in targets]
     found += [_span_finding(raw, skill_dir, source_root, real_dir) for raw in spans]
-    return [finding for finding in found if finding is not None]
+    return [finding for finding in found if finding is not None] + [
+        Finding("warn", "path-missing", message) for message in path_missing(spans, skill_dir, source_root, real_dir)
+    ]
 
 
 def _escapes_link(raw: str) -> Finding:

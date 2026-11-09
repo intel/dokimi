@@ -235,7 +235,14 @@ names it. Warnings never change the exit code. `disable-model-invocation: true` 
 The scan also checks the bundle and the description. A relative Markdown link
 to a file the skill does not have is a `warn` (`link-missing`), and says when the
 file exists from the catalog root instead. Example links such as `[Title](URL)`
-are common, so `--strict` does not fail on them. A link, or a `../` code span,
+are common, so `--strict` does not fail on them. A code span that names a file
+under a bundle folder (`scripts/`, `references/`, `assets/`, `templates/`,
+`examples/`, `resources/`), alone or inside a command such as
+`python scripts/run.py`, is a `warn` (`path-missing`) when the skill does not
+have that file. Folders, flat names, placeholders (`scripts/<name>.py`)
+and repo-root paths such as `src/app.py` are not checked, and
+neither are code fences. Some hits are files the skill tells the agent to
+create; `--ignore path-missing` leaves the code out. A link, or a `../` code span,
 that reaches a file outside the skill directory is a `warn`
 (`link-escapes-skill`, `path-escapes-skill`), since it breaks when the skill is
 installed alone. A description with no "when" clause (`use when ...`, `when deploying ...`) is a `warn`
