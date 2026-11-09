@@ -191,3 +191,8 @@ def test_main_exit_code_against_a_real_repository(repo):
     _git(repo, "add", "-A")
     _git(repo, "commit", "-qm", "fragment")
     assert ccf.main(["--base", "main", "--head", "pr"]) == 0
+
+
+def test_main_exits_2_for_a_base_git_cannot_diff(repo, capsys):
+    assert ccf.main(["--base", "no-such-ref", "--head", "pr"]) == 2
+    assert capsys.readouterr().err.startswith("cannot diff no-such-ref...pr: ")

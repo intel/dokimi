@@ -17,6 +17,9 @@ At release time ``scriv collect`` folds the fragments into CHANGELOG.md; see
 
 ``--skip-label`` (the PR carries the ``skip-changelog`` label) bypasses the
 gate, for changes with no user-visible effect.
+
+Exits 1 after an ``::error::`` line when the fragment is missing, 2 when git
+cannot diff ``--base``/``--head``.
 """
 
 from __future__ import annotations
@@ -136,7 +139,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.skip_label:
         print("skip-changelog label present: no changelog fragment required.")
         return 0
-    changed = changed_files(args.base, args.head)
+    try:
+        changed = changed_files(args.base, args.head)
+    except subprocess.CalledProcessError as exc:
+        print(f"cannot diff {args.base}...{args.head}: {exc.stderr.strip()}", file=sys.stderr)
+        return 2
     if not needs_fragment(changed, args.base, args.head):
         print("No change to the package, dokimi/data/ or what pip installs: "
               "no changelog fragment required.")
