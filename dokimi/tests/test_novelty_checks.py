@@ -33,8 +33,8 @@ def _veto(**extra) -> dict:
     return {**identifiers_check("perf report", PERF_HELP), **extra}
 
 
-def test_help_identifiers_lists_long_options_and_help():
-    assert help_identifiers(PERF_HELP) == ["--children", "--help", "--input", "--sort", "--stdio"]
+def test_help_identifiers_lists_the_long_options_the_help_lists():
+    assert help_identifiers(PERF_HELP) == ["--children", "--input", "--sort", "--stdio"]
 
 
 @pytest.mark.parametrize("answer, passed", [
@@ -193,3 +193,10 @@ def test_help_text_does_not_take_a_rejected_help_flag_for_a_listing(tmp_path):
         encoding="utf-8")
     text = help_text(f'"{sys.executable}" "{tool}"')
     assert "--input" in help_identifiers(text)
+
+
+def test_help_is_not_listed_unless_the_help_lists_it():
+    # A parser built with add_help=False has -h only: --help is not a name the tool has.
+    text = "usage: tool [-h] [--input INPUT]\n  -h\n  --input INPUT\n"
+    assert help_identifiers(text) == ["--input"]
+    assert grade_check(identifiers_check("tool", text), "q", "run tool --help", None).passed is False

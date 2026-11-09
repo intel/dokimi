@@ -23,8 +23,6 @@ from dokimi.eval.reference_checks import LONG_FLAG, grade_check
 from dokimi.process import Env, run
 from dokimi.utils import InputError
 
-#: Options every argument parser adds; never listed as an atom's claim.
-_ALWAYS = ("--help",)
 #: A tool's rejection of an argument it does not know, which names that argument (so the
 #: flag matches LONG_FLAG). Exit status does not tell this apart from a listing: some tools
 #: exit nonzero after printing real help.
@@ -54,8 +52,8 @@ def help_text(tool: str, *, timeout: float = 20.0) -> str:
 
 
 def help_identifiers(text: str) -> list[str]:
-    """The long options a help text lists, sorted, ``--help`` included."""
-    return sorted({m.group(1) for m in re.finditer(LONG_FLAG, text)} | set(_ALWAYS))
+    """The long options a help text lists, sorted. ``--help`` only when the text lists it."""
+    return sorted({m.group(1) for m in re.finditer(LONG_FLAG, text)})
 
 
 def identifiers_check(tool: str, text: str, *, version: str | None = None) -> dict:
