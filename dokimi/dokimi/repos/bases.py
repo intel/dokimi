@@ -72,20 +72,8 @@ def check_mcp_configs(git_dir: Any, tasks: list[Any], profile: Any, tools: str) 
 
 def _patch_paths(fields: list[str]) -> set[str]:
     """Every path ``git apply --numstat -z`` names (``fields``, its output split on NUL): ``added<TAB>deleted<TAB>path``,
-    or for a rename an empty path followed by the old and the new one."""
-    paths: set[str] = set()
-    i = 0
-    while i < len(fields):
-        rest = fields[i].split("\t", 2)
-        i += 1
-        if len(rest) < 3:
-            continue
-        if rest[2]:
-            paths.add(rest[2])
-        else:
-            paths.update(f for f in fields[i:i + 2] if f)
-            i += 2
-    return paths
+    one per file, a renamed one by its new name only."""
+    return {rest[2] for rest in (f.split("\t", 2) for f in fields) if len(rest) == 3}
 
 
 def setup_writes_guidance(tree: RepoTree, manifest: RepoManifest, patches: tuple[str, ...]) -> bool:
