@@ -53,6 +53,16 @@ def _rev(atom, arm, verdict):
                     response="r", verdict=verdict)
 
 
+def test_exchanging_two_stage_prompts_changes_the_prompt_digest(monkeypatch):
+    from dokimi.novelty import atoms, needs
+
+    before = prov.prompts_sha256()
+    extract, graph = atoms._EXTRACT_SYSTEM, needs._GRAPH_SYSTEM
+    monkeypatch.setattr(atoms, "_EXTRACT_SYSTEM", graph)
+    monkeypatch.setattr(needs, "_GRAPH_SYSTEM", extract)
+    assert prov.prompts_sha256() != before
+
+
 def test_reversal_resistance_is_reported_per_arm_and_paired():
     runs = [_rev("a", "no_artifact", REVERSED), _rev("a", "full", WRONG),
             _rev("b", "no_artifact", REVERSED), _rev("b", "full", WRONG),

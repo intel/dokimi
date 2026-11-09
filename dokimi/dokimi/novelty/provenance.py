@@ -61,7 +61,7 @@ def prompts_sha256() -> str:
     from . import atoms, classify, measure, needs, probes, retention
 
     mods = (atoms, classify, measure, needs, probes, retention)
-    texts = sorted(v for m in mods for k, v in vars(m).items()
+    texts = sorted(f"{m.__name__}.{k}\0{v}" for m in mods for k, v in vars(m).items()
                    if k.endswith(("_PROMPT", "_SYSTEM")) and isinstance(v, str))
     return "sha256:" + hashlib.sha256("\0".join(texts).encode("utf-8")).hexdigest()
 
