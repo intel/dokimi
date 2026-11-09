@@ -34,6 +34,10 @@ def _trigger(wf: dict) -> dict:
     return wf.get("on") or wf[True]  # PyYAML reads the bare key `on` as True
 
 
+# Whole, not by its parts: "||" for "&&" would post for a failed PR run, or for any successful push run
+POST_IF = "github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.conclusion == 'success'"
+
+
 def test_runs_only_after_cli_interface_and_never_checks_out_code():
     wf = _wf()
     assert set(_trigger(wf)) == {"workflow_run"}
@@ -41,7 +45,7 @@ def test_runs_only_after_cli_interface_and_never_checks_out_code():
     text = WORKFLOW.read_text(encoding="utf-8")
     assert "actions/checkout" not in text
     assert "pull_request_target" not in text
-    assert "github.event.workflow_run.event == 'pull_request'" in wf["jobs"]["post"]["if"]
+    assert wf["jobs"]["post"]["if"] == POST_IF
 
 
 def test_permissions_are_minimal():
@@ -307,8 +311,10 @@ def test_diff_is_fenced_so_links_and_references_do_not_render(tmp_path):
 
 def test_concurrency_is_per_pr_branch_not_per_commit():
     group = _wf()["concurrency"]["group"]
-    assert "head_branch" in group and "head_repository.full_name" in group
-    assert "head_sha" not in group
+    assert re.findall(r"\$\{\{ (.+?) \}\}", group) == [  # each part whole: a run id or a commit in one races two posts
+        "github.workflow", "github.event.workflow_run.head_repository.full_name", "github.event.workflow_run.head_branch"]
+    assert group == ("${{ github.workflow }}-${{ github.event.workflow_run.head_repository.full_name }}"
+                     "-${{ github.event.workflow_run.head_branch }}")
 
 
 OLD_COMMENT = [{"id": 99, "user": {"login": "github-actions[bot]"}, "body": MARKER + "\nold diff"}]
@@ -449,4 +455,4 @@ def test_the_error_comment_is_the_jobs_own_text_not_the_artifacts(tmp_path):
 def test_the_workflow_never_cancels_a_running_post_and_posts_only_after_a_successful_run():
     wf = _wf()
     assert wf["concurrency"]["cancel-in-progress"] is False
-    assert "github.event.workflow_run.conclusion == 'success'" in wf["jobs"]["post"]["if"]
+    assert wf["jobs"]["post"]["if"] == POST_IF
