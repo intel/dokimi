@@ -1,14 +1,14 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""The M3 moves: `catalog list|show --kind`, `skill check`, and `eval tasks generate --from replay` flags."""
+"""The M3 moves: `catalog list|show --kind`, `skill check`, and `eval tasks generate --from replay|prs` flags."""
 
 from __future__ import annotations
 
 import pytest
 
 from dokimi import cli_routes
-from dokimi.cli import build_parser
+from dokimi.cli import build_parser, parse_args
 from dokimi.commands.catalog import cmd_catalog_list, cmd_catalog_show
 from dokimi.utils import InputError
 
@@ -93,6 +93,63 @@ def test_graph_refuses_a_threads_file(tmp_path):
     )
     with pytest.raises(InputError, match="--threads is for --from replay"):
         args.func(args)
+
+
+def test_prs_needs_a_pull_request_file(tmp_path):
+    args = build_parser().parse_args(
+        ["eval", "tasks", "generate", str(tmp_path), "--from", "prs", "--out", str(tmp_path / "t")]
+    )
+    with pytest.raises(InputError, match="--from prs needs --prs FILE"):
+        args.func(args)
+
+
+@pytest.mark.parametrize("source", [["--from", "graph", "--index", "i.scip"], ["--from", "replay", "--threads", "t.json"]])
+def test_graph_and_replay_refuse_a_pull_request_file(tmp_path, source):
+    args = build_parser().parse_args(
+        ["eval", "tasks", "generate", str(tmp_path), *source, "--prs", "p.json", "--out", str(tmp_path / "t")]
+    )
+    with pytest.raises(InputError, match="--prs is for --from prs"):
+        args.func(args)
+
+
+def test_replay_refuses_max_lines(tmp_path):
+    args = build_parser().parse_args(
+        ["eval", "tasks", "generate", str(tmp_path), "--from", "replay", "--threads", "t.json",
+         "--max-lines", "400", "--out", str(tmp_path / "t")]
+    )
+    with pytest.raises(InputError, match="--max-lines is for --from prs"):
+        args.func(args)
+
+
+def test_prs_refuses_a_threads_file(tmp_path):
+    args = build_parser().parse_args(
+        ["eval", "tasks", "generate", str(tmp_path), "--from", "prs", "--prs", "p.json", "--threads", "t.json",
+         "--out", str(tmp_path / "t")]
+    )
+    with pytest.raises(InputError, match="--threads is for --from replay"):
+        args.func(args)
+
+
+def test_prs_takes_the_manifest_flags_and_builds_with_the_default_size_limit(tmp_path, monkeypatch):
+    from dokimi.commands import repo_run
+
+    seen = {}
+    monkeypatch.setattr(repo_run, "cmd_repo_tasks_authoring", lambda args: seen.update(vars(args)))
+    args = build_parser().parse_args(
+        ["eval", "tasks", "generate", str(tmp_path), "--from", "prs", "--prs", "p.json", "--manifest", "m.yaml",
+         "--manifest-file", "local.yaml", "--prompt-file", "p.txt", "--out", str(tmp_path / "t")]
+    )
+    args.func(args)
+    assert (seen["prs"], seen["manifest"], seen["manifest_file"], seen["prompt_file"]) == (
+        "p.json", "m.yaml", "local.yaml", "p.txt")
+    assert seen["max_lines"] == 400 and seen["window"] is None
+
+
+def test_repo_tasks_authoring_is_no_longer_a_command(capsys):
+    with pytest.raises(SystemExit) as exc:
+        parse_args(["repo", "tasks", "authoring", "src", "--prs", "p.json", "--out", "t"])
+    assert exc.value.code == 2
+    assert not capsys.readouterr().err.startswith("moved:")  # never released: no tombstone
 
 
 @pytest.mark.parametrize(

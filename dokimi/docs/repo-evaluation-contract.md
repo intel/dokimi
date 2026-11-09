@@ -818,7 +818,7 @@ the change adds) shows nothing. So a task whose oracle run skips a case (a platf
 code with the run dir writable, as a repository's `grade` does, so a run that rewrites the
 report is not detected. Its `oracle` copies `reference/` over the workspace as
 `dokimi:typecheck`'s does and then deletes each `reference_deleted` path, refusing one reached
-through a symbolic link. `repo tasks authoring` writes these tasks (§4.8).
+through a symbolic link. `eval tasks generate --from prs` writes these tasks (§4.8).
 
 `manifest.json` is `{"seeds": [{id, class, file, lines, kw}], "decoys":
 [{id, file, lines, kw}]}`; `file` `"*"` matches any file, and `kw` is a
@@ -1115,7 +1115,7 @@ of the tree; 1 when no target gave a task, a task cannot be written, or the sour
 ### 4.8 Authoring tasks from merged pull requests
 
 Review replay (§4.6) measures guidance for reviewing; most guidance is read while writing code.
-`repo tasks authoring` writes `dokimi:hidden_tests` tasks (§4.5) from merged pull requests: the
+`eval tasks generate --from prs` writes `dokimi:hidden_tests` tasks (§4.5) from merged pull requests: the
 agent gets the PR's title and description, the PR's own tests are held out of the workspace
 and run at grade time, and the rest of the PR's diff is the oracle. Like replay it makes no
 GitHub call and reads the history with git.
@@ -1123,7 +1123,7 @@ GitHub call and reads the history with git.
 ```bash
 gh api graphql --paginate --slurp -F query=@authoring-prs.graphql \
     -F q='repo:intel/dokimi is:pr is:merged merged:2026-10-01..2026-10-27' > prs.json
-python cli.py repo tasks authoring ~/dokimi --prs prs.json --out ~/dokimi/.agent-eval/tasks
+python cli.py eval tasks generate ~/dokimi --from prs --prs prs.json --out ~/dokimi/.agent-eval/tasks
 ```
 
 ```graphql
@@ -2220,7 +2220,7 @@ python cli.py repo hits judge repo-runs/replay --judge openai/gpt-5.1 --labels l
 
 ```bash
 # authoring tasks from merged PRs (§4.8): no LLM, no docker, no GitHub call; the manifest needs entry_points.test
-python cli.py repo tasks authoring ~/dokimi --prs prs.json --out ~/dokimi/.agent-eval/tasks
+python cli.py eval tasks generate ~/dokimi --from prs --prs prs.json --out ~/dokimi/.agent-eval/tasks
 python cli.py eval check ~/dokimi --task authoring_pr405   # base fails, oracle passes, twice each
 python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric pass_share
 ```

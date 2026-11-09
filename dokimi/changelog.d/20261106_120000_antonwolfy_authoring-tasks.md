@@ -1,6 +1,6 @@
 ### Added
 
-- **`repo tasks authoring` builds authoring tasks from merged pull requests** — review replay measures
+- **`eval tasks generate --from prs` builds authoring tasks from merged pull requests** — review replay measures
   guidance for reviewing; these tasks measure it for writing code. From the same kind of file
   `gh api graphql` writes (with `body` and `createdAt`), one `authoring_pr<number>/` task per merged PR:
   `base` is the merge base of its head with `mergeCommit^1`, the prompt is its title and description
