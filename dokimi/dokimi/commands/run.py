@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""run and compare subcommands."""
+"""docs check and docs compare subcommands."""
 
 from __future__ import annotations
 

@@ -2,7 +2,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""CLI for dokimi: run, compare, report."""
+"""CLI for dokimi: docs check, docs compare, report."""
 
 from __future__ import annotations
 
