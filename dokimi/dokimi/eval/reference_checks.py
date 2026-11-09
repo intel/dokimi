@@ -351,8 +351,12 @@ def _identifiers(check: Mapping[str, Any], answer: str) -> tuple[Optional[bool],
     # Both scans share one deadline, as the regex check does: a pathological pattern is unscored.
     deadline = time.monotonic() + REGEX_TIMEOUT
     try:
-        scopes = ([m.group(0) for m in regex.finditer(str(within), answer, timeout=_left(deadline))]
-                  if within else [answer])
+        if within:
+            # A mention the answer negates or warns against (``do not use --x``) is no claim to veto.
+            scopes = [m.group(0) for m in regex.finditer(str(within), answer, timeout=_left(deadline))
+                      if not _negated_before(answer, m.start())]
+        else:
+            scopes = [answer]
         unknown: list[str] = []
         for scope in scopes:
             for m in regex.finditer(pattern, scope, timeout=_left(deadline)):
@@ -371,6 +375,15 @@ def _identifiers(check: Mapping[str, Any], answer: str) -> tuple[Optional[bool],
     if unknown:
         return False, "not in source: " + ", ".join(unknown[:10])
     return True, "" if scopes else "nothing to check"
+
+
+_NEGATED = re.compile(r"(?i)\bnot\b|n't\b|\bnever\b|\bno\b|\bavoid\w*|\bwithout\b|\binstead of\b|\brather than\b")
+
+
+def _negated_before(answer: str, start: int) -> bool:
+    """Whether the sentence that ends at ``start`` negates or warns against what follows it."""
+    sentence = re.split(r"[.;!?\n]", answer[:start])[-1]
+    return _NEGATED.search(sentence) is not None
 
 
 def _left(deadline: float) -> float:

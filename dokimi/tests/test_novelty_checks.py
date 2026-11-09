@@ -43,6 +43,10 @@ def test_help_identifiers_lists_the_long_options_the_help_lists():
     ("Use `perf record --call-graph dwarf` then read it.", True),  # another command: not checked
     ("No command line at all.", True),
     ("`perf report foo --stdin`", True),  # a positional first: not checked, conservative
+    ("Do not use `perf report --stdin`; use `perf report --stdio`.", True),  # a negated mention
+    ("Use `perf report --stdio` instead of `perf report --stdin`.", True),
+    ("perf report --stdio # collect with perf record --call-graph dwarf", True),  # a comment
+    ("Use `perf report --stdin`, not `perf report --stdio`.", False),  # a positive mention
 ])
 def test_identifiers_check_vetoes_only_unlisted_flags_of_the_tool(answer, passed):
     result = grade_check(_veto(), "q", answer, None)

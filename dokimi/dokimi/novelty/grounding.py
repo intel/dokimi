@@ -60,7 +60,7 @@ def identifiers_check(tool: str, text: str, *, version: str | None = None) -> di
     """An ``identifiers`` veto for ``tool``'s command lines, from its help ``text``.
 
     ``within`` limits the check to the rest of a line where the tool's name is followed
-    directly by an option. A flag of another command, or of a subcommand (``perf`` then
+    directly by an option, up to a shell comment (``#``). A flag of another command, or of a subcommand (``perf`` then
     ``report``), is then not judged against this help: give each subcommand as its own tool.
     """
     head = r"\s+".join(re.escape(word) for word in shlex.split(tool))
@@ -69,7 +69,7 @@ def identifiers_check(tool: str, text: str, *, version: str | None = None) -> di
         source["version"] = version
     return {
         "type": "identifiers", "tier": "verifiable", "role": "veto",
-        "within": r"(?<![\w/-])" + head + r"(?=\s+-)[^\n`|;&]*",
+        "within": r"(?<![\w/-])" + head + r"(?=\s+-)[^\n`|;&#]*",
         "known": help_identifiers(text),
         "source": source,
     }
