@@ -764,20 +764,17 @@ def test_a_name_under_a_root_directory_stays_a_path_when_a_workflow_uses_the_sam
     assert got[("AGENTS.md", "tools/gone")] == ("fail", "tools/ exists but tools/gone does not")
 
 
-@pytest.mark.parametrize("link, verdict", [
-    ("src/pkg", ("unresolved", "tried owner/name")),  # judged as a path: no Action reading
-    ("src/pkg/x", ("ok", "used by .github/workflows/ci.yml")),  # a link to a file is no directory
-    (None, ("fail", "owner/ exists but owner/name does not")),  # a real `owner/` beside it
+@pytest.mark.parametrize("links, verdict", [
+    ({"owner": "src/pkg"}, ("unresolved", "tried owner/name")),  # judged as a path: no Action reading
+    ({"owner": "src/pkg/x"}, ("ok", "used by .github/workflows/ci.yml")),  # a link to a file is no directory
+    ({}, ("fail", "owner/ exists but owner/name does not")),  # a real `owner/` beside it (`owner/keep`)
 ])
-def test_a_root_link_to_a_directory_keeps_a_used_action_name_below_it_a_path(tmp_path, link, verdict):
+def test_a_root_link_to_a_directory_keeps_a_used_action_name_below_it_a_path(tmp_path, links, verdict):
     """https://github.com/intel/dokimi/issues/483: a root link `owner` to a directory is the `owner/` a checkout makes."""
-    files = {"src/pkg/x": "", ".github/workflows/ci.yml": "jobs:\n  x:\n    steps: [{uses: owner/name@v1}]\n"}
-    if link:
-        (tmp_path / "r").mkdir()
-        (tmp_path / "r/owner").symlink_to(link)
-    else:
-        files["owner/keep"] = ""
-    assert _by_file(_scan(tmp_path, "Run `owner/name`.\n", files))[("AGENTS.md", "owner/name")] == verdict
+    files = {"AGENTS.md": "Run `owner/name`.\n", "ev/tasks/t/task.json": "{}", "src/pkg/x": "",
+             ".github/workflows/ci.yml": "jobs:\n  x:\n    steps: [{uses: owner/name@v1}]\n"}
+    tree = _linked_repo(tmp_path / "r", files if links else {**files, "owner/keep": ""}, links)
+    assert _by_file(scan_repo(tree, _manifest()))[("AGENTS.md", "owner/name")] == verdict
 
 
 def test_a_used_action_inside_a_submodule_keeps_the_submodule_verdict(tmp_path):
