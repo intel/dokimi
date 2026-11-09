@@ -18,7 +18,10 @@ follow the Agent Skills spec:
 - The frontmatter is valid YAML (``frontmatter-parse``, ``error``).
 - A frontmatter key that neither the spec nor Claude Code names is a ``warn``
   (``frontmatter-unknown-key``, see :data:`FRONTMATTER_KEYS`), and so is an ``allowed-tools``
-  name that is no Claude Code tool (``allowed-tools-unknown``). A body over 500 lines or about
+  name that is no Claude Code tool (``allowed-tools-unknown``). An ``allowed-tools`` that grants
+  ``Bash`` for every command (``Bash`` with no pattern, or ``Bash(*)``) is a ``warn``
+  (``allowed-tools-unrestricted-bash``); its message names a ``pipe-to-shell`` or
+  ``permission-bypass-flag`` hit in the same skill. A body over 500 lines or about
   5000 tokens (characters / 4) is a ``warn`` (``body-too-large``).
 - A file with no frontmatter at all does not load, and its load error says "no frontmatter"
   rather than "missing a description" (a load error, so no finding; see the loader).
@@ -84,6 +87,7 @@ from dokimi.utils import describe_yaml_error, parse_frontmatter_strict
 
 from .catalog import SkillCatalogEntry, _within
 from .command_checks import command_findings
+from .allowed_tools import RISKY_COMMAND_CODES, _tool_names, grants_unrestricted_bash, unrestricted_bash_message
 from .content_checks import content_findings
 from .skill_markdown import link_pieces, outside_fences
 from .listing import in_field
@@ -147,6 +151,7 @@ SKILL_DIR_VAR = "${CLAUDE_SKILL_DIR}/"
 # tests/test_catalog_ignore.py reads the emitted codes from the source and fails on any missing here.
 FINDING_CODES = (
     "allowed-tools-unknown",
+    "allowed-tools-unrestricted-bash",
     "body-too-large",
     "description-near-duplicate",
     "description-no-when",
@@ -215,75 +220,6 @@ def _strict_meta(text: str) -> tuple[dict, Optional[Finding]]:
     return meta, None
 
 
-def _group_end(value: str, start: int, quotes: bool = True) -> Optional[int]:
-    """The index just past the ``)`` that closes the ``(`` at ``start``, or None when the group never closes.
-
-    Nested parentheses count. With ``quotes``, quoted text inside the group is opaque, so a ``)`` in quotes does
-    not close it; a quote that never closes makes the group fail, and the caller reads that quote as a plain
-    character (``Bash(echo don't)``) with ``quotes=False``.
-    """
-    depth, quote = 0, ""
-    for i in range(start, len(value)):
-        c = value[i]
-        if quote:
-            if c == quote:
-                quote = ""
-        elif quotes and c in "\"'":
-            quote = c
-        elif c == "(":
-            depth += 1
-        elif c == ")":
-            depth -= 1
-            if depth == 0:
-                return i + 1
-    return None
-
-
-def _group_end_checked(value: str, start: int, quotes: bool) -> tuple[Optional[int], bool]:
-    """``(_group_end(...), quotes still on)``. A quote that never closes switches quotes off for the rest of
-    the value: that is one failed quoted scan at most, so the whole value is read in linear time."""
-    if quotes:
-        end = _group_end(value, start)
-        if end is not None:
-            return end, True
-    return _group_end(value, start, quotes=False), False
-
-
-def _tool_names(value: str) -> list[str]:
-    """The tool name of each entry of one ``allowed-tools`` string, in one pass over it.
-
-    Entries are split on whitespace and commas. A ``(pattern)`` after a name is consumed whole (see
-    :func:`_group_end`). A group that never closes runs to the end of the string: its tool name is kept,
-    its pattern is not read, and the scan stops. Quoting is a heuristic, and a stray quote can hide the entries between two quotes or
-    leave a junk name such as ``")"`` (warn-only, and rare).
-    """
-    names: list[str] = []
-    i, n = 0, len(value)
-    quotes = True
-    while i < n:
-        c = value[i]
-        if c.isspace() or c == ",":
-            i += 1
-            continue
-        if c == "(":  # a pattern with no tool name: skipped
-            end, quotes = _group_end_checked(value, i, quotes)
-            if end is None:
-                break
-            i = end
-            continue
-        j = i
-        while j < n and not (value[j].isspace() or value[j] in ",("):
-            j += 1
-        names.append(value[i:j])
-        i = j
-        if i < n and value[i] == "(":
-            end, quotes = _group_end_checked(value, i, quotes)
-            if end is None:
-                break
-            i = end
-    return names
-
-
 def _unknown_tools(allowed: object) -> list[str]:
     """The names in an ``allowed-tools`` value (a comma or space list, or a YAML list) that Claude Code has no tool of.
 
@@ -310,6 +246,24 @@ def _body_findings(skill: Skill) -> list[Finding]:
             f"{BODY_MAX_LINES} lines or {BODY_MAX_TOKENS} tokens. Move the detail into bundled files.",
         )
     ]
+
+
+def _tool_findings(allowed: object) -> list[Finding]:
+    """``allowed-tools-unknown`` and ``allowed-tools-unrestricted-bash`` for an ``allowed-tools`` value."""
+    findings: list[Finding] = []
+    unknown_tools = sorted(set(_unknown_tools(allowed)))
+    if unknown_tools:
+        findings.append(
+            Finding(
+                "warn",
+                "allowed-tools-unknown",
+                f"allowed-tools names {', '.join(map(repr, unknown_tools))}, which are not Claude Code "
+                "tools (mcp__ tools are not checked; in Tool(pattern) only the tool name is checked)",
+            )
+        )
+    if grants_unrestricted_bash(allowed):
+        findings.append(Finding("warn", "allowed-tools-unrestricted-bash", unrestricted_bash_message([])))
+    return findings
 
 
 def _frontmatter_findings(skill: Skill, *, at_root: bool = False) -> tuple[list[Finding], bool]:
@@ -370,16 +324,7 @@ def _frontmatter_findings(skill: Skill, *, at_root: bool = False) -> tuple[list[
                 "field is named; a typo, or a field no harness reads",
             )
         )
-    unknown_tools = sorted(set(_unknown_tools(meta.get("allowed-tools"))))
-    if unknown_tools:
-        findings.append(
-            Finding(
-                "warn",
-                "allowed-tools-unknown",
-                f"allowed-tools names {', '.join(map(repr, unknown_tools))}, which are not Claude Code "
-                "tools (mcp__ tools are not checked; in Tool(pattern) only the tool name is checked)",
-            )
-        )
+    findings += _tool_findings(meta.get("allowed-tools"))
     # Read as the skill arm reads it (dokimi.harnesses.skill_treatment.check_skill).
     hidden = str(meta.get("disable-model-invocation", "")).strip().lower() in (
         "1",
@@ -724,6 +669,12 @@ def review_skills(
             Finding("warn", code, message)
             for code, message in command_findings(skill.path, at_root=at_root and not standalone)
         ]
+        risky = sorted({f.code for f in review.findings if f.code in RISKY_COMMAND_CODES})
+        if risky:  # name the risky commands in the grant's finding: they run with no prompt
+            review.findings = [
+                Finding(f.level, f.code, unrestricted_bash_message(risky)) if f.code == "allowed-tools-unrestricted-bash" else f
+                for f in review.findings
+            ]
         review.findings += [
             Finding("warn", code, message)
             for code, message in content_findings(skill, at_root=at_root and not standalone)
