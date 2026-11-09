@@ -16,6 +16,7 @@ import ast
 import json
 import os
 import re
+import shlex
 import shutil
 import warnings
 from collections import Counter
@@ -164,12 +165,19 @@ def _shebang_words(data: bytes) -> Optional[list[str]]:
 
 
 def _env_command(args: list[str]) -> list[str]:
-    """What ``env`` runs: its options (``-u`` and ``-C`` take an operand; ``-S`` splits what follows) and the
-    ``NAME=value`` words before the command are skipped."""
+    """What ``env`` runs: its options (``-u`` and ``-C`` take an operand) and the ``NAME=value`` words before the
+    command are skipped. ``-S`` takes the rest of the line as one string that env splits like a shell does, so its
+    quotes group words; a string that does not split is not a command ``env`` runs, so it gives nothing."""
     i = 0
     while i < len(args):
         if args[i] in ENV_OPERAND_OPTIONS:
             i += 2
+        elif args[i].startswith("-S"):
+            text = " ".join(([args[i][2:]] if len(args[i]) > 2 else []) + args[i + 1:])
+            try:
+                return _env_command(shlex.split(text))
+            except ValueError:  # an unclosed quote
+                return []
         elif args[i].startswith("-") or "=" in args[i]:
             i += 1
         else:

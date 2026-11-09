@@ -296,6 +296,9 @@ def test_review_skill_dir_checks_the_scripts_of_a_skill_reviewed_alone(tmp_path,
     b"#!/usr/bin/env -S -u BASH_ENV bash",
     b"#!/usr/bin/env -S FOO=bar bash",
     b"#!/usr/bin/env FOO=bar bash",
+    b"#!/usr/bin/env -S 'bash' -eu",
+    b'#!/usr/bin/env -S "bash" -eu',
+    b"#!/usr/bin/env -S'bash' -eu",
 ])
 def test_env_options_and_assignments_do_not_hide_the_shell(tmp_path, shebang):
     skill = _bundle(tmp_path, {"run.sh": shebang + b"\nif true; then\n"})
@@ -305,6 +308,14 @@ def test_env_options_and_assignments_do_not_hide_the_shell(tmp_path, shebang):
 
     assert [code for _, code, _ in findings] == ["script-syntax"]
     assert len(runner.calls) == 1
+
+
+def test_an_env_s_string_with_an_unclosed_quote_is_not_checked_as_bash(tmp_path):
+    skill = _bundle(tmp_path, {"run.sh": b"#!/usr/bin/env -S 'bash -eu\nif true; then\n"})
+    runner = process.FakeRunner()
+
+    assert script_findings(skill, which=_tools("bash"), runner=runner) == []
+    assert runner.calls == []
 
 
 def test_a_shebang_shopt_that_changes_parsing_is_given_to_bash_n(tmp_path):
