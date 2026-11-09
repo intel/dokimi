@@ -377,8 +377,8 @@ def _identifiers(check: Mapping[str, Any], answer: str) -> tuple[Optional[bool],
 _NEGATED = re.compile(r"(?i)\bnot\b|n't\b|\bnever\b|\bno\b|\bavoid\w*|\bwithout\b|\binstead of\b|\brather than\b")
 #: An option with an assigned value (``--input=--stdin``): the value is a file name, not an option.
 _ASSIGNED = re.compile(r"""(?<![\w-])(--[A-Za-z][\w-]*)=(?:"[^"\n]*"|'[^'\n]*'|[^\s,;|&]+)""")
-#: A word a flag takes after a space (``--sort no``) is its value, so no negation of the clause.
-#: Negation and clause words after a flag (``--stdio doesn't``, ``--tui then``) are kept.
+#: A word a flag takes after a space (``--sort no``) is its value: it negates no clause and, with the
+#: default pattern, names no option (``--input "no --stdin"``). ``--stdio doesn't`` keeps its negation.
 _VALUE_WORD = re.compile(
     r"((?<![\w-])--[A-Za-z][\w-]*\s+)"
     r"(?!(?:not|never|without|rather|instead|avoid\w*|and|but|then|while)\b|[\w.-]*n't\b)"

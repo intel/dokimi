@@ -97,8 +97,8 @@ def _declared(text: str) -> str:
     """The lines of a help that declare options: its usage block and its option lines.
 
     A usage block opens at ``usage:`` and runs over the indented lines after it. An option line
-    opens with ``-``; from its first run of two spaces on it is the description, which may name
-    another command's options (``run other --advanced``), so that part is dropped.
+    opens with ``-``; the description after its gap (see ``_declaration``) may name another command's
+    options (``run other --advanced``), so that part is dropped.
     """
     kept: list[str] = []
     in_usage = False
