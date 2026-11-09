@@ -29,6 +29,7 @@ ScriptFinding = tuple[str, str, str]  # (level, code, message), as ``validate.Fi
 Which = Callable[[str], Optional[str]]
 
 MAX_BYTES = 1_000_000  # a larger file is not read
+SHEBANG_BYTES = 256  # a #! line is read to this many bytes, as the kernel reads it; the rest is never judged
 SYNTAX_TIMEOUT_SEC = 10.0
 LINT_TIMEOUT_SEC = 60.0
 RUFF_SELECT = "S,E9,F63,F7,F82"
@@ -37,7 +38,7 @@ SCRIPT_SUFFIXES = (*SHELL_SUFFIXES, ".py")
 BASH_FAMILY = frozenset({"bash", "sh", "dash", "ksh"})  # the shebang names bash -n can judge
 ENV_OPERAND_OPTIONS = frozenset({"-u", "--unset", "-C", "--chdir"})  # env options with an operand
 PARSE_SHOPTS = frozenset({"extglob"})  # bash -O options that change how a script parses; bash -n is given them
-SHOPT_EXTGLOB = re.compile(rb"\bshopt[ \t]+(?:-[a-zA-Z]+[ \t]+)*-[a-zA-Z]*s[a-zA-Z]*(?:[ \t]+[^\s;&|]+)*?[ \t]+extglob\b")  # shopt -s ... extglob, on one line
+SHOPT_EXTGLOB = re.compile(rb"(?m)(?:^|[;&|({!]|\b(?:then|do|else|elif|if|while|until|builtin|command|exec))[ \t]*shopt[ \t]+(?:-[a-zA-Z]+[ \t]+)*-[a-zA-Z]*s[a-zA-Z]*(?:[ \t]+[^\s;&|]+)*?[ \t]+extglob\b")  # shopt -s ... extglob, on one line
 # Escapes env -S reads outside quotes (\_ separates words and \c ends the string: see _env_split).
 ENV_S_ESCAPES = {"_": " ", "#": "#", "\\": "\\", "'": "'", '"': '"', "$": "$", "n": "\n", "t": "\t", "r": "\r",
                  "f": "\f", "v": "\v"}
@@ -160,7 +161,7 @@ def _shebang_words(data: bytes) -> Optional[list[str]]:
     """The words of the ``#!`` line, from the interpreter on; None when there is no shebang."""
     if not data.startswith(b"#!"):
         return None
-    words = data.split(b"\n", 1)[0][2:].decode("utf-8", "replace").split()
+    words = data.split(b"\n", 1)[0][:SHEBANG_BYTES][2:].decode("utf-8", "replace").split()
     if words and os.path.basename(words[0]) == "env":
         words = _env_command(words[1:])
     return words
@@ -250,7 +251,8 @@ def _env_escape(nxt: str) -> tuple[str, str, int]:
 
 def _env_quoted(text: str, i: int) -> Optional[tuple[str, int]]:
     """The text of the quoted run that opens at ``text[i]``, and the index just past its closing quote. None when it
-    is unclosed or a double-quoted run holds a ``$``; in double quotes only ``\\\\``, ``\\"`` and ``\\$`` are escapes."""
+    is unclosed or a double-quoted run holds a ``$``; in double quotes only ``\\\\``, ``\\"`` and ``\\$`` are escapes.
+    GNU env also reads ``\\\\`` and ``\\'`` in single quotes, which are not read here: no word they change is ``bash``."""
     quote = text[i]
     out: list[str] = []
     j = i + 1
@@ -316,8 +318,8 @@ def _unquoted_text(data: bytes) -> bytes:
 
 def _quoted_run(data: bytes, i: int) -> tuple[bytes, int]:
     """The text of the quoted run that opens at ``data[i]``, and the index just past it (the end of the data when it is
-    unclosed). Blanks in it are text (:func:`_in_quotes`); in double quotes a backslash escapes, and a backslash-newline
-    is removed."""
+    unclosed). Blanks in it are text (:func:`_in_quotes`). In double quotes, as in bash, a backslash before ``$``, a
+    backtick, ``"`` or a backslash is that character, a backslash-newline is removed, and any other backslash is kept."""
     quote = data[i:i + 1]
     out = bytearray()
     j = i + 1
@@ -326,9 +328,15 @@ def _quoted_run(data: bytes, i: int) -> tuple[bytes, int]:
         if c == quote:
             return bytes(out), j + 1
         if quote == b'"' and c == b"\\":
-            if data[j + 1:j + 2] != b"\n":
-                out += _in_quotes(data[j + 1:j + 2])
-            j += 2
+            nxt = data[j + 1:j + 2]
+            if nxt == b"\n":
+                j += 2
+            elif nxt in (b"$", b"`", b'"', b"\\"):
+                out += nxt
+                j += 2
+            else:
+                out += c
+                j += 1
         else:
             out += _in_quotes(c)
             j += 1

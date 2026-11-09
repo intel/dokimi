@@ -430,14 +430,12 @@ def test_a_quoted_or_quote_adjacent_shopt_extglob_is_given_to_bash_n(tmp_path, l
     assert call.argv == ("/usr/bin/bash", "-O", "extglob", "-n")
 
 
-def test_a_shebang_with_thousands_of_env_s_options_is_judged_not_a_crash(tmp_path):
+def test_a_shebang_with_thousands_of_env_s_options_is_not_a_crash(tmp_path):
     shebang = b"#!/usr/bin/env " + b"-S " * 1500 + b"bash\n"
     skill = _bundle(tmp_path, {"run.sh": shebang + b"if true; then\n"})
     runner = process.FakeRunner(lambda call: process.reply(stderr="bash: line 3: syntax error\n", returncode=2))
 
-    findings = script_findings(skill, which=_tools("bash"), runner=runner)
-
-    assert [code for _, code, _ in findings] == ["script-syntax"]
+    assert script_findings(skill, which=_tools("bash"), runner=runner) == []
 
 
 @needs_bash
@@ -459,6 +457,22 @@ def test_a_printed_shopt_extglob_is_not_given_to_bash_n_under_real_bash(tmp_path
     _bundle(tmp_path, {"run.sh": b"#!/bin/bash\necho 'shopt -s extglob'\nf+() { :; }\n"})
 
     assert _reviews_by_name(tmp_path)["bundled"].findings == []
+
+
+@needs_bash
+def test_an_unquoted_echo_of_shopt_extglob_is_not_given_to_bash_n(tmp_path, no_linters):
+    _bundle(tmp_path, {"run.sh": b"#!/bin/bash\necho shopt -s extglob\nf+() { :; }\n"})
+
+    assert _reviews_by_name(tmp_path)["bundled"].findings == []
+
+
+def test_a_shebang_past_the_bytes_the_kernel_reads_is_not_judged_as_bash(tmp_path):
+    shebang = b"#!/usr/bin/env -S " + b"-i " * 100 + b"bash\n"
+    skill = _bundle(tmp_path, {"run.sh": shebang + b"if true; then\n"})
+    runner = process.FakeRunner(lambda call: process.reply(stderr="syntax error\n", returncode=2))
+
+    assert script_findings(skill, which=_tools("bash"), runner=runner) == []
+    assert runner.calls == []
 
 
 def test_a_comment_mentioning_extglob_does_not_hide_an_extglob_error(tmp_path):
