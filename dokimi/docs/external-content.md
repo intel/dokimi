@@ -250,7 +250,7 @@ package with no version is a `warn` with the count for the skill (`install-unpin
 file, a local path, a URL or a `git+` source is not counted. Installs are read from code only: the fenced
 blocks and code spans of a prose file (Markdown, `.mdx`, `.txt`, `.rst`, `.adoc`), and the whole of any other
 text file, such as a script. The scan reads at most 200
-bundled files of 256 KiB or less, skipping binary and non-UTF-8 files. A skill at the root of a
+bundled files of 256 KiB or less; a binary or non-UTF-8 file counts toward the 200 too and is not checked. A skill at the root of a
 checkout reads its own `SKILL.md` only.
 
 Frontmatter that is not valid YAML (a bare colon in `description:`, say) stops

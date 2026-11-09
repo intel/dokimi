@@ -229,7 +229,8 @@ def _bundled_texts(skill_dir: Path) -> Iterator[tuple[str, str]]:
     """(path relative to the skill, text) of each bundled text file, sorted; SKILL.md is not one of them.
 
     Symlinks, hidden directories, :data:`VENDORED_DIR_NAMES`, another skill's directory, files over
-    :data:`BUNDLED_MAX_BYTES` and binary files (a NUL byte in the first 8 KiB) are not read.
+    :data:`BUNDLED_MAX_BYTES` are not read; a binary file (a NUL byte in the first 8 KiB) is read but not yielded.
+    Every file read counts toward :data:`BUNDLED_MAX_FILES`, text or not, so the limit bounds the I/O.
     """
     read = 0
     for dirpath, dirnames, filenames in os.walk(skill_dir):
@@ -247,13 +248,13 @@ def _bundled_texts(skill_dir: Path) -> Iterator[tuple[str, str]]:
             try:  # lstat (is_symlink) too: a listed file in a directory without x raises EACCES here
                 if path.is_symlink() or not path.is_file() or path.stat().st_size > BUNDLED_MAX_BYTES:
                     continue
+                read += 1  # charged before the read: a binary file uses the budget too
                 data = path.read_bytes()
                 if b"\0" in data[:8192]:
                     continue
                 text = data.decode("utf-8-sig")  # a byte order mark is not text
             except (OSError, UnicodeDecodeError):
                 continue
-            read += 1
             yield path.relative_to(skill_dir).as_posix(), text
 
 
