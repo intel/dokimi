@@ -239,3 +239,31 @@ def test_a_judge_failure_keeps_its_checks_and_a_sufficient_check_does_not_decide
 def test_a_failed_veto_is_wrong_even_when_the_judge_failed():
     run = _judge_fails_check_run("perf report --stdin", [_veto()])
     assert (run.verdict, run.verdict_source) == ("wrong_other", "check")
+
+
+def test_a_help_that_describes_options_with_rejection_words_is_still_a_listing(tmp_path):
+    # "skip unknown options" is a description, not a rejection: the listing is read as help.
+    tool = tmp_path / "listing.py"
+    tool.write_text(
+        "print('usage: listing [--ignore-unknown] [--strict]')\n"
+        "print('  --ignore-unknown  skip unknown options')\n"
+        "print('  --strict          fail on invalid arguments')\n",
+        encoding="utf-8")
+    text = help_text(f'"{sys.executable}" "{tool}"')
+    assert help_identifiers(text) == ["--ignore-unknown", "--strict"]
+
+
+def test_a_negated_mention_in_the_same_sentence_does_not_hide_a_later_flag():
+    # "no" inside "--no-children" is no negation word: the later invented flag is still vetoed.
+    check = identifiers_check("perf report", "usage: perf report [--[no-]children]\n")
+    answer = "perf report --no-children && perf report --stdin"
+    assert grade_check(check, "q", answer, None).passed is False
+
+
+def test_a_negation_the_help_shows_with_brackets_is_listed():
+    text = "usage: perf report [--[no-]children]\n  --[no-]children  accumulate callchains\n"
+    names = help_identifiers(text)
+    assert {"--children", "--no-children"} <= set(names)
+    check = identifiers_check("perf report", text)
+    assert grade_check(check, "q", "Run `perf report --no-children`.", None).passed is True
+    assert grade_check(_veto(), "q", "Run `perf report --no-children`.", None).passed is False

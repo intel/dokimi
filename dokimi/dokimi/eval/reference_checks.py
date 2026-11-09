@@ -383,6 +383,7 @@ _NEGATED = re.compile(r"(?i)\bnot\b|n't\b|\bnever\b|\bno\b|\bavoid\w*|\bwithout\
 def _negated_before(answer: str, start: int) -> bool:
     """Whether the sentence that ends at ``start`` negates or warns against what follows it."""
     sentence = re.split(r"[.;!?\n]", answer[:start])[-1]
+    sentence = re.sub(r"(?<![\w-])--?[A-Za-z][\w-]*", " ", sentence)  # flags are no words
     return _NEGATED.search(sentence) is not None
 
 

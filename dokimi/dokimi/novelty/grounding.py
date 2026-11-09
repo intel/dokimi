@@ -26,6 +26,10 @@ from dokimi.utils import InputError
 #: A tool's rejection of an argument it does not know, which names that argument (so the
 #: flag matches LONG_FLAG). Exit status does not tell this apart from a listing: some tools
 #: exit nonzero after printing real help.
+#: A line that opens with an option is an option listing, whatever words its description uses.
+_LISTING = re.compile(r"(?m)^\s*-")
+#: The bracketed negation notation of a help (``--[no-]children``): both spellings are options.
+_NEGATABLE = re.compile(r"--\[no-\]([A-Za-z][\w-]*)")
 _REJECTION = re.compile(
     r"(?i)\b(?:unrecognized|unknown|invalid|not recognized|no such)\b[^\n]*\b(?:option|argument|flag)s?\b"
     r"|unrecognized arguments")
@@ -63,14 +67,21 @@ def help_text(tool: str, *, timeout: float = 20.0) -> str:
         if done.timed_out:
             continue
         text = done.stdout + done.stderr
-        if re.search(LONG_FLAG, text) and not _REJECTION.search(text):
+        if re.search(LONG_FLAG, text) and (_LISTING.search(text) or not _REJECTION.search(text)):
             return text
     raise InputError(f"`{tool} --help` lists no long options")
 
 
 def help_identifiers(text: str) -> list[str]:
-    """The long options a help text lists, sorted. ``--help`` only when the text lists it."""
-    return sorted({m.group(1) for m in re.finditer(LONG_FLAG, text)})
+    """The long options a help text lists, sorted. ``--help`` only when the text lists it.
+
+    A bracketed ``--[no-]x`` lists both ``--x`` and ``--no-x``: the help establishes that the
+    parser negates ``x``. A boolean that the help does not show that way gets no ``--no-x``.
+    """
+    names = {m.group(1) for m in re.finditer(LONG_FLAG, text)}
+    for m in re.finditer(_NEGATABLE, text):
+        names |= {"--" + m.group(1), "--no-" + m.group(1)}
+    return sorted(names)
 
 
 def identifiers_check(tool: str, text: str, *, version: str | None = None) -> dict:
