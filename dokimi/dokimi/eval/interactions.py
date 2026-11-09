@@ -7,10 +7,12 @@ Built on the paired-delta helpers of :mod:`dokimi.eval.stats`, which does
 not import this module back. Each contrast gets the arms' test: the two-sided
 sign-flip test on the per-question contrast ``AB - A - B + baseline``, its
 inverted 95% interval (uncorrected) and the floor rule, with the sign-flip p
-corrected across the contrasts as a family of its own. The test needs the
-contrast symmetric about 0 when there is no interaction, which independent
-judge noise in the four cells gives: a weaker assumption than a t test's
-normality.
+corrected across the contrasts as a family of its own. The test assumes the
+contrast symmetric about 0 when there is no interaction, a weaker assumption
+than a t test's normality; independent noise in the four cells gives it only
+if the four are also identically distributed. Only under that assumption is
+its level 5%: a skewed contrast of mean 0 is rejected more often (7 to 10% for
+``Exp(1) - 1`` at 10 to 20 pairs).
 
 Public API
 ----------
@@ -127,9 +129,9 @@ def interaction_test(
     reinforce.
 
     The test is the two-sided sign-flip test on those contrasts, and the 95%
-    interval inverts it, so it excludes 0 exactly when ``p < 0.05``; it assumes
-    the contrast symmetric about 0 under no interaction, which independent judge
-    noise in the four cells gives. ``significant`` is ``None`` with no p or under
+    interval inverts it, so it excludes 0 exactly when ``p < 0.05``. It assumes
+    the contrast symmetric about 0 under no interaction, and its level is 5%
+    only then (module docstring). ``significant`` is ``None`` with no p or under
     the floor rule (:func:`dokimi.eval.stats._describe_deltas`).
 
     Only questions where all four arms produced a score contribute. Returns
