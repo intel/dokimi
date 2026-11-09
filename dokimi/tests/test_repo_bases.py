@@ -155,8 +155,8 @@ def test_bases_note_leaves_out_a_base_whose_overlay_the_globs_miss(tmp_path, cap
 
 def test_bases_note_keeps_a_task_whose_setup_patch_writes_no_guidance(tmp_path, capsys, monkeypatch):
     """A setup patch that writes only code leaves guidance:none and raw the same workspace, so its task stays in the
-    note; one that writes a file the globs match or an overlay (a rename too), is no patch or is not UTF-8 leaves it
-    out (#485)."""
+    note, whatever its bytes (not UTF-8, a lone CR in an added line); one that writes a file the globs match or an
+    overlay (a rename too) or is no patch leaves it out (#485)."""
     from dokimi.repos.workspace import export_eval_dir, load_tasks, prepare_workspace, source_git_dir
 
     root = tmp_path / "toy"
@@ -175,6 +175,7 @@ def test_bases_note_keeps_a_task_whose_setup_patch_writes_no_guidance(tmp_path, 
                         "rename from src/notes.md\nrename to AGENTS.claude.md\n"),
         "fix_garbled": "not a patch\n",
         "fix_latin1": "",  # its bytes, not UTF-8, are written below
+        "fix_cr": "",  # so are these, with a lone CR inside an added line
     }
     for task_id, text in patches.items():
         _write(root, f"dev/evals/tasks/{task_id}/setup.patch", text)
@@ -182,6 +183,9 @@ def test_bases_note_keeps_a_task_whose_setup_patch_writes_no_guidance(tmp_path, 
             {"id": task_id, "family": "fix", "base": bare, "grader": "tests", "prompt": "Fix the bug.",
              "setup_patches": ["setup.patch"]}))
     (root / "dev/evals/tasks/fix_latin1/setup.patch").write_bytes(b"--- /dev/null\n+++ b/a.c\n@@ -0,0 +1 @@\n+/* caf\xe9 */\n")
+    # one added line, which a CR read as a newline would turn into the header of a patch for CLAUDE.md
+    (root / "dev/evals/tasks/fix_cr/setup.patch").write_bytes(
+        b"--- /dev/null\n+++ b/b.c\n@@ -0,0 +1 @@\n+x\rdiff --git a/CLAUDE.md b/CLAUDE.md\nnew file mode 100644\n")
     _commit_all(root, "evals")
 
     with monkeypatch.context() as m:  # a temp dir in a work tree's subdirectory: git there would skip every path
@@ -190,9 +194,9 @@ def test_bases_note_keeps_a_task_whose_setup_patch_writes_no_guidance(tmp_path, 
     out = json.loads(capsys.readouterr().out)
     assert out["ok"] is True, out["errors"]
     assert out["guidance_by_base"] == {bare: 0}
-    assert len(out["notes"]) == 1 and out["notes"][0].endswith("own files): fix_code"), out["notes"]
+    assert len(out["notes"]) == 1 and out["notes"][0].endswith("own files): fix_code, fix_cr, fix_latin1"), out["notes"]
     assert out["notes"][0].startswith("no file the guidance globs match and no AGENTS.<agent>.md overlay at the base "
-                                      "of 1 task(s) or in their setup patches; there guidance:none, raw and bridge")
+                                      "of 3 task(s) or in their setup patches; there guidance:none, raw and bridge")
 
     source = RepoSource.parse(f"{root}@HEAD")
     tree = open_source(source)
@@ -203,6 +207,22 @@ def test_bases_note_keeps_a_task_whose_setup_patch_writes_no_guidance(tmp_path, 
     for arm in ("guidance:none", "guidance:raw"):
         prepare_workspace(git_dir, manifest, task, arm, tmp_path / arm, profile)
         assert _workspace_files(tmp_path / arm / "workspace") == ["src/extra.c", "src/lib.c", "src/notes.md"]
+
+
+def test_setup_writes_guidance_reads_a_work_tree_patch_unchanged_and_counts_a_missing_one(tmp_path):
+    """On a work tree too, a code-only patch with a Latin-1 byte writes no guidance and one that is not there counts
+    as writing it (#485)."""
+    from dokimi.repos.bases import setup_writes_guidance
+
+    root = tmp_path / "toy"
+    _write(root, "dev/evals/Dockerfile", "FROM scratch\n")
+    _write(root, "dev/evals/repo-eval.yaml", yaml.safe_dump(MANIFEST))
+    (root / "code.patch").write_bytes(b"--- /dev/null\n+++ b/a.c\n@@ -0,0 +1 @@\n+/* caf\xe9 */\n")
+    tree = WorkTree(root)
+    manifest = load_manifest(tree, "dev/evals/repo-eval.yaml")
+
+    assert setup_writes_guidance(tree, manifest, ("code.patch",)) is False
+    assert setup_writes_guidance(tree, manifest, ("code.patch", "gone.patch")) is True
 
 
 def test_glob_matching_nothing_anywhere_still_warns(tmp_path):

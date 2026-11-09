@@ -78,13 +78,14 @@ def _patch_paths(fields: list[str]) -> set[str]:
 
 def setup_writes_guidance(tree: RepoTree, manifest: RepoManifest, patches: tuple[str, ...]) -> bool:
     """Whether one of the setup patches at ``patches`` in ``tree`` names a file the guidance globs match or an
-    overlay, as ``git apply`` reads it; a patch that cannot be read or is no patch counts as one."""
+    overlay, as ``git apply`` reads it (its bytes, unchanged); a patch that cannot be read or is no patch counts as
+    one."""
     with tempfile.TemporaryDirectory() as tmp:  # in no work tree: git there names only the paths under its cwd
         env = process.Env.only((), {**isolated_git_env(), "GIT_CEILING_DIRECTORIES": str(Path(tmp).parent)})
         for path in patches:
             try:
-                done = process.git("apply", "--numstat", "-z", "-", cwd=tmp, input=tree.read_text(path), env=env)
-            except (SourceError, OSError, UnicodeDecodeError):
+                done = process.git("apply", "--numstat", "-z", "-", cwd=tmp, input=tree.read_bytes(path), env=env)
+            except (SourceError, OSError):
                 return True
             if not done.ok or any(overlay_of(p) is not None or any(match_glob(g, p) for g in manifest.guidance_globs)
                                   for p in _patch_paths(done.nul_fields())):
