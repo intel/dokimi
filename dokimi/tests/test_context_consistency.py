@@ -363,6 +363,17 @@ def test_cli_refuses_malformed_files_cleanly(tmp_path, flag, content):
     assert str(exc.value).startswith("✗")
 
 
+@pytest.mark.parametrize("content", ["a: 2026-99-99\n", "[" * 100000], ids=["bad-date", "deep"])
+def test_cli_names_a_contract_whose_yaml_does_not_load(tmp_path, content):
+    (tmp_path / "t.jsonl").write_text(_trace(READ))
+    f = tmp_path / "c.yaml"
+    f.write_text(content)
+    args = build_parser().parse_args(["trace", "consistency", str(tmp_path / "t.jsonl"), "--contract", str(f)])
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert str(exc.value).startswith(f"✗ {f}: not valid YAML")
+
+
 def test_an_outcome_key_shared_by_two_arms_must_be_the_full_path(tmp_path):
     a, b = _run(str(tmp_path / "base/1.jsonl"), READ), _run(str(tmp_path / "skill/1.jsonl"), READ)
     with pytest.raises(ValueError, match="1.jsonl"):

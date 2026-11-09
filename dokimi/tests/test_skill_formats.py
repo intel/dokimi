@@ -15,6 +15,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from dokimi.cli import build_parser
 from dokimi.skills import discover_skills
 from dokimi.skills import formats as sf
@@ -138,6 +140,14 @@ def test_catalog_formats_counts_loadable_skills_as_discover_skills(tmp_path, cap
 def test_catalog_formats_survives_a_skill_md_that_is_not_utf8(tmp_path, capsys):
     (tmp_path / "bad").mkdir()
     (tmp_path / "bad" / "SKILL.md").write_bytes(b"---\nname: bad\ndescription: caf\xe9\n---\nbody\n")
+    args = build_parser().parse_args(["catalog", "formats", "--root", str(tmp_path), "--json"])
+    args.func(args)
+    assert json.loads(capsys.readouterr().out)["summary"]["agent-skill"]["n"] == 1
+
+
+@pytest.mark.parametrize("frontmatter", ["name: 2026-99-99", "[" * 100000], ids=["bad-date", "deep"])
+def test_catalog_formats_survives_a_skill_md_whose_yaml_does_not_load(tmp_path, capsys, frontmatter):
+    _w(tmp_path / "bad" / "SKILL.md", f"---\n{frontmatter}\n---\nbody\n")
     args = build_parser().parse_args(["catalog", "formats", "--root", str(tmp_path), "--json"])
     args.func(args)
     assert json.loads(capsys.readouterr().out)["summary"]["agent-skill"]["n"] == 1

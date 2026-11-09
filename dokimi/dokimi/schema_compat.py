@@ -238,13 +238,18 @@ _GIT_ENV = process.Env.inherit({"GIT_TERMINAL_PROMPT": "0", "LC_ALL": "C"})
 
 
 def _git(*args: str) -> str:
+    return _git_proc(*args).stdout
+
+
+def _git_proc(*args: str) -> process.Completed:
+    """``git <args>`` run in the schemas directory; :func:`_git` gives its stdout."""
     proc = process.git(*args, cwd=SCHEMA_DIR, timeout=60, env=_GIT_ENV)
     if proc.timed_out:
         raise GitError(f"git {' '.join(args)}: timed out")
     if not proc.ok:
         error = GitPathMissing if any(m in proc.stderr for m in _PATH_MISSING) else GitError
         raise error(f"git {' '.join(args)}: {proc.stderr.strip()}")
-    return proc.stdout
+    return proc
 
 
 FIXTURE_DIR = "../../tests/fixtures/artifacts"
@@ -260,7 +265,7 @@ def _renamed_from(base: str, rel: str) -> str | None:
     """
     top = Path(_git("rev-parse", "--show-toplevel").strip()).resolve()
     prefix = (SCHEMA_DIR / rel).resolve().relative_to(top).as_posix() + "/"
-    fields = _git("-C", str(top), "diff", "--name-status", "-M", "-z", base).split("\0")
+    fields = _git_proc("-C", str(top), "diff", "--name-status", "-M", "-z", base).nul_fields()
     i = 0
     while i < len(fields) - 2:
         status = fields[i]
