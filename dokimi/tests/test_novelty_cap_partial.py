@@ -341,6 +341,25 @@ def test_an_unpriced_extraction_stop_names_the_missing_price_not_max_usd():
     assert "--max-usd stopped" not in report.partial["message"]
 
 
+def test_an_unpriced_extraction_call_keeps_the_atoms_its_reply_carried():
+    from dokimi.novelty.atoms import ExtractionReport, extract_atoms
+    from dokimi.novelty.spans import segment
+
+    spans = segment(ROWS)
+    report = ExtractionReport()
+    # The first batch comes back with usable atoms but no price: the run stops after that call,
+    # and the paid-for reply is kept, not marked unread with the rest of the queue.
+    atoms = extract_atoms(spans, client=LLMClient(
+        model="e", role="extractor", cap=SpendCap(limit_usd=1.0),
+        transport=lambda prompt, system=None: (_one_atom_per_span(prompt)[0], UsageRecord())),
+        batch_spans=25, report=report)
+    assert report.partial["reason"] == "no_price"
+    assert len(atoms) == 25
+    assert report.partial["spans_read"] == 25
+    assert not any(span.unread for span in spans[:25])
+    assert all(span.unread for span in spans[25:])
+
+
 def test_analyze_names_a_missing_price_when_the_measurement_stops_on_one(tmp_path, monkeypatch):
     from dokimi.novelty import measure
     from dokimi.novelty.analyze import AnalyzeConfig, analyze, load_artifact_text

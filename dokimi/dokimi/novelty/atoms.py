@@ -413,7 +413,16 @@ def extract_atoms(
             unparseable = True
             rows = parse(reply)
         except SpendCapReached as exc:
-            _stop_at_cap(spans, batch, pending, report, exc)
+            # A call with no price is paid for, and its reply comes back on the exception: a
+            # usable one is kept, so only the batch behind it and the queue go unread.
+            kept = False
+            if exc.reply:
+                try:
+                    _keep_atoms(parse(exc.reply), valid_ids, seen, atoms)
+                    kept = True
+                except Exception:  # not usable: this batch is unread, as after any failed call
+                    pass
+            _stop_at_cap(spans, [] if kept else batch, pending, report, exc)
             break
         except Exception as exc:
             cut = isinstance(exc, OutputTruncated)
