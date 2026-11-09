@@ -12,5 +12,6 @@
   options by default, inside the `within` lines) is in `known`; `--no-x` counts when `--x` is
   known. Checks may also set `tier` (`verifiable`, `grounded`, `judge`).
 - **`skill novelty ground`** — writes an `identifiers` veto built from each `--tool`'s own
-  `--help` (with the help's sha256) into the atoms that name that tool. See
-  docs/grading-tiers.md.
+  `--help` (with the help's sha256) into the atoms that name that tool, and checks each such
+  atom's answer key against the same help: `meta.key_status` is `verified`, `not_found`
+  (with the `missing` options; a review flag) or `unverifiable`. See docs/grading-tiers.md.

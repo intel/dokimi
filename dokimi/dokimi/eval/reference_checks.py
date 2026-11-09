@@ -454,7 +454,8 @@ def _ladder_problems(c: Mapping[str, Any]) -> list[str]:
 def _identifiers_problems(c: Mapping[str, Any]) -> list[str]:
     """An ``identifiers`` check without names, or with a regex that does not compile."""
     known = c.get("known")
-    out = [] if isinstance(known, list) and known and all(isinstance(k, str) and k for k in known)         else ["identifiers needs `known`: a non-empty list of names"]
+    names_ok = isinstance(known, list) and known and all(isinstance(k, str) and k for k in known)
+    out = [] if names_ok else ["identifiers needs `known`: a non-empty list of names"]
     for key in ("pattern", "within"):
         if c.get(key) is not None:
             try:

@@ -13,7 +13,8 @@ import pytest
 from dokimi.eval.reference_checks import grade_check, validate_grading
 from dokimi.novelty.atoms import Atom
 from dokimi.novelty.client import LLMClient
-from dokimi.novelty.grounding import add_checks, help_identifiers, help_text, identifiers_check
+from dokimi.novelty.grounding import (add_checks, help_identifiers, help_text, identifiers_check,
+                                     verify_keys)
 from dokimi.novelty.measure import resolve_verdict, run_checks, run_measurement
 from dokimi.novelty.probes import build_probes
 from dokimi.utils import InputError
@@ -141,3 +142,16 @@ def test_help_text_names_a_missing_tool():
     with pytest.raises(InputError, match="not installed"):
         help_text("no-such-tool-dokimi-xyz")
 
+
+
+def test_verify_keys_flags_a_claim_naming_an_option_the_help_lacks():
+    atoms = [{"statement": "Text output", "answer": "Run `perf report --stdio`."},
+             {"statement": "Bad key", "answer": "Run `perf report --stdin --stdio`."},
+             {"statement": "perf report reads perf.data", "answer": "perf report shows it"},
+             {"statement": "Unrelated", "answer": "y"}]
+    for atom in atoms[:3]:
+        atom["meta"] = {"grading": {"checks": [_veto()]}}
+    assert verify_keys(atoms) == {"verified": 1, "not_found": 1, "unverifiable": 1}
+    assert atoms[1]["meta"]["key_status"] == {"status": "not_found", "missing": ["--stdin"]}
+    assert atoms[2]["meta"]["key_status"] == {"status": "unverifiable"}
+    assert "meta" not in atoms[3]

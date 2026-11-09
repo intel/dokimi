@@ -19,7 +19,7 @@ import hashlib
 import re
 import shlex
 
-from dokimi.eval.reference_checks import LONG_FLAG
+from dokimi.eval.reference_checks import LONG_FLAG, grade_check
 from dokimi.process import Env, run
 from dokimi.utils import InputError
 
@@ -93,3 +93,32 @@ def add_checks(atoms: list[dict], checks: list[dict], tools: list[str]) -> int:
         grading["checks"] = kept + mine
         changed += 1
     return changed
+
+
+def verify_keys(atoms: list[dict]) -> dict[str, int]:
+    """Check each atom's answer key against its ``identifiers`` checks; counts per status.
+
+    Writes ``meta["key_status"]``: ``verified`` (every option the key names on a checked
+    command line is in the help), ``not_found`` (with the ``missing`` names), or
+    ``unverifiable`` (the key names none). This checks the skill's claim, not a model's
+    answer. A ``not_found`` is a review flag, not an error: a negative claim ("there is no
+    ``--device xpu``") or a version-bound one names an option the help rightly lacks.
+    """
+    counts = {"verified": 0, "not_found": 0, "unverifiable": 0}
+    for atom in atoms:
+        checks = [c for c in ((atom.get("meta") or {}).get("grading") or {}).get("checks", [])
+                  if c.get("type") == "identifiers"]
+        if not checks:
+            continue
+        key = " ".join(str(atom.get(k, "")) for k in ("answer", "statement"))
+        missing, seen = [], False
+        for check in checks:
+            seen = seen or not check.get("within") or re.search(check["within"], key) is not None
+            result = grade_check(check, "", key, None)
+            if result.passed is False:
+                missing += [n for n in result.detail.removeprefix("not in source: ").split(", ")
+                            if n not in missing]
+        status = "not_found" if missing else ("verified" if seen else "unverifiable")
+        atom["meta"]["key_status"] = {"status": status, **({"missing": missing} if missing else {})}
+        counts[status] += 1
+    return counts

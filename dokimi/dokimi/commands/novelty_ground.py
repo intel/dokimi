@@ -13,16 +13,20 @@ from pathlib import Path
 def cmd_novelty_ground(args: argparse.Namespace) -> None:
     """Write ``identifiers`` vetoes from each ``--tool``'s own ``--help`` into an atoms file."""
     from dokimi.novelty.atoms import load_atoms_record
-    from dokimi.novelty.grounding import add_checks, help_text, identifiers_check
+    from dokimi.novelty.grounding import add_checks, help_text, identifiers_check, verify_keys
 
     _, _, data = load_atoms_record(args.atoms)
     checks = [identifiers_check(tool, help_text(tool), version=args.tool_version)
               for tool in args.tool]
     changed = add_checks(data.get("atoms", []), checks, args.tool)
+    keys = verify_keys(data.get("atoms", []))
     out = Path(args.out or args.atoms)
     out.write_text(json.dumps(data, indent=2), encoding="utf-8")
     for check in checks:
         print(f"{check['source']['tool']}: {len(check['known'])} options "
               f"(help sha256 {check['source']['sha256'][:12]})", file=sys.stderr)
     print(f"{changed} of {len(data.get('atoms', []))} atoms got a veto check -> {out}",
+          file=sys.stderr)
+    print("answer keys: " + ", ".join(f"{n} {status}" for status, n in keys.items())
+          + " (not_found is a review flag: negative and version-bound claims land there)",
           file=sys.stderr)
