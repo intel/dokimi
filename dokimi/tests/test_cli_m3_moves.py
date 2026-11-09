@@ -145,11 +145,17 @@ def test_prs_takes_the_manifest_flags_and_builds_with_the_default_size_limit(tmp
     assert seen["max_lines"] == 400 and seen["window"] is None
 
 
-def test_repo_tasks_authoring_is_no_longer_a_command(capsys):
+def test_repo_tasks_authoring_names_the_prs_argv_and_runs_nothing(capsys):
+    flags = ["--prs", "p.json", "--out", "t", "--manifest-file", "m.yaml", "--max-lines", "50", "--prompt-file",
+             "i.txt", "--force", "--cache-dir", "c"]
     with pytest.raises(SystemExit) as exc:
-        parse_args(["repo", "tasks", "authoring", "src", "--prs", "p.json", "--out", "t"])
+        parse_args(["repo", "tasks", "authoring", "src", *flags])
     assert exc.value.code == 2
-    assert not capsys.readouterr().err.startswith("moved:")  # never released: no tombstone
+    new = ["eval", "tasks", "generate", "--from", "prs", "src", *flags]
+    assert capsys.readouterr().err == "moved: dokimi " + " ".join(new) + "\n"
+    args = build_parser().parse_args(new)  # the flags kept their names: the printed argv parses as it is
+    assert (args.from_kind, args.source, args.prs, args.out, args.manifest_file, args.max_lines, args.prompt_file,
+            args.force, args.cache_dir) == ("prs", "src", "p.json", "t", "m.yaml", 50, "i.txt", True, "c")
 
 
 @pytest.mark.parametrize(

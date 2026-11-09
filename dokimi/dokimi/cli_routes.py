@@ -174,7 +174,7 @@ LEAVES: tuple[Leaf, ...] = (
     Leaf(("data", "schema", "show"), FREE),
 )
 
-# The moves of #94 M1-M3 (`eval`, `skill`, `catalog`, `trace`, `data`, replay). Not yet: `novelty routing`, `docs`.
+# The moves of #94 M1-M3 (`eval`, `skill`, `catalog`, `trace`, `data`, replay) and D11. Not yet: `novelty routing`, `docs`.
 # A bare retired root comes last: the first match wins, and a root matches every path under it.
 TOMBSTONES: tuple[Tombstone, ...] = (
     Tombstone(("tasks", "inspect"), ("eval", "inspect")),
@@ -212,6 +212,7 @@ TOMBSTONES: tuple[Tombstone, ...] = (
     Tombstone(("subjects", "list"), ("catalog", "list"), ("--kind", "subject")),
     Tombstone(("subjects", "show"), ("catalog", "show"), ("--kind", "subject")),
     Tombstone(("repo", "tasks", "replay"), ("eval", "tasks", "generate"), ("--from", "replay")),
+    Tombstone(("repo", "tasks", "authoring"), ("eval", "tasks", "generate"), ("--from", "prs")),
     Tombstone(("context", "trace"), ("trace", "inspect")),
     Tombstone(("context", "consistency"), ("trace", "consistency")),
     Tombstone(("context", "prefilter"), ("trace", "prefilter")),
