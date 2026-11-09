@@ -50,6 +50,9 @@ _PROSE_CONJUNCTIONS = {"and", "or", "but", "then"}
 _PROSE_STOP = {
     "a", "an", "the", "in", "on", "for", "to", "of", "at", "by", "from", "into", "with", "as", "is", "are",
     "it", "this", "that", "here", "there", "locally", "globally", "again",
+    # Connectives that start a clause after a list: "pip install foo if needed". A package with one of these names
+    # is not checked when it is a bare word of the list, which is the cost of not reporting prose as a package.
+    "if", "when", "which", "before", "after", "you", "also", "first", "using", "via", "so", "while", "until", "want",
 }
 # The operators of a version spec written with spaces ("pip install foo == 1.0"): the version after one is not a name.
 _SPEC_OPERATORS = {"==", "===", "!=", "~=", ">=", "<=", ">", "<"}

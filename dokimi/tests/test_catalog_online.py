@@ -274,6 +274,14 @@ def test_a_prose_stop_word_with_a_full_stop_after_it_ends_the_list():
     assert online_checks.extract_packages("pip install requests here.\n") == [("pypi", "requests")]
 
 
+def test_a_connective_after_a_package_list_ends_the_list():
+    assert online_checks.extract_packages("pip install foo if needed\n") == [("pypi", "foo")]
+    assert online_checks.extract_packages("pip install foo when ready\n") == [("pypi", "foo")]
+    assert online_checks.extract_packages("pip install foo before running\n") == [("pypi", "foo")]
+    assert online_checks.extract_packages("pip install foo if you want\n") == [("pypi", "foo")]
+    assert online_checks.extract_packages("pip install pyyaml, which is needed\n") == [("pypi", "pyyaml")]
+
+
 def test_a_version_glued_to_an_operator_is_not_a_name():
     assert online_checks.extract_packages("pip install foo>= 1.0rc1\n") == [("pypi", "foo")]
 
