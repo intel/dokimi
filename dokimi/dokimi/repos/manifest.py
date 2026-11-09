@@ -187,7 +187,7 @@ class TaskSummary:
     gate: tuple[str, ...]
     score: dict[str, Any] | None = None
     egress: tuple[str, ...] = ()
-    setup_patches: tuple[str, ...] = ()
+    setup_patches: tuple[str, ...] = ()  # their paths in the eval tree
 
 
 @dataclass
@@ -372,7 +372,7 @@ def check_repo(tree: RepoTree, manifest: RepoManifest,
     else:
         from .bases import check_bases
 
-        check_bases(report, open_base, unmatched)
+        check_bases(report, open_base, unmatched, tree)
     return report
 
 
@@ -527,7 +527,7 @@ def _check_task(tree: RepoTree, task_dir: str, report: RepoCheckReport) -> None:
     if not isinstance(patches, list) or not all(isinstance(p, str) for p in patches):
         problems.append("setup_patches must be a list of paths")
         patches = []
-    setup = tuple(patches)
+    setup = tuple(f"{task_dir}/{p}" for p in patches)
     if "review_patch" in raw:
         if isinstance(raw["review_patch"], str):
             patches = [*patches, raw["review_patch"]]

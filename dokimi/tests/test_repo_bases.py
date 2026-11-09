@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -81,7 +82,7 @@ def test_globs_and_bases_are_checked_at_every_task_base(tmp_path, capsys):
     assert out["guidance_by_base"] == {old: 2, f"{old}^": 0, bare: 0}
     assert len(out["notes"]) == 1 and out["notes"][0].endswith(": fix_bare, fix_older")
     assert out["notes"][0].startswith("no file the guidance globs match and no AGENTS.<agent>.md overlay at the base "
-                                      "of 2 task(s) without setup patches (")
+                                      "of 2 task(s) or in their setup patches; ")
     # rev: and patch: bring their own files, so the note must not cover them (#481)
     assert "guidance:none, raw and bridge give the same workspace" in out["notes"][0]
     assert "(guidance:rev:, patch: and +skill: parts bring their own files)" in out["notes"][0]
@@ -129,7 +130,7 @@ def test_bases_note_leaves_out_a_base_whose_overlay_the_globs_miss(tmp_path, cap
     assert out["ok"] is True, out["errors"]
     assert out["guidance_by_base"] == {plain: 0, overlaid: 0}
     assert len(out["notes"]) == 1 and out["notes"][0].endswith("own files): fix_plain"), out["notes"]
-    assert "1 task(s) without setup patches (a patch can add an overlay, which guidance:none removes" in out["notes"][0]
+    assert "1 task(s) or in their setup patches; there guidance:none" in out["notes"][0]
 
     source = RepoSource.parse(f"{root}@HEAD")
     tree = open_source(source)
@@ -150,6 +151,58 @@ def test_bases_note_leaves_out_a_base_whose_overlay_the_globs_miss(tmp_path, cap
     assert files("fix_patched", "guidance:raw") == ["AGENTS.claude.md", "AGENTS.md"]
     assert files("fix_patched", "guidance:none") == ["AGENTS.md"]
     assert files("fix_patched", "guidance:overlay") == ["AGENTS.claude.md", "AGENTS.md"]
+
+
+def test_bases_note_keeps_a_task_whose_setup_patch_writes_no_guidance(tmp_path, capsys, monkeypatch):
+    """A setup patch that writes only code leaves guidance:none and raw the same workspace, so its task stays in the
+    note; one that writes a file the globs match or an overlay (a rename too), is no patch or is not UTF-8 leaves it
+    out (#485)."""
+    from dokimi.repos.workspace import export_eval_dir, load_tasks, prepare_workspace, source_git_dir
+
+    root = tmp_path / "toy"
+    _write(root, "src/lib.c", "int f(void);\n")
+    _write(root, "src/notes.md", "# notes\n")
+    bare = _commit_all(root, "code only")
+    raw = json.loads(json.dumps(MANIFEST))
+    raw["guidance"] = {"globs": ["CLAUDE.md"]}
+    _write(root, "CLAUDE.md", "# guidance at the eval tree\n")
+    _write(root, "dev/evals/Dockerfile", "FROM scratch\n")
+    _write(root, "dev/evals/repo-eval.yaml", yaml.safe_dump(raw))
+    patches = {
+        "fix_code": "--- /dev/null\n+++ b/src/extra.c\n@@ -0,0 +1 @@\n+int g(void);\n",
+        "fix_glob": "--- /dev/null\n+++ b/CLAUDE.md\n@@ -0,0 +1 @@\n+# guidance from a setup patch\n",
+        "fix_renamed": ("diff --git a/src/notes.md b/AGENTS.claude.md\nsimilarity index 100%\n"
+                        "rename from src/notes.md\nrename to AGENTS.claude.md\n"),
+        "fix_garbled": "not a patch\n",
+        "fix_latin1": "",  # its bytes, not UTF-8, are written below
+    }
+    for task_id, text in patches.items():
+        _write(root, f"dev/evals/tasks/{task_id}/setup.patch", text)
+        _write(root, f"dev/evals/tasks/{task_id}/task.json", json.dumps(
+            {"id": task_id, "family": "fix", "base": bare, "grader": "tests", "prompt": "Fix the bug.",
+             "setup_patches": ["setup.patch"]}))
+    (root / "dev/evals/tasks/fix_latin1/setup.patch").write_bytes(b"--- /dev/null\n+++ b/a.c\n@@ -0,0 +1 @@\n+/* caf\xe9 */\n")
+    _commit_all(root, "evals")
+
+    with monkeypatch.context() as m:  # a temp dir in a work tree's subdirectory: git there would skip every path
+        m.setattr(tempfile, "tempdir", str(root / "src"))
+        _run_cli(["repo", "validate", f"{root}@HEAD", "--manifest", "dev/evals/repo-eval.yaml", "--json"])
+    out = json.loads(capsys.readouterr().out)
+    assert out["ok"] is True, out["errors"]
+    assert out["guidance_by_base"] == {bare: 0}
+    assert len(out["notes"]) == 1 and out["notes"][0].endswith("own files): fix_code"), out["notes"]
+    assert out["notes"][0].startswith("no file the guidance globs match and no AGENTS.<agent>.md overlay at the base "
+                                      "of 1 task(s) or in their setup patches; there guidance:none, raw and bridge")
+
+    source = RepoSource.parse(f"{root}@HEAD")
+    tree = open_source(source)
+    manifest = load_manifest(tree, "dev/evals/repo-eval.yaml")
+    task = next(t for t in load_tasks(export_eval_dir(tree, manifest, tmp_path / "content"), manifest)
+                if t.id == "fix_code")
+    git_dir, profile = source_git_dir(source, tree), _claude_code_profile()
+    for arm in ("guidance:none", "guidance:raw"):
+        prepare_workspace(git_dir, manifest, task, arm, tmp_path / arm, profile)
+        assert _workspace_files(tmp_path / arm / "workspace") == ["src/extra.c", "src/lib.c", "src/notes.md"]
 
 
 def test_glob_matching_nothing_anywhere_still_warns(tmp_path):
