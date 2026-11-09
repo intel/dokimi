@@ -810,3 +810,13 @@ def test_an_unreadable_index_is_an_input_error_not_an_untracked_root(tmp_path):
     done = _run(root, tmp_path / "out")
     assert done.returncode == 2, done.stderr
     assert "cannot read source state" in done.stderr
+
+
+def test_an_unreadable_index_of_an_enclosing_repository_is_an_input_error(tmp_path):
+    parent, _ = _parent_repo(tmp_path)
+    root = _catalog(parent)
+    (parent / ".git" / "index").write_bytes(b"not an index")
+    done = _run(root, tmp_path / "out")
+    assert done.returncode == 2, done.stderr
+    assert "cannot read source state" in done.stderr
+
