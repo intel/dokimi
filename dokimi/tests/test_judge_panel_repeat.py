@@ -17,7 +17,7 @@ from pathlib import Path
 SCRIPT = Path(__file__).resolve().parents[1] / "research" / "judge-panel" / "judge_panel.py"
 
 
-def _load(tmp_path, monkeypatch, calls):
+def _load(tmp_path, monkeypatch, calls, fail=(), seen=None, asked=None):
     llm = types.ModuleType("llm")
     llm.CACHE = None
     llm.LOG = None
@@ -25,7 +25,16 @@ def _load(tmp_path, monkeypatch, calls):
 
     def chat(model, messages, **kw):
         calls.append(kw["tag"])
+        if seen is not None:
+            seen.append({"model": model, "messages": messages, **kw})
+        if kw["tag"] in fail:
+            raise RuntimeError(f"timeout on {kw['tag']}")
         return {"text": f"new answer for {kw['tag']}"}
+
+    def ask_json(judge, prompt, **kw):
+        if asked is not None:
+            asked.append((judge, kw["tag"]))
+        return {"verdict": "correct", "reason": "ok"}
 
     def pmap(fn, items, workers=1, desc=""):
         out = []
@@ -37,6 +46,7 @@ def _load(tmp_path, monkeypatch, calls):
         return out
 
     llm.chat = chat
+    llm.ask_json = ask_json
     llm.pmap = pmap
     llm.stats = dict
     rp = types.ModuleType("run_probes")
@@ -123,3 +133,89 @@ def test_repeat_drops_grades_of_dropped_repeats(tmp_path, monkeypatch):
     assert calls == []
     left = [json.loads(l)["key"] for l in (out / "grades.jsonl").read_text().splitlines()]
     assert left == ["p1|no_skill_repeat|m1"]
+
+
+def test_repeat_asks_for_a_fresh_greedy_answer_with_the_system_prompt(tmp_path, monkeypatch):
+    # The noise floor is measured against a fresh answer: no cache, temperature 0, the study's
+    # system prompt and token cap, and the repeat arm name. Each of these is pinned.
+    seen = []
+    jp = _load(tmp_path, monkeypatch, [], seen=seen)
+    out = tmp_path / "out"
+    base = [{"probe_id": "p1", "model": "m1", "arm": "no_skill", "question": "q1"}]
+    (out / "sample.jsonl").write_text(json.dumps(base[0]) + "\n")
+
+    jp.do_repeat(1)
+
+    (call,) = seen
+    assert call["use_cache"] is False
+    assert call["temperature"] == 0.0
+    assert call["max_tokens"] == 1400
+    assert call["messages"] == [{"role": "system", "content": "system"}, {"role": "user", "content": "q1"}]
+    (row,) = [json.loads(l) for l in (out / "repeats.jsonl").read_text().splitlines()]
+    assert row["arm"] == "no_skill_repeat"
+
+
+def test_repeat_retries_a_failed_cell_and_does_not_save_it(tmp_path, monkeypatch):
+    out = tmp_path / "out"
+    out.mkdir()
+    base = [
+        {"probe_id": "p1", "model": "m1", "arm": "no_skill", "question": "q1"},
+        {"probe_id": "p2", "model": "m1", "arm": "no_skill", "question": "q2"},
+    ]
+    (out / "sample.jsonl").write_text("".join(json.dumps(r) + "\n" for r in base))
+
+    jp = _load(tmp_path, monkeypatch, [], fail={"repeat|m1|p2"})
+    jp.do_repeat(1)
+    saved = [json.loads(l)["probe_id"] for l in (out / "repeats.jsonl").read_text().splitlines()]
+    assert saved == ["p1"]
+
+    calls = []
+    jp = _load(tmp_path, monkeypatch, calls)
+    jp.do_repeat(1)
+    assert calls == ["repeat|m1|p2"]
+
+
+def test_purge_drops_only_the_grades_of_the_dropped_cell(tmp_path, monkeypatch):
+    # Two cells share a probe; only the one no longer sampled loses its grades.
+    calls = []
+    jp = _load(tmp_path, monkeypatch, calls)
+    out = tmp_path / "out"
+    (out / "sample.jsonl").write_text(
+        json.dumps({"probe_id": "p1", "model": "m1", "arm": "no_skill", "question": "q1"}) + "\n")
+    kept = {"probe_id": "p1", "model": "m1", "arm": "no_skill_repeat", "answer": "a", "question": "q1"}
+    stale = {"probe_id": "p1", "model": "m2", "arm": "no_skill_repeat", "answer": "b", "question": "q1"}
+    (out / "repeats.jsonl").write_text(json.dumps(kept) + "\n" + json.dumps(stale) + "\n")
+    grades = [
+        {"key": "p1|no_skill_repeat|m1", "judge": "j1", "verdict": "correct_complete"},
+        {"key": "p1|no_skill_repeat|m2", "judge": "j1", "verdict": "wrong_other"},
+    ]
+    (out / "grades.jsonl").write_text("".join(json.dumps(g) + "\n" for g in grades))
+
+    jp.do_repeat(1)
+
+    assert calls == []
+    left = [json.loads(l)["key"] for l in (out / "grades.jsonl").read_text().splitlines()]
+    assert left == ["p1|no_skill_repeat|m1"]
+
+
+def test_grade_regrades_a_repeat_whose_grades_were_purged(tmp_path, monkeypatch):
+    # After a purge the cell has no grade, so grade must ask the judge for it again; a grade
+    # step that skips every existing row would leave the regraded answer unjudged.
+    study = tmp_path / "study" / "data"
+    study.mkdir(parents=True)
+    (study / "probes.jsonl").write_text(json.dumps({
+        "probe_id": "p1", "atom_statement": "s", "atom_qualifiers": [], "expected_core": "c"}) + "\n")
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / "sample.jsonl").write_text(json.dumps({
+        "probe_id": "p1", "model": "m1", "arm": "no_skill", "question": "q1", "answer": "x",
+        "adversarial": False, "style": "plain"}) + "\n")
+    (out / "repeats.jsonl").write_text(json.dumps({
+        "probe_id": "p1", "model": "m1", "arm": "no_skill_repeat", "answer": "y", "question": "q1",
+        "adversarial": False, "style": "plain"}) + "\n")
+    asked = []
+    jp = _load(tmp_path, monkeypatch, [], asked=asked)
+
+    jp.do_grade(1, ["j1"])
+
+    assert sorted(asked) == sorted([("j1", "grade|j1|p1|no_skill|m1"), ("j1", "grade|j1|p1|no_skill_repeat|m1")])

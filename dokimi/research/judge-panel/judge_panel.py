@@ -171,16 +171,16 @@ def do_repeat(workers: int):
 
 def do_grade(workers: int, judges: list[str]):
     probes = {}
-    for l in (STUDY / "data/probes.jsonl").open():
+    for l in (STUDY / "data/probes.jsonl").read_text().splitlines():
         p = json.loads(l)
         probes[p["probe_id"]] = p
-    rows = [json.loads(l) for l in (OUT / "sample.jsonl").open()]
+    rows = [json.loads(l) for l in (OUT / "sample.jsonl").read_text().splitlines()]
     if (OUT / "repeats.jsonl").exists():
-        rows += [json.loads(l) for l in (OUT / "repeats.jsonl").open()]
+        rows += [json.loads(l) for l in (OUT / "repeats.jsonl").read_text().splitlines()]
     done = set()
     gp = OUT / "grades.jsonl"
     if gp.exists():
-        for l in gp.open():
+        for l in gp.read_text().splitlines():
             g = json.loads(l)
             if g.get("verdict"):
                 done.add((g["key"], g["judge"]))
