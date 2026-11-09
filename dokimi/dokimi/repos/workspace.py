@@ -54,7 +54,7 @@ from .arms import ArmError, Skill, resolve_skills, tree_sha256
 from .errors import PrepError
 from .guidance_arms import GUIDANCE_SKILL_DESCRIPTION, _apply_as_skill, _apply_format  # noqa: F401
 from .guidance_format import FORMATS
-from .guidance_history import arm_rev_history
+from .guidance_history import arm_rev_history, record_imports
 from .harness_profile import HarnessProfile
 from .manifest import RepoManifest, _is_within, match_glob
 from .overlay_paths import _link_target, _overlay_targets, _path_hits, _supplies_a_file  # noqa: F401
@@ -412,6 +412,7 @@ def prepare_workspace(git_dir: Path, manifest: RepoManifest, task: Task, arm: st
     _git(ws, env, "add", "-A")                                                                # 6
     _git(ws, env, "commit", "-q", "--no-gpg-sign", "--no-verify", "--amend", "--allow-empty", "-m", "snapshot")
     _apply_review_patch(ws, task, patches)                                                    # 7
+    record_imports(arm_meta, ws, arm_files, profile, lambda: _workspace_files(ws, env))  # as the agent gets it
     _forget(ws, env)                                                                          # 8
     start_sha = _git(ws, env, "rev-parse", "HEAD").strip()
     meta: dict[str, Any] = {
@@ -478,8 +479,8 @@ def _apply_arm(ws: Path, env: dict[str, str], git_dir: Path, manifest: RepoManif
         return _apply_patch(ws, env, manifest, arm)
     if arm.base == OVERLAY_ARM:
         return _apply_overlay(ws, _workspace_files(ws, env), overlay or "")
-    tracked = [p for p in _git_proc(ws, env, "ls-files", "-z").nul_fields() if p]
-    matched = sorted(p for p in tracked if any(match_glob(g, p) for g in manifest.guidance_globs))
+    # the workspace, not the index: a setup patch's added file is untracked and its deleted one still indexed (#495)
+    matched = sorted(p for p in _workspace_files(ws, env) if any(match_glob(g, p) for g in manifest.guidance_globs))
     if arm.base.startswith(FORMAT_ARM):
         return _apply_format(ws, matched, arm.base[len(FORMAT_ARM):])
     if arm.base in ("guidance:none", "guidance:as-skill") or arm.rev_sha is not None:
