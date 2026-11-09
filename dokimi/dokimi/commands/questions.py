@@ -14,8 +14,7 @@ from typing import Any, Dict
 from dokimi.llm import ANSWER_PROVIDERS, CALLER_CHOICES
 from dokimi.commands._output import exit_on_unwritable
 from dokimi.defaults import DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER
-from dokimi.utils import warn_recorded_self_judge
-from dokimi.utils import InputError
+from dokimi.utils import InputError, refuse_device, warn_recorded_self_judge
 
 
 def _load_questions_json(path: str):
@@ -39,8 +38,9 @@ def _extract_questions(questions_data, source: str) -> list:
     return raw
 
 
-def _read_json_input(path: str):
-    """The parsed JSON at ``path``, or exit 2 with a message naming the file."""
+def _read_json_input(path: str, flag: str):
+    """The parsed JSON at ``path``, or exit 2 with a message naming the file (and ``flag``, for a device)."""
+    refuse_device(path, flag)  # InputError: cli.main prints it and exits 2
     try:
         return json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, ValueError) as exc:  # ValueError covers JSONDecodeError and bad UTF-8
@@ -49,7 +49,7 @@ def _read_json_input(path: str):
 
 def _load_personas(path: str) -> list:
     """The ``personas`` list of a personas file, or exit 2 with a message naming the file."""
-    data = _read_json_input(path)
+    data = _read_json_input(path, "--personas")
     personas = data.get("personas") if isinstance(data, dict) else None
     if not isinstance(personas, list):
         raise InputError(f"{path} must be a JSON object with a 'personas' list")
@@ -298,7 +298,7 @@ def cmd_questions_generate(args: argparse.Namespace) -> None:
 
     # Get or extract topics
     if args.topics:
-        topics = _read_json_input(args.topics)
+        topics = _read_json_input(args.topics, "--topics")
         if not isinstance(topics, list):
             raise InputError(f"{args.topics} must be a JSON list of topics")
     else:
