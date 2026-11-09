@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""``repo tasks authoring``: one authoring task per merged pull request (contract §4.8).
+"""``eval tasks generate --from prs``: one authoring task per merged pull request (contract §4.8).
 
 The pull request is a :class:`.authoring.Change` from ``base``, the merge base of its
 ``headRefOid`` with ``mergeCommit^1`` (as review replay takes it, :mod:`.merged`), to its
