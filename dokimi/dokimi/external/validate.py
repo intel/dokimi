@@ -74,7 +74,7 @@ import re
 from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
-from typing import Optional, Sequence
+from typing import Iterable, Optional, Sequence
 from urllib.parse import unquote
 
 import yaml
@@ -142,6 +142,30 @@ FILE_SUFFIX_RE = re.compile(r"\d+(?:[-:]\d+)?|[A-Za-z_]\w*")
 LOCATION_SUFFIX_RE = re.compile(r":(?:\d+(?:[-:]\d+)?|[A-Za-z_]\w*)$")
 SKILL_DIR_VAR = "${CLAUDE_SKILL_DIR}/"
 
+# Every code a review can report: ``catalog check --ignore`` accepts these and no others.
+# tests/test_catalog_ignore.py reads the emitted codes from the source and fails on any missing here.
+FINDING_CODES = (
+    "allowed-tools-unknown",
+    "body-too-large",
+    "description-near-duplicate",
+    "description-no-when",
+    "description-too-long",
+    "duplicate",
+    "frontmatter-parse",
+    "frontmatter-unknown-key",
+    "hidden-unicode",
+    "legacy-model-id",
+    "link-escapes-skill",
+    "link-missing",
+    "mirror-drift",
+    "name-conflict",
+    "name-format",
+    "name-mismatch",
+    "name-missing",
+    "not-loaded",
+    "path-escapes-skill",
+)
+
 
 @dataclass
 class Finding:
@@ -150,6 +174,12 @@ class Finding:
     level: str
     code: str
     message: str
+
+
+def state_of(findings: Iterable[Finding]) -> str:
+    """``error`` if any finding is an error, else ``warn`` if any is a warning, else ``ok``."""
+    levels = {f.level for f in findings}
+    return "error" if "error" in levels else "warn" if "warn" in levels else "ok"
 
 
 @dataclass
@@ -166,8 +196,7 @@ class SkillReview:
     @property
     def state(self) -> str:
         """``error`` if any finding is an error, else ``warn`` if any is a warning, else ``ok``."""
-        levels = {f.level for f in self.findings}
-        return "error" if "error" in levels else "warn" if "warn" in levels else "ok"
+        return state_of(self.findings)
 
 
 def _strict_meta(text: str) -> tuple[dict, Optional[Finding]]:
