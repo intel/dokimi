@@ -421,18 +421,21 @@ def _status(client: httpx.Client, url: str) -> int:
     return status if status < 400 else _final_status(client, "GET", url)
 
 
-_MAX_REDIRECTS = 10
+_MAX_REDIRECTS = 20  # httpx's own limit
 
 
 def _final_status(client: httpx.Client, method: str, url: str) -> int:
     """The status of ``url`` after its redirects, which are followed here and not by httpx: httpx reads the body of
     a redirect before it follows it, so an endless body would hold the probe. No body is read here at all."""
-    for _ in range(_MAX_REDIRECTS + 1):
+    start, hops = url, 0
+    while True:
         with client.stream(method, url, follow_redirects=False) as response:
             if not response.is_redirect:
                 return response.status_code
             url = str(response.url.join(response.headers["location"]))
-    raise httpx.TooManyRedirects(f"more than {_MAX_REDIRECTS} redirects from {url}")
+        hops += 1
+        if hops > _MAX_REDIRECTS:
+            raise httpx.TooManyRedirects(f"more than {_MAX_REDIRECTS} redirects from {start}")
 
 
 # The resolver answers that mean the host does not exist. EAI_AGAIN and the rest are a broken or

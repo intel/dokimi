@@ -583,6 +583,7 @@ def test_redirect_body_is_not_read_before_following_it():
             return httpx.Response(302, headers={"Location": final}, stream=_UnreadBody())
         return httpx.Response(200)
 
+    # follow_redirects=True on purpose: _final_status must override it per request, or httpx reads the body.
     client = httpx.Client(transport=httpx.MockTransport(handle), follow_redirects=True)
     assert online_checks._status(client, start) == 200
 
