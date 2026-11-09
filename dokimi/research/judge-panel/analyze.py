@@ -202,7 +202,6 @@ def run_study():
             rank[f"{mode}|{j}"] = order
     summary["gated_rank_by_judge"] = rank
 
-
     # ---------- 2. pairwise agreement ----------
     def kappa(a, b, labels):
         n = len(a)
@@ -212,7 +211,6 @@ def run_study():
         ca, cb = Counter(a), Counter(b)
         pe = sum(ca[l] * cb[l] for l in labels) / n / n
         return (po - pe) / (1 - pe) if pe < 1 else 1.0
-
 
     kt = []
     kap = {}
@@ -286,7 +284,6 @@ def run_study():
                 }
     summary["self_preference"] = pool
 
-
     # ---------- 4. aggregation rules over the panel ----------
     def dawid_skene(keys, judges, iters=50):
         """Binary Dawid-Skene on lenient labels. Returns key -> P(correct), judge -> (sens, spec)."""
@@ -309,7 +306,6 @@ def run_study():
                     l0 += np.log(1 - spec[j] if y else spec[j])
                 p[k] = 1 / (1 + np.exp(l0 - l1))
         return p, sens, spec
-
 
     def rules(judges, keys):
         """Return {rule_name: get(key)->bool|None} for lenient-binary panel decisions."""
@@ -335,7 +331,6 @@ def run_study():
             "majority_strict": mk(lambda v, k: sum(x in STR for x in v) > len(v) / 2),
         }
         return out, sens, spec
-
 
     allkeys = list(V)
     panel_rules, sens, spec = rules(NEW, allkeys)
