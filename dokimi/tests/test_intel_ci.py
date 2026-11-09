@@ -102,6 +102,25 @@ def test_build_leaves_a_package_under_a_broken_directory_in_place(
     assert not (out / failed.name).exists()
 
 
+def test_build_refuses_two_packages_of_one_name(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Moved flat, the second would overwrite the first: collect names both and moves no package at all."""
+    build = _script("build", monkeypatch)
+    out, scratch = tmp_path / "out", tmp_path / "scratch"
+    linux, noarch = (scratch / "conda" / "linux-64", scratch / "conda" / "noarch")
+    for subdir in (linux, noarch):
+        subdir.mkdir(parents=True)
+        (subdir / "dokimi-0.2.0-0.conda").write_bytes(subdir.name.encode())
+    (linux / "dokimi-0.1.0-0.conda").write_bytes(b"other")
+    with pytest.raises(build.BuildError) as error:
+        build.collect(scratch, out)
+    assert str(error.value) == (f"two packages named dokimi-0.2.0-0.conda: {linux / 'dokimi-0.2.0-0.conda'}"
+                                f" and {noarch / 'dokimi-0.2.0-0.conda'}")
+    assert list(out.iterdir()) == []
+    assert (linux / "dokimi-0.2.0-0.conda").read_bytes() == b"linux-64"
+    assert (noarch / "dokimi-0.2.0-0.conda").read_bytes() == b"noarch"
+    assert (linux / "dokimi-0.1.0-0.conda").read_bytes() == b"other"
+
+
 def test_the_data_check_covers_the_files_of_the_test_it_replaces(monkeypatch: pytest.MonkeyPatch) -> None:
     """ci/test.py deselects test_default_data_files_ship_in_the_wheel: it checks the same files."""
     shown = subprocess.run([sys.executable, "-c", _script("test", monkeypatch).CHECK_DATA],
