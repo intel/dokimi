@@ -287,7 +287,6 @@ def _in_quotes(c: bytes) -> bytes:
 
 
 HEREDOC_OPEN = re.compile(rb"<<(-?)[ \t]*((?:[^\s;&|<>()'\"\\]|\\.|'[^'\n]*'|\"[^\"\n]*\")+)")  # not <<<, which has no word
-LET_COMMAND = re.compile(rb"[ \t]*let\b")
 HEREDOC_PART = re.compile(rb"\\(.)|'([^'\n]*)'|\"([^\"\n]*)\"")  # an escape or a quoted part of a heredoc delimiter
 
 
@@ -339,26 +338,20 @@ def _heredoc_at(data: bytes, i: int, resume: int) -> Optional[tuple[int, int]]:
     """For a heredoc operator at ``data[i]``: the index just past the operator, and the index just past its body. The
     body starts on the line after the operator, or after the body of an earlier heredoc on that line (``resume``)."""
     match = HEREDOC_OPEN.match(data, i)
-    if match is None or _in_arithmetic(data, i):
+    if match is None:
         return None
     delim = HEREDOC_PART.sub(lambda part: part.group(1) or part.group(2) or part.group(3) or b"", match.group(2))
     if resume < 0:
         eol = data.find(b"\n", match.end())
         resume = len(data) if eol < 0 else eol + 1
-    return match.end(), _heredoc_body_end(data, resume, match.group(1) == b"-", delim)
+    body_end = _heredoc_body_end(data, resume, match.group(1) == b"-", delim)
+    return None if body_end is None else (match.end(), body_end)
 
 
-def _in_arithmetic(data: bytes, i: int) -> bool:
-    """True when the command that ``data[i]`` is in has an arithmetic context open before it (``$((``, ``((``, ``$[``, or
-    a ``let`` command): a ``<<`` there is a shift, not a heredoc. A quoted ``((`` counts, which is rare enough to accept."""
-    command = re.split(rb"[;&|]", data[data.rfind(b"\n", 0, i) + 1:i])[-1]
-    opened = command.count(b"((") > command.count(b"))") or command.count(b"$[") > command.count(b"]")
-    return opened or LET_COMMAND.match(command) is not None
-
-
-def _heredoc_body_end(data: bytes, start: int, dash: bool, delim: bytes) -> int:
+def _heredoc_body_end(data: bytes, start: int, dash: bool, delim: bytes) -> Optional[int]:
     """The index just past the line that ends a heredoc body: the first line from ``start`` that is ``delim`` (after its
-    leading tabs with ``<<-``). The end of the data when there is no such line."""
+    leading tabs with ``<<-``). None when no line is ``delim``: then the ``<<`` is a shift in arithmetic, not a heredoc,
+    since bash needs the terminator for a heredoc."""
     j = start
     while j < len(data):
         eol = data.find(b"\n", j)
@@ -368,7 +361,7 @@ def _heredoc_body_end(data: bytes, start: int, dash: bool, delim: bytes) -> int:
         if eol < 0:
             break
         j = eol + 1
-    return len(data)
+    return None
 
 
 def _quoted_run(data: bytes, i: int) -> Optional[tuple[bytes, int]]:

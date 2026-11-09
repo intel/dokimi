@@ -564,6 +564,14 @@ def test_a_deprecated_arithmetic_shift_is_not_a_heredoc_under_real_bash(tmp_path
 
 
 @needs_bash
+def test_a_shift_after_a_bitwise_and_is_not_a_heredoc_under_real_bash(tmp_path, no_linters):
+    _bundle(tmp_path, {"run.sh": b"#!/bin/bash\nmask=$(( (a & 0xff) << 8 ))\nshopt -s extglob\n"
+                               b"case x in +(a|b)) : ;; esac\n"})
+
+    assert _reviews_by_name(tmp_path)["bundled"].findings == []
+
+
+@needs_bash
 def test_an_escaped_backslash_before_an_ansi_c_string_is_read_as_one_under_real_bash(tmp_path, no_linters):
     _bundle(tmp_path, {"run.sh": b"#!/bin/bash\necho \\\\$'a\\'b'\nshopt -s extglob\n"
                                b"case x in +(a|b)) : ;; esac\n"})
