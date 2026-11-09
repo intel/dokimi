@@ -184,6 +184,18 @@ def test_the_import_record_follows_the_profiles_rules(tmp_path, profile, importe
     assert guidance_history.guidance_imported_by(tmp_path, ["AGENTS.md", "sub/AGENTS.md"], loaded) == imported
 
 
+@pytest.mark.parametrize("where", ["a/", ""])
+def test_an_agents_md_its_claude_file_links_to_records_its_imports_from_its_own_directory(tmp_path, where):
+    """The review of #502: the ``.claude/CLAUDE.md`` beside it (or at the root) turns the AGENTS.md off, but it is
+    that file, so the AGENTS.md chain counts, read from its own directory as ``repo budget`` reads it."""
+    write(tmp_path, f"{where}AGENTS.md", "@../b/AGENTS.md\n" if where else "@b/AGENTS.md\n")
+    write(tmp_path, "b/AGENTS.md", "# b\n")
+    (tmp_path / where / ".claude").mkdir(parents=True)
+    os.symlink("../AGENTS.md", tmp_path / where / ".claude" / "CLAUDE.md")
+    assert guidance_history.guidance_imported_by(tmp_path, [f"{where}AGENTS.md", "b/AGENTS.md"], None) == {
+        "b/AGENTS.md": [f"{where}AGENTS.md"]}
+
+
 def test_an_import_of_a_link_records_the_guidance_file_it_resolves_to(tmp_path):
     write(tmp_path, "AGENTS.md", "@docs/guide.md\n")
     write(tmp_path, "sub/AGENTS.md", "# sub\n")

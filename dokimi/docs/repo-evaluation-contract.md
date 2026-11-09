@@ -446,7 +446,8 @@ it (the revision's guidance, the task's base elsewhere, after the review patch a
 the skills), among every file on disk, one a `.gitignore` ignores too, with `repo budget`'s import walker
 (`dokimi/repos/budget.py`) by the cell's harness profile: the chains of every
 `CLAUDE*` file and every `AGENTS.md` its `guidance.names` holds, but an `AGENTS.md`
-that `guidance.claude_displaces_agents` turns off, relative to
+that `guidance.claude_displaces_agents` turns off and no root `CLAUDE*` or
+`CLAUDE*` that turns it off links to (the link is read as that `AGENTS.md`), relative to
 the importer, not in a code span or block, within `guidance.import_max_depth`,
 and none (`{}`) for a profile with no `guidance.imports`; with no profile, by
 Claude Code's rules, which follow imports. Each commit has its `sha`, `authored` and
