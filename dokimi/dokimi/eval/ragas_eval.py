@@ -182,7 +182,7 @@ class RagasEvaluator:
         summary_with.update(summary_recall)
         without_scores, summary_without = self._score(
             Dataset, ragas_evaluate, rows_without,
-            [self._metric("answer_relevancy")] if rows_without else [], "without_docs")
+            [m for m in self._metric_objects if m.name == "answer_relevancy"], "without_docs")
 
         return RagasResult(
             with_docs_scores=with_scores,
