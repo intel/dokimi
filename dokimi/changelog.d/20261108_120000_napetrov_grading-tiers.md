@@ -10,7 +10,8 @@
   judge had called correct.
 - **`identifiers` reference check** — passes when every identifier the answer names (long
   options by default, inside the `within` lines) is in `known`; `--no-x` counts when `--x` is
-  known and the check sets `negations: true` or the help lists `--[no-]x`. Checks may also set `tier` (`verifiable`, `grounded`, `judge`).
+  known and the check sets `negations: true` or the help lists `--[no-]x`. Checks may also set
+  `tier` (`verifiable`, `grounded`, `judge`).
 - **`skill novelty ground`** — writes an `identifiers` veto built from each `--tool`'s own
   `--help` (with the help's sha256) into the atoms that name that tool, and checks each such
   atom's answer key against the same help: `meta.key_status` is `verified`, `not_found`

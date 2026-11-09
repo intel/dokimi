@@ -7,6 +7,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import sys
 from pathlib import Path
 
@@ -24,9 +25,11 @@ def cmd_novelty_ground(args: argparse.Namespace) -> None:
     out = Path(args.out or args.atoms).resolve()  # a symlink: its target is what is rewritten
     # Write beside the target and replace it only after the write succeeds: the default --out is
     # the atoms file itself, and a failed write must not leave it truncated.
-    tmp = out.with_name(out.name + ".tmp")
+    tmp = out.with_name(f".{out.name}.{os.getpid()}.tmp")  # own name: two runs do not share it
     try:
         tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        if out.exists():
+            shutil.copymode(out, tmp)  # the rewritten file keeps the mode it had
         os.replace(tmp, out)
     finally:
         tmp.unlink(missing_ok=True)
