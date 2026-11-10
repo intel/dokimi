@@ -431,7 +431,6 @@ What a generation update does to judgment:
   Recency does not stand in for judge quality.
 
 - **A three-family panel absorbs most of the change.** The median panel
-
     {gpt-5.6-luna, kimi-k2.5, haiku-4.5} vs {gpt-6-luna, kimi-k3, opus-5.5} (`generation_panels.csv`):
 
     - Lenient added share moves by at most 0.067 (haiku-4.5 answers, 0.27 → 0.20), within the
