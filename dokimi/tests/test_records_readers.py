@@ -183,24 +183,22 @@ def test_report_compare_scores_a_legacy_run_from_inline_arm_evaluations(tmp_path
     assert (row["question_id"], row["without_docs"], row["with_docs"], row["delta"]) == (3, 50, 65, 15)
 
 
-@pytest.mark.parametrize("extra", [
-    {"answers": []},
-    {"answers": None},
-    {"answers": {}},
-    {"answers": [], "evaluations": None},
-    {"answers": [], "evaluations": {}},
-], ids=["empty", "null-answers", "empty-object-answers", "null-evaluations", "empty-object-evaluations"])
-def test_report_compare_reads_an_empty_or_null_section_as_no_records(tmp_path, extra):
+@pytest.mark.parametrize("extra", [{"answers": []}, {"answers": [], "evaluations": []}], ids=["unjudged", "judged"])
+def test_report_compare_reads_an_empty_section_as_no_records(tmp_path, extra):
     assert extract_scores(load_run(_run_file(tmp_path, _arms_run(**extra)))) == []
 
 
 @pytest.mark.parametrize("payload, message", [
     ([{"question_id": "q1"}], "expected a JSON object"),
-    (_arms_run(answers={"q1": {}}), "expected a list of records"),
+    (_arms_run(answers=None), "'answers' must be a list, got NoneType"),
+    (_arms_run(answers={}), "'answers' must be a list, got dict"),
+    (_arms_run(answers=[], evaluations=None), "'evaluations' must be a list, got NoneType"),
+    (_arms_run(answers=[], evaluations={"q1": {}}), "'evaluations' must be a list, got dict"),
     (_arms_run(answers=[], evaluations=["q1"]), "expected an object"),
     (_arms_run(answers=[{"arms": {"docs": {"answer": "d"}}}]), "missing question_id"),
     (_arms_run(answers=[], evaluations=[{"question_id": "q1", "scores": ["docs"]}]), "'scores' must be an object"),
-], ids=["bare-list", "answers-object", "not-a-record", "no-id", "scores-not-an-object"])
+], ids=["bare-list", "null-answers", "empty-object-answers", "null-evaluations", "object-evaluations",
+        "not-a-record", "no-id", "scores-not-an-object"])
 def test_report_compare_refuses_a_malformed_run_naming_the_file(tmp_path, payload, message):
     path = _run_file(tmp_path, payload)
     with pytest.raises(InputError, match=message) as exc:
@@ -241,8 +239,7 @@ def test_arms_report_lists_each_question_with_its_arm_scores():
     assert "| Panel? | — | 90 |" in md
 
 
-@pytest.mark.parametrize("extra", [{}, {"evaluations": []}, {"evaluations": None}],
-                         ids=["absent", "empty", "null"])
+@pytest.mark.parametrize("extra", [{}, {"evaluations": []}], ids=["absent", "empty"])
 def test_arms_report_without_evaluations_has_no_per_question_table(extra):
     assert "Per-question scores" not in render_arms_report(_arms_output(**extra))
 
@@ -264,9 +261,10 @@ def test_arms_report_refuses_answers_that_are_not_a_list(extra):
 
 
 @pytest.mark.parametrize("extra", [
-    {"evaluations": {"q1": {}}},
+    {"evaluations": None},
+    {"evaluations": {}},
     {"evaluations": [{"scores": {"docs": {"aggregate": 1}}}]},
-], ids=["object", "no-id"])
+], ids=["null", "empty-object", "no-id"])
 def test_arms_report_refuses_malformed_evaluations(extra):
     with pytest.raises(RecordError):
         render_arms_report(_arms_output(**extra))

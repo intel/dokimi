@@ -7,7 +7,7 @@ from typing import Any, Dict, List
 
 from dokimi.eval.arm_summary import TOOL_COUNTS
 from dokimi.eval.sign_flip import fmt_small
-from dokimi.records import read, records
+from dokimi.records import read
 
 
 def _md_cell(text: str) -> str:
@@ -315,7 +315,7 @@ def render_arms_report(data: Dict[str, Any]) -> str:
             )
         lines.append("")
 
-    evaluations = data.get("evaluations")
+    evaluations = read(data, source="arms output", section="evaluations", required=False)
     if evaluations:
         lines.append("## Per-question scores")
         lines.append("")
@@ -323,7 +323,7 @@ def render_arms_report(data: Dict[str, Any]) -> str:
         sep = "| --- | " + " | ".join("---:" for _ in arms) + " |"
         lines.append(header)
         lines.append(sep)
-        for ev in records(evaluations, source="evaluations", kind="evaluations"):
+        for ev in evaluations:
             q = ev.question_text
             q_short = (q[:60] + "…") if len(q) > 60 else q
             q_short = _md_cell(q_short)
