@@ -171,7 +171,10 @@ class _Tally:
 
     def add(self, row: dict) -> None:
         self.counts[row["state"]] += 1
-        if row["error"] is not None or (self.strict and (row["state"] == "error" or unrestricted_and_risky(row))):
+        # A SKILL.md the OS will not read after it loaded has no row error, only its unreadable finding: it fails
+        # the scan as a load error does, as the whole-catalog path decides it (catalog.py).
+        unreadable = any(f.get("code") == "unreadable" for f in row["findings"])
+        if row["error"] is not None or unreadable or (self.strict and (row["state"] == "error" or unrestricted_and_risky(row))):
             self.failed = True
 
 

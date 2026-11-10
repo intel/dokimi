@@ -37,8 +37,8 @@ are listed as unpaired, with the reason (no cells in one arm, a task kind that
 differs between the arms, a measure one arm lacks). Per measure the comparison
 gives the mean per-task delta (treatment minus baseline) with a 95% interval
 over tasks, the tasks that went up, down or stayed, and a two-sided sign-flip
-permutation p on the per-task deltas: exact up to :data:`EXACT_MAX` non-zero
-deltas, Monte Carlo above. The interval inverts that test (:mod:`.compare_interval`, ``delta.method``): every
+permutation p on the per-task deltas: exact up to :data:`~dokimi.eval.sign_flip.EXACT_MAX` non-zero
+deltas, Monte Carlo above. The interval inverts that test (:mod:`dokimi.eval.sign_flip`, ``delta.method``): every
 shift theta the test on the deltas minus theta does not reject at 5%, uncorrected, so it excludes 0 exactly when
 p < 0.05; an end is open (``None``) at 5 or fewer tasks. At one cell per task and arm the deltas are -1, 0
 or +1 and the exact p equals McNemar's exact test. Holm's correction runs over
@@ -103,24 +103,23 @@ deltas measure the patch's text (a guidance line, say), not the tool.
 
 from __future__ import annotations
 
-import itertools
 import json
-import random
 import statistics
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
 from dokimi.context.consistency import Run, run_from_events
+from dokimi.eval.sign_flip import (ALPHA, EPS, METHOD, min_sign_flip_p, sign_flip_interval, sign_flip_p,
+                                   within)
 from dokimi.eval.stats import correct_family
 from dokimi.utils import same_model
 
 from .compare_judged import (check_reported, judge_names, judge_warnings, judged_cells, judged_lines,
                              read_judged)
 from .compare_leak import format_leak, leak_check
-from .compare_interval import (EPS, EXACT_MAX, METHOD, N_RESAMPLES, format_interval, includes_zero,
-                               sign_flip_interval, within)
-from .compare_reach import ALPHA, holm_floor, min_detectable
+from .compare_interval import format_interval, includes_zero
+from .compare_reach import holm_floor, min_detectable
 from .compare_tasks import CompareError, select_tasks
 from .compare_values import finite_values, task_values
 from .process_counts import as_measure, process_order, process_values
@@ -571,7 +570,7 @@ def sign_flip_summary(pairs: list[dict[str, Any]], measure: str = "gate", seed: 
 
     The values are taken at full precision and rounded only in the output: rounded rates such as 1/3 and 2/3
     no longer sum to the same totals, which would move sign patterns across the observed one in the
-    permutation test. Every measure's interval inverts the row's sign-flip test (:func:`.sign_flip_interval`,
+    permutation test. Every measure's interval inverts the row's sign-flip test (:func:`~dokimi.eval.sign_flip.sign_flip_interval`,
     ``delta.method``), so it excludes 0 exactly when the raw p is below 0.05; an end is ``None`` where it is open,
     as both are at 5 or fewer tasks, one task included. ``mde`` and ``interval_p_disagree`` are the reading aids of
     the module docstring; both read the raw p here, and :func:`compare` revisits both on a gate or score row once
@@ -600,34 +599,6 @@ def sign_flip_summary(pairs: list[dict[str, Any]], measure: str = "gate", seed: 
         "tasks": [{**p, "baseline": _round(p["baseline"]), "treatment": _round(p["treatment"]),
                    "delta": _round(p["delta"])} for p in pairs],
     }
-
-
-def min_sign_flip_p(changed: int) -> float:
-    """The smallest p :func:`sign_flip_p` can give over ``changed`` non-zero deltas, every sign the same: only that
-    pattern and its mirror reach the observed ``|sum|``, ``2 / 2**changed`` exact, ``1 / (N + 1)`` Monte Carlo."""
-    return min(1.0, 2 / 2 ** changed) if changed <= EXACT_MAX else 1 / (N_RESAMPLES + 1)
-
-
-def sign_flip_p(deltas: list[float], seed: int = 0, n_resamples: int = N_RESAMPLES, *,
-                exact: bool = False) -> float | None:
-    """Two-sided p of ``|sum(deltas)|`` when each delta's sign is a fair coin under the null.
-
-    ``None`` when every delta is a tie: there is no evidence either way, and 1.0 would read as a measured null.
-    Rounded to 6 places as printed, unless ``exact``.
-    """
-    d = [x for x in deltas if abs(x) > EPS]
-    if not d:
-        return None
-    observed = abs(sum(d)) - EPS
-    if len(d) <= EXACT_MAX:
-        hits = sum(abs(sum(s * x for s, x in zip(signs, d, strict=True))) >= observed
-                   for signs in itertools.product((1, -1), repeat=len(d)))
-        p = hits / 2 ** len(d)
-    else:
-        rng = random.Random(seed)
-        hits = sum(abs(sum(x if rng.random() < 0.5 else -x for x in d)) >= observed for _ in range(n_resamples))
-        p = (hits + 1) / (n_resamples + 1)
-    return p if exact else round(p, 6)
 
 
 def format_compare(summary: dict[str, Any]) -> str:
