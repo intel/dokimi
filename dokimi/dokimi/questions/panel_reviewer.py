@@ -326,7 +326,7 @@ def _build_report(library_name: str, results: List[Dict]) -> QuestionPanelReport
             "revise": revise,
             "drop": drop,
             "mean_panel_score": round(statistics.mean(scores), 1) if scores else None,
-            "top_flags": sorted(flag_counts.items(), key=lambda x: -x[1])[:5],
+            "top_flags": [[f, n] for f, n in sorted(flag_counts.items(), key=lambda x: -x[1])[:5]],
         },
     )
 
