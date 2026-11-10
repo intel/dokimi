@@ -493,68 +493,116 @@ def _quoted_run(data: bytes, i: int, lines: _Lines, nest: int = 0) -> Optional[t
     return None
 
 
+class _SubScan:
+    """One read of a ``$( )`` body as bash reads it: the depth of its parens, the heredoc whose body comes on a later
+    line, and the case statements open in it, with the extglob groups of a case pattern."""
+
+    def __init__(self, data: bytes, lines: _Lines, nest: int) -> None:
+        self.data = data
+        self.lines = lines
+        self.nest = nest
+        self.depth = 0
+        self.closed = False
+        self.resume = -1  # where the body of a heredoc opened on this line starts: the next line, after any earlier body
+        self.cases: list[str] = []  # the open case statements: "head" (before its in), "pattern" (a ) ends a pattern), "body"
+        self.pat_group = 0  # the open extglob groups in the pattern being read: their ) is not the pattern's
+
+    def step(self, j: int) -> int:
+        """The index read after the token at ``data[j]``; -1 when a quoted run in it is unclosed."""
+        data = self.data
+        c = data[j:j + 1]
+        if c in (b"'", b'"'):
+            run = _quoted_run(data, j, self.lines, self.nest)
+            return -1 if run is None else run[1]
+        if c == b"#" and data[j - 1:j] in WORD_START:  # a comment in the substitution: its quotes are not quotes
+            return _comment_end(data, j)
+        if c == b"\\":
+            return j + 2
+        opened = self._opener(j, c)
+        if opened is not None:
+            return opened
+        return self._token(j, c)
+
+    def _opener(self, j: int, c: bytes) -> Optional[int]:
+        """The index after a heredoc body's newline, a shift in arithmetic or a heredoc operator at ``data[j]``; None
+        for any other token."""
+        data = self.data
+        if c == b"\n" and self.resume >= 0:
+            j, self.resume = self.resume, -1
+            return j
+        if c in (b"$", b"("):
+            end = _arith_end(data, j, data[j - 1:j])
+            if end is not None:  # a << in arithmetic is a shift
+                return end
+        if c == b"<" and data[j - 1:j] != b"<":
+            opened = _heredoc_at(data, j, self.resume, self.lines)
+            if opened is not None:
+                j, self.resume = opened
+                return j
+        return None
+
+    def _top(self) -> str:
+        return self.cases[-1] if self.cases else ""
+
+    def _token(self, j: int, c: bytes) -> int:
+        """The index after the word, case paren, ;; or paren at ``data[j]``."""
+        word = self._word(j)
+        if word is not None:
+            return word
+        if self._top() == "pattern" and c in (b"(", b")"):  # a case pattern ends at its ), not an extglob group's
+            return self._pattern_paren(j, c)
+        if self._top() == "body" and c == b";" and self.data[j + 1:j + 2] in (b";", b"&"):  # ;; ;& end a case item
+            self.cases[-1] = "pattern"
+            return j + 2
+        return self._paren(j, c)
+
+    def _word(self, j: int) -> Optional[int]:
+        """The index after the word at ``data[j]``, which moves the case state when it is a case keyword."""
+        word = CASE_WORD.match(self.data, j) if self.data[j - 1:j] in WORD_START else None
+        if word is None:
+            return None
+        self._keyword(word.group(), word.end())
+        return word.end()
+
+    def _keyword(self, kw: bytes, end: int) -> None:
+        top = self._top()
+        if kw == b"case" and CASE_HEAD.match(self.data, end):  # a case is case WORD in: an argument case is not
+            self.cases.append("head")
+        elif kw == b"in" and top == "head":
+            self.cases[-1] = "pattern"
+        elif kw == b"esac" and top not in ("", "head"):
+            self.cases.pop()
+
+    def _pattern_paren(self, j: int, c: bytes) -> int:
+        if c == b"(" and self.data[j - 1:j] in (b"@", b"!", b"?", b"+", b"*"):
+            self.pat_group += 1
+        elif c == b")" and self.pat_group:
+            self.pat_group -= 1
+        elif c == b")":
+            self.cases[-1] = "body"
+        return j + 1
+
+    def _paren(self, j: int, c: bytes) -> int:
+        if c == b"(":
+            self.depth += 1
+        elif c == b")":
+            self.depth -= 1
+            self.closed = self.depth == 0
+        return j + 1
+
+
 def _command_sub_end(data: bytes, i: int, lines: _Lines, nest: int = 0) -> Optional[int]:
     """The index just past the ``)`` that closes the ``(`` at ``data[i]`` of a ``$(``, read as bash reads it: its quoted
     runs and heredoc bodies are skipped whole, so a quote inside them does not close the double quotes around it. None
     when it is unclosed."""
-    depth = 0
+    scan = _SubScan(data, lines, nest)
     j = i
-    resume = -1  # where the body of a heredoc opened on this line starts: the next line, after any earlier body
-    cases: list[str] = []  # the open case statements: "head" (before its in), "pattern" (a ) ends a pattern), "body"
-    pat_group = 0  # the open extglob groups in the pattern being read: their ) is not the pattern's
     while j < len(data):
-        c = data[j:j + 1]
-        if c == b"\n" and resume >= 0:
-            j, resume = resume, -1
-            continue
-        if c == b"\\":
-            j += 2
-            continue
-        if c in (b"$", b"(") and (end := _arith_end(data, j, data[j - 1:j])) is not None:  # a << in arithmetic is a shift
-            j = end
-            continue
-        if c == b"<" and data[j - 1:j] != b"<" and (opened := _heredoc_at(data, j, resume, lines)) is not None:
-            j, resume = opened
-            continue
-        if c in (b"'", b'"'):
-            run = _quoted_run(data, j, lines, nest)
-            if run is None:
-                return None
-            j = run[1]
-            continue
-        if c == b"#" and data[j - 1:j] in WORD_START:  # a comment in the substitution: its quotes are not quotes
-            j = _comment_end(data, j)
-            continue
-        if data[j - 1:j] in WORD_START and (word := CASE_WORD.match(data, j)) is not None:
-            kw = word.group()
-            if kw == b"case" and CASE_HEAD.match(data, word.end()):  # a case is case WORD in: an argument case is not
-                cases.append("head")
-            elif kw == b"in" and cases and cases[-1] == "head":
-                cases[-1] = "pattern"
-            elif kw == b"esac" and cases and cases[-1] != "head":
-                cases.pop()
-            j = word.end()
-            continue
-        if cases and cases[-1] == "pattern" and c in (b"(", b")"):  # a case pattern ends at its ), not an extglob group's
-            if c == b"(" and data[j - 1:j] in (b"@", b"!", b"?", b"+", b"*"):
-                pat_group += 1
-            elif c == b")" and pat_group:
-                pat_group -= 1
-            elif c == b")":
-                cases[-1] = "body"
-            j += 1
-            continue
-        if cases and cases[-1] == "body" and c == b";" and data[j + 1:j + 2] in (b";", b"&"):  # ;; ;& end a case item
-            cases[-1] = "pattern"
-            j += 2
-            continue
-        if c == b"(":
-            depth += 1
-        elif c == b")":
-            depth -= 1
-            if depth == 0:
-                return j + 1
-        j += 1
+        j = scan.step(j)
+        if j < 0:
+            return None
+        if scan.closed:
+            return j
     return None
 
 

@@ -789,7 +789,7 @@ def test_a_case_word_that_is_an_argument_is_not_a_case_in_a_command_sub_in_quote
 
 def test_a_command_sub_in_quotes_nested_600_deep_does_not_exhaust_the_recursion_limit():
     # each level of the nest recurses; a nest this deep raised RecursionError on the whole file
-    script_checks._shell_options(b"x=" + b'"$(' * 600 + b")\"" * 600 + b"\nx\n")
+    assert script_checks._shell_options(b"x=" + b'"$(' * 600 + b")\"" * 600 + b"\nx\n") == []
 
 
 @pytest.mark.parametrize(("body", "codes"), [
