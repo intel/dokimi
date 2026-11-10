@@ -20,12 +20,13 @@ def path_text(raw: bytes) -> str:
 
 
 def exact_path_text(raw: bytes) -> str | None:
-    """:func:`path_text` for a map keyed by file name: None for a name Windows cannot decode as UTF-8, since the
-    replaced name is another file's key (``l\\xffint`` and ``l\\ufffdint`` would share one)."""
+    """:func:`path_text` for a map keyed by file name: None for a name Windows cannot decode, since the replaced name is
+    another file's key (``l\\xffint`` and ``l\\ufffdint`` would share one). It decodes as Windows' ``os.fsdecode`` does,
+    UTF-8 with ``surrogatepass``, so an encoded lone surrogate (``\\xed\\xa0\\x80``) is the name of its file."""
     if _POSIX:
         return os.fsdecode(raw)
     try:
-        return raw.decode("utf-8")
+        return raw.decode("utf-8", "surrogatepass")
     except UnicodeDecodeError:
         return None
 

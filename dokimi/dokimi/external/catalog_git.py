@@ -12,7 +12,7 @@ from typing import Any
 
 from dokimi import process
 from dokimi.harnesses.tasks import read_task_config
-from dokimi.process_io import path_text
+from dokimi.process_io import exact_path_text, path_text
 
 from .catalog_eval_inputs import task_dir
 
@@ -137,6 +137,10 @@ def source_and_changes(root: Path, base: str | None, out: Path) -> tuple[
     if tracked.returncode and _git(root, "config", "--get-regexp", r"^remote\..*\.(promisor|partialclonefilter)$").returncode == 0:
         return source, None, untracked, {}, partial
     paths = sorted(path for path in set(_paths(tracked)) if not (root / path).is_relative_to(out))
+    if any(exact_path_text(raw) is None for raw in tracked.stdout_bytes.split(b"\0") if raw):
+        # the replaced name is another path's: it would read that path's owner at the base and leave the real one unselected
+        return source, None, untracked, {}, (
+            f"A path changed since {base!r} is not valid UTF-8 and cannot be matched to its skill; conservatively checking every skill.")
     owners = _base_owners(root, resolved.stdout.strip(), paths)
     if owners is None:
         return source, None, untracked, {}, partial

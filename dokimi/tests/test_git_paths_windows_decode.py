@@ -28,9 +28,9 @@ def _git(root: Path, *args: str | bytes, stdin: bytes | None = None) -> bytes:
                           input=stdin).stdout
 
 
-def _index_entry(root: Path, mode: str, name: bytes) -> None:
+def _index_entry(root: Path, mode: str, name: bytes, content: bytes = b"odd\n") -> None:
     """An index entry for ``name`` with no file on disk, fed through stdin: a raw byte cannot be a Windows argument."""
-    blob = _git(root, "hash-object", "-w", "--stdin", stdin=b"odd\n").strip()
+    blob = _git(root, "hash-object", "-w", "--stdin", stdin=content).strip()
     _git(root, "update-index", "--add", "-z", "--index-info", stdin=f"{mode} {blob.decode()}\t".encode() + name + b"\0")
 
 
@@ -65,7 +65,7 @@ def test_the_fixture_decodes_as_windows_does(windows_decoding):
 def test_git_tree_holds_a_path_that_is_not_utf8(repo, windows_decoding):
     tree = utils.git_tree(repo / "skill")
     assert tree is not None
-    assert REPLACED in tree.tracked and "skill/SKILL.md" in tree.tracked
+    assert REPLACED not in tree.tracked and "skill/SKILL.md" in tree.tracked  # the replaced name is no file's
     assert "skill/SKILL.md" in tree.indexed
 
 
@@ -128,8 +128,72 @@ def test_catalog_paths_report_a_path_that_is_not_utf8(repo, windows_decoding):
 
 
 def test_changed_from_a_base_with_a_path_that_is_not_utf8_checks_instead_of_failing(repo, windows_decoding):
-    _source, paths, _untracked, _owners, reason = catalog_git.source_and_changes(repo, "HEAD~1", repo / "out")
-    assert reason is None and paths == [REPLACED, "skill/SKILL.md"]  # the other is in the index with no file
+    _source, paths, _untracked, owners, reason = catalog_git.source_and_changes(repo, "HEAD~1", repo / "out")
+    assert paths is None and owners == {} and reason is not None and "every skill" in reason
+
+
+TASK = "evaluation/harbor/tasks/l"
+
+
+@pytest.fixture
+def owners_repo(tmp_path) -> Path:
+    """Task ``l\\xffint`` (skill alpha) is in the base and the index with no file; the real task ``l�int`` (beta) is
+    committed. Both decode to one Windows name."""
+    root = tmp_path / "owners"
+    (root / (TASK + "�int")).mkdir(parents=True)
+    _git(root, "init", "-q")
+    (root / (TASK + "�int") / "task.toml").write_text('[metadata]\nskill = "beta"\n', encoding="utf-8")
+    _git(root, "add", "-A")
+    _index_entry(root, "100644", TASK.encode() + b"\xffint/task.toml", b'[metadata]\nskill = "alpha"\n')
+    _git(root, "commit", "-q", "-m", "base")
+    return root.resolve()
+
+
+def test_a_changed_task_whose_name_collides_after_replacement_selects_every_skill(owners_repo, windows_decoding):
+    """The deleted ``l\\xffint`` task would be read as ``l�int`` and owned by beta, leaving alpha unselected."""
+    _source, paths, _untracked, owners, reason = catalog_git.source_and_changes(owners_repo, "HEAD", owners_repo / "out")
+    assert paths is None and owners == {} and reason is not None and "every skill" in reason
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX keeps the byte; Windows replaces it")
+def test_a_posix_changed_task_with_a_byte_that_is_not_utf8_keeps_its_own_owner(owners_repo):
+    _source, paths, _untracked, owners, reason = catalog_git.source_and_changes(owners_repo, "HEAD", owners_repo / "out")
+    bad = os.fsdecode(TASK.encode() + b"\xffint")
+    assert reason is None and paths == [bad + "/task.toml"] and owners == {bad: "alpha"}
+
+
+@pytest.fixture
+def nested_repo(tmp_path) -> Path:
+    """The outer index holds ``l\\xffint/SKILL.md`` only; the real directory ``l�int`` is a repository that ignores
+    its untracked ``SKILL.md``."""
+    root = tmp_path / "nested"
+    inner = root / REPLACED.split("/")[0]
+    inner.mkdir(parents=True)
+    _git(root, "init", "-q")
+    _git(inner, "init", "-q")
+    (inner / ".gitignore").write_text("SKILL.md\n", encoding="utf-8")
+    (inner / "SKILL.md").write_text("ignored\n", encoding="utf-8")
+    _index_entry(root, "100644", BAD)
+    return root.resolve()
+
+
+def test_an_index_name_that_collides_after_replacement_does_not_unignore_a_nested_file(nested_repo, windows_decoding):
+    tree = utils.git_tree(nested_repo)
+    assert tree is not None and REPLACED not in tree.tracked
+    assert tree.skipped(nested_repo / REPLACED) is True
+
+
+def test_exact_path_text_decodes_an_encoded_surrogate_as_windows_does(windows_decoding):
+    assert process_io.exact_path_text(b"skill/\xed\xa0\x80.sh") == "skill/\ud800.sh"
+    assert process_io.exact_path_text(BAD) is None
+
+
+def test_tracked_modes_keeps_the_mode_of_a_name_with_an_encoded_surrogate(tmp_path, windows_decoding):
+    root = tmp_path / "surrogate"
+    root.mkdir()
+    _git(root, "init", "-q")
+    _index_entry(root, "100755", b"skill/\xed\xa0\x80.sh")
+    assert utils._tracked_modes(root, ".") == {"skill/\ud800.sh": True}
 
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX keeps the byte; Windows replaces it")

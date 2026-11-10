@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import os
-import tempfile
+import secrets
 
 
 def can_write(path: str | os.PathLike[str]) -> bool:
@@ -16,9 +16,9 @@ def can_write(path: str | os.PathLike[str]) -> bool:
     for any directory, and does not see an ACL that denies the write."""
     try:
         if os.path.isdir(path):
-            # not TemporaryFile: on Windows that opens delete-on-close, which needs the delete access a plain write does not
-            handle, name = tempfile.mkstemp(dir=path)
-            os.close(handle)
+            # write-only and not delete-on-close, as the writer opens it: mkstemp asks for read access, TemporaryFile for delete
+            name = os.path.join(path, f".write-probe-{secrets.token_hex(8)}")
+            os.close(os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600))
             try:
                 os.unlink(name)
             except OSError:

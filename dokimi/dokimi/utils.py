@@ -285,7 +285,9 @@ def _index_blobs(top: str) -> tuple[dict[str, str], frozenset[str]]:
         fields = meta.split()
         if not name:
             continue
-        rel = path_text(name)
+        rel = exact_path_text(name)
+        if rel is None:  # a replaced name would stand for the real file that has it
+            continue
         held.update(rel.rsplit("/", i)[0] for i in range(rel.count("/") + 1))  # the path and each directory above it
         if trusted and len(fields) == 3 and fields[2] == b"0" and rel not in changed:
             out[rel] = os.fsdecode(fields[1])

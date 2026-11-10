@@ -27,15 +27,18 @@ def _refuse_open(monkeypatch):
     monkeypatch.setattr("dokimi.write_probe.open", refuse, raising=False)
 
 
-def _refuse_new_file(monkeypatch, where):
-    real = tempfile.mkstemp
+def _refuse_new_file(monkeypatch, where, *, only_reading=False):
+    """Creating a file in ``where`` is refused; with ``only_reading``, only when it is opened with read access (a
+    directory whose new files inherit an ACL that denies FILE_READ_DATA)."""
+    real = os.open
 
-    def mkstemp(*args, dir=None, **kwargs):
-        if dir is not None and os.path.realpath(dir) == os.path.realpath(where):
-            raise PermissionError(13, "Access is denied", os.fspath(dir))
-        return real(*args, dir=dir, **kwargs)
+    def refuse(path, flags, *args, **kwargs):
+        reads = flags & (os.O_RDWR | os.O_WRONLY) != os.O_WRONLY
+        if os.path.realpath(os.path.dirname(path)) == os.path.realpath(where) and (reads or not only_reading):
+            raise PermissionError(13, "Access is denied", os.fspath(path))
+        return real(path, flags, *args, **kwargs)
 
-    monkeypatch.setattr(tempfile, "mkstemp", mkstemp)
+    monkeypatch.setattr(os, "open", refuse)
 
 
 def test_a_file_is_probed_without_truncating_it(tmp_path):
@@ -58,6 +61,13 @@ def test_a_directory_that_refuses_only_the_delete_is_writable(tmp_path, monkeypa
 
     monkeypatch.setattr(tempfile, "TemporaryFile", refuse)
     monkeypatch.setattr(os, "unlink", refuse)
+    assert can_write(tmp_path) is True
+
+
+def test_a_directory_whose_new_files_deny_reading_is_writable(tmp_path, monkeypatch):
+    """Windows: an inherited ACL on a new file denies FILE_READ_DATA. The writer opens write-only and succeeds, so the
+    probe must not ask for read access (``mkstemp`` opens ``O_RDWR``)."""
+    _refuse_new_file(monkeypatch, tmp_path, only_reading=True)
     assert can_write(tmp_path) is True
 
 
