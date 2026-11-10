@@ -515,6 +515,8 @@ def test_a_hook_pattern_that_does_not_backtrack_gives_a_source_to_match():
     ("^(?!main$).*", False), ("release/(v|rc)[0-9]+", False), ("(a+)b(c+)", False), ("(a{2})+", False), ("(ab?)+", False),
     # an item of the repeat that can be skipped or repeated, and be followed by what it takes
     ("maintenance/(a?a?)+b", True), ("(a?a)+", True), ("(a+b?)+", True), ("([a-z]+/?)+", True), ("((ab)?a)+", True),
+    # a skippable item counts in what follows, the outer pass follows a nested repeat, a branch can start with `?`
+    ("maintenance/(?:a+a?b)+c", True), ("maintenance/(?:(?:ab?)+b)+c", True), ("maintenance/(?:a?b|b)+c", True),
     # `İ` is `i` to a case-insensitive `re`; so are the Kelvin sign and `k`
     ("maintenance/(?i:(i|\u0130i)+)b", True), ("maintenance/(?i:\u0130|ii)+b", True),
     ("maintenance/(?i:([i\u212a]|[\u0130J]i)+)b", True), ("(?i:[\u0130x]a|[i-j]b)+", True),
