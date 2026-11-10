@@ -78,8 +78,8 @@ skipped: 1 JSON with no leading schema_version, 1 JSON of an unknown schema_vers
   Each run has `run_id`, `kinds` (sorted) and the `paths` of its artifacts, in
   the order of the rows; an artifact with no `run_id` is in no run. Each artifact has `schema_version`,
   `kind`, `run_id`, `subject`, `model`, `generated_at` (the time the artifact
-  records, `evaluated_at` for an eval; `null` when none), `path` (relative to
-  the root) and `size_bytes`.
+  records, `evaluated_at` for an eval, `reviewed_at` for a question panel;
+  `null` when none), `path` (relative to the root) and `size_bytes`.
 
 **The `run_id`** is the run envelope's
 ([#277](https://github.com/intel/dokimi/issues/277), see
@@ -95,8 +95,9 @@ for an input kind such as a question set, and for a `run_id` that is not a run i
 - `answers generate` and `eval score pointwise` write to `answers/` and `eval/` unless
   `--run-id` is given, and `eval score panel` writes to `eval/`;
 - `eval questions generate` and `eval questions refine` write to `questions/`,
-  `repo reach` to `reach-out/`, `tools preference` to `tool_preference.json`
-  in the working directory;
+  `eval questions review` and `eval questions analyze` to `reports/`,
+  `eval personas discover` to `personas/`, `repo reach` to `reach-out/`,
+  `tools preference` to `tool_preference.json` in the working directory;
 - an output flag can point anywhere.
 
 ## `runs show`

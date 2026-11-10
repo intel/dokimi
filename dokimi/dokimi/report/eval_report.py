@@ -20,6 +20,7 @@ import os
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
 
+from dokimi.artifacts import save_artifact
 # This module defines a local ``stats()`` helper, hence the ``eval_stats`` alias.
 from dokimi.eval import stats as eval_stats
 from dokimi.records import BASELINE, CONTEXT, Record, RecordError, record, records
@@ -224,10 +225,12 @@ def _load_eval(eval_path: str) -> dict:
 
 
 def _write_qa_json(path: str, payload: dict) -> None:
-    """Write the Q&A sidecar, or raise a RecordError naming ``path``."""
+    """Save the Q&A sidecar as a ``report_qa`` artifact, or raise a RecordError naming ``path``.
+
+    A payload the schema refuses raises ``ArtifactValidationError``, the payload kept at ``<path>.rejected``.
+    """
     try:
-        with open(path, "w", encoding="utf-8") as jf:
-            json.dump(payload, jf, indent=2, ensure_ascii=False)
+        save_artifact("report_qa", payload, path)
     except OSError as exc:
         raise RecordError(f"cannot write {path}: {exc.strerror or exc}") from exc
 

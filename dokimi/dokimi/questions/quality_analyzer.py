@@ -3,7 +3,6 @@
 
 """Analyze question quality: classify difficulty and detect trivial questions."""
 
-import json
 import logging
 import math
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -11,6 +10,7 @@ from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from dokimi.artifacts import save_artifact
 from dokimi.llm import llm_call
 from dokimi.defaults import DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER
 
@@ -172,6 +172,6 @@ class QuestionQualityAnalyzer:
         return recs
 
     def save_report(self, report: QualityReport, path: Path) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(asdict(report), indent=2), encoding="utf-8")
+        """Save ``report`` as a ``question_quality`` artifact (``ArtifactValidationError`` if its schema refuses it)."""
+        save_artifact("question_quality", asdict(report), path)
         logger.info(f"Quality report saved to {path}")

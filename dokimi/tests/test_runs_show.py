@@ -53,6 +53,11 @@ CONTENTS = {
     "dokimi_config.v1": {"subjects": 2, "shared": 1},
     "task_runs.v1": {"tasks": 6, "harnesses": 2, "results": 24},
     "tool_preference.v1": {"items": 16, "results": 16},
+    "personas.v1": {"personas": 2},
+    "persona_analysis.v1": {"use_cases": 1, "api_patterns": 2, "topics": 1},
+    "question_panel.v1": {"questions": 2},
+    "question_quality.v1": {"questions": 2, "trivial_questions": 1, "recommendations": 1},
+    "report_qa.v1": {"records": 1},
 }
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "artifacts"

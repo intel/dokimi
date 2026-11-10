@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Dict
 
 from dokimi.llm import ANSWER_PROVIDERS, CALLER_CHOICES
-from dokimi.commands._output import exit_on_unwritable
+from dokimi.commands._output import exit_on_rejected, exit_on_unwritable
 from dokimi.defaults import DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER
 from dokimi.exit_codes import EXIT_USAGE
 from dokimi.utils import refuse_device, warn_recorded_self_judge
@@ -121,7 +121,7 @@ def cmd_questions_panel_review(args: argparse.Namespace) -> None:
         reviewers=reviewers, model=args.model,
         provider=args.provider, concurrency=args.concurrency,
     )
-    with exit_on_unwritable(output_path):
+    with exit_on_unwritable(output_path), exit_on_rejected("question_panel"):
         report = reviewer.review_questions(questions, library_name=args.product,
                                             output_path=output_path, limit=args.limit)
 
@@ -261,7 +261,7 @@ def cmd_questions_analyze(args: argparse.Namespace) -> None:
             print(f"  … and {len(report.trivial_questions) - 5} more (see report file)")
 
     output_path = Path(args.output) if args.output else Path(f"reports/{args.product}_question_quality.json")
-    with exit_on_unwritable(output_path):
+    with exit_on_unwritable(output_path), exit_on_rejected("question_quality"):
         analyzer.save_report(report, output_path)
     print(f"\n✅ Full report saved to {output_path}")
 

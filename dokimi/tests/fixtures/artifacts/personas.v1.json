@@ -1,0 +1,34 @@
+{
+  "schema_version": "personas.v1",
+  "product": "demo",
+  "generated_at": "2026-11-01T00:00:00Z",
+  "model": "gen-m",
+  "provider": "openai",
+  "personas": [
+    {
+      "id": "hpc_developer",
+      "name": "HPC Developer",
+      "description": "Writes parallel loops for simulations.",
+      "skill_level": "advanced",
+      "concerns": [
+        "overhead",
+        "scalability"
+      ],
+      "typical_questions": [
+        "How do I cut task scheduling overhead?"
+      ]
+    },
+    {
+      "id": "student",
+      "name": "Student",
+      "description": "Learns parallel programming.",
+      "skill_level": "beginner",
+      "concerns": [
+        "getting started"
+      ],
+      "typical_questions": [
+        "How do I install the library?"
+      ]
+    }
+  ]
+}

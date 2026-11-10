@@ -90,6 +90,7 @@ def cmd_report_model_compare(args: argparse.Namespace) -> None:
 
 def cmd_report_eval(args: argparse.Namespace) -> None:
     """Generate quality report from eval JSON (dynamic vs static breakdown)."""
+    from dokimi.artifacts import ArtifactValidationError
     from dokimi.records import RecordError
     from dokimi.report.eval_report import generate_report
 
@@ -104,6 +105,9 @@ def cmd_report_eval(args: argparse.Namespace) -> None:
     except RecordError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         raise SystemExit(EXIT_USAGE) from None
+    except ArtifactValidationError as exc:  # the Q&A sidecar; the markdown report is written
+        print(f"Error: report_qa artifact rejected: {exc}", file=sys.stderr)
+        raise SystemExit(1) from None
     except OSError as exc:
         print(f"Error: cannot write {out}: {exc}", file=sys.stderr)
         raise SystemExit(EXIT_USAGE) from None

@@ -17,8 +17,10 @@ into an agent's context), ``effective_instructions`` (the effective-instructions
 receipt of a reach probe), ``need_graph`` and ``eval_coverage`` (a frozen need graph and an
 eval set's coverage of it), ``task_inspect`` (which eval-task format each
 path under a tree is), ``repo_hits_judged`` (a judge's labels of one replay cell's credited pairs)
-and ``dokimi_config`` (a repository's subjects and where their evals are) and ``reach_matrix`` (the reach
-conformance matrix). This module stamps each with a ``schema_version`` and validates it against the JSON Schema in
+``dokimi_config`` (a repository's subjects and where their evals are), ``reach_matrix`` (the reach
+conformance matrix), ``personas`` and ``persona_analysis`` (proposed user personas and the GitHub
+signals behind them), ``question_panel`` and ``question_quality`` (reviews of a question set) and
+``report_qa`` (the Q&A sidecar of ``report eval``). This module stamps each with a ``schema_version`` and validates it against the JSON Schema in
 ``dokimi/schemas/`` on save and load, so fixtures and baselines stay
 forward-compatible and self-describing.
 
@@ -86,6 +88,11 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "catalog_eval": "catalog_eval.v1",
     "reach_matrix": "reach_matrix.v1",
     "repo_hits_judged": "repo_hits_judged.v1",
+    "personas": "personas.v1",
+    "persona_analysis": "persona_analysis.v1",
+    "question_panel": "question_panel.v1",
+    "question_quality": "question_quality.v1",
+    "report_qa": "report_qa.v1",
 }
 
 # kind -> superseded versions still accepted on *load*, newest first. An artifact written under an

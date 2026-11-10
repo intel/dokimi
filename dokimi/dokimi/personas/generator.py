@@ -8,6 +8,7 @@ from typing import Dict, Any, Optional
 from pathlib import Path
 import json
 
+from dokimi.artifacts import save_artifact
 from dokimi.llm import LLM, ChatModel, Invoker, check_caller_provider
 from dokimi.llm import LANGCHAIN_AVAILABLE
 from dokimi.defaults import DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER
@@ -215,10 +216,8 @@ class PersonaGenerator:
         return datetime.now(timezone.utc).replace(tzinfo=None).isoformat() + "Z"
     
     def save_personas(self, personas: Dict[str, Any], output_path: Path):
-        """Save generated personas to JSON file."""
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(output_path, 'w', encoding="utf-8") as f:
-            json.dump(personas, f, indent=2)
+        """Save generated personas as a ``personas`` artifact (``ArtifactValidationError`` if its schema refuses them)."""
+        save_artifact("personas", personas, output_path)
         logger.info(f"✓ Saved {len(personas['personas'])} personas to {output_path}")
     
     def load_personas(self, input_path: Path) -> Dict[str, Any]:
