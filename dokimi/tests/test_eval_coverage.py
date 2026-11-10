@@ -18,6 +18,7 @@ from dokimi.novelty.needs import NeedGraph, NeedNode
 from dokimi.novelty.needs import load_graph as novelty_load_graph
 from dokimi.novelty.needs import save_graph
 from dokimi.utils import InputError
+from tests.cli_refusal import refusal
 
 NODES = [
     {"id": "n1", "text": "convert with asnumpy before numpy.save", "path_class": "core"},
@@ -53,13 +54,10 @@ ROWS = [
 
 def _run(capsys, *argv: str) -> SimpleNamespace:
     args = build_parser().parse_args(["eval", "coverage", *argv])
-    code = 0
-    try:
+    with refusal() as outcome:
         args.func(args)
-    except SystemExit as exc:
-        code = int(exc.code or 0)
     out = capsys.readouterr()
-    return SimpleNamespace(returncode=code, stdout=out.out, stderr=out.err)
+    return SimpleNamespace(returncode=outcome.code, stdout=out.out, stderr=out.err)
 
 
 @pytest.mark.outcome("cjm-eval-coverage-gaps")
@@ -177,6 +175,7 @@ def test_cli_unknown_need_id_and_bad_inputs_exit_2(tmp_path, capsys):
     no_graph = _run(capsys, str(typo), "--graph", str(tmp_path / "none.json"))
 
     assert unknown.returncode == 2
+    assert "Error: 1 problem(s) with the evals' needs labels" in unknown.stderr
     assert load_artifact("eval_coverage", out)["problems"] == [
         {"eval": "save", "source": "evals.json", "kind": "unknown_need", "need": "n9"}]
     assert (bad.returncode, missing.returncode, no_graph.returncode) == (2, 2, 2)
@@ -185,9 +184,9 @@ def test_cli_unknown_need_id_and_bad_inputs_exit_2(tmp_path, capsys):
 
 def test_cli_rejects_a_floor_outside_0_1(capsys):
     for value in ("1.5", "high", "recall=0.5"):
-        with pytest.raises(SystemExit) as exc:
+        with refusal() as exc:
             build_parser().parse_args(["eval", "coverage", "x", "--graph", "g", "--min", value])
-        assert exc.value.code == 2
+        assert exc.code == 2
     err = capsys.readouterr().err
     assert "must lie in 0-1, got 1.5" in err and "got 'recall'" in err
 

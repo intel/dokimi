@@ -34,6 +34,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from dokimi.utils import InputError, refuse_device
 
 # Tools whose call can change what a later identical call returns; one ends every earlier repeat.
 MUTATING = frozenset({"Bash", "Edit", "MultiEdit", "NotebookEdit", "Write"})
@@ -106,7 +107,10 @@ class ContextTrace:
 
 def read_trace(path: Path) -> ContextTrace:
     try:
+        refuse_device(path)
         raw = path.read_text(encoding="utf-8-sig", errors="replace")
+    except InputError as exc:
+        raise TraceError(str(exc)) from exc
     except OSError as exc:
         raise TraceError(f"cannot read {path}: {exc}") from exc
     trace = parse_trace(raw)

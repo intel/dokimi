@@ -12,4 +12,6 @@ from __future__ import annotations
 EXIT_USAGE = 2
 #: Exit code of a run that ran and failed: a model call refused, a judge or a gate that failed.
 EXIT_FAILURE = 1
+#: Exit code of a run that stopped before it finished (a budget stop): not a verdict and not a bad input.
+EXIT_INCONCLUSIVE = 3
 

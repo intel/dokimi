@@ -9,6 +9,7 @@ from types import SimpleNamespace
 import pytest
 
 from dokimi.cli import build_parser
+from tests.cli_refusal import refusal
 
 GOOD = ('{"reasoning":"r","correctness":80,"completeness":80,"specificity":80,'
         '"code_quality":80,"actionability":80,"aggregate":80}')
@@ -45,11 +46,9 @@ def _run(argv):
 
 def _exit_code(argv):
     """Run the CLI and return its exit code: None when it returns, else the SystemExit code."""
-    try:
+    with refusal() as outcome:
         _run(argv)
-    except SystemExit as exc:
-        return exc.code
-    return None
+    return outcome.code
 
 
 @pytest.mark.parametrize("flag, expected", [(["--judge-temperature", "0"], 0.0), ([], None)])
@@ -200,9 +199,9 @@ def test_a_judge_whose_sampling_probe_fails_exits_1_before_any_judgement(tmp_pat
     argv = _reliability_argv(command, tmp_path, tmp_path / "out.json")
     if command == "cross-judge":
         argv = argv[:argv.index("--judges")] + argv[argv.index("--judges") + 2:]
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         _run([*argv, *extra, "--judge-temperature", "0"])
-    assert exc.value.code == 1
+    assert exc.code == 1
     assert routed and all(_is_probe(r) for r in routed)
     assert "only-t1" in capsys.readouterr().err
 
@@ -210,9 +209,9 @@ def test_a_judge_whose_sampling_probe_fails_exits_1_before_any_judgement(tmp_pat
 def test_a_judge_the_provider_table_refuses_exits_2_with_no_call(tmp_path, routed, monkeypatch, capsys):
     # A refusal from the static table is an input refusal: no request is sent, so exit 2.
     monkeypatch.setattr("dokimi.llm.unsupported_sampling_params", lambda *a, **k: ["temperature"])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         _run([*_reliability_argv("cross-judge", tmp_path, tmp_path / "out.json"), "--judge-temperature", "0"])
-    assert exc.value.code == 2
+    assert exc.code == 2
     assert routed == []
     assert "rejected by judge" in capsys.readouterr().err
 
@@ -224,12 +223,12 @@ def test_arms_run_judge_whose_sampling_probe_fails_exits_1_before_any_answer(tmp
     answered = []
     monkeypatch.setattr("dokimi.eval.arm_runner.ArmRunner.run",
                         lambda self, *a, **k: answered.append(1) or [])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         _run(["arms", "run", "--product", "onedal", "--questions", _questions(tmp_path),
               "--arms", "baseline", "--out-json", str(tmp_path / "a.json"), "--out-md", str(tmp_path / "a.md"),
               "--judge", "--judge-provider", "amazon-bedrock", "--judge-model", "us.anthropic.only-t1",
               "--judge-temperature", "0"])
-    assert exc.value.code == 1
+    assert exc.code == 1
     assert answered == []
     assert routed and all(_is_probe(r) for r in routed)
     assert "only-t1" in capsys.readouterr().err
@@ -278,4 +277,4 @@ def test_arms_run_sampling_litellm_refuses_before_any_call_exits_2(tmp_path, cli
                        "--arms", "baseline", "--out-json", str(tmp_path / "a.json"),
                        "--out-md", str(tmp_path / "a.md"), *flags]) == 2
     assert client_refused == []
-    assert "Error building arms/plugins" in capsys.readouterr().err
+    assert "Error: cannot build arms/plugins" in capsys.readouterr().err
