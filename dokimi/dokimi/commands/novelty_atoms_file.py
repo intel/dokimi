@@ -140,11 +140,12 @@ def no_candidate_line(candidates: list, scored: list, atoms: list) -> str:
 def warn_answer_key(saved: dict, answerer, judge) -> None:
     """Warn when the saved answer key was written by the model under measurement, or by the judge's model or family."""
     from dokimi.novelty.client import _REMEDY_PROBE, warn_extractor_judge
+    from dokimi.utils import same_model
 
     extractor = saved.get("extractor")
     if not isinstance(extractor, str):
         return  # a null model in an artifact names no model: nothing to compare
-    if extractor == answerer.model:
+    if extractor == answerer.model or same_model(extractor, answerer.model):
         print(f"WARNING: {answerer.model} extracted these atoms, so the model under measurement "
               "wrote its own answer key; write the atoms file again with another extractor (atoms --extract-model)",
               file=sys.stderr)

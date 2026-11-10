@@ -78,15 +78,19 @@ class _FakeDataFrame:
 
 
 def _make_ragas_result_df(n_rows: int):
-    """Build a fake RAGAS result dataframe without requiring pandas in CI."""
+    """Build a fake RAGAS result dataframe without requiring pandas in CI.
+
+    The input columns are ragas 0.3's, text that is not a score.
+    """
     return _FakeDataFrame([
         {
-            "question": f"q{i}",
-            "answer": f"a{i}",
-            "contexts": ["ctx"],
+            "user_input": f"q{i}",
+            "retrieved_contexts": ["ctx"],
+            "response": f"a{i}",
+            "reference": f"truth {i}",
             "faithfulness": 0.8,
             "answer_relevancy": 0.75,
-            "context_precision": 0.9,
+            "context_precision": 0.9 - i / 10,
         }
         for i in range(n_rows)
     ])
@@ -150,18 +154,18 @@ class TestRagasEvaluator:
     def _mock_evaluator(self, metrics=None):
         """Build a RagasEvaluator with mocked RAGAS internals."""
         mock_llm = Mock()
-        mock_metric = Mock()
-        mock_metric.llm = None
+        metrics = metrics or ["faithfulness", "answer_relevancy"]
+        mock_metrics = [Mock(llm=None) for _ in metrics]
+        for mock_metric, name in zip(mock_metrics, metrics, strict=True):
+            mock_metric.name = name  # Mock(name=...) names the mock, not the attribute
 
         with patch('dokimi.eval.ragas_eval.RagasEvaluator._build_ragas_llm',
                    return_value=mock_llm), \
              patch('dokimi.eval.ragas_eval.RagasEvaluator._build_metrics',
-                   return_value=[mock_metric]), \
+                   return_value=mock_metrics), \
              patch('dokimi.eval.ragas_eval.RagasEvaluator._build_ragas_embeddings',
                    return_value=None):
-            evaluator = RagasEvaluator(metrics=metrics or ["faithfulness", "answer_relevancy"])
-        evaluator._ragas_llm = mock_llm
-        evaluator._metric_objects = [mock_metric]
+            evaluator = RagasEvaluator(metrics=metrics)
         return evaluator
 
     def test_evaluate_returns_ragas_result(self, sample_answers):
@@ -176,6 +180,49 @@ class TestRagasEvaluator:
             result = evaluator.evaluate(sample_answers, include_without_docs=False)
 
         assert isinstance(result, RagasResult)
+
+    def test_evaluate_sends_ragas_03_columns_and_reads_scores_by_metric_name(self, sample_answers):
+        evaluator = self._mock_evaluator(["faithfulness", "context_precision"])
+        fake_dataset_cls = Mock()
+        with patch('dokimi.eval.ragas_eval._import_ragas_runtime',
+                   return_value=(fake_dataset_cls, Mock(return_value=_FakeRagasResult(_make_ragas_result_df(2))))):
+            result = evaluator.evaluate(sample_answers, include_without_docs=False)
+
+        rows = fake_dataset_cls.from_list.call_args.args[0]
+        assert rows[0] == {
+            "user_input": "How to use parallel_for in oneTBB?",
+            "response": "Use tbb::parallel_for(range, body) to parallelize loops.",
+            "retrieved_contexts": ["tbb::parallel_for divides the range into chunks..."],
+            "question_id": "q_001",
+        }
+        # answer_relevancy is in the frame but was not requested: not a score of this run.
+        assert result.with_docs_scores == {
+            "q_001": {"faithfulness": 0.8, "context_precision": 0.9},
+            "q_002": {"faithfulness": 0.8, "context_precision": 0.8},
+        }
+        assert result.summary_with_docs == {"faithfulness": 0.8, "context_precision": 0.85}
+
+    def test_context_recall_scores_apart_and_its_failure_keeps_the_other_scores(self, sample_answers):
+        sample_answers[0]["ground_truth_chunk"] = "parallel_for splits a range."
+        evaluator = self._mock_evaluator(["faithfulness", "context_recall"])
+        sent = []
+
+        def ragas_evaluate(rows, metrics, **kwargs):
+            sent.append(([m.name for m in metrics], rows))
+            if any(m.name == "context_recall" for m in metrics):
+                raise ValueError("requires the following additional columns ['reference']")
+            return _FakeRagasResult(_make_ragas_result_df(len(rows)))
+
+        fake_dataset_cls = Mock(from_list=list)
+        with patch('dokimi.eval.ragas_eval._import_ragas_runtime',
+                   return_value=(fake_dataset_cls, ragas_evaluate)):
+            result = evaluator.evaluate(sample_answers, include_without_docs=False)
+
+        assert [names for names, _ in sent] == [["faithfulness"], ["context_recall"]]
+        assert [(row["question_id"], row["reference"]) for row in sent[1][1]] == [
+            ("q_001", "parallel_for splits a range.")]
+        assert "reference" not in sent[0][1][0]
+        assert result.with_docs_scores == {"q_001": {"faithfulness": 0.8}, "q_002": {"faithfulness": 0.8}}
 
     def test_evaluate_skips_missing_context(self, sample_answers):
         """Answers without retrieved_docs should not appear in with_docs evaluation."""

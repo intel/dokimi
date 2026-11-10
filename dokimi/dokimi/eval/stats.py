@@ -179,11 +179,14 @@ def mean_ci(values, confidence: float = 0.95, seed: int = 0, ndigits: Optional[i
         t_crit = _sp_stats().t.ppf(1.0 - (1.0 - confidence) / 2.0, n - 1)
     except ImportError:  # find_spec sees scipy, but it does not load here (a native dependency)
         return bootstrap_ci(vals, confidence=confidence, seed=seed, ndigits=ndigits)
-    half = t_crit * sd / (n ** 0.5)
+    half = float(t_crit) * sd / (n ** 0.5)
+    lo, hi = mu - half, mu + half
+    if all(math.isfinite(v) for v in vals) and not (math.isfinite(lo) and math.isfinite(hi)):
+        raise OverflowError("the confidence interval of the mean is beyond the float range")
     return {
         "mean": _rnd(mu, ndigits),
-        "lo": _rnd(mu - half, ndigits),
-        "hi": _rnd(mu + half, ndigits),
+        "lo": _rnd(lo, ndigits),
+        "hi": _rnd(hi, ndigits),
         "n": n,
         "method": "student_t",
     }
@@ -305,11 +308,19 @@ def _mean(vals: Sequence[float]) -> float:
     return sum(vals) / len(vals)
 
 
+def _pow2_scale(vals: Sequence[float]) -> float:
+    """The power of two at or below ``max(abs(vals))``: dividing by it is exact and leaves each value under 2."""
+    return math.ldexp(1.0, math.frexp(max(abs(v) for v in vals))[1] - 1)
+
+
 def _sample_sd(vals: Sequence[float]) -> float:
     if len(vals) < 2:
         return 0.0
     mu = _mean(vals)
-    return (sum((x - mu) ** 2 for x in vals) / (len(vals) - 1)) ** 0.5
+    devs = [x - mu for x in vals]
+    # Scaled so that squaring a deviation of 1e200 cannot overflow: https://github.com/intel/dokimi/issues/475
+    scale = _pow2_scale(devs)
+    return scale * math.sqrt(sum((d / scale) ** 2 for d in devs) / (len(vals) - 1))
 
 
 #: z for a two-sided 95% interval.
@@ -510,6 +521,9 @@ def _describe_deltas(
     d_sd = _sample_sd(d)
     cohens_d = _cohens_d(d_mean, d_sd)
     if all(math.isfinite(x) for x in d):
+        if not (math.isfinite(d_sd) and math.isfinite(sum(abs(x) for x in d))):
+            # The sign-flip sums would overflow and read as a measured zero effect.
+            raise OverflowError("deltas too large: their spread or sum leaves the float range")
         p = sign_flip_p(d, seed=seed, exact=True)
         lo, hi = sign_flip_interval(d, p, seed=seed, rounded=False)
     else:  # a NaN delta is no evidence either way: no p, no verdict, open ends

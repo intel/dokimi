@@ -15,19 +15,37 @@ from dokimi.utils import InputError
 
 
 def _load_custom(cls, flag: str, value):
-    """``cls()`` for the bundled file, else ``cls`` over the file named by ``flag``; InputError if it cannot be read."""
+    """``cls()`` for the bundled file, else ``cls`` over the file named by ``flag``; InputError if it cannot be read.
+
+    A regular file or a pipe (``--registry <(cat products.yaml)``) is read. A missing path, a path under a file,
+    a directory, a device (``/dev/zero`` would be read without end) or a socket is ``not a file``. A pipe that
+    gives nothing but whitespace is an InputError too: the command writing it most likely failed.
+    """
+    import stat
     import yaml
     from pathlib import Path as _Path
 
     if not value:
         return cls()
     path = _Path(value)
-    if not path.is_file():
+    try:
+        mode = path.stat().st_mode
+    except (FileNotFoundError, NotADirectoryError):
+        mode = None
+    except OSError as exc:  # a name too long, a parent without search permission
+        raise InputError(f"cannot read {flag} {value}: {exc}") from exc
+    if mode is None or not (stat.S_ISREG(mode) or stat.S_ISFIFO(mode)):
         raise InputError(f"{flag} {value}: not a file")
     try:
-        return cls(path=path)
+        if not stat.S_ISFIFO(mode):
+            return cls(path=path)
+        text = path.read_text(encoding="utf-8")  # read here, once, to tell an empty pipe from an empty registry
+        loaded = cls(path=path, text=text) if text.strip() else None
     except (OSError, ValueError, RecursionError, yaml.YAMLError) as exc:  # unreadable, not UTF-8, not YAML
         raise InputError(f"cannot read {flag} {value}: {exc}") from exc
+    if loaded is None:
+        raise InputError(f"{flag} {value}: the pipe was empty (did the command writing it fail?)")
+    return loaded
 
 
 def _load_registry(args):

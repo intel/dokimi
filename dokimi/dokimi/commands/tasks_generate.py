@@ -161,11 +161,12 @@ def add_parser(eval_tasks_sub, positive_int) -> None:
         "from a SCIP code index; --from replay writes one dokimi:review_replay task per merged pull request of a "
         "threads file; --from prs writes one dokimi:hidden_tests task per merged pull request of a pull request "
         "file (its description as the prompt, its test files hidden until grading, the rest of its diff as the "
-        "oracle). Exits 2 on a usage error. With graph, also 2 on an index that does not read or matches no file "
+        "oracle). Exits 2 on a usage error, among them a malformed source, an unpinned remote or a local source "
+        "that is not a directory. With graph, also 2 on an index that does not read or matches no file "
         "of the source, and 1 when no target of the index gave a task, the tasks cannot be written or the source "
         "cannot be resolved at the revision. With replay or prs, 1 when no pull request gave a task, a task cannot "
-        "be written, or the threads or pull request file, the source, the manifest or the prompt file cannot be "
-        "used")
+        "be written, the source cannot be opened, or the threads or pull request file, the manifest or the prompt "
+        "file cannot be used")
     gen_p.add_argument("source", help=SOURCE_HELP)
     gen_p.add_argument("--from", required=True, choices=SOURCES, dest="from_kind",
                        help="What the tasks are built from: graph (a code index), prs (a pull request file) or replay "

@@ -18,29 +18,22 @@ import pytest
 
 PACKAGE = Path(__file__).resolve().parents[1] / "dokimi"
 
-#: Exits with 2 that stay: the handler, a dependency, a documented exit, and the
-#: ``EXIT_USAGE`` refusals not yet converted (#275 follow-up). Lower a count when a site converts.
-_UNCONVERTED = "EXIT_USAGE refusal written by hand, not an InputError yet (#275 follow-up)"
+#: Exits with 2 that stay: the handler, a write to a user path that cannot be made (#465), and a missing
+#: optional dependency. Every other refusal is an InputError. Lower a count when a site converts.
 EXIT2_BASELINE: dict[str, tuple[int, str]] = {
     "dokimi.cli": (1, "the handler: prints InputError as 'Error: ...' and exits 2"),
-    "dokimi.commands._output": (1, "write_text_or_exit: shared writer that exits 2 by hand (#275 follow-up)"),
-    "dokimi.commands.answers": (8, _UNCONVERTED),
-    "dokimi.commands.arms": (11, _UNCONVERTED),
-    "dokimi.commands.baseline": (4, _UNCONVERTED),
-    "dokimi.commands.benchmark": (5, _UNCONVERTED),
-    "dokimi.commands.eval_coverage": (7, _UNCONVERTED),
-    "dokimi.commands.evaluate": (5, "typed scorer: ImportError (a missing backend) shares the except with ValueError; "
-                                    "4 EXIT_USAGE refusals not yet converted"),
+    "dokimi.commands._output": (1, "write_text_or_exit: an output that cannot be written (user-path write, #465)"),
+    "dokimi.commands.arms": (6, "output writes that cannot be made (cells dir, report, comparison): user-path writes"),
+    "dokimi.commands.eval_coverage": (2, "--out that cannot be resolved or written: user-path writes"),
+    "dokimi.commands.evaluate": (1, "typed scorer: ImportError (a missing backend) shares the except with ValueError; "
+                                    "a missing optional dependency"),
     "dokimi.commands.ingest": (1, "Docling not installed: a missing optional dependency, not an input"),
-    "dokimi.commands.judge_reliability": (2, _UNCONVERTED),
-    "dokimi.commands.questions": (14, _UNCONVERTED),
-    "dokimi.commands.repo": (20, _UNCONVERTED),
-    "dokimi.commands.repo_hits": (6, _UNCONVERTED),
-    "dokimi.commands.repo_run": (4, _UNCONVERTED),
-    "dokimi.commands.report": (13, _UNCONVERTED),
-    "dokimi.commands.run": (5, _UNCONVERTED),
-    "dokimi.commands.tools": (5, "'run incomplete' exit (2 literal) documented in docs/quickstart.md, not a refusal; "
-                                 "3 EXIT_USAGE refusals not yet converted"),
+    "dokimi.commands.repo": (5, "output writes that cannot be made; TypecheckError (the tool or the interpreter "
+                                "cannot run: a missing dependency)"),
+    "dokimi.commands.repo_hits": (1, "--out lock or write on a read-only batch: a user-path write"),
+    "dokimi.commands.report": (3, "--out and output writes that cannot be made: user-path writes"),
+    "dokimi.commands.run": (1, "_write_outputs: an output path that cannot be written: a user-path write"),
+    "dokimi.commands.tools": (3, "output writes that cannot be made (--items-out, tool preference): user-path writes"),
 }
 
 

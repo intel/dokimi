@@ -83,11 +83,11 @@ python cli.py tools preference --groups groups.json \
 
 `--max-cost-usd` caps the spend: once the priced calls have spent it, no new
 call starts. The calls not run are kept as `skipped`, left out of the summary
-(`n_skipped`), and the command exits 2. Calls already in flight finish, so the
+(`n_skipped`), and the command exits 3. Calls already in flight finish, so the
 spend can pass the cap by up to `--concurrency` − 1 calls. A reply cut at
 `--max-tokens` before any tool call is billed, so it counts. A call that comes
 back with no price leaves the cap blind: no new call starts after it. If that
-left calls unstarted, the command exits 2; otherwise it prints a warning.
+left calls unstarted, the command exits 3; otherwise it prints a warning.
 Items run group by group, and each call is checked against the cap as it is
 taken, so the calls that ran are a prefix: only the last group reached may be
 partial. Partial groups are summarized from the cells that ran, so their A/B
