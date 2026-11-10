@@ -401,7 +401,8 @@ def _skill_digest(skill: Skill) -> str:
 
 
 def _unloaded_review(entry: SkillCatalogEntry) -> Optional[SkillReview]:
-    """A review for an entry that did not load, only when its ``SKILL.md`` has broken YAML; else None.
+    """A review for an entry that did not load, only when its ``SKILL.md`` is plain Markdown (no frontmatter) or
+    has broken YAML; else None.
 
     A ``SKILL.md`` that resolves outside the scanned root is not read: the YAML message quotes
     the offending line, and the catalog must not get a file outside it into the report.
@@ -682,8 +683,9 @@ def review_skills(
 ) -> list[Optional[SkillReview]]:
     """One :class:`SkillReview` per entry, in order.
 
-    None for an entry that did not load, unless its frontmatter is broken YAML: then its
-    review carries the ``frontmatter-parse`` error. A loaded skill whose ``SKILL.md`` cannot
+    None for an entry that did not load, unless its ``SKILL.md`` is plain Markdown (then its review
+    carries the ``not-a-skill-no-frontmatter`` error) or its frontmatter is broken YAML (then the
+    ``frontmatter-parse`` error). A loaded skill whose ``SKILL.md`` cannot
     be read during review gets a review with one ``unreadable`` error and no digest. Of each
     identical ``SKILL.md``, the copy nearest the root is the original; every other copy names
     it in ``duplicate_of``.
