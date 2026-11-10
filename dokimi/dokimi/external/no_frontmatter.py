@@ -51,7 +51,7 @@ def no_frontmatter_message(lines: list[str], dir_name: str, at_root: bool = Fals
             if paragraph:
                 break
             continue
-        paragraph.append(stripped.lstrip("> ") if stripped.startswith(">") else stripped)  # a quote's text
+        paragraph.append(stripped)  # outside_fences has taken the quote markers off already
     if not at_root and SPEC_NAME.fullmatch(dir_name) and len(dir_name) <= NAME_MAX:
         name = dir_name  # validate.NAME_PATTERN, as the loader's name-mismatch check reads it
     else:
