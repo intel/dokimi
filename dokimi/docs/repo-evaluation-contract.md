@@ -1027,10 +1027,11 @@ as it is, so fetch those refs first, for example
 `git fetch origin '+refs/pull/*/head:refs/remotes/origin/pull/*'`. A thread
 whose revision is still missing is listed and left out.
 
-The command exits 1 when the threads file cannot be read or holds no pull
+The command exits 2, before it reads the threads file, on a malformed source,
+an unpinned remote or a local source that is not a directory. It exits 1 when the threads file cannot be read or holds no pull
 request, when no pull request gave a task (written, or kept from before), and
-on an error that is not one pull request's own: a malformed pull request, the
-source, the manifest, the prompt file, or a task it cannot write. Each prints
+on an error that is not one pull request's own: a malformed pull request, a
+source it cannot open, the manifest, the prompt file, or a task it cannot write. Each prints
 `✗` and the reason. A git failure while one pull request is built skips that
 pull request with the reason.
 `eval check` then runs the tasks, and two arms measure the guidance
@@ -1231,10 +1232,11 @@ and `headRefOid` it lacks from `origin`; a local repository is read as it is, so
 `refs/pull/*/head` first (§4.6).
 
 The command prints one line per pull request (`written`, `kept` or `skipped`, with the
-reason or the counts) and a summary. It exits 1 when the pull request file cannot be read or
+reason or the counts) and a summary. It exits 2, before it reads the pull request file, on a
+malformed source, an unpinned remote or a local source that is not a directory. It exits 1 when the pull request file cannot be read or
 holds no pull request, when no pull request gave a task (written, or kept from before), and on
 an error that is not one pull request's own: a malformed pull request (a `number` that is not
-an integer), the source, the manifest, the prompt file (unreadable or empty), or a task it
+an integer), a source it cannot open, the manifest, the prompt file (unreadable or empty), or a task it
 cannot write. Each prints `✗` and the reason. Grading a task needs the manifest's
 `entry_points.test` (§2).
 
@@ -1867,7 +1869,7 @@ when its literal parent directory exists there and nothing in it matches
 directory (`type_dispatch*.hpp`), and `unresolved` otherwise (`build/*.o`, `out/<run>/grade.json`). A `<placeholder>`
 or a wildcard in the directory part is never `fail`. A `*` may span
 directories and `**/` matches zero or more. A trailing slash on a file
-(`src/mod.py/`) is `fail`. A GitHub Action reference (`actions/checkout@v6`) is not a
+(`src/mod.py/`) is `fail`, and a glob ending in `/` (`src/m*/`) matches only a directory. A GitHub Action reference (`actions/checkout@v6`) is not a
 path claim. An Action named without its ref (`actions/checkout`, `owner/repo/path`)
 that the tree does not hold at the file's directory or an ancestor is `ok` when a
 job or step uses it as `uses: <name>@<ref>`, in a `.yml` or `.yaml` workflow
@@ -1883,7 +1885,7 @@ check, and before the parent-directory `fail`, the used Action is `ok`, so a
 holds at the repository root (`tools/gone` beside `tools/`, or beside a root
 link `tools` to a directory, or `tools/sub/gone` where `tools/sub` is a directory
 through such a link) is judged as a path even when a step uses it, so a
-stale path still fails (below such a link it is `unresolved`, `tried ...`); a directory found only
+stale path still fails, below such a link as below a real directory (`tools/ exists but tools/gone does not`); a directory found only
 beside the guidance file does not count. A name only in a `run:` script
 does not count, and an Action no step uses is judged as any other path. When
 one of those workflows or local actions was not read (too big, binary, a dangling
@@ -1921,8 +1923,27 @@ in a tree with a `.md` file), which reads as a file. The reason names the first 
 its value: `branch pattern of no-commit-to-branch (.pre-commit-config.yaml:17)`,
 `branch of no-commit-to-branch (.pre-commit-config.yaml:19)` or `branch filter of
 on.push (.github/workflows/ci.yml:3)`. A file that is missing, not read or does not parse, an
-`args` that is not a list, a value that is not a string, an invalid regex, another hook's `args` and a name only in a `run:` script give no branch, and the
-claim keeps its path verdict. When `.pre-commit-config.yaml` or one of those
+`args` that is not a list, a value that is not a string, an invalid regex, a hook pattern that can backtrack exponentially, another hook's `args` and a name only in a `run:` script give no branch, and the
+claim keeps its path verdict. Such a pattern is refused before any claim is
+matched against it, read from the parse `re` makes of it: a repeat that can run
+more than once (`*`, `+`, `{m,n}` with n over 1) around, at any depth and
+lookarounds included, a varying item (a repeat with m under n, `?` too) that
+can end at the same place two ways, or an alternation two of whose branches can
+start with the same character, in either case (`İ` and `i` are one character to
+a case-insensitive `re`), or can match nothing, lazy and possessive repeats
+alike: `(a+)+b`, `(a*)*`, `(a{1,5})+`, `(a?a?)+`, `(a|aa)+`. A varying item ends
+two ways when the first character of its body, or the characters that can
+follow it (the rest of the repeat's body, then the start of the next pass), are
+not known or share a character: `([0-9]+\.)+[0-9]+` and `(ab?)+` pass, each pass
+ending at a character the item does not take. A branch or an item is read by its
+first character, a `[...]` of characters and ranges of at most 256, or a group
+or repeat that starts with one; one that starts with anything else (`.`, a class
+such as `\w` or `[^a]`, an anchor, a group holding an alternation, something
+that can match nothing as in `a?b`) overlaps any other. So `(ab|Ab)+`, which
+matches fast, is refused too, as is a varying item followed by more than 64
+items in a row that can match nothing, so the check stays linear in the
+pattern. Other slow shapes pass and can still take long on
+a long claim, such as `maintenance/.*a.*a.*a.*b`. When `.pre-commit-config.yaml` or one of those
 workflows was not read, the reason of a claim that stays `unresolved` here also
 names it, as `<file> was not read (<why>)` after the rest, in tree order and once
 even when the Action note above names it too. A link or path into a submodule is `unresolved`. A
@@ -1934,7 +1955,12 @@ link on a one-segment ref; a tree link on any other ref is `unresolved` (it may
 name a branch). `refs/heads/` and `refs/tags/` belong to the ref, and a link to
 a ref alone is not checked. A
 link to a directory inside the tree is followed, as in a checkout, so
-`linkdir/core.py` with `linkdir -> src/pkg` is `ok`.
+`linkdir/core.py` with `linkdir -> src/pkg` is `ok`. The `linkdir/` it makes
+is judged as that directory, also through a link higher up: `linkdir/gone` is
+`fail` (`linkdir/ exists but linkdir/gone does not`), a glob is matched in
+`src/pkg` and named below the link (`linkdir/*.py` -> `linkdir/core.py`) or
+`fail`s when nothing there matches, and `linkdir/core.py/` is a file, `fail`. A
+link that dangles or names a file makes no directory.
 
 A line that names a workflow of the tree (a code span or a link ending in
 `.yml` or `.yaml` under `.github/workflows/`, a blob or tree link to

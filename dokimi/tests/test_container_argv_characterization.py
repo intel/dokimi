@@ -129,7 +129,7 @@ def test_example_docker_argv_default_policy_pins_every_flag_in_order():
         "-v", _TMP_MOUNT,
         "python:3.11-slim",
         "timeout", "7",
-        *EXECUTORS["python"][1], "/work/snippet.py",
+        "python3", "/work/snippet.py",
     ]
     assert timeout == 37  # the snippet's timeout plus the docker CLI's grace
 

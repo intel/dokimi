@@ -178,6 +178,22 @@ def test_frontmatter_parse_cannot_be_ignored(tmp_path, capsys):
     assert capsys.readouterr().out == ""
 
 
+def test_unreadable_cannot_be_ignored(tmp_path, capsys):
+    # An unreadable SKILL.md always fails the scan, as a load error does. Ignoring its code would make the
+    # whole-catalog exit (unfiltered findings) and the --per-skill exit (filtered rows) disagree.
+    _skill(tmp_path / "skills", "fine", name="fine")
+
+    args = build_parser().parse_args(
+        ["catalog", "check", "--root", str(tmp_path), "--kind", "skills", "--ignore", "unreadable"]
+    )
+
+    with pytest.raises(InputError) as exc:
+        args.func(args)
+
+    assert "unreadable" in str(exc.value) and "always fails" in str(exc.value)
+    assert capsys.readouterr().out == ""
+
+
 def _emitted_codes() -> set[str]:
     """The codes the review code emits, read from its source: the literal code of each
     ``Finding(level, code, ...)`` call, and each kebab-case literal of the content and command checks, which
