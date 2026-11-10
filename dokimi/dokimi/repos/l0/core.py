@@ -318,8 +318,10 @@ class Scan:
             return "unresolved", "tried " + ", ".join(cands)
         for c in cands:
             parent = posixpath.dirname(c)
-            if parent and self._is_dir(parent):
-                return self._missing([c], rel.endswith("/"), f"{parent}/ exists but {c} does not" + self._unread_note(p, cands))
+            if parent and (real := self._dir_of(parent)):  # a `.gitignore` may name it below the link's target
+                below = posixpath.normpath(posixpath.join(real, posixpath.basename(c)))
+                return self._missing([c, below], rel.endswith("/"),
+                                     f"{parent}/ exists but {c} does not" + self._unread_note(p, cands))
         hits = [x for x in self.by_name.get(posixpath.basename(target), []) if x.endswith("/" + target)]
         if hits:
             return "ok_suffix", f"below a directory the text does not name; {len(hits)} match(es), e.g. {hits[0]}"
@@ -417,7 +419,8 @@ class Scan:
                 hit = next((x for x in self._every() if rx.match(x)), None)
                 if hit:
                     return "ok", f"glob {full} -> e.g. {posixpath.join(d, posixpath.relpath(hit, real))}"
-            failed = failed or self._missing(self._probes(full), is_dir, f"{d}/ exists but nothing in it matches {name}")
+            probes = self._probes(full) + self._probes(posixpath.normpath(posixpath.join(real, name)))
+            failed = failed or self._missing(probes, is_dir, f"{d}/ exists but nothing in it matches {name}")
         return failed
 
     def _bare_glob(self, pat: str) -> tuple[str, str] | None:
