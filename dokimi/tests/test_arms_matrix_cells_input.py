@@ -10,6 +10,7 @@ import json
 import pytest
 
 from dokimi.cli import build_parser
+from tests.cli_refusal import refusal
 
 
 def _questions(tmp_path):
@@ -24,9 +25,9 @@ def _run(tmp_path, cells, capsys, *argv):
         "--arms", "baseline", "--matrix-cells", str(cells),
         *(["--matrix-cell", "c1"] if argv[0] == "run" else ["--out-dir", str(tmp_path / "out")]),
     ])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2
+    assert exc.code == 2
     return capsys.readouterr().err
 
 
