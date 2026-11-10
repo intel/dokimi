@@ -40,7 +40,9 @@ BASH_FAMILY = frozenset({"bash", "sh", "dash", "ksh"})  # the shebang names bash
 ENV_OPERAND_OPTIONS = frozenset({"-u", "--unset", "-C", "--chdir"})  # env options with an operand
 PARSE_SHOPTS = frozenset({"extglob"})  # bash -O options that change how a script parses; bash -n is given them
 SHOPT_EXTGLOB = re.compile(rb"(?m)(?:^|[;&|({!)])[ \t]*(?:(?:then|do|else|elif|if|while|until|builtin|command|exec|time|coproc|[A-Za-z_][A-Za-z0-9_]*=[^\s;&|]*|[0-9]*[<>][^\s;&|]*)[ \t]+)*shopt[ \t]+(?:-[a-zA-Z]+[ \t]+)*-[a-zA-Z]*s[a-zA-Z]*(?:[ \t]+[^\s;&|]+)*?[ \t]+extglob\b")  # shopt -s ... extglob, on one line; NAME=value and redirections before it do not stop it
-QUOTED_TEXT = frozenset(bytes([b]) for b in b" \t\n;&|(){}<>!")  # bytes a quote makes text: no separator, operator or blank# Escapes env -S reads outside quotes (\_ separates words and \c ends the string: see _env_split).
+WORD_START = (b" ", b"\t", b"\r", b"\n", b";", b"&", b"|", b"(")  # bytes after which a word starts: a # there is a comment, a (( a command
+QUOTED_TEXT = frozenset(bytes([b]) for b in b" \t\n;&|(){}<>!")  # bytes a quote makes text: no separator, operator or blank
+# Escapes env -S reads outside quotes (\_ separates words and \c ends the string: see _env_split).
 ENV_S_ESCAPES = {"_": " ", "#": "#", "\\": "\\", "'": "'", '"': '"', "$": "$", "n": "\n", "t": "\t", "r": "\r",
                  "f": "\f", "v": "\v"}
 PARSE_NEUTRAL_FLAGS = frozenset("BEPTeuxh")  # shebang flags, as letters, that change no parse
@@ -304,7 +306,7 @@ def _unquoted_text(data: bytes) -> bytes:
     check. A ``#`` that starts a word, outside quotes, begins a comment (``$#`` and ``${x##*/}`` do not); a quoted
     word is its text, so ``shopt -s 'extglob'`` names extglob and ``echo "a # b"`` has no comment (see
     :func:`_in_quotes`). A heredoc body is text for the shell, not script, so it is left out; a quote mark with no
-    closing mark is a character."""
+    closing mark is a character. Arithmetic is copied as it is (:func:`_arith_end`)."""
     out = bytearray()
     prev = b"\n"  # the byte before, outside quotes: a # after a blank or a separator starts a word
     resume = -1  # where the bodies of the heredocs opened on this line end: the line's newline skips to it
@@ -315,33 +317,64 @@ def _unquoted_text(data: bytes) -> bytes:
         if c == b"\n" and resume >= 0:
             out += c
             i, resume, prev = resume, -1, b"\n"
-        elif c in (b"'", b'"'):
-            got = _quoted_run(data, i)
-            if got is None:
-                out += c
-                prev, i = c, i + 1
-            else:
-                out += got[0]
-                prev, i = b"x", got[1]
-        elif c == b"#" and prev in (b" ", b"\t", b"\r", b"\n", b";", b"&", b"|", b"("):
-            end = data.find(b"\n", i)
-            if end < 0:
-                break
-            i, prev = end, b"\n"
-        elif c == b"\\":
-            if data[i + 1:i + 2] != b"\n":  # a line continuation is joined, as bash joins it: nothing is kept
-                out += data[i:i + 2]
-                prev = b"x"
-            i += 2
+        elif (end := _arith_end(data, i, prev)) is not None:
+            out += data[i:end]
+            prev, i = b"x", end
         elif c == b"<" and prev != b"<" and (opened := _heredoc_at(data, i, resume, lines)) is not None:
             end, resume = opened
             out += data[i:end]
             prev, i = b"x", end
         else:
-            out += c
-            prev = c
-            i += 1
+            text, i, prev = _text_step(data, i, prev)
+            out += text
     return bytes(out)
+
+
+def _text_step(data: bytes, i: int, prev: bytes) -> tuple[bytes, int, bytes]:
+    """What the unquoted text at ``data[i]`` gives the shopt check, as (text, next index, the byte before that index):
+    a quoted run, a comment, an escape or a plain byte."""
+    c = data[i:i + 1]
+    if c in (b"'", b'"'):
+        got = _quoted_run(data, i)
+        return (c, i + 1, c) if got is None else (got[0], got[1], b"x")
+    if c == b"#" and prev in WORD_START:
+        return b"", _comment_end(data, i), b"\n"
+    if c == b"\\":  # a line continuation is joined, as bash joins it: nothing is kept
+        if data[i + 1:i + 2] == b"\n":
+            return b"", i + 2, prev
+        return data[i:i + 2], i + 2, b"x"
+    return c, i + 1, c
+
+
+def _comment_end(data: bytes, i: int) -> int:
+    """Where the comment that starts at ``data[i]`` ends: at its newline, or at the end of the data."""
+    end = data.find(b"\n", i)
+    return len(data) if end < 0 else end
+
+
+def _arith_end(data: bytes, i: int, prev: bytes) -> Optional[int]:
+    """The index just past the arithmetic expansion or ``(( ))`` command that opens at ``data[i]`` (see
+    :func:`_arith_open`), or None when none opens there. Its parens are counted to the end, and an unclosed one runs
+    to the end of the data, as bash would reject it. A ``<<`` in it is a shift, never a heredoc."""
+    width = _arith_open(data, i, prev)
+    if not width:
+        return None
+    depth, j = 2, i + width
+    while depth and j < len(data):
+        if data[j:j + 1] == b"(":
+            depth += 1
+        elif data[j:j + 1] == b")":
+            depth -= 1
+        j += 1
+    return j
+
+
+def _arith_open(data: bytes, i: int, prev: bytes) -> int:
+    """The width of an arithmetic opener at ``data[i]``: ``$((``, or ``((`` where a command starts (``prev`` is the byte
+    before). Zero when there is none."""
+    if data.startswith(b"$((", i):
+        return 3
+    return 2 if data.startswith(b"((", i) and prev in WORD_START else 0
 
 
 class _Lines(NamedTuple):

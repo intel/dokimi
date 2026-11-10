@@ -660,3 +660,17 @@ def test_a_quoted_separator_is_not_a_command_boundary_under_real_bash(tmp_path, 
 
     review = _reviews_by_name(tmp_path)["bundled"]
     assert _codes(review) == ["script-syntax"]
+
+
+@pytest.mark.parametrize("arith", [
+    b"echo $((1 << n))",
+    b"echo $(( (1 << n) + 1 ))",
+    b"x=$((1 << n))",
+    b"(( x = 1 << n ))",
+])
+@needs_bash
+def test_a_shift_in_arithmetic_is_not_a_heredoc_when_a_line_is_its_operand_under_real_bash(tmp_path, arith, no_linters):
+    _bundle(tmp_path, {"run.sh": b"#!/bin/bash\nn=1\nx=0\n" + arith + b"\n"
+                               b"shopt -s extglob\ncase x in +(a|b)) : ;; esac\nn\n"})
+
+    assert _reviews_by_name(tmp_path)["bundled"].findings == []
