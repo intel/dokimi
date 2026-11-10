@@ -483,6 +483,56 @@ def test_a_partial_run_whose_out_name_is_near_name_max_is_saved_under_a_shortene
 
 
 @pytest.mark.skipif(not hasattr(os, "pathconf"), reason="NAME_MAX is POSIX")
+@pytest.mark.skipif(os.name != "posix", reason="a non-UTF-8 file name is POSIX")
+def test_a_partial_run_whose_out_name_holds_an_undecodable_byte_is_saved(tmp_path):
+    from dokimi.commands.novelty_routing_report import save_result
+
+    out = tmp_path / os.fsdecode(b"routing-\xff.json")
+    out.write_text('{"status": "ok"}', encoding="utf-8")
+    saved = save_result({}, out, {"partial": PARTIAL})
+    assert os.fsencode(saved.name) == b"routing-\xff.partial.json"
+    assert json.loads(saved.read_text(encoding="utf-8"))["partial"] == PARTIAL
+
+
+@pytest.mark.skipif(os.name != "posix", reason="a non-UTF-8 file name is POSIX")
+def test_a_long_out_name_with_undecodable_bytes_is_shortened_within_name_max(tmp_path):
+    from dokimi.commands.novelty_routing_report import _partial_destinations
+
+    name_max = os.pathconf(tmp_path, "PC_NAME_MAX")
+    out = tmp_path / (os.fsdecode(b"\xff" * (name_max - len(".json"))) + ".json")
+    out.write_text('{"status": "ok"}', encoding="utf-8")
+    name = next(_partial_destinations(out)).name
+    assert len(os.fsencode(name)) <= name_max
+    assert os.fsencode(name).startswith(b"\xff\xff") and name.endswith(".partial.json")
+
+
+@pytest.mark.skipif(not hasattr(os, "pathconf"), reason="NAME_MAX is POSIX")
+def test_two_long_outs_that_differ_only_at_the_end_keep_their_own_partial_results(tmp_path):
+    from dokimi.commands.novelty_routing_report import save_result
+
+    long = "x" * (os.pathconf(tmp_path, "PC_NAME_MAX") - len("A.json"))
+    outs = [tmp_path / f"{long}{letter}.json" for letter in "AB"]
+    for out in outs:
+        out.write_text('{"status": "ok"}', encoding="utf-8")
+    first = save_result({}, outs[0], {"partial": {**PARTIAL, "calls_done": 1}})
+    second = save_result({}, outs[1], {"partial": {**PARTIAL, "calls_done": 2}})
+    assert first != second
+    assert json.loads(first.read_text(encoding="utf-8"))["partial"]["calls_done"] == 1
+    assert json.loads(second.read_text(encoding="utf-8"))["partial"]["calls_done"] == 2
+
+
+def test_a_long_out_name_is_shortened_to_255_bytes_where_the_limit_is_unknown(tmp_path, monkeypatch):
+    from dokimi.commands.novelty_routing_report import _sidecar_stem
+
+    def unknown(*args):
+        raise OSError(errno.EINVAL, "no limit")
+
+    monkeypatch.setattr(os, "pathconf", unknown, raising=False)
+    stem = _sidecar_stem(tmp_path / ("é" * 200 + ".json"))
+    assert len((stem + ".partial999999.json").encode("utf-8")) <= 255
+    assert stem.startswith("é" * 50)
+
+
 def test_a_second_long_name_partial_save_goes_to_the_next_numbered_shortened_name(tmp_path):
     from dokimi.commands.novelty_routing_report import _partial_destinations
 

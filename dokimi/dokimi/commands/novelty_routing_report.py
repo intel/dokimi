@@ -10,6 +10,7 @@ its growth cap. Nothing here builds a client; a model arm is always the caller's
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import stat
@@ -531,22 +532,29 @@ def _takes_partial(candidate: Path) -> bool:
 
 
 def _sidecar_stem(out: Path) -> str:
-    """``out``'s stem, cut on a character boundary so ``<stem>.partial<N>.json`` fits the file
-    system's name limit for a counter of up to six digits (``PC_NAME_MAX``, else 255 bytes)."""
+    """``out``'s stem, as is when ``<stem>.partial<N>.json`` fits the file system's name limit for a
+    counter of up to six digits (``PC_NAME_MAX``, else 255 bytes). Otherwise it is cut on a
+    character boundary, measured in the file system's bytes (a non-UTF-8 byte of the name is kept),
+    and ends in a digest of the whole stem, so two long outs never share a sidecar."""
     try:
         name_max = os.pathconf(out.parent, "PC_NAME_MAX")
     except (AttributeError, OSError, ValueError):
         name_max = 255
     room = name_max - len(".partial.json") - 6
     stem = out.with_suffix("").name
-    return stem.encode("utf-8")[:room].decode("utf-8", "ignore") if room > 0 else stem
+    if len(os.fsencode(stem)) <= room:
+        return stem
+    tag = "-" + hashlib.sha256(os.fsencode(stem)).hexdigest()[:12]
+    stem = stem[: max(room - len(tag), 0)]
+    while len(os.fsencode(stem)) > room - len(tag):
+        stem = stem[:-1]
+    return stem + tag
 
 
 def _partial_destinations(out: Path) -> Iterator[Path]:
     """Each of ``<out stem>.partial.json``, ``<out stem>.partial2.json``, ... in turn that is free
     or holds a partial result (:func:`_takes_partial`), so a partial result never replaces a
-    finished one. A stem too long for the names to fit is shortened (:func:`_sidecar_stem`); two
-    outs that shorten alike share the sidecars, and each is guarded by :func:`_takes_partial`."""
+    finished one. A stem too long for the names to fit is shortened (:func:`_sidecar_stem`)."""
     base = out.with_name(_sidecar_stem(out))
     candidate, number = base.with_name(f"{base.name}.partial.json"), 2
     while True:
