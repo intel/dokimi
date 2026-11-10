@@ -843,9 +843,8 @@ between repeats keeps its picks but is left out of `noise`. The lexical arm is c
 Treat a `partial` file as a prefix of the run, not a measurement of the whole field: the skills
 and queries reached first are over-represented. To finish, raise `--max-usd` and rerun with
 `DOKIMI_RESPONSE_CACHE` set (it must also have been set on the capped run), which replays the
-calls already paid for at no cost. The
-`skill novelty` steps (`analyze`, `atoms`, `probe`) and `skill shorten` still write nothing when the
-cap stops them.
+calls already paid for at no cost. `skill novelty analyze` and `skill shorten` still write nothing
+when the cap stops them; `atoms` and `probe` keep the calls they made as a partial result.
 
 Three properties worth knowing before quoting either:
 

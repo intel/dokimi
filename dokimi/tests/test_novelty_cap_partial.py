@@ -90,6 +90,30 @@ def test_the_atoms_command_saves_a_partial_file_and_exits_without_atoms_json(tmp
         load_atoms_record(partial)
 
 
+def test_the_atoms_command_warns_about_an_empty_reply_the_cap_did_not_cause(tmp_path, monkeypatch,
+                                                                             capsys):
+    # The first call comes back empty and spends past the cap, so the second is never made. The
+    # empty reply is a cause the user can act on: the warning names it, and does not count the
+    # spans the cap left unread (the exit message names those).
+    artifact = tmp_path / "rows.md"
+    artifact.write_text(ROWS, encoding="utf-8")
+
+    def empty_and_paid(prompt, system=None):
+        return "", UsageRecord(cost_usd=0.6)
+
+    client = LLMClient(model="e", role="extractor", transport=empty_and_paid,
+                       cap=SpendCap(limit_usd=0.5))
+    monkeypatch.setattr(novelty_cmd, "_client", lambda model, provider, role, args: client)
+    args = _parse(*novelty_argv("atoms"), "--artifact", str(artifact), "--model", "e",
+                  "--out", str(tmp_path / "atoms.json"), "--max-usd", "0.5")
+    with pytest.raises(SystemExit):
+        args.func(args)
+    err = capsys.readouterr().err
+    assert "WARNING atom extraction could not read" in err
+    assert "got an empty reply" in err
+    assert "could not read 200 of" not in err
+
+
 def test_a_partial_result_never_replaces_a_finished_one(tmp_path):
     from dokimi.commands.novelty_budget import partial_destination
 
@@ -513,7 +537,7 @@ def test_a_partial_write_skips_a_dangling_symlink_and_a_read_only_partial_file(t
     assert dest == tmp_path / "probes.partial2.json"
     assert not target.exists()
 
-    if os.geteuid() == 0:
+    if hasattr(os, "geteuid") and os.geteuid() == 0:
         pytest.skip("root writes a read-only file regardless of its mode")
     kept = tmp_path / "earlier.partial.json"
     kept.write_text(json.dumps({"partial": {"reason": "spend_cap"}}), encoding="utf-8")
