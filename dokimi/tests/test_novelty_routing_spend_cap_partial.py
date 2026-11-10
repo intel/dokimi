@@ -533,6 +533,7 @@ def test_a_long_out_name_is_shortened_to_255_bytes_where_the_limit_is_unknown(tm
     assert stem.startswith("é" * 50)
 
 
+@pytest.mark.skipif(not hasattr(os, "pathconf"), reason="NAME_MAX is POSIX")
 def test_a_second_long_name_partial_save_goes_to_the_next_numbered_shortened_name(tmp_path):
     from dokimi.commands.novelty_routing_report import _partial_destinations
 
