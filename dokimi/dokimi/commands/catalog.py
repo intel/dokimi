@@ -140,7 +140,7 @@ def _check_scan_flags(args: argparse.Namespace) -> None:
                          "and a load error always fails")
     if "not-a-skill-no-frontmatter" in (args.ignore or ()):
         raise InputError("--ignore not-a-skill-no-frontmatter: a SKILL.md with no frontmatter does not load, "
-                         "and a load error always fails; use --kind or a narrower --root to leave it out")
+                         "and a load error always fails; a narrower --root leaves it out")
     if "unreadable" in (args.ignore or ()):
         # The whole-catalog exit reads the unfiltered findings, --per-skill the filtered rows: ignoring it splits them.
         raise InputError("--ignore unreadable: a SKILL.md the OS will not read always fails the scan, as a load error does")
