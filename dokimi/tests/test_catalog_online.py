@@ -833,6 +833,12 @@ def test_a_package_from_another_index_or_registry_is_not_looked_up_on_the_public
     assert online_checks.extract_packages(body) == []
 
 
+def test_a_url_in_a_code_fence_is_an_example_not_a_link_a_reader_follows():
+    body = ("See https://docs.acme.dev/guide.\n\n"
+            "```python\nclient = OpenAI(base_url=\"https://api.openai.com/v1\")\n```\n")
+    assert online_checks.extract_urls(body) == ["https://docs.acme.dev/guide"]
+
+
 def _scan_capture(root, capsys, *extra: str) -> tuple[int, dict]:
     parser = build_parser()
     args = parser.parse_args(["catalog", "check", "--root", str(root), "--kind", "skills",

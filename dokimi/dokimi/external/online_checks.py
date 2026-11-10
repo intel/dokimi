@@ -27,6 +27,7 @@ from urllib.request import getproxies, proxy_bypass
 
 import httpx
 
+from dokimi.external.skill_markdown import outside_fences
 from dokimi.external.validate import Finding, SkillReview
 
 if TYPE_CHECKING:
@@ -428,6 +429,7 @@ def extract_urls(body: str) -> list[str]:
     A URL followed by ``<``, ``{`` or ``$`` is a template (``https://api.x.com/<id>``), not a link.
     """
     urls: dict[str, None] = {}
+    body = "\n".join(outside_fences(body))  # a fenced block is code: its URLs are an example, not a link to follow
     literal = {m.end() for m in _LITERAL_START_RE.finditer(body)}
     body = body.replace("](", "  ")  # a markdown link's text and its target are both URLs; the length is kept
     for m in _URL_RE.finditer(body):
