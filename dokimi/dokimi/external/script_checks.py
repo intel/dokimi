@@ -446,11 +446,15 @@ def _heredoc_body_end(data: bytes, lines: _Lines, start: int, dash: bool, delim:
     return None if k == len(spans) else min(spans[k][1] + 1, len(data))
 
 
-def _quoted_run(data: bytes, i: int) -> Optional[tuple[bytes, int]]:
+MAX_SUBST_NESTING = 50  # the ``$(`` nests read inside double quotes; a deeper one is text, so the scan recurses no further
+
+
+def _quoted_run(data: bytes, i: int, nest: int = 0) -> Optional[tuple[bytes, int]]:
     """The text of the quoted run that opens at ``data[i]``, and the index just past its closing mark; None when it is
     unclosed. Blanks in it are text (:func:`_in_quotes`). In double quotes, as in bash, a backslash before ``$``, a
     backtick, ``"`` or a backslash is that character, a backslash-newline is removed, and any other backslash is kept.
-    In ``$'...'`` a backslash escapes the next byte, so ``$'it\\'s'`` closes at its last mark."""
+    In ``$'...'`` a backslash escapes the next byte, so ``$'it\\'s'`` closes at its last mark. An unclosed ``$(`` nest
+    makes the run unclosed too, since bash reads the rest of the file as that substitution: the run is not re-read."""
     quote = data[i:i + 1]
     ansi = quote == b"'" and data[i - 1:i] == b"$" and not _escaped(data, i - 1) and data[i - 2:i - 1] != b"$"
     out = bytearray()
@@ -466,8 +470,10 @@ def _quoted_run(data: bytes, i: int) -> Optional[tuple[bytes, int]]:
             text, width = _dq_backslash(data, j)
             out += text
             j += width
-        elif (c == b"$" and quote == b'"' and data[j + 1:j + 2] == b"("
-              and (end := _command_sub_end(data, j + 1)) is not None):
+        elif c == b"$" and quote == b'"' and data[j + 1:j + 2] == b"(" and nest < MAX_SUBST_NESTING:
+            end = _command_sub_end(data, j + 1, nest + 1)
+            if end is None:
+                return None
             out += b"".join(_in_quotes(data[k:k + 1]) for k in range(j, end))  # a quote in it does not close these
             j = end
         else:
@@ -476,7 +482,7 @@ def _quoted_run(data: bytes, i: int) -> Optional[tuple[bytes, int]]:
     return None
 
 
-def _command_sub_end(data: bytes, i: int) -> Optional[int]:
+def _command_sub_end(data: bytes, i: int, nest: int = 0) -> Optional[int]:
     """The index just past the ``)`` that closes the ``(`` at ``data[i]`` of a ``$(``, read as bash reads it: its quoted
     runs are skipped whole, so a quote inside it does not close the double quotes around it. None when it is unclosed."""
     depth = 0
@@ -487,7 +493,7 @@ def _command_sub_end(data: bytes, i: int) -> Optional[int]:
             j += 2
             continue
         if c in (b"'", b'"'):
-            run = _quoted_run(data, j)
+            run = _quoted_run(data, j, nest)
             if run is None:
                 return None
             j = run[1]

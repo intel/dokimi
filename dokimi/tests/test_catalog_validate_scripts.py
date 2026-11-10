@@ -711,6 +711,20 @@ def test_a_repeated_run_of_words_is_checked_in_linear_time(run, count):
     assert time.monotonic() - started < 0.5
 
 
+@pytest.mark.parametrize("count", [40, 300])
+def test_a_command_sub_in_quotes_repeated_unclosed_is_read_in_linear_time(count):
+    # each level of an unclosed "$( nest was read again by the level above it: exponential in the count
+    started = time.monotonic()
+    script_checks._shell_options(b"x=" + b'"$(' * count + b"\nx\n")
+
+    assert time.monotonic() - started < 0.5
+
+
+def test_a_command_sub_in_quotes_nested_600_deep_does_not_exhaust_the_recursion_limit():
+    # each level of the nest recurses; a nest this deep raised RecursionError on the whole file
+    script_checks._shell_options(b"x=" + b'"$(' * 600 + b")\"" * 600 + b"\nx\n")
+
+
 @pytest.mark.parametrize(("body", "codes"), [
     (b"function f { shopt -s extglob; }\nf", []),
     (b"shopt nullglob -s extglob", ["script-syntax"]),
