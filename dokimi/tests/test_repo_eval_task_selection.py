@@ -144,7 +144,7 @@ def test_a_quoted_file_name_does_not_hide_its_task(repo, tmp_path):
     assert _select(repo, tmp_path) == ["t1"]
 
 
-BYTE_NAME = os.fsdecode(b"r\xff.py")
+BYTE_NAME = os.fsdecode(b"r\xff.py") if os.name != "nt" else "r.py"
 needs_byte_names = pytest.mark.skipif(
     sys.platform in ("win32", "darwin"), reason="the file system takes only UTF-8 names"
 )
