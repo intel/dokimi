@@ -64,6 +64,10 @@ def test_plain_markdown_gets_a_frontmatter_hint(tmp_path):
         (["````", "```", "# Example", "Example prose.", "````", "# Real Title", "Real text."],
          "real-title", "Real text."),  # a shorter fence run does not close a four-backtick one
         (["# Q", "> Master it."], "q", "Master it."),
+        # The H1 is found before the paragraph is taken: an intro above it, a badge line, an H1 inside a paragraph.
+        (["Introductory note.", "", "# Deck Builder", "", "Builds slide decks."], "deck-builder", "Builds slide decks."),
+        (["[![CI](https://x/b.svg)](https://x)", "", "# Badge Tool", "", "Does badges."], "badge-tool", "Does badges."),
+        (["Intro", "# T", "More"], "t", "More"),
         (["# Yes"], "yes", "What yes does. Use when ..."),
         (["# T", "", "| a | b |", "", "Text: with \"quotes\""], "t", "Text: with \"quotes\""),
     ],
