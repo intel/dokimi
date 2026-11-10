@@ -408,7 +408,7 @@ def test_unusable_requirement_rows_are_counted_in_the_summary_and_the_note_not_a
                                 model="m", provider="anthropic", cost={}, requirements_dropped=dropped,
                                 requirements_unusable=unusable)
     assert report["summary"]["requirements_unusable"] == 2 and report["summary"]["requirements_dropped"] == 0
-    assert "2 requirement row(s) not usable (unknown section or no text)" in sc.render_markdown(report)
+    assert "2 requirement row(s) not usable (not an object, an unknown section, or no text)" in sc.render_markdown(report)
     clean = sc.coverage_report(skill, reqs, checks, sc.Links(by_requirement={}, dropped_names=0), evals_root="x",
                                model="m", provider="anthropic", cost={}, requirements_dropped=0)
     assert "not usable" not in sc.render_markdown(clean)  # no note when there is nothing unusable

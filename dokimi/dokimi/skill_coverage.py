@@ -436,7 +436,7 @@ def render_markdown(report: dict[str, Any]) -> str:
     if s["requirements_dropped"]:
         notes.append(f"{s['requirements_dropped']} requirement(s) past the cap of {MAX_REQUIREMENTS}")
     if s["requirements_unusable"]:
-        notes.append(f"{s['requirements_unusable']} requirement row(s) not usable (unknown section or no text)")
+        notes.append(f"{s['requirements_unusable']} requirement row(s) not usable (not an object, an unknown section, or no text)")
     if s["check_names_dropped"]:
         notes.append(f"{s['check_names_dropped']} check name(s) the eval set does not have")
     if notes:
