@@ -823,6 +823,17 @@ def test_guidance_none_removes_a_guidance_file_whose_path_is_not_utf8(tmp_path, 
     assert not (ws / not_utf8_dir / "AGENTS.md").exists() and (ws / "src/calc.py").is_file()
 
 
+@not_utf8
+def test_guidance_as_skill_packages_a_guidance_file_whose_path_is_not_utf8(tmp_path, not_utf8_dir):
+    ws = _bytes_workspace(tmp_path, ("AGENTS.md", f"{not_utf8_dir}/AGENTS.md", "src/calc.py"))
+    manifest = SimpleNamespace(guidance_globs=["**/AGENTS.md"], id="toy")
+    removed, meta = _apply_arm(ws, _git_env(SNAPSHOT_AUTHOR), tmp_path, manifest, parse_arm("guidance:as-skill"), None)
+    assert removed == ["AGENTS.md", f"{not_utf8_dir}/AGENTS.md"]
+    assert not (ws / "AGENTS.md").exists() and not (ws / not_utf8_dir / "AGENTS.md").exists()
+    skill = (ws / meta["guidance_skill"]["path"] / "SKILL.md").read_bytes().decode("utf-8")
+    assert "## File: AGENTS.md\n\nguidance\n" in skill and "## File: r\ufffd/AGENTS.md\n\nguidance\n" in skill
+
+
 def test_native_in_probe_counts_only_the_native_names_a_probed_file_or_link_carries():
     """The profile names CLAUDE.md, but a probe with no CLAUDE.md file or link has no native name to import a target:
     the configured name alone does not make an alias ambiguous."""
