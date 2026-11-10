@@ -9,6 +9,7 @@ A source `RepoSource.parse` refuses, or a pinned local path inside a repository,
 
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import sys
@@ -132,6 +133,56 @@ def test_manifest_path_leaving_a_pinned_tree_is_a_missing_manifest_with_exit_1(n
     code, err = _run(monkeypatch, capsys, *_command(name, f"{repo}@{sha}", tmp_path), "--manifest", "../outside.yaml")
     assert code == 1
     assert err.strip().splitlines()[0] == "✗ ../outside.yaml: invalid repo_manifest.v1:"
+
+
+def _tree_with_a_link_out(tmp_path, link):
+    """A git work tree whose ``link`` points at a manifest outside it."""
+    tree = tmp_path / "tree"
+    (tree / link).parent.mkdir(parents=True, exist_ok=True)
+    (tmp_path / "outside.yaml").write_text("schema: repo_manifest.v1\n", encoding="utf-8")
+    try:
+        os.symlink(os.path.relpath(tmp_path / "outside.yaml", (tree / link).parent), tree / link)
+    except OSError:
+        pytest.skip("this file system cannot hold a symlink")
+    for args in (["init", "-q"], ["add", "-A"],
+                 ["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "commit", "-q", "-m", "l"]):
+        subprocess.run(["git", "-C", str(tree), *args], check=True, capture_output=True)
+    sha = subprocess.run(["git", "-C", str(tree), "rev-parse", "HEAD"], check=True, capture_output=True,
+                         text=True).stdout.strip()
+    return tree, sha
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
+@pytest.mark.parametrize("name", ["check", "run", "replay", "prs"])
+@pytest.mark.parametrize("pinned", [False, True])
+def test_a_default_manifest_linking_out_of_the_tree_is_a_bad_manifest_with_exit_1(name, pinned, tmp_path,
+                                                                                  monkeypatch, capsys):
+    tree, sha = _tree_with_a_link_out(tmp_path, ".agent-eval/repo-eval.yaml")
+    code, err = _run(monkeypatch, capsys, *_command(name, f"{tree}@{sha}" if pinned else str(tree), tmp_path))
+    assert code == 1
+    assert err.strip().splitlines()[0].startswith("✗ path escapes the repository: .agent-eval/repo-eval.yaml")
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
+@pytest.mark.parametrize("name", ["check", "run", "replay", "prs"])
+def test_a_typed_manifest_inside_the_tree_that_links_out_of_it_exits_1(name, tmp_path, monkeypatch, capsys):
+    tree, _ = _tree_with_a_link_out(tmp_path, "escape.yaml")
+    code, err = _run(monkeypatch, capsys, *_command(name, str(tree), tmp_path), "--manifest", "escape.yaml")
+    assert code == 1
+    assert err.strip().splitlines()[0] == "✗ path escapes the repository: escape.yaml"
+
+
+@pytest.mark.skipif(shutil.which("git") is None or sys.platform in ("win32", "darwin"),
+                    reason="needs git and a file system that takes a name that is not UTF-8")
+@pytest.mark.parametrize("name", ["check", "run", "replay", "prs"])
+def test_a_pinned_subdirectory_whose_name_is_not_utf8_exits_1_without_a_traceback(name, tmp_path, monkeypatch,
+                                                                                   capsys):
+    repo, sha = _repo_with_sub(tmp_path)
+    sub = os.fsdecode(os.fsencode(str(repo)) + b"/s\xff")
+    os.mkdir(sub)
+    code, err = _run(monkeypatch, capsys, *_command(name, f"{sub}@{sha}", tmp_path))
+    assert code == 1
+    assert err.strip().startswith("✗ ")
 
 
 @pytest.mark.parametrize("name", ["check", "run"])

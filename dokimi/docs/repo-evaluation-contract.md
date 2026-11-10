@@ -694,7 +694,8 @@ Both commands exit 2, before any build, on a source that does not parse (a local
 directory, an unpinned remote) and on a pinned local path inside a repository that is not its root; a
 source that parses but cannot be opened (clone, fetch, revision) exits 1 with a `✗` line. A manifest that
 is missing or malformed exits 1 too; a `--manifest` path that leaves the source tree is refused as a
-source and exits 2 for an unpinned local directory. A pinned source (`<repo>@<sha>`) does not look the path
+source and exits 2 for an unpinned local directory; a link in the tree that leads out of it, the default
+manifest's or one `--manifest` names, is part of the tree and exits 1. A pinned source (`<repo>@<sha>`) does not look the path
 up outside the commit: it reports a missing manifest and exits 1.
 
 Nothing checked is not a pass. Both commands refuse an export with no task, and

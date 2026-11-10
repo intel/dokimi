@@ -10,6 +10,7 @@ import argparse
 import contextlib
 import json
 import math
+import os
 import shutil
 import sys
 from pathlib import Path
@@ -25,14 +26,32 @@ from dokimi.utils import tree_digest
 from dokimi.utils import InputError
 
 
+def _refuse_typed(source, args: argparse.Namespace) -> None:
+    """Exit 2 for what the user typed: a pinned local path inside a repository, or a ``--manifest`` that leaves
+    an unpinned local tree as written. A path the tree supplies (a link out of it) fails later, with exit 1."""
+    from dokimi.repos.source import check_pinned_root
+
+    try:
+        check_pinned_root(source)
+    except SourceArgumentError as exc:
+        raise InputError(str(exc)) from exc
+    except ValueError as exc:  # SourceError: git cannot read the pinned path; or a prefix that is not UTF-8
+        print(f"✗ {exc}", file=sys.stderr)
+        sys.exit(1)
+    if args.manifest and not args.manifest_file and not source.remote and source.rev is None:
+        tree = Path(source.location).resolve()
+        if not Path(os.path.normpath(tree / args.manifest)).is_relative_to(tree):
+            raise InputError(f"path escapes the repository: {args.manifest}")
+
+
 def _context(args: argparse.Namespace, out: Path, source, pin: bool = False):
     """Source, manifest, exported eval dir, image and caches shared by `eval check` and `run`.
 
     With ``pin`` (a batch), the batch keeps the eval tree it started with: a later invocation
     from another revision would grade new cells with other graders, so it is refused. A working
     tree has no revision, so the batch is pinned to the digests of its eval dir and of the image
-    (whose tag is the build context's digest). ``source`` is the source as typed (``_parse_source``); a pinned
-    local path inside a repository raises SourceArgumentError, which the callers map to exit 2.
+    (whose tag is the build context's digest). ``source`` is the source as typed (``_parse_source``), already refused
+    by :func:`_refuse_typed` when the user mistyped it.
     """
     from dokimi.repos import open_source
     from dokimi.repos.container import DockerRunner
@@ -177,6 +196,7 @@ def cmd_repo_tasks_check(args: argparse.Namespace) -> None:
 
     out = Path(args.out).resolve()
     source = _parse_source(args)
+    _refuse_typed(source, args)  # before the manifest, the image build and the tasks
     try:
         ctx, _ = _context(args, out, source)
         tasks = load_tasks(ctx.content_dir, ctx.manifest, args.task)
@@ -187,8 +207,6 @@ def cmd_repo_tasks_check(args: argparse.Namespace) -> None:
         print(f"{len(tasks)} task(s), image {ctx.image}{' (warm: with network)' if args.warm else ''}",
               file=sys.stderr)
         results = run_check(ctx, tasks, out / "check", warm=args.warm, jobs=args.jobs, log=_progress)
-    except SourceArgumentError as exc:  # a pinned local path that is not the repository root: a usage error
-        raise InputError(str(exc)) from exc
     except _errors() as exc:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(1)
@@ -209,14 +227,13 @@ def cmd_repo_tasks_replay(args: argparse.Namespace) -> None:
     """One dokimi:review_replay task per merged PR of a recorded threads file (contract §4.6; no LLM, no GitHub)."""
     from dokimi.repos import open_source
     from dokimi.repos.replay import DEFAULT_PROMPT, History, Options, build_all, read_threads
-    from dokimi.repos.source import check_pinned_root
     from dokimi.repos.workspace import source_git_dir
 
     from .repo import _cache_dir, _load_manifest, _parse_source
 
     source = _parse_source(args)
+    _refuse_typed(source, args)  # before the input files: a source refusal is not masked by an unreadable one
     try:
-        check_pinned_root(source)  # before the input files: a source refusal is not masked by an unreadable one
         prs = read_threads(Path(args.threads))
         prompt = Path(args.prompt_file).read_text(encoding="utf-8").strip() if args.prompt_file else DEFAULT_PROMPT
         if not prompt:
@@ -225,8 +242,6 @@ def cmd_repo_tasks_replay(args: argparse.Namespace) -> None:
         manifest = _load_manifest(tree, args)
         opts = Options(out=Path(args.out), window=args.window, prompt=prompt, force=args.force, fetch=source.remote)
         outcomes = build_all(History(source_git_dir(source, tree, _cache_dir(args))), manifest, prs, opts)
-    except SourceArgumentError as exc:  # a pinned local path that is not the repository root: a usage error
-        raise InputError(str(exc)) from exc
     except _errors() as exc:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(1)
@@ -250,14 +265,13 @@ def cmd_repo_tasks_authoring(args: argparse.Namespace) -> None:
     from dokimi.repos.replay.authoring import Options
     from dokimi.repos.replay.authoring_prompt import DEFAULT_INSTRUCTION
     from dokimi.repos.replay.authoring_prs import build_all
-    from dokimi.repos.source import check_pinned_root
     from dokimi.repos.workspace import source_git_dir
 
     from .repo import _cache_dir, _load_manifest, _parse_source
 
     source = _parse_source(args)
+    _refuse_typed(source, args)  # before the input files: a source refusal is not masked by an unreadable one
     try:
-        check_pinned_root(source)  # before the input files: a source refusal is not masked by an unreadable one
         prs = read_threads(Path(args.prs), "mergeCommit", "pull request file")
         text = Path(args.prompt_file).read_text(encoding="utf-8").strip() if args.prompt_file else DEFAULT_INSTRUCTION
         if not text:
@@ -267,8 +281,6 @@ def cmd_repo_tasks_authoring(args: argparse.Namespace) -> None:
         opts = Options(out=Path(args.out), max_lines=args.max_lines, instruction=text, force=args.force,
                        fetch=source.remote)
         outcomes = build_all(History(source_git_dir(source, tree, _cache_dir(args))), manifest, prs, opts)
-    except SourceArgumentError as exc:  # a pinned local path that is not the repository root: a usage error
-        raise InputError(str(exc)) from exc
     except _errors() as exc:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(1)
@@ -306,14 +318,13 @@ def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock
     from dokimi.repos.runner import (
         AgentOptions, agent_network, batch_lock, harness_version, run_batch, task_caps, validate_tasks)
     from dokimi.repos.selfcheck import ANCESTOR_NAMES, isolation_probe
-    from dokimi.repos.source import check_pinned_root
     from dokimi.repos.workspace import load_tasks, parse_arm, source_git_dir
 
     from .repo import _cache_dir, _parse_source
 
     source = _parse_source(args)  # as typed, before the build and the pin: a usage error
+    _refuse_typed(source, args)  # before the arms and the harness
     try:
-        check_pinned_root(source)  # before the arms and the harness: a source refusal is not masked by them
         parsed = [parse_arm(a) for a in arms]  # before the image build: a typo or an unreadable patch fails now
         profile = load_profile(args.harness)
         profile.tool_args(args.tools, args.delegation)  # a profile that cannot turn subagents off: refuse now
@@ -347,8 +358,6 @@ def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock
             write_skill_pin(batch_dir, skill_pin)
         summary = run_batch(ctx, tasks, arms, options, args.reps, batch_dir, jobs=args.jobs, force=args.force,
                             max_batch_usd=args.max_batch_usd, log=_progress)
-    except SourceArgumentError as exc:  # a pinned local path that is not the repository root: a usage error
-        raise InputError(str(exc)) from exc
     except _errors() as exc:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(1)
