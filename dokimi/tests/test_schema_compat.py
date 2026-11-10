@@ -632,3 +632,47 @@ def test_main_reports_a_breaking_edit_to_a_schema_whose_name_is_not_utf8(
     monkeypatch.setattr(sc, "SCHEMA_DIR", tmp_path)
     assert sc.main(["--base", "HEAD"]) == 1
     assert "BREAKING r?.v1.json <root>: 'a' is now required" in capsys.readouterr().out
+
+
+# ── exit codes: 0 compatible, 1 a breaking edit, 2 a base git cannot read ──
+
+def test_main_exits_2_and_names_the_cause_when_git_cannot_read_the_base(
+        monkeypatch, tmp_path, capsys):
+    import dokimi.schema_compat as sc
+
+    (tmp_path / "a.v1.json").write_text(json.dumps(OBJ), encoding="utf-8")
+    _commit_all(tmp_path)
+    monkeypatch.setattr(sc, "SCHEMA_DIR", tmp_path)
+    monkeypatch.chdir(tmp_path)
+    assert sc.main(["--base", "no-such-ref"]) == 2
+    captured = capsys.readouterr()
+    assert captured.err.startswith("cannot diff against no-such-ref: ")
+    assert "no-such-ref" in captured.err.splitlines()[0]
+    assert "OK" not in captured.out
+
+
+def test_main_exits_2_when_only_the_second_read_of_the_base_fails(monkeypatch, tmp_path, capsys):
+    import dokimi.schema_compat as sc
+
+    (tmp_path / "a.v1.json").write_text(json.dumps(OBJ), encoding="utf-8")
+    monkeypatch.setattr(sc, "SCHEMA_DIR", tmp_path)
+    monkeypatch.setattr(sc, "compare_against", lambda base: {})
+
+    def unreadable(base):
+        raise sc.GitError("base is gone")
+
+    monkeypatch.setattr(sc, "_base_has_schemas", unreadable)
+    assert sc.main(["--base", "X"]) == 2
+    assert capsys.readouterr().err == "cannot diff against X: base is gone\n"
+
+
+def test_main_still_exits_1_for_a_breaking_edit_to_a_readable_base(monkeypatch, tmp_path, capsys):
+    import dokimi.schema_compat as sc
+
+    (tmp_path / "a.v1.json").write_text(json.dumps(_with(required=[])), encoding="utf-8")
+    _commit_all(tmp_path)
+    (tmp_path / "a.v1.json").write_text(json.dumps(OBJ), encoding="utf-8")
+    monkeypatch.setattr(sc, "SCHEMA_DIR", tmp_path)
+    monkeypatch.chdir(tmp_path)
+    assert sc.main(["--base", "HEAD"]) == 1
+    assert "BREAKING a.v1.json <root>: 'a' is now required" in capsys.readouterr().out
