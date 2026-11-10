@@ -23,3 +23,19 @@ def test_a_path_below_a_root_link_its_target_gitignore_ignores_stays_unresolved(
     cited = f"; {ignore}:1 (`{rule}`) ignores it, so it is likely generated rather than tracked"
     assert got[("AGENTS.md", "owner/gen.cfg")] == ("unresolved", "owner/ exists but owner/gen.cfg does not" + cited)
     assert got[("AGENTS.md", "owner/*.cfg")] == ("unresolved", "owner/ exists but nothing in it matches *.cfg" + cited)
+
+
+@pytest.mark.parametrize("target", ["src/a*", "src/a?"])
+def test_a_wildcard_in_a_link_target_name_does_not_match_a_sibling_directory(tmp_path, target):
+    """``owner -> src/a*`` holds only ``x``: ``src/ab/x.cfg`` beside it is no match of ``owner/*.cfg``."""
+    files = {"AGENTS.md": "Run `owner/*.cfg`.\n", "ev/tasks/t/task.json": "{}", f"{target}/x": "", "src/ab/x.cfg": ""}
+    got = _by_file(scan_repo(_linked_repo(tmp_path / "r", files, {"owner": target}), _manifest()))
+    assert got[("AGENTS.md", "owner/*.cfg")] == ("fail", "owner/ exists but nothing in it matches *.cfg")
+
+
+@pytest.mark.parametrize("target", [".", "src/.."])
+def test_a_glob_below_a_root_link_to_the_root_matches_at_the_root(tmp_path, target):
+    """``owner -> .`` lists the root under ``owner/``, so ``x.cfg`` there matches ``owner/*.cfg``."""
+    files = {"AGENTS.md": "Run `owner/*.cfg`.\n", "ev/tasks/t/task.json": "{}", "src/keep": "", "x.cfg": ""}
+    got = _by_file(scan_repo(_linked_repo(tmp_path / "r", files, {"owner": target}), _manifest()))
+    assert got[("AGENTS.md", "owner/*.cfg")] == ("ok", "glob owner/*.cfg -> e.g. owner/x.cfg")

@@ -415,8 +415,8 @@ class Scan:
             if real is None:
                 continue
             if real != d:  # a checkout lists `real` under `d`
-                rx = glob_regex(posixpath.normpath(posixpath.join(real, name)))
-                hit = next((x for x in self._every() if rx.match(x)), None)
+                rx, pre = glob_regex(name), "" if real in ("", ".") else real + "/"  # `real` is literal, no glob
+                hit = next((x for x in self._every() if x.startswith(pre) and rx.match(x[len(pre):])), None)
                 if hit:
                     return "ok", f"glob {full} -> e.g. {posixpath.join(d, posixpath.relpath(hit, real))}"
             probes = self._probes(full) + self._probes(posixpath.normpath(posixpath.join(real, name)))
