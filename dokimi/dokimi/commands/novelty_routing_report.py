@@ -14,6 +14,7 @@ import errno
 import hashlib
 import json
 import os
+import re
 import stat
 import sys
 from pathlib import Path
@@ -536,7 +537,9 @@ def _sidecar_stem(out: Path) -> str:
     """``out``'s stem, as is when ``<stem>.partial<N>.json`` fits the file system's name limit for a
     counter of up to six digits (``PC_NAME_MAX``, else 255 bytes). Otherwise it is cut on a
     character boundary, measured in the file system's bytes (a non-UTF-8 byte of the name is kept),
-    and ends in a digest of the whole stem, so two long outs never share a sidecar."""
+    and ends in a digest of the whole stem, so two long outs never share a sidecar. A stem that fits
+    but is as long as a cut one and ends in a digest-shaped tag is cut again, so it never equals the
+    cut name of another out."""
     try:
         name_max = os.pathconf(out.parent, "PC_NAME_MAX")
     except (AttributeError, OSError, ValueError):
@@ -545,7 +548,8 @@ def _sidecar_stem(out: Path) -> str:
         name_max = 255
     room = name_max - len(".partial.json") - 6
     stem = out.with_suffix("").name
-    if len(os.fsencode(stem)) <= room:
+    if len(os.fsencode(stem)) <= room and not (  # a cut name is within 3 bytes of room
+            len(os.fsencode(stem)) > room - 4 and re.search(r"-[0-9a-f]{12}$", stem)):
         return stem
     tag = "-" + hashlib.sha256(os.fsencode(stem)).hexdigest()[:12]
     if room < len(tag):

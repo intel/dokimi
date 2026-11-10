@@ -835,7 +835,7 @@ not itself partial, the partial one goes to the first of `<out stem>.partial.jso
 sidecar that is not a regular file, such as a FIFO or a symlink, is skipped without being
 opened or followed; an `--out` stem too long for those names to fit the file system is cut
 to fit is cut and ends in a digest of the whole stem, so the partial result is still saved and
-two long outs keep separate sidecars), and the exit
+two long outs keep separate sidecars, and a short stem that ends in a digest-shaped tag as long as a cut one is cut again, so it never takes a cut one's sidecar), and the exit
 message names that path, so a cap never replaces a finished measurement. The calls made are
 scored as in a run with failed calls: a single run's `model.per_query` holds them, and
 `model.n_calls` is `N` rather than queries times repeats. In all-vs-all the calls never made are

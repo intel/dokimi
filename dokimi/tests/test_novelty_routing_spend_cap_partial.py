@@ -521,6 +521,23 @@ def test_two_long_outs_that_differ_only_at_the_end_keep_their_own_partial_result
     assert json.loads(second.read_text(encoding="utf-8"))["partial"]["calls_done"] == 2
 
 
+def test_a_short_out_named_like_a_cut_long_out_keeps_its_own_partial_result(tmp_path, monkeypatch):
+    from dokimi.commands.novelty_routing_report import save_result
+
+    monkeypatch.setattr(os, "pathconf", lambda *args: 255, raising=False)
+    long = tmp_path / f"{'x' * 250}.json"
+    long.write_text('{"status": "ok"}', encoding="utf-8")
+    cut = save_result({}, long, {"partial": {**PARTIAL, "calls_done": 1}})
+    tag = cut.name.removesuffix(".partial.json")[-13:]
+    short = tmp_path / f"{'x' * 223}{tag}.json"
+    assert len(short.stem) == len(cut.name.removesuffix(".partial.json"))
+    short.write_text('{"status": "ok"}', encoding="utf-8")
+    other = save_result({}, short, {"partial": {**PARTIAL, "calls_done": 2}})
+    assert other != cut
+    assert json.loads(cut.read_text(encoding="utf-8"))["partial"]["calls_done"] == 1
+    assert json.loads(other.read_text(encoding="utf-8"))["partial"]["calls_done"] == 2
+
+
 def test_a_long_out_name_is_shortened_to_255_bytes_where_the_limit_is_unknown(tmp_path, monkeypatch):
     from dokimi.commands.novelty_routing_report import _sidecar_stem
 
