@@ -858,6 +858,14 @@ def test_an_ipv4_shorthand_or_a_trailing_dot_host_is_internal_too():
     assert online_checks._internal_url("http://x.localhost/")
 
 
+def test_an_ideographic_or_fullwidth_full_stop_in_a_host_is_a_dot_for_the_internal_rule():
+    # httpx maps U+3002 and U+FF0E to "." when it connects; urlsplit keeps them, so the rule must read httpx's host
+    body = ("http://10.0.0。1/admin http://127.0.0．1/ http://169.254.169．254/ "
+            "http://metadata.google.internal。/ http://printer.local。/\n")
+    assert online_checks.extract_urls(body) == []
+    assert online_checks._internal_url("http://10.0.0。1/")
+
+
 def test_a_redirect_into_a_private_address_is_not_requested():
     requested: list[str] = []
 

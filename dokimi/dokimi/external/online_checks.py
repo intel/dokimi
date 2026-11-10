@@ -414,9 +414,9 @@ def _internal_url(url: str) -> bool:
     """Whether ``url`` names a host of the operator's network, not a public one: a loopback, private, link-local,
     reserved or multicast address, a name with no dot (``my-api:8000``), or a ``.local`` or ``.internal`` name. An
     untrusted catalog must not make ``--online`` send requests there, nor a redirect of a public link."""
-    try:
-        host = (urlsplit(url).hostname or "").lower().rstrip(".")  # "localhost." is "localhost"
-    except ValueError:
+    try:  # the host httpx connects to: it maps U+3002 and U+FF0E to "." (urlsplit keeps them)
+        host = (httpx.URL(url).host or "").lower().rstrip(".")  # "localhost." is "localhost"
+    except (httpx.InvalidURL, ValueError):
         return True
     try:
         address = ipaddress.ip_address(host)
