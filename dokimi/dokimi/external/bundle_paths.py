@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import os
 import re
+import shlex
 from pathlib import Path
 from typing import Optional
 
@@ -84,6 +85,23 @@ def _bundle_path(word: str) -> Optional[str]:
     return text
 
 
+def _words(span: str) -> list[str]:
+    """The words of a code span as a shell reads them: a quoted argument with a space is one word.
+
+    A span whose quotes do not balance is split on whitespace.
+    """
+    try:
+        return shlex.split(span)
+    except ValueError:
+        return span.split()
+
+
+def _missing(skill_dir: Path, text: str, real_dir: Path) -> bool:
+    """Whether the skill has no file ``text``. A name that resolves outside the skill is not read, so it is not missing."""
+    target = _resolved(skill_dir / text)
+    return target is not None and target.is_relative_to(real_dir) and not _exists(target)
+
+
 def path_missing(spans: list[str], skill_dir: Path, source_root: Path, real_dir: Path) -> list[str]:
     """The ``path-missing`` message for each code span word that names a bundled file the skill does not have.
 
@@ -93,14 +111,18 @@ def path_missing(spans: list[str], skill_dir: Path, source_root: Path, real_dir:
     findings: list[str] = []
     seen: set[str] = set()
     for raw in spans:
-        for word in raw.split():
+        whole = raw.strip()
+        if " " in whole and not any(q in whole for q in "'\""):
+            text = _bundle_path(whole)
+            if text is not None and not _missing(skill_dir, text, real_dir):
+                continue  # a path with a space in its name that the skill has, read as one path
+        for word in _words(raw):
             text = _bundle_path(word)
             if text is None or text in seen:
                 continue
             seen.add(text)
-            target = _resolved(skill_dir / text)
-            if target is None or not target.is_relative_to(real_dir) or _exists(target):
-                continue  # a symlink out of the skill is not followed; an existing file is fine
+            if not _missing(skill_dir, text, real_dir):
+                continue  # an existing file is fine; a symlink out of the skill is not followed
             rooted = _in_checkout(source_root / text, source_root)
             from_root = (
                 " (it exists from the catalog root: the skill works only from a checkout of its repository)"
@@ -108,7 +130,7 @@ def path_missing(spans: list[str], skill_dir: Path, source_root: Path, real_dir:
                 else ""
             )
             findings.append(
-                    f"{text!r} (in `{raw}`) names no file in the skill directory; the agent cannot "
-                    f"open it once the skill is installed{from_root}"
+                f"{text!r} (in `{raw}`) names no file in the skill directory; the agent cannot "
+                f"open it once the skill is installed{from_root}"
             )
     return findings

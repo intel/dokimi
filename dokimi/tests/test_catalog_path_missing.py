@@ -113,3 +113,30 @@ def test_a_path_that_exists_from_the_catalog_root_says_so(tmp_path):
     [finding] = review.findings
     assert finding.code == "path-missing"
     assert "exists from the catalog root" in finding.message
+
+
+def test_a_quoted_argument_with_a_space_is_one_path(tmp_path):
+    review, _ = _review(
+        tmp_path,
+        "Copy it with `cp 'assets/logo.dark mode.svg' /tmp/logo.svg`.\n",
+        files=["assets/logo.dark mode.svg"],
+    )
+    assert review.findings == []
+
+
+def test_a_missing_quoted_argument_is_named_whole(tmp_path):
+    review, _ = _review(tmp_path, "Copy it with `cp 'assets/logo.dark mode.svg' /tmp/logo.svg`.\n")
+    [finding] = review.findings
+    assert finding.code == "path-missing"
+    assert finding.message.startswith("'assets/logo.dark mode.svg' (in ")
+
+
+def test_a_standalone_path_with_a_space_that_exists_is_fine(tmp_path):
+    review, _ = _review(tmp_path, "Use `assets/logo.dark mode.svg`.\n", files=["assets/logo.dark mode.svg"])
+    assert review.findings == []
+
+
+def test_a_malformed_quote_falls_back_to_whitespace_words(tmp_path):
+    review, _ = _review(tmp_path, "Run `cp 'scripts/a.sh /tmp/x`.\n")
+    [finding] = review.findings
+    assert finding.message.startswith("'scripts/a.sh' (in ")
