@@ -8,7 +8,9 @@ from __future__ import annotations
 import dataclasses
 import json
 import os
+import re
 import shutil
+import sys
 from pathlib import Path
 
 import pytest
@@ -734,6 +736,19 @@ def test_the_base_check_counts_only_the_files_the_revision_writes_back(tmp_path)
     check_arms([arm], root / ".agent-eval", tasks, root / ".git", ["**/AGENTS.md"])  # preparation writes no helper
     with pytest.raises(ArmError, match="guidance revision HEAD already has .claude/skills/lint"):
         check_arms([arm], root / ".agent-eval", tasks, root / ".git", [".claude/skills/**"])
+
+
+@pytest.mark.skipif(sys.platform in ("win32", "darwin"), reason="the file system takes only UTF-8 names")
+def test_the_base_check_refuses_a_skill_the_base_ships_under_a_name_that_is_not_utf8(tmp_path):
+    name = os.fsdecode(b"l\xffint")  # the base tracks .claude/skills/l\xffint, the arm installs the same bytes
+    write(tmp_path / "toy", f".claude/skills/{name}/run.sh", "echo lint\n")
+    root, base = make_repo(tmp_path)
+    write(root, f".agent-eval/skills/{name}/SKILL.md", "---\ndescription: lint things\n---\nDo lint.\n")
+    git(root, "add", "-A")
+    git(root, "commit", "-qm", "skills")
+    with pytest.raises(ArmError, match=re.escape(f"base of task t already has .claude/skills/{name}")):
+        check_arms([parse_arm(f"skill:skills/{name}")], root / ".agent-eval", [Task("t", {"base": base}, root)],
+                   root / ".git")
 
 
 def test_the_base_check_reads_the_pinned_commit_of_a_revision_arm_not_the_moved_branch(tmp_path):
