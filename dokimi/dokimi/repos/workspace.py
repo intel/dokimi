@@ -51,6 +51,7 @@ from typing import Any
 from dokimi import process
 
 from .arms import ArmError, Skill, resolve_skills, tree_sha256
+from .bases import _patch_paths
 from .errors import PrepError
 from .guidance_arms import GUIDANCE_SKILL_DESCRIPTION, _apply_as_skill, _apply_format  # noqa: F401
 from .guidance_format import FORMATS
@@ -704,24 +705,6 @@ def _apply_patch(ws: Path, env: dict[str, str], manifest: RepoManifest, arm: Arm
         base = set()
     return files, {"arm_patch": {"path": arm.patch_path, "sha256": arm.patch_sha256, "added": added,
                                  "mcp_servers": mcp_servers(ws, files, base)}}
-
-
-def _patch_paths(fields: list[str]) -> set[str]:
-    """Every path ``git apply --numstat -z`` names (``fields``, its output split on NUL): ``added<TAB>deleted<TAB>path``,
-    or for a rename an empty path followed by the old and the new one."""
-    paths: set[str] = set()
-    i = 0
-    while i < len(fields):
-        rest = fields[i].split("\t", 2)
-        i += 1
-        if len(rest) < 3:
-            continue
-        if rest[2]:
-            paths.add(rest[2])
-        else:
-            paths.update(f for f in fields[i:i + 2] if f)
-            i += 2
-    return paths
 
 
 def _task_file(task: Task, rel: str) -> Path:
