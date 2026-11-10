@@ -6,7 +6,9 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import subprocess
+import sys
 import tomllib
 import types
 from pathlib import Path
@@ -146,6 +148,15 @@ def test_a_non_ascii_package_path_is_not_quoted(repo):
     assert ccf.changed_files("main", "pr") == [("A", "dokimi/dokimi/café.yaml")]
 
 
+@pytest.mark.skipif(sys.platform in ("win32", "darwin"), reason="a CR or a 0xff byte in a file name")
+def test_a_path_with_a_cr_or_a_non_utf8_byte_comes_back_as_its_name(repo):
+    for name in (b"a\rb.py", b"r\xff.py"):
+        (repo / os.fsdecode(name)).write_text("x\n", encoding="utf-8")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-qm", "odd names")
+    assert ccf.changed_files("main", "pr") == [("A", "a\rb.py"), ("A", os.fsdecode(b"r\xff.py"))]
+
+
 @pytest.mark.parametrize("edit, needed", [
     ('requires-python = ">=3.12"', True),
     ('dependencies = ["pyyaml>=6", "httpx"]', True),
@@ -180,3 +191,8 @@ def test_main_exit_code_against_a_real_repository(repo):
     _git(repo, "add", "-A")
     _git(repo, "commit", "-qm", "fragment")
     assert ccf.main(["--base", "main", "--head", "pr"]) == 0
+
+
+def test_main_exits_2_for_a_base_git_cannot_diff(repo, capsys):
+    assert ccf.main(["--base", "no-such-ref", "--head", "pr"]) == 2
+    assert capsys.readouterr().err.startswith("cannot diff no-such-ref...pr: ")

@@ -112,13 +112,13 @@ PINNED: Tuple[Tuple[str, str, Any, Any], ...] = (
     # D2 judge calls: P no longer judges the placeholder with-docs answers of q-empty and
     # q-rerank (D2, D3), so 2 of the 12 calls are gone. A still judges all 12.
     ("D2", "judge.calls", 10, 12),
-    # D9 statistics. P's paired deltas are q-docs, q-docs-2, q-docs-3, q-gt: 4 pairs, below
-    # MIN_PAIRS_FOR_TEST (6), so P has no significance test. A has 6 pairs.
+    # D9 statistics. P's paired deltas are q-docs, q-docs-2, q-docs-3, q-gt: 4 pairs; A has 6. Both get
+    # a sign-flip p, and neither a verdict: at most 5 changed pairs, where p cannot go below 0.05.
     ("D9", "stats.delta_mean", 20.0, 16.67),
     ("D9", "stats.pairs", 4, 6),
-    ("D9", "significance.n", None, 6),
+    ("D9", "significance.n", 4, 6),
     ("D9", "significance.correction", None, "holm"),
-    ("D9", "significance.significant", None, False),
+    ("D9", "significance.significant", None, None),
     # what the judge sees per case: no docs (D2), reranker raises (D3), ground-truth chunk (D5)
     (
         "D2",
@@ -379,7 +379,7 @@ def _observe(tmp_path: Path, provider_calls) -> Dict[str, Tuple[Any, Any]]:
         ),
         "max_tokens.lands_in": (_where_4000_lands(p), _where_4000_lands(a)),
         "library_id": (p_noid.client.calls[0]["library_id"], a_lib),
-        # None: the paired test does not run below MIN_PAIRS_FOR_TEST pairs (P has 4 here)
+        # None only where the paired test has fewer than 2 pairs
         "significance.n": (sig_p["n"] if sig_p else None, sig_a["n"]),
         "significance.correction": (
             sig_p.get("correction") if sig_p else None,
@@ -426,7 +426,7 @@ def _observe(tmp_path: Path, provider_calls) -> Dict[str, Tuple[Any, Any]]:
 
 
 def _significance_p(obs: Observed) -> Optional[Dict[str, Any]]:
-    """Stack P's paired test; None when it does not run (fewer pairs than MIN_PAIRS_FOR_TEST)."""
+    """Stack P's paired test; None when it does not run (fewer than 2 pairs)."""
     from dokimi.report.eval_report import significance_test
 
     return significance_test(obs.evaluations)
