@@ -538,6 +538,21 @@ def test_a_short_out_named_like_a_cut_long_out_keeps_its_own_partial_result(tmp_
     assert json.loads(other.read_text(encoding="utf-8"))["partial"]["calls_done"] == 2
 
 
+def test_a_short_out_with_an_uppercase_digest_tag_does_not_share_a_cut_outs_sidecar_name(tmp_path, monkeypatch):
+    from dokimi.commands.novelty_routing_report import save_result
+
+    monkeypatch.setattr(os, "pathconf", lambda *args: 255, raising=False)
+    long = tmp_path / f"{'x' * 250}.json"
+    long.write_text('{"status": "ok"}', encoding="utf-8")
+    cut = save_result({}, long, {"partial": {**PARTIAL, "calls_done": 1}})
+    tag = cut.name.removesuffix(".partial.json")[-13:]
+    short = tmp_path / f"{'x' * 223}{tag.upper()}.json"
+    short.write_text('{"status": "ok"}', encoding="utf-8")
+    other = save_result({}, short, {"partial": {**PARTIAL, "calls_done": 2}})
+    assert other.name.lower() != cut.name.lower()
+    assert json.loads(cut.read_text(encoding="utf-8"))["partial"]["calls_done"] == 1
+
+
 def test_a_long_out_name_is_shortened_to_255_bytes_where_the_limit_is_unknown(tmp_path, monkeypatch):
     from dokimi.commands.novelty_routing_report import _sidecar_stem
 
