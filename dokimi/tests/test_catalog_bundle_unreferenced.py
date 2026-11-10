@@ -9,6 +9,8 @@ named in their SKILL.md (scratch X4): the agent finds them only by browsing.
 
 from __future__ import annotations
 
+import os
+
 import pytest
 
 from dokimi.external import read_skill_manifest, review_skill_dir, review_skills
@@ -93,6 +95,16 @@ def test_a_standalone_review_checks_its_own_bundle(tmp_path):
     skill_dir = _skill(tmp_path, "solo", name="solo", description="Use when alone.")
     (skill_dir / "run.sh").write_text("x\n", encoding="utf-8")
     assert "bundle-file-unreferenced" in [f.code for f in review_skill_dir(skill_dir).findings]
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="needs named pipes")
+@pytest.mark.timeout(20)
+def test_a_named_pipe_a_document_names_is_not_read(tmp_path):
+    # Reading a FIFO blocks until a writer opens it: the scan must not open it.
+    skill_dir = _skill(tmp_path / "skills", "kit", name="kit", description="Use when testing.", body="See notes.md.\n")
+    os.mkfifo(skill_dir / "notes.md")
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert "bundle-file-unreferenced" not in _codes(review)
 
 
 def test_case_is_ignored(tmp_path):

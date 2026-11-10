@@ -93,7 +93,7 @@ def _read_doc(path: Path) -> str:
     if path.suffix.lower() not in DOC_SUFFIXES:
         return ""
     try:
-        if path.is_symlink() or path.stat().st_size > DOC_MAX_BYTES:
+        if path.is_symlink() or not path.is_file() or path.stat().st_size > DOC_MAX_BYTES:  # a FIFO blocks the read
             return ""
         return path.read_text(encoding="utf-8").lower()
     except (OSError, UnicodeDecodeError):
