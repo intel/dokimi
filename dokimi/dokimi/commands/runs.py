@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 from collections import Counter
 from datetime import datetime, timezone
 
@@ -191,9 +190,11 @@ def _run_text(run: ShownRun) -> list[str]:
 
 def _show_run(root: str, run: ShownRun, as_json: bool) -> None:
     if as_json:
-        print(json.dumps({"root": root, "run_id": run.run_id,
-                          "artifacts": [a.to_json() for a in run.artifacts],
-                          "unreadable": [u.to_json() for u in run.unreadable]}, indent=2))
+        from dokimi import cli_output
+        cli_output.emit_leaf("runs show", {
+            "root": root, "run_id": run.run_id,
+            "artifacts": [a.to_json() for a in run.artifacts],
+            "unreadable": [u.to_json() for u in run.unreadable]})
     else:
         print("\n".join(_run_text(run)))
 

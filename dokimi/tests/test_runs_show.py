@@ -451,15 +451,17 @@ def test_a_run_with_an_untimed_artifact_explains_the_star(monkeypatch, capsys, r
 
 
 def test_json_of_a_run_has_its_artifacts_as_runs_list_rows(monkeypatch, capsys, runs):
-    data = json.loads(_show(monkeypatch, capsys, "nightly-2", "--json").out)
+    doc = json.loads(_show(monkeypatch, capsys, "nightly-2", "--json").out)
+    data = doc["data"]
 
+    assert doc["kind"] == "runs show"
     assert (data["root"], data["run_id"], data["unreadable"]) == ("results", "nightly-2", [])
     (row,) = data["artifacts"]
     assert (row["path"], row["kind"], row["run_id"]) == ("e2.json", "eval", "nightly-2")
 
 
 def test_json_of_a_run_lists_every_artifact_newest_first(monkeypatch, capsys, runs):
-    data = json.loads(_show(monkeypatch, capsys, "nightly-1", "--json").out)
+    data = json.loads(_show(monkeypatch, capsys, "nightly-1", "--json").out)["data"]
 
     assert [row["path"] for row in data["artifacts"]] == ["arms/onetbb.json", "e1.json"]
 
@@ -469,7 +471,7 @@ def test_a_run_id_is_matched_whole_not_as_a_prefix_of_another(monkeypatch, capsy
         monkeypatch.setenv("DOKIMI_RUN_ID", run)
         save_artifact("eval", _fixture("eval.v1"), runs / path)
 
-    data = json.loads(_show(monkeypatch, capsys, "r1", "--json").out)
+    data = json.loads(_show(monkeypatch, capsys, "r1", "--json").out)["data"]
 
     assert [row["path"] for row in data["artifacts"]] == ["r1.json"]
 
@@ -548,7 +550,7 @@ def test_an_input_kinds_stray_run_id_does_not_make_it_part_of_the_run(monkeypatc
     (runs / "q.json").write_text(json.dumps({"schema_version": "questions.v2", **stray}),
                                  encoding="utf-8")
 
-    data = json.loads(_show(monkeypatch, capsys, "nightly-2", "--json").out)
+    data = json.loads(_show(monkeypatch, capsys, "nightly-2", "--json").out)["data"]
 
     assert [row["path"] for row in data["artifacts"]] == ["e2.json"]
 
@@ -585,7 +587,7 @@ def test_a_run_names_the_first_unreadable_file_escaped_and_json_lists_them_all(
     assert lines[2].startswith("unreadable: 2 entries under the root, which may belong to it "
                                "(first: a\\nbad.json: not valid JSON")
 
-    data = json.loads(_show(monkeypatch, capsys, "nightly-2", "--json").out)
+    data = json.loads(_show(monkeypatch, capsys, "nightly-2", "--json").out)["data"]
     assert [u["path"] for u in data["unreadable"]] == ["a\nbad.json", "b-bad.json"]
     assert data["unreadable"][0]["schema_version"] == "eval.v1"
 
