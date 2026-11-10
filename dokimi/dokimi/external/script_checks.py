@@ -494,7 +494,7 @@ def _starts_command(data: bytes, start: int, j: int) -> bool:
     """Whether the word at ``data[j]`` is in command position in the substitution that opens at ``start``: after a
     separator, a ``{``, the ``(`` of the ``$(`` itself, or a reserved word such as ``then`` or ``do``."""
     before = data[max(start, j - 64):j].rstrip(b" \t")
-    if not before or before[-1:] in (b"(", b";", b"&", b"|", b"\n", b"{"):
+    if not before or before[-1:] in (b"(", b")", b";", b"&", b"|", b"\n", b"{"):  # a ) is a case pattern's, or a subshell's
         return True
     word = re.search(rb"[A-Za-z]+$", before)
     return word is not None and word.group() in RESERVED_WORDS

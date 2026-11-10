@@ -764,6 +764,7 @@ def test_a_case_in_a_command_sub_in_quotes_does_not_close_the_sub_at_its_pattern
     b'x="$(case a in a) case b in b) echo q;; esac;; esac)"\n',  # a case inside an item
     b'x="$(case a in @(a|b)) echo "it\'s";; esac)"\n',  # an extglob group in a pattern: its ) is not the pattern's
     b'x="$(if true; then case a in a) echo "it\'s";; esac; fi)"\n',  # a case after a reserved word is a case
+    b'x="$(case a in a) case b in b) echo "it\'s";; esac;; esac)"\n',  # a case right after a pattern\'s )
 ])
 def test_case_forms_in_a_command_sub_in_quotes_leave_the_sub_and_the_quotes_read(tmp_path, no_linters, body):
     _bundle(tmp_path, {"run.sh": b"#!/bin/bash\n" + body + b"shopt -s 'extglob'\ncase x in +(a)) : ;; esac\necho 'e'\n"})
