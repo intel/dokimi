@@ -34,7 +34,7 @@ EXIT2_BASELINE: dict[str, tuple[int, str]] = {
     "dokimi.commands.ingest": (1, "Docling not installed: a missing optional dependency, not an input"),
     "dokimi.commands.judge_reliability": (2, _UNCONVERTED),
     "dokimi.commands.questions": (14, _UNCONVERTED),
-    "dokimi.commands.repo": (20, _UNCONVERTED),
+    "dokimi.commands.repo": (19, _UNCONVERTED),
     "dokimi.commands.repo_hits": (6, _UNCONVERTED),
     "dokimi.commands.repo_run": (4, _UNCONVERTED),
     "dokimi.commands.report": (13, _UNCONVERTED),

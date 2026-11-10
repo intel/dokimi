@@ -48,6 +48,7 @@ from typing import Any
 
 from dokimi.context import shell
 from dokimi.context.trace import TraceError
+from dokimi.utils import InputError, refuse_device
 
 _WRITE_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
 RULES = ("requires", "forbids", "before", "after_last", "last_ok")
@@ -100,7 +101,10 @@ class Run:
 
 def read_run(path: Path, grain: str = "split") -> Run:
     try:
+        refuse_device(path)
         raw = path.read_text(encoding="utf-8-sig", errors="replace")
+    except InputError as exc:
+        raise TraceError(str(exc)) from exc
     except OSError as exc:
         raise TraceError(f"cannot read {path}: {exc}") from exc
     run = parse_run(raw, str(path), grain)
@@ -359,6 +363,7 @@ def _bash_events(tool: str, args: dict[str, Any], grain: str) -> list[Event]:
 
 def load_outcomes(path: Path) -> dict[str, bool]:
     """``{"trace path or file name": true|false}``, or a list of ``{"trace": .., "passed": ..}``."""
+    refuse_device(path, "--outcomes")
     data = json.loads(path.read_text(encoding="utf-8"))
     if isinstance(data, list):
         for r in data:
@@ -416,6 +421,7 @@ class Matcher:
 def load_contract(path: Path) -> dict[str, Any]:
     import yaml
 
+    refuse_device(path, "--contract")
     text = path.read_text(encoding="utf-8")  # outside the try: bad UTF-8 is a ValueError, not a YAML error
     try:
         data = yaml.safe_load(text) or {}
