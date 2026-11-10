@@ -735,8 +735,20 @@ def test_mean_and_sd_of_values_near_the_float_maximum_stay_finite():
     """The sum and the deviations left the float range though every value is finite: https://github.com/intel/dokimi/issues/553."""
     big = 1.7e308
     assert stats._mean([big, big, big, -big]) == pytest.approx(big / 2, rel=1e-12)
-    # [1, -1, -1]: mean -1/3, deviations 4/3, -2/3, -2/3; the first deviation is 2.3e308 in plain floats.
-    assert stats._sample_sd([big, -big, -big]) == pytest.approx((4 / 3) ** 0.5 * big, rel=1e-12)
+    # [1, -1, -1, -1, -1]: mean -3/5, so the first deviation is 1.6 * 1.7e308 in plain floats, yet the sd is sqrt(4/5) * 1.7e308.
+    sd = stats._sample_sd([big, -big, -big, -big, -big])
+    assert math.isfinite(sd)
+    assert sd == pytest.approx((4 / 5) ** 0.5 * big, rel=1e-12)
+    # [1, -1, -1] at 1.5e308: the first deviation is 2e308, the sd sqrt(4/3) * 1.5e308 = 1.732e308.
+    sd = stats._sample_sd([1.5e308, -1.5e308, -1.5e308])
+    assert math.isfinite(sd)
+    assert sd == pytest.approx((4 / 3) ** 0.5 * 1.5e308, rel=1e-12)
+
+
+def test_mean_of_huge_values_keeps_a_small_term_that_survives_the_cancellation():
+    """Scaling the 1e-100 by 2**1023 would underflow it to zero before the large terms cancel."""
+    big = 1.7e308
+    assert stats._mean([big, big, -big, -big, 1e-100]) == pytest.approx(2e-101, rel=1e-12, abs=0.0)
 
 
 def test_paired_test_at_1e200_matches_the_scaled_down_deltas():

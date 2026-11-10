@@ -56,6 +56,7 @@ from __future__ import annotations
 import importlib.util
 import math
 import random
+import statistics
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
@@ -317,9 +318,8 @@ def _mean(vals: Sequence[float]) -> float:
     mu = sum(vals) / len(vals)
     if math.isfinite(mu) or not all(math.isfinite(v) for v in vals):
         return mu
-    # The sum left the float range though every value is finite: average the scaled values instead.
-    scale = _pow2_scale(vals)
-    return scale * (sum(v / scale for v in vals) / len(vals))
+    # The sum left the float range though every value is finite: average exactly (dividing by a scale would underflow a small term before the large ones cancel).
+    return statistics.mean(vals)
 
 
 def _sample_sd(vals: Sequence[float]) -> float:
