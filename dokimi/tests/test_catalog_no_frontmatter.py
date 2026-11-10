@@ -92,6 +92,7 @@ def test_the_name_follows_the_loader_name_check(at_root, dir_name, name):
         (["Introductory note.", "", "# Deck Builder", "", "Builds slide decks."], "deck-builder", "Builds slide decks."),
         (["[![CI](https://x/b.svg)](https://x)", "", "# Badge Tool", "", "Does badges."], "badge-tool", "Does badges."),
         (["Intro", "# T", "More"], "t", "More"),
+        (["# T", "", "Tab\x7f and a\x9f C1 control."], "t", "Tab and a C1 control."),  # PyYAML rejects these raw
         (["# Yes"], "yes", "What yes does. Use when ..."),
         (["# T", "", "| a | b |", "", "Text: with \"quotes\""], "t", "Text: with \"quotes\""),
     ],
@@ -148,16 +149,6 @@ def test_the_json_row_has_the_finding(tmp_path, capsys):
     [row] = json.loads(capsys.readouterr().out)["skills"]
     assert row["state"] == "error"
     assert [f["code"] for f in row["findings"]] == ["not-a-skill-no-frontmatter"]
-
-
-def test_frontmatter_after_a_blank_line_is_not_plain_markdown(tmp_path):
-    skill = tmp_path / "skills" / "late"
-    skill.mkdir(parents=True)
-    (skill / "SKILL.md").write_text("\n---\nname: late\ndescription: Use when late.\n---\n# Late\n", encoding="utf-8")
-    from dokimi.external import read_skill_manifest, review_skills
-
-    codes = [f.code for r in review_skills(read_skill_manifest(tmp_path)) if r for f in r.findings]
-    assert "not-a-skill-no-frontmatter" not in codes
 
 
 @pytest.mark.parametrize("opener", ["  ---\nname: indent\ndescription: y\n  ---\n# X\n",

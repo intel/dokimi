@@ -20,6 +20,7 @@ from dokimi.external.skill_markdown import outside_fences
 NO_FRONTMATTER = "not-a-skill-no-frontmatter"
 NAME_MAX = 64
 SPEC_NAME = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")  # the spec's name pattern (validate.NAME_PATTERN)
+_NON_PRINTABLE = re.compile(r"[^\t\n\r\x20-\x7e\x85\xa0-\ud7ff\ue000-\ufffd\U00010000-\U0010ffff]")  # PyYAML's reader
 DESCRIPTION_HINT_MAX = 300
 
 
@@ -56,7 +57,7 @@ def no_frontmatter_message(lines: list[str], dir_name: str, at_root: bool = Fals
         name = dir_name  # validate.NAME_PATTERN, as the loader's name-mismatch check reads it
     else:
         name = _kebab(title) or _kebab(dir_name) or "my-skill"
-    description = " ".join(paragraph)
+    description = _NON_PRINTABLE.sub("", " ".join(paragraph))  # what PyYAML refuses in a plain or quoted scalar
     if len(description) > DESCRIPTION_HINT_MAX:
         description = description[:DESCRIPTION_HINT_MAX].rsplit(" ", 1)[0] + " ..."
     description = description or f"What {name} does. Use when ..."
