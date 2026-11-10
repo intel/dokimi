@@ -761,3 +761,16 @@ def test_a_linter_report_longer_than_the_capture_limit_still_gives_its_note(tmp_
     findings = script_findings(skill, which=_tools("ruff"), runner=_linter_runner(ruff=many))
 
     assert findings == [("note", "script-lint", f"bundled-script lint: ruff {len(many)} (S602 x{len(many)})")]
+
+
+def test_a_nested_skills_scripts_are_not_reported_on_the_outer_skill(tmp_path):
+    skill = _bundle(tmp_path, {
+        "inner/SKILL.md": b"---\nname: inner\ndescription: Use for inner work.\n---\n",
+        "inner/scripts/x.sh": b"#!/bin/bash\nif then\n",
+    })
+    runner = process.FakeRunner(lambda call: process.reply(stderr="bash: line 2: syntax error\n", returncode=2))
+
+    assert script_findings(skill, which=_tools("bash"), runner=runner) == []
+    assert runner.calls == []
+    assert [code for _, code, _ in script_findings(skill / "inner", which=_tools("bash"), runner=runner)] == [
+        "script-syntax"]

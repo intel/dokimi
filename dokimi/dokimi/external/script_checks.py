@@ -117,11 +117,19 @@ def _file_findings(path: Path, rel: str, data: bytes, bash: Optional[str], runne
     return found
 
 
+def _holds_skill(folder: Path) -> bool:
+    """Whether ``folder`` holds a SKILL.md of its own: another skill, whose scripts are that skill's to check."""
+    try:
+        return (folder / "SKILL.md").is_file()
+    except OSError:
+        return False
+
+
 def _bundled_files(skill_dir: Path, base: Path) -> list[Path]:
     """Every regular file under ``skill_dir`` that resolves inside ``base``, in path order; no link is followed out."""
     found: list[Path] = []
     for root, dirnames, filenames in os.walk(skill_dir):
-        dirnames[:] = sorted(d for d in dirnames if d not in SKIP_DIRS)
+        dirnames[:] = sorted(d for d in dirnames if d not in SKIP_DIRS and not _holds_skill(Path(root) / d))
         for name in sorted(filenames):
             path = Path(root) / name
             try:
