@@ -67,6 +67,11 @@ def _check_custom_questions(path: Path) -> None:
     refuse_device(path, "--custom-questions")
     if path.is_dir():  # refuse_device lets a directory pass; reading it ends in IsADirectoryError
         raise InputError(f"--custom-questions {path}: not a file")
+    try:  # a regular file only: opening a named pipe here would take the writer's one read
+        if path.is_file():
+            path.open("rb").close()
+    except OSError as exc:  # unreadable: refused here, before the output directories exist
+        raise InputError(f"--custom-questions {path}: {exc.strerror or exc}") from exc
 
 
 class EvaluationPipeline:
