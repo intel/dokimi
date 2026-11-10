@@ -1027,10 +1027,11 @@ as it is, so fetch those refs first, for example
 `git fetch origin '+refs/pull/*/head:refs/remotes/origin/pull/*'`. A thread
 whose revision is still missing is listed and left out.
 
-The command exits 1 when the threads file cannot be read or holds no pull
+The command exits 2, before it reads the threads file, on a malformed source,
+an unpinned remote or a local source that is not a directory. It exits 1 when the threads file cannot be read or holds no pull
 request, when no pull request gave a task (written, or kept from before), and
-on an error that is not one pull request's own: a malformed pull request, the
-source, the manifest, the prompt file, or a task it cannot write. Each prints
+on an error that is not one pull request's own: a malformed pull request, a
+source it cannot open, the manifest, the prompt file, or a task it cannot write. Each prints
 `✗` and the reason. A git failure while one pull request is built skips that
 pull request with the reason.
 `eval check` then runs the tasks, and two arms measure the guidance
@@ -1231,10 +1232,11 @@ and `headRefOid` it lacks from `origin`; a local repository is read as it is, so
 `refs/pull/*/head` first (§4.6).
 
 The command prints one line per pull request (`written`, `kept` or `skipped`, with the
-reason or the counts) and a summary. It exits 1 when the pull request file cannot be read or
+reason or the counts) and a summary. It exits 2, before it reads the pull request file, on a
+malformed source, an unpinned remote or a local source that is not a directory. It exits 1 when the pull request file cannot be read or
 holds no pull request, when no pull request gave a task (written, or kept from before), and on
 an error that is not one pull request's own: a malformed pull request (a `number` that is not
-an integer), the source, the manifest, the prompt file (unreadable or empty), or a task it
+an integer), a source it cannot open, the manifest, the prompt file (unreadable or empty), or a task it
 cannot write. Each prints `✗` and the reason. Grading a task needs the manifest's
 `entry_points.test` (§2).
 

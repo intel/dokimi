@@ -16,8 +16,9 @@ The history is one ``git log -z --raw`` over the revision, filtered with :func:`
 ``-z`` ends every field with a NUL, and each file the commit touched is a ``:``-led status record
 followed by its one path, so a subject or a path, whatever it holds, cannot pass for the other.
 Git cuts a subject at a NUL (``git commit`` refuses one), so a subject is one field. The output is
-split on NUL as bytes and each field then decoded as UTF-8 (``--encoding=UTF-8``; a byte that is not
-UTF-8 becomes U+FFFD, as :mod:`dokimi.process` decodes), so a ``\\r`` in a subject or a path stays one.
+split on NUL as bytes and each field then decoded on its own, so a ``\\r`` in a subject or a path stays one:
+a subject as UTF-8 (``--encoding=UTF-8``; a byte that is not UTF-8 becomes U+FFFD), a path as
+:func:`dokimi.process_io.path_text` does, which keeps a non-UTF-8 byte on POSIX, so it matches the file the arm installs.
 A date is git's ``%aI`` / ``%cI`` with a UTC offset written ``Z``, which git 2.51 prints and older git
 (2.43) prints as ``+00:00``. The history is read once per git dir, revision, globs, ``eval_dir`` and
 links in a process, also when cells of the arm prepare at once: every cell asks the same. The read
@@ -50,6 +51,7 @@ from pathlib import Path
 from typing import Any
 
 from dokimi import process
+from dokimi.process_io import path_text
 
 from .budget import imported_by
 from .errors import PrepError
@@ -170,19 +172,25 @@ def _parse_log(out: bytes) -> list[tuple[tuple[str, str, str, str], list[str]]]:
     A field that starts with ``:`` (after the newline that ends a header) is a status record, and the
     field after it is its path; a path is never read as a header. Any other non-empty field starts a
     header of four fields; an empty one ends a merge's header, and the output. Each field is decoded
-    on its own, after the split: no ``\\r`` is turned into a newline."""
-    fields = (field.decode("utf-8", "replace") for field in out.split(b"\0"))
+    on its own, after the split: no ``\\r`` is turned into a newline. A path is decoded as
+    :func:`dokimi.process_io.path_text` does, so it is the key the arm's file list uses; a header field as text."""
+    fields = iter(out.split(b"\0"))
     commits: list[tuple[tuple[str, str, str, str], list[str]]] = []
     for field in fields:
-        if field.lstrip("\n").startswith(":") and commits:
-            commits[-1][1].append(next(fields, ""))
+        if field.lstrip(b"\n").startswith(b":") and commits:
+            commits[-1][1].append(path_text(next(fields, b"")))
         elif field:
             commits.append((_header(field, fields), []))
     return commits
 
 
-def _header(sha: str, fields: Iterator[str]) -> tuple[str, str, str, str]:
-    authored, committed, subject = next(fields, ""), next(fields, ""), next(fields, "")
+def _text(raw: bytes) -> str:
+    return raw.decode("utf-8", "replace")
+
+
+def _header(sha_raw: bytes, fields: Iterator[bytes]) -> tuple[str, str, str, str]:
+    sha = _text(sha_raw)
+    authored, committed, subject = (_text(next(fields, b"")) for _ in range(3))
     if not _COMMIT_ID.fullmatch(sha):
         raise PrepError(f"git log: a commit starts with {sha[:60]!r}, not a commit id")
     return sha, _utc_as_z(authored), _utc_as_z(committed), subject
