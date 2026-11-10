@@ -281,7 +281,7 @@ def is_retryable(exc: BaseException) -> bool:
 
     Exception type decides when it is recognised, prose otherwise: permanent class names, then
     transient ones (a rate limit, outage or timeout, whatever its text), then the no-credential
-    messages, then litellm's catch-alls. A permanent word in the prose outranks a transient one.
+    messages, then litellm's catch-alls (transient whatever their prose, bar a no-credential one).
     """
     if isinstance(retryable := getattr(exc, "retryable", None), bool):  # set by an error that knows (llm_cli.CliCallError)
         return retryable
