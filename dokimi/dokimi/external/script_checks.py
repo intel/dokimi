@@ -321,7 +321,7 @@ def _in_quotes(c: bytes) -> bytes:
 
 HEREDOC_OPEN = re.compile(rb"<<(-?)[ \t]*((?:[^\s;&|<>()'\"\\]|\\.|'[^'\n]*'|\"[^\"\n]*\")+)")  # not <<<, which has no word
 CASE_WORD = re.compile(rb"[A-Za-z_][A-Za-z0-9_]*")  # a word the $( scan reads for the case keywords, so a pattern's ) is not counted
-CASE_HEAD = re.compile(rb"[ \t]+(?:\"[^\"\n]*\"|'[^'\n]*'|[^ \t\n;&|()<>\"'])+[ \t]+in(?![A-Za-z0-9_])")  # case WORD in
+CASE_HEAD = re.compile(rb"[ \t]+[^ \t\n][^\n;&|]{0,200}?[ \t]+in(?![A-Za-z0-9_])")  # case WORD in: the subject, then in on the line
 HEREDOC_PART = re.compile(rb"\\(.)|'([^'\n]*)'|\"([^\"\n]*)\"")  # an escape or a quoted part of a heredoc delimiter
 
 

@@ -767,6 +767,8 @@ def test_a_case_in_a_command_sub_in_quotes_does_not_close_the_sub_at_its_pattern
     b'x="$(case a in a) case b in b) echo "it\'s";; esac;; esac)"\n',  # a case right after a pattern\'s )
     b'x="$(! case a in a) echo "it\'s";; esac)"\n',  # a case after a !
     b'x="$(f() case a in a) echo "it\'s";; esac; f)"\n',  # a function whose body is a case
+    b'x="$(case $(uname) in Linux) echo "it\'s";; esac)"\n',  # a command substitution as the subject
+    b'x="$(case `uname` in Linux) echo "it\'s";; esac)"\n',  # a backquoted subject
 ])
 def test_case_forms_in_a_command_sub_in_quotes_leave_the_sub_and_the_quotes_read(tmp_path, no_linters, body):
     _bundle(tmp_path, {"run.sh": b"#!/bin/bash\n" + body + b"shopt -s 'extglob'\ncase x in +(a)) : ;; esac\necho 'e'\n"})
