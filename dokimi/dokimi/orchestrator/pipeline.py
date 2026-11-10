@@ -13,7 +13,7 @@ from dokimi.defaults import (ANSWERING_METHOD_VERSION, DEFAULT_ANSWER_MODEL, DEF
                              answers_method_version as answers_method_version_of)
 from dokimi.eval.stats import paired_summary
 from dokimi.mcp.factory import create_doc_source_client, resolve_library_id_for_product
-from dokimi.utils import refuse_device, same_evaluator
+from dokimi.utils import InputError, refuse_device, same_evaluator
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +58,15 @@ def load_questions_payload(path: Path) -> List[Dict[str, Any]]:
     from dokimi.questions.artifact import load_questions
 
     return load_questions(path).questions
+
+
+def _check_custom_questions(path: Path) -> None:
+    """``--custom-questions`` must be a readable file: missing is ``FileNotFoundError``, a device or directory ``InputError``."""
+    if not path.exists():
+        raise FileNotFoundError(f"--custom-questions path does not exist: {path}")
+    refuse_device(path, "--custom-questions")
+    if path.is_dir():  # refuse_device lets a directory pass; reading it ends in IsADirectoryError
+        raise InputError(f"--custom-questions {path}: not a file")
 
 
 class EvaluationPipeline:
@@ -167,11 +176,7 @@ class EvaluationPipeline:
         self.golden_pinned = False
         if custom_questions_path:
             _custom_path = Path(custom_questions_path)
-            if not _custom_path.exists():
-                raise FileNotFoundError(
-                    f"--custom-questions path does not exist: {_custom_path}"
-                )
-            refuse_device(_custom_path, "--custom-questions")
+            _check_custom_questions(_custom_path)
             self.custom_questions_path: Optional[Path] = _custom_path
         elif questions_from is None and self.questions_root is not None:
             _auto_golden = self.questions_root / f"{self.product_key.lower()}_golden.json"

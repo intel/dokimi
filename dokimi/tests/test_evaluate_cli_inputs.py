@@ -25,6 +25,17 @@ def test_a_missing_custom_questions_file_exits_2_with_a_message(tmp_path, capsys
     assert "Traceback" not in err
 
 
+def test_a_directory_as_custom_questions_exits_2_before_any_output_directory(tmp_path, capsys):
+    out_dir = tmp_path / "out dir"
+    with refusal() as out:
+        _evaluate("--output-dir", str(out_dir), "--custom-questions", str(tmp_path))
+    assert out.code == 2
+    err = capsys.readouterr().err
+    assert f"Error: --custom-questions {tmp_path}: not a file" in err
+    assert "Traceback" not in err
+    assert not out_dir.exists()
+
+
 def test_an_unwritable_output_dir_exits_2_with_a_message(tmp_path, capsys):
     blocker = tmp_path / "file"
     blocker.write_text("x", encoding="utf-8")

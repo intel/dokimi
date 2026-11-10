@@ -29,6 +29,7 @@ from dokimi.context.prefilter import (
     status_of,
 )
 from dokimi.context.session_log import parse_session
+from dokimi.utils import InputError
 
 GUIDE = """# Guide
 
@@ -291,7 +292,7 @@ def test_the_command_prints_a_table_and_still_reports_a_bad_session(tmp_path, ca
 
 def test_the_command_refuses_a_guidance_file_it_cannot_read(tmp_path):
     args = build_parser().parse_args(["trace", "prefilter", str(tmp_path / "none.md"), str(tmp_path / "x.jsonl")])
-    with pytest.raises(SystemExit, match="cannot read"):
+    with pytest.raises(InputError, match="guidance .*none.md"):
         args.func(args)
 
 

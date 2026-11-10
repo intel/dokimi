@@ -160,8 +160,8 @@ def cmd_context_prefilter(args: argparse.Namespace) -> None:
     refuse_device(guidance, "guidance")
     try:
         text = guidance.read_text(encoding="utf-8", errors="replace")
-    except OSError as exc:
-        sys.exit(f"✗ cannot read {guidance}: {exc}")
+    except OSError as exc:  # missing, a directory, unreadable: an input refusal, exit 2
+        raise InputError(f"guidance {guidance}: {exc.strerror or exc}") from exc
 
     sessions, failed = _read_sessions(args.sessions)
     if not sessions:

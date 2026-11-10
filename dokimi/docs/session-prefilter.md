@@ -106,7 +106,7 @@ gives one session per log; a subagent transcript named without its session log i
 warning. A resumed or forked session log repeats the records it continues, with the same
 `uuid`: logs that share a record are read as one session, each record once. A file that cannot be read, is a
 device (`/dev/zero`: "not a file") or holds no prompt and no tool call, is reported and the rest are still read; the exit
-code is 1 when any file failed. A device as the guidance file exits 2, `guidance <path>: not a file`. A line that is valid JSON but not an object, or a
+code is 1 when any file failed. A guidance file that is a device exits 2, `guidance <path>: not a file`; one that is missing, a directory or unreadable exits 2 too, `guidance <path>: <reason>`. A line that is valid JSON but not an object, or a
 record whose message or content has the wrong shape, is reported by line number and
 skipped; summaries and tool results are recognized and not reported.
 
