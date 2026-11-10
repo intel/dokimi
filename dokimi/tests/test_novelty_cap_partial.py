@@ -515,3 +515,20 @@ def test_a_partial_write_skips_a_dangling_symlink_and_a_read_only_partial_file(t
         kept.chmod(0o644)
     assert second == tmp_path / "other.partial.json"
     assert json.loads(second.read_text(encoding="utf-8"))["partial"]["message"] == "m"
+
+
+def test_a_partial_probe_file_drops_the_summaries_computed_over_the_cut_subset(tmp_path):
+    # Jobs run arm by arm, so a cut leaves the arms uneven: the summaries over the answers that were
+    # kept are not results, and the partial file keeps the runs only.
+    from dokimi.commands.novelty_budget import save_probe_run
+
+    payload = {"runs": [{"verdict": "correct"}], "paired": {"lenient": {"n_paired": 1}},
+               "arms": {"lenient": {"full": 1.0}}, "abstentions": {"n": 0},
+               "reversal_paired": {"n": 1}, "probes": {"n": 3}}
+    out = tmp_path / "probes.json"
+    with pytest.raises(SystemExit):
+        save_probe_run(payload, out, done=1, not_run=5, stop=("spend_cap", "cap"))
+    saved = json.loads((tmp_path / "probes.partial.json").read_text(encoding="utf-8"))
+    assert saved["runs"] == [{"verdict": "correct"}] and saved["probes"] == {"n": 3}
+    for block in ("paired", "arms", "abstentions", "reversal_paired"):
+        assert saved[block] is None

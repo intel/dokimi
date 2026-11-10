@@ -59,6 +59,11 @@ def write_run(payload: dict, out: Path, partial: dict | None = None) -> Path:
     return partial_write(out, lambda dest: dest.write_text(text, encoding="utf-8"))
 
 
+#: The probe record's summary blocks, computed over the runs a partial file keeps.
+PARTIAL_SUMMARIES = ("paired", "arms", "abstentions", "reversal_resisted",
+                     "reversal_resisted_by_arm", "reversal_paired", "confidence_correlation")
+
+
 def save_probe_run(payload: dict, out: Path, *, done: int, not_run: int,
                    stop: tuple[str, str] | None = None, ungraded: int = 0) -> Path:
     """Write a probe measurement; one the cap stopped keeps its ``done`` answers and exits.
@@ -76,6 +81,11 @@ def save_probe_run(payload: dict, out: Path, *, done: int, not_run: int,
         message = f"the probes stopped with {done} of {done + not_run} answers{left}: {cause}"
     partial = {"reason": reason, "calls_done": done, "calls_planned": done + not_run,
                "message": message}
+    # The jobs run arm by arm, so a cut leaves the arms uneven: the summaries over the answers
+    # kept would read as results next to status "partial". The runs stay; the summaries go.
+    for block in PARTIAL_SUMMARIES:
+        if block in payload:
+            payload[block] = None
     exit_partial(message, write_run(payload, out, partial))
 
 
