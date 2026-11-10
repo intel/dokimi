@@ -98,6 +98,18 @@ def test_pinned_subdirectory_is_refused_before_the_input_files_are_read(flag, ex
 
 
 @pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
+@pytest.mark.parametrize(("flag", "value"), [("--arm", "guidance:bogus"), ("--bin", "/no/such/bin")])
+def test_run_refuses_a_pinned_subdirectory_before_the_arms_and_the_harness(flag, value, tmp_path, monkeypatch,
+                                                                           capsys):
+    repo, sha = _repo_with_sub(tmp_path)
+    argv = _command("run", f"{repo / 'sub'}@{sha}", tmp_path)
+    argv[argv.index(flag) + 1] = value
+    code, err = _run(monkeypatch, capsys, *argv)
+    assert code == 2
+    assert err.strip() == f"Error: {repo / 'sub'} is 'sub/' inside a repository; give its root"
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
 @pytest.mark.parametrize("name", ["check", "run", "replay", "prs"])
 @pytest.mark.parametrize(("manifest", "code", "message"), [
     ("../outside.yaml", 2, "Error: path escapes the repository: ../outside.yaml"),

@@ -306,12 +306,14 @@ def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock
     from dokimi.repos.runner import (
         AgentOptions, agent_network, batch_lock, harness_version, run_batch, task_caps, validate_tasks)
     from dokimi.repos.selfcheck import ANCESTOR_NAMES, isolation_probe
+    from dokimi.repos.source import check_pinned_root
     from dokimi.repos.workspace import load_tasks, parse_arm, source_git_dir
 
     from .repo import _cache_dir, _parse_source
 
     source = _parse_source(args)  # as typed, before the build and the pin: a usage error
     try:
+        check_pinned_root(source)  # before the arms and the harness: a source refusal is not masked by them
         parsed = [parse_arm(a) for a in arms]  # before the image build: a typo or an unreadable patch fails now
         profile = load_profile(args.harness)
         profile.tool_args(args.tools, args.delegation)  # a profile that cannot turn subagents off: refuse now
