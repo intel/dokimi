@@ -39,17 +39,15 @@ SCRIPT_SUFFIXES = (*SHELL_SUFFIXES, ".py")
 BASH_FAMILY = frozenset({"bash", "sh", "dash", "ksh"})  # the shebang names bash -n can judge
 ENV_OPERAND_OPTIONS = frozenset({"-u", "--unset", "-C", "--chdir"})  # env options with an operand
 PARSE_SHOPTS = frozenset({"extglob"})  # bash -O options that change how a script parses; bash -n is given them
-# The shopt check reads each command once (linear): a command ends at ; | ) & or a newline (not at &> or >&), its words are
-# split on blanks, and it runs shopt when shopt is its command word after its assignments and redirections, which come
-# before the keywords (then, do, command, ...). A word may start with ( { ! (the start of a subshell, a group, a negation).
+# The shopt check reads each command once (linear): a command ends at ; | ) & or a newline (not at &> or >&), and a bare
+# ( { ! word starts the next one. Its words are read in order: assignments and redirections, then keywords, then shopt.
 COMMAND_SPLIT = re.compile(rb"[;|\n)]|(?<![<>])&(?!>)")
 WORD_SPLIT = re.compile(rb"[ \t]+")
 WORD_BOUNDARY_CHARS = b"(){}!"
 ASSIGN_WORD = re.compile(rb"[A-Za-z_][A-Za-z0-9_]*=")
 REDIR_WORD = re.compile(rb"&?[0-9]*[<>]+&?")
-COMMAND_KEYWORDS = frozenset({b"then", b"do", b"else", b"elif", b"if", b"while", b"until", b"builtin", b"command",
-                              b"exec", b"time", b"coproc"})
-SHOPT_S_OPTION = re.compile(rb"-[a-zA-Z]*s[a-zA-Z]*")
+ARGUMENT_WORDS = frozenset({b"command", b"builtin", b"exec"})  # an assignment after one is an operand, not a prefix
+RESERVED_WORDS = frozenset({b"then", b"do", b"else", b"elif", b"if", b"while", b"until", b"time", b"coproc"})
 EXTGLOB_WORD = re.compile(rb"extglob(?![A-Za-z0-9_])")
 WORD_START = (b" ", b"\t", b"\r", b"\n", b";", b"&", b"|", b"(")  # bytes after which a word starts: a # there is a comment, a (( a command
 QUOTED_TEXT = frozenset(bytes([b]) for b in b" \t\n;&|(){}<>!")  # bytes a quote makes text: no separator, operator or blank
@@ -472,21 +470,33 @@ def _dq_backslash(data: bytes, j: int) -> tuple[bytes, int]:
     return b"\\", 1
 
 
+def _command_groups(words: list[bytes]):
+    """The words of each command in a segment: a bare ( { or ! ends one command and starts the next (function f { shopt ...; })."""
+    group: list[bytes] = []
+    for word in words:
+        if word.lstrip(WORD_BOUNDARY_CHARS):
+            group.append(word)
+        else:
+            yield group
+            group = []
+    yield group
+
+
 def _command_word(words: list[bytes]) -> Optional[int]:
-    """Index of the command word: past the assignments and redirections in front of it, and past the keywords. A
-    redirection whose word ends where its target starts takes the next word as the target."""
-    keyword = False
+    """Index of the command word: past the assignments and redirections in front of it, and past the reserved words. An
+    assignment after command, builtin or exec is an operand, so the command word is that word."""
+    arguments = False
     i = 0
     while i < len(words):
         w = words[i].lstrip(WORD_BOUNDARY_CHARS)
-        if w in COMMAND_KEYWORDS:
-            keyword = True
-        elif not w:
+        if w in ARGUMENT_WORDS:
+            arguments = True
+        elif w in RESERVED_WORDS or not w:
             pass
-        elif not keyword and ASSIGN_WORD.match(w):
+        elif not arguments and ASSIGN_WORD.match(w):
             pass
-        elif not keyword and (redir := REDIR_WORD.match(w)):
-            i += redir.end() == len(w)
+        elif not arguments and (redir := REDIR_WORD.match(w)):
+            i += redir.end() == len(w)  # a redirection whose word ends at its operator takes the next word
         else:
             return i
         i += 1
@@ -494,22 +504,29 @@ def _command_word(words: list[bytes]) -> Optional[int]:
 
 
 def _shopt_enables_extglob(operands: list[bytes]) -> bool:
-    """Whether the operands of a shopt turn extglob on: an option with an s in it, then the word extglob."""
+    """Whether the operands of a shopt turn extglob on. The options come first, up to -- or the first word that is not
+    one: the option s must be one of them, and extglob is an operand after them."""
     s_option = False
+    options = True
     for word in operands:
         if EXTGLOB_WORD.match(word):
             return s_option
-        s_option = s_option or SHOPT_S_OPTION.fullmatch(word) is not None
+        if options and word == b"--":
+            options = False
+        elif options and word.startswith(b"-"):
+            s_option = s_option or (word[1:].isalpha() and b"s" in word)
+        else:
+            options = False
     return False
 
 
 def _shopt_extglob(text: bytes) -> bool:
     """Whether a command of the script runs shopt to turn extglob on."""
     for command in COMMAND_SPLIT.split(text):
-        words = [w for w in WORD_SPLIT.split(command) if w]
-        i = _command_word(words)
-        if i is not None and words[i].lstrip(WORD_BOUNDARY_CHARS) == b"shopt" and _shopt_enables_extglob(words[i + 1:]):
-            return True
+        for words in _command_groups([w for w in WORD_SPLIT.split(command) if w]):
+            i = _command_word(words)
+            if i is not None and words[i].lstrip(WORD_BOUNDARY_CHARS) == b"shopt" and _shopt_enables_extglob(words[i + 1:]):
+                return True
     return False
 
 

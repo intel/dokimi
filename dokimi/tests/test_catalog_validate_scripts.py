@@ -704,9 +704,23 @@ def test_an_escaped_or_ampersand_redirected_shopt_is_not_a_command_under_real_ba
     assert _codes(_reviews_by_name(tmp_path)["bundled"]) == ["script-syntax"]
 
 
-@pytest.mark.parametrize(("run", "count"), [(b"<<!\t", 22), (b"x=(", 6000)])
+@pytest.mark.parametrize(("run", "count"), [(b"<<!\t", 22), (b"x=(", 6000), (b"shopt -" + b"s" * 5000 + b"!", 1)])
 def test_a_repeated_run_of_words_is_checked_in_linear_time(run, count):
     started = time.monotonic()
     script_checks._shell_options(run * count + b"\nx\n")
 
     assert time.monotonic() - started < 0.5
+
+
+@pytest.mark.parametrize(("body", "codes"), [
+    (b"function f { shopt -s extglob; }\nf", []),
+    (b"shopt nullglob -s extglob", ["script-syntax"]),
+    (b"shopt -- -s extglob", ["script-syntax"]),
+    (b"if x=1 shopt -s extglob; then :; fi", []),
+    (b"shopt -s nullglob extglob", []),
+])
+@needs_bash
+def test_the_shopt_check_reads_each_command_as_bash_does_under_real_bash(tmp_path, body, codes, no_linters):
+    _bundle(tmp_path, {"run.sh": b"#!/bin/bash\n" + body + b"\ncase x in +(a|b)) : ;; esac\n"})
+
+    assert _codes(_reviews_by_name(tmp_path)["bundled"]) == codes
