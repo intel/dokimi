@@ -97,11 +97,27 @@ def test_the_digest_ignores_the_mode_of_a_name_that_collides_after_replacement(c
     assert utils.tree_digest(colliding_repo, git=True) == plain
 
 
-def test_a_name_that_collides_after_replacement_leaves_the_real_file_to_be_hashed_from_disk(colliding_repo, windows_decoding):
-    """The missing file shows as changed under the replaced name, so the real file takes no index blob: its disk content
-    is hashed, never the other entry's blob."""
+def test_a_name_that_collides_after_replacement_gives_the_real_file_its_own_index_blob(colliding_repo, windows_decoding):
+    """The missing file's status entry is not read as the real file's: the real file, unchanged, keeps its own blob, never
+    the other entry's."""
     blobs, held = utils._index_blobs(os.fspath(colliding_repo))
-    assert blobs == {} and REPLACED.split("/")[0] in held
+    assert blobs == {REPLACED: _git(colliding_repo, "hash-object", REPLACED).decode().strip()}
+    assert REPLACED.split("/")[0] in held
+
+
+def test_a_changed_file_with_an_encoded_surrogate_name_takes_no_index_blob(tmp_path, windows_decoding):
+    """Status and the index must name the file alike, or its stale index blob stands for the changed file (here missing
+    from disk, which status reports as `` D``)."""
+    root = tmp_path / "edited"
+    root.mkdir()
+    _git(root, "init", "-q")
+    _index_entry(root, "100644", b"skill/\xed\xa0\x80.sh")
+    assert utils._index_blobs(os.fspath(root))[0] == {}
+
+
+def test_the_status_and_flag_readers_name_a_file_with_an_encoded_surrogate_as_the_index_does(windows_decoding):
+    assert utils._worktree_changed(b" M skill/\xed\xa0\x80.sh\0") == {"skill/\ud800.sh"}
+    assert utils._flagged(b"S skill/\xed\xa0\x80.sh\0h skill/b\0H skill/c\0") == {"skill/\ud800.sh", "skill/b"}
 
 
 @pytest.mark.skipif(os.name != "posix" or sys.platform == "darwin", reason="a file name that is not UTF-8")
@@ -113,9 +129,9 @@ def test_git_tree_holds_an_ignored_path_that_is_not_utf8(repo, windows_decoding)
     assert tree is not None and "skill/a�.tmp" in tree.ignored
 
 
-def test_the_index_readers_decode_a_name_that_is_not_utf8(windows_decoding):
-    assert utils._worktree_changed(b" M " + BAD + b"\0") == {REPLACED}
-    assert utils._flagged(b"S " + BAD + b"\0H x\0") == {REPLACED}
+def test_the_index_readers_skip_a_name_that_is_not_utf8(windows_decoding):
+    assert utils._worktree_changed(b" M " + BAD + b"\0") == set()
+    assert utils._flagged(b"S " + BAD + b"\0H x\0") == set()
 
 
 def test_tracked_modes_keeps_a_path_that_is_not_utf8(repo, windows_decoding):
@@ -135,23 +151,41 @@ def test_changed_from_a_base_with_a_path_that_is_not_utf8_checks_instead_of_fail
 TASK = "evaluation/harbor/tasks/l"
 
 
-@pytest.fixture
-def owners_repo(tmp_path) -> Path:
-    """Task ``l\\xffint`` (skill alpha) is in the base and the index with no file; the real task ``l�int`` (beta) is
-    committed. Both decode to one Windows name."""
-    root = tmp_path / "owners"
+def _owners_repo(root: Path, odd: bytes) -> Path:
+    """Task ``l<odd>int`` (skill alpha) is in the base and the index with no file; the real task ``l�int`` (beta) is
+    committed."""
     (root / (TASK + "�int")).mkdir(parents=True)
     _git(root, "init", "-q")
     (root / (TASK + "�int") / "task.toml").write_text('[metadata]\nskill = "beta"\n', encoding="utf-8")
     _git(root, "add", "-A")
-    _index_entry(root, "100644", TASK.encode() + b"\xffint/task.toml", b'[metadata]\nskill = "alpha"\n')
+    _index_entry(root, "100644", TASK.encode() + odd + b"int/task.toml", b'[metadata]\nskill = "alpha"\n')
     _git(root, "commit", "-q", "-m", "base")
     return root.resolve()
+
+
+@pytest.fixture
+def owners_repo(tmp_path) -> Path:
+    """The deleted task is ``l\\xffint``: it and ``l�int`` decode to one Windows name."""
+    return _owners_repo(tmp_path / "owners", b"\xff")
+
+
+@pytest.fixture
+def surrogate_owners_repo(tmp_path) -> Path:
+    """The deleted task is ``l\\xed\\xa0\\x80int``, an encoded lone surrogate: Windows names it ``l\\ud800int``, yet the
+    lossy decoding of its path is ``l�int``, the real task's."""
+    return _owners_repo(tmp_path / "surrogate-owners", b"\xed\xa0\x80")
 
 
 def test_a_changed_task_whose_name_collides_after_replacement_selects_every_skill(owners_repo, windows_decoding):
     """The deleted ``l\\xffint`` task would be read as ``l�int`` and owned by beta, leaving alpha unselected."""
     _source, paths, _untracked, owners, reason = catalog_git.source_and_changes(owners_repo, "HEAD", owners_repo / "out")
+    assert paths is None and owners == {} and reason is not None and "every skill" in reason
+
+
+def test_a_changed_task_named_with_an_encoded_surrogate_selects_every_skill(surrogate_owners_repo, windows_decoding):
+    """Its path decodes exactly but lists as ``l�int``'s: beta's owner would stand for alpha's deleted task."""
+    root = surrogate_owners_repo
+    _source, paths, _untracked, owners, reason = catalog_git.source_and_changes(root, "HEAD", root / "out")
     assert paths is None and owners == {} and reason is not None and "every skill" in reason
 
 

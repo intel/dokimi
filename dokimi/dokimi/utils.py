@@ -305,13 +305,15 @@ def _worktree_changed(status: bytes) -> set[str]:
         if b"R" in entry[:2] or b"C" in entry[:2]:
             next(items, None)
         if entry[1:2] != b" ":
-            changed.add(path_text(entry[3:]))
+            if (name := exact_path_text(entry[3:])) is not None:  # a replaced name is the key of another file
+                changed.add(name)
     return changed
 
 
 def _flagged(tags: bytes) -> set[str]:
     """The index entries git does not check against the disk: skip-worktree (``S``) and assume-unchanged (lower case)."""
-    return {path_text(entry[2:]) for entry in tags.split(b"\0") if entry[:1] == b"S" or entry[:1].islower()}
+    names = (exact_path_text(entry[2:]) for entry in tags.split(b"\0") if entry[:1] == b"S" or entry[:1].islower())
+    return {name for name in names if name is not None}
 
 
 _ARG_BUDGET = 24_000  # bytes of path arguments per git call: under the smallest command line limit (Windows, 32 KB)

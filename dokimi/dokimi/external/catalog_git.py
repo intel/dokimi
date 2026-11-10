@@ -137,7 +137,7 @@ def source_and_changes(root: Path, base: str | None, out: Path) -> tuple[
     if tracked.returncode and _git(root, "config", "--get-regexp", r"^remote\..*\.(promisor|partialclonefilter)$").returncode == 0:
         return source, None, untracked, {}, partial
     paths = sorted(path for path in set(_paths(tracked)) if not (root / path).is_relative_to(out))
-    if any(exact_path_text(raw) is None for raw in tracked.stdout_bytes.split(b"\0") if raw):
+    if any(exact_path_text(raw) != path_text(raw) for raw in tracked.stdout_bytes.split(b"\0") if raw):
         # the replaced name is another path's: it would read that path's owner at the base and leave the real one unselected
         return source, None, untracked, {}, (
             f"A path changed since {base!r} is not valid UTF-8 and cannot be matched to its skill; conservatively checking every skill.")
