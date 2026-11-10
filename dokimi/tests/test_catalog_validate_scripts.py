@@ -651,3 +651,12 @@ def test_a_shopt_extglob_after_an_assignment_or_redirection_is_valid_under_real_
     _bundle(tmp_path, {"run.sh": b"#!/bin/bash\n" + line + b"\ncase x in +(a|b)) : ;; esac\n"})
 
     assert _reviews_by_name(tmp_path)["bundled"].findings == []
+
+
+@pytest.mark.parametrize("sep", [b"';'", b"'&'", b"'('", b'";"'])
+@needs_bash
+def test_a_quoted_separator_is_not_a_command_boundary_under_real_bash(tmp_path, sep, no_linters):
+    _bundle(tmp_path, {"run.sh": b"#!/bin/bash\necho " + sep + b"shopt -s extglob\ncase x in +(a|b)) : ;; esac\n"})
+
+    review = _reviews_by_name(tmp_path)["bundled"]
+    assert _codes(review) == ["script-syntax"]
