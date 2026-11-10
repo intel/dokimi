@@ -214,8 +214,8 @@ def test_arm_significance_shares_one_baseline_across_arms():
     for sig in res.values():
         assert sig["correction"] == "holm"
         assert sig["family_size"] == 3
-        # docs has 5 changed pairs (no verdict under the floor) and still counts in the family.
-        assert sig["family_tested"] == 3
+        # docs has 5 changed pairs (no verdict under the floor): a member, but out of the multiplier.
+        assert sig["family_tested"] == 2
 
 
 def test_arm_significance_infers_arms_when_not_given():
@@ -225,7 +225,8 @@ def test_arm_significance_infers_arms_when_not_given():
 
 def test_arm_significance_adjusted_p_is_never_below_raw():
     res = stats.arm_significance(_factorial_evaluations(), "baseline")
-    for sig in res.values():
+    assert res["docs"]["p_adjusted"] is None  # under the floor: never corrected in the family
+    for sig in (res["skill:x"], res["docs+skill:x"]):
         assert sig["p_adjusted"] >= sig["p"]
         # A corrected verdict can only be stricter than the uncorrected one.
         assert not (sig["significant_adjusted"] and not sig["significant"])
@@ -521,7 +522,7 @@ def test_interaction_test_alone_reports_no_adjusted_keys():
 def test_arm_significance_leaves_the_adjusted_verdict_unknown_when_no_test_ran():
     """None, not False: an untestable arm is not a demonstrated null."""
     evaluations = [
-        _ev(baseline=50, docs=50, **{"skill:x": 50 + i}) for i in range(6)
+        _ev(baseline=50, docs=50, **{"skill:x": 51 + i}) for i in range(6)
     ]
     res = stats.arm_significance(
         evaluations, "baseline", ["baseline", "docs", "skill:x"]
@@ -716,11 +717,11 @@ def test_arm_significance_leaves_out_an_arm_with_fewer_than_two_pairs():
 def test_arm_significance_correction_changes_the_adjusted_p():
     holm = stats.arm_significance(_factorial_evaluations(), "baseline")
     bh = stats.arm_significance(_factorial_evaluations(), "baseline", correction="bh")
-    # p is 0.03125, 0.03125 and 0.0625 (docs): Holm takes 3 x 0.03125, BH 3/2 x 0.03125.
-    assert holm["docs+skill:x"]["p_adjusted"] == 0.0938
-    assert bh["docs+skill:x"]["p_adjusted"] == 0.0469
+    # p is 0.03125 twice and 0.0625 (docs, out of the multiplier): Holm takes 2 x 0.03125, BH 0.03125.
+    assert holm["docs+skill:x"]["p_adjusted"] == 0.0625
+    assert bh["docs+skill:x"]["p_adjusted"] == 0.0312
     assert holm["skill:x"]["significant_adjusted"] is False and bh["skill:x"]["significant_adjusted"] is True
-    assert holm["docs"]["significant_adjusted"] is None  # under the floor, yet in the family of 3
+    assert holm["docs"]["significant_adjusted"] is None and holm["docs"]["p_adjusted"] is None
 
 
 def test_sample_sd_of_values_at_1e300_is_finite_and_scales_linearly():

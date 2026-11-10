@@ -284,6 +284,21 @@ def correct_family(
     ]
 
 
+def reachable_pvals(
+    pvals: Sequence[Optional[float]], n_changed: Sequence[int]
+) -> List[Optional[float]]:
+    """``pvals`` with ``None`` where the floor rule bars the result: its p cannot go below :data:`ALPHA`.
+
+    Such a result can never reject, so it stays out of the multiplier (Tarone's
+    argument); the others are corrected as if it were not there
+    (https://github.com/intel/dokimi/issues/478).
+    """
+    return [
+        None if p is not None and min_sign_flip_p(k) >= ALPHA else p
+        for p, k in zip(pvals, n_changed, strict=True)
+    ]
+
+
 # ---------------------------------------------------------------------------
 # Paired comparison
 # ---------------------------------------------------------------------------
@@ -635,8 +650,9 @@ def arm_significance(
 
 
 def set_exact_p_adjusted(results: Sequence[Dict[str, Any]], *, method: str) -> None:
-    """Set ``exact.p_adjusted`` to the family correction of ``p`` before rounding."""
-    exact = adjust_pvalues([r["p"] for r in results], method=method, rounded=False)
+    """Set ``exact.p_adjusted`` to the family correction of ``p`` before rounding (``None`` for a floor-bound result)."""
+    ps = reachable_pvals([r["p"] for r in results], [r["n_changed"] for r in results])
+    exact = adjust_pvalues(ps, method=method, rounded=False)
     for res, p in zip(results, exact, strict=True):
         if "exact" in res:
             res["exact"]["p_adjusted"] = p
@@ -650,14 +666,17 @@ def _apply_correction(
     ``results`` must still hold unrounded p-values. ``label`` names the family
     so a reader can tell which hypotheses were corrected together — arms and
     interaction contrasts are separate families, and pooling them would inflate
-    the multiplier on both. Every result with a p is in the family, one under
-    the floor rule included (as in ``repo compare``), and ``family_tested``
-    counts them. ``significant_adjusted`` is ``None`` wherever ``significant``
-    is (no p, or the floor rule), else the corrected verdict.
+    the multiplier on both. A result under the floor rule (its ``n_changed``
+    cannot give p < :data:`ALPHA`) stays out of the multiplier: its
+    ``p_adjusted`` and ``significant_adjusted`` are ``None``, it still counts
+    in ``family_size``, and ``family_tested`` counts only the results that can
+    reach :data:`ALPHA`. ``significant_adjusted`` is ``None`` wherever
+    ``significant`` is, else the corrected verdict.
     """
-    decided = correct_family([r["p"] for r in results], method=correction)
+    ps = reachable_pvals([r["p"] for r in results], [r["n_changed"] for r in results])
+    decided = correct_family(ps, method=correction)
     set_exact_p_adjusted(results, method=correction)
-    tested = sum(1 for r in results if r["p"] is not None)
+    tested = sum(1 for p in ps if p is not None)
     for res, (adj, adj_significant) in zip(results, decided, strict=True):
         res["p_adjusted"] = adj
         res["correction"] = correction
