@@ -811,3 +811,21 @@ def test_a_shopt_extglob_after_a_compound_keyword_is_given_to_bash_n(tmp_path, l
 
     assert script_findings(skill, which=_tools("bash"), runner=runner) == []
     assert runner.calls[0].argv == ("/usr/bin/bash", "-O", "extglob", "-n")
+
+
+QUOTES_IN_COMMAND_SUB = b"x=\"$(printf '%s' \"it's\")\"\nshopt -s extglob\ncase $1 in @(a|b)) echo x;; esac\n# it's done\n"
+
+
+def test_a_shopt_after_a_double_quoted_command_substitution_with_quotes_is_given_to_bash_n(tmp_path):
+    skill = _bundle(tmp_path, {"run.sh": b"#!/bin/bash\n" + QUOTES_IN_COMMAND_SUB})
+    runner = process.FakeRunner(lambda call: process.reply(returncode=0))
+
+    assert script_findings(skill, which=_tools("bash"), runner=runner) == []
+    assert runner.calls[0].argv == ("/usr/bin/bash", "-O", "extglob", "-n")
+
+
+@needs_bash
+def test_a_shopt_after_a_double_quoted_command_substitution_with_quotes_is_valid_under_real_bash(tmp_path, no_linters):
+    _bundle(tmp_path, {"run.sh": b"#!/bin/bash\n" + QUOTES_IN_COMMAND_SUB})
+
+    assert _reviews_by_name(tmp_path)["bundled"].findings == []

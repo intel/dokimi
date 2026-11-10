@@ -466,9 +466,39 @@ def _quoted_run(data: bytes, i: int) -> Optional[tuple[bytes, int]]:
             text, width = _dq_backslash(data, j)
             out += text
             j += width
+        elif (c == b"$" and quote == b'"' and data[j + 1:j + 2] == b"("
+              and (end := _command_sub_end(data, j + 1)) is not None):
+            out += b"".join(_in_quotes(data[k:k + 1]) for k in range(j, end))  # a quote in it does not close these
+            j = end
         else:
             out += _in_quotes(c)
             j += 1
+    return None
+
+
+def _command_sub_end(data: bytes, i: int) -> Optional[int]:
+    """The index just past the ``)`` that closes the ``(`` at ``data[i]`` of a ``$(``, read as bash reads it: its quoted
+    runs are skipped whole, so a quote inside it does not close the double quotes around it. None when it is unclosed."""
+    depth = 0
+    j = i
+    while j < len(data):
+        c = data[j:j + 1]
+        if c == b"\\":
+            j += 2
+            continue
+        if c in (b"'", b'"'):
+            run = _quoted_run(data, j)
+            if run is None:
+                return None
+            j = run[1]
+            continue
+        if c == b"(":
+            depth += 1
+        elif c == b")":
+            depth -= 1
+            if depth == 0:
+                return j + 1
+        j += 1
     return None
 
 
