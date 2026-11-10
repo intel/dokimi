@@ -692,7 +692,9 @@ cells is left unrun; a cell that already has a `result.json` keeps it.
 
 Both commands exit 2, before any build, on a source that does not parse (a local path that is not a
 directory, an unpinned remote) and on a pinned local path inside a repository that is not its root; a
-source that parses but cannot be opened (clone, fetch, revision) exits 1 with a `✗` line.
+source that parses but cannot be opened (clone, fetch, revision) exits 1 with a `✗` line. A manifest that
+is missing or malformed exits 1 too; a `--manifest` path that leaves the source tree is refused as a
+source and exits 2.
 
 Nothing checked is not a pass. Both commands refuse an export with no task, and
 exit 1 as `incomplete` when nothing was measured: `eval check` when no task
@@ -1036,8 +1038,8 @@ an unpinned remote, a local source that is not a directory, or a pinned local pa
 that is not its root (`<repo>/sub@<sha>`: give the root). It exits 1 when the threads file cannot be read or holds no pull
 request, when no pull request gave a task (written, or kept from before), and
 on an error that is not one pull request's own: a malformed pull request, a
-source it cannot open, the manifest, the prompt file, or a task it cannot write. Each prints
-`✗` and the reason. A git failure while one pull request is built skips that
+source it cannot open, a manifest that is missing or malformed, the prompt file, or a task it cannot write. Each prints
+`✗` and the reason; a `--manifest` path that leaves the source tree exits 2 instead. A git failure while one pull request is built skips that
 pull request with the reason.
 `eval check` then runs the tasks, and two arms measure the guidance
 (§9):
@@ -1242,8 +1244,8 @@ malformed source, an unpinned remote, a local source that is not a directory, or
 a repository that is not its root (`<repo>/sub@<sha>`: give the root). It exits 1 when the pull request file cannot be read or
 holds no pull request, when no pull request gave a task (written, or kept from before), and on
 an error that is not one pull request's own: a malformed pull request (a `number` that is not
-an integer), a source it cannot open, the manifest, the prompt file (unreadable or empty), or a task it
-cannot write. Each prints `✗` and the reason. Grading a task needs the manifest's
+an integer), a source it cannot open, a manifest that is missing or malformed, the prompt file (unreadable or empty), or a task it
+cannot write. Each prints `✗` and the reason; a `--manifest` path that leaves the source tree exits 2 instead. Grading a task needs the manifest's
 `entry_points.test` (§2).
 
 ## 5. Aligning oneDAL `dev/agent_evals` (uxlfoundation/oneDAL#3818)

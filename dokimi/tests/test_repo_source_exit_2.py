@@ -97,6 +97,22 @@ def test_pinned_subdirectory_is_refused_before_the_input_files_are_read(flag, ex
     assert err.strip() == f"Error: {repo / 'sub'} is 'sub/' inside a repository; give its root"
 
 
+@pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
+@pytest.mark.parametrize("name", ["check", "run", "replay", "prs"])
+@pytest.mark.parametrize(("manifest", "code", "message"), [
+    ("../outside.yaml", 2, "Error: path escapes the repository: ../outside.yaml"),
+    ("missing.yaml", 1, "✗ missing.yaml: invalid repo_manifest.v1:"),
+])
+def test_manifest_path_leaving_the_tree_exits_2_and_a_missing_manifest_exits_1(name, manifest, code, message,
+                                                                              tmp_path, monkeypatch, capsys):
+    tree = tmp_path / "tree"
+    tree.mkdir()
+    subprocess.run(["git", "-C", str(tree), "init", "-q"], check=True, capture_output=True)  # `repo run` pins arms in a git dir
+    code_got, err = _run(monkeypatch, capsys, *_command(name, str(tree), tmp_path), "--manifest", manifest)
+    assert code_got == code
+    assert err.strip().splitlines()[0] == message
+
+
 @pytest.mark.parametrize("name", ["check", "run"])
 def test_check_and_run_keep_exit_1_for_a_pinned_source_that_cannot_be_fetched(name, tmp_path, monkeypatch, capsys):
     from dokimi.repos import SourceError
