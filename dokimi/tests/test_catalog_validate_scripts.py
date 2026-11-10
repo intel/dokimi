@@ -773,9 +773,10 @@ def test_case_forms_in_a_command_sub_in_quotes_leave_the_sub_and_the_quotes_read
 
 
 @needs_bash
-def test_a_case_word_that_is_an_argument_is_not_a_case_in_a_command_sub_in_quotes(tmp_path, no_linters):
+@pytest.mark.parametrize("sub", [b"echo lower case in a", b"echo $(id -u) case in a"])
+def test_a_case_word_that_is_an_argument_is_not_a_case_in_a_command_sub_in_quotes(tmp_path, no_linters, sub):
     # "case in" here are echo's arguments, so the ) after a closes the sub and the quotes after it are read
-    _bundle(tmp_path, {"run.sh": b"#!/bin/bash\nx=\"$(echo lower case in a)\"\nshopt -s 'extglob'\ncase x in +(a)) : ;; esac\necho 'e'\n"})
+    _bundle(tmp_path, {"run.sh": b"#!/bin/bash\nx=\"$(" + sub + b")\"\nshopt -s 'extglob'\ncase x in +(a)) : ;; esac\necho 'e'\n"})
 
     assert _codes(_reviews_by_name(tmp_path)["bundled"]) == []
 
