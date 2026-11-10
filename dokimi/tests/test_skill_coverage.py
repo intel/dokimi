@@ -119,6 +119,13 @@ def test_duplicate_check_names_are_refused(tmp_path):
         sc.load_checks(dup)
 
 
+def test_a_task_test_file_saved_with_a_utf8_bom_is_read_as_pytest_reads_it(tmp_path):
+    root = tmp_path / "tasks"
+    _task(root, "t1", {"test_answer.py": "\ufeffdef test_flag():\n    assert True\n"})  # a Windows editor's BOM
+    [check] = sc.load_checks(root)
+    assert check.source == "def test_flag():\n    assert True"
+
+
 def test_task_test_functions_are_checks_and_a_shared_body_is_one_check(tmp_path):
     shared = "def test_flag():\n    assert True\n"
     root = tmp_path / "tasks"

@@ -256,7 +256,7 @@ def _task_checks(root: Path) -> list[tuple[str, str, str]]:
 
 def _parse(path: Path) -> tuple[str, ast.Module]:
     try:
-        text = path.read_text(encoding="utf-8")
+        text = path.read_text(encoding="utf-8-sig")  # pytest reads a BOM; ast.parse refuses it
         return text, ast.parse(text, filename=str(path))
     except (OSError, UnicodeDecodeError, SyntaxError, ValueError) as exc:
         raise ValueError(f"{path}: unreadable test file ({exc})") from exc
