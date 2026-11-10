@@ -8,5 +8,6 @@
 - **`--max-usd` keeps the work of `atoms` and `probe` it stops** — `atoms` writes
   `<stem>.partial.json` with the spans read so far (the rest unread), and `probe` writes
   `probes.partial.json` with the answers so far, and both exit naming the file. A partial file is
-  refused by the atom readers and by `novelty items`, and never replaces a finished file.
+  refused by the atom readers and by `novelty items`, and never replaces a finished file. A partial
+  probe file holds null for the summaries over the cut answers (`paired`, `arms`, `judge2`, ...).
   `analyze` and `shorten` still lose their work at the cap (follow-up).

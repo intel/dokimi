@@ -1112,7 +1112,10 @@ paid for. `atoms` writes `<stem>.partial.json` beside the `--out` file (`atoms.j
 the spans read so far, the rest marked unread), and `probe` does the same beside its `--out`
 file (`probes.json` by default; the answers so far). Both exit with a message naming the file. A partial file is never read as a
 finished one: `probe` and the other atom readers refuse `atoms.partial.json`, and `novelty items`
-refuses a partial probe file. A partial file is for inspection; rerun to get a finished one.
+refuses a partial probe file. A partial probe file keeps its `runs` and `probes` and holds null for
+the summaries computed over the answers the cap left (`paired`, `arms`, `abstentions`, the reversal and
+confidence blocks, and `judge2`: the second judge shares the cap, so it cannot regrade the rest).
+A partial file is for inspection; rerun to get a finished one.
 `analyze` and `shorten` still lose their work at the cap (a follow-up). Before its first paid
 call `analyze` prints the run's expected cost at list prices to stderr.
 
