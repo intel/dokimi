@@ -79,7 +79,8 @@ MISSING_CREDENTIALS = [
 
 
 #: The caller each error comes back to: litellm's provider name -> (model, dokimi provider).
-ROUTES = {"openai": ("gpt-4o", "openai"), "vertex_ai": ("gemini-2.5-pro", "google-vertex")}
+ROUTES = {"openai": ("gpt-4o", "openai"), "azure": ("gpt-4o", "azure"),
+          "vertex_ai": ("gemini-2.5-pro", "google-vertex")}
 
 
 @pytest.mark.parametrize("error", MISSING_CREDENTIALS, ids=lambda e: str(e)[:48])
@@ -96,6 +97,7 @@ TRANSIENT = [
     litellm.InternalServerError("OpenAIException - The server had an error while processing your "
                                 "request. Sorry about that!", "openai", "gpt-4o"),
     litellm.APIConnectionError("Connection error.", "vertex_ai", "gemini-2.5-pro"),
+    litellm.APIError(502, "AzureException APIError - Bad gateway", "azure", "gpt-4o"),
 ]
 
 
