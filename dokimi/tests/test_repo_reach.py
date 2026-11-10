@@ -662,8 +662,9 @@ def test_sigterm_to_the_cli_kills_the_harness_and_its_helper(tmp_path):
                             "--timeout", "120"], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
     pid_file = tmp_path / "linger.pids"
     pids: list[int] = []
+    start = time.monotonic()
     try:
-        deadline = time.monotonic() + 60
+        deadline = start + 60
         while not pid_file.is_file():
             assert cli.poll() is None, cli.stderr.read().decode() if cli.stderr else ""
             assert time.monotonic() < deadline, "the harness never started"
@@ -671,7 +672,7 @@ def test_sigterm_to_the_cli_kills_the_harness_and_its_helper(tmp_path):
         pids = [int(p) for p in pid_file.read_text().split()]
         cli.send_signal(signal.SIGTERM)
         assert cli.wait(timeout=30) == -signal.SIGTERM
-        deadline = time.monotonic() + 30  # ends when they are gone; only a leak waits it out, below the 60 s test timeout
+        deadline = min(start + 50, time.monotonic() + 30)  # ends when they are gone; a leak waits it out within the 60 s test timeout, so the message below prints
         while any(map(pid_alive, pids)) and time.monotonic() < deadline:
             time.sleep(0.05)
         alive = [describe(p) for p in pids if pid_alive(p)]
