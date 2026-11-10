@@ -58,6 +58,11 @@ def test_another_model_of_the_same_vendor_is_flagged_as_same_vendor_only():
     assert relation["same_vendor"] is True
 
 
+def test_two_sizes_or_two_organizations_of_one_model_are_two_models():
+    assert _relation("qwen3[8b]", _judge("qwen3[32b]", provider="openai"))["same_model"] is False
+    assert _relation("myorg/qwen3-8b", _judge("otherorg/qwen3-8b", provider="openai"))["same_model"] is False
+
+
 def test_different_vendors_are_not_flagged():
     relation = _relation("claude-haiku-5-5", _judge("gpt-6.1-sol", provider="openai"))
     assert relation["same_model"] is False
@@ -106,6 +111,14 @@ def test_probe_warns_when_the_judge_wrote_the_saved_answer_key(capsys):
 def test_probe_still_warns_when_the_answerer_wrote_the_saved_answer_key(capsys):
     warn_answer_key({"extractor": "gpt-6.1-sol"}, LLMClient(model="gpt-6.1-sol"),
                     _judge("claude-sonnet-5-5"))
+    assert "wrote its own answer key" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("answerer", ["claude-sonnet-5-5", "anthropic/claude-sonnet-5-5"])
+def test_the_answerer_wrote_the_key_through_a_cli_alias(capsys, answerer):
+    # atoms extracted with --extract-model sonnet on claude-cli: the CLI ran some claude-sonnet
+    warn_answer_key({"extractor": "sonnet", "extractor_provider": "claude-cli"},
+                    LLMClient(model=answerer), _judge("gpt-6.1-sol", provider="openai"))
     assert "wrote its own answer key" in capsys.readouterr().err
 
 

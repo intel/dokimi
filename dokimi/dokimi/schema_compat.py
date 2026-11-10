@@ -272,8 +272,10 @@ def _renamed_from(base: str, rel: str) -> str | None:
     directory gives the old directory, as a path from the repository root with a trailing ``/``.
     """
     # By fsdecode, as SCHEMA_DIR.resolve() names it, less git's newline only: a final "\r" or space stays.
-    out = os.fsdecode(_git_proc("rev-parse", "--show-toplevel").stdout_bytes)
-    top = Path(out.removesuffix("\n")).resolve()
+    out = os.fsdecode(_git_proc("rev-parse", "--show-toplevel").stdout_bytes).removesuffix("\n")
+    if not out:  # git before 2.25, outside a work tree, prints nothing and exits 0
+        raise GitError("git rev-parse --show-toplevel: printed no work tree to follow moved schemas in")
+    top = Path(out).resolve()
     prefix = (SCHEMA_DIR / rel).resolve().relative_to(top).as_posix() + "/"
     fields = _nul_paths("-C", str(top), "diff", "--name-status", "-M", "-z", base)
     i = 0

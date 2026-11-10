@@ -18,6 +18,7 @@ from dokimi.cli import parse_args
 from dokimi.commands.arms import run_config_from_args
 from dokimi.eval.arm_runner import ArmRunner
 from dokimi.eval.arms_run import ArmsRunConfig
+from tests.cli_refusal import refusal
 
 
 ARMS_RUN = ["arms", "run", "--product", "demo", "--questions", "q.json", "--arms", "baseline"]
@@ -34,9 +35,9 @@ def test_the_config_defaults_are_what_arms_run_runs_without_a_flag(judge_provide
 
 
 def test_a_judge_provider_with_no_default_judge_needs_a_judge_model(capsys):
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         parse_args([*ARMS_RUN, "--judge-provider", "openrouter"])
-    assert exc.value.code == 2
+    assert exc.code == 2
     assert "--judge-provider openrouter has no default judge model" in capsys.readouterr().err
 
     with pytest.raises(ValueError, match="'openrouter' has no default judge model"):
@@ -77,10 +78,10 @@ def test_a_doc_arm_without_a_library_id_stops_the_run_before_any_answer(command,
     args = parse_args([*argv, "--product", "demo", "--questions", str(unresolvable["questions"]),
                        "--arms", f"baseline,docs:local:{unresolvable['docs']}"])
 
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
 
-    assert exc.value.code == 2  # a library id that cannot be named is a setup refusal
+    assert exc.code == 2  # a library id that cannot be named is a setup refusal
     # Not under "Error building arms/plugins" or "Error running matrix cell": the id is the
     # product's, not an arm's or a cell's.
     assert capsys.readouterr().err == "Error: cannot name a library id for 'demo'\n"
@@ -100,10 +101,10 @@ def test_a_refused_matrix_cell_is_named_and_no_cell_is_answered(tmp_path, provid
     args = parse_args(["arms", "matrix-run", "--product", "demo", "--questions", str(questions),
                        "--arms", "baseline", "--matrix-cells", str(cells), "--out-dir", str(out)])
 
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
 
-    assert exc.value.code == 2  # every cell is set up before the first answer; a bad spec is a setup refusal
+    assert exc.code == 2  # every cell is set up before the first answer; a bad spec is a setup refusal
     assert capsys.readouterr().err.startswith(
         "Error building matrix cell 'bad': Unknown plugin spec: 'plugin:no-such-plugin'")
     assert not list((out / "cells").glob("*.json"))

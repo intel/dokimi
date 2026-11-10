@@ -19,6 +19,7 @@ from dokimi.cli import build_parser
 from dokimi.repos import parse_manifest
 from dokimi.repos.l0 import scan_repo
 from dokimi.repos.source import READ_MANY_LIMIT, GitTree, WorkTree
+from tests.cli_refusal import refusal
 
 FENCE = "```"
 U = "https://github.com/acme/case"
@@ -765,7 +766,7 @@ def test_a_name_under_a_root_directory_stays_a_path_when_a_workflow_uses_the_sam
 
 
 @pytest.mark.parametrize("links, verdict", [
-    ({"owner": "src/pkg"}, ("unresolved", "tried owner/name")),  # judged as a path: no Action reading
+    ({"owner": "src/pkg"}, ("fail", "owner/ exists but owner/name does not")),  # judged as a path: no Action reading
     ({"owner": "src/pkg/x"}, ("ok", "used by .github/workflows/ci.yml")),  # a link to a file is no directory
     ({}, ("fail", "owner/ exists but owner/name does not")),  # a real `owner/` beside it (`owner/keep`)
 ])
@@ -778,7 +779,7 @@ def test_a_root_link_to_a_directory_keeps_a_used_action_name_below_it_a_path(tmp
 
 
 @pytest.mark.parametrize("links, held, verdict", [
-    ({"owner": "src/pkg"}, "src/pkg/repo/x", ("unresolved", "tried owner/repo/path")),  # `owner/repo/` through the link
+    ({"owner": "src/pkg"}, "src/pkg/repo/x", ("fail", "owner/repo/ exists but owner/repo/path does not")),  # `owner/repo/` through the link
     ({"owner": "src/pkg"}, "src/pkg/repo", ("ok", "used by .github/workflows/ci.yml")),  # through it, a file
     ({}, "owner/repo/x", ("fail", "owner/repo/ exists but owner/repo/path does not")),  # a real `owner/repo/`
 ])
@@ -833,11 +834,9 @@ def _cli(tmp_path, root: Path, *extra: str) -> int:
         "schema": "repo_manifest.v1", "id": "case", "eval_dir": "ev", "guidance": {"globs": ["**/AGENTS.md"]},
         "entry_points": {"grade": "true"}, "tasks": "ev/tasks"}), encoding="utf-8")
     args = build_parser().parse_args(["repo", "scan", str(root), "--manifest-file", str(manifest), *extra])
-    try:
+    with refusal() as outcome:
         args.func(args)
-    except SystemExit as exc:
-        return int(exc.code or 0)
-    return 0
+    return outcome.code
 
 
 def test_cli_exit_codes(tmp_path, capsys):
@@ -864,16 +863,16 @@ def test_scan_exits_2_with_a_message_on_a_file_that_is_not_utf8(tmp_path, capsys
     binary.write_bytes(b'{"schema": "\xff\xfe"}')
     assert _cli(tmp_path, root, "--static", str(binary)) == 2
     err = capsys.readouterr().err
-    assert err.startswith("✗ ") and "utf-8" in err
+    assert err.startswith("Error: ") and "utf-8" in err
 
     manifest = tmp_path / "m.yaml"
     manifest.write_bytes(b"id: \xff\xfe\n")
     args = build_parser().parse_args(["repo", "scan", str(root), "--manifest-file", str(manifest)])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2
+    assert exc.code == 2
     err = capsys.readouterr().err
-    assert err.startswith("✗ ") and str(manifest) in err
+    assert err.startswith("Error: ") and str(manifest) in err
 
 
 def _linked_repo(root: Path, files: dict[str, str], links: dict[str, str]) -> GitTree:
@@ -946,9 +945,9 @@ def test_gate_fails_when_globbed_guidance_deleted(tmp_path, monkeypatch, capsys)
     manifest = framework / "benchmarks" / "self-scan.repo-eval.yaml"
     args = build_parser().parse_args(["repo", "scan", str(framework.parent), "--manifest-file", str(manifest),
                                       "--fail-on-fail"])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 1
+    assert exc.code == 1
     assert "guidance/also_scan matches no file: AGENTS.md" in capsys.readouterr().out
 
 
@@ -959,3 +958,42 @@ def test_unreadable_guidance_that_detect_also_reads_keeps_its_warning(tmp_path):
         warning = next((w for w in payload["warnings"] if "setup.cfg" in w), "")
         assert warning.startswith("guidance file not scanned: setup.cfg") and "links to nothing" in warning, payload
         assert payload["incomplete"]
+
+
+def _owner(tmp_path, agents: str, held: str, link: bool) -> dict[tuple[str, str], tuple[str, str]]:
+    """Verdicts in a tree holding ``src/pkg/<held>`` and an ``owner/``: a root link to ``src/pkg``, or real (``owner/<held>``)."""
+    files = {"AGENTS.md": agents, "ev/tasks/t/task.json": "{}", f"src/pkg/{held}": ""}
+    links = {"owner": "src/pkg"} if link else {}
+    return _by_file(scan_repo(_linked_repo(tmp_path / "r", files if link else {**files, f"owner/{held}": ""}, links),
+                              _manifest()))
+
+
+@pytest.mark.parametrize("link", [True, False], ids=["root-link", "real-dir"])
+def test_a_missing_path_below_a_root_link_to_a_directory_fails_as_below_the_directory(tmp_path, link):
+    """https://github.com/intel/dokimi/issues/518: the `owner/` a link makes is a parent directory, so a stale path fails."""
+    got = _owner(tmp_path, "Run `owner/gone`.\n", "x", link)
+    assert got[("AGENTS.md", "owner/gone")] == ("fail", "owner/ exists but owner/gone does not")
+
+
+@pytest.mark.parametrize("link", [True, False], ids=["root-link", "real-dir"])
+def test_a_glob_below_a_root_link_to_a_directory_fails_as_below_the_directory(tmp_path, link):
+    """https://github.com/intel/dokimi/issues/518: a glob is matched in the directory the link names, then fails beside it."""
+    got = _owner(tmp_path, "Run `owner/*.cfg` and `owner/x*`.\n", "x", link)
+    assert got[("AGENTS.md", "owner/*.cfg")] == ("fail", "owner/ exists but nothing in it matches *.cfg")
+    assert got[("AGENTS.md", "owner/x*")] == ("ok", "glob owner/x* -> e.g. owner/x")  # `src/pkg/x`, named below the link
+
+
+@pytest.mark.parametrize("link", [True, False], ids=["root-link", "real-dir"])
+def test_a_directory_claim_naming_a_file_through_a_root_link_fails_as_the_file(tmp_path, link):
+    """https://github.com/intel/dokimi/issues/519: `owner/f` through the link is the file `src/pkg/f`, no directory."""
+    got = _owner(tmp_path, "Run `owner/f/`.\n", "f", link)
+    assert got[("AGENTS.md", "owner/f/")] == ("fail", "owner/f is a file, not a directory")
+
+
+@pytest.mark.parametrize("root_owner", ["other/keep", "owner/keep"], ids=["no-root-dir", "real-root-dir"])
+def test_a_glob_matched_through_a_link_at_a_later_base_is_ok_whatever_the_earlier_base_holds(tmp_path, root_owner):
+    """`owner/` at the root, with no match in it, does not hide `docs/owner -> ../src/pkg` that holds one."""
+    files = {"docs/AGENTS.md": "Run `owner/*.cfg` and `owner/x*`.\n", "ev/tasks/t/task.json": "{}", "src/pkg/x.cfg": "", root_owner: ""}
+    got = _by_file(scan_repo(_linked_repo(tmp_path / "r", files, {"docs/owner": "../src/pkg"}), _manifest()))
+    assert got[("docs/AGENTS.md", "owner/*.cfg")] == ("ok", "glob docs/owner/*.cfg -> e.g. docs/owner/x.cfg")
+    assert got[("docs/AGENTS.md", "owner/x*")] == ("ok", "glob docs/owner/x* -> e.g. docs/owner/x.cfg")

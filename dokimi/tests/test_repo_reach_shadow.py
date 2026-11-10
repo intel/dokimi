@@ -29,6 +29,7 @@ from dokimi.repos.harness_profile import ProfileError, load_profile, parse_profi
 from dokimi.repos.reach import (ReachError, SeededFile, Shadow, distinct_salt, followable, format_matrix, run_reach,
                                 scenarios, shadow_for, token)
 from dokimi.repos.source import SourceArgumentError
+from tests.cli_refusal import refusal
 
 HARNESS = r'''
 import json, os, re, sys
@@ -427,9 +428,9 @@ def test_repo_reach_dry_run_plans_no_scenario_for_a_link_a_run_drops(tmp_path, c
     args.func(args)
     assert [r["scenario"] for r in json.loads(capsys.readouterr().out)["runs"]] == ["cwd=.", "shadow=."]
     args = build_parser().parse_args([*argv, "--only", "read=sub"])
-    with pytest.raises(SystemExit) as exc:  # --only checks against the same list
+    with refusal() as exc:  # --only checks against the same list
         args.func(args)
-    assert exc.value.code == 2 and "--only read=sub matches no scenario" in capsys.readouterr().err
+    assert exc.code == 2 and "--only read=sub matches no scenario" in capsys.readouterr().err
 
 
 def test_followable_refuses_a_list_of_unfollowable_links_only(tmp_path):
@@ -460,10 +461,10 @@ def test_repo_reach_dry_run_refuses_a_tree_of_unfollowable_links_as_a_run_does(t
     seen = []
     for run in (argv, [a for a in argv if a != "--dry-run"]):
         args = build_parser().parse_args(run)
-        with pytest.raises(SystemExit) as exc:
+        with refusal() as exc:
             args.func(args)
         out, err = capsys.readouterr()
-        seen.append((exc.value.code, out, err))
+        seen.append((exc.code, out, err))
     assert seen[0] == seen[1]  # the dry run fails as the run does, and plans no run
     assert seen[0] == (1, "", "✗ no guidance file to probe: each is a link that cannot be followed: "
                               "AGENTS.md links to nothing: nowhere.md\n")
@@ -472,9 +473,9 @@ def test_repo_reach_dry_run_refuses_a_tree_of_unfollowable_links_as_a_run_does(t
 
 def test_repo_reach_refuses_shadow_for_a_profile_without_a_shadow_file(tmp_path, capsys):
     args = build_parser().parse_args(_cli(tmp_path, "--scenarios", "root,shadow"))
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2
+    assert exc.code == 2
     assert "--scenarios shadow needs guidance.shadow_file in the harness profile; fake sets none" in capsys.readouterr().err
 
 
@@ -484,9 +485,9 @@ def test_repo_reach_reports_a_shadow_file_the_workspace_refuses(tmp_path, monkey
     argv = [a for a in _cli(tmp_path, "--scenarios", "shadow", "--work-dir", str(tmp_path / "work"), "--out",
                             str(tmp_path / "out"), shadow_file="REACH_PROBE.txt/x.md") if a != "--dry-run"]
     args = build_parser().parse_args(argv)
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 1
+    assert exc.code == 1
     assert ("✗ the shadow file REACH_PROBE.txt/x.md needs REACH_PROBE.txt, a file of the probe workspace, as a "
             "directory") in capsys.readouterr().err
 
@@ -499,10 +500,10 @@ def _both_modes(tmp_path: Path, capsys, argv: list[str]) -> list[tuple[int, str,
     seen = []
     for run in (argv, [a for a in argv if a != "--dry-run"]):
         args = build_parser().parse_args(run)
-        with pytest.raises(SystemExit) as exc:
+        with refusal() as exc:
             args.func(args)
         out, err = capsys.readouterr()
-        seen.append((exc.value.code, out, err.splitlines()[-1]))
+        seen.append((exc.code, out, err.splitlines()[-1]))
     assert not (tmp_path / "seen.jsonl").exists()  # neither called the harness
     return seen
 
@@ -515,7 +516,7 @@ def test_repo_reach_dry_run_with_every_shadow_path_taken_fails_as_a_run_does(tmp
     for rel in ("CLAUDE.local.md", "sub/CLAUDE.local.md"):  # each shadow path is a tree file: no shadow scenario
         _write(tmp_path / "repo", rel, "# local\n")
     seen = _both_modes(tmp_path, capsys, argv)
-    assert seen[0] == seen[1] == (2, "", "✗ no scenario selected (check --scenarios and --only)")
+    assert seen[0] == seen[1] == (2, "", "Error: no scenario selected (check --scenarios and --only)")
 
 
 def _receipt_link(tmp_path: Path) -> None:
