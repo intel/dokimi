@@ -234,7 +234,10 @@ names it. Warnings never change the exit code. `disable-model-invocation: true` 
 
 A `SKILL.md` with no frontmatter (plain Markdown, often a README under the
 wrong name) does not load. Its finding, `not-a-skill-no-frontmatter`, holds a
-frontmatter block made from the file's H1 and first paragraph to start from,
+frontmatter block to start from: the description is the paragraph after the
+file's H1, and the name is the directory's below the scanned root, where the
+loader checks the name against it (the H1 at the root, or when the directory
+name is not a valid name),
 and the summary line counts these apart from the other errors
 (`3 error, of them 2 plain Markdown with no frontmatter`).
 
