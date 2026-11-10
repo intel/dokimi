@@ -379,26 +379,24 @@ class Scan:
         """A glob is judged like the plain path it generalises (see :meth:`resolve_path`)."""
         template = re.search(r"<[^>]+>|\{[^},]*\}", rel) is not None  # `<run>`: a name to fill in, maybe no instance yet
         pat = posixpath.normpath(re.sub(r"\{[^}]*\}", "*", re.sub(r"<[^>]+>", "*", rel)).rstrip("/"))
-        every = self._every()
+        is_dir = rel.endswith("/")
         for b in bases:
             full = posixpath.normpath(posixpath.join(b, pat))
-            rx = glob_regex(full)
-            hit = next((x for x in every if rx.match(x)), None)
+            hit = self._match(glob_regex(full), is_dir)
             if hit:
                 return "ok", f"glob {full} -> e.g. {hit}"
         parent = posixpath.dirname(pat)
         if parent and not template and not any(c in parent for c in "*?["):  # a literal parent directory
-            if found := self._in_parent(bases, pat, rel.endswith("/")):
+            if found := self._in_parent(bases, pat, is_dir):
                 return found
         if parent:
-            rx = glob_regex("*/" + pat)
-            hit = next((x for x in every if rx.match(x)), None)
+            hit = self._match(glob_regex("*/" + pat), is_dir)
             if hit:
                 return "ok_suffix", f"below a directory the text does not name; e.g. {hit}"
         elif bare := self._bare_glob(pat):
             return bare
         probes = [p for b in bases for p in self._probes(posixpath.normpath(posixpath.join(b, pat)))]
-        return self._missing(probes, rel.endswith("/"),
+        return self._missing(probes, is_dir,
                              f"glob {pat} matches nothing in the tree; a build may create it", "unresolved")
 
     def _in_parent(self, bases: list[str], pat: str, is_dir: bool) -> tuple[str, str] | None:
@@ -416,13 +414,18 @@ class Scan:
                 continue
             if real != d:  # a checkout lists `real` under `d`
                 rx, pre = glob_regex(name), "" if real in ("", ".") else real + "/"  # `real` is literal, no glob
-                hit = next((x for x in self._every() if x.startswith(pre) and rx.match(x[len(pre):])), None)
+                hit = self._match(rx, is_dir, pre)
                 if hit:
                     return "ok", f"glob {full} -> e.g. {posixpath.join(d, posixpath.relpath(hit, real))}"
             below = [posixpath.normpath(posixpath.join(real, n)) for n in self._probes(name)]  # only the name is filled
             probes = self._probes(full) + below
             failed = failed or self._missing(probes, is_dir, f"{d}/ exists but nothing in it matches {name}")
         return failed
+
+    def _match(self, rx: re.Pattern[str], is_dir: bool, pre: str = "") -> str | None:
+        """The first path below ``pre`` whose rest ``rx`` matches; a directory (or link to one) if ``is_dir``."""
+        return next((x for x in self._every() if x.startswith(pre) and rx.match(x[len(pre):])
+                     and (not is_dir or self._is_dir(x))), None)
 
     def _bare_glob(self, pat: str) -> tuple[str, str] | None:
         """``ok_basename`` for a glob of a name alone (``type_dispatch*.hpp``) that names some file or directory."""

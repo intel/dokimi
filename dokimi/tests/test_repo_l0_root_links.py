@@ -44,6 +44,23 @@ def test_a_glob_below_a_link_to_a_wildcard_name_asks_only_that_directory_s_gitig
     assert got[("AGENTS.md", "owner/*.cfg")] == want
 
 
+@pytest.mark.parametrize("link", [True, False], ids=["link", "real-dir"])
+@pytest.mark.parametrize("held, want", [
+    (("f",), ("fail", "owner/ exists but nothing in it matches f*")),
+    (("f", "fdir/y"), ("ok", "glob owner/f* -> e.g. owner/fdir")),
+], ids=["file-only", "file-and-dir"])
+def test_a_glob_with_a_trailing_slash_matches_only_a_directory(tmp_path, link, held, want):
+    """``owner/f*/`` names a directory: the file ``owner/f`` is no match of it, ``owner/fdir/`` is."""
+    real = "src/pkg" if link else "owner"
+    files = {"AGENTS.md": "See `owner/f*/`, `pkg/f*/`.\n", "ev/tasks/t/task.json": "{}", **{f"{real}/{p}": "" for p in held}}
+    got = _by_file(scan_repo(_linked_repo(tmp_path / "r", files, {"owner": real} if link else {}), _manifest()))
+    assert got[("AGENTS.md", "owner/f*/")] == want
+    if link:  # `pkg/f*/` ends the longer path `src/pkg/...`
+        suffix = ("unresolved", "glob pkg/f* matches nothing in the tree; a build may create it")
+        assert got[("AGENTS.md", "pkg/f*/")] == (suffix if len(held) == 1 else ("ok_suffix", "below a directory "
+                                                 "the text does not name; e.g. src/pkg/fdir"))
+
+
 @pytest.mark.parametrize("target", [".", "src/.."])
 def test_a_glob_below_a_root_link_to_the_root_matches_at_the_root(tmp_path, target):
     """``owner -> .`` lists the root under ``owner/``, so ``x.cfg`` there matches ``owner/*.cfg``."""

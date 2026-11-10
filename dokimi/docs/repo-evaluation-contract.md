@@ -1867,7 +1867,7 @@ when its literal parent directory exists there and nothing in it matches
 directory (`type_dispatch*.hpp`), and `unresolved` otherwise (`build/*.o`, `out/<run>/grade.json`). A `<placeholder>`
 or a wildcard in the directory part is never `fail`. A `*` may span
 directories and `**/` matches zero or more. A trailing slash on a file
-(`src/mod.py/`) is `fail`. A GitHub Action reference (`actions/checkout@v6`) is not a
+(`src/mod.py/`) is `fail`, and a glob ending in `/` (`src/m*/`) matches only a directory. A GitHub Action reference (`actions/checkout@v6`) is not a
 path claim. An Action named without its ref (`actions/checkout`, `owner/repo/path`)
 that the tree does not hold at the file's directory or an ancestor is `ok` when a
 job or step uses it as `uses: <name>@<ref>`, in a `.yml` or `.yaml` workflow
