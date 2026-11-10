@@ -201,8 +201,24 @@ def test_cells_directory_missing_in_a_folder_only_ancestor_passes(tmp_path, monk
 
     _access_says_yes(monkeypatch)
     _refuse_new_file(monkeypatch, tmp_path)
-    _check_cells_dir(tmp_path / "cells")
+    _check_cells_dir(tmp_path / "out" / "cells")
     assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize("cells_exist", [False, True])
+def test_existing_out_dir_that_refuses_a_file_exits_2_whether_or_not_cells_exist(tmp_path, monkeypatch, capsys, cells_exist):
+    """Windows: an out dir that lets a folder be made and not a file would fail the rollup after every cell is paid for."""
+    from dokimi.commands.arms import _check_cells_dir
+
+    if cells_exist:
+        (tmp_path / "cells").mkdir()
+    _access_says_yes(monkeypatch)
+    _refuse_new_file(monkeypatch, tmp_path)
+    with pytest.raises(SystemExit) as exit_:
+        _check_cells_dir(tmp_path / "cells")
+    assert exit_.value.code == 2
+    assert capsys.readouterr().err == (
+        f"Error: cannot write {tmp_path / 'cells'}: {tmp_path} is not a writable directory\n")
 
 
 def test_cells_directory_that_takes_the_write_passes_and_nothing_is_made(tmp_path):
