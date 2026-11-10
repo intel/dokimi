@@ -7,7 +7,7 @@ from typing import Any, Dict, List
 
 from dokimi.eval.arm_summary import TOOL_COUNTS
 from dokimi.eval.sign_flip import fmt_small
-from dokimi.records import records
+from dokimi.records import read, records
 
 
 def _md_cell(text: str) -> str:
@@ -249,7 +249,7 @@ def render_arms_report(data: Dict[str, Any]) -> str:
     if not agentic_stats:
         # Backward-compatible fallback for older artifacts.
         fallback: Dict[str, Dict[str, Any]] = {}
-        for rec in records(data.get("answers", []), source="answers", kind="answers"):
+        for rec in read(data, source="arms output", section="answers", required=False):
             for arm_name, answer in rec.answers.items():
                 arm = answer.raw
                 if arm.get("agentic"):
