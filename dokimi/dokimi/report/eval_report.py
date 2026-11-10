@@ -230,7 +230,7 @@ def _write_qa_json(path: str, payload: dict) -> None:
     A payload the schema refuses raises ``ArtifactValidationError``, the payload kept at ``<path>.rejected``.
     """
     try:
-        save_artifact("report_qa", payload, path)
+        save_artifact("report_qa", payload, path, ensure_ascii=False)  # people read it
     except OSError as exc:
         raise RecordError(f"cannot write {path}: {exc.strerror or exc}") from exc
 

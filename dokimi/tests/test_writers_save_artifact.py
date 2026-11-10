@@ -274,6 +274,16 @@ def test_the_report_qa_sidecar_is_a_report_qa_artifact(tmp_path, monkeypatch, ca
     assert _listed(monkeypatch, capsys, tmp_path) == {"reports/lib_full.qa.json": ("report_qa", RUN)}
 
 
+def test_the_sidecar_keeps_non_ascii_text_readable(tmp_path, monkeypatch):
+    """The writer it replaced wrote with ensure_ascii=False: the sidecar is for people to read."""
+    out = tmp_path / "lib_full.md"
+    assert _cli(monkeypatch, "report", "eval", "--product", "lib", "--eval",
+                str(_eval_file(tmp_path, question_text="Как запустить цикл?")), "--out", str(out)) == 0
+    sidecar = tmp_path / "lib_full.qa.json"
+    assert '"question_text": "Как запустить цикл?"' in sidecar.read_text(encoding="utf-8")
+    assert _saved(sidecar, "report_qa")["records"][0]["question_text"] == "Как запустить цикл?"
+
+
 def test_a_question_text_that_is_not_text_reads_as_none_in_the_sidecar(tmp_path, monkeypatch):
     """The sidecar takes the record's text, not the raw value: a bad eval file is not a rejected save."""
     out = tmp_path / "lib_full.md"

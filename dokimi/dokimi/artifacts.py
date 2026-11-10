@@ -229,7 +229,7 @@ def stamp(kind: str, data: dict) -> dict:
     return {**head, **{k: v for k, v in data.items() if k not in head}}
 
 
-def save_artifact(kind: str, data: dict, path: Path | str) -> dict:
+def save_artifact(kind: str, data: dict, path: Path | str, *, ensure_ascii: bool = True) -> dict:
     """Write ``data`` to ``path`` as a ``kind`` artifact; return exactly what was written.
 
     - ``schema_version`` is set to the current version for ``kind`` and leads the document,
@@ -255,7 +255,8 @@ def save_artifact(kind: str, data: dict, path: Path | str) -> dict:
       its target when the target's directory exists; otherwise ``FileNotFoundError`` is raised
       and nothing is written (the target's directories are *not* created). A link loop raises
       ``OSError``. ``<name>.rejected`` stays beside ``path``, not the target.
-    - JSON with ``indent=2``, ASCII-escaped, UTF-8.
+    - JSON with ``indent=2``, UTF-8, ASCII-escaped unless ``ensure_ascii`` is false (a file
+      people read, such as the ``report_qa`` sidecar); either way it parses to the same payload.
     """
     if kind not in SCHEMA_VERSIONS:
         raise KeyError(f"Unknown artifact kind: {kind!r}")
@@ -265,10 +266,11 @@ def save_artifact(kind: str, data: dict, path: Path | str) -> dict:
         head = {"schema_version": SCHEMA_VERSIONS[kind], **envelope(kind)}
     except InputError as exc:  # a malformed DOKIMI_RUN_ID in library use: keep the paid payload
         rejected = path.with_name(path.name + ".rejected")
-        rejected.write_text(json.dumps({"schema_version": SCHEMA_VERSIONS[kind], **data}, indent=2), encoding="utf-8")
+        rejected.write_text(json.dumps({"schema_version": SCHEMA_VERSIONS[kind], **data}, indent=2,
+                                       ensure_ascii=ensure_ascii), encoding="utf-8")
         raise InputError(f"{exc}\n(not written to {path}; payload kept at {rejected})") from exc
     payload = {**head, **{k: v for k, v in data.items() if k not in head}}
-    text = json.dumps(payload, indent=2)
+    text = json.dumps(payload, indent=2, ensure_ascii=ensure_ascii)
     try:
         validate_artifact(kind, payload)
     except ArtifactValidationError as exc:
