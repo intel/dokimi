@@ -33,10 +33,13 @@ def cmd_novelty_ground(args: argparse.Namespace) -> None:
     # the atoms file itself, and a failed write must not leave it truncated.
     tmp = out.with_name(f".{out.name}.{os.getpid()}.tmp")  # own name: two runs do not share it
     try:
-        tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
-        if out.exists():
-            shutil.copymode(out, tmp)  # the rewritten file keeps the mode it had
-        os.replace(tmp, out)
+        try:
+            tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
+            if out.exists():
+                shutil.copymode(out, tmp)  # the rewritten file keeps the mode it had
+            os.replace(tmp, out)
+        except OSError as exc:  # a usage error with one line, as the mkdir above
+            raise InputError(f"cannot write {out}: {exc.strerror or exc}") from None
     finally:
         tmp.unlink(missing_ok=True)
     for check in checks:

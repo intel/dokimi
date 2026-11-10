@@ -455,7 +455,8 @@ def test_novelty_ground_keeps_the_atoms_file_when_the_write_fails(tmp_path, monk
     monkeypatch.setattr(Path, "write_text", failing_write)
     args = argparse.Namespace(atoms=str(atoms_path), out=None, tool=["perf report"],
                               tool_version=None)
-    with pytest.raises(OSError):
+    # A failed write is a usage error with a one-line message, not a traceback.
+    with pytest.raises(InputError, match="cannot write"):
         novelty_ground.cmd_novelty_ground(args)
     assert atoms_path.read_bytes() == before
 
