@@ -14,6 +14,7 @@ import pytest
 from dokimi.cli import build_parser
 from dokimi.repos.compare import compare
 from dokimi.repos.ledger import KEEP, REVIEW, INSUFFICIENT, LedgerError, evaluate, format_ledger, load_ledger
+from tests.cli_refusal import refusal
 
 TODAY = date(2026, 10, 31)
 BASE, ARM = "guidance:none", "guidance:rules"
@@ -303,9 +304,9 @@ def test_a_bad_ledger_exits_with_usage_error(tmp_path, capsys):
     batch = _gate_batch(tmp_path, {"t1": (False, True)})
     path = _ledger(tmp_path / "ledger.json", [_rule("R1", ["t1"], reviewed="2026-02-30")])
     args = build_parser().parse_args(["repo", "compare", str(batch), "--baseline", BASE, "--ledger", str(path)])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2
+    assert exc.code == 2
     assert "R1" in capsys.readouterr().err
 
 
@@ -334,9 +335,9 @@ def test_a_linked_case_that_does_not_pair_is_named_on_the_rule(tmp_path):
 def test_an_empty_ledger_path_is_refused_not_ignored(tmp_path, capsys):
     batch = _gate_batch(tmp_path, {"t1": (False, True)})
     args = build_parser().parse_args(["repo", "compare", str(batch), "--baseline", BASE, "--ledger", ""])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2
+    assert exc.code == 2
 
 
 def test_a_model_whose_linked_cases_do_not_pair_is_named_when_others_pair(tmp_path):
@@ -603,9 +604,9 @@ def test_a_rule_whose_arm_also_selects_its_baseline_cells_exits_2_not_a_verdict(
     path = _ledger(tmp_path / "ledger.json", [_rule("R1", tasks, arm=arm, baseline=baseline)])
     args = build_parser().parse_args(["repo", "compare", str(tmp_path / "before"), str(tmp_path / "after"),
                                       "--baseline", BASE, "--ledger", str(path)])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2
+    assert exc.code == 2
     assert "R1" in (err := capsys.readouterr().err) and "ledger.json" in err and "also selects" in err
 
 

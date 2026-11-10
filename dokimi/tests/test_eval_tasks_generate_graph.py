@@ -559,10 +559,10 @@ def test_cli_exits_2_on_a_usage_error(tmp_path, capsys, pinned, index, error):
 def test_cli_exits_1_when_no_target_gives_a_task(tmp_path, capsys):
     root, _ = _toy(tmp_path)
     (tmp_path / "index.scip").write_bytes(scip_index(document("src/core.py")))
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         _run(["eval", "tasks", "generate", f"{root}@HEAD", "--from", "graph", "--index",
               str(tmp_path / "index.scip"), "--out", str(tmp_path / "tasks")])
-    assert exc.value.code == 1 and "no target of the index" in capsys.readouterr().err
+    assert exc.code == 1 and "no target of the index" in capsys.readouterr().err
 
 
 # ------------------------------------------------------------------ review round 2 (PR #399)
@@ -609,10 +609,10 @@ def test_a_bare_name_of_a_distinct_function_is_a_false_positive(tmp_path):
 def test_an_unreadable_index_exits_2_before_the_source_is_resolved(tmp_path, capsys):
     root, _ = _toy(tmp_path)
     (tmp_path / "index.scip").write_bytes(b"\xff\xff\xff")
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         _run(["eval", "tasks", "generate", f"{root}@nonexistent", "--from", "graph",
               "--index", str(tmp_path / "index.scip"), "--out", str(tmp_path / "tasks")])
-    assert exc.value.code == 2 and "cannot read the code index" in capsys.readouterr().err
+    assert exc.code == 2 and "cannot read the code index" in capsys.readouterr().err
 
 
 def test_an_over_qualified_answer_names_the_longest_known_item(tmp_path):

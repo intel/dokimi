@@ -38,8 +38,7 @@ def _refuse_judge_sampling(args: argparse.Namespace) -> None:
     try:
         check_sampling(provider, getattr(args, "judge_temperature", None), None)
     except SamplingError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError(str(exc)) from exc
     check_bedrock_model(provider, args.judge_model)
 
 
@@ -262,8 +261,7 @@ def cmd_benchmark_preflight(args: argparse.Namespace) -> None:
     try:
         entry = registry.get(args.library)
     except KeyError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError(str(exc)) from exc
 
     plan = _resolved_benchmark_plan(entry, args)
     _print_plan(plan)
@@ -329,8 +327,7 @@ def cmd_benchmark_run(args: argparse.Namespace) -> None:
     try:
         entry = registry.get(args.library)
     except KeyError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError(str(exc)) from exc
 
     output_dir = args.output_dir or f"results/{entry.key}{DEFAULT_RESULTS_SUFFIX}"
     n_runs = getattr(args, "multi_run", 1)
@@ -341,8 +338,7 @@ def cmd_benchmark_run(args: argparse.Namespace) -> None:
     if questions_from:
         _, _, problem = _check_questions_from(questions_from, entry.key)
         if problem:
-            print(f"Error: {problem}", file=sys.stderr)
-            sys.exit(EXIT_USAGE)
+            raise InputError(f"{problem}")
 
     if n_runs == 1:
         _run_single_library(
@@ -420,8 +416,7 @@ def cmd_benchmark_batch(args: argparse.Namespace) -> None:
                 print(f"Warning: {exc}", file=sys.stderr)
 
     if not entries:
-        print("No libraries to run.", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError("No libraries to run.")
 
     print(f"Batch run: {len(entries)} libraries → {args.output_dir}")
     results = []
