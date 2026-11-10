@@ -169,13 +169,25 @@ def _binds(node: ast.stmt) -> set[str]:
     if isinstance(node, (ast.Import, ast.ImportFrom)):
         return {(a.asname or a.name).split(".")[0] for a in node.names}
     names = {n.id for n in ast.walk(node) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store)}
-    if isinstance(node, ast.Expr) and isinstance(node.value, ast.Call) and isinstance(node.value.func, ast.Attribute):
-        base = node.value.func.value
-        while isinstance(base, ast.Attribute):
-            base = base.value
-        if isinstance(base, ast.Name):
-            names.add(base.id)
+    # a store into an object or a list (``CASES['k'] = ...``, ``CFG.flag = ...``) and a method call that fills one
+    # (``EXPECTED.append(...)``), in the statement or in a block it holds (a ``for`` loop, an ``if``)
+    for sub in ast.walk(node):
+        if isinstance(sub, (ast.Assign, ast.AugAssign, ast.AnnAssign)):
+            targets = sub.targets if isinstance(sub, ast.Assign) else [sub.target]
+            roots = [_root_name(t) for t in targets if isinstance(t, (ast.Attribute, ast.Subscript))]
+        elif isinstance(sub, ast.Expr) and isinstance(sub.value, ast.Call) and isinstance(sub.value.func, ast.Attribute):
+            roots = [_root_name(sub.value.func.value)]
+        else:
+            continue
+        names |= {root for root in roots if root}
     return names
+
+
+def _root_name(node: ast.expr) -> str | None:
+    """The name at the root of an attribute or subscript chain: ``CFG`` in ``CFG.a.b`` and in ``CASES['k']``."""
+    while isinstance(node, (ast.Attribute, ast.Subscript)):
+        node = node.value
+    return node.id if isinstance(node, ast.Name) else None
 
 
 _Stmt = tuple[set[str], set[str], str, bool]  # the names a module-level statement binds and reads, its source, and

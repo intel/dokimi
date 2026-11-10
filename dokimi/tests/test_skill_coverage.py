@@ -259,6 +259,21 @@ def test_a_module_statement_that_mutates_a_name_the_test_reads_is_part_of_its_ch
     assert any("EXPECTED.append('-y')" in c.source for c in checks)
 
 
+@pytest.mark.parametrize("setup, read", [
+    ("CASES = {}\nCASES['k'] = '{flag}'\n", "assert answer == CASES['k']"),  # a subscript store
+    ("class Cfg:\n    flag = None\n\nCFG = Cfg()\nCFG.flag = '{flag}'\n", "assert answer == CFG.flag"),  # an attribute store
+    ("EXPECTED = []\nfor f in ['{flag}']:\n    EXPECTED.append(f)\n", "assert answer in EXPECTED"),  # a loop that fills it
+])
+def test_a_module_statement_that_stores_into_a_name_the_test_reads_is_part_of_its_check(tmp_path, setup, read):
+    root = tmp_path / "tasks"
+    for task, flag in (("t1", "-x"), ("t2", "-y")):  # the test is the same; the module code decides its value
+        _task(root, task, {"test_answer.py": setup.replace("{flag}", flag) + f"\ndef test_answer(answer):\n    {read}\n"})
+    checks = sc.load_checks(root)
+    assert sorted(c.name for c in checks) == ["test_answer#1", "test_answer#2"]
+    assert any("'-x'" in c.source and "'-y'" not in c.source for c in checks)
+    assert any("'-y'" in c.source and "'-x'" not in c.source for c in checks)
+
+
 def test_an_autouse_fixture_is_part_of_every_check_in_its_folder(tmp_path):
     root = tmp_path / "tasks"  # the test does not name the fixture: pytest runs it anyway
     for task, flag in (("t1", "-x"), ("t2", "-y")):
