@@ -645,6 +645,10 @@ def test_the_suffix_is_matched_in_any_case(tmp_path):
     b"X=1 Y=2 shopt -s extglob",
     b">/dev/null shopt -s extglob",
     b"2>/dev/null shopt -s extglob",
+    b"> /dev/null shopt -s extglob",
+    b"2>&1 shopt -s extglob",
+    b">&2 shopt -s extglob",
+    b"X=1 command shopt -s extglob",
 ])
 @needs_bash
 def test_a_shopt_extglob_after_an_assignment_or_redirection_is_valid_under_real_bash(tmp_path, line, no_linters):
@@ -653,13 +657,20 @@ def test_a_shopt_extglob_after_an_assignment_or_redirection_is_valid_under_real_
     assert _reviews_by_name(tmp_path)["bundled"].findings == []
 
 
-@pytest.mark.parametrize("sep", [b"';'", b"'&'", b"'('", b'";"'])
+@pytest.mark.parametrize("sep", [b"';'", b"'&'", b"'('", b'";"', b"')'", b"'>'", b"'<'", b"'{'", b"'!'"])
 @needs_bash
 def test_a_quoted_separator_is_not_a_command_boundary_under_real_bash(tmp_path, sep, no_linters):
     _bundle(tmp_path, {"run.sh": b"#!/bin/bash\necho " + sep + b"shopt -s extglob\ncase x in +(a|b)) : ;; esac\n"})
 
     review = _reviews_by_name(tmp_path)["bundled"]
     assert _codes(review) == ["script-syntax"]
+
+
+@needs_bash
+def test_a_redirection_to_a_file_named_shopt_does_not_turn_extglob_on_under_real_bash(tmp_path, no_linters):
+    _bundle(tmp_path, {"run.sh": b"#!/bin/bash\n> shopt -s extglob\ncase x in +(a|b)) : ;; esac\n"})
+
+    assert _codes(_reviews_by_name(tmp_path)["bundled"]) == ["script-syntax"]
 
 
 @pytest.mark.parametrize("arith", [
