@@ -282,7 +282,7 @@ class Scan:
         bases = ancestors(file)
         head, _, rest = p.partition("/")
         if rest and _PLACEHOLDER.match(head):
-            return self._under_placeholder(head, rest.rstrip("/"))
+            return self._under_placeholder(head, rest)
         if p.startswith("/"):  # root-relative, as GitHub renders it
             bases = [""]
         elif self._cd is not None:  # in a shell fence after `cd`: relative to that directory only
@@ -496,10 +496,11 @@ class Scan:
 
     def _under_placeholder(self, head: str, rest: str) -> tuple[str, str]:
         """A path such as ``<out>/reach.json`` or ``{run_dir}/grade.json``: its root is not in the tree."""
-        pat = re.sub(r"\{[^}]*\}", "*", re.sub(r"<[^>]+>", "*", rest))
+        pat = re.sub(r"\{[^}]*\}", "*", re.sub(r"<[^>]+>", "*", rest.rstrip("/")))
         rx = re.compile(fnmatch.translate(pat))
         sub = re.compile(fnmatch.translate("*/" + pat))
-        hit = next((x for x in self._every() if rx.match(x) or sub.match(x)), None)
+        hit = next((x for x in self._every() if (rx.match(x) or sub.match(x))
+                    and (not rest.endswith("/") or self._is_dir(x))), None)
         if hit:
             return "ok", f"{head} stands for a directory; {pat} matches {hit}"
         return "unresolved", f"{head} stands for a directory outside the tree; nothing to check {pat} against"

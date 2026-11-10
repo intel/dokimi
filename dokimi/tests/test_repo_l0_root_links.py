@@ -71,6 +71,19 @@ def test_a_bare_glob_with_a_trailing_slash_matches_only_a_directory_name(tmp_pat
     assert _by_file(scan_repo(_linked_repo(tmp_path / "r", files, {}), _manifest()))[("AGENTS.md", "f*/")] == want
 
 
+@pytest.mark.parametrize("claim, held, hit", [
+    ("<out>/f*/", ("f",), None), ("<out>/f*/", ("f", "fdir/y"), "src/fdir"),
+    ("<out>/f/", ("f",), None), ("<out>/f/", ("f/y",), "src/f"),
+], ids=["glob-file", "glob-file-and-dir", "name-file", "name-dir"])
+def test_a_path_below_a_placeholder_with_a_trailing_slash_matches_only_a_directory(tmp_path, claim, held, hit):
+    """``<out>/f*/`` names a directory: the file ``src/f`` is no match of it, ``src/fdir/`` is."""
+    files = {"AGENTS.md": f"See `{claim}`.\n", "ev/tasks/t/task.json": "{}", **{f"src/{p}": "" for p in held}}
+    pat = claim[6:-1]
+    want = (("ok", f"<out> stands for a directory; {pat} matches {hit}") if hit else
+            ("unresolved", f"<out> stands for a directory outside the tree; nothing to check {pat} against"))
+    assert _by_file(scan_repo(_linked_repo(tmp_path / "r", files, {}), _manifest()))[("AGENTS.md", claim)] == want
+
+
 @pytest.mark.parametrize("target", [".", "src/.."])
 def test_a_glob_below_a_root_link_to_the_root_matches_at_the_root(tmp_path, target):
     """``owner -> .`` lists the root under ``owner/``, so ``x.cfg`` there matches ``owner/*.cfg``."""
