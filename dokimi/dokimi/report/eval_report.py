@@ -520,7 +520,7 @@ def generate_report(eval_path: str, out_path: str, qa_json_out: str | None = Non
         a = answers_by_id.get(e.key)
         qa_records.append({
             "question_id": e.question_id,
-            "question_text": e.question_text or e.raw.get("question_text"),
+            "question_text": e.question_text or None,
             "difficulty": e.difficulty,
             "source": "static" if static_prefix and e.key.startswith(static_prefix) else "dynamic",
             "with_docs_score": e.score(CONTEXT),

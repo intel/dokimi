@@ -260,12 +260,25 @@ def test_the_report_qa_sidecar_is_a_report_qa_artifact(tmp_path, monkeypatch, ca
     assert _listed(monkeypatch, capsys, tmp_path) == {"reports/lib_full.qa.json": ("report_qa", RUN)}
 
 
-def test_a_sidecar_the_schema_refuses_is_kept_as_rejected_and_exits_1(tmp_path, monkeypatch, capsys):
-    """An eval record whose question_text is not text is copied into the sidecar as it is."""
+def test_a_question_text_that_is_not_text_reads_as_none_in_the_sidecar(tmp_path, monkeypatch):
+    """The sidecar takes the record's text, not the raw value: a bad eval file is not a rejected save."""
     out = tmp_path / "lib_full.md"
     assert _cli(monkeypatch, "report", "eval", "--product", "lib", "--eval",
-                str(_eval_file(tmp_path, question_text=5)), "--out", str(out)) == 1
+                str(_eval_file(tmp_path, question_text=5)), "--out", str(out)) == 0
+    assert _saved(tmp_path / "lib_full.qa.json", "report_qa")["records"][0]["question_text"] is None
 
-    assert _rejected(tmp_path / "lib_full.qa.json")["records"][0]["question_text"] == 5
+
+def test_a_sidecar_the_schema_refuses_is_kept_as_rejected_and_exits_1(tmp_path, monkeypatch, capsys):
+    """An answer that is not text (a writer bug) is refused; the markdown report is already written."""
+    from dokimi.report import eval_report
+
+    answer = SimpleNamespace(answer=lambda _condition: SimpleNamespace(text=7))
+    monkeypatch.setattr(eval_report, "_answers_by_id", lambda _path: {"q1": answer})
+    out = tmp_path / "lib_full.md"
+    assert _cli(monkeypatch, "report", "eval", "--product", "lib", "--eval", str(_eval_file(tmp_path)),
+                "--out", str(out)) == 1
+
+    assert out.exists()
+    assert _rejected(tmp_path / "lib_full.qa.json")["records"][0]["with_docs_answer"] == 7
     err = capsys.readouterr().err
-    assert err.startswith("Error: report_qa artifact rejected: ") and "records/0/question_text" in err
+    assert err.startswith("Error: report_qa artifact rejected: ") and "records/0/with_docs_answer" in err
