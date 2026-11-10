@@ -197,3 +197,22 @@ def test_a_cjk_skill_with_a_native_cue_gets_no_warning_end_to_end(tmp_path):
     )
     [review] = review_skills(read_skill_manifest(tmp_path))
     assert "description-no-when" not in [f.code for f in review.findings]
+
+
+@pytest.mark.parametrize(
+    "description",
+    [
+        pytest.param("يساعد في كتابة ملاحظات الإصدار من السجل.", id="arabic"),
+        pytest.param("ช่วยเขียนบันทึกการเผยแพร่จากประวัติ", id="thai"),
+        pytest.param("מסייע בכתיבת הערות שחרור מתוך היסטוריית הקוד.", id="hebrew"),
+    ],
+)
+def test_a_script_no_cue_list_covers_gets_no_warning_end_to_end(tmp_path, description):
+    skill_dir = tmp_path / "skills" / "release"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        f"---\nname: release\ndescription: {description}\n---\n# Body\n",
+        encoding="utf-8",
+    )
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert "description-no-when" not in [f.code for f in review.findings]
