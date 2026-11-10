@@ -365,15 +365,10 @@ def identifier_names(check: Mapping[str, Any], answer: str) -> tuple[Optional[li
     # Both scans share one deadline, as the regex check does: a pathological pattern is unscored.
     deadline = time.monotonic() + REGEX_TIMEOUT
     try:
-        if within:
-            # A mention the answer negates or warns against (``do not use --x``) is no claim to veto.
-            scopes = [m.group(0) for m in regex.finditer(str(within), answer, timeout=_left(deadline))
-                      if not _negated_before(answer, m.start())]
-        else:
-            scopes = [answer]
+        scopes = scope_pairs(str(within), answer, timeout=_left(deadline)) if within else [(answer, "")]
         unknown: list[str] = []
-        for scope in scopes:
-            for name in scope_options(pattern, scope, timeout=_left(deadline), negated=bool(within)):
+        for scope, rest in scopes:
+            for name in scope_options(pattern, scope, timeout=_left(deadline), negated=bool(within), rest=rest):
                 if name in known or (check.get("negations", False) and name.startswith("--no-")
                                      and "--" + name[5:] in known):
                     continue
@@ -386,7 +381,21 @@ def identifier_names(check: Mapping[str, Any], answer: str) -> tuple[Optional[li
     return unknown, bool(scopes)
 
 
+def scope_pairs(within: str, answer: str, *, timeout: float) -> list[tuple[str, str]]:
+    """The ``within`` scopes of ``answer`` that no negation before them makes no claim, each with the answer's text after it.
+
+    A mention the answer negates or warns against (``do not use --x``) is no claim to veto. The text
+    after a scope is kept too: a denial may follow a code span that ends the scope ("`--x` does not exist").
+    """
+    return [(m.group(0), answer[m.end():]) for m in regex.finditer(within, answer, timeout=timeout)
+            if not _negated_before(answer, m.start())]
+
+
 _NEGATED = re.compile(r"(?i)\bnot\b|n't\b|\bnever\b|\bno\b|\bavoid\w*|\bwithout\b|\binstead of\b|\brather than\b")
+#: An existence denial right after a flag, in its code span or not, denies it: only these two phrases, on one
+#: line; other words after a flag leave its claim standing.
+_DENIED_AFTER = re.compile(
+    r"""[ \t`'"*)]*(?:does[ \t]+not[ \t]+exist|is[ \t]+not[ \t]+an[ \t]+option)(?![\w-])""", re.IGNORECASE)
 #: An option with an assigned value (``--input=--stdin``): the value is a file name, not an option.
 _ASSIGNED = re.compile(r"""(?<![\w-])(--[A-Za-z][\w-]*)=(?:"[^"\n]*"|'[^'\n]*'|[^\s,;|&]+)""")
 #: A standalone ``--`` ends the options of a command: the words after it, up to the end of the
@@ -410,14 +419,15 @@ def _negated_before(answer: str, start: int) -> bool:
     return _NEGATED.search(clause) is not None
 
 
-def scope_options(pattern: str, scope: str, *, timeout: float, negated: bool) -> list[str]:
+def scope_options(pattern: str, scope: str, *, timeout: float, negated: bool, rest: str = "") -> list[str]:
     """The option names ``pattern`` finds in ``scope``, in order.
 
     With the default pattern, an assigned value names no option (``--input=--stdin`` names
     ``--input`` only), and so does the value a flag takes (``--input "no --stdin"`` names ``--input``);
     a custom pattern reads the text as written, its groups may take a value. With
     ``negated``, a mention that the clause before it negates names none (``run --stdio, not
-    --stdin``): a command's scope is judged mention by mention, not only by the words before it.
+    --stdin``), and so does one that ``does not exist`` or ``is not an option`` denies right after it:
+    a command's scope is judged mention by mention, not only by the words before it.
     Both the veto and the key verification read a claim through this one scan.
     """
     def blank(m: regex.Match) -> str:  # keeps group 1, blanks the rest: same length as the scope
@@ -434,7 +444,9 @@ def scope_options(pattern: str, scope: str, *, timeout: float, negated: bool) ->
         text = clause
     names = []
     for m in regex.finditer(pattern, text, timeout=timeout):
-        if negated and _negated_before(clause, m.start()):
+        # The denial is read in the text as written (the clause above blanks the words after a flag), and past
+        # the scope when a code span ends it: ``rest`` is the answer after the scope.
+        if negated and (_negated_before(clause, m.start()) or _DENIED_AFTER.match(scope + rest, m.end())):
             continue
         # The first group is unset when another alternative of the pattern matched.
         name = (m.group(1) if m.groups() and m.group(1) is not None else m.group(0))

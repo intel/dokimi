@@ -185,6 +185,14 @@ def test_verify_keys_flags_a_claim_naming_an_option_the_help_lacks():
     assert "meta" not in atoms[3]
 
 
+def test_verify_keys_does_not_verify_a_key_whose_only_option_is_denied():
+    # The key denies the flag it names: the veto passes it, and the denied flag is no name the key checks.
+    atoms = [{"statement": "No such flag", "answer": "`perf report --stdin` does not exist.",
+              "meta": {"grading": {"checks": [_veto()]}}}]
+    assert verify_keys(atoms) == {"verified": 0, "not_found": 0, "unverifiable": 1}
+    assert atoms[0]["meta"]["key_status"] == {"status": "unverifiable"}
+
+
 def test_identifiers_scan_is_bounded_by_the_regex_timeout(monkeypatch):
     # The scan of ``within`` and ``pattern`` runs under REGEX_TIMEOUT, like a regex check: a
     # pathological pattern is left unscored instead of stalling a measurement worker.
@@ -302,6 +310,20 @@ def test_an_affirmative_not_only_or_no_problem_does_not_hide_an_invented_flag():
     # A negation before a colon still negates what follows it.
     assert grade_check(check, "q", "There is no such option: perf report --stdin", None).passed is True
     assert grade_check(check, "q", "Never run this: perf report --stdin", None).passed is True
+
+
+def test_an_existence_denial_right_after_a_flag_is_no_claim_of_it():
+    # "does not exist" and "is not an option" right after the flag deny it: that answer is correct.
+    check = _veto()
+    assert grade_check(check, "q", "perf report --stdin does not exist.", None).passed is True
+    assert grade_check(check, "q", "perf report --stdin is not an option.", None).passed is True
+    # The usual markdown form: the flag is in a code span, the denial is after it.
+    assert grade_check(check, "q", "`perf report --stdin` does not exist.", None).passed is True
+    # Other words after the flag leave its claim standing, and so does a second invented flag.
+    assert grade_check(check, "q", "perf report --stdin is deprecated.", None).passed is False
+    assert grade_check(check, "q", "perf report --stdin does not work.", None).passed is False
+    assert grade_check(check, "q", "perf report --stdin does not exist, but perf report --stdin2 works.",
+                       None).passed is False
 
 
 def test_help_text_accepts_a_help_whose_only_options_are_bracketed_negations(tmp_path):

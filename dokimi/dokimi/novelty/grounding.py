@@ -19,10 +19,8 @@ import hashlib
 import re
 import shlex
 
-import regex
-
-from dokimi.eval.reference_checks import (LONG_FLAG, REGEX_TIMEOUT, _negated_before, grade_check,
-                                          identifier_names, scope_options)
+from dokimi.eval.reference_checks import (LONG_FLAG, REGEX_TIMEOUT, grade_check, identifier_names,
+                                          scope_options, scope_pairs)
 from dokimi.process import Env, run
 from dokimi.utils import InputError
 
@@ -186,11 +184,10 @@ def _key_names(check: dict, key: str) -> list[str]:
     pattern = str(check.get("pattern") or LONG_FLAG)
     within = check.get("within")
     try:
-        scopes = ([m.group(0) for m in regex.finditer(str(within), key, timeout=REGEX_TIMEOUT)
-                   if not _negated_before(key, m.start())] if within else [key])
+        scopes = scope_pairs(str(within), key, timeout=REGEX_TIMEOUT) if within else [(key, "")]
         names: list[str] = []
-        for scope in scopes:
-            names += scope_options(pattern, scope, timeout=REGEX_TIMEOUT, negated=bool(within))
+        for scope, rest in scopes:
+            names += scope_options(pattern, scope, timeout=REGEX_TIMEOUT, negated=bool(within), rest=rest)
     except TimeoutError:
         return []
     return names
