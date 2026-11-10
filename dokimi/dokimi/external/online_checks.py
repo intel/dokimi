@@ -305,7 +305,8 @@ def _list_end(tokens: list[str], start: int, end: int) -> int:
     return end
 
 
-_PIP_OTHER_INDEX = {"-i", "--index-url", "--extra-index-url", "--no-index", "-f", "--find-links"}
+_PIP_OTHER_INDEX = {"-i", "--index-url", "--extra-index-url", "--no-index", "-f", "--find-links",
+                    "--index", "--default-index"}  # uv pip's index options
 _NPM_OTHER_REGISTRY = {"--registry"}
 
 

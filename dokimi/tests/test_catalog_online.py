@@ -836,6 +836,7 @@ def test_a_package_from_another_index_or_registry_is_not_looked_up_on_the_public
 def test_npx_with_a_registry_and_an_attached_pip_index_name_another_index_too():
     assert online_checks.extract_packages("npx --registry https://npm.corp.example/ corp-tool") == []
     assert online_checks.extract_packages("pip install -ihttps://corp/simple corp-pkg") == []
+    assert online_checks.extract_packages("uv pip install --index https://corp/simple corp-pkg\n") == []
 
 
 def test_a_url_in_a_code_fence_is_an_example_not_a_link_a_reader_follows():
