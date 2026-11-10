@@ -9,6 +9,7 @@ Covers an unreadable or malformed eval file, saved baseline or manifest.
 from __future__ import annotations
 
 import json
+import os
 
 import pytest
 
@@ -54,9 +55,11 @@ def test_save_exits_2_on_an_invalid_eval_file(run, tmp_path, capsys, content):
 def test_a_non_object_eval_file_is_reported_by_its_json_type(run, tmp_path, capsys, content, type_name):
     bad = tmp_path / "bad.json"
     bad.write_text(content, encoding="utf-8")
-    with pytest.raises(SystemExit):
+    with refusal() as exc:
         run("save", "--from-eval", str(bad), "--name", "b")
-    assert f"got {type_name}" in capsys.readouterr().err
+    assert exc.code == 2
+    err = capsys.readouterr().err
+    assert err.startswith("Error: ") and f"got {type_name}" in err
 
 
 def test_save_exits_2_on_an_eval_file_that_is_not_utf8(run, tmp_path, capsys):
@@ -66,6 +69,14 @@ def test_save_exits_2_on_an_eval_file_that_is_not_utf8(run, tmp_path, capsys):
         run("save", "--from-eval", str(bad), "--name", "b")
     assert exc.code == 2
     assert str(bad) in capsys.readouterr().err
+
+
+@pytest.mark.skipif(not os.path.exists("/dev/null"), reason="needs a character device")
+def test_save_exits_2_on_a_device_given_as_the_eval_file(run, capsys):
+    with refusal() as exc:
+        run("save", "--from-eval", "/dev/null", "--name", "b")
+    assert exc.code == 2
+    assert "/dev/null: not a file" in capsys.readouterr().err
 
 
 def test_save_exits_2_on_a_directory_given_as_the_eval_file(run, tmp_path, capsys):
