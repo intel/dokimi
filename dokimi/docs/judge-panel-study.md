@@ -23,7 +23,7 @@ The original judge is the most lenient of the eight, so the published lenient ad
 at the low end of the panel. Nemotron-12b is first and opus-5 last under every judge (placebo-gated, lenient); the middle
 ranks change. Majority, median
 and Dawid-Skene agree on 99.3% of rows. Three judges from three families agree with the
-full panel on 96.6% of rows (one judge: 94.1%); the second judge gives most of the drop in spread. A newer generation of the same judge (section 6) is about as
+full panel on 96.6% of rows (one judge: 94.1%); the second judge gives the largest single drop in the SD of the gated added share across judge subsets (0.039 to 0.026; the range only falls from 0.115 to 0.105). A newer generation of the same judge (section 6) is about as
 different as another vendor: κ 0.61–0.72, and up to 0.15 on one added share.
 
 ## Setup
