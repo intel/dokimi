@@ -139,7 +139,7 @@ def test_json_has_the_vocabulary_fields_and_every_count(monkeypatch, capsys, fil
     data = doc["data"]
 
     assert (doc["summary"]["shown"], doc["summary"]["total"]) == (1, 4)
-    assert doc["status"] == "partial" and doc["reason"] == "1 entries under the root could not be read"  # broken.json
+    assert doc["status"] == "partial" and doc["reason"] == "1 entry under the root could not be read"  # broken.json
     assert data["artifacts"] == [{
         "schema_version": "arms.v1", "kind": "arms", "run_id": "r-arms", "subject": "onetbb",
         "model": "m", "generated_at": "2026-10-29T14:02:00Z", "path": "arms/onetbb.json",

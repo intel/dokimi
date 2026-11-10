@@ -106,7 +106,7 @@ def _unreadable_status(unreadable: list) -> dict:
     """``partial`` and its reason when entries under the root could not be read; the exit code stays 0."""
     if not unreadable:
         return {}
-    return {"status": "partial", "reason": f"{len(unreadable)} entries under the root could not be read"}
+    return {"status": "partial", "reason": f"{_count(len(unreadable), 'entry', 'entries')} under the root could not be read"}
 
 
 def cmd_runs_list(args: argparse.Namespace) -> None:
