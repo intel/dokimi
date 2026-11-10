@@ -60,6 +60,7 @@ def test_plain_markdown_gets_a_frontmatter_hint(tmp_path):
         (["﻿# Tool: run it!", "```", "not this", "```", "Real text."], "tool-run-it", "Real text."),
         (["Intro line with no heading."], "dir-name", "Intro line with no heading."),
         (["# 2048", "", "Play it."], "2048", "Play it."),  # quoted, or YAML reads a number
+        (["# 2026-02-30", "", "Notes."], "2026-02-30", "Notes."),  # quoted, or YAML reads an invalid date
         (["````", "```", "# Example", "Example prose.", "````", "# Real Title", "Real text."],
          "real-title", "Real text."),  # a shorter fence run does not close a four-backtick one
         (["# Q", "> Master it."], "q", "Master it."),
@@ -70,6 +71,11 @@ def test_plain_markdown_gets_a_frontmatter_hint(tmp_path):
 def test_the_hint_block_is_valid_yaml(lines, name, description):
     finding = no_frontmatter_message(lines, "Dir_Name")
     assert _block(finding) == {"name": name, "description": description}
+
+
+def test_a_directory_named_as_an_invalid_date_gives_a_valid_block():
+    finding = no_frontmatter_message(["Intro line with no heading."], "2026-02-30")
+    assert _block(finding) == {"name": "2026-02-30", "description": "Intro line with no heading."}
 
 
 def test_a_long_first_paragraph_is_cut_at_a_word():

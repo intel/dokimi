@@ -15,8 +15,6 @@ from __future__ import annotations
 import json
 import re
 
-import yaml
-
 from dokimi.external.skill_markdown import outside_fences
 
 NO_FRONTMATTER = "not-a-skill-no-frontmatter"
@@ -33,7 +31,8 @@ def no_frontmatter_message(lines: list[str], dir_name: str) -> str:
     """
     title = ""
     paragraph: list[str] = []
-    for line in outside_fences("\n".join(lines)):  # CommonMark fences: a shorter or other marker does not close one
+    # CommonMark fences: a shorter run or another marker does not close one
+    for line in outside_fences("\n".join(lines)):
         stripped = line.strip().lstrip("\ufeff")
         if not title and stripped.startswith("# "):
             title = stripped[2:].strip()
@@ -52,8 +51,8 @@ def no_frontmatter_message(lines: list[str], dir_name: str) -> str:
     if len(description) > DESCRIPTION_HINT_MAX:
         description = description[:DESCRIPTION_HINT_MAX].rsplit(" ", 1)[0] + " ..."
     description = description or f"What {name} does. Use when ..."
-    # A name such as "2048" or "yes" reads back as a number or a bool: quote it then.
-    name_text = name if isinstance(yaml.safe_load(name), str) else json.dumps(name)
+    # Always quoted: YAML reads a name such as "2048", "yes" or "2026-02-30" as a number, a bool or a date.
+    name_text = json.dumps(name)
     block = f"---\nname: {name_text}\ndescription: {json.dumps(description, ensure_ascii=False)}\n---"
     return (
         "plain Markdown with no frontmatter: no harness offers it as a skill. To make it one, start "
