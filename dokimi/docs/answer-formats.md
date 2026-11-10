@@ -63,8 +63,9 @@ question is `<testIdx>` when the config has one prompt and
 | `identifiers` | Every long option the answer names (`--x`, or the `pattern`, inside `within`) is in `known`. An answer that names no option passes, since the check only rules names out. Not `sufficient`: a `sufficient` identifiers check is refused. | None: built from a tool's `--help` by `skill novelty ground`, for novelty probes |
 
 `role` (`veto`, `sufficient`, `evidence`) and `tier` are read by novelty probes only, as
-[grading-tiers](grading-tiers.md) describes. `eval score reference` ignores `role`, so a `veto`
-there passes an answer like any other check.
+[grading-tiers](grading-tiers.md) describes. `eval score reference` does not use `role` to score,
+so a `veto` there passes an answer like any other check. It does refuse a `sufficient`
+identifiers check, as a problem of the grading block.
 
 A blank value is not a check. A `match` value that is blank once the check has
 normalised it (stripped, and with `ignore_punctuation` on, `...` too), or an
