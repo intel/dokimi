@@ -127,6 +127,15 @@ def test_the_summary_counts_plain_markdown_apart(tmp_path, capsys, per_skill):
     assert "1 error, of them 1 plain Markdown with no frontmatter" in out
 
 
+def test_the_text_row_keeps_the_hint_block_in_its_row(tmp_path, capsys):
+    _plain(tmp_path, "plain", "# Plain\n\nNotes.\n")
+    main(["catalog", "check", "--root", str(tmp_path), "--kind", "skills"])
+    lines = capsys.readouterr().out.splitlines()
+    # The block's lines are indented under the row, so a corpus scan reads row by row.
+    assert not [line for line in lines if line.startswith(("---", "name:", "description:"))]
+    assert "    ---" in lines
+
+
 def test_ignoring_the_code_is_refused(tmp_path, capsys):
     _plain(tmp_path, "plain", "# Plain\n")
     with pytest.raises(InputError, match="not-a-skill-no-frontmatter"):

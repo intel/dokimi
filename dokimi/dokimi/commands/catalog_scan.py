@@ -92,17 +92,22 @@ def _outputs(jsonl: Optional[Path]) -> tuple[Path, ...]:
     return (out, out.with_name(out.name + ".part"))
 
 
+def _continued(message: str) -> str:
+    """``message`` with its continuation lines indented under the row, so a multi-line message stays in it."""
+    return message.replace("\n", "\n    ")
+
+
 def print_skill_row(row: dict) -> None:
     if row["error"] is not None:
-        state = f"ERROR: {row['error']}"
+        state = f"ERROR: {_continued(row['error'])}"
     elif row["state"] == "ok":
         state = "ok"
     else:
         worst = next(f for f in row["findings"] if f["level"] == row["state"])
-        state = f"{'ERROR' if row['state'] == 'error' else 'warn'}: {worst['message']}"
+        state = f"{'ERROR' if row['state'] == 'error' else 'warn'}: {_continued(worst['message'])}"
     print(f"{row['name']}\t{row['manifest_status'] or '-'}\t{row['path'] or '-'}\t{state}")
     for f in row["findings"]:
-        print(f"  {f['level']} {f['code']}: {f['message']}")
+        print(f"  {f['level']} {f['code']}: {_continued(f['message'])}")
     if row["disable_model_invocation"]:
         print("  note disable-model-invocation: true (the model is never offered this skill)")
     if row["nested_in"] is not None:
