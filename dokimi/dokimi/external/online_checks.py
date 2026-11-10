@@ -127,12 +127,19 @@ def _code_span(match: re.Match[str]) -> str:
 
 def _before_comment(line: str) -> str:
     """``line`` up to a ``#`` comment that follows an install command on it, else ``line`` unchanged."""
+    command = _SHELL_COMMAND_RE.search(line)
+    if command is None:
+        return line  # no install command, so no comment to cut: the common line, read in one pass
     spans = [span.span() for span in _CODE_SPAN_RE.finditer(line)]
+    k = 0  # the first span that does not end before the hash: the hashes come in order, so the index only moves on
     for m in _UNQUOTED_HASH_RE.finditer(line):
-        if any(start <= m.start() < end for start, end in spans):
+        if m.start() < command.end():
+            continue  # no install command ends before this hash
+        while k < len(spans) and spans[k][1] <= m.start():
+            k += 1
+        if k < len(spans) and spans[k][0] <= m.start():
             continue  # inside a code span: the span is split off and its own comment is cut there
-        if _SHELL_COMMAND_RE.search(line, 0, m.start()):
-            return line[:m.start()]
+        return line[:m.start()]
     return line
 
 

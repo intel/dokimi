@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import socket
+import time
 
 import httpx
 import pytest
@@ -798,6 +799,13 @@ def test_online_still_probes_the_good_skills_when_one_skill_fails_to_load(tmp_pa
     assert code == 1  # the skill that does not load fails the check, as it does without --online
     good = next(row for row in report["skills"] if row["name"] == "good")
     assert [f["code"] for f in good["findings"]] == ["package-not-found"]
+
+
+def test_a_long_line_with_hash_comments_and_no_install_is_read_in_linear_time():
+    # Quadratic on head: 8000 "#" on one line without an install command took 7.5 s.
+    started = time.perf_counter()
+    assert online_checks.extract_packages("`a` #x " * 8000) == []
+    assert time.perf_counter() - started < 2.0
 
 
 def _scan_capture(root, capsys, *extra: str) -> tuple[int, dict]:
