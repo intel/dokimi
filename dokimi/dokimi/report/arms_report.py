@@ -6,6 +6,7 @@
 from typing import Any, Dict, List
 
 from dokimi.eval.arm_summary import TOOL_COUNTS
+from dokimi.eval.sign_flip import fmt_small
 from dokimi.records import records
 
 
@@ -21,10 +22,43 @@ def _fmt_p(p: Any) -> str:
     return "<0.0001" if p < 0.0001 else f"{p:.4f}"
 
 
+_TTEST_MARK = "†"
+_TTEST_NOTE = f"_{_TTEST_MARK} t-test p, and p (adj) its correction: the record predates the sign-flip test._"
+
+
+def _is_ttest_p(result: Dict[str, Any]) -> bool:
+    """True where an ``arms.json`` written before the sign-flip ``p`` existed holds a ``p_ttest`` instead."""
+    return "p" not in result and result.get("p_ttest") is not None
+
+
+def _fmt_raw_p(result: Dict[str, Any]) -> str:
+    """The sign-flip ``p``, or an old record's ``p_ttest`` marked with :data:`_TTEST_MARK`."""
+    if _is_ttest_p(result):
+        return _fmt_p(result["p_ttest"]) + _TTEST_MARK
+    return _fmt_p(result.get("p"))
+
+
+def _ttest_note(results: List[Dict[str, Any]]) -> List[str]:
+    """The note under a table that printed a ``p_ttest``, so it is not read as the sign-flip p."""
+    return ["", _TTEST_NOTE] if any(_is_ttest_p(r) for r in results) else []
+
+
 def _fmt_ci(lo: Any, hi: Any) -> str:
-    if lo is None or hi is None:
-        return "—"
-    return f"[{lo:+.1f}, {hi:+.1f}]"
+    """``[lo, hi]`` at 1 decimal, an open end (``None``) as ``-inf`` / ``+inf``; a non-zero end 1 decimal would
+    print as 0.0 gets 2 significant digits, so it keeps its side of 0."""
+    return f"[{'-inf' if lo is None else _ci_end(lo)}, {'+inf' if hi is None else _ci_end(hi)}]"
+
+
+def _ci_end(end: float) -> str:
+    text = f"{end:+.1f}"
+    return fmt_small(end) if end and float(text) == 0 else text
+
+
+def _fmt_estimate(value: Any) -> str:
+    """The estimate beside a 95% CI, printed as :func:`_ci_end` prints the ends, or a dash when absent: the stored
+    estimate lies inside its stored ends, so the printed one lies inside the printed interval (0.04 in [+0.04, +0.04]).
+    The interaction table's arm deltas print the same way, so an arm's +0.04 reads +0.04 in both tables."""
+    return _ci_end(value) if isinstance(value, (int, float)) else "—"
 
 
 def _fmt_num(value: Any, digits: int = 1) -> str:
@@ -41,9 +75,10 @@ def _fmt_num(value: Any, digits: int = 1) -> str:
 def _fmt_sig(significant: Any) -> str:
     """Render a significance verdict, keeping "unknown" distinct from "no".
 
-    ``None`` means no test could run (too few pairs, no SciPy, or a degenerate
-    sample). Printing ``no`` there asserts the absence of an effect on the
-    strength of absent evidence.
+    ``None`` means no verdict: no p (every pair tied), or too few changed pairs
+    for any p to reach 0.05 (and, in a record written before the sign-flip
+    test, too few pairs or a degenerate sample). Printing ``no`` there asserts
+    the absence of an effect on the strength of absent evidence.
     """
     if significant is None:
         return "—"
@@ -73,7 +108,7 @@ def _significance_lines(
         "",
         f"_Each arm is paired per question against `{baseline}`. "
         f"p-values are {label}-adjusted across the {len(rows)} treatment "
-        "arm(s); **Sig.** uses the adjusted value._",
+        "arm(s); **Sig.** uses the adjusted value. The 95% CI is not adjusted._",
         "",
         "| Arm | Δ (paired) | 95% CI | Cohen's d_z | Effect | p | p (adj) | Sig. | n |",
         "| --- | ---: | :---: | ---: | --- | ---: | ---: | :---: | ---: |",
@@ -83,12 +118,13 @@ def _significance_lines(
         # when it is None would report an uncorrected claim under a column
         # header that promises correction.
         lines.append(
-            f"| `{arm}` | {_fmt_num(sig.get('delta_mean'))} | "
+            f"| `{arm}` | {_fmt_estimate(sig.get('delta_mean'))} | "
             f"{_fmt_ci(sig.get('ci_lo'), sig.get('ci_hi'))} | "
             f"{_fmt_num(sig.get('cohens_d'), 2)} | {sig.get('effect', '—')} | "
-            f"{_fmt_p(sig.get('p_ttest'))} | {_fmt_p(sig.get('p_adjusted'))} | "
+            f"{_fmt_raw_p(sig)} | {_fmt_p(sig.get('p_adjusted'))} | "
             f"{_fmt_sig(sig.get('significant_adjusted'))} | {sig.get('n', 0)} |"
         )
+    lines += _ttest_note([sig for _, sig in rows])
     lines.append("")
     return lines
 
@@ -117,14 +153,15 @@ def _interaction_lines(summary: Dict[str, Any]) -> List[str]:
     for it in interactions:
         lines.append(
             f"| `{it.get('arm_a')}` | `{it.get('arm_b')}` | "
-            f"{_fmt_num(it.get('delta_a'))} | {_fmt_num(it.get('delta_b'))} | "
-            f"{_fmt_num(it.get('additive_expectation'))} | "
-            f"{_fmt_num(it.get('delta_combined'))} | "
-            f"**{_fmt_num(it.get('interaction'))}** | "
+            f"{_fmt_estimate(it.get('delta_a'))} | {_fmt_estimate(it.get('delta_b'))} | "
+            f"{_fmt_estimate(it.get('additive_expectation'))} | "
+            f"{_fmt_estimate(it.get('delta_combined'))} | "
+            f"**{_fmt_estimate(it.get('interaction'))}** | "
             f"{_fmt_ci(it.get('ci_lo'), it.get('ci_hi'))} | "
-            f"{_fmt_p(it.get('p_ttest'))} | {_fmt_p(it.get('p_adjusted'))} | "
+            f"{_fmt_raw_p(it)} | {_fmt_p(it.get('p_adjusted'))} | "
             f"{_fmt_sig(it.get('significant_adjusted'))} | {it.get('n', 0)} |"
         )
+    lines += _ttest_note(interactions)
     lines.append("")
     return lines
 

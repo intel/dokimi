@@ -35,16 +35,19 @@ class ProductRegistry:
     ``libraries:`` key for older registry files.
     """
 
-    def __init__(self, path: Optional[Path] = None):
+    def __init__(self, path: Optional[Path] = None, text: Optional[str] = None):
+        """``text``, when given, is what ``path`` holds, already read: a pipe can be read only once."""
         self._path = path or _DEFAULT_REGISTRY
         self._entries: Dict[str, ProductEntry] = {}
-        self._load()
+        self._load(text)
 
-    def _load(self) -> None:
-        if not self._path.exists():
-            logger.warning(f"Registry not found: {self._path}")
-            return
-        data = yaml.safe_load(self._path.read_text(encoding="utf-8")) or {}
+    def _load(self, text: Optional[str] = None) -> None:
+        if text is None:
+            if not self._path.exists():
+                logger.warning(f"Registry not found: {self._path}")
+                return
+            text = self._path.read_text(encoding="utf-8")
+        data = yaml.safe_load(text) or {}
         if not isinstance(data, dict) or not ("products" in data or "libraries" in data):
             logger.warning(f"Registry {self._path} has no 'products' key — skipping.")
             return
