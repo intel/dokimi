@@ -7,20 +7,21 @@ from __future__ import annotations
 
 import argparse
 import glob
-import json
 import math
 import os
 import sys
 from pathlib import Path
+from typing import NoReturn
 
 from dokimi.utils import InputError, refuse_device
 
 
 def cmd_context_trace(args: argparse.Namespace) -> None:
     """Per-call prompt size, peak, compactions and tool-output weight of one or more traces."""
+    from dokimi import cli_output
     from dokimi.context import TraceError, read_trace
 
-    rows, failed = [], False
+    rows, failed, skipped = [], False, False
     for name in args.traces:
         try:
             trace = read_trace(Path(name))
@@ -30,14 +31,18 @@ def cmd_context_trace(args: argparse.Namespace) -> None:
             continue
         for problem in trace.errors:
             print(f"warning: {name}: {problem}", file=sys.stderr)
+            skipped = True
         row = {"trace": name, **trace.summary(args.window)}
         if args.calls:
             row["per_call"] = trace.calls
             row["compaction_events"] = trace.compactions
         rows.append(row)
 
-    if args.json:
-        print(json.dumps(rows, indent=2))  # always a list, one entry per trace that read
+    if args.json:  # always a list, one entry per trace that read
+        status = "failed" if not rows else "partial" if failed or skipped else "complete"  # nothing read: failed
+        reason = ("one or more traces could not be read (see stderr)" if failed
+                  else "lines of a trace were skipped (see stderr)" if skipped else None)
+        cli_output.emit_leaf("trace inspect", rows, status=status, reason=reason)
     elif rows:
         _print_text(rows, args)
     if failed:
@@ -87,13 +92,18 @@ def _trace_arms(args: argparse.Namespace) -> dict[str, list[str]]:
     for spec in args.arm or []:
         label, sep, pattern = spec.partition("=")
         if not sep or not label:
-            sys.exit(f"--arm wants LABEL=GLOB, got {spec!r}")
+            _refuse(f"--arm wants LABEL=GLOB, got {spec!r}")
         arms.setdefault(label, []).extend(sorted(glob.glob(pattern, recursive=True)) or [pattern])
     if args.traces:
         arms.setdefault("runs", []).extend(args.traces)
     if not arms:
-        sys.exit("give traces, or --arm LABEL=GLOB")
+        _refuse("give traces, or --arm LABEL=GLOB")
     return arms
+
+
+def _refuse(message: str) -> NoReturn:
+    """Stop on a bad invocation: ``cli.main`` prints ``Error: <message>`` and exits 2 (the ``input`` document under --json)."""
+    raise InputError(message)
 
 
 def _read_arms(arms: dict[str, list[str]], shell: str) -> tuple[dict[str, list], bool]:
@@ -116,6 +126,7 @@ def _read_arms(arms: dict[str, list[str]], shell: str) -> tuple[dict[str, list],
 
 def cmd_context_consistency(args: argparse.Namespace) -> None:
     """Result stability, path stability and contract conformance of repeated runs of one task."""
+    from dokimi import cli_output
     from dokimi.context.consistency import apply_outcomes, load_contract, load_outcomes, profile
 
     arms = _trace_arms(args)
@@ -123,7 +134,7 @@ def cmd_context_consistency(args: argparse.Namespace) -> None:
         contract = load_contract(Path(args.contract)) if args.contract else None
         outcomes = load_outcomes(Path(args.outcomes)) if args.outcomes else None
     except (OSError, ValueError) as exc:
-        sys.exit(f"✗ {exc}")
+        _refuse(str(exc))
 
     loaded, failed = _read_arms(arms, args.shell)
     missing: set[str] = set()
@@ -131,7 +142,7 @@ def cmd_context_consistency(args: argparse.Namespace) -> None:
         try:
             missing = set(apply_outcomes([r for runs in loaded.values() for r in runs], outcomes))
         except ValueError as exc:
-            sys.exit(f"✗ {exc}")
+            _refuse(str(exc))
 
     report = {}
     for label, runs in loaded.items():
@@ -145,7 +156,9 @@ def cmd_context_consistency(args: argparse.Namespace) -> None:
         report[label]["shell"] = args.shell  # the grain the step counts were taken at
 
     if args.json:
-        print(json.dumps(report, indent=2))
+        status = "failed" if not any(loaded.values()) else "partial" if failed else "complete"
+        cli_output.emit_leaf("trace consistency", report, status=status,
+                             reason="one or more traces could not be read (see stderr)" if failed else None)
     else:
         print(_consistency_text(report))
     if failed:
@@ -154,6 +167,7 @@ def cmd_context_consistency(args: argparse.Namespace) -> None:
 
 def cmd_context_prefilter(args: argparse.Namespace) -> None:
     """Which guidance claims the sessions triggered, acted on, or were corrected on: candidates for ablation."""
+    from dokimi import cli_output
     from dokimi.context.prefilter import build_report, render_table
 
     guidance = Path(args.guidance)
@@ -161,16 +175,22 @@ def cmd_context_prefilter(args: argparse.Namespace) -> None:
     try:
         text = guidance.read_text(encoding="utf-8", errors="replace")
     except OSError as exc:  # missing, a directory, unreadable: an input refusal, exit 2
-        raise InputError(f"guidance {guidance}: {exc.strerror or exc}") from exc
+        _refuse(f"guidance {guidance}: {exc.strerror or exc}")
 
     sessions, failed = _read_sessions(args.sessions)
     if not sessions:
-        sys.exit("✗ no session could be read")
+        _refuse("no session could be read")
     report = build_report(guidance.name, text, sessions, window=args.window, min_sessions=args.min_sessions,
                           rare_max=args.rare_max, in_use_rate=args.in_use_rate)
     if not report["claims"]:
         print(f"warning: no rules found in {guidance}", file=sys.stderr)
-    print(json.dumps(report, indent=2) if args.json else render_table(report))
+    if args.json:
+        skipped = any(s.errors for s in sessions)
+        reason = ("one or more sessions could not be read (see stderr)" if failed
+                  else "records of a session were skipped (see stderr)" if skipped else None)
+        cli_output.emit_leaf("trace prefilter", report, status="partial" if reason else "complete", reason=reason)
+    else:
+        print(render_table(report))
     if failed:
         sys.exit(1)
 
@@ -309,8 +329,8 @@ def register(sub, positive_int) -> None:
                            help="Context window of the model in tokens; adds the peak's fill fraction")
     inspect_p.add_argument("--calls", action="store_true",
                            help="Also give every call's token counts and every compaction event")
-    inspect_p.add_argument("--json", action="store_true", help="Print the summaries as JSON")
-    inspect_p.set_defaults(func=cmd_context_trace)
+    inspect_p.add_argument("--json", action="store_true", help="Print cli_output.v1 on stdout (the summaries under data)")
+    inspect_p.set_defaults(func=cmd_context_trace, emits_cli_output=True, cli_kind="trace inspect")
 
     cons_p = trace_sub.add_parser(
         "consistency",
@@ -332,8 +352,8 @@ def register(sub, positive_int) -> None:
     cons_p.add_argument("--shell", choices=("split", "call"), default="split",
                         help="split (default): one step per chained shell command, shell writes "
                         "count as edits; call: one step per tool call")
-    cons_p.add_argument("--json", action="store_true", help="Print the profiles as JSON")
-    cons_p.set_defaults(func=cmd_context_consistency)
+    cons_p.add_argument("--json", action="store_true", help="Print cli_output.v1 on stdout (the profiles under data)")
+    cons_p.set_defaults(func=cmd_context_consistency, emits_cli_output=True, cli_kind="trace consistency")
 
     pre_p = trace_sub.add_parser(
         "prefilter",
@@ -353,5 +373,5 @@ def register(sub, positive_int) -> None:
                        help="A rule triggered in at most this many sessions is rare: listed, not ranked (default 3)")
     pre_p.add_argument("--in-use-rate", type=_unit_rate, default=0.2,
                        help="A rule triggered in at least this share of sessions is in use, not a candidate (default 0.2)")
-    pre_p.add_argument("--json", action="store_true", help="Print the full report as JSON")
-    pre_p.set_defaults(func=cmd_context_prefilter)
+    pre_p.add_argument("--json", action="store_true", help="Print cli_output.v1 on stdout (the full report under data)")
+    pre_p.set_defaults(func=cmd_context_prefilter, emits_cli_output=True, cli_kind="trace prefilter")

@@ -87,9 +87,11 @@ Precedence: `kept_protected`, then `insufficient_corpus`, then `not_measurable`,
 takes 0 or more and `--in-use-rate` a number from 0 to 1. A file named twice (a repeat, an
 overlapping glob, a symlink to it) is read once.
 
-The table prints the same counts; the JSON has every claim with its status,
+The table prints the same counts; the `--json` document (`cli_output.v1`, the report under `data`) has every claim with its status,
 keys (commands, paths, keywords), counts, rates and flags. Defaults: window 10
 events, at least 5 sessions, rare at most 3 sessions, in use at 20% of sessions.
+`status` is `partial` when a session could not be read (exit 1) or a session had skipped records
+(named on stderr; exit 0).
 
 The JSON is printed, not stored: dokimi writes no file in this format, so it
 has no schema under `dokimi/schemas/`. `format_version` marks its shape. A
