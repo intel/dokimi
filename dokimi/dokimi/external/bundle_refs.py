@@ -45,6 +45,8 @@ DOC_SUFFIXES = frozenset({".md", ".mdx", ".txt"})
 DOC_MAX_BYTES = 256 * 1024
 DOCS_READ_MAX = 50
 # A path prefix that names the skill root or the current folder: ``./scripts/``, ``../scripts/``, ``${CLAUDE_SKILL_DIR}/scripts/``.
+# The destination of an inline folder link (``[x](scripts/)``): its folder is in ``links``, so the text is no mention.
+_FOLDER_DEST = re.compile(r"\]\([^)\n]*/\)")
 _PATH_PREFIX = re.compile(r"(?<![\w.-])(?:\$\{claude_skill_dir\}/|\.\.?/)")
 
 
@@ -115,8 +117,13 @@ def _named(rel: str, text: str, links: set[str]) -> bool:
 
 
 def _matchable(text: str) -> str:
-    """The text the names are looked up in, with the ``./``-style prefixes dropped: ``./scripts/`` names ``scripts/``."""
-    return _PATH_PREFIX.sub("", text)
+    """The text the names are looked up in: folder link destinations and the ``./``-style prefixes dropped.
+
+    A folder destination is in ``links`` as its folder, so ``[scripts](scripts/)`` in a nested document
+    does not name the skill-root ``scripts/``; ``./scripts/`` and ``${CLAUDE_SKILL_DIR}/scripts/`` in
+    the text name ``scripts/``. A file's name in a destination still names it, as in the text.
+    """
+    return _PATH_PREFIX.sub("", _FOLDER_DEST.sub("]", text))
 
 
 def _read_doc(path: Path) -> str:

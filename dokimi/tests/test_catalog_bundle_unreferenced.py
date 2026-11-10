@@ -201,3 +201,36 @@ def test_a_name_followed_by_a_dotted_suffix_does_not_name_the_shorter_file(tmp_p
 def test_a_folder_written_from_the_skill_root_names_its_files(tmp_path, body):
     review = _review(tmp_path, body, ["scripts/fill.py"])
     assert _unreferenced(review) == []
+
+
+def _review_with_texts(tmp_path, body, texts):
+    skill_dir = _skill(tmp_path / "skills", "kit", name="kit", description="Use when testing.", body=body)
+    for rel, text in texts.items():
+        target = skill_dir / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8")
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    return review
+
+
+def test_a_folder_linked_from_a_nested_document_names_its_files_there(tmp_path):
+    review = _review_with_texts(
+        tmp_path,
+        "Read [guide](references/guide.md).\n",
+        {"references/guide.md": "See [scripts](scripts/).\n", "references/scripts/run.py": "x\n"},
+    )
+    assert _unreferenced(review) == []
+
+
+def test_a_nested_folder_link_does_not_name_a_root_folder_of_the_same_name(tmp_path):
+    review = _review_with_texts(
+        tmp_path,
+        "Read [guide](references/guide.md).\n",
+        {
+            "references/guide.md": "See [scripts](scripts/).\n",
+            "references/scripts/run.py": "x\n",
+            "scripts/other.py": "x\n",
+        },
+    )
+    [message] = _unreferenced(review)
+    assert message.startswith("1 of 3") and "scripts/other.py" in message
