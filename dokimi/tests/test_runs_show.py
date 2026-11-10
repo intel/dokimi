@@ -184,8 +184,10 @@ def test_show_without_a_root_exits_2(tmp_path, monkeypatch, capsys):
 
 
 def test_json_has_the_list_fields_the_schema_check_and_the_neighbours(monkeypatch, capsys, root):
-    data = json.loads(_show(monkeypatch, capsys, "arms/onetbb.json", "--json").out)["data"]
+    doc = json.loads(_show(monkeypatch, capsys, "arms/onetbb.json", "--json").out)
+    data = doc["data"]
 
+    assert doc["summary"]["schema_valid"] is True
     assert data == {
         "schema_version": "arms.v1", "kind": "arms", "run_id": run_id(), "subject": "onetbb",
         "model": "m", "generated_at": "2026-10-29T14:02:00Z", "path": "arms/onetbb.json",
@@ -203,8 +205,10 @@ def test_json_of_an_invalid_artifact_carries_its_errors(monkeypatch, capsys, roo
     (root / "arms" / "bad.json").write_text(json.dumps({"schema_version": "arms.v1"}),
                                             encoding="utf-8")
 
-    data = json.loads(_show(monkeypatch, capsys, "arms/bad.json", "--json").out)["data"]
+    doc = json.loads(_show(monkeypatch, capsys, "arms/bad.json", "--json").out)
+    data = doc["data"]
 
+    assert doc["summary"]["schema_valid"] is False
     assert data["schema_valid"] is False
     assert sorted(data["schema_errors"]) == ["<root>: 'answers' is a required property",
                                              "<root>: 'arms' is a required property"]

@@ -134,8 +134,10 @@ def test_kind_is_repeatable_and_subject_matches_exactly(monkeypatch, capsys, fil
 
 
 def test_json_has_the_vocabulary_fields_and_every_count(monkeypatch, capsys, filled):
-    data = json.loads(_list(monkeypatch, capsys, "--json", "--kind", "arms").out)["data"]
+    doc = json.loads(_list(monkeypatch, capsys, "--json", "--kind", "arms").out)
+    data = doc["data"]
 
+    assert (doc["summary"]["shown"], doc["summary"]["total"]) == (1, 4)
     assert data["artifacts"] == [{
         "schema_version": "arms.v1", "kind": "arms", "run_id": "r-arms", "subject": "onetbb",
         "model": "m", "generated_at": "2026-10-29T14:02:00Z", "path": "arms/onetbb.json",
