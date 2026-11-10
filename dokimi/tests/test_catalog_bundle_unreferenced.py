@@ -177,3 +177,13 @@ def test_a_file_named_only_in_a_named_document_counts(tmp_path):
 def test_private_helpers_and_agent_files_are_not_counted(tmp_path, rel):
     review = _review(tmp_path, "# Body\n", [rel])
     assert "bundle-file-unreferenced" not in _codes(review)
+
+
+def _unreferenced(review):
+    return [f.message for f in review.findings if f.code == "bundle-file-unreferenced"]
+
+
+def test_a_name_followed_by_a_dotted_suffix_does_not_name_the_shorter_file(tmp_path):
+    review = _review(tmp_path, "Keep a copy as build.py.bak before editing.\n", ["scripts/build.py"])
+    [message] = _unreferenced(review)
+    assert message.startswith("1 of 1") and "scripts/build.py" in message

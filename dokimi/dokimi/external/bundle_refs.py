@@ -82,7 +82,8 @@ def _walk(skill_dir: Path, *, counted: bool) -> list[str]:
 
 def _whole(name: str) -> str:
     """A regex for ``name`` as a whole path or file name in a text: not a part of a longer one (``build.py`` in ``rebuild.py``)."""
-    return r"(?<![\w.-])" + re.escape(name) + r"(?![\w-])"
+    # Not followed by a dotted suffix either: ``build.py`` does not name ``build.py.bak``.
+    return r"(?<![\w.-])" + re.escape(name) + r"(?![\w-]|\.\w)"
 
 
 def _target(folder: str, link: str) -> str:
