@@ -874,6 +874,12 @@ def test_a_dns_failure_on_a_redirect_hop_names_the_hop_not_the_first_url():
                                "which does not resolve (DNS failure)")
 
 
+def test_an_apostrophe_is_part_of_a_url_but_a_quote_or_sentence_mark_after_a_bare_url_is_not():
+    body = ("[law](https://en.wikipedia.org/wiki/Moore's_law) and <https://en.wikipedia.org/wiki/Moore's_law>\n"
+            "See https://en.wikipedia.org/wiki/Moore's_law. Also 'https://x.com/a' in quotes.\n")
+    assert online_checks.extract_urls(body) == ["https://en.wikipedia.org/wiki/Moore's_law", "https://x.com/a"]
+
+
 def _scan_capture(root, capsys, *extra: str) -> tuple[int, dict]:
     parser = build_parser()
     args = parser.parse_args(["catalog", "check", "--root", str(root), "--kind", "skills",

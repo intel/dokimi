@@ -92,7 +92,7 @@ _PYPI_NAME_RE = re.compile(
     r"([A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)(?:\[[^\]]*\])?(?:\s*(?:===|==|>=|<=|~=|!=|<|>).*)?")
 _NPM_NAME_RE = re.compile(r"(?:@[A-Za-z0-9._~-]+/)?[A-Za-z0-9._~-]+")
 _PLACEHOLDER_NAMES = {"package", "packages", "pkg", "name", "module", "mypackage", "my-package", "package-name"}
-_URL_RE = re.compile(r"https?://[^\s\"'`<>]+", re.IGNORECASE)
+_URL_RE = re.compile(r"https?://[^\s\"`<>]+", re.IGNORECASE)  # an apostrophe is in a URL ("Moore's_law")
 # Where a literal URL starts: after a markdown destination's ``](``, or a reference definition's ``[id]: ``.
 _LITERAL_START_RE = re.compile(r"\]\(|^[ \t]*\[(?!\^)[^\]\n]*\]:[ \t]*", re.MULTILINE)  # not a footnote "[^1]:"
 _ESCAPE_RE = re.compile(r"\\([!-/:-@\[-`{-~])")  # a backslash escape of ASCII punctuation, as CommonMark reads it
@@ -398,7 +398,7 @@ def _clean_url(raw: str, literal: bool = False, decode: bool = False) -> Optiona
         url = _DECODE_RE.sub(_decode, url)
     if literal:
         return url or None
-    url = url.rstrip(".,;:!?*")
+    url = url.rstrip(".,;:!?*'")  # a bare URL in quotes: the closing apostrophe is not part of it
     return url or None
 
 
