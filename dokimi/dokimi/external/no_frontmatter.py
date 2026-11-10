@@ -19,15 +19,18 @@ from dokimi.external.skill_markdown import outside_fences
 
 NO_FRONTMATTER = "not-a-skill-no-frontmatter"
 NAME_MAX = 64
+SPEC_NAME = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")  # the spec's name pattern (validate.NAME_PATTERN)
 DESCRIPTION_HINT_MAX = 300
 
 
-def no_frontmatter_message(lines: list[str], dir_name: str) -> str:
+def no_frontmatter_message(lines: list[str], dir_name: str, at_root: bool = False) -> str:
     """The ``not-a-skill-no-frontmatter`` message, with a frontmatter block made from the H1 and the first paragraph.
 
-    The name is the H1 in kebab-case (ASCII letters and digits; the directory name when the H1 has
-    none, or there is no H1), and the description is the first paragraph after it, cut at a word
-    near 300 characters. The block is a start: the description still needs a "when" clause.
+    Below the scanned root the name is the directory's when that is a valid spec name, since the
+    loader's ``name-mismatch`` check compares the name with it; otherwise (and at the root) it is the
+    H1 in kebab-case (ASCII letters and digits; the directory name when the H1 has none, or there is
+    no H1). The description is the first paragraph after the H1, cut at a word near 300 characters.
+    The block is a start: the description still needs a "when" clause.
     """
     # CommonMark fences: a shorter run or another marker does not close one
     body = [line.strip().lstrip("\ufeff") for line in outside_fences("\n".join(lines))]
@@ -49,7 +52,10 @@ def no_frontmatter_message(lines: list[str], dir_name: str) -> str:
                 break
             continue
         paragraph.append(stripped.lstrip("> ") if stripped.startswith(">") else stripped)  # a quote's text
-    name = _kebab(title) or _kebab(dir_name) or "my-skill"
+    if not at_root and SPEC_NAME.fullmatch(dir_name) and len(dir_name) <= NAME_MAX:
+        name = dir_name  # validate.NAME_PATTERN, as the loader's name-mismatch check reads it
+    else:
+        name = _kebab(title) or _kebab(dir_name) or "my-skill"
     description = " ".join(paragraph)
     if len(description) > DESCRIPTION_HINT_MAX:
         description = description[:DESCRIPTION_HINT_MAX].rsplit(" ", 1)[0] + " ..."

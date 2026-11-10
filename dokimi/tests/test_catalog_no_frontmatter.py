@@ -48,8 +48,32 @@ def test_plain_markdown_gets_a_frontmatter_hint(tmp_path):
     [review] = review_skills(read_skill_manifest(tmp_path))
     [finding] = review.findings
     assert (finding.level, finding.code) == ("error", "not-a-skill-no-frontmatter")
-    assert _block(finding) == {"name": "deck-builder",
+    # Below the root the name is the directory's: the loader's name-mismatch check would reject the H1's name.
+    assert _block(finding) == {"name": "deck",
                                "description": "Builds slide decks from an outline. Keeps the brand."}
+
+
+def test_the_pasted_hint_gives_no_name_mismatch(tmp_path):
+    _plain(tmp_path, "deck", "# Deck Builder\n\nBuilds decks.\n")
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    [finding] = review.findings
+    skill = tmp_path / "skills" / "deck" / "SKILL.md"
+    skill.write_text(finding.message.split("\n", 1)[1] + "\n# Deck Builder\n\nBuilds decks.\n", encoding="utf-8")
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert "name-mismatch" not in [f.code for f in review.findings]
+
+
+@pytest.mark.parametrize(
+    ("at_root", "dir_name", "name"),
+    [
+        (False, "deck", "deck"),  # below the root: the directory name, which the loader checks
+        (False, "Deck_Builder", "deck-builder"),  # not a valid spec name: the H1 is the best start
+        (True, "deck", "deck-builder"),  # the root skill's name is not checked against its directory
+    ],
+)
+def test_the_name_follows_the_loader_name_check(at_root, dir_name, name):
+    finding = no_frontmatter_message(["# Deck Builder", "", "Builds decks."], dir_name, at_root=at_root)
+    assert _block(finding)["name"] == name
 
 
 @pytest.mark.parametrize(
