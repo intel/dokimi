@@ -193,6 +193,19 @@ def state_of(findings: Iterable[Finding]) -> str:
     return "error" if "error" in levels else "warn" if "warn" in levels else "ok"
 
 
+def name_risky_commands(findings: list[Finding]) -> list[Finding]:
+    """The findings, with the unrestricted-Bash message naming the risky-command codes that are still in them.
+
+    The grant's message says the skill's risky commands run with no prompt, so it follows the codes that remain
+    after ``--ignore`` drops some.
+    """
+    risky = sorted({f.code for f in findings if f.code in RISKY_COMMAND_CODES})
+    return [
+        Finding(f.level, f.code, unrestricted_bash_message(risky)) if f.code == "allowed-tools-unrestricted-bash" else f
+        for f in findings
+    ]
+
+
 @dataclass
 class SkillReview:
     """What :func:`review_skills` found for one loaded skill."""
@@ -647,12 +660,7 @@ def review_skills(
                 Finding("warn", code, message)
                 for code, message in command_findings(skill.path, at_root=at_root and not standalone)
             ]
-            risky = sorted({f.code for f in review.findings if f.code in RISKY_COMMAND_CODES})
-            if risky:  # name the risky commands in the grant's finding: they run with no prompt
-                review.findings = [
-                    Finding(f.level, f.code, unrestricted_bash_message(risky)) if f.code == "allowed-tools-unrestricted-bash" else f
-                    for f in review.findings
-                ]
+            review.findings = name_risky_commands(review.findings)
             review.findings += [
                 Finding("warn", code, message)
                 for code, message in content_findings(skill, at_root=at_root and not standalone)

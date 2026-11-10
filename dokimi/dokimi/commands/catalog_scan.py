@@ -31,9 +31,9 @@ def skill_row(skill, review, nested_in: Optional[str] = None, outputs: Iterable[
     ``outputs`` are the scan's own files, left out of ``skill_sha256``. ``ignore`` drops the
     findings with those codes before the state is taken; ``ignored`` records the codes in effect."""
     from dokimi.external.catalog_review import entry_relpath
-    from dokimi.external.validate import state_of
+    from dokimi.external.validate import name_risky_commands, state_of
 
-    kept = [f for f in review.findings if f.code not in ignore] if review else []
+    kept = name_risky_commands([f for f in review.findings if f.code not in ignore]) if review else []
     state = "error" if not skill.loaded else state_of(kept)
     return {
         "name": skill.name,
