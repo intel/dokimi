@@ -515,13 +515,56 @@ def test_a_branch_filter_with_many_stars_matches_in_linear_time():
 
 
 @pytest.mark.parametrize("pattern", ["release/*", "release/**", "release/v?1.x", "release/[0-9]+.x", "release/a?+b",
-                                     "release/v[9-0]+", r"release/c\+\+", "!release/*-rc?"])
+                                     "release/v[9-0]+", r"release/c\+\+", "!release/*-rc?", "release/a?b?*x"])
 @pytest.mark.parametrize("text", ["release/1.x", "release/v1.x", "release/12.x", "release/.x", "release/b", "release/aab",
-                                  "release/v[9-0]]]", "release/c++", "release/x/y", "release/2-rc", "release/2-r", "release/"])
+                                  "release/v[9-0]]]", "release/c++", "release/x/y", "release/2-rc", "release/2-r", "release/",
+                                  "hotfix/1.x"])
 def test_a_branch_filter_matches_what_its_regex_matches(pattern, text):
     """Walked atom by atom, a filter names the same branches as the regex it reads as."""
     glob = branches._filter_regex(pattern)
     assert glob.match(text) == bool(re.fullmatch(glob.pattern, text))
+
+
+class _Counted(list):
+    """The atoms of a filter, counting each one read."""
+
+    reads = 0
+
+    def __getitem__(self, i):
+        self.reads += 1
+        return super().__getitem__(i)
+
+    def __iter__(self):
+        for x in super().__iter__():
+            self.reads += 1
+            yield x
+
+
+class _CountedText(str):
+    """A claim, counting each character read."""
+
+    reads = 0
+
+    def __iter__(self):
+        for ch in super().__iter__():
+            self.reads += 1
+            yield ch
+
+
+_LONG_FILTER = "release/" + "a" * 2000 + "c"
+
+
+@pytest.mark.parametrize("text, chars", [("release/" + "a" * 2000 + "b", 2009), ("release/x" + "a" * 2000, 9),
+                                         ("hotfix/" + "a" * 2000, 1)])
+def test_a_long_branch_filter_reads_each_atom_a_few_times_per_character(text, chars):
+    """Per character, the walk reads only the atoms the claim can be at, and stops at the character that leaves the filter:
+    not every atom of the filter for every character of the claim (4 million reads for the first claim)."""
+    glob = branches._filter_regex(_LONG_FILTER)
+    glob._atoms = atoms = _Counted(glob._atoms)
+    claim = _CountedText(text)
+    assert not glob.match(claim)
+    assert claim.reads == chars
+    assert atoms.reads <= 3 * chars + 1
 
 
 def test_read_many_fetches_missing_blobs_of_a_partial_clone(toy, tmp_path):

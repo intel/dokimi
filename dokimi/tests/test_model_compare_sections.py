@@ -8,7 +8,7 @@ its entry in ``tests/fixtures/model_compare_sections.json``, so a refactor of th
 builder that moves a single character fails here. Between them the cases reach
 every section and branch: treatment and baseline-only runs, a run with no
 treatment beside one with, one scored arm and two, resource rows with and
-without a cost summary, significance on and off (no SciPy), both corrections,
+without a cost summary, significance with and without a verdict, both corrections,
 difficulty buckets a run is missing from, replicate pooling with a label clash
 and a run left out of ``run_ids``, and an empty section.
 
@@ -85,14 +85,14 @@ _FULL_COST = _cost(
     cache_hit_ratio=0.25,
 )
 
-# Varying deltas so the t-test runs; one unpaired question and one with no baseline.
+# Varying deltas of both signs; one unpaired question and one with no baseline.
 _A = [(50, 70), (60, 70), (40, 80), (70, 60), (55, 75), (65, 90), (30, 45), (80, None), (None, 60)]
-# Constant +10 deltas: the zero-variance guard leaves the p-values N/A.
+# Constant +10 deltas: a sign-flip p of 2 / 2**9 and a verdict; only d_z is N/A.
 _B = [(50, 60), (60, 70), (40, 50), (70, 80), (55, 65), (65, 75), (30, 40), (80, 90), (20, 30)]
 _BASE_ONLY = [(b, ...) for b, _ in _A]
-# A raw t-test p of 0.024 and Wilcoxon 0.047: significant alone, not once Holm-adjusted over 3 runs.
+# A raw sign-flip p of 6 / 2**7 = 0.047: significant alone, not once Holm-adjusted over 3 runs.
 _H = [(50, 58), (50, 50), (50, 64), (50, 47), (50, 59), (50, 52), (50, 61), (50, 56)]
-# t-test p 0.038 but Wilcoxon 0.0625: adjusted p stays below 0.05, the Wilcoxon clause says No.
+# One opposite delta: a sign-flip p of 4 / 2**6 = 0.0625 (a t test gave 0.038), so No.
 _W = [(50, 47), (50, 57), (50, 60), (50, 58), (50, 55), (50, 54)]
 # Zeros are scores: a 0 in either arm, and a bucket whose only treatment score is 0.
 _Z = [(0, 40), (30, 0), (50, 60), (40, 55), (0, 0), (20, 35), (45, 50), (10, 25)]
@@ -122,7 +122,6 @@ def _cases() -> dict:
         "zero_values": ([("z", _run(_N, model="zero", cost_summary=_FREE_COST))], ["z"], {}),
         "treatment": ([("a", a), ("b", b)], ["a", "b"], {}),
         "treatment_bh": ([("a", a), ("b", b)], ["a", "b"], {"correction": "bh"}),
-        "no_scipy": ([("a", a), ("b", b)], ["a", "b"], {"no_scipy": True}),
         "baseline_only": (
             [
                 ("a", _run(_BASE_ONLY, model="alpha")),
@@ -131,7 +130,6 @@ def _cases() -> dict:
             ["a", "b"],
             {},
         ),
-        "baseline_only_no_scipy": ([("a", _run(_BASE_ONLY))], ["a"], {"no_scipy": True}),
         "mixed": (
             [
                 ("a", _run(_A, model="alpha")),
@@ -175,7 +173,7 @@ def _cases() -> dict:
             ["h1", "h2", "h3"],
             {},
         ),
-        "verdict_wilcoxon_no": ([("w", _run(_W))], ["w"], {}),
+        "verdict_sign_flip_no": ([("w", _run(_W))], ["w"], {}),
         "zero_scores": ([("z", _run(_Z))], ["z"], {}),
         # A baseline-only bucket whose only score is 0 prints 0.0, not a dash.
         "baseline_zero": (
@@ -238,19 +236,14 @@ def _cases() -> dict:
 CASES = _cases()
 
 
-def _render(name: str, monkeypatch) -> str:
+def _render(name: str) -> str:
     runs, run_ids, opts = CASES[name]
-    opts = dict(opts)
-    if opts.pop("no_scipy", False):
-        monkeypatch.setattr(model_compare, "HAS_SCIPY", False)
     return "\n".join(generate_section_report(runs, run_ids, "Regular", **opts))
 
 
 @pytest.mark.parametrize("name", sorted(CASES))
-def test_section_report_matches_golden(name, monkeypatch):
-    if not model_compare.HAS_SCIPY:
-        pytest.skip("the goldens were recorded with SciPy available")
-    text = _render(name, monkeypatch)
+def test_section_report_matches_golden(name):
+    text = _render(name)
     if os.environ.get("DOKIMI_UPDATE_GOLDEN"):
         goldens = json.loads(GOLDEN.read_text(encoding="utf-8")) if GOLDEN.exists() else {}
         goldens[name] = text
@@ -277,7 +270,6 @@ def test_goldens_reach_every_section_branch():
             "| beginner | 1 |",
         ],
         "treatment_bh": ["Benjamini-Hochberg"],
-        "no_scipy": ["## Overall Summary"],
         "baseline_only": [
             "Report Limitation",
             "a baseline |",
@@ -290,7 +282,7 @@ def test_goldens_reach_every_section_branch():
         "pooled": ["## Replicate Pooling", "m[n=2]'", "pools 2 replicates", "A pooled `[n=k]` row"],
         "empty": ["Common questions evaluated: **0**"],
         "verdict_holm_no": ["| No |", "(Holm-Bonferroni)"],
-        "verdict_wilcoxon_no": ["| No |"],
+        "verdict_sign_flip_no": ["| No |", "| 0.0625 |"],
         "zero_scores": ["| beginner | 1 | 0.0 | 0.0 |", "| medium | 1 | 0.0 | -30.0 |"],
         "baseline_zero": ["| easy | 1 | 0.0 |"],
         "zero_values": [
@@ -304,21 +296,20 @@ def test_goldens_reach_every_section_branch():
     for name, wanted in markers.items():
         for marker in wanted:
             assert marker in texts[name], (name, marker)
-    assert "Statistical Significance" not in texts["no_scipy"]
-    assert "Statistical Significance" not in texts["baseline_only_no_scipy"]
     assert "Resource Usage" not in texts["baseline_only"]
-    assert "OK Yes" not in texts["verdict_holm_no"] and "OK Yes" not in texts["verdict_wilcoxon_no"]
+    assert "OK Yes" not in texts["verdict_holm_no"] and "OK Yes" not in texts["verdict_sign_flip_no"]
+    assert "Wilcoxon" not in texts["treatment"] and "t-test" not in texts["treatment"]
     assert "pooled `[n=k]` row" not in texts["pooled_singletons_cost"]
     assert "(5/5)" not in texts["unscored_and_arms"]
 
 
 @pytest.mark.parametrize(
-    "p, p_wilcoxon, significant",
-    [(0.05, None, False), (0.049, None, True), (0.049, 0.05, False), (0.049, 0.049, True)],
+    "p, raw, significant",
+    [(0.05, False, False), (0.049, True, True), (0.049, None, None)],
 )
-def test_adjusted_verdict_is_strictly_below_alpha(monkeypatch, p, p_wilcoxon, significant):
-    # A p exactly at alpha is not significant, for the t-test and for the Wilcoxon clause.
-    fake = {"p_ttest": p, "p_wilcoxon": p_wilcoxon, "significant": True}
+def test_adjusted_verdict_is_strictly_below_alpha(monkeypatch, p, raw, significant):
+    # A p exactly at alpha is not significant; no raw verdict (the floor rule) stays no verdict.
+    fake = {"p": p, "significant": raw}
     monkeypatch.setattr(model_compare, "significance_test", lambda *_, **__: dict(fake))
     scores = {"r": [{"with_docs": 60, "without_docs": 50}] * 6}
     sigs, tested = model_compare._adjusted_significance(["r"], scores, "holm")
