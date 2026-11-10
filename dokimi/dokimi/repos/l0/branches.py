@@ -196,17 +196,29 @@ class _Glob:
         self._atoms = [(re.compile(a), q) for a, q in atoms]
 
     def _skip(self, at: set[int]) -> set[int]:
-        for i, (_, q) in enumerate(self._atoms):  # an optional atom can be passed over
-            if i in at and q in ("?", "*"):
-                at.add(i + 1)
-        return at
+        """``at`` and each atom after a run of optional atoms (``?``, ``*``) that starts at one of them."""
+        out: set[int] = set()
+        for i in at:
+            while i not in out:  # an index already in ``out`` had its run walked
+                out.add(i)
+                if i == len(self._atoms) or self._atoms[i][1] not in ("?", "*"):
+                    break
+                i += 1
+        return out
 
     def match(self, text: str) -> bool:
-        """The whole of ``text`` matches."""
+        """The whole of ``text`` matches; the walk stops at the first character no atom it can be at takes."""
         at = self._skip({0})
         for ch in text:
-            at = self._skip({j for i in at if i < len(self._atoms) and self._atoms[i][0].fullmatch(ch)
-                             for j in ((i, i + 1) if self._atoms[i][1] in ("+", "*") else (i + 1,))})
+            took: set[int] = set()
+            for i in at:
+                if i < len(self._atoms):
+                    atom, q = self._atoms[i]
+                    if atom.fullmatch(ch):
+                        took.update((i, i + 1) if q in ("+", "*") else (i + 1,))
+            at = self._skip(took)
+            if not at:
+                return False
         return len(self._atoms) in at
 
 

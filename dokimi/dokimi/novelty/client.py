@@ -62,10 +62,12 @@ class SpendCapReached(BaseException):
     call at a time and the run would carry on with every later call refused.
 
     ``reply`` is set when the refused call came back with a reply (a call with no price): that
-    call was paid for, so the caller can still score the reply before it stops.
+    call was paid for, so the caller can still score the reply before it stops. ``truncated`` says
+    the reply was also cut at the output ceiling: this stop is raised in place of :class:`OutputTruncated`.
     """
 
     reply: str | None = None
+    truncated: bool = False
 
 
 @dataclass
@@ -163,6 +165,7 @@ class LLMClient:
                 self.cap.record(usage, self.model)
             except SpendCapReached as exc:
                 exc.reply = reply or ""  # the call is paid for: the caller keeps its reply
+                exc.truncated = usage is not None and usage.truncated
                 raise
         # After the record: the cut call was paid for, whatever its text is worth. An empty
         # reply is no reply: its caller's empty-reply path handles it, and a split cannot help.
@@ -301,10 +304,12 @@ def roll_up_cost(clients: list[LLMClient]) -> dict[str, Any]:
 
 
 def same_client(a: LLMClient, b: LLMClient) -> bool:
-    """Whether two clients run one model: the same name, or a CLI alias and a full id of its family."""
-    from dokimi.llm_cli import same_model
+    """Whether two clients run one model: the same name, a CLI alias and a full id of its family,
+    or an equivalent API id (``anthropic/x``, a Bedrock ``us.anthropic.x-v1:0``), as
+    :func:`~dokimi.utils.same_evaluator` reads it."""
+    from dokimi.utils import same_evaluator
 
-    return a.model == b.model or same_model(a.provider, a.model, b.provider, b.model)
+    return a.model == b.model or same_evaluator(a.provider, a.model, b.provider, b.model)
 
 
 # Substring of a lowercased model id -> vendor, first match wins. Minimal on purpose:
