@@ -91,6 +91,7 @@ def test_a_symlink_out_of_the_skill_is_not_followed(tmp_path):
     [
         ("scripts/a.py", "scripts/a.py"),
         ("'scripts/a.py',", "scripts/a.py"),
+        ("(scripts/a.py)", "scripts/a.py"),
         ("scripts/a.py:42", "scripts/a.py"),
         ("templates/report.md#top", "templates/report.md"),
         ("scripts", None),
@@ -161,3 +162,8 @@ def test_the_message_says_the_skill_directory_not_the_install(tmp_path):
 def test_a_span_with_a_backtick_is_quoted_in_the_message(tmp_path):
     [message] = path_missing(["echo `x` scripts/deploy.sh"], tmp_path, tmp_path, tmp_path.resolve())
     assert message == "'scripts/deploy.sh' (in 'echo `x` scripts/deploy.sh') names no file in the skill directory"
+
+
+def test_a_path_in_parentheses_is_checked(tmp_path):
+    review, _ = _review(tmp_path, "Run it (`(scripts/run.py)`).\n")
+    assert _codes(review) == ["path-missing"]

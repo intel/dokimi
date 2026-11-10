@@ -61,11 +61,10 @@ def _in_checkout(path: Path, source_root: Path) -> Optional[Path]:
 def _bundle_path(word: str) -> Optional[str]:
     """The skill-relative file a code span word names under a bundle folder, or None.
 
-    ``word`` is one whitespace-separated word of a code span, quotes and a trailing ``,;:.)``
-    taken away. None for a word outside :data:`BUNDLE_DIRS`, a folder (a trailing ``/`` or no
+    ``word`` is one word of a code span, an opening ``(``, quotes and a trailing ``,;:.)`` taken away. None for a word outside :data:`BUNDLE_DIRS`, a folder (a trailing ``/`` or no
     file extension), a placeholder part, or a template variable.
     """
-    text = word.rstrip(",;:.)").strip("'\"").rstrip(",;:.)")
+    text = word.lstrip("(").rstrip(",;:.)").strip("'\"").rstrip(",;:.)")
     if text.startswith("./"):
         text = text[2:]
     if text.startswith(SKILL_DIR_VAR):
