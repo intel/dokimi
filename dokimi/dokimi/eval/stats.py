@@ -181,7 +181,7 @@ def mean_ci(values, confidence: float = 0.95, seed: int = 0, ndigits: Optional[i
         return bootstrap_ci(vals, confidence=confidence, seed=seed, ndigits=ndigits)
     half = float(t_crit) * sd / (n ** 0.5)
     lo, hi = mu - half, mu + half
-    if math.isfinite(mu) and math.isfinite(sd) and not (math.isfinite(lo) and math.isfinite(hi)):
+    if all(math.isfinite(v) for v in vals) and not (math.isfinite(lo) and math.isfinite(hi)):
         raise OverflowError("the confidence interval of the mean is beyond the float range")
     return {
         "mean": _rnd(mu, ndigits),

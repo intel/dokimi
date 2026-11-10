@@ -752,6 +752,8 @@ def test_mean_ci_raises_when_the_interval_leaves_the_float_range():
     pytest.importorskip("scipy")
     with pytest.raises(OverflowError):
         stats.mean_ci([9e307, -9e307])
+    with pytest.raises(OverflowError):  # the sd itself is inf
+        stats.mean_ci([1.7e308, -1.7e308, 1.7e308])
     ci = stats.mean_ci([1e300, -1e300, 1e300], ndigits=None)
     assert ci["lo"] < 0 < ci["hi"] and ci["hi"] < float("inf")
 
