@@ -30,7 +30,7 @@ from typing import Any
 
 from ..manifest import RepoManifest
 from .history import History, addressed, carry
-from .merged import Skip, base_of, check_merged, left_out
+from .merged import Skip, base_of, check_merged, left_out, need_utf8_paths
 from .threads import PullRequest, ReplayError, Thread, gold_problem, review_bodies
 
 PATCH = "change.patch"
@@ -104,6 +104,7 @@ def _make(h: History, manifest: RepoManifest, pr: PullRequest, opts: Options,
     if base is None:
         raise Skip(f"the reviewed revision {rev[:12]} shares no history with the base branch")
     changed = h.changed(base, rev)
+    need_utf8_paths(changed)
     leave_out = sorted({p for p in changed if left_out(manifest, p)})
     if not changed:
         raise Skip(f"the reviewed revision {rev[:12]} changes nothing against the base branch")

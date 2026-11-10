@@ -1,0 +1,3 @@
+### Fixed
+
+- **`repo` replay history names a file whose name is not UTF-8 by its bytes** — on POSIX the changed files and name-status entries `repo` reads from git for a replay task decoded a byte such as 0xff to U+FFFD, a path that names no file. They keep the byte now (`os.fsdecode`), as the other readers of a `-z` listing do. A pull request that changes such a file is skipped by `eval tasks generate` and the replay build with `<path> is not a UTF-8 file name, which task.json cannot hold` (the path shown with `\xff`), as `task.json` is UTF-8 text. A UTF-8 name is unchanged.

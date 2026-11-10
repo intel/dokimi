@@ -10,6 +10,8 @@ SHAs of a toy history built per test. No network, no docker.
 from __future__ import annotations
 
 import json
+import os
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -19,7 +21,8 @@ import dokimi.repos.replay.threads as threads_module
 from dokimi.cli import build_parser
 from dokimi.repos import RepoSource, load_manifest, open_source
 from dokimi.repos.replay import History, ReplayError, load_pull_requests
-from dokimi.repos.replay.history import map_line, near
+from dokimi.repos.replay.history import _entries, map_line, near
+from dokimi.repos.replay.merged import Skip, need_utf8_paths
 from dokimi.repos.replay.threads import gold_problem
 from dokimi.repos.workspace import export_eval_dir, load_tasks, prepare_workspace, source_git_dir
 from repo_eval_fixture import FakeRunner, git, make_repo, write
@@ -713,3 +716,36 @@ def test_map_line_carries_a_line_through_a_diff(line, hunks, expected):
 ])
 def test_near_is_within_window_lines_of_a_change(hunks, window, expected):
     assert near(10, hunks, window) is expected
+
+
+NON_UTF8 = os.fsdecode(b"r\xff.py") if os.name != "nt" else "r.py"
+needs_byte_names = pytest.mark.skipif(sys.platform in ("win32", "darwin"), reason="the file system takes only UTF-8 names")
+
+
+@needs_byte_names
+def test_history_names_a_path_that_is_not_utf8_by_its_bytes(tmp_path):
+    """A byte 0xff in a name stays that byte (``os.fsdecode``), not U+FFFD, which names no file."""
+    root = tmp_path / "bytes"
+    write(root, "a.py", "a\n")
+    git(root, "init", "-q")
+    git(root, "add", "-A")
+    git(root, "commit", "-qm", "one")
+    write(root, NON_UTF8, "b\n")
+    git(root, "add", "-A")
+    git(root, "commit", "-qm", "two")
+    h = History(root / ".git")
+    assert h.changed("HEAD~1", "HEAD") == [NON_UTF8]
+    assert h.statuses("HEAD~1", "HEAD") == [("A", NON_UTF8)]
+
+
+@needs_byte_names
+def test_a_name_status_listing_keeps_the_bytes_of_a_path_that_is_not_utf8():
+    assert _entries(b"A\0" + os.fsencode(NON_UTF8) + b"\0R100\0a.py\0" + os.fsencode(NON_UTF8) + b"\0") == [
+        ("A", "", NON_UTF8), ("R", "a.py", NON_UTF8)]
+
+
+@needs_byte_names
+def test_a_changed_path_that_is_not_utf8_skips_the_pull_request_naming_it_escaped():
+    need_utf8_paths(["a.py", "né.py"])  # UTF-8 names pass
+    with pytest.raises(Skip, match=r"^src/\\xff.py is not a UTF-8 file name, which task.json cannot hold$"):
+        need_utf8_paths(["a.py", os.fsdecode(b"src/\xff.py")])
