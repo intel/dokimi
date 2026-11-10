@@ -33,7 +33,21 @@ def test_an_unrestricted_bash_grant_is_found(value):
 
 @pytest.mark.parametrize(
     "value",
-    [None, "", "Read, Write", "Bash(git:*)", "Bash(python3 scripts/*), Read", ["Bash(npm test)"], "BashOutput", 3, "Bash(git:*"],
+    [
+        None,
+        "",
+        "Read, Write",
+        "Bash(git:*)",
+        "Bash(python3 scripts/*), Read",
+        ["Bash(npm test)"],
+        "BashOutput",
+        3,
+        "Bash(git:*",
+        "Bash(*",
+        "Bash(",
+        "Bash(:*",
+        "Bash(* Read",
+    ],
 )
 def test_a_scoped_or_absent_grant_is_not(value):
     assert not _unrestricted_bash(value)

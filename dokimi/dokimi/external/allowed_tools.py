@@ -69,7 +69,7 @@ def _tool_entries(value: str) -> list[tuple[str, Optional[str]]]:
 
     Entries are split on whitespace and commas. A ``(pattern)`` after a name is consumed whole (see
     :func:`_group_end`). A group that never closes runs to the end of the string: its tool name is kept,
-    its pattern is not read, and the scan stops. Quoting is a heuristic, and a stray quote can hide the entries between two quotes or
+    its pattern is the text from its ``(`` on (never unrestricted), and the scan stops. Quoting is a heuristic, and a stray quote can hide the entries between two quotes or
     leave a junk name such as ``")"`` (warn-only, and rare).
     """
     names: list[tuple[str, Optional[str]]] = []
@@ -94,7 +94,8 @@ def _tool_entries(value: str) -> list[tuple[str, Optional[str]]]:
         if i < n and value[i] == "(":
             end, quotes = _group_end_checked(value, i, quotes)
             if end is None:
-                names.append((name, value[i + 1 :]))  # unclosed: a pattern, unread
+                # unclosed: the pattern keeps its "(", so it is never unrestricted
+                names.append((name, value[i:]))
                 break
             names.append((name, value[i + 1 : end - 1]))
             i = end
