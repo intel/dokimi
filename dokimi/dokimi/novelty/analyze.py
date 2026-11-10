@@ -26,7 +26,7 @@ from . import classify, items as items_mod
 from . import measure, needs, probes, provenance, report, retention, shorten, spans
 from . import panel as panel_mod
 from .artifact import load_artifact_text  # noqa: F401  (public path: novelty.analyze)
-from .client import LLMClient, roll_up_cost, same_client, warn_extractor_judge
+from .client import LLMClient, roll_up_cost, warn_extractor_judge
 from .retention import RetentionOracle
 from .tiers import DEFAULT_SETTINGS, RunSettings
 
@@ -170,8 +170,7 @@ def analyze(
         panel: More judges besides ``judge`` (see :func:`measure.run_measurement`).
         aggregate: The panel's rule for one verdict per answer.
     """
-    for member in (judge, *panel):
-        measure.check_self_judge(member, answerer, config.allow_self_judge)
+    measure.check_judges(judge, panel, answerer, config.allow_self_judge)
     relation = warn_extractor_judge(extractor.model, judge, extractor.provider)
     warnings: list[str] = []
     span_list = spans.segment(text)
@@ -249,9 +248,9 @@ def analyze(
         placebo_text=config.placebo_text, seed=config.seed, framing=config.context_framing,
         panel=panel, aggregate=aggregate,
     )
-    judge_panel = panel_mod.panel_record(measure_result, aggregate)
+    judge_panel = measure.panel_record(measure_result, aggregate)
     warnings.extend(panel_mod.panel_warnings(judge_panel))
-    if config.allow_self_judge and any(same_client(j, answerer) for j in (judge, *panel)):
+    if config.allow_self_judge and panel_mod.same_as_answerer((judge, *panel), answerer):
         warnings.append(
             "judge and answerer are the same model (--allow-self-judge): scores are inflated"
         )
@@ -402,8 +401,7 @@ def analyze(
         provenance.same_vendor_warning(payload["provenance"])])})
     payload["run_config"]["tier"] = settings.tier_record(sampled=capped)
     payload["run_config"]["extractor_judge"] = relation
-    if judge_panel:
-        payload["judge_panel"] = judge_panel
+    payload.update(panel_mod.panel_block(judge_panel))
     return AnalyzeResult(
         artifact=payload,
         attributions=attributions,

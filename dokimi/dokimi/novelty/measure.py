@@ -32,6 +32,8 @@ from .atoms import Atom
 from .client import LLMClient, same_client
 from .controls import (REPEAT_ARM, clustered_ci, control_fields, reversal_by_arm,
                        reversal_paired)
+from .panel import RULES, SENSITIVE_RANGE, shared_vendors
+from .panel import aggregate as aggregate_votes
 from .probes import Probe
 
 # Judge verdict scale. Deliberately finer than the collapses below so a rater
@@ -259,6 +261,12 @@ def check_arms(arms: tuple[str, ...], placebo_text: str | None) -> None:
         raise InputError("the placebo arm needs --placebo-text (domain-mismatched text)")
 
 
+def check_judges(judge: LLMClient, panel, answerer: LLMClient, allow_self_judge: bool) -> None:
+    """Refuse a judge of the run that is the answerer, before any paid call."""
+    for member in (judge, *panel):
+        check_self_judge(member, answerer, allow_self_judge)
+
+
 def run_measurement(
     atoms: list[Atom],
     probes: list[Probe],
@@ -297,9 +305,6 @@ def run_measurement(
             and each judge's own verdict is kept on the run.
         aggregate: The panel rule: ``median``, ``majority`` or ``unanimous``.
     """
-    from .panel import RULES
-    from .panel import aggregate as aggregate_votes
-
     judges = (judge, *panel)
     for member in judges:
         check_self_judge(member, answerer, allow_self_judge)
@@ -621,3 +626,45 @@ def _pearson(xs: list[float], ys: list[float]) -> float | None:
         return None
     return round(sum(a * b for a, b in zip(dx, dy, strict=True)) / den, 4)
 
+
+def panel_record(measure_result, rule: str) -> dict | None:
+    """The ``judge_panel`` block of a probe or novelty record: who judged, the rule, each
+    judge's own paired 2×2, the judge range of the added share, and a sensitivity flag.
+
+    ``None`` for a single-judge run, which records no panel.
+    """
+    runs = measure_result.runs
+    judges: list[str] = []
+    for run in runs:
+        for model in run.judge_verdicts or {}:
+            if model not in judges:
+                judges.append(model)
+    if len(judges) < 2:
+        return None
+    per_judge: dict[str, dict] = {}
+    for model in judges:
+        own = [
+            ProbeRun(atom_id=r.atom_id, probe_kind=r.probe_kind, arm=r.arm, question=r.question,
+                     response=r.response, verdict=(r.judge_verdicts or {}).get(model, r.verdict))
+            for r in runs
+        ]
+        per_judge[model] = {s: paired_outcomes(own, with_arm=measure_result.with_arm, scoring=s)
+                            for s in ("lenient", "strict")}
+    added_range: dict[str, float | None] = {}
+    for scoring in ("lenient", "strict"):
+        shares = []
+        for row in per_judge.values():
+            cell = row[scoring]
+            if cell.get("n_paired"):
+                shares.append(cell["added"])
+        added_range[scoring] = round(max(shares) - min(shares), 4) if shares else None
+    lenient_range = added_range["lenient"]
+    return {
+        "judges": judges,
+        "rule": rule,
+        "shared_vendors": shared_vendors(judges),
+        "per_judge_paired": per_judge,
+        "added_share_range": added_range,
+        "judge_sensitive": lenient_range is not None and lenient_range > SENSITIVE_RANGE,
+        "sensitive_threshold": SENSITIVE_RANGE,
+    }

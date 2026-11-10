@@ -528,7 +528,7 @@ def test_estimate_only_prints_the_expected_calls_and_a_dollar_figure(tmp_path, c
 
 
 def test_the_cli_prices_a_triage_estimate_with_the_triage_extractor_profile(tmp_path, capsys):
-    from dokimi.commands.novelty import _role_models
+    from dokimi.commands.novelty_run import role_models as _role_models
 
     root = tmp_path / "s"
     root.mkdir()
@@ -551,7 +551,7 @@ def test_the_cli_prices_a_triage_estimate_with_the_triage_extractor_profile(tmp_
 
 
 def test_the_extractor_defaults_to_the_judge_provider_not_the_answerer(tmp_path):
-    from dokimi.commands.novelty import _role_models
+    from dokimi.commands.novelty_run import role_models as _role_models
 
     args = _parse("skill", "novelty", "analyze", "--artifact", f"skill:{tmp_path}", "--provider", "anthropic",
                   "--judge-model", "judge-m", "--judge-provider", "openai", "--estimate-only")
@@ -706,7 +706,7 @@ def test_an_estimate_for_an_artifact_beyond_the_fitted_range_says_it_extrapolate
 
 
 def test_the_cli_passes_each_arm_share_to_the_dollar_figure(tmp_path, capsys):
-    from dokimi.commands.novelty import _role_models
+    from dokimi.commands.novelty_run import role_models as _role_models
 
     root = tmp_path / "s"
     root.mkdir()

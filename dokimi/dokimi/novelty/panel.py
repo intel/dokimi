@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from collections import Counter
 
-from .client import vendor_of
+from .client import same_client, vendor_of
 
 # The order the median walks: best first. The three wrong verdicts score 0 and tie.
 _SCORE = {
@@ -84,51 +84,6 @@ def shared_vendors(models: list[str]) -> dict[str, list[str]]:
     return {v: ms for v, ms in by_vendor.items() if len(ms) > 1}
 
 
-def panel_record(measure_result, rule: str) -> dict | None:
-    """The ``judge_panel`` block of a probe or novelty record: who judged, the rule, each
-    judge's own paired 2×2, the judge range of the added share, and a sensitivity flag.
-
-    ``None`` for a single-judge run, which records no panel.
-    """
-    from .measure import ProbeRun, paired_outcomes
-
-    runs = measure_result.runs
-    judges: list[str] = []
-    for run in runs:
-        for model in run.judge_verdicts or {}:
-            if model not in judges:
-                judges.append(model)
-    if len(judges) < 2:
-        return None
-    per_judge: dict[str, dict] = {}
-    for model in judges:
-        own = [
-            ProbeRun(atom_id=r.atom_id, probe_kind=r.probe_kind, arm=r.arm, question=r.question,
-                     response=r.response, verdict=(r.judge_verdicts or {}).get(model, r.verdict))
-            for r in runs
-        ]
-        per_judge[model] = {s: paired_outcomes(own, with_arm=measure_result.with_arm, scoring=s)
-                            for s in ("lenient", "strict")}
-    added_range: dict[str, float | None] = {}
-    for scoring in ("lenient", "strict"):
-        shares = []
-        for row in per_judge.values():
-            cell = row[scoring]
-            if cell.get("n_paired"):
-                shares.append(cell["added"])
-        added_range[scoring] = round(max(shares) - min(shares), 4) if shares else None
-    lenient_range = added_range["lenient"]
-    return {
-        "judges": judges,
-        "rule": rule,
-        "shared_vendors": shared_vendors(judges),
-        "per_judge_paired": per_judge,
-        "added_share_range": added_range,
-        "judge_sensitive": lenient_range is not None and lenient_range > SENSITIVE_RANGE,
-        "sensitive_threshold": SENSITIVE_RANGE,
-    }
-
-
 def panel_warnings(record: dict | None) -> list[str]:
     """Warnings a panel record carries into the artifact's ``warnings``."""
     if not record:
@@ -143,3 +98,13 @@ def panel_warnings(record: dict | None) -> list[str]:
                    f"{record['added_share_range']['lenient']:.2f} across the panel's judges "
                    f"(more than {SENSITIVE_RANGE:.2f}); report the range, not one judge's number")
     return out
+
+
+def same_as_answerer(judges, answerer) -> bool:
+    """Whether any judge is the answerer's model (the self-judge warning)."""
+    return any(same_client(j, answerer) for j in judges)
+
+
+def panel_block(judge_panel: dict | None) -> dict:
+    """The ``judge_panel`` key of a record: empty for a single-judge run."""
+    return {"judge_panel": judge_panel} if judge_panel else {}
