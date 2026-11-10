@@ -172,6 +172,7 @@ def _hook_source(opt: str, value: str, line: int) -> Source | None:
 
 _SRE: Any = importlib.import_module("re._parser")  # the parse re.compile reads; private, and no public API gives it
 _REPEATS = (_SRE.MAX_REPEAT, _SRE.MIN_REPEAT, _SRE.POSSESSIVE_REPEAT)
+_SPAN = 64  # the most items :func:`_follow` reads, so the check stays linear in the pattern
 
 
 def _backtracks(pattern: str) -> bool:
@@ -219,9 +220,9 @@ def _nests_repeat(sub: Any, i: int, inside: bool, end: set[str] | None) -> bool:
 
 def _follow(items: Any, start: int, end: set[str] | None) -> set[str] | None:
     """The characters that can start ``items[start:]`` (read by index, not copied), then ``end`` when all of them can
-    be empty; None when not known."""
+    be empty; None when not known, or when more than ``_SPAN`` of them can be empty in a row."""
     out: set[str] = set()
-    for j in range(start, len(items)):
+    for j in range(start, min(len(items), start + _SPAN)):
         op, av = items[j]
         if items[j:j + 1].getwidth()[0] > 0:
             first = _first(items[j:j + 1])
@@ -230,7 +231,7 @@ def _follow(items: Any, start: int, end: set[str] | None) -> set[str] | None:
         if first is None:
             return None
         out |= first
-    return None if end is None else out | end
+    return None if end is None or start + _SPAN < len(items) else out | end
 
 
 def _overlap(alts: list[Any]) -> bool:

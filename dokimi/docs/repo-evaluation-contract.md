@@ -1938,7 +1938,9 @@ first character, a `[...]` of characters and ranges of at most 256, or a group
 or repeat that starts with one; one that starts with anything else (`.`, a class
 such as `\w` or `[^a]`, an anchor, a group holding an alternation, something
 that can match nothing as in `a?b`) overlaps any other. So `(ab|Ab)+`, which
-matches fast, is refused too. Other slow shapes pass and can still take long on
+matches fast, is refused too, as is a varying item followed by more than 64
+items in a row that can match nothing, so the check stays linear in the
+pattern. Other slow shapes pass and can still take long on
 a long claim, such as `maintenance/.*a.*a.*a.*b`. When `.pre-commit-config.yaml` or one of those
 workflows was not read, the reason of a claim that stays `unresolved` here also
 names it, as `<file> was not read (<why>)` after the rest, in tree order and once

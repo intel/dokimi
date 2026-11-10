@@ -517,6 +517,8 @@ def test_a_hook_pattern_that_does_not_backtrack_gives_a_source_to_match():
     ("maintenance/(a?a?)+b", True), ("(a?a)+", True), ("(a+b?)+", True), ("([a-z]+/?)+", True), ("((ab)?a)+", True),
     # a skippable item counts in what follows, the outer pass follows a nested repeat, a branch can start with `?`
     ("maintenance/(?:a+a?b)+c", True), ("maintenance/(?:(?:ab?)+b)+c", True), ("maintenance/(?:a?b|b)+c", True),
+    # the second `a?` is past the span the check reads after the first one, in a group of its own
+    ("(?:(a?" + "".join(chr(0x4E00 + k) + "?" for k in range(70)) + "a?b)c)+", True),
     # `İ` is `i` to a case-insensitive `re`; so are the Kelvin sign and `k`
     ("maintenance/(?i:(i|\u0130i)+)b", True), ("maintenance/(?i:\u0130|ii)+b", True),
     ("maintenance/(?i:([i\u212a]|[\u0130J]i)+)b", True), ("(?i:[\u0130x]a|[i-j]b)+", True),
@@ -549,6 +551,23 @@ def test_the_refusal_check_copies_a_number_of_parse_tokens_linear_in_the_pattern
         copied.append(0)
         assert branches._backtracks("maintenance/(?:" + unit * n + ")+c") is False
         totals.append(copied[-1])
+    assert totals[1] <= 2.5 * totals[0]
+
+
+def test_a_long_run_of_items_that_can_be_skipped_in_a_repeat_is_refused_after_a_bounded_read(monkeypatch):
+    """Each skippable item does not read all the others up to the next one that cannot be skipped."""
+    original, calls = branches._first, [0]
+
+    def counting(sub):
+        calls[0] += 1
+        return original(sub)
+
+    monkeypatch.setattr(branches, "_first", counting)
+    totals = []
+    for n in (300, 600):
+        calls[0] = 0
+        assert branches._backtracks("maintenance/(?:" + "".join(chr(0x4E00 + k) + "?" for k in range(n)) + "a)+")
+        totals.append(calls[0])
     assert totals[1] <= 2.5 * totals[0]
 
 
