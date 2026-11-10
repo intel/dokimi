@@ -265,7 +265,7 @@ def test_trace_consistency_reports_a_device_trace_and_still_reads_the_others(mon
 
 
 @pytest.mark.parametrize("flag", ["--outcomes", "--contract"])
-def test_trace_consistency_refuses_a_device_as_outcomes_or_contract(monkeypatch, tmp_path, flag):
+def test_trace_consistency_refuses_a_device_as_outcomes_or_contract(monkeypatch, tmp_path, capsys, flag):
     good = _trace(tmp_path)
-    # ``sys.exit("✗ ...")``: the interpreter prints the string to stderr and exits 1
-    assert _main(monkeypatch, "trace", "consistency", flag, DEVICE, good) == f"✗ {flag} /dev/null: not a file"
+    assert _main(monkeypatch, "trace", "consistency", flag, DEVICE, good) == 2
+    assert f"Error: {flag} /dev/null: not a file" in capsys.readouterr().err

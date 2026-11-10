@@ -153,7 +153,7 @@ def test_the_command_reads_a_store_and_a_claude_log_together(tmp_path, capsys):
     args = build_parser().parse_args(["trace", "prefilter", str(guide), str(db), str(claude),
                                       "--min-sessions", "1", "--json"])
     args.func(args)
-    assert json.loads(capsys.readouterr().out)["sessions"] == 2
+    assert json.loads(capsys.readouterr().out)["data"]["sessions"] == 2
 
 
 @pytest.mark.skipif(not os.path.isdir("/dev/fd"), reason="needs /dev/fd")
@@ -171,7 +171,7 @@ def test_a_session_log_through_a_pipe_is_read_whole(tmp_path, capsys):
     finally:
         os.close(read_fd)
     captured = capsys.readouterr()
-    assert json.loads(captured.out)["sessions"] == 1 and "✗" not in captured.err
+    assert json.loads(captured.out)["data"]["sessions"] == 1 and "✗" not in captured.err
 
 
 def test_a_user_message_of_several_text_blocks_is_one_prompt(tmp_path):

@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 from collections import Counter
 from datetime import datetime, timezone
 
@@ -103,22 +102,30 @@ def _runs_json(groups: list[list[Artifact]]) -> list[dict]:
             for g in groups if g[0].run_id is not None]
 
 
+def _unreadable_status(unreadable: list) -> dict:
+    """``partial`` and its reason when entries under the root could not be read; the exit code stays 0."""
+    if not unreadable:
+        return {}
+    return {"status": "partial", "reason": f"{_count(len(unreadable), 'entry', 'entries')} under the root could not be read"}
+
+
 def cmd_runs_list(args: argparse.Namespace) -> None:
     """One row per artifact under the runs root, the artifacts of one run together and the runs
     newest first, and the count of what was skipped."""
+    from dokimi import cli_output
     root = runs_root()
     exists = root.exists()
     result = scan(root.path) if exists else ScanResult(root=root.path)
     groups = by_run(select(result.artifacts, args.kind, args.subject))
     shown = [a for g in groups for a in g]
     if args.json:
-        print(json.dumps({
+        cli_output.emit_leaf("runs list", {
             "root": root.path.as_posix(), "artifacts": [a.to_json() for a in shown],
             "runs": _runs_json(groups),
             "total": len(result.artifacts), "skipped": dict(sorted(result.skipped.items())),
             "unknown_versions": dict(sorted(result.unknown_versions.items())),
             "unreadable": [u.to_json() for u in result.unreadable],
-        }, indent=2))
+        }, summary={"shown": len(shown), "total": len(result.artifacts)}, **_unreadable_status(result.unreadable))
         return
     shown_root = plain(root.path.as_posix().rstrip("/") + "/")
     if not exists:
@@ -190,9 +197,11 @@ def _run_text(run: ShownRun) -> list[str]:
 
 def _show_run(root: str, run: ShownRun, as_json: bool) -> None:
     if as_json:
-        print(json.dumps({"root": root, "run_id": run.run_id,
-                          "artifacts": [a.to_json() for a in run.artifacts],
-                          "unreadable": [u.to_json() for u in run.unreadable]}, indent=2))
+        from dokimi import cli_output
+        cli_output.emit_leaf("runs show", {
+            "root": root, "run_id": run.run_id,
+            "artifacts": [a.to_json() for a in run.artifacts],
+            "unreadable": [u.to_json() for u in run.unreadable]}, **_unreadable_status(run.unreadable))
     else:
         print("\n".join(_run_text(run)))
 
@@ -200,6 +209,7 @@ def _show_run(root: str, run: ShownRun, as_json: bool) -> None:
 def cmd_runs_show(args: argparse.Namespace) -> None:
     """One artifact: its kind, schema check, fields, contents and neighbours; or, for a run id,
     the artifacts of that run. A failed schema check is printed, and the exit code stays 0."""
+    from dokimi import cli_output
     root = runs_root()
     if not root.exists():
         raise InputError(f"no runs root: {plain(root.path.as_posix())}/ does not exist "
@@ -209,7 +219,8 @@ def cmd_runs_show(args: argparse.Namespace) -> None:
         _show_run(root.path.as_posix(), shown, args.json)
         return
     if args.json:
-        print(json.dumps(_show_json(shown, root.path.as_posix()), indent=2))
+        cli_output.emit_leaf("runs show", _show_json(shown, root.path.as_posix()),
+                             summary={"schema_valid": not shown.errors})
     else:
         print("\n".join(_show_text(shown)))
 
@@ -231,8 +242,8 @@ def register(sub: argparse._SubParsersAction, positive_int) -> None:
                         help="Only artifacts whose subject is exactly this (a product, a repo id, "
                              "a skill ref)")
     list_p.add_argument("--json", action="store_true",
-                        help="Print the artifacts, the runs and the skip counts as JSON")
-    list_p.set_defaults(func=cmd_runs_list)
+                        help="Print cli_output.v1 on stdout (the artifacts, the runs and the skip counts under data)")
+    list_p.set_defaults(func=cmd_runs_list, emits_cli_output=True, cli_kind="runs list")
 
     show_p = runs_sub.add_parser(
         "show",
@@ -245,6 +256,6 @@ def register(sub: argparse._SubParsersAction, positive_int) -> None:
                              "root), or an absolute path inside the root. Or a run_id from runs "
                              "list, when no artifact file has that name")
     show_p.add_argument("--json", action="store_true",
-                        help="Print the artifact's fields, schema errors and neighbours (for a "
-                             "run_id: the run's artifacts) as JSON")
-    show_p.set_defaults(func=cmd_runs_show)
+                        help="Print cli_output.v1 on stdout (the artifact's fields, schema errors and "
+                             "neighbours under data; for a run_id, the run's artifacts)")
+    show_p.set_defaults(func=cmd_runs_show, emits_cli_output=True, cli_kind="runs show")
