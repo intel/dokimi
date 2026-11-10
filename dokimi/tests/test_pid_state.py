@@ -31,6 +31,25 @@ def test_a_live_pid_without_proc_is_alive_and_a_gone_one_is_not(monkeypatch):
     assert not pid_alive(child.pid)
 
 
+def test_a_pid_reaped_between_the_probe_and_the_proc_read_is_gone_not_alive(monkeypatch):
+    def no_proc(self, *args, **kwargs):
+        raise FileNotFoundError(str(self))
+
+    probes = iter([None, ProcessLookupError()])  # the first probe finds it, the recheck does not
+
+    def kill(pid, sig):
+        outcome = next(probes)
+        if outcome is not None:
+            raise outcome
+
+    monkeypatch.setattr(pid_state_module.Path, "read_text", no_proc)
+    monkeypatch.setattr(pid_state_module.os, "kill", kill)
+    assert pid_state(4242) is None
+
+    probes = iter([None, ProcessLookupError()])
+    assert not pid_alive(4242)
+
+
 @pytest.mark.skipif(not sys.platform.startswith("linux"), reason="reads /proc")
 def test_running_zombie_and_reaped_child_are_told_apart():
     child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
