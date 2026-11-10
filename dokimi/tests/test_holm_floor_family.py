@@ -10,9 +10,13 @@ counts in ``family_size``, and has no adjusted p; ``family_tested`` counts the r
 
 from __future__ import annotations
 
+import functools
+import itertools
+
 import pytest
 
 from dokimi.eval import stats
+from dokimi.eval.sign_flip import sign_flip_p
 from dokimi.report.model_compare import generate_section_report
 from dokimi.repos.compare import compare, format_compare
 from dokimi.repos.compare_reach import holm_floor
@@ -126,3 +130,51 @@ def test_a_family_of_only_floor_bound_rows_has_no_p_holm(tmp_path):
         row = _row(s, "score", treatment=arm)
         assert row["p"] is not None and row["p_holm"] is None and row["p_holm_floor"] is None and row["mde"] is None
     assert "Holm over" not in format_compare(s)
+
+
+MAGNITUDES = [1, 2, 4, 8, 16, 32, 64, 128]
+
+
+def _sign_patterns():
+    return itertools.product((1, -1), repeat=len(MAGNITUDES))
+
+
+@functools.lru_cache(maxsize=None)
+def _p(deltas: tuple[float, ...]) -> float | None:
+    return sign_flip_p(list(deltas))
+
+
+def _rejects(a: list[float], b: list[float], *, filtered: bool) -> bool:
+    """Whether Holm over the two results rejects either, with or without the floor rule."""
+    ps = [_p(tuple(d)) for d in (a, b)]
+    if filtered:
+        ps = stats.reachable_pvals(ps, [sum(1 for x in d if x) for d in (a, b)])
+    return any(sig for _, sig in stats.correct_family(ps))
+
+
+def test_the_floor_rule_keeps_the_family_error_rate_when_eligibility_is_set_by_the_magnitudes():
+    # B's changed pairs (8 or 3) are fixed by its magnitudes; every sign pattern of both results is enumerated
+    rates = {}
+    for b_changed in (8, 3):
+        counts = {True: 0, False: 0}
+        for sa, sb in itertools.product(list(_sign_patterns()), repeat=2):
+            a = [s * m for s, m in zip(sa, MAGNITUDES, strict=True)]
+            b = [s * m if i < b_changed else 0 for i, (s, m) in enumerate(zip(sb, MAGNITUDES, strict=True))]
+            for filtered in counts:
+                counts[filtered] += _rejects(a, b, filtered=filtered)
+        rates[b_changed] = {k: v / 256**2 for k, v in counts.items()}
+    assert rates[8][True] == rates[8][False] < 0.05  # nothing floor-bound: the same family
+    assert rates[3][True] < 0.05 and rates[3][True] > rates[3][False]  # B out: A alone at 5%, a gain
+
+
+def test_the_floor_rule_can_inflate_the_family_rate_when_one_results_ties_follow_anothers_signs():
+    # the documented boundary: B's last five deltas are zero exactly when A's raw p is below 0.05
+    counts = {True: 0, False: 0}
+    for sa, sb in itertools.product(list(_sign_patterns()), repeat=2):
+        a = [s * m for s, m in zip(sa, MAGNITUDES, strict=True)]
+        keep = len(MAGNITUDES) if _p(tuple(a)) >= 0.05 else 3
+        b = [s * m if i < keep else 0 for i, (s, m) in enumerate(zip(sb, MAGNITUDES, strict=True))]
+        for filtered in counts:
+            counts[filtered] += _rejects(a, b, filtered=filtered)
+    assert round(counts[False] / 256**2, 4) == 0.0458
+    assert round(counts[True] / 256**2, 4) == 0.0692

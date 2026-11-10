@@ -372,7 +372,11 @@ An arm under that floor can never be significant, so it stays out of the
 multiplier, as a `repo compare` row does: it counts in `family_size` but not in
 `family_tested`, and its `p_adjusted` is null. The other arms are corrected as if
 it were not there, so a verdict near 0.05 can move toward significant where a
-floor-bound arm shares the family.
+floor-bound arm shares the family. The 5% family-wise rate holds when whether an
+arm can reach 0.05 follows from the magnitudes of the deltas alone (which are
+ties), as under the sign-flip null, where the signs are fair coins given the
+magnitudes. It can be exceeded if one arm's ties are set by another arm's signs:
+in a constructed case, 6.9% against 4.6% with the arm kept in the family.
 
 The **Sig.** column follows the *adjusted* p-value, not the raw one. Three
 values are possible:
