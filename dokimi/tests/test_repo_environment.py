@@ -8,6 +8,8 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+from collections.abc import Callable
+from functools import partial
 from pathlib import Path
 
 import pytest
@@ -18,6 +20,7 @@ from dokimi.repos.environment import files as F
 from dokimi.repos.environment import inspect_repo
 from dokimi.repos.environment.instructions import detect_instructions
 from dokimi.repos.source import GitTree, WorkTree
+from tests.growth_timing import GROWTH_LIMIT, growth
 
 SETTINGS = {"hooks": {
     "SessionStart": [{"hooks": [{"type": "command", "command": "npm ci && npm run build"}]}],
@@ -79,6 +82,16 @@ def _rules(payload: dict) -> dict[str, list]:
     for f in payload["findings"]:
         out.setdefault(f["rule"], []).append(f["path"])
     return out
+
+
+def _inspected(tmp_path: Path, files: Callable[[int], dict[str, str]]) -> Callable[[int], Callable[[], dict]]:
+    """For :func:`~tests.growth_timing.growth`: ``inspect_repo`` of a repository of ``files(size)``, git's file listing done once."""
+    def timed(size: int) -> Callable[[], dict]:
+        _repo(tmp_path / str(size), files(size))
+        tree = WorkTree(tmp_path / str(size))
+        tree.files()
+        return partial(inspect_repo, tree)
+    return timed
 
 
 @pytest.mark.outcome("cjm-repo-inspect")
@@ -282,12 +295,12 @@ def test_npm_init_placeholder_is_not_a_test(tmp_path, script, declared):
 
 
 def test_network_exec_pattern_is_linear_on_repeated_tokens(tmp_path):
-    import time
-    scripts = {"boot": "curl -fsSL https://x.sh | sudo bash", "slow": "curl " * 120_000}
-    _repo(tmp_path, {"AGENTS.md": "x\n", "package.json": json.dumps({"scripts": scripts})})
-    start = time.monotonic()
-    found = {s["source"] for s in inspect_repo(WorkTree(tmp_path))["scripts"] if s["category"] == "network-exec"}
-    assert found == {"package.json#scripts.boot"} and time.monotonic() - start < 5
+    def files(k):
+        scripts = {"boot": "curl -fsSL https://x.sh | sudo bash", "slow": "curl " * k}
+        return {"AGENTS.md": "x\n", "package.json": json.dumps({"scripts": scripts})}
+    ratio, payload = growth(_inspected(tmp_path, files), 2_000)
+    found = {s["source"] for s in payload["scripts"] if s["category"] == "network-exec"}
+    assert found == {"package.json#scripts.boot"} and ratio < GROWTH_LIMIT
 
 
 @pytest.mark.parametrize("path", ["src/Credit.java", "Unit.java", "Edit.kt", "Exit.java",
@@ -431,22 +444,10 @@ def test_deeply_nested_yaml_does_not_crash(tmp_path):
     validate_artifact("repo_environment", {"schema_version": "repo_environment.v1", **payload})
 
 
-def test_npm_install_1mb_completes_quickly(tmp_path):
-    """A hook command just under the settings cap should complete in under 1 second."""
-    import time
-    hook_cmd = "npm " + "-npm " * 150_000  # 750 KB: under MAX_SETTINGS_BYTES, so the hook is parsed
-    settings = {
-        "hooks": {
-            "SessionStart": [{"hooks": [{"type": "command", "command": hook_cmd}]}],
-        }
-    }
-    _repo(tmp_path, {".claude/settings.json": json.dumps(settings), "AGENTS.md": "x"})
-    start = time.monotonic()
-    payload = inspect_repo(WorkTree(tmp_path))
-    elapsed = time.monotonic() - start
-    # Typically well under a second; a quadratic parse takes minutes here. The bound is loose so a
-    # slow CI runner does not fail it.
-    assert elapsed < 5.0, f"Took {elapsed} seconds, should be < 5s"
+def test_npm_hook_of_many_options_is_linear(tmp_path):
+    """A hook command of many options, 25 KB at n and 100 KB at 4n, is parsed in linear time."""
+    ratio, payload = growth(_inspected(tmp_path, lambda k: _hook_files("npm " + "-npm " * k)), 5_000)
+    assert ratio < GROWTH_LIMIT
     assert [c["note"] for c in payload["capabilities"]] == ["hooks on SessionStart"]
 
 
@@ -563,19 +564,9 @@ def test_test_file_case_insensitive_and_mjs(tmp_path):
 
 
 def test_unbalanced_quote_in_hook_completes_quickly(tmp_path):
-    """A hook with an unbalanced quote just under the settings cap should complete in under 3 seconds."""
-    import time
-    hook_cmd = "echo '" + "a" * 999_000  # under MAX_SETTINGS_BYTES, so the hook is parsed
-    settings = {
-        "hooks": {
-            "SessionStart": [{"hooks": [{"type": "command", "command": hook_cmd}]}],
-        }
-    }
-    _repo(tmp_path, {".claude/settings.json": json.dumps(settings), "AGENTS.md": "x"})
-    start = time.monotonic()
-    payload = inspect_repo(WorkTree(tmp_path))
-    # 0.08 s alone, 1.3 s on a loaded runner; shlex over the whole quote (no _MAX_SHLEX_LINE) takes 8 s alone
-    assert (elapsed := time.monotonic() - start) < 3.0, f"Took {elapsed} seconds, should be < 3s"
+    """A hook with an unbalanced quote, 60 KB at n and 240 KB at 4n, is parsed in linear time."""
+    ratio, payload = growth(_inspected(tmp_path, lambda k: _hook_files("echo '" + "a" * k)), 60_000)
+    assert ratio < GROWTH_LIMIT  # shlex over the whole quote (no _MAX_SHLEX_LINE) is quadratic
     assert [c["note"] for c in payload["capabilities"]] == ["hooks on SessionStart"]
 
 
@@ -668,17 +659,11 @@ def test_hook_command_runs_repository_code(tmp_path, command, flagged):
     assert bool(inspect_repo(WorkTree(tmp_path))["hook_risks"]) is flagged
 
 
-@pytest.mark.parametrize("files", [
-    {"setup.cfg": "[" * 40_000},
-    {"build.gradle": "plugins {" * 20_000},
-    {"pom.xml": "<artifactId>" + "checkstyle " * 20_000},
-])
-def test_manifest_readers_are_linear_on_repeated_tokens(tmp_path, files):
-    import time
-    _repo(tmp_path, {"AGENTS.md": "x", "setup.py": "", **files})
-    start = time.monotonic()
-    inspect_repo(WorkTree(tmp_path))
-    assert time.monotonic() - start < 2
+@pytest.mark.parametrize("path, head, token, n", [
+    ("setup.cfg", "", "[", 5_000), ("build.gradle", "", "plugins {", 1_000), ("pom.xml", "<artifactId>", "checkstyle ", 1_000)])
+def test_manifest_readers_are_linear_on_repeated_tokens(tmp_path, path, head, token, n):
+    files = _inspected(tmp_path, lambda k: {"AGENTS.md": "x", "setup.py": "", path: head + token * k})
+    assert growth(files, n)[0] < GROWTH_LIMIT
 
 
 def test_blob_less_clone_reads_manifests_in_few_requests(tmp_path, monkeypatch):
@@ -701,10 +686,13 @@ def test_blob_less_clone_reads_manifests_in_few_requests(tmp_path, monkeypatch):
     assert fetches <= 6, fetches
 
 
-def _hook_payload(tmp_path, command, event="SessionStart", extra=None):
+def _hook_files(command, event="SessionStart", extra=None):
     settings = {"hooks": {event: [{"hooks": [{"type": "command", "command": command}]}]}}
-    _repo(tmp_path, {"AGENTS.md": "x", "setup.sh": "true\n", ".claude/settings.json": json.dumps(settings),
-                     **(extra or {})})
+    return {"AGENTS.md": "x", "setup.sh": "true\n", ".claude/settings.json": json.dumps(settings), **(extra or {})}
+
+
+def _hook_payload(tmp_path, command, event="SessionStart", extra=None):
+    _repo(tmp_path, _hook_files(command, event, extra))
     return inspect_repo(WorkTree(tmp_path))
 
 
@@ -884,14 +872,11 @@ def test_an_npm_script_command_runs_repository_code(tmp_path, word):
     assert _hook_payload(tmp_path, f"npm {word} build")["hook_risks"] != []
 
 
-@pytest.mark.parametrize("body", ["a\n" * 40_000, "a" + " " * 100_000, "a" + "\t" * 100_000],
+@pytest.mark.parametrize("head, token, n", [("", "a\n", 2_000), ("a", " ", 2_000), ("a", "\t", 2_000)],
                          ids=["lines", "spaces", "tabs"])
-def test_makefile_rules_are_linear(tmp_path, body):
-    import time
-    _repo(tmp_path, {"AGENTS.md": "x", "Makefile": body})
-    start = time.monotonic()
-    inspect_repo(WorkTree(tmp_path))
-    assert time.monotonic() - start < 2
+def test_makefile_rules_are_linear(tmp_path, head, token, n):
+    makefile = _inspected(tmp_path, lambda k: {"AGENTS.md": "x", "Makefile": head + token * k})
+    assert growth(makefile, n)[0] < GROWTH_LIMIT
 
 
 def test_a_file_matching_two_instruction_rules_has_one_finding_per_rule(tmp_path):
@@ -975,22 +960,17 @@ def test_the_committed_fixture_is_what_repo_inspect_emits(tmp_path):
     assert json.loads(FIXTURE.read_text(encoding="utf-8")) == data
 
 
-@pytest.mark.parametrize("files", [
-    # Sizes at which the pattern without its bound takes far over the limit; a script not named like
-    # a type check, so the tool pattern runs.
-    {"package.json": json.dumps({"scripts": {"clean": "rm" + " --a" * 28}})},
-    {"package.json": json.dumps({"scripts": {"clean": "git clean" + " --a" * 28}})},
-    {"package.json": json.dumps({"scripts": {"check:x": "tsc " * 100_000}})},
-    {"pom.xml": "<artifactId>" * 20_000},
-])
-def test_script_and_manifest_patterns_are_linear_on_hostile_strings(tmp_path, files):
-    import time
-    _repo(tmp_path, {"AGENTS.md": "x", **files})
-    start = time.monotonic()
-    inspect_repo(WorkTree(tmp_path))
-    # Bounded, the `tsc` case takes ~0.4 s on a workstation and over 2 s on a loaded CI runner; unbounded,
-    # its pattern is quadratic (~150 s), so the limit leaves room for slow runners.
-    assert time.monotonic() - start < 15
+@pytest.mark.parametrize("files, n", [
+    # Without its bound, a pattern backtracks exponentially on the `rm` and `git clean` options and
+    # quadratically on the rest; `check:x` is not named like a type check, so the tool pattern runs.
+    (lambda k: {"package.json": json.dumps({"scripts": {"clean": "rm" + " --a" * k}})}, 5),
+    (lambda k: {"package.json": json.dumps({"scripts": {"clean": "git clean" + " --a" * k}})}, 5),
+    (lambda k: {"package.json": json.dumps({"scripts": {"check:x": "tsc " * k}})}, 2_500),
+    (lambda k: {"pom.xml": "<artifactId>" * k}, 1_000),
+], ids=["rm", "git-clean", "tsc", "pom"])
+def test_script_and_manifest_patterns_are_linear_on_hostile_strings(tmp_path, files, n):
+    hostile = _inspected(tmp_path, lambda k: {"AGENTS.md": "x", **files(k)})
+    assert growth(hostile, n)[0] < GROWTH_LIMIT
 
 
 @pytest.mark.parametrize("body", ["{not json", "[1, 2]", ""])
@@ -1083,23 +1063,16 @@ def test_heredoc_and_here_string_parsing(tmp_path, command, flagged):
 
 def test_unclosed_heredocs_are_linear(tmp_path):
     """Many heredoc starts with no terminator, and many labels, must not scan the text per start."""
-    import time
     from dokimi.repos.environment.risks import _segments
-    hostile = "bash <<A\n" + "<<A\n" * 20_000 + "".join(f"<<L{i}\n" for i in range(20_000))
-    start = time.monotonic()
-    _segments(hostile)
-    assert time.monotonic() - start < 5.0
+    hostile = lambda k: "bash <<A\n" + "<<A\n" * k + "".join(f"<<L{i}\n" for i in range(k))
+    assert growth(lambda k: partial(_segments, hostile(k)), 10_000)[0] < GROWTH_LIMIT
 
 
 def test_heredocs_opened_on_one_line_are_linear(tmp_path):
     """Several heredocs on one line read their bodies in turn, so the cost grows with the text, not its square."""
-    import time
     from dokimi.repos.environment.risks import _segments
-    n = 1000
-    hostile = "bash " + " ".join(f"<<L{i}" for i in range(n)) + "\n" + "".join(f"echo x{i}\nL{i}\n" for i in range(n))
-    start = time.monotonic()
-    _segments(hostile)
-    assert time.monotonic() - start < 5.0
+    hostile = lambda n: "bash " + " ".join(f"<<L{i}" for i in range(n)) + "\n" + "".join(f"echo x{i}\nL{i}\n" for i in range(n))
+    assert growth(lambda n: partial(_segments, hostile(n)), 2_000)[0] < GROWTH_LIMIT
 
 
 def test_redirection_keeps_its_fd_digit():

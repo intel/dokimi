@@ -15,15 +15,15 @@ def test_adjusted_significance_corrects_exact_p_only_across_testable_runs():
 
     scores = {
         "a": run([1.0, 2.5, 3.1, 4.7, 5.2, 6.0, 7.1]),
-        "b": run([0.3, 0.5]),  # untestable: fewer than MIN_PAIRS_FOR_TEST pairs
+        "b": run([0.0, 0.0]),  # untestable: every pair tied, so no sign-flip p
         "c": run([2.0, 1.5, 2.2, 1.9, 2.4, 1.1, 2.8]),
     }
     sigs, n_tested = _adjusted_significance(["a", "b", "c"], scores, "holm")
 
     assert n_tested == 2
-    assert sigs["b"] is None  # significance_test is None below MIN_PAIRS_FOR_TEST
-    # sigs are rounded for display (p_ttest included), so take the raw p-values from paired_test.
-    raw = [stats.paired_test([1.0 + d for d in ds], [1.0] * len(ds), rounded=False)["p_ttest"]
+    assert (sigs["b"]["p"], sigs["b"]["p_adjusted"], sigs["b"]["exact"]["p_adjusted"]) == (None, None, None)
+    # sigs are rounded for display (p included), so take the raw p-values from paired_test.
+    raw = [stats.paired_test([1.0 + d for d in ds], [1.0] * len(ds), rounded=False)["p"]
            for ds in ([1.0, 2.5, 3.1, 4.7, 5.2, 6.0, 7.1], [2.0, 1.5, 2.2, 1.9, 2.4, 1.1, 2.8])]
     assert None not in raw
     exact = stats.adjust_pvalues(raw, method="holm", rounded=False)

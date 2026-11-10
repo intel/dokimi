@@ -1136,7 +1136,7 @@ it),
 ## Statistics on the execution-verified track
 
 Ground truth here is binary: the task's own test suite exited 0 or it did not.
-That rules out the paired t-test the judged Q&A track uses — on 0/1 outcomes the
+That rules out a paired t-test — on 0/1 outcomes the
 per-task deltas are `{-1, 0, +1}`, badly non-normal, and all of the information
 about a difference sits in the *disagreements*.
 
@@ -1224,8 +1224,8 @@ charge infrastructure flakiness to the treatment.
 
 The exact binomial is used rather than the chi-square approximation because the
 discordant count on a suite this size is routinely under 10, where the
-approximation is unreliable. It needs no SciPy, so this test is always available
-— unlike the judged track's `p_ttest`.
+approximation is unreliable. It needs no SciPy, as the judged track's sign-flip
+`p` needs none either.
 
 Alongside the paired test, each harness and comparison carries per-arm lift
 numbers. They use SkillsBench's lift formula but are not its leaderboard
