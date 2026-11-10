@@ -28,6 +28,7 @@ def _review(tmp_path, extra, body="# Body\n"):
     [
         "Bash", "Read, Bash, Write", "Read Bash", "Bash(*)", "Bash(:*)", "Bash()", ["Read", "Bash"], ["Bash(*)"],
         "Bash (*)", "Bash ()",
+        "Bash(*:*)", "Bash(**)", "Bash(* *)",
     ],
 )
 def test_an_unrestricted_bash_grant_is_found(value):

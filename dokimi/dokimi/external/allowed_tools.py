@@ -15,7 +15,7 @@ from __future__ import annotations
 from typing import Optional
 
 # A ``Bash(...)`` pattern that matches every command: the same grant as a bare ``Bash``.
-UNRESTRICTED_BASH_PATTERNS = frozenset({"", "*", ":*", "**", "* *"})
+UNRESTRICTED_BASH_PATTERNS = frozenset({"", "*", ":*", "**", "* *", "*:*"})
 # The command checks whose hit makes an unrestricted ``Bash`` grant riskier.
 RISKY_COMMAND_CODES = ("pipe-to-shell", "permission-bypass-flag")
 
