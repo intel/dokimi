@@ -141,7 +141,7 @@ def test_a_bad_registry_file_is_an_error_line_not_a_traceback(spy, tmp_path, mon
 
 def _feed(path, text):
     try:
-        path.write_text(text, encoding="utf-8")
+        path.write_bytes(text) if isinstance(text, bytes) else path.write_text(text, encoding="utf-8")
     except BrokenPipeError:  # opened by the cleanup below, never read
         pass
 

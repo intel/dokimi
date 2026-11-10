@@ -96,6 +96,17 @@ def test_a_pipe_that_gives_nothing_is_not_an_empty_registry(tmp_path, flag, argv
 
 
 @pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="no named pipes on Windows")
+@pytest.mark.parametrize("flag,argv", [
+    ("--registry", ["catalog", "list", "--kind", "product"]), ("--intents", ["catalog", "intents"]),
+])
+def test_a_pipe_that_is_not_utf8_is_named(tmp_path, flag, argv):
+    with fifo_fed_with(tmp_path / "binary.fifo", bytes([0xFF, 0xFE, 0x00])) as fifo:
+        err = _run([*argv, flag, str(fifo)])
+
+    assert f"Error: cannot read {flag} {fifo}" in err
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="no named pipes on Windows")
 def test_an_intents_pipe_is_listed(tmp_path):
     intents = "domains:\n  perf:\n    name: Perf\n    description: d\n    products: [demo]\n"
     with fifo_fed_with(tmp_path / "intents.fifo", intents) as fifo:
