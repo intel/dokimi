@@ -37,10 +37,13 @@ def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bo
         return catalog_scan.scan_per_skill(args, root, report, as_json, pairs)
     skills = [entry for entry, _ in pairs]
     reviews = review_skills(skills)  # every skill is reviewed: the cross-catalog checks need them all
+    online = None
     if args.online:
         from dokimi.external.online_checks import add_online_findings
 
-        add_online_findings([(e.skill, r) for e, r in zip(skills, reviews, strict=True) if e.loaded and r is not None])
+        online = add_online_findings([(e.skill, r) for e, r in zip(skills, reviews, strict=True)
+                                      if e.loaded and r is not None])
+        report["online"] = online
     only = getattr(args, "only", None)  # `skill check SKILL` reports this one skill (#94 M3)
     if only is not None and only not in {entry.name for entry in skills}:
         raise InputError(f"no skill named {only!r} under {root}")
@@ -65,6 +68,10 @@ def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bo
         )
         for row in report["skills"]:
             print_skill_row(row)
+        if online is not None:
+            from dokimi.external.online_checks import format_summary
+
+            print(format_summary(online))
         print()
     _granularity_section(skills, reviews, root, report, as_json)
     return failed, len(skills)

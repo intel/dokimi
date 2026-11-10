@@ -20,6 +20,7 @@ import ipaddress
 import re
 import socket
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from html.entities import html5
 from typing import TYPE_CHECKING, Iterator, Optional, Sequence
 from urllib.parse import quote, urlsplit
@@ -452,6 +453,11 @@ def extract_urls(body: str) -> list[str]:
 
     A URL followed by ``<``, ``{`` or ``$`` is a template (``https://api.x.com/<id>``), not a link.
     """
+    return _distinct_urls(body)[0]
+
+
+def _distinct_urls(body: str) -> tuple[list[str], list[str]]:
+    """The URLs :func:`extract_urls` keeps, and the distinct ones past :data:`MAX_URLS_PER_SKILL` that it drops."""
     urls: dict[str, None] = {}
     body = "\n".join(outside_fences(body))  # a fenced block is code: its URLs are an example, not a link to follow
     literal = {m.end() for m in _LITERAL_START_RE.finditer(body)}
@@ -464,7 +470,7 @@ def extract_urls(body: str) -> list[str]:
         url = _clean_url(m.group(), literal=destination or autolink, decode=destination)
         if url is not None and not _placeholder_url(url):
             urls.setdefault(url)
-    return list(urls)[:MAX_URLS_PER_SKILL]
+    return list(urls)[:MAX_URLS_PER_SKILL], list(urls)[MAX_URLS_PER_SKILL:]
 
 
 def _status(client: httpx.Client, url: str) -> int:
@@ -516,16 +522,28 @@ def _is_dns_failure(exc: BaseException) -> bool:
 _PROBE_ERRORS = (httpx.HTTPError, httpx.InvalidURL, ValueError)
 
 
-def _package_finding(client: httpx.Client, eco: str, name: str) -> Optional[Finding]:
+@dataclass(frozen=True)
+class _Outcome:
+    """What one probe found. ``status`` is ``answer`` (an HTTP answer; ``finding`` when it is one), ``dns`` (the host
+    did not resolve; ``finding`` is the dead link), ``internal`` (a redirect into a non-public host: not requested)
+    or ``network`` (any other error: not checked)."""
+
+    status: str
+    finding: Optional[Finding] = None
+
+
+def _package_finding(client: httpx.Client, eco: str, name: str) -> _Outcome:
     url = PYPI_URL.format(name=quote(name)) if eco == "pypi" else NPM_URL.format(name=quote(name, safe="@"))
     try:
         status = _status(client, url)
+    except _InternalHop:
+        return _Outcome("internal")
     except _PROBE_ERRORS:
-        return None
+        return _Outcome("network")
     if status != 404:
-        return None
-    return Finding("warn", "package-not-found",
-                   f"package {name!r} is not on {_REGISTRY[eco]} ({url} returned 404)")
+        return _Outcome("answer")
+    return _Outcome("answer", Finding("warn", "package-not-found",
+                                      f"package {name!r} is not on {_REGISTRY[eco]} ({url} returned 404)"))
 
 
 def _proxied(url: str) -> bool:
@@ -543,52 +561,94 @@ def _failed_url(exc: BaseException, url: str) -> str:
         return url
 
 
-def _link_finding(client: httpx.Client, url: str) -> Optional[Finding]:
+def _link_outcome(client: httpx.Client, url: str) -> _Outcome:
     try:
         status = _status(client, url)
+    except _InternalHop:
+        return _Outcome("internal")
     except _PROBE_ERRORS as exc:
         failed = _failed_url(exc, url)  # the redirect hop that did not resolve, or the link itself
         if _is_dns_failure(exc) and not _proxied(failed):
             if failed == url:
-                return Finding("warn", "link-dead", f"link {url} does not resolve (DNS failure)")
-            return Finding("warn", "link-dead",
-                           f"link {url} redirects to {failed}, which does not resolve (DNS failure)")
-        return None
+                message = f"link {url} does not resolve (DNS failure)"
+            else:
+                message = f"link {url} redirects to {failed}, which does not resolve (DNS failure)"
+            return _Outcome("dns", Finding("warn", "link-dead", message))
+        return _Outcome("network")
     if status not in _DEAD_LINK_STATUSES:
-        return None
-    return Finding("warn", "link-dead", f"link {url} returned {status}")
+        return _Outcome("answer")
+    return _Outcome("answer", Finding("warn", "link-dead", f"link {url} returned {status}"))
 
 
-def _probe(client: httpx.Client, key: tuple) -> Optional[Finding]:
+def _probe(client: httpx.Client, key: tuple) -> _Outcome:
     if key[0] == "package":
         return _package_finding(client, key[1], key[2])
-    return _link_finding(client, key[1])
+    return _link_outcome(client, key[1])
 
 
-def _probe_all(http: httpx.Client, keys: list[tuple]) -> dict[tuple, Optional[Finding]]:
+def _probe_all(http: httpx.Client, keys: list[tuple]) -> dict[tuple, _Outcome]:
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
         return dict(zip(keys, pool.map(lambda key: _probe(http, key), keys), strict=True))
 
 
-def _keys(body: str) -> list[tuple]:
+def _keys(body: str) -> tuple[list[tuple], list[str]]:
+    """The targets of ``body``, and the URLs it names past the cap (not probed)."""
+    urls, dropped = _distinct_urls(body)
     packages = [("package", eco, name) for eco, name in extract_packages(body)]
-    return packages + [("link", url) for url in extract_urls(body)]
+    return packages + [("link", url) for url in urls], dropped
+
+
+# The not-checked outcomes of a run, in the order the summary line names them.
+_NOT_CHECKED = ("network", "dns", "internal", "over_cap")
+_NOT_CHECKED_LABELS = {
+    "network": "network error",
+    "dns": "DNS failure, no answer in the run",
+    "internal": "redirect into a non-public host",
+    "over_cap": f"over the {MAX_URLS_PER_SKILL}-URL cap",
+}
 
 
 def add_online_findings(reviewed: Sequence[tuple["Skill", SkillReview]], *,
-                        client: Optional[httpx.Client] = None) -> None:
+                        client: Optional[httpx.Client] = None) -> dict:
     """Append the network findings to each review in ``reviewed``, probing each distinct target once.
+
+    Returns the run's summary: ``checked`` targets that were checked, and ``not_checked`` counts by outcome
+    (see :data:`_NOT_CHECKED`). A target that is not checked gets no finding and no line of its own.
 
     ``client`` is for tests; without it a :func:`make_client` client is opened and closed here.
     """
-    plans = [(review, _keys(skill.body)) for skill, review in reviewed]
+    plans = []
+    dropped: dict[str, None] = {}
+    for skill, review in reviewed:
+        keys, over = _keys(skill.body)
+        plans.append((review, keys))
+        dropped.update(dict.fromkeys(over))
     unique = list(dict.fromkeys(key for _, keys in plans for key in keys))
-    if not unique:
-        return
-    if client is None:
-        with make_client() as own:
-            results = _probe_all(own, unique)
-    else:
-        results = _probe_all(client, unique)
+    results: dict[tuple, _Outcome] = {}
+    if unique:
+        if client is None:
+            with make_client() as own:
+                results = _probe_all(own, unique)
+        else:
+            results = _probe_all(client, unique)
+    not_checked = dict.fromkeys(_NOT_CHECKED, 0)
+    checked = 0
+    for key in unique:
+        status = results[key].status
+        if status in ("answer", "dns"):
+            checked += 1
+        else:
+            not_checked[status] += 1
+    not_checked["over_cap"] = sum(1 for url in dropped if ("link", url) not in results)
     for review, keys in plans:
-        review.findings.extend(f for f in (results[key] for key in keys) if f is not None)
+        review.findings.extend(outcome.finding for outcome in (results[key] for key in keys)
+                               if outcome.finding is not None)
+    return {"checked": checked, "not_checked": not_checked}
+
+
+def format_summary(summary: dict) -> str:
+    """The one line ``catalog check --online`` prints: the checked targets, and the not-checked ones by outcome."""
+    not_checked = summary["not_checked"]
+    shown = [f"{_NOT_CHECKED_LABELS[name]}: {count}" for name, count in not_checked.items() if count]
+    line = f"# online: {summary['checked']} checked, {sum(not_checked.values())} not checked"
+    return f"{line} ({', '.join(shown)})" if shown else line

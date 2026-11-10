@@ -57,15 +57,22 @@ def _dns_failure() -> httpx.ConnectError:
     return error
 
 
-def _reviews(root, web: Web):
-    """Review every skill under ``root`` the way ``catalog check --online`` does, with ``web`` as the network."""
+def _run(root, web: Web):
+    """Review every skill under ``root`` the way ``catalog check --online`` does, with ``web`` as the network.
+
+    Returns the reviews and the run's summary (the ``online`` key of the JSON report).
+    """
     entries = read_skill_manifest(root)
     reviews = review_skills(entries)
-    online_checks.add_online_findings(
+    summary = online_checks.add_online_findings(
         [(e.skill, r) for e, r in zip(entries, reviews, strict=True) if e.loaded and r is not None],
         client=web.client(),
     )
-    return reviews
+    return reviews, summary
+
+
+def _reviews(root, web: Web):
+    return _run(root, web)[0]
 
 
 def _codes(review) -> list[str]:
@@ -639,7 +646,7 @@ def test_403_and_5xx_are_not_dead(tmp_path, status):
 
 def test_dns_failure_is_a_dead_link(tmp_path):
     url = "https://gone-host.example-tool.dev/"
-    root = _one_skill(tmp_path, f"See {url}\n")
+    root = _one_skill(tmp_path, f"See {url} and https://docs.example-tool.dev/ok\n")
     web = Web({url: _dns_failure()})
 
     [review] = _reviews(root, web)
@@ -649,7 +656,7 @@ def test_dns_failure_is_a_dead_link(tmp_path):
 
 def test_no_data_answer_from_the_resolver_is_a_dead_link(tmp_path):
     url = "https://no-data.example-tool.dev/"
-    root = _one_skill(tmp_path, f"See {url}\n")
+    root = _one_skill(tmp_path, f"See {url} and https://docs.example-tool.dev/ok\n")
     error = httpx.ConnectError("No address associated with hostname")
     error.__cause__ = socket.gaierror(socket.EAI_NODATA, "No address associated with hostname")
     web = Web({url: error})
@@ -680,7 +687,7 @@ def test_resolver_failure_of_the_proxy_is_not_a_dead_link(monkeypatch):
         raise socket.gaierror(socket.EAI_NONAME, "Name or service not known")
 
     monkeypatch.setattr(socket, "getaddrinfo", no_such_host)
-    assert online_checks._link_finding(online_checks.make_client(), "https://real-site.example-tool.dev/") is None
+    assert online_checks._link_outcome(online_checks.make_client(), "https://real-site.example-tool.dev/").status == "network"
 
 
 def test_resolver_failure_with_only_all_proxy_set_is_not_a_dead_link(monkeypatch):
@@ -692,7 +699,7 @@ def test_resolver_failure_with_only_all_proxy_set_is_not_a_dead_link(monkeypatch
         raise socket.gaierror(socket.EAI_NONAME, "Name or service not known")
 
     monkeypatch.setattr(socket, "getaddrinfo", no_such_host)
-    assert online_checks._link_finding(online_checks.make_client(), "https://real-site.example-tool.dev/") is None
+    assert online_checks._link_outcome(online_checks.make_client(), "https://real-site.example-tool.dev/").status == "network"
 
 
 def test_resolver_failure_of_the_proxy_after_a_redirect_is_not_a_dead_link(monkeypatch):
@@ -709,7 +716,7 @@ def test_resolver_failure_of_the_proxy_after_a_redirect_is_not_a_dead_link(monke
         raise error
 
     client = httpx.Client(transport=httpx.MockTransport(handle))
-    assert online_checks._link_finding(client, "https://start.example-tool.dev/") is None
+    assert online_checks._link_outcome(client, "https://start.example-tool.dev/").status == "network"
 
 
 def test_timeout_on_a_link_is_not_dead(tmp_path):
@@ -769,6 +776,46 @@ def test_online_reports_dead_links_and_packages_as_warnings(tmp_path, monkeypatc
     assert code == 0  # warnings only: the exit code does not change
     assert report["skills"][0]["state"] == "warn"
     assert sorted(f["code"] for f in report["skills"][0]["findings"]) == ["link-dead", "package-not-found"]
+
+
+_NOT_CHECKED_BODY = (
+    "pip install nosuch-pkg-xyz\n"
+    "See https://slow.example-tool.dev/\n"
+    + "".join(f"https://docs.example-tool.dev/p{i}\n" for i in range(21))  # the cap keeps 19 of these, drops 2
+)
+
+
+def _not_checked_web() -> Web:
+    return Web({"https://slow.example-tool.dev/": httpx.ReadTimeout("timed out")})
+
+
+def test_online_report_has_an_online_key_with_the_checked_and_not_checked_counts(tmp_path, monkeypatch, capsys):
+    root = _one_skill(tmp_path, _NOT_CHECKED_BODY)
+    monkeypatch.setattr(online_checks, "make_client", _not_checked_web().client)
+
+    code, report = _scan_capture(root, capsys, "--online")
+    assert report["online"] == {"checked": 20, "not_checked": {"network": 1, "dns": 0, "internal": 0, "over_cap": 2}}
+
+
+def test_without_online_the_report_has_no_online_key(tmp_path, capsys):
+    root = _one_skill(tmp_path, _NOT_CHECKED_BODY)
+
+    code, report = _scan_capture(root, capsys)
+    assert "online" not in report
+
+
+def test_online_prints_one_summary_line_with_the_not_checked_counts_and_no_line_per_target(tmp_path, monkeypatch,
+                                                                                           capsys):
+    root = _one_skill(tmp_path, _NOT_CHECKED_BODY)
+    monkeypatch.setattr(online_checks, "make_client", _not_checked_web().client)
+    parser = build_parser()
+    args = parser.parse_args(["catalog", "check", "--root", str(root), "--kind", "skills", "--online"])
+    args.func(args)
+
+    out = capsys.readouterr().out
+    assert [line for line in out.splitlines() if "# online:" in line] == [
+        "# online: 20 checked, 3 not checked (network error: 1, over the 20-URL cap: 2)"]
+    assert "slow.example-tool.dev" not in out  # the timeout is counted, not reported as a warning per target
 
 
 def test_online_with_per_skill_is_a_usage_error(tmp_path):
@@ -885,7 +932,7 @@ def test_a_redirect_into_a_private_address_is_not_requested():
         return httpx.Response(200)
 
     client = httpx.Client(transport=httpx.MockTransport(handle), follow_redirects=False)
-    assert online_checks._link_finding(client, "https://evil.dev/r") is None
+    assert online_checks._link_outcome(client, "https://evil.dev/r").status == "internal"
     assert requested == ["https://evil.dev/r"]  # the HEAD only: the hop into 10.0.0.5 is never sent
 
 
@@ -898,7 +945,7 @@ def test_a_dns_failure_on_a_redirect_hop_names_the_hop_not_the_first_url():
         raise error
 
     client = httpx.Client(transport=httpx.MockTransport(handle), follow_redirects=False)
-    finding = online_checks._link_finding(client, "https://bit.ly/abc")
+    finding = online_checks._link_outcome(client, "https://bit.ly/abc").finding
     assert finding is not None
     assert finding.message == ("link https://bit.ly/abc redirects to https://old.dead-domain.dev/, "
                                "which does not resolve (DNS failure)")
