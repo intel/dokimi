@@ -482,7 +482,7 @@ def test_a_markdown_quote_in_front_of_a_command_is_read():
 
 
 def test_npx_value_option_is_skipped_before_the_package():
-    assert online_checks.extract_packages("npx --registry https://r.example-tool.dev foo\n") == [("npm", "foo")]
+    assert online_checks.extract_packages("npx --cache /tmp/npm-cache foo\n") == [("npm", "foo")]
 
 
 def test_npx_prose_words_are_not_packages_and_npx_with_a_package_is():
@@ -831,6 +831,11 @@ def test_a_package_from_another_index_or_registry_is_not_looked_up_on_the_public
             "pip install --no-index --find-links ./wheels acme-tool\n"
             "npm install --registry https://npm.acme.corp @acme/tool\n")
     assert online_checks.extract_packages(body) == []
+
+
+def test_npx_with_a_registry_and_an_attached_pip_index_name_another_index_too():
+    assert online_checks.extract_packages("npx --registry https://npm.corp.example/ corp-tool") == []
+    assert online_checks.extract_packages("pip install -ihttps://corp/simple corp-pkg") == []
 
 
 def test_a_url_in_a_code_fence_is_an_example_not_a_link_a_reader_follows():

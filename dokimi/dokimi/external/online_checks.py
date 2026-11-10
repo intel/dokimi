@@ -313,7 +313,12 @@ def _from_another_index(words: list[str], kind: str) -> bool:
     """Whether a pip command names an index other than PyPI, or an npm one a registry other than npm's: the names of
     that command are not on the public registry, so they are not looked up there."""
     options = _PIP_OTHER_INDEX if kind == "pip" else _NPM_OTHER_REGISTRY
-    return any(tok.split("=", 1)[0] in options for tok in words)
+    return any(tok.split("=", 1)[0] in options or (kind == "pip" and _attached_index(tok)) for tok in words)
+
+
+def _attached_index(tok: str) -> bool:
+    """``-ihttps://corp/simple`` and ``-fDIR``: pip's short options with their value attached."""
+    return len(tok) > 2 and tok[:2] in {"-i", "-f"} and not tok.startswith("--")
 
 
 def _command_packages(tokens: list[str]) -> Iterator[tuple[str, str]]:
@@ -321,7 +326,10 @@ def _command_packages(tokens: list[str]) -> Iterator[tuple[str, str]]:
     for k, (i, kind) in enumerate(starts):
         end = starts[k + 1][0] if k + 1 < len(starts) else len(tokens)  # the words run up to the next command
         if kind == "npx":
-            eco, names = "npm", _npx_names(tokens[i + 1:_list_end(tokens, i + 1, end)])
+            args = tokens[i + 1:_list_end(tokens, i + 1, end)]
+            if _from_another_index(args, "npm"):
+                continue
+            eco, names = "npm", _npx_names(args)
         else:
             words = tokens[i + 2:_list_end(tokens, i + 2, end)]
             if _from_another_index(words, kind):
