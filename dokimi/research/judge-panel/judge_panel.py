@@ -50,9 +50,8 @@ JUDGES = [
     "glm-5",
     "qwen3-vl-235b",
 ]
-# The generations comparison (gen.py) re-graded with:
-#   --judges gpt-6-sol,kimi-k2.5,claude-haiku-4-5,claude-opus-5-5,deepseek-r1,
-#            nemotron-super-3-120b,minimax-m2.5
+# gen.py's re-grade used --judges gpt-6-sol,kimi-k2.5,claude-haiku-4-5,claude-opus-5-5,
+#   deepseek-r1,nemotron-super-3-120b,minimax-m2.5
 
 
 def key(r):

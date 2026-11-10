@@ -14,7 +14,7 @@ HERE = Path(__file__).parent
 src = (HERE / "analyze.py").read_text().split("# ---------- 2. pairwise agreement")[0]
 src = src.replace('T = OUT / "tables"', 'T = OUT / "tables_gen"')
 g = {"__name__": "gen", "sys": sys}
-exec(compile(src, "analyze.py", "exec"), g)
+exec(compile(src, "analyze.py", "exec"), g)  # nosec B102 - runs this directory's own analyze.py
 V, rows, cells, headline, wcsv = g["V"], g["rows"], g["cells"], g["headline"], g["wcsv"]
 LEN, STR, SCORE, V6, MODELS, OUT = g["LEN"], g["STR"], g["SCORE"], g["V6"], g["MODELS"], g["OUT"]
 

@@ -143,7 +143,8 @@ optional_dependencies_dev_groups = ["dev"]
 
 [tool.deptry.per_rule_ignores]
 # scripts/audit_mocks.py, imported by its sibling audit_test_quality.py through a sys.path insert.
-DEP001 = ["audit_mocks"]
+# research/judge-panel/judge_panel.py imports its sibling llm.py and run_probes.py from the study checkout.
+DEP001 = ["audit_mocks", "llm", "run_probes"]
 # Declared only to cap the version ragas resolves (see the comment in the ragas extra).
 DEP002 = ["langchain-community"]
 # repos/graders/typecheck.py imports mypy inside the grading image, where it is installed

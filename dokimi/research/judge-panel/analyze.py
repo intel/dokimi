@@ -247,8 +247,7 @@ summary["judge_rates"] = {
 }
 
 # ---------- 3. self-preference ----------
-# For judge j and answer model m: j's lenient (strict) rate on m minus mean rate of the
-# other judges on the same keys. Same-family pairs vs other pairs.
+# Judge j's lenient (strict) rate on model m, minus the other judges' mean on the same keys.
 sp = []
 for j in JUDGES:
     for m in MODELS:
@@ -380,9 +379,8 @@ for name, g in panel_rules.items():
 wcsv("agreement_with_ds.csv", ["rater", "n", "agree_with_ds_consensus"], agree)
 
 # ---------- 5. how many judges are enough ----------
-# For panel size s, sample random subsets of NEW judges; majority vote (ties -> DS of subset is
-# overkill; ties broken toward 'wrong'). Measure (a) agreement with full 7-judge DS consensus,
-# (b) spread of gated-added share across subsets (max-min over models, averaged).
+# Panel size s: random subsets of NEW judges, majority vote (ties count as wrong).
+# Agreement with the 7-judge DS consensus, and the spread of the gated-added share.
 rnd = random.Random(3)
 sz = []
 for s in range(1, len(NEW) + 1):
