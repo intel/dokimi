@@ -359,7 +359,7 @@ def test_balanced_brackets_and_underscores_are_part_of_the_url():
         "https://en.wikipedia.org/wiki/Foo_(bar)"]
     assert online_checks.extract_urls("[x](https://acme.dev/a\\-b\\~c\\&d)") == ["https://acme.dev/a-b~c&d"]
     assert online_checks.extract_urls("see https://host.dev/docs/__main__") == ["https://host.dev/docs/__main__"]
-    assert online_checks.extract_urls("http://[2001:db8::1]/x") == ["http://[2001:db8::1]/x"]
+    assert online_checks.extract_urls("http://[2606:4700:4700::1111]/x") == ["http://[2606:4700:4700::1111]/x"]
     assert online_checks.extract_urls("[see https://x.com/a] for more") == ["https://x.com/a"]
 
 
@@ -837,6 +837,26 @@ def test_a_url_in_a_code_fence_is_an_example_not_a_link_a_reader_follows():
     body = ("See https://docs.acme.dev/guide.\n\n"
             "```python\nclient = OpenAI(base_url=\"https://api.openai.com/v1\")\n```\n")
     assert online_checks.extract_urls(body) == ["https://docs.acme.dev/guide"]
+
+
+def test_an_internal_or_single_label_host_is_not_requested():
+    body = ("http://169.254.169.254/latest/meta-data/ http://10.0.0.5/admin http://[fe80::1]/ "
+            "http://my-api:8000/v1 https://myapp.local/x https://db.corp.internal/y\n")
+    assert online_checks.extract_urls(body) == []
+
+
+def test_a_redirect_into_a_private_address_is_not_requested():
+    requested: list[str] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        requested.append(str(request.url))
+        if request.url.host == "evil.dev":
+            return httpx.Response(302, headers={"Location": "http://10.0.0.5/admin/delete?id=1"})
+        return httpx.Response(200)
+
+    client = httpx.Client(transport=httpx.MockTransport(handle), follow_redirects=False)
+    assert online_checks._link_finding(client, "https://evil.dev/r") is None
+    assert requested == ["https://evil.dev/r"]  # the HEAD only: the hop into 10.0.0.5 is never sent
 
 
 def _scan_capture(root, capsys, *extra: str) -> tuple[int, dict]:

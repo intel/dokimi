@@ -402,6 +402,22 @@ def _clean_url(raw: str, literal: bool = False, decode: bool = False) -> Optiona
     return url or None
 
 
+def _internal_url(url: str) -> bool:
+    """Whether ``url`` names a host of the operator's network, not a public one: a loopback, private, link-local,
+    reserved or multicast address, a name with no dot (``my-api:8000``), or a ``.local`` or ``.internal`` name. An
+    untrusted catalog must not make ``--online`` send requests there, nor a redirect of a public link."""
+    try:
+        host = (urlsplit(url).hostname or "").lower()
+    except ValueError:
+        return True
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return "." not in host or host.endswith((".local", ".internal"))
+    return (address.is_loopback or address.is_private or address.is_link_local or address.is_reserved
+            or address.is_multicast or address.is_unspecified)
+
+
 def _placeholder_url(url: str) -> bool:
     try:
         parts = urlsplit(url)
@@ -412,11 +428,7 @@ def _placeholder_url(url: str) -> bool:
         return True
     if host in _EXAMPLE_DOMAINS or host.endswith(tuple("." + d for d in _EXAMPLE_DOMAINS)):
         return True
-    try:
-        address = ipaddress.ip_address(host)
-    except ValueError:
-        address = None
-    if address is not None and (address.is_loopback or address.is_unspecified):
+    if _internal_url(url):
         return True
     if any(segment.removesuffix(".git") in _PLACEHOLDER_SEGMENTS for segment in parts.path.split("/")):
         return True
@@ -452,11 +464,18 @@ def _status(client: httpx.Client, url: str) -> int:
 _MAX_REDIRECTS = 20  # httpx's own limit
 
 
+class _InternalHop(httpx.HTTPError):
+    """A redirect into a host of the operator's network: the probe stops there and the link gets no finding."""
+
+
+
 def _final_status(client: httpx.Client, method: str, url: str) -> int:
     """The status of ``url`` after its redirects, which are followed here and not by httpx: httpx reads the body of
     a redirect before it follows it, so an endless body would hold the probe. No body is read here at all."""
     start, hops = url, 0
     while True:
+        if _internal_url(url):
+            raise _InternalHop(f"redirect from {start} into {url}, which is not a public host: not requested")
         with client.stream(method, url, follow_redirects=False) as response:
             if not response.is_redirect:
                 return response.status_code
