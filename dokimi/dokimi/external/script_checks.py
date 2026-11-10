@@ -504,7 +504,7 @@ def _command_sub_end(data: bytes, i: int, lines: _Lines, nest: int = 0) -> Optio
         if c == b"\\":
             j += 2
             continue
-        if c == b"$" and (end := _arith_end(data, j, b"x")) is not None:  # a << in $(( )) is a shift, not a heredoc
+        if c in (b"$", b"(") and (end := _arith_end(data, j, data[j - 1:j])) is not None:  # a << in arithmetic is a shift
             j = end
             continue
         if c == b"<" and data[j - 1:j] != b"<" and (opened := _heredoc_at(data, j, resume, lines)) is not None:
