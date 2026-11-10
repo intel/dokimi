@@ -113,6 +113,15 @@ def test_manifest_path_leaving_the_tree_exits_2_and_a_missing_manifest_exits_1(n
     assert err.strip().splitlines()[0] == message
 
 
+@pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
+@pytest.mark.parametrize("name", ["check", "run", "replay", "prs"])
+def test_manifest_path_leaving_a_pinned_tree_is_a_missing_manifest_with_exit_1(name, tmp_path, monkeypatch, capsys):
+    repo, sha = _repo_with_sub(tmp_path)
+    code, err = _run(monkeypatch, capsys, *_command(name, f"{repo}@{sha}", tmp_path), "--manifest", "../outside.yaml")
+    assert code == 1
+    assert err.strip().splitlines()[0] == "✗ ../outside.yaml: invalid repo_manifest.v1:"
+
+
 @pytest.mark.parametrize("name", ["check", "run"])
 def test_check_and_run_keep_exit_1_for_a_pinned_source_that_cannot_be_fetched(name, tmp_path, monkeypatch, capsys):
     from dokimi.repos import SourceError
