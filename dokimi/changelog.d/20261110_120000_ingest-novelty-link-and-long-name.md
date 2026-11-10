@@ -1,0 +1,3 @@
+### Fixed
+
+- **`dokimi ingest` no longer writes through a symlink, and a `--max-usd` stop no longer loses its result to a long `--out` name** — the converted Markdown is never written through a link at `<stem>-<ext>.md` (dangling or not): a link counts as a used name and the counter moves on, so no file appears at the link's target. The partial result of a stopped novelty routing run, when `--out` holds a finished result, goes to `<out stem>.partial.json`, `.partial2.json`, ... as before, but a stem too long for those names to fit the file system is cut (on a character boundary) so the save no longer fails with a "File name too long" error and the paid calls are kept.

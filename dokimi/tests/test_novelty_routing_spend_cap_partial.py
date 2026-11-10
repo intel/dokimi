@@ -466,23 +466,36 @@ def test_a_partial_run_stops_on_another_windows_error_of_its_sidecar(tmp_path, m
 
 
 @pytest.mark.skipif(not hasattr(os, "pathconf"), reason="NAME_MAX is POSIX")
-def test_a_partial_run_whose_sidecar_name_is_too_long_stops_on_it(tmp_path, monkeypatch):
+def test_a_partial_run_whose_out_name_is_near_name_max_is_saved_under_a_shortened_name(tmp_path):
     from dokimi.commands.novelty_routing_report import save_result
+
+    name_max = os.pathconf(tmp_path, "PC_NAME_MAX")
+    out = tmp_path / ("é" * ((name_max - len(".json")) // 2) + ".json")
+    out.write_text('{"status": "ok"}', encoding="utf-8")
+    first = save_result({}, out, {"partial": PARTIAL})
+    second = save_result({}, out, {"partial": PARTIAL})
+    assert first.parent == tmp_path and first.name.endswith(".partial.json")
+    assert second.name.endswith(".partial.json")  # an earlier partial result is replaced in place
+    assert len(first.name.encode("utf-8")) <= name_max
+    assert first.name != out.with_suffix("").name + ".partial.json"
+    assert json.loads(first.read_text(encoding="utf-8"))["partial"] == PARTIAL
+    assert out.read_text(encoding="utf-8") == '{"status": "ok"}'
+
+
+@pytest.mark.skipif(not hasattr(os, "pathconf"), reason="NAME_MAX is POSIX")
+def test_a_second_long_name_partial_save_goes_to_the_next_numbered_shortened_name(tmp_path):
+    from dokimi.commands.novelty_routing_report import _partial_destinations
 
     out = tmp_path / ("x" * (os.pathconf(tmp_path, "PC_NAME_MAX") - len(".json")) + ".json")
     out.write_text('{"status": "ok"}', encoding="utf-8")
-    real_lstat, names = os.lstat, []
-
-    def lstat(path, *args, **kwargs):  # every longer sidecar name fails too: a retry never ends
-        names.append(path)
-        assert len(names) < 50, "the sidecar search kept trying longer names"
-        return real_lstat(path, *args, **kwargs)
-
-    with monkeypatch.context() as patch, pytest.raises(OSError) as error:  # unpatched for the report
-        patch.setattr(os, "lstat", lstat)
-        save_result({}, out, {"partial": PARTIAL})
-    assert error.value.errno == errno.ENAMETOOLONG
-    assert [p.name for p in tmp_path.iterdir()] == [out.name]
+    names = _partial_destinations(out)
+    first = next(names)
+    first.write_text('{"status": "ok"}', encoding="utf-8")  # a finished result there: taken
+    second = next(names)
+    assert second.name.endswith(".partial2.json")
+    assert second.name.removesuffix(".partial2.json") == first.name.removesuffix(".partial.json")
+    assert len(second.name) <= os.pathconf(tmp_path, "PC_NAME_MAX")
+    assert out.read_text(encoding="utf-8") == '{"status": "ok"}'
 
 
 def test_a_partial_model_line_with_five_answered_calls_has_no_warning(capsys):

@@ -522,7 +522,7 @@ def _takes_partial(candidate: Path) -> bool:
     one (:func:`_wrote` tries the write). A FIFO or device is never opened: its read blocks (#516).
     A symlink, dangling or a loop, is not followed and is skipped: a write would land at its target.
     Any other error is raised, since every later name can fail the same way and the search would
-    not end (a name too long only grows longer)."""
+    not end. A name too long does not reach here: :func:`_partial_destinations` shortens the stem."""
     try:
         mode = os.lstat(candidate).st_mode
     except FileNotFoundError:
@@ -530,11 +530,24 @@ def _takes_partial(candidate: Path) -> bool:
     return stat.S_ISREG(mode) and _is_partial_file(candidate)
 
 
+def _sidecar_stem(out: Path) -> str:
+    """``out``'s stem, cut on a character boundary so ``<stem>.partial<N>.json`` fits the file
+    system's name limit for a counter of up to six digits (``PC_NAME_MAX``, else 255 bytes)."""
+    try:
+        name_max = os.pathconf(out.parent, "PC_NAME_MAX")
+    except (AttributeError, OSError, ValueError):
+        name_max = 255
+    room = name_max - len(".partial.json") - 6
+    stem = out.with_suffix("").name
+    return stem.encode("utf-8")[:room].decode("utf-8", "ignore") if room > 0 else stem
+
+
 def _partial_destinations(out: Path) -> Iterator[Path]:
     """Each of ``<out stem>.partial.json``, ``<out stem>.partial2.json``, ... in turn that is free
     or holds a partial result (:func:`_takes_partial`), so a partial result never replaces a
-    finished one."""
-    base = out.with_suffix("")
+    finished one. A stem too long for the names to fit is shortened (:func:`_sidecar_stem`); two
+    outs that shorten alike share the sidecars, and each is guarded by :func:`_takes_partial`."""
+    base = out.with_name(_sidecar_stem(out))
     candidate, number = base.with_name(f"{base.name}.partial.json"), 2
     while True:
         if _takes_partial(candidate):
