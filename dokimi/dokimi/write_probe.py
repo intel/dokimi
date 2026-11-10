@@ -41,6 +41,32 @@ def _make(directory: str, *, as_dir: bool) -> str:
     raise last
 
 
+def _make_dir_and_file(directory: str) -> tuple[str, str]:
+    """Create a probe directory in ``directory`` and a probe file in it. A directory name that fits but leaves no room for
+    the file inside is removed and the next, shorter name tried."""
+    last: OSError | None = None
+    for name in _probe_names(directory):
+        try:
+            os.mkdir(name)
+        except FileExistsError as error:
+            last = error
+            continue
+        except OSError as error:
+            if error.errno != errno.ENAMETOOLONG:
+                raise
+            last = error
+            continue
+        try:
+            return name, _make(name, as_dir=False)
+        except OSError as error:
+            os.rmdir(name)
+            if error.errno != errno.ENAMETOOLONG:
+                raise
+            last = error
+    assert last is not None
+    raise last
+
+
 def can_write(path: str | os.PathLike[str], *, make_dir: bool = False) -> bool:
     """True when the existing ``path`` takes a write: a file opens for append (nothing is truncated or added), a directory
     takes a new file, which is removed again if the directory lets it be (a writer needs no delete access, so a refused
@@ -50,16 +76,10 @@ def can_write(path: str | os.PathLike[str], *, make_dir: bool = False) -> bool:
     the read-only attribute of a file, is true for any directory, and does not see an ACL that denies the write."""
     try:
         if os.path.isdir(path):
-            where = os.fspath(path)
-            probe_dir = _make(where, as_dir=True) if make_dir else None
-            if probe_dir is not None:
-                where = probe_dir
-            try:
-                name = _make(where, as_dir=False)
-            except OSError:
-                if probe_dir is not None:
-                    os.rmdir(probe_dir)
-                raise
+            if make_dir:
+                probe_dir, name = _make_dir_and_file(os.fspath(path))
+            else:
+                probe_dir, name = None, _make(os.fspath(path), as_dir=False)
             try:
                 os.unlink(name)
                 if probe_dir is not None:

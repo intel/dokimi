@@ -115,6 +115,30 @@ def test_a_directory_near_the_path_length_limit_is_writable(tmp_path, monkeypatc
     assert list(tmp_path.iterdir()) == []
 
 
+def test_a_probe_dir_that_fits_but_takes_no_child_is_replaced_by_a_shorter_one(tmp_path, monkeypatch):
+    """Linux: the 29-character probe directory fits exactly, and then no file fits inside it; a shorter directory name
+    must be tried, and the long one removed."""
+    limit = len(os.fspath(tmp_path)) + 1 + len(".write-probe-") + 16
+    real_open, real_mkdir = os.open, os.mkdir
+
+    def too_long(path):
+        if len(os.fspath(path)) > limit:
+            raise OSError(errno.ENAMETOOLONG, "File name too long", os.fspath(path))
+
+    def guarded_open(path, *args, **kwargs):
+        too_long(path)
+        return real_open(path, *args, **kwargs)
+
+    def guarded_mkdir(path, *args, **kwargs):
+        too_long(path)
+        return real_mkdir(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "open", guarded_open)
+    monkeypatch.setattr(os, "mkdir", guarded_mkdir)
+    assert can_write(tmp_path, make_dir=True) is True
+    assert list(tmp_path.iterdir()) == []
+
+
 def _refuse_new_folder(monkeypatch, where):
     real = os.mkdir
 
