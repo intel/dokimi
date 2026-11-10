@@ -59,8 +59,8 @@ def write_run(payload: dict, out: Path, partial: dict | None = None) -> Path:
     return partial_write(out, lambda dest: dest.write_text(text, encoding="utf-8"))
 
 
-#: The probe record's summary blocks, computed over the runs a partial file keeps.
-# judge2 is in it: the second judge shares the cap, so its regrade covers the cut subset too.
+#: The probe record's summary blocks over the runs a partial file keeps. judge2 too: the
+#: shared cap refuses the second judge, so its block is a stop record or empty.
 PARTIAL_SUMMARIES = ("paired", "arms", "abstentions", "reversal_resisted",
                      "reversal_resisted_by_arm", "reversal_paired", "confidence_correlation",
                      "judge2")

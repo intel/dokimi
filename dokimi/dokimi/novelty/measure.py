@@ -265,14 +265,15 @@ def check_arms(arms: tuple[str, ...], placebo_text: str | None) -> None:
 
 def _unpriced_answer_run(probe: Probe, arm: str, exc: SpendCapReached,
                          stops: list[SpendCapReached], ungraded: list[ProbeRun]) -> ProbeRun:
-    """The paid answer of a call with no price, kept ungraded (no datum) as the stop's run. An
-    empty reply is no answer: the stop goes on without it."""
+    """The paid answer of a call with no price, kept ungraded (no datum) as the stop's run; a reply
+    cut at the ceiling is kept as an error text instead. An empty reply is no answer: the stop goes
+    on without it."""
     reply = exc.reply or ""
     if not reply.strip():
         raise exc
     stops.append(exc)
-    # A reply cut at the output ceiling is a prefix, not an answer: stored as the error text the
-    # priced path stores for a cut reply, so the prefix is not scored as one.
+    # A reply cut at the output ceiling is a prefix, not an answer: stored under the same `<error: `
+    # prefix the priced path uses for a cut reply, so the cut text is not stored as an answer.
     if exc.truncated:
         response, confidence = "<error: reply cut at the output ceiling>", None
     else:

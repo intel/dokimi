@@ -597,8 +597,8 @@ def test_a_partial_probe_file_drops_the_summaries_computed_over_the_cut_subset(t
     payload = {"runs": [{"verdict": "correct"}], "paired": {"lenient": {"n_paired": 1}},
                "arms": {"lenient": {"full": 1.0}}, "abstentions": {"n": 0},
                "reversal_paired": {"n": 1}, "probes": {"n": 3},
-               # the second judge shares the run's cap, so its regrade is over the cut subset too
-               "judge2": {"model": "j2", "n_compared": 1, "lenient_agreement": 1.0}}
+               # the second judge shares the run's cap, so it is refused once the cap stops the run
+               "judge2": {"model": "j2", "stopped": "spend cap reached", "cost": 0.0}}
     out = tmp_path / "probes.json"
     with pytest.raises(SystemExit):
         save_probe_run(payload, out, done=1, not_run=5, stop=("spend_cap", "cap"))
