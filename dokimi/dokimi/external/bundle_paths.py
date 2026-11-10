@@ -16,11 +16,12 @@ Markdown links (``link-missing``); a hand audit put the precision of a hit at 53
 
 from __future__ import annotations
 
-import os
 import re
 import shlex
 from pathlib import Path
 from typing import Optional
+
+from .paths import _exists, _in_checkout, _resolved
 
 SKILL_DIR_VAR = "${CLAUDE_SKILL_DIR}/"
 # After a file, a line or a symbol (``run.py:42``, ``run.py:main``): read as the file's name.
@@ -29,33 +30,6 @@ LOCATION_SUFFIX_RE = re.compile(r":(?:\d+(?:[-:]\d+)?|[A-Za-z_]\w*)$")
 BUNDLE_DIRS = ("scripts", "references", "assets", "templates", "examples", "resources")
 # A path part that stands for a name the reader fills in, not a file (``scripts/x.py``, ``assets/xxx.png``).
 PLACEHOLDER_PARTS = frozenset({"x", "xx", "xxx", "n/a", "na", "foo", "bar", "example", "name", "file", "filename", "your-file", "...", "…"})
-
-
-def _resolved(path: Path) -> Optional[Path]:
-    """``path`` resolved, or None when the OS refuses the name (a NUL byte, a symlink loop)."""
-    try:
-        return path.resolve()
-    except (OSError, RuntimeError, ValueError):
-        return None
-
-
-def _exists(path: Path) -> bool:
-    """``path.exists()``, where a name the OS refuses (over 255 bytes in one part, say) is absent."""
-    try:
-        return path.exists()
-    except (OSError, ValueError):
-        return False
-
-
-def _inside(path: Path, base: Path) -> bool:
-    """Whether ``path`` lies under ``base`` by its written name, with ``..`` taken away. Reads no file."""
-    return Path(os.path.abspath(path)).is_relative_to(os.path.abspath(base))
-
-
-def _in_checkout(path: Path, source_root: Path) -> Optional[Path]:
-    """``path`` resolved, or None unless it lies in the checkout both as written and where it resolves."""
-    target = _resolved(path) if _inside(path, source_root) else None
-    return target if target is not None and target.is_relative_to(source_root.resolve()) else None
 
 
 def _bundle_path(word: str) -> Optional[str]:
