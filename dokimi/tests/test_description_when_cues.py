@@ -21,6 +21,7 @@ HAS_WHEN = [
     pytest.param("审查 Python 代码的安全问题，适用于代码审查场景。", id="zh-shiyong-yu"),
     pytest.param("帮助撰写技术文档，在需要编写 README 的时候调用。", id="zh-de-shihou"),
     pytest.param("数据库迁移助手。用户说要迁移数据库时触发。", id="zh-shi-chufa"),
+    pytest.param("报告助手。用户说要生成报告就调用。", id="zh-yonghu-shuo-alone"),
     pytest.param("リリースノートを作成します。新しいタグを作る時に使用してください。", id="ja-toki-ni"),
     pytest.param("CI の失敗を分析します。ビルドが落ちた場合に使う。", id="ja-baai"),
     pytest.param("Dockerfile を最適化します。ビルドが遅いとき。", id="ja-toki"),
