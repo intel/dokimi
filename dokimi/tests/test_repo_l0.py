@@ -501,9 +501,8 @@ def test_a_branch_source_the_scan_does_not_read_is_named_in_the_reason(tmp_path)
         "over the 2 MB read limit); .pre-commit-config.yaml was not read (binary (a NUL byte))")
 
 
-def test_a_hook_pattern_that_backtracks_exponentially_gives_no_source_to_match():
-    """https://github.com/intel/dokimi/issues/420: refused before any claim, so `re.match` never runs on `(a+)+b`."""
-    assert branches._hook_source("--pattern", "maintenance/(a+)+b", 17) is None
+def test_a_hook_pattern_that_does_not_backtrack_gives_a_source_to_match():
+    """https://github.com/intel/dokimi/issues/420: the refused shapes are the `unresolved` cases of the path table above."""
     kept = branches._hook_source("--pattern", "maintenance/(a+)b", 17)
     assert kept is not None and kept.names("maintenance/aab", ["maintenance/aab"])
 
