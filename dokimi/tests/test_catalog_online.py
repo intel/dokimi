@@ -71,6 +71,11 @@ def _codes(review) -> list[str]:
     return [f.code for f in review.findings]
 
 
+def _online_codes(review) -> list[str]:
+    # The static command check (command_checks.py, #456) also reports an unpinned install of the same line.
+    return [c for c in _codes(review) if c != "install-unpinned"]
+
+
 def _one_skill(tmp_path, body: str):
     _skill(tmp_path / "skills", "tool", name="tool", description="Use for tool work.", body=body)
     return tmp_path
@@ -511,7 +516,7 @@ def test_package_missing_on_pypi_is_a_warning(tmp_path):
     web = Web({PYPI.format(name="nosuch-pkg-xyz"): 404})
 
     [review] = _reviews(root, web)
-    assert _codes(review) == ["package-not-found"]
+    assert _online_codes(review) == ["package-not-found"]
     assert review.state == "warn"
     assert "nosuch-pkg-xyz" in review.findings[0].message
 
@@ -521,7 +526,7 @@ def test_npm_scoped_package_missing_from_the_registry_is_a_warning(tmp_path):
     web = Web({NPM.format(name="@anthropic-ai%2Fserver-postgres"): 404})
 
     [review] = _reviews(root, web)
-    assert _codes(review) == ["package-not-found"]
+    assert _online_codes(review) == ["package-not-found"]
 
 
 def test_package_that_exists_is_not_a_finding(tmp_path):
