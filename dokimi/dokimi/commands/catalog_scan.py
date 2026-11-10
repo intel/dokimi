@@ -157,17 +157,30 @@ def unrestricted_and_risky(row: dict) -> bool:
     return "allowed-tools-unrestricted-bash" in codes and bool(codes & set(RISKY_COMMAND_CODES))
 
 
+def strict_reason(row: dict) -> Optional[str]:
+    """``strict: <skill> ...``, the line that says why ``--strict`` fails a row that is otherwise only a warning
+    (unrestricted Bash with a risky command), or None when the row is not such a failure."""
+    from dokimi.external.allowed_tools import RISKY_COMMAND_CODES
+
+    if row["error"] is not None or row["state"] == "error" or not unrestricted_and_risky(row):
+        return None
+    codes = sorted({f["code"] for f in row["findings"]} & set(RISKY_COMMAND_CODES))
+    return f"strict: {row['name']} grants unrestricted Bash and has {', '.join(codes)}"
+
+
 class _Tally:
     """Counts of the rows by state, and whether the scan must exit 1.
 
     It must on a load error; under ``--strict`` also on a spec error, and on a skill that grants
-    unrestricted Bash and also has a risky command (:func:`unrestricted_and_risky`).
+    unrestricted Bash and also has a risky command (:func:`unrestricted_and_risky`). ``reasons`` holds
+    the :func:`strict_reason` line of each row that fails that last way.
     """
 
     def __init__(self, strict: bool) -> None:
         self.strict = strict
         self.counts = {"ok": 0, "warn": 0, "error": 0}
         self.failed = False
+        self.reasons: list[str] = []
 
     def add(self, row: dict) -> None:
         self.counts[row["state"]] += 1
@@ -176,6 +189,9 @@ class _Tally:
         unreadable = any(f.get("code") == "unreadable" for f in row["findings"])
         if row["error"] is not None or unreadable or (self.strict and (row["state"] == "error" or unrestricted_and_risky(row))):
             self.failed = True
+        reason = strict_reason(row) if self.strict else None
+        if reason is not None:
+            self.reasons.append(reason)
 
 
 _ROW_STATES = ("ok", "warn", "error")
@@ -332,4 +348,6 @@ def scan_per_skill(args, root: Path, report: dict, as_json: bool, pairs: list) -
             sink.close()
     if not as_json:
         _print_text(root, declared, tally, len(prior), jsonl, report["skills"])
+        for line in tally.reasons:
+            print(line)
     return tally.failed, declared
