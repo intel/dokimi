@@ -61,6 +61,16 @@ def test_a_glob_with_a_trailing_slash_matches_only_a_directory(tmp_path, link, h
                                                  "the text does not name; e.g. src/pkg/fdir"))
 
 
+@pytest.mark.parametrize("held, want", [
+    (("f",), ("unresolved", "glob f* matches nothing in the tree; a build may create it")),
+    (("f", "fdir/y"), ("ok_basename", "bare glob; 1 match(es) in 1 directory, e.g. src/fdir")),
+], ids=["file-only", "file-and-dir"])
+def test_a_bare_glob_with_a_trailing_slash_matches_only_a_directory_name(tmp_path, held, want):
+    """``f*/`` names a directory: the file ``src/f`` is no match of it, ``src/fdir/`` is."""
+    files = {"AGENTS.md": "See `f*/`.\n", "ev/tasks/t/task.json": "{}", **{f"src/{p}": "" for p in held}}
+    assert _by_file(scan_repo(_linked_repo(tmp_path / "r", files, {}), _manifest()))[("AGENTS.md", "f*/")] == want
+
+
 @pytest.mark.parametrize("target", [".", "src/.."])
 def test_a_glob_below_a_root_link_to_the_root_matches_at_the_root(tmp_path, target):
     """``owner -> .`` lists the root under ``owner/``, so ``x.cfg`` there matches ``owner/*.cfg``."""

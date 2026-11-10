@@ -393,7 +393,7 @@ class Scan:
             hit = self._match(glob_regex("*/" + pat), is_dir)
             if hit:
                 return "ok_suffix", f"below a directory the text does not name; e.g. {hit}"
-        elif bare := self._bare_glob(pat):
+        elif bare := self._bare_glob(pat, is_dir):
             return bare
         probes = [p for b in bases for p in self._probes(posixpath.normpath(posixpath.join(b, pat)))]
         return self._missing(probes, is_dir,
@@ -427,10 +427,12 @@ class Scan:
         return next((x for x in self._every() if x.startswith(pre) and rx.match(x[len(pre):])
                      and (not is_dir or self._is_dir(x))), None)
 
-    def _bare_glob(self, pat: str) -> tuple[str, str] | None:
-        """``ok_basename`` for a glob of a name alone (``type_dispatch*.hpp``) that names some file or directory."""
+    def _bare_glob(self, pat: str, is_dir: bool) -> tuple[str, str] | None:
+        """``ok_basename`` for a glob of a name alone (``type_dispatch*.hpp``) that names some file or directory
+        (a directory if ``is_dir``)."""
         rx = glob_regex(pat)
-        hits = [x for n in sorted(n for n in self.by_name if rx.match(n)) for x in self.by_name[n]]
+        hits = [x for n in sorted(n for n in self.by_name if rx.match(n)) for x in self.by_name[n]
+                if not is_dir or self._is_dir(x)]
         if not hits:
             return None
         dirs = len({posixpath.dirname(x) for x in hits})
