@@ -117,8 +117,7 @@ def test_bash_n_gets_the_script_on_stdin_with_no_environment(tmp_path):
 
     findings = script_findings(skill, which=_tools("bash"), runner=runner)
 
-    assert findings == [("warn", "script-syntax",
-                         "run.sh does not parse as shell: bash: line 2: syntax error")]
+    assert findings == [("warn", "script-syntax", "run.sh does not parse as shell: line 2: syntax error")]
     [call] = runner.calls
     assert call.argv == ("/usr/bin/bash", "-n")  # the script is never a file argument
     assert call.input == b"if true; then\n"
@@ -785,3 +784,14 @@ def test_the_script_walk_reads_at_most_the_file_cap(tmp_path, monkeypatch):
 
     assert [message.split(" ")[0] for _, _, message in findings] == ["a.sh", "b.sh"]
     assert len(runner.calls) == 2
+
+
+def test_the_syntax_message_does_not_name_the_bash_that_ran_it(tmp_path):
+    skill = _bundle(tmp_path, {"run.sh": b"#!/bin/bash\nif then\n"})
+    runner = process.FakeRunner(lambda call: process.reply(
+        stderr="/usr/local/bin/bash: line 2: syntax error near unexpected token `then'\n", returncode=2))
+
+    findings = script_findings(skill, which=_tools("bash"), runner=runner)
+
+    assert findings == [("warn", "script-syntax",
+                         "run.sh does not parse as shell: line 2: syntax error near unexpected token `then'")]

@@ -581,6 +581,7 @@ def _shell_problem(bash: str, options: list[str], data: bytes, runner: process.R
     if done is None or done.timed_out or done.returncode == 0:
         return None
     first = next((line.strip() for line in done.stderr.splitlines() if line.strip()), "")
+    first = re.sub(r"^\S*?bash: (?=line )", "", first)  # bash names itself by the path it ran from: /usr/bin/bash: line 2
     return first[:200] or f"bash -n exited {done.returncode}"
 
 
