@@ -806,9 +806,11 @@ python cli.py eval skill-coverage skills/demo/SKILL.md evals/evals.json \
   next call is refused and the run exits 1 with nothing written. The call that crosses the cap is
   already paid, so spend can exceed the cap by that one call. A call whose price is unknown also
   stops the run (exit 1).
-- The map is LLM-estimated. On a labelled calibration set of 88 items, item precision was about
-  .92 and recall 1.0; link precision was about .70. The report carries that label. Nothing reads
-  the output as a score or a gate, and the command exits 0 whenever the map was made.
+- The map is LLM-estimated. On a prototype's labelled calibration set of 88 items (not shipped),
+  item precision was about .92 and recall 1.0, and link precision about .70, with the model and the
+  check text of that time. Neither figure was re-measured on the current check text, and the report
+  does not carry them: its label says only that the map is LLM-estimated. Nothing reads the output
+  as a score or a gate, and the command exits 0 whenever the map was made.
 - A check name the model invents is dropped and counted (`check_names_dropped`); requirements
   past 80 are cut and counted (`requirements_dropped`).
 - This is not `eval coverage`. That command checks the `needs` labels of a need graph against

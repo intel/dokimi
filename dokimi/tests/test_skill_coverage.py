@@ -404,6 +404,11 @@ def test_report_marks_covered_and_candidate_requirements(tmp_path):
     assert s["check_names_dropped"] == 1
 
 
+def test_the_stored_label_carries_no_precision_figure(tmp_path):
+    # the figure was measured on a prototype's 88 items, with other model and check text: it is not this run's
+    assert "precision" not in sc.LABEL and "~.70" not in sc.LABEL
+
+
 def test_render_names_the_label_the_candidates_and_escapes_pipes(tmp_path):
     report = _report(tmp_path)
     report["requirements"][0]["text"] = "a | b"

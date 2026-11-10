@@ -17,8 +17,9 @@ text is the function with the module-level code it reads: its constants, helpers
 fixtures of its folder that it names.
 A requirement that no check names is uncovered: it is a *candidate check* to write.
 
-The map is LLM-estimated and unverified beyond a labelled calibration set (88 items: item precision
-about .92, recall 1.0, link precision about .70). The report says so, and no score or gate uses it.
+The map is LLM-estimated and unverified beyond a prototype's labelled calibration set (88 items, not shipped:
+item precision about .92, recall 1.0, link precision about .70, not re-measured on the current check text).
+The report labels the map as LLM-estimated, and no score or gate uses it.
 :func:`coverage_report` is a pure function of its inputs: the model is called only in the two
 functions above.
 """
@@ -38,7 +39,7 @@ from dokimi.novelty.client import LLMClient
 
 SCHEMA_VERSION = "skill_coverage.v1"
 METHOD = "llm_static_map"
-LABEL = "candidate checks: LLM-estimated, not a verified coverage score; links ~.70 precision"
+LABEL = "candidate checks: LLM-estimated, not a verified coverage score"
 SECTIONS = ("triggers", "out_of_scope", "must_hold", "success_criteria", "failure_modes")
 PREFIX = {"triggers": "trig", "out_of_scope": "oos", "must_hold": "mh",
           "success_criteria": "sc", "failure_modes": "fm"}
