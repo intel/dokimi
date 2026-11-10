@@ -244,8 +244,7 @@ def read(data: Any, *, source: str = "<input>", section: Optional[str] = None, r
     With ``section`` and ``required=False``, an object without that list reads as no records;
     one that holds it as anything but a list is still an error.
     """
-    if section not in (None, "answers", "evaluations"):
-        raise ValueError(f"section must be 'answers' or 'evaluations', not {section!r}")
+    _check_section(section, required)
     if isinstance(data, Run):
         return data
     if isinstance(data, list):
@@ -454,6 +453,13 @@ def _run(recs: Sequence[Record], meta: dict[str, Any]) -> Run:
         return Run(tuple(recs), "arms", conditions, baseline if isinstance(baseline, str) and baseline else None,
                    meta)
     return Run(tuple(recs), "binary", BINARY, BASELINE, meta)
+
+
+def _check_section(section: Optional[str], required: bool) -> None:
+    if section not in (None, "answers", "evaluations"):
+        raise ValueError(f"section must be 'answers' or 'evaluations', not {section!r}")
+    if not required and section is None:
+        raise ValueError("required=False needs a section")
 
 
 def _question_id(item: Mapping[str, Any], where: str) -> Optional[QuestionId]:

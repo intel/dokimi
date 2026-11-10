@@ -215,6 +215,8 @@ def test_an_optional_section_is_no_records_when_absent_and_an_error_when_not_a_l
     assert [r.key for r in records.read(_arms_run(), section="evaluations", required=False)] == ["q1", "q2"]
     with pytest.raises(RecordError, match="'answers' must be a list, got NoneType"):
         records.read({"answers": None}, section="answers", required=False)
+    with pytest.raises(ValueError, match="required=False needs a section"):
+        records.read({}, required=False)
 
 
 # ── errors ──────────────────────────────────────────────────────────────
