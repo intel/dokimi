@@ -533,6 +533,25 @@ def test_a_long_out_name_is_shortened_to_255_bytes_where_the_limit_is_unknown(tm
     assert stem.startswith("é" * 50)
 
 
+def test_an_indeterminate_name_limit_is_taken_as_255_bytes(tmp_path, monkeypatch):
+    from dokimi.commands.novelty_routing_report import _sidecar_stem
+
+    monkeypatch.setattr(os, "pathconf", lambda *args: -1, raising=False)
+    stem = _sidecar_stem(tmp_path / ("x" * 300 + ".json"))
+    assert 200 < len(stem) and len(stem + ".partial999999.json") <= 255
+
+
+def test_a_name_limit_too_small_for_a_sidecar_name_is_an_error_not_a_hang(tmp_path, monkeypatch):
+    from dokimi.commands.novelty_routing_report import save_result
+
+    out = _finished(tmp_path)
+    monkeypatch.setattr(os, "pathconf", lambda *args: 14, raising=False)
+    with pytest.raises(OSError) as error:
+        save_result({}, out, {"partial": PARTIAL})
+    assert error.value.errno == errno.ENAMETOOLONG
+    assert [p.name for p in tmp_path.iterdir()] == [out.name]
+
+
 @pytest.mark.skipif(not hasattr(os, "pathconf"), reason="NAME_MAX is POSIX")
 def test_a_second_long_name_partial_save_goes_to_the_next_numbered_shortened_name(tmp_path):
     from dokimi.commands.novelty_routing_report import _partial_destinations

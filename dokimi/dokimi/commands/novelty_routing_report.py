@@ -10,6 +10,7 @@ its growth cap. Nothing here builds a client; a model arm is always the caller's
 from __future__ import annotations
 
 import argparse
+import errno
 import hashlib
 import json
 import os
@@ -540,12 +541,16 @@ def _sidecar_stem(out: Path) -> str:
         name_max = os.pathconf(out.parent, "PC_NAME_MAX")
     except (AttributeError, OSError, ValueError):
         name_max = 255
+    if name_max <= 0:  # -1: the limit is indeterminate
+        name_max = 255
     room = name_max - len(".partial.json") - 6
     stem = out.with_suffix("").name
     if len(os.fsencode(stem)) <= room:
         return stem
     tag = "-" + hashlib.sha256(os.fsencode(stem)).hexdigest()[:12]
-    stem = stem[: max(room - len(tag), 0)]
+    if room < len(tag):
+        raise OSError(errno.ENAMETOOLONG, f"a name limit of {name_max} bytes leaves no room for a partial result's name", str(out))
+    stem = stem[: room - len(tag)]
     while len(os.fsencode(stem)) > room - len(tag):
         stem = stem[:-1]
     return stem + tag
