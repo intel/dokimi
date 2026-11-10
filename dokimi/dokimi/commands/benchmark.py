@@ -28,7 +28,7 @@ from dokimi.defaults import (
 from dokimi.commands.library import _load_registry
 from dokimi.exit_codes import EXIT_USAGE
 from dokimi.llm_cli import SamplingError, check_sampling
-from dokimi.utils import check_bedrock_model
+from dokimi.utils import InputError, check_bedrock_model, refuse_device
 
 
 def _refuse_judge_sampling(args: argparse.Namespace) -> None:
@@ -197,6 +197,10 @@ def _check_questions_from(questions_from: str, key: str) -> tuple[Path, list, st
     qf = resolve_questions_from_path(Path(questions_from), key)
     if not qf.exists():
         return qf, [], f"questions source not found: {qf}"
+    try:
+        refuse_device(qf, "--questions-from")  # before the read: /dev/zero ends in a MemoryError with no message
+    except InputError as exc:
+        return qf, [], str(exc)
     try:
         return qf, load_questions_payload(qf), None
     except Exception as exc:

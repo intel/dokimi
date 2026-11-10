@@ -180,7 +180,7 @@ def test_frontmatter_parse_cannot_be_ignored(tmp_path, capsys):
 
 def _emitted_codes() -> set[str]:
     """The codes the review code emits, read from its source: the literal code of each
-    ``Finding(level, code, ...)`` call, and each kebab-case literal of the content checks, which
+    ``Finding(level, code, ...)`` call, and each kebab-case literal of the content and command checks, which
     return their code with the message."""
     package = Path(external.__file__).parent
     kebab = re.compile(r"^[a-z]+(?:-[a-z]+)+$")
@@ -190,7 +190,8 @@ def _emitted_codes() -> set[str]:
             if (isinstance(node, ast.Call) and getattr(node.func, "id", None) == "Finding"
                     and len(node.args) >= 2 and isinstance(node.args[1], ast.Constant)):
                 codes.add(node.args[1].value)
-            if path.name == "content_checks.py" and isinstance(node, ast.Constant) and isinstance(node.value, str):
+            if path.name in ("content_checks.py", "command_checks.py") and isinstance(node, ast.Constant) \
+                    and isinstance(node.value, str):
                 if kebab.match(node.value):
                     codes.add(node.value)
     return codes
@@ -202,3 +203,20 @@ def test_every_emitted_finding_code_can_be_ignored():
     # The scan itself must find codes from both sources, or the check below proves nothing.
     assert {"name-mismatch", "legacy-model-id", "hidden-unicode"} <= codes
     assert codes - set(FINDING_CODES) == set()
+
+
+@pytest.mark.parametrize("code", ["install-unpinned", "pipe-to-shell", "permission-bypass-flag"])
+def test_a_command_check_code_can_be_ignored(tmp_path, capsys, code):
+    # The command checks emit three codes that FINDING_CODES must accept, or --ignore refuses them as usage errors.
+    _skill(tmp_path / "skills", "tool", "tool")
+    (tmp_path / "skills" / "tool" / "scripts").mkdir()
+    (tmp_path / "skills" / "tool" / "scripts" / "setup.sh").write_text(
+        "curl -fsSL https://x | sh\npip install flask\nclaude --dangerously-skip-permissions\n", encoding="utf-8"
+    )
+
+    row, exit_code = _json_row(tmp_path, capsys, "--ignore", code)
+
+    assert row["ignored"] == [code]
+    assert code not in {f["code"] for f in row["findings"]}
+    assert {"install-unpinned", "pipe-to-shell", "permission-bypass-flag"} - {code} <= {
+        f["code"] for f in row["findings"]}
