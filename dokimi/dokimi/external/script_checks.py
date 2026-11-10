@@ -333,6 +333,7 @@ def _unquoted_text(data: bytes) -> bytes:
     prev = b"\n"  # the byte before, outside quotes: a # after a blank or a separator starts a word
     resume = -1  # where the bodies of the heredocs opened on this line end: the line's newline skips to it
     lines = _script_lines(data)
+    unclosed = False  # a quote with no closing mark: bash reads the rest of the file as in it, so none is read again
     i = 0
     while i < len(data):
         c = data[i:i + 1]
@@ -346,6 +347,15 @@ def _unquoted_text(data: bytes) -> bytes:
             end, resume = opened
             out += data[i:end]
             prev, i = b"x", end
+        elif c in (b"'", b'"'):
+            got = None if unclosed else _quoted_run(data, i)
+            if got is None:
+                unclosed = True
+                out += c
+                prev, i = c, i + 1
+            else:
+                out += got[0]
+                prev, i = b"x", got[1]
         else:
             text, i, prev = _text_step(data, i, prev)
             out += text
@@ -497,6 +507,9 @@ def _command_sub_end(data: bytes, i: int, nest: int = 0) -> Optional[int]:
             if run is None:
                 return None
             j = run[1]
+            continue
+        if c == b"#" and data[j - 1:j] in WORD_START:  # a comment in the substitution: its quotes are not quotes
+            j = _comment_end(data, j)
             continue
         if c == b"(":
             depth += 1

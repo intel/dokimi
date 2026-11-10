@@ -711,13 +711,22 @@ def test_a_repeated_run_of_words_is_checked_in_linear_time(run, count):
     assert time.monotonic() - started < 0.5
 
 
-@pytest.mark.parametrize("count", [40, 300])
+@pytest.mark.parametrize("count", [40, 3000])
 def test_a_command_sub_in_quotes_repeated_unclosed_is_read_in_linear_time(count):
-    # each level of an unclosed "$( nest was read again by the level above it: exponential in the count
+    # each level of an unclosed "$( nest was read again by the level above it: exponential in the count, and each
+    # later "$( after a failed read was read to the end again: quadratic
     started = time.monotonic()
     script_checks._shell_options(b"x=" + b'"$(' * count + b"\nx\n")
 
     assert time.monotonic() - started < 0.5
+
+
+@needs_bash
+def test_a_quote_in_a_comment_inside_a_command_sub_in_quotes_is_not_a_quote(tmp_path, no_linters):
+    # bash reads "# don't" as a comment inside the $( ), so the apostrophe opens no quote
+    _bundle(tmp_path, {"run.sh": b'#!/bin/bash\nx="$(ls # don\'t\n)"\nshopt -s extglob\ncase x in +(a)) : ;; esac\necho "end"\n'})
+
+    assert _codes(_reviews_by_name(tmp_path)["bundled"]) == []
 
 
 def test_a_command_sub_in_quotes_nested_600_deep_does_not_exhaust_the_recursion_limit():
