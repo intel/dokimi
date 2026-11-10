@@ -60,8 +60,10 @@ def write_run(payload: dict, out: Path, partial: dict | None = None) -> Path:
 
 
 #: The probe record's summary blocks, computed over the runs a partial file keeps.
+# judge2 is in it: the second judge shares the cap, so its regrade covers the cut subset too.
 PARTIAL_SUMMARIES = ("paired", "arms", "abstentions", "reversal_resisted",
-                     "reversal_resisted_by_arm", "reversal_paired", "confidence_correlation")
+                     "reversal_resisted_by_arm", "reversal_paired", "confidence_correlation",
+                     "judge2")
 
 
 def save_probe_run(payload: dict, out: Path, *, done: int, not_run: int,
