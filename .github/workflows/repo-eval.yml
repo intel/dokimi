@@ -285,6 +285,17 @@ jobs:
                   sys.exit(f"::error title=tasks::no such task(s): {', '.join(unknown)}")
           excluded = set(ids(env["EXCLUDE_TASKS"]))
           sel = [t for t in dict.fromkeys(sel) if t not in excluded]
+          # a task id goes into the job matrix, GITHUB_OUTPUT and the summary as UTF-8 text
+          def is_utf8(name):
+              try:
+                  name.encode('utf-8')
+              except UnicodeEncodeError:
+                  return False
+              return True
+
+          odd = [os.fsencode(t).decode('utf-8', 'backslashreplace') for t in sel if not is_utf8(t)]
+          if odd:
+              sys.exit(f"::error title=tasks::task directory name(s) that are not UTF-8: {', '.join(odd)}")
           print(f"tasks-check: {' '.join(sel) or 'none'}")
           out(id=m["id"], tasks=json.dumps(sel))
           with open(env["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as f:

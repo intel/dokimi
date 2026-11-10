@@ -172,6 +172,30 @@ def test_a_file_name_that_is_not_utf8_beside_the_eval_dir_selects_nothing(repo, 
     assert _select(repo, tmp_path) == []
 
 
+@needs_byte_names
+def test_a_selected_task_directory_that_is_not_utf8_fails_the_step_naming_it_escaped(repo, tmp_path):
+    """Its id would go into the job matrix, ``GITHUB_OUTPUT`` and the summary, which are UTF-8 text."""
+    _write(repo, f"{TASKS}/t{BYTE_NAME}/task.json", "{}")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "a task whose name is not UTF-8")
+    _git(repo, "update-ref", "refs/remotes/origin/main", "HEAD")
+    _write(repo, f"{TASKS}/t{BYTE_NAME}/grader.py", "changed\n")
+    result, temp = _run_step(repo, tmp_path)
+    assert result.returncode == 1 and "Traceback" not in result.stderr
+    assert "::error title=tasks::task directory name(s) that are not UTF-8: tr\\xff.py" in result.stderr
+    assert "tasks=" not in (temp / "out").read_text(encoding="utf-8")
+
+
+@needs_byte_names
+def test_a_task_directory_that_is_not_utf8_and_not_selected_is_left_alone(repo, tmp_path):
+    _write(repo, f"{TASKS}/t{BYTE_NAME}/task.json", "{}")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "a task whose name is not UTF-8")
+    _git(repo, "update-ref", "refs/remotes/origin/main", "HEAD")
+    _write(repo, f"{TASKS}/t1/grader.py", "changed\n")
+    assert _select(repo, tmp_path) == ["t1"]
+
+
 def test_both_sides_of_a_move_between_tasks_are_selected(repo, tmp_path):
     _write(repo, f"{TASKS}/t1/big.py", "".join(f"line {i}\n" for i in range(200)))
     _git(repo, "add", "-A")

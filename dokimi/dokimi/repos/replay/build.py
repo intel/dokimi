@@ -174,6 +174,10 @@ def _anchor_problem(h: History, manifest: RepoManifest, commit: str, path: str, 
     at = carry(h, commit, rev, path, line)
     if at is None:
         return f"its line changed between {commit[:12]} and the reviewed revision {rev[:12]}", None
+    try:
+        need_utf8_paths([at[0]])  # gold.json is UTF-8 text, and a path carried back may be one the patch never changes
+    except Skip as skip:
+        return str(skip), None
     if left_out(manifest, at[0]):
         return "on a guidance file or under eval_dir, which the patch leaves out", None
     n_lines = h.lines(rev, at[0])

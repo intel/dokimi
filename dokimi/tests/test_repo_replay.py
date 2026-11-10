@@ -745,6 +745,44 @@ def test_a_name_status_listing_keeps_the_bytes_of_a_path_that_is_not_utf8():
 
 
 @needs_byte_names
+def test_a_pr_that_changes_a_path_that_is_not_utf8_is_skipped_naming_it_escaped(hist, tmp_path, capsys):
+    root = hist["root"]
+    main = git(root, "rev-parse", "--abbrev-ref", "HEAD")
+    git(root, "checkout", "-qb", "pr61")
+    write(root, os.fsdecode(b"src/\xff.py"), "one\ntwo\n")
+    rev = _commit(root, "adds a file that is not UTF-8")
+    merge = _squash(root, main, "pr61")
+    with pytest.raises(SystemExit):  # no pull request gave a task
+        _replay(root, _pages(_pr(61, rev, merge, [_t("src/long.py", 10, rev)])), tmp_path / "tasks")
+    printed = capsys.readouterr().out
+    assert "PR 61: skipped: src/\\xff.py is not a UTF-8 file name, which task.json cannot hold" in printed
+    assert not (tmp_path / "tasks" / "review_replay_pr61").exists()
+
+
+@needs_byte_names
+def test_a_thread_carried_back_to_a_path_that_is_not_utf8_is_left_out_and_the_task_written(hist, tmp_path, capsys):
+    """The reviewed revision does not change the file, a later commit renames it: the gold file would be the
+    name that ``task.json`` cannot hold."""
+    root = hist["root"]
+    main = git(root, "rev-parse", "--abbrev-ref", "HEAD")
+    odd = os.fsdecode(b"src/\xff.py")
+    write(root, odd, "one\ntwo\nthree\n")
+    _commit(root, "a file that is not UTF-8")
+    git(root, "checkout", "-qb", "pr62")
+    _set(root, "src/long.py", 10, "a10")
+    rev = _commit(root, "the reviewed change")
+    git(root, "mv", odd, "src/ok.py")
+    head = _commit(root, "rename it")
+    merge = _squash(root, main, "pr62")
+    threads = [_t("src/long.py", 10, rev), _t("src/long.py", 11, rev), _t("src/ok.py", 2, head)]
+    _replay(root, _pages(_pr(62, head, merge, threads)), tmp_path / "tasks")
+    task, gold, _ = _load(tmp_path / "tasks", 62)
+    assert task["reviewed_commit"] == rev
+    assert [(g["id"], g["file"]) for g in gold] == [("pr62-t1", "src/long.py"), ("pr62-t2", "src/long.py")]
+    assert "pr62-t3 left out: src/\\xff.py is not a UTF-8 file name, which task.json cannot hold" in capsys.readouterr().out
+
+
+@needs_byte_names
 def test_a_changed_path_that_is_not_utf8_skips_the_pull_request_naming_it_escaped():
     need_utf8_paths(["a.py", "né.py"])  # UTF-8 names pass
     with pytest.raises(Skip, match=r"^src/\\xff.py is not a UTF-8 file name, which task.json cannot hold$"):
