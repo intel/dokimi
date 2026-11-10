@@ -8291,7 +8291,7 @@
               "nargs": null,
               "position": null,
               "required": false,
-              "type": "dokimi.commands.skill_coverage._usd#591d6e2f0474"
+              "type": "dokimi.commands.novelty_run.usd_amount#af10a4ceaa08"
             },
             {
               "action": "_StoreAction",
