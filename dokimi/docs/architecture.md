@@ -364,7 +364,9 @@ next release.
   baseline arm over one or more batches, one value per task and arm (gate
   share, score, cost, turns, chosen `grade.json` metrics, `result.json`
   `process` counts), with a sign-flip permutation p, an interval over tasks
-  that inverts it (`dokimi/repos/compare_interval.py`) and Holm's correction.
+  that inverts it (`dokimi/eval/sign_flip.py`, shared with the arms track's
+  `dokimi/eval/stats.py`; `dokimi/repos/compare_interval.py` prints it) and
+  Holm's correction.
   `dokimi/repos/compare_tasks.py` holds
   what its `--task` selection keeps; `dokimi/repos/compare_reach.py` how small
   an effect a row can find (`mde`, an uncorrected t-based estimate, and the

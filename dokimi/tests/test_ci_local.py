@@ -112,6 +112,17 @@ def test_unevaluable_condition_runs_step_with_notice(env: dict[str, Any], capsys
     assert "NOTICE: cannot evaluate" in capsys.readouterr().out
 
 
+def test_ci_yml_label_guards_evaluate_as_a_push_to_the_pr(capsys: Any) -> None:
+    """The guards that skip a label event read `github.event.action`: a local run is a push, so the jobs run, no notice."""
+    jobs = dict(cl.load_workflows())["ci.yml"]["jobs"]
+    ctx = cl.Context("main", PYV, Path("."))
+    ran = {job_id: ctx.condition(str(job["if"])) for job_id, job in jobs.items() if "if" in job}
+    for expr in [step["if"] for job in jobs.values() for step in job.get("steps", []) if "if" in step]:
+        ctx.condition(str(expr))
+    assert (ran["static"], ran["typecheck"], ran["windows-smoke"], ran["test-latest"]) == (True, True, True, False)
+    assert "NOTICE" not in capsys.readouterr().out
+
+
 def test_failure_condition_is_false_locally() -> None:
     """A local run has no failed job: pip-audit.yml's `report` job (which opens an issue) is skipped."""
     ctx = cl.Context("main", PYV, Path("."))

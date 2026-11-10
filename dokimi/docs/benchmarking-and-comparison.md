@@ -361,21 +361,48 @@ Arm contrasts and factorial-interaction contrasts are corrected as **separate
 families** — pooling them would inflate the multiplier on both — and each row
 records its `correction_family`, `family_size`, and `family_tested`.
 
+Each row's `p` is one two-sided sign-flip test on the per-question deltas: under
+the null each delta's sign is a fair coin, and p is the share of sign patterns
+whose |sum| reaches the observed one (exact up to 16 changed pairs, Monte Carlo
+with a fixed seed above). A delta within 1e-9 of 0 is a tie and carries no sign,
+so over k changed pairs (`n_changed`) p cannot go below 2/2^k: at 5 or fewer no
+data whatsoever reaches 0.05. The test runs from 2 pairs and its p is printed,
+and an arm under that floor stays in the correction family, as in `repo compare`.
+
 The **Sig.** column follows the *adjusted* p-value, not the raw one. Three
 values are possible:
 
 | Sig. | Meaning |
 |---|---|
-| `yes` | adjusted p < 0.05 **and** Wilcoxon < 0.05 when it could be computed |
-| `no` | the tests ran and did not clear 0.05 |
-| `—` | no test could run — fewer than 6 complete pairs, or the deltas are constant (a degenerate sample, where Cohen's d_z is *unbounded* rather than negligible) |
+| `yes` | adjusted p < 0.05 |
+| `no` | the test ran, a verdict was possible, and the adjusted p did not clear 0.05 |
+| `—` | no p (every pair tied), or the floor 2/2^k over the k changed pairs is not below 0.05 |
 
-A `—` is not a null result. Cohen's d_z and the p columns render `—` in the same
-situation rather than printing `0.00`, which would read as a measured no-effect.
+A `—` is not a null result. A constant shift is not a `—`: eight pairs that all
+gain +20 have p = 2/2^8 = 0.0078 and the interval [+20, +20]. Cohen's d_z is
+descriptive (no verdict reads it) and renders `—` there, where it is *unbounded*
+rather than negligible; it is 0.0 when every delta is 0.
 
-The 95% CI is a Student-t interval on the paired deltas, so it excludes zero
-exactly when the t-test rejects; `ci_method` records which estimator produced it
-(`student_t`, `percentile_bootstrap`, or `degenerate`).
+The 95% CI inverts the same sign-flip test: it is every shift theta at which the
+test on the deltas minus theta does not reject at 5%, so it excludes zero exactly
+when the raw p < 0.05. It is uncorrected: an arm whose interval excludes zero can
+still read `no` once Holm lifts its p past 0.05. Under a shift the tied pairs
+count again, so both ends are open (`null`, printed `-inf` / `+inf`) at 5 or
+fewer pairs and bounded from 6 on. Six or more pairs that all tie get the
+interval [0, 0] with no p and a `—`: nothing speaks against 0, and every other
+shift moves all the pairs to one side, which the test rejects, as it does every
+shift but +20 for eight +20 pairs. `ci_method` is `sign_flip_inversion`; an
+`arms.json` written before this method holds `student_t`, `percentile_bootstrap`
+or `degenerate` there, and `p_ttest` (with `p_wilcoxon`, `n_wilcoxon`) instead of
+`p`, and the report still renders it.
+
+The verdicts moved when the arms took this test. The rule before it, adjusted
+t-test p < 0.05 *and* Wilcoxon < 0.05, was conservative: on simulated judge
+deltas its false-positive rate was about 3% at a nominal 5%, against the
+sign-flip test's 5%, and its t interval contradicted its own verdict in up to 11%
+of runs. Verdicts near 0.05 move, almost always toward significant: of 418
+changed verdicts in that simulation, 2 went the other way
+([#421](https://github.com/intel/dokimi/issues/421#issuecomment-6723155135)).
 
 The judged artifact carries the whole block at
 `summary.per_arm.<arm>.significance`, so the table above is renderable from the
@@ -614,13 +641,14 @@ baseline and the treatment arm as the context arm, then computes:
 - overall context-arm, baseline, and delta per run, all three over the questions
   scored in both arms (a run that scored one arm only shows that arm's mean); the
   context mean and delta of each difficulty row follow the same rule,
-- statistical significance of context-arm minus baseline (paired t-test,
-  Wilcoxon signed-rank, Cohen's d_z), corrected across the compared runs \u2014
-  every run tests the same "did the treatment help?" question, so they form one
-  family; `--stats-correction holm|bh` selects the method and the table shows
-  the raw p alongside the adjusted one. scipy is a hard dependency, so these are
-  always computed; they report `None` only when a run has fewer than
-  `eval.stats.MIN_PAIRS_FOR_TEST` (6) complete pairs or the deltas are constant,
+- statistical significance of context-arm minus baseline (the arms' sign-flip
+  test and Cohen's d_z, `eval.stats.paired_test`), corrected across the compared
+  runs \u2014 every run tests the same "did the treatment help?" question, so they
+  form one family; `--stats-correction holm|bh` selects the method and the table
+  shows the raw p, the adjusted p and the changed pairs. A run with 2 or more
+  pairs gets a p; its verdict is N/A when every pair tied or the floor 2/2^k over
+  its k changed pairs is not below 0.05 (see *Reading the significance tables*
+  above, which also says how verdicts near 0.05 moved with this test),
 - difficulty breakdown on common question IDs,
 - head-to-head winners on common question IDs,
 - ranking by absolute context-arm score and by delta.
@@ -832,8 +860,9 @@ instead. Two records name one model when they have the same id and snapshot: a B
 inference profile, a regional profile, a `-vN:M` revision or the same model behind another route count
 as the same model; two different dated snapshots, or the same name under another organization, are two models.
 A custom dotted name (`alice.model`) is not a vendor prefix, and a `huggingface/` route keeps its organization.
-A dated snapshot and its undated alias are neither: the alias does not record which snapshot answered, so the
-role is named on stderr as not verified, and `--strict` exits 1 on it. A baseline saved before a default-model
+A dated snapshot and its undated alias are neither, and so is a Claude CLI alias (`sonnet`, `opus[1m]`) and
+any full id of its family (`claude-sonnet-4-5`, `claude-3-5-sonnet-20240620`): the alias does not record which
+snapshot answered, so the role is named on stderr as not verified, and `--strict` exits 1 on it. A baseline saved before a default-model
 change is such a baseline. A panel
 artifact (`eval score panel`) is compared by its judge models: the panels must have the same number of judges
 and the same models, and a judge that matches the other panel's only through such an alias makes the role
