@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import time
 from pathlib import Path
 
 import pytest
@@ -701,3 +702,11 @@ def test_an_escaped_or_ampersand_redirected_shopt_is_not_a_command_under_real_ba
     _bundle(tmp_path, {"run.sh": b"#!/bin/bash\n" + line + b"\ncase x in +(a|b)) : ;; esac\n"})
 
     assert _codes(_reviews_by_name(tmp_path)["bundled"]) == ["script-syntax"]
+
+
+@pytest.mark.parametrize(("run", "count"), [(b"<<!\t", 22), (b"x=(", 6000)])
+def test_a_repeated_run_of_words_is_checked_in_linear_time(run, count):
+    started = time.monotonic()
+    script_checks._shell_options(run * count + b"\nx\n")
+
+    assert time.monotonic() - started < 0.5

@@ -39,7 +39,18 @@ SCRIPT_SUFFIXES = (*SHELL_SUFFIXES, ".py")
 BASH_FAMILY = frozenset({"bash", "sh", "dash", "ksh"})  # the shebang names bash -n can judge
 ENV_OPERAND_OPTIONS = frozenset({"-u", "--unset", "-C", "--chdir"})  # env options with an operand
 PARSE_SHOPTS = frozenset({"extglob"})  # bash -O options that change how a script parses; bash -n is given them
-SHOPT_EXTGLOB = re.compile(rb"(?m)(?:^|[;|({!)]|&(?!>))[ \t]*(?:(?:[A-Za-z_][A-Za-z0-9_]*=[^\s;&|]*|&?[0-9]*[<>]+&?[^\s;&|]+|&?[0-9]*[<>]+&?[ \t]+[^\s;&|]+)[ \t]+)*(?:(?:then|do|else|elif|if|while|until|builtin|command|exec|time|coproc)[ \t]+)*shopt[ \t]+(?:-[a-zA-Z]+[ \t]+)*-[a-zA-Z]*s[a-zA-Z]*(?:[ \t]+[^\s;&|]+)*?[ \t]+extglob\b")  # shopt -s ... extglob, on one line; NAME=value and a redirection (with its target) before it do not stop it; &> is a redirection, not a boundary
+# The shopt check reads each command once (linear): a command ends at ; | ) & or a newline (not at &> or >&), its words are
+# split on blanks, and it runs shopt when shopt is its command word after its assignments and redirections, which come
+# before the keywords (then, do, command, ...). A word may start with ( { ! (the start of a subshell, a group, a negation).
+COMMAND_SPLIT = re.compile(rb"[;|\n)]|(?<![<>])&(?!>)")
+WORD_SPLIT = re.compile(rb"[ \t]+")
+WORD_BOUNDARY_CHARS = b"(){}!"
+ASSIGN_WORD = re.compile(rb"[A-Za-z_][A-Za-z0-9_]*=")
+REDIR_WORD = re.compile(rb"&?[0-9]*[<>]+&?")
+COMMAND_KEYWORDS = frozenset({b"then", b"do", b"else", b"elif", b"if", b"while", b"until", b"builtin", b"command",
+                              b"exec", b"time", b"coproc"})
+SHOPT_S_OPTION = re.compile(rb"-[a-zA-Z]*s[a-zA-Z]*")
+EXTGLOB_WORD = re.compile(rb"extglob(?![A-Za-z0-9_])")
 WORD_START = (b" ", b"\t", b"\r", b"\n", b";", b"&", b"|", b"(")  # bytes after which a word starts: a # there is a comment, a (( a command
 QUOTED_TEXT = frozenset(bytes([b]) for b in b" \t\n;&|(){}<>!")  # bytes a quote makes text: no separator, operator or blank
 # Escapes env -S reads outside quotes (\_ separates words and \c ends the string: see _env_split).
@@ -461,6 +472,47 @@ def _dq_backslash(data: bytes, j: int) -> tuple[bytes, int]:
     return b"\\", 1
 
 
+def _command_word(words: list[bytes]) -> Optional[int]:
+    """Index of the command word: past the assignments and redirections in front of it, and past the keywords. A
+    redirection whose word ends where its target starts takes the next word as the target."""
+    keyword = False
+    i = 0
+    while i < len(words):
+        w = words[i].lstrip(WORD_BOUNDARY_CHARS)
+        if w in COMMAND_KEYWORDS:
+            keyword = True
+        elif not w:
+            pass
+        elif not keyword and ASSIGN_WORD.match(w):
+            pass
+        elif not keyword and (redir := REDIR_WORD.match(w)):
+            i += redir.end() == len(w)
+        else:
+            return i
+        i += 1
+    return None
+
+
+def _shopt_enables_extglob(operands: list[bytes]) -> bool:
+    """Whether the operands of a shopt turn extglob on: an option with an s in it, then the word extglob."""
+    s_option = False
+    for word in operands:
+        if EXTGLOB_WORD.match(word):
+            return s_option
+        s_option = s_option or SHOPT_S_OPTION.fullmatch(word) is not None
+    return False
+
+
+def _shopt_extglob(text: bytes) -> bool:
+    """Whether a command of the script runs shopt to turn extglob on."""
+    for command in COMMAND_SPLIT.split(text):
+        words = [w for w in WORD_SPLIT.split(command) if w]
+        i = _command_word(words)
+        if i is not None and words[i].lstrip(WORD_BOUNDARY_CHARS) == b"shopt" and _shopt_enables_extglob(words[i + 1:]):
+            return True
+    return False
+
+
 def _shell_options(data: bytes) -> Optional[list[str]]:
     """The bash options ``bash -n`` is given for the shebang's arguments: ``-O`` for a shopt that changes parsing
     (``extglob``), and nothing for a flag or ``-o`` option that changes no parse. None when the shebang has an
@@ -480,7 +532,7 @@ def _shell_options(data: bytes) -> Optional[list[str]]:
             i += 1
         else:
             return None
-    if SHOPT_EXTGLOB.search(_unquoted_text(data)) and "extglob" not in options:
+    if _shopt_extglob(_unquoted_text(data)) and "extglob" not in options:
         # A script that turns extglob on with ``shopt -s extglob`` has its patterns parsed only after that
         # runs, and bash -n runs nothing: so the option is given when a line of the script turns it on.
         options += ["-O", "extglob"]
