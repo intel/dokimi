@@ -535,8 +535,12 @@ def _link_finding(client: httpx.Client, url: str) -> Optional[Finding]:
     try:
         status = _status(client, url)
     except _PROBE_ERRORS as exc:
-        if _is_dns_failure(exc) and not _proxied(_failed_url(exc, url)):
-            return Finding("warn", "link-dead", f"link {url} does not resolve (DNS failure)")
+        failed = _failed_url(exc, url)  # the redirect hop that did not resolve, or the link itself
+        if _is_dns_failure(exc) and not _proxied(failed):
+            if failed == url:
+                return Finding("warn", "link-dead", f"link {url} does not resolve (DNS failure)")
+            return Finding("warn", "link-dead",
+                           f"link {url} redirects to {failed}, which does not resolve (DNS failure)")
         return None
     if status not in _DEAD_LINK_STATUSES:
         return None

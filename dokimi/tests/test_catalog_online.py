@@ -859,6 +859,21 @@ def test_a_redirect_into_a_private_address_is_not_requested():
     assert requested == ["https://evil.dev/r"]  # the HEAD only: the hop into 10.0.0.5 is never sent
 
 
+def test_a_dns_failure_on_a_redirect_hop_names_the_hop_not_the_first_url():
+    def handle(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "bit.ly":
+            return httpx.Response(302, headers={"Location": "https://old.dead-domain.dev/"})
+        error = httpx.ConnectError("[Errno -2] Name or service not known", request=request)
+        error.__cause__ = socket.gaierror(socket.EAI_NONAME, "Name or service not known")
+        raise error
+
+    client = httpx.Client(transport=httpx.MockTransport(handle), follow_redirects=False)
+    finding = online_checks._link_finding(client, "https://bit.ly/abc")
+    assert finding is not None
+    assert finding.message == ("link https://bit.ly/abc redirects to https://old.dead-domain.dev/, "
+                               "which does not resolve (DNS failure)")
+
+
 def _scan_capture(root, capsys, *extra: str) -> tuple[int, dict]:
     parser = build_parser()
     args = parser.parse_args(["catalog", "check", "--root", str(root), "--kind", "skills",
