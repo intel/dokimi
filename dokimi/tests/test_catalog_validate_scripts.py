@@ -737,6 +737,14 @@ def test_a_heredoc_body_with_a_quote_inside_a_command_sub_in_quotes_is_not_read_
     assert _codes(_reviews_by_name(tmp_path)["bundled"]) == []
 
 
+@needs_bash
+def test_a_shift_in_arithmetic_inside_a_command_sub_in_quotes_is_not_a_heredoc(tmp_path, no_linters):
+    # bash reads $((1 << n)) as arithmetic, so the line "n" below is a command, not a heredoc body
+    _bundle(tmp_path, {"run.sh": b'#!/bin/bash\nx="$(\n  echo $((1 << n))\n)"\nshopt -s \'extglob\'\ncase x in +(a)) : ;; esac\nn\n'})
+
+    assert _codes(_reviews_by_name(tmp_path)["bundled"]) == []
+
+
 def test_a_command_sub_in_quotes_nested_600_deep_does_not_exhaust_the_recursion_limit():
     # each level of the nest recurses; a nest this deep raised RecursionError on the whole file
     script_checks._shell_options(b"x=" + b'"$(' * 600 + b")\"" * 600 + b"\nx\n")
