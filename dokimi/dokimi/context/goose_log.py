@@ -24,7 +24,14 @@ SQLITE_MAGIC = b"SQLite format 3\x00"
 
 
 def is_goose_store(path: Path) -> bool:
+    """Whether ``path`` is a regular file that starts with the SQLite header.
+
+    Only a regular file is sniffed: a pipe cannot be reread, so its first bytes would be lost to the log read after
+    this, and SQLite cannot open a store through one anyway (https://github.com/intel/dokimi/issues/532).
+    """
     try:
+        if not path.is_file():
+            return False
         with path.open("rb") as handle:
             return handle.read(len(SQLITE_MAGIC)) == SQLITE_MAGIC
     except OSError:

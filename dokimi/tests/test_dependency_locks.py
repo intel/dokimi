@@ -243,3 +243,13 @@ def test_the_published_package_builds_with_the_locked_backend() -> None:
         versions = locked.get(canonical(spec.name), set())
         assert any(spec.specifier.contains(v) for v in versions), (
             f"requirements-ci.lock.txt has {sorted(versions)} for the build backend {spec}")
+
+
+def test_a_replacement_update_is_exempt_from_the_release_age_wait() -> None:
+    """A replacement keeps the version, so no release date exists and renovate/stability-days would stay pending;
+    only a github-actions replacement: one from another manager keeps the 7-day wait."""
+    text = (ROOT.parent / ".github" / "renovate.json5").read_text(encoding="utf-8")
+    exempt = re.findall(r"\{[^{}]*minimumReleaseAge: null[^{}]*\}", text)
+    assert len(exempt) == 1, exempt
+    assert 'matchManagers: ["github-actions"]' in exempt[0]
+    assert 'matchUpdateTypes: ["replacement"]' in exempt[0]
