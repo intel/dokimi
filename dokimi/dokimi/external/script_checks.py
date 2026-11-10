@@ -668,7 +668,11 @@ def _shopt_enables_extglob(operands: list[bytes]) -> bool:
 
 
 def _shopt_extglob(text: bytes) -> bool:
-    """Whether a command of the script runs shopt to turn extglob on."""
+    """Whether a command of the script runs shopt to turn extglob on, anywhere in the script: in a function, a ``( )``,
+    an ``if`` branch, or later than the pattern it would parse. The option is given to ``bash -n`` for the whole script
+    (docs/external-content.md). The cost: a pattern that is an error without a shopt but is accepted because a shopt sits
+    elsewhere (in a function, a subshell, an untaken branch, or later in the file) is not flagged, so an error can be
+    missed."""
     for command in COMMAND_SPLIT.split(text):
         for words in _command_groups([w for w in WORD_SPLIT.split(command) if w]):
             i = _command_word(words)
@@ -704,7 +708,7 @@ def _shell_options(data: bytes) -> Optional[list[str]]:
     ksh = bool(words and os.path.basename(words[0]) == "ksh")  # ksh has the extended patterns on, always
     if (ksh or _shopt_extglob(_unquoted_text(data))) and "extglob" not in options:
         # A script that turns extglob on with ``shopt -s extglob`` has its patterns parsed only after that
-        # runs, and bash -n runs nothing: so the option is given when a line of the script turns it on.
+        # runs, and bash -n runs nothing: so the option is given when a shopt anywhere in the script turns it on.
         options += ["-O", "extglob"]
     return options
 
