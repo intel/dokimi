@@ -353,6 +353,9 @@ code.
   the novelty numbers come from: method, K0 per model, the 2×2, need-graph
   statistics, content categories, shortening with measured behaviour, and the
   caveats each result carries.
+- [judge-panel-study.md](judge-panel-study.md) — how much the judge moves
+  the results: per-judge numbers, agreement and self-preference, and the
+  judge panels Dokimi has today against the proposal.
 
 ## Repository evaluation
 
