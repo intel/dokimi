@@ -92,23 +92,18 @@ def _trace_arms(args: argparse.Namespace) -> dict[str, list[str]]:
     for spec in args.arm or []:
         label, sep, pattern = spec.partition("=")
         if not sep or not label:
-            _refuse(args, f"--arm wants LABEL=GLOB, got {spec!r}")
+            _refuse(f"--arm wants LABEL=GLOB, got {spec!r}")
         arms.setdefault(label, []).extend(sorted(glob.glob(pattern, recursive=True)) or [pattern])
     if args.traces:
         arms.setdefault("runs", []).extend(args.traces)
     if not arms:
-        _refuse(args, "give traces, or --arm LABEL=GLOB")
+        _refuse("give traces, or --arm LABEL=GLOB")
     return arms
 
 
-def _refuse(args: argparse.Namespace, message: str) -> NoReturn:
-    """Stop with the message: exit 1 with it on stderr. Under --json the leaf's
-    document with status ``failed`` is printed first, so stdout is never empty."""
-    from dokimi import cli_output
-
-    if getattr(args, "json", False):
-        cli_output.emit_leaf(args.cli_kind, None, status="failed", reason=message)
-    sys.exit(message)
+def _refuse(message: str) -> NoReturn:
+    """Stop on a bad invocation: ``cli.main`` prints ``Error: <message>`` and exits 2 (the ``input`` document under --json)."""
+    raise InputError(message)
 
 
 def _read_arms(arms: dict[str, list[str]], shell: str) -> tuple[dict[str, list], bool]:
@@ -139,7 +134,7 @@ def cmd_context_consistency(args: argparse.Namespace) -> None:
         contract = load_contract(Path(args.contract)) if args.contract else None
         outcomes = load_outcomes(Path(args.outcomes)) if args.outcomes else None
     except (OSError, ValueError) as exc:
-        _refuse(args, f"✗ {exc}")
+        _refuse(str(exc))
 
     loaded, failed = _read_arms(arms, args.shell)
     missing: set[str] = set()
@@ -147,7 +142,7 @@ def cmd_context_consistency(args: argparse.Namespace) -> None:
         try:
             missing = set(apply_outcomes([r for runs in loaded.values() for r in runs], outcomes))
         except ValueError as exc:
-            _refuse(args, f"✗ {exc}")
+            _refuse(str(exc))
 
     report = {}
     for label, runs in loaded.items():
@@ -180,11 +175,11 @@ def cmd_context_prefilter(args: argparse.Namespace) -> None:
     try:
         text = guidance.read_text(encoding="utf-8", errors="replace")
     except OSError as exc:
-        _refuse(args, f"✗ cannot read {guidance}: {exc}")
+        _refuse(f"cannot read {guidance}: {exc}")
 
     sessions, failed = _read_sessions(args.sessions)
     if not sessions:
-        _refuse(args, "✗ no session could be read")
+        _refuse("no session could be read")
     report = build_report(guidance.name, text, sessions, window=args.window, min_sessions=args.min_sessions,
                           rare_max=args.rare_max, in_use_rate=args.in_use_rate)
     if not report["claims"]:

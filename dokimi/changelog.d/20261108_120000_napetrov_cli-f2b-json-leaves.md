@@ -5,7 +5,8 @@
   level to `data`: read `data` where you read the object or list before. `status` is `partial` when a
   trace or session could not be read (exit 1), when a trace or session has skipped lines or records, or
   when `runs list|show` could not read entries under the root (exit 0), and `failed` when nothing was read; a `trace` leaf that refuses its
-  input prints `failed` with `error` null and exits 1. `runs list|show` exit 2 with `error.code` `input`
+  input (no traces, a bad `--arm`, an unreadable contract or outcomes file) prints `Error: <message>` and
+  exits 2, with `error.code` `input` under `--json`. `runs list|show` do the same
   when `DOKIMI_RUNS_DIR` names a root that does not exist (a missing default root is not an error for
   `runs list`, which exits 0; `runs show` exits 2). A crash exits 5 with an `infra` error
   document. The other `--json` leaves still print their own payload until their follow-up PRs.

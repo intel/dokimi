@@ -179,6 +179,29 @@ def test_cli_json_with_no_trace_read_is_failed_with_no_data(tmp_path, capsys):
     assert doc["kind"] == "trace inspect" and doc["status"] == "failed" and doc["data"] == []
 
 
+def test_a_bad_invocation_exits_2_with_an_input_error_document(monkeypatch, capsys):
+    """`trace consistency --json` with no traces: exit 2 and an `input` error document, as every leaf after #480."""
+    from dokimi import cli
+
+    monkeypatch.setattr("sys.argv", ["dokimi", "trace", "consistency", "--json"])
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    doc = json.loads(capsys.readouterr().out)
+    assert exc.value.code == 2
+    assert doc["kind"] == "trace consistency" and doc["status"] == "failed" and doc["data"] is None
+    assert doc["error"]["code"] == "input" and "give traces" in doc["error"]["message"]
+
+
+def test_a_bad_invocation_without_json_prints_the_error_line_and_exits_2(monkeypatch, capsys):
+    from dokimi import cli
+
+    monkeypatch.setattr("sys.argv", ["dokimi", "trace", "consistency"])
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    got = capsys.readouterr()
+    assert exc.value.code == 2 and got.err.startswith("Error: give traces") and got.out == ""
+
+
 def test_cli_json_of_a_trace_with_no_skipped_line_is_complete(tmp_path, capsys):
     a = tmp_path / "a.jsonl"
     a.write_text(RUN, encoding="utf-8")
