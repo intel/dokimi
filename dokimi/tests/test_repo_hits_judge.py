@@ -21,6 +21,7 @@ from dokimi.repos.graders import main, review
 from dokimi.repos.hits_calibration import calibrate, cohen_kappa, sheet
 from dokimi.repos.hits_judge import HITS_JUDGED, BudgetSpent, Meter, Pair, pair_key, prompt_for, read_pairs
 from tests.test_repo_compare import _cell
+from tests.cli_refusal import refusal
 
 TASK = "review_replay_pr3098"
 MODEL = "claude-sonnet-5-5"
@@ -95,13 +96,10 @@ def judge_llm(monkeypatch):
 
 def _run(capsys, *argv: str) -> tuple[int, str, str]:
     args = build_parser().parse_args(["repo", "hits", *argv])
-    try:
+    with refusal() as outcome:
         args.func(args)
-        code = 0
-    except SystemExit as exc:
-        code = int(exc.code or 0)
     out = capsys.readouterr()
-    return code, out.out, out.err
+    return outcome.code, out.out, out.err
 
 
 def _judged(batch: Path, arm: str, rep: int, model: str = MODEL) -> Path:
@@ -323,7 +321,7 @@ def test_a_judge_that_runs_an_answer_model_is_refused_before_any_call(tmp_path, 
     with llm.use_adapter(llm.FakeAdapter()) as fake:  # an unscripted call fails the test
         code, out, err = _run(capsys, "judge", str(batch), "--judge", judge)
     assert (code, out, fake.requests) == (2, "", [])
-    assert err.startswith(f"✗ judge {judge} runs the model of an answer of this batch")
+    assert err.startswith(f"Error: judge {judge} runs the model of an answer of this batch")
     assert not list(batch.glob(f"*/{HITS_JUDGED}"))
 
 
@@ -338,7 +336,7 @@ def test_a_judge_that_answered_a_cell_under_another_name_is_refused_before_any_c
     with llm.use_adapter(llm.FakeAdapter()) as fake:  # an unscripted call fails the test
         code, out, err = _run(capsys, "judge", str(batch), "--judge", JUDGE)
     assert (code, out, fake.requests) == (2, "", [])
-    assert err.startswith(f"✗ judge {JUDGE} runs the model of an answer of this batch ('claude-opus-5-5')")
+    assert err.startswith(f"Error: judge {JUDGE} runs the model of an answer of this batch ('claude-opus-5-5')")
     assert not list(batch.glob(f"*/{HITS_JUDGED}"))
 
 
@@ -349,7 +347,7 @@ def test_the_refusal_states_the_same_model_rule_the_check_enforces(tmp_path, cap
     judge_llm.requests.clear()
     code, out, err = _run(capsys, "judge", str(batch), "--judge", f"anthropic/{MODEL}")
     assert (code, out, judge_llm.requests) == (2, "", [])
-    assert err.strip() == (f"✗ judge anthropic/{MODEL} runs the model of an answer of this batch ('{MODEL}'); a judge "
+    assert err.strip() == (f"Error: judge anthropic/{MODEL} runs the model of an answer of this batch ('{MODEL}'); a judge "
                            "must run another model than every answer (pass another --judge)")
     assert "family" not in err  # the check is the same-model rule, not a family rule
 
@@ -522,13 +520,13 @@ def test_an_earlier_file_of_a_regraded_cell_that_cannot_be_removed_stops_the_run
     assert stale.is_dir() and kept.is_file()
 
 
-def test_a_batch_another_run_holds_is_refused_with_exit_2_and_a_dry_run_takes_no_lock(tmp_path, capsys, judge_llm):
+def test_a_batch_another_run_holds_fails_with_exit_1_and_a_dry_run_takes_no_lock(tmp_path, capsys, judge_llm):
     from dokimi.repos.runner import batch_lock
 
     batch = _batch(tmp_path)
     with batch_lock(batch):  # a `repo run` resuming the batch: it rewrites _eval/content and regrades cells
         code, out, err = _run(capsys, "judge", str(batch), "--judge", JUDGE)
-        assert (code, out, judge_llm.requests) == (2, "", [])
+        assert (code, out, judge_llm.requests) == (1, "", [])
         assert err.strip() == f"✗ batch {batch} is in use by another `repo run`; wait for it or use another --batch"
         assert not list(batch.glob(f"*/{HITS_JUDGED}"))
         assert _run(capsys, "judge", str(batch), "--judge", JUDGE, "--dry-run")[0] == 0  # it writes nothing
@@ -601,7 +599,7 @@ def test_labels_are_compared_per_arm_and_an_unknown_thread_is_refused(tmp_path, 
     sheet_file.write_text(json.dumps(entries))
     code, out, err = _run(capsys, "judge", str(batch), "--judge", JUDGE, "--labels", str(sheet_file))
     assert (code, out, judge_llm.requests) == (2, "", [])
-    assert err.strip() == (f"✗ {sheet_file} entry 1: thread 't_gone' is not a credited pair of cell "
+    assert err.strip() == (f"Error: {sheet_file} entry 1: thread 't_gone' is not a credited pair of cell "
                            f"{entries[1]['cell']}")
 
 
@@ -705,7 +703,7 @@ def test_a_label_on_another_finding_than_the_credited_one_is_refused_before_any_
     assert (code, out, judge_llm.requests) == (2, "", [])
     credited = next(p.hit["finding"] for p in read_pairs(batch)[1]
                     if p.key == pair_key(entries[1]["cell"], entries[1]["thread"]))
-    assert err.strip() == (f"✗ {labels} entry 1: the sheet labels finding 99 of thread {entries[1]['thread']!r}, but "
+    assert err.strip() == (f"Error: {labels} entry 1: the sheet labels finding 99 of thread {entries[1]['thread']!r}, but "
                            f"the batch credits finding {credited} for it in cell {entries[1]['cell']}; write a new "
                            "sheet with `repo hits sheet`")
 
@@ -765,7 +763,7 @@ def test_a_label_on_a_pair_whose_text_changed_since_the_sheet_is_refused_before_
     code, out, err = _run(capsys, "judge", str(batch), "--judge", JUDGE, "--labels", str(labels))
     assert (code, out, judge_llm.requests) == (2, "", [])
     what = "the finding's text" if changed == "finding_text" else "the thread's comment"
-    assert err.strip() == f"✗ {labels} entry {i}: {what} of thread 't_op' of cell {entries[i]['cell']} {STALE}"
+    assert err.strip() == f"Error: {labels} entry {i}: {what} of thread 't_op' of cell {entries[i]['cell']} {STALE}"
 
 
 def test_only_a_labelled_entry_needs_the_texts_and_its_pair_found(tmp_path, capsys, judge_llm):
@@ -779,13 +777,13 @@ def test_only_a_labelled_entry_needs_the_texts_and_its_pair_found(tmp_path, caps
     labels.write_text(json.dumps([{k: v for k, v in entries[0].items() if k != "finding_text"}]))
     code, _, err = _run(capsys, "judge", str(batch), "--judge", JUDGE, "--labels", str(labels))
     assert (code, judge_llm.requests) == (2, [])
-    assert err.strip() == (f"✗ {labels} entry 0 is labelled but has no `comment` or no `finding_text` to check the "
+    assert err.strip() == (f"Error: {labels} entry 0 is labelled but has no `comment` or no `finding_text` to check the "
                            "label against; `repo hits sheet` writes both")
     (batch / f"{TASK}__guidance-raw__{MODEL}__r1" / "answer.txt").write_text("no findings any more")
     labels.write_text(json.dumps([{**entries[raw], "label": "related"}]))
     code, _, err = _run(capsys, "judge", str(batch), "--judge", JUDGE, "--labels", str(labels))
     assert (code, judge_llm.requests) == (2, [])
-    assert err.startswith(f"✗ {labels} entry 0: the full texts of thread {entries[raw]['thread']!r} of cell "
+    assert err.startswith(f"Error: {labels} entry 0: the full texts of thread {entries[raw]['thread']!r} of cell "
                           f"{entries[raw]['cell']} are not found now (")
     assert "holds no findings JSON" in err and "write a new sheet with `repo hits sheet`" in err
 
@@ -800,7 +798,7 @@ def test_two_different_labels_for_one_pair_are_refused_before_any_call(tmp_path,
     labels.write_text(json.dumps(entries + [{**entries[1], "label": None}, {**entries[1], "label": "unrelated"}]))
     code, out, err = _run(capsys, "judge", str(batch), "--judge", JUDGE, "--labels", str(labels))
     assert (code, out, judge_llm.requests) == (2, "", [])
-    assert err.strip() == (f"✗ {labels} entries 1 and {len(entries) + 1} label thread {entries[1]['thread']!r} of cell "
+    assert err.strip() == (f"Error: {labels} entries 1 and {len(entries) + 1} label thread {entries[1]['thread']!r} of cell "
                            f"{entries[1]['cell']} twice, 'related' and 'unrelated': keep one label per pair")
 
 
@@ -815,7 +813,7 @@ def test_a_label_entry_naming_no_pair_is_refused(tmp_path, capsys, judge_llm, en
     labels = tmp_path / "labels.json"
     labels.write_text(json.dumps([entry]))
     code, _, err = _run(capsys, "judge", str(batch), "--judge", JUDGE, "--labels", str(labels))
-    assert code == 2 and err.startswith(f"✗ {labels} entry 0") and says in err
+    assert code == 2 and err.startswith(f"Error: {labels} entry 0") and says in err
     assert judge_llm.requests == []
 
 
@@ -826,7 +824,7 @@ def test_a_label_outside_the_three_is_refused(tmp_path, capsys, judge_llm):
     labels.write_text(json.dumps([{"cell": cell, "thread": "t_op", "finding": 1, "label": "maybe"}]))
     code, _, err = _run(capsys, "judge", str(batch), "--judge", JUDGE, "--labels", str(labels))
     assert (code, judge_llm.requests) == (2, [])
-    assert err.strip() == f"✗ {labels} entry 0: label 'maybe' is not one of 'same point', 'related', 'unrelated'"
+    assert err.strip() == f"Error: {labels} entry 0: label 'maybe' is not one of 'same point', 'related', 'unrelated'"
 
 
 def _pairs(n_a: int, n_b: int, model_b: str = "m", arm_b: str = "b") -> list[Pair]:
@@ -878,7 +876,7 @@ def test_sheet_refuses_to_replace_a_sheet_with_labels(tmp_path, capsys):
     before = out_file.read_bytes()
     code, out, err = _run(capsys, "sheet", str(batch), "--out", str(out_file))
     assert (code, out, out_file.read_bytes()) == (2, "", before)
-    assert err.strip() == f"✗ {out_file} holds a sheet with 1 labelled entry; move it aside or pass another --out"
+    assert err.strip() == f"Error: {out_file} holds a sheet with 1 labelled entry; move it aside or pass another --out"
 
 
 @pytest.mark.parametrize("unreadable", ["no read permission", "a directory", "not UTF-8", "a BOM", "a JSON typo"])
@@ -910,7 +908,7 @@ def test_sheet_refuses_an_existing_file_it_cannot_read_before_writing(tmp_path, 
     before = None if out_file.is_dir() else out_file.read_bytes()
     code, out, err = _run(capsys, "sheet", str(batch), "--out", str(out_file))
     assert (code, out, None if out_file.is_dir() else out_file.read_bytes()) == (2, "", before)
-    assert err.startswith(f"✗ cannot read {out_file} to check it for labels (") and why in err
+    assert err.startswith(f"Error: cannot read {out_file} to check it for labels (") and why in err
     assert err.strip().endswith("); move it aside or pass another --out")
 
 

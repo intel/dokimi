@@ -153,7 +153,9 @@ def test_cli_json_single_trace(tmp_path, capsys):
     a = tmp_path / "a.jsonl"
     a.write_text("garbage\n" + RUN, encoding="utf-8")
     got = _run_cli(["trace", "inspect", str(a), "--json"], capsys)
-    (data,) = json.loads(got.out)  # a list for one trace too
+    doc = json.loads(got.out)
+    (data,) = doc["data"]  # a list for one trace too
+    assert doc["status"] == "partial" and "skipped" in doc["reason"]  # the garbage line: part of the trace was not read
     assert data["trace"] == str(a) and data["peak_prompt_tokens"] == 20815
     assert "per_call" not in data and "compaction_events" not in data
     assert "line 1: not JSON" in got.err
@@ -164,6 +166,47 @@ def test_cli_missing_trace_exits_1(tmp_path, capsys):
     with pytest.raises(SystemExit) as exc:
         _run_cli(["trace", "inspect", str(tmp_path / "missing.jsonl")], capsys)
     assert exc.value.code == 1
+
+
+@pytest.mark.outcome("cjm-context-trace")
+def test_cli_json_with_no_trace_read_is_failed_with_no_data(tmp_path, capsys):
+    """Nothing read is `failed`, not `partial`: a consumer that reads only `status` must see total failure."""
+    with pytest.raises(SystemExit) as exc:
+        _run_cli(["trace", "inspect", str(tmp_path / "missing.jsonl"), "--json"], capsys)
+    got = capsys.readouterr()
+    doc = json.loads(got.out)
+    assert exc.value.code == 1
+    assert doc["kind"] == "trace inspect" and doc["status"] == "failed" and doc["data"] == []
+
+
+def test_a_bad_invocation_exits_2_with_an_input_error_document(monkeypatch, capsys):
+    """`trace consistency --json` with no traces: exit 2 and an `input` error document, as every leaf after #480."""
+    from dokimi import cli
+
+    monkeypatch.setattr("sys.argv", ["dokimi", "trace", "consistency", "--json"])
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    doc = json.loads(capsys.readouterr().out)
+    assert exc.value.code == 2
+    assert doc["kind"] == "trace consistency" and doc["status"] == "failed" and doc["data"] is None
+    assert doc["error"]["code"] == "input" and "give traces" in doc["error"]["message"]
+
+
+def test_a_bad_invocation_without_json_prints_the_error_line_and_exits_2(monkeypatch, capsys):
+    from dokimi import cli
+
+    monkeypatch.setattr("sys.argv", ["dokimi", "trace", "consistency"])
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    got = capsys.readouterr()
+    assert exc.value.code == 2 and got.err.startswith("Error: give traces") and got.out == ""
+
+
+def test_cli_json_of_a_trace_with_no_skipped_line_is_complete(tmp_path, capsys):
+    a = tmp_path / "a.jsonl"
+    a.write_text(RUN, encoding="utf-8")
+    doc = json.loads(_run_cli(["trace", "inspect", str(a), "--json"], capsys).out)
+    assert doc["status"] == "complete" and doc["reason"] is None
 
 
 @pytest.mark.parametrize("sep", [chr(0x2028), chr(0x2029), chr(0x85)])
@@ -336,7 +379,7 @@ def test_one_unreadable_trace_does_not_lose_the_others(tmp_path, capsys):
         got = capsys.readouterr()
         assert exc.value.code == 1 and "empty.jsonl" in got.err
         if extra:
-            assert [r["trace"] for r in json.loads(got.out)] == [str(a)]
+            assert [r["trace"] for r in json.loads(got.out)["data"]] == [str(a)]
         else:
             assert f"| {a} | 5 |" in got.out
 

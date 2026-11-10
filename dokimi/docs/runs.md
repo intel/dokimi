@@ -73,13 +73,14 @@ skipped: 1 JSON with no leading schema_version, 1 JSON of an unknown schema_vers
 - `--kind KIND` (repeatable, for example `--kind arms --kind eval`) and
   `--subject NAME` (an exact, case-sensitive match) filter the rows. The rows
   left are grouped, so a run's place follows the newest of its rows shown.
-- `--json` prints `root`, `artifacts` (in the order of the rows), `runs`,
-  `total` (before filtering), `skipped`, `unknown_versions` and `unreadable`.
-  Each run has `run_id`, `kinds` (sorted) and the `paths` of its artifacts, in
-  the order of the rows; an artifact with no `run_id` is in no run. Each artifact has `schema_version`,
+- `--json` prints one `cli_output.v1` document (`kind` `runs list`) with `root`, `artifacts` (in the
+  order of the rows), `runs`, `total` (before filtering), `skipped`, `unknown_versions` and `unreadable`
+  under `data`. Each run has `run_id`, `kinds` (sorted) and the `paths` of its artifacts, in the order of
+  the rows; an artifact with no `run_id` is in no run. Each artifact has `schema_version`,
   `kind`, `run_id`, `subject`, `model`, `generated_at` (the time the artifact
   records, `evaluated_at` for an eval, `reviewed_at` for a question panel;
   `null` when none), `path` (relative to the root) and `size_bytes`.
+  `status` is `partial` when `unreadable` is not empty, and the exit code stays 0.
 
 **The `run_id`** is the run envelope's
 ([#277](https://github.com/intel/dokimi/issues/277), see
@@ -126,9 +127,10 @@ the version it declares. An artifact that fails the check prints
 `- (saved before the envelope)`, `- (an input kind: no envelope)`, or
 `- (not a run id: see the schema errors)`. `contents` gives the length of the lists
 the kind holds, and `next to it` the first 20 entries of the artifact's
-directory. `--json` prints the fields of a `runs list` row plus `root`,
-`schema`, `schema_valid`, `schema_errors`, `contents`, `siblings`,
-`siblings_total` and `siblings_error`.
+directory. `--json` prints one `cli_output.v1` document (`kind` `runs show`) whose `data` holds the
+fields of a `runs list` row plus `root`, `schema`, `schema_valid`, `schema_errors`, `contents`,
+`siblings`, `siblings_total` and `siblings_error`. `runs show RUN_ID --json` has `status` `partial`
+when `unreadable` is not empty.
 
 ### `runs show RUN_ID`
 
@@ -152,8 +154,9 @@ directory of that name (a run's own, `results/nightly-7/`) does not, nor does
 a path outside the root; when no artifact has the `run_id`, such a name gets
 the error it got before. When a file or directory under the root could not be
 read, the count and the first one are printed, since it may belong to the run;
-a root that cannot be listed at all exits 2 and says so. `--json` prints
-`root`, `run_id`, `artifacts` (the `runs list --json` rows) and `unreadable`.
+a root that cannot be listed at all exits 2 and says so. `--json` prints one
+`cli_output.v1` document (`kind` `runs show`) whose `data` holds `root`, `run_id`,
+`artifacts` (the `runs list --json` rows) and `unreadable`.
 
 ## Exit codes
 

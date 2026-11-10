@@ -81,7 +81,8 @@ def _apply_as_skill(ws: Path, manifest: RepoManifest, matched: list[str]) -> tup
             _link_file(ws, rel, matched)
             continue
         text = _guidance_text(ws, rel, "guidance:as-skill")
-        parts.append(f"## File: {rel}\n\n" + (text if text.endswith("\n") else text + "\n"))
+        label = rel.encode("utf-8", "surrogateescape").decode("utf-8", "replace")  # SKILL.md stays valid UTF-8
+        parts.append(f"## File: {label}\n\n" + (text if text.endswith("\n") else text + "\n"))
     for rel in matched:
         (ws / rel).unlink()
     skill_dir.mkdir(parents=True)

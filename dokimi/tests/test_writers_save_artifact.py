@@ -59,7 +59,7 @@ def _listed(monkeypatch, capsys, root: Path) -> dict[str, tuple[str, str | None]
     capsys.readouterr()
     monkeypatch.setenv("DOKIMI_RUNS_DIR", str(root))
     assert _cli(monkeypatch, "runs", "list", "--json") == 0
-    rows = json.loads(capsys.readouterr().out)["artifacts"]
+    rows = json.loads(capsys.readouterr().out)["data"]["artifacts"]
     return {row["path"]: (row["kind"], row["run_id"]) for row in rows}
 
 
