@@ -355,8 +355,11 @@ def _hash_objects(top: Path, rels: list[str], *, as_args: bool) -> list[str] | N
                    input=data, capture_limit=None)
     except OSError:
         return None
+    if not done.ok:  # git's own words name the file or filter to fix
+        why = "timed out" if done.timed_out else done.stderr.strip() or f"exit code {done.returncode}"
+        raise OSError(errno.EIO, f"git hash-object failed: {why}", os.fspath(top))
     ids = [os.fsdecode(i) for i in done.stdout_bytes.split()]
-    return ids if done.ok and len(ids) == len(rels) else None
+    return ids if len(ids) == len(rels) else None
 
 
 def file_contents(paths: Iterable[Path], tree: GitTree | None) -> dict[Path, bytes]:

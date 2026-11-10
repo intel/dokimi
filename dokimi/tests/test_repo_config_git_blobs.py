@@ -208,6 +208,18 @@ def test_a_hash_object_that_fails_raises_instead_of_moving_the_digest(tmp_path, 
         utils.file_contents([root / "skills/a/SKILL.md"], tree)
 
 
+@pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
+def test_a_failed_hash_object_says_why_git_failed(tmp_path):
+    root = _repo(tmp_path / "r", FILES)
+    _git(root, "config", "filter.broken.clean", "false")
+    _git(root, "config", "filter.broken.required", "true")
+    (root / ".git/info/attributes").write_text("SKILL.md filter=broken\n")
+    (root / "skills/a/SKILL.md").write_text("edited\n")
+    tree = git_tree(root)
+    with pytest.raises(OSError, match="(?s)hash-object failed: .*clean filter .broken. failed"):
+        utils.file_contents([root / "skills/a/SKILL.md"], tree)
+
+
 def test_a_committed_lf_to_crlf_change_moves_suite_hash(tmp_path):
     root = _repo(tmp_path / "r", FILES)
     before = _hashes(root)
