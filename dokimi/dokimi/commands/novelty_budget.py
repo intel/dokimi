@@ -27,7 +27,7 @@ def partial_destination(out: Path) -> Path:
     return next(_partial_destinations(Path(out)))
 
 
-def partial_write(out: Path, write: Callable[[Path], None]) -> Path:
+def partial_write(out: Path, write: Callable[[Path], object]) -> Path:
     """Run ``write`` on the first sidecar beside ``out`` that takes a partial result. A read-only
     file that holds one refuses the write, and is passed over for the next name, as the routing
     report's save does; a new file that is refused is raised."""

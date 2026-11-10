@@ -225,10 +225,7 @@ class ExtractionReport:
     sampled: dict | None = None
     # Set when --max-usd stopped extraction: how many spans were read, and the message.
     partial: dict | None = None
-    # The unread spans the cap left (:func:`_stop_at_cap`): the cap's doing, which ``partial``
-    # names, so :meth:`warnings` counts only the others.
-    cap_span_ids: list[str] = field(default_factory=list)
-    cap_tokens: int = 0
+    pre_cap: tuple[int, int] | None = None  # (spans, tokens) unread before a cap stop
 
     @property
     def last_error(self) -> str:
@@ -238,18 +235,15 @@ class ExtractionReport:
         return _EMPTY_REPLY if self.empty_span_ids else ""
 
     def warnings(self, n_spans: int) -> list[str]:
-        """Artifact warnings: spans left unread, and the calls re-asking cost. The spans a cap
-        stopped are not counted here (the exit message names them), but the other unread spans
-        are, also when the cap stopped extraction: a reply that came back empty is still a cause."""
+        """Artifact warnings: spans left unread, and the calls re-asking cost. Spans a cap stopped
+        are left out: the exit names them."""
         out: list[str] = []
-        cap = set(self.cap_span_ids)
-        unread = [span_id for span_id in self.unread_span_ids if span_id not in cap]
-        unread_tokens = self.unread_tokens - self.cap_tokens
+        unread, unread_tokens = self.pre_cap or (len(self.unread_span_ids), self.unread_tokens)
         if unread:
             unparseable = len(self.unparseable_span_ids)
             empty = len(self.empty_span_ids)
             unusable = len(self.unusable_span_ids)
-            failed = len(unread) - unparseable - empty - unusable
+            failed = unread - unparseable - empty - unusable
             causes = []
             if unparseable:
                 causes.append(
@@ -275,7 +269,7 @@ class ExtractionReport:
                     f"re-asked (last error: {self.call_error})"
                 )
             out.append(
-                f"atom extraction could not read {len(unread)} of {n_spans} "
+                f"atom extraction could not read {unread} of {n_spans} "
                 f"spans ({unread_tokens} tokens): {'; '.join(causes)}. Unread spans "
                 f"are left out of `frac_carrying_nothing` and dead weight, labelled "
                 f"`unread`, kept by every shortening candidate, and listed in "
@@ -328,19 +322,16 @@ def _stop_at_cap(spans: list[Span], batch: list[Span], pending: list, report: Ex
                  stop: SpendCapReached) -> None:
     """The cap ends extraction: ``batch`` and the batches queued behind it go unread, and the
     atoms read so far stand (the caller saves them as a partial result)."""
+    report.pre_cap = (len(report.unread_span_ids), report.unread_tokens)
     for rest in [batch, *(queued for queued, _is_half in pending)]:
         _mark_unread(rest, report)
-        report.cap_span_ids.extend(span.id for span in rest)
-        report.cap_tokens += sum(span.tokens for span in rest)
     pending.clear()
     read = len(spans) - sum(span.unread for span in spans)
     message = (f"--max-usd stopped extraction with {read} of {len(spans)} spans read"
                if stop.reason == "spend_cap" else
                f"extraction stopped with {read} of {len(spans)} spans read: {stop}")
-    report.partial = {
-        "reason": stop.reason, "stage": "extraction", "spans_read": read,
-        "spans_total": len(spans), "message": message,
-    }
+    report.partial = {"reason": stop.reason, "stage": "extraction", "spans_read": read,
+                      "spans_total": len(spans), "message": message}
 
 
 def _keep_atoms(rows: list, valid_ids: set[str], seen: set[str], atoms: list[Atom]) -> None:

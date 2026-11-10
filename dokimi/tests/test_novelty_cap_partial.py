@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import os
 import re
 
 import pytest
@@ -285,8 +286,9 @@ def test_analyze_stops_rather_than_publish_a_measurement_the_cap_cut_short(tmp_p
 
     monkeypatch.setattr(measure, "run_measurement", cut_short)
     extractor, answerer, judge = _clients()
+    # The match is a prefix: the CLI adds the rest of the exit message.
     with pytest.raises(SpendCapReached,
-                       match=f"{not_run} probe answers were not run or graded"):  # the CLI adds the rest
+                       match=f"{not_run} probe answers were not run or graded"):
         analyze(body, config, extractor=extractor, answerer=answerer, judge=judge)
 
 
@@ -511,14 +513,17 @@ def test_a_partial_write_skips_a_dangling_symlink_and_a_read_only_partial_file(t
     assert dest == tmp_path / "probes.partial2.json"
     assert not target.exists()
 
+    if os.geteuid() == 0:
+        pytest.skip("root writes a read-only file regardless of its mode")
     kept = tmp_path / "earlier.partial.json"
     kept.write_text(json.dumps({"partial": {"reason": "spend_cap"}}), encoding="utf-8")
     kept.chmod(0o444)
     try:
-        second = write_run({"runs": []}, tmp_path / "other.json", partial)
+        second = write_run({"runs": []}, tmp_path / "earlier.json", partial)
     finally:
         kept.chmod(0o644)
-    assert second == tmp_path / "other.partial.json"
+    assert second == tmp_path / "earlier.partial2.json"
+    assert json.loads(kept.read_text(encoding="utf-8")) == {"partial": {"reason": "spend_cap"}}
     assert json.loads(second.read_text(encoding="utf-8"))["partial"]["message"] == "m"
 
 
@@ -539,17 +544,24 @@ def test_a_partial_probe_file_drops_the_summaries_computed_over_the_cut_subset(t
         assert saved[block] is None
 
 
-@pytest.mark.parametrize("stop", [
-    ("spend_cap", "$1.00 of $1.00 after 4 calls"),
-    ("no_price", "no price is known for a, so --max-usd cannot be enforced"),
-])
-def test_a_cut_analyze_names_the_cap_once_and_keeps_its_figures(stop):
+@pytest.mark.parametrize("reason", ["spend_cap", "no_price"])
+def test_a_cut_analyze_names_the_cap_once_and_keeps_its_figures(reason):
     from dokimi.commands.novelty_run import stops_at_cap
     from dokimi.novelty import measure
+    from dokimi.novelty.client import SpendCapReached
+
+    if reason == "spend_cap":
+        # The message the cap itself raises, built by the cap, not written out by hand.
+        cap = SpendCap(limit_usd=1.0, spent_usd=1.0, calls=4)
+        with pytest.raises(SpendCapReached) as cut:
+            cap.before_call("model-x")
+        cause = str(cut.value)
+    else:
+        cause = "no price is known for a, so --max-usd cannot be enforced"
 
     analyze = importlib.import_module("dokimi.novelty.analyze")
     result = measure.MeasureResult(runs=[], arms=("full",), with_arm="full", not_run=3,
-                                   ungraded=0, stop=stop, probes=[])
+                                   ungraded=0, stop=(reason, cause), probes=[])
 
     @stops_at_cap
     def command(args):
@@ -559,4 +571,5 @@ def test_a_cut_analyze_names_the_cap_once_and_keeps_its_figures(stop):
         command(None)
     message = str(info.value)
     assert message.count("nothing was written") == 1
-    assert stop[1] in message
+    assert message.count("Raise --max-usd") == (1 if reason == "spend_cap" else 0)
+    assert cause in message

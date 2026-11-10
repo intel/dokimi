@@ -143,11 +143,11 @@ def _refuse_cut_short(measure_result: measure.MeasureResult) -> None:
         reason, cause = measure_result.stop or ("spend_cap", "")
         # stops_at_cap adds "nothing was written" to the exit, once.
         if reason == "spend_cap":
-            detail = f" ({cause})" if cause else ""
+            # The cap's own message (the cause) names the spend and the advice: say it once.
+            detail = cause or ("spend cap reached. Raise --max-usd, or measure less (a cheaper "
+                               "--tier, a lower --max-atoms)")
             raise SpendCapReached(
-                f"spend cap reached during the measurement: {not_run} probe answers were not "
-                f"run or graded{detail}. Raise --max-usd, or measure less (a cheaper --tier, a "
-                "lower --max-atoms)"
+                f"the measurement stopped: {not_run} probe answers were not run or graded. {detail}"
             )
         # A call with no known price: raising --max-usd would not help, so the cause is named.
         raise SpendCapReached(

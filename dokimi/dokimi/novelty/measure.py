@@ -263,6 +263,22 @@ def check_arms(arms: tuple[str, ...], placebo_text: str | None) -> None:
         raise InputError("the placebo arm needs --placebo-text (domain-mismatched text)")
 
 
+def _unpriced_answer_run(probe: Probe, arm: str, exc: SpendCapReached,
+                         stops: list[SpendCapReached], ungraded: list[ProbeRun]) -> ProbeRun:
+    """The paid answer of a call with no price, kept ungraded (no datum) as the stop's run. An
+    empty reply is no answer: the stop goes on without it."""
+    reply = exc.reply or ""
+    if not reply.strip():
+        raise exc
+    stops.append(exc)
+    run = ProbeRun(
+        atom_id=probe.atom_id, probe_kind=probe.kind, arm=arm, question=probe.question,
+        response=reply, verdict=ERRORED, confidence=_parse_confidence(reply),
+    )
+    ungraded.append(run)
+    return run
+
+
 def run_measurement(
     atoms: list[Atom],
     probes: list[Probe],
@@ -319,19 +335,8 @@ def run_measurement(
                 probe.question, contexts.get(arm), answerer,
                 framing=framing, draw=1 if arm == REPEAT_ARM else 0,
             )
-        except SpendCapReached as exc:
-            # A call with no price came back with a reply: it was paid for, so the answer is kept,
-            # ungraded (no datum), and the measurement stops here. An empty reply is no answer.
-            if not exc.reply:
-                raise
-            stops.append(exc)
-            run = ProbeRun(
-                atom_id=probe.atom_id, probe_kind=probe.kind, arm=arm,
-                question=probe.question, response=exc.reply, verdict=ERRORED,
-                confidence=_parse_confidence(exc.reply),
-            )
-            ungraded.append(run)
-            return run
+        except SpendCapReached as exc:  # a call with no price: its paid reply is kept, ungraded
+            return _unpriced_answer_run(probe, arm, exc, stops, ungraded)
         except Exception as exc:  # a provider failure is a missing datum, not a wrong answer
             response, confidence = f"<error: {exc}>", None
             verdict = ERRORED

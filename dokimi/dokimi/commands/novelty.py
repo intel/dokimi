@@ -177,8 +177,7 @@ def cmd_novelty_atoms(args: argparse.Namespace) -> None:
     sample = sample_atoms(atoms, spans, cap)  # what the run probes; atoms.json holds every atom
     # The cap warning analyze records; probe and shorten, which read atoms.json, do not repeat it.
     sampled = [cap_warning(extraction.as_dict())] if extraction.sampled else []
-    # The spans a cap left unread are the cap's doing, which the exit message names: warnings()
-    # leaves them out, and keeps the causes of the others, such as an empty reply.
+    # warnings() leaves out the spans a cap left unread: the exit message names them.
     for warning in extraction.warnings(len(spans)) + sampled:
         print(f"WARNING {warning}", file=sys.stderr)
     partial = extraction.partial  # a cap that stopped extraction keeps what it read
