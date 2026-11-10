@@ -45,8 +45,12 @@ DOC_MAX_BYTES = 256 * 1024
 DOCS_READ_MAX = 50
 
 
-def _bundled(skill_dir: Path) -> list[str]:
-    """The counted files under ``skill_dir``, relative and sorted, at most :data:`WALK_MAX_FILES`."""
+def _walk(skill_dir: Path, *, counted: bool) -> list[str]:
+    """The files under ``skill_dir`` an agent may open, relative and sorted, at most :data:`WALK_MAX_FILES`.
+
+    ``counted``: the files the warning counts. Otherwise every document, the skipped ones too (a
+    readme that names a script leads the agent to it).
+    """
     found: list[str] = []
     for dirpath, dirnames, filenames in os.walk(skill_dir):
         here = Path(dirpath)
@@ -60,12 +64,15 @@ def _bundled(skill_dir: Path) -> list[str]:
                 return found
             stem, suffix = os.path.splitext(name)
             if (
-                name.startswith((".", "_"))  # hidden, or a private helper (``_common.py``) scripts import
+                name.startswith(".")  # hidden
                 or suffix.lower() not in COUNTED_SUFFIXES
-                or stem.lower() in SKIPPED_STEMS
-                or name.lower() in SKIPPED_NAMES
-                or TEST_STEM.fullmatch(stem.lower())
                 or (here == skill_dir and name == "SKILL.md")
+                or (counted and (
+                    name.startswith("_")  # a private helper (``_common.py``) scripts import
+                    or stem.lower() in SKIPPED_STEMS
+                    or name.lower() in SKIPPED_NAMES
+                    or TEST_STEM.fullmatch(stem.lower())
+                ))
             ):
                 continue
             found.append((here / name).relative_to(skill_dir).as_posix())
@@ -118,20 +125,24 @@ def unreferenced_message(skill_path: Path, links: Iterable[Optional[str]], *, at
         return None
     try:
         text = skill_path.read_text(encoding="utf-8").lower()
-        files = _bundled(skill_path.parent)
+        files = _walk(skill_path.parent, counted=True)
+        docs = _walk(skill_path.parent, counted=False)
     except (OSError, UnicodeDecodeError):
         return None
     linked = frozenset(PurePosixPath(link).as_posix().removeprefix("./").lower() for link in links if link)
-    missing, docs_read = files, 0
+    named_files: set[str] = set()
+    docs_read = 0
+    candidates = list(dict.fromkeys(files + docs))
     while True:
-        named = [rel for rel in missing if _named(rel, text, linked)]
-        if not named:
+        new = [rel for rel in candidates if rel not in named_files and _named(rel, text, linked)]
+        if not new:
             break
-        missing = [rel for rel in missing if rel not in set(named)]
-        for rel in named:
+        for rel in new:
+            named_files.add(rel)
             if docs_read < DOCS_READ_MAX and (more := _read_doc(skill_path.parent / rel)):
                 docs_read += 1
                 text += "\n" + more
+    missing = [rel for rel in files if rel not in named_files]
     if not missing:
         return None
     shown = ", ".join(missing[:EXAMPLES_SHOWN]) + (", ..." if len(missing) > EXAMPLES_SHOWN else "")

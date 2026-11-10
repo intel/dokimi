@@ -93,6 +93,17 @@ def test_test_files_outside_a_tests_folder_are_not_counted(tmp_path, rel):
     assert "bundle-file-unreferenced" not in _codes(review)
 
 
+@pytest.mark.parametrize("doc", ["README.md", "CONTRIBUTING.md", "AGENTS.md"])
+def test_a_skipped_document_that_skill_md_names_is_still_read(tmp_path, doc):
+    # Not counted itself, but an agent that opens it is pointed at the script it names.
+    skill_dir = _skill(tmp_path / "skills", "kit", name="kit", description="Use when testing.", body=f"See {doc}.\n")
+    (skill_dir / doc).write_text("Run `scripts/run.py` first.\n", encoding="utf-8")
+    (skill_dir / "scripts").mkdir()
+    (skill_dir / "scripts" / "run.py").write_text("x\n", encoding="utf-8")
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert "bundle-file-unreferenced" not in _codes(review)
+
+
 def test_a_nested_skill_is_not_part_of_the_bundle(tmp_path):
     _review(tmp_path, "# Body\n", [])
     _skill(tmp_path / "skills" / "kit", "inner", name="inner", description="Use when nested.")
