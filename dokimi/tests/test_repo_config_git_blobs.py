@@ -138,6 +138,19 @@ def test_a_top_repository_git_cannot_list_hashes_the_bytes_on_disk(tmp_path):
 
 
 @pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
+@pytest.mark.skipif(os.name == "nt", reason="a Windows file name cannot end in a space or hold a CR")
+@pytest.mark.parametrize("name", ["root ", "root\r", "ro\rot"])
+def test_a_root_whose_name_ends_in_a_space_or_a_cr_still_leaves_out_what_git_ignores(tmp_path, name):
+    root = _repo(tmp_path / name, {".gitignore": "build/\n", "f.txt": "f\n"})
+    tree = git_tree(root)
+    assert tree is not None and tree.top == root  # the top as git prints it, less only its final newline
+    before = tree_digest(root, git=True)
+    (root / "build").mkdir()
+    (root / "build/out.bin").write_bytes(b"\0ignored\n")
+    assert tree_digest(root, git=True) == before
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
 @pytest.mark.skipif(os.name == "nt", reason="Windows file names cannot hold a newline, a quote or a CR")
 @pytest.mark.parametrize("name", ["we\nird.txt", '"quoted.txt', "cr.txt\r"])
 def test_a_name_git_stdin_misreads_digests_the_same_edited_and_committed(tmp_path, name):
