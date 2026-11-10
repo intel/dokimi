@@ -313,14 +313,19 @@ do, and only these two; each finding is a `warn`, so the exit code does not chan
   404 for. Flags, local paths, `git+`, URL and `file:` specs, and placeholders such as
   `<package>` or `your-package` are not names.
 - `link-dead`: an `http(s)` URL in `SKILL.md` that answers 404 or 410, or whose host
-  does not resolve. A HEAD request is tried first and a GET only when HEAD is not 2xx or 3xx.
+  does not resolve while another request in the run got an HTTP answer (with none, the
+  link is not checked: the resolver is not shown to work). A HEAD request is tried first and a GET only when HEAD is not 2xx or 3xx.
   Placeholder hosts (`example.com`/`.org`/`.net`, `localhost`, loopback addresses,
   a host or a path segment starting `your-*`, as in `github.com/your-username/your-repo`)
   and template URLs (`<id>`, `{id}`, `${VAR}`) are not requested, and at most
   20 URLs per skill are checked.
 
 A 403, 429 or 5xx, a timeout, a refused connection or any other network error is not a
-finding: the registry or site may refuse or be unreachable, not be gone. Each distinct
+finding: the registry or site may refuse or be unreachable, not be gone. A target not checked
+(a network error, a DNS failure with no answer in the run, a redirect into a non-public host,
+or a URL past the 20-per-skill cap) gets no finding: it is counted in one summary line,
+`# online: N checked, M not checked (network error: a, ...)`, and under `online` in the JSON
+report. Each distinct
 package or URL is requested once per run, with at most 8 requests in flight and a 5-second
 timeout per request. `--online` does not combine with `--per-skill` (its workers would
 each hold their own cache, and `--resume` would keep rows no network check made), and
