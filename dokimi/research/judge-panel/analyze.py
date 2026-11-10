@@ -379,8 +379,7 @@ for name, g in panel_rules.items():
 wcsv("agreement_with_ds.csv", ["rater", "n", "agree_with_ds_consensus"], agree)
 
 # ---------- 5. how many judges are enough ----------
-# Panel size s: random subsets of NEW judges, majority vote (ties count as wrong).
-# Agreement with the 7-judge DS consensus, and the spread of the gated-added share.
+# Panel size s: random subsets of NEW judges, majority vote; agreement with the DS consensus.
 rnd = random.Random(3)
 sz = []
 for s in range(1, len(NEW) + 1):
