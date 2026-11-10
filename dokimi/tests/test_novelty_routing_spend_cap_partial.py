@@ -560,9 +560,28 @@ def test_a_long_out_name_is_shortened_to_255_bytes_where_the_limit_is_unknown(tm
         raise OSError(errno.EINVAL, "no limit")
 
     monkeypatch.setattr(os, "pathconf", unknown, raising=False)
+    monkeypatch.setattr("dokimi.commands.novelty_routing_report._UTF16_NAMES", False)
     stem = _sidecar_stem(tmp_path / ("é" * 200 + ".json"))
     assert len((stem + ".partial999999.json").encode("utf-8")) <= 255
     assert stem.startswith("é" * 50)
+
+
+@pytest.mark.parametrize("stem", ["测" * 80, "测" * 40 + "\udcff"], ids=["cjk", "lone-surrogate"])
+def test_a_windows_out_stem_that_fits_255_utf16_units_keeps_its_name(tmp_path, monkeypatch, stem):
+    from dokimi.commands import novelty_routing_report
+
+    monkeypatch.delattr(os, "pathconf", raising=False)
+    monkeypatch.setattr(novelty_routing_report, "_UTF16_NAMES", True)
+    assert novelty_routing_report._sidecar_stem(tmp_path / f"{stem}.json") == stem
+
+
+def test_a_windows_out_stem_too_long_for_255_utf16_units_is_cut_to_fit(tmp_path, monkeypatch):
+    from dokimi.commands import novelty_routing_report
+
+    monkeypatch.delattr(os, "pathconf", raising=False)
+    monkeypatch.setattr(novelty_routing_report, "_UTF16_NAMES", True)
+    stem = novelty_routing_report._sidecar_stem(tmp_path / ("测" * 250 + ".json"))
+    assert len(stem + ".partial999999.json") <= 255 and stem.startswith("测" * 200)
 
 
 def test_an_indeterminate_name_limit_is_taken_as_255_bytes(tmp_path, monkeypatch):

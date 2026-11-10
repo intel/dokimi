@@ -533,10 +533,20 @@ def _takes_partial(candidate: Path) -> bool:
     return stat.S_ISREG(mode) and _is_partial_file(candidate)
 
 
+_UTF16_NAMES = os.name == "nt"
+
+
+def _name_size(name: str) -> int:
+    """``name``'s length in the units its file system limits: UTF-16 code units on Windows, else bytes."""
+    if _UTF16_NAMES:
+        return len(name.encode("utf-16-le", "surrogatepass")) // 2
+    return len(os.fsencode(name))
+
+
 def _sidecar_stem(out: Path) -> str:
     """``out``'s stem, as is when ``<stem>.partial<N>.json`` fits the file system's name limit for a
-    counter of up to six digits (``PC_NAME_MAX``, else 255 bytes). Otherwise it is cut on a
-    character boundary, measured in the file system's bytes (a non-UTF-8 byte of the name is kept),
+    counter of up to six digits (``PC_NAME_MAX``, else 255). Otherwise it is cut on a character
+    boundary, measured in the file system's units (:func:`_name_size`; a non-UTF-8 byte is kept),
     and ends in a digest of the whole stem, so two long outs never share a sidecar. A stem that fits
     but is as long as a cut one and ends in a digest-shaped tag (in either case, as a case-insensitive file system folds it) is cut
     again, so it never equals the cut name of another out."""
@@ -548,14 +558,14 @@ def _sidecar_stem(out: Path) -> str:
         name_max = 255
     room = name_max - len(".partial.json") - 6
     stem = out.with_suffix("").name
-    if len(os.fsencode(stem)) <= room and not (  # a cut name is within 3 bytes of room
-            len(os.fsencode(stem)) > room - 4 and re.search(r"-[0-9a-f]{12}$", stem, re.IGNORECASE)):
+    if _name_size(stem) <= room and not (  # a cut name is within 3 units of room
+            _name_size(stem) > room - 4 and re.search(r"-[0-9a-f]{12}$", stem, re.IGNORECASE)):
         return stem
     tag = "-" + hashlib.sha256(os.fsencode(stem)).hexdigest()[:12]
     if room < len(tag):
-        raise OSError(errno.ENAMETOOLONG, f"a name limit of {name_max} bytes leaves no room for a partial result's name", str(out))
+        raise OSError(errno.ENAMETOOLONG, f"a name limit of {name_max} leaves no room for a partial result's name", str(out))
     stem = stem[: room - len(tag)]
-    while len(os.fsencode(stem)) > room - len(tag):
+    while _name_size(stem) > room - len(tag):
         stem = stem[:-1]
     return stem + tag
 
