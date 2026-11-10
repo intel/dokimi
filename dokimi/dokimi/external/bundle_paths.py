@@ -102,11 +102,14 @@ def _missing(skill_dir: Path, text: str, real_dir: Path) -> bool:
     return target is not None and target.is_relative_to(real_dir) and not _exists(target)
 
 
-def path_missing(spans: list[str], skill_dir: Path, source_root: Path, real_dir: Path) -> list[str]:
+def path_missing(
+    spans: list[str], skill_dir: Path, source_root: Path, real_dir: Path, linked: frozenset[str] = frozenset()
+) -> list[str]:
     """The ``path-missing`` message for each code span word that names a bundled file the skill does not have.
 
     A note is added when the file exists from the catalog root: the skill works from a checkout of
-    its repository only, not once it is installed alone.
+    its repository only, not once it is installed alone. A path that is also a link target of the
+    body (``linked``) is the link's finding, not a second one.
     """
     findings: list[str] = []
     seen: set[str] = set()
@@ -118,7 +121,7 @@ def path_missing(spans: list[str], skill_dir: Path, source_root: Path, real_dir:
                 continue  # a path with a space in its name that the skill has, read as one path
         for word in _words(raw):
             text = _bundle_path(word)
-            if text is None or text in seen:
+            if text is None or text in seen or text in linked:
                 continue
             seen.add(text)
             if not _missing(skill_dir, text, real_dir):

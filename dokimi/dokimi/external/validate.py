@@ -521,8 +521,10 @@ def _bundle_findings(skill: Skill, source_root: Path) -> list[Finding]:
     targets, spans = link_pieces(outside_fences(skill.body))
     found = [_link_finding(raw, skill_dir, source_root, real_dir) for raw in targets]
     found += [_span_finding(raw, skill_dir, source_root, real_dir) for raw in spans]
+    linked = frozenset(text.removeprefix("./") for text in (_file_ref(raw, link=True) for raw in targets) if text)
     return [finding for finding in found if finding is not None] + [
-        Finding("warn", "path-missing", message) for message in path_missing(spans, skill_dir, source_root, real_dir)
+        Finding("warn", "path-missing", message)
+        for message in path_missing(spans, skill_dir, source_root, real_dir, linked)
     ]
 
 

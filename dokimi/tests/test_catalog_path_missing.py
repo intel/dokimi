@@ -140,3 +140,13 @@ def test_a_malformed_quote_falls_back_to_whitespace_words(tmp_path):
     review, _ = _review(tmp_path, "Run `cp 'scripts/a.sh /tmp/x`.\n")
     [finding] = review.findings
     assert finding.message.startswith("'scripts/a.sh' (in ")
+
+
+def test_a_span_that_is_also_a_link_target_is_reported_once(tmp_path):
+    review, _ = _review(tmp_path, "See [`scripts/run.py`](scripts/run.py).\n")
+    assert _codes(review) == ["link-missing"]
+
+
+def test_a_link_to_a_dot_slash_path_also_names_the_span_once(tmp_path):
+    review, _ = _review(tmp_path, "See [run](./scripts/run.py) and `./scripts/run.py`.\n")
+    assert _codes(review) == ["link-missing"]
