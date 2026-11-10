@@ -183,8 +183,9 @@ def interaction_significance(
 
     Each contrast's sign-flip ``p`` is corrected (``p_adjusted``,
     ``significant_adjusted``, :func:`dokimi.eval.stats._apply_correction`); a
-    contrast under the floor rule stays in the family, with
-    ``significant_adjusted`` ``None``. The interval is uncorrected.
+    contrast under the floor rule counts in ``family_size`` but stays out of the
+    multiplier, with ``p_adjusted`` and ``significant_adjusted`` ``None``. The
+    interval is uncorrected.
     """
     evaluations = records(evaluations, source="evaluations", kind="evaluations")
     results: List[Dict[str, Any]] = []
