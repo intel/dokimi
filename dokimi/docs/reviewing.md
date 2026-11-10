@@ -81,9 +81,9 @@ self-judge; `arms run` and `subjects run` warn on stderr and do not refuse, so n
   the calls they made as a `partial` result), and stops at the first call to a
   model with no known price. Set the cap above the expected dollar spend: the
   triage example below was about $1.80. `arms run` and `tasks run` have no cap,
-  so size them first: questions times arms, or tasks times harnesses. One measured example: triage on a
-  19k-token skill with a mid-size model was 103 calls, about $1.80; `study` on
-  the same skill was 1,900 calls, about $14.50.
+  so size them first: questions times arms, or tasks times harnesses. One
+  measured example: triage on a 19k-token skill with a mid-size model was 103
+  calls, about $1.80; `study` on the same skill was 1,900 calls, about $14.50.
 - **At triage** with `--include-resources`, the 25-atom cap strides over the
   concatenated atom list of the files the budgets selected, in file order, so
   `references/` can be probed, but a file with few atoms may get no probe: with

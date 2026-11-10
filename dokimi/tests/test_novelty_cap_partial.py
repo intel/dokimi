@@ -236,6 +236,22 @@ def test_an_unpriced_answer_stops_every_queued_probe_not_only_the_one_that_raise
     assert result.runs[0].response == "an answer" and result.not_run == 5
 
 
+def test_a_whitespace_only_unpriced_reply_is_no_answer():
+    from dokimi.novelty import measure
+    from dokimi.novelty.probes import Probe
+
+    def blank(prompt, system=None):
+        return "  \n", None  # paid nothing visible and said nothing
+
+    answerer = LLMClient(model="a", role="answerer", cap=SpendCap(limit_usd=1.0), transport=blank)
+    probes = [Probe(atom_id=f"a{i}", kind="proposition", question=f"q{i}", expected="x")
+              for i in range(3)]
+    result = measure.run_measurement([], probes, "artifact", answerer=answerer,
+                                     judge=LLMClient(model="j", role="judge"),
+                                     arms=("no_artifact", "full"), concurrency=1)
+    assert result.runs == [] and result.ungraded == 0 and result.not_run == 6
+
+
 def test_extraction_that_loses_its_first_call_to_the_cap_keeps_a_partial_result():
     from dokimi.novelty.atoms import ExtractionReport, extract_atoms
     from dokimi.novelty.spans import segment

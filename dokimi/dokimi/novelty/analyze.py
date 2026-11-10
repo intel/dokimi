@@ -147,7 +147,7 @@ def _refuse_cut_short(measure_result: measure.MeasureResult) -> None:
             detail = cause or ("spend cap reached. Raise --max-usd, or measure less (a cheaper "
                                "--tier, a lower --max-atoms)")
             raise SpendCapReached(
-                f"the measurement stopped: {not_run} probe answers were not run or graded. {detail}"
+                f"the measurement stopped: {not_run} probe answers were not run or graded; {detail}"
             )
         # A call with no known price: raising --max-usd would not help, so the cause is named.
         raise SpendCapReached(
