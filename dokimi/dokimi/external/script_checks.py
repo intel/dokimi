@@ -30,6 +30,7 @@ ScriptFinding = tuple[str, str, str]  # (level, code, message), as ``validate.Fi
 Which = Callable[[str], Optional[str]]
 
 MAX_BYTES = 1_000_000  # a larger file is not read
+MAX_FILES = 200  # the files of a bundle the walk considers, as command_checks.BUNDLED_MAX_FILES; the rest are not read
 SHEBANG_BYTES = 255  # a #! line is read to this many bytes, as Linux 5.1 and later reads it (one byte is kept for a nul)
 SYNTAX_TIMEOUT_SEC = 10.0
 LINT_TIMEOUT_SEC = 60.0
@@ -128,9 +129,13 @@ def _holds_skill(folder: Path) -> bool:
 def _bundled_files(skill_dir: Path, base: Path) -> list[Path]:
     """Every regular file under ``skill_dir`` that resolves inside ``base``, in path order; no link is followed out."""
     found: list[Path] = []
+    considered = 0
     for root, dirnames, filenames in os.walk(skill_dir):
         dirnames[:] = sorted(d for d in dirnames if d not in SKIP_DIRS and not _holds_skill(Path(root) / d))
         for name in sorted(filenames):
+            if considered >= MAX_FILES:
+                break  # past the cap: the rest of this directory is not read
+            considered += 1
             path = Path(root) / name
             try:
                 real = path.resolve()

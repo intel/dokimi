@@ -774,3 +774,14 @@ def test_a_nested_skills_scripts_are_not_reported_on_the_outer_skill(tmp_path):
     assert runner.calls == []
     assert [code for _, code, _ in script_findings(skill / "inner", which=_tools("bash"), runner=runner)] == [
         "script-syntax"]
+
+
+def test_the_script_walk_reads_at_most_the_file_cap(tmp_path, monkeypatch):
+    monkeypatch.setattr(script_checks, "MAX_FILES", 3)  # SKILL.md, a.sh and b.sh; c.sh is past the cap
+    skill = _bundle(tmp_path, {f"{name}.sh": b"#!/bin/bash\nif then\n" for name in "abc"})
+    runner = process.FakeRunner(lambda call: process.reply(stderr="bash: line 2: syntax error\n", returncode=2))
+
+    findings = script_findings(skill, which=_tools("bash"), runner=runner)
+
+    assert [message.split(" ")[0] for _, _, message in findings] == ["a.sh", "b.sh"]
+    assert len(runner.calls) == 2
