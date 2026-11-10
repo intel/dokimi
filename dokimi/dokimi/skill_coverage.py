@@ -81,8 +81,8 @@ class Check:
 
 @dataclass(frozen=True)
 class Links:
-    """The requirement -> check names the model named, with the names it invented and the requirements it
-    cut because they were past :data:`MAX_REQUIREMENTS`."""
+    """The requirement -> check names the model named, and how many names it gave that match no check (those
+    are dropped and counted in ``dropped_names``)."""
 
     by_requirement: dict[str, tuple[str, ...]]
     dropped_names: int
