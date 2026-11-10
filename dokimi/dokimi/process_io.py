@@ -19,6 +19,17 @@ def path_text(raw: bytes) -> str:
     return os.fsdecode(raw) if _POSIX else raw.decode("utf-8", errors="replace")
 
 
+def exact_path_text(raw: bytes) -> str | None:
+    """:func:`path_text` for a map keyed by file name: None for a name Windows cannot decode as UTF-8, since the
+    replaced name is another file's key (``l\\xffint`` and ``l\\ufffdint`` would share one)."""
+    if _POSIX:
+        return os.fsdecode(raw)
+    try:
+        return raw.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+
+
 class PipeReader:
     def __init__(self, pipe: IO[bytes], consume: Callable[[bytes], None], chunk_size: int):
         self.pipe, self.consume, self.chunk_size = pipe, consume, chunk_size

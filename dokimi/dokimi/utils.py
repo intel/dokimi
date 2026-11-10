@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, Mapping, Sequence, Tuple
 
 from dokimi.defaults import BEDROCK_MODEL_IDS
-from dokimi.process_io import path_text
+from dokimi.process_io import exact_path_text, path_text
 
 if TYPE_CHECKING:
     from dokimi.process import Env
@@ -450,8 +450,9 @@ def _tracked_modes(base: Path, spec: str) -> dict[str, bool]:
     modes: dict[str, bool] = {}
     for record in done.stdout_bytes.split(b"\0"):
         meta, tab, name = record.partition(b"\t")
-        if tab:
-            modes[path_text(name)] = meta.split()[0] == b"100755"
+        key = exact_path_text(name)
+        if tab and key is not None:  # a name Windows cannot decode would take the key of a real file
+            modes[key] = meta.split()[0] == b"100755"
     return modes
 
 

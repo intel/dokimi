@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -27,6 +28,12 @@ def _git(root: Path, *args: str | bytes, stdin: bytes | None = None) -> bytes:
                           input=stdin).stdout
 
 
+def _index_entry(root: Path, mode: str, name: bytes) -> None:
+    """An index entry for ``name`` with no file on disk, fed through stdin: a raw byte cannot be a Windows argument."""
+    blob = _git(root, "hash-object", "-w", "--stdin", stdin=b"odd\n").strip()
+    _git(root, "update-index", "--add", "-z", "--index-info", stdin=f"{mode} {blob.decode()}\t".encode() + name + b"\0")
+
+
 @pytest.fixture
 def repo(tmp_path) -> Path:
     """``skill/SKILL.md`` committed, and ``l\\xffint/SKILL.md`` in the base commit and the index with no file on disk."""
@@ -35,8 +42,7 @@ def repo(tmp_path) -> Path:
     _git(root, "init", "-q")
     (root / "skill" / "SKILL.md").write_text("one\n", encoding="utf-8")
     _git(root, "add", "-A")
-    blob = _git(root, "hash-object", "-w", "--stdin", stdin=b"odd\n").strip().decode()
-    _git(root, "update-index", "--add", "--cacheinfo", f"100644,{blob},".encode() + BAD)
+    _index_entry(root, "100644", BAD)
     _git(root, "commit", "-q", "-m", "base")
     (root / "skill" / "SKILL.md").write_text("two\n", encoding="utf-8")
     _git(root, "add", "skill/SKILL.md")  # not -a: that would stage the deletion of the odd name
@@ -68,6 +74,37 @@ def test_tree_digest_with_git_reads_an_index_with_a_path_that_is_not_utf8(repo, 
     assert len(digest) == 64 and digest == utils.tree_digest(repo / "skill", git=True)
 
 
+@pytest.fixture
+def colliding_repo(tmp_path) -> Path:
+    """``l�int/SKILL.md`` a real file (100644, unexecutable) and ``l\\xffint/SKILL.md`` in the index only (100755):
+    both decode to the same Windows name."""
+    root = tmp_path / "colliding"
+    (root / REPLACED.split("/")[0]).mkdir(parents=True)
+    _git(root, "init", "-q")
+    (root / REPLACED).write_text("one\n", encoding="utf-8")
+    _git(root, "add", "-A")
+    _index_entry(root, "100755", BAD)
+    _git(root, "commit", "-q", "-m", "base")
+    return root.resolve()
+
+
+def test_a_name_that_collides_after_replacement_does_not_set_the_mode_of_a_real_file(colliding_repo, windows_decoding):
+    assert utils._tracked_modes(colliding_repo, ".") == {REPLACED: False}
+
+
+def test_the_digest_ignores_the_mode_of_a_name_that_collides_after_replacement(colliding_repo, windows_decoding):
+    plain = utils.tree_digest(colliding_repo, git=True, tracked={REPLACED: False})
+    assert utils.tree_digest(colliding_repo, git=True) == plain
+
+
+def test_a_name_that_collides_after_replacement_leaves_the_real_file_to_be_hashed_from_disk(colliding_repo, windows_decoding):
+    """The missing file shows as changed under the replaced name, so the real file takes no index blob: its disk content
+    is hashed, never the other entry's blob."""
+    blobs, held = utils._index_blobs(os.fspath(colliding_repo))
+    assert blobs == {} and REPLACED.split("/")[0] in held
+
+
+@pytest.mark.skipif(os.name != "posix" or sys.platform == "darwin", reason="a file name that is not UTF-8")
 def test_git_tree_holds_an_ignored_path_that_is_not_utf8(repo, windows_decoding):
     (repo / ".gitignore").write_text("*.tmp\n", encoding="utf-8")
     with open(os.fsencode(repo) + b"/skill/a\xff.tmp", "wb") as handle:
@@ -82,7 +119,7 @@ def test_the_index_readers_decode_a_name_that_is_not_utf8(windows_decoding):
 
 
 def test_tracked_modes_keeps_a_path_that_is_not_utf8(repo, windows_decoding):
-    assert utils._tracked_modes(repo, ".") == {REPLACED: False, "skill/SKILL.md": False}
+    assert utils._tracked_modes(repo, ".") == {"skill/SKILL.md": False}
 
 
 def test_catalog_paths_report_a_path_that_is_not_utf8(repo, windows_decoding):
