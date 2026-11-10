@@ -26,11 +26,11 @@ from pathlib import Path
 from typing import Any
 
 from dokimi.artifacts import schema_errors
+from dokimi.eval.sign_flip import ALPHA, EPS, min_sign_flip_p
 from dokimi.eval.stats import adjust_pvalues
 
-from .compare import EPS, PRIMARY, _num, compare, load_batches, min_sign_flip_p, parse_selector, selector_matches
+from .compare import PRIMARY, _num, compare, load_batches, parse_selector, selector_matches
 from .compare_interval import format_interval
-from .compare_reach import ALPHA
 from .compare_tasks import CompareError
 
 KEEP, REVIEW, INSUFFICIENT = "keep", "review", "insufficient-evidence"
