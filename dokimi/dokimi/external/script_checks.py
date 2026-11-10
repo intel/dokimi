@@ -320,6 +320,7 @@ def _in_quotes(c: bytes) -> bytes:
 
 
 HEREDOC_OPEN = re.compile(rb"<<(-?)[ \t]*((?:[^\s;&|<>()'\"\\]|\\.|'[^'\n]*'|\"[^\"\n]*\")+)")  # not <<<, which has no word
+CASE_WORD = re.compile(rb"[A-Za-z_][A-Za-z0-9_]*")  # a word the $( scan reads for the case keywords, so a pattern's ) is not counted
 HEREDOC_PART = re.compile(rb"\\(.)|'([^'\n]*)'|\"([^\"\n]*)\"")  # an escape or a quoted part of a heredoc delimiter
 
 
@@ -496,6 +497,7 @@ def _command_sub_end(data: bytes, i: int, lines: _Lines, nest: int = 0) -> Optio
     depth = 0
     j = i
     resume = -1  # where the body of a heredoc opened on this line starts: the next line, after any earlier body
+    cases: list[str] = []  # the open case statements: "head" (before its in), "pattern" (a ) ends a pattern), "body"
     while j < len(data):
         c = data[j:j + 1]
         if c == b"\n" and resume >= 0:
@@ -518,6 +520,25 @@ def _command_sub_end(data: bytes, i: int, lines: _Lines, nest: int = 0) -> Optio
             continue
         if c == b"#" and data[j - 1:j] in WORD_START:  # a comment in the substitution: its quotes are not quotes
             j = _comment_end(data, j)
+            continue
+        if data[j - 1:j] in WORD_START and (word := CASE_WORD.match(data, j)) is not None:
+            kw = word.group()
+            if kw == b"case":
+                cases.append("head")
+            elif kw == b"in" and cases and cases[-1] == "head":
+                cases[-1] = "pattern"
+            elif kw == b"esac" and cases and cases[-1] != "head":
+                cases.pop()
+            j = word.end()
+            continue
+        if cases and cases[-1] == "pattern" and c in (b"(", b")"):  # the ) that ends a case pattern is not the sub's
+            if c == b")":
+                cases[-1] = "body"
+            j += 1
+            continue
+        if cases and cases[-1] == "body" and c == b";" and data[j + 1:j + 2] in (b";", b"&"):  # ;; ;& end a case item
+            cases[-1] = "pattern"
+            j += 2
             continue
         if c == b"(":
             depth += 1

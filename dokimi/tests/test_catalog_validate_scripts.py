@@ -749,6 +749,14 @@ def test_a_shift_in_arithmetic_inside_a_command_sub_in_quotes_is_not_a_heredoc(t
     assert _codes(_reviews_by_name(tmp_path)["bundled"]) == []
 
 
+@needs_bash
+def test_a_case_in_a_command_sub_in_quotes_does_not_close_the_sub_at_its_pattern_paren(tmp_path, no_linters):
+    # bash reads the ) after a case pattern as the pattern's, not the sub's: the quote before "it's" stays in the sub
+    _bundle(tmp_path, {"run.sh": b'#!/bin/bash\nx="$(case a in a) echo "it\'s";; esac)"\nshopt -s extglob\ncase x in +(a)) : ;; esac\necho \'e\'\n'})
+
+    assert _codes(_reviews_by_name(tmp_path)["bundled"]) == []
+
+
 def test_a_command_sub_in_quotes_nested_600_deep_does_not_exhaust_the_recursion_limit():
     # each level of the nest recurses; a nest this deep raised RecursionError on the whole file
     script_checks._shell_options(b"x=" + b'"$(' * 600 + b")\"" * 600 + b"\nx\n")
