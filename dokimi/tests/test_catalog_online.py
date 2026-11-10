@@ -72,7 +72,7 @@ def _codes(review) -> list[str]:
 
 
 def _online_codes(review) -> list[str]:
-    # The static command check (command_checks.py, #456) also reports an unpinned install of the same line.
+    # The static command check (#456) also reports an unpinned install on the same line.
     return [c for c in _codes(review) if c != "install-unpinned"]
 
 
@@ -518,7 +518,8 @@ def test_package_missing_on_pypi_is_a_warning(tmp_path):
     [review] = _reviews(root, web)
     assert _online_codes(review) == ["package-not-found"]
     assert review.state == "warn"
-    assert "nosuch-pkg-xyz" in review.findings[0].message
+    [missing] = [f for f in review.findings if f.code == "package-not-found"]
+    assert "nosuch-pkg-xyz" in missing.message
 
 
 def test_npm_scoped_package_missing_from_the_registry_is_a_warning(tmp_path):
