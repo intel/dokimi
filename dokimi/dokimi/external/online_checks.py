@@ -4,9 +4,11 @@
 """Network checks of ``catalog check --online``: packages a skill installs, and links it names.
 
 Opt-in and warnings only. A ``pip``, ``npm`` or ``npx`` package that PyPI or the npm registry answers
-404 for is ``package-not-found``; an ``http(s)`` link in ``SKILL.md`` answering 404 or 410, or whose
-host does not resolve, is ``link-dead``. Any other answer, and any network error other than a DNS
-failure, is no finding: a registry or site that refuses, rate-limits or times out is not gone.
+404 for is ``package-not-found``; an ``http(s)`` link in ``SKILL.md`` answering 404 or 410 is ``link-dead``,
+and so is one whose host does not resolve, when another probe of the run got an HTTP answer (with none, the
+resolver is not shown to work and the link is not checked). Any other answer, and any network error other
+than a DNS failure, is no finding: a registry or site that refuses, rate-limits or times out is not gone.
+The targets not checked are counted in one summary line, not reported one by one.
 
 Each distinct package or URL is probed once per run, with at most :data:`MAX_WORKERS` probes in flight
 and a :data:`TIMEOUT_SECONDS` timeout per request. A HEAD request is tried first and a GET only when
@@ -631,19 +633,26 @@ def add_online_findings(reviewed: Sequence[tuple["Skill", SkillReview]], *,
                 results = _probe_all(own, unique)
         else:
             results = _probe_all(client, unique)
+    answered = any(outcome.status == "answer" for outcome in results.values())
     not_checked = dict.fromkeys(_NOT_CHECKED, 0)
     checked = 0
     for key in unique:
         status = results[key].status
-        if status in ("answer", "dns"):
+        if status == "answer" or (status == "dns" and answered):
             checked += 1
         else:
             not_checked[status] += 1
     not_checked["over_cap"] = sum(1 for url in dropped if ("link", url) not in results)
     for review, keys in plans:
-        review.findings.extend(outcome.finding for outcome in (results[key] for key in keys)
-                               if outcome.finding is not None)
+        review.findings.extend(f for f in (_resolved(results[key], answered) for key in keys) if f is not None)
     return {"checked": checked, "not_checked": not_checked}
+
+
+def _resolved(outcome: _Outcome, answered: bool) -> Optional[Finding]:
+    """The finding of a probe, when the run may report it: a DNS failure only when some probe got an HTTP answer."""
+    if outcome.status == "answer" or (outcome.status == "dns" and answered):
+        return outcome.finding
+    return None
 
 
 def format_summary(summary: dict) -> str:

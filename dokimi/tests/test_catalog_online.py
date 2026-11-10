@@ -665,6 +665,36 @@ def test_no_data_answer_from_the_resolver_is_a_dead_link(tmp_path):
     assert _codes(review) == ["link-dead"]
 
 
+def test_dns_failure_with_no_http_answer_anywhere_in_the_run_is_not_checked_not_dead(tmp_path):
+    url = "https://gone-host.example-tool.dev/"
+    root = _one_skill(tmp_path, f"See {url}\n")
+
+    [review], summary = _run(root, Web({url: _dns_failure()}))
+    assert _codes(review) == []
+    assert summary["checked"] == 0
+    assert summary["not_checked"]["dns"] == 1
+
+
+def test_dns_failure_is_dead_when_another_probe_in_the_run_got_an_answer(tmp_path):
+    url = "https://gone-host.example-tool.dev/"
+    root = _one_skill(tmp_path, f"See {url} and https://docs.example-tool.dev/ok\n")
+
+    [review], summary = _run(root, Web({url: _dns_failure()}))
+    assert _codes(review) == ["link-dead"]
+    assert summary["checked"] == 2
+    assert summary["not_checked"]["dns"] == 0
+
+
+def test_a_dns_failure_is_dead_when_a_probe_in_another_skill_got_an_answer(tmp_path):
+    url = "https://gone-host.example-tool.dev/"
+    _skill(tmp_path / "skills", "a", name="a", description="Use for a.", body=f"See {url}\n")
+    _skill(tmp_path / "skills", "b", name="b", description="Use for b.", body="pip install requests==2.31\n")
+
+    reviews, summary = _run(tmp_path, Web({url: _dns_failure()}))
+    assert sorted(c for review in reviews for c in _online_codes(review)) == ["link-dead"]
+    assert summary["not_checked"]["dns"] == 0
+
+
 def test_temporary_resolver_failure_is_not_a_dead_link(tmp_path):
     url = "https://real-site.example-tool.dev/"
     root = _one_skill(tmp_path, f"See {url}\n")

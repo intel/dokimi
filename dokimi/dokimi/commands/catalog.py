@@ -495,7 +495,8 @@ def register(sub, positive_int, eval_sub) -> None:
     scan_p.add_argument(
         "--online", action="store_true",
         help="Opt in to network checks of the skills: a pip/npm/npx package missing from PyPI or the "
-             "npm registry, and an http(s) link that answers 404/410 or does not resolve, are warnings "
+             "npm registry, and an http(s) link that answers 404/410, or does not resolve while another "
+             "probe got an answer, are warnings; targets not checked are counted in one summary line "
              "(off by default: no request is made without it; not with --per-skill)",
     )
     scan_p.set_defaults(func=cmd_catalog_scan)
