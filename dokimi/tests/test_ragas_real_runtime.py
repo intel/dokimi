@@ -46,7 +46,8 @@ def _reply(prompt):
     """The judge's answer to one ragas prompt, told apart by its instruction."""
     task = prompt.split("Now perform the same with the following input")[-1]
     if "Break down each sentence" in prompt:
-        return {"statements": ["s1", "s2", "s3", "s4"]}
+        # No statements: ragas scores the row's faithfulness NaN without retrying.
+        return {"statements": [] if "BROKEN" in task else ["s1", "s2", "s3", "s4"]}
     if "judge the faithfulness" in prompt:
         return {"statements": [{"statement": f"s{i}", "reason": "r", "verdict": v}
                                for i, v in enumerate([1, 1, 1, 0])]}
@@ -155,4 +156,18 @@ def test_context_recall_scores_the_ground_truth_and_skips_answers_without_one(an
 def test_context_recall_without_any_ground_truth_keeps_the_other_scores():
     result, stderr = _evaluate([NO_TRUTH], ["faithfulness", "context_recall"])
     assert result["ragas_per_question"]["with_docs"] == {"q2": {"faithfulness": 0.75}}, stderr
+    assert result["ragas_summary"]["with_docs"] == {"faithfulness": 0.75}
+
+
+def test_context_recall_alone_scores_the_ground_truth():
+    result, stderr = _evaluate([ANSWER, NO_TRUTH], ["context_recall"])
+    assert result["ragas_per_question"]["with_docs"] == {"q1": {"context_recall": 0.25}}, stderr
+    assert result["ragas_summary"]["with_docs"] == {"context_recall": 0.25}
+
+
+def test_a_row_ragas_scores_nan_is_left_out_not_written_as_nan():
+    broken = {**ANSWER, "question_id": "q2", "question_text": "BROKEN question?"}
+    result, stderr = _evaluate([ANSWER, broken], ["faithfulness"])
+    assert result["ragas_per_question"]["with_docs"] == {
+        "q1": {"faithfulness": 0.75}, "q2": {}}, stderr
     assert result["ragas_summary"]["with_docs"] == {"faithfulness": 0.75}
