@@ -243,3 +243,20 @@ def test_a_skill_dir_link_in_a_nested_document_resolves_from_the_skill_root(tmp_
         {"references/guide.md": "[run](${CLAUDE_SKILL_DIR}/scripts/my%20tool.py)\n", "scripts/my tool.py": "x\n"},
     )
     assert _unreferenced(review) == []
+
+
+def test_a_bundle_over_the_file_cap_is_a_checkout_and_is_not_checked(tmp_path, monkeypatch):
+    from dokimi.external import bundle_refs
+
+    monkeypatch.setattr(bundle_refs, "WALK_MAX_FILES", 5)
+    review = _review(tmp_path, "No names here.\n", [f"scripts/f{i}.py" for i in range(6)])
+    assert _unreferenced(review) == []
+
+
+def test_a_bundle_at_the_file_cap_is_checked_with_its_true_count(tmp_path, monkeypatch):
+    from dokimi.external import bundle_refs
+
+    monkeypatch.setattr(bundle_refs, "WALK_MAX_FILES", 5)
+    review = _review(tmp_path, "No names here.\n", [f"scripts/f{i}.py" for i in range(5)])
+    [message] = _unreferenced(review)
+    assert message.startswith("5 of 5")

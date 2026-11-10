@@ -39,7 +39,7 @@ SKIPPED_STEMS = frozenset({"license", "licence", "readme", "changelog", "notice"
 SKIPPED_NAMES = frozenset({"__init__.py", "conftest.py", "requirements.txt", "agents.md", "claude.md"})
 SKIPPED_DIRS = frozenset({"tests", "test", "__tests__", "evals"})
 TEST_STEM = re.compile(r"test_.*|.*_test|.*\.(?:test|spec)")  # test_build.py, build_test.py, build.test.js
-WALK_MAX_FILES = 2000  # a skill with more files is a checkout, not a bundle: the rest are not listed
+WALK_MAX_FILES = 2000  # a skill with more files is a checkout, not a bundle: it is not checked
 EXAMPLES_SHOWN = 3
 DOC_SUFFIXES = frozenset({".md", ".mdx", ".txt"})
 DOC_MAX_BYTES = 256 * 1024
@@ -52,7 +52,10 @@ _PATH_PREFIX = re.compile(r"(?<![\w.-])(?:\$\{claude_skill_dir\}/|\.\.?/)")
 
 
 def _walk(skill_dir: Path, *, counted: bool) -> list[str]:
-    """The files under ``skill_dir`` an agent may open, relative and sorted, at most :data:`WALK_MAX_FILES`.
+    """The files under ``skill_dir`` an agent may open, relative and sorted, at most :data:`WALK_MAX_FILES` + 1.
+
+    One more than the cap tells the caller the bundle is over it. Past the cap the walk goes on
+    without collecting, since a stopped ``os.walk`` leaves its directory handles open.
 
     ``counted``: the files the warning counts. Otherwise every document, the skipped ones too (a
     readme that names a script leads the agent to it).
@@ -66,8 +69,8 @@ def _walk(skill_dir: Path, *, counted: bool) -> list[str]:
             and not _is_skill_dir(here / d)
         )
         for name in sorted(filenames):
-            if len(found) >= WALK_MAX_FILES:
-                return found
+            if len(found) > WALK_MAX_FILES:
+                continue
             stem, suffix = os.path.splitext(name)
             if (
                 name.startswith(".")  # hidden
@@ -165,6 +168,8 @@ def unreferenced_message(
         files = _walk(skill_path.parent, counted=True)
         docs = _walk(skill_path.parent, counted=False)
     except (OSError, UnicodeDecodeError):
+        return None
+    if len(files) > WALK_MAX_FILES:  # a checkout, not a bundle: a partial list would be a wrong count
         return None
     linked = {_target(".", link) for link in links if link}
     named_files: set[str] = set()
