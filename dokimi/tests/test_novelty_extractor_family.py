@@ -114,6 +114,14 @@ def test_probe_still_warns_when_the_answerer_wrote_the_saved_answer_key(capsys):
     assert "wrote its own answer key" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize("answerer", ["claude-sonnet-5-5", "anthropic/claude-sonnet-5-5"])
+def test_the_answerer_wrote_the_key_through_a_cli_alias(capsys, answerer):
+    # atoms extracted with --extract-model sonnet on claude-cli: the CLI ran some claude-sonnet
+    warn_answer_key({"extractor": "sonnet", "extractor_provider": "claude-cli"},
+                    LLMClient(model=answerer), _judge("gpt-6.1-sol", provider="openai"))
+    assert "wrote its own answer key" in capsys.readouterr().err
+
+
 def test_a_saved_answer_key_with_no_model_name_is_not_compared(capsys):
     warn_answer_key({"extractor": None}, LLMClient(model="gpt-6.1-sol"), _judge("claude-sonnet-5-5"))
     assert capsys.readouterr().err == ""
