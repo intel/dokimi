@@ -427,7 +427,7 @@ def _internal_url(url: str) -> bool:
         except (OSError, ValueError):
             return "." not in host or host.endswith((".local", ".internal", ".localhost"))
     return (address.is_loopback or address.is_private or address.is_link_local or address.is_reserved
-            or address.is_multicast or address.is_unspecified)
+            or address.is_multicast or address.is_unspecified or not address.is_global)  # 100.64.0.0/10 is not global
 
 
 def _placeholder_url(url: str) -> bool:

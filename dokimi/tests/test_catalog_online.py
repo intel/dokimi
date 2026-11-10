@@ -859,6 +859,14 @@ def test_an_ipv4_shorthand_or_a_trailing_dot_host_is_internal_too():
     assert online_checks._internal_url("http://x.localhost/")
 
 
+def test_a_shared_address_range_host_is_internal_too():
+    # 100.64.0.0/10 (carrier-grade NAT, Tailscale) is not "private" to Python, and 100.100.100.200 is a metadata host
+    body = "http://100.100.100.200/latest/meta-data/ http://100.64.0.1/ http://[::ffff:100.64.0.1]/\n"
+    assert online_checks.extract_urls(body) == []
+    assert online_checks._internal_url("http://100.64.0.1/")
+    assert not online_checks._internal_url("http://93.184.216.34/")
+
+
 def test_an_ideographic_or_fullwidth_full_stop_in_a_host_is_a_dot_for_the_internal_rule():
     # httpx maps U+3002 and U+FF0E to "." when it connects; urlsplit keeps them, so the rule must read httpx's host
     body = ("http://10.0.0。1/admin http://127.0.0．1/ http://169.254.169．254/ "
