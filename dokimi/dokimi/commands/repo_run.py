@@ -209,12 +209,14 @@ def cmd_repo_tasks_replay(args: argparse.Namespace) -> None:
     """One dokimi:review_replay task per merged PR of a recorded threads file (contract §4.6; no LLM, no GitHub)."""
     from dokimi.repos import open_source
     from dokimi.repos.replay import DEFAULT_PROMPT, History, Options, build_all, read_threads
+    from dokimi.repos.source import check_pinned_root
     from dokimi.repos.workspace import source_git_dir
 
     from .repo import _cache_dir, _load_manifest, _parse_source
 
     source = _parse_source(args)
     try:
+        check_pinned_root(source)  # before the input files: a source refusal is not masked by an unreadable one
         prs = read_threads(Path(args.threads))
         prompt = Path(args.prompt_file).read_text(encoding="utf-8").strip() if args.prompt_file else DEFAULT_PROMPT
         if not prompt:
@@ -248,12 +250,14 @@ def cmd_repo_tasks_authoring(args: argparse.Namespace) -> None:
     from dokimi.repos.replay.authoring import Options
     from dokimi.repos.replay.authoring_prompt import DEFAULT_INSTRUCTION
     from dokimi.repos.replay.authoring_prs import build_all
+    from dokimi.repos.source import check_pinned_root
     from dokimi.repos.workspace import source_git_dir
 
     from .repo import _cache_dir, _load_manifest, _parse_source
 
     source = _parse_source(args)
     try:
+        check_pinned_root(source)  # before the input files: a source refusal is not masked by an unreadable one
         prs = read_threads(Path(args.prs), "mergeCommit", "pull request file")
         text = Path(args.prompt_file).read_text(encoding="utf-8").strip() if args.prompt_file else DEFAULT_INSTRUCTION
         if not text:

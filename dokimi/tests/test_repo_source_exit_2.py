@@ -77,6 +77,26 @@ def test_pinned_subdirectory_of_a_repository_exits_2(name, tmp_path, monkeypatch
     assert err.strip() == f"Error: {repo / 'sub'} is 'sub/' inside a repository; give its root"
 
 
+@pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
+@pytest.mark.parametrize("flag", ["--threads", "--prs"])
+@pytest.mark.parametrize("extra", ["missing input", "empty prompt"])
+def test_pinned_subdirectory_is_refused_before_the_input_files_are_read(flag, extra, tmp_path, monkeypatch, capsys):
+    repo, sha = _repo_with_sub(tmp_path)
+    empty = tmp_path / "empty.txt"
+    empty.write_text("", encoding="utf-8")
+    source = f"{repo / 'sub'}@{sha}"
+    out = str(tmp_path / "out")
+    kind = "replay" if flag == "--threads" else "prs"
+    argv = ["eval", "tasks", "generate", source, "--from", kind, flag, str(tmp_path / "missing.json"), "--out", out]
+    if extra == "empty prompt":
+        (tmp_path / "prs.json").write_text(PRS, encoding="utf-8")
+        argv[argv.index(str(tmp_path / "missing.json"))] = str(tmp_path / "prs.json")
+        argv += ["--prompt-file", str(empty)]
+    code, err = _run(monkeypatch, capsys, *argv)
+    assert code == 2
+    assert err.strip() == f"Error: {repo / 'sub'} is 'sub/' inside a repository; give its root"
+
+
 @pytest.mark.parametrize("name", ["check", "run"])
 def test_check_and_run_keep_exit_1_for_a_pinned_source_that_cannot_be_fetched(name, tmp_path, monkeypatch, capsys):
     from dokimi.repos import SourceError
