@@ -13,7 +13,7 @@ from __future__ import annotations
 import pytest
 
 from dokimi.external import read_skill_manifest, review_skills
-from dokimi.external.bundle_paths import _bundle_path
+from dokimi.external.bundle_paths import _bundle_path, path_missing
 from tests.test_catalog_validate import _codes, _skill
 
 
@@ -150,3 +150,14 @@ def test_a_span_that_is_also_a_link_target_is_reported_once(tmp_path):
 def test_a_link_to_a_dot_slash_path_also_names_the_span_once(tmp_path):
     review, _ = _review(tmp_path, "See [run](./scripts/run.py) and `./scripts/run.py`.\n")
     assert _codes(review) == ["link-missing"]
+
+
+def test_the_message_says_the_skill_directory_not_the_install(tmp_path):
+    review, _ = _review(tmp_path, "Run `scripts/deploy.sh`.\n")
+    [finding] = review.findings
+    assert finding.message == "'scripts/deploy.sh' (in 'scripts/deploy.sh') names no file in the skill directory"
+
+
+def test_a_span_with_a_backtick_is_quoted_in_the_message(tmp_path):
+    [message] = path_missing(["echo `x` scripts/deploy.sh"], tmp_path, tmp_path, tmp_path.resolve())
+    assert message == "'scripts/deploy.sh' (in 'echo `x` scripts/deploy.sh') names no file in the skill directory"

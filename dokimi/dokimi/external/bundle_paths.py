@@ -133,7 +133,6 @@ def path_missing(
                 else ""
             )
             findings.append(
-                f"{text!r} (in `{raw}`) names no file in the skill directory; the agent cannot "
-                f"open it once the skill is installed{from_root}"
+                f"{text!r} (in {raw!r}) names no file in the skill directory{from_root}"
             )
     return findings
