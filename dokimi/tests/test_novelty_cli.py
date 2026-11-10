@@ -44,7 +44,7 @@ def test_every_subcommand_is_registered():
         args = _parse(*novelty_argv(sub), *(
             ["--artifact", "skill:x"] if sub != "view" else ["--novelty", "n.json"]
         ), *(["--atoms", "a.json"] if sub in ("probe", "shorten", "view") else []))
-        # The command that runs is the subcommand's own handler (`_stops_at_cap` wraps it).
+        # The command that runs is the subcommand's own handler (`stops_at_cap` wraps it).
         assert inspect.unwrap(args.func) is handler
 
 
@@ -99,13 +99,13 @@ def test_a_judge_provider_with_no_default_judge_there_exits(argv):
 
 @pytest.mark.parametrize("model", ["sonnet", "opus", "haiku", "claude-opus-5-5"])
 def test_a_cli_answerer_with_no_judge_flags_is_judged_on_the_cli_by_another_family(model):
-    from dokimi.llm_cli import same_model
+    from dokimi.utils import same_model
 
     args = _parse("skill", "novelty", "analyze", "--artifact", "skill:x", "--model", model,
                   "--provider", "claude-cli")
     _extractor, _answerer, judge = novelty_cmd._clients(args)
     assert judge.provider == "claude-cli"
-    assert not same_model("claude-cli", judge.model, "claude-cli", model)
+    assert not same_model(judge.model, model)
 
 
 def test_a_named_judge_without_a_provider_runs_on_the_answer_provider():

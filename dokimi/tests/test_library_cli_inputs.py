@@ -5,9 +5,12 @@
 
 from __future__ import annotations
 
+import os
+
 import pytest
 
 from tests.cli_refusal import refusal
+from tests.test_benchmark_registry_wiring import fifo_fed_with, too_long_name
 
 from dokimi.cli import build_parser
 
@@ -68,3 +71,67 @@ def test_a_missing_registry_is_not_an_empty_registry(tmp_path):
 def test_a_directory_as_intents_is_rejected(tmp_path):
     err = _run(["catalog", "intents", "--intents", str(tmp_path)])
     assert f"Error: --intents {tmp_path}: not a file" in err
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="no named pipes on Windows")
+def test_a_registry_pipe_is_listed(tmp_path):
+    with fifo_fed_with(tmp_path / "products.fifo", _PRODUCTS) as fifo:
+        args = build_parser().parse_args(["catalog", "list", "--kind", "product", "--registry", str(fifo)])
+        with refusal() as out:
+            args.func(args)
+
+    assert out.code == 0
+    assert "Demo" in out.out and "1 products registered." in out.out
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="no named pipes on Windows")
+@pytest.mark.parametrize("flag,argv", [
+    ("--registry", ["catalog", "list", "--kind", "product"]), ("--intents", ["catalog", "intents"]),
+])
+def test_a_pipe_that_gives_nothing_is_not_an_empty_registry(tmp_path, flag, argv):
+    with fifo_fed_with(tmp_path / "empty.fifo", "") as fifo:
+        err = _run([*argv, flag, str(fifo)])
+
+    assert f"Error: {flag} {fifo}: the pipe was empty" in err
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="no named pipes on Windows")
+@pytest.mark.parametrize("flag,argv", [
+    ("--registry", ["catalog", "list", "--kind", "product"]), ("--intents", ["catalog", "intents"]),
+])
+def test_a_pipe_that_is_not_utf8_is_named(tmp_path, flag, argv):
+    with fifo_fed_with(tmp_path / "binary.fifo", bytes([0xFF, 0xFE, 0x00])) as fifo:
+        err = _run([*argv, flag, str(fifo)])
+
+    assert f"Error: cannot read {flag} {fifo}" in err
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="no named pipes on Windows")
+def test_an_intents_pipe_is_listed(tmp_path):
+    intents = "domains:\n  perf:\n    name: Perf\n    description: d\n    products: [demo]\n"
+    with fifo_fed_with(tmp_path / "intents.fifo", intents) as fifo:
+        args = build_parser().parse_args(["catalog", "intents", "--intents", str(fifo)])
+        with refusal() as out:
+            args.func(args)
+
+    assert out.code == 0
+    assert "Perf" in out.out
+
+
+@pytest.mark.skipif(os.name == "nt", reason="no /dev/null on Windows")
+@pytest.mark.parametrize("flag,argv", [
+    ("--registry", ["catalog", "list", "--kind", "product"]), ("--intents", ["catalog", "intents"]),
+])
+def test_a_device_is_not_a_file(flag, argv):
+    err = _run([*argv, flag, "/dev/null"])
+    assert f"Error: {flag} /dev/null: not a file" in err
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows words a long name its own way")
+@pytest.mark.parametrize("flag,argv", [
+    ("--registry", ["catalog", "list", "--kind", "product"]), ("--intents", ["catalog", "intents"]),
+])
+def test_a_name_the_os_cannot_stat_is_named(tmp_path, flag, argv):
+    long_name = too_long_name(tmp_path)
+    err = _run([*argv, flag, str(long_name)])
+    assert f"Error: cannot read {flag} {long_name}: " in err and "Traceback" not in err

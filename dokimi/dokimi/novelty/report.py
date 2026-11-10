@@ -126,6 +126,8 @@ def build_novelty_artifact(
         },
         "controls": {
             "reversal_resisted": measure_result.reversal_resisted(),
+            "reversal_resisted_by_arm": measure_result.reversal_by_arm(),
+            "reversal_paired": measure_result.reversal_paired(),
             "abstentions": measure_result.abstentions(),
             "confidence_correlation": measure_result.confidence_correlation(),
             "order_independent": _order_independent(measure_result),
@@ -188,6 +190,8 @@ def build_probe_record(
         "arms": {s: measure_result.arm_means(s) for s in ("lenient", "strict")},
         "abstentions": measure_result.abstentions(),
         "reversal_resisted": measure_result.reversal_resisted(),
+        "reversal_resisted_by_arm": measure_result.reversal_by_arm(),
+        "reversal_paired": measure_result.reversal_paired(),
         "confidence_correlation": measure_result.confidence_correlation(),
         "runs": [row.as_dict() for row in measure_result.runs],
     }

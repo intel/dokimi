@@ -695,37 +695,35 @@ def test_significance_test_matches_shared_paired_test():
     shared = stats.paired_test(jittered, WITHOUT)
 
     for key in ("n", "delta_mean", "delta_std", "cohens_d", "effect",
-                "p_ttest", "p_wilcoxon", "significant"):
+                "p", "n_changed", "ci_lo", "ci_hi", "significant"):
         assert mine[key] == shared[key], key
 
 
-def test_significance_test_suppresses_verdict_on_constant_deltas():
-    """Constant deltas make SciPy report p == 0; that must not read as certainty."""
+def test_significance_test_gives_constant_deltas_their_sign_flip_verdict():
+    """Constant deltas get the sign-flip p, 2 / 2**6 over six pairs; only d_z stays undefined."""
     from dokimi.report.model_compare import significance_test
 
     sig = significance_test(WITH, WITHOUT)  # every delta is exactly +10
     assert sig["delta_mean"] == 10.0
-    assert sig["p_ttest"] is None
-    assert sig["significant"] is None
-    assert sig["t_stat"] is None
+    assert (sig["p"], sig["significant"], sig["cohens_d"]) == (0.0312, True, None)
+    assert (sig["ci_lo"], sig["ci_hi"]) == (10.0, 10.0)
 
 
-def test_significance_test_reports_t_stat_for_varying_deltas():
+def test_significance_test_reports_the_sign_flip_p_and_no_t_stat():
     from dokimi.report.model_compare import significance_test
 
     jittered = [w + (1 if i % 2 else -1) for i, w in enumerate(WITH)]
-    sig = significance_test(jittered, WITHOUT)
-    # deltas 9, 11, 9, 11, 9, 11: mean 10, sample std 1.095, t = 10 / (1.095 / sqrt(6))
-    assert sig["t_stat"] == pytest.approx(22.361, abs=1e-3)
-    assert sig["significant"] is True
+    sig = significance_test(jittered, WITHOUT)  # deltas 9, 11, 9, 11, 9, 11: all positive
+    assert (sig["p"], sig["n_changed"], sig["significant"]) == (0.0312, 6, True)
+    assert not {"t_stat", "p_ttest", "p_wilcoxon"} & set(sig)
 
 
-def test_significance_test_requires_min_pairs():
-    from dokimi.eval import stats
+def test_significance_test_runs_from_two_pairs_with_no_verdict_under_the_floor():
     from dokimi.report.model_compare import significance_test
 
-    n = stats.MIN_PAIRS_FOR_TEST - 1
-    assert significance_test(WITH[:n], WITHOUT[:n]) is None
+    assert significance_test(WITH[:1], WITHOUT[:1]) is None
+    five = significance_test(WITH[:5], WITHOUT[:5])  # five +10 deltas: p cannot go below 2 / 2**5
+    assert (five["p"], five["significant"], five["ci_lo"], five["ci_hi"]) == (0.0625, None, None, None)
 
 
 def test_eval_report_significance_uses_sample_sd():
@@ -810,8 +808,8 @@ def test_section_report_adjusts_pvalues_across_runs():
     raw = [
         significance_test(
             [e["scores"]["docs"]["aggregate"] for e in data["evaluations"]],
-            [e["scores"]["baseline"]["aggregate"] for e in data["evaluations"]],
-        )["p_ttest"]
+            [e["scores"]["baseline"]["aggregate"] for e in data["evaluations"]], rounded=False,
+        )["p"]  # corrected unrounded, as the report does: 2 x 0.03125 shows 0.0625, 2 x 0.0312 would be 0.0624
         for _, data in runs
     ]
     for p_adj in stats.adjust_pvalues(raw, method="holm"):
@@ -833,7 +831,7 @@ def test_correction_can_flip_a_borderline_verdict():
         significance_test(
             [e["scores"]["docs"]["aggregate"] for e in data["evaluations"]],
             [e["scores"]["baseline"]["aggregate"] for e in data["evaluations"]],
-        )["p_ttest"]
+        )["p"]
         for _, data in runs
     ]
     adjusted = stats.adjust_pvalues(raw, method="holm")
@@ -844,14 +842,14 @@ def test_correction_can_flip_a_borderline_verdict():
 
 
 def test_unrunnable_test_stays_na_and_does_not_inflate_the_family():
-    """Constant deltas yield no p-value; the row must read N/A, not 'No'."""
+    """Every pair tied yields no p-value; the row must read N/A, not 'No'."""
     flat = {
         "arms": ["baseline", "docs"],
         "baseline_arm": "baseline",
         "evaluations": [
             {"question_id": f"q{i}", "question_text": f"Q{i}",
              "scores": {"baseline": {"aggregate": 50.0 + i},
-                        "docs": {"aggregate": 60.0 + i}}}   # every delta is +10
+                        "docs": {"aggregate": 50.0 + i}}}   # every delta is 0
             for i in range(6)
         ],
     }
@@ -860,9 +858,8 @@ def test_unrunnable_test_stays_na_and_does_not_inflate_the_family():
 
     section = text.split("## Statistical Significance")[1]
     row = next(line for line in section.splitlines() if line.startswith("| **flat** |"))
-    # Delta and effect band are all this data supports: no p-value, no d_z,
-    # no verdict.
-    assert row == "| **flat** | +10.0 | N/A | N/A | N/A | N/A | unknown | N/A |"
+    # Delta, d_z 0 and no changed pair are all this data supports: no p-value, no verdict.
+    assert row == "| **flat** | 0.0 | N/A | N/A | 0 of 6 | 0.0 | negligible | N/A |"
     assert "adjusted across the 0 run(s)" in section
 
 

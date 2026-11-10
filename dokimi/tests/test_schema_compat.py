@@ -387,6 +387,44 @@ def test_a_git_timeout_is_not_read_as_no_fixture(monkeypatch):
     assert not isinstance(err.value, sc.GitPathMissing)
 
 
+@pytest.mark.skipif(os.name == "nt", reason="the stub git is a shell script")
+def test_a_git_that_prints_no_work_tree_is_a_git_error(monkeypatch, tmp_path):
+    """git before 2.25, in a bare repository, prints nothing for ``rev-parse --show-toplevel``
+    and exits 0: that is a ``GitError`` saying so, not an ``IndexError``."""
+    import shutil
+
+    import dokimi.schema_compat as sc
+
+    stub = tmp_path / "bin/git"
+    stub.parent.mkdir()
+    stub.write_text('#!/bin/sh\n[ "$1 $2" = "rev-parse --show-toplevel" ] && exit 0\n'
+                    f'exec "{shutil.which("git")}" "$@"\n', encoding="utf-8")
+    stub.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{stub.parent}{os.pathsep}{os.environ['PATH']}")
+    subprocess.run(["git", "init", "-q", "--bare", str(tmp_path / "bare.git")], check=True)
+    monkeypatch.setattr(sc, "SCHEMA_DIR", tmp_path / "bare.git")
+    with pytest.raises(sc.GitError, match="printed no work tree to follow moved schemas in"):
+        sc._renamed_from("HEAD", ".")
+
+
+@pytest.mark.skipif(sys.platform in ("win32", "darwin"), reason="the file system takes only UTF-8 names")
+def test_a_byte_that_is_not_utf8_in_the_directory_the_schemas_moved_from_stays(monkeypatch, tmp_path):
+    """Decoded with replacement, the byte became U+FFFD and named a directory the base does not have."""
+    import dokimi.schema_compat as sc
+
+    old = os.fsdecode(b"o\xffld")
+    git = ["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "core.autocrlf=false"]
+    (tmp_path / old).mkdir()
+    (tmp_path / old / "x.json").write_text(json.dumps(_with(description="x" * 200)), encoding="utf-8")
+    subprocess.run([*git, "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run([*git, "add", "."], cwd=tmp_path, check=True)
+    subprocess.run([*git, "commit", "-qm", "base"], cwd=tmp_path, check=True)
+    subprocess.run([*git, "mv", old, "new"], cwd=tmp_path, check=True)
+    subprocess.run([*git, "commit", "-qm", "move"], cwd=tmp_path, check=True)
+    monkeypatch.setattr(sc, "SCHEMA_DIR", tmp_path / "new")
+    assert sc._renamed_from("HEAD~1", ".") == f"{old}/"
+
+
 def test_main_warns_when_the_base_has_no_schemas_to_compare(monkeypatch, tmp_path, capsys):
     """Zero base schemas against a tree that has some is how the gate went vacuous: say so."""
     import dokimi.schema_compat as sc
@@ -397,6 +435,75 @@ def test_main_warns_when_the_base_has_no_schemas_to_compare(monkeypatch, tmp_pat
     monkeypatch.setattr(sc, "_renamed_from", lambda base, rel: None)
     assert sc.main(["--base", "X"]) == 0
     assert "WARNING  - no schemas found at X to compare against" in capsys.readouterr().out
+
+
+# ── names git quotes or the shell would split: read as git stores them ──────────
+
+NOT_A_WINDOWS_NAME = pytest.mark.skipif(
+    os.name == "nt", reason="Windows file names cannot hold a carriage return or a quote")
+
+
+def _commit(root: Path, msg: str, *mv: str) -> None:
+    """A first commit of every file under ``root``, or with ``mv`` a commit of ``git mv *mv``."""
+    git = ["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "core.autocrlf=false"]
+    if mv:
+        subprocess.run([*git, "mv", *mv], cwd=root, check=True)
+    else:
+        subprocess.run([*git, "init", "-q"], cwd=root, check=True)
+        subprocess.run([*git, "add", "."], cwd=root, check=True)
+    subprocess.run([*git, "commit", "-qm", msg], cwd=root, check=True)
+
+
+@NOT_A_WINDOWS_NAME
+def test_moved_schemas_are_found_in_a_repository_whose_root_holds_a_carriage_return(
+        monkeypatch, tmp_path):
+    """``rev-parse --show-toplevel`` read as text turned the root's "\\r" into a newline, and
+    the schemas directory was then not under that root: ``ValueError``."""
+    import dokimi.schema_compat as sc
+
+    root = tmp_path / "re\rpo"
+    old = root / "old/pkg/schemas"
+    old.mkdir(parents=True)
+    (old / "a.v1.json").write_text(json.dumps(OBJ), encoding="utf-8")
+    (old / "b.v1.json").write_text(json.dumps(_with(description="x" * 200)), encoding="utf-8")
+    _commit(root, "base")
+    _commit(root, "move", "old", "new")
+    (root / "new/pkg/schemas/a.v1.json").write_text(json.dumps(_with(required=["a", "b"])),
+                                                    encoding="utf-8")
+    monkeypatch.setattr(sc, "SCHEMA_DIR", root / "new/pkg/schemas")
+
+    assert sc._renamed_from("HEAD~1", ".") == "old/pkg/schemas/"
+    assert {n: d.breaking for n, d in sc.compare_against("HEAD~1").items()} == {
+        "a.v1.json": ["<root>: 'b' is now required"]}
+
+
+@pytest.mark.parametrize("name", [
+    pytest.param("a\rb.v1.json", marks=NOT_A_WINDOWS_NAME),
+    pytest.param('q"uote.v1.json', marks=NOT_A_WINDOWS_NAME),
+    "ρ.v1.json",
+    "a b.v1.json",
+])
+def test_a_breaking_change_to_a_schema_git_would_quote_is_breaking(monkeypatch, tmp_path, name):
+    """Without ``-z`` git quotes a "\\r", '"' or non-ASCII name, which then did not end in
+    ``.json`` and was skipped, so the change passed; a name with a space was split in two."""
+    import dokimi.schema_compat as sc
+
+    old = tmp_path / "old/pkg/schemas"
+    old.mkdir(parents=True)
+    # The only schema, and long enough that git still sees the move once it is narrowed.
+    schema = _with(description="x" * 200)
+    (old / name).write_text(json.dumps(schema), encoding="utf-8")
+    _commit(tmp_path, "base")
+    (old / name).write_text(json.dumps({**schema, "required": ["a", "b"]}), encoding="utf-8")
+    breaking = {name: ["<root>: 'b' is now required"]}
+
+    monkeypatch.setattr(sc, "SCHEMA_DIR", old)
+    assert sc._base_has_schemas("HEAD")
+    assert {n: d.breaking for n, d in sc.compare_against("HEAD").items()} == breaking
+    # The same schemas moved: the base is listed at the directory they came from.
+    _commit(tmp_path, "move", "old", "new")
+    monkeypatch.setattr(sc, "SCHEMA_DIR", tmp_path / "new/pkg/schemas")
+    assert {n: d.breaking for n, d in sc.compare_against("HEAD~1").items()} == breaking
 
 
 @pytest.mark.parametrize("new", [

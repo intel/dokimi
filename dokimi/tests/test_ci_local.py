@@ -112,6 +112,17 @@ def test_unevaluable_condition_runs_step_with_notice(env: dict[str, Any], capsys
     assert "NOTICE: cannot evaluate" in capsys.readouterr().out
 
 
+def test_ci_yml_label_guards_evaluate_as_a_push_to_the_pr(capsys: Any) -> None:
+    """The guards that skip a label event read `github.event.action`: a local run is a push, so the jobs run, no notice."""
+    jobs = dict(cl.load_workflows())["ci.yml"]["jobs"]
+    ctx = cl.Context("main", PYV, Path("."))
+    ran = {job_id: ctx.condition(str(job["if"])) for job_id, job in jobs.items() if "if" in job}
+    for expr in [step["if"] for job in jobs.values() for step in job.get("steps", []) if "if" in step]:
+        ctx.condition(str(expr))
+    assert (ran["static"], ran["typecheck"], ran["windows-smoke"], ran["test-latest"]) == (True, True, True, False)
+    assert "NOTICE" not in capsys.readouterr().out
+
+
 def test_failure_condition_is_false_locally() -> None:
     """A local run has no failed job: pip-audit.yml's `report` job (which opens an issue) is skipped."""
     ctx = cl.Context("main", PYV, Path("."))
@@ -704,3 +715,22 @@ def test_native_gitleaks_at_another_version_is_unsupported_and_keeps_other_check
     assert [call["cmd"][-1] for call in env["calls"]] == ["echo lint"]
     out = capsys.readouterr().out
     assert "unsupported host" in out and other in out
+
+
+@pytest.mark.skipif(sys.platform in ("win32", "darwin"), reason="a CR or a 0xff byte in a file name")
+def test_isolated_env_copies_a_path_with_a_cr_or_a_non_utf8_byte(tmp_path, monkeypatch) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    names = ["a\rb.py", os.fsdecode(b"r\xff.py")]
+    for name in names:
+        (repo / name).write_text("x\n", encoding="utf-8")
+    previous = cl.subprocess.run
+
+    def run(cmd, **kwargs):
+        return subprocess.CompletedProcess(cmd, 0) if cmd[0] == "uv" else previous(cmd, **kwargs)
+
+    monkeypatch.setattr(cl.subprocess, "run", run)
+    monkeypatch.setattr(cl, "REPO", repo)
+    src, _ = cl.make_isolated_env(tmp_path / "iso", PYV)
+    assert sorted(os.listdir(src)) == names

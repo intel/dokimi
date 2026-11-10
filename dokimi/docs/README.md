@@ -112,9 +112,10 @@ Two fine-print notes:
 
 ## Example results
 
-One skill, four models, same golden question set. The numbers are
-illustrative — the skill and question set they come from are evaluation content
-and are not part of this repository; `cli.py arms run` produces the same table
+**Illustrative example, not a study result.** One skill, four models, same golden
+question set. No experiment record or raw data in this repository backs these
+numbers, so do not cite them as evidence; the skill and question set they come
+from are evaluation content and are not part of this repository; `cli.py arms run` produces the same table
 for your own content (see [evaluating-treatments.md](evaluating-treatments.md)).
 
 | Model | WITH skill | WITHOUT skill | Delta | p-value | Significant? |
@@ -135,8 +136,8 @@ What this table teaches:
 
 *Where the stats come from:* every report path shares
 `dokimi/eval/stats.py`, so the numbers cannot drift apart. The two-arm
-(with/without) report and `report model-compare` each compute a paired t-test,
-Wilcoxon signed-rank, Cohen's d_z, and a 95% CI on the deltas. The N-way
+(with/without) report and `report model-compare` each compute a paired sign-flip
+test, Cohen's d_z, and the 95% CI that inverts the test on the deltas. The N-way
 `arms run` report does the same for *every* arm against the one shared baseline,
 then corrects the p-values for multiplicity across the arms (Holm-Bonferroni by
 default, `--stats-correction bh` for FDR) and reports factorial-interaction

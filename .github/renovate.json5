@@ -95,6 +95,14 @@
       datasourceTemplate: "github-releases",
       versioningTemplate: "regex:^(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)-(?<build>\\d+)$",
     },
+    {
+      // The exact pins in ci/config.yml's test list ("mypy ==2.4.0") must equal
+      // requirements-test.txt (tests/test_intel_ci.py), so they move in the same PR.
+      customType: "regex",
+      managerFilePatterns: ["/^ci/config\\.yml$/"],
+      matchStrings: ["\"(?<depName>[A-Za-z0-9._-]+) ==(?<currentValue>\\d[^\" ]*)\""],
+      datasourceTemplate: "pypi",
+    },
   ],
   packageRules: [
     {
@@ -135,6 +143,13 @@
     {
       matchManagers: ["github-actions", "pre-commit"],
       semanticCommitType: "ci",
+    },
+    {
+      // A replacement that keeps the version has no release date to age, so the stability-days status stays pending.
+      // Only for github-actions: a replacement from another manager keeps the 7-day wait. https://github.com/intel/dokimi/pull/490
+      matchManagers: ["github-actions"],
+      matchUpdateTypes: ["replacement"],
+      minimumReleaseAge: null,
     },
     {
       // The Python setup-python installs is a CI choice, not a dependency.
