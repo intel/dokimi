@@ -44,6 +44,8 @@ EXAMPLES_SHOWN = 3
 DOC_SUFFIXES = frozenset({".md", ".mdx", ".txt"})
 DOC_MAX_BYTES = 256 * 1024
 DOCS_READ_MAX = 50
+# A path prefix that names the skill root or the current folder: ``./scripts/``, ``../scripts/``, ``${CLAUDE_SKILL_DIR}/scripts/``.
+_PATH_PREFIX = re.compile(r"(?<![\w.-])(?:\$\{claude_skill_dir\}/|\.\.?/)")
 
 
 def _walk(skill_dir: Path, *, counted: bool) -> list[str]:
@@ -101,6 +103,8 @@ def _named(rel: str, text: str, links: set[str]) -> bool:
     parts = rel.lower().split("/")
     if "/".join(parts) in links or re.search(_whole("/".join(parts)), text):
         return True
+    if any("/".join(parts[:i]) in links for i in range(1, len(parts))):  # a folder link to an ancestor
+        return True
     if re.search(_whole(parts[-1]), text):
         return True
     # A folder named alone (``references/``), not as the start of another file's path (``scripts/a.py``).
@@ -108,6 +112,11 @@ def _named(rel: str, text: str, links: set[str]) -> bool:
         re.search(r"(?<![\w./-])" + re.escape("/".join(parts[:i])) + r"/(?![\w.-])", text)
         for i in range(1, len(parts))
     )
+
+
+def _matchable(text: str) -> str:
+    """The text the names are looked up in, with the ``./``-style prefixes dropped: ``./scripts/`` names ``scripts/``."""
+    return _PATH_PREFIX.sub("", text)
 
 
 def _read_doc(path: Path) -> str:
@@ -139,7 +148,7 @@ def unreferenced_message(
     if at_root:
         return None
     try:
-        text = skill_path.read_text(encoding="utf-8").lower()
+        text = _matchable(skill_path.read_text(encoding="utf-8").lower())
         files = _walk(skill_path.parent, counted=True)
         docs = _walk(skill_path.parent, counted=False)
     except (OSError, UnicodeDecodeError):
@@ -156,7 +165,7 @@ def unreferenced_message(
             named_files.add(rel)
             if docs_read < DOCS_READ_MAX and (more := _read_doc(skill_path.parent / rel)):
                 docs_read += 1
-                text += "\n" + more.lower()
+                text += "\n" + _matchable(more.lower())
                 folder = PurePosixPath(rel).parent.as_posix()
                 linked.update(_target(folder, link) for link in doc_links(more) if link)
     missing = [rel for rel in files if rel not in named_files]

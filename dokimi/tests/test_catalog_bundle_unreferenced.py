@@ -187,3 +187,17 @@ def test_a_name_followed_by_a_dotted_suffix_does_not_name_the_shorter_file(tmp_p
     review = _review(tmp_path, "Keep a copy as build.py.bak before editing.\n", ["scripts/build.py"])
     [message] = _unreferenced(review)
     assert message.startswith("1 of 1") and "scripts/build.py" in message
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "Helpers in ./scripts/ do the work.\n",
+        "Helpers in ${CLAUDE_SKILL_DIR}/scripts/ do the work.\n",
+        "See [helpers](./scripts/).\n",
+        "See [helpers](${CLAUDE_SKILL_DIR}/scripts/).\n",
+    ],
+)
+def test_a_folder_written_from_the_skill_root_names_its_files(tmp_path, body):
+    review = _review(tmp_path, body, ["scripts/fill.py"])
+    assert _unreferenced(review) == []
