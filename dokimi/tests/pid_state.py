@@ -20,9 +20,13 @@ def pid_state(pid: int) -> str | None:
         return "?"
     try:
         return Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0]
-    except FileNotFoundError:  # reaped between kill() and the read
-        return None
-    except OSError:
+    except OSError:  # reaped between kill() and the read, or no /proc here (macOS): ask kill() again
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return None
+        except OSError:
+            pass
         return "?"
 
 
