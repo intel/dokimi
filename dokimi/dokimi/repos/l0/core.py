@@ -419,7 +419,8 @@ class Scan:
                 hit = next((x for x in self._every() if x.startswith(pre) and rx.match(x[len(pre):])), None)
                 if hit:
                     return "ok", f"glob {full} -> e.g. {posixpath.join(d, posixpath.relpath(hit, real))}"
-            probes = self._probes(full) + self._probes(posixpath.normpath(posixpath.join(real, name)))
+            below = [posixpath.normpath(posixpath.join(real, n)) for n in self._probes(name)]  # only the name is filled
+            probes = self._probes(full) + below
             failed = failed or self._missing(probes, is_dir, f"{d}/ exists but nothing in it matches {name}")
         return failed
 

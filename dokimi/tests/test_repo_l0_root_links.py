@@ -33,6 +33,17 @@ def test_a_wildcard_in_a_link_target_name_does_not_match_a_sibling_directory(tmp
     assert got[("AGENTS.md", "owner/*.cfg")] == ("fail", "owner/ exists but nothing in it matches *.cfg")
 
 
+@pytest.mark.parametrize("ignore", ["src/a*/.gitignore", "src/ax/.gitignore"], ids=["target-rule", "sibling-rule"])
+def test_a_glob_below_a_link_to_a_wildcard_name_asks_only_that_directory_s_gitignore(tmp_path, ignore):
+    """``owner -> src/a*``: a rule in ``src/a*/`` ignores ``owner/*.cfg``, one in the sibling ``src/ax/`` does not."""
+    files = {"AGENTS.md": "Run `owner/*.cfg`.\n", "ev/tasks/t/task.json": "{}", "src/a*/x": "", ignore: "*.cfg\n"}
+    got = _by_file(scan_repo(_linked_repo(tmp_path / "r", files, {"owner": "src/a*"}), _manifest()))
+    why = "owner/ exists but nothing in it matches *.cfg"
+    cited = f"; {ignore}:1 (`*.cfg`) ignores it, so it is likely generated rather than tracked"
+    want = ("unresolved", why + cited) if ignore.startswith("src/a*") else ("fail", why)
+    assert got[("AGENTS.md", "owner/*.cfg")] == want
+
+
 @pytest.mark.parametrize("target", [".", "src/.."])
 def test_a_glob_below_a_root_link_to_the_root_matches_at_the_root(tmp_path, target):
     """``owner -> .`` lists the root under ``owner/``, so ``x.cfg`` there matches ``owner/*.cfg``."""
