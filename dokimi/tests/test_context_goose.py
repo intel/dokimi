@@ -171,7 +171,7 @@ def test_a_session_log_through_a_pipe_is_read_whole(tmp_path, capsys):
     finally:
         os.close(read_fd)
     captured = capsys.readouterr()
-    assert json.loads(captured.out)["sessions"] == 1 and "✗" not in captured.err
+    assert json.loads(captured.out)["data"]["sessions"] == 1 and "✗" not in captured.err
 
 
 def test_a_user_message_of_several_text_blocks_is_one_prompt(tmp_path):
