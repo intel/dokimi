@@ -391,7 +391,7 @@ _NEGATED = re.compile(r"(?i)\bnot\b|n't\b|\bnever\b|\bno\b|\bavoid\w*|\bwithout\
 _ASSIGNED = re.compile(r"""(?<![\w-])(--[A-Za-z][\w-]*)=(?:"[^"\n]*"|'[^'\n]*'|[^\s,;|&]+)""")
 #: A standalone ``--`` ends the options of a command: the words after it, up to the end of the
 #: clause, are operands (``perf report --stdio -- --foo`` names no option of ``perf report``).
-_OPERANDS = re.compile(r"(?<!\S)--(?!\S)[^\n.;!?`#]*")
+_OPERANDS = re.compile(r"(?<!\S)--(?!\S)(?:(?!\.(?:\s|$))[^\n;!?`#])*")
 #: A word a flag takes after a space (``--sort no``) is its value: it negates no clause and, with the
 #: default pattern, names no option (``--input "no --stdin"``; a quoted ``--x`` still does).
 _VALUE_WORD = re.compile(

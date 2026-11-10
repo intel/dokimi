@@ -75,6 +75,8 @@ def test_a_standalone_double_dash_ends_the_options_of_a_command():
     # After "--" the words are operands: "--foo" there is a file name, not an option of the tool.
     assert grade_check(_veto(), "q", "perf report --stdio -- --foo", None).passed is True
     assert grade_check(_veto(), "q", "perf report --stdin -- --foo", None).passed is False
+    # A dot in a path is not the end of the clause: the operands run on to the sentence end.
+    assert grade_check(_veto(), "q", "perf report --stdio -- ./perf.data --foo", None).passed is True
 
 
 def test_a_tool_check_leaves_its_subcommands_alone():
