@@ -832,8 +832,9 @@ instead. Two records name one model when they have the same id and snapshot: a B
 inference profile, a regional profile, a `-vN:M` revision or the same model behind another route count
 as the same model; two different dated snapshots, or the same name under another organization, are two models.
 A custom dotted name (`alice.model`) is not a vendor prefix, and a `huggingface/` route keeps its organization.
-A dated snapshot and its undated alias are neither: the alias does not record which snapshot answered, so the
-role is named on stderr as not verified, and `--strict` exits 1 on it. A baseline saved before a default-model
+A dated snapshot and its undated alias are neither, and so is a Claude CLI alias (`sonnet`, `opus[1m]`) and
+any full id of its family (`claude-sonnet-4-5`, `claude-3-5-sonnet-20240620`): the alias does not record which
+snapshot answered, so the role is named on stderr as not verified, and `--strict` exits 1 on it. A baseline saved before a default-model
 change is such a baseline. A panel
 artifact (`eval score panel`) is compared by its judge models: the panels must have the same number of judges
 and the same models, and a judge that matches the other panel's only through such an alias makes the role
