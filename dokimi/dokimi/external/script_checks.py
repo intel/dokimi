@@ -554,7 +554,8 @@ def _shell_options(data: bytes) -> Optional[list[str]]:
             i += 2  # a flag word ending in o takes the next word as its -o option, as -euo pipefail does
         else:
             return None
-    if _shopt_extglob(_unquoted_text(data)) and "extglob" not in options:
+    ksh = bool(words) and os.path.basename(words[0]) == "ksh"  # ksh has the extended patterns on, always
+    if (ksh or _shopt_extglob(_unquoted_text(data))) and "extglob" not in options:
         # A script that turns extglob on with ``shopt -s extglob`` has its patterns parsed only after that
         # runs, and bash -n runs nothing: so the option is given when a line of the script turns it on.
         options += ["-O", "extglob"]

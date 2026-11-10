@@ -613,7 +613,7 @@ def test_a_shebang_option_bash_n_cannot_reproduce_leaves_the_script_unjudged(tmp
     assert runner.calls == []
 
 
-@pytest.mark.parametrize("interpreter", ["sh", "dash", "ksh"])
+@pytest.mark.parametrize("interpreter", ["sh", "dash"])
 def test_a_sh_shebang_is_checked_by_bash_n(tmp_path, interpreter):
     skill = _bundle(tmp_path, {"run.sh": f"#!/bin/{interpreter}\nif true; then\n".encode()})
     runner = process.FakeRunner(lambda call: process.reply(stderr=f"{interpreter}: line 2: syntax error\n", returncode=2))
@@ -744,3 +744,11 @@ def test_a_shebang_flag_word_or_end_of_options_that_changes_no_parse_keeps_the_c
 
     assert [code for _, code, _ in findings] == ["script-syntax"]
     assert runner.calls[0].argv == ("/usr/bin/bash", "-n")
+
+
+def test_a_ksh_script_is_checked_with_extglob_on_as_ksh_always_has_it(tmp_path):
+    skill = _bundle(tmp_path, {"run.sh": b"#!/bin/ksh\ncase $1 in @(a|b)) echo x;; esac\n"})
+    runner = process.FakeRunner(lambda call: process.reply(returncode=0))
+
+    assert script_findings(skill, which=_tools("bash"), runner=runner) == []
+    assert runner.calls[0].argv == ("/usr/bin/bash", "-O", "extglob", "-n")
