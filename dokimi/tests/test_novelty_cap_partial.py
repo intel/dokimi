@@ -232,6 +232,11 @@ def test_extraction_that_loses_its_first_call_to_the_cap_keeps_a_partial_result(
     assert report.partial["spans_read"] == 0
     assert report.partial["message"] == "--max-usd stopped extraction with 0 of 200 spans read"
     assert all(span.unread for span in spans)
+    # The empty reply before the cap is a cause the user can act on; the spans the cap left
+    # unread are the cap's doing, which the exit message names, so they are not counted again.
+    warnings = report.warnings(len(spans))
+    assert any("got an empty reply" in warning for warning in warnings)
+    assert not any("could not read 200 of" in warning for warning in warnings)
 
 
 def test_the_faithfulness_check_counts_the_spans_extraction_left_unread(monkeypatch):
