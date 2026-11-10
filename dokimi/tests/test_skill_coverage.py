@@ -130,7 +130,7 @@ def test_task_test_functions_are_checks_and_a_shared_body_is_one_check(tmp_path)
     shared = "def test_flag():\n    assert True\n"
     root = tmp_path / "tasks"
     _task(root, "t1", {"test_answer.py": shared + "\ndef helper():\n    pass\n"})
-    _task(root, "t2", {"test_answer.py": shared})
+    _task(root, "t2", {"test_answer.py": shared + "\ndef helper():\n    pass\n"})  # the same module code too
     _task(root, "t3", {"test_answer.py": "def test_flag():\n    assert False\n"})
     checks = {c.name: c for c in sc.load_checks(root)}
     assert set(checks) == {"test_flag#1", "test_flag#2"}  # two bodies: numbered, not merged
@@ -221,11 +221,23 @@ def test_a_constant_that_a_helper_reads_is_part_of_the_check(tmp_path):
     assert any('FLAG = "-y"' in c.source for c in checks)
 
 
-def test_module_code_a_test_does_not_read_stays_out_of_its_check(tmp_path):
-    root = tmp_path / "tasks"
+def test_module_code_a_test_does_not_read_is_still_part_of_its_check(tmp_path):
+    root = tmp_path / "tasks"  # the whole module code of the tests folder is the check's context, read or not
     _task(root, "t1", {"test_answer.py": "NOISE = 'unrelated'\n\ndef test_answer():\n    assert True\n"})
     [check] = sc.load_checks(root)
-    assert check.source == "def test_answer():\n    assert True"
+    assert check.source == "NOISE = 'unrelated'\n\ndef test_answer():\n    assert True"
+
+
+def test_a_helper_module_of_the_folder_is_part_of_every_check_in_it(tmp_path):
+    root = tmp_path / "tasks"  # the test imports the constant from a helper; the helper's file is read too
+    for task, flag in (("t1", "-x"), ("t2", "-y")):
+        _task(root, task, {
+            "helpers.py": f"EXPECTED = '{flag}'\n",
+            "test_answer.py": "from helpers import EXPECTED\n\ndef test_answer(answer):\n    assert answer == EXPECTED\n"})
+    checks = sc.load_checks(root)
+    assert sorted(c.name for c in checks) == ["test_answer#1", "test_answer#2"]
+    assert any("EXPECTED = '-x'" in c.source for c in checks)
+    assert any("EXPECTED = '-y'" in c.source for c in checks)
 
 
 def test_a_conftest_fixture_a_test_reads_is_part_of_its_check(tmp_path):
@@ -239,7 +251,7 @@ def test_a_conftest_fixture_a_test_reads_is_part_of_its_check(tmp_path):
     assert sorted(c.name for c in checks) == ["test_answer#1", "test_answer#2"]
     assert any("return '-x'" in c.source for c in checks)
     assert any("return '-y'" in c.source for c in checks)
-    assert all("unrelated" not in c.source for c in checks)  # a fixture the test does not name stays out
+    assert all("def unrelated" in c.source for c in checks)  # a fixture the test does not name is module code too
 
 
 def test_a_fixture_renamed_by_its_decorator_is_part_of_its_check(tmp_path):

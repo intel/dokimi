@@ -11,10 +11,10 @@ a test can swap the transport for a stub:
 2. :func:`map_requirements` reads those requirements and the eval set's checks, and names the
    checks that would fail if an answer or run violated each requirement.
 
-A check is one ``evals.json`` row (its id) or one top-level ``test_*`` function under a task's
-``tests/`` (named by the function; a function whose text differs between tasks gets a number). A task check's
-text is the function with the module-level code it reads: its constants, helpers, imports and the ``conftest.py``
-fixtures of its folder that it names.
+A check is one ``evals.json`` row (its id) or one test of a task's ``tests/``: a ``test_*`` function (named by
+the function) or a ``test_*`` method of a ``Test*`` class (named ``Class::method``). A task check's text is the
+module-level code of the whole ``tests/`` folder (conftest, helpers, every test file), then the test; a test whose
+text differs between tasks gets a number.
 A requirement that no check names is uncovered: it is a *candidate check* to write.
 
 The map is LLM-estimated and unverified beyond a prototype's labelled calibration set (88 items, not shipped:
@@ -125,7 +125,7 @@ def check_files(root: Path) -> list[Path]:
     """The task test files :func:`load_checks` reads under a tasks root, resolved (an ``--out`` must not name one)."""
     if not root.is_dir():
         return []
-    return [p.resolve() for task in root.iterdir() if _is_task(task) for p in (task / "tests").glob("*.py")]
+    return [p.resolve() for task in root.iterdir() if _is_task(task) for p in (task / "tests").rglob("*.py")]
 
 
 def _source(text: str, node: ast.stmt) -> str:
@@ -140,118 +140,48 @@ def _is_test(node: ast.stmt) -> bool:
     return isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test_")
 
 
-def _reads(node: ast.AST) -> set[str]:
-    """The names a statement reads: its Name nodes, and its parameters (a fixture is read as a parameter)."""
-    return ({n.id for n in ast.walk(node) if isinstance(n, ast.Name)}
-            | {a.arg for a in ast.walk(node) if isinstance(a, ast.arg)})
+def _is_test_class(node: ast.stmt) -> bool:
+    """A class pytest collects (``Test*``): its test methods are checks, and the rest of its body is their context."""
+    return isinstance(node, ast.ClassDef) and node.name.startswith("Test")
 
 
-def _callee(func: ast.expr) -> str:
-    return func.attr if isinstance(func, ast.Attribute) else func.id if isinstance(func, ast.Name) else ""
+def _is_test_file(path: Path) -> bool:
+    """A file pytest collects by its default pattern (``test_*.py`` or ``*_test.py``), in any folder under ``tests/``."""
+    return path.name.startswith("test_") or path.name.endswith("_test.py")
 
 
-def _decorator(node: ast.stmt, name: str) -> ast.Call | None:
-    """The call of a decorator named ``name`` (``pytest.fixture(...)``, ``pytest.mark.usefixtures(...)``), if any."""
-    for dec in getattr(node, "decorator_list", []):
-        if isinstance(dec, ast.Call) and _callee(dec.func) == name:
-            return dec
-    return None
-
-
-def _binds(node: ast.stmt) -> set[str]:
-    """The names a module-level statement binds: a def or class name, a fixture's ``name=`` alias, an import, an
-    assignment target, or the list a method call on a name changes (``EXPECTED.append(...)``)."""
-    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-        names = {node.name}
-        fixture = _decorator(node, "fixture")
-        names |= {kw.value.value for kw in (fixture.keywords if fixture else [])
-                  if kw.arg == "name" and isinstance(kw.value, ast.Constant) and isinstance(kw.value.value, str)}
-        return names
-    if isinstance(node, (ast.Import, ast.ImportFrom)):
-        return {(a.asname or a.name).split(".")[0] for a in node.names}
-    names = {n.id for n in ast.walk(node) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store)}
-    # a store into an object or a list (``CASES['k'] = ...``, ``CFG.flag = ...``) and a method call that fills one
-    # (``EXPECTED.append(...)``), in the statement or in a block it holds (a ``for`` loop, an ``if``)
-    for sub in ast.walk(node):
-        if isinstance(sub, (ast.Assign, ast.AugAssign, ast.AnnAssign)):
-            targets = sub.targets if isinstance(sub, ast.Assign) else [sub.target]
-            roots = [_root_name(t) for t in targets if isinstance(t, (ast.Attribute, ast.Subscript))]
-        elif isinstance(sub, ast.Expr) and isinstance(sub.value, ast.Call) and isinstance(sub.value.func, ast.Attribute):
-            roots = [_root_name(sub.value.func.value)]
-        else:
-            continue
-        names |= {root for root in roots if root}
-    return names
-
-
-def _root_name(node: ast.expr) -> str | None:
-    """The name at the root of an attribute or subscript chain: ``CFG`` in ``CFG.a.b`` and in ``CASES['k']``."""
-    while isinstance(node, (ast.Attribute, ast.Subscript)):
-        node = node.value
-    return node.id if isinstance(node, ast.Name) else None
-
-
-_Stmt = tuple[set[str], set[str], str, bool]  # the names a module-level statement binds and reads, its source, and
-                                              # whether it is an autouse fixture (run by every test of its pool)
-
-
-def _pool(text: str, tree: ast.Module) -> list[_Stmt]:
-    out: list[_Stmt] = []
-    for n in tree.body:
-        if _is_test(n):
-            continue
-        fixture = _decorator(n, "fixture")
-        autouse = fixture is not None and any(kw.arg == "autouse" and isinstance(kw.value, ast.Constant)
-                                              and kw.value.value is True for kw in fixture.keywords)
-        out.append((_binds(n), _reads(n), _source(text, n), autouse))
+def _module_code(tests: Path) -> list[str]:
+    """The module-level code of every Python file under a task's ``tests/``, in path order, minus the tests (a
+    ``test_*`` function, a ``Test*`` class). It is the context of every check of the folder, read or not: a constant,
+    helper, fixture or list that one statement fills can decide an assertion in another file."""
+    out: list[str] = []
+    for path in sorted(tests.rglob("*.py")):
+        text, tree = _parse(path)
+        out += [_source(text, node) for node in tree.body if not _is_test(node) and not _is_test_class(node)]
     return out
-
-
-def _usefixtures(test: ast.stmt) -> set[str]:
-    """The fixture names a test asks for by string: ``@pytest.mark.usefixtures('name', ...)``, each decorator."""
-    out: set[str] = set()
-    for dec in getattr(test, "decorator_list", []):
-        if isinstance(dec, ast.Call) and _callee(dec.func) == "usefixtures":
-            out |= {a.value for a in dec.args if isinstance(a, ast.Constant) and isinstance(a.value, str)}
-    return out
-
-
-def _context(pool: list[_Stmt], test: ast.stmt) -> list[str]:
-    """The module-level code a test reads, in source order: each statement of ``pool`` (the test's file, after the
-    ``conftest.py`` of its tests folder) that binds a name the test reads (a constant, a helper, an import, a
-    fixture, a list a statement fills), and the names that statement reads in turn. An autouse fixture and a fixture
-    the test names in ``usefixtures`` run for the test without being read, so they are needed too. Other module code
-    stays out, so a check's source is what decides it and no more."""
-    need = _reads(test) | _usefixtures(test) | {name for bound, _, _, autouse in pool if autouse for name in bound}
-    picked: set[int] = set()
-    grew = True
-    while grew:
-        grew = False
-        for i, (bound, reads, _, _) in enumerate(pool):
-            if i not in picked and bound & need:
-                picked.add(i)
-                need |= reads
-                grew = True
-    return [pool[i][2] for i in sorted(picked)]
 
 
 def _task_checks(root: Path) -> list[tuple[str, str, str]]:
-    """(task, function name, source) for each top-level ``test_*`` function under a task's ``tests/``. The source
-    is the function with the module-level code it reads (see :func:`_context`), and the ``conftest.py`` fixtures
-    of that folder are module code of every file in it."""
+    """(task, check name, source) for each test: a ``test_*`` function of a test file under a task's ``tests/``, and
+    each ``test_*`` method of a ``Test*`` class in one (named ``Class::method``). The source is the module code of the
+    folder (see :func:`_module_code`), then the class body's other statements for a method, then the test itself."""
     out: list[tuple[str, str, str]] = []
     for task_dir in sorted(p for p in root.iterdir() if _is_task(p)):
         tests = task_dir / "tests"
-        shared: list[_Stmt] = []
-        if (tests / "conftest.py").is_file():
-            shared = _pool(*_parse(tests / "conftest.py"))
-        for path in sorted(tests.glob("*.py")):
+        module = _module_code(tests)
+        for path in sorted(tests.rglob("*.py")):
+            if not _is_test_file(path):
+                continue
             text, tree = _parse(path)
-            pool = shared + _pool(text, tree)
             for node in tree.body:
-                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and _is_test(node):
-                    source = _source(text, node) or node.name
-                    out.append((task_dir.name, node.name, "\n\n".join([*_context(pool, node), source])))
+                if _is_test(node):
+                    out.append((task_dir.name, node.name, "\n\n".join([*module, _source(text, node) or node.name])))
+                elif _is_test_class(node):
+                    context = [_source(text, s) for s in node.body if not _is_test(s)]
+                    for method in node.body:
+                        if _is_test(method):
+                            out.append((task_dir.name, f"{node.name}::{method.name}",
+                                        "\n\n".join([*module, *context, _source(text, method) or method.name])))
     return out
 
 
