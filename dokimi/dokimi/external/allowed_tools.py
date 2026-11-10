@@ -91,6 +91,11 @@ def _tool_entries(value: str) -> list[tuple[str, Optional[str]]]:
             j += 1
         name = value[i:j]
         i = j
+        k = i  # `Bash (git:*)`: spaces between the name and its group do not end the entry
+        while k < n and value[k].isspace():
+            k += 1
+        if k < n and value[k] == "(":
+            i = k
         if i < n and value[i] == "(":
             end, quotes = _group_end_checked(value, i, quotes)
             if end is None:

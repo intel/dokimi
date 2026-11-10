@@ -25,7 +25,10 @@ def _review(tmp_path, extra, body="# Body\n"):
 
 @pytest.mark.parametrize(
     "value",
-    ["Bash", "Read, Bash, Write", "Read Bash", "Bash(*)", "Bash(:*)", "Bash()", ["Read", "Bash"], ["Bash(*)"]],
+    [
+        "Bash", "Read, Bash, Write", "Read Bash", "Bash(*)", "Bash(:*)", "Bash()", ["Read", "Bash"], ["Bash(*)"],
+        "Bash (*)", "Bash ()",
+    ],
 )
 def test_an_unrestricted_bash_grant_is_found(value):
     assert _unrestricted_bash(value)
@@ -47,6 +50,9 @@ def test_an_unrestricted_bash_grant_is_found(value):
         "Bash(",
         "Bash(:*",
         "Bash(* Read",
+        "Bash (git:*)",
+        "Bash (git:*), Read",
+        "Bash (git:*",
     ],
 )
 def test_a_scoped_or_absent_grant_is_not(value):
