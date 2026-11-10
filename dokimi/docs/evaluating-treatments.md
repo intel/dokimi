@@ -792,9 +792,12 @@ change any score or any gate.
 scope, must hold, success criteria, failure modes) and names, for each one, the eval checks
 that would fail if a run violated it. Requirements no check names are printed as **candidate
 checks** to write. The eval set is either an `evals.json`, a skill directory, or a tasks root;
-a check is an evals row (by id) or a `test_*` function under a task's `tests/`. A task check's text is the
-function with the module-level code it reads (constants, helpers, imports, and the `conftest.py` fixtures it names),
-so two tests with the same body but different constants or fixtures are two checks.
+a check is an evals row (by id), a `test_*` function in a test file under a task's `tests/` (any
+subfolder), or a `test_*` method of a `Test*` class (named `Class::method`). A task check's text is the
+module-level code of the whole `tests/` folder (constants, helpers, imports, and `conftest.py`), then the
+class body for a method, then the test itself. So two tests with the same body but different constants,
+helpers or fixtures are two checks. That context is in every check of the folder, read or not, so a
+helper one file defines can decide an assertion in another.
 
 ```bash
 python cli.py eval skill-coverage skills/demo/SKILL.md evals/evals.json \
@@ -811,8 +814,13 @@ python cli.py eval skill-coverage skills/demo/SKILL.md evals/evals.json \
   check text of that time. Neither figure was re-measured on the current check text, and the report
   does not carry them: its label says only that the map is LLM-estimated. Nothing reads the output
   as a score or a gate, and the command exits 0 whenever the map was made.
+- The checks go to the mapping call in one prompt, capped at **120,000 characters**. The cap is checked
+  before the first paid call: an eval set over it exits 2 with a message to map a smaller set. The
+  folder's module code is repeated in each of its checks, so a large `tests/` folder with many tests
+  reaches the cap sooner.
 - A check name the model invents is dropped and counted (`check_names_dropped`); requirements
-  past 80 are cut and counted (`requirements_dropped`).
+  past 80 are cut and counted (`requirements_dropped`). A listed row that is not a requirement (not an
+  object, an unknown section, or no text) is counted separately (`requirements_unusable`), not as a cut.
 - This is not `eval coverage`. That command checks the `needs` labels of a need graph against
   the eval set's structure. This one maps requirements of the skill's text to checks, so the
   two can disagree; neither reads the other's output.
