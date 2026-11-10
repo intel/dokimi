@@ -6,7 +6,9 @@
 Points at a local checkout the caller already produced (e.g.
 ``git clone https://github.com/uxlfoundation/skills`` or
 ``https://github.com/intel/skills``) -- nothing here
-fetches anything over the network. See ``dokimi.external.catalog``
+fetches anything over the network, except ``catalog check --online``
+(``dokimi.external.online_checks``), which requests PyPI, npm and the
+links of each skill. See ``dokimi.external.catalog``
 for the manifest formats understood.
 """
 
