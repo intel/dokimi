@@ -61,7 +61,7 @@
     },
     "summary": {
       "type": "object",
-      "required": ["requirements", "covered", "candidate_checks", "by_section", "checks", "requirements_dropped", "check_names_dropped"],
+      "required": ["requirements", "covered", "candidate_checks", "by_section", "checks", "requirements_dropped", "requirements_unusable", "check_names_dropped"],
       "additionalProperties": false,
       "properties": {
         "requirements": {"type": "integer", "minimum": 0},
@@ -76,8 +76,9 @@
             "properties": {"covered": {"type": "integer", "minimum": 0}, "total": {"type": "integer", "minimum": 1}}
           }
         },
-        "checks": {"type": "integer", "minimum": 0, "description": "Checks the eval set has (evals.json rows and task test functions)"},
+        "checks": {"type": "integer", "minimum": 0, "description": "Checks the eval set has (evals.json rows and task tests)"},
         "requirements_dropped": {"type": "integer", "minimum": 0, "description": "Requirements the model listed past the cap"},
+        "requirements_unusable": {"type": "integer", "minimum": 0, "description": "Rows the model listed that are not a requirement (not an object, an unknown section, or no text)"},
         "check_names_dropped": {"type": "integer", "minimum": 0, "description": "Check names the model named that the eval set does not have"}
       }
     },

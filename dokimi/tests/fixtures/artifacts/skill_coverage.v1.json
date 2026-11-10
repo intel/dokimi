@@ -30,6 +30,7 @@
     },
     "checks": 2,
     "requirements_dropped": 0,
+    "requirements_unusable": 0,
     "check_names_dropped": 1
   },
   "cost": {"model": "claude-sonnet-5-5", "provider": "anthropic", "role": "coverage", "llm_calls": 2, "usd": null}

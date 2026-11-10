@@ -103,7 +103,7 @@ def cmd_eval_skill_coverage(args: argparse.Namespace) -> None:
 
     client = _client(args)
     try:
-        requirements, requirements_dropped = extract_requirements(skill, client)
+        requirements, requirements_dropped, requirements_unusable = extract_requirements(skill, client)
         links = map_requirements(requirements, checks, client)
     except SpendCapReached as exc:
         print(f"Error: the --max-usd cap was reached: {exc}", file=sys.stderr)
@@ -114,7 +114,8 @@ def cmd_eval_skill_coverage(args: argparse.Namespace) -> None:
     provider, model = args.model
     report = coverage_report(skill, requirements, checks, links, evals_root=str(evals), model=model,
                              provider=provider, cost=client.cost_summary(),
-                             requirements_dropped=requirements_dropped)
+                             requirements_dropped=requirements_dropped,
+                             requirements_unusable=requirements_unusable)
     print(render_markdown(report))  # printed first: a failed write after both paid calls must not lose the table
     if args.out:
         try:

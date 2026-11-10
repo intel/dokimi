@@ -174,12 +174,12 @@ def _task_checks(root: Path) -> list[tuple[str, str, str]]:
                 continue
             text, tree = _parse(path)
             for node in tree.body:
-                if _is_test(node):
+                if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and _is_test(node):
                     out.append((task_dir.name, node.name, "\n\n".join([*module, _source(text, node) or node.name])))
-                elif _is_test_class(node):
+                elif isinstance(node, ast.ClassDef) and _is_test_class(node):
                     context = [_source(text, s) for s in node.body if not _is_test(s)]
                     for method in node.body:
-                        if _is_test(method):
+                        if isinstance(method, (ast.FunctionDef, ast.AsyncFunctionDef)) and _is_test(method):
                             out.append((task_dir.name, f"{node.name}::{method.name}",
                                         "\n\n".join([*module, *context, _source(text, method) or method.name])))
     return out
@@ -257,8 +257,9 @@ SKILL.md:
 >>>"""
 
 
-def extract_requirements(skill: SkillDoc, client: LLMClient) -> tuple[list[Requirement], int]:
-    """The skill's requirements (ids like ``mh-03``) and how many the model listed past the cap.
+def extract_requirements(skill: SkillDoc, client: LLMClient) -> tuple[list[Requirement], int, int]:
+    """The skill's requirements (ids like ``mh-03``), how many the model listed past the cap, and how many rows
+    it listed that are not usable (not an object, an unknown section, or no text).
 
     Raises :class:`SkillCoverageError` when no usable reply comes back.
     """
@@ -272,8 +273,10 @@ def extract_requirements(skill: SkillDoc, client: LLMClient) -> tuple[list[Requi
     counters = {section: 0 for section in SECTIONS}
     out: list[Requirement] = []
     dropped = 0
+    unusable = 0
     for row in reply.get("requirements") or []:
         if not _usable_row(row):
+            unusable += 1
             continue
         if len(out) >= MAX_REQUIREMENTS:
             dropped += 1
@@ -282,7 +285,7 @@ def extract_requirements(skill: SkillDoc, client: LLMClient) -> tuple[list[Requi
         counters[section] += 1
         out.append(Requirement(id=f"{PREFIX[section]}-{counters[section]:02d}", section=section,
                                text=_flat(row["text"])))
-    return out, dropped
+    return out, dropped, unusable
 
 
 _MAP_SYSTEM = "You map requirements of an AI agent skill to the eval checks that would detect a violation of them."
@@ -370,7 +373,7 @@ def map_requirements(requirements: list[Requirement], checks: list[Check], clien
 
 def coverage_report(skill: SkillDoc, requirements: list[Requirement], checks: list[Check], links: Links, *,
                     evals_root: str, model: str, provider: str, cost: dict[str, Any],
-                    requirements_dropped: int) -> dict[str, Any]:
+                    requirements_dropped: int, requirements_unusable: int = 0) -> dict[str, Any]:
     """The ``skill_coverage.v1`` payload (unstamped) for one skill, its requirements and the model's links."""
     by_id = {c.name: c for c in checks}
     rows = []
@@ -401,6 +404,7 @@ def coverage_report(skill: SkillDoc, requirements: list[Requirement], checks: li
             "by_section": sections,
             "checks": len(checks),
             "requirements_dropped": requirements_dropped,
+            "requirements_unusable": requirements_unusable,
             "check_names_dropped": links.dropped_names,
         },
         "cost": cost,
@@ -431,6 +435,8 @@ def render_markdown(report: dict[str, Any]) -> str:
     notes = []
     if s["requirements_dropped"]:
         notes.append(f"{s['requirements_dropped']} requirement(s) past the cap of {MAX_REQUIREMENTS}")
+    if s["requirements_unusable"]:
+        notes.append(f"{s['requirements_unusable']} requirement row(s) not usable (unknown section or no text)")
     if s["check_names_dropped"]:
         notes.append(f"{s['check_names_dropped']} check name(s) the eval set does not have")
     if notes:

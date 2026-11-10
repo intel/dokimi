@@ -370,19 +370,20 @@ def test_stacked_usefixtures_decorators_keep_every_fixture_of_their_check(tmp_pa
 
 def test_extract_requirements_numbers_by_section_and_skips_bad_rows(tmp_path):
     client, transport = _client(EXTRACT)
-    reqs, dropped = sc.extract_requirements(sc.read_skill(_skill(tmp_path)), client)
+    reqs, dropped, unusable = sc.extract_requirements(sc.read_skill(_skill(tmp_path)), client)
     assert [(r.id, r.section) for r in reqs] == [
         ("trig-01", "triggers"), ("mh-01", "must_hold"), ("mh-02", "must_hold")]
     assert dropped == 0
+    assert unusable == 2  # the unknown section and the blank text: counted, not capped
     assert "Use the -x flag." in transport.prompts[0]  # the SKILL.md text is in the prompt
 
 
 def test_extract_requirements_caps_the_list_and_counts_what_it_cut(tmp_path, monkeypatch):
     monkeypatch.setattr(sc, "MAX_REQUIREMENTS", 2)
     client, _ = _client(EXTRACT)
-    reqs, dropped = sc.extract_requirements(sc.read_skill(_skill(tmp_path)), client)
+    reqs, dropped, unusable = sc.extract_requirements(sc.read_skill(_skill(tmp_path)), client)
     assert len(reqs) == 2
-    assert dropped == 1  # the blank row is skipped, not counted; the third valid row is cut
+    assert dropped == 1  # the third valid row is cut; the blank row is unusable, not cut
 
 
 def test_an_unusable_requirement_reply_is_a_run_failure(tmp_path):
@@ -396,6 +397,21 @@ def test_a_requirement_object_with_no_usable_rows_is_a_run_failure(tmp_path):
     client, _ = _client('{"requirements": [{"section": "nope", "text": "x"}]}')
     with pytest.raises(sc.SkillCoverageError, match="no usable requirement list"):
         sc.extract_requirements(sc.read_skill(_skill(tmp_path)), client)
+
+
+def test_unusable_requirement_rows_are_counted_in_the_summary_and_the_note_not_as_cut(tmp_path):
+    skill = sc.read_skill(_skill(tmp_path))
+    client, _ = _client(EXTRACT)
+    reqs, dropped, unusable = sc.extract_requirements(skill, client)
+    checks = sc.load_checks(_evals(tmp_path))
+    report = sc.coverage_report(skill, reqs, checks, sc.Links(by_requirement={}, dropped_names=0), evals_root="x",
+                                model="m", provider="anthropic", cost={}, requirements_dropped=dropped,
+                                requirements_unusable=unusable)
+    assert report["summary"]["requirements_unusable"] == 2 and report["summary"]["requirements_dropped"] == 0
+    assert "2 requirement row(s) not usable (unknown section or no text)" in sc.render_markdown(report)
+    clean = sc.coverage_report(skill, reqs, checks, sc.Links(by_requirement={}, dropped_names=0), evals_root="x",
+                               model="m", provider="anthropic", cost={}, requirements_dropped=0)
+    assert "not usable" not in sc.render_markdown(clean)  # no note when there is nothing unusable
 
 
 def test_map_requirements_keeps_known_names_and_counts_the_rest(tmp_path):
@@ -428,7 +444,7 @@ def _report(tmp_path: Path) -> dict:
     skill = sc.read_skill(_skill(tmp_path))
     checks = sc.load_checks(_evals(tmp_path))
     client, _ = _client(EXTRACT, MAP)
-    reqs, dropped = sc.extract_requirements(skill, client)
+    reqs, dropped, unusable = sc.extract_requirements(skill, client)
     links = sc.map_requirements(reqs, checks, client)
     return sc.coverage_report(skill, reqs, checks, links, evals_root="evals.json", model="m",
                               provider="anthropic", cost={"model": "m"}, requirements_dropped=dropped)
@@ -658,9 +674,9 @@ def test_a_requirement_with_null_or_non_string_text_is_not_usable(tmp_path):
         {"section": "must_hold", "text": "Use the -x flag"},
     ]})
     client, _ = _client(reply)
-    reqs, dropped = sc.extract_requirements(sc.read_skill(_skill(tmp_path)), client)
+    reqs, dropped, unusable = sc.extract_requirements(sc.read_skill(_skill(tmp_path)), client)
     assert [r.text for r in reqs] == ["Use the -x flag"]
-    assert dropped == 0
+    assert dropped == 0 and unusable == 2
     client, _ = _client('{"requirements": [{"section": "must_hold", "text": null}]}')
     with pytest.raises(sc.SkillCoverageError, match="no usable requirement list"):
         sc.extract_requirements(sc.read_skill(_skill(tmp_path)), client)
