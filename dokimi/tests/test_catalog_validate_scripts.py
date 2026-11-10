@@ -70,7 +70,7 @@ def test_a_shell_script_with_crlf_line_endings_is_a_warning(tmp_path, no_linters
     assert _codes(review) == ["script-crlf"]
 
 
-def test_an_extensionless_shebang_script_with_crlf_is_an_error(tmp_path, no_linters):
+def test_an_extensionless_shebang_script_with_crlf_is_a_warning(tmp_path, no_linters):
     _bundle(tmp_path, {"tool": b"#!/bin/sh\r\necho hi\r\n"})
 
     assert _codes(_reviews_by_name(tmp_path)["bundled"]) == ["script-crlf"]
@@ -88,7 +88,7 @@ def test_a_python_file_that_does_not_parse_is_a_warning_with_its_line(tmp_path, 
 
 
 @needs_bash
-def test_a_shell_script_bash_rejects_is_an_error(tmp_path, no_linters):
+def test_a_shell_script_bash_rejects_is_a_warning(tmp_path, no_linters):
     _bundle(tmp_path, {"run.sh": b"#!/bin/bash\nif true; then\n  echo x\n"})  # no fi
 
     review = _reviews_by_name(tmp_path)["bundled"]
@@ -103,7 +103,7 @@ def test_a_bash_suffix_file_with_crlf_line_endings_is_a_warning(tmp_path, no_lin
 
 
 @needs_bash
-def test_a_bash_suffix_file_bash_rejects_is_an_error(tmp_path, no_linters):
+def test_a_bash_suffix_file_bash_rejects_is_a_warning(tmp_path, no_linters):
     _bundle(tmp_path, {"lib.bash": b"if true; then\n  echo x\n"})  # no fi
 
     review = _reviews_by_name(tmp_path)["bundled"]
