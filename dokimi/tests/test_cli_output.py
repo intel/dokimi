@@ -255,12 +255,13 @@ def test_trace_consistency_json_is_partial_when_some_trace_reads(tmp_path, capsy
     assert schema_errors("cli_output.v1", doc) == []
 
 
-def test_a_trace_leaf_refused_before_any_read_prints_a_failed_document(tmp_path, capsys):
-    args = cli.parse_args(["trace", "prefilter", str(tmp_path / "none.md"), str(tmp_path / "x.jsonl"), "--json"])
+def test_a_trace_leaf_refused_before_any_read_prints_an_input_error_document(tmp_path, capsys, monkeypatch):
+    monkeypatch.setattr("sys.argv", ["dokimi", "trace", "prefilter", str(tmp_path / "none.md"),
+                                     str(tmp_path / "x.jsonl"), "--json"])
     with pytest.raises(SystemExit) as exc:
-        args.func(args)
-    assert isinstance(exc.value.code, str)  # sys.exit(message): the interpreter exits 1
-    doc = json.loads(capsys.readouterr().out)  # one document; the exit message is the same text
+        cli.main()
+    doc = json.loads(capsys.readouterr().out)  # one document, on stdout
+    assert exc.value.code == 2
     assert doc["kind"] == "trace prefilter" and doc["status"] == "failed" and doc["data"] is None
-    assert exc.value.code == doc["reason"]
+    assert doc["error"]["code"] == "input" and "cannot read" in doc["error"]["message"]
     assert schema_errors("cli_output.v1", doc) == []
