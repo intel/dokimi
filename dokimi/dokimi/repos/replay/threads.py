@@ -6,8 +6,9 @@
 The input is any JSON that holds pull request objects, each one an object with ``number``
 and ``reviewThreads``: one response, the list of pages ``gh api graphql --paginate --slurp``
 writes, or a plain list of pull requests. Connections are read as ``{"nodes": [...]}`` or
-as a list. A pull request that two pages both hold is read once. ``repo tasks authoring``
-reads the objects with ``number`` and ``mergeCommit`` instead, and their ``body`` and ``createdAt``.
+as a list. A pull request that two pages both hold is read once.
+``eval tasks generate --from prs`` reads the objects with ``number`` and ``mergeCommit`` instead, and their
+``body`` and ``createdAt``.
 
 A thread is gold when its first comment was written by someone other than the pull
 request's author, not by a bot (``__typename`` ``Bot``, or a login ending in ``[bot]``),
@@ -61,7 +62,7 @@ class PullRequest:
     merge: str | None  # ``mergeCommit``
     threads: tuple[Thread, ...]
     reviews: tuple[tuple[str | None, bool, str], ...]  # (author, bot, body) of each review
-    body: str | None = None  # the description, None when the input has no `body`; read by `repo tasks authoring`
+    body: str | None = None  # the description, None when the input has no `body`; read by `--from prs`
     created: str = ""  # ``createdAt``, as the input gives it
 
 

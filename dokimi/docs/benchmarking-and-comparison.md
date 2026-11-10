@@ -13,7 +13,7 @@ results. Run all commands from `dokimi/`.
 `dokimi` has four practical comparison modes:
 
 - **Static snapshot comparison**: compare documentation quality snapshots from
-  `python cli.py run`.
+  `python cli.py docs check`.
 - **LLM context comparison**: compare one answer model's context-arm and
   baseline answers. Persisted JSON keeps the legacy `with_docs` and
   `without_docs` keys for compatibility.
@@ -31,7 +31,7 @@ Use the static benchmark when the question is "did this documentation snapshot
 get structurally better or worse?"
 
 ```bash
-python cli.py run \
+python cli.py docs check \
   --root . \
   --spec benchmarks/spec.v1.yaml \
   --out-json baselines/current.json \
@@ -49,7 +49,7 @@ so keep the first `baselines/current.json` you are happy with:
 ```bash
 cp baselines/current.json baselines/baseline.json   # once, after a clean run
 
-python cli.py compare \
+python cli.py docs compare \
   --base baselines/baseline.json \
   --candidate baselines/current.json \
   --spec benchmarks/spec.v1.yaml \
@@ -361,21 +361,48 @@ Arm contrasts and factorial-interaction contrasts are corrected as **separate
 families** — pooling them would inflate the multiplier on both — and each row
 records its `correction_family`, `family_size`, and `family_tested`.
 
+Each row's `p` is one two-sided sign-flip test on the per-question deltas: under
+the null each delta's sign is a fair coin, and p is the share of sign patterns
+whose |sum| reaches the observed one (exact up to 16 changed pairs, Monte Carlo
+with a fixed seed above). A delta within 1e-9 of 0 is a tie and carries no sign,
+so over k changed pairs (`n_changed`) p cannot go below 2/2^k: at 5 or fewer no
+data whatsoever reaches 0.05. The test runs from 2 pairs and its p is printed,
+and an arm under that floor stays in the correction family, as in `repo compare`.
+
 The **Sig.** column follows the *adjusted* p-value, not the raw one. Three
 values are possible:
 
 | Sig. | Meaning |
 |---|---|
-| `yes` | adjusted p < 0.05 **and** Wilcoxon < 0.05 when it could be computed |
-| `no` | the tests ran and did not clear 0.05 |
-| `—` | no test could run — fewer than 6 complete pairs, or the deltas are constant (a degenerate sample, where Cohen's d_z is *unbounded* rather than negligible) |
+| `yes` | adjusted p < 0.05 |
+| `no` | the test ran, a verdict was possible, and the adjusted p did not clear 0.05 |
+| `—` | no p (every pair tied), or the floor 2/2^k over the k changed pairs is not below 0.05 |
 
-A `—` is not a null result. Cohen's d_z and the p columns render `—` in the same
-situation rather than printing `0.00`, which would read as a measured no-effect.
+A `—` is not a null result. A constant shift is not a `—`: eight pairs that all
+gain +20 have p = 2/2^8 = 0.0078 and the interval [+20, +20]. Cohen's d_z is
+descriptive (no verdict reads it) and renders `—` there, where it is *unbounded*
+rather than negligible; it is 0.0 when every delta is 0.
 
-The 95% CI is a Student-t interval on the paired deltas, so it excludes zero
-exactly when the t-test rejects; `ci_method` records which estimator produced it
-(`student_t`, `percentile_bootstrap`, or `degenerate`).
+The 95% CI inverts the same sign-flip test: it is every shift theta at which the
+test on the deltas minus theta does not reject at 5%, so it excludes zero exactly
+when the raw p < 0.05. It is uncorrected: an arm whose interval excludes zero can
+still read `no` once Holm lifts its p past 0.05. Under a shift the tied pairs
+count again, so both ends are open (`null`, printed `-inf` / `+inf`) at 5 or
+fewer pairs and bounded from 6 on. Six or more pairs that all tie get the
+interval [0, 0] with no p and a `—`: nothing speaks against 0, and every other
+shift moves all the pairs to one side, which the test rejects, as it does every
+shift but +20 for eight +20 pairs. `ci_method` is `sign_flip_inversion`; an
+`arms.json` written before this method holds `student_t`, `percentile_bootstrap`
+or `degenerate` there, and `p_ttest` (with `p_wilcoxon`, `n_wilcoxon`) instead of
+`p`, and the report still renders it.
+
+The verdicts moved when the arms took this test. The rule before it, adjusted
+t-test p < 0.05 *and* Wilcoxon < 0.05, was conservative: on simulated judge
+deltas its false-positive rate was about 3% at a nominal 5%, against the
+sign-flip test's 5%, and its t interval contradicted its own verdict in up to 11%
+of runs. Verdicts near 0.05 move, almost always toward significant: of 418
+changed verdicts in that simulation, 2 went the other way
+([#421](https://github.com/intel/dokimi/issues/421#issuecomment-6723155135)).
 
 The judged artifact carries the whole block at
 `summary.per_arm.<arm>.significance`, so the table above is renderable from the
@@ -407,8 +434,8 @@ python cli.py arms run ... --temperature 0 --judge --judge-temperature 0
 Current reasoning models accept only `temperature=1` (litellm refuses any other
 value before the request is sent): Claude Opus 4.7 and later, the 5.x Claude
 models (`claude-haiku-5-5`, `claude-sonnet-5-5`, `claude-opus-5-5`,
-`claude-fable-5-1`, on Anthropic and on Bedrock), and OpenAI `gpt-5`, `gpt-5.5`
-and `gpt-6.1-sol` (`gpt-5.1` and `gpt-5.2` accept a temperature unless a reasoning
+`claude-fable-5-1`, on Anthropic and on Bedrock), and OpenAI `gpt-5`, `gpt-5.5`,
+`gpt-6.1-sol` and `gpt-6-luna` (`gpt-5.1` and `gpt-5.2` accept a temperature unless a reasoning
 effort is set, which dokimi does not do). The run stops at the probe below, before
 any answer is generated, so on these models leave
 `--temperature` and `--judge-temperature` unset. Their sampling cannot be
@@ -614,13 +641,14 @@ baseline and the treatment arm as the context arm, then computes:
 - overall context-arm, baseline, and delta per run, all three over the questions
   scored in both arms (a run that scored one arm only shows that arm's mean); the
   context mean and delta of each difficulty row follow the same rule,
-- statistical significance of context-arm minus baseline (paired t-test,
-  Wilcoxon signed-rank, Cohen's d_z), corrected across the compared runs \u2014
-  every run tests the same "did the treatment help?" question, so they form one
-  family; `--stats-correction holm|bh` selects the method and the table shows
-  the raw p alongside the adjusted one. scipy is a hard dependency, so these are
-  always computed; they report `None` only when a run has fewer than
-  `eval.stats.MIN_PAIRS_FOR_TEST` (6) complete pairs or the deltas are constant,
+- statistical significance of context-arm minus baseline (the arms' sign-flip
+  test and Cohen's d_z, `eval.stats.paired_test`), corrected across the compared
+  runs \u2014 every run tests the same "did the treatment help?" question, so they
+  form one family; `--stats-correction holm|bh` selects the method and the table
+  shows the raw p, the adjusted p and the changed pairs. A run with 2 or more
+  pairs gets a p; its verdict is N/A when every pair tied or the floor 2/2^k over
+  its k changed pairs is not below 0.05 (see *Reading the significance tables*
+  above, which also says how verdicts near 0.05 moved with this test),
 - difficulty breakdown on common question IDs,
 - head-to-head winners on common question IDs,
 - ranking by absolute context-arm score and by delta.
@@ -917,8 +945,9 @@ An artifact of a registered run kind carries the run's envelope right after its
 
 - `run_id` is made once per process, when it is first needed (a CLI command makes it at start),
   from the UTC time and 8 random hex digits. So every file one process writes shares it: a
-  pipeline's answers and eval, or a catalog run's report, plan and result. `runs list --json` and
-  `runs show` print it.
+  pipeline's answers and eval, or a catalog run's report, plan and result. `runs list` lists the
+  artifacts of one run together, and `runs show RUN_ID` lists one run
+  ([runs.md](runs.md)).
 - `DOKIMI_RUN_ID` gives several commands one id, for example the steps of a CI job. It is 1-128
   letters, digits, `.`, `_` or `-` and starts with a letter or a digit, so it can name a
   directory. Any other value exits 2 before a command runs (`--help` and `--version` still work).

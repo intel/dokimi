@@ -354,12 +354,13 @@ belongs to the repository's grader and is passed through unread, except `grader`
 
 Every `guidance:*` arm is made by the framework from `guidance.globs`, the
 harness profile and the source's own history; a repository supplies no arm
-content:
+content. The globs are matched against the files the workspace holds after
+step 4, not against git's index: a file a setup patch adds is matched, and one
+it deletes is not.
 
-- `none` deletes every file the globs match at the base and every overlay
+- `none` deletes every file the globs match and every overlay
   `AGENTS.<agent>.md`, which is matched by its name, not by the globs; `as-skill`
-  drops the same files, packaging only the matched ones; `raw` keeps them. The `rev:` arm keeps the overlays: a repository with overlays that wants a
-  revision without them lists `**/AGENTS.*.md` in `guidance.globs` too.
+  drops the same files, packaging only the matched ones; `raw` keeps them.
 - `bridge` exists only for a profile with a `bridge` key. It writes that file
   (for Claude Code, a `CLAUDE.md` containing `@AGENTS.md`) next to every
   matched `AGENTS.md`, not only at the root. Whether a harness needs it
@@ -381,8 +382,10 @@ content:
   or an overlay with no base by accident. The arm
   does not make a harness load its overlay: the reach probe reports that.
 - `rev:<rev>` keeps the base's code and replaces its guidance with that of
-  another revision of the source: the base's matched files are deleted and the
-  files the globs match at `<rev>` (outside `eval_dir`) are written. It answers
+  another revision of the source: the matched files are deleted and the
+  files the globs match at `<rev>` (outside `eval_dir`) are written. It keeps
+  the overlays: a repository with overlays that wants a revision without them
+  lists `**/AGENTS.*.md` in `guidance.globs` too. It answers
   "does this PR's `AGENTS.md` help?" by running the same tasks with
   `guidance:rev:main` and with the PR's head. `<rev>` is a SHA, tag or branch
   (`/` allowed) of the source's git dir; for a remote source a branch or tag is
@@ -438,8 +441,19 @@ intermediate link and the file it resolves to), by committer date;
 `guidance_commits`, the commits reachable from `<rev>` that touch a path the
 guidance globs match outside `eval_dir` (which the arm leaves out, as it does
 the files) or a path a guidance link resolves through, newest first by committer
-date, at most 200, each with its `subject`; and `guidance_commits_truncated`,
-`true` when that cap cut the list. Each commit has its `sha`, `authored` and
+date, at most 200, each with its `subject`; `guidance_commits_truncated`,
+`true` when that cap cut the list; and `guidance_imported_by`, for each guidance
+file the arm wrote that another file's `@` import chain reaches, the files whose
+chains reach it, root files first. It is read in the workspace as the agent gets
+it (the revision's guidance, the task's base elsewhere, after the review patch and
+the skills), among every file on disk, one a `.gitignore` ignores too, with `repo budget`'s import walker
+(`dokimi/repos/budget.py`) by the cell's harness profile: the chains of every
+`CLAUDE*` file and every `AGENTS.md` its `guidance.names` holds, but an `AGENTS.md`
+that `guidance.claude_displaces_agents` turns off and no root `CLAUDE*` or
+`CLAUDE*` that turns it off links to (the link is read as that `AGENTS.md`), relative to
+the importer, not in a code span or block, within `guidance.import_max_depth`,
+and none (`{}`) for a profile with no `guidance.imports`; with no profile, by
+Claude Code's rules, which follow imports. Each commit has its `sha`, `authored` and
 `committed` (strict ISO 8601, `%aI` and `%cI`; a UTC date is written `Z`,
 whichever form the git that read the history prints). The history needs the whole of it: a shallow
 git dir (a local checkout cloned with `--depth`) fails the cell's preparation
@@ -818,7 +832,7 @@ the change adds) shows nothing. So a task whose oracle run skips a case (a platf
 code with the run dir writable, as a repository's `grade` does, so a run that rewrites the
 report is not detected. Its `oracle` copies `reference/` over the workspace as
 `dokimi:typecheck`'s does and then deletes each `reference_deleted` path, refusing one reached
-through a symbolic link. `repo tasks authoring` writes these tasks (§4.8).
+through a symbolic link. `eval tasks generate --from prs` writes these tasks (§4.8).
 
 `manifest.json` is `{"seeds": [{id, class, file, lines, kw}], "decoys":
 [{id, file, lines, kw}]}`; `file` `"*"` matches any file, and `kw` is a
@@ -1115,7 +1129,7 @@ of the tree; 1 when no target gave a task, a task cannot be written, or the sour
 ### 4.8 Authoring tasks from merged pull requests
 
 Review replay (§4.6) measures guidance for reviewing; most guidance is read while writing code.
-`repo tasks authoring` writes `dokimi:hidden_tests` tasks (§4.5) from merged pull requests: the
+`eval tasks generate --from prs` writes `dokimi:hidden_tests` tasks (§4.5) from merged pull requests: the
 agent gets the PR's title and description, the PR's own tests are held out of the workspace
 and run at grade time, and the rest of the PR's diff is the oracle. Like replay it makes no
 GitHub call and reads the history with git.
@@ -1123,7 +1137,7 @@ GitHub call and reads the history with git.
 ```bash
 gh api graphql --paginate --slurp -F query=@authoring-prs.graphql \
     -F q='repo:intel/dokimi is:pr is:merged merged:2026-10-01..2026-10-27' > prs.json
-python cli.py repo tasks authoring ~/dokimi --prs prs.json --out ~/dokimi/.agent-eval/tasks
+python cli.py eval tasks generate ~/dokimi --from prs --prs prs.json --out ~/dokimi/.agent-eval/tasks
 ```
 
 ```graphql
@@ -1866,12 +1880,14 @@ its steps'), and only an action's `runs.steps` when its `runs.using` is
 even when a step uses it, as the snapshot does not hold what is there; after that
 check, and before the parent-directory `fail`, the used Action is `ok`, so a
 `.github/actions/` beside it does not fail it. A name whose directory the tree
-holds at the repository root (`tools/gone` beside `tools/`) is judged as a path
-even when a step uses it, so a stale path still fails; a directory found only
+holds at the repository root (`tools/gone` beside `tools/`, or beside a root
+link `tools` to a directory, or `tools/sub/gone` where `tools/sub` is a directory
+through such a link) is judged as a path even when a step uses it, so a
+stale path still fails (below such a link it is `unresolved`, `tried ...`); a directory found only
 beside the guidance file does not count. A name only in a `run:` script
 does not count, and an Action no step uses is judged as any other path. When
 one of those workflows or local actions was not read (too big, binary, a dangling
-link), an `owner/name` the tree does not hold, outside a root directory, that no
+link), an `owner/name` the tree does not hold, outside a root directory (or a link to one), that no
 read file uses keeps its `unresolved` (`tried ...`) or `fail` (`<dir>/ exists but
 ...`) verdict, and its reason also names each such file, as `<file> was not read
 (<why>)`, joined with `; `. A path or glob the rules above leave `unresolved`,
@@ -2220,7 +2236,7 @@ python cli.py repo hits judge repo-runs/replay --judge openai/gpt-5.1 --labels l
 
 ```bash
 # authoring tasks from merged PRs (§4.8): no LLM, no docker, no GitHub call; the manifest needs entry_points.test
-python cli.py repo tasks authoring ~/dokimi --prs prs.json --out ~/dokimi/.agent-eval/tasks
+python cli.py eval tasks generate ~/dokimi --from prs --prs prs.json --out ~/dokimi/.agent-eval/tasks
 python cli.py eval check ~/dokimi --task authoring_pr405   # base fails, oracle passes, twice each
 python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric pass_share
 ```
@@ -2417,7 +2433,7 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   delta against the baseline with a 95% interval over tasks, the tasks up, down and tied, and a two-sided
   sign-flip permutation p (exact up to 16 changed tasks, Monte Carlo above with a fixed seed; at one cell per
   task and arm it equals McNemar's exact test). Every measure's interval inverts that test
-  (`dokimi/repos/compare_interval.py`; `delta.method` is `sign_flip_inversion` in `--json`): it is every
+  (`dokimi/eval/sign_flip.py`, which the arms track shares; `delta.method` is `sign_flip_inversion` in `--json`): it is every
   shift theta at which the test on the per-task deltas minus theta does not reject at the uncorrected two-sided
   5% level, each end found by bisection between the mean and a far bound. It excludes 0 exactly when p is below
   0.05: the row's own p places 0, and above 16 changed tasks the interval's Monte Carlo draws are those of p, drawn
@@ -2569,8 +2585,14 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   other guidance path (`.claude/rules/*` whatever its name, `.github/copilot-instructions.md`,
   a skill) applies to every task, which errs on the strict side, and so does
   every file to a task with no `patch_files` (its entry says `scoped: false`).
-  `@` imports are not followed (`guidance_latest` holds no import graph): a nested
-  file that a root file imports counts as scoped, so it can be missed.
+  A file also applies where a file whose `@` import chain reaches it
+  (`guidance_imported_by`, §3) applies: one the chain of a root file (`CLAUDE.md`,
+  `.claude/CLAUDE.md`, `AGENTS.md`, ...) reaches applies to every task, and one only nested files import applies
+  under their directories as well as its own; the entry's `via` names the
+  importer that made it apply. An `arm_rev` with `guidance_latest` and no
+  `guidance_imported_by` (a batch from before it was recorded) is read by
+  directory alone, so a nested file another one imports can be missed there;
+  the arm's `imports_unrecorded` is `true` and the text says so.
   A task is flagged **by name** when a `guidance_commits` subject names its
   PR: `#<source_pr>`, or `<source_pr>` after `PR`, `PR#`, `PR #` or `GH-`
   (any case: `pr#3103`, `PR 3103`), not preceded by a word character, `/`, `.` or `-`,
@@ -2595,10 +2617,11 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   `rev` and `sha`), `checked`, `not_checked` (the arm's other tasks, whose
   `task.json` is not replay-style), `by_date` (task → the latest applicable
   commit that tripped it: `path`, `sha`, `committed`, `public_at`,
-  `scoped`), `by_name` (task → the commit shas), `unknown` (task → reason),
-  `clean` (flagged by neither and not unknown) and `names_truncated`. The
+  `scoped`, and `via` when an import made the file apply), `by_name` (task → the commit shas), `unknown` (task → reason),
+  `clean` (flagged by neither and not unknown), `names_truncated` and `imports_unrecorded`. The
   text prints per checked arm a line of the counts, the tasks flagged by name
-  with their commits, and, when some tasks are flagged and some are not, the
+  with their commits, the tasks flagged by date through an import with the file
+  and its importer (`sub/CLAUDE.md via CLAUDE.md`), and, when some tasks are flagged and some are not, the
   clean ones and the `not_checked` ones as `--task` options, to compare
   without the flagged tasks; a task another arm flags or reports unknown is
   left out of them. The

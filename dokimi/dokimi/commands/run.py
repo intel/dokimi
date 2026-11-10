@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""run and compare subcommands."""
+"""docs check and docs compare subcommands."""
 
 from __future__ import annotations
 
@@ -153,19 +153,22 @@ def cmd_compare(args: argparse.Namespace) -> None:
 
 
 def register(sub, positive_int) -> None:
-    """Add the `run` and `compare` subparsers."""
-    run_p = sub.add_parser("run")
-    run_p.add_argument("--root", default=".")
-    run_p.add_argument("--spec", default="benchmarks/spec.v1.yaml")
-    run_p.add_argument("--out-json", default="baselines/current.json")
-    run_p.add_argument("--out-md", default="reports/current.md")
-    run_p.add_argument("--strict", action="store_true", help="Enable hard gate and critical bands (exit 1 on failure)")
-    run_p.set_defaults(func=cmd_run)
+    """Add the `docs` group: `docs check` (was `run`) and `docs compare` (was `compare`), #94 M3."""
+    docs_p = sub.add_parser("docs", help="Static docs checks: the benchmark spec and saved snapshots")
+    docs_sub = docs_p.add_subparsers(dest="docs_cmd", required=True)
+    check_p = docs_sub.add_parser("check", help="Run the static benchmark spec and save a snapshot")
+    check_p.add_argument("--root", default=".")
+    check_p.add_argument("--spec", default="benchmarks/spec.v1.yaml")
+    check_p.add_argument("--out-json", default="baselines/current.json")
+    check_p.add_argument("--out-md", default="reports/current.md")
+    check_p.add_argument("--strict", action="store_true", help="Enable hard gate and critical bands (exit 1 on failure)")
+    check_p.set_defaults(func=cmd_run)
+    register_compare(docs_sub, positive_int)
 
 
 def register_compare(sub, positive_int) -> None:
-    """Add the `compare` subparser."""
-    cmp_p = sub.add_parser("compare")
+    """Add the `docs compare` subparser."""
+    cmp_p = sub.add_parser("compare", help="Compare two saved benchmark snapshots")
     cmp_p.add_argument("--base", required=True)
     cmp_p.add_argument("--candidate", required=True)
     cmp_p.add_argument("--spec", default=None, help="Spec file for regression thresholds")

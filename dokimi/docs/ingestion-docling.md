@@ -28,7 +28,7 @@ dokimi data import docling --input path/to/docs --out-dir docs/
 ```
 
 This converts every supported document under `--input` to a `.md` file in
-`--out-dir`, ready for `dokimi run`. Supported inputs: `.pdf`, `.docx`,
+`--out-dir`, ready for `dokimi docs check`. Supported inputs: `.pdf`, `.docx`,
 `.pptx`, `.xlsx`, `.html`/`.htm`, and common image formats (`.png`, `.jpg`,
 `.tiff`, …).
 

@@ -60,7 +60,14 @@ class SpendCapReached(BaseException):
     A ``BaseException``, like ``KeyboardInterrupt``: the stages treat a failed call as a
     missing datum and catch ``Exception``, so an ``Exception`` here would be absorbed one
     call at a time and the run would carry on with every later call refused.
+
+    ``reply`` is set when the refused call came back with a reply (a call with no price): that
+    call was paid for, so the caller can still score the reply before it stops. ``truncated`` says
+    the reply was also cut at the output ceiling: this stop is raised in place of :class:`OutputTruncated`.
     """
+
+    reply: str | None = None
+    truncated: bool = False
 
 
 @dataclass
@@ -84,7 +91,7 @@ class SpendCap:
             if self.spent_usd >= self.limit_usd:
                 raise SpendCapReached(
                     f"spend cap reached: ${self.spent_usd:.2f} of ${self.limit_usd:.2f} "
-                    f"after {self.calls} calls (next call: {model}); nothing was written. "
+                    f"after {self.calls} calls (next call: {model}). "
                     "Raise --max-usd, or measure less (a cheaper --tier, a lower --max-atoms)"
                 )
 
@@ -154,7 +161,12 @@ class LLMClient:
             # UsageRecord is frozen; re-stamp the role so cost rolls up per role.
             self.usage.append(replace(usage, role=self.role))
         if self.cap is not None:
-            self.cap.record(usage, self.model)
+            try:
+                self.cap.record(usage, self.model)
+            except SpendCapReached as exc:
+                exc.reply = reply or ""  # the call is paid for: the caller keeps its reply
+                exc.truncated = usage is not None and usage.truncated
+                raise
         # After the record: the cut call was paid for, whatever its text is worth. An empty
         # reply is no reply: its caller's empty-reply path handles it, and a split cannot help.
         if usage is not None and usage.truncated and (reply or "").strip():
@@ -292,10 +304,12 @@ def roll_up_cost(clients: list[LLMClient]) -> dict[str, Any]:
 
 
 def same_client(a: LLMClient, b: LLMClient) -> bool:
-    """Whether two clients run one model: the same name, or a CLI alias and a full id of its family."""
-    from dokimi.llm_cli import same_model
+    """Whether two clients run one model: the same name, a CLI alias and a full id of its family,
+    or an equivalent API id (``anthropic/x``, a Bedrock ``us.anthropic.x-v1:0``), as
+    :func:`~dokimi.utils.same_evaluator` reads it."""
+    from dokimi.utils import same_evaluator
 
-    return a.model == b.model or same_model(a.provider, a.model, b.provider, b.model)
+    return a.model == b.model or same_evaluator(a.provider, a.model, b.provider, b.model)
 
 
 # Substring of a lowercased model id -> vendor, first match wins. Minimal on purpose:

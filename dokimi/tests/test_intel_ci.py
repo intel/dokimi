@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import email
 import importlib.util
+import json
+import re
 import subprocess
 import sys
 import tomllib
@@ -100,6 +102,25 @@ def test_build_leaves_a_package_under_a_broken_directory_in_place(
     assert build.collect(scratch, out) == [out / "dokimi-0.2.0-py_0.tar.bz2"]
     assert failed.read_bytes() == b"failed"
     assert not (out / failed.name).exists()
+
+
+def test_build_refuses_two_packages_of_one_name(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Moved flat, the second would overwrite the first: collect names both and moves no package at all."""
+    build = _script("build", monkeypatch)
+    out, scratch = tmp_path / "out", tmp_path / "scratch"
+    linux, noarch = (scratch / "conda" / "linux-64", scratch / "conda" / "noarch")
+    for subdir in (linux, noarch):
+        subdir.mkdir(parents=True)
+        (subdir / "dokimi-0.2.0-0.conda").write_bytes(subdir.name.encode())
+    (linux / "dokimi-0.1.0-0.conda").write_bytes(b"other")
+    with pytest.raises(build.BuildError) as error:
+        build.collect(scratch, out)
+    assert str(error.value) == (f"two packages named dokimi-0.2.0-0.conda: {linux / 'dokimi-0.2.0-0.conda'}"
+                                f" and {noarch / 'dokimi-0.2.0-0.conda'}")
+    assert list(out.iterdir()) == []
+    assert (linux / "dokimi-0.2.0-0.conda").read_bytes() == b"linux-64"
+    assert (noarch / "dokimi-0.2.0-0.conda").read_bytes() == b"noarch"
+    assert (linux / "dokimi-0.1.0-0.conda").read_bytes() == b"other"
 
 
 def test_the_data_check_covers_the_files_of_the_test_it_replaces(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -202,3 +223,31 @@ def test_wheel_requires_land_in_the_metadata_headers(newline: str,
     assert message.get_all("Requires-Dist") == ["mkl", "numpy >=2"]
     assert message.get_payload().strip() == "Description."
     assert text.count(newline * 2) == 1 and ("\r\n" in text) == (newline == "\r\n")
+
+
+def _renovate_and_exact_pins(config_text: str) -> tuple[dict[str, str], dict[str, str]]:
+    """The pins renovate's ci/config.yml regex finds and the `==` pins of the test list, both by canonical name."""
+    text = (_REPO / ".github" / "renovate.json5").read_text(encoding="utf-8")
+    manager = text[text.index('managerFilePatterns: ["/^ci/config'):]
+    literal = re.search(r"matchStrings: \[(\".*\")\]", manager)
+    assert literal is not None
+    pattern = re.compile(json.loads(literal.group(1)).replace("(?<", "(?P<"))
+    found: dict[str, str] = {canonicalize_name(m["depName"]): m["currentValue"] for m in pattern.finditer(config_text)}
+    exact = {n: str(next(iter(r.specifier)).version) for n, r in _requirements(
+        yaml.safe_load(config_text)["test"]["requires"]).items()
+        if str(r.specifier).startswith("==")}
+    return found, exact
+
+
+def test_renovate_bumps_the_exact_pins_in_ci_config() -> None:
+    """The pins in ci/config.yml must equal requirements-test.txt, so renovate's regex has to find each one."""
+    found, exact = _renovate_and_exact_pins((_REPO / "ci" / "config.yml").read_text(encoding="utf-8"))
+    assert found == exact
+    assert "mypy" in found
+
+
+def test_renovate_finds_a_mixed_case_exact_pin_under_its_canonical_name() -> None:
+    """The regex reads "PyYAML ==6.0.1" as written, the test list as pyyaml: both sides key it by canonical name."""
+    found, exact = _renovate_and_exact_pins(
+        'test:\n  requires:\n    - "pytest >=9"\n    - "PyYAML ==6.0.1"\n    - "Foo_Bar ==1.2"\n')
+    assert found == exact == {"pyyaml": "6.0.1", "foo-bar": "1.2"}

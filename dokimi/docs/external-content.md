@@ -47,6 +47,9 @@ under a vendored directory such as `node_modules` and any `.git` are not hashed,
 they select nothing). Skill resources and owned tasks select their skill, and a
 changed or removed task also selects the skill that owned it at the base;
 registry, suite, shared machinery and unclaimed changes select conservatively.
+A ROOT that git reaches only through an enclosing repository that tracks no file
+under it (a skills folder under a git-tracked `$HOME`) is not a checkout: its
+`source` has no commit and every skill is selected.
 A file git ignores under the shared machinery (`tools/`, `scripts/`, `dokimi/`,
 `.github/`) selects nothing and does not mark the source `dirty`, whatever its name.
 Selection limits what can fail: a finding in a skill that is not selected is
@@ -242,6 +245,17 @@ directory name and description but different `SKILL.md` text are a `warn` on bot
 (`mirror-drift`), naming the other copies. Skills with
 `disable-model-invocation: true` are exempt from the description checks.
 
+The scan also reads the shell commands in `SKILL.md` and its bundled text files; nothing is run. A `curl`
+or `wget` piped into a shell or an interpreter (`| sh`, `| sudo bash`, `| python3`) is a `warn`
+(`pipe-to-shell`). So is `--dangerously-skip-permissions`, `--yolo` or `bypassPermissions`, which switch off
+an agent's permission prompts (`permission-bypass-flag`). A `pip`, `npm` or `npx` install that names a
+package with no version is a `warn` with the count for the skill (`install-unpinned`); a requirements
+file, a local path, a URL or a `git+` source is not counted. Installs are read from code only: the fenced
+blocks and code spans of a prose file (Markdown, `.mdx`, `.txt`, `.rst`, `.adoc`), and the whole of any other
+text file, such as a script. The scan reads at most 200
+bundled files of 256 KiB or less; a binary or non-UTF-8 file counts toward the 200 too and is not checked. A skill at the root of a
+checkout reads its own `SKILL.md` only.
+
 Frontmatter that is not valid YAML (a bare colon in `description:`, say) stops
 the skill from loading. The scan reports that as a `frontmatter-parse` error
 carrying the YAML message, and it exits 1 with or without `--strict`, as a load
@@ -308,13 +322,20 @@ A large catalog is easier to scan one skill at a time:
 - A `SKILL.md` inside another skill's directory is marked with `nested_in`
   (the enclosing skill's path) in JSON and with a `note` in text. It is counted
   by default; `--skip-nested` leaves it out of the scan.
+- `--ignore CODE` (repeatable) leaves the findings with that code out of the scan:
+  they are not printed, and they do not set the state or the `--strict` exit. The
+  codes are the `code` of each finding in the JSON output (`name-mismatch`,
+  `description-no-when`, ...); an unknown code is a usage error. `frontmatter-parse`
+  is refused (a skill that does not load always fails), and so is `--kind tasks`.
 - `--jsonl PATH` writes one JSON row per skill as it is reviewed and prints only
   the counts. `--jobs N` reviews N skills in parallel. `--resume` keeps the rows
   already in PATH and reviews only the skills without one (a half-written last
   line from a killed run is dropped). Each row carries `skill_sha256`, the
-  digest of every file in the skill's directory, and `--resume` keeps a row only
-  while that is unchanged: a skill whose `SKILL.md` or bundled file changed (or
-  a row without the field) is reviewed again. Without `--resume`, PATH is replaced.
+  digest of every file in the skill's directory, and `ignored`, the sorted
+  `--ignore` codes in effect (`[]` when none). `--resume` keeps a row only
+  while that is unchanged and the `--ignore` codes are the same: a skill whose
+  `SKILL.md` or bundled file changed, a row written under other codes, or a row
+  without `skill_sha256` is reviewed again. Without `--resume`, PATH is replaced.
   Every `SKILL.md` is loaded before the first row, so memory still grows with
   the catalog. A `--jobs` worker that dies ends the scan with exit 1.
 
