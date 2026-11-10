@@ -162,7 +162,7 @@ def test_cli_writes_artifact_and_fails_under_floor(tmp_path, capsys):
     assert load_artifact("eval_coverage", out)["coverage"]["weights"]["branch"] == 0.7
 
 
-def test_cli_unknown_need_id_exits_1_and_bad_inputs_exit_2(tmp_path, capsys):
+def test_cli_unknown_need_id_and_bad_inputs_exit_2(tmp_path, capsys):
     graph = _graph(tmp_path)
     typo = _skill(tmp_path, [{"id": "save", "needs": ["n9"]}])
     broken = tmp_path / "evals.json"
@@ -174,7 +174,8 @@ def test_cli_unknown_need_id_exits_1_and_bad_inputs_exit_2(tmp_path, capsys):
     missing = _run(capsys, str(tmp_path / "nope"), "--graph", str(graph))
     no_graph = _run(capsys, str(typo), "--graph", str(tmp_path / "none.json"))
 
-    assert unknown.returncode == 1  # a problem with the needs labels
+    assert unknown.returncode == 2
+    assert "Error: 1 problem(s) with the evals' needs labels" in unknown.stderr
     assert load_artifact("eval_coverage", out)["problems"] == [
         {"eval": "save", "source": "evals.json", "kind": "unknown_need", "need": "n9"}]
     assert (bad.returncode, missing.returncode, no_graph.returncode) == (2, 2, 2)
@@ -194,7 +195,7 @@ def test_markdown_lists_problems_and_says_none_without_gaps(tmp_path, capsys):
     rows = [{"id": "all", "needs": ["n1", "n2", "n3", "n9"]}]
     res = _run(capsys, str(_skill(tmp_path, rows)), "--graph", str(_graph(tmp_path)))
 
-    assert res.returncode == 1  # a problem with the needs labels
+    assert res.returncode == 2
     assert "- none" in res.stdout
     assert "Problems:\n- all (evals.json): unknown need id 'n9'" in res.stdout
 
@@ -204,7 +205,7 @@ def test_needs_that_is_not_a_list_of_ids_is_a_problem(tmp_path, capsys, needs):
     res = _run(capsys, str(_skill(tmp_path, [{"id": "e", "needs": needs}])), "--graph",
                str(_graph(tmp_path)))
 
-    assert res.returncode == 1  # a problem with the needs labels
+    assert res.returncode == 2
     assert "- e (evals.json): needs is not a list of node ids" in res.stdout
 
 

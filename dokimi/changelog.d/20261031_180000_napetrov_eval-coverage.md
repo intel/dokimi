@@ -12,10 +12,10 @@ SPDX-License-Identifier: Apache-2.0
   prints the weighted coverage, the coverage of `core` + `rare_critical` and of `rare_critical`
   alone, the uncovered `core` / `rare_critical` nodes, and each eval's relevance
   (`relevant_core`, `relevant_peripheral`, `out_of_scope`, `orphan`, `unlabelled`). `--out`
-  writes an `eval_coverage.v1` artifact. Exit 1 under a `--min [METRIC=]X` floor or when a
-  `needs` label has problems, exit 2 on an unreadable input or a graph with duplicate node ids.
-  A `needs` label that is not a list of ids the graph has is a problem. A row or task with no
-  `needs` key is `unlabelled`; an explicit `"needs": null` is malformed and exits 1. `--out` is refused when it would overwrite the
+  writes an `eval_coverage.v1` artifact. Exit 1 under a `--min [METRIC=]X` floor, exit 2 on an
+  unreadable input, a graph with duplicate node ids, or a `needs` label that is not a list of
+  ids the graph has. A row or task with no `needs` key is `unlabelled`; an explicit
+  `"needs": null` is malformed and exits 2. `--out` is refused when it would overwrite the
   graph or any input file. A `--min` floor is judged on the unrounded share, not the rounded
   figure shown in the report; a floor on a class the graph has no node of (n/a) also exits 1.
   Known gap: a terminal-bench v1 task (`task.yaml`) has its `metadata.needs` ignored, so it counts
