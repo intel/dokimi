@@ -196,7 +196,7 @@ Panel aggregates are computed in Python from role-specific weights. The panel re
 RAGAS meta-evaluation (`eval score ragas`, or `answers generate --ragas`) can be run after answer generation to add signals from ragas 0.3, mostly for the `with_docs` condition:
 
 - `faithfulness`: the share of the `with_docs` answer's statements that the retrieved documents support.
-- `answer_relevancy`: how well the answer addresses the question, for both conditions; the only metric of `without_docs`.
+- `answer_relevancy`: how well the answer addresses the question, for both conditions; the only metric of `without_docs`. It embeds with OpenAI whatever the judge: without `OPENAI_API_KEY`, `eval score ragas` and `answers generate --ragas` return empty arms (logged only); set the key, or call `RagasEvaluator(metrics=["faithfulness", "context_precision"])` from Python.
 - `context_precision`: whether the retrieved documents were useful in reaching the `with_docs` answer, with the useful ones ranked first. It is ragas's reference-free `LLMContextPrecisionWithoutReference`: the judge compares the documents with the answer, not with a reference answer.
 - `context_recall`, which the commands leave out and `RagasEvaluator(metrics=[...])` computes on request: how much of the question's `ground_truth_chunk` the retrieved documents cover; answers without one get no `context_recall` score.
 
