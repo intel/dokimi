@@ -20,6 +20,16 @@ from dokimi.commands.catalog_scan import print_skill_row, skill_row, unrestricte
 from dokimi.utils import InputError
 
 
+def _print_strict_reasons(rows: list, strict: bool) -> None:
+    """Print the ``strict:`` line of each row that --strict fails only for unrestricted Bash with a risky command."""
+    from dokimi.commands import catalog_scan
+
+    for row in rows if strict else []:
+        reason = catalog_scan.strict_reason(row)
+        if reason is not None:
+            print(reason)
+
+
 def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bool) -> tuple[bool, int]:
     """Review the skills under *root* into ``report``; (True when the scan must exit 1, skills declared)."""
     from dokimi.commands import catalog_scan
@@ -40,7 +50,6 @@ def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bo
         raise InputError(f"no skill named {only!r} under {root}")
     counts = {"ok": 0, "warn": 0, "error": 0}
     failed = False
-    reasons: list[str] = []  # the strict_reason line of each row --strict fails only for unrestricted Bash
     ignore = frozenset(args.ignore or ())
     for (skill, nested_in), review in zip(pairs, reviews, strict=True):
         if only is not None and skill.name != only:
@@ -52,9 +61,6 @@ def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bo
         unreadable = review is not None and any(f.code == "unreadable" for f in review.findings)
         if not skill.loaded or unreadable or (args.strict and (row["state"] == "error" or unrestricted_and_risky(row))):
             failed = True
-        reason = catalog_scan.strict_reason(row) if args.strict else None
-        if reason is not None:
-            reasons.append(reason)
     if not as_json:
         shown = f"{sum(counts.values())} of {len(skills)}" if only is not None else f"{len(skills)}"
         print(
@@ -63,8 +69,7 @@ def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bo
         )
         for row in report["skills"]:
             print_skill_row(row)
-        for line in reasons:
-            print(line)
+        _print_strict_reasons(report["skills"], args.strict)
         print()
     _granularity_section(skills, reviews, root, report, as_json)
     return failed, len(skills)
