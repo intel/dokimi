@@ -39,7 +39,7 @@ SCRIPT_SUFFIXES = (*SHELL_SUFFIXES, ".py")
 BASH_FAMILY = frozenset({"bash", "sh", "dash", "ksh"})  # the shebang names bash -n can judge
 ENV_OPERAND_OPTIONS = frozenset({"-u", "--unset", "-C", "--chdir"})  # env options with an operand
 PARSE_SHOPTS = frozenset({"extglob"})  # bash -O options that change how a script parses; bash -n is given them
-SHOPT_EXTGLOB = re.compile(rb"(?m)(?:^|[;&|({!)])[ \t]*(?:(?:then|do|else|elif|if|while|until|builtin|command|exec|time|coproc)[ \t]+)*shopt[ \t]+(?:-[a-zA-Z]+[ \t]+)*-[a-zA-Z]*s[a-zA-Z]*(?:[ \t]+[^\s;&|]+)*?[ \t]+extglob\b")  # shopt -s ... extglob, on one line
+SHOPT_EXTGLOB = re.compile(rb"(?m)(?:^|[;&|({!)])[ \t]*(?:(?:then|do|else|elif|if|while|until|builtin|command|exec|time|coproc|[A-Za-z_][A-Za-z0-9_]*=[^\s;&|]*|[0-9]*[<>][^\s;&|]*)[ \t]+)*shopt[ \t]+(?:-[a-zA-Z]+[ \t]+)*-[a-zA-Z]*s[a-zA-Z]*(?:[ \t]+[^\s;&|]+)*?[ \t]+extglob\b")  # shopt -s ... extglob, on one line; NAME=value and redirections before it do not stop it
 # Escapes env -S reads outside quotes (\_ separates words and \c ends the string: see _env_split).
 ENV_S_ESCAPES = {"_": " ", "#": "#", "\\": "\\", "'": "'", '"': '"', "$": "$", "n": "\n", "t": "\t", "r": "\r",
                  "f": "\f", "v": "\v"}

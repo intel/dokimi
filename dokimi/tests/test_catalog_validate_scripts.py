@@ -638,3 +638,16 @@ def test_the_suffix_is_matched_in_any_case(tmp_path):
     findings = script_findings(skill, which=_tools("bash"), runner=runner)
 
     assert sorted(message.split(" does not")[0] for _, _, message in findings) == ["RUN.SH", "Tool.PY"]
+
+
+@pytest.mark.parametrize("line", [
+    b"LC_ALL=C shopt -s extglob",
+    b"X=1 Y=2 shopt -s extglob",
+    b">/dev/null shopt -s extglob",
+    b"2>/dev/null shopt -s extglob",
+])
+@needs_bash
+def test_a_shopt_extglob_after_an_assignment_or_redirection_is_valid_under_real_bash(tmp_path, line, no_linters):
+    _bundle(tmp_path, {"run.sh": b"#!/bin/bash\n" + line + b"\ncase x in +(a|b)) : ;; esac\n"})
+
+    assert _reviews_by_name(tmp_path)["bundled"].findings == []
