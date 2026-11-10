@@ -28,6 +28,7 @@ from dokimi.repos import (
 from dokimi.repos.source import cache_path
 from dokimi.subjects import load_subject
 from dokimi.subjects.loader import awareness_arm_specs
+from tests.cli_refusal import refusal
 
 SHA = "0123456789abcdef0123456789abcdef01234567"
 
@@ -440,9 +441,9 @@ def test_repo_validate_cli(tmp_path, capsys):
     assert out["ok"] is True and out["tasks"]["count"] == 2
 
     _task(root, "bad", id="other")
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         _run_cli(["repo", "validate", str(root), "--manifest", "dev/evals/repo-eval.yaml"])
-    assert exc.value.code == 1
+    assert exc.code == 1
     assert "does not equal the directory name" in capsys.readouterr().err
 
 
@@ -452,9 +453,9 @@ def test_repo_validate_fail_on_warning(tmp_path, capsys):
     argv = ["repo", "validate", str(root), "--manifest", "dev/evals/repo-eval.yaml"]
     _run_cli(argv)  # a warning alone still passes by default
     assert "warning: guidance/also_scan matches no file" in capsys.readouterr().out
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         _run_cli([*argv, "--fail-on-warning"])
-    assert exc.value.code == 1
+    assert exc.code == 1
     assert "warning:" in capsys.readouterr().out
 
 
@@ -470,9 +471,9 @@ def test_repo_validate_out_writes_the_report(tmp_path, capsys):
     _run_cli([*argv, "--json"])
     assert json.loads(capsys.readouterr().out) == written
 
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         _run_cli([*argv[:-1], str(tmp_path / "no" / "dir" / "v.json")])
-    assert exc.value.code == 2
+    assert exc.code == 2
     assert "cannot write" in capsys.readouterr().err
 
 
@@ -481,8 +482,9 @@ def test_repo_fetch_cli(tmp_path, capsys):
     sha = _git_commit(root)
     _run_cli(["repo", "fetch", f"{root.as_uri()}@HEAD", "--cache-dir", str(tmp_path / "c")])
     assert capsys.readouterr().out.split("\t")[0] == sha
-    with pytest.raises(SystemExit):
+    with refusal() as exc:
         _run_cli(["repo", "fetch", str(root)])
+    assert exc.code == 2
 
 
 def test_repo_fetch_cli_json(tmp_path, capsys, monkeypatch):
@@ -631,8 +633,9 @@ def test_scan_without_a_manifest_checks_the_default_guidance(tmp_path, capsys):
 
 def test_validate_still_needs_a_manifest(tmp_path):
     args = build_parser().parse_args(["repo", "validate", str(_repo(tmp_path))])
-    with pytest.raises(SystemExit):
+    with refusal() as exc:
         args.func(args)
+    assert exc.code == 2
 
 
 @pytest.mark.parametrize("label, expected", [
@@ -652,9 +655,9 @@ def test_a_mistyped_manifest_path_is_an_error_not_a_default_scan(tmp_path, capsy
     root = tmp_path / "plain"
     _write(root, "AGENTS.md", "# guidance\n")
     args = build_parser().parse_args(["repo", "scan", str(root), "--manifest", ".agent-eval/repo-evel.yaml"])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2
+    assert exc.code == 2
     assert "manifest not found" in capsys.readouterr().err
 
 

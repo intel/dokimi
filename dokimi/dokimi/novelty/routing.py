@@ -269,18 +269,18 @@ def _ask_once(client, prompt: str, base: dict, order: list[int], candidates: lis
               gold: int) -> tuple[dict | None, str | None]:
     """One call of the routing loop: its row, and the cap's message when the cap stops the run.
 
-    A call the cap refused before it was made has no row. A call whose price is unknown was paid
-    for, so its reply is scored, and the caller stops after it.
+    A call the cap refused has no row; one with no price was paid for, so its reply is scored (a cut one as a decline) and the caller stops.
     """
     try:
         reply = client.text(prompt, accept=partial(_is_pick_reply, n_cards=len(order)),
                             draw=base["repeat"])
-    except SpendCapReached as exc:
+    except (SpendCapReached, OutputTruncated) as exc:
+        stop = str(exc) if isinstance(exc, SpendCapReached) else None
         if exc.reply is None:
-            return None, str(exc)
-        return _pick_row(base, exc.reply, order, candidates, gold), str(exc)
-    except OutputTruncated as cut:  # cut at the ceiling: a decline, as unparseable is
-        return {**base, "picked": None, "abstained": True, "raw_reply": cut.reply}, None
+            return None, stop
+        if isinstance(exc, OutputTruncated) or exc.truncated:  # cut at the ceiling: a decline, as unparseable is
+            return {**base, "picked": None, "abstained": True, "raw_reply": exc.reply[:_RAW_REPLY_CHARS]}, stop
+        return _pick_row(base, exc.reply, order, candidates, gold), stop
     except Exception as exc:  # noqa: BLE001 - one failed query must not lose the rest
         return {**base, "picked": None, "error": str(exc)[:200] or type(exc).__name__}, None
     return _pick_row(base, reply, order, candidates, gold), None
@@ -668,12 +668,12 @@ def _eligible_catalog_skills(root: str, exclude: set[str], notes: list[str] | No
     broken: dict[str, list[Path | None]] = {}
     for entry, review in zip(entries, reviews, strict=True):
         skill = entry.skill
-        if skill is None or not entry.loaded or review is None:
-            if unloaded is not None and entry.name not in exclude:
-                unloaded[entry.name] = entry.error or "it did not load"
+        if skill is None or not entry.loaded or review is None or review.content_sha256 is None:
+            if unloaded is not None and entry.name not in exclude:  # a SKILL.md unreadable after load: no digest
+                unloaded[entry.name] = entry.error or "SKILL.md cannot be read"
                 broken.setdefault(entry.name, []).append(entry.path)
             if notes is not None:
-                notes.append(f"skipped catalog entry {entry.name!r}: {entry.error}")
+                notes.append(f"skipped catalog entry {entry.name!r}: {entry.error or 'SKILL.md cannot be read'}")
             continue
         if skill.name in exclude:
             continue

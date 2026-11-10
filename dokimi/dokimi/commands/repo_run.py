@@ -20,8 +20,8 @@ if TYPE_CHECKING:
 
 from dokimi import docker_cmd
 from dokimi.repos.harness_profile import DELEGATION_MODES
-from dokimi.exit_codes import EXIT_USAGE
 from dokimi.utils import tree_digest
+from dokimi.utils import InputError
 
 
 def _context(args: argparse.Namespace, out: Path, pin: bool = False):
@@ -201,18 +201,18 @@ def cmd_repo_tasks_check(args: argparse.Namespace) -> None:
 
 def cmd_repo_tasks_replay(args: argparse.Namespace) -> None:
     """One dokimi:review_replay task per merged PR of a recorded threads file (contract §4.6; no LLM, no GitHub)."""
-    from dokimi.repos import RepoSource, open_source
+    from dokimi.repos import open_source
     from dokimi.repos.replay import DEFAULT_PROMPT, History, Options, build_all, read_threads
     from dokimi.repos.workspace import source_git_dir
 
-    from .repo import _cache_dir, _load_manifest
+    from .repo import _cache_dir, _load_manifest, _parse_source
 
+    source = _parse_source(args)
     try:
         prs = read_threads(Path(args.threads))
         prompt = Path(args.prompt_file).read_text(encoding="utf-8").strip() if args.prompt_file else DEFAULT_PROMPT
         if not prompt:
             raise ValueError(f"the prompt file {args.prompt_file} is empty")
-        source = RepoSource.parse(args.source)
         tree = open_source(source, _cache_dir(args))
         manifest = _load_manifest(tree, args)
         opts = Options(out=Path(args.out), window=args.window, prompt=prompt, force=args.force, fetch=source.remote)
@@ -235,21 +235,21 @@ def cmd_repo_tasks_replay(args: argparse.Namespace) -> None:
 
 def cmd_repo_tasks_authoring(args: argparse.Namespace) -> None:
     """One dokimi:hidden_tests task per merged PR of a recorded PR file (contract §4.8; no LLM, no GitHub)."""
-    from dokimi.repos import RepoSource, open_source
+    from dokimi.repos import open_source
     from dokimi.repos.replay import History, read_threads
     from dokimi.repos.replay.authoring import Options
     from dokimi.repos.replay.authoring_prompt import DEFAULT_INSTRUCTION
     from dokimi.repos.replay.authoring_prs import build_all
     from dokimi.repos.workspace import source_git_dir
 
-    from .repo import _cache_dir, _load_manifest
+    from .repo import _cache_dir, _load_manifest, _parse_source
 
+    source = _parse_source(args)
     try:
         prs = read_threads(Path(args.prs), "mergeCommit", "pull request file")
         text = Path(args.prompt_file).read_text(encoding="utf-8").strip() if args.prompt_file else DEFAULT_INSTRUCTION
         if not text:
             raise ValueError(f"the prompt file {args.prompt_file} is empty")
-        source = RepoSource.parse(args.source)
         tree = open_source(source, _cache_dir(args))
         manifest = _load_manifest(tree, args)
         opts = Options(out=Path(args.out), max_lines=args.max_lines, instruction=text, force=args.force,
@@ -362,8 +362,7 @@ def cmd_repo_report(args: argparse.Namespace) -> None:
 
     batch_dir = Path(args.batch_dir)
     if not batch_dir.is_dir():
-        print(f"✗ not a directory: {batch_dir}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError(f"not a directory: {batch_dir}")
     try:
         if args.hits:
             found = load_hits(batch_dir)
@@ -371,8 +370,7 @@ def cmd_repo_report(args: argparse.Namespace) -> None:
             return
         summary = summarize(batch_dir)
     except CellFileError as exc:  # a cell file that is not the JSON repo run wrote: an input refusal
-        print(f"✗ {exc}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError(str(exc)) from exc
     print(json.dumps(summary, indent=2) if args.json else format_report(summary))
 
 
@@ -386,8 +384,7 @@ def cmd_repo_compare(args: argparse.Namespace) -> None:
     dirs = [Path(d) for d in args.batch_dirs]
     for d in dirs:
         if not d.is_dir():
-            print(f"✗ not a directory: {d}", file=sys.stderr)
-            sys.exit(EXIT_USAGE)
+            raise InputError(f"not a directory: {d}")
     arms = [a for spec in args.arm for a in spec.split(",") if a] if args.arm else None
     try:
         summary = compare(dirs, args.baseline, arms, args.model, tuple(args.metric or ()),
@@ -396,8 +393,7 @@ def cmd_repo_compare(args: argparse.Namespace) -> None:
             summary["ledger"] = evaluate(load_ledger(Path(args.ledger)), dirs, args.baseline, args.model,
                                          ledger_name=args.ledger)
     except (CompareError, CellFileError, LedgerError) as exc:  # an unusable baseline, arm, metric, cell or ledger
-        print(f"✗ {exc}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError(str(exc)) from exc
     if args.json:
         print(json.dumps(summary, indent=2))
         return

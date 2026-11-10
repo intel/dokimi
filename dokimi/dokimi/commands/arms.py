@@ -70,11 +70,9 @@ def cmd_arms_run(args: argparse.Namespace) -> None:
         print(f"Error running arms: {exc}", file=sys.stderr)
         sys.exit(EXIT_FAILURE)
     except LibraryIdError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError(str(exc)) from exc
     except (ValueError, OSError, RecursionError) as exc:
-        print(f"Error building arms/plugins: {exc}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError(f"cannot build arms/plugins: {exc}") from exc
     try:
         output = run_prepared(prepared, config, questions)
     except EmptyQuestionError:
@@ -129,8 +127,7 @@ def _load_matrix_inputs(config: ArmsRunConfig, arms: str, questions: str, matrix
         print(f"Error loading matrix run inputs: {exc}", file=sys.stderr)
         sys.exit(EXIT_FAILURE)
     except (ValueError, OSError, RecursionError) as exc:
-        print(f"Error loading matrix run inputs: {exc}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError(f"cannot load matrix run inputs: {exc}") from exc
     return specs, loaded_questions, cells
 
 
@@ -191,8 +188,7 @@ def run_matrix(config: ArmsRunConfig, *, arms: str, questions: str, matrix_cells
     except EmptyQuestionError:
         raise  # a bad input record, not a cell error: cli.main reports it (exit 2)
     except arms_run.LibraryIdError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError(str(exc)) from exc
     except arms_run.MatrixCellError as exc:
         verb = "building" if exc.usage else "running"
         print(f"Error {verb} matrix cell {exc.cell!r}: {exc}", file=sys.stderr)
@@ -237,8 +233,7 @@ def cmd_arms_plugin_delta(args: argparse.Namespace) -> None:
                 records(artifact.get(section) or [], source=f"{path} {section}", kind=section)
         output = compare_plugin_runs(baseline, plugin)
     except (PluginDeltaError, ValueError, OSError, RecursionError) as exc:
-        print(f"Error computing plugin delta: {exc}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError(f"cannot compute plugin delta: {exc}") from exc
 
     out_json = Path(args.out_json) if args.out_json else Path("results/arms/plugin_delta.json")
     _save_artifact_or_exit("plugin_delta", output, out_json)

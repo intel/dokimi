@@ -747,7 +747,8 @@ Two numbers, reported side by side and never merged:
   `selection_rate_among_answered` beside it; a failed call is excluded from both and
   counted, and one failed query does not lose the rest.
   Each abstention or unparseable pick keeps the model's raw reply under
-  `per_query[].raw_reply` (the first 2000 characters), so a decline can be read.
+  `per_query[].raw_reply` (the first 2000 characters), so a decline can be read. A reply cut
+  at the output ceiling is an abstention too, whether or not its price is known.
   `--repeats N` asks each query N times with the same card order, so the spread between
   repeats is the model's own sampling noise. The result's `noise` block gives each query's
   agreement across its repeats (`per_query`), the selection rate of each repeat, and
@@ -830,7 +831,10 @@ only when partial), so a script that checks `status == "ok"` does not take a pre
 a finished measurement. The model line says `partial: N of M calls` in place of the query count,
 and warns when fewer than five calls were answered. When `--out` already holds a result that is
 not itself partial, the partial one goes to the first of `<out stem>.partial.json`,
-`<out stem>.partial2.json`, ... beside it that is free or already partial, and the exit
+`<out stem>.partial2.json`, ... beside it that is free or a partial result it can write (a
+sidecar that is not a regular file, such as a FIFO or a symlink, is skipped without being
+opened or followed; a sidecar name too long for the file system stops the save with that
+error), and the exit
 message names that path, so a cap never replaces a finished measurement. The calls made are
 scored as in a run with failed calls: a single run's `model.per_query` holds them, and
 `model.n_calls` is `N` rather than queries times repeats. In all-vs-all the calls never made are
