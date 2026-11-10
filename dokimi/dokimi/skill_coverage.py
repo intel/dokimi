@@ -361,14 +361,19 @@ Reply with JSON only: {{"items": {{"<requirement id>": ["<check name>", ...]}}}}
 
 def _usable_items(reply: dict[str, Any], ids: set[str]) -> bool:
     """A mapping the run can use: ``items`` is an object and every requirement id holds a list of check names
-    (an explicit empty list is a valid answer). An omitted id is not: it would read as uncovered, when the model
-    never mapped it. The cache keeps only what this accepts, and the run refuses what it rejects, so an identical
-    rerun asks the model again."""
+    (an explicit empty list is a valid answer). A name is a string or an integer, the id of an evals.json row
+    (``bool`` is not one). An omitted id is not usable: it would read as uncovered, when the model never mapped
+    it. The cache keeps only what this accepts, and the run refuses what it rejects, so an identical rerun asks
+    the model again."""
     items = reply.get("items")
     if not isinstance(items, dict) or not ids:
         return False
-    return all(isinstance(items.get(rid), list) and all(isinstance(name, str) for name in items[rid])
+    return all(isinstance(items.get(rid), list) and all(_check_name(name) for name in items[rid])
                for rid in ids)
+
+
+def _check_name(name: Any) -> bool:
+    return isinstance(name, str) or (isinstance(name, int) and not isinstance(name, bool))
 
 
 def catalogue_text(checks: list[Check]) -> str:

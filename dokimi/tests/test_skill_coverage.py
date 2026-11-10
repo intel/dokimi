@@ -626,6 +626,18 @@ def test_the_cache_and_the_guard_refuse_the_same_mappings(tmp_path):
         assert not fake.usable(json.loads(reply)), reply  # never cached, so an identical rerun asks again
 
 
+def test_an_integer_check_name_is_the_name_of_its_check(tmp_path):
+    # evals.json ids are often integers (skill-creator): the model names the check by its id, as a number
+    checks = [sc.Check(name="1", units=("1",), source="x"), sc.Check(name="2", units=("2",), source="y")]
+    reqs = [sc.Requirement("mh-01", "must_hold", "b")]
+    fake = _Capture({"items": {"mh-01": [1, "2"]}})
+    links = sc.map_requirements(reqs, checks, fake)
+    assert links.by_requirement == {"mh-01": ("1", "2")}
+    for reply in ('{"items": {"mh-01": [true]}}', '{"items": {"mh-01": [1.5]}}'):
+        with pytest.raises(sc.SkillCoverageError, match="no usable mapping"):
+            sc.map_requirements(reqs, checks, _Capture(json.loads(reply)))
+
+
 def test_an_explicit_empty_list_is_a_usable_mapping(tmp_path):
     checks = sc.load_checks(_evals(tmp_path))
     reqs = [sc.Requirement("mh-01", "must_hold", "b"), sc.Requirement("mh-02", "must_hold", "c")]
