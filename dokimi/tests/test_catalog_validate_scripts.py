@@ -718,6 +718,10 @@ def test_a_repeated_run_of_words_is_checked_in_linear_time(run, count):
     (b"shopt -- -s extglob", ["script-syntax"]),
     (b"if x=1 shopt -s extglob; then :; fi", []),
     (b"shopt -s nullglob extglob", []),
+    (b"command x=1 shopt -s extglob", ["script-syntax"]),
+    (b"command shopt -s extglob", []),
+    (b"! shopt -s extglob", []),
+    (b"x+=1 shopt -s extglob", []),
 ])
 @needs_bash
 def test_the_shopt_check_reads_each_command_as_bash_does_under_real_bash(tmp_path, body, codes, no_linters):

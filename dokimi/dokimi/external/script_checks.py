@@ -43,8 +43,8 @@ PARSE_SHOPTS = frozenset({"extglob"})  # bash -O options that change how a scrip
 # ( { ! word starts the next one. Its words are read in order: assignments and redirections, then keywords, then shopt.
 COMMAND_SPLIT = re.compile(rb"[;|\n)]|(?<![<>])&(?!>)")
 WORD_SPLIT = re.compile(rb"[ \t]+")
-WORD_BOUNDARY_CHARS = b"(){}!"
-ASSIGN_WORD = re.compile(rb"[A-Za-z_][A-Za-z0-9_]*=")
+WORD_BOUNDARY_CHARS = b"({!)"
+ASSIGN_WORD = re.compile(rb"[A-Za-z_][A-Za-z0-9_]*\+?=")
 REDIR_WORD = re.compile(rb"&?[0-9]*[<>]+&?")
 ARGUMENT_WORDS = frozenset({b"command", b"builtin", b"exec"})  # an assignment after one is an operand, not a prefix
 RESERVED_WORDS = frozenset({b"then", b"do", b"else", b"elif", b"if", b"while", b"until", b"time", b"coproc"})
