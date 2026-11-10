@@ -151,8 +151,9 @@ directory of that name (a run's own, `results/nightly-7/`) does not, nor does
 a path outside the root; when no artifact has the `run_id`, such a name gets
 the error it got before. When a file or directory under the root could not be
 read, the count and the first one are printed, since it may belong to the run;
-a root that cannot be listed at all exits 2 and says so. `--json` prints
-`root`, `run_id`, `artifacts` (the `runs list --json` rows) and `unreadable`.
+a root that cannot be listed at all exits 2 and says so. `--json` prints one
+`cli_output.v1` document (`kind` `runs show`) whose `data` holds `root`, `run_id`,
+`artifacts` (the `runs list --json` rows) and `unreadable`.
 
 ## Exit codes
 
