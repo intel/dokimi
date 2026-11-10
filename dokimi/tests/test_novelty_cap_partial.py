@@ -205,9 +205,11 @@ def test_an_unpriced_answer_stops_every_queued_probe_not_only_the_one_that_raise
     result = measure.run_measurement([], probes, "artifact", answerer=answerer,
                                      judge=LLMClient(model="j", role="judge"),
                                      arms=("no_artifact", "full"), concurrency=1)
-    # One call reached the provider; the six jobs behind it were never sent.
+    # One call reached the provider and was paid for: its answer is kept, ungraded. The five jobs
+    # behind it were never sent.
     assert len(calls) == 1
-    assert result.runs == [] and result.not_run == 6
+    assert len(result.runs) == 1 and result.ungraded == 1
+    assert result.runs[0].response == "an answer" and result.not_run == 5
 
 
 def test_extraction_that_loses_its_first_call_to_the_cap_keeps_a_partial_result():
@@ -321,10 +323,11 @@ def test_an_unpriced_probe_stop_names_the_missing_price_not_max_usd(tmp_path):
     out = tmp_path / "probes.json"
     with pytest.raises(SystemExit):
         save_probe_run({"runs": []}, out, done=len(result.runs), not_run=result.not_run,
-                       stop=result.stop)
+                       stop=result.stop, ungraded=result.ungraded)
     partial = json.loads((tmp_path / "probes.partial.json").read_text(encoding="utf-8"))["partial"]
     assert partial["reason"] == "no_price"
-    assert partial["message"].startswith("the probes stopped with 0 of 6 answers: ")
+    assert partial["message"].startswith(
+        "the probes stopped with 1 of 6 answers; 1 of them not graded: ")
     assert "no price is known for a" in partial["message"]
 
 
