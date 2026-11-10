@@ -263,5 +263,5 @@ def test_a_trace_leaf_refused_before_any_read_prints_an_input_error_document(tmp
     doc = json.loads(capsys.readouterr().out)  # one document, on stdout
     assert exc.value.code == 2
     assert doc["kind"] == "trace prefilter" and doc["status"] == "failed" and doc["data"] is None
-    assert doc["error"]["code"] == "input" and "cannot read" in doc["error"]["message"]
+    assert doc["error"]["code"] == "input" and doc["error"]["message"].startswith("guidance ")
     assert schema_errors("cli_output.v1", doc) == []

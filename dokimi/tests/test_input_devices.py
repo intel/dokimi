@@ -173,6 +173,18 @@ def test_trace_prefilter_refuses_a_device_as_the_guidance_file(monkeypatch, tmp_
     assert capsys.readouterr().err.strip() == "Error: guidance /dev/null: not a file"
 
 
+@pytest.mark.parametrize("kind", ["missing", "directory"])
+def test_trace_prefilter_exits_2_naming_a_guidance_path_it_cannot_read(monkeypatch, tmp_path, capsys, kind):
+    """A missing guidance file (or a directory, in a path with a space) is a refused input, not a runtime failure."""
+    guidance = tmp_path / "my guidance"
+    if kind == "directory":
+        guidance.mkdir()
+    assert _main(monkeypatch, "trace", "prefilter", str(guidance), str(tmp_path / "s.jsonl")) == 2
+    err = capsys.readouterr().err
+    assert err.startswith(f"Error: guidance {guidance}: ")
+    assert "Traceback" not in err
+
+
 def _prefilter_inputs(tmp_path):
     """A guidance file and one readable session, as the paths ``trace prefilter`` takes."""
     guide = tmp_path / "AGENTS.md"
