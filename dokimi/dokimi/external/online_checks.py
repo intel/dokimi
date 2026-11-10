@@ -122,7 +122,8 @@ def _code_span(match: re.Match[str]) -> str:
     """A code span that is a command is a line of its own ("Run `pip install x`"); any other span is just its text."""
     text = match.group(1)
     words = text.split()
-    return f"\n{text}\n" if words and words[0] in _COMMAND_START else f" {text} "
+    is_command = bool(words) and (words[0] in _COMMAND_START or _SHELL_COMMAND_RE.search(text) is not None)
+    return f"\n{text}\n" if is_command else f" {text} "  # "python -m pip install x" starts with python
 
 
 def _before_comment(line: str) -> str:

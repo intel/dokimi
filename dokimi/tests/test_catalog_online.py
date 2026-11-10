@@ -808,6 +808,12 @@ def test_a_long_line_with_hash_comments_and_no_install_is_read_in_linear_time():
     assert time.perf_counter() - started < 2.0
 
 
+def test_a_python_m_pip_install_span_is_split_off_so_its_prose_is_not_read():
+    body = ("Run `python -m pip install requests` once and restart.\n"
+            "Use `python3 -m pip install requests` inside the venv.\n")
+    assert online_checks.extract_packages(body) == [("pypi", "requests")]
+
+
 def _scan_capture(root, capsys, *extra: str) -> tuple[int, dict]:
     parser = build_parser()
     args = parser.parse_args(["catalog", "check", "--root", str(root), "--kind", "skills",
