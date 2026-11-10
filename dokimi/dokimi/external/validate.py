@@ -83,10 +83,10 @@ import yaml
 from dokimi.skills import Skill
 from dokimi.utils import describe_yaml_error, parse_frontmatter_strict
 
+from .bundle_paths import LOCATION_SUFFIX_RE, SKILL_DIR_VAR, path_missing
 from .catalog import SkillCatalogEntry, _within
 from .command_checks import command_findings
 from .content_checks import content_findings
-from .bundle_paths import LOCATION_SUFFIX_RE, SKILL_DIR_VAR, path_missing
 from .listing import in_field
 from .paths import _exists, _in_checkout, _inside, _resolved
 from .skill_markdown import link_pieces, outside_fences

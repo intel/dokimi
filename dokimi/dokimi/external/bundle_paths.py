@@ -29,7 +29,12 @@ LOCATION_SUFFIX_RE = re.compile(r":(?:\d+(?:[-:]\d+)?|[A-Za-z_]\w*)$")
 # The folders a skill bundles files in: a code span naming a file under one of them is checked (``path-missing``).
 BUNDLE_DIRS = ("scripts", "references", "assets", "templates", "examples", "resources")
 # A path part that stands for a name the reader fills in, not a file (``scripts/x.py``, ``assets/xxx.png``).
-PLACEHOLDER_PARTS = frozenset({"x", "xx", "xxx", "n/a", "na", "foo", "bar", "example", "name", "file", "filename", "your-file", "...", "…"})
+PLACEHOLDER_PARTS = frozenset(
+    {
+        "x", "xx", "xxx", "n/a", "na", "foo", "bar", "example", "name",
+        "file", "filename", "your-file", "...", "…",
+    }
+)
 
 
 def _bundle_path(word: str) -> Optional[str]:
