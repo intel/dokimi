@@ -377,6 +377,9 @@ def _identifiers(check: Mapping[str, Any], answer: str) -> tuple[Optional[bool],
 _NEGATED = re.compile(r"(?i)\bnot\b|n't\b|\bnever\b|\bno\b|\bavoid\w*|\bwithout\b|\binstead of\b|\brather than\b")
 #: An option with an assigned value (``--input=--stdin``): the value is a file name, not an option.
 _ASSIGNED = re.compile(r"""(?<![\w-])(--[A-Za-z][\w-]*)=(?:"[^"\n]*"|'[^'\n]*'|[^\s,;|&]+)""")
+#: A standalone ``--`` ends the options of a command: the words after it, up to the end of the
+#: clause, are operands (``perf report --stdio -- --foo`` names no option of ``perf report``).
+_OPERANDS = re.compile(r"(?<!\S)--(?!\S)[^\n.;!?`#]*")
 #: A word a flag takes after a space (``--sort no``) is its value: it negates no clause and, with the
 #: default pattern, names no option (``--input "no --stdin"``; a quoted ``--x`` still does).
 _VALUE_WORD = re.compile(
@@ -409,8 +412,10 @@ def scope_options(pattern: str, scope: str, *, timeout: float, negated: bool) ->
         return m.group(1) + " " * (m.end() - m.start() - len(m.group(1)))
 
     text = scope
+    if pattern == LONG_FLAG:  # operands after "--" name no option; the same length, so offsets hold
+        text = _OPERANDS.sub(lambda m: " " * len(m.group()), scope)
     if pattern == LONG_FLAG:  # the value of --input=--stdin is a file name, not an option
-        text = _ASSIGNED.sub(blank, scope)
+        text = _ASSIGNED.sub(blank, text)
     # The clause of a mention is read past the value a flag takes (``--sort no --stdin``).
     clause = _VALUE_WORD.sub(blank, text)
     if pattern == LONG_FLAG:  # a flag's value (a file name, quoted or not) names no option either

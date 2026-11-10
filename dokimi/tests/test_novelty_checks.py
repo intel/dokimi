@@ -71,6 +71,12 @@ def test_an_identifiers_pattern_or_within_is_checked_with_the_engine_that_runs_i
     assert validate_grading({"checks": [_veto(pattern="(--[a-z]+")]}) != []
 
 
+def test_a_standalone_double_dash_ends_the_options_of_a_command():
+    # After "--" the words are operands: "--foo" there is a file name, not an option of the tool.
+    assert grade_check(_veto(), "q", "perf report --stdio -- --foo", None).passed is True
+    assert grade_check(_veto(), "q", "perf report --stdin -- --foo", None).passed is False
+
+
 def test_a_tool_check_leaves_its_subcommands_alone():
     check = identifiers_check("perf", "usage: perf [--version] [--help] COMMAND")
     assert grade_check(check, "q", "perf report --stdio", None).passed is True
