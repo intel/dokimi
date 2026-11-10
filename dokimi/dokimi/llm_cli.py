@@ -288,7 +288,7 @@ CONTEXT_SUFFIX = re.compile(r"\[1m\]$")
 
 
 def _without_context(model: str) -> str:
-    """*model* with a trailing ``[...]`` (the context-window form) removed, and blanks stripped."""
+    """*model* with a trailing ``[1m]`` (the 1M-context form) removed, and blanks stripped."""
     return CONTEXT_SUFFIX.sub("", model.strip())
 
 
