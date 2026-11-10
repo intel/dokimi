@@ -13,6 +13,7 @@ import pytest
 from dokimi.cli import build_parser
 from dokimi.commands import benchmark
 from dokimi.registry import ProductEntry
+from tests.cli_refusal import refusal
 
 
 class _Registry:
@@ -317,12 +318,12 @@ def _root_with_mixed_dict_string_golden(tmp_path):
     ],
 )
 def test_preflight_fails_before_any_call(monkeypatch, tmp_path, capsys, preflight_args, env, message):
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         _preflight(monkeypatch, tmp_path, *preflight_args(tmp_path), env=env)
 
     # A missing credential or a missing/invalid question set or output dir is an input refusal
     # (2), the same as `benchmark run`. Only a failed check that is not an input stays 1.
-    assert exc.value.code == 2
+    assert exc.code == 2
     captured = capsys.readouterr()
     assert message in captured.err
     assert "Preflight OK" not in captured.out
@@ -353,18 +354,18 @@ def _preflight_with_doc_source(monkeypatch, tmp_path, *extra, error=None, creden
 @pytest.mark.outcome("pinned-questions-preflight")
 def test_preflight_check_failure_alone_stays_1(monkeypatch, tmp_path, capsys):
     # Guard: a doc source that does not resolve is a failed check, not an input refusal.
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         _preflight_with_doc_source(monkeypatch, tmp_path)
-    assert exc.value.code == 1
+    assert exc.code == 1
     assert "doc source check failed" in capsys.readouterr().err
 
 
 @pytest.mark.outcome("pinned-questions-preflight")
 def test_preflight_doc_source_value_rejected_by_the_factory_is_a_refusal(monkeypatch, tmp_path, capsys):
     # The factory's ValueError says the --doc-source value is bad: exit 2, not a failed check.
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         _preflight_with_doc_source(monkeypatch, tmp_path, error=ValueError("no such format"))
-    assert exc.value.code == 2
+    assert exc.code == 2
     err = capsys.readouterr().err
     assert "doc source invalid: local:docs (no such format)" in err
     assert "doc source check failed" not in err
@@ -372,9 +373,9 @@ def test_preflight_doc_source_value_rejected_by_the_factory_is_a_refusal(monkeyp
 
 @pytest.mark.outcome("pinned-questions-preflight")
 def test_preflight_missing_credential_wins_over_a_check_failure(monkeypatch, tmp_path, capsys):
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         _preflight_with_doc_source(monkeypatch, tmp_path, credential=False)
-    assert exc.value.code == 2
+    assert exc.code == 2
     err = capsys.readouterr().err
     assert "missing OPENAI_API_KEY" in err and "doc source check failed" in err
 
@@ -385,9 +386,9 @@ def test_preflight_input_error_wins_over_a_check_failure(monkeypatch, tmp_path, 
     # error (2), even when a check also failed.
     blocker = tmp_path / "file"
     blocker.write_text("not a directory", encoding="utf-8")
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         _preflight_with_doc_source(monkeypatch, tmp_path, "--output-dir", str(blocker / "out"))
-    assert exc.value.code == 2
+    assert exc.code == 2
     err = capsys.readouterr().err
     assert "output dir not writable" in err and "doc source check failed" in err
 
@@ -428,10 +429,10 @@ def test_preflight_rejects_an_unwritable_output_dir(monkeypatch, tmp_path, capsy
     blocker = tmp_path / "file"
     blocker.write_text("not a directory", encoding="utf-8")
 
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         _preflight(monkeypatch, tmp_path, "--output-dir", str(blocker / "out"))
 
-    assert exc.value.code == 2  # unwritable output is an input refusal (docs/quickstart.md)
+    assert exc.code == 2  # unwritable output is an input refusal (docs/quickstart.md)
     assert "output dir not writable" in capsys.readouterr().err
 
 
@@ -460,10 +461,10 @@ def test_run_rejects_an_unusable_questions_from_before_any_call(
         "--output-dir", str(tmp_path / "out"),
         "--questions-from", str(make_source(tmp_path)),
     ])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         benchmark.cmd_benchmark_run(args)
 
-    assert exc.value.code == 2
+    assert exc.code == 2
     assert message in capsys.readouterr().err
     assert calls == []
 

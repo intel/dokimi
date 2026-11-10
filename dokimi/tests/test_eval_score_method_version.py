@@ -9,6 +9,7 @@ from types import SimpleNamespace
 import pytest
 
 from dokimi.cli import build_parser
+from tests.cli_refusal import refusal
 
 GOOD = ('{"reasoning":"r","correctness":80,"completeness":80,"specificity":80,'
         '"code_quality":80,"actionability":80,"aggregate":80}')
@@ -102,10 +103,10 @@ def test_pipeline_judges_fresh_in_memory_answers_as_the_current_version(monkeypa
 @pytest.mark.parametrize("bad", ["2", True, 3.5, [1], 0, -7])
 def test_a_malformed_stamp_exits_2_before_any_judge_call(tmp_path, judge_calls, capsys, bad):
     """main ignored the field; writing it unchecked failed eval validation after paid calls."""
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         _eval_score(tmp_path, {"method_version": bad, "answers": ANSWERS})
 
-    assert exc.value.code == 2
+    assert exc.code == 2
     assert judge_calls == []
     assert not (tmp_path / "eval.json").exists()
     assert "method_version must be a positive integer" in capsys.readouterr().err
