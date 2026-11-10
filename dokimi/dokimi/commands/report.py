@@ -9,6 +9,7 @@ import argparse
 import sys
 import json
 from pathlib import Path
+from dokimi.commands._output import exit_on_rejected
 from dokimi.exit_codes import EXIT_USAGE
 
 
@@ -88,11 +89,17 @@ def cmd_report_model_compare(args: argparse.Namespace) -> None:
     _write_combined_report(args, regular_runs, golden_runs, run_ids, all_warnings)
 
 
+def _generate_eval_report(eval_path: str, out_path: str) -> None:
+    """``generate_report``; exit 1 when the schema refuses the Q&A sidecar (the markdown is written by then)."""
+    from dokimi.report.eval_report import generate_report
+
+    with exit_on_rejected("report_qa"):
+        generate_report(eval_path=eval_path, out_path=out_path)
+
+
 def cmd_report_eval(args: argparse.Namespace) -> None:
     """Generate quality report from eval JSON (dynamic vs static breakdown)."""
-    from dokimi.artifacts import ArtifactValidationError
     from dokimi.records import RecordError
-    from dokimi.report.eval_report import generate_report
 
     if args.out:
         out = args.out
@@ -101,13 +108,10 @@ def cmd_report_eval(args: argparse.Namespace) -> None:
     else:
         out = f"results/{args.product}/reports/{args.product}_full.md"
     try:
-        generate_report(eval_path=args.eval, out_path=out)
+        _generate_eval_report(args.eval, out)
     except RecordError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         raise SystemExit(EXIT_USAGE) from None
-    except ArtifactValidationError as exc:  # the Q&A sidecar; the markdown report is written
-        print(f"Error: report_qa artifact rejected: {exc}", file=sys.stderr)
-        raise SystemExit(1) from None
     except OSError as exc:
         print(f"Error: cannot write {out}: {exc}", file=sys.stderr)
         raise SystemExit(EXIT_USAGE) from None
