@@ -57,6 +57,20 @@ def test_identifiers_check_vetoes_only_unlisted_flags_of_the_tool(answer, passed
         assert "--stdin" in result.detail
 
 
+def test_an_identifiers_check_is_never_sufficient():
+    # It only rules names out: a sufficient one would make an answer that names nothing correct.
+    problems = validate_grading({"checks": [_veto(role="sufficient")]})
+    assert any("sufficient" in p for p in problems)
+    assert validate_grading({"checks": [_veto(role="veto")]}) == []
+
+
+def test_an_identifiers_pattern_or_within_is_checked_with_the_engine_that_runs_it():
+    # The check runs its patterns with the regex module, so a pattern it accepts must validate.
+    assert validate_grading({"checks": [_veto(within=r"\p{L}+")]}) == []
+    assert validate_grading({"checks": [_veto(pattern=r"(?<=a|bc)x")]}) == []
+    assert validate_grading({"checks": [_veto(pattern="(--[a-z]+")]}) != []
+
+
 def test_a_tool_check_leaves_its_subcommands_alone():
     check = identifiers_check("perf", "usage: perf [--version] [--help] COMMAND")
     assert grade_check(check, "q", "perf report --stdio", None).passed is True

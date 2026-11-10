@@ -519,15 +519,18 @@ def _ladder_problems(c: Mapping[str, Any]) -> list[str]:
 
 
 def _identifiers_problems(c: Mapping[str, Any]) -> list[str]:
-    """An ``identifiers`` check without names, or with a regex that does not compile."""
+    """An ``identifiers`` check without names, a ``sufficient`` role, or a pattern that does not compile."""
     known = c.get("known")
     names_ok = isinstance(known, list) and known and all(isinstance(k, str) and k for k in known)
     out = [] if names_ok else ["identifiers needs `known`: a non-empty list of names"]
-    for key in ("pattern", "within"):
+    # It only rules names out: an answer that names none passes, so it cannot decide a verdict.
+    if check_role(c) == "sufficient":
+        out.append("identifiers cannot be sufficient: it only rules names out, and an answer naming none passes")
+    for key in ("pattern", "within"):  # the scan runs them with the regex module, not re
         if c.get(key) is not None:
             try:
-                re.compile(str(c[key]))
-            except re.error as exc:
+                regex.compile(str(c[key]))
+            except regex.error as exc:
                 out.append(f"identifiers {key} {c[key]!r} does not compile: {exc}")
     return out
 
