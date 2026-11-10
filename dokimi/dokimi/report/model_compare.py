@@ -338,7 +338,7 @@ def check_run_consistency(
             # all (answers not yet judged): it still names one treatment per run, and that
             # is enough to catch a confounded group before any judge spend.
             per_run[rid] = scored or non_baseline_arms(data)
-            if not scored and (data.get("evaluations") or data.get("answers")):
+            if not scored and (_section(data, "evaluations") or _section(data, "answers")):
                 warnings.append(
                     f"Run '{rid}' has records but no scored non-baseline arm — it "
                     "contributes a baseline column and no delta."
