@@ -492,3 +492,26 @@ def test_a_judge_reply_the_cap_refused_that_names_no_verdict_stays_ungraded(monk
                                      role="answerer"), judge=judge, arms=("full",), concurrency=1)
     assert [run.verdict for run in result.runs] == ["error"]
     assert result.ungraded == 1 and result.stop[0] == "no_price"
+
+
+def test_a_partial_write_skips_a_dangling_symlink_and_a_read_only_partial_file(tmp_path):
+    # A symlink at the sidecar name is not followed, and a read-only partial file is passed over
+    # for the next name: the routing sidecar rules (#516, #521), which the budget writers share.
+    from dokimi.commands.novelty_budget import write_run
+
+    target = tmp_path / "elsewhere.json"
+    (tmp_path / "probes.partial.json").symlink_to(target)
+    partial = {"reason": "spend_cap", "calls_done": 1, "calls_planned": 2, "message": "m"}
+    dest = write_run({"runs": []}, tmp_path / "probes.json", partial)
+    assert dest == tmp_path / "probes.partial2.json"
+    assert not target.exists()
+
+    kept = tmp_path / "earlier.partial.json"
+    kept.write_text(json.dumps({"partial": {"reason": "spend_cap"}}), encoding="utf-8")
+    kept.chmod(0o444)
+    try:
+        second = write_run({"runs": []}, tmp_path / "other.json", partial)
+    finally:
+        kept.chmod(0o644)
+    assert second == tmp_path / "other.partial.json"
+    assert json.loads(second.read_text(encoding="utf-8"))["partial"]["message"] == "m"

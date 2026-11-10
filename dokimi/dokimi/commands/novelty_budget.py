@@ -13,27 +13,33 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import NoReturn
 
-
-def is_partial_file(path: Path) -> bool:
-    """Whether ``path`` holds a partial result; a file this cannot read is not one."""
-    try:
-        earlier = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, ValueError):
-        return False
-    return isinstance(earlier, dict) and "partial" in earlier
+from dokimi.commands.novelty_routing_report import _partial_destinations
 
 
 def partial_destination(out: Path) -> Path:
     """The first of ``<stem>.partial.json``, ``<stem>.partial2.json``, ... that is free or already
-    holds a partial result, so a stopped run never replaces a finished one."""
-    base = Path(out)
-    candidate, number = base.with_name(f"{base.stem}.partial.json"), 2
-    while candidate.exists() and not is_partial_file(candidate):
-        candidate, number = base.with_name(f"{base.stem}.partial{number}.json"), number + 1
-    return candidate
+    holds a partial result, so a stopped run never replaces a finished one. The sidecar rules are
+    the routing report's (a symlink is not followed, a FIFO is not read)."""
+    return next(_partial_destinations(Path(out)))
+
+
+def partial_write(out: Path, write: Callable[[Path], None]) -> Path:
+    """Run ``write`` on the first sidecar beside ``out`` that takes a partial result. A read-only
+    file that holds one refuses the write, and is passed over for the next name, as the routing
+    report's save does; a new file that is refused is raised."""
+    for dest in _partial_destinations(Path(out)):
+        try:
+            write(dest)
+        except PermissionError:
+            if not dest.exists():
+                raise
+            continue
+        return dest
+    raise RuntimeError("unreachable: the sidecar names never run out")
 
 
 def exit_partial(summary: str, path: Path) -> NoReturn:
@@ -43,12 +49,14 @@ def exit_partial(summary: str, path: Path) -> NoReturn:
 
 def write_run(payload: dict, out: Path, partial: dict | None = None) -> Path:
     """Write a run's record to ``out``; a run the cap stopped (``partial``) goes beside it."""
-    dest = partial_destination(out) if partial else out
     if partial:
         payload.update(status="partial", partial=partial)
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    return dest
+    text = json.dumps(payload, indent=2)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    if not partial:
+        out.write_text(text, encoding="utf-8")
+        return out
+    return partial_write(out, lambda dest: dest.write_text(text, encoding="utf-8"))
 
 
 def save_probe_run(payload: dict, out: Path, *, done: int, not_run: int,
@@ -82,11 +90,12 @@ def save_atoms_run(atoms, spans, out: Path, partial: dict | None, **record) -> P
     ``out`` and exits."""
     from dokimi.novelty.atoms import save_atoms
 
-    dest = partial_destination(out) if partial else out
-    save_atoms(atoms, spans, dest, partial=partial, **record)
-    if partial:
-        exit_partial(partial["message"], dest)
-    return dest
+    if not partial:
+        save_atoms(atoms, spans, out, partial=None, **record)
+        return out
+    dest = partial_write(out, lambda side: save_atoms(atoms, spans, side, partial=partial,
+                                                      **record))
+    exit_partial(partial["message"], dest)
 
 
 def verify_or_partial(sample, spans, client) -> dict | None:
