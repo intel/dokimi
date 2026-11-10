@@ -74,6 +74,7 @@ def _task(root: Path, name: str, tests: dict[str, str]) -> None:
     (task / "task.toml").write_text('version = "1.0"\n', encoding="utf-8")
     (task / "instruction.md").write_text("Do the thing.\n", encoding="utf-8")
     for fname, body in tests.items():
+        (task / "tests" / fname).parent.mkdir(parents=True, exist_ok=True)
         (task / "tests" / fname).write_text(body, encoding="utf-8")
 
 
@@ -144,6 +145,38 @@ def test_a_single_body_task_check_keeps_the_function_name(tmp_path):
     _task(root, "t1", {"test_answer.py": "def test_only():\n    pass\n"})
     [check] = sc.load_checks(root)
     assert (check.name, check.units) == ("test_only", ("t1",))
+
+
+def test_a_test_in_a_subfolder_of_tests_is_a_check_and_its_folder_is_read(tmp_path):
+    root = tmp_path / "tasks"  # pytest collects tests/unit/test_b.py too; its helper's constant is module code
+    _task(root, "t1", {"unit/test_b.py": "from helpers import EXPECTED\n\ndef test_b():\n    assert EXPECTED\n",
+                        "unit/helpers.py": "EXPECTED = 1\n"})
+    [check] = sc.load_checks(root)
+    assert (check.name, check.units) == ("test_b", ("t1",))
+    assert "EXPECTED = 1" in check.source
+    assert any(p.name == "helpers.py" for p in sc.check_files(root))  # the --out guard sees every file it reads
+
+
+def test_a_test_method_of_a_test_class_is_a_check_named_by_class_and_method(tmp_path):
+    root = tmp_path / "tasks"
+    _task(root, "t1", {"test_output.py": "class TestOutput:\n"
+                                         "    def setup_method(self):\n        self.flag = '-x'\n\n"
+                                         "    def test_a(self):\n        assert self.flag == '-x'\n\n"
+                                         "    def test_b(self):\n        assert self.flag\n"})
+    checks = {c.name: c for c in sc.load_checks(root)}
+    assert set(checks) == {"TestOutput::test_a", "TestOutput::test_b"}
+    assert checks["TestOutput::test_a"].units == ("t1",)
+    assert "def setup_method" in checks["TestOutput::test_a"].source  # the class's other statements are context
+    assert "self.flag == '-x'" in checks["TestOutput::test_a"].source
+    assert "def test_b" not in checks["TestOutput::test_a"].source  # the sibling test is not part of this check
+
+
+def test_test_classes_of_two_tasks_with_different_setup_stay_apart(tmp_path):
+    root = tmp_path / "tasks"
+    for task, flag in (("t1", "-x"), ("t2", "-y")):
+        _task(root, task, {"test_output.py": f"class TestOutput:\n    def test_a(self):\n        assert '{flag}'\n"})
+    checks = sc.load_checks(root)
+    assert sorted(c.name for c in checks) == ["TestOutput::test_a#1", "TestOutput::test_a#2"]
 
 
 def test_a_long_eval_row_keeps_its_expected_output_in_the_check(tmp_path):
