@@ -729,6 +729,14 @@ def test_a_quote_in_a_comment_inside_a_command_sub_in_quotes_is_not_a_quote(tmp_
     assert _codes(_reviews_by_name(tmp_path)["bundled"]) == []
 
 
+@needs_bash
+def test_a_heredoc_body_with_a_quote_inside_a_command_sub_in_quotes_is_not_read_as_script(tmp_path, no_linters):
+    # bash reads the heredoc body as text, so the apostrophe in "don't" opens no quote; the latch must not hide the shopt
+    _bundle(tmp_path, {"run.sh": b'#!/bin/bash\nmsg="$(cat <<EOF\ndon\'t\nEOF\n)"\nshopt -s \'extglob\'\ncase x in +(a)) : ;; esac\necho "end"\n'})
+
+    assert _codes(_reviews_by_name(tmp_path)["bundled"]) == []
+
+
 def test_a_command_sub_in_quotes_nested_600_deep_does_not_exhaust_the_recursion_limit():
     # each level of the nest recurses; a nest this deep raised RecursionError on the whole file
     script_checks._shell_options(b"x=" + b'"$(' * 600 + b")\"" * 600 + b"\nx\n")

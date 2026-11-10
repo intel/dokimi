@@ -348,7 +348,7 @@ def _unquoted_text(data: bytes) -> bytes:
             out += data[i:end]
             prev, i = b"x", end
         elif c in (b"'", b'"'):
-            got = None if unclosed else _quoted_run(data, i)
+            got = None if unclosed else _quoted_run(data, i, lines)
             if got is None:
                 unclosed = True
                 out += c
@@ -364,11 +364,8 @@ def _unquoted_text(data: bytes) -> bytes:
 
 def _text_step(data: bytes, i: int, prev: bytes) -> tuple[bytes, int, bytes]:
     """What the unquoted text at ``data[i]`` gives the shopt check, as (text, next index, the byte before that index):
-    a quoted run, a comment, an escape or a plain byte."""
+    a comment, an escape or a plain byte (the caller reads quoted runs)."""
     c = data[i:i + 1]
-    if c in (b"'", b'"'):
-        got = _quoted_run(data, i)
-        return (c, i + 1, c) if got is None else (got[0], got[1], b"x")
     if c == b"#" and prev in WORD_START:
         return b"", _comment_end(data, i), b"\n"
     if c == b"\\":  # a line continuation is joined, as bash joins it: nothing is kept
@@ -459,7 +456,7 @@ def _heredoc_body_end(data: bytes, lines: _Lines, start: int, dash: bool, delim:
 MAX_SUBST_NESTING = 50  # the ``$(`` nests read inside double quotes; a deeper one is text, so the scan recurses no further
 
 
-def _quoted_run(data: bytes, i: int, nest: int = 0) -> Optional[tuple[bytes, int]]:
+def _quoted_run(data: bytes, i: int, lines: _Lines, nest: int = 0) -> Optional[tuple[bytes, int]]:
     """The text of the quoted run that opens at ``data[i]``, and the index just past its closing mark; None when it is
     unclosed. Blanks in it are text (:func:`_in_quotes`). In double quotes, as in bash, a backslash before ``$``, a
     backtick, ``"`` or a backslash is that character, a backslash-newline is removed, and any other backslash is kept.
@@ -481,7 +478,7 @@ def _quoted_run(data: bytes, i: int, nest: int = 0) -> Optional[tuple[bytes, int
             out += text
             j += width
         elif c == b"$" and quote == b'"' and data[j + 1:j + 2] == b"(" and nest < MAX_SUBST_NESTING:
-            end = _command_sub_end(data, j + 1, nest + 1)
+            end = _command_sub_end(data, j + 1, lines, nest + 1)
             if end is None:
                 return None
             out += b"".join(_in_quotes(data[k:k + 1]) for k in range(j, end))  # a quote in it does not close these
@@ -492,18 +489,26 @@ def _quoted_run(data: bytes, i: int, nest: int = 0) -> Optional[tuple[bytes, int
     return None
 
 
-def _command_sub_end(data: bytes, i: int, nest: int = 0) -> Optional[int]:
+def _command_sub_end(data: bytes, i: int, lines: _Lines, nest: int = 0) -> Optional[int]:
     """The index just past the ``)`` that closes the ``(`` at ``data[i]`` of a ``$(``, read as bash reads it: its quoted
-    runs are skipped whole, so a quote inside it does not close the double quotes around it. None when it is unclosed."""
+    runs and heredoc bodies are skipped whole, so a quote inside them does not close the double quotes around it. None
+    when it is unclosed."""
     depth = 0
     j = i
+    resume = -1  # where the body of a heredoc opened on this line starts: the next line, after any earlier body
     while j < len(data):
         c = data[j:j + 1]
+        if c == b"\n" and resume >= 0:
+            j, resume = resume, -1
+            continue
         if c == b"\\":
             j += 2
             continue
+        if c == b"<" and data[j - 1:j] != b"<" and (opened := _heredoc_at(data, j, resume, lines)) is not None:
+            j, resume = opened
+            continue
         if c in (b"'", b'"'):
-            run = _quoted_run(data, j, nest)
+            run = _quoted_run(data, j, lines, nest)
             if run is None:
                 return None
             j = run[1]
