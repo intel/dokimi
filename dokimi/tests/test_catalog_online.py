@@ -814,6 +814,16 @@ def test_a_python_m_pip_install_span_is_split_off_so_its_prose_is_not_read():
     assert online_checks.extract_packages(body) == [("pypi", "requests")]
 
 
+def test_placeholder_names_with_underscores_or_upper_case_are_not_checked():
+    body = "pip install your_package\npip install YOUR_PACKAGE\npip install package-name\nnpm install my_package\n"
+    assert online_checks.extract_packages(body) == []
+
+
+def test_placeholder_owner_and_repo_in_a_url_are_not_checked():
+    body = "See https://github.com/YOUR_USERNAME/repo and https://github.com/OWNER/REPO.git.\n"
+    assert online_checks.extract_urls(body) == []
+
+
 def _scan_capture(root, capsys, *extra: str) -> tuple[int, dict]:
     parser = build_parser()
     args = parser.parse_args(["catalog", "check", "--root", str(root), "--kind", "skills",

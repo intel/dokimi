@@ -90,7 +90,7 @@ _NON_PACKAGE_SUFFIXES = (".txt", ".whl", ".tar.gz", ".tgz", ".zip", ".cfg", ".to
 _PYPI_NAME_RE = re.compile(
     r"([A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)(?:\[[^\]]*\])?(?:\s*(?:===|==|>=|<=|~=|!=|<|>).*)?")
 _NPM_NAME_RE = re.compile(r"(?:@[A-Za-z0-9._~-]+/)?[A-Za-z0-9._~-]+")
-_PLACEHOLDER_NAMES = {"package", "packages", "pkg", "name", "module", "mypackage", "my-package"}
+_PLACEHOLDER_NAMES = {"package", "packages", "pkg", "name", "module", "mypackage", "my-package", "package-name"}
 _URL_RE = re.compile(r"https?://[^\s\"'`<>]+", re.IGNORECASE)
 # Where a literal URL starts: after a markdown destination's ``](``, or a reference definition's ``[id]: ``.
 _LITERAL_START_RE = re.compile(r"\]\(|^[ \t]*\[(?!\^)[^\]\n]*\]:[ \t]*", re.MULTILINE)  # not a footnote "[^1]:"
@@ -100,7 +100,8 @@ _DECODE_RE = re.compile(r"\\([!-/:-@\[-`{-~])|&(#[xX][0-9a-fA-F]{1,6}|#[0-9]{1,7
 _TEMPLATE_RE = re.compile(r"[{}$]")  # a template variable, such as ``{id}`` or ``${VERSION}``
 _EXAMPLE_DOMAINS = ("example.com", "example.org", "example.net")
 _RESERVED_SUFFIXES = (".localhost", ".test", ".invalid", ".example")
-_PLACEHOLDER_HOST_RE = re.compile(r"(?:^|[./])your-")  # a host or a path segment that starts with ``your-``
+_PLACEHOLDER_HOST_RE = re.compile(r"(?:^|[./])your[-_]")  # a host or a path segment that starts with ``your-`` or ``your_``
+_PLACEHOLDER_SEGMENTS = {"OWNER", "REPO", "USER", "USERNAME"}  # a URL path's upper-case placeholder segment, "OWNER/REPO.git"
 _CODE_SPAN_RE = re.compile(r"`([^`\n]*)`")
 _COMMAND_START = _PIP | {"npm", "npx", "uv", "sudo", "$"}
 _OPERATOR_RE = re.compile(r"[;|&()]+")  # a shell operator ends the words of a command; ``<`` and ``>`` do not (see below)
@@ -271,7 +272,8 @@ def _npx_names(args: list[str]) -> Iterator[str]:
 
 
 def _is_placeholder(name: str) -> bool:
-    return name.lower() in _PLACEHOLDER_NAMES or name.lower().startswith("your-")
+    folded = name.lower().replace("_", "-")  # "your_package", "YOUR_PACKAGE" and "your-package" are one name
+    return folded in _PLACEHOLDER_NAMES or folded.startswith("your-")
 
 
 def _command_kind(tokens: list[str], i: int) -> Optional[str]:
@@ -401,6 +403,8 @@ def _placeholder_url(url: str) -> bool:
     except ValueError:
         address = None
     if address is not None and (address.is_loopback or address.is_unspecified):
+        return True
+    if any(segment.removesuffix(".git") in _PLACEHOLDER_SEGMENTS for segment in parts.path.split("/")):
         return True
     return bool(_PLACEHOLDER_HOST_RE.search(host + parts.path.lower()))
 
