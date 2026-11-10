@@ -149,3 +149,13 @@ def test_frontmatter_after_a_blank_line_is_not_plain_markdown(tmp_path):
 
     codes = [f.code for r in review_skills(read_skill_manifest(tmp_path)) if r for f in r.findings]
     assert "not-a-skill-no-frontmatter" not in codes
+
+
+@pytest.mark.parametrize("opener", ["  ---\nname: indent\ndescription: y\n  ---\n# X\n",
+                                    "\n---\nname: late\ndescription: y\n---\n# Late\n"])
+def test_indented_or_late_frontmatter_is_a_broken_skill_not_plain_markdown(tmp_path, opener):
+    # The loader's error stands for it, as for frontmatter after a blank line: no hint, and the scan fails.
+    _plain(tmp_path, "broken", opener)
+    codes = [f.code for r in review_skills(read_skill_manifest(tmp_path)) if r for f in r.findings]
+    assert "not-a-skill-no-frontmatter" not in codes
+    assert main(["catalog", "check", "--root", str(tmp_path), "--kind", "skills"]) == 1

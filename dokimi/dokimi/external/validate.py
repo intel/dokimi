@@ -419,9 +419,9 @@ def _unloaded_review(entry: SkillCatalogEntry) -> Optional[SkillReview]:
         return None  # the loader already reported why the skill did not load
     lines = text.lstrip("\ufeff").splitlines()
     first = next((line.rstrip() for line in lines if line.strip()), "")
-    if first == "---" and lines[0].rstrip() != "---":
-        return None  # frontmatter after blank lines: a broken skill, not prose; the loader's error stands
-    if first != "---":
+    if first.strip() == "---" and lines[0].rstrip() != "---":
+        return None  # frontmatter after blank lines or indented: a broken skill, not prose; the loader's error stands
+    if first.strip() != "---":
         at_root = candidate.parent.resolve() == entry.source_root.resolve()  # as _frontmatter_findings reads it
         hint = no_frontmatter_message(lines, _dir_name_of(candidate.parent), at_root=at_root)
         return SkillReview(findings=[Finding("error", NO_FRONTMATTER, hint)])
