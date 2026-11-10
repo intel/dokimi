@@ -36,6 +36,7 @@ import logging
 import threading
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple, Union
 
+from dokimi.records import arm_answers, read
 from dokimi.utils import digest_text, question_id
 
 logger = logging.getLogger(__name__)
@@ -208,43 +209,24 @@ class JudgeContextStore:
         A digest whose text is missing, or whose text does not hash to it, is
         skipped with a warning: that answer falls back to its snippets, which is
         visible in its ``judge_context_source``, rather than being judged on text
-        that is not what the arms run's judge saw.
+        that is not what the arms run's judge saw. The answers are read through
+        :mod:`dokimi.records`: a malformed list or record is a ``RecordError``.
         """
         store = cls()
         materials = data.get("judge_materials") if isinstance(data, dict) else None
         if not isinstance(materials, dict):
             return store
         bad = 0
-        answers = data.get("answers") if isinstance(data, dict) else None
-        if not isinstance(answers, list):
-            return store
-        for record in answers:
-            if not isinstance(record, dict):
-                bad += 1
-                continue
-            qid = question_id(record)
-            arms = record.get("arms")
-            if not isinstance(arms, dict):
-                bad += 1
-                continue
-            for arm_name, arm in arms.items():
-                if not isinstance(arm, dict):
-                    bad += 1
+        for rec in read(data, section="answers", required=False):
+            for arm_name, answer in arm_answers(rec).items():
+                digest = answer.raw.get("judge_context_sha256")
+                if digest is None:
                     continue
-                digest = arm.get("judge_context_sha256")
-                if qid is None or digest is None:
-                    continue
-                if not isinstance(digest, str) or not digest:
-                    bad += 1
-                    continue
-                if not isinstance(qid, (str, int)):
-                    bad += 1
-                    continue
-                text = materials.get(digest)
+                text = materials.get(digest) if isinstance(digest, str) and digest else None
                 if not isinstance(text, str) or digest_text(text) != digest:
                     bad += 1
                     continue
-                store.put(qid, arm_name, text)
+                store.put(rec.question_id, arm_name, text)
         if bad:
             logger.warning(
                 "%d arm records cite judge material that is missing from the artifact "

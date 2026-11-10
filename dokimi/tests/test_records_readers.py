@@ -131,26 +131,26 @@ def test_judge_context_without_materials_or_answers_stores_nothing(data):
     assert JudgeContextStore.from_artifact(data).materials() == {}
 
 
-@pytest.mark.parametrize("answers", [None, {"q1": {}}], ids=["null", "object"])
-def test_judge_context_reads_an_answers_field_that_is_not_a_list_as_no_records(caplog, answers):
-    assert (_store(answers, caplog).materials(), _warned(caplog)) == ({}, False)
+@pytest.mark.parametrize("answers, message", [
+    (None, "'answers' must be a list, got NoneType"),
+    ({"q1": {}}, "'answers' must be a list, got dict"),
+    (["q1"], r"answers\[0\]: expected an object, got str"),
+    ([{"question_id": "q1", "arms": "skill:x"}], r"answers\[0\]: 'arms' must be an object"),
+    ([{"question_id": "q1", "arms": {"skill:x": "a"}}], r"answers\[0\].arms.skill:x: expected an object or null"),
+    ([{"arms": {"skill:x": _cited()}}], r"answers\[0\]: missing question_id"),
+], ids=["null", "object", "not-an-object", "arms-not-an-object", "arm-not-an-object", "no-id"])
+def test_judge_context_refuses_answers_the_records_reader_refuses(caplog, answers, message):
+    with pytest.raises(RecordError, match=message):
+        _store(answers, caplog)
 
 
 @pytest.mark.parametrize("record", [
-    "q1",
-    {"question_id": "q1", "arms": "skill:x"},
-    {"question_id": "q1", "arms": {"skill:x": "a"}},
     {"question_id": "q1", "arms": {"skill:x": None}},
     {"question_id": "q1", "with_docs": {"answer": "a"}},
-], ids=["not-an-object", "arms-not-an-object", "arm-not-an-object", "null-arm", "binary"])
-def test_judge_context_counts_a_record_it_cannot_read_and_warns(caplog, record):
+], ids=["null-arm", "binary"])
+def test_judge_context_does_not_count_a_record_that_cites_nothing(caplog, record):
     store = _store([record, {"question_id": "q9", "arms": {"skill:x": _cited()}}], caplog)
-    assert (store.get("q9", "skill:x"), _warned(caplog)) == (TEXT, True)
-
-
-def test_judge_context_skips_a_cited_record_without_question_id_quietly(caplog):
-    store = _store([{"arms": {"skill:x": _cited()}}], caplog)
-    assert (store.materials(), _warned(caplog)) == ({}, False)
+    assert (store.get("q9", "skill:x"), _warned(caplog)) == (TEXT, False)
 
 
 # ── report/model_compare.py ───────────────────────────────────────────────────
