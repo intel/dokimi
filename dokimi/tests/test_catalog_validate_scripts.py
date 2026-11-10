@@ -752,3 +752,12 @@ def test_a_ksh_script_is_checked_with_extglob_on_as_ksh_always_has_it(tmp_path):
 
     assert script_findings(skill, which=_tools("bash"), runner=runner) == []
     assert runner.calls[0].argv == ("/usr/bin/bash", "-O", "extglob", "-n")
+
+
+def test_a_linter_report_longer_than_the_capture_limit_still_gives_its_note(tmp_path):
+    many = [{"code": "S602"}] * (process.CAPTURE_LIMIT // 10)
+    skill = _bundle(tmp_path, {"tool.py": b"x = 1\n"})
+
+    findings = script_findings(skill, which=_tools("ruff"), runner=_linter_runner(ruff=many))
+
+    assert findings == [("note", "script-lint", f"bundled-script lint: ruff {len(many)} (S602 x{len(many)})")]

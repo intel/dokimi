@@ -591,7 +591,8 @@ def _lint(python_files: list[Path], shell_files: list[Path], which: Which,
 def _ruff_counts(ruff: str, files: list[Path], runner: process.Runner) -> Optional[Counter]:
     # --isolated: no config from the skill's own directory; --no-cache: nothing written into it
     done = _spawn(runner, [ruff, "check", "--select", RUFF_SELECT, "--output-format", "json", "--isolated",
-                           "--no-cache", *map(str, files)], timeout=LINT_TIMEOUT_SEC, env=process.Env.only())
+                           "--no-cache", *map(str, files)], timeout=LINT_TIMEOUT_SEC, env=process.Env.only(),
+                  capture_limit=None)  # the report is parsed whole: a cut one would drop the note
     items = _json_list(done)
     if items is None:
         return None
@@ -601,7 +602,7 @@ def _ruff_counts(ruff: str, files: list[Path], runner: process.Runner) -> Option
 
 def _shellcheck_counts(shellcheck: str, files: list[Path], runner: process.Runner) -> Optional[Counter]:
     done = _spawn(runner, [shellcheck, "-f", "json", "--norc", *map(str, files)],
-                  timeout=LINT_TIMEOUT_SEC, env=process.Env.only())
+                  timeout=LINT_TIMEOUT_SEC, env=process.Env.only(), capture_limit=None)
     data = _json_list(done, wrapped_key="comments")
     if data is None:
         return None
