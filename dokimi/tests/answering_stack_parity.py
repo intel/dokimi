@@ -38,9 +38,8 @@ JUDGE_PROVIDER = "openai"
 TOP_K = 3  # the value the pipeline defaults to (defaults.DEFAULT_RETRIEVAL_TOP_K)
 DESCRIPTION = "Fixture library for the answering-stack characterization."
 
-# The fixture. One question per case in #228 step 1 (docs found, no docs,
-# reranker raises, ground-truth chunk), plus two more docs-found questions so
-# the paired test (stats.MIN_PAIRS_FOR_TEST = 6) runs on both stacks.
+# The fixture: one question per case in #228 step 1 (docs found, no docs, reranker raises,
+# ground-truth chunk), and two more docs-found ones, so the paired test has six pairs on stack A.
 EMPTY_QUERY = "What does the arena do when it is empty?"
 RERANK_QUERY = "Which scheduler owns the worker threads?"
 DOCS_QUERY = "How does parallel_for split a blocked range?"
