@@ -4,6 +4,7 @@
 """Tests for the paired-statistics helpers used by the N-arm comparison."""
 
 import itertools
+import math
 import pytest
 
 from dokimi.eval import stats
@@ -720,6 +721,51 @@ def test_arm_significance_correction_changes_the_adjusted_p():
     assert bh["docs+skill:x"]["p_adjusted"] == 0.0469
     assert holm["skill:x"]["significant_adjusted"] is False and bh["skill:x"]["significant_adjusted"] is True
     assert holm["docs"]["significant_adjusted"] is None  # under the floor, yet in the family of 3
+
+
+def test_sample_sd_of_values_at_1e300_is_finite_and_scales_linearly():
+    """Squaring a deviation of 1e300 overflowed: https://github.com/intel/dokimi/issues/475."""
+    # [1, -1, 1, -1, 1, 1]: mean 1/3, squared deviations sum to 16/3, sd = sqrt(16/15).
+    assert stats._sample_sd([1e300, -1e300, 1e300, -1e300, 1e300, 1e300]) == pytest.approx(
+        4 / 15 ** 0.5 * 1e300, rel=1e-12
+    )
+
+
+def test_paired_test_at_1e200_matches_the_scaled_down_deltas():
+    """The sd overflowed here: https://github.com/intel/dokimi/issues/475."""
+    small = [1.0, -1.0, 3.0, 2.0, 1.0, -1.0]
+    ref = stats.paired_test(small, [0.0] * 6, rounded=False)
+    res = stats.paired_test([d * 1e200 for d in small], [0.0] * 6, rounded=False)
+    # Deltas with mean 5/6 and squared deviations summing to 77/6: sd = sqrt(77/30).
+    assert res["delta_std"] == pytest.approx((77 / 30) ** 0.5 * 1e200, rel=1e-12)
+    assert res["delta_mean"] == pytest.approx(5 / 6 * 1e200, rel=1e-12)
+    assert res["cohens_d"] == ref["cohens_d"] == 0.52
+    # The interval ends are searched for, not computed: they agree with the scaled-down ones to a tolerance, not to the bit.
+    assert res["exact"]["ci_lo"] == pytest.approx(ref["exact"]["ci_lo"] * 1e200, rel=1e-6)
+    assert res["exact"]["ci_hi"] == pytest.approx(ref["exact"]["ci_hi"] * 1e200, rel=1e-6)
+    assert res["p"] == ref["p"]
+    assert res["significant"] is ref["significant"]
+
+
+def test_mean_ci_raises_when_the_interval_leaves_the_float_range():
+    """A finite sd of 1.27e308 puts the t interval past the largest float: an error, not [-inf, inf]."""
+    pytest.importorskip("scipy")
+    with pytest.raises(OverflowError):
+        stats.mean_ci([9e307, -9e307])
+    with pytest.raises(OverflowError):  # the sd itself is inf
+        stats.mean_ci([1.7e308, -1.7e308, 1.7e308])
+    ci = stats.mean_ci([1e300, -1e300, 1e300], ndigits=None)
+    assert ci["lo"] < 0 < ci["hi"] and ci["hi"] < float("inf")
+
+
+def test_paired_test_raises_when_the_deltas_leave_the_float_range():
+    """Sign-flip sums that overflow would read as a measured zero effect: an error instead."""
+    pytest.importorskip("scipy")
+    for big in (9e307, 1.7e308):
+        with pytest.raises(OverflowError):
+            stats.paired_test([big, -big] * 3, [0.0] * 6, rounded=False)
+    res = stats.paired_test([1e300, -1e300] * 3, [0.0] * 6, rounded=False)
+    assert res is not None and math.isfinite(res["delta_std"])
 
 
 def test_importing_the_cli_does_not_load_scipy():
