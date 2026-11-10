@@ -93,6 +93,10 @@ class RepoTree(Protocol):
 
     def read_text(self, path: str) -> str: ...
 
+    def read_bytes(self, path: str) -> bytes:
+        """The file's bytes as stored: no decoding, no newline translation."""
+        ...
+
     def resolve(self, path: str, dirs: bool = False) -> str:
         """The file ``path`` names once symlinks are followed, as in a checkout; ``path`` itself
         if it is not a link. :class:`SourceError` if it escapes the tree, dangles, loops or
@@ -107,12 +111,12 @@ class RepoTree(Protocol):
 
 
 class WorkTree:
-    """A directory on disk, read as it is (uncommitted changes included)."""
+    """A directory on disk, read as it is (uncommitted changes included); ``files``, when given, is its listing."""
 
-    def __init__(self, root: str | Path):
+    def __init__(self, root: str | Path, files: list[str] | None = None):
         self.root = Path(root).resolve()
         self.label = str(self.root)
-        self._files: list[str] | None = None
+        self._files: list[str] | None = sorted(files) if files is not None else None
 
     def _resolve(self, path: str) -> Path:
         target = (self.root / path).resolve()
@@ -150,6 +154,9 @@ class WorkTree:
 
     def read_text(self, path: str) -> str:
         return self._resolve(path).read_text(encoding="utf-8")
+
+    def read_bytes(self, path: str) -> bytes:
+        return self._resolve(path).read_bytes()
 
     def resolve(self, path: str, dirs: bool = False) -> str:
         try:
@@ -222,6 +229,10 @@ class GitTree:
     def read_text(self, path: str) -> str:
         """The file's text; a symlink is followed, as it is in a checkout."""
         return _git(self.git_dir, "show", f"{self.sha}:{self.resolve(path)}")
+
+    def read_bytes(self, path: str) -> bytes:
+        """The file's bytes as stored; a symlink is followed."""
+        return _run_git(self.git_dir, ["show", f"{self.sha}:{self.resolve(path)}"], None, True).stdout_bytes
 
     def resolve(self, path: str, dirs: bool = False) -> str:
         start = path = _norm(path)

@@ -77,4 +77,4 @@ manifest it owns:
   task.
 
 See the [repository evaluation contract](repo-evaluation-contract.md).
-LLM-free static checks on the documentation itself (`dokimi run`) round this out.
+LLM-free static checks on the documentation itself (`dokimi docs check`) round this out.

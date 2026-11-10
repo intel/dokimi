@@ -12,14 +12,14 @@ expensive stage can be paid for once and reused.
 from __future__ import annotations
 
 import argparse
-import functools
 import json
-import math
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn
 
 from dokimi.commands.inputs import placebo_text_for_arms_or_exit
+from dokimi.commands.novelty_run import (add_judge2_args, add_spend_cap, judge2_client, spend_cap,
+                                         stamp, stops_at_cap)
 from dokimi.commands.novelty_routing_inputs import (
     checked_out_path,
     load_all_vs_all_field,
@@ -34,12 +34,14 @@ from dokimi.commands.novelty_routing_report import (
     no_competitors_conflict,
     no_queries_reason,
     print_all_vs_all_estimate,
-    print_all_vs_all_model,
-    print_attractors,
+    print_all_vs_all_summary,
     print_routing_estimate,
     print_routing_summary,
     refuse_estimate_without_queries,
     routing_queries,
+    save_result,
+    stop_if_partial,
+    warn_blind_skills,
 )
 from dokimi.defaults import (
     DEFAULT_ANSWER_MODEL,
@@ -119,6 +121,7 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
     placebo_text = placebo_text_for_arms_or_exit(args.placebo_text, _arms(args.arms))
     extractor, answerer, judge = _clients(args)
     panel = _panel_clients(args)
+    judge2 = judge2_client(args, answerer, judge, _client)
     config = AnalyzeConfig(
         artifact_ref=args.artifact,
         artifact_kind=artifact_bundle.kind,
@@ -146,6 +149,7 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
     except (ExtractionError, ValueError) as exc:  # a model failure under way
         raise SystemExit(str(exc)) from None
 
+    stamp(result.artifact, args, result.measure_result, answerer=answerer, judge=judge, judge2=judge2)
     out_dir = Path(args.out_dir) if args.out_dir else _default_dir(args.artifact)
     out_json = Path(args.out_json) if args.out_json else out_dir / "novelty.json"
     save_artifact("novelty", result.artifact, out_json)
@@ -221,6 +225,7 @@ def cmd_novelty_probe(args: argparse.Namespace) -> None:
     try:  # before the paraphrase calls below, which are paid
         for member in (judge, *panel):
             check_self_judge(member, answerer, args.allow_self_judge)
+        judge2 = judge2_client(args, answerer, judge, _client)
     except SelfJudgeError as exc:
         raise InputError(str(exc)) from exc
     paraphrases, reversals = settings.values["paraphrases"], settings.values["reversals"]
@@ -256,6 +261,7 @@ def cmd_novelty_probe(args: argparse.Namespace) -> None:
         payload["judge_panel"] = judge_panel
         for note in panel_warnings(judge_panel):
             print(f"WARNING: {note}", file=sys.stderr)
+    stamp(payload, args, result, answerer=answerer, judge=judge, judge2=judge2)
     out = Path(args.out) if args.out else _default_dir(args.artifact) / "probes.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -355,7 +361,7 @@ def _cmd_routing_all_vs_all(args: argparse.Namespace) -> None:
     if without:
         print(f"WARNING: {len(without)} skill(s) in the field have no queries, so they only "
               f"compete: {', '.join(sorted(without))}", file=sys.stderr)
-    _warn_blind_skills(result, queries_by_skill)
+    warn_blind_skills(result, queries_by_skill)
 
     model_arm = result.get("model") or {}
     failed = model_arm.get("n_failed", 0)
@@ -372,25 +378,13 @@ def _cmd_routing_all_vs_all(args: argparse.Namespace) -> None:
     payload["field"] = field_record(args, field, left_out, dropped_queries)
     if selector is not None:
         payload["cost"] = roll_up_cost([selector])
-    out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    out = save_result(payload, out, model_arm)
+    summary = (result, len(field), len(queries_by_skill), model_arm, payload.get("cost"))
+    stop_if_partial(payload, out, lambda: print_all_vs_all_summary(*summary))
     if failed:
         exit_partial_all_vs_all(model_arm, payload.get("cost"), failed, sent, out)
     print(f"OK Saved all-vs-all routing: {out}")
-    print(f"all-vs-all: {len(field)} skills in the field, {result['n_queries']} queries over "
-          f"{len(queries_by_skill)} skills with queries")
-    print_attractors(result)
-    print_all_vs_all_model(model_arm, payload.get("cost"))
-
-
-def _warn_blind_skills(result: dict, queries_by_skill: dict[str, list[str]]) -> None:
-    """Warn when the lexical arm scores none of a skill's queries: its own rate is then None."""
-    lexical = result.get("lexical")
-    if not lexical:
-        return
-    blind = [name for name in sorted(queries_by_skill) if lexical["n_scored"].get(name) == 0]
-    if blind:
-        print(f"WARNING: the lexical arm cannot score any query of {', '.join(blind)} "
-              "(no content word in them), so their lexical own_rate is None", file=sys.stderr)
+    print_all_vs_all_summary(*summary)
 
 
 def cmd_novelty_routing(args: argparse.Namespace) -> None:
@@ -446,7 +440,9 @@ def cmd_novelty_routing(args: argparse.Namespace) -> None:
         )
         payload["cost"] = roll_up_cost([selector])
 
-    out.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    out = save_result(payload, out, payload.get("model", {}))
+    stop_if_partial(payload, out,
+                    lambda: print_routing_summary(payload, len(competitors), self_derived))
     print(f"OK Saved routing measurement: {out}")
 
     print_routing_summary(payload, len(competitors), self_derived)
@@ -650,8 +646,8 @@ def register(sub, positive_int) -> None:
                                 "expected_usd that --model would make, as JSON, and make no model call. "
                                 "Without --model the run is lexical and the bill is zero")
     routing_p.add_argument("--out", default=None)
-    _add_spend_cap(routing_p)
-    routing_p.set_defaults(func=_stops_at_cap(cmd_novelty_routing))
+    add_spend_cap(routing_p)
+    routing_p.set_defaults(func=stops_at_cap(cmd_novelty_routing))
 
     view_p = novelty_sub.add_parser("view", help="Re-render the annotated artifact view")
     view_p.add_argument("--novelty", required=True, help="novelty.json from `skill novelty analyze`")
@@ -759,11 +755,12 @@ def _add_model_args(parser: argparse.ArgumentParser, positive_int) -> None:
                              "reacts to any long context'")
     parser.add_argument("--concurrency", type=positive_int, default=5)
     parser.add_argument("--allow-self-judge", action="store_true", dest="allow_self_judge",
-                        help="Let the answering model grade itself. Inflates scores; recorded "
-                             "as a warning on the artifact")
+                        help="Let the answering model grade itself (inflates scores), or --judge2 be"
+                             " the first judge's model (its agreement is not independent)")
+    add_judge2_args(parser, PROVIDERS)
     parser.add_argument("--no-paraphrase", action="store_true", dest="no_paraphrase")
     parser.add_argument("--no-reversal", action="store_true", dest="no_reversal")
-    _add_spend_cap(parser)
+    add_spend_cap(parser)
 
 
 def _role_models(args: argparse.Namespace) -> dict[str, tuple[str, str]]:
@@ -873,51 +870,8 @@ def _client(model: str, provider: str, role: str, args: argparse.Namespace):
     return LLMClient(
         model=model, provider=provider, role=role,
         max_tokens=getattr(args, "max_tokens", None),
-        cap=_spend_cap(args),
+        cap=spend_cap(args),
     )
-
-
-def _spend_cap(args: argparse.Namespace):
-    """The invocation's one ``--max-usd`` cap, shared by every role client."""
-    from dokimi.novelty.client import SpendCap
-
-    limit = getattr(args, "max_usd", None)
-    if limit is None:
-        return None
-    if getattr(args, "_spend_cap", None) is None:
-        args._spend_cap = SpendCap(limit_usd=limit)
-    return args._spend_cap
-
-
-def _stops_at_cap(command):
-    """Turn a reached spend cap into a clean exit instead of a traceback."""
-    from dokimi.novelty.client import SpendCapReached
-
-    @functools.wraps(command)
-    def run(args: argparse.Namespace) -> None:
-        try:
-            command(args)
-        except SpendCapReached as exc:
-            raise SystemExit(str(exc)) from None
-
-    return run
-
-
-def _usd(text: str) -> float:
-    """A positive, finite USD amount (``0``, negatives, ``nan`` and ``inf`` would disable the cap)."""
-    value = float(text)
-    if not math.isfinite(value) or value <= 0:
-        raise argparse.ArgumentTypeError(f"must be a positive number of USD, got {text!r}")
-    return value
-
-
-def _add_spend_cap(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--max-usd", type=_usd, default=None, dest="max_usd",
-                        help="Stop the run once its model calls have cost this much (USD, "
-                             "all roles together; calls in flight can overshoot it). A call "
-                             "with no known price also stops it; a reply replayed from "
-                             "DOKIMI_RESPONSE_CACHE counts $0, so a stopped run can be resumed "
-                             "under the same cap. Default: no cap")
 
 
 def _settings(args: argparse.Namespace) -> RunSettings:

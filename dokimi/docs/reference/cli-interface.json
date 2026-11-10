@@ -536,7 +536,7 @@
               "nargs": null,
               "position": null,
               "required": false,
-              "type": "dokimi.commands.arms.judge_panel_roles#e0f352d31e44"
+              "type": "dokimi.commands.arms.judge_panel_roles#7f08a1e02606"
             },
             {
               "action": "_StoreAction",
@@ -1115,7 +1115,7 @@
               "nargs": null,
               "position": null,
               "required": false,
-              "type": "dokimi.commands.arms.judge_panel_roles#e0f352d31e44"
+              "type": "dokimi.commands.arms.judge_panel_roles#7f08a1e02606"
             },
             {
               "action": "_StoreAction",
@@ -1591,7 +1591,7 @@
               "nargs": null,
               "position": null,
               "required": false,
-              "type": "dokimi.commands.baseline_regression.threshold#846503ecf541"
+              "type": "dokimi.commands.baseline_regression.threshold#477b3adc7612"
             },
             {
               "action": "_StoreAction",
@@ -1607,7 +1607,7 @@
               "nargs": null,
               "position": null,
               "required": false,
-              "type": "dokimi.commands.baseline_regression.threshold#846503ecf541"
+              "type": "dokimi.commands.baseline_regression.threshold#477b3adc7612"
             },
             {
               "action": "_StoreAction",
@@ -2620,6 +2620,22 @@
               "type": null
             },
             {
+              "action": "_AppendAction",
+              "choices": null,
+              "const": null,
+              "default": null,
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": false,
+              "key": "--ignore",
+              "kind": "option",
+              "nargs": null,
+              "position": null,
+              "required": false,
+              "type": null
+            },
+            {
               "action": "_StoreAction",
               "choices": null,
               "const": null,
@@ -2789,7 +2805,7 @@
               "nargs": null,
               "position": 0,
               "required": true,
-              "type": "pathlib.Path#54a5cbf1041d"
+              "type": "pathlib._local.Path#661d9498960e"
             },
             {
               "action": "_StoreAction",
@@ -2837,7 +2853,7 @@
               "nargs": null,
               "position": null,
               "required": true,
-              "type": "pathlib.Path#54a5cbf1041d"
+              "type": "pathlib._local.Path#661d9498960e"
             },
             {
               "action": "_StoreAction",
@@ -3406,110 +3422,6 @@
         }
       }
     },
-    "compare": {
-      "allow_abbrev": true,
-      "params": [
-        {
-          "action": "_StoreAction",
-          "choices": null,
-          "const": null,
-          "default": null,
-          "group_key": null,
-          "group_required": null,
-          "hidden": false,
-          "is_flag": false,
-          "key": "--base",
-          "kind": "option",
-          "nargs": null,
-          "position": null,
-          "required": true,
-          "type": null
-        },
-        {
-          "action": "_StoreAction",
-          "choices": null,
-          "const": null,
-          "default": null,
-          "group_key": null,
-          "group_required": null,
-          "hidden": false,
-          "is_flag": false,
-          "key": "--candidate",
-          "kind": "option",
-          "nargs": null,
-          "position": null,
-          "required": true,
-          "type": null
-        },
-        {
-          "action": "_HelpAction",
-          "choices": null,
-          "const": null,
-          "default": "==SUPPRESS==",
-          "group_key": null,
-          "group_required": null,
-          "hidden": false,
-          "is_flag": true,
-          "key": "--help/-h",
-          "kind": "option",
-          "nargs": 0,
-          "position": null,
-          "required": false,
-          "type": null
-        },
-        {
-          "action": "_StoreAction",
-          "choices": null,
-          "const": null,
-          "default": "reports/compare.json",
-          "group_key": null,
-          "group_required": null,
-          "hidden": false,
-          "is_flag": false,
-          "key": "--out-json",
-          "kind": "option",
-          "nargs": null,
-          "position": null,
-          "required": false,
-          "type": null
-        },
-        {
-          "action": "_StoreAction",
-          "choices": null,
-          "const": null,
-          "default": "reports/compare.md",
-          "group_key": null,
-          "group_required": null,
-          "hidden": false,
-          "is_flag": false,
-          "key": "--out-md",
-          "kind": "option",
-          "nargs": null,
-          "position": null,
-          "required": false,
-          "type": null
-        },
-        {
-          "action": "_StoreAction",
-          "choices": null,
-          "const": null,
-          "default": null,
-          "group_key": null,
-          "group_required": null,
-          "hidden": false,
-          "is_flag": false,
-          "key": "--spec",
-          "kind": "option",
-          "nargs": null,
-          "position": null,
-          "required": false,
-          "type": null
-        }
-      ],
-      "path": "dokimi compare",
-      "subcommand_required": null,
-      "subcommands": {}
-    },
     "dashboard": {
       "allow_abbrev": true,
       "params": [
@@ -3951,6 +3863,239 @@
         }
       }
     },
+    "docs": {
+      "allow_abbrev": true,
+      "params": [
+        {
+          "action": "_HelpAction",
+          "choices": null,
+          "const": null,
+          "default": "==SUPPRESS==",
+          "group_key": null,
+          "group_required": null,
+          "hidden": false,
+          "is_flag": true,
+          "key": "--help/-h",
+          "kind": "option",
+          "nargs": 0,
+          "position": null,
+          "required": false,
+          "type": null
+        }
+      ],
+      "path": "dokimi docs",
+      "subcommand_required": true,
+      "subcommands": {
+        "check": {
+          "allow_abbrev": true,
+          "params": [
+            {
+              "action": "_HelpAction",
+              "choices": null,
+              "const": null,
+              "default": "==SUPPRESS==",
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": true,
+              "key": "--help/-h",
+              "kind": "option",
+              "nargs": 0,
+              "position": null,
+              "required": false,
+              "type": null
+            },
+            {
+              "action": "_StoreAction",
+              "choices": null,
+              "const": null,
+              "default": "baselines/current.json",
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": false,
+              "key": "--out-json",
+              "kind": "option",
+              "nargs": null,
+              "position": null,
+              "required": false,
+              "type": null
+            },
+            {
+              "action": "_StoreAction",
+              "choices": null,
+              "const": null,
+              "default": "reports/current.md",
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": false,
+              "key": "--out-md",
+              "kind": "option",
+              "nargs": null,
+              "position": null,
+              "required": false,
+              "type": null
+            },
+            {
+              "action": "_StoreAction",
+              "choices": null,
+              "const": null,
+              "default": ".",
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": false,
+              "key": "--root",
+              "kind": "option",
+              "nargs": null,
+              "position": null,
+              "required": false,
+              "type": null
+            },
+            {
+              "action": "_StoreAction",
+              "choices": null,
+              "const": null,
+              "default": "benchmarks/spec.v1.yaml",
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": false,
+              "key": "--spec",
+              "kind": "option",
+              "nargs": null,
+              "position": null,
+              "required": false,
+              "type": null
+            },
+            {
+              "action": "_StoreTrueAction",
+              "choices": null,
+              "const": true,
+              "default": false,
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": true,
+              "key": "--strict",
+              "kind": "option",
+              "nargs": 0,
+              "position": null,
+              "required": false,
+              "type": null
+            }
+          ],
+          "path": "dokimi docs check",
+          "subcommand_required": null,
+          "subcommands": {}
+        },
+        "compare": {
+          "allow_abbrev": true,
+          "params": [
+            {
+              "action": "_StoreAction",
+              "choices": null,
+              "const": null,
+              "default": null,
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": false,
+              "key": "--base",
+              "kind": "option",
+              "nargs": null,
+              "position": null,
+              "required": true,
+              "type": null
+            },
+            {
+              "action": "_StoreAction",
+              "choices": null,
+              "const": null,
+              "default": null,
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": false,
+              "key": "--candidate",
+              "kind": "option",
+              "nargs": null,
+              "position": null,
+              "required": true,
+              "type": null
+            },
+            {
+              "action": "_HelpAction",
+              "choices": null,
+              "const": null,
+              "default": "==SUPPRESS==",
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": true,
+              "key": "--help/-h",
+              "kind": "option",
+              "nargs": 0,
+              "position": null,
+              "required": false,
+              "type": null
+            },
+            {
+              "action": "_StoreAction",
+              "choices": null,
+              "const": null,
+              "default": "reports/compare.json",
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": false,
+              "key": "--out-json",
+              "kind": "option",
+              "nargs": null,
+              "position": null,
+              "required": false,
+              "type": null
+            },
+            {
+              "action": "_StoreAction",
+              "choices": null,
+              "const": null,
+              "default": "reports/compare.md",
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": false,
+              "key": "--out-md",
+              "kind": "option",
+              "nargs": null,
+              "position": null,
+              "required": false,
+              "type": null
+            },
+            {
+              "action": "_StoreAction",
+              "choices": null,
+              "const": null,
+              "default": null,
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": false,
+              "key": "--spec",
+              "kind": "option",
+              "nargs": null,
+              "position": null,
+              "required": false,
+              "type": null
+            }
+          ],
+          "path": "dokimi docs compare",
+          "subcommand_required": null,
+          "subcommands": {}
+        }
+      }
+    },
     "eval": {
       "allow_abbrev": true,
       "params": [
@@ -4367,7 +4512,7 @@
               "nargs": null,
               "position": null,
               "required": false,
-              "type": "dokimi.commands.eval_coverage._floor#64ad257fee7f"
+              "type": "dokimi.commands.eval_coverage._floor#bbd5737352a9"
             },
             {
               "action": "_StoreAction",
@@ -5364,7 +5509,7 @@
                   "nargs": null,
                   "position": null,
                   "required": false,
-                  "type": "dokimi.commands.evaluate._non_negative_int#009018bcf6d4"
+                  "type": "dokimi.commands.evaluate._non_negative_int#95d3497f2297"
                 },
                 {
                   "action": "_StoreAction",
@@ -5774,7 +5919,7 @@
               "nargs": null,
               "position": null,
               "required": false,
-              "type": "dokimi.commands.leak._fraction#a1cbe885a95d"
+              "type": "dokimi.commands.leak._fraction#949dcee9b366"
             },
             {
               "action": "_StoreAction",
@@ -5854,7 +5999,7 @@
               "nargs": null,
               "position": null,
               "required": false,
-              "type": "dokimi.commands.leak._positive_int#71eded2e0ac0"
+              "type": "dokimi.commands.leak._positive_int#fdae49cd27e9"
             }
           ],
           "path": "dokimi eval leak",
@@ -6966,7 +7111,7 @@
               "nargs": null,
               "position": null,
               "required": false,
-              "type": "dokimi.commands.redteam._judge_ref#1f4c6c579dde"
+              "type": "dokimi.commands.redteam._judge_ref#a59ddb60ae31"
             },
             {
               "action": "_StoreAction",
@@ -8153,7 +8298,7 @@
                   "nargs": null,
                   "position": null,
                   "required": false,
-                  "type": "dokimi.commands.tasks_generate._count#0b373dd22bdb"
+                  "type": "dokimi.commands.tasks_generate._count#62fd583ee4e8"
                 },
                 {
                   "action": "_StoreTrueAction",
@@ -8191,6 +8336,7 @@
                   "action": "_StoreAction",
                   "choices": [
                     "'graph'",
+                    "'prs'",
                     "'replay'"
                   ],
                   "const": null,
@@ -8279,6 +8425,22 @@
                   "group_required": null,
                   "hidden": false,
                   "is_flag": false,
+                  "key": "--max-lines",
+                  "kind": "option",
+                  "nargs": null,
+                  "position": null,
+                  "required": false,
+                  "type": "dokimi.cli.build_parser.<locals>.positive_int#faf57db5ff9f"
+                },
+                {
+                  "action": "_StoreAction",
+                  "choices": null,
+                  "const": null,
+                  "default": null,
+                  "group_key": null,
+                  "group_required": null,
+                  "hidden": false,
+                  "is_flag": false,
                   "key": "--max-turns",
                   "kind": "option",
                   "nargs": null,
@@ -8327,12 +8489,28 @@
                   "group_required": null,
                   "hidden": false,
                   "is_flag": false,
+                  "key": "--prs",
+                  "kind": "option",
+                  "nargs": null,
+                  "position": null,
+                  "required": false,
+                  "type": null
+                },
+                {
+                  "action": "_StoreAction",
+                  "choices": null,
+                  "const": null,
+                  "default": null,
+                  "group_key": null,
+                  "group_required": null,
+                  "hidden": false,
+                  "is_flag": false,
                   "key": "--references",
                   "kind": "option",
                   "nargs": null,
                   "position": null,
                   "required": false,
-                  "type": "dokimi.commands.tasks_generate._count#0b373dd22bdb"
+                  "type": "dokimi.commands.tasks_generate._count#62fd583ee4e8"
                 },
                 {
                   "action": "_StoreAction",
@@ -9452,7 +9630,7 @@
               "nargs": null,
               "position": null,
               "required": false,
-              "type": "dokimi.commands.novelty._usd#a4ed69a880d1"
+              "type": "dokimi.commands.novelty_run.usd_amount#af10a4ceaa08"
             },
             {
               "action": "_StoreAction",
@@ -10191,7 +10369,7 @@
                   "nargs": null,
                   "position": null,
                   "required": true,
-                  "type": "dokimi.commands.repo_hits._judge_ref#ba5616bd3d7e"
+                  "type": "dokimi.commands.repo_hits._judge_ref#f8f456f0565f"
                 },
                 {
                   "action": "_StoreAction",
@@ -10223,7 +10401,7 @@
                   "nargs": null,
                   "position": null,
                   "required": false,
-                  "type": "dokimi.commands.repo_run._usd#a4ed69a880d1"
+                  "type": "dokimi.commands.repo_run._usd#591d6e2f0474"
                 }
               ],
               "path": "dokimi repo hits judge",
@@ -10959,7 +11137,7 @@
               "nargs": null,
               "position": null,
               "required": false,
-              "type": "dokimi.commands.repo_run._usd#a4ed69a880d1"
+              "type": "dokimi.commands.repo_run._usd#591d6e2f0474"
             },
             {
               "action": "_StoreAction",
@@ -11218,7 +11396,7 @@
               "nargs": null,
               "position": null,
               "required": false,
-              "type": "dokimi.commands.repo_run._usd#a4ed69a880d1"
+              "type": "dokimi.commands.repo_run._usd#591d6e2f0474"
             },
             {
               "action": "_StoreAction",
@@ -11804,199 +11982,6 @@
           "subcommand_required": null,
           "subcommands": {}
         },
-        "tasks": {
-          "allow_abbrev": true,
-          "params": [
-            {
-              "action": "_HelpAction",
-              "choices": null,
-              "const": null,
-              "default": "==SUPPRESS==",
-              "group_key": null,
-              "group_required": null,
-              "hidden": false,
-              "is_flag": true,
-              "key": "--help/-h",
-              "kind": "option",
-              "nargs": 0,
-              "position": null,
-              "required": false,
-              "type": null
-            }
-          ],
-          "path": "dokimi repo tasks",
-          "subcommand_required": true,
-          "subcommands": {
-            "authoring": {
-              "allow_abbrev": true,
-              "params": [
-                {
-                  "action": "_StoreAction",
-                  "choices": null,
-                  "const": null,
-                  "default": null,
-                  "group_key": null,
-                  "group_required": null,
-                  "hidden": false,
-                  "is_flag": false,
-                  "key": "source",
-                  "kind": "argument",
-                  "nargs": null,
-                  "position": 0,
-                  "required": true,
-                  "type": null
-                },
-                {
-                  "action": "_StoreAction",
-                  "choices": null,
-                  "const": null,
-                  "default": null,
-                  "group_key": null,
-                  "group_required": null,
-                  "hidden": false,
-                  "is_flag": false,
-                  "key": "--cache-dir",
-                  "kind": "option",
-                  "nargs": null,
-                  "position": null,
-                  "required": false,
-                  "type": null
-                },
-                {
-                  "action": "_StoreTrueAction",
-                  "choices": null,
-                  "const": true,
-                  "default": false,
-                  "group_key": null,
-                  "group_required": null,
-                  "hidden": false,
-                  "is_flag": true,
-                  "key": "--force",
-                  "kind": "option",
-                  "nargs": 0,
-                  "position": null,
-                  "required": false,
-                  "type": null
-                },
-                {
-                  "action": "_HelpAction",
-                  "choices": null,
-                  "const": null,
-                  "default": "==SUPPRESS==",
-                  "group_key": null,
-                  "group_required": null,
-                  "hidden": false,
-                  "is_flag": true,
-                  "key": "--help/-h",
-                  "kind": "option",
-                  "nargs": 0,
-                  "position": null,
-                  "required": false,
-                  "type": null
-                },
-                {
-                  "action": "_StoreAction",
-                  "choices": null,
-                  "const": null,
-                  "default": ".agent-eval/repo-eval.yaml",
-                  "group_key": null,
-                  "group_required": null,
-                  "hidden": false,
-                  "is_flag": false,
-                  "key": "--manifest",
-                  "kind": "option",
-                  "nargs": null,
-                  "position": null,
-                  "required": false,
-                  "type": null
-                },
-                {
-                  "action": "_StoreAction",
-                  "choices": null,
-                  "const": null,
-                  "default": null,
-                  "group_key": null,
-                  "group_required": null,
-                  "hidden": false,
-                  "is_flag": false,
-                  "key": "--manifest-file",
-                  "kind": "option",
-                  "nargs": null,
-                  "position": null,
-                  "required": false,
-                  "type": null
-                },
-                {
-                  "action": "_StoreAction",
-                  "choices": null,
-                  "const": null,
-                  "default": 400,
-                  "group_key": null,
-                  "group_required": null,
-                  "hidden": false,
-                  "is_flag": false,
-                  "key": "--max-lines",
-                  "kind": "option",
-                  "nargs": null,
-                  "position": null,
-                  "required": false,
-                  "type": "dokimi.cli.build_parser.<locals>.positive_int#faf57db5ff9f"
-                },
-                {
-                  "action": "_StoreAction",
-                  "choices": null,
-                  "const": null,
-                  "default": null,
-                  "group_key": null,
-                  "group_required": null,
-                  "hidden": false,
-                  "is_flag": false,
-                  "key": "--out",
-                  "kind": "option",
-                  "nargs": null,
-                  "position": null,
-                  "required": true,
-                  "type": null
-                },
-                {
-                  "action": "_StoreAction",
-                  "choices": null,
-                  "const": null,
-                  "default": null,
-                  "group_key": null,
-                  "group_required": null,
-                  "hidden": false,
-                  "is_flag": false,
-                  "key": "--prompt-file",
-                  "kind": "option",
-                  "nargs": null,
-                  "position": null,
-                  "required": false,
-                  "type": null
-                },
-                {
-                  "action": "_StoreAction",
-                  "choices": null,
-                  "const": null,
-                  "default": null,
-                  "group_key": null,
-                  "group_required": null,
-                  "hidden": false,
-                  "is_flag": false,
-                  "key": "--prs",
-                  "kind": "option",
-                  "nargs": null,
-                  "position": null,
-                  "required": true,
-                  "type": null
-                }
-              ],
-              "path": "dokimi repo tasks authoring",
-              "subcommand_required": null,
-              "subcommands": {}
-            }
-          }
-        },
         "validate": {
           "allow_abbrev": true,
           "params": [
@@ -12493,110 +12478,6 @@
           "subcommands": {}
         }
       }
-    },
-    "run": {
-      "allow_abbrev": true,
-      "params": [
-        {
-          "action": "_HelpAction",
-          "choices": null,
-          "const": null,
-          "default": "==SUPPRESS==",
-          "group_key": null,
-          "group_required": null,
-          "hidden": false,
-          "is_flag": true,
-          "key": "--help/-h",
-          "kind": "option",
-          "nargs": 0,
-          "position": null,
-          "required": false,
-          "type": null
-        },
-        {
-          "action": "_StoreAction",
-          "choices": null,
-          "const": null,
-          "default": "baselines/current.json",
-          "group_key": null,
-          "group_required": null,
-          "hidden": false,
-          "is_flag": false,
-          "key": "--out-json",
-          "kind": "option",
-          "nargs": null,
-          "position": null,
-          "required": false,
-          "type": null
-        },
-        {
-          "action": "_StoreAction",
-          "choices": null,
-          "const": null,
-          "default": "reports/current.md",
-          "group_key": null,
-          "group_required": null,
-          "hidden": false,
-          "is_flag": false,
-          "key": "--out-md",
-          "kind": "option",
-          "nargs": null,
-          "position": null,
-          "required": false,
-          "type": null
-        },
-        {
-          "action": "_StoreAction",
-          "choices": null,
-          "const": null,
-          "default": ".",
-          "group_key": null,
-          "group_required": null,
-          "hidden": false,
-          "is_flag": false,
-          "key": "--root",
-          "kind": "option",
-          "nargs": null,
-          "position": null,
-          "required": false,
-          "type": null
-        },
-        {
-          "action": "_StoreAction",
-          "choices": null,
-          "const": null,
-          "default": "benchmarks/spec.v1.yaml",
-          "group_key": null,
-          "group_required": null,
-          "hidden": false,
-          "is_flag": false,
-          "key": "--spec",
-          "kind": "option",
-          "nargs": null,
-          "position": null,
-          "required": false,
-          "type": null
-        },
-        {
-          "action": "_StoreTrueAction",
-          "choices": null,
-          "const": true,
-          "default": false,
-          "group_key": null,
-          "group_required": null,
-          "hidden": false,
-          "is_flag": true,
-          "key": "--strict",
-          "kind": "option",
-          "nargs": 0,
-          "position": null,
-          "required": false,
-          "type": null
-        }
-      ],
-      "path": "dokimi run",
-      "subcommand_required": null,
-      "subcommands": {}
     },
     "runs": {
       "allow_abbrev": true,
@@ -13231,6 +13112,62 @@
                   "group_required": null,
                   "hidden": false,
                   "is_flag": false,
+                  "key": "--judge2",
+                  "kind": "option",
+                  "nargs": null,
+                  "position": null,
+                  "required": false,
+                  "type": null
+                },
+                {
+                  "action": "_StoreAction",
+                  "choices": null,
+                  "const": null,
+                  "default": 0.15,
+                  "group_key": null,
+                  "group_required": null,
+                  "hidden": false,
+                  "is_flag": false,
+                  "key": "--judge2-frac",
+                  "kind": "option",
+                  "nargs": null,
+                  "position": null,
+                  "required": false,
+                  "type": "float"
+                },
+                {
+                  "action": "_StoreAction",
+                  "choices": [
+                    "'amazon-bedrock'",
+                    "'anthropic'",
+                    "'claude-cli'",
+                    "'google-vertex'",
+                    "'openai'",
+                    "'openai-codex'",
+                    "'openrouter'"
+                  ],
+                  "const": null,
+                  "default": null,
+                  "group_key": null,
+                  "group_required": null,
+                  "hidden": false,
+                  "is_flag": false,
+                  "key": "--judge2-provider",
+                  "kind": "option",
+                  "nargs": null,
+                  "position": null,
+                  "required": false,
+                  "type": null
+                },
+                {
+                  "action": "_StoreAction",
+                  "choices": null,
+                  "const": null,
+                  "default": null,
+                  "group_key": null,
+                  "group_required": null,
+                  "hidden": false,
+                  "is_flag": false,
                   "key": "--max-atoms",
                   "kind": "option",
                   "nargs": null,
@@ -13300,7 +13237,7 @@
                   "nargs": null,
                   "position": null,
                   "required": false,
-                  "type": "dokimi.commands.novelty._usd#a4ed69a880d1"
+                  "type": "dokimi.commands.novelty_run.usd_amount#af10a4ceaa08"
                 },
                 {
                   "action": "_StoreAction",
@@ -13768,7 +13705,7 @@
                   "nargs": null,
                   "position": null,
                   "required": false,
-                  "type": "dokimi.commands.novelty._usd#a4ed69a880d1"
+                  "type": "dokimi.commands.novelty_run.usd_amount#af10a4ceaa08"
                 },
                 {
                   "action": "_StoreAction",
@@ -14255,6 +14192,62 @@
                   "group_required": null,
                   "hidden": false,
                   "is_flag": false,
+                  "key": "--judge2",
+                  "kind": "option",
+                  "nargs": null,
+                  "position": null,
+                  "required": false,
+                  "type": null
+                },
+                {
+                  "action": "_StoreAction",
+                  "choices": null,
+                  "const": null,
+                  "default": 0.15,
+                  "group_key": null,
+                  "group_required": null,
+                  "hidden": false,
+                  "is_flag": false,
+                  "key": "--judge2-frac",
+                  "kind": "option",
+                  "nargs": null,
+                  "position": null,
+                  "required": false,
+                  "type": "float"
+                },
+                {
+                  "action": "_StoreAction",
+                  "choices": [
+                    "'amazon-bedrock'",
+                    "'anthropic'",
+                    "'claude-cli'",
+                    "'google-vertex'",
+                    "'openai'",
+                    "'openai-codex'",
+                    "'openrouter'"
+                  ],
+                  "const": null,
+                  "default": null,
+                  "group_key": null,
+                  "group_required": null,
+                  "hidden": false,
+                  "is_flag": false,
+                  "key": "--judge2-provider",
+                  "kind": "option",
+                  "nargs": null,
+                  "position": null,
+                  "required": false,
+                  "type": null
+                },
+                {
+                  "action": "_StoreAction",
+                  "choices": null,
+                  "const": null,
+                  "default": null,
+                  "group_key": null,
+                  "group_required": null,
+                  "hidden": false,
+                  "is_flag": false,
                   "key": "--max-atoms",
                   "kind": "option",
                   "nargs": null,
@@ -14292,7 +14285,7 @@
                   "nargs": null,
                   "position": null,
                   "required": false,
-                  "type": "dokimi.commands.novelty._usd#a4ed69a880d1"
+                  "type": "dokimi.commands.novelty_run.usd_amount#af10a4ceaa08"
                 },
                 {
                   "action": "_StoreAction",
@@ -14617,7 +14610,7 @@
               "nargs": null,
               "position": null,
               "required": false,
-              "type": "dokimi.commands.novelty._usd#a4ed69a880d1"
+              "type": "dokimi.commands.novelty_run.usd_amount#af10a4ceaa08"
             },
             {
               "action": "_StoreAction",
@@ -15700,7 +15693,7 @@
               "nargs": null,
               "position": null,
               "required": false,
-              "type": "dokimi.commands.tools._positive_usd#94ff63959bb4"
+              "type": "dokimi.commands.tools._positive_usd#ee3ece1dfb71"
             },
             {
               "action": "_StoreAction",
@@ -16111,7 +16104,7 @@
               "nargs": null,
               "position": null,
               "required": false,
-              "type": "dokimi.commands.context._unit_rate#874b81a56087"
+              "type": "dokimi.commands.context._unit_rate#9396aeedb2c0"
             },
             {
               "action": "_StoreTrueAction",
@@ -16159,7 +16152,7 @@
               "nargs": null,
               "position": null,
               "required": false,
-              "type": "dokimi.commands.context._non_negative_int#6d50f9219aab"
+              "type": "dokimi.commands.context._non_negative_int#3a500817a521"
             },
             {
               "action": "_StoreAction",

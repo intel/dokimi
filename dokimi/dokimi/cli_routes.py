@@ -69,9 +69,8 @@ ROOTS: tuple[Root, ...] = (
     Root("subjects", "The loop"),
     Root("tasks", "The loop"),
     Root("explore", "The loop"),
-    Root("run", "Subjects"),
-    Root("compare", "Subjects"),
     Root("catalog", "Subjects"),
+    Root("docs", "Subjects"),
     Root("skill", "Subjects"),
     Root("novelty", "Subjects"),
     Root("repo", "Subjects"),
@@ -105,8 +104,6 @@ LEAVES: tuple[Leaf, ...] = (
     Leaf(("tasks", "run"), PAID),
     Leaf(("explore", "list"), FREE),
     Leaf(("explore", "run"), PAID),
-    Leaf(("run",), FREE, "Run the static benchmark spec and save a snapshot"),
-    Leaf(("compare",), FREE, "Compare two saved benchmark snapshots"),
     Leaf(("catalog", "list"), FREE),
     Leaf(("catalog", "show"), FREE),
     Leaf(("catalog", "intents"), FREE),
@@ -114,6 +111,8 @@ LEAVES: tuple[Leaf, ...] = (
     Leaf(("catalog", "eval"), FREE),
     Leaf(("catalog", "formats"), FREE),
     Leaf(("catalog", "trigger-probe"), PAID),
+    Leaf(("docs", "check"), FREE, "Run the static benchmark spec and save a snapshot"),
+    Leaf(("docs", "compare"), FREE, "Compare two saved benchmark snapshots"),
     Leaf(("skill", "novelty", "analyze"), PAID),
     Leaf(("skill", "novelty", "atoms"), PAID),
     Leaf(("skill", "novelty", "probe"), PAID),
@@ -129,7 +128,6 @@ LEAVES: tuple[Leaf, ...] = (
     Leaf(("repo", "reach"), PAID),
     Leaf(("repo", "skill-reach"), PAID),
     Leaf(("repo", "budget"), FREE),
-    Leaf(("repo", "tasks", "authoring"), FREE),
     Leaf(("repo", "run"), PAID),
     Leaf(("repo", "report"), FREE),
     Leaf(("repo", "compare"), FREE),
@@ -175,7 +173,7 @@ LEAVES: tuple[Leaf, ...] = (
     Leaf(("data", "schema", "show"), FREE),
 )
 
-# The moves of #94 M1-M3 (`eval`, `skill`, `catalog`, `trace`, `data`, replay). Not yet: `novelty routing`, `docs`.
+# The moves of #94 M1-M3 (`eval`, `skill`, `catalog`, `trace`, `data`, replay, `docs`) and D11. Not yet: `novelty routing`.
 # A bare retired root comes last: the first match wins, and a root matches every path under it.
 TOMBSTONES: tuple[Tombstone, ...] = (
     Tombstone(("tasks", "inspect"), ("eval", "inspect")),
@@ -213,11 +211,14 @@ TOMBSTONES: tuple[Tombstone, ...] = (
     Tombstone(("subjects", "list"), ("catalog", "list"), ("--kind", "subject")),
     Tombstone(("subjects", "show"), ("catalog", "show"), ("--kind", "subject")),
     Tombstone(("repo", "tasks", "replay"), ("eval", "tasks", "generate"), ("--from", "replay")),
+    Tombstone(("repo", "tasks", "authoring"), ("eval", "tasks", "generate"), ("--from", "prs")),
     Tombstone(("context", "trace"), ("trace", "inspect")),
     Tombstone(("context", "consistency"), ("trace", "consistency")),
     Tombstone(("context", "prefilter"), ("trace", "prefilter")),
     Tombstone(("dataset", "export"), ("data", "export")),
     Tombstone(("ingest", "docling"), ("data", "import", "docling")),
+    Tombstone(("run",), ("docs", "check")),
+    Tombstone(("compare",), ("docs", "compare")),
     # The retired roots: a bare `personas` or `questions` (or its help) points at `eval`.
     Tombstone(("personas",), ("eval", "personas")),
     Tombstone(("questions",), ("eval", "questions")),

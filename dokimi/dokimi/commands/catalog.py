@@ -40,14 +40,16 @@ def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bo
         raise InputError(f"no skill named {only!r} under {root}")
     counts = {"ok": 0, "warn": 0, "error": 0}
     failed = False
+    ignore = frozenset(args.ignore or ())
     for (skill, nested_in), review in zip(pairs, reviews, strict=True):
         if only is not None and skill.name != only:
             continue
-        row = skill_row(skill, review, nested_in)
+        row = skill_row(skill, review, nested_in, ignore=ignore)
         counts[row["state"]] += 1
         report["skills"].append(row)
-        # A load error always fails; a spec error fails only with --strict.
-        if not skill.loaded or (args.strict and row["state"] == "error"):
+        # A load error, or a SKILL.md the OS will not read, always fails; a spec error fails only with --strict.
+        unreadable = review is not None and any(f.code == "unreadable" for f in review.findings)
+        if not skill.loaded or unreadable or (args.strict and row["state"] == "error"):
             failed = True
     if not as_json:
         shown = f"{sum(counts.values())} of {len(skills)}" if only is not None else f"{len(skills)}"
@@ -125,6 +127,18 @@ def _scan_tasks(args: argparse.Namespace, root: Path, report: dict, as_json: boo
 
 def _check_scan_flags(args: argparse.Namespace) -> None:
     """Raise InputError on a flag combination the scan cannot honour; the per-skill flags need --per-skill."""
+    from dokimi.external.validate import FINDING_CODES
+
+    unknown = sorted(set(args.ignore or ()) - set(FINDING_CODES))
+    if unknown:
+        raise InputError(f"--ignore {', '.join(unknown)}: not a finding code; the codes are {', '.join(FINDING_CODES)}")
+    if "frontmatter-parse" in (args.ignore or ()):
+        # The skill did not load, so its state is error whatever is ignored: refuse rather than hide the cause.
+        raise InputError("--ignore frontmatter-parse: a skill whose frontmatter is not valid YAML does not load, "
+                         "and a load error always fails")
+    if "unreadable" in (args.ignore or ()):
+        # The whole-catalog exit reads the unfiltered findings, --per-skill the filtered rows: ignoring it splits them.
+        raise InputError("--ignore unreadable: a SKILL.md the OS will not read always fails the scan, as a load error does")
     if args.jsonl and args.format == "json":
         raise InputError("--jsonl writes one row per skill to a file; drop --format json")
     if args.resume and not args.jsonl:
@@ -132,8 +146,8 @@ def _check_scan_flags(args: argparse.Namespace) -> None:
     if (args.jsonl or args.jobs is not None) and not args.per_skill:
         raise InputError("--jsonl and --jobs need --per-skill: cross-catalog checks need every skill loaded at once")
     if args.kind == "tasks" and (args.per_skill or args.skip_nested or args.jsonl or args.resume
-                                 or args.jobs is not None):
-        raise InputError("--per-skill, --skip-nested, --jsonl, --jobs and --resume apply to skills; "
+                                 or args.jobs is not None or args.ignore):
+        raise InputError("--per-skill, --skip-nested, --ignore, --jsonl, --jobs and --resume apply to skills; "
                          "drop them or use --kind skills|all")
 
 
@@ -443,6 +457,11 @@ def register(sub, positive_int, eval_sub) -> None:
         "--skip-nested", action="store_true",
         help="Leave out a SKILL.md nested inside another skill's directory (every row marks "
              "it with nested_in either way)",
+    )
+    scan_p.add_argument(
+        "--ignore", action="append", default=None, metavar="CODE",
+        help="Leave the findings with this code out of the scan: they are not printed, and they "
+             "do not set the state or --strict's exit. Repeatable; an unknown code is a usage error",
     )
     scan_p.add_argument(
         "--jsonl", metavar="PATH",

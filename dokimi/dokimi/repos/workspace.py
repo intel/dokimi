@@ -51,10 +51,11 @@ from typing import Any
 from dokimi import process
 
 from .arms import ArmError, Skill, resolve_skills, tree_sha256
+from .bases import _patch_paths
 from .errors import PrepError
 from .guidance_arms import GUIDANCE_SKILL_DESCRIPTION, _apply_as_skill, _apply_format  # noqa: F401
 from .guidance_format import FORMATS
-from .guidance_history import arm_rev_history
+from .guidance_history import arm_rev_history, record_imports
 from .harness_profile import HarnessProfile
 from .manifest import RepoManifest, _is_within, match_glob
 from .overlay_paths import _link_target, _overlay_targets, _path_hits, _supplies_a_file  # noqa: F401
@@ -412,6 +413,7 @@ def prepare_workspace(git_dir: Path, manifest: RepoManifest, task: Task, arm: st
     _git(ws, env, "add", "-A")                                                                # 6
     _git(ws, env, "commit", "-q", "--no-gpg-sign", "--no-verify", "--amend", "--allow-empty", "-m", "snapshot")
     _apply_review_patch(ws, task, patches)                                                    # 7
+    record_imports(arm_meta, ws, arm_files, profile, lambda: _workspace_files(ws, env))  # as the agent gets it
     _forget(ws, env)                                                                          # 8
     start_sha = _git(ws, env, "rev-parse", "HEAD").strip()
     meta: dict[str, Any] = {
@@ -478,8 +480,8 @@ def _apply_arm(ws: Path, env: dict[str, str], git_dir: Path, manifest: RepoManif
         return _apply_patch(ws, env, manifest, arm)
     if arm.base == OVERLAY_ARM:
         return _apply_overlay(ws, _workspace_files(ws, env), overlay or "")
-    tracked = [p for p in _git_proc(ws, env, "ls-files", "-z").nul_fields() if p]
-    matched = sorted(p for p in tracked if any(match_glob(g, p) for g in manifest.guidance_globs))
+    # the workspace, not the index: a setup patch's added file is untracked and its deleted one still indexed (#495)
+    matched = sorted(p for p in _workspace_files(ws, env) if any(match_glob(g, p) for g in manifest.guidance_globs))
     if arm.base.startswith(FORMAT_ARM):
         return _apply_format(ws, matched, arm.base[len(FORMAT_ARM):])
     if arm.base in ("guidance:none", "guidance:as-skill") or arm.rev_sha is not None:
@@ -703,24 +705,6 @@ def _apply_patch(ws: Path, env: dict[str, str], manifest: RepoManifest, arm: Arm
         base = set()
     return files, {"arm_patch": {"path": arm.patch_path, "sha256": arm.patch_sha256, "added": added,
                                  "mcp_servers": mcp_servers(ws, files, base)}}
-
-
-def _patch_paths(fields: list[str]) -> set[str]:
-    """Every path ``git apply --numstat -z`` names (``fields``, its output split on NUL): ``added<TAB>deleted<TAB>path``,
-    or for a rename an empty path followed by the old and the new one."""
-    paths: set[str] = set()
-    i = 0
-    while i < len(fields):
-        rest = fields[i].split("\t", 2)
-        i += 1
-        if len(rest) < 3:
-            continue
-        if rest[2]:
-            paths.add(rest[2])
-        else:
-            paths.update(f for f in fields[i:i + 2] if f)
-            i += 2
-    return paths
 
 
 def _task_file(task: Task, rel: str) -> Path:

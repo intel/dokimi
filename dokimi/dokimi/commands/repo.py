@@ -10,7 +10,10 @@ import json
 import re
 import sys
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from dokimi.repos import RepoSource
 
 from dokimi.commands.repo_skill_reach import add_skill_reach_parser
 from dokimi.exit_codes import EXIT_USAGE
@@ -33,16 +36,23 @@ def _write_json(path: str, payload: dict) -> None:
         sys.exit(EXIT_USAGE)
 
 
-def _source_tree(args: argparse.Namespace) -> tuple:
-    """The source (source, tree): a malformed string, unpinned remote or pinned local path that is not the repository root is a usage error (2); a clone, fetch or pin resolution failure is 1."""
-    from dokimi.repos import RepoSource, SourceError, open_source
-    from dokimi.repos.source import SourceArgumentError
+def _parse_source(args: argparse.Namespace) -> RepoSource:
+    """The source as typed: a malformed string, an unpinned remote or a local path that is not a directory is a usage error (2); a local path the filesystem refuses to stat (no permission to traverse it) is 1."""
+    from dokimi.repos import RepoSource, SourceError
 
     try:
-        source = RepoSource.parse(args.source)
-    except SourceError as exc:
+        return RepoSource.parse(args.source)
+    except (SourceError, OSError) as exc:  # OSError: Path.is_dir raises PermissionError on Python 3.11-3.13
         print(f"✗ {exc}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        sys.exit(EXIT_USAGE if isinstance(exc, SourceError) else 1)
+
+
+def _source_tree(args: argparse.Namespace) -> tuple:
+    """The source (source, tree): a malformed string, unpinned remote or pinned local path that is not the repository root is a usage error (2); a clone, fetch or pin resolution failure is 1."""
+    from dokimi.repos import SourceError, open_source
+    from dokimi.repos.source import SourceArgumentError
+
+    source = _parse_source(args)
     # 2 = malformed source string, unpinned remote, pinned local path inside a repository, manifest/profile errors; 1 = clone/fetch/resolve of a pin
     # (incl. pinned local non-git source, pin absent locally, remote pin missing from origin).
     try:
@@ -312,7 +322,7 @@ def _reach_from_saved(args: argparse.Namespace) -> None:
     """The matrix or the receipt of a saved reach.json, checked against the source; no harness runs."""
     from dokimi.repos import ManifestError, SourceError, open_source
     from dokimi.repos.harness_profile import ProfileError
-    from dokimi.repos.receipt import check_receipt_provenance, check_saved_reach
+    from dokimi.repos.receipt import check_receipt_provenance, check_saved_guidance, check_saved_reach
     from dokimi.repos.reach import ReachError, format_matrix
     from dokimi.repos.source import SourceArgumentError
 
@@ -334,6 +344,7 @@ def _reach_from_saved(args: argparse.Namespace) -> None:
         check_saved_reach(reach, manifest.id, profile.name, getattr(tree, "sha", None))
         if args.format == "receipt":
             check_receipt_provenance(reach, getattr(tree, "sha", None))
+            check_saved_guidance(reach, profile.guidance)
     except (SourceError, ManifestError, ReachError) as exc:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(_tree_read_exit_code(exc))

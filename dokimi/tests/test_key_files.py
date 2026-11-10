@@ -81,8 +81,12 @@ def ragas_stubs(monkeypatch):
     stubs = {
         "ragas.llms": {"LangchainLLMWrapper": lambda model: model},
         "ragas.embeddings": {"LangchainEmbeddingsWrapper": lambda embeddings: embeddings},
-        "ragas.metrics": {name: types.SimpleNamespace(embeddings="unset")
-                          for name in ("faithfulness", "answer_relevancy", "context_precision")},
+        # The shared module-level objects, and the classes the evaluator builds its own metrics from.
+        "ragas.metrics": {**{name: types.SimpleNamespace(embeddings="unset")
+                             for name in ("faithfulness", "answer_relevancy", "context_precision")},
+                          **{cls: lambda **kw: types.SimpleNamespace(embeddings="unset", **kw)
+                             for cls in ("Faithfulness", "AnswerRelevancy", "ContextRecall",
+                                         "LLMContextPrecisionWithoutReference")}},
         "langchain_openai": {"ChatOpenAI": record("openai"), "OpenAIEmbeddings": record("embeddings")},
         "langchain_anthropic": {"ChatAnthropic": record("anthropic")},
         "langchain_core.language_models": {"BaseChatModel": object},

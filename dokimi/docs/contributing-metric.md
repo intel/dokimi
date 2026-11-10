@@ -115,7 +115,7 @@ def test_unresolved_link_drops_score():
 ```
 
 Then add an integration assertion to `tests/test_runner_run.py` (or equivalent)
-covering the metric flowing through `cli.py run`.
+covering the metric flowing through `cli.py docs check`.
 
 ## 5 — Document it
 
@@ -126,7 +126,7 @@ it in [`architecture.md`](architecture.md).
 ## 6 — Run the benchmark and check the snapshot
 
 ```bash
-python cli.py run \
+python cli.py docs check \
   --root . \
   --spec benchmarks/spec.v1.yaml \
   --out-json baselines/current.json \
@@ -141,7 +141,7 @@ snapshot you took before the change (there is no committed baseline — see
 [`benchmarking-and-comparison.md`](benchmarking-and-comparison.md#static-documentation-benchmark)):
 
 ```bash
-python cli.py compare \
+python cli.py docs compare \
   --base baselines/baseline.json \
   --candidate baselines/current.json \
   --spec benchmarks/spec.v1.yaml \

@@ -68,11 +68,13 @@ Unicode tag, stray zero-width character) in ``SKILL.md`` or a bundled text file
 from __future__ import annotations
 
 import hashlib
+import math
 import os
 import re
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
-from typing import Optional, Sequence
+from typing import Iterable, Optional, Sequence
 from urllib.parse import unquote
 
 import yaml
@@ -81,9 +83,11 @@ from dokimi.skills import Skill
 from dokimi.utils import describe_yaml_error, parse_frontmatter_strict
 
 from .catalog import SkillCatalogEntry, _within
+from .command_checks import command_findings
 from .content_checks import content_findings
-from .skill_markdown import link_pieces, outside_fences
 from .listing import in_field
+from .paths import _exists, _in_checkout, _inside, _resolved
+from .skill_markdown import link_pieces, outside_fences
 
 NAME_PATTERN = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 NAME_MAX = 64
@@ -140,6 +144,34 @@ FILE_SUFFIX_RE = re.compile(r"\d+(?:[-:]\d+)?|[A-Za-z_]\w*")
 LOCATION_SUFFIX_RE = re.compile(r":(?:\d+(?:[-:]\d+)?|[A-Za-z_]\w*)$")
 SKILL_DIR_VAR = "${CLAUDE_SKILL_DIR}/"
 
+# Every code a review can report: ``catalog check --ignore`` accepts these and no others.
+# tests/test_catalog_ignore.py reads the emitted codes from the source and fails on any missing here.
+FINDING_CODES = (
+    "allowed-tools-unknown",
+    "body-too-large",
+    "description-near-duplicate",
+    "description-no-when",
+    "description-too-long",
+    "duplicate",
+    "frontmatter-parse",
+    "frontmatter-unknown-key",
+    "hidden-unicode",
+    "install-unpinned",
+    "legacy-model-id",
+    "link-escapes-skill",
+    "link-missing",
+    "mirror-drift",
+    "name-conflict",
+    "name-format",
+    "name-mismatch",
+    "name-missing",
+    "not-loaded",
+    "path-escapes-skill",
+    "unreadable",
+    "permission-bypass-flag",
+    "pipe-to-shell",
+)
+
 
 @dataclass
 class Finding:
@@ -148,6 +180,12 @@ class Finding:
     level: str
     code: str
     message: str
+
+
+def state_of(findings: Iterable[Finding]) -> str:
+    """``error`` if any finding is an error, else ``warn`` if any is a warning, else ``ok``."""
+    levels = {f.level for f in findings}
+    return "error" if "error" in levels else "warn" if "warn" in levels else "ok"
 
 
 @dataclass
@@ -164,8 +202,7 @@ class SkillReview:
     @property
     def state(self) -> str:
         """``error`` if any finding is an error, else ``warn`` if any is a warning, else ``ok``."""
-        levels = {f.level for f in self.findings}
-        return "error" if "error" in levels else "warn" if "warn" in levels else "ok"
+        return state_of(self.findings)
 
 
 def _strict_meta(text: str) -> tuple[dict, Optional[Finding]]:
@@ -368,12 +405,12 @@ def _unloaded_review(entry: SkillCatalogEntry) -> Optional[SkillReview]:
     """
     if entry.path is None:
         return None
-    candidate = entry.path / "SKILL.md" if entry.path.is_dir() else entry.path
-    if candidate.name != "SKILL.md" or not candidate.is_file():
-        return None
-    if not _within(candidate, entry.source_root):
-        return None
     try:
+        candidate = entry.path / "SKILL.md" if entry.path.is_dir() else entry.path
+        if candidate.name != "SKILL.md" or not candidate.is_file():
+            return None
+        if not _within(candidate, entry.source_root):
+            return None
         text = candidate.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         return None  # the loader already reported why the skill did not load
@@ -433,33 +470,6 @@ def _file_ref(raw: str, link: bool = False) -> Optional[str]:
     if any(c in text for c in "${}<>*"):
         return None
     return text
-
-
-def _resolved(path: Path) -> Optional[Path]:
-    """``path`` resolved, or None when the OS refuses the name (a NUL byte, a symlink loop)."""
-    try:
-        return path.resolve()
-    except (OSError, RuntimeError, ValueError):
-        return None
-
-
-def _exists(path: Path) -> bool:
-    """``path.exists()``, where a name the OS refuses (over 255 bytes in one part, say) is absent."""
-    try:
-        return path.exists()
-    except (OSError, ValueError):
-        return False
-
-
-def _inside(path: Path, base: Path) -> bool:
-    """Whether ``path`` lies under ``base`` by its written name, with ``..`` taken away. Reads no file."""
-    return Path(os.path.abspath(path)).is_relative_to(os.path.abspath(base))
-
-
-def _in_checkout(path: Path, source_root: Path) -> Optional[Path]:
-    """``path`` resolved, or None unless it lies in the checkout both as written and where it resolves."""
-    target = _resolved(path) if _inside(path, source_root) else None
-    return target if target is not None and target.is_relative_to(source_root.resolve()) else None
 
 
 def _link_finding(raw: str, skill_dir: Path, source_root: Path, real_dir: Path) -> Optional[Finding]:
@@ -600,18 +610,39 @@ def _mirror_drift(loaded: list[tuple[SkillCatalogEntry, Skill, SkillReview]]) ->
                 )
 
 
+def _min_overlap(size: int) -> int:
+    """The fewest words a skill of ``size`` words shares with any pair that passes the near-duplicate test.
+
+    A passing pair shares at least NEAR_DUPLICATE_MIN_SHARED words and a Jaccard similarity of at least
+    NEAR_DUPLICATE_JACCARD; its shared words are then that fraction of the union, which is at least
+    the skill's own size. The epsilon only ever lowers the bound, so it stays a safe under-estimate.
+    """
+    return max(NEAR_DUPLICATE_MIN_SHARED, math.ceil(NEAR_DUPLICATE_JACCARD * size - 1e-9))
+
+
 def _near_duplicates(loaded: list[tuple[SkillCatalogEntry, Skill, SkillReview]]) -> None:
-    """``description-near-duplicate`` on both skills of each pair whose descriptions overlap."""
+    """``description-near-duplicate`` on both skills of each pair whose descriptions overlap.
+
+    Only candidate pairs are compared, found by a prefix filter: each skill's words are ordered
+    rarest first across all the skills, and only its first ``size - _min_overlap(size) + 1`` words are
+    indexed. A passing pair with ``s`` shared words has at least ``_min_overlap`` of them, so its
+    rarest shared word sits inside both skills' prefixes and the pair is a candidate. Non-candidates
+    could not pass, so the findings, and their order, match comparing every pair.
+    """
     shown = [item for item in loaded if not item[2].disable_model_invocation]
     tokens = [_tokens(" ".join(item[1].description.split())) for item in shown]
     names = [_dir_name(item) for item in shown]
-    by_token: dict[str, list[int]] = {}
+    frequency = Counter(word for words in tokens for word in words)
+    prefixes: list[list[str]] = []
+    by_prefix_word: dict[str, list[int]] = {}
     for index, words in enumerate(tokens):
-        for word in words:
-            by_token.setdefault(word, []).append(index)
+        ordered = sorted(words, key=lambda word: (frequency[word], word))
+        prefix = ordered[: max(0, len(ordered) - _min_overlap(len(ordered)) + 1)]
+        prefixes.append(prefix)
+        for word in prefix:
+            by_prefix_word.setdefault(word, []).append(index)
     for i, (entry, _, review) in enumerate(shown):
-        # only a pair that shares a word can overlap
-        for j in sorted({k for word in tokens[i] for k in by_token[word] if k > i}):
+        for j in sorted({k for word in prefixes[i] for k in by_prefix_word[word] if k > i}):
             o_entry, _, o_review = shown[j]
             if o_review.content_sha256 == review.content_sha256:
                 continue  # an identical SKILL.md: already a duplicate
@@ -641,8 +672,10 @@ def review_skills(
     """One :class:`SkillReview` per entry, in order.
 
     None for an entry that did not load, unless its frontmatter is broken YAML: then its
-    review carries the ``frontmatter-parse`` error. Of each identical ``SKILL.md``, the
-    copy nearest the root is the original; every other copy names it in ``duplicate_of``.
+    review carries the ``frontmatter-parse`` error. A loaded skill whose ``SKILL.md`` cannot
+    be read during review gets a review with one ``unreadable`` error and no digest. Of each
+    identical ``SKILL.md``, the copy nearest the root is the original; every other copy names
+    it in ``duplicate_of``.
     Mirror drift and near-duplicate descriptions are checked across all the loaded skills,
     and a skill with ``disable-model-invocation`` set is left out of the description checks.
 
@@ -659,18 +692,27 @@ def review_skills(
             reviews.append(_unloaded_review(entry))
             continue
         skill = entry.skill
-        at_root = skill.path.parent.resolve() == entry.source_root.resolve()
-        findings, hidden = _frontmatter_findings(skill, at_root=at_root)
-        review = SkillReview(findings=findings, disable_model_invocation=hidden)
-        review.findings += _bundle_findings(skill, entry.source_root)
-        review.findings += _body_findings(skill)
-        review.findings += [
-            Finding("warn", code, message)
-            for code, message in content_findings(skill, at_root=at_root and not standalone)
-        ]
-        if not hidden:
-            review.findings += _description_findings(skill)
-        review.content_sha256 = _skill_digest(skill)
+        try:  # any read of SKILL.md after it loaded: an error row, not a crash
+            at_root = skill.path.parent.resolve() == entry.source_root.resolve()
+            findings, hidden = _frontmatter_findings(skill, at_root=at_root)
+            review = SkillReview(findings=findings, disable_model_invocation=hidden)
+            review.findings += _bundle_findings(skill, entry.source_root)
+            review.findings += _body_findings(skill)
+            review.findings += [
+                Finding("warn", code, message)
+                for code, message in command_findings(skill.path, at_root=at_root and not standalone)
+            ]
+            review.findings += [
+                Finding("warn", code, message)
+                for code, message in content_findings(skill, at_root=at_root and not standalone)
+            ]
+            if not hidden:
+                review.findings += _description_findings(skill)
+            review.content_sha256 = _skill_digest(skill)
+        except (OSError, UnicodeDecodeError, RuntimeError, ValueError) as exc:
+            unreadable = Finding("error", "unreadable", f"SKILL.md cannot be read: {exc}")
+            reviews.append(SkillReview(findings=[unreadable]))
+            continue
         where = _relative_to_root(skill.path.parent, entry.source_root)
         copies.append((review, where, review.content_sha256))
         by_name.setdefault(skill.name, []).append((review, where, review.content_sha256))

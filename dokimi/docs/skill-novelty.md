@@ -784,7 +784,8 @@ Two numbers, reported side by side and never merged:
   `selection_rate_among_answered` beside it; a failed call is excluded from both and
   counted, and one failed query does not lose the rest.
   Each abstention or unparseable pick keeps the model's raw reply under
-  `per_query[].raw_reply` (the first 2000 characters), so a decline can be read.
+  `per_query[].raw_reply` (the first 2000 characters), so a decline can be read. A reply cut
+  at the output ceiling is an abstention too, whether or not its price is known.
   `--repeats N` asks each query N times with the same card order, so the spread between
   repeats is the model's own sampling noise. The result's `noise` block gives each query's
   agreement across its repeats (`per_query`), the selection rate of each repeat, and
@@ -855,6 +856,33 @@ more per call as well as in calls. Before the first call the run prints that cou
 so count the queries first, or pass `--max-usd` to stop the run at a spend limit. A lexical-only run (no `--model`) makes no model calls.
 A stored response in `DOKIMI_RESPONSE_CACHE` is replayed without a call, so a rerun can make
 fewer calls than the printed count.
+
+**A routing run stopped by `--max-usd` keeps what it paid for.** `novelty routing --model`, single
+artifact or `--all-vs-all`, writes the result of the calls made before the cap (or a call with no
+known price) stopped it, prints the summary and `cost` lines, and still exits non-zero with the
+cap message and the path of the file. The file carries
+`"partial": {"reason": "spend_cap", "calls_done": N, "calls_planned": M, "message": ...}` at the
+top level (and under the model arm), and no `partial` key when the run finished. The record's
+`status` is then `"partial"` instead of `"ok"` (a single run; an all-vs-all file carries `status`
+only when partial), so a script that checks `status == "ok"` does not take a prefix of the run for
+a finished measurement. The model line says `partial: N of M calls` in place of the query count,
+and warns when fewer than five calls were answered. When `--out` already holds a result that is
+not itself partial, the partial one goes to the first of `<out stem>.partial.json`,
+`<out stem>.partial2.json`, ... beside it that is free or a partial result it can write (a
+sidecar that is not a regular file, such as a FIFO or a symlink, is skipped without being
+opened or followed; a sidecar name too long for the file system stops the save with that
+error), and the exit
+message names that path, so a cap never replaces a finished measurement. The calls made are
+scored as in a run with failed calls: a single run's `model.per_query` holds them, and
+`model.n_calls` is `N` rather than queries times repeats. In all-vs-all the calls never made are
+in `n_unscored`, a skill the run never reached has an `own_rate` of `null`, and a query stopped
+between repeats keeps its picks but is left out of `noise`. The lexical arm is complete either way.
+Treat a `partial` file as a prefix of the run, not a measurement of the whole field: the skills
+and queries reached first are over-represented. To finish, raise `--max-usd` and rerun with
+`DOKIMI_RESPONSE_CACHE` set (it must also have been set on the capped run), which replays the
+calls already paid for at no cost. The
+`skill novelty` steps (`analyze`, `atoms`, `probe`) and `skill shorten` still write nothing when the
+cap stops them.
 
 Three properties worth knowing before quoting either:
 
@@ -976,6 +1004,36 @@ python cli.py skill novelty analyze --artifact skill:s --model M \
   --arms no_artifact,full,placebo,no_artifact_repeat \
   --placebo-text other-domain.md \
   --context-framing neutral
+```
+
+## Provenance, judge vendors, a second judge, reversal both ways
+
+Every `novelty analyze` and `novelty probe` JSON carries a `provenance` block, so a quoted
+number can be traced to what produced it:
+
+- `dokimi_version`, and `git_commit` when dokimi runs from a git checkout (`null` otherwise).
+- `artifact_digest` (the measured text's `ref_digest`) and `prompts_sha256`.
+- `answerer_model`, `judge_model` and `context_framing`.
+- `answerer_vendor` and `judge_vendor`, read off the model id (`claude`/`anthropic`, `gpt`/`openai`,
+  `grok`/`xai`, `gemini`/`google`, `nemotron`/`nvidia`, `llama`/`meta`, else `unknown`), and
+  `same_vendor`. A judge of the answerer's vendor is not refused, as the same model is
+  (`--allow-self-judge`); it is warned about on stderr and, in `analyze`, in `warnings`.
+
+`--judge2 MODEL` regrades a seeded `--judge2-frac` share (default 0.15) of the graded runs with a
+second judge (`--judge2-provider`, default the judge's provider) and writes `judge2`:
+`lenient_agreement`, `kappa_lenient` (Cohen's kappa on the lenient collapse) and `exact_agreement`
+over `n_compared` runs, plus that judge's cost. A second judge that is the answering model, or the
+same model as the first judge, is refused unless `--allow-self-judge`.
+
+`controls.reversal_resisted` is the with-artifact arm's share of refused planted inversions.
+`reversal_resisted_by_arm` gives it for the baseline too, and `reversal_paired` pairs each
+inversion probe across the two arms: `resisted_only_with`, `resisted_only_without`, and
+`difference` over `n_paired`. In the study a correct artifact raised resistance
+([§10.2](skill-novelty-evidence.md)).
+
+```bash
+python cli.py skill novelty analyze --artifact skill:s --model M --judge2 gpt-6-luna \
+  --judge2-provider openai --judge2-frac 0.2
 ```
 
 ## Comparing knowledge: which matcher is allowed to answer
@@ -1373,11 +1431,13 @@ answer is a failed probe run (its pair is dropped), not a wrong answer.
   unanimous atom outcomes under strict grading, on any model; at heading level unanimity was 0.39–0.44
   and roughly one atom in four disagreed with its own section's majority. "This section is redundant"
   is not a statement this instrument can make.
-- **Loading an artifact lowers resistance to a reversed premise.** Paired on the same planted
-  inversions, 45 probes got worse and 14 better across five models, every model pointing the same way.
-  In-context text raises willingness to commit, including to a false premise in the question, so
-  correctness of content gates before volume of content. Measured directly for a false premise *inside*
-  the artifact: a planted wrong value is stated 0.942 of the time when plausible, 0.846 when absurd, and
+- **Loading a correct artifact raises resistance to a reversed premise.** An earlier reading of the
+  study (45 probes worse, 14 better) had the sign inverted by its analysis script; recomputed on the
+  planted-inversion probes, paired by probe and model, 49 got worse and 367 better
+  ([§10.2](skill-novelty-evidence.md)). `reversal_paired` reports the binary version of this
+  pairing (31 worse, 96 better in the evidence page).
+  Correctness of content still gates before volume: for a false premise *inside*
+  the artifact, a planted wrong value is stated 0.942 of the time when plausible, 0.846 when absurd, and
   flagged 3% of the time. `degraded` is the visible tip of that; the channel underneath it transmits at
   85–94%.
 - **A cell can stop being re-measurable.** Two of the models behind most of these numbers no longer

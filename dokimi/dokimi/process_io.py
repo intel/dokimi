@@ -3,10 +3,20 @@
 
 """A pipe is owned by its reader or caller cleanup, even during interrupted startup."""
 
+import os
+import sys
 import threading
 from collections.abc import Callable
 from contextlib import suppress
 from typing import IO, Protocol
+
+_POSIX = sys.platform != "win32"
+
+
+def path_text(raw: bytes) -> str:
+    """A file name git printed, as the path the file system opens: on POSIX a non-UTF-8 byte stays one
+    (``os.fsdecode``), on Windows it becomes U+FFFD. Every reader of a ``-z`` listing decodes a path this way."""
+    return os.fsdecode(raw) if _POSIX else raw.decode("utf-8", errors="replace")
 
 
 class PipeReader:
