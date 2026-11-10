@@ -510,6 +510,15 @@ def test_the_real_client_carries_the_max_usd_cap_and_no_cap_without_it(tmp_path)
     assert cmd._client(plain).cap is None
 
 
+def test_the_command_leaves_the_output_ceiling_to_the_client(tmp_path):
+    from dokimi.commands import skill_coverage as cmd
+    from dokimi.novelty.client import DEFAULT_MAX_TOKENS
+
+    plain = build_parser().parse_args(["eval", "skill-coverage", str(_skill(tmp_path)), str(_evals(tmp_path))])
+    assert cmd._client(plain).max_tokens is None  # the client's default (a reasoning model needs the room)
+    assert DEFAULT_MAX_TOKENS == 16384
+
+
 @pytest.mark.parametrize("value", ["nan", "inf", "-1", "0"])
 def test_max_usd_refuses_a_value_that_would_disable_the_cap(tmp_path, value):
     with pytest.raises(SystemExit):

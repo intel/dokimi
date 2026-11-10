@@ -21,10 +21,6 @@ from pathlib import Path
 from dokimi.exit_codes import EXIT_FAILURE
 from dokimi.utils import InputError
 
-# Reasoning models spend part of the output budget on hidden reasoning; a smaller ceiling returns no text.
-MAX_TOKENS = 12000
-
-
 def _usd(text: str) -> float:
     """A positive, finite USD amount (``0``, negatives, ``nan`` and ``inf`` would disable the cap)."""
     value = float(text)
@@ -48,7 +44,9 @@ def _client(args: argparse.Namespace):
 
     provider, model = args.model
     cap = SpendCap(limit_usd=args.max_usd) if args.max_usd is not None else None
-    return LLMClient(model=model, provider=provider, role="coverage", max_tokens=MAX_TOKENS, cap=cap)
+    # The client's default output ceiling: a reasoning model spends part of it on hidden reasoning, so a smaller
+    # one can return no text, and the cut-off hint names --max-tokens, which this command does not take.
+    return LLMClient(model=model, provider=provider, role="coverage", cap=cap)
 
 
 def _refuse_out_over_input(out: str, inputs: list[Path]) -> None:
