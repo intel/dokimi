@@ -123,12 +123,12 @@ def cmd_eval_skill_coverage(args: argparse.Namespace) -> None:
     report = coverage_report(skill, requirements, checks, links, evals_root=str(evals), model=model,
                              provider=provider, cost=client.cost_summary(),
                              requirements_dropped=requirements_dropped)
+    print(render_markdown(report))  # printed first: a failed write after both paid calls must not lose the table
     if args.out:
         try:
             save_artifact("skill_coverage", report, Path(args.out))
         except (OSError, ValueError) as exc:
             raise InputError(f"cannot write {args.out}: {exc}") from exc
-    print(render_markdown(report))
 
 
 def register_eval(eval_sub) -> None:

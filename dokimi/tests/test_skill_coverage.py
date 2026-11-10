@@ -797,6 +797,19 @@ def test_command_refuses_an_out_when_the_eval_inputs_cannot_be_listed_before_any
     assert not out.exists()
 
 
+def test_a_failed_artifact_write_still_prints_the_table(tmp_path, monkeypatch, capsys):
+    from dokimi import artifacts  # the paid calls are made: the table must not be lost with the write
+
+    def full_disk(*args, **kwargs):
+        raise OSError("No space left on device")
+
+    monkeypatch.setattr(artifacts, "save_artifact", full_disk)
+    with pytest.raises(InputError, match="cannot write"):
+        _run(monkeypatch, [str(_skill(tmp_path)), str(_evals(tmp_path)), "--out", str(tmp_path / "c.json")],
+             EXTRACT, MAP)
+    assert "## Skill coverage: demo (candidate checks)" in capsys.readouterr().out
+
+
 def test_command_reports_a_failed_artifact_write_as_input_error(tmp_path, monkeypatch):
     from dokimi import artifacts
 
