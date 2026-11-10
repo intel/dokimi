@@ -84,6 +84,19 @@ def test_a_path_below_a_placeholder_with_a_trailing_slash_matches_only_a_directo
     assert _by_file(scan_repo(_linked_repo(tmp_path / "r", files, {}), _manifest()))[("AGENTS.md", claim)] == want
 
 
+@pytest.mark.parametrize("held", [("a/f", "a/pkg/f"), ("a/f", "a/pkg/f", "src/f/y", "src/pkg/f/y")],
+                         ids=["file-only", "file-and-dir"])
+def test_a_name_or_suffix_with_a_trailing_slash_matches_only_a_directory(tmp_path, held):
+    """``f/`` and ``pkg/f/`` name a directory: the files ``a/f`` and ``a/pkg/f`` are no match, ``src/...`` is."""
+    files = {"AGENTS.md": "See `f/`, `pkg/f/`.\n", "ev/tasks/t/task.json": "{}", **{p: "" for p in held}}
+    got = _by_file(scan_repo(_linked_repo(tmp_path / "r", files, {}), _manifest()))
+    dirs = len(held) > 2
+    assert got[("AGENTS.md", "f/")] == (("ok_basename", "bare name; 2 match(es), e.g. src/f") if dirs
+                                        else ("unresolved", "tried f"))
+    assert got[("AGENTS.md", "pkg/f/")] == (("ok_suffix", "below a directory the text does not name; 1 match(es), "
+                                             "e.g. src/pkg/f") if dirs else ("unresolved", "tried pkg/f"))
+
+
 @pytest.mark.parametrize("target", [".", "src/.."])
 def test_a_glob_below_a_root_link_to_the_root_matches_at_the_root(tmp_path, target):
     """``owner -> .`` lists the root under ``owner/``, so ``x.cfg`` there matches ``owner/*.cfg``."""

@@ -310,7 +310,7 @@ class Scan:
                 return "ok", c
         target = posixpath.normpath(rel).strip("/")
         if "/" not in target:
-            hits = self.by_name.get(target, [])
+            hits = self._named(target, rel.endswith("/"))
             if hits:
                 return "ok_basename", f"bare name; {len(hits)} match(es), e.g. {hits[0]}"
             return "unresolved", "tried " + ", ".join(cands)
@@ -322,10 +322,14 @@ class Scan:
                 below = posixpath.normpath(posixpath.join(real, posixpath.basename(c)))
                 return self._missing([c, below], rel.endswith("/"),
                                      f"{parent}/ exists but {c} does not" + self._unread_note(p, cands))
-        hits = [x for x in self.by_name.get(posixpath.basename(target), []) if x.endswith("/" + target)]
+        hits = [x for x in self._named(posixpath.basename(target), rel.endswith("/")) if x.endswith("/" + target)]
         if hits:
             return "ok_suffix", f"below a directory the text does not name; {len(hits)} match(es), e.g. {hits[0]}"
         return self._missing(cands, rel.endswith("/"), "tried " + ", ".join(cands) + self._unread_note(p, cands), "unresolved")
+
+    def _named(self, name: str, is_dir: bool) -> list[str]:
+        """The files and directories called ``name``; only the directories (or links to one) if ``is_dir``."""
+        return [x for x in self.by_name.get(name, []) if not is_dir or self._is_dir(x)]
 
     def _submodule_or_action(self, name: str, cands: list[str]) -> tuple[str, str] | None:
         """``unresolved`` for a path into a submodule, else ``ok`` for a used Action no candidate holds, else ``None``.
