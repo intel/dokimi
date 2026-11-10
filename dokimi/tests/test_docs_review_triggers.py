@@ -6,7 +6,9 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -71,6 +73,36 @@ def test_main_writes_summary_and_warnings(tmp_path, monkeypatch, capsys):
     assert cdrt.main(["--base", "b", "--head", "h"]) == 0
     assert f"::warning file={PAGE}," in capsys.readouterr().out
     assert f"`{PAGE}`" in summary.read_text(encoding="utf-8")
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="os.fsdecode refuses a 0xff byte")
+def test_main_names_a_non_utf8_path_escaped(tmp_path, monkeypatch, capsys):
+    hit = os.fsdecode(b"dokimi/dokimi/novelty/r\xff.py")
+    monkeypatch.setattr(cdrt, "changed_files", lambda base, head: [hit])
+    monkeypatch.setattr(cdrt, "load_pages", lambda: PAGES)
+    summary = tmp_path / "summary.md"
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
+    assert cdrt.main(["--base", "b", "--head", "h"]) == 0
+    shown = "dokimi/dokimi/novelty/r\\xff.py"
+    assert f"::warning file={PAGE},title=Docs review::{shown} changed;" in capsys.readouterr().out
+    assert f"| `{PAGE}` | `{shown}` |" in summary.read_text(encoding="utf-8")
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="os.fsdecode refuses a 0xff byte")
+def test_main_keeps_two_pages_whose_escaped_names_read_alike(tmp_path, monkeypatch, capsys):
+    raw_page = os.fsdecode(b"dokimi/docs/r\xff.md")
+    text_page = "dokimi/docs/r\\xff.md"
+    pages = {raw_page: ["first.py"], text_page: ["second.py"]}
+    monkeypatch.setattr(cdrt, "changed_files", lambda base, head: ["first.py", "second.py"])
+    monkeypatch.setattr(cdrt, "load_pages", lambda: pages)
+    summary = tmp_path / "summary.md"
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(summary))
+    assert cdrt.main(["--base", "b", "--head", "h"]) == 0
+    warnings = [line for line in capsys.readouterr().out.splitlines() if line.startswith("::warning")]
+    assert [w.split("::")[2] for w in warnings] == ["first.py changed; this page documents them and was not updated",
+                                                    "second.py changed; this page documents them and was not updated"]
+    rows = [line for line in summary.read_text(encoding="utf-8").splitlines() if line.startswith("| `")]
+    assert rows == ["| `dokimi/docs/r\\xff.md` | `first.py` |", "| `dokimi/docs/r\\xff.md` | `second.py` |"]
 
 
 def _tracked_files() -> list[str]:
@@ -154,6 +186,19 @@ def test_changed_files_ignores_what_the_base_gained_after_branching(tmp_path, mo
     assert cdrt.changed_files("main", "pr") == ["mine.py"]
 
 
+@pytest.mark.skipif(sys.platform in ("win32", "darwin"), reason="a CR or a 0xff byte in a file name")
+def test_changed_files_keeps_a_cr_and_a_non_utf8_byte_in_a_path(tmp_path, monkeypatch):
+    _git_repo(tmp_path)
+    (tmp_path / "base.py").write_text("x", encoding="utf-8")
+    _commit(tmp_path, "base")
+    subprocess.run(["git", "tag", "base"], cwd=tmp_path, check=True)
+    for name in (b"a\rb.py", b"r\xff.py"):
+        (tmp_path / os.fsdecode(name)).write_text("x", encoding="utf-8")
+    _commit(tmp_path, "odd names")
+    monkeypatch.setattr(cdrt, "REPO", tmp_path)
+    assert cdrt.changed_files("base", "HEAD") == ["a\rb.py", os.fsdecode(b"r\xff.py")]
+
+
 def test_main_exits_2_for_a_base_git_cannot_diff(tmp_path, monkeypatch, capsys):
     _git_repo(tmp_path)
     (tmp_path / "f").write_text("x", encoding="utf-8")
@@ -184,3 +229,15 @@ def test_a_malformed_page_is_named_and_exits_1_not_a_traceback(tmp_path, monkeyp
     out = capsys.readouterr().out
     assert "::error file=dokimi/docs/bad.md" in out
     assert len(out.strip().splitlines()) == 1
+
+
+@pytest.mark.skipif(sys.platform in ("win32", "darwin"), reason="a 0xff byte in a file name")
+def test_a_malformed_page_with_a_non_utf8_name_is_named_escaped(tmp_path, monkeypatch, capsys):
+    docs = tmp_path / "dokimi" / "docs"
+    docs.mkdir(parents=True)
+    (docs / os.fsdecode(b"bad\xff.md")).write_text("---\ndepends_on: a/**\n---\n", encoding="utf-8")
+    monkeypatch.setattr(cdrt, "changed_files", lambda base, head: [])
+    real = cdrt.load_pages
+    monkeypatch.setattr(cdrt, "load_pages", lambda: real(tmp_path))
+    assert cdrt.main([]) == 1
+    assert capsys.readouterr().out.startswith("::error file=dokimi/docs/bad\\xff.md,title=Docs review::")

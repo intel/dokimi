@@ -215,6 +215,11 @@ def test_end_to_end_artifact_validates_and_reports_added_knowledge(tmp_path):
     assert set(kinds) == {"lenient", "strict"}
     assert kinds["strict"]["by_kind"]
     assert artifact["spans"]["capped_atom_set"] is False
+    block = artifact["provenance"]
+    assert block["artifact_digest"] == artifact["artifact"]["ref_digest"]
+    assert block["prompts_sha256"] == artifact["run_config"]["prompts_sha256"]
+    assert (block["answerer_model"], block["judge_model"]) == ("answerer-m", "judge-m")
+    assert set(artifact["controls"]["reversal_resisted_by_arm"]) == {"no_artifact", "full"}
 
 
 def test_the_probe_budget_reports_what_the_fidelity_check_threw_away(tmp_path):

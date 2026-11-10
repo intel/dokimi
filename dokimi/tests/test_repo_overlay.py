@@ -9,6 +9,7 @@ import dataclasses
 import json
 import os
 import shutil
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -16,6 +17,7 @@ import pytest
 import yaml
 
 from dokimi.repos import RepoSource, load_manifest, open_source
+from dokimi.repos.guidance_format import to_format
 from dokimi.repos.harness_profile import PROFILE_DIR, ProfileError, load_profile, parse_profile
 from dokimi.repos.overlays import native_names, overlay_of
 from dokimi.repos.reach import format_matrix, native_in_probe, overlay_report, probe_files
@@ -583,6 +585,109 @@ def test_guidance_none_reads_the_workspace_after_setup_patches_not_the_index(tmp
     assert not any(ws.glob("AGENTS*"))
 
 
+ADDS_GUIDANCE_PATCH = """diff --git a/CLAUDE.md b/CLAUDE.md
+new file mode 100644
+--- /dev/null
++++ b/CLAUDE.md
+@@ -0,0 +1 @@
++# added by the setup patch
+diff --git a/docs/AGENTS.md b/docs/AGENTS.md
+new file mode 100644
+--- /dev/null
++++ b/docs/AGENTS.md
+@@ -0,0 +1 @@
++# docs guidance, added by the setup patch
+"""
+
+DELETES_GUIDANCE_PATCH = """diff --git a/sub/AGENTS.md b/sub/AGENTS.md
+deleted file mode 100644
+--- a/sub/AGENTS.md
++++ /dev/null
+@@ -1 +0,0 @@
+-# sub guidance
+"""
+
+
+def _prep_patched(tmp_path: Path, patch: str, arm: str, name: str):
+    """``arm`` prepared on the toy base (``AGENTS.md``, ``sub/AGENTS.md``) for a task whose setup patch is ``patch``,
+    with ``CLAUDE.md`` among the globs and the claude-code profile (dokimi#495)."""
+    root, _ = make_repo(tmp_path / name, {"patched": {"family": "fix", "grader": "calc", "setup_patch": "setup.patch",
+                                                      "gate": ["tests_pass"], "prompt": "p"}})
+    write(root, ".agent-eval/tasks/patched/setup.patch", patch)
+    raw = yaml.safe_load((root / ".agent-eval/repo-eval.yaml").read_text(encoding="utf-8"))
+    raw["guidance"]["globs"] = ["**/AGENTS.md", "**/CLAUDE.md"]
+    write(root, ".agent-eval/repo-eval.yaml", yaml.safe_dump(raw))
+    git(root, "add", "-A")
+    git(root, "commit", "-qm", "the patched task")
+    source = RepoSource.parse(f"{root}@HEAD")
+    tree = open_source(source)
+    manifest = load_manifest(tree, ".agent-eval/repo-eval.yaml")
+    tasks = {t.id: t for t in load_tasks(export_eval_dir(tree, manifest, tmp_path / name / "content"), manifest)}
+    meta = prepare_workspace(source_git_dir(source, tree), manifest, tasks["patched"], arm, tmp_path / name / "rd",
+                             load_profile("claude-code"))
+    return meta, tmp_path / name / "rd" / "workspace"
+
+
+def _guidance_on_disk(ws: Path) -> list[str]:
+    return sorted(p.relative_to(ws).as_posix() for p in ws.rglob("*.md") if ".git" not in p.relative_to(ws).parts)
+
+
+def test_guidance_none_removes_the_guidance_a_setup_patch_adds_and_raw_keeps_it(tmp_path):
+    """git apply leaves an added file out of the index: the globs match the workspace, not git ls-files."""
+    meta, ws = _prep_patched(tmp_path, ADDS_GUIDANCE_PATCH, "guidance:none", "none")
+    assert meta["arm_files"] == ["AGENTS.md", "CLAUDE.md", "docs/AGENTS.md", "sub/AGENTS.md"]
+    assert _guidance_on_disk(ws) == []
+    _, ws = _prep_patched(tmp_path, ADDS_GUIDANCE_PATCH, "guidance:raw", "raw")
+    assert _guidance_on_disk(ws) == ["AGENTS.md", "CLAUDE.md", "docs/AGENTS.md", "sub/AGENTS.md"]
+
+
+def test_bridge_and_format_arms_see_the_guidance_a_setup_patch_adds(tmp_path):
+    meta, ws = _prep_patched(tmp_path, ADDS_GUIDANCE_PATCH, "guidance:bridge", "bridge")
+    assert meta["arm_files"] == ["docs/CLAUDE.md", "sub/CLAUDE.md"]
+    assert meta["bridge_skipped"] == ["CLAUDE.md"]  # the setup patch's own CLAUDE.md wins
+    assert (ws / "docs/CLAUDE.md").read_text(encoding="utf-8") == "@AGENTS.md\n"
+    meta, ws = _prep_patched(tmp_path, ADDS_GUIDANCE_PATCH, "guidance:format=xml", "xml")
+    assert meta["arm_files"] == ["AGENTS.md", "CLAUDE.md", "docs/AGENTS.md", "sub/AGENTS.md"]
+    assert (ws / "CLAUDE.md").read_bytes().decode("utf-8") == to_format("# added by the setup patch\n", "xml")
+
+
+def test_rev_arm_replaces_the_guidance_a_setup_patch_adds(tmp_path):
+    meta, ws = _prep_patched(tmp_path, ADDS_GUIDANCE_PATCH, "guidance:rev:HEAD", "rev")
+    assert meta["arm_rev"]["removed"] == ["CLAUDE.md", "docs/AGENTS.md"]
+    assert _guidance_on_disk(ws) == ["AGENTS.md", "sub/AGENTS.md"]
+
+
+@pytest.mark.parametrize("arm", ["guidance:none", "guidance:as-skill"])
+def test_removal_arms_skip_the_guidance_a_setup_patch_deletes(tmp_path, arm):
+    """The index still lists the deleted file; the arm must not unlink or read it."""
+    meta, ws = _prep_patched(tmp_path, DELETES_GUIDANCE_PATCH, arm, "deleted")
+    assert meta["arm_files"] == ["AGENTS.md"]
+    assert [p for p in _guidance_on_disk(ws) if not p.startswith(".claude/")] == []
+    if arm == "guidance:as-skill":
+        skill = (ws / meta["guidance_skill"]["path"] / "SKILL.md").read_text(encoding="utf-8")
+        assert "## File: AGENTS.md\n" in skill and "sub/AGENTS.md" not in skill
+
+
+def test_rev_arm_writes_back_the_guidance_a_setup_patch_deletes(tmp_path):
+    """The deleted file is not unlinked again; the revision, which holds it, writes it back."""
+    meta, ws = _prep_patched(tmp_path, DELETES_GUIDANCE_PATCH, "guidance:rev:HEAD", "rev-deleted")
+    assert meta["arm_files"] == ["AGENTS.md", "sub/AGENTS.md"]
+    assert meta["arm_rev"]["removed"] == []
+    assert _guidance_on_disk(ws) == ["AGENTS.md", "sub/AGENTS.md"]
+    assert (ws / "sub/AGENTS.md").read_text(encoding="utf-8") == "# sub guidance\n"
+
+
+def test_bridge_and_format_arms_skip_the_guidance_a_setup_patch_deletes(tmp_path):
+    """Neither writes a bridge into, nor renders, the ``sub/`` the patch emptied."""
+    meta, ws = _prep_patched(tmp_path, DELETES_GUIDANCE_PATCH, "guidance:bridge", "bridge-deleted")
+    assert meta["arm_files"] == ["CLAUDE.md"]
+    assert _guidance_on_disk(ws) == ["AGENTS.md", "CLAUDE.md"]
+    meta, ws = _prep_patched(tmp_path, DELETES_GUIDANCE_PATCH, "guidance:format=xml", "xml-deleted")
+    assert meta["arm_files"] == ["AGENTS.md"]
+    assert (ws / "AGENTS.md").read_bytes().decode("utf-8") == to_format("# guidance\n", "xml")
+    assert not (ws / "sub").exists()
+
+
 @pytest.mark.skipif(os.name == "nt", reason="a carriage return in a file name")
 def test_guidance_none_removes_a_guidance_file_with_a_carriage_return_in_its_path(tmp_path):
     ws = _cr_workspace(tmp_path, ("AGENTS.md", "a\rb/AGENTS.md", "src/calc.py"))
@@ -678,6 +783,55 @@ def test_overlay_arm_removes_a_chained_directory_alias_listing_without_failing(t
     assert not os.path.lexists(tmp_path / "AGENTS.copilot.md")
     assert not (tmp_path / "real" / "AGENTS.copilot.md").exists()
     assert (tmp_path / "AGENTS.claude.md").is_file()
+
+
+not_utf8 = pytest.mark.skipif(sys.platform in ("win32", "darwin"), reason="the file system takes only UTF-8 names")
+
+
+@pytest.fixture
+def not_utf8_dir() -> str:
+    """A directory name git and the file system keep as bytes. Decoded here, not at import: Windows decodes a file name
+    strictly, and a decode at import would stop the collection of the whole module before ``not_utf8`` skips."""
+    return os.fsdecode(b"r\xff")
+
+
+def _bytes_workspace(tmp_path: Path, files: tuple[str, ...]) -> Path:
+    """A committed workspace holding ``files``, whose paths may hold a byte that is not UTF-8."""
+    ws = tmp_path / "ws"
+    for rel in files:
+        write(ws, rel, "guidance\n")
+    git(ws, "init", "-q")
+    git(ws, "add", "-A")
+    git(ws, "commit", "-q", "-m", "base")
+    return ws
+
+
+@not_utf8
+def test_overlay_arm_removes_a_foreign_overlay_whose_path_is_not_utf8(tmp_path, not_utf8_dir):
+    ws = _bytes_workspace(tmp_path, ("AGENTS.md", "AGENTS.claude.md", f"{not_utf8_dir}/AGENTS.codex.md"))
+    removed, _ = _apply_arm(ws, _git_env(SNAPSHOT_AUTHOR), tmp_path, None, parse_arm(OVERLAY_ARM), None, "claude")
+    assert removed == [f"{not_utf8_dir}/AGENTS.codex.md"]
+    assert not (ws / not_utf8_dir / "AGENTS.codex.md").exists() and (ws / "AGENTS.claude.md").is_file()
+
+
+@not_utf8
+def test_guidance_none_removes_a_guidance_file_whose_path_is_not_utf8(tmp_path, not_utf8_dir):
+    ws = _bytes_workspace(tmp_path, ("AGENTS.md", f"{not_utf8_dir}/AGENTS.md", "src/calc.py"))
+    manifest = SimpleNamespace(guidance_globs=["**/AGENTS.md"])
+    removed, _ = _apply_arm(ws, _git_env(SNAPSHOT_AUTHOR), tmp_path, manifest, parse_arm("guidance:none"), None)
+    assert removed == ["AGENTS.md", f"{not_utf8_dir}/AGENTS.md"]
+    assert not (ws / not_utf8_dir / "AGENTS.md").exists() and (ws / "src/calc.py").is_file()
+
+
+@not_utf8
+def test_guidance_as_skill_packages_a_guidance_file_whose_path_is_not_utf8(tmp_path, not_utf8_dir):
+    ws = _bytes_workspace(tmp_path, ("AGENTS.md", f"{not_utf8_dir}/AGENTS.md", "src/calc.py"))
+    manifest = SimpleNamespace(guidance_globs=["**/AGENTS.md"], id="toy")
+    removed, meta = _apply_arm(ws, _git_env(SNAPSHOT_AUTHOR), tmp_path, manifest, parse_arm("guidance:as-skill"), None)
+    assert removed == ["AGENTS.md", f"{not_utf8_dir}/AGENTS.md"]
+    assert not (ws / "AGENTS.md").exists() and not (ws / not_utf8_dir / "AGENTS.md").exists()
+    skill = (ws / meta["guidance_skill"]["path"] / "SKILL.md").read_bytes().decode("utf-8")
+    assert "## File: AGENTS.md\n\nguidance\n" in skill and "## File: r\ufffd/AGENTS.md\n\nguidance\n" in skill
 
 
 def test_native_in_probe_counts_only_the_native_names_a_probed_file_or_link_carries():

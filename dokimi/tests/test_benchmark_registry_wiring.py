@@ -3,6 +3,10 @@
 
 """``benchmark run --registry`` resolves the library id through that registry."""
 
+import os
+import threading
+from contextlib import contextmanager
+
 import pytest
 
 from dokimi import orchestrator
@@ -132,4 +136,93 @@ def test_a_bad_registry_file_is_an_error_line_not_a_traceback(spy, tmp_path, mon
     err = capsys.readouterr().err
     assert exc_info.value.code == 2
     assert err.startswith("Error: " + message.format(path=registry)) and "Traceback" not in err
+    assert spy.built == []
+
+
+def _feed(path, text):
+    try:
+        path.write_bytes(text) if isinstance(text, bytes) else path.write_text(text, encoding="utf-8")
+    except BrokenPipeError:  # opened by the cleanup below, never read
+        pass
+
+
+@contextmanager
+def fifo_fed_with(path, text):
+    """A named pipe at ``path`` that a thread writes ``text`` into once, as ``<(cat file)`` does."""
+    os.mkfifo(path)
+    writer = threading.Thread(target=_feed, args=(path, text), daemon=True)
+    writer.start()
+    try:
+        yield path
+    finally:
+        if writer.is_alive():  # nothing opened the pipe: let the writer's open return
+            os.close(os.open(path, os.O_RDONLY | os.O_NONBLOCK))
+        writer.join(timeout=5)
+
+
+def too_long_name(directory):
+    """A path in ``directory`` one character over the longest name its filesystem takes: ``stat`` fails on it."""
+    return directory / ("a" * (os.pathconf(directory, "PC_NAME_MAX") + 1))
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="no named pipes on Windows")
+def test_a_registry_pipe_is_read(spy, tmp_path, monkeypatch, capsys):
+    from dokimi import cli
+
+    with fifo_fed_with(tmp_path / "products.fifo", CUSTOM) as fifo:
+        monkeypatch.setattr("sys.argv", ["dokimi", "benchmark", "run", "--library", "my_lib", "--registry", str(fifo),
+                                         "--output-dir", str(tmp_path / "out")])
+        cli.main()
+
+    assert "Error:" not in capsys.readouterr().err
+    (kwargs,) = spy.built
+    assert kwargs["registry"].get("my_lib").description == "A library only this registry knows"
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="no named pipes on Windows")
+@pytest.mark.parametrize("command", [["preflight", "--library", "my_lib"], ["run", "--library", "my_lib"]])
+@pytest.mark.parametrize("written", ["", "\n"])
+def test_a_registry_pipe_that_gives_nothing_is_an_error(spy, tmp_path, monkeypatch, capsys, command, written):
+    from dokimi import cli
+
+    with fifo_fed_with(tmp_path / "products.fifo", written) as fifo:
+        monkeypatch.setattr("sys.argv", ["dokimi", "benchmark", *command, "--registry", str(fifo),
+                                         "--output-dir", str(tmp_path / "out")])
+        with pytest.raises(SystemExit) as exc_info:
+            cli.main()
+
+    assert exc_info.value.code == 2
+    assert capsys.readouterr().err.startswith(f"Error: --registry {fifo}: the pipe was empty")
+    assert spy.built == []
+
+
+@pytest.mark.skipif(os.name == "nt", reason="no /dev/null on Windows")
+@pytest.mark.parametrize("command", [["preflight", "--library", "my_lib"], ["run", "--library", "my_lib"]])
+def test_a_registry_device_is_not_a_file(spy, tmp_path, monkeypatch, capsys, command):
+    from dokimi import cli
+
+    monkeypatch.setattr("sys.argv", ["dokimi", "benchmark", *command, "--registry", "/dev/null",
+                                     "--output-dir", str(tmp_path / "out")])
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main()
+
+    assert exc_info.value.code == 2
+    assert capsys.readouterr().err.startswith("Error: --registry /dev/null: not a file")
+    assert spy.built == []
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows words a long name its own way")
+@pytest.mark.parametrize("command", [["preflight", "--library", "my_lib"], ["run", "--library", "my_lib"]])
+def test_a_registry_name_the_os_cannot_stat_is_an_error_line(spy, tmp_path, monkeypatch, capsys, command):
+    from dokimi import cli
+
+    registry = too_long_name(tmp_path)
+    monkeypatch.setattr("sys.argv", ["dokimi", "benchmark", *command, "--registry", str(registry),
+                                     "--output-dir", str(tmp_path / "out")])
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main()
+
+    err = capsys.readouterr().err
+    assert exc_info.value.code == 2
+    assert err.startswith(f"Error: cannot read --registry {registry}: ") and "Traceback" not in err
     assert spy.built == []

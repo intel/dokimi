@@ -35,12 +35,15 @@ from dokimi import docker_cmd, process
 from dokimi.container_policy import ContainerPolicy
 
 
-# Supported languages -> (file suffix, interpreter argv prefix for a file path).
+# Supported languages -> (file suffix, interpreter argv prefix for a file path in the container).
 EXECUTORS: dict[str, tuple[str, list[str]]] = {
-    "python": (".py", [sys.executable or "python3"]),
+    "python": (".py", ["python3"]),
     "bash": (".sh", ["bash"]),
     "sh": (".sh", ["sh"]),
 }
+
+# The subprocess backend runs python on the host's own interpreter instead of the image's.
+_HOST_ARGV: dict[str, list[str]] = {"python": [sys.executable or "python3"]}
 
 
 _FENCE_OPEN_RE = re.compile(r"^(\s*)(`{3,}|~{3,})(.*)$")
@@ -169,6 +172,7 @@ def _run_subprocess(lang: str, code: str, policy: ExecutionPolicy,
         )
 
     suffix, argv_prefix = EXECUTORS[lang]
+    argv_prefix = _HOST_ARGV.get(lang, argv_prefix)
     # Minimal environment — do not leak the parent's secrets/API keys. LD_LIBRARY_PATH
     # is preserved (not secret) because relocatable Python builds — e.g. actions/setup-python's
     # hostedtoolcache installs — need it so the dynamic loader can find libpython*.so.

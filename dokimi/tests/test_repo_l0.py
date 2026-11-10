@@ -9,6 +9,7 @@ import json
 import re
 import subprocess
 import time
+import warnings
 from pathlib import Path
 
 import pytest
@@ -367,6 +368,11 @@ _PUSH = {".github/workflows/ci.yml": 'name: ci\non:\n  push:\n    branches: [mai
      "branch pattern of no-commit-to-branch (.pre-commit-config.yaml:17)"),
     # `maintenance/\w+` matches `maintenance/*` only once its `*` is filled in
     ("maintenance/*", _pre_commit("[-p, 'maintenance/\\w+']"), "branch pattern of no-commit-to-branch (.pre-commit-config.yaml:17)"),
+    # a repeat with no repeat inside, or of an alternation whose branches start apart, does not backtrack exponentially
+    ("release/12", _pre_commit("[-p, 'release/[0-9]+']"), "branch pattern of no-commit-to-branch (.pre-commit-config.yaml:17)"),
+    ("maintenance/abcd", _pre_commit("[-p, 'maintenance/(ab|cd)+']"), "branch pattern of no-commit-to-branch (.pre-commit-config.yaml:17)"),
+    # each pass of the repeat ends at a `.`, which the digits do not take: one way to match, though `[0-9]+` is in a repeat
+    ("release/1.2.3", _pre_commit("[-p, 'release/([0-9]+\\.)+[0-9]+']"), "branch pattern of no-commit-to-branch (.pre-commit-config.yaml:17)"),
     ("release/1.x", _pre_commit("\n        -   --branch\n        -   release/1.x"),
      "branch of no-commit-to-branch (.pre-commit-config.yaml:19)"),
     ("release/*", _PUSH, "branch filter of on.push (.github/workflows/ci.yml:4)"),
@@ -428,6 +434,15 @@ _NO_GLOB = "glob {} matches nothing in the tree; a build may create it"
     # `--patterns` is no prefix of `--pattern`, and `-x` takes no value of the hook's
     ("maintenance/*", _pre_commit("[--patterns, maintenance/.*, -xmaintenance/.*]"), ("unresolved", _NO_GLOB.format("maintenance/*"))),
     ("maintenance/*", _pre_commit("[--pattern, 'maintenance/(.*']"), ("unresolved", _NO_GLOB.format("maintenance/*"))),
+    # a pattern that backtracks exponentially is refused, even where it matches: `re` would stall on the long claim
+    ("maintenance/aab", _pre_commit("[--pattern, 'maintenance/(a+)+b']"), ("unresolved", "tried maintenance/aab")),
+    ("maintenance/" + "a" * 24 + "c", _pre_commit("[--pattern, 'maintenance/(a+)+b']"),
+     ("unresolved", "tried maintenance/" + "a" * 24 + "c")),
+    ("maintenance/aa", _pre_commit("[--pattern, 'maintenance/(a*)*']"), ("unresolved", "tried maintenance/aa")),
+    ("maintenance/aaa", _pre_commit("[--pattern, 'maintenance/(a|aa)+']"), ("unresolved", "tried maintenance/aaa")),
+    ("maintenance/aab", _pre_commit("[--pattern, 'maintenance/(a?a?)+b']"), ("unresolved", "tried maintenance/aab")),
+    # `İ` and `i` are one character to a case-insensitive `re`, so both alternatives can take an `i`
+    ("maintenance/iib", _pre_commit("[--pattern, 'maintenance/(?i:(i|İi)+)b']"), ("unresolved", "tried maintenance/iib")),
     ("maintenance/*", {".pre-commit-config.yaml": "repos: [{hooks: [{id: no-commit-to-branch, args: [-p, 'maintenance/.*']\n"},
      ("unresolved", _NO_GLOB.format("maintenance/*"))),
     ("release/*", {".github/workflows/ci.yml": "env: {D: 2026-02-30}\non: {push: {branches: ['release/**']}}\n"},
@@ -486,6 +501,84 @@ def test_a_branch_source_the_scan_does_not_read_is_named_in_the_reason(tmp_path)
         "over the 2 MB read limit); .pre-commit-config.yaml was not read (binary (a NUL byte))")
 
 
+def test_a_hook_pattern_that_does_not_backtrack_gives_a_source_to_match():
+    """https://github.com/intel/dokimi/issues/420: the refused shapes are the `unresolved` cases of the path table above."""
+    kept = branches._hook_source("--pattern", "maintenance/(a+)b", 17)
+    assert kept is not None and kept.names("maintenance/aab", ["maintenance/aab"])
+
+
+@pytest.mark.parametrize("pattern, refused", [
+    ("maintenance/(a+)+b", True), ("(a*)*", True), ("(a|aa)+", True), ("(?:a{2,})+", True), ("(a+?)*", True),
+    ("(ab|a)+", True), ("(\\w|ab)+", True), ("((?=a+)b)+", True), ("(?i)(A|ab)+", True), ("(x)?(?(1)a)+", True),
+    ("(a{1,5})+", True), ("(a+){1,100}", True), ("(a|aa){2,30}", True),
+    ("maintenance/.*", False), ("release/[0-9]+", False), ("maintenance/(ab|cd)+", False), ("(a|b)+", False),
+    ("^(?!main$).*", False), ("release/(v|rc)[0-9]+", False), ("(a+)b(c+)", False), ("(a{2})+", False), ("(ab?)+", False),
+    # an item of the repeat that can be skipped or repeated, and be followed by what it takes
+    ("maintenance/(a?a?)+b", True), ("(a?a)+", True), ("(a+b?)+", True), ("([a-z]+/?)+", True), ("((ab)?a)+", True),
+    # a skippable item counts in what follows, the outer pass follows a nested repeat, a branch can start with `?`
+    ("maintenance/(?:a+a?b)+c", True), ("maintenance/(?:(?:ab?)+b)+c", True), ("maintenance/(?:a?b|b)+c", True),
+    # the second `a?` is past the span the check reads after the first one, in a group of its own
+    ("(?:(a?" + "".join(chr(0x4E00 + k) + "?" for k in range(70)) + "a?b)c)+", True),
+    # `İ` is `i` to a case-insensitive `re`; so are the Kelvin sign and `k`
+    ("maintenance/(?i:(i|\u0130i)+)b", True), ("maintenance/(?i:\u0130|ii)+b", True),
+    ("maintenance/(?i:([i\u212a]|[\u0130J]i)+)b", True), ("(?i:[\u0130x]a|[i-j]b)+", True),
+    # each pass ends at a character the item does not take
+    ("release/([0-9]+\\.)+[0-9]+", False), ("(\\.[0-9]+)+", False), ("(a(bc)?)+", False), ("(v?[0-9]+\\.)+", False),
+    ("(a+b)+", False), ("(ab*)+", False),
+])
+def test_a_nested_repeat_or_overlapping_alternation_in_a_repeat_is_refused(pattern, refused):
+    """A repeat that can run more than once around one whose count varies, or around branches that can start alike
+    or be empty, at any depth, lazy or not."""
+    assert branches._backtracks(pattern) is refused
+
+
+@pytest.mark.parametrize("unit", ["ab?", "(a)b?", "(?:ab?)"])
+def test_the_refusal_check_copies_a_number_of_parse_tokens_linear_in_the_pattern(monkeypatch, unit):
+    """A long accepted pattern is read once per item, not once per item over the rest of the pattern."""
+    sre = branches._SRE
+    original = sre.SubPattern.__getitem__
+    copied = []
+
+    def counting(self, index):
+        out = original(self, index)
+        if isinstance(index, slice):
+            copied[-1] += len(out)
+        return out
+
+    monkeypatch.setattr(sre.SubPattern, "__getitem__", counting)
+    totals = []
+    for n in (200, 400):
+        copied.append(0)
+        assert branches._backtracks("maintenance/(?:" + unit * n + ")+c") is False
+        totals.append(copied[-1])
+    assert totals[1] <= 2.5 * totals[0]
+
+
+def test_a_long_run_of_items_that_can_be_skipped_in_a_repeat_is_refused_after_a_bounded_read(monkeypatch):
+    """Each skippable item does not read all the others up to the next one that cannot be skipped."""
+    original, calls = branches._first, [0]
+
+    def counting(sub):
+        calls[0] += 1
+        return original(sub)
+
+    monkeypatch.setattr(branches, "_first", counting)
+    totals = []
+    for n in (300, 600):
+        calls[0] = 0
+        assert branches._backtracks("maintenance/(?:" + "".join(chr(0x4E00 + k) + "?" for k in range(n)) + "a)+")
+        totals.append(calls[0])
+    assert totals[1] <= 2.5 * totals[0]
+
+
+def test_reading_a_hook_pattern_warns_once_as_compiling_it_does():
+    """The parse for the refusal does not repeat the FutureWarning of `re.compile` (a nested set)."""
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        assert branches._hook_source("--pattern", "maintenance/[[x]]+", 17) is not None
+    assert len([w for w in caught if issubclass(w.category, FutureWarning)]) == 1
+
+
 def test_a_backslash_in_a_branch_filter_escapes_the_next_character():
     """`release/c\\+\\+` is GitHub's filter for the branch `release/c++`, not `+` repeating a `\\`."""
     rx = branches._filter_regex(r"release/c\+\+")
@@ -515,13 +608,56 @@ def test_a_branch_filter_with_many_stars_matches_in_linear_time():
 
 
 @pytest.mark.parametrize("pattern", ["release/*", "release/**", "release/v?1.x", "release/[0-9]+.x", "release/a?+b",
-                                     "release/v[9-0]+", r"release/c\+\+", "!release/*-rc?"])
+                                     "release/v[9-0]+", r"release/c\+\+", "!release/*-rc?", "release/a?b?*x"])
 @pytest.mark.parametrize("text", ["release/1.x", "release/v1.x", "release/12.x", "release/.x", "release/b", "release/aab",
-                                  "release/v[9-0]]]", "release/c++", "release/x/y", "release/2-rc", "release/2-r", "release/"])
+                                  "release/v[9-0]]]", "release/c++", "release/x/y", "release/2-rc", "release/2-r", "release/",
+                                  "hotfix/1.x"])
 def test_a_branch_filter_matches_what_its_regex_matches(pattern, text):
     """Walked atom by atom, a filter names the same branches as the regex it reads as."""
     glob = branches._filter_regex(pattern)
     assert glob.match(text) == bool(re.fullmatch(glob.pattern, text))
+
+
+class _Counted(list):
+    """The atoms of a filter, counting each one read."""
+
+    reads = 0
+
+    def __getitem__(self, i):
+        self.reads += 1
+        return super().__getitem__(i)
+
+    def __iter__(self):
+        for x in super().__iter__():
+            self.reads += 1
+            yield x
+
+
+class _CountedText(str):
+    """A claim, counting each character read."""
+
+    reads = 0
+
+    def __iter__(self):
+        for ch in super().__iter__():
+            self.reads += 1
+            yield ch
+
+
+_LONG_FILTER = "release/" + "a" * 2000 + "c"
+
+
+@pytest.mark.parametrize("text, chars", [("release/" + "a" * 2000 + "b", 2009), ("release/x" + "a" * 2000, 9),
+                                         ("hotfix/" + "a" * 2000, 1)])
+def test_a_long_branch_filter_reads_each_atom_a_few_times_per_character(text, chars):
+    """Per character, the walk reads only the atoms the claim can be at, and stops at the character that leaves the filter:
+    not every atom of the filter for every character of the claim (4 million reads for the first claim)."""
+    glob = branches._filter_regex(_LONG_FILTER)
+    glob._atoms = atoms = _Counted(glob._atoms)
+    claim = _CountedText(text)
+    assert not glob.match(claim)
+    assert claim.reads == chars
+    assert atoms.reads <= 3 * chars + 1
 
 
 def test_read_many_fetches_missing_blobs_of_a_partial_clone(toy, tmp_path):
