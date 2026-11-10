@@ -7,6 +7,7 @@ these tests run on Windows and as root alike."""
 
 from __future__ import annotations
 
+import errno
 import os
 
 import pytest
@@ -86,6 +87,31 @@ def test_a_probe_dir_that_cannot_take_a_file_is_removed_and_not_writable(tmp_pat
 
     monkeypatch.setattr(os, "open", refuse)
     assert can_write(tmp_path, make_dir=True) is False
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize("make_dir", [False, True])
+def test_a_directory_near_the_path_length_limit_is_writable(tmp_path, monkeypatch, make_dir):
+    """Linux: a directory path of 4075 bytes takes a child ``r`` but not a 29-character probe name; one made directory
+    adds a component to the path. A path over the limit is refused as ``ENAMETOOLONG``, as the kernel does."""
+    limit = len(os.fspath(tmp_path)) + 2 + (2 + 1 if make_dir else 0)
+    real_open, real_mkdir = os.open, os.mkdir
+
+    def too_long(path):
+        if len(os.fspath(path)) > limit:
+            raise OSError(errno.ENAMETOOLONG, "File name too long", os.fspath(path))
+
+    def guarded_open(path, *args, **kwargs):
+        too_long(path)
+        return real_open(path, *args, **kwargs)
+
+    def guarded_mkdir(path, *args, **kwargs):
+        too_long(path)
+        return real_mkdir(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "open", guarded_open)
+    monkeypatch.setattr(os, "mkdir", guarded_mkdir)
+    assert can_write(tmp_path, make_dir=make_dir) is True
     assert list(tmp_path.iterdir()) == []
 
 

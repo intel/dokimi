@@ -5,12 +5,40 @@
 
 from __future__ import annotations
 
+import errno
 import os
 import secrets
+from collections.abc import Iterator
 
 
-def _probe_name(directory: str) -> str:
-    return os.path.join(directory, f".write-probe-{secrets.token_hex(8)}")
+def _probe_names(directory: str) -> Iterator[str]:
+    """The long name, then short ones: a directory near the path-length limit takes a child ``r`` but not 29 more characters."""
+    yield os.path.join(directory, f".write-probe-{secrets.token_hex(8)}")
+    for width in (2, 1):
+        yield os.path.join(directory, secrets.token_hex(width)[:width])
+
+
+def _make(directory: str, *, as_dir: bool) -> str:
+    """Create a probe file (write-only, exclusive) or directory in ``directory``; the first name that fits, is free and is
+    allowed is the result."""
+    last: OSError | None = None
+    for name in _probe_names(directory):
+        try:
+            if as_dir:
+                os.mkdir(name)
+            else:
+                # write-only and not delete-on-close, as the writer opens it: mkstemp asks for read access, TemporaryFile for delete
+                os.close(os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600))
+        except FileExistsError as error:
+            last = error
+        except OSError as error:
+            if error.errno != errno.ENAMETOOLONG:
+                raise
+            last = error
+        else:
+            return name
+    assert last is not None
+    raise last
 
 
 def can_write(path: str | os.PathLike[str], *, make_dir: bool = False) -> bool:
@@ -23,14 +51,11 @@ def can_write(path: str | os.PathLike[str], *, make_dir: bool = False) -> bool:
     try:
         if os.path.isdir(path):
             where = os.fspath(path)
-            probe_dir = _probe_name(where) if make_dir else None
+            probe_dir = _make(where, as_dir=True) if make_dir else None
             if probe_dir is not None:
-                os.mkdir(probe_dir)
                 where = probe_dir
-            name = _probe_name(where)
             try:
-                # write-only and not delete-on-close, as the writer opens it: mkstemp asks for read access, TemporaryFile for delete
-                os.close(os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600))
+                name = _make(where, as_dir=False)
             except OSError:
                 if probe_dir is not None:
                     os.rmdir(probe_dir)
