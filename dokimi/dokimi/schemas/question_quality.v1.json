@@ -72,27 +72,21 @@
             "type": "string"
           },
           "difficulty": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "As the model replied; beginner, intermediate or advanced when it followed the prompt."
+            "type": "string",
+            "description": "As the model replied; beginner, intermediate or advanced when it followed the prompt. A reply that is not text, or a failed call, reads as intermediate with `error` set."
           },
           "trivial": {
             "type": "boolean"
           },
           "reason": {
-            "type": [
-              "string",
-              "null"
-            ]
+            "type": "string"
           },
           "error": {
             "type": [
               "string",
               "null"
             ],
-            "description": "Why the call failed; the question then reads intermediate, not trivial."
+            "description": "Why the call failed, or that the reply's difficulty was not text."
           }
         }
       }

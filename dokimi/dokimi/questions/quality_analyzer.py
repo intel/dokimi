@@ -60,6 +60,19 @@ class QualityReport:
     recommendations: List[str] = field(default_factory=list)
 
 
+def _classification(question: str, data: Dict[str, Any]) -> QuestionClassification:
+    """The model's reply as a classification; a difficulty that is not text reads as intermediate, ``error`` saying so."""
+    difficulty = data.get("difficulty", "intermediate")
+    reason = data.get("reason")
+    return QuestionClassification(
+        question=question,
+        difficulty=difficulty if isinstance(difficulty, str) else "intermediate",
+        trivial=bool(data.get("trivial", False)),
+        reason="" if reason is None else str(reason),
+        error=None if isinstance(difficulty, str) else f"the reply's difficulty is not text: {difficulty!r}",
+    )
+
+
 class QuestionQualityAnalyzer:
     """Classify questions by difficulty and triviality using an LLM judge."""
 
@@ -78,13 +91,7 @@ class QuestionQualityAnalyzer:
         try:
             raw = llm_call(prompt, model=self.model, provider=self.provider)
             from dokimi.llm import extract_json_object
-            data = extract_json_object(raw)
-            return QuestionClassification(
-                question=question,
-                difficulty=data.get("difficulty", "intermediate"),
-                trivial=bool(data.get("trivial", False)),
-                reason=data.get("reason", ""),
-            )
+            return _classification(question, extract_json_object(raw))
         except Exception as exc:
             logger.warning(f"Failed to classify question: {exc}")
             return QuestionClassification(

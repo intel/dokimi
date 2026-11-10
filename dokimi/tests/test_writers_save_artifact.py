@@ -205,8 +205,9 @@ def test_a_panel_report_the_schema_refuses_is_kept_as_rejected_and_exits_1(tmp_p
 
 # ── eval questions analyze ────────────────────────────────────────────────────
 
-def _analyze(monkeypatch, tmp_path: Path, out: Path, difficulty: object = "advanced") -> int:
-    reply = {"difficulty": difficulty, "trivial": False, "reason": "needs the docs"}
+def _analyze(monkeypatch, tmp_path: Path, out: Path, difficulty: object = "advanced",
+             reason: object = "needs the docs") -> int:
+    reply = {"difficulty": difficulty, "trivial": False, "reason": reason}
     monkeypatch.setattr(quality_analyzer, "llm_call", lambda *_a, **_k: json.dumps(reply))
     return _cli(monkeypatch, "eval", "questions", "analyze", "--questions", str(_questions(tmp_path)),
                 "--product", "lib", "--output", str(out))
@@ -223,14 +224,27 @@ def test_the_question_quality_report_is_a_question_quality_artifact(tmp_path, mo
         "reports/lib_question_quality.json": ("question_quality", RUN)}
 
 
-def test_a_quality_report_the_schema_refuses_is_kept_as_rejected_and_exits_1(tmp_path, monkeypatch, capsys):
-    """The analyzer takes the model's difficulty as it comes: a number is not a difficulty."""
+def test_a_difficulty_that_is_not_text_reads_as_intermediate_and_the_report_is_saved(tmp_path, monkeypatch):
+    """A model quirk is not a rejected save: the paid report is written, the reply's fault in `error`."""
     out = tmp_path / "quality.json"
-    assert _analyze(monkeypatch, tmp_path, out, difficulty=3) == 1
+    assert _analyze(monkeypatch, tmp_path, out, difficulty=3, reason=["needs", "docs"]) == 0
 
-    assert {q["difficulty"] for q in _rejected(out)["questions"]} == {3}
+    data = _saved(out, "question_quality")
+    assert data["difficulty_distribution"] == {"beginner": 0, "intermediate": 2, "advanced": 0}
+    assert {(q["difficulty"], q["reason"], q["error"]) for q in data["questions"]} == \
+        {("intermediate", "['needs', 'docs']", "the reply's difficulty is not text: 3")}
+
+
+def test_a_quality_report_the_schema_refuses_is_kept_as_rejected_and_exits_1(tmp_path, monkeypatch, capsys):
+    """A recommendation that is not text (a writer bug) is refused after the calls; the payload is kept."""
+    monkeypatch.setattr(quality_analyzer.QuestionQualityAnalyzer, "_build_recommendations",
+                        staticmethod(lambda *_a: [None]))
+    out = tmp_path / "quality.json"
+    assert _analyze(monkeypatch, tmp_path, out) == 1
+
+    assert _rejected(out)["recommendations"] == [None]
     err = capsys.readouterr().err
-    assert err.startswith("Error: question_quality artifact rejected: ") and "questions/0/difficulty" in err
+    assert err.startswith("Error: question_quality artifact rejected: ") and "recommendations/0" in err
 
 
 # ── report eval: the Q&A sidecar ──────────────────────────────────────────────
