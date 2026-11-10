@@ -90,3 +90,13 @@ def test_online_prints_one_summary_line_with_the_not_checked_counts_and_no_line_
     assert [line for line in out.splitlines() if "# online:" in line] == [
         "# online: 20 checked, 3 not checked (network error: 1, over the 20-URL cap: 2)"]
     assert "slow.example-tool.dev" not in out  # the timeout is counted, not reported as a warning per target
+
+
+def test_a_url_past_the_cap_that_another_skill_probes_is_checked_not_over_the_cap(tmp_path):
+    urls = [f"https://docs.example-tool.dev/p{i}" for i in range(21)]  # the cap keeps the first 20 of skill a
+    _skill(tmp_path / "skills", "a", name="a", description="Use for a.", body="".join(f"{u}\n" for u in urls))
+    _skill(tmp_path / "skills", "b", name="b", description="Use for b.", body=f"See {urls[20]}\n")
+
+    _, summary = _run(tmp_path, Web())
+    assert summary["checked"] == 21
+    assert summary["not_checked"]["over_cap"] == 0
