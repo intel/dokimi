@@ -649,6 +649,7 @@ def test_the_suffix_is_matched_in_any_case(tmp_path):
     b"2>&1 shopt -s extglob",
     b">&2 shopt -s extglob",
     b"X=1 command shopt -s extglob",
+    b"\\shopt -s extglob",
 ])
 @needs_bash
 def test_a_shopt_extglob_after_an_assignment_or_redirection_is_valid_under_real_bash(tmp_path, line, no_linters):
@@ -676,6 +677,7 @@ def test_a_redirection_to_a_file_named_shopt_does_not_turn_extglob_on_under_real
 @pytest.mark.parametrize("arith", [
     b"echo $((1 << n))",
     b"echo $(( (1 << n) + 1 ))",
+    b"echo $[1 << n]",
     b"x=$((1 << n))",
     b"(( x = 1 << n ))",
 ])
@@ -685,3 +687,15 @@ def test_a_shift_in_arithmetic_is_not_a_heredoc_when_a_line_is_its_operand_under
                                b"shopt -s extglob\ncase x in +(a|b)) : ;; esac\nn\n"})
 
     assert _reviews_by_name(tmp_path)["bundled"].findings == []
+
+
+@pytest.mark.parametrize("line", [
+    b"echo \\;shopt -s extglob",
+    b"echo a &>/dev/null shopt -s extglob",
+    b"echo a &>>/dev/null shopt -s extglob",
+])
+@needs_bash
+def test_an_escaped_or_ampersand_redirected_shopt_is_not_a_command_under_real_bash(tmp_path, line, no_linters):
+    _bundle(tmp_path, {"run.sh": b"#!/bin/bash\n" + line + b"\ncase x in +(a|b)) : ;; esac\n"})
+
+    assert _codes(_reviews_by_name(tmp_path)["bundled"]) == ["script-syntax"]

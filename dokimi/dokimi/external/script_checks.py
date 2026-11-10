@@ -39,7 +39,7 @@ SCRIPT_SUFFIXES = (*SHELL_SUFFIXES, ".py")
 BASH_FAMILY = frozenset({"bash", "sh", "dash", "ksh"})  # the shebang names bash -n can judge
 ENV_OPERAND_OPTIONS = frozenset({"-u", "--unset", "-C", "--chdir"})  # env options with an operand
 PARSE_SHOPTS = frozenset({"extglob"})  # bash -O options that change how a script parses; bash -n is given them
-SHOPT_EXTGLOB = re.compile(rb"(?m)(?:^|[;&|({!)])[ \t]*(?:(?:[A-Za-z_][A-Za-z0-9_]*=[^\s;&|]*|[0-9]*[<>]+&?[^\s;&|]+|[0-9]*[<>]+&?[ \t]+[^\s;&|]+)[ \t]+)*(?:(?:then|do|else|elif|if|while|until|builtin|command|exec|time|coproc)[ \t]+)*shopt[ \t]+(?:-[a-zA-Z]+[ \t]+)*-[a-zA-Z]*s[a-zA-Z]*(?:[ \t]+[^\s;&|]+)*?[ \t]+extglob\b")  # shopt -s ... extglob, on one line; NAME=value and a redirection (with its target) before it do not stop it
+SHOPT_EXTGLOB = re.compile(rb"(?m)(?:^|[;|({!)]|&(?!>))[ \t]*(?:(?:[A-Za-z_][A-Za-z0-9_]*=[^\s;&|]*|[0-9]*[<>]+&?[^\s;&|]+|[0-9]*[<>]+&?[ \t]+[^\s;&|]+)[ \t]+)*(?:(?:then|do|else|elif|if|while|until|builtin|command|exec|time|coproc)[ \t]+)*shopt[ \t]+(?:-[a-zA-Z]+[ \t]+)*-[a-zA-Z]*s[a-zA-Z]*(?:[ \t]+[^\s;&|]+)*?[ \t]+extglob\b")  # shopt -s ... extglob, on one line; NAME=value and a redirection (with its target) before it do not stop it; &> is no boundary
 WORD_START = (b" ", b"\t", b"\r", b"\n", b";", b"&", b"|", b"(")  # bytes after which a word starts: a # there is a comment, a (( a command
 QUOTED_TEXT = frozenset(bytes([b]) for b in b" \t\n;&|(){}<>!")  # bytes a quote makes text: no separator, operator or blank
 # Escapes env -S reads outside quotes (\_ separates words and \c ends the string: see _env_split).
@@ -342,7 +342,7 @@ def _text_step(data: bytes, i: int, prev: bytes) -> tuple[bytes, int, bytes]:
     if c == b"\\":  # a line continuation is joined, as bash joins it: nothing is kept
         if data[i + 1:i + 2] == b"\n":
             return b"", i + 2, prev
-        return data[i:i + 2], i + 2, b"x"
+        return _in_quotes(data[i + 1:i + 2]), i + 2, b"x"  # \; is the word ;shopt, and \shopt is shopt
     return c, i + 1, c
 
 
@@ -359,6 +359,9 @@ def _arith_end(data: bytes, i: int, prev: bytes) -> Optional[int]:
     width = _arith_open(data, i, prev)
     if not width:
         return None
+    if data[i + 1:i + 2] == b"[":  # $[ ... ], the old form: it closes at the first ]
+        end = data.find(b"]", i)
+        return len(data) if end < 0 else end + 1
     depth, j = 2, i + width
     while depth and j < len(data):
         if data[j:j + 1] == b"(":
@@ -374,6 +377,8 @@ def _arith_open(data: bytes, i: int, prev: bytes) -> int:
     before). Zero when there is none."""
     if data.startswith(b"$((", i):
         return 3
+    if data.startswith(b"$[", i):
+        return 2
     return 2 if data.startswith(b"((", i) and prev in WORD_START else 0
 
 
