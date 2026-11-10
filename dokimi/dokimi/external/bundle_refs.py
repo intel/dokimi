@@ -37,6 +37,7 @@ COUNTED_SUFFIXES = frozenset(
 SKIPPED_STEMS = frozenset({"license", "licence", "readme", "changelog", "notice", "copying", "authors", "contributing"})
 SKIPPED_NAMES = frozenset({"__init__.py", "conftest.py", "requirements.txt", "agents.md", "claude.md"})
 SKIPPED_DIRS = frozenset({"tests", "test", "__tests__", "evals"})
+TEST_STEM = re.compile(r"test_.*|.*_test|.*\.(?:test|spec)")  # test_build.py, build_test.py, build.test.js
 WALK_MAX_FILES = 2000  # a skill with more files is a checkout, not a bundle: the rest are not listed
 EXAMPLES_SHOWN = 3
 DOC_SUFFIXES = frozenset({".md", ".mdx", ".txt"})
@@ -63,6 +64,7 @@ def _bundled(skill_dir: Path) -> list[str]:
                 or suffix.lower() not in COUNTED_SUFFIXES
                 or stem.lower() in SKIPPED_STEMS
                 or name.lower() in SKIPPED_NAMES
+                or TEST_STEM.fullmatch(stem.lower())
                 or (here == skill_dir and name == "SKILL.md")
             ):
                 continue

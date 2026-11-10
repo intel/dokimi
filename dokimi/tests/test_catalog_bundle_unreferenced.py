@@ -87,6 +87,12 @@ def test_files_the_agent_is_not_meant_to_open_are_not_counted(tmp_path, rel):
     assert "bundle-file-unreferenced" not in _codes(review)
 
 
+@pytest.mark.parametrize("rel", ["scripts/test_build.py", "scripts/build_test.py", "scripts/build.test.js", "lib/build.spec.ts"])
+def test_test_files_outside_a_tests_folder_are_not_counted(tmp_path, rel):
+    review = _review(tmp_path, "# Body\n", [rel])
+    assert "bundle-file-unreferenced" not in _codes(review)
+
+
 def test_a_nested_skill_is_not_part_of_the_bundle(tmp_path):
     _review(tmp_path, "# Body\n", [])
     _skill(tmp_path / "skills" / "kit", "inner", name="inner", description="Use when nested.")
