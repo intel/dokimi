@@ -82,9 +82,13 @@ CORRECTIONS = ("holm", "bh")
 ZERO_VARIANCE_REL_TOL = 1e-9
 
 
-def _is_degenerate(mean: float, sd: float) -> bool:
-    """True when ``sd`` is zero or indistinguishable from it at this scale."""
-    return sd <= ZERO_VARIANCE_REL_TOL * max(1.0, abs(mean))
+#: Totals above this are scaled by a power of two before ``point_biserial`` sums them (a sum of 2**900 needs 2**124 of them to overflow).
+_HUGE_TOTAL = 2.0 ** 900
+
+
+def _is_degenerate(mean: float, sd: float, floor: float = 1.0) -> bool:
+    """True when ``sd`` is zero or indistinguishable from it at this scale (``floor``: the unit, in the values' own scale)."""
+    return sd <= ZERO_VARIANCE_REL_TOL * max(floor, abs(mean))
 
 
 def _rnd(x: float, ndigits: Optional[int]) -> float:
@@ -304,13 +308,18 @@ def _round_p(p: Optional[float]) -> Optional[float]:
     return float(f"{p:.3g}")
 
 
-def _mean(vals: Sequence[float]) -> float:
-    return sum(vals) / len(vals)
-
-
 def _pow2_scale(vals: Sequence[float]) -> float:
     """The power of two at or below ``max(abs(vals))``: dividing by it is exact and leaves each value under 2."""
     return math.ldexp(1.0, math.frexp(max(abs(v) for v in vals))[1] - 1)
+
+
+def _mean(vals: Sequence[float]) -> float:
+    mu = sum(vals) / len(vals)
+    if math.isfinite(mu) or not all(math.isfinite(v) for v in vals):
+        return mu
+    # The sum left the float range though every value is finite: average the scaled values instead.
+    scale = _pow2_scale(vals)
+    return scale * (sum(v / scale for v in vals) / len(vals))
 
 
 def _sample_sd(vals: Sequence[float]) -> float:
@@ -318,6 +327,10 @@ def _sample_sd(vals: Sequence[float]) -> float:
         return 0.0
     mu = _mean(vals)
     devs = [x - mu for x in vals]
+    if all(math.isfinite(v) for v in vals) and not all(math.isfinite(d) for d in devs):
+        # A deviation left the float range (values near +-1e308 of both signs): work on scaled values.
+        scale = _pow2_scale(vals)
+        return scale * _sample_sd([v / scale for v in vals])
     # Scaled so that squaring a deviation of 1e200 cannot overflow: https://github.com/intel/dokimi/issues/475
     scale = _pow2_scale(devs)
     return scale * math.sqrt(sum((d / scale) ** 2 for d in devs) / (len(vals) - 1))
@@ -461,9 +474,13 @@ def point_biserial(flags: Sequence[bool], totals: Sequence[float]) -> Dict[str, 
     if n_pass in (0, n):
         return {"r": None, "n": n, "n_pass": n_pass,
                 "reason": "no variance in the item: every respondent scored it the same"}
+    top = max(abs(t) for _, t in pairs)
+    # Totals this large would overflow a sum or a difference; r does not depend on the scale: https://github.com/intel/dokimi/issues/553
+    scale = _pow2_scale([top]) if math.isfinite(top) and top > _HUGE_TOTAL else 1.0
+    pairs = [(flag, t / scale) for flag, t in pairs]
     all_totals = [t for _, t in pairs]
     sd = _sample_sd(all_totals)
-    if _is_degenerate(_mean(all_totals), sd):
+    if _is_degenerate(_mean(all_totals), sd, floor=1.0 / scale):
         return {"r": None, "n": n, "n_pass": n_pass,
                 "reason": "no variance in the totals: nothing for the item to discriminate"}
     mean_pass = _mean([t for flag, t in pairs if flag])

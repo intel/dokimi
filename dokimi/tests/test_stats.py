@@ -731,6 +731,14 @@ def test_sample_sd_of_values_at_1e300_is_finite_and_scales_linearly():
     )
 
 
+def test_mean_and_sd_of_values_near_the_float_maximum_stay_finite():
+    """The sum and the deviations left the float range though every value is finite: https://github.com/intel/dokimi/issues/553."""
+    big = 1.7e308
+    assert stats._mean([big, big, big, -big]) == pytest.approx(big / 2, rel=1e-12)
+    # [1, -1, -1]: mean -1/3, deviations 4/3, -2/3, -2/3; the first deviation is 2.3e308 in plain floats.
+    assert stats._sample_sd([big, -big, -big]) == pytest.approx((4 / 3) ** 0.5 * big, rel=1e-12)
+
+
 def test_paired_test_at_1e200_matches_the_scaled_down_deltas():
     """The sd overflowed here: https://github.com/intel/dokimi/issues/475."""
     small = [1.0, -1.0, 3.0, 2.0, 1.0, -1.0]

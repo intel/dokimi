@@ -6,11 +6,13 @@
 from __future__ import annotations
 
 import json
+import math
+import sys
 
 import pytest
 
 from dokimi.cli import build_parser
-from dokimi.context.consistency import (apply_outcomes, check_contract, jsd,
+from dokimi.context.consistency import (_cv, apply_outcomes, check_contract, jsd,
                                         load_contract, load_outcomes, parse_contract, parse_run,
                                         pass_at, pass_hat, profile, run_from_events, seq_distance)
 from dokimi.context.shell import program as _program
@@ -521,3 +523,26 @@ def test_a_message_id_seen_twice_counts_its_largest_usage_once():
     lines = [{"type": "assistant", "message": {"id": "x", "usage": {"output_tokens": n}, "content": []}}
              for n in (9, 5)]
     assert parse_run("\n".join(json.dumps(x) for x in lines)).output_tokens == 9
+
+
+def test_cv_of_values_at_1e300_matches_the_closed_form():
+    """Squaring a deviation of 1e300 overflowed: https://github.com/intel/dokimi/issues/543."""
+    # [1, -1, 1, -1, 1, 1]: mean 1/3, sd = 4/sqrt(15), so cv = 12/sqrt(15).
+    assert _cv([1e300, -1e300, 1e300, -1e300, 1e300, 1e300]) == pytest.approx(12 / 15 ** 0.5, rel=1e-12)
+
+
+def test_cv_of_values_at_the_float_maximum_matches_the_closed_form():
+    big = sys.float_info.max
+    # [1, -1, -1]: mean -1/3, sd = sqrt(4/3), so cv = -2 sqrt(3); big - mean and sum(xs) overflow in plain floats.
+    assert _cv([big, -big, -big]) == pytest.approx(-2 * 3 ** 0.5, rel=1e-12)
+
+
+def test_cv_of_ordinary_values_is_the_plain_formula_bit_for_bit():
+    xs = [3.0, 5.0, 8.0, 13.0, 21.5]
+    mu = sum(xs) / len(xs)
+    assert _cv(xs) == math.sqrt(sum((x - mu) ** 2 for x in xs) / (len(xs) - 1)) / mu
+
+
+def test_cv_keeps_none_for_one_value_and_zero_for_a_zero_mean():
+    assert _cv([5.0]) is None
+    assert _cv([1e300, -1e300]) == 0.0
