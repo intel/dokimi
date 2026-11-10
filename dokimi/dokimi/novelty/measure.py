@@ -271,9 +271,15 @@ def _unpriced_answer_run(probe: Probe, arm: str, exc: SpendCapReached,
     if not reply.strip():
         raise exc
     stops.append(exc)
+    # A reply cut at the output ceiling is a prefix, not an answer: stored as the error text the
+    # priced path stores for a cut reply, so the prefix is not scored as one.
+    if exc.truncated:
+        response, confidence = "<error: reply cut at the output ceiling>", None
+    else:
+        response, confidence = reply, _parse_confidence(reply)
     run = ProbeRun(
         atom_id=probe.atom_id, probe_kind=probe.kind, arm=arm, question=probe.question,
-        response=reply, verdict=ERRORED, confidence=_parse_confidence(reply),
+        response=response, verdict=ERRORED, confidence=confidence,
     )
     ungraded.append(run)
     return run

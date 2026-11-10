@@ -252,6 +252,29 @@ def test_a_whitespace_only_unpriced_reply_is_no_answer():
     assert result.runs == [] and result.ungraded == 0 and result.not_run == 6
 
 
+def test_an_unpriced_reply_cut_at_the_ceiling_is_stored_as_an_error_not_as_an_answer():
+    from dokimi.metrics.usage import UsageRecord
+    from dokimi.novelty import measure
+    from dokimi.novelty.probes import Probe
+
+    def cut(prompt, system=None):
+        # no price, and the reply hit the output ceiling: a prefix, so no answer
+        usage = UsageRecord(completion_tokens=900, truncated=True)
+        return "The first half of an answer that", usage
+
+    answerer = LLMClient(model="a", role="answerer", cap=SpendCap(limit_usd=1.0), transport=cut)
+    probes = [Probe(atom_id=f"a{i}", kind="proposition", question=f"q{i}", expected="x")
+              for i in range(3)]
+    result = measure.run_measurement([], probes, "artifact", answerer=answerer,
+                                     judge=LLMClient(model="j", role="judge"),
+                                     arms=("no_artifact", "full"), concurrency=1)
+    # The priced path stores a cut reply as the error text, so the cut prefix is not an answer.
+    assert len(result.runs) == 1 and result.ungraded == 1
+    assert result.runs[0].response.startswith("<error: reply cut at the output ceiling")
+    assert "The first half" not in result.runs[0].response
+    assert result.not_run == 5
+
+
 def test_extraction_that_loses_its_first_call_to_the_cap_keeps_a_partial_result():
     from dokimi.novelty.atoms import ExtractionReport, extract_atoms
     from dokimi.novelty.spans import segment
