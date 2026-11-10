@@ -102,6 +102,13 @@ def _runs_json(groups: list[list[Artifact]]) -> list[dict]:
             for g in groups if g[0].run_id is not None]
 
 
+def _unreadable_status(unreadable: list) -> dict:
+    """``partial`` and its reason when entries under the root could not be read; the exit code stays 0."""
+    if not unreadable:
+        return {}
+    return {"status": "partial", "reason": f"{len(unreadable)} entries under the root could not be read"}
+
+
 def cmd_runs_list(args: argparse.Namespace) -> None:
     """One row per artifact under the runs root, the artifacts of one run together and the runs
     newest first, and the count of what was skipped."""
@@ -118,7 +125,7 @@ def cmd_runs_list(args: argparse.Namespace) -> None:
             "total": len(result.artifacts), "skipped": dict(sorted(result.skipped.items())),
             "unknown_versions": dict(sorted(result.unknown_versions.items())),
             "unreadable": [u.to_json() for u in result.unreadable],
-        }, summary={"shown": len(shown), "total": len(result.artifacts)})
+        }, summary={"shown": len(shown), "total": len(result.artifacts)}, **_unreadable_status(result.unreadable))
         return
     shown_root = plain(root.path.as_posix().rstrip("/") + "/")
     if not exists:
@@ -194,7 +201,7 @@ def _show_run(root: str, run: ShownRun, as_json: bool) -> None:
         cli_output.emit_leaf("runs show", {
             "root": root, "run_id": run.run_id,
             "artifacts": [a.to_json() for a in run.artifacts],
-            "unreadable": [u.to_json() for u in run.unreadable]})
+            "unreadable": [u.to_json() for u in run.unreadable]}, **_unreadable_status(run.unreadable))
     else:
         print("\n".join(_run_text(run)))
 

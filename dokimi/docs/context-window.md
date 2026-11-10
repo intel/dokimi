@@ -58,6 +58,7 @@ run.jsonl: prompt tokens per call: 21390 21673
 `--json` prints one `cli_output.v1` document (`kind` `trace inspect`) whose `data` is a list with one
 object per trace, also for a single trace. A trace that cannot be read is reported on stderr and left
 out; the others still print, the document has `status` `partial`, and the command exits 1.
+A trace that reads with skipped lines (each named on stderr) is also `partial`, and the exit code stays 0.
 
 ## Comparing context layers
 

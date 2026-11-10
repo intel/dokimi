@@ -80,6 +80,7 @@ skipped: 1 JSON with no leading schema_version, 1 JSON of an unknown schema_vers
   `kind`, `run_id`, `subject`, `model`, `generated_at` (the time the artifact
   records, `evaluated_at` for an eval; `null` when none), `path` (relative to
   the root) and `size_bytes`.
+  `status` is `partial` when `unreadable` is not empty, and the exit code stays 0.
 
 **The `run_id`** is the run envelope's
 ([#277](https://github.com/intel/dokimi/issues/277), see
@@ -127,7 +128,8 @@ the version it declares. An artifact that fails the check prints
 the kind holds, and `next to it` the first 20 entries of the artifact's
 directory. `--json` prints one `cli_output.v1` document (`kind` `runs show`) whose `data` holds the
 fields of a `runs list` row plus `root`, `schema`, `schema_valid`, `schema_errors`, `contents`,
-`siblings`, `siblings_total` and `siblings_error`.
+`siblings`, `siblings_total` and `siblings_error`. `runs show RUN_ID --json` has `status` `partial`
+when `unreadable` is not empty.
 
 ### `runs show RUN_ID`
 

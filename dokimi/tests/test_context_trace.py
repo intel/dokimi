@@ -153,7 +153,9 @@ def test_cli_json_single_trace(tmp_path, capsys):
     a = tmp_path / "a.jsonl"
     a.write_text("garbage\n" + RUN, encoding="utf-8")
     got = _run_cli(["trace", "inspect", str(a), "--json"], capsys)
-    (data,) = json.loads(got.out)["data"]  # a list for one trace too
+    doc = json.loads(got.out)
+    (data,) = doc["data"]  # a list for one trace too
+    assert doc["status"] == "partial" and "skipped" in doc["reason"]  # the garbage line: part of the trace was not read
     assert data["trace"] == str(a) and data["peak_prompt_tokens"] == 20815
     assert "per_call" not in data and "compaction_events" not in data
     assert "line 1: not JSON" in got.err
@@ -175,6 +177,13 @@ def test_cli_json_with_no_trace_read_is_failed_with_no_data(tmp_path, capsys):
     doc = json.loads(got.out)
     assert exc.value.code == 1
     assert doc["kind"] == "trace inspect" and doc["status"] == "failed" and doc["data"] == []
+
+
+def test_cli_json_of_a_trace_with_no_skipped_line_is_complete(tmp_path, capsys):
+    a = tmp_path / "a.jsonl"
+    a.write_text(RUN, encoding="utf-8")
+    doc = json.loads(_run_cli(["trace", "inspect", str(a), "--json"], capsys).out)
+    assert doc["status"] == "complete" and doc["reason"] is None
 
 
 @pytest.mark.parametrize("sep", [chr(0x2028), chr(0x2029), chr(0x85)])

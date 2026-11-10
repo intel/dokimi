@@ -21,7 +21,7 @@ def cmd_context_trace(args: argparse.Namespace) -> None:
     from dokimi import cli_output
     from dokimi.context import TraceError, read_trace
 
-    rows, failed = [], False
+    rows, failed, skipped = [], False, False
     for name in args.traces:
         try:
             trace = read_trace(Path(name))
@@ -31,6 +31,7 @@ def cmd_context_trace(args: argparse.Namespace) -> None:
             continue
         for problem in trace.errors:
             print(f"warning: {name}: {problem}", file=sys.stderr)
+            skipped = True
         row = {"trace": name, **trace.summary(args.window)}
         if args.calls:
             row["per_call"] = trace.calls
@@ -38,9 +39,10 @@ def cmd_context_trace(args: argparse.Namespace) -> None:
         rows.append(row)
 
     if args.json:  # always a list, one entry per trace that read
-        status = "failed" if not rows else "partial" if failed else "complete"  # nothing read: failed
-        cli_output.emit_leaf("trace inspect", rows, status=status,
-                             reason="one or more traces could not be read (see stderr)" if failed else None)
+        status = "failed" if not rows else "partial" if failed or skipped else "complete"  # nothing read: failed
+        reason = ("one or more traces could not be read (see stderr)" if failed
+                  else "lines of a trace were skipped (see stderr)" if skipped else None)
+        cli_output.emit_leaf("trace inspect", rows, status=status, reason=reason)
     elif rows:
         _print_text(rows, args)
     if failed:
@@ -188,8 +190,10 @@ def cmd_context_prefilter(args: argparse.Namespace) -> None:
     if not report["claims"]:
         print(f"warning: no rules found in {guidance}", file=sys.stderr)
     if args.json:
-        cli_output.emit_leaf("trace prefilter", report, status="partial" if failed else "complete",
-                             reason="one or more sessions could not be read (see stderr)" if failed else None)
+        skipped = any(s.errors for s in sessions)
+        reason = ("one or more sessions could not be read (see stderr)" if failed
+                  else "records of a session were skipped (see stderr)" if skipped else None)
+        cli_output.emit_leaf("trace prefilter", report, status="partial" if reason else "complete", reason=reason)
     else:
         print(render_table(report))
     if failed:

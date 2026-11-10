@@ -306,6 +306,19 @@ def test_the_command_json_is_partial_when_one_session_cannot_be_read(tmp_path, c
     assert doc["data"]["sessions"] == 1  # the readable session is still reported
 
 
+def test_the_command_json_is_partial_when_a_session_has_a_skipped_line(tmp_path, capsys):
+    guide = tmp_path / "AGENTS.md"
+    guide.write_text(GUIDE, encoding="utf-8")
+    log = _write(tmp_path / "s.jsonl", [_prompt("push the branch now")])
+    log.write_text(log.read_text(encoding="utf-8") + "not json" + chr(10), encoding="utf-8")
+    args = build_parser().parse_args(["trace", "prefilter", str(guide), str(log), "--min-sessions", "1", "--json"])
+    args.func(args)  # a skipped line leaves the exit code at 0
+    got = capsys.readouterr()
+    doc = json.loads(got.out)
+    assert "not JSON" in got.err
+    assert doc["status"] == "partial" and "skipped" in doc["reason"] and doc["data"]["sessions"] == 1
+
+
 def test_the_command_json_is_complete_when_every_session_reads(tmp_path, capsys):
     guide = tmp_path / "AGENTS.md"
     guide.write_text(GUIDE, encoding="utf-8")

@@ -458,7 +458,7 @@ def test_json_of_a_run_has_its_artifacts_as_runs_list_rows(monkeypatch, capsys, 
     doc = json.loads(_show(monkeypatch, capsys, "nightly-2", "--json").out)
     data = doc["data"]
 
-    assert doc["kind"] == "runs show"
+    assert doc["kind"] == "runs show" and doc["status"] == "complete"
     assert (data["root"], data["run_id"], data["unreadable"]) == ("results", "nightly-2", [])
     (row,) = data["artifacts"]
     assert (row["path"], row["kind"], row["run_id"]) == ("e2.json", "eval", "nightly-2")
@@ -591,7 +591,9 @@ def test_a_run_names_the_first_unreadable_file_escaped_and_json_lists_them_all(
     assert lines[2].startswith("unreadable: 2 entries under the root, which may belong to it "
                                "(first: a\\nbad.json: not valid JSON")
 
-    data = json.loads(_show(monkeypatch, capsys, "nightly-2", "--json").out)["data"]
+    doc = json.loads(_show(monkeypatch, capsys, "nightly-2", "--json").out)
+    data = doc["data"]
+    assert doc["status"] == "partial" and doc["reason"] == "2 entries under the root could not be read"
     assert [u["path"] for u in data["unreadable"]] == ["a\nbad.json", "b-bad.json"]
     assert data["unreadable"][0]["schema_version"] == "eval.v1"
 
