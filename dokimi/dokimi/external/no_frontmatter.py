@@ -17,6 +17,8 @@ import re
 
 import yaml
 
+from dokimi.external.skill_markdown import outside_fences
+
 NO_FRONTMATTER = "not-a-skill-no-frontmatter"
 NAME_MAX = 64
 DESCRIPTION_HINT_MAX = 300
@@ -29,15 +31,10 @@ def no_frontmatter_message(lines: list[str], dir_name: str) -> str:
     none, or there is no H1), and the description is the first paragraph after it, cut at a word
     near 300 characters. The block is a start: the description still needs a "when" clause.
     """
-    title, in_fence = "", False
+    title = ""
     paragraph: list[str] = []
-    for line in lines:
+    for line in outside_fences("\n".join(lines)):  # CommonMark fences: a shorter or other marker does not close one
         stripped = line.strip().lstrip("\ufeff")
-        if stripped.startswith(("```", "~~~")):
-            in_fence = not in_fence
-            continue
-        if in_fence:
-            continue
         if not title and stripped.startswith("# "):
             title = stripped[2:].strip()
             continue

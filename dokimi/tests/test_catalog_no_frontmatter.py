@@ -60,6 +60,8 @@ def test_plain_markdown_gets_a_frontmatter_hint(tmp_path):
         (["﻿# Tool: run it!", "```", "not this", "```", "Real text."], "tool-run-it", "Real text."),
         (["Intro line with no heading."], "dir-name", "Intro line with no heading."),
         (["# 2048", "", "Play it."], "2048", "Play it."),  # quoted, or YAML reads a number
+        (["````", "```", "# Example", "Example prose.", "````", "# Real Title", "Real text."],
+         "real-title", "Real text."),  # a shorter fence run does not close a four-backtick one
         (["# Q", "> Master it."], "q", "Master it."),
         (["# Yes"], "yes", "What yes does. Use when ..."),
         (["# T", "", "| a | b |", "", "Text: with \"quotes\""], "t", "Text: with \"quotes\""),
