@@ -845,6 +845,14 @@ def test_an_internal_or_single_label_host_is_not_requested():
     assert online_checks.extract_urls(body) == []
 
 
+def test_an_ipv4_shorthand_or_a_trailing_dot_host_is_internal_too():
+    # the resolver reads "127.1", "0177.0.0.1" and "0x7f.0.0.1" as IPv4 (inet_aton); "localhost." is "localhost"
+    body = ("http://127.1/admin http://0177.0.0.1/ http://0x7f.0.0.1/ http://10.1/ "
+            "http://169.254.43518/latest/meta-data/ http://localhost./ http://metadata.google.internal./v1/\n")
+    assert online_checks.extract_urls(body) == []
+    assert online_checks._internal_url("http://x.localhost/")
+
+
 def test_a_redirect_into_a_private_address_is_not_requested():
     requested: list[str] = []
 

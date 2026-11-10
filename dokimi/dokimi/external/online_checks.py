@@ -407,13 +407,16 @@ def _internal_url(url: str) -> bool:
     reserved or multicast address, a name with no dot (``my-api:8000``), or a ``.local`` or ``.internal`` name. An
     untrusted catalog must not make ``--online`` send requests there, nor a redirect of a public link."""
     try:
-        host = (urlsplit(url).hostname or "").lower()
+        host = (urlsplit(url).hostname or "").lower().rstrip(".")  # "localhost." is "localhost"
     except ValueError:
         return True
     try:
         address = ipaddress.ip_address(host)
     except ValueError:
-        return "." not in host or host.endswith((".local", ".internal"))
+        try:
+            address = ipaddress.IPv4Address(socket.inet_aton(host))  # "127.1", "0177.0.0.1": the resolver's forms too
+        except (OSError, ValueError):
+            return "." not in host or host.endswith((".local", ".internal", ".localhost"))
     return (address.is_loopback or address.is_private or address.is_link_local or address.is_reserved
             or address.is_multicast or address.is_unspecified)
 
