@@ -59,7 +59,7 @@ def _group_end_checked(value: str, start: int, quotes: bool) -> tuple[Optional[i
     return _group_end(value, start, quotes=False), False
 
 
-def _tool_names(value: str) -> list[str]:
+def tool_names(value: str) -> list[str]:
     """The tool name of each entry of one ``allowed-tools`` string (see :func:`_tool_entries`)."""
     return [name for name, _ in _tool_entries(value)]
 

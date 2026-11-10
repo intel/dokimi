@@ -87,7 +87,7 @@ from dokimi.utils import describe_yaml_error, parse_frontmatter_strict
 
 from .catalog import SkillCatalogEntry, _within
 from .command_checks import command_findings
-from .allowed_tools import RISKY_COMMAND_CODES, _tool_names, grants_unrestricted_bash, unrestricted_bash_message
+from .allowed_tools import RISKY_COMMAND_CODES, tool_names, grants_unrestricted_bash, unrestricted_bash_message
 from .content_checks import content_findings
 from .listing import in_field
 from .paths import _exists, _in_checkout, _inside, _resolved
@@ -243,7 +243,7 @@ def _unknown_tools(allowed: object) -> list[str]:
     if allowed is None:
         return []
     items = allowed if isinstance(allowed, list) else [allowed]
-    names = [name for item in items if isinstance(item, str) for name in _tool_names(item)]
+    names = [name for item in items if isinstance(item, str) for name in tool_names(item)]
     return [name for name in names if not name.startswith("mcp__") and name not in CLAUDE_TOOLS]
 
 
