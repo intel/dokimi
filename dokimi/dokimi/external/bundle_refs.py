@@ -47,6 +47,7 @@ DOCS_READ_MAX = 50
 # A path prefix that names the skill root or the current folder: ``./scripts/``, ``../scripts/``, ``${CLAUDE_SKILL_DIR}/scripts/``.
 # The destination of an inline folder link (``[x](scripts/)``): its folder is in ``links``, so the text is no mention.
 _FOLDER_DEST = re.compile(r"\]\([^)\n]*/\)")
+SKILL_ROOT_LINK = "${claude_skill_dir}/"  # lowercased: a link through it names a file from the skill root
 _PATH_PREFIX = re.compile(r"(?<![\w.-])(?:\$\{claude_skill_dir\}/|\.\.?/)")
 
 
@@ -91,7 +92,12 @@ def _whole(name: str) -> str:
 
 
 def _target(folder: str, link: str) -> str:
-    """The lowercased path, from the skill root, that a link in a document in ``folder`` names."""
+    """The lowercased path, from the skill root, that a link in a document in ``folder`` names.
+
+    A link through ``${CLAUDE_SKILL_DIR}/`` is from the skill root whatever the document's folder.
+    """
+    if link.lower().startswith(SKILL_ROOT_LINK):
+        link, folder = link[len(SKILL_ROOT_LINK):], "."
     return posixpath.normpath(posixpath.join(folder, link)).lower()
 
 

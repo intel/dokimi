@@ -443,8 +443,26 @@ def _counterpart(other: tuple[SkillCatalogEntry, Skill, SkillReview], entry: Ski
 
 
 def _link_files(markdown: str) -> list[Optional[str]]:
-    """The file each Markdown link of ``markdown`` names (see :func:`_file_ref`), None for a link that names none."""
-    return [_file_ref(raw, link=True) for raw in link_pieces(outside_fences(markdown))[0]]
+    """The file each Markdown link of ``markdown`` names (see :func:`_file_ref`), None for a link that names none.
+
+    A link through ``${CLAUDE_SKILL_DIR}/`` keeps that prefix: it is from the skill root, not from the
+    folder of the document it is in (:func:`bundle_refs._target` resolves it).
+    """
+    files: list[Optional[str]] = []
+    for raw in link_pieces(outside_fences(markdown))[0]:
+        ref = _file_ref(raw, link=True)
+        if ref is not None and _through_skill_dir(raw):
+            ref = SKILL_DIR_VAR + ref
+        files.append(ref)
+    return files
+
+
+def _through_skill_dir(raw: str) -> bool:
+    """Whether a link destination starts with ``${CLAUDE_SKILL_DIR}/`` (decoded as :func:`_file_ref` decodes it)."""
+    text = raw.strip()
+    if text.startswith("<") and text.endswith(">"):
+        text = text[1:-1].strip()
+    return unquote(_ESCAPE_RE.sub(r"\1", text)).startswith(SKILL_DIR_VAR)
 
 
 def _file_ref(raw: str, link: bool = False) -> Optional[str]:

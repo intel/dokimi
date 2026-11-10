@@ -234,3 +234,12 @@ def test_a_nested_folder_link_does_not_name_a_root_folder_of_the_same_name(tmp_p
     )
     [message] = _unreferenced(review)
     assert message.startswith("1 of 3") and "scripts/other.py" in message
+
+
+def test_a_skill_dir_link_in_a_nested_document_resolves_from_the_skill_root(tmp_path):
+    review = _review_with_texts(
+        tmp_path,
+        "Read [guide](references/guide.md).\n",
+        {"references/guide.md": "[run](${CLAUDE_SKILL_DIR}/scripts/my%20tool.py)\n", "scripts/my tool.py": "x\n"},
+    )
+    assert _unreferenced(review) == []
