@@ -824,6 +824,15 @@ def test_placeholder_owner_and_repo_in_a_url_are_not_checked():
     assert online_checks.extract_urls(body) == []
 
 
+def test_a_package_from_another_index_or_registry_is_not_looked_up_on_the_public_one():
+    body = ("pip install acme-tool --index-url https://pypi.acme.corp/simple\n"
+            "pip install acme-tool --extra-index-url=https://pypi.acme.corp/simple\n"
+            "pip install -i https://pypi.acme.corp/simple acme-tool\n"
+            "pip install --no-index --find-links ./wheels acme-tool\n"
+            "npm install --registry https://npm.acme.corp @acme/tool\n")
+    assert online_checks.extract_packages(body) == []
+
+
 def _scan_capture(root, capsys, *extra: str) -> tuple[int, dict]:
     parser = build_parser()
     args = parser.parse_args(["catalog", "check", "--root", str(root), "--kind", "skills",

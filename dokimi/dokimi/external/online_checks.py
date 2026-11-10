@@ -304,6 +304,17 @@ def _list_end(tokens: list[str], start: int, end: int) -> int:
     return end
 
 
+_PIP_OTHER_INDEX = {"-i", "--index-url", "--extra-index-url", "--no-index", "-f", "--find-links"}
+_NPM_OTHER_REGISTRY = {"--registry"}
+
+
+def _from_another_index(words: list[str], kind: str) -> bool:
+    """Whether a pip command names an index other than PyPI, or an npm one a registry other than npm's: the names of
+    that command are not on the public registry, so they are not looked up there."""
+    options = _PIP_OTHER_INDEX if kind == "pip" else _NPM_OTHER_REGISTRY
+    return any(tok.split("=", 1)[0] in options for tok in words)
+
+
 def _command_packages(tokens: list[str]) -> Iterator[tuple[str, str]]:
     starts = [(i, kind) for i in range(len(tokens)) if (kind := _command_kind(tokens, i))]
     for k, (i, kind) in enumerate(starts):
@@ -312,6 +323,8 @@ def _command_packages(tokens: list[str]) -> Iterator[tuple[str, str]]:
             eco, names = "npm", _npx_names(tokens[i + 1:_list_end(tokens, i + 1, end)])
         else:
             words = tokens[i + 2:_list_end(tokens, i + 2, end)]
+            if _from_another_index(words, kind):
+                continue
             if kind == "pip":
                 eco, names = "pypi", _pip_names(words)
             else:
