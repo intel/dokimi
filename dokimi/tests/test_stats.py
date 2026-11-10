@@ -4,6 +4,7 @@
 """Tests for the paired-statistics helpers used by the N-arm comparison."""
 
 import itertools
+import math
 import pytest
 
 from dokimi.eval import stats
@@ -753,6 +754,16 @@ def test_mean_ci_raises_when_the_interval_leaves_the_float_range():
         stats.mean_ci([9e307, -9e307])
     ci = stats.mean_ci([1e300, -1e300, 1e300], ndigits=None)
     assert ci["lo"] < 0 < ci["hi"] and ci["hi"] < float("inf")
+
+
+def test_paired_test_raises_when_the_deltas_leave_the_float_range():
+    """Sign-flip sums that overflow would read as a measured zero effect: an error instead."""
+    pytest.importorskip("scipy")
+    for big in (9e307, 1.7e308):
+        with pytest.raises(OverflowError):
+            stats.paired_test([big, -big] * 3, [0.0] * 6, rounded=False)
+    res = stats.paired_test([1e300, -1e300] * 3, [0.0] * 6, rounded=False)
+    assert res is not None and math.isfinite(res["delta_std"])
 
 
 def test_importing_the_cli_does_not_load_scipy():

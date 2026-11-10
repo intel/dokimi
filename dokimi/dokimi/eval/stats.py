@@ -521,6 +521,9 @@ def _describe_deltas(
     d_sd = _sample_sd(d)
     cohens_d = _cohens_d(d_mean, d_sd)
     if all(math.isfinite(x) for x in d):
+        if not (math.isfinite(d_sd) and math.isfinite(sum(abs(x) for x in d))):
+            # The sign-flip sums would overflow and read as a measured zero effect.
+            raise OverflowError("deltas too large: their spread or sum leaves the float range")
         p = sign_flip_p(d, seed=seed, exact=True)
         lo, hi = sign_flip_interval(d, p, seed=seed, rounded=False)
     else:  # a NaN delta is no evidence either way: no p, no verdict, open ends
