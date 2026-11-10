@@ -22,7 +22,7 @@ import shlex
 import regex
 
 from dokimi.eval.reference_checks import (LONG_FLAG, REGEX_TIMEOUT, _negated_before, grade_check,
-                                          scope_options)
+                                          identifier_names, scope_options)
 from dokimi.process import Env, run
 from dokimi.utils import InputError
 
@@ -218,9 +218,8 @@ def verify_keys(atoms: list[dict]) -> dict[str, int]:
             result = grade_check(check, "", key, None)
             if result.passed is None:
                 unfinished = True  # a check that did not finish says nothing of the key
-            elif result.passed is False:
-                missing += [n for n in result.detail.removeprefix("not in source: ").split(", ")
-                            if n not in missing]
+            elif result.passed is False:  # every unknown name, not the ten the detail shows
+                missing += [n for n in identifier_names(check, key)[0] or [] if n not in missing]
             elif _key_names(check, key):
                 named = True  # an option the key names on a checked line, and the help lists it
         status = ("not_found" if missing

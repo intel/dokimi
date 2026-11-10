@@ -460,6 +460,14 @@ def test_novelty_ground_keeps_the_atoms_file_when_the_write_fails(tmp_path, monk
     assert atoms_path.read_bytes() == before
 
 
+def test_verify_keys_reports_every_unknown_option_not_only_the_first_ten():
+    names = [f"--x{i}" for i in range(12)]
+    atoms = [{"statement": "x", "answer": "Run perf report " + " ".join(names),
+              "meta": {"grading": {"checks": [_veto()]}}}]
+    assert verify_keys(atoms) == {"verified": 0, "not_found": 1, "unverifiable": 0}
+    assert atoms[0]["meta"]["key_status"]["missing"] == names
+
+
 @pytest.mark.parametrize("judge, checks, final", [
     ("correct_complete", [{"role": "sufficient", "passed": False}], ("wrong_other", "check")),
     ("correct_complete", [{"role": "sufficient", "passed": True},

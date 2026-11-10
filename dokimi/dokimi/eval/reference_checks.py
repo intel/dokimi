@@ -345,6 +345,20 @@ def _identifiers(check: Mapping[str, Any], answer: str) -> tuple[Optional[bool],
     the tool's own ``--help`` does not list is wrong whatever a judge reads into it. An answer
     that names none passes: the check only rules names out, it never asks for one.
     """
+    unknown, scoped = identifier_names(check, answer)
+    if unknown is None:
+        return None, f"not scored: identifiers ran past {REGEX_TIMEOUT:g}s"
+    if unknown:  # the detail names ten at most; identifier_names has them all
+        return False, "not in source: " + ", ".join(unknown[:10])
+    return True, "" if scoped else "nothing to check"
+
+
+def identifier_names(check: Mapping[str, Any], answer: str) -> tuple[Optional[list[str]], bool]:
+    """Every identifier the answer names that ``known`` does not list, in order, and whether any was read.
+
+    ``None`` when a scan ran past its time bound (the check is then not scored). The second value
+    is False when the answer names no scope to read (a ``within`` that matches nothing).
+    """
     known = {str(k) for k in check.get("known") or ()}
     pattern = str(check.get("pattern") or LONG_FLAG)
     within = check.get("within")
@@ -366,12 +380,10 @@ def _identifiers(check: Mapping[str, Any], answer: str) -> tuple[Optional[bool],
                 if name not in unknown:
                     unknown.append(name)
     except TimeoutError:
-        return None, f"not scored: identifiers ran past {REGEX_TIMEOUT:g}s"
+        return None, False
     except regex.error as exc:
         raise CheckError(f"identifiers pattern does not compile: {exc}") from exc
-    if unknown:
-        return False, "not in source: " + ", ".join(unknown[:10])
-    return True, "" if scopes else "nothing to check"
+    return unknown, bool(scopes)
 
 
 _NEGATED = re.compile(r"(?i)\bnot\b|n't\b|\bnever\b|\bno\b|\bavoid\w*|\bwithout\b|\binstead of\b|\brather than\b")
