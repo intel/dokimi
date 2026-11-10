@@ -209,6 +209,14 @@ def test_section_reads_one_list_and_refuses_a_file_without_it():
     assert records.read([_answer("q1")], section="answers").records[0].answer(CONTEXT).text
 
 
+def test_an_optional_section_is_no_records_when_absent_and_an_error_when_not_a_list():
+    run = records.read(_evals(_eval("q1", 80, 60)), section="answers", required=False)
+    assert (len(run), run.meta["judge_model"]) == (0, "j")
+    assert [r.key for r in records.read(_arms_run(), section="evaluations", required=False)] == ["q1", "q2"]
+    with pytest.raises(RecordError, match="'answers' must be a list, got NoneType"):
+        records.read({"answers": None}, section="answers", required=False)
+
+
 # ── errors ──────────────────────────────────────────────────────────────
 
 
