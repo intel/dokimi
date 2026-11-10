@@ -120,7 +120,7 @@ def _named(rel: str, text: str, links: set[str]) -> bool:
         return True
     # A folder named alone (``references/``), not as the start of another file's path (``scripts/a.py``).
     return any(
-        re.search(r"(?<![\w./-])" + re.escape("/".join(parts[:i])) + r"/(?![\w.-])", text)
+        re.search(r"(?<![\w./-])" + re.escape("/".join(parts[:i])) + r"/(?![\w-]|\.\w)", text)
         for i in range(1, len(parts))
     )
 

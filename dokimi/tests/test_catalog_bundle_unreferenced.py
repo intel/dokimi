@@ -196,6 +196,7 @@ def test_a_name_followed_by_a_dotted_suffix_does_not_name_the_shorter_file(tmp_p
         "Helpers in ${CLAUDE_SKILL_DIR}/scripts/ do the work.\n",
         "See [helpers](./scripts/).\n",
         "See [helpers](${CLAUDE_SKILL_DIR}/scripts/).\n",
+        "The helpers live in scripts/.\n",
     ],
 )
 def test_a_folder_written_from_the_skill_root_names_its_files(tmp_path, body):
