@@ -795,3 +795,19 @@ def test_the_syntax_message_does_not_name_the_bash_that_ran_it(tmp_path):
 
     assert findings == [("warn", "script-syntax",
                          "run.sh does not parse as shell: line 2: syntax error near unexpected token `then'")]
+
+
+@pytest.mark.parametrize("line", [
+    "for i in 1; do shopt -s extglob; done",
+    "if false; then :; else shopt -s extglob; fi",
+    "if false; then :; elif shopt -s extglob; then :; fi",
+    "while shopt -s extglob; do break; done",
+    "until shopt -s extglob; do break; done",
+    "time shopt -s extglob",
+])
+def test_a_shopt_extglob_after_a_compound_keyword_is_given_to_bash_n(tmp_path, line):
+    skill = _bundle(tmp_path, {"run.sh": f"#!/bin/bash\n{line}\ncase x in +(a)) : ;; esac\n".encode()})
+    runner = process.FakeRunner(lambda call: process.reply(returncode=0))
+
+    assert script_findings(skill, which=_tools("bash"), runner=runner) == []
+    assert runner.calls[0].argv == ("/usr/bin/bash", "-O", "extglob", "-n")
