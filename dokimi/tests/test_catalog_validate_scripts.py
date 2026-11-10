@@ -728,3 +728,19 @@ def test_the_shopt_check_reads_each_command_as_bash_does_under_real_bash(tmp_pat
     _bundle(tmp_path, {"run.sh": b"#!/bin/bash\n" + body + b"\ncase x in +(a|b)) : ;; esac\n"})
 
     assert _codes(_reviews_by_name(tmp_path)["bundled"]) == codes
+
+
+@pytest.mark.parametrize("shebang", [
+    b"#!/usr/bin/env -S bash -euo pipefail",
+    b"#!/bin/bash -euo pipefail",
+    b"#!/bin/sh -",
+    b"#!/bin/bash --",
+])
+def test_a_shebang_flag_word_or_end_of_options_that_changes_no_parse_keeps_the_check(tmp_path, shebang):
+    skill = _bundle(tmp_path, {"run.sh": shebang + b"\nif true; then\n"})
+    runner = process.FakeRunner(lambda call: process.reply(stderr="bash: line 3: syntax error\n", returncode=2))
+
+    findings = script_findings(skill, which=_tools("bash"), runner=runner)
+
+    assert [code for _, code, _ in findings] == ["script-syntax"]
+    assert runner.calls[0].argv == ("/usr/bin/bash", "-n")

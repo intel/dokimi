@@ -540,6 +540,8 @@ def _shell_options(data: bytes) -> Optional[list[str]]:
     i = 0
     while i < len(args):
         word, operand = args[i], args[i + 1] if i + 1 < len(args) else ""
+        if word in ("-", "--"):
+            break  # the end of the options: what follows is the script's own arguments
         if word == "-O" and operand in PARSE_SHOPTS:
             options += ["-O", operand]
             i += 2
@@ -547,6 +549,9 @@ def _shell_options(data: bytes) -> Optional[list[str]]:
             i += 2
         elif word.startswith("-") and len(word) > 1 and set(word[1:]) <= PARSE_NEUTRAL_FLAGS:
             i += 1
+        elif (len(word) > 2 and word.startswith("-") and word.endswith("o") and set(word[1:-1]) <= PARSE_NEUTRAL_FLAGS
+              and operand in PARSE_NEUTRAL_OPTIONS):
+            i += 2  # a flag word ending in o takes the next word as its -o option, as -euo pipefail does
         else:
             return None
     if _shopt_extglob(_unquoted_text(data)) and "extglob" not in options:
