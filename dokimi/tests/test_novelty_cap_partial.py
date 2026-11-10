@@ -92,9 +92,8 @@ def test_the_atoms_command_saves_a_partial_file_and_exits_without_atoms_json(tmp
 
 def test_the_atoms_command_warns_about_an_empty_reply_the_cap_did_not_cause(tmp_path, monkeypatch,
                                                                              capsys):
-    # The first call comes back empty and spends past the cap, so the second is never made. The
-    # empty reply is a cause the user can act on: the warning names it, and does not count the
-    # spans the cap left unread (the exit message names those).
+    # The first call is empty and spends past the cap: the warning names the empty reply, and
+    # not the spans the cap left unread, which the exit names.
     artifact = tmp_path / "rows.md"
     artifact.write_text(ROWS, encoding="utf-8")
 
