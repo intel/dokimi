@@ -367,6 +367,7 @@ judge:
   same-family flag on pairs.
 
 - The share of rows that lack unanimity, per arm.
+
 - A **judge-sensitive** flag on each headline delta, raised inline (not only post hoc) when
   either the sign differs between judges or the range across judges exceeds the noise floor.
   It reuses the `JUDGE-DEPENDENT` label, and `--strict` makes it an error as it does today.
