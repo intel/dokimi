@@ -507,8 +507,9 @@ These GitHub Actions workflows run on PRs (see `.github/workflows/`):
 `ci.yml`, `agent-quality.yml` and `docs.yml`, described below. `ci.yml`'s
 `static` job runs `python -m dokimi.schema_compat`, which fails an in-place edit that narrows
 an existing schema version, unless a reviewer applies the `schema-break-ok`
-label (it exits 1 for a narrowing, which the label overrides, and 2 when git cannot read
-the base, which fails the step whatever the label). `conda-forge.yml` runs only when a PR or a push to `main` changes
+label (it exits 1 for a narrowing, which the label overrides only when the run printed a
+`BREAKING` finding, and 2 when git cannot read the base; any other exit fails the step
+whatever the label). `conda-forge.yml` runs only when a PR or a push to `main` changes
 `pyproject.toml`, one of the two scripts it runs or the workflow file (also weekly, and by
 hand, `workflow_dispatch`): it solves the runtime dependencies from conda-forge
 alone (`scripts/conda_forge_specs.py` turns them into match specs) on Python

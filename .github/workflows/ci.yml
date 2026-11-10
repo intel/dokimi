@@ -206,8 +206,8 @@ jobs:
         env:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
         run: python scripts/check_docs_review_triggers.py --base "origin/$BASE_REF" --head HEAD
-      # Status 1 (a narrowing) the `schema-break-ok` label accepts, status 2 (unreadable base) never; WARNINGs never fail.
-      # Diffs against the base branch's tip, not base.sha, or main's later edits get blamed on the PR (see schema_compat.py).
+      # `schema-break-ok` certifies a reviewer found the narrowing states an invariant every written artifact already met.
+      # Diffs against the base branch's tip, not base.sha (the base at open), or main's later edits get blamed on the PR.
       - name: schema_compat vs the PR base
         if: ${{ !cancelled() && github.event_name == 'pull_request' }}
         env:
@@ -224,8 +224,8 @@ jobs:
           if [ "$status" -eq 0 ]; then
             exit 0
           fi
-          if [ "$status" -ne 1 ]; then
-            echo "::error::schema_compat could not compare against origin/$BASE_REF (status $status); the schema-break-ok label does not cover that"
+          if [ "$status" -ne 1 ] || ! grep -q '^BREAKING' compat.txt; then
+            echo "::error::schema_compat compared nothing against origin/$BASE_REF (status $status, no BREAKING finding); the schema-break-ok label does not cover that"
             exit "$status"
           fi
           if [ "$OVERRIDE" = true ]; then

@@ -45,18 +45,20 @@ def _schema_compat_step() -> str:
 
 
 @pytest.mark.skipif(shutil.which("bash") is None or os.name == "nt", reason="runs the step's bash")
-@pytest.mark.parametrize(("status", "label", "step_exit"), [
-    (0, "false", 0), (0, "true", 0),
-    (1, "false", 1), (1, "true", 0),
-    (2, "false", 2), (2, "true", 2),
+@pytest.mark.parametrize(("status", "printed", "label", "step_exit"), [
+    (0, "", "false", 0), (0, "", "true", 0),
+    (1, "BREAKING a.v1.json x", "false", 1), (1, "BREAKING a.v1.json x", "true", 0),
+    (1, "", "false", 1), (1, "", "true", 1),
+    (2, "", "false", 2), (2, "", "true", 2),
 ])
-def test_the_label_overrides_a_breaking_edit_but_not_a_base_git_cannot_read(
-        tmp_path, status, label, step_exit):
-    """schema_compat exits 1 for a breaking edit and 2 for an unreadable base: only the
-    first may be accepted with ``schema-break-ok``."""
+def test_the_label_overrides_a_printed_breaking_edit_and_nothing_else(
+        tmp_path, status, printed, label, step_exit):
+    """schema_compat exits 1 for a breaking edit (which prints a BREAKING line) and 2 for an
+    unreadable base; a crash also exits 1 but prints none: only a finding may be accepted
+    with ``schema-break-ok``."""
     stub = tmp_path / "bin"
     stub.mkdir()
-    (stub / "python").write_text(f"#!/bin/sh\nexit {status}\n", encoding="utf-8")
+    (stub / "python").write_text(f"#!/bin/sh\necho '{printed}'\nexit {status}\n", encoding="utf-8")
     (stub / "python").chmod(0o755)
     env = {**os.environ, "PATH": f"{stub}{os.pathsep}{os.environ['PATH']}", "BASE_REF": "main",
            "OVERRIDE": label, "GITHUB_STEP_SUMMARY": str(tmp_path / "summary.md")}
