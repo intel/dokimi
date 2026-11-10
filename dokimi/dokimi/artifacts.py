@@ -16,7 +16,7 @@ repository offers an agent), ``plan`` (the cells a run promises to measure),
 into an agent's context), ``effective_instructions`` (the effective-instructions/v0
 receipt of a reach probe), ``need_graph`` and ``eval_coverage`` (a frozen need graph and an
 eval set's coverage of it), ``task_inspect`` (which eval-task format each
-path under a tree is), ``repo_hits_judged`` (a judge's labels of one replay cell's credited pairs)
+path under a tree is), ``repo_hits_judged`` (a judge's labels of one replay cell's credited pairs),
 ``dokimi_config`` (a repository's subjects and where their evals are), ``reach_matrix`` (the reach
 conformance matrix), ``personas`` and ``persona_analysis`` (proposed user personas and the GitHub
 signals behind them), ``question_panel`` and ``question_quality`` (reviews of a question set) and
