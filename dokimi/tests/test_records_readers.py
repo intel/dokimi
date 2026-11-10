@@ -109,6 +109,11 @@ def test_judge_context_reads_a_legacy_record_keyed_by_id(caplog):
     assert store.get("q2", "skill:x") == TEXT
 
 
+def test_judge_context_keys_a_record_by_question_id_over_id_as_the_judges_look_it_up(caplog):
+    store = _store([{"id": "x", "question_id": "Q1", "arms": {"skill:x": _cited()}}], caplog)
+    assert (store.get("Q1", "skill:x"), store.get("x", "skill:x")) == (TEXT, None)
+
+
 @pytest.mark.parametrize("digest", ["sha256:" + "0" * 64, "", 5])
 def test_judge_context_drops_a_digest_it_cannot_verify_and_warns(caplog, digest):
     store = _store([{"question_id": "q1", "arms": {"skill:x": {"answer": "a", "judge_context_sha256": digest}}}],
