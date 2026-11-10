@@ -70,7 +70,8 @@ def checked_out_path(out: str | None, command: str, default: str | None = None) 
     ancestor = next((p for p in target.parents if os.path.exists(p)), target.parent)
     if not os.path.isdir(ancestor):
         raise InputError(f"{label}: {ancestor} is not a directory, so the file cannot be created under it{hint}")
-    if not can_write(target if os.path.exists(target) else ancestor):
+    # A missing parent is made by the writer first (a directory, then the file in it): probe both rights.
+    if not can_write(target if os.path.exists(target) else ancestor, make_dir=ancestor != target.parent):
         raise InputError(f"{label} is not writable{hint}")
     return path
 

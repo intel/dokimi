@@ -136,13 +136,14 @@ def _load_matrix_inputs(config: ArmsRunConfig, arms: str, questions: str, matrix
 
 def _check_cells_dir(cells_dir: Path) -> None:
     """Exit 2 when *cells_dir* cannot be made: the nearest existing ancestor must be a directory
-    the process can write to. Creates nothing."""
+    the process can write to. It tries the write in that directory (in a directory made there when *cells_dir* is
+    missing) and removes what it made; only a directory that refuses the removal keeps a ``.write-probe-*`` entry."""
     # A dangling symlink exists as a link but not as a target: it is the nearest entry, and it is refused.
     existing = next((p for p in (cells_dir, *cells_dir.parents) if p.exists() or p.is_symlink()), None)
     if existing is None:  # no ancestor exists at all (an unmounted drive): nothing can be made
         print(f"Error: cannot write {cells_dir}: no existing directory above it", file=sys.stderr)
         sys.exit(EXIT_USAGE)
-    if not existing.is_dir() or not can_write(existing):
+    if not existing.is_dir() or not can_write(existing, make_dir=existing != cells_dir):
         print(f"Error: cannot write {cells_dir}: {existing} is not a writable directory", file=sys.stderr)
         sys.exit(EXIT_USAGE)
 

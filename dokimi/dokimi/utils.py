@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, Mapping, Sequence, Tuple
 
 from dokimi.defaults import BEDROCK_MODEL_IDS
-from dokimi.process_io import exact_path_text, path_text
+from dokimi.process_io import disk_path_text, exact_path_text
 
 if TYPE_CHECKING:
     from dokimi.process import Env
@@ -260,7 +260,7 @@ def _ignored_paths(top: str) -> frozenset[str] | None:
                  timeout=120, env=_git_env(), capture_limit=None)
     if not listed.ok:
         return None
-    return frozenset(path_text(name).rstrip("/") for name in listed.stdout_bytes.split(b"\0") if name)
+    return frozenset(disk_path_text(name).rstrip("/") for name in listed.stdout_bytes.split(b"\0") if name)
 
 
 def _index_blobs(top: str) -> tuple[dict[str, str], frozenset[str]]:

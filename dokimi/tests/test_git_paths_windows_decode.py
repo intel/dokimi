@@ -2,7 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """A path git prints with a byte that is not UTF-8 (#550): Windows Python's ``os.fsdecode`` raises on it, so the
-readers of git's ``-z`` listings decode with ``process_io.path_text``, which puts U+FFFD there. The tests decode
+readers of git's ``-z`` listings of tracked paths decode with ``process_io.path_text``, which puts U+FFFD there; the
+listings of the disk (untracked, ignored) use ``disk_path_text``, which keeps an encoded lone surrogate as the file
+system names it; the index readers key by ``exact_path_text`` and skip a name Windows cannot decode. The tests decode
 as Windows does (UTF-8, ``surrogatepass``)."""
 
 from __future__ import annotations
@@ -127,6 +129,39 @@ def test_git_tree_holds_an_ignored_path_that_is_not_utf8(repo, windows_decoding)
         handle.write(b"x")
     tree = utils.git_tree(repo / "skill")
     assert tree is not None and "skill/a�.tmp" in tree.ignored
+
+
+SURROGATE_FILE = b"/skill/l\xed\xa0\x80int.tmp"
+
+
+@pytest.fixture
+def surrogate_disk_repo(repo) -> Path:
+    """An untracked, ignored file named with an encoded lone surrogate, which Windows names ``l\\ud800int.tmp``."""
+    (repo / ".gitignore").write_text("*.tmp\n", encoding="utf-8")
+    with open(os.fsencode(repo) + SURROGATE_FILE, "wb") as handle:
+        handle.write(b"x")
+    return repo
+
+
+@pytest.mark.skipif(os.name != "posix" or sys.platform == "darwin", reason="a file name that is not UTF-8")
+def test_untracked_listings_name_a_lone_surrogate_file_as_the_disk_does(surrogate_disk_repo, windows_decoding):
+    name = "skill/l\ud800int.tmp"
+    assert name in catalog_git._others(surrogate_disk_repo)
+    assert name in catalog_git.ignored_paths(surrogate_disk_repo)
+
+
+@pytest.mark.skipif(os.name != "posix" or sys.platform == "darwin", reason="a file name that is not UTF-8")
+def test_git_tree_ignored_directory_with_a_lone_surrogate_name_keeps_its_name(repo, windows_decoding):
+    (repo / ".gitignore").write_text("*cache/\n", encoding="utf-8")
+    os.mkdir(os.fsencode(repo) + b"/skill/\xed\xa0\x80cache")
+    with open(os.fsencode(repo) + b"/skill/\xed\xa0\x80cache/f", "wb") as handle:
+        handle.write(b"x")
+    assert utils._ignored_paths(str(repo)) == {"skill/\ud800cache"}
+
+
+def test_a_listed_name_windows_cannot_decode_is_still_replaced(windows_decoding):
+    assert process_io.disk_path_text(b"skill/\xed\xa0\x80.sh") == "skill/\ud800.sh"
+    assert process_io.disk_path_text(BAD) == REPLACED
 
 
 def test_the_index_readers_skip_a_name_that_is_not_utf8(windows_decoding):

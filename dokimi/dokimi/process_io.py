@@ -31,6 +31,14 @@ def exact_path_text(raw: bytes) -> str | None:
         return None
 
 
+def disk_path_text(raw: bytes) -> str:
+    """A file name git listed from the disk (untracked, ignored), as the name the file system gives that file:
+    :func:`exact_path_text`, so on Windows a lone-surrogate name matches its file; :func:`path_text` only for a name
+    Windows cannot decode, which no file system call returns."""
+    exact = exact_path_text(raw)
+    return path_text(raw) if exact is None else exact
+
+
 class PipeReader:
     def __init__(self, pipe: IO[bytes], consume: Callable[[bytes], None], chunk_size: int):
         self.pipe, self.consume, self.chunk_size = pipe, consume, chunk_size

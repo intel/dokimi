@@ -8,7 +8,6 @@ these tests run on Windows and as root alike."""
 from __future__ import annotations
 
 import os
-import tempfile
 
 import pytest
 
@@ -59,9 +58,46 @@ def test_a_directory_that_refuses_only_the_delete_is_writable(tmp_path, monkeypa
     def refuse(*args, **kwargs):
         raise PermissionError(13, "Access is denied")
 
-    monkeypatch.setattr(tempfile, "TemporaryFile", refuse)
     monkeypatch.setattr(os, "unlink", refuse)
     assert can_write(tmp_path) is True
+
+
+def test_a_directory_that_refuses_the_delete_of_a_made_directory_is_writable(tmp_path, monkeypatch):
+    def refuse(*args, **kwargs):
+        raise PermissionError(13, "Access is denied")
+
+    monkeypatch.setattr(os, "unlink", refuse)
+    monkeypatch.setattr(os, "rmdir", refuse)
+    assert can_write(tmp_path, make_dir=True) is True
+
+
+def test_a_probe_dir_is_made_and_removed_when_the_writer_makes_one(tmp_path):
+    assert can_write(tmp_path, make_dir=True) is True
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_a_probe_dir_that_cannot_take_a_file_is_removed_and_not_writable(tmp_path, monkeypatch):
+    real = os.open
+
+    def refuse(path, flags, *args, **kwargs):
+        if os.path.dirname(path) != os.fspath(tmp_path):
+            raise PermissionError(13, "Access is denied", os.fspath(path))
+        return real(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(os, "open", refuse)
+    assert can_write(tmp_path, make_dir=True) is False
+    assert list(tmp_path.iterdir()) == []
+
+
+def _refuse_new_folder(monkeypatch, where):
+    real = os.mkdir
+
+    def refuse(path, *args, **kwargs):
+        if os.path.realpath(os.path.dirname(path)) == os.path.realpath(where):
+            raise PermissionError(13, "Access is denied", os.fspath(path))
+        return real(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "mkdir", refuse)
 
 
 def test_a_directory_whose_new_files_deny_reading_is_writable(tmp_path, monkeypatch):
@@ -113,16 +149,60 @@ def test_routing_out_that_takes_the_write_is_accepted_and_nothing_is_left(tmp_pa
     assert list(tmp_path.iterdir()) == []
 
 
-def test_cells_directory_that_refuses_the_write_exits_2(tmp_path, monkeypatch, capsys):
-    from dokimi.commands.arms import _check_cells_dir
+def test_routing_out_under_a_missing_directory_in_a_folder_only_ancestor_is_accepted(tmp_path, monkeypatch):
+    """Windows: ``C:\\`` lets a standard user make a folder but not a file. The writer makes the folder and writes inside
+    it, so the probe must not ask the ancestor for a file."""
+    from dokimi.commands.novelty_routing_inputs import checked_out_path
 
     _access_says_yes(monkeypatch)
     _refuse_new_file(monkeypatch, tmp_path)
+    out = tmp_path / "results" / "routing.json"
+    assert checked_out_path(str(out), "routing") == out
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_routing_out_under_a_missing_directory_in_an_ancestor_that_refuses_a_folder_is_refused(tmp_path, monkeypatch):
+    from dokimi.commands.novelty_routing_inputs import checked_out_path
+
+    _access_says_yes(monkeypatch)
+    _refuse_new_folder(monkeypatch, tmp_path)
+    with pytest.raises(InputError, match="not writable"):
+        checked_out_path(str(tmp_path / "results" / "routing.json"), "routing")
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_cells_directory_that_refuses_the_write_exits_2(tmp_path, monkeypatch, capsys):
+    from dokimi.commands.arms import _check_cells_dir
+
+    (tmp_path / "cells").mkdir()
+    _access_says_yes(monkeypatch)
+    _refuse_new_file(monkeypatch, tmp_path / "cells")
+    with pytest.raises(SystemExit) as exit_:
+        _check_cells_dir(tmp_path / "cells")
+    assert exit_.value.code == 2
+    assert capsys.readouterr().err == (
+        f"Error: cannot write {tmp_path / 'cells'}: {tmp_path / 'cells'} is not a writable directory\n")
+
+
+def test_cells_directory_missing_in_an_ancestor_that_refuses_a_folder_exits_2(tmp_path, monkeypatch, capsys):
+    from dokimi.commands.arms import _check_cells_dir
+
+    _access_says_yes(monkeypatch)
+    _refuse_new_folder(monkeypatch, tmp_path)
     with pytest.raises(SystemExit) as exit_:
         _check_cells_dir(tmp_path / "cells")
     assert exit_.value.code == 2
     assert capsys.readouterr().err == (
         f"Error: cannot write {tmp_path / 'cells'}: {tmp_path} is not a writable directory\n")
+
+
+def test_cells_directory_missing_in_a_folder_only_ancestor_passes(tmp_path, monkeypatch):
+    from dokimi.commands.arms import _check_cells_dir
+
+    _access_says_yes(monkeypatch)
+    _refuse_new_file(monkeypatch, tmp_path)
+    _check_cells_dir(tmp_path / "cells")
+    assert list(tmp_path.iterdir()) == []
 
 
 def test_cells_directory_that_takes_the_write_passes_and_nothing_is_made(tmp_path):
