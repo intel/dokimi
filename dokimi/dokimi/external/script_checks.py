@@ -490,6 +490,16 @@ def _quoted_run(data: bytes, i: int, lines: _Lines, nest: int = 0) -> Optional[t
     return None
 
 
+def _starts_command(data: bytes, start: int, j: int) -> bool:
+    """Whether the word at ``data[j]`` is in command position in the substitution that opens at ``start``: after a
+    separator, a ``{``, the ``(`` of the ``$(`` itself, or a reserved word such as ``then`` or ``do``."""
+    before = data[max(start, j - 64):j].rstrip(b" \t")
+    if not before or before[-1:] in (b"(", b";", b"&", b"|", b"\n", b"{"):
+        return True
+    word = re.search(rb"[A-Za-z]+$", before)
+    return word is not None and word.group() in RESERVED_WORDS
+
+
 def _command_sub_end(data: bytes, i: int, lines: _Lines, nest: int = 0) -> Optional[int]:
     """The index just past the ``)`` that closes the ``(`` at ``data[i]`` of a ``$(``, read as bash reads it: its quoted
     runs and heredoc bodies are skipped whole, so a quote inside them does not close the double quotes around it. None
@@ -498,6 +508,7 @@ def _command_sub_end(data: bytes, i: int, lines: _Lines, nest: int = 0) -> Optio
     j = i
     resume = -1  # where the body of a heredoc opened on this line starts: the next line, after any earlier body
     cases: list[str] = []  # the open case statements: "head" (before its in), "pattern" (a ) ends a pattern), "body"
+    pat_group = 0  # the open extglob groups in the pattern being read: their ) is not the pattern's
     while j < len(data):
         c = data[j:j + 1]
         if c == b"\n" and resume >= 0:
@@ -523,7 +534,7 @@ def _command_sub_end(data: bytes, i: int, lines: _Lines, nest: int = 0) -> Optio
             continue
         if data[j - 1:j] in WORD_START and (word := CASE_WORD.match(data, j)) is not None:
             kw = word.group()
-            if kw == b"case":
+            if kw == b"case" and _starts_command(data, i, j):
                 cases.append("head")
             elif kw == b"in" and cases and cases[-1] == "head":
                 cases[-1] = "pattern"
@@ -531,8 +542,12 @@ def _command_sub_end(data: bytes, i: int, lines: _Lines, nest: int = 0) -> Optio
                 cases.pop()
             j = word.end()
             continue
-        if cases and cases[-1] == "pattern" and c in (b"(", b")"):  # the ) that ends a case pattern is not the sub's
-            if c == b")":
+        if cases and cases[-1] == "pattern" and c in (b"(", b")"):  # a case pattern ends at its ), not an extglob group's
+            if c == b"(" and data[j - 1:j] in (b"@", b"!", b"?", b"+", b"*"):
+                pat_group += 1
+            elif c == b")" and pat_group:
+                pat_group -= 1
+            elif c == b")":
                 cases[-1] = "body"
             j += 1
             continue

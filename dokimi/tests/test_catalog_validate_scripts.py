@@ -757,6 +757,28 @@ def test_a_case_in_a_command_sub_in_quotes_does_not_close_the_sub_at_its_pattern
     assert _codes(_reviews_by_name(tmp_path)["bundled"]) == []
 
 
+@needs_bash
+@pytest.mark.parametrize("body", [
+    b'x="$(case a in (a) echo x;; esac)"\n',  # a pattern with a leading (
+    b'x="$(case a in a) echo x;& b) echo y;; esac; echo z)"\n',  # ;& falls through to the next item
+    b'x="$(case a in a) case b in b) echo q;; esac;; esac)"\n',  # a case inside an item
+    b'x="$(case a in @(a|b)) echo "it\'s";; esac)"\n',  # an extglob group in a pattern: its ) is not the pattern's
+    b'x="$(if true; then case a in a) echo "it\'s";; esac; fi)"\n',  # a case after a reserved word is a case
+])
+def test_case_forms_in_a_command_sub_in_quotes_leave_the_sub_and_the_quotes_read(tmp_path, no_linters, body):
+    _bundle(tmp_path, {"run.sh": b"#!/bin/bash\n" + body + b"shopt -s 'extglob'\ncase x in +(a)) : ;; esac\necho 'e'\n"})
+
+    assert _codes(_reviews_by_name(tmp_path)["bundled"]) == []
+
+
+@needs_bash
+def test_a_case_word_that_is_an_argument_is_not_a_case_in_a_command_sub_in_quotes(tmp_path, no_linters):
+    # "case in" here are echo's arguments, so the ) after a closes the sub and the quotes after it are read
+    _bundle(tmp_path, {"run.sh": b"#!/bin/bash\nx=\"$(echo lower case in a)\"\nshopt -s 'extglob'\ncase x in +(a)) : ;; esac\necho 'e'\n"})
+
+    assert _codes(_reviews_by_name(tmp_path)["bundled"]) == []
+
+
 def test_a_command_sub_in_quotes_nested_600_deep_does_not_exhaust_the_recursion_limit():
     # each level of the nest recurses; a nest this deep raised RecursionError on the whole file
     script_checks._shell_options(b"x=" + b'"$(' * 600 + b")\"" * 600 + b"\nx\n")
