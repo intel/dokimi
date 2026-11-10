@@ -22,9 +22,10 @@ checked, since its bundle is the rest of that checkout.
 from __future__ import annotations
 
 import os
+import posixpath
 import re
 from pathlib import Path, PurePosixPath
-from typing import Iterable, Optional
+from typing import Callable, Iterable, Optional
 
 from dokimi.skills.loader import VENDORED_DIR_NAMES
 
@@ -84,11 +85,17 @@ def _whole(name: str) -> str:
     return r"(?<![\w.-])" + re.escape(name) + r"(?![\w-])"
 
 
-def _named(rel: str, text: str, links: frozenset[str]) -> bool:
+def _target(folder: str, link: str) -> str:
+    """The lowercased path, from the skill root, that a link in a document in ``folder`` names."""
+    return posixpath.normpath(posixpath.join(folder, link)).lower()
+
+
+def _named(rel: str, text: str, links: set[str]) -> bool:
     """Whether ``text`` names the file ``rel``: its path, its file name, or a folder above it named alone.
 
     Case is ignored (``FORMS.md`` names ``forms.md``). ``links`` are the link destinations of
-    ``SKILL.md`` as files (escapes and percent-encoding decoded), lowercased.
+    ``SKILL.md`` and of the documents read so far, as files from the skill root (escapes and
+    percent-encoding decoded), lowercased.
     """
     parts = rel.lower().split("/")
     if "/".join(parts) in links or re.search(_whole("/".join(parts)), text):
@@ -103,23 +110,30 @@ def _named(rel: str, text: str, links: frozenset[str]) -> bool:
 
 
 def _read_doc(path: Path) -> str:
-    """The lowercased text of a named document the agent may read on, or "" when it is not one or cannot be read."""
+    """The text of a named document the agent may read on, or "" when it is not one or cannot be read."""
     if path.suffix.lower() not in DOC_SUFFIXES:
         return ""
     try:
         if path.is_symlink() or not path.is_file() or path.stat().st_size > DOC_MAX_BYTES:  # a FIFO blocks the read
             return ""
-        return path.read_text(encoding="utf-8").lower()
+        return path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         return ""
 
 
-def unreferenced_message(skill_path: Path, links: Iterable[Optional[str]], *, at_root: bool) -> Optional[str]:
+def unreferenced_message(
+    skill_path: Path,
+    links: Iterable[Optional[str]],
+    *,
+    at_root: bool,
+    doc_links: Callable[[str], Iterable[Optional[str]]],
+) -> Optional[str]:
     """The ``bundle-file-unreferenced`` message for the skill whose ``SKILL.md`` is ``skill_path``, or None.
 
-    ``links``: the files its Markdown links name (None for a link that names no file). A document
-    ``SKILL.md`` names is read too, and so on from there (at most :data:`DOCS_READ_MAX`): a script
-    that only ``forms.md`` names is still found by an agent that follows ``SKILL.md`` to ``forms.md``.
+    ``links``: the files its Markdown links name (None for a link that names no file). ``doc_links``
+    gives the same for the Markdown of a document. A document ``SKILL.md`` names is read too, and so
+    on from there (at most :data:`DOCS_READ_MAX`): a script that only ``forms.md`` names is still
+    found by an agent that follows ``SKILL.md`` to ``forms.md``.
     """
     if at_root:
         return None
@@ -129,7 +143,7 @@ def unreferenced_message(skill_path: Path, links: Iterable[Optional[str]], *, at
         docs = _walk(skill_path.parent, counted=False)
     except (OSError, UnicodeDecodeError):
         return None
-    linked = frozenset(PurePosixPath(link).as_posix().removeprefix("./").lower() for link in links if link)
+    linked = {_target(".", link) for link in links if link}
     named_files: set[str] = set()
     docs_read = 0
     candidates = list(dict.fromkeys(files + docs))
@@ -141,7 +155,9 @@ def unreferenced_message(skill_path: Path, links: Iterable[Optional[str]], *, at
             named_files.add(rel)
             if docs_read < DOCS_READ_MAX and (more := _read_doc(skill_path.parent / rel)):
                 docs_read += 1
-                text += "\n" + more
+                text += "\n" + more.lower()
+                folder = PurePosixPath(rel).parent.as_posix()
+                linked.update(_target(folder, link) for link in doc_links(more) if link)
     missing = [rel for rel in files if rel not in named_files]
     if not missing:
         return None

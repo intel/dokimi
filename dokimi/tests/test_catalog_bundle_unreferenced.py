@@ -104,6 +104,24 @@ def test_a_skipped_document_that_skill_md_names_is_still_read(tmp_path, doc):
     assert "bundle-file-unreferenced" not in _codes(review)
 
 
+@pytest.mark.parametrize(
+    ("doc", "content", "script"),
+    [
+        ("forms.md", "Run [fill](scripts/fill%2Epy).\n", "scripts/fill.py"),  # percent-encoded
+        ("references/forms.md", "Run [fill](../scripts/fill%2Epy).\n", "scripts/fill.py"),  # encoded, relative to its folder
+        ("forms.md", "Run [fill](scripts/fill\\_x.py).\n", "scripts/fill_x.py"),  # backslash escape
+    ],
+)
+def test_a_link_in_a_read_document_is_decoded_like_skill_md(tmp_path, doc, content, script):
+    skill_dir = _skill(tmp_path / "skills", "kit", name="kit", description="Use when testing.", body=f"See {doc}.\n")
+    (skill_dir / doc).parent.mkdir(parents=True, exist_ok=True)
+    (skill_dir / doc).write_text(content, encoding="utf-8")
+    (skill_dir / script).parent.mkdir(parents=True, exist_ok=True)
+    (skill_dir / script).write_text("x\n", encoding="utf-8")
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert "bundle-file-unreferenced" not in _codes(review)
+
+
 def test_a_nested_skill_is_not_part_of_the_bundle(tmp_path):
     _review(tmp_path, "# Body\n", [])
     _skill(tmp_path / "skills" / "kit", "inner", name="inner", description="Use when nested.")

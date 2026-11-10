@@ -440,6 +440,11 @@ def _counterpart(other: tuple[SkillCatalogEntry, Skill, SkillReview], entry: Ski
     return f"{where} in {o_entry.source_root.as_posix()}"
 
 
+def _link_files(markdown: str) -> list[Optional[str]]:
+    """The file each Markdown link of ``markdown`` names (see :func:`_file_ref`), None for a link that names none."""
+    return [_file_ref(raw, link=True) for raw in link_pieces(outside_fences(markdown))[0]]
+
+
 def _file_ref(raw: str, link: bool = False) -> Optional[str]:
     """The skill-relative file a reference names, or None if it names no file to check.
 
@@ -733,8 +738,9 @@ def review_skills(
             Finding("warn", code, message)
             for code, message in content_findings(skill, at_root=at_root and not standalone)
         ]
-        links = [_file_ref(raw, link=True) for raw in link_pieces(outside_fences(skill.body))[0]]
-        unreferenced = unreferenced_message(skill.path, links, at_root=at_root and not standalone)
+        unreferenced = unreferenced_message(
+            skill.path, _link_files(skill.body), at_root=at_root and not standalone, doc_links=_link_files
+        )
         if unreferenced is not None:
             review.findings.append(Finding("warn", "bundle-file-unreferenced", unreferenced))
         if not hidden:
