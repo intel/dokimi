@@ -39,7 +39,7 @@ SCRIPT_SUFFIXES = (*SHELL_SUFFIXES, ".py")
 BASH_FAMILY = frozenset({"bash", "sh", "dash", "ksh"})  # the shebang names bash -n can judge
 ENV_OPERAND_OPTIONS = frozenset({"-u", "--unset", "-C", "--chdir"})  # env options with an operand
 PARSE_SHOPTS = frozenset({"extglob"})  # bash -O options that change how a script parses; bash -n is given them
-SHOPT_EXTGLOB = re.compile(rb"(?m)(?:^|[;|({!)]|&(?!>))[ \t]*(?:(?:[A-Za-z_][A-Za-z0-9_]*=[^\s;&|]*|[0-9]*[<>]+&?[^\s;&|]+|[0-9]*[<>]+&?[ \t]+[^\s;&|]+)[ \t]+)*(?:(?:then|do|else|elif|if|while|until|builtin|command|exec|time|coproc)[ \t]+)*shopt[ \t]+(?:-[a-zA-Z]+[ \t]+)*-[a-zA-Z]*s[a-zA-Z]*(?:[ \t]+[^\s;&|]+)*?[ \t]+extglob\b")  # shopt -s ... extglob, on one line; NAME=value and a redirection (with its target) before it do not stop it; &> is no boundary
+SHOPT_EXTGLOB = re.compile(rb"(?m)(?:^|[;|({!)]|&(?!>))[ \t]*(?:(?:[A-Za-z_][A-Za-z0-9_]*=[^\s;&|]*|&?[0-9]*[<>]+&?[^\s;&|]+|&?[0-9]*[<>]+&?[ \t]+[^\s;&|]+)[ \t]+)*(?:(?:then|do|else|elif|if|while|until|builtin|command|exec|time|coproc)[ \t]+)*shopt[ \t]+(?:-[a-zA-Z]+[ \t]+)*-[a-zA-Z]*s[a-zA-Z]*(?:[ \t]+[^\s;&|]+)*?[ \t]+extglob\b")  # shopt -s ... extglob, on one line; NAME=value and a redirection (with its target) before it do not stop it; &> is a redirection, not a boundary
 WORD_START = (b" ", b"\t", b"\r", b"\n", b";", b"&", b"|", b"(")  # bytes after which a word starts: a # there is a comment, a (( a command
 QUOTED_TEXT = frozenset(bytes([b]) for b in b" \t\n;&|(){}<>!")  # bytes a quote makes text: no separator, operator or blank
 # Escapes env -S reads outside quotes (\_ separates words and \c ends the string: see _env_split).

@@ -650,6 +650,8 @@ def test_the_suffix_is_matched_in_any_case(tmp_path):
     b">&2 shopt -s extglob",
     b"X=1 command shopt -s extglob",
     b"\\shopt -s extglob",
+    b"&>/dev/null shopt -s extglob",
+    b"true && &> /dev/null shopt -s extglob",
 ])
 @needs_bash
 def test_a_shopt_extglob_after_an_assignment_or_redirection_is_valid_under_real_bash(tmp_path, line, no_linters):
