@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter
-import os
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -15,6 +14,7 @@ from typing import TYPE_CHECKING
 from dokimi.exit_codes import EXIT_FAILURE, EXIT_USAGE
 from dokimi.llm import ANSWER_PROVIDERS
 from dokimi.utils import InputError, question_id
+from dokimi.write_probe import can_write
 from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.defaults import (
     DEFAULT_ANSWER_MODEL,
@@ -142,7 +142,7 @@ def _check_cells_dir(cells_dir: Path) -> None:
     if existing is None:  # no ancestor exists at all (an unmounted drive): nothing can be made
         print(f"Error: cannot write {cells_dir}: no existing directory above it", file=sys.stderr)
         sys.exit(EXIT_USAGE)
-    if not existing.is_dir() or not os.access(existing, os.W_OK | os.X_OK):
+    if not existing.is_dir() or not can_write(existing):
         print(f"Error: cannot write {cells_dir}: {existing} is not a writable directory", file=sys.stderr)
         sys.exit(EXIT_USAGE)
 

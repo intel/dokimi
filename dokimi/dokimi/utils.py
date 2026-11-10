@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, Mapping, Sequence, Tuple
 
 from dokimi.defaults import BEDROCK_MODEL_IDS
+from dokimi.process_io import path_text
 
 if TYPE_CHECKING:
     from dokimi.process import Env
@@ -215,6 +216,11 @@ class GitTree:
         return self.nested[rel]
 
 
+def is_symlink_loop(exc: OSError) -> bool:
+    """A symlink loop: ``ELOOP``, or on Windows EINVAL with WinError 1921 (ERROR_CANT_RESOLVE_FILENAME)."""
+    return exc.errno == errno.ELOOP or getattr(exc, "winerror", None) == 1921
+
+
 def _git_env() -> "Env":
     from dokimi.process import Env
 
@@ -254,7 +260,7 @@ def _ignored_paths(top: str) -> frozenset[str] | None:
                  timeout=120, env=_git_env(), capture_limit=None)
     if not listed.ok:
         return None
-    return frozenset(os.fsdecode(name).rstrip("/") for name in listed.stdout_bytes.split(b"\0") if name)
+    return frozenset(path_text(name).rstrip("/") for name in listed.stdout_bytes.split(b"\0") if name)
 
 
 def _index_blobs(top: str) -> tuple[dict[str, str], frozenset[str]]:
@@ -279,7 +285,7 @@ def _index_blobs(top: str) -> tuple[dict[str, str], frozenset[str]]:
         fields = meta.split()
         if not name:
             continue
-        rel = os.fsdecode(name)
+        rel = path_text(name)
         held.update(rel.rsplit("/", i)[0] for i in range(rel.count("/") + 1))  # the path and each directory above it
         if trusted and len(fields) == 3 and fields[2] == b"0" and rel not in changed:
             out[rel] = os.fsdecode(fields[1])
@@ -297,13 +303,13 @@ def _worktree_changed(status: bytes) -> set[str]:
         if b"R" in entry[:2] or b"C" in entry[:2]:
             next(items, None)
         if entry[1:2] != b" ":
-            changed.add(os.fsdecode(entry[3:]))
+            changed.add(path_text(entry[3:]))
     return changed
 
 
 def _flagged(tags: bytes) -> set[str]:
     """The index entries git does not check against the disk: skip-worktree (``S``) and assume-unchanged (lower case)."""
-    return {os.fsdecode(entry[2:]) for entry in tags.split(b"\0") if entry[:1] == b"S" or entry[:1].islower()}
+    return {path_text(entry[2:]) for entry in tags.split(b"\0") if entry[:1] == b"S" or entry[:1].islower()}
 
 
 _ARG_BUDGET = 24_000  # bytes of path arguments per git call: under the smallest command line limit (Windows, 32 KB)
@@ -445,7 +451,7 @@ def _tracked_modes(base: Path, spec: str) -> dict[str, bool]:
     for record in done.stdout_bytes.split(b"\0"):
         meta, tab, name = record.partition(b"\t")
         if tab:
-            modes[os.fsdecode(name)] = meta.split()[0] == b"100755"
+            modes[path_text(name)] = meta.split()[0] == b"100755"
     return modes
 
 

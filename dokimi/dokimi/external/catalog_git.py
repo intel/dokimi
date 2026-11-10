@@ -12,6 +12,7 @@ from typing import Any
 
 from dokimi import process
 from dokimi.harnesses.tasks import read_task_config
+from dokimi.process_io import path_text
 
 from .catalog_eval_inputs import task_dir
 
@@ -32,7 +33,7 @@ def _paths(done: process.Completed) -> list[str]:
     if done.returncode:
         raise ValueError(f"cannot read changed paths: {process.git_failure(done)}")
     # Git's bytes are filesystem names, not shell commands or line-delimited text.
-    return [os.fsdecode(path) for path in done.stdout_bytes.split(b"\0") if path]
+    return [path_text(path) for path in done.stdout_bytes.split(b"\0") if path]
 
 
 def _others(root: Path) -> list[str]:
