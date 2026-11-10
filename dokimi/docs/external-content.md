@@ -130,8 +130,8 @@ labelled deprecated is not listed. Some listed IDs are short names (`o1`, `o3-mi
 `gpt-4`, `dall-e-2`) that can also appear in prose about a model; a finding there is a
 prompt to reword it; a code span does not silence the warning, and there is no suppression yet. A few rows
 name no replacement (`sora-2`, `gpt-5.4-cyber`), and the finding then points at the vendor page.
-The list includes Imagen and Veo IDs, so it reaches past the text models. Warnings do not fail
-`--strict`, which gates on `error` rows only.
+The list includes Imagen and Veo IDs, so it reaches past the text models. This warning does not
+fail `--strict`. Of the warnings, only the unrestricted-Bash pair does (`allowed-tools-unrestricted-bash` below).
 
 ## The layout the readers expect
 

@@ -440,7 +440,8 @@ def register(sub, positive_int, eval_sub) -> None:
         "--strict",
         action="store_true",
         help="Exit 1 on a skill spec error (name not the directory name or not kebab-case, "
-        "description over 1024 characters) as well as on a skill that does not load; with "
+        "description over 1024 characters) as well as on a skill that does not load, and on a skill "
+        "that grants unrestricted Bash and has a pipe-to-shell or permission-bypass-flag finding; with "
         "--kind all, also on a tasks-only root with no SKILL.md",
     )
     scan_p.add_argument(
