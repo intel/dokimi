@@ -390,8 +390,8 @@ Script: `research/judge-panel/gen.py`. Tables: `docs/assets/judge-panel/generati
 
 | Family: old → new | κ old vs new | Lenient rate, old → new | Lenient added share, old → new, by answer model (opus-5 / haiku-4.5 / gpt-5.6 / grok-4.6 / nemotron-nano) |
 |---|---|---|---|
-| openai: gpt-5.6-luna → gpt-6-luna | 0.72 | 0.756 → 0.714 | 0.13→0.11 / 0.12→0.15 / 0.15→0.23 / 0.34→0.34 / 0.43→0.42 |
-| openai: gpt-5.6-luna → gpt-6-sol | 0.70 | 0.756 → 0.713 | 0.13→0.16 / 0.12→0.18 / 0.15→0.16 / 0.34→0.29 / 0.43→0.50 |
+| openai: gpt-5.6-luna → gpt-6-luna | 0.72 | 0.756 → 0.714 (pending: recompute on the rows both judges graded) | 0.13→0.11 / 0.12→0.15 / 0.15→0.23 / 0.34→0.34 / 0.43→0.42 |
+| openai: gpt-5.6-luna → gpt-6-sol | 0.70 | 0.756 → 0.713 (pending: recompute on the rows both judges graded) | 0.13→0.16 / 0.12→0.18 / 0.15→0.16 / 0.34→0.29 / 0.43→0.50 |
 | moonshot: kimi-k2.5 → kimi-k3 | 0.65 | 0.599 → 0.716 | 0.26→0.23 / 0.32→0.23 / 0.31→0.23 / 0.37→0.35 / 0.52→0.45 |
 | anthropic: haiku-4.5 → sonnet-5 | 0.66 | 0.651 → 0.652 | 0.15→0.21 / 0.20→0.30 / 0.21→0.23 / 0.34→0.32 / 0.53→0.55 |
 | anthropic: haiku-4.5 → opus-5.5 | 0.63 | 0.651 → 0.718 | 0.15→0.18 / 0.20→0.20 / 0.21→0.23 / 0.34→0.35 / 0.53→0.58 |
