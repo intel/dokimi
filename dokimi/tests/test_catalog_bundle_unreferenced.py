@@ -42,6 +42,20 @@ def test_a_named_file_is_fine(tmp_path, body):
     assert "bundle-file-unreferenced" not in _codes(review)
 
 
+@pytest.mark.parametrize(
+    ("body", "bundled", "unnamed"),
+    [
+        ("Run rebuild.py.\n", ["scripts/build.py", "scripts/rebuild.py"], "scripts/build.py"),  # a longer name
+        ("Read guide.mdx.\n", ["guide.md", "guide.mdx"], "guide.md"),  # a longer extension
+        ("Run scripts/rebuild.py.\n", ["build.py", "scripts/rebuild.py"], "build.py"),  # a longer path
+    ],
+)
+def test_a_name_inside_a_longer_name_does_not_name_the_shorter_file(tmp_path, body, bundled, unnamed):
+    review = _review(tmp_path, body, bundled)
+    [finding] = [f for f in review.findings if f.code == "bundle-file-unreferenced"]
+    assert finding.message.startswith("1 of 2") and unnamed in finding.message
+
+
 def test_unnamed_files_are_one_warning_with_the_count(tmp_path):
     review = _review(
         tmp_path,

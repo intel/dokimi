@@ -70,6 +70,11 @@ def _bundled(skill_dir: Path) -> list[str]:
     return found
 
 
+def _whole(name: str) -> str:
+    """A regex for ``name`` as a whole path or file name in a text: not a part of a longer one (``build.py`` in ``rebuild.py``)."""
+    return r"(?<![\w.-])" + re.escape(name) + r"(?![\w-])"
+
+
 def _named(rel: str, text: str, links: frozenset[str]) -> bool:
     """Whether ``text`` names the file ``rel``: its path, its file name, or a folder above it named alone.
 
@@ -77,9 +82,9 @@ def _named(rel: str, text: str, links: frozenset[str]) -> bool:
     ``SKILL.md`` as files (escapes and percent-encoding decoded), lowercased.
     """
     parts = rel.lower().split("/")
-    if "/".join(parts) in links or "/".join(parts) in text:
+    if "/".join(parts) in links or re.search(_whole("/".join(parts)), text):
         return True
-    if re.search(r"(?<![\w.-])" + re.escape(parts[-1]) + r"(?![\w-])", text):
+    if re.search(_whole(parts[-1]), text):
         return True
     # A folder named alone (``references/``), not as the start of another file's path (``scripts/a.py``).
     return any(
