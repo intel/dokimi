@@ -141,16 +141,18 @@ def _refuse_cut_short(measure_result: measure.MeasureResult) -> None:
         # An answer the judge never graded counts as not finished, like one never asked.
         not_run = measure_result.not_run + measure_result.ungraded
         reason, cause = measure_result.stop or ("spend_cap", "")
+        # stops_at_cap adds "nothing was written" to the exit, once.
         if reason == "spend_cap":
+            detail = f" ({cause})" if cause else ""
             raise SpendCapReached(
                 f"spend cap reached during the measurement: {not_run} probe answers were not "
-                "run or graded; nothing was written. Raise --max-usd, or measure less (a cheaper "
-                "--tier, a lower --max-atoms)"
+                f"run or graded{detail}. Raise --max-usd, or measure less (a cheaper --tier, a "
+                "lower --max-atoms)"
             )
         # A call with no known price: raising --max-usd would not help, so the cause is named.
         raise SpendCapReached(
-            f"the measurement stopped with {not_run} probe answers not run or graded: {cause}; "
-            "nothing was written", reason=reason,
+            f"the measurement stopped with {not_run} probe answers not run or graded: {cause}",
+            reason=reason,
         )
 
 

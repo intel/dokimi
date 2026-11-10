@@ -286,7 +286,7 @@ def test_analyze_stops_rather_than_publish_a_measurement_the_cap_cut_short(tmp_p
     monkeypatch.setattr(measure, "run_measurement", cut_short)
     extractor, answerer, judge = _clients()
     with pytest.raises(SpendCapReached,
-                       match=f"{not_run} probe answers were not run or graded; nothing was written"):
+                       match=f"{not_run} probe answers were not run or graded"):  # the CLI adds the rest
         analyze(body, config, extractor=extractor, answerer=answerer, judge=judge)
 
 
@@ -537,3 +537,26 @@ def test_a_partial_probe_file_drops_the_summaries_computed_over_the_cut_subset(t
     assert saved["runs"] == [{"verdict": "correct"}] and saved["probes"] == {"n": 3}
     for block in ("paired", "arms", "abstentions", "reversal_paired"):
         assert saved[block] is None
+
+
+@pytest.mark.parametrize("stop", [
+    ("spend_cap", "$1.00 of $1.00 after 4 calls"),
+    ("no_price", "no price is known for a, so --max-usd cannot be enforced"),
+])
+def test_a_cut_analyze_names_the_cap_once_and_keeps_its_figures(stop):
+    from dokimi.commands.novelty_run import stops_at_cap
+    from dokimi.novelty import measure
+
+    analyze = importlib.import_module("dokimi.novelty.analyze")
+    result = measure.MeasureResult(runs=[], arms=("full",), with_arm="full", not_run=3,
+                                   ungraded=0, stop=stop, probes=[])
+
+    @stops_at_cap
+    def command(args):
+        analyze._refuse_cut_short(result)
+
+    with pytest.raises(SystemExit) as info:
+        command(None)
+    message = str(info.value)
+    assert message.count("nothing was written") == 1
+    assert stop[1] in message
