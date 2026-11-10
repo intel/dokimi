@@ -251,6 +251,18 @@ def test_docker_backend_reports_a_timeout():
     assert res.status == "failed" and res.error == "Timeout after 7s"
 
 
+def test_python_runs_on_the_images_interpreter_in_docker_and_the_hosts_in_a_subprocess(monkeypatch):
+    # The host's sys.executable is a path the image does not have: every python example exited 127 (#229).
+    monkeypatch.setattr(process.sys, "platform", "linux")
+    runner = FakeRunner()
+    run_example("python", "print(1)", ExecutionPolicy(backend="docker", timeout=7), runner)
+    run_example("python", "print(1)", ExecutionPolicy(backend="subprocess", allow_host=True), runner)
+    docker, host = runner.calls
+    assert docker.argv[docker.argv.index("timeout"):] == ("timeout", "7", "python3", "/work/snippet.py")
+    assert sys.executable not in docker.argv
+    assert host.argv[0] == sys.executable and host.argv[1].endswith("snippet.py")
+
+
 def test_subprocess_backend_asks_for_limits_and_a_scrubbed_env(monkeypatch):
     monkeypatch.setattr(process.sys, "platform", "linux")
     monkeypatch.setenv("OPENAI_API_KEY", "x")

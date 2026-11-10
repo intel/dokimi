@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""`repo compare` intervals: every shift the sign-flip test does not reject (dokimi.repos.compare_interval)."""
+"""`repo compare` intervals: every shift the sign-flip test does not reject (dokimi.eval.sign_flip)."""
 
 from __future__ import annotations
 
@@ -14,10 +14,11 @@ import random
 import pytest
 
 from dokimi.cli import build_parser
+from dokimi.eval import sign_flip
+from dokimi.eval.sign_flip import ShiftTest, sign_flip_interval, sign_flip_p
 from dokimi.eval.stats import mean_ci
-from dokimi.repos import compare, compare_interval
-from dokimi.repos.compare import sign_flip_summary, sign_flip_p
-from dokimi.repos.compare_interval import ShiftTest, format_interval, sign_flip_interval
+from dokimi.repos.compare import sign_flip_summary
+from dokimi.repos.compare_interval import format_interval
 
 from test_repo_compare import _cell
 
@@ -66,7 +67,7 @@ def _left_to_right(xs, start=0.0):
 @pytest.mark.parametrize("summed", [sum, _left_to_right], ids=["builtin", "left_to_right"])
 def test_an_end_is_bounded_at_deltas_too_large_to_move_by_one(monkeypatch, summed):
     # 1e16 + 1.0 == 1e16: a far bound 1 past the extreme tied every shifted delta and left the end open
-    monkeypatch.setattr(compare_interval, "sum", summed, raising=False)  # 3.11's sum() put 2e16's end at 2e16 + 4
+    monkeypatch.setattr(sign_flip, "sum", summed, raising=False)  # 3.11's sum() put 2e16's end at 2e16 + 4
     for v in (1e16, 1e150):  # finite measures go up to SCORE_BOUND, 1e150
         assert sign_flip_interval([v] * 6, sign_flip_p([v] * 6)) == (v, v)
         assert sign_flip_interval([-v] * 6, sign_flip_p([-v] * 6)) == (-v, -v)
@@ -81,7 +82,7 @@ def test_the_ends_are_the_same_whether_python_sums_compensated_or_left_to_right(
     ps = [sign_flip_p(d) for d in rows]
     ends = {}
     for name, summed in (("builtin", sum), ("compensated", math.fsum), ("left_to_right", _left_to_right)):
-        monkeypatch.setattr(compare_interval, "sum", summed, raising=False)
+        monkeypatch.setattr(sign_flip, "sum", summed, raising=False)
         ends[name] = [sign_flip_interval(d, p, rounded=False) for d, p in zip(rows, ps, strict=True)]
     assert ends["builtin"] == ends["compensated"] == ends["left_to_right"]
 
@@ -128,7 +129,7 @@ def test_p_at_zero_is_the_sign_flip_p_exact_and_monte_carlo():
 def test_the_row_p_places_zero_where_large_deltas_round_p_at_zero_apart(monkeypatch, summed, p, lo):
     # at 1e9 patterns tying the observed sum round apart: p(0) can read 0.047 against the printed 0.0625; the
     # printed p itself is sum()'s, 0.0625 compensated (3.12 on) and 0.047 left to right (3.11): 0 follows either
-    monkeypatch.setattr(compare, "sum", summed, raising=False)
+    monkeypatch.setattr(sign_flip, "sum", summed, raising=False)
     a, b, c = 1e9 + 1 / 3, 1e9 + 0.1, 2e9 + 0.2
     row = sign_flip_summary(_pairs([a, b, c, a, -b, a, b]))
     assert row["p"] == p and row["delta"]["lo"] == lo and row["interval_p_disagree"] is False
@@ -161,7 +162,7 @@ def test_the_ends_are_step_points_of_p():
 
 def test_monte_carlo_ends_are_the_same_on_every_call_and_follow_the_seed():
     first = sign_flip_interval(N_FINDINGS_26, sign_flip_p(N_FINDINGS_26))
-    compare_interval._draws.cache_clear()  # drawn afresh from the seed, not read back
+    sign_flip._draws.cache_clear()  # drawn afresh from the seed, not read back
     assert sign_flip_interval(N_FINDINGS_26, sign_flip_p(N_FINDINGS_26)) == first == (0.0588, 1.8182)
     # seed 1 draws a p of 0.05 or more: the interval then reaches 0, and the row still agrees with its p
     assert sign_flip_p(N_FINDINGS_26, seed=1) >= 0.05
@@ -170,8 +171,8 @@ def test_monte_carlo_ends_are_the_same_on_every_call_and_follow_the_seed():
 
 def test_rounding_keeps_an_end_on_its_side_of_zero():
     # which side of 0 an end is on is the row's verdict: 4 places must not move it onto 0
-    assert compare_interval._rounded(-3e-5) == -1e-4 and compare_interval._rounded(3e-5) == 1e-4
-    assert str(compare_interval._rounded(-0.0)) == "0.0" and compare_interval._rounded(0.123449) == 0.1234
+    assert sign_flip._rounded(-3e-5) == -1e-4 and sign_flip._rounded(3e-5) == 1e-4
+    assert str(sign_flip._rounded(-0.0)) == "0.0" and sign_flip._rounded(0.123449) == 0.1234
 
 
 def test_a_mean_rounded_to_zero_is_zero_not_negative_zero():

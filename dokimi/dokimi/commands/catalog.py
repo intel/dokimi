@@ -49,8 +49,9 @@ def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bo
         counts[row["state"]] += 1
         plain += is_plain_markdown(row)
         report["skills"].append(row)
-        # A load error always fails; a spec error fails only with --strict.
-        if not skill.loaded or (args.strict and row["state"] == "error"):
+        # A load error, or a SKILL.md the OS will not read, always fails; a spec error fails only with --strict.
+        unreadable = review is not None and any(f.code == "unreadable" for f in review.findings)
+        if not skill.loaded or unreadable or (args.strict and row["state"] == "error"):
             failed = True
     if not as_json:
         shown = f"{sum(counts.values())} of {len(skills)}" if only is not None else f"{len(skills)}"
@@ -140,6 +141,9 @@ def _check_scan_flags(args: argparse.Namespace) -> None:
     if "not-a-skill-no-frontmatter" in (args.ignore or ()):
         raise InputError("--ignore not-a-skill-no-frontmatter: a SKILL.md with no frontmatter does not load, "
                          "and a load error always fails; use --kind or a narrower --root to leave it out")
+    if "unreadable" in (args.ignore or ()):
+        # The whole-catalog exit reads the unfiltered findings, --per-skill the filtered rows: ignoring it splits them.
+        raise InputError("--ignore unreadable: a SKILL.md the OS will not read always fails the scan, as a load error does")
     if args.jsonl and args.format == "json":
         raise InputError("--jsonl writes one row per skill to a file; drop --format json")
     if args.resume and not args.jsonl:

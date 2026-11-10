@@ -270,6 +270,11 @@ the skill (and in its `findings` in JSON); the row's main line and its JSON
 `error` field say the frontmatter has invalid YAML, with the line, not that the
 skill is missing a `description`.
 
+A `SKILL.md` that loads but cannot be read during the scan (a permission error, or
+a name the OS refuses) is an `unreadable` error. It exits 1 with or without
+`--strict`, as `frontmatter-parse` does, and routing leaves that skill out, since
+its disable flag and digest are unknown.
+
 A `SKILL.md` with no frontmatter at all (it does not start with a `---` line) also
 stops the skill from loading, and its error says "no frontmatter". One whose
 `---` block is opened and never closed says "unclosed frontmatter". Neither says
@@ -332,7 +337,8 @@ A large catalog is easier to scan one skill at a time:
   they are not printed, and they do not set the state or the `--strict` exit. The
   codes are the `code` of each finding in the JSON output (`name-mismatch`,
   `description-no-when`, ...); an unknown code is a usage error. `frontmatter-parse`
-  is refused (a skill that does not load always fails), and so is `--kind tasks`.
+  is refused (a skill that does not load always fails), and so is `unreadable` (a
+  `SKILL.md` the OS will not read fails the scan too), and `--kind tasks`.
 - `--jsonl PATH` writes one JSON row per skill as it is reviewed and prints only
   the counts. `--jobs N` reviews N skills in parallel. `--resume` keeps the rows
   already in PATH and reviews only the skills without one (a half-written last
