@@ -532,3 +532,26 @@ def test_unreadable_input_is_a_usage_error_not_a_traceback(tmp_path, monkeypatch
                               out=None, fail_on=None)
     with pytest.raises(InputError, match="Permission denied"):  # cli.main turns it into exit 2
         repo_security.cmd_repo_security(args)
+
+
+def test_a_linked_cell_file_is_not_read_and_leaves_the_cell_unfinished(tmp_path):
+    host = tmp_path / "host.txt"
+    host.write_text(f"PASSWORD={CANARY} and more text", encoding="utf-8")
+    batch = tmp_path / "b"
+    _cell(batch, "t", BASE, 0, events=[_cmd("pytest")])
+    cell = _cell(batch, "t", "skill", 0, events=[_cmd("pytest")])
+    (cell / "answer.txt").unlink()
+    (cell / "answer.txt").symlink_to(host)
+    report = sec.scan_batch(batch, BASE, canaries=[CANARY])
+    (entry,) = report["coverage"]["unfinished"]
+    assert entry["cell"] == cell.name and "answer.txt is a symbolic link" in entry["reason"]
+    assert "canary-leak" not in {f["rule"] for f in entry["findings"]}
+
+
+def test_a_planned_name_outside_the_batch_is_an_error(tmp_path):
+    batch = tmp_path / "b"
+    _cell(batch, "t", BASE, 0, events=[_cmd("pytest")])
+    (batch / "_eval").mkdir()
+    (batch / "_eval" / "plan.json").write_text(json.dumps({"cells": ["../outside"]}), encoding="utf-8")
+    with pytest.raises(sec.SecurityError, match="inside the batch"):
+        sec.scan_batch(batch, BASE)
