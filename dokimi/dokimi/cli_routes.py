@@ -17,7 +17,10 @@ the section of the operation it will hold once the renames of #94 §4 land.
 from __future__ import annotations
 
 import shlex
+from collections.abc import Sequence
 from dataclasses import dataclass
+
+from dokimi.cli_flags import FLAG_MOVES
 
 SECTIONS: tuple[str, ...] = ("The loop", "Subjects", "Evals", "Analysis and data")
 
@@ -286,6 +289,25 @@ def moved_argv(
             continue
         return [*tomb.new, *tomb.flags, *argv[n:]]
     return None
+
+
+def moved_flags_argv(argv: Sequence[str]) -> list[str] | None:
+    """``argv`` with each moved spelling rewritten to its new one, or None when none moved."""
+    canon = _canonical(tuple(argv))
+    leaf = max((leaf.path for leaf in LEAVES if canon[: len(leaf.path)] == leaf.path),
+               key=len, default=())
+    rewritten = list(argv)
+    changed = False
+    for index, token in enumerate(rewritten):
+        if token == "--":  # the end of options: what follows is positional
+            break
+        name, equals, value = token.partition("=")
+        for move in FLAG_MOVES:
+            if name == move.old and (not move.leaves or leaf in move.leaves):
+                rewritten[index] = f"{move.new}{equals}{value}"
+                changed = True
+                break
+    return rewritten if changed else None
 
 
 def moved_text(argv: list[str]) -> str:

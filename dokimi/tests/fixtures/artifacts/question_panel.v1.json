@@ -1,0 +1,57 @@
+{
+  "schema_version": "question_panel.v1",
+  "library_name": "demo",
+  "total": 2,
+  "reviewed_at": "2026-11-01T00:00:00+00:00",
+  "questions": [
+    {
+      "question": "How do I cut task scheduling overhead?",
+      "panel_score": 80.0,
+      "std": 0.0,
+      "agreement_score": 1.0,
+      "recommendation": "keep",
+      "flags": [],
+      "needs_attention": false,
+      "votes": [
+        {
+          "reviewer": "domain_expert",
+          "scores": {
+            "technical_accuracy": 90.0,
+            "relevance": 80.0,
+            "depth": 70.0
+          },
+          "primary_score": 80.0,
+          "reasoning": "Specific to the library.",
+          "flags": [],
+          "error": null
+        }
+      ]
+    },
+    {
+      "question": "What is a thread?",
+      "panel_score": null,
+      "std": null,
+      "agreement_score": null,
+      "recommendation": "unknown",
+      "flags": [],
+      "needs_attention": false,
+      "votes": [
+        {
+          "reviewer": "domain_expert",
+          "scores": {},
+          "primary_score": null,
+          "reasoning": "",
+          "flags": [],
+          "error": "timeout"
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "keep": 1,
+    "revise": 0,
+    "drop": 0,
+    "mean_panel_score": 80.0,
+    "top_flags": []
+  }
+}

@@ -10,6 +10,7 @@ import argparse
 import contextlib
 import json
 import math
+import os
 import shutil
 import sys
 from pathlib import Path
@@ -18,21 +19,42 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from dokimi.repos.manifest import RepoManifest
 
+from dokimi import cli_flags
 from dokimi import docker_cmd
 from dokimi.repos.harness_profile import DELEGATION_MODES
+from dokimi.repos.source import SourceArgumentError
 from dokimi.utils import tree_digest
 from dokimi.utils import InputError
 
 
-def _context(args: argparse.Namespace, out: Path, pin: bool = False):
+def _refuse_typed(source, args: argparse.Namespace) -> None:
+    """Exit 2 for what the user typed: a pinned local path inside a repository, or a ``--manifest`` that leaves
+    an unpinned local tree as written. A path the tree supplies (a link out of it) fails later, with exit 1."""
+    from dokimi.repos.source import check_pinned_root
+
+    try:
+        check_pinned_root(source)
+    except SourceArgumentError as exc:
+        raise InputError(str(exc)) from exc
+    except ValueError as exc:  # SourceError: git cannot read the pinned path; or a prefix that is not UTF-8
+        print(f"✗ {exc}", file=sys.stderr)
+        sys.exit(1)
+    if args.manifest and not args.manifest_file and not source.remote and source.rev is None:
+        tree = Path(source.location).resolve()
+        if not Path(os.path.normpath(tree / args.manifest)).is_relative_to(tree):
+            raise InputError(f"path escapes the repository: {args.manifest}")
+
+
+def _context(args: argparse.Namespace, out: Path, source, pin: bool = False):
     """Source, manifest, exported eval dir, image and caches shared by `eval check` and `run`.
 
     With ``pin`` (a batch), the batch keeps the eval tree it started with: a later invocation
     from another revision would grade new cells with other graders, so it is refused. A working
     tree has no revision, so the batch is pinned to the digests of its eval dir and of the image
-    (whose tag is the build context's digest).
+    (whose tag is the build context's digest). ``source`` is the source as typed (``_parse_source``), already refused
+    by :func:`_refuse_typed` when the user mistyped it.
     """
-    from dokimi.repos import RepoSource, open_source
+    from dokimi.repos import open_source
     from dokimi.repos.container import DockerRunner
     from dokimi.repos.grading import EvalContext
     from dokimi.repos.graders import graders_digest
@@ -44,7 +66,6 @@ def _context(args: argparse.Namespace, out: Path, pin: bool = False):
 
     from .repo import _cache_dir, _load_manifest
 
-    source = RepoSource.parse(args.source)
     tree = open_source(source, _cache_dir(args))
     manifest = _load_manifest(tree, args)
     require_runnable(manifest)
@@ -172,9 +193,13 @@ def cmd_repo_tasks_check(args: argparse.Namespace) -> None:
     from dokimi.repos.selfcheck import run_check
     from dokimi.repos.workspace import load_tasks, parse_arm
 
+    from .repo import _parse_source
+
     out = Path(args.out).resolve()
+    source = _parse_source(args)
+    _refuse_typed(source, args)  # before the manifest, the image build and the tasks
     try:
-        ctx, _ = _context(args, out)
+        ctx, _ = _context(args, out, source)
         tasks = load_tasks(ctx.content_dir, ctx.manifest, args.task)
         arms = [a for spec in args.arm or () for a in spec.split(",") if a]
         check_arms([parse_arm(a) for a in arms], ctx.content_dir, tasks, ctx.git_dir, ctx.manifest.guidance_globs, ctx.manifest.id)  # skill paths exist, catalogs hold each expected_skill
@@ -208,6 +233,7 @@ def cmd_repo_tasks_replay(args: argparse.Namespace) -> None:
     from .repo import _cache_dir, _load_manifest, _parse_source
 
     source = _parse_source(args)
+    _refuse_typed(source, args)  # before the input files: a source refusal is not masked by an unreadable one
     try:
         prs = read_threads(Path(args.threads))
         prompt = Path(args.prompt_file).read_text(encoding="utf-8").strip() if args.prompt_file else DEFAULT_PROMPT
@@ -245,6 +271,7 @@ def cmd_repo_tasks_authoring(args: argparse.Namespace) -> None:
     from .repo import _cache_dir, _load_manifest, _parse_source
 
     source = _parse_source(args)
+    _refuse_typed(source, args)  # before the input files: a source refusal is not masked by an unreadable one
     try:
         prs = read_threads(Path(args.prs), "mergeCommit", "pull request file")
         text = Path(args.prompt_file).read_text(encoding="utf-8").strip() if args.prompt_file else DEFAULT_INSTRUCTION
@@ -283,7 +310,7 @@ def cmd_repo_run(args: argparse.Namespace) -> None:
 
 
 def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock: contextlib.ExitStack) -> None:
-    from dokimi.repos import RepoSource, open_source
+    from dokimi.repos import open_source
     from dokimi.repos.arms import check_arms
     from dokimi.repos.batch_ledger import pin_arms, pin_skills, write_skill_pin
     from dokimi.repos.bases import check_mcp_configs
@@ -294,18 +321,19 @@ def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock
     from dokimi.repos.selfcheck import ANCESTOR_NAMES, isolation_probe
     from dokimi.repos.workspace import load_tasks, parse_arm, source_git_dir
 
-    from .repo import _cache_dir
+    from .repo import _cache_dir, _parse_source
 
+    source = _parse_source(args)  # as typed, before the build and the pin: a usage error
+    _refuse_typed(source, args)  # before the arms and the harness
     try:
         parsed = [parse_arm(a) for a in arms]  # before the image build: a typo or an unreadable patch fails now
         profile = load_profile(args.harness)
         profile.tool_args(args.tools, args.delegation)  # a profile that cannot turn subagents off: refuse now
         harness_bin = _harness_bin(args.bin or profile.bin)
-        source = RepoSource.parse(args.source)  # a misspelled revision fails before the build and the pin too
         arms = pin_arms(parsed, source_git_dir(source, open_source(source, _cache_dir(args)), _cache_dir(args)),
                         args.source)
         lock.enter_context(batch_lock(batch_dir))  # before _context, which rewrites _eval/content
-        ctx, _ = _context(args, batch_dir, pin=True)
+        ctx, _ = _context(args, batch_dir, source, pin=True)
         tasks = load_tasks(ctx.content_dir, ctx.manifest, args.task)
         check_arms(arms, ctx.content_dir, tasks, ctx.git_dir, ctx.manifest.guidance_globs, ctx.manifest.id)  # skill paths exist, catalogs hold each expected_skill
         check_mcp_configs(ctx.git_dir, tasks, profile, args.tools)  # a malformed .mcp.json fails here, not in every cell
@@ -439,11 +467,21 @@ def _common(p: argparse.ArgumentParser, source_help: str, cache_help: str, posit
     p.add_argument("--cache-dir", default=None, dest="cache_dir", help=cache_help)
 
 
+_SOURCE_EXIT = (
+    "Exit 2 for a source that does not parse (a path that is not a directory, an unpinned remote) or a "
+    "pinned local path inside a repository (give its root); exit 1 for a source that cannot be opened "
+    "(clone, fetch, revision) and "
+)
+CHECK_EXIT = _SOURCE_EXIT + "for a task that fails the check."
+RUN_EXIT = _SOURCE_EXIT + "for a cell that crashed, a batch budget stop or an incomplete batch."
+
+
 def register(repo_sub, eval_sub, positive_int, source_help: str, cache_help: str) -> None:
     # eval check (#94 M1): the self-check that `repo tasks check` ran, now `eval check`
     check_p = eval_sub.add_parser(
         "check", help="Per task: grade on the untouched workspace must fail the gate, oracle then grade must "
-        "pass it (score-only: reach score.max), and the agent's container must not see tasks or source")
+        "pass it (score-only: reach score.max), and the agent's container must not see tasks or source",
+        description=CHECK_EXIT)
     _common(check_p, source_help, cache_help, positive_int)
     check_p.add_argument("--warm", action="store_true",
                          help="Run null and oracle with network to fill the caches before offline runs")
@@ -456,12 +494,12 @@ def register(repo_sub, eval_sub, positive_int, source_help: str, cache_help: str
                          "with --warm the host is judged too). Broken tasks, tasks that need egress "
                          "and tasks whose host probe failed still exit 1, and so does a check in "
                          "which no task is ok")
-    check_p.add_argument("--out", default="repo-check", help="Work directory (default: repo-check)")
+    cli_flags.add(check_p, "output", "--out-dir", dest="out", default="repo-check", help="Work directory (default: repo-check)")
     check_p.set_defaults(func=cmd_repo_tasks_check)
 
     run_p = repo_sub.add_parser(
         "run", help="Run an agent per (task, arm, model, rep) in the image and grade each run; one "
-        "result.json per cell, already finished cells skipped")
+        "result.json per cell, already finished cells skipped", description=RUN_EXIT)
     _common(run_p, source_help, cache_help, positive_int)
     run_p.add_argument("--arm", action="append", default=None, required=True,
                        help="guidance:none | guidance:raw | guidance:bridge | guidance:as-skill | "
@@ -477,7 +515,7 @@ def register(repo_sub, eval_sub, positive_int, source_help: str, cache_help: str
                        help="Model string passed to the harness as it is; repeatable")
     run_p.add_argument("--reps", type=positive_int, default=1)
     run_p.add_argument("--batch", required=True, help="Batch name: cells go to <out>/<batch>/")
-    run_p.add_argument("--out", default="repo-runs", help="Parent of batch directories (default: repo-runs)")
+    cli_flags.add(run_p, "output", "--out-dir", dest="out", default="repo-runs", help="Parent of batch directories (default: repo-runs)")
     run_p.add_argument("--harness", default="claude-code", help="Built-in profile name or profile YAML path")
     run_p.add_argument("--bin", default=None,
                        help="Harness executable on this host, mounted read-only into the agent's container "

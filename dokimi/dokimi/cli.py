@@ -159,7 +159,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     raw = list(sys.argv[1:] if argv is None else argv)
     moved = cli_routes.moved_argv(raw)
     if moved is not None:  # a tombstone: say where the command went, do not run anything
+        moved = cli_routes.moved_flags_argv(moved) or moved  # the moved flag too, in one step
         parser.exit(2, cli_routes.moved_text(moved) + "\n")
+    moved_flags = cli_routes.moved_flags_argv(raw)
+    if moved_flags is not None:  # a moved flag spelling: print the argv with the new one
+        parser.exit(2, cli_routes.moved_text(moved_flags) + "\n")
     args = parser.parse_args(raw)
     if getattr(args, "judge_model", None) is JUDGE_MODEL_FOR_PROVIDER:
         model = default_judge_model(args.judge_provider)

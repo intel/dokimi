@@ -1144,7 +1144,7 @@ def test_cli_prints_a_failed_preflight_as_one_line(tmp_path, monkeypatch):
     _task(tmp_path)
     args = build_parser().parse_args([
         "tasks", "run", "--tasks", "sb-task", "--tasks-root", str(tmp_path),
-        "--harnesses", "benchflow:oracle", "--output-dir", str(tmp_path / "runs"),
+        "--harnesses", "benchflow:oracle", "--out-dir", str(tmp_path / "runs"),
     ])
     with pytest.raises(SystemExit) as exc:
         args.func(args)
@@ -1167,7 +1167,7 @@ def _cwd_resolving_bench(result) -> _Bench:
 
 
 def test_relative_output_dir_still_finds_the_rollout(tmp_path, monkeypatch):
-    """The default --output-dir is relative; bench runs in the cell, so the jobs dir must be absolute."""
+    """The default --out-dir is relative; bench runs in the cell, so the jobs dir must be absolute."""
     task = load_task(_task(tmp_path))
     monkeypatch.chdir(tmp_path)
     seen = _cwd_resolving_bench(_RESULT)

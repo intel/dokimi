@@ -658,7 +658,7 @@ def test_sigterm_to_the_cli_kills_the_harness_and_its_helper(tmp_path):
     env = {**os.environ, "FAKE_MODE": "linger", "PYTHONPATH": str(Path(__file__).resolve().parents[1])}
     cli = subprocess.Popen([sys.executable, "-m", "dokimi", "repo", "reach", str(root),
                             "--manifest", "evals/repo-eval.yaml", "--harness", str(profile), "--model", "m",
-                            "--out", str(tmp_path / "out"), "--work-dir", str(work), "--scenarios", "root",
+                            "--out-dir", str(tmp_path / "out"), "--work-dir", str(work), "--scenarios", "root",
                             "--timeout", "120"], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
     pid_file = tmp_path / "linger.pids"
     pids: list[int] = []
@@ -707,7 +707,7 @@ def test_repo_reach_cli_manifest_file_and_a_failed_scenario(tmp_path, monkeypatc
 
     monkeypatch.setenv("FAKE_MODE", "crash")
     (tmp_path / "work").mkdir()
-    args = build_parser().parse_args([*base, "--out", str(tmp_path / "o"), "--work-dir", str(tmp_path / "work"),
+    args = build_parser().parse_args([*base, "--out-dir", str(tmp_path / "o"), "--work-dir", str(tmp_path / "work"),
                                       "--scenarios", "root"])
     with refusal() as exc:
         args.func(args)
@@ -729,7 +729,7 @@ def test_repo_reach_cli_dry_run_and_run(tmp_path, monkeypatch, capsys):
     work = tmp_path / "work"
     work.mkdir()
     out = tmp_path / "o"
-    args = build_parser().parse_args([*base, "--out", str(out), "--work-dir", str(work),
+    args = build_parser().parse_args([*base, "--out-dir", str(out), "--work-dir", str(work),
                                       "--scenarios", "root,read"])
     args.func(args)
     text = capsys.readouterr().out
