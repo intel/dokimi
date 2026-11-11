@@ -230,6 +230,28 @@ def test_a_windows_manifest_path_leaving_an_unpinned_tree_is_refused_as_typed(tm
     repo_run._refuse_typed(source, SimpleNamespace(manifest="sub\\..\\ok.yaml", manifest_file=None))
 
 
+def test_a_windows_drive_manifest_that_passes_the_tree_path_check_is_refused_by_the_native_check(tmp_path, monkeypatch):
+    import ntpath
+    from pathlib import PurePath
+    from types import SimpleNamespace
+
+    from dokimi.commands import repo_run
+    from dokimi.utils import InputError
+
+    source = SimpleNamespace(location=str(tmp_path), remote=False, rev=None, subdir=None)
+
+    def normpath(path):
+        if isinstance(path, PurePath):  # `tree / "D:\\other\\x.yaml"` on Windows is the drive path itself
+            return "/elsewhere/x.yaml"
+        return ntpath.normpath(path)
+
+    monkeypatch.setattr(repo_run, "os", SimpleNamespace(path=SimpleNamespace(normpath=normpath, sep="\\")))
+    # `D:/other/x.yaml` is not absolute for the `/` check on the tree path, so only the native one refuses it.
+    with pytest.raises(InputError) as raised:
+        repo_run._refuse_typed(source, SimpleNamespace(manifest="D:\\other\\x.yaml", manifest_file=None))
+    assert str(raised.value) == "path escapes the repository: D:\\other\\x.yaml"
+
+
 def test_a_windows_manifest_path_leaving_a_pinned_tree_is_refused_as_typed(monkeypatch):
     import ntpath
     from types import SimpleNamespace
