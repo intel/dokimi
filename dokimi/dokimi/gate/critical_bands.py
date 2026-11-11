@@ -6,35 +6,8 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
 
-
-@dataclass
-class BandViolation:
-    """Single critical band violation."""
-
-    condition: str
-    threshold: float
-    actual: float
-    violated: bool
-
-
-@dataclass
-class CriticalBandsResult:
-    """Critical bands check result."""
-
-    enabled: bool
-    violations: list[BandViolation]
-
-    @property
-    def passed(self) -> bool:
-        """True if no violations."""
-        return not self.has_violations
-
-    @property
-    def has_violations(self) -> bool:
-        """Any critical band violated."""
-        return any(v.violated for v in self.violations)
+from dokimi.gate.verdict import Check, Verdict
 
 
 def _metric(summary: dict, key: str, condition: str) -> float:
@@ -50,17 +23,30 @@ def _below(actual: float, threshold: float) -> bool:
     return math.isnan(actual) or actual < threshold
 
 
-def check_critical_bands(summary: dict, spec: dict) -> CriticalBandsResult:
+def _band_check(condition: str, threshold: float, actual: float, violated: bool) -> Check:
+    """One band as a fail-severity check: it passes unless the metric is strictly below the threshold."""
+    return Check(
+        name=condition,
+        passed=not violated,
+        value=actual,
+        threshold=threshold,
+        message=f"{condition}: {actual:.4f} against the band {threshold:.4f}",
+        severity="fail",
+    )
+
+
+def check_critical_bands(summary: dict, spec: dict) -> Verdict:
     """Check if summary violates any critical bands.
-    
-    Returns CriticalBandsResult. Caller decides whether to exit.
+
+    Returns a Verdict with one check per band, named by its condition: ``passed`` is False for a violated
+    band, and ``failures`` lists the violations. Caller decides whether to exit.
     Raises ValueError on unknown conditions (fail-fast on spec typos).
     """
     bands = spec.get("critical_bands", {}).get("fail_on", [])
     if not bands:
-        return CriticalBandsResult(enabled=False, violations=[])
+        return Verdict(enabled=False)
 
-    violations: list[BandViolation] = []
+    checks: list[Check] = []
     known_conditions = {"score_below", "coverage_below", "freshness_below", "readability_below"}
 
     for band in bands:
@@ -78,18 +64,18 @@ def check_critical_bands(summary: dict, spec: dict) -> CriticalBandsResult:
         if condition == "score_below":
             actual = _metric(summary, "score", "score_below")
             violated = _below(actual, threshold)
-            violations.append(BandViolation(condition, threshold, actual, violated))
+            checks.append(_band_check(condition, threshold, actual, violated))
         elif condition == "coverage_below":
             actual = _metric(summary, "coverage", "coverage_below")
             violated = _below(actual, threshold)
-            violations.append(BandViolation(condition, threshold, actual, violated))
+            checks.append(_band_check(condition, threshold, actual, violated))
         elif condition == "freshness_below":
             actual = _metric(summary, "freshness_lite", "freshness_below")
             violated = _below(actual, threshold)
-            violations.append(BandViolation(condition, threshold, actual, violated))
+            checks.append(_band_check(condition, threshold, actual, violated))
         elif condition == "readability_below":
             actual = _metric(summary, "readability", "readability_below")
             violated = _below(actual, threshold)
-            violations.append(BandViolation(condition, threshold, actual, violated))
+            checks.append(_band_check(condition, threshold, actual, violated))
 
-    return CriticalBandsResult(enabled=True, violations=violations)
+    return Verdict(checks=checks)

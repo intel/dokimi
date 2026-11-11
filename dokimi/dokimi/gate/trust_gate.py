@@ -12,9 +12,9 @@ Designed to be called from the report generator; no side-effects.
 from __future__ import annotations
 
 import statistics
-from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, List, Optional
 
+from dokimi.gate.verdict import Check, Verdict
 from dokimi.records import BASELINE, CONTEXT, Record, RecordLike, records
 
 
@@ -45,56 +45,7 @@ DEFAULTS = {
 }
 
 
-@dataclass
-class TrustCheck:
-    """Result of a single trust check."""
-
-    name: str
-    passed: bool
-    value: Any
-    threshold: Any
-    message: str
-    severity: str = "warn"  # "fail" | "warn" | "info"
-    #: False when the artifact does not carry the check's input. Such a check
-    #: passes (it cannot block or warn) but is rendered as not measured, never as
-    #: a pass — as in ``novelty_gate``.
-    measured: bool = True
-
-
-@dataclass
-class TrustVerdict:
-    """Aggregate trust verdict for a run."""
-
-    checks: List[TrustCheck] = field(default_factory=list)
-    multirun_std: Optional[float] = None
-
-    @property
-    def is_trusted(self) -> bool:
-        return all(c.passed for c in self.checks if c.severity == "fail")
-
-    @property
-    def warnings(self) -> List[TrustCheck]:
-        return [c for c in self.checks if not c.passed and c.severity == "warn"]
-
-    @property
-    def failures(self) -> List[TrustCheck]:
-        return [c for c in self.checks if not c.passed and c.severity == "fail"]
-
-    @property
-    def not_measured(self) -> List[str]:
-        """Checks whose input this run did not produce; they pass without having been run."""
-        return [c.name for c in self.checks if not c.measured]
-
-    @property
-    def status(self) -> str:
-        if self.failures:
-            return "❌ FAIL"
-        if self.warnings:
-            return "⚠️ WARN"
-        return "✅ PASS"
-
-
-def _retrieval_check(every: List[Record], cfg: Dict[str, Any]) -> TrustCheck:
+def _retrieval_check(every: List[Record], cfg: Dict[str, Any]) -> Check:
     """The retrieval hit rate over every evaluation, ``measured=False`` when it cannot be read.
 
     A question "hit" retrieval when at least one document reached the
@@ -110,7 +61,7 @@ def _retrieval_check(every: List[Record], cfg: Dict[str, Any]) -> TrustCheck:
     # A legacy judge-error row has no retrieval_hit: left out of the count, as before.
     n_all = sum(1 for r in every if not (r.error is not None and r.retrieval_hit is None))
     if measured and len(measured) / n_all < cfg["min_retrieval_coverage"]:
-        return TrustCheck(
+        return Check(
             name="retrieval_hit_rate",
             passed=True,
             value=None,
@@ -127,7 +78,7 @@ def _retrieval_check(every: List[Record], cfg: Dict[str, Any]) -> TrustCheck:
         retrieval_hits = sum(measured)
         hit_rate = retrieval_hits / len(measured)
         coverage = "" if len(measured) == n_all else f"; {n_all - len(measured)} unrecorded"
-        return TrustCheck(
+        return Check(
             name="retrieval_hit_rate",
             passed=hit_rate >= cfg["min_retrieval_hit_rate"],
             value=round(hit_rate, 3),
@@ -138,7 +89,7 @@ def _retrieval_check(every: List[Record], cfg: Dict[str, Any]) -> TrustCheck:
             ),
             severity="warn",
         )
-    return TrustCheck(
+    return Check(
         name="retrieval_hit_rate",
         passed=True,
         value=None,
@@ -153,7 +104,7 @@ def evaluate_trust(
     evaluations: Iterable[RecordLike],
     thresholds: Optional[Dict[str, Any]] = None,
     multirun_with_averages: Optional[List[float]] = None,
-) -> TrustVerdict:
+) -> Verdict:
     """
     Compute trust verdict from a list of evaluation records.
 
@@ -164,10 +115,10 @@ def evaluate_trust(
         multirun_with_averages:  Per-run context-arm averages from N-run mode;
                                  if provided, variance check is included.
     Returns:
-        TrustVerdict
+        Verdict
     """
     cfg = {**DEFAULTS, **(thresholds or {})}
-    checks: List[TrustCheck] = []
+    checks: List[Check] = []
 
     # Parsed once: ``evaluations`` may be a one-shot iterable.
     every = records(evaluations, kind="evaluations")
@@ -181,7 +132,7 @@ def evaluate_trust(
 
     # ── 1. Minimum question count ──────────────────────────────────────────
     n = len(valid)
-    checks.append(TrustCheck(
+    checks.append(Check(
         name="min_questions",
         passed=n >= cfg["min_questions"],
         value=n,
@@ -194,7 +145,7 @@ def evaluate_trust(
         # retrieval rate is still known, and it is the cause, so it goes beside the count.
         if any(r.retrieval_hit is not None for r in every):
             checks.append(_retrieval_check(every, cfg))
-        return TrustVerdict(checks=checks)  # can't compute anything else
+        return Verdict(checks=checks)  # can't compute anything else
 
     # ── 2. Zero-score fraction ─────────────────────────────────────────────
     # Misses count as unusable, judge-error misses too (by their error field): else many misses would pass.
@@ -206,7 +157,7 @@ def evaluate_trust(
     zero_with = sum(1 for v in with_scores if v == 0) + len(unjudged_misses)
     unusable_n = n + len(unjudged_misses)
     zero_frac = zero_with / unusable_n
-    checks.append(TrustCheck(
+    checks.append(Check(
         name="zero_score_fraction",
         passed=zero_frac <= cfg["max_zero_fraction"],
         value=round(zero_frac, 3),
@@ -220,7 +171,7 @@ def evaluate_trust(
 
     # ── 3. Minimum context-arm average ────────────────────────────────────
     with_avg = statistics.mean(with_scores)
-    checks.append(TrustCheck(
+    checks.append(Check(
         name="min_with_docs_avg",
         passed=with_avg >= cfg["min_with_docs_avg"],
         value=round(with_avg, 1),
@@ -231,7 +182,7 @@ def evaluate_trust(
 
     # ── 4. Minimum delta (context arm minus baseline) ─────────────────────
     delta_avg = statistics.mean(with_scores) - statistics.mean(without_scores)
-    checks.append(TrustCheck(
+    checks.append(Check(
         name="min_delta",
         passed=delta_avg >= cfg["min_delta"],
         value=round(delta_avg, 1),
@@ -243,7 +194,7 @@ def evaluate_trust(
     # ── 5. Score coefficient of variation (stability) ─────────────────────
     with_std = statistics.stdev(with_scores) if len(with_scores) > 1 else 0.0
     cv = (with_std / with_avg) if with_avg > 0 else 1.0
-    checks.append(TrustCheck(
+    checks.append(Check(
         name="score_cv",
         passed=cv <= cfg["max_cv"],
         value=round(cv, 3),
@@ -256,7 +207,7 @@ def evaluate_trust(
     agreement_scores = [a for r in valid if (a := r.scores[CONTEXT].agreement) is not None]
     if agreement_scores:
         mean_agree = statistics.mean(agreement_scores)
-        checks.append(TrustCheck(
+        checks.append(Check(
             name="inter_rater_agreement",
             passed=mean_agree >= cfg["min_agreement"],
             value=round(mean_agree, 3),
@@ -272,7 +223,7 @@ def evaluate_trust(
     multirun_std = None
     if multirun_with_averages and len(multirun_with_averages) >= 2:
         multirun_std = statistics.stdev(multirun_with_averages)
-        checks.append(TrustCheck(
+        checks.append(Check(
             name="multirun_variance",
             passed=multirun_std <= cfg["max_multirun_std"],
             value=round(multirun_std, 2),
@@ -284,15 +235,28 @@ def evaluate_trust(
             severity="fail",
         ))
 
-    return TrustVerdict(checks=checks, multirun_std=multirun_std)
+    return Verdict(checks=checks, multirun_std=multirun_std)
 
 
-def format_trust_block(verdict: TrustVerdict) -> str:
+_STATUS_LABEL = {
+    "FAIL": "❌ FAIL",
+    "WARN": "⚠️ WARN",
+    "PASS": "✅ PASS",
+    "NOT MEASURED": "➖ NOT MEASURED",
+}
+
+
+def trust_label(verdict: Verdict) -> str:
+    """The verdict's status with the icon a trust report shows it under (the report JSON's ``verdict``)."""
+    return _STATUS_LABEL[verdict.status]
+
+
+def format_trust_block(verdict: Verdict) -> str:
     """Render the '## Can We Trust This Run?' markdown block."""
     lines = [
         "## Can We Trust This Run?",
         "",
-        f"**Verdict: {verdict.status}**"
+        f"**Verdict: {trust_label(verdict)}**"
         + (f" ({len(verdict.not_measured)} of {len(verdict.checks)} not measured)"
            if verdict.not_measured else ""),
         "",
