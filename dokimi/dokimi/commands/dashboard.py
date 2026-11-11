@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+from dokimi import cli_flags
 from dokimi.utils import InputError
 
 
@@ -58,7 +59,7 @@ def register(sub, positive_int) -> None:
     dash_gen_p = dashboard_sub.add_parser("generate", help="Generate Markdown + JSON dashboard")
     dash_gen_p.add_argument("--results-dir", default="results", dest="results_dir",
                             help="Directory with evaluation results (default: results/)")
-    dash_gen_p.add_argument("--output-dir", default=".", dest="output_dir",
+    cli_flags.add(dash_gen_p, "output", "--out-dir", default=".", dest="output_dir",
                             help="Where to write DASHBOARD.md + dashboard.json (default: .)")
     dash_gen_p.add_argument("--top-n", type=positive_int, default=5, dest="top_n",
                             help="Bad questions to show per product (default: 5)")

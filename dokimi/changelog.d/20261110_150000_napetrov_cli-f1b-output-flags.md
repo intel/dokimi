@@ -1,0 +1,3 @@
+### Changed
+
+- **Output flags: one spelling for JSON paths and directories.** `--out-json` is now `--out` on `arms run`, `arms matrix-run`, `arms plugin-delta`, `docs check`, `docs compare`, `explore run`, `subjects run`, `tasks run`, `tools preference` and `skill novelty analyze`. `--output-dir` is now `--out-dir` on `benchmark run|preflight|batch`, `dashboard generate`, `evaluate`, `explore run` and `tasks run`. On `repo run`, `repo reach`, `repo skill-reach`, `eval check` and `eval tasks generate` the directory `--out` is now `--out-dir`, because `--out` names a file everywhere else. The old spellings print the new command and exit 2, so scripts and CI that pass them must change the flag. `--out-md` is unchanged.
