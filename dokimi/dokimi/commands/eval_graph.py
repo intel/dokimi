@@ -16,7 +16,7 @@ import os
 import sys
 from pathlib import Path
 
-from dokimi.exit_codes import EXIT_FAILURE, EXIT_USAGE
+from dokimi.exit_codes import EXIT_FAILURE
 from dokimi.utils import InputError
 
 
@@ -25,22 +25,30 @@ def _frozen(out: Path) -> InputError:
 
 
 def _publish(graph: dict, out: Path) -> None:
-    """Validate and write ``graph`` to a staged sibling, then hard-link it to ``out``.
+    """Validate and write ``graph`` to a staged sibling, then publish it without replacing ``out``.
 
     ``os.link`` fails when ``out`` exists, so a file that appeared during the model call
-    (another run, an editor) is refused rather than replaced.
+    (another run, an editor) is refused rather than replaced. A filesystem with no hard
+    links (vfat, some SMB and FUSE mounts) gets an ``O_EXCL`` create of the same bytes.
     """
     from dokimi.artifacts import save_artifact
 
     staged = out.with_name(f".{out.name}.{os.getpid()}.staged")
     try:
         save_artifact("need_graph", graph, staged)
-        os.link(staged, out)
+        try:
+            os.link(staged, out)
+        except FileExistsError:
+            raise
+        except OSError:
+            payload = staged.read_bytes()
+            fd = os.open(out, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
+            with os.fdopen(fd, "wb") as handle:
+                handle.write(payload)
     except FileExistsError:
         raise _frozen(out) from None
     except OSError as exc:
-        print(f"Error: cannot write {out}: {exc.strerror or exc}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError(f"cannot write {out}: {exc.strerror or exc}") from exc
     finally:
         staged.unlink(missing_ok=True)
 
@@ -59,13 +67,20 @@ def cmd_eval_graph(args: argparse.Namespace) -> None:
         raise InputError(f"cannot stat {out}: {exc.strerror or exc}") from exc
     if present:
         raise _frozen(out)
-    parent = out.parent if str(out.parent) else Path(".")
-    if not (parent.is_dir() and os.access(parent, os.W_OK | os.X_OK)):
-        raise InputError(f"cannot write to {parent}: checked before the paid call")  # not after it
+    try:  # before the paid call, not after it: a missing directory is made, as save_artifact does
+        out.parent.mkdir(parents=True, exist_ok=True)
+        writable = os.access(out.parent, os.W_OK | os.X_OK)
+    except OSError as exc:
+        raise InputError(f"cannot write to {out.parent}: {exc.strerror or exc}") from exc
+    if not writable:
+        raise InputError(f"cannot write to {out.parent}: checked before the paid call")
     _kind, name, description, _frontmatter, _body = load_artifact_ref(_as_skill(args.skill))
     if not description.strip():
         raise InputError(f"{args.skill} has no description to build a need graph from")
+    from dokimi.llm import PROVIDER_ALIASES
+
     provider, model = args.extract_model
+    provider = PROVIDER_ALIASES.get(provider, provider)  # provenance records gemini/x as google-vertex/x
     client = LLMClient(model=model, provider=provider, role="graph", cap=spend_cap(args))
     try:
         graph = build_need_graph(name, description, client=client, strict=True)

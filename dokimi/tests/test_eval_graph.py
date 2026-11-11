@@ -175,12 +175,20 @@ def test_a_symlink_at_out_is_refused(tmp_path, monkeypatch, capsys):
     assert result.returncode == 2 and "frozen" in result.stderr and prompts == []
 
 
-def test_an_unwritable_out_dir_is_refused_before_the_paid_call(tmp_path, monkeypatch, capsys):
+def test_a_missing_out_dir_is_made_and_an_unwritable_one_refused_before_the_call(tmp_path, monkeypatch, capsys):
     prompts = _stub(monkeypatch, REPLY)
+    skill = _skill(tmp_path)
 
-    result = _run(capsys, str(_skill(tmp_path)), "--out", str(tmp_path / "nope" / "g.json"))
+    made = _run(capsys, str(skill), "--out", str(tmp_path / "new" / "g.json"))
+    assert made.returncode == 0 and (tmp_path / "new" / "g.json").is_file()
 
-    assert result.returncode == 2 and "before the paid call" in result.stderr and prompts == []
+    locked = tmp_path / "locked"
+    locked.mkdir(mode=0o500)
+    try:
+        refused = _run(capsys, str(skill), "--out", str(locked / "g.json"))
+    finally:
+        locked.chmod(0o700)
+    assert refused.returncode == 2 and "cannot write to" in refused.stderr and len(prompts) == 1
 
 
 
@@ -190,3 +198,37 @@ def test_prompt_version_changes_with_the_prompt():
     assert PROMPT_VERSION == _prompt_version(_GRAPH_SYSTEM, _GRAPH_PROMPT)
     assert _prompt_version(_GRAPH_SYSTEM, _GRAPH_PROMPT + " ") != PROMPT_VERSION
     assert _prompt_version("a", "bc") != _prompt_version("ab", "c")
+
+
+def test_no_hard_links_falls_back_to_an_exclusive_create(tmp_path, monkeypatch, capsys):
+    import os
+
+    _stub(monkeypatch, REPLY)
+
+    def no_links(src, dst):
+        raise PermissionError(1, "Operation not permitted")  # vfat, SMB
+
+    monkeypatch.setattr(os, "link", no_links)
+    out = tmp_path / "g.json"
+
+    result = _run(capsys, str(_skill(tmp_path)), "--out", str(out), "--extract-model", "gemini/x")
+
+    assert result.returncode == 0, result.stderr
+    assert load_artifact("need_graph", out)["provenance"]["model"] == "google-vertex/x"
+    assert [p.name for p in tmp_path.iterdir() if p.name.endswith(".staged")] == []
+
+
+def test_a_failed_write_exits_2_and_leaves_no_staged_file(tmp_path, monkeypatch, capsys):
+    from dokimi import artifacts
+
+    _stub(monkeypatch, REPLY)
+
+    def full(*a, **k):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(artifacts, "save_artifact", full)
+
+    result = _run(capsys, str(_skill(tmp_path)), "--out", str(tmp_path / "g.json"))
+
+    assert result.returncode == 2 and "cannot write" in result.stderr and "No space" in result.stderr
+    assert not (tmp_path / "g.json").exists()
