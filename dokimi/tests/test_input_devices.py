@@ -109,7 +109,7 @@ def test_personas_validate_refuses_a_device(monkeypatch, capsys):
 
 def test_evaluate_refuses_a_device_as_custom_questions(monkeypatch, tmp_path, capsys):
     assert _main(monkeypatch, "evaluate", "--product", "Demo", "--description", "d",
-                 "--output-dir", str(tmp_path / "out"), "--custom-questions", DEVICE) == 2
+                 "--out-dir", str(tmp_path / "out"), "--custom-questions", DEVICE) == 2
     assert "Error: --custom-questions /dev/null: not a file" in capsys.readouterr().err
 
 
@@ -134,7 +134,7 @@ def test_benchmark_refuses_a_device_as_questions_from_with_its_own_message(monke
     monkeypatch.setattr("dokimi.mcp.factory.create_doc_source_client", lambda doc_source: object())
     monkeypatch.setattr(benchmark, "_run_single_library", lambda *a, **k: pytest.fail("the run started"))
     assert _main(monkeypatch, "benchmark", command, "--library", "onetbb", "--doc-source", "local:docs",
-                 "--provider", "openai", "--judge-provider", "openai", "--output-dir", str(tmp_path / "out"),
+                 "--provider", "openai", "--judge-provider", "openai", "--out-dir", str(tmp_path / "out"),
                  "--questions-from", DEVICE) == 2
     err = capsys.readouterr().err
     assert "--questions-from /dev/null: not a file" in err

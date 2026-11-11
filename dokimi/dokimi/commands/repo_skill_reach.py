@@ -12,6 +12,7 @@ import sys
 import tempfile
 from pathlib import Path
 
+from dokimi import cli_flags
 from dokimi.utils import InputError
 
 DEFAULT_BUDGET = 0.10  # USD per scenario, for a harness whose invoke passes {budget}
@@ -58,7 +59,7 @@ def cmd_repo_skill_reach(args: argparse.Namespace) -> None:
     spend = f"at most ${budget:g} each" if capped else "no spend cap (the timeout bounds each run)"
     print(f"{len(selected)} cases, {len(scenario_ids(selected))} scenarios, {spend}", file=sys.stderr)
     out_dir = Path(args.out)
-    try:  # the run and the artifact: a missing work dir or an unwritable --out is a diagnostic, not a traceback
+    try:  # the run and the artifact: a missing work dir or an unwritable --out-dir is a diagnostic, not a traceback
         payload = run_skill_reach(
             profile=profile, model=args.model, out_dir=out_dir, cases=selected,
             catalogue=Path(args.catalogue) if args.catalogue else None, catalogue_sha256=digest, bin_path=args.bin,
@@ -77,7 +78,7 @@ def cmd_repo_skill_reach(args: argparse.Namespace) -> None:
 
 def _refuse_what_a_run_would_refuse(args: argparse.Namespace, profile, selected: list) -> None:
     """What a run refuses before it places anything, checked before a dry run too (so both refuse the same
-    inputs); --out is checked for a run only, since a dry run writes nothing."""
+    inputs); --out-dir is checked for a run only, since a dry run writes nothing."""
     from dokimi.repos.skill_reach import SkillReachError, check_profile, check_skill_ancestors, resolve_at, skill_dirs
 
     check_profile(profile)
@@ -95,7 +96,7 @@ def _refuse_what_a_run_would_refuse(args: argparse.Namespace, profile, selected:
     while not existing.exists() and existing != existing.parent:
         existing = existing.parent
     if not existing.is_dir():
-        raise SkillReachError(f"--out {args.out}: {existing} is not a directory")
+        raise SkillReachError(f"--out-dir {args.out}: {existing} is not a directory")
 
 
 def add_skill_reach_parser(repo_sub, positive_int) -> None:
@@ -114,7 +115,7 @@ def add_skill_reach_parser(repo_sub, positive_int) -> None:
     skill_p.add_argument("--only", action="append", default=None, metavar="CASE",
                          help="Place only this case id; repeatable")
     skill_p.add_argument("--bin", default=None, help="Harness executable (default: the profile's `bin`)")
-    skill_p.add_argument("--out", default="skill-reach-out",
+    cli_flags.add(skill_p, "output", "--out-dir", dest="out", default="skill-reach-out",
                          help="Output directory: skill-discovery.json and skill-traces/")
     skill_p.add_argument("--work-dir", default=None, dest="work_dir",
                          help="Parent of the temporary fixture (default: the system temp dir). No ancestor may "

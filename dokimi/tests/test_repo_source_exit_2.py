@@ -35,10 +35,10 @@ def _command(name, source, tmp_path):
     prs.write_text(PRS, encoding="utf-8")
     out = str(tmp_path / "out")
     return {
-        "check": ["eval", "check", source, "--out", out],
-        "run": ["repo", "run", source, "--batch", "b", "--out", out, "--arm", "guidance:none", "--model", "m", "--bin", sys.executable],
-        "replay": ["eval", "tasks", "generate", source, "--from", "replay", "--threads", str(prs), "--out", out],
-        "prs": ["eval", "tasks", "generate", source, "--from", "prs", "--prs", str(prs), "--out", out],
+        "check": ["eval", "check", source, "--out-dir", out],
+        "run": ["repo", "run", source, "--batch", "b", "--out-dir", out, "--arm", "guidance:none", "--model", "m", "--bin", sys.executable],
+        "replay": ["eval", "tasks", "generate", source, "--from", "replay", "--threads", str(prs), "--out-dir", out],
+        "prs": ["eval", "tasks", "generate", source, "--from", "prs", "--prs", str(prs), "--out-dir", out],
     }[name]
 
 
@@ -88,7 +88,7 @@ def test_pinned_subdirectory_is_refused_before_the_input_files_are_read(flag, ex
     source = f"{repo / 'sub'}@{sha}"
     out = str(tmp_path / "out")
     kind = "replay" if flag == "--threads" else "prs"
-    argv = ["eval", "tasks", "generate", source, "--from", kind, flag, str(tmp_path / "missing.json"), "--out", out]
+    argv = ["eval", "tasks", "generate", source, "--from", kind, flag, str(tmp_path / "missing.json"), "--out-dir", out]
     if extra == "empty prompt":
         (tmp_path / "prs.json").write_text(PRS, encoding="utf-8")
         argv[argv.index(str(tmp_path / "missing.json"))] = str(tmp_path / "prs.json")
