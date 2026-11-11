@@ -311,14 +311,16 @@ def test_every_tier_controlled_flag_is_read_through_the_resolver():
     import ast
 
     from dokimi.commands import novelty as novelty_cmd
+    from dokimi.novelty import cost
 
-    source = Path(novelty_cmd.__file__).read_text(encoding="utf-8")
-    tree = ast.parse(source)
+    # The role clients and cap moved to novelty/cost.py: a flag read there is the same CLI path.
     direct = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) \
-           and node.value.id == "args" and node.attr in FLAG_DEFAULTS:
-            direct.add(node.attr)
+    for module in (novelty_cmd, cost):
+        tree = ast.parse(Path(module.__file__).read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) \
+               and node.value.id == "args" and node.attr in FLAG_DEFAULTS:
+                direct.add(node.attr)
     assert sorted(direct) == []
 
 
