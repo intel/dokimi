@@ -587,6 +587,16 @@ def test_a_redirect_with_no_location_is_an_answer_not_a_crash(tmp_path):
     assert _codes(review) == []
 
 
+def test_anchors_of_one_page_are_one_request_and_one_finding(tmp_path):
+    body = " ".join(f"https://docs.example-tool.dev/guide#s{i}" for i in range(25))
+    root = _one_skill(tmp_path, body + "\n")
+    web = Web({"https://docs.example-tool.dev/guide": 404})
+
+    [review] = _reviews(root, web)
+    assert _codes(review) == ["link-dead"]
+    assert web.requests == [("HEAD", "https://docs.example-tool.dev/guide"), ("GET", "https://docs.example-tool.dev/guide")]
+
+
 def test_head_refused_but_get_working_is_not_dead(tmp_path):
     url = "https://docs.example-tool.dev/head-refused"
     root = _one_skill(tmp_path, f"See {url}\n")

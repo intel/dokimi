@@ -470,6 +470,8 @@ def _distinct_urls(body: str) -> tuple[list[str], list[str]]:
         destination = m.start() in literal or m.start() - 1 in literal  # also "](<url>)", which starts after "<"
         autolink = m.start() > 0 and body[m.start() - 1] == "<" and body[m.end():m.end() + 1] == ">"
         url = _clean_url(m.group(), literal=destination or autolink, decode=destination)
+        if url is not None:
+            url = url.partition("#")[0]  # the fragment is never sent: anchors of one page are one request
         if url is not None and not _placeholder_url(url):
             urls.setdefault(url)
     return list(urls)[:MAX_URLS_PER_SKILL], list(urls)[MAX_URLS_PER_SKILL:]
