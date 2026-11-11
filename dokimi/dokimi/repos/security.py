@@ -73,8 +73,9 @@ _PIP_URL_OPTS = r"-i|-f|--index-url|--extra-index-url|--find-links"
 
 #: Rules over a command line, from the tool-call trace or the execve log.
 COMMAND_RULES: tuple[Rule, ...] = (
+    # the tool may be named by its path (`/usr/bin/sudo`, as an execve log shows it)
     Rule("privilege-escalation", "high", "sudo / su / doas / pkexec",
-         _rx(r"(?:^|[\s;&|(`])(?:sudo|doas|pkexec)\b|(?:^|[\s;&|(`])su\s+(?:-|root\b)")),
+         _rx(r"(?:^|[\s;&|(`])(?:\S*/)?(?:sudo|doas|pkexec)\b|(?:^|[\s;&|(`])(?:\S*/)?su\s+(?:-|root\b)")),
     Rule("world-writable", "medium", "chmod 777 / a+rwx",
          _rx(r"\bchmod\s+(?:-\S+\s+)*(?:0?777|a\+rwx|ugo\+rwx)\b")),
     Rule("pipe-to-shell", "high", "download piped into a shell",

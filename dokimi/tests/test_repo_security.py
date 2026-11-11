@@ -457,3 +457,8 @@ def test_overlapping_canaries_are_both_redacted():
     a, b = "PLANTED-ONE-OVERLAP", "OVERLAP-TWO-SECRETXX"
     out = sec._evidence("x=PLANTED-ONE-OVERLAP-TWO-SECRETXX y=PLANTED-ONE-OVERLAP", [a, b])
     assert out == "x=...ETXX y=...RLAP"
+
+
+@pytest.mark.parametrize("text", ["/usr/bin/sudo id", "/usr/bin/doas id", "/bin/su - root", "ls && /usr/bin/sudo id"])
+def test_privilege_escalation_by_absolute_path(text):
+    assert "privilege-escalation" in _rules(sec.command_findings(text, "trace"))
