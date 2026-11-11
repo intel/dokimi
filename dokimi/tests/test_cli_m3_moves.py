@@ -11,7 +11,7 @@ import pytest
 
 from dokimi import cli_routes
 from dokimi.cli import build_parser, parse_args
-from dokimi.cli_routes import moved_argv
+from dokimi.cli_routes import AmbiguousRetiredFlag, moved_argv
 from dokimi.commands.catalog import cmd_catalog_list, cmd_catalog_show
 from dokimi.utils import InputError
 from tests.cli_refusal import refusal
@@ -417,10 +417,33 @@ def test_novelty_routing_tombstone_reads_a_unique_flag_prefix_as_the_retired_fla
         "catalog", "routing", "R", "--reps=2"]
 
 
-def test_novelty_routing_tombstone_leaves_an_ambiguous_prefix_alone():
-    # `--c` is a prefix of --catalog and --competitors: argparse refused it, so it is not rewritten.
-    assert moved_argv(["novelty", "routing", "--artifact", "skill:a", "--c", "x"]) == [
-        "skill", "routing", "skill:a", "--c", "x"]
+def test_novelty_routing_tombstone_refuses_an_ambiguous_prefix(capsys):
+    # `--c` is a prefix of --catalog and --competitors: the retired parser refused it, and the new
+    # `skill routing` would read it as --competitors, so no command is printed.
+    with pytest.raises(AmbiguousRetiredFlag):
+        moved_argv(["novelty", "routing", "--artifact", "skill:a", "--c", "x"])
+    with pytest.raises(SystemExit) as exc:
+        parse_args(["novelty", "routing", "--artifact", "skill:a", "--a", "x"])
+    assert exc.value.code == 2
+    assert "ambiguous option: --a could match --all-vs-all, --artifact" in capsys.readouterr().err
+
+
+def test_novelty_routing_tombstone_keeps_a_value_flag_with_no_value_for_the_new_leaf_to_refuse():
+    # The retired parser refused a trailing --artifact or --catalog, and a flag as its value. The
+    # printed argv keeps the flag, so the new leaf refuses it too instead of dropping it.
+    for old, new in [
+        (["novelty", "routing", "--all-vs-all", "--catalog", "c", "--artifact"],
+         ["catalog", "routing", "c", "--artifact"]),
+        (["novelty", "routing", "--artifact", "skill:a", "--catalog", "c", "--catalog"],
+         ["skill", "routing", "skill:a", "--against", "c", "--catalog"]),
+        (["novelty", "routing", "--artifact", "--catalog", "c"],
+         ["skill", "routing", "--against", "c", "--artifact"]),
+    ]:
+        argv = moved_argv(old)
+        assert argv == new
+        with pytest.raises(SystemExit) as exc:
+            build_parser().parse_args(argv)
+        assert exc.value.code == 2
 
 
 def test_novelty_routing_tombstone_keeps_a_flag_the_new_leaf_refuses():

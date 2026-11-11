@@ -157,7 +157,10 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     """
     parser = build_parser()
     raw = list(sys.argv[1:] if argv is None else argv)
-    moved = cli_routes.moved_argv(raw)
+    try:
+        moved = cli_routes.moved_argv(raw)
+    except cli_routes.AmbiguousRetiredFlag as exc:
+        parser.error(str(exc))
     if moved is not None:  # a tombstone: say where the command went, do not run anything
         parser.exit(2, cli_routes.moved_text(moved) + "\n")
     args = parser.parse_args(raw)

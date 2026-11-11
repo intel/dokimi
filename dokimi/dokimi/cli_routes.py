@@ -199,9 +199,13 @@ def _novelty_routing_argv(rest: list[str]) -> list[str]:
         if name in values:
             if eq:
                 values[name].append(value)
-            elif i + 1 < len(rest):
+            elif i + 1 < len(rest) and not rest[i + 1].startswith("--"):
                 values[name].append(rest[i + 1])
                 i += 1
+            else:
+                # No value follows: the flag stays in the printed argv, and the new leaf refuses it
+                # with the "expected one argument" error the retired parser gave.
+                kept.append(rest[i])
         elif name == "--repeats":
             kept.append("--reps" + eq + value)
         else:
@@ -225,13 +229,23 @@ _RETIRED_ROUTING_FLAGS = (
 )
 
 
+class AmbiguousRetiredFlag(ValueError):
+    """A prefix that named two retired flags: the retired parser refused it, so no command is printed."""
+
+
 def _retired_spelling(token: str) -> str:
-    """A token with a retired flag's prefix spelt in full, as argparse would have read it."""
+    """A token with a retired flag's prefix spelt in full, as argparse would have read it.
+
+    An ambiguous prefix raises: the new leaf may take it as one of its own flags (`--c` is
+    `--competitors` on `skill routing`), so it cannot be left for the printed command to refuse.
+    """
     name, eq, value = token.partition("=")
-    if not name.startswith("--") or name in _RETIRED_ROUTING_FLAGS:
+    if not name.startswith("--") or name in _RETIRED_ROUTING_FLAGS or name == "--":
         return token
     hits = [flag for flag in _RETIRED_ROUTING_FLAGS if flag.startswith(name)]
-    return hits[0] + eq + value if len(hits) == 1 else token
+    if len(hits) > 1:
+        raise AmbiguousRetiredFlag(f"ambiguous option: {name} could match {', '.join(hits)}")
+    return hits[0] + eq + value if hits else token
 
 
 def _legacy_artifact(ref: str) -> str:
