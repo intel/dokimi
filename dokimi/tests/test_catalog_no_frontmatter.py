@@ -92,6 +92,7 @@ def test_the_name_follows_the_loader_name_check(at_root, dir_name, name):
         (["Introductory note.", "", "# Deck Builder", "", "Builds slide decks."], "deck-builder", "Builds slide decks."),
         (["[![CI](https://x/b.svg)](https://x)", "", "# Badge Tool", "", "Does badges."], "badge-tool", "Does badges."),
         (["Intro", "# T", "More"], "t", "More"),
+        (["#\tTag Tool", "", "Does tags."], "tag-tool", "Does tags."),  # a tab after the # is an H1 too
         (["# T", "", "Tab\x7f and a\x9f C1 control."], "t", "Tab and a C1 control."),  # PyYAML rejects these raw
         (["# Yes"], "yes", "What yes does. Use when ..."),
         (["# T", "", "| a | b |", "", "Text: with \"quotes\""], "t", "Text: with \"quotes\""),

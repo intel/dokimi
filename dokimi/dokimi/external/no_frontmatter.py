@@ -38,7 +38,7 @@ def no_frontmatter_message(lines: list[str], dir_name: str, at_root: bool = Fals
     title = ""
     start = 0  # the paragraph is the one after the first H1: an intro or a badge above it is not taken
     for i, stripped in enumerate(body):
-        if stripped.startswith("# "):
+        if stripped[:2] in ("# ", "#\t"):  # CommonMark: a space or a tab after the #
             title = stripped[2:].strip()
             start = i + 1
             break
