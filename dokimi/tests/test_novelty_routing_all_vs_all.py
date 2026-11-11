@@ -492,6 +492,24 @@ def test_queries_for_a_skill_the_field_left_out_are_dropped_with_a_warning_namin
         "cache", "queue"}
 
 
+def test_a_name_conflict_hint_names_catalog_routing_on_each_holding_directory(tmp_path):
+    root = tmp_path / "catalog"
+    _cat(root, {"cache": "cache slow lookups"})
+    for holder, description in (("a", "tune a slow database query"), ("b", "migrate a schema")):
+        copy = root / "skills" / holder / "db"
+        copy.mkdir(parents=True)
+        (copy / "SKILL.md").write_text(
+            f"---\nname: db\ndescription: {description}\n---\n\n# B\n", encoding="utf-8")
+    queries = _write_queries(tmp_path, {"cache": ["cache my lookups"], "db": ["tune my database"]})
+    args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries),
+                  "--out", str(tmp_path / "o.json"))
+    with pytest.raises(InputError) as refusal:
+        args.func(args)
+    text = str(refusal.value)
+    assert f"catalog routing {root}/skills/a" in text and f"catalog routing {root}/skills/b" in text
+    assert "--against" not in text
+
+
 def _cat(root, names_descriptions):
     for name, description in names_descriptions.items():
         _catalog_skill(root, name, description)
