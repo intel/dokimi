@@ -191,6 +191,20 @@ def _rounded(end: float | None) -> float | None:
     return math.copysign(1e-4, end) if out == 0 and end != 0 else out + 0.0  # + 0.0: no -0.0
 
 
+def sign_flip_row(deltas: list[float], seed: int = 0, *, exact: bool = True) -> dict:
+    """The test of one row, as both row builders print it: :func:`eval.stats._describe_deltas` (arms) and
+    :func:`repos.compare.sign_flip_summary` (repo compare). They shape their own keys around this.
+
+    ``p`` is :func:`sign_flip_p` (rounded to 6 places unless ``exact``, as ``repo compare`` prints it). ``lo``/``hi``
+    are the unrounded ends of the interval that inverts it, and ``ci_lo``/``ci_hi`` the same ends as printed
+    (:func:`sign_flip_interval`, rounded). ``n_changed`` counts the deltas not within :data:`EPS` of 0.
+    """
+    p = sign_flip_p(deltas, seed=seed, exact=exact)
+    lo, hi = sign_flip_interval(deltas, p, seed=seed, rounded=False)
+    return {"p": p, "lo": lo, "hi": hi, "ci_lo": _rounded(lo), "ci_hi": _rounded(hi),
+            "n_changed": sum(abs(d) > EPS for d in deltas)}
+
+
 def round_mean(mean: float) -> float:
     """``mean`` at 2 places, or at 2 significant digits where that would be 0.0: a mean of 0.0035 stays 0.0035."""
     return (round(mean, 2) or float(f"{mean:.2g}")) + 0.0  # + 0.0: no -0.0
