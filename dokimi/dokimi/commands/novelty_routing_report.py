@@ -10,8 +10,11 @@ its growth cap. Nothing here builds a client; a model arm is always the caller's
 from __future__ import annotations
 
 import argparse
+import errno
+import hashlib
 import json
 import os
+import re
 import stat
 import sys
 from pathlib import Path
@@ -522,7 +525,7 @@ def _takes_partial(candidate: Path) -> bool:
     one (:func:`_wrote` tries the write). A FIFO or device is never opened: its read blocks (#516).
     A symlink, dangling or a loop, is not followed and is skipped: a write would land at its target.
     Any other error is raised, since every later name can fail the same way and the search would
-    not end (a name too long only grows longer)."""
+    not end. A name too long does not reach here: :func:`_partial_destinations` shortens the stem."""
     try:
         mode = os.lstat(candidate).st_mode
     except FileNotFoundError:
@@ -530,11 +533,48 @@ def _takes_partial(candidate: Path) -> bool:
     return stat.S_ISREG(mode) and _is_partial_file(candidate)
 
 
+_UTF16_NAMES = os.name == "nt"
+
+
+def _name_size(name: str) -> int:
+    """``name``'s length in the units its file system limits: UTF-16 code units on Windows, else bytes."""
+    if _UTF16_NAMES:
+        return len(name.encode("utf-16-le", "surrogatepass")) // 2
+    return len(os.fsencode(name))
+
+
+def _sidecar_stem(out: Path) -> str:
+    """``out``'s stem, as is when ``<stem>.partial<N>.json`` fits the file system's name limit for a
+    counter of up to six digits (``PC_NAME_MAX``, else 255). Otherwise it is cut on a character
+    boundary, measured in the file system's units (:func:`_name_size`; a non-UTF-8 byte is kept),
+    and ends in a digest of the whole stem, so two long outs never share a sidecar. A stem that fits
+    but is as long as a cut one and ends in a digest-shaped tag (in either case, as a case-insensitive file system folds it) is cut
+    again, so it never equals the cut name of another out."""
+    try:
+        name_max = os.pathconf(out.parent, "PC_NAME_MAX")
+    except (AttributeError, OSError, ValueError):
+        name_max = 255
+    if name_max <= 0:  # -1: the limit is indeterminate
+        name_max = 255
+    room = name_max - len(".partial.json") - 6
+    stem = out.with_suffix("").name
+    if _name_size(stem) <= room and not (  # a cut name is within 3 units of room
+            _name_size(stem) > room - 4 and re.search(r"-[0-9a-f]{12}$", stem, re.IGNORECASE)):
+        return stem
+    tag = "-" + hashlib.sha256(os.fsencode(stem)).hexdigest()[:12]
+    if room < len(tag):
+        raise OSError(errno.ENAMETOOLONG, f"a name limit of {name_max} leaves no room for a partial result's name", str(out))
+    stem = stem[: room - len(tag)]
+    while _name_size(stem) > room - len(tag):
+        stem = stem[:-1]
+    return stem + tag
+
+
 def _partial_destinations(out: Path) -> Iterator[Path]:
     """Each of ``<out stem>.partial.json``, ``<out stem>.partial2.json``, ... in turn that is free
     or holds a partial result (:func:`_takes_partial`), so a partial result never replaces a
-    finished one."""
-    base = out.with_suffix("")
+    finished one. A stem too long for the names to fit is shortened (:func:`_sidecar_stem`)."""
+    base = out.with_name(_sidecar_stem(out))
     candidate, number = base.with_name(f"{base.name}.partial.json"), 2
     while True:
         if _takes_partial(candidate):

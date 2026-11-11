@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from dokimi.utils import model_identity, same_model
 from dokimi.commands import baseline_regression
-from dokimi.exit_codes import EXIT_USAGE
+from dokimi.utils import InputError, read_json_input
 
 BASELINES_DIR = Path("baselines/eval")
 
@@ -27,36 +27,28 @@ def _json_type(value: Any) -> str:
     return _JSON_TYPE_NAMES.get(type(value), type(value).__name__)
 
 
-def _read_json_object(path: Path, code: int) -> Dict[str, Any]:
-    """Read a JSON file that must hold an object, or exit ``code`` naming the file and the problem."""
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as exc:  # unreadable, not UTF-8, or not JSON
-        print(f"❌ Cannot read {path}: {exc}", file=sys.stderr)
-        raise SystemExit(code) from exc
+def _read_json_object(path: Path) -> Dict[str, Any]:
+    """Read a JSON file that must hold an object, or raise :class:`InputError` naming the file and the problem."""
+    data = read_json_input(path)
     if not isinstance(data, dict):
-        print(f"❌ {path}: expected a JSON object, got {_json_type(data)}", file=sys.stderr)
-        raise SystemExit(code)
+        raise InputError(f"{path}: expected a JSON object, got {_json_type(data)}")
     return data
 
 
-def _baseline_manifest(code: int = EXIT_USAGE) -> Dict[str, Any]:
-    """Load or create the baseline manifest; a corrupt one exits ``code``."""
+def _baseline_manifest() -> Dict[str, Any]:
+    """Load or create the baseline manifest; a corrupt one is an :class:`InputError`."""
     manifest_path = BASELINES_DIR / "manifest.json"
     if not manifest_path.exists():
         return {"baselines": []}
-    manifest = _read_json_object(manifest_path, code)
+    manifest = _read_json_object(manifest_path)
     baselines = manifest.setdefault("baselines", [])
     if not isinstance(baselines, list):
-        print(f'❌ {manifest_path}: expected a "baselines" list, got {_json_type(baselines)}',
-              file=sys.stderr)
-        raise SystemExit(code)
+        raise InputError(f'{manifest_path}: expected a "baselines" list, got {_json_type(baselines)}')
     for i, entry in enumerate(baselines):
         if not (isinstance(entry, dict) and isinstance(entry.get("name"), str)
                 and isinstance(entry.get("path"), str) and isinstance(entry.get("summary", {}), dict)):
-            print(f'❌ {manifest_path}: baselines[{i}] must be an object with a string "name" and "path"'
-                  ' and, if present, an object "summary"', file=sys.stderr)
-            raise SystemExit(code)
+            raise InputError(f'{manifest_path}: baselines[{i}] must be an object with a string "name" and "path"'
+                             ' and, if present, an object "summary"')
     return manifest
 
 
@@ -202,7 +194,7 @@ def cmd_baseline_save(args: argparse.Namespace) -> None:
 
     eval_path = Path(args.from_eval)
     manifest = _baseline_manifest()  # first: a corrupt manifest fails fast and leaves no orphan file
-    eval_data = _read_json_object(eval_path, EXIT_USAGE)
+    eval_data = _read_json_object(eval_path)
     product = args.product or eval_data.get("product", "unknown")
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
     name = args.name or f"{product}-{timestamp}"
@@ -212,14 +204,12 @@ def cmd_baseline_save(args: argparse.Namespace) -> None:
     try:
         summary = _compute_summary(eval_data)
     except RecordError as exc:
-        print(f"❌ {eval_path}: {exc}", file=sys.stderr)
-        raise SystemExit(EXIT_USAGE) from exc
+        raise InputError(f"{eval_path}: {exc}") from exc
 
     BASELINES_DIR.mkdir(parents=True, exist_ok=True)
     dest = BASELINES_DIR / f"{name}.json"
     if dest.exists():
-        print(f"❌ Baseline already exists: {dest} (choose a different --name)", file=sys.stderr)
-        raise SystemExit(EXIT_USAGE)
+        raise InputError(f"Baseline already exists: {dest} (choose a different --name)")
     dest.write_text(json.dumps(eval_data, indent=2), encoding="utf-8")
 
     manifest["baselines"].append({
@@ -266,8 +256,7 @@ def _pick_entry(args: argparse.Namespace, baselines: list, eval_data: dict) -> d
     if args.baseline:
         entry = next((b for b in baselines if b["name"] == args.baseline), None)
         if not entry:
-            print(f"❌ Baseline '{args.baseline}' not found.")
-            raise SystemExit(EXIT_USAGE)
+            raise InputError(f"Baseline '{args.baseline}' not found.")
     else:
         product = args.product or eval_data.get("product")
         candidates = [b for b in baselines if b.get("product") == product] if product else baselines
@@ -322,17 +311,16 @@ def cmd_baseline_compare(args: argparse.Namespace) -> None:
     """Compare an eval result against a saved baseline."""
     baseline_regression.require_gate_for_min_matched(args)
     eval_path = Path(args.eval)
-    eval_data = _read_json_object(eval_path, 2)  # 1 is the --strict verdict
-    manifest = _baseline_manifest(2)
+    eval_data = _read_json_object(eval_path)
+    manifest = _baseline_manifest()
     baselines = manifest.get("baselines", [])
 
     if not baselines:
-        print("No baselines found. Save one first:")
-        print("  dokimi baseline save --from-eval eval/oneTBB.json --product oneTBB")
-        raise SystemExit(EXIT_USAGE)
+        raise InputError("No baselines found. Save one first:\n"
+                         "  dokimi baseline save --from-eval eval/oneTBB.json --product oneTBB")
 
     entry = _pick_entry(args, baselines, eval_data)
-    baseline_data = _read_json_object(Path(entry["path"]), 2)
+    baseline_data = _read_json_object(Path(entry["path"]))
 
     from dokimi.records import records
 
