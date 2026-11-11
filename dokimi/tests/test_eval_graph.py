@@ -321,6 +321,17 @@ def test_a_null_text_is_no_node_and_a_null_only_reply_writes_nothing(tmp_path, m
     assert not out.exists()
 
 
+@pytest.mark.parametrize("text", [5, ["x"]])
+def test_a_non_string_text_is_no_node(tmp_path, monkeypatch, capsys, text):
+    _stub(monkeypatch, {"nodes": [{"id": "n1", "text": text, "path_class": "core"}]})
+    out = tmp_path / "g.json"
+
+    result = _run(capsys, str(_skill(tmp_path)), "--out", str(out))
+
+    assert result.returncode == 1 and "nothing was written" in result.stderr
+    assert not out.exists()
+
+
 def test_a_repaired_id_never_takes_a_later_explicit_id_or_its_edge(tmp_path, monkeypatch, capsys):
     _stub(monkeypatch, {
         "nodes": [
