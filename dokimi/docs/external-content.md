@@ -317,10 +317,10 @@ do, and only these two; each finding is a `warn`, so the exit code does not chan
   link is not checked: the resolver is not shown to work). A HEAD request is tried first and a GET only when HEAD is not 2xx or 3xx.
   Placeholder hosts (`example.com`/`.org`/`.net`, `localhost`, loopback addresses,
   a host or a path segment starting `your-*`, as in `github.com/your-username/your-repo`)
-  URLs in a code span or a fenced block are examples, not links, and are not requested; a
-  URL's `#fragment` is not part of the request, so anchors of one page are one request.
-  Template URLs (`<id>`, `{id}`, `${VAR}`) are not requested, and at most
-  20 URLs per skill are checked.
+  and template URLs (`<id>`, `{id}`, `${VAR}`) are not requested. A URL in a code span or a
+  fenced block is an example, not a link, and is not requested either; a `#fragment` is not
+  part of the request, so anchors of one page are one request. At most 20 URLs per skill are
+  checked.
 
 A 403, 429 or 5xx, a timeout, a refused connection or any other network error is not a
 finding: the registry or site may refuse or be unreachable, not be gone. A target not checked
