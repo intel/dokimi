@@ -757,7 +757,7 @@ def register(sub, positive_int, eval_sub) -> None:
     reach_p.add_argument("--keep", action="store_true", help="Keep the temporary workspace")
     reach_p.add_argument("--format", choices=["matrix", "receipt"], default="matrix",
                          help="matrix: the table (default). receipt: print the effective-instructions/v0 receipt as JSON and "
-                         "write it to effective_instructions.json in --out (docs/repo-evaluation-contract.md §7.1)")
+                         "write it to effective_instructions.json in --out-dir (docs/repo-evaluation-contract.md §7.1)")
     reach_p.add_argument("--dry-run", action="store_true", dest="dry_run",
                          help="Print the files and the exact argv of every scenario; run no harness. It makes the "
                          "checks a run makes before its first harness call, so it builds the workspace and removes it")

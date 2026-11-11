@@ -1618,7 +1618,7 @@ per scenario).
 ### 7.1 Effective-instructions receipt (`effective_instructions.v1`)
 
 `repo reach --format receipt` prints, and writes to `effective_instructions.json`
-in `--out`, a receipt in the shape of `effective-instructions/v0`
+in `--out-dir`, a receipt in the shape of `effective-instructions/v0`
 (agentsmd/agents.md#213). It is built from the reach payload and from the
 start-up chain of `repo budget` (`repos/budget.py`). It makes no
 LLM call. `repo reach --from <reach.json> --format receipt` builds the same
