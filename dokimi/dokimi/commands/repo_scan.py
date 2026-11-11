@@ -50,7 +50,16 @@ def _loaded_with_default(tree, manifest) -> tuple[str, ...]:
                      claude_displaces_agents=p.claude_displaces_agents, follow_imports=p.follows_imports)["entries"]
     # Only Markdown is read as guidance: an `@package.json` import is loaded, but its text is no guidance claims
     listed = set(tree.files())
-    reached = (_listed(tree, listed, e["path"]) for e in entries if e["kind"] in ("rule", "import"))
+    # budget lists a rule or import that is also a guidance name (CLAUDE.local.md, or a rule linked to it) as guidance,
+    # not as a rule or import: such a guidance entry that loads and that the default globs do not match is checked too
+    from dokimi.repos.manifest import match_glob
+
+    def _unmatched_guidance(e) -> bool:
+        return (e["kind"] == "guidance" and e["when"] != "off"
+                and not any(match_glob(g, e["path"]) for g in manifest.guidance_globs))
+
+    reached = (_listed(tree, listed, e["path"]) for e in entries
+               if e["kind"] in ("rule", "import") or _unmatched_guidance(e))
     loaded = tuple(dict.fromkeys(p for p in reached if p is not None and _target(tree, p).endswith(".md")))
     if loaded:
         print(f"note: also checking {len(loaded)} .claude/rules and @ imported files Claude Code loads with the default guidance",

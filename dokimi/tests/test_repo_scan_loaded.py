@@ -74,3 +74,29 @@ def test_a_markdown_import_that_links_to_another_kind_of_file_is_not_read_as_gui
     root = _write(tmp_path / "r", {"CLAUDE.md": "@cfg.md\n", "package.json": '{"main": "`src/gone.py`"}\n'})
     (root / "cfg.md").symlink_to("package.json")
     assert _scan(capsys, str(root))["files"] == ["CLAUDE.md"]
+
+
+def test_an_import_budget_counts_as_guidance_is_still_checked(tmp_path, capsys):
+    # CLAUDE.local.md is a guidance name, so budget lists it as guidance rather than as an import; the
+    # default globs do not match it, so it must be checked as the loaded file it is, not dropped
+    root = _write(tmp_path / "r", {"src/real.py": "x = 1\n", "CLAUDE.md": "@CLAUDE.local.md\n",
+                                   "CLAUDE.local.md": "The entry point is `src/gone_local.py`.\n"})
+    payload = _scan(capsys, str(root))
+    assert "CLAUDE.local.md" in payload["files"]
+    assert _fails(payload) == {("CLAUDE.local.md", "src/gone_local.py")}
+
+
+def test_an_explicit_import_of_a_guidance_name_is_still_checked(tmp_path, capsys):
+    root = _write(tmp_path / "r", {"src/real.py": "x = 1\n", "CLAUDE.md": "@private/CLAUDE.local.md\n",
+                                   "private/CLAUDE.local.md": "See `src/gone_priv.py`.\n"})
+    payload = _scan(capsys, str(root))
+    assert _fails(payload) == {("private/CLAUDE.local.md", "src/gone_priv.py")}
+
+
+def test_a_rule_linked_to_a_guidance_name_is_still_checked(tmp_path, capsys):
+    root = _write(tmp_path / "r", {"src/real.py": "x = 1\n", "CLAUDE.md": "# guidance\n",
+                                   "private/CLAUDE.local.md": "Stale `src/gone_rule_link.py`.\n"})
+    (root / ".claude/rules").mkdir(parents=True)
+    (root / ".claude/rules/x.md").symlink_to("../../private/CLAUDE.local.md")
+    payload = _scan(capsys, str(root))
+    assert _fails(payload) == {("private/CLAUDE.local.md", "src/gone_rule_link.py")}
