@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import os
+import time
 from pathlib import Path
 
 
@@ -33,6 +34,14 @@ def pid_state(pid: int) -> str | None:
 def pid_alive(pid: int) -> bool:
     """A killed child nobody reaped yet is a zombie (Z), one being reaped is dead (X): not running."""
     return pid_state(pid) not in (None, "Z", "X")
+
+
+def wait_until_gone(pids: list[int], grace_s: float) -> list[int]:
+    """Wait up to ``grace_s`` seconds from now for every pid to stop running; the pids still running."""
+    deadline = time.monotonic() + grace_s
+    while any(map(pid_alive, pids)) and time.monotonic() < deadline:
+        time.sleep(0.05)
+    return [p for p in pids if pid_alive(p)]
 
 
 def describe(pid: int) -> str:

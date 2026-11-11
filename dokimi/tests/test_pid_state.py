@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import errno
 import subprocess
 import sys
 import time
@@ -12,7 +13,8 @@ import time
 import pytest
 
 import tests.pid_state as pid_state_module
-from tests.pid_state import describe, pid_alive, pid_state
+from tests.pid_state import describe, pid_alive, pid_state, wait_until_gone
+
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX os.kill(pid, 0)")
 def test_a_live_pid_without_proc_is_alive_and_a_gone_one_is_not(monkeypatch):
@@ -48,6 +50,36 @@ def test_a_pid_reaped_between_the_probe_and_the_proc_read_is_gone_not_alive(monk
 
     probes = iter([None, ProcessLookupError()])
     assert not pid_alive(4242)
+
+
+def test_a_pid_that_exists_but_cannot_be_signalled_is_alive(monkeypatch):
+    def kill(pid, sig):
+        raise PermissionError(errno.EPERM, "Operation not permitted")
+
+    monkeypatch.setattr(pid_state_module.os, "kill", kill)
+    assert pid_state(1) == "?"
+    assert pid_alive(1)
+
+
+def test_wait_until_gone_counts_its_grace_from_the_call_not_from_the_test_start(monkeypatch):
+    now = [45.0]  # a slow harness start has already used 45 s of the test
+    dies_at = 65.0  # the helper is gone 20 s after the wait begins
+
+    monkeypatch.setattr(pid_state_module.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(pid_state_module.time, "sleep", lambda s: now.__setitem__(0, now[0] + s))
+    monkeypatch.setattr(pid_state_module, "pid_alive", lambda pid: now[0] < dies_at)
+    assert wait_until_gone([7, 8], 30) == []
+    assert now[0] < 75.0
+
+
+def test_wait_until_gone_names_the_pids_that_outlast_the_grace(monkeypatch):
+    now = [0.0]
+
+    monkeypatch.setattr(pid_state_module.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(pid_state_module.time, "sleep", lambda s: now.__setitem__(0, now[0] + s))
+    monkeypatch.setattr(pid_state_module, "pid_alive", lambda pid: pid == 8 or now[0] < 2)
+    assert wait_until_gone([7, 8], 30) == [8]
+    assert 30 <= now[0] < 31
 
 
 @pytest.mark.skipif(not sys.platform.startswith("linux"), reason="reads /proc")
