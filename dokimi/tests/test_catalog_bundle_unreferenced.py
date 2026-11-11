@@ -261,3 +261,27 @@ def test_a_bundle_at_the_file_cap_is_checked_with_its_true_count(tmp_path, monke
     review = _review(tmp_path, "No names here.\n", [f"scripts/f{i}.py" for i in range(5)])
     [message] = _unreferenced(review)
     assert message.startswith("5 of 5")
+
+
+def test_a_named_document_past_the_read_cap_is_not_judged(tmp_path, monkeypatch):
+    from dokimi.external import bundle_refs
+
+    monkeypatch.setattr(bundle_refs, "DOCS_READ_MAX", 2)
+    review = _review_with_texts(
+        tmp_path,
+        "Read [a](docs/a.md), [b](docs/b.md), [c](docs/c.md).\n",
+        {"docs/a.md": "A.\n", "docs/b.md": "B.\n", "docs/c.md": "Run `scripts/run.py`.\n", "scripts/run.py": "x\n"},
+    )
+    assert _unreferenced(review) == []
+
+
+def test_a_bundle_with_more_documents_than_the_walk_cap_is_not_judged(tmp_path, monkeypatch):
+    from dokimi.external import bundle_refs
+
+    monkeypatch.setattr(bundle_refs, "WALK_MAX_FILES", 3)
+    # ``_`` documents are not counted, so the document walk, not the file count, is what is over the cap.
+    texts = {f"docs/_{name}.md": "Nothing.\n" for name in "abcd"}
+    texts["docs/_z.md"] = "Run `scripts/run.py`.\n"
+    texts["scripts/run.py"] = "x\n"
+    review = _review_with_texts(tmp_path, "Read [z](docs/_z.md).\n", texts)
+    assert _unreferenced(review) == []

@@ -174,6 +174,9 @@ def unreferenced_message(
     linked = {_target(".", link) for link in links if link}
     named_files: set[str] = set()
     docs_read = 0
+    # A truncated document walk, or a named document past the read cap, can hide a name a script
+    # relies on: then nothing is claimed about the bundle's files.
+    incomplete = len(docs) > WALK_MAX_FILES
     candidates = list(dict.fromkeys(files + docs))
     while True:
         new = [rel for rel in candidates if rel not in named_files and _named(rel, text, linked)]
@@ -181,11 +184,16 @@ def unreferenced_message(
             break
         for rel in new:
             named_files.add(rel)
-            if docs_read < DOCS_READ_MAX and (more := _read_doc(skill_path.parent / rel)):
+            if docs_read >= DOCS_READ_MAX:
+                incomplete = incomplete or PurePosixPath(rel).suffix.lower() in DOC_SUFFIXES
+                continue
+            if more := _read_doc(skill_path.parent / rel):
                 docs_read += 1
                 text += "\n" + _matchable(more.lower())
                 folder = PurePosixPath(rel).parent.as_posix()
                 linked.update(_target(folder, link) for link in doc_links(more) if link)
+    if incomplete:
+        return None
     missing = [rel for rel in files if rel not in named_files]
     if not missing:
         return None
