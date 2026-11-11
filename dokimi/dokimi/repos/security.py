@@ -344,9 +344,8 @@ def _scan(cell: Path, canaries: Sequence[str]) -> tuple[dict[str, Any], list[str
     found, n_events, unreadable = _trace_findings(cell, canaries)
     result, _ = _read_record(cell / "result.json")
     agent = result.get("agent")
-    # The runner writes rc once the container has run, even when the agent never started: then the trace is an
-    # empty file. Any other trace after an rc (missing, garbled) is a run the scan cannot read: unfinished.
-    # A trace whose every line the runner could not read is written empty too, with trace_errors set: unfinished.
+    # After an rc, an empty trace with no trace_errors means the agent never started.
+    # A missing or garbled trace, or an empty one with trace_errors, is unfinished.
     empty = _empty_trace(cell / "events.jsonl")
     garbled = isinstance(agent, dict) and bool(agent.get("trace_errors")) and empty
     agent_ran = isinstance(agent, dict) and agent.get("rc") is not None and (not empty or garbled)
