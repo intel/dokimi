@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import replace
 
 import pytest
 
@@ -15,7 +16,7 @@ from dokimi.defaults import (
     DEFAULT_JUDGE_MODEL,
     JUDGE_MODEL_FOR_PROVIDER,
 )
-from dokimi.eval.arms_run import ArmsRunConfig
+from dokimi.eval.arms_run import ArmsRunConfig, refuse_deferred_self_judge
 from dokimi.judge_rule import default_judge
 
 
@@ -90,6 +91,24 @@ def test_a_claude_cli_judge_is_an_alias_of_another_family():
     assert (args.judge_provider, args.judge_model) == ("claude-cli", "opus")
 
 
+def test_a_library_judge_left_out_is_the_provider_default_and_is_refused_only_at_run_start():
+    # Construction resolves the default judge as base did (the matrix shape: no model, so the default answerer).
+    config = ArmsRunConfig(product="demo", judge=True, judge_provider="openai")
+    assert (config.judge_provider, config.judge_model) == ("openai", "gpt-6.1-sol")
+    with pytest.raises(ValueError, match="pass --judge-model as well"):
+        refuse_deferred_self_judge(config)
+    # A matrix cell of another model judges with the same default judge, as on base.
+    cell = replace(config, model="claude-sonnet-5-5", provider="anthropic")
+    refuse_deferred_self_judge(cell)
+    assert cell.judge_model == "gpt-6.1-sol"
+
+
+def test_a_library_claude_cli_answerer_judges_on_its_cli_like_the_cli_does():
+    config = ArmsRunConfig(product="demo", model="sonnet", provider="claude-cli", judge=True)
+    assert (config.judge_provider, config.judge_model) == ("claude-cli", "opus")
+    refuse_deferred_self_judge(config)
+
+
 def test_a_claude_cli_answerer_judges_on_its_cli_when_no_judge_provider_is_named():
     # The CLI's argparse default (anthropic) must not stop the rule from taking the answerer's provider.
     args = parse_args([*COMMANDS["arms run"], "--provider", "claude-cli", "--model", "sonnet", "--judge"])
@@ -103,8 +122,10 @@ def test_a_claude_cli_answerer_judges_on_its_cli_when_no_judge_provider_is_named
 ])
 def test_arms_run_judge_is_not_the_answerer(answerer, provider, judge):
     if judge is None:
+        # Construction does not refuse; the run start does (refuse_deferred_self_judge).
+        config = ArmsRunConfig(product="demo", model=answerer, provider="openai", judge_provider=provider, judge=True)
         with pytest.raises(ValueError, match="pass --judge-model as well"):
-            ArmsRunConfig(product="demo", model=answerer, provider="openai", judge_provider=provider, judge=True)
+            refuse_deferred_self_judge(config)
         # Not judging, the conflict is not a refusal: nothing reads the judge.
         assert ArmsRunConfig(product="demo", model=answerer, provider="openai", judge_provider=provider).judge is False
     else:

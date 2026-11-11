@@ -42,9 +42,11 @@ litellm has no price for such a model, so cost is reported as unknown and
 `novelty --max-usd` stops the run after its first call.
 
 The judge must be a different model from the one under measurement, because a
-model that grades its own answers inflates the scores. `novelty` refuses a
-self-judge; `arms run` and `subjects run` warn on stderr and do not refuse, so name
-`--judge --judge-model <other> --judge-provider <judge-provider>` yourself.
+model that grades its own answers inflates the scores. `novelty`, `arms run` and
+`subjects run` refuse a judged run whose default judge is the model under measurement:
+the command exits 2 with `pass --judge-model as well`, so name
+`--judge --judge-model <other> --judge-provider <judge-provider>` yourself. An explicit
+`--judge-model` equal to the answerer only warns on stderr.
 
 ## A skill
 

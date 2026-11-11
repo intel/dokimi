@@ -28,11 +28,19 @@ from dokimi.eval.arms_refusals import refuse_cli_arms, refuse_cli_cell, refuse_c
 from dokimi.eval.cells import HARNESS_ARMS_RUNNER, MatrixCellDescriptor
 from dokimi.eval.question_text import EmptyQuestionError
 from dokimi.judge_rule import JudgeIsAnswerer, default_judge
-from dokimi.utils import InputError, check_bedrock_model, question_id, warn_judge_independence
+from dokimi.llm_cli import backend as cli_backend
+from dokimi.utils import InputError, check_bedrock_model, question_id, same_model, warn_judge_independence
 
 if TYPE_CHECKING:
     from dokimi.eval import Judge, JudgePanel
     from dokimi.eval.arm_runner import ArmRunner
+
+
+class DeferredJudge(str):
+    """The provider's default judge, left out, where it is the answerer: refused at run start, not at construction.
+
+    A str, so a :func:`dataclasses.replace` copy (a matrix cell) keeps the marker.
+    """
 
 
 @dataclass(frozen=True)
@@ -75,14 +83,29 @@ class ArmsRunConfig:
     def __post_init__(self) -> None:
         if self.judge_model is JUDGE_MODEL_FOR_PROVIDER:
             # The shared rule (judge_rule.default_judge): not the answerer's family, on the judge's provider.
+            # A CLI answerer with the default judge provider (the field's default, so not named) judges on its CLI,
+            # as ``dokimi arms run --provider claude-cli`` does.
+            provider = None if (self.judge_provider == DEFAULT_JUDGE_PROVIDER and cli_backend(self.provider)) \
+                else self.judge_provider
             try:
-                model, _ = default_judge(self.model, self.judge_provider, self.provider)
+                model, picked = default_judge(self.model, provider, self.provider)
             except JudgeIsAnswerer:
-                if self.judge:
-                    raise
-                # arms run judges only with --judge: a run that does not judge is not refused, and keeps the base default.
-                model, _ = default_judge(None, self.judge_provider)
+                # Construction does not refuse. The provider's default judge stays, and run start refuses it when it is
+                # still the answerer (refuse_deferred_self_judge). A run that does not judge keeps it, as before.
+                model, picked = DeferredJudge(default_judge(None, self.judge_provider)[0]), self.judge_provider
             object.__setattr__(self, "judge_model", model)
+            if provider is None:
+                object.__setattr__(self, "judge_provider", picked)
+
+
+def refuse_deferred_self_judge(config: ArmsRunConfig) -> None:
+    """Refuse a judged run whose deferred default judge is the answerer (the one run-start check of the default rule).
+
+    An explicit judge model is never refused here: that is warn-only, as ``warn_self_judging`` says.
+    """
+    if config.judge and isinstance(config.judge_model, DeferredJudge) and same_model(config.judge_model, config.model):
+        raise JudgeIsAnswerer(f"--judge-provider {config.judge_provider}: the default judge there is the model under "
+                              f"measurement ({config.model}); pass --judge-model as well")
 
 
 class LibraryIdError(ValueError):
@@ -405,6 +428,7 @@ def prepare_arms(config: ArmsRunConfig, specs: list[str], questions: list[dict])
     check_sampling_support(config)
     judge = None
     if config.judge:
+        refuse_deferred_self_judge(config)
         _check_judge(config, questions)
         judge = _build_judge(config)
 
