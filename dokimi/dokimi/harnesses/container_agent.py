@@ -49,7 +49,8 @@ from pathlib import Path
 from typing import Iterable, Optional
 
 from dokimi import docker_cmd, process
-from dokimi.docker_cmd import TASK_CONTAINER_HARDENING, Docker  # noqa: F401  (Docker is re-exported)
+from dokimi.container_policy import ContainerPolicy
+from dokimi.docker_cmd import Docker  # noqa: F401  (Docker is re-exported)
 from dokimi.docker_cmd import STEP_TIMEOUT_S as DOCKER_STEP_TIMEOUT  # noqa: F401
 
 from . import egress_proxy
@@ -210,7 +211,7 @@ class ContainerSandbox:
     def run_args(self) -> list[str]:
         """``docker run`` arguments: the internal network, the label, a tmpfs HOME."""
         uid, gid = AGENT_UID.split(":")
-        return ["--network", self.network, "--label", self.label,
+        return [*ContainerPolicy(network=self.network).network_argv(), "--label", self.label,
                 "--tmpfs", f"{AGENT_HOME}:rw,exec,size=1g,mode=0700,uid={uid},gid={gid}"]
 
     def prepare(self, container: str, docker: Docker, log) -> None:

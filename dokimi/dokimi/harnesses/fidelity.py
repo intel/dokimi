@@ -36,6 +36,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, List, Optional, Sequence
 
 from dokimi import docker_cmd, process
+from dokimi.container_policy import ContainerPolicy
 from dokimi.harnesses.agent_sandbox import agent_env
 from dokimi.harnesses.payload_audit import Leak, new_leaks
 
@@ -485,12 +486,13 @@ def run_docker(image: str, binary: str, args: List[str], *, workdir: Path, plugi
         if plugin_dir is not None:
             mounts += ["-v", f"{plugin_dir}:{plugin_dir}:ro"]
         env = client_env(base_url, _CONTAINER_HOME, f"{_CONTAINER_HOME}/.claude")
-        env_args: List[str] = []
-        for key, value in env.items():
-            env_args += ["-e", f"{key}={value}"]
-        cmd = docker_cmd.argv("run", "--rm", "--network", "host", "-u", f"{uid}:{gid}",
-               "--tmpfs", f"{_CONTAINER_HOME}:uid={uid},gid={gid}", "-w", str(workdir),
-               *mounts, *env_args, image, "/opt/agent/claude", *args)
+        cmd = docker_cmd.argv(*docker_cmd.run_spec(
+            ContainerPolicy(network="host"),
+            [["--rm"], "network",
+             ["-u", f"{uid}:{gid}", "--tmpfs", f"{_CONTAINER_HOME}:uid={uid},gid={gid}", "-w", str(workdir)],
+             mounts, docker_cmd.env_args(env)],
+            image, ["/opt/agent/claude", *args],
+        ))
         _require_ok(process.run(cmd, timeout=timeout, env=process.Env.inherit()), binary)
 
     return run

@@ -58,6 +58,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from dokimi import docker_cmd, process
+from dokimi.container_policy import task_container_policy
 from dokimi.metrics.usage import UsageRecord
 
 from .agent_sandbox import (
@@ -72,11 +73,10 @@ from .agent_sandbox import (
 )
 from .claude_json import _last_json_object, _parse_claude_json  # noqa: F401
 from .command import _parse_reward_text
-from .container_agent import (AGENT_BIN, DOCKER_STEP_TIMEOUT, FILES_DIR, TASK_CONTAINER_HARDENING,
-                              ContainerSandbox, Docker)
+from .container_agent import AGENT_BIN, DOCKER_STEP_TIMEOUT, FILES_DIR, ContainerSandbox, Docker
 from .models import HarnessResult, OperationRecord
 from .network_policy import (DEFAULTS, NetworkPlan, PhasePolicy, build_args, enter_phase, needs_sandbox,
-                             resolve_recorded, skill_needs, start_args, redact as _redact)
+                             resolve_recorded, skill_needs, start_network, redact as _redact)
 from .skill_treatment import Treatment, build_plugin, check_skill, skill_listing, treatment_notice
 from .solver_stream import record_solver, run_solver
 from .task_env import _exec_env, unresolved_env  # noqa: F401  (re-exported)
@@ -336,7 +336,6 @@ class DockerSolverHarness:
         """Start the task container on the solve phase's network; returns whether it is on bridge."""
         plan = plan or self._plan(task)
         inside = self._solve_in_container()
-        net_args = sandbox.run_args() if sandbox is not None else start_args(plan, solve_in_container=inside)
 
         cpus_raw = task.environment.get("cpus")
         cpus = str(cpus_raw) if cpus_raw is not None else "4"
@@ -355,12 +354,13 @@ class DockerSolverHarness:
         lifetime = int(max(1800.0, (task.timeout_sec or _DEFAULT_SOLVE_TIMEOUT)
                            + _task_verify_timeout(task) + 600))
         self._docker(["rm", "-f", container], log, check=False)
-        env_args = [a for k, v in task.container_env.items() for a in ("-e", f"{k}={v}")]
-        run_args = ["run", "-d", "--name", container, *TASK_CONTAINER_HARDENING, *net_args,
-                    *env_args, "--cpus", cpus, "--memory", memory, image, "sleep", str(lifetime)]
-        self._docker(run_args, log)
+        network = None if sandbox is not None else start_network(plan, solve_in_container=inside)
+        layout = [["-d"], ["--name", container], "init", "cap_drop", "security", "pids", "cap_add",
+                  "network" if sandbox is None else sandbox.run_args(), docker_cmd.env_args(task.container_env), "resource"]
+        self._docker(docker_cmd.run_spec(task_container_policy(network=network, cpus=cpus, memory=memory),
+                                         layout, image, ["sleep", str(lifetime)]), log)
         return enter_phase(plan.solve if inside else DEFAULTS["solve"], container, self._docker, log,
-                           bridged="bridge" in net_args)
+                           bridged=network == "bridge")
 
     def _solve_oracle(self, task: TaskSpec, container: str, log, net: Optional[PhasePolicy] = None,
                       timeout: float = _DEFAULT_SOLVE_TIMEOUT) -> None:
