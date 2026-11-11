@@ -89,6 +89,8 @@ def _arms_run(items, *, replayed=False, text="x", baseline="baseline"):
 
 
 SCORES = [("q1", {"baseline": 95, "skill": 96})]
+NOTE = ("note: 2 replayed answers (DOKIMI_RESPONSE_CACHE) added no rep: a copy of a fresh answer is "
+        "left out, the copies of an answer no run gave fresh count once, at their mean")
 
 
 def test_a_fully_replayed_repeat_adds_no_rep():
@@ -96,8 +98,7 @@ def test_a_fully_replayed_repeat_adds_no_rep():
     item = result["items"][0]
     assert (item["reps"], item["provisional"]) == (1, True)
     assert result["summary"]["replayed_repeats"] == 2  # both arms of the one item
-    assert ("note: 2 replayed answers (DOKIMI_RESPONSE_CACHE) left out of the reps and the means: "
-            "another run gave the same answer") in format_table(result).splitlines()
+    assert NOTE in format_table(result).splitlines()
 
 
 def test_a_replayed_repeat_does_not_move_the_mean():
@@ -123,6 +124,7 @@ def test_replays_with_no_fresh_original_count_at_their_mean_in_any_order():
         item = result["items"][0]
         assert (item["reps"], item["no_skill"], item["flag"]) == (1, 0.9, "ceiling")
         assert result["summary"]["replayed_repeats"] == 2
+        assert NOTE in format_table(result).splitlines()
 
 
 def test_a_replayed_answer_with_another_text_is_a_sample_of_its_own():
