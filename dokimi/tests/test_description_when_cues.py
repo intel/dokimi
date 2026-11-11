@@ -23,6 +23,7 @@ HAS_WHEN = [
     pytest.param("数据库迁移助手。用户说要迁移数据库时触发。", id="zh-shi-chufa"),
     pytest.param("报告助手。用户说要生成报告就调用。", id="zh-yonghu-shuo-alone"),
     pytest.param("解析报告。用户说要生成报告。", id="zh-yonghu-shuo-bare-cue"),
+    pytest.param("報告助手。用戶說要生成報告就調用。", id="zh-hant-yonghu-shuo"),
     pytest.param("リリースノートを作成します。新しいタグを作る時に使用してください。", id="ja-toki-ni"),
     pytest.param("CI の失敗を分析します。ビルドが落ちた場合に使う。", id="ja-baai"),
     pytest.param("Dockerfile を最適化します。ビルドが遅いとき。", id="ja-toki"),
