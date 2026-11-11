@@ -537,6 +537,19 @@ def test_command_prints_the_table_and_writes_a_valid_artifact(tmp_path, monkeypa
     assert artifact["model"] == {"model": "claude-sonnet-5-5", "provider": "anthropic"}
 
 
+def test_command_counts_the_unusable_and_the_cut_requirement_rows_in_the_artifact(tmp_path, monkeypatch, capsys):
+    rows = [{"section": "must_hold", "text": f"requirement {i}"} for i in range(1, 84)]  # 83 usable, 80 kept
+    rows[5:5] = [{"section": "bogus", "text": "unknown section"}]
+    rows[9:9] = [{"section": "failure_modes", "text": "   "}]
+    mapping = json.dumps({"items": {f"mh-{i:02d}": [] for i in range(1, 81)}})
+    out = tmp_path / "coverage.json"
+    _run(monkeypatch, [str(_skill(tmp_path)), str(_evals(tmp_path)), "--out", str(out)],
+         json.dumps({"requirements": rows}), mapping)
+    summary = json.loads(out.read_text(encoding="utf-8"))["summary"]
+    assert summary["requirements_unusable"] == 2 and summary["requirements_dropped"] == 3
+    assert "Dropped: " in capsys.readouterr().out
+
+
 def test_command_default_model_is_the_judge_default(monkeypatch, tmp_path):
     from dokimi.defaults import DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER
 
