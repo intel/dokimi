@@ -128,11 +128,26 @@ def test_manifest_path_leaving_the_tree_exits_2_and_a_missing_manifest_exits_1(n
 
 @pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
 @pytest.mark.parametrize("name", ["check", "run", "replay", "prs"])
-def test_manifest_path_leaving_a_pinned_tree_is_a_missing_manifest_with_exit_1(name, tmp_path, monkeypatch, capsys):
+def test_manifest_path_leaving_a_pinned_tree_exits_2_as_for_an_unpinned_one(name, tmp_path, monkeypatch, capsys):
     repo, sha = _repo_with_sub(tmp_path)
     code, err = _run(monkeypatch, capsys, *_command(name, f"{repo}@{sha}", tmp_path), "--manifest", "../outside.yaml")
-    assert code == 1
-    assert err.strip().splitlines()[0] == "✗ ../outside.yaml: invalid repo_manifest.v1:"
+    assert code == 2
+    assert err.strip().splitlines()[0] == "Error: path escapes the repository: ../outside.yaml"
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
+def test_git_tree_refuses_a_path_that_leaves_the_tree_and_keeps_one_that_stays(tmp_path):
+    from dokimi.repos.source import GitTree, SourceArgumentError
+
+    repo, sha = _repo_with_sub(tmp_path)
+    tree = GitTree(repo / ".git", sha)
+    for probe in (tree.is_file, tree.is_dir, tree.read_text, tree.read_bytes, tree.resolve):
+        for path in ("../x", "sub/../../x", "/sub/f.txt"):
+            with pytest.raises(SourceArgumentError, match=f"^path escapes the repository: {path}$"):
+                probe(path)
+    assert tree.is_file("sub/../sub/f.txt")
+    assert tree.is_dir("sub/./")
+    assert not tree.is_file("sub/missing.txt")
 
 
 def _tree_with_a_link_out(tmp_path, link):

@@ -10,7 +10,6 @@ import argparse
 import contextlib
 import json
 import math
-import os
 import shutil
 import sys
 from pathlib import Path
@@ -21,14 +20,14 @@ if TYPE_CHECKING:
 
 from dokimi import docker_cmd
 from dokimi.repos.harness_profile import DELEGATION_MODES
-from dokimi.repos.source import SourceArgumentError
+from dokimi.repos.source import SourceArgumentError, tree_path
 from dokimi.utils import tree_digest
 from dokimi.utils import InputError
 
 
 def _refuse_typed(source, args: argparse.Namespace) -> None:
     """Exit 2 for what the user typed: a pinned local path inside a repository, or a ``--manifest`` that leaves
-    an unpinned local tree as written. A path the tree supplies (a link out of it) fails later, with exit 1."""
+    the tree as written. A path the tree supplies (a link out of it) fails later, with exit 1."""
     from dokimi.repos.source import check_pinned_root
 
     try:
@@ -38,10 +37,11 @@ def _refuse_typed(source, args: argparse.Namespace) -> None:
     except ValueError as exc:  # SourceError: git cannot read the pinned path; or a prefix that is not UTF-8
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(1)
-    if args.manifest and not args.manifest_file and not source.remote and source.rev is None:
-        tree = Path(source.location).resolve()
-        if not Path(os.path.normpath(tree / args.manifest)).is_relative_to(tree):
-            raise InputError(f"path escapes the repository: {args.manifest}")
+    if args.manifest and not args.manifest_file:
+        try:
+            tree_path(args.manifest)
+        except SourceArgumentError as exc:
+            raise InputError(str(exc)) from exc
 
 
 def _context(args: argparse.Namespace, out: Path, source, pin: bool = False):

@@ -215,10 +215,10 @@ class GitTree:
         return self._dirs
 
     def is_file(self, path: str) -> bool:
-        return _norm(path) in set(self.files())
+        return tree_path(path) in set(self.files())
 
     def is_dir(self, path: str) -> bool:
-        return _norm(path) in self._dir_set()
+        return tree_path(path) in self._dir_set()
 
     def _links(self) -> set[str]:
         if self._symlinks is None:
@@ -235,7 +235,7 @@ class GitTree:
         return _run_git(self.git_dir, ["show", f"{self.sha}:{self.resolve(path)}"], None, True).stdout_bytes
 
     def resolve(self, path: str, dirs: bool = False) -> str:
-        start = path = _norm(path)
+        start = path = tree_path(path)
         links = self._links()
         for _ in range(40):
             parts = path.split("/")
@@ -510,8 +510,12 @@ def resolve_rev(git_dir: Path, rev: str) -> str:
     return _git(git_dir, "rev-parse", "--verify", "--quiet", f"{rev}^{{commit}}").strip()
 
 
-def _norm(path: str) -> str:
-    return PurePosixPath(path).as_posix().removeprefix("./").rstrip("/") or "."
+def tree_path(path: str) -> str:
+    """The tree-relative form of ``path``; :class:`SourceArgumentError` if it leaves the tree, as in ``WorkTree``."""
+    inside = posixpath.normpath(path)
+    if posixpath.isabs(inside) or inside == ".." or inside.startswith("../"):
+        raise SourceArgumentError(f"path escapes the repository: {path}")
+    return PurePosixPath(inside).as_posix().removeprefix("./").rstrip("/") or "."
 
 
 def _git(git_dir: Path | None, *args: str, check: bool = True, env: process.Env = process.GIT_ENV) -> str:
