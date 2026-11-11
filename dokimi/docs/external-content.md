@@ -247,6 +247,9 @@ directory name and description but different `SKILL.md` text are a `warn` on bot
 
 The scan also reads the scripts a skill bundles: each `.sh`, `.bash` and `.py` file, and each file that
 starts with `#!`, under the skill directory (a file over 1 MB, and a link out of the directory, is not read).
+At most 200 files of a bundle are walked: every file counts, `SKILL.md` and non-script files included, in walk
+order (a directory's files sorted by name, then its subdirectories). Files past the cap are not checked and give
+no finding; a subdirectory with its own `SKILL.md` is another skill and is skipped.
 A file with a `#!` line and no `.sh`, `.bash` or `.py` suffix is read for CRLF only.
 Nothing is run or imported. A CRLF line ending in a shell script or a `#!` file is a `warn` (`script-crlf`): bash and a
 shebang interpreter fail on the carriage return on Linux. A Python file that the running Python's
