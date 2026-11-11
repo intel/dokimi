@@ -755,7 +755,8 @@ python cli.py eval headroom run1/arms.json run2/arms.json run3/arms.json \
 - **provisional**: fewer than `--min-reps` runs scored the item with its no-skill arm (the
   reps are those runs). Default 3. A file gives each item zero or one rep (zero when its
   no-skill arm was not scored in that file), so one file alone makes every item provisional at the
-  default of 3; the reps of several files add up.
+  default of 3; the reps of several files add up (a file whose no-skill answer is a cached replay of
+  a fresh one adds none, see below).
 
 A run is one file. A file repeated on the command line, or holding the same JSON content as
 an earlier one (whitespace and key order do not count), is skipped with a note, so it does
