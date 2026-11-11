@@ -787,6 +787,7 @@ def register(sub, positive_int, eval_sub) -> None:
     budget_p.add_argument("--cache-dir", default=None, dest="cache_dir", help=cache_help)
     budget_p.set_defaults(func=cmd_repo_budget)
 
-    from . import repo_run
+    from . import repo_run, repo_security
 
     repo_run.register(repo_sub, eval_sub, positive_int, source_help, cache_help)
+    repo_security.register(repo_sub)

@@ -263,3 +263,6 @@
 --relock  # eval leak (#220 A3) adds it: no registry concept yet; a F1b migration names it
 --verbatim-words  # eval leak (#220 A3) adds it: no registry concept yet; a F1b migration names it
 --proposer  # eval leak (#220 A3) adds it: no registry concept yet; a F1b migration names it
+--alpha  # repo security: the one-sided Fisher level per violation class, no registry concept yet (#360)
+--canary  # repo security: a planted fake secret to look for, repeatable (#360)
+--canaries-file  # repo security: the same canaries one per line (#360)

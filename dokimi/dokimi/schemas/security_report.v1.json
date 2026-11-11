@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/intel/dokimi/schemas/security_report.v1.json",
+  "title": "Behavioural security report v1",
+  "description": "What `repo security` found in a `repo run` batch, with no model call (docs/behavioural-security.md, #360): deterministic rules over each cell's trace, execve log, egress rows and answer, then per arm and model a rate per violation class against the baseline arm of the same model. Canaries appear only as their last 4 characters.",
+  "type": "object",
+  "required": ["schema_version", "batch", "baseline_arm", "alpha", "models_without_baseline", "arms", "failed", "coverage", "cells"],
+  "additionalProperties": false,
+  "$defs": {
+    "finding": {
+      "type": "object",
+      "required": ["rule", "severity", "source", "evidence"],
+      "additionalProperties": false,
+      "properties": {
+        "rule": {"type": "string", "description": "Violation class id (dokimi.repos.security.RULES)."},
+        "severity": {"enum": ["critical", "high", "medium"]},
+        "source": {"enum": ["trace", "read", "command", "edit", "exec", "egress", "answer"], "description": "Where it was seen: `trace` a command or edit event, `read` a read-tool event, `exec` the execve log; `command`, `edit`, `egress`, `answer` the sink a canary was seen in."},
+        "evidence": {"type": "string", "description": "The matched text, canaries redacted, whitespace folded, clipped."}
+      }
+    },
+    "nullable_number": {"type": ["number", "null"]},
+    "class": {
+      "type": "object",
+      "required": ["severity", "cells", "of", "rate", "ci95"],
+      "additionalProperties": false,
+      "properties": {
+        "severity": {"enum": ["critical", "high", "medium"]},
+        "cells": {"type": "integer", "minimum": 0, "description": "Measured cells of the arm with the class."},
+        "of": {"type": "integer", "minimum": 0, "description": "Measured cells of the arm."},
+        "rate": {"$ref": "#/$defs/nullable_number"},
+        "ci95": {"type": "array", "items": {"$ref": "#/$defs/nullable_number"}, "minItems": 2, "maxItems": 2, "description": "Wilson 95% interval of `rate`."},
+        "baseline_cells": {"type": "integer", "minimum": 0},
+        "baseline_of": {"type": "integer", "minimum": 0},
+        "p_greater": {"$ref": "#/$defs/nullable_number", "description": "One-sided Fisher exact p that the arm's rate exceeds the baseline's; uncorrected, cells pooled across tasks and repeats."},
+        "new": {"type": "boolean", "description": "Seen in the arm, never in its baseline."}
+      }
+    }
+  },
+  "properties": {
+    "schema_version": {"const": "security_report.v1"},
+    "run_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}(?![\\s\\S])", "description": "The envelope: the id of the run that saved this file (dokimi.artifacts.run_id). Absent from files saved before the envelope."},
+    "dokimi_version": {"type": "string", "minLength": 1, "description": "The envelope: the dokimi version that saved this file. Absent from files saved before the envelope."},
+    "batch": {"type": "string"},
+    "baseline_arm": {"type": "string"},
+    "alpha": {"type": "number", "exclusiveMinimum": 0, "exclusiveMaximum": 1},
+    "models_without_baseline": {"type": "array", "items": {"type": "string"}},
+    "failed": {"type": "boolean", "description": "Some arm failed; unfinished cells are in `coverage.unfinished`, which `--fail-on` also fails on."},
+    "arms": {
+      "type": "array",
+      "description": "One entry per (arm, model), sorted by model then arm.",
+      "items": {
+        "type": "object",
+        "required": ["arm", "model", "baseline", "cells", "not_started", "classes", "failed", "new_classes"],
+        "additionalProperties": false,
+        "properties": {
+          "arm": {"type": "string"},
+          "model": {"type": "string"},
+          "baseline": {"type": "boolean"},
+          "cells": {"type": "integer", "minimum": 0, "description": "Measured cells (the denominator of every rate)."},
+          "not_started": {"type": "integer", "minimum": 0, "description": "Finished cells whose agent never started, in no rate."},
+          "classes": {"type": "object", "additionalProperties": {"$ref": "#/$defs/class"}},
+          "failed": {"type": "array", "items": {"type": "string"}},
+          "new_classes": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "required": ["cells", "measured", "not_started", "unfinished", "exec_traced", "egress_traced", "canaries"],
+      "additionalProperties": false,
+      "properties": {
+        "cells": {"type": "integer", "minimum": 0, "description": "Finished cells."},
+        "measured": {"type": "integer", "minimum": 0},
+        "not_started": {"type": "array", "items": {"type": "string"}, "description": "Finished cells with no trace event, a null `process` and no finding."},
+        "unfinished": {
+          "type": "array",
+          "description": "Planned or started cells with no usable result.json; their files are still scanned.",
+          "items": {
+            "type": "object",
+            "required": ["cell", "reason", "findings"],
+            "additionalProperties": false,
+            "properties": {
+              "cell": {"type": "string"},
+              "reason": {"type": "string"},
+              "findings": {"type": "array", "items": {"$ref": "#/$defs/finding"}}
+            }
+          }
+        },
+        "exec_traced": {"type": "integer", "minimum": 0},
+        "egress_traced": {"type": "integer", "minimum": 0},
+        "canaries": {"type": "integer", "minimum": 0}
+      }
+    },
+    "cells": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["cell", "task", "arm", "model", "started", "exec_traced", "egress_traced", "findings"],
+        "additionalProperties": false,
+        "properties": {
+          "cell": {"type": "string"},
+          "task": {"type": "string"},
+          "arm": {"type": "string"},
+          "model": {"type": "string"},
+          "started": {"type": "boolean"},
+          "exec_traced": {"type": "boolean"},
+          "egress_traced": {"type": "boolean"},
+          "findings": {"type": "array", "items": {"$ref": "#/$defs/finding"}}
+        }
+      }
+    }
+  }
+}

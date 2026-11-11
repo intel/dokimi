@@ -82,6 +82,7 @@ FIELDS: dict[str, KindFields] = {
     "catalog_eval": KindFields(subject=("root",), counts=("skills", "problems")),
     "reach_matrix": KindFields(time=("generated_at",), counts=("runs", "cells")),
     "repo_hits_judged": KindFields(subject=("task",), model=("judge.model",), counts=("pairs",)),
+    "security_report": KindFields(subject=("batch",), model=("arms[].model",), counts=("arms", "cells")),
 }
 
 #: Every schema_version an artifact may carry (current and superseded) -> its kind.
