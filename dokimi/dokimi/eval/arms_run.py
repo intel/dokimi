@@ -90,8 +90,7 @@ class ArmsRunConfig:
     def __post_init__(self) -> None:
         if self.judge_model is JUDGE_MODEL_FOR_PROVIDER:
             # The shared rule (judge_rule.default_judge): not the answerer's family, on the judge's provider.
-            # A CLI answerer with the default judge provider (the field's default, so not named) judges on its CLI,
-            # as ``dokimi arms run --provider claude-cli`` does.
+            # A CLI answerer with the provider left out judges on its CLI, as ``arms run --provider claude-cli`` does.
             left_out = self.judge_provider is JUDGE_PROVIDER_DEFAULT
             provider = None if (left_out and cli_backend(self.provider)) else self.judge_provider
             try:

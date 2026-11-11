@@ -184,11 +184,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         on_cli = answerer_provider is not None and llm_cli.backend(answerer_provider) is not None
         follow_answerer = on_cli and not named
         try:
-            judge_model, judge_provider = default_judge(answerer, None if follow_answerer else args.judge_provider,
-                                                        answerer_provider)
+            judge_model, picked_provider = default_judge(answerer,
+                                                         None if follow_answerer else args.judge_provider,
+                                                         answerer_provider)
             args.judge_model = judge_model
             if follow_answerer:
-                args.judge_provider = judge_provider
+                args.judge_provider = picked_provider
         except JudgeIsAnswerer as e:
             # Only a run that judges is refused: arms run, subjects run and benchmark preflight judge with
             # --judge (or not at all), so without it the judge is the base default, as before the rule.
@@ -198,12 +199,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
                 parser.error(str(e))
         except ValueError as e:
             parser.error(str(e))
-    judge_provider, judge_model = getattr(args, "judge_provider", None), getattr(args, "judge_model", None)
-    if judge_provider in llm_cli.BACKENDS and judge_model is not None \
-            and not llm_cli.accepts_model(judge_provider, judge_model):
+    cur_judge_provider, cur_judge_model = getattr(args, "judge_provider", None), getattr(args, "judge_model", None)
+    if cur_judge_provider in llm_cli.BACKENDS and cur_judge_model is not None \
+            and not llm_cli.accepts_model(cur_judge_provider, cur_judge_model):
         # Checked here, before any persona or answer is generated for the run.
-        parser.error(f"--judge-provider {judge_provider} takes a Claude model (sonnet, haiku, opus or a "
-                     f"claude-* id), not {judge_model!r}: pass --judge-model")
+        parser.error(f"--judge-provider {cur_judge_provider} takes a Claude model (sonnet, haiku, opus or a "
+                     f"claude-* id), not {cur_judge_model!r}: pass --judge-model")
     provider, model = getattr(args, "provider", None), getattr(args, "model", None)
     # With --matrix-cells every cell sets its own provider and model (checked when applied), so the
     # top-level model is not the one that runs.
