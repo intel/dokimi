@@ -10,6 +10,7 @@ import argparse
 import contextlib
 import json
 import math
+import os
 import shutil
 import sys
 from pathlib import Path
@@ -42,6 +43,10 @@ def _refuse_typed(source, args: argparse.Namespace) -> None:
             tree_path(args.manifest)
         except SourceArgumentError as exc:
             raise InputError(str(exc)) from exc
+        if not source.remote and source.rev is None:  # a native path: on Windows `..\x` leaves the tree too
+            tree = Path(source.location).resolve()
+            if not Path(os.path.normpath(tree / args.manifest)).is_relative_to(tree):
+                raise InputError(f"path escapes the repository: {args.manifest}")
 
 
 def _context(args: argparse.Namespace, out: Path, source, pin: bool = False):

@@ -211,3 +211,20 @@ def test_check_and_run_keep_exit_1_for_a_pinned_source_that_cannot_be_fetched(na
     code, err = _run(monkeypatch, capsys, *_command(name, f"https://127.0.0.1:9/r.git@{PIN}", tmp_path))
     assert code == 1
     assert err.strip() == "✗ git fetch failed: unreachable"
+
+
+def test_a_windows_manifest_path_leaving_an_unpinned_tree_is_refused_as_typed(tmp_path, monkeypatch):
+    import ntpath
+    from types import SimpleNamespace
+
+    from dokimi.commands import repo_run
+    from dokimi.utils import InputError
+
+    source = SimpleNamespace(location=str(tmp_path), remote=False, rev=None, subdir=None)
+    # What Windows does with `..\x`, written back with `/` so the posix tree compares.
+    windows_path = SimpleNamespace(normpath=lambda p: ntpath.normpath(p).replace("\\", "/"))
+    monkeypatch.setattr(repo_run, "os", SimpleNamespace(path=windows_path))  # only this module; posixpath stays
+    for manifest in ("..\\outside.yaml", "sub\\..\\..\\outside.yaml"):
+        with pytest.raises(InputError, match=r"^path escapes the repository: "):
+            repo_run._refuse_typed(source, SimpleNamespace(manifest=manifest, manifest_file=None))
+    repo_run._refuse_typed(source, SimpleNamespace(manifest="sub\\..\\ok.yaml", manifest_file=None))
