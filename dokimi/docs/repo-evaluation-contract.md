@@ -2475,7 +2475,7 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   0.05: the row's own p places 0, and above 16 changed tasks the interval's Monte Carlo draws are those of p, drawn
   once from the seed and reused at every theta, so the ends do not move between runs. Under a shift every task
   counts, the tied ones included (their delta becomes -theta), and the smallest p over n tasks is `2 / 2^n`, so
-  both ends are bounded from 6 tasks on, whatever the ties, and open (`null` in `--json`, `-inf` / `+inf` in the
+  both ends are bounded from 6 tasks on, whatever the ties, and open (`null` under `data` in `--json`, `-inf` / `+inf` in the
   text) at 5 or fewer, one task included. The test stays exact, with no mid-p: p(theta) is a step function and the
   ends are its step points, so an end can be a delta itself, or 0. The text prints an end at 3 decimals, and a
   non-zero end that would print as `0.000` at 2 significant digits (`+0.0002`), so it keeps its side of 0.
@@ -2502,7 +2502,7 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   go instead (`with 3 changed tasks the sign-flip p cannot go below 0.25: no
   effect can reach p < 0.05 here`). Holm's correction can lift that floor: a
   gate or score row's `p_holm_floor` is its `p_holm` with its p put at that
-  floor and the other p of the family as observed (in every `--json` row;
+  floor and the other p of the family as observed (in every `--json` row under `data`;
   `null` on a descriptive row or one with every task tied), and where it is not below
   0.05, `mde` is `null` and the note names Holm instead (`with Holm over 2
   rows, p_holm cannot go below 0.0625 here: no effect can reach p_holm <
