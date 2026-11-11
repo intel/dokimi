@@ -362,3 +362,23 @@ def test_a_group_leaf_that_exits_1_names_itself_in_its_document(monkeypatch, cap
     assert exc.value.code == 1
     doc = json.loads(capsys.readouterr().out)
     assert doc["kind"] == "runs list" and doc["error"] is None
+
+
+def test_a_judge_cost_says_when_its_calls_are_unpriced():
+    from types import SimpleNamespace
+
+    from dokimi.commands.repo_hits import _cost
+
+    assert _cost(SimpleNamespace(spent_usd=0.0, calls=3, unpriced=3), None) == {
+        "spent_usd": 0.0, "calls": 3, "cap_usd": None, "remaining_usd": None, "priced": False}
+    assert _cost(SimpleNamespace(spent_usd=0.0, calls=0, unpriced=0), None)["priced"] is None
+
+
+@pytest.mark.parametrize("spent, cap, remaining", [(0.2, 0.5, 0.3), (0.7, 0.5, 0.0), (0.1234567, 1.0, 0.876543)])
+def test_a_priced_judge_cost_has_the_remaining_budget_floored_at_zero(spent, cap, remaining):
+    from types import SimpleNamespace
+
+    from dokimi.commands.repo_hits import _cost
+
+    cost = _cost(SimpleNamespace(spent_usd=spent, calls=2, unpriced=0), cap)
+    assert cost["remaining_usd"] == remaining and cost["cap_usd"] == cap and cost["priced"] is True

@@ -58,7 +58,8 @@ def _cost(meter: Any, max_usd: float | None) -> dict[str, Any]:
     """The envelope's ``cost`` for a judge run: what the calls spent against ``--max-usd``, if one was given."""
     spent = round(meter.spent_usd, 6)
     return {"spent_usd": spent, "calls": meter.calls, "cap_usd": max_usd,
-            "remaining_usd": None if max_usd is None or meter.unpriced else round(max(max_usd - spent, 0.0), 6)}
+            "remaining_usd": None if max_usd is None or meter.unpriced else round(max(max_usd - spent, 0.0), 6),
+            "priced": None if not meter.calls else not meter.unpriced}
 
 
 def _stopped(exc: Exception, done: Any, code: int, args: argparse.Namespace, more: str = "") -> NoReturn:
