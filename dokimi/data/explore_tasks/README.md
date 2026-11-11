@@ -36,7 +36,7 @@ references:
 ```bash
 python cli.py explore list
 python cli.py explore run --all --arms oracle,empty --baseline-arm empty \
-  --out-json results/explore-runs/explore_runs.json \
+  --out results/explore-runs/explore_runs.json \
   --out-md   reports/exploration.md
 ```
 

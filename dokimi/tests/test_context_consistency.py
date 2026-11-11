@@ -14,6 +14,7 @@ from dokimi.context.consistency import (apply_outcomes, check_contract, jsd,
                                         load_contract, load_outcomes, parse_contract, parse_run,
                                         pass_at, pass_hat, profile, run_from_events, seq_distance)
 from dokimi.context.shell import program as _program
+from dokimi.utils import InputError
 from dokimi.context.shell import written as _written
 
 
@@ -193,7 +194,7 @@ def test_cli_arms_outcomes_and_json(tmp_path, capsys):
         "--arm", f"skill={tmp_path}/skill/*.jsonl", "--outcomes", str(outcomes),
         "--contract", str(contract), "--json"])
     args.func(args)
-    rep = json.loads(capsys.readouterr().out)
+    rep = json.loads(capsys.readouterr().out)["data"]
     assert rep["base"]["result"]["success_rate"] == 0.5
     assert rep["skill"]["result"]["pass^2"] == 1.0
     assert rep["skill"]["path"]["order_distance"] == 0
@@ -358,9 +359,9 @@ def test_cli_refuses_malformed_files_cleanly(tmp_path, flag, content):
     f = tmp_path / "bad"
     f.write_text(content)
     args = build_parser().parse_args(["trace", "consistency", str(tmp_path / "t.jsonl"), flag, str(f)])
-    with pytest.raises(SystemExit) as exc:
+    with pytest.raises(InputError) as exc:
         args.func(args)
-    assert str(exc.value).startswith("✗")
+    assert str(f) in str(exc.value)
 
 
 @pytest.mark.parametrize("content", ["a: 2026-99-99\n", "[" * 100000], ids=["bad-date", "deep"])
@@ -369,9 +370,9 @@ def test_cli_names_a_contract_whose_yaml_does_not_load(tmp_path, content):
     f = tmp_path / "c.yaml"
     f.write_text(content)
     args = build_parser().parse_args(["trace", "consistency", str(tmp_path / "t.jsonl"), "--contract", str(f)])
-    with pytest.raises(SystemExit) as exc:
+    with pytest.raises(InputError) as exc:
         args.func(args)
-    assert str(exc.value).startswith(f"✗ {f}: not valid YAML")
+    assert str(exc.value).startswith(f"{f}: not valid YAML")
 
 
 def test_an_outcome_key_shared_by_two_arms_must_be_the_full_path(tmp_path):
@@ -395,7 +396,7 @@ def test_cli_catches_an_outcome_key_shared_across_arms(tmp_path):
     o.write_text('{"1.jsonl": false}')
     args = build_parser().parse_args(["trace", "consistency", "--arm", f"base={tmp_path}/base/*.jsonl",
                                       "--arm", f"skill={tmp_path}/skill/*.jsonl", "--outcomes", str(o)])
-    with pytest.raises(SystemExit) as exc:
+    with pytest.raises(InputError) as exc:
         args.func(args)
     assert "1.jsonl" in str(exc.value)
 
@@ -412,7 +413,7 @@ def test_a_trace_given_twice_counts_once(tmp_path, capsys):
         f"{tmp_path}/a/./r1.jsonl", f"{tmp_path}/a/r1.jsonl", "--contract", str(contract), "--json"])
     args.func(args)
     out = capsys.readouterr()
-    rep = json.loads(out.out)
+    rep = json.loads(out.out)["data"]
     assert rep["A"]["result"]["runs"] == 2 and rep["A"]["contract"]["conformance_rate"] == 0.5
     assert rep["runs"]["result"]["runs"] == 1
     assert out.err.count("given twice") == 2

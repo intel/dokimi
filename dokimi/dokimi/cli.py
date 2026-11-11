@@ -159,7 +159,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     raw = list(sys.argv[1:] if argv is None else argv)
     moved = cli_routes.moved_argv(raw)
     if moved is not None:  # a tombstone: say where the command went, do not run anything
+        moved = cli_routes.moved_flags_argv(moved) or moved  # the moved flag too, in one step
         parser.exit(2, cli_routes.moved_text(moved) + "\n")
+    moved_flags = cli_routes.moved_flags_argv(raw)
+    if moved_flags is not None:  # a moved flag spelling: print the argv with the new one
+        parser.exit(2, cli_routes.moved_text(moved_flags) + "\n")
     args = parser.parse_args(raw)
     if getattr(args, "judge_model", None) is JUDGE_MODEL_FOR_PROVIDER:
         model = default_judge_model(args.judge_provider)
@@ -193,7 +197,8 @@ def _exit_with_document(args: argparse.Namespace, code: str, message: str) -> No
     """Print the cli_output.v1 error document on stdout and exit with the code §2.6 gives it."""
     from dokimi import cli_output
 
-    cli_output.emit(cli_output.error_document(args.cmd, code, message, run_id=cli_output.current_run_id()))
+    kind = getattr(args, "cli_kind", args.cmd)  # a group leaf names itself, e.g. "runs list"
+    cli_output.emit(cli_output.error_document(kind, code, message, run_id=cli_output.current_run_id()))
     sys.exit(cli_output.EXIT_OF_ERROR[code])
 
 

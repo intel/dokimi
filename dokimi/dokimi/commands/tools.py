@@ -15,9 +15,10 @@ import threading
 import time
 from pathlib import Path
 
+from dokimi import cli_flags
 from dokimi.llm import PROVIDERS as API_PROVIDERS
 from dokimi.defaults import DEFAULT_ANSWER_PROVIDER
-from dokimi.exit_codes import EXIT_USAGE
+from dokimi.exit_codes import EXIT_FAILURE, EXIT_INCONCLUSIVE, EXIT_USAGE
 from dokimi.utils import InputError
 
 PROVIDERS = list(API_PROVIDERS)  # tool calling: no CLI backend
@@ -188,14 +189,14 @@ def cmd_tools_preference(args: argparse.Namespace) -> None:
         first = next(r["error"] for r in results if r["error"])
         print(f"Error: all {len(results)} call(s) failed ({first}); see results[].error in {args.out_json}",
               file=sys.stderr)
-        raise SystemExit(2)  # the documented "run incomplete" exit (docs/quickstart.md), not a usage refusal
+        raise SystemExit(EXIT_FAILURE)  # a runtime failure: every model call failed (docs/quickstart.md)
     if data["summary"]["n_skipped"]:
         why = (f"--max-cost-usd {args.max_cost_usd:g} reached"
                if u["cost_known_calls"] == u["n_calls"]
                else "a call came back with no price, so --max-cost-usd cannot be enforced")
         print(f"Error: {why}; {data['summary']['n_skipped']} of {len(results)} call(s) not run, "
               f"the summary covers the rest. See {args.out_json}", file=sys.stderr)
-        raise SystemExit(2)  # the documented "run incomplete" exit (docs/quickstart.md), not a usage refusal
+        raise SystemExit(EXIT_INCONCLUSIVE)  # the documented "run incomplete" exit (docs/quickstart.md), not a usage refusal
 
 
 def register(sub: argparse._SubParsersAction, positive_int) -> None:
@@ -221,8 +222,8 @@ def register(sub: argparse._SubParsersAction, positive_int) -> None:
     pref_p.add_argument("--max-cost-usd", type=_positive_usd, default=None, dest="max_cost_usd",
                         help="Start no new call once the priced calls have spent this much; the calls "
                              "not started are recorded as skipped and, if there are any, the command "
-                             "exits 2 (default: no cap)")
-    pref_p.add_argument("--out-json", default="tool_preference.json", dest="out_json")
+                             "exits 3 (default: no cap)")
+    cli_flags.add(pref_p, "output", "--out", default="tool_preference.json", dest="out_json")
     pref_p.add_argument("--items-out", default=None, dest="items_out",
                         help="Also write the expanded items (messages + tools per item) here")
     pref_p.add_argument("--dry-run", action="store_true", dest="dry_run",
