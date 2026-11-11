@@ -49,13 +49,23 @@ def _loaded_with_default(tree, manifest) -> tuple[str, ...]:
     entries = budget(tree, p.guidance_names, p.import_max_depth, p.reads_claude_rules,
                      claude_displaces_agents=p.claude_displaces_agents, follow_imports=p.follows_imports)["entries"]
     # Only Markdown is read as guidance: an `@package.json` import is loaded, but its text is no guidance claims
-    paths = [e["path"] for e in entries if e["kind"] in ("rule", "import") and e["path"].endswith(".md")]
     listed = set(tree.files())
-    loaded = tuple(dict.fromkeys(filter(None, (_listed(tree, listed, p) for p in paths))))
+    reached = (_listed(tree, listed, e["path"]) for e in entries if e["kind"] in ("rule", "import"))
+    loaded = tuple(dict.fromkeys(p for p in reached if p is not None and _target(tree, p).endswith(".md")))
     if loaded:
         print(f"note: also checking {len(loaded)} .claude/rules and @ imported files Claude Code loads with the default guidance",
               file=sys.stderr)
     return loaded
+
+
+def _target(tree, path: str) -> str:
+    """The file a listed ``path`` links to, so a ``cfg.md`` link to ``package.json`` is not taken for Markdown."""
+    from dokimi.repos import SourceError
+
+    try:
+        return tree.resolve(path)
+    except (SourceError, OSError, ValueError):
+        return path
 
 
 def _listed(tree, listed: set[str], path: str) -> str | None:

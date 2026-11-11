@@ -68,3 +68,9 @@ def test_an_import_through_a_linked_directory_is_checked_as_the_file_it_reaches(
     payload = _scan(capsys, str(root))
     assert payload["files"] == ["CLAUDE.md", "docs/x.md"]
     assert _fails(payload) == {("docs/x.md", "src/gone_dl.py")}
+
+
+def test_a_markdown_import_that_links_to_another_kind_of_file_is_not_read_as_guidance(tmp_path, capsys):
+    root = _write(tmp_path / "r", {"CLAUDE.md": "@cfg.md\n", "package.json": '{"main": "`src/gone.py`"}\n'})
+    (root / "cfg.md").symlink_to("package.json")
+    assert _scan(capsys, str(root))["files"] == ["CLAUDE.md"]
