@@ -63,10 +63,10 @@ EXPECTED: dict[str, tuple[dict, str | None, str | None, str | None]] = {
     "repo_hits_judged.v1": ({}, "review_replay_pr3098", "gpt-5.1", None),
     "ragas.v1": ({}, None, None, None),
     "grounding.v1": ({}, None, None, None),
-    "checklist.v1": ({}, None, None, None),
-    "judge_wording.v1": ({}, None, None, None),
+    "checklist.v1": ({}, None, "openai/m", None),
+    "judge_wording.v1": ({}, None, "openai/m", None),
     "cross_judge.v1": ({}, None, None, None),
-    "pairwise.v1": ({}, None, None, None),
+    "pairwise.v1": ({}, None, "openai/m", None),
 }
 
 
