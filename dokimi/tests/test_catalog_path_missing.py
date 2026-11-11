@@ -162,6 +162,12 @@ def test_a_missing_path_in_a_separator_joined_list_is_named_alone(tmp_path):
     assert finding.message.startswith("'scripts/zz.py' (in ")
 
 
+def test_a_missing_quoted_argument_with_a_comma_is_named_whole(tmp_path):
+    review, _ = _review(tmp_path, "Copy it with `cp 'assets/a,b.svg' /tmp/x`.\n")
+    [finding] = review.findings
+    assert finding.message.startswith("'assets/a,b.svg' (in ")
+
+
 def test_a_malformed_quote_falls_back_to_whitespace_words(tmp_path):
     review, _ = _review(tmp_path, "Run `cp 'scripts/a.sh /tmp/x`.\n")
     [finding] = review.findings

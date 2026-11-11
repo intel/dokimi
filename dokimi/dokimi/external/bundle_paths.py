@@ -28,6 +28,8 @@ SKILL_DIR_VAR = "${CLAUDE_SKILL_DIR}/"
 LOCATION_SUFFIX_RE = re.compile(r":(?:\d+(?:[-:]\d+)?|[A-Za-z_]\w*)$")
 # A list of paths written with no space between them (``scripts/a.py,scripts/b.py``): one path per part.
 SEPARATOR_RE = re.compile(r"[,;]")
+# A quoted argument of a span, which keeps its commas and semicolons (``'assets/a,b.svg'``).
+QUOTED_RE = re.compile(r"'[^']*'|\"[^\"]*\"")
 # The folders a skill bundles files in: a code span naming a file under one of them is checked (``path-missing``).
 BUNDLE_DIRS = ("scripts", "references", "assets", "templates", "examples", "resources")
 # A path part that stands for a name the reader fills in, not a file (``scripts/x.py``, ``assets/xxx.png``).
@@ -68,14 +70,22 @@ def _bundle_path(word: str) -> Optional[str]:
 def _words(span: str) -> list[str]:
     """The words of a code span as a shell reads them: a quoted argument with a space is one word.
 
-    A span whose quotes do not balance is split on whitespace. A word joined by ``,`` or ``;``
-    (``scripts/a.py,scripts/b.py``) is one path per part.
+    A span whose quotes do not balance is split on whitespace. A ``,`` or ``;`` outside quotes
+    joins paths (``scripts/a.py,scripts/b.py``): it is read as a space there, so the parts are
+    words of their own, while a quoted argument keeps its separators.
     """
+    pieces: list[str] = []
+    pos = 0
+    for quoted in QUOTED_RE.finditer(span):
+        pieces.append(SEPARATOR_RE.sub(" ", span[pos : quoted.start()]))
+        pieces.append(quoted.group())
+        pos = quoted.end()
+    pieces.append(SEPARATOR_RE.sub(" ", span[pos:]))
+    joined = "".join(pieces)
     try:
-        words = shlex.split(span)
+        return shlex.split(joined)
     except ValueError:
-        words = span.split()
-    return [part for word in words for part in SEPARATOR_RE.split(word) if part]
+        return joined.split()
 
 
 def _missing(skill_dir: Path, text: str, real_dir: Path) -> bool:
