@@ -228,3 +228,31 @@ def test_a_windows_manifest_path_leaving_an_unpinned_tree_is_refused_as_typed(tm
         with pytest.raises(InputError, match=r"^path escapes the repository: "):
             repo_run._refuse_typed(source, SimpleNamespace(manifest=manifest, manifest_file=None))
     repo_run._refuse_typed(source, SimpleNamespace(manifest="sub\\..\\ok.yaml", manifest_file=None))
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
+def test_git_tree_follows_a_link_before_it_goes_up_a_level(tmp_path):
+    from dokimi.repos.source import GitTree, SourceArgumentError
+
+    tree = tmp_path / "t"
+    (tree / "sub" / "deep").mkdir(parents=True)
+    (tree / "repo-eval.yaml").write_text("root", encoding="utf-8")
+    (tree / "sub" / "repo-eval.yaml").write_text("sub", encoding="utf-8")
+    try:
+        os.symlink("sub/deep", tree / "link")
+    except OSError:
+        pytest.skip("this file system cannot hold a symlink")
+    for args in (["init", "-q"], ["add", "-A"],
+                 ["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "commit", "-q", "-m", "l"]):
+        subprocess.run(["git", "-C", str(tree), *args], check=True, capture_output=True)
+    sha = subprocess.run(["git", "-C", str(tree), "rev-parse", "HEAD"], check=True, capture_output=True,
+                         text=True).stdout.strip()
+    git_tree = GitTree(tree / ".git", sha)
+    assert git_tree.read_text("link/../repo-eval.yaml") == "sub"
+    assert git_tree.read_bytes("link/../repo-eval.yaml") == b"sub"
+    assert git_tree.resolve("link/../repo-eval.yaml") == "sub/repo-eval.yaml"
+    assert git_tree.read_many(["link/../repo-eval.yaml"]) == {"link/../repo-eval.yaml": "sub"}
+    assert git_tree.is_file("link/../repo-eval.yaml")
+    assert git_tree.resolve("link/../../repo-eval.yaml") == "repo-eval.yaml"
+    with pytest.raises(SourceArgumentError, match="^path escapes the repository: link/../../../repo-eval.yaml$"):
+        git_tree.resolve("link/../../../repo-eval.yaml")

@@ -215,10 +215,10 @@ class GitTree:
         return self._dirs
 
     def is_file(self, path: str) -> bool:
-        return tree_path(path) in set(self.files())
+        return self._follow(path, follow_last=False) in set(self.files())
 
     def is_dir(self, path: str) -> bool:
-        return tree_path(path) in self._dir_set()
+        return self._follow(path, follow_last=False) in self._dir_set()
 
     def _links(self) -> set[str]:
         if self._symlinks is None:
@@ -234,38 +234,49 @@ class GitTree:
         """The file's bytes as stored; a symlink is followed."""
         return _run_git(self.git_dir, ["show", f"{self.sha}:{self.resolve(path)}"], None, True).stdout_bytes
 
-    def resolve(self, path: str, dirs: bool = False) -> str:
-        start = path = tree_path(path)
+    def _follow(self, path: str, follow_last: bool = True) -> str:
+        """The tree path ``path`` names, walked one component at a time: a ``..`` after a link goes up from the
+        link's target, as in a checkout. :class:`SourceArgumentError` if it leaves the tree or loops."""
+        if posixpath.isabs(path):
+            raise SourceArgumentError(f"path escapes the repository: {path}")
         links = self._links()
-        for _ in range(40):
-            parts = path.split("/")
-            # The first component that is a link, a directory in the middle of the path included.
-            hop = next((i for i in range(1, len(parts) + 1) if "/".join(parts[:i]) in links), None)
-            if hop is not None and hop < len(parts):
-                head = "/".join(parts[:hop])
-                text = _git(self.git_dir, "show", f"{self.sha}:{head}")
-                base = posixpath.normpath(posixpath.join(posixpath.dirname(head), text))
-                if posixpath.isabs(text) or base == ".." or base.startswith("../"):
-                    raise SourceArgumentError(f"path escapes the repository: {head} -> {text}")
-                path = posixpath.normpath(posixpath.join(base, *parts[hop:]))
-                if path == ".." or path.startswith("../"):
-                    raise SourceArgumentError(f"path escapes the repository: {start}")
+        pending: list[tuple[str, str | None]] = [(part, None) for part in path.split("/")]  # (component, the link it came from)
+        walked: list[str] = []
+        hops = 0
+        while pending:
+            part, via = pending.pop(0)
+            if part in ("", "."):
                 continue
-            if path not in self._links():
-                if path in self._dir_set() and dirs:
-                    return path
-                if path in self._dir_set():
-                    raise SourceArgumentError(f"{start} links to a directory: {path}" if path != start
-                                              else f"{path} is a directory")
-                if path != start and path not in self.files():
-                    raise SourceArgumentError(f"{start} links to nothing: {path}")
-                return path
-            text = _git(self.git_dir, "show", f"{self.sha}:{path}")
-            target = posixpath.normpath(posixpath.join(posixpath.dirname(path), text))
-            if posixpath.isabs(text) or target == ".." or target.startswith("../"):
-                raise SourceArgumentError(f"path escapes the repository: {path} -> {text}")
-            path = target
-        raise SourceArgumentError(f"too many levels of symbolic links: {start}")
+            if part == "..":
+                if not walked:
+                    raise SourceArgumentError(f"path escapes the repository: {via or path}")
+                walked.pop()
+                continue
+            walked.append(part)
+            here = "/".join(walked)
+            if here not in links or (not pending and not follow_last):
+                continue
+            text = _git(self.git_dir, "show", f"{self.sha}:{here}")
+            if posixpath.isabs(text):
+                raise SourceArgumentError(f"path escapes the repository: {here} -> {text}")
+            hops += 1
+            if hops > 40:
+                raise SourceArgumentError(f"too many levels of symbolic links: {path}")
+            walked.pop()
+            pending = [(piece, f"{here} -> {text}") for piece in text.split("/")] + pending
+        return "/".join(walked) or "."
+
+    def resolve(self, path: str, dirs: bool = False) -> str:
+        start = posixpath.normpath(path)  # only to tell a plain path from one that went through a link
+        real = self._follow(path)
+        if real in self._dir_set() and dirs:
+            return real
+        if real in self._dir_set():
+            raise SourceArgumentError(f"{start} links to a directory: {real}" if real != start
+                                      else f"{real} is a directory")
+        if real != start and real not in self.files():
+            raise SourceArgumentError(f"{start} links to nothing: {real}")
+        return real
 
     def read_many(self, paths: list[str], max_bytes: int = READ_MANY_LIMIT,
                   skipped: dict[str, str] | None = None) -> dict[str, str]:
