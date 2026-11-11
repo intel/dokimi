@@ -86,6 +86,12 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "catalog_eval": "catalog_eval.v1",
     "reach_matrix": "reach_matrix.v1",
     "repo_hits_judged": "repo_hits_judged.v1",
+    "ragas": "ragas.v1",
+    "grounding": "grounding.v1",
+    "checklist": "checklist.v1",
+    "judge_wording": "judge_wording.v1",
+    "cross_judge": "cross_judge.v1",
+    "pairwise": "pairwise.v1",
 }
 
 # kind -> superseded versions still accepted on *load*, newest first. An artifact written under an

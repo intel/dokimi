@@ -9,7 +9,7 @@ import contextlib
 import sys
 from pathlib import Path
 
-from dokimi.exit_codes import EXIT_USAGE
+from dokimi.exit_codes import EXIT_FAILURE, EXIT_USAGE
 
 
 @contextlib.contextmanager
@@ -20,6 +20,23 @@ def exit_on_unwritable(path: Path):
     except OSError as exc:
         print(f"Error: cannot write {path}: {exc}", file=sys.stderr)
         sys.exit(EXIT_USAGE)
+
+
+def save_artifact_or_exit(kind: str, payload: dict, path: Path, code: int = EXIT_USAGE) -> None:
+    """``save_artifact`` of ``kind``, or exit ``code`` naming ``path`` when it cannot be written.
+
+    A payload its schema refuses is a writer bug, so it exits 1 (the payload is kept at ``<path>.rejected``).
+    """
+    from dokimi.artifacts import ArtifactValidationError, save_artifact
+
+    try:
+        save_artifact(kind, payload, path)
+    except OSError as exc:
+        print(f"Error: cannot write {path}: {exc}", file=sys.stderr)
+        sys.exit(code)
+    except ArtifactValidationError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        sys.exit(EXIT_FAILURE)
 
 
 def write_text_or_exit(path: Path, text: str, code: int = EXIT_USAGE) -> None:

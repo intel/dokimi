@@ -1,0 +1,87 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+"""The eval writers that bypassed save_artifact (#277 R4) now save through it: each run they write
+carries the run envelope (run_id, dokimi_version) and its schema_version."""
+
+from __future__ import annotations
+
+import json
+import types
+
+import pytest
+
+from dokimi import artifacts, __version__
+from dokimi.cli import build_parser
+from dokimi.commands.evaluate import _run_ragas_eval
+from dokimi.eval import ragas_eval
+from tests.test_eval_output_write_errors import _JUDGE_COMMANDS, _Report, _stub_judge_commands
+
+EXPECTED_VERSION = {
+    "pairwise": "pairwise.v1",
+    "checklist": "checklist.v1",
+    "judge-wording": "judge_wording.v1",
+    "cross-judge": "cross_judge.v1",
+}
+
+
+@pytest.fixture(autouse=True)
+def _run_id(monkeypatch):
+    monkeypatch.setenv(artifacts.RUN_ID_ENV, "r4-run")
+
+
+def _assert_saved_with_envelope(path, version):
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert list(data)[:3] == ["schema_version", "run_id", "dokimi_version"]
+    assert (data["schema_version"], data["run_id"], data["dokimi_version"]) == (version, "r4-run", __version__)
+
+
+@pytest.mark.parametrize("command", list(EXPECTED_VERSION))
+def test_each_judge_reliability_writer_saves_with_the_envelope(command, tmp_path, monkeypatch):
+    import dokimi.eval.cross_judge as cross_judge
+
+    _stub_judge_commands(monkeypatch)
+    # The stub report scores nothing; the command reads `unscored()` after it has saved.
+    monkeypatch.setattr(cross_judge, "CrossJudgeReport", type("Report", (_Report,), {"unscored": lambda self: []}))
+    out = tmp_path / "out.json"
+    args = build_parser().parse_args([*_JUDGE_COMMANDS[command], "--answers", "a.json", "--output", str(out)])
+    args.func(args)
+    _assert_saved_with_envelope(out, EXPECTED_VERSION[command])
+
+
+def test_grounding_output_saves_with_the_envelope(tmp_path):
+    answers = tmp_path / "answers.json"
+    answers.write_text(json.dumps({"answers": [
+        {"question_id": "q1", "question_text": "How do I loop?",
+         "with_docs": {"answer": "use parallel_for",
+                       "retrieved_docs": [{"snippet": "parallel_for runs tasks"}]}},
+    ]}), encoding="utf-8")
+    out = tmp_path / "grounding.json"
+    args = build_parser().parse_args(["eval", "score", "grounding", "--answers", str(answers), "--output", str(out)])
+    args.func(args)
+    _assert_saved_with_envelope(out, "grounding.v1")
+
+
+def test_ragas_output_saves_with_the_envelope(tmp_path, monkeypatch):
+    class Evaluator:
+        def __init__(self, **kw):
+            pass
+
+        def evaluate(self, answers, include_without_docs=True):
+            return types.SimpleNamespace(to_dict=lambda: {"ragas_summary": {}}, format_summary=lambda: "")
+
+    monkeypatch.setattr(ragas_eval, "RagasEvaluator", Evaluator)
+    args = types.SimpleNamespace(ragas_model="m", ragas_provider="anthropic")
+    _run_ragas_eval([], tmp_path / "answers.json", args)
+    _assert_saved_with_envelope(tmp_path / "answers_ragas.json", "ragas.v1")
+
+
+def test_a_payload_its_schema_refuses_exits_1_and_keeps_it_beside_the_path(tmp_path, capsys):
+    from dokimi.commands._output import save_artifact_or_exit
+
+    out = tmp_path / "grounding.json"
+    with pytest.raises(SystemExit) as exc:
+        save_artifact_or_exit("grounding", {"summary": 5}, out, code=2)
+    assert exc.value.code == 1  # a writer bug, not an unwritable path
+    assert not out.exists() and (tmp_path / "grounding.json.rejected").exists()
+    assert "payload kept at" in capsys.readouterr().err

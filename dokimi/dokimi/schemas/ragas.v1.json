@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/intel/dokimi/schemas/ragas.v1.json",
+  "title": "RAGAS meta-evaluation v1",
+  "description": "`<answers>_ragas.json`, written by `eval score ragas` (and by the `evaluate` pipeline's RAGAS step): RAGAS metric scores of the answers, with and without the retrieved documents. The writer owns the metric shape; only the envelope and the schema version are checked here.",
+  "type": "object",
+  "required": ["schema_version"],
+  "properties": {
+    "schema_version": {"const": "ragas.v1"},
+    "run_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}(?![\\s\\S])", "description": "The envelope: the id of the run that saved this file (dokimi.artifacts.run_id). Absent from files saved before the envelope."},
+    "dokimi_version": {"type": "string", "minLength": 1, "description": "The envelope: the dokimi version that saved this file. Absent from files saved before the envelope."},
+    "ragas_summary": {"type": "object", "description": "Mean RAGAS metrics per condition: `with_docs` and `without_docs`."},
+    "ragas_n_evaluated": {"type": "object", "description": "Questions scored per condition: `with_docs` and `without_docs`."},
+    "ragas_per_question": {"type": "object", "description": "Per-question RAGAS scores per condition: `with_docs` and `without_docs`."}
+  }
+}

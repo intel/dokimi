@@ -53,6 +53,12 @@ CONTENTS = {
     "dokimi_config.v1": {"subjects": 2, "shared": 1},
     "task_runs.v1": {"tasks": 6, "harnesses": 2, "results": 24},
     "tool_preference.v1": {"items": 16, "results": 16},
+    "ragas.v1": {},
+    "grounding.v1": {"per_question": 1},
+    "checklist.v1": {"questions": 1},
+    "judge_wording.v1": {},
+    "cross_judge.v1": {"unscored": 0},
+    "pairwise.v1": {"errors": 0},
 }
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "artifacts"

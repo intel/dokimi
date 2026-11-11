@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/intel/dokimi/schemas/cross_judge.v1.json",
+  "title": "Cross-judge agreement report v1",
+  "description": "The `--output` of `eval judge agreement`: how well the judges (and the stored measures of an answers file) agree on the same answers. `judge_temperature` is added by the command.",
+  "type": "object",
+  "required": ["schema_version"],
+  "properties": {
+    "schema_version": {"const": "cross_judge.v1"},
+    "run_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}(?![\\s\\S])", "description": "The envelope: the id of the run that saved this file (dokimi.artifacts.run_id). Absent from files saved before the envelope."},
+    "dokimi_version": {"type": "string", "minLength": 1, "description": "The envelope: the dokimi version that saved this file. Absent from files saved before the envelope."},
+    "summary": {"type": "object", "description": "The measures compared and their agreement."},
+    "unscored": {
+      "type": "array",
+      "description": "The measures that scored no answer: `measure`, `kind`, `asked`, `unscored`, `first_error`.",
+      "items": {"type": "object"}
+    }
+  }
+}

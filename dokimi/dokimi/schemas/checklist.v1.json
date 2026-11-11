@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/intel/dokimi/schemas/checklist.v1.json",
+  "title": "Checklist coverage report v1",
+  "description": "The `--output` of `eval score checklist`: required-point coverage of each arm against the questions' expected_topics, judged by a model, with each arm compared to the baseline. `judge_temperature` is added by the command.",
+  "type": "object",
+  "required": ["schema_version"],
+  "properties": {
+    "schema_version": {"const": "checklist.v1"},
+    "run_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}(?![\\s\\S])", "description": "The envelope: the id of the run that saved this file (dokimi.artifacts.run_id). Absent from files saved before the envelope."},
+    "dokimi_version": {"type": "string", "minLength": 1, "description": "The envelope: the dokimi version that saved this file. Absent from files saved before the envelope."},
+    "summary": {"type": "object", "description": "Coverage per arm and the comparison to the baseline arm."},
+    "questions": {
+      "type": "array",
+      "description": "One entry per question: `question_id`, `question_text`, and `arms` (coverage and the judged points of each arm).",
+      "items": {"type": "object"}
+    }
+  }
+}

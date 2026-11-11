@@ -23,7 +23,7 @@ from dokimi.defaults import (
 )
 from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.eval.judge_validity import DEFAULT_MIN_ACCURACY, NoUsablePairs
-from dokimi.commands._output import write_text_or_exit
+from dokimi.commands._output import save_artifact_or_exit, write_text_or_exit
 from dokimi.exit_codes import EXIT_USAGE
 from dokimi.utils import InputError, warn_judge_independence, warn_recorded_self_judge
 
@@ -67,7 +67,7 @@ def _run_ragas_eval(answers, output_path, args) -> None:
 
         # Save ragas results alongside answers
         ragas_path = output_path.with_name(output_path.stem + "_ragas.json")
-        _write_json_or_exit(ragas_path, result.to_dict(), code=2)
+        save_artifact_or_exit("ragas", result.to_dict(), ragas_path, code=2)
 
         print(result.format_summary())
         print(f"✅ Saved RAGAS results to {ragas_path}")
@@ -262,7 +262,7 @@ def cmd_eval_grounding(args: argparse.Namespace) -> None:
 
     if args.output:
         out = Path(args.output)
-        _write_json_or_exit(out, result, code=2)
+        save_artifact_or_exit("grounding", result, out, code=2)
         print(f"\n✅ Grounding report saved to {out}")
 
 

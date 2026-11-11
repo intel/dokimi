@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/intel/dokimi/schemas/pairwise.v1.json",
+  "title": "Pairwise comparison report v1",
+  "description": "The `--output` of `eval score pairwise` (and its `.md` sidecar): each arm's answer judged against the baseline arm's, in both orders; a verdict counts only when both orders agree. `judge_temperature` is added by the command.",
+  "type": "object",
+  "required": ["schema_version"],
+  "properties": {
+    "schema_version": {"const": "pairwise.v1"},
+    "run_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}(?![\\s\\S])", "description": "The envelope: the id of the run that saved this file (dokimi.artifacts.run_id). Absent from files saved before the envelope."},
+    "dokimi_version": {"type": "string", "minLength": 1, "description": "The envelope: the dokimi version that saved this file. Absent from files saved before the envelope."},
+    "summary": {"type": "object", "description": "The judge, the baseline arm, and the win, tie and loss counts per arm."},
+    "errors": {"type": "array", "description": "The comparisons that failed, with the reason."},
+    "verdicts": {"type": "object", "description": "Per arm, per question: `score`, `first_order`, `second_order`, `escalated`."}
+  }
+}
