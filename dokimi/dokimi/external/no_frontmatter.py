@@ -42,17 +42,7 @@ def no_frontmatter_message(lines: list[str], dir_name: str, at_root: bool = Fals
             title = stripped[2:].strip()
             start = i + 1
             break
-    paragraph: list[str] = []
-    for stripped in body[start:]:
-        if not stripped:
-            if paragraph:
-                break
-            continue
-        if stripped.startswith(("#", "|", "<", "!", "---")):
-            if paragraph:
-                break
-            continue
-        paragraph.append(stripped)  # outside_fences has taken the quote markers off already
+    paragraph = _first_paragraph(body[start:])
     if not at_root and SPEC_NAME.fullmatch(dir_name) and len(dir_name) <= NAME_MAX:
         name = dir_name  # validate.NAME_PATTERN, as the loader's name-mismatch check reads it
     else:
@@ -68,6 +58,24 @@ def no_frontmatter_message(lines: list[str], dir_name: str, at_root: bool = Fals
         "plain Markdown with no frontmatter: no harness offers it as a skill. To make it one, start "
         f"the file with (then add when to use it to the description):\n{block}"
     )
+
+
+def _first_paragraph(body: list[str]) -> list[str]:
+    """The lines of the first paragraph of ``body``, skipping blank, heading, table, HTML and comment lines."""
+    paragraph: list[str] = []
+    in_comment = False  # inside a multi-line HTML comment, up to the line holding -->
+    for stripped in body:
+        if in_comment:
+            in_comment = "-->" not in stripped
+            continue
+        if stripped.startswith("<!--") and "-->" not in stripped:
+            in_comment = True
+        if not stripped or stripped.startswith(("#", "|", "<", "!", "---")):
+            if paragraph:
+                break
+            continue
+        paragraph.append(stripped)  # outside_fences has taken the quote markers off already
+    return paragraph
 
 
 def _kebab(text: str) -> str:

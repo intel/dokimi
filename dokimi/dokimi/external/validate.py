@@ -418,6 +418,8 @@ def _unloaded_review(entry: SkillCatalogEntry) -> Optional[SkillReview]:
         text = candidate.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         return None  # the loader already reported why the skill did not load
+    if not text.lstrip("\ufeff").strip():
+        return None  # an empty file is not prose: the loader's error stands
     lines = text.lstrip("\ufeff").splitlines()
     first = next((line.rstrip() for line in lines if line.strip()), "")
     if first.strip() == "---" and lines[0].rstrip() != "---":
