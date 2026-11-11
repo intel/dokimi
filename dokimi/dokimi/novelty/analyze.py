@@ -25,7 +25,7 @@ from . import attribute, bundle as bundle_mod
 from . import classify, items as items_mod
 from . import measure, needs, probes, provenance, report, retention, shorten, spans
 from .artifact import load_artifact_text  # noqa: F401  (public path: novelty.analyze)
-from .client import LLMClient, roll_up_cost, same_client, warn_extractor_judge
+from .client import LLMClient, SpendCapReached, roll_up_cost, same_client, warn_extractor_judge
 from .retention import RetentionOracle
 from .tiers import DEFAULT_SETTINGS, RunSettings
 
@@ -132,6 +132,28 @@ def kind_agreement_warnings(rows: dict[str, dict]) -> list[str]:
                 f"{reading}"
             )
     return out
+
+
+def _refuse_cut_short(measure_result: measure.MeasureResult) -> None:
+    """A measurement the cap cut short is not a finished report, and analyze has no partial
+    result to keep it in: stop before the paid classify and attribution stages."""
+    if measure_result.not_run or measure_result.ungraded:
+        # An answer the judge never graded counts as not finished, like one never asked.
+        not_run = measure_result.not_run + measure_result.ungraded
+        reason, cause = measure_result.stop or ("spend_cap", "")
+        # stops_at_cap adds "nothing was written" to the exit, once.
+        if reason == "spend_cap":
+            # The cap's own message (the cause) names the spend and the advice: say it once.
+            detail = cause or ("spend cap reached. Raise --max-usd, or measure less (a cheaper "
+                               "--tier, a lower --max-atoms)")
+            raise SpendCapReached(
+                f"the measurement stopped: {not_run} probe answers were not run or graded; {detail}"
+            )
+        # A call with no known price: raising --max-usd would not help, so the cause is named.
+        raise SpendCapReached(
+            f"the measurement stopped with {not_run} probe answers not run or graded: {cause}",
+            reason=reason,
+        )
 
 
 def analyze(
@@ -242,6 +264,7 @@ def analyze(
         concurrency=config.concurrency, allow_self_judge=config.allow_self_judge,
         placebo_text=config.placebo_text, seed=config.seed, framing=config.context_framing,
     )
+    _refuse_cut_short(measure_result)
     if config.allow_self_judge and same_client(judge, answerer):
         warnings.append(
             "judge and answerer are the same model (--allow-self-judge): scores are inflated"
