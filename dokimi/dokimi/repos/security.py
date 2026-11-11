@@ -351,7 +351,9 @@ def _scan(cell: Path, canaries: Sequence[str]) -> tuple[dict[str, Any], list[str
     garbled = isinstance(agent, dict) and bool(agent.get("trace_errors")) and empty
     agent_ran = isinstance(agent, dict) and agent.get("rc") is not None and (not empty or garbled)
     if agent_ran or result.get("process") is not None:  # a run whose trace is missing or garbled is unmeasured
-        problem = _trace_problem(cell / "events.jsonl") or ("the runner read no line of the trace" if garbled else None)
+        # a linked trace is not read (its target may be a host file): _present already made the cell unfinished
+        problem = None if (cell / "events.jsonl").is_symlink() else (
+            _trace_problem(cell / "events.jsonl") or ("the runner read no line of the trace" if garbled else None))
         if problem:
             unreadable.append(problem)
     started = bool(n_events or found or agent_ran or result.get("process") is not None)

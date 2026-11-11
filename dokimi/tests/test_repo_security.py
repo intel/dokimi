@@ -618,6 +618,20 @@ def test_a_trace_with_no_readable_line_after_an_rc_is_unfinished(tmp_path):
     assert not any(a["arm"] == "skill" for a in report["arms"])
 
 
+def test_a_linked_trace_after_an_rc_is_unfinished_and_not_read(tmp_path):
+    batch = tmp_path / "b"
+    _cell(batch, "t", BASE, 0, events=[_cmd("pytest")])
+    cell = _cell(batch, "t", "skill", 0, events=[])
+    _with_record(cell, agent={"rc": 0}, process=None)
+    host = tmp_path / "host.jsonl"
+    host.write_text('{"type": "x"}\n', encoding="utf-8")
+    (cell / "events.jsonl").unlink()
+    (cell / "events.jsonl").symlink_to(host)
+    report = sec.scan_batch(batch, BASE)
+    assert [u["cell"] for u in report["coverage"]["unfinished"]] == ["t__skill__m__r0"]
+    assert not any(a["arm"] == "skill" for a in report["arms"])
+
+
 @pytest.mark.parametrize("text, expected", [(r"\x41\x42", "AB"), (r"\v\f", "\v\f"), (r"\101\x41", "AA")])
 def test_strace_hex_and_vertical_escapes_decode(text, expected):
     assert sec._strace_text(text) == expected
