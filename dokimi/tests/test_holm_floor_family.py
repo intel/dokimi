@@ -88,7 +88,7 @@ def test_model_compare_keeps_a_run_of_two_pairs_out_of_the_multiplier():
     text = "\n".join(generate_section_report([("six", _run([float(d) for d in SIX])), ("two", _run([5.0, -3.0, 0.0, 0.0, 0.0, 0.0]))],
                                              ["six", "two"], "Regular"))
     section = text.split("## Statistical Significance")[1].split("\n## ")[0]
-    assert "adjusted across the 1 run(s)" in section
+    assert "adjusted across the 2 run(s) compared here" in section  # both runs, though only one is in the multiplier
     assert "| **six** | +10.5 | 0.0312 | 0.0312 | 6 of 6 |" in section and "| OK Yes |" in section
     assert "| **two** | +0.3 | 1.0 | N/A | 2 of 6 |" in section and section.rstrip().endswith("N/A |")
 

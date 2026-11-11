@@ -405,7 +405,7 @@
                 "type": "integer"
               },
               "family_tested": {
-                "description": "Interaction contrasts with a p, the effective correction multiplier; one whose significant is null because of 2 / 2^n_changed still counts.",
+                "description": "Interaction contrasts whose p can reach 0.05, the effective correction multiplier; one with a p whose significant is null because 2 / 2^n_changed is not below 0.05 does not count (records written before issue 478 counted it).",
                 "type": "integer"
               }
             }
