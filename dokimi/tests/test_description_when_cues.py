@@ -69,6 +69,8 @@ HAS_WHEN = [
     pytest.param("デプロイ時には、このスキルを使います。", id="ja-ji-ni-wa-after-noun"),
     pytest.param("배포 시 사용하는 스킬입니다.", id="ko-noun-si-deploy"),
     pytest.param("커밋 시 실행합니다.", id="ko-noun-si-commit"),
+    pytest.param("需要生成报告时，请使用本技能。", id="zh-shi-comma-qing-shiyong"),
+    pytest.param("在用户提交代码时运行检查。", id="zh-shi-yunxing"),
 ]
 
 # No "when" clause in the language's own words; also the wording a bare cue would wrongly accept.
@@ -106,7 +108,7 @@ NO_WHEN = [
     pytest.param("支持多种使用场景的格式工具。", id="zh-shiyong-changjing-noun-not-when"),
     pytest.param("요청 시스템을 구축합니다.", id="ko-yeongcheong-siseutem-not-when"),
     pytest.param("ブラウザで起動するビューアです。", id="ja-browser-kidou-not-when"),
-    pytest.param("该工具在当天的备份时执行清理。", id="zh-dangtian-not-when"),
+    pytest.param("该工具在当天的备份后执行清理。", id="zh-dangtian-not-when"),
     pytest.param("用户说的格式可配置。", id="zh-yonghu-shuo-de-not-when"),
     pytest.param("解析用户请求数据并输出 JSON。", id="zh-yonghu-qingqiu-noun-not-when"),
     pytest.param("该工具用于临时使用的文档生成。", id="zh-linshi-shiyong-not-when"),
@@ -152,6 +154,7 @@ NO_WHEN = [
     pytest.param("条件式の場合分けを整理するツールです。", id="ja-baai-wake-not-when"),
     pytest.param("ひときわ読みやすいドキュメントを作成するツールです。", id="ja-hitokiwa-not-when"),
     pytest.param("PostgreSQL 트리거를 생성하고 관리하는 도구입니다.", id="ko-tritgeo-noun-not-when"),
+    pytest.param("每天准时运行备份任务。", id="zh-zhunshi-not-when"),
 ]
 
 
