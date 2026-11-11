@@ -62,6 +62,8 @@ def _gate(report: dict[str, Any], fail_on: str) -> None:
     problems = [f"{arm}: {', '.join(c)}" for arm, c in hit.items()]
     # every cell of the arm (or the baseline) not_started: 0 measured is no evidence of a clean arm
     problems += [f"{arm_label(a, report)}: no measured cell" for a in report["arms"] if unmeasured(a)]
+    # an arm of a model with no baseline cell is compared with nothing: it cannot pass
+    problems += [f"{m}: no baseline cell" for m in report["models_without_baseline"]]
     unfinished = report["coverage"]["unfinished"]
     if unfinished:  # a cell that crashed is unmeasured, not clean: the gate cannot pass over it
         problems.append(f"{len(unfinished)} unfinished cells, not measured")

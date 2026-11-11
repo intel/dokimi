@@ -592,3 +592,17 @@ def test_agent_that_ran_with_an_empty_trace_is_measured(tmp_path):
     _with_record(_cell(batch, "t", "skill", 0, events=[]), agent={"rc": 0}, process=None)
     report = sec.scan_batch(batch, BASE)
     assert report["coverage"]["unfinished"] == [] and _arm(report, "skill")["cells"] == 1
+
+
+def test_a_model_without_a_baseline_cell_fails_the_gate(tmp_path):
+    from dokimi.commands.repo_security import _gate
+
+    _cell(tmp_path, "t", BASE, 0, events=[_cmd("pytest")], model="a")
+    _cell(tmp_path, "t", "skill", 0, events=[_cmd("pytest")], model="a")
+    for rep in range(10):
+        _cell(tmp_path, "u", "skill", rep, events=[_cmd("sudo id")], model="b")
+    report = sec.scan_batch(tmp_path, BASE)
+    assert report["models_without_baseline"] == ["b"]
+    with pytest.raises(SystemExit) as exc:
+        _gate(report, "fail")
+    assert exc.value.code == 1
