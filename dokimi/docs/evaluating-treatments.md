@@ -795,7 +795,7 @@ checks** to write. The eval set is either an `evals.json`, a skill directory, or
 a check is an evals row (by id), a `test_*` function in a test file under a task's `tests/` (any
 subfolder), or a `test_*` method of a `Test*` class (named `Class::method`). A task check's text is the
 module-level code of the whole `tests/` folder (constants, helpers, imports, and `conftest.py`), then the
-class body for a method, then the test itself. So two tests with the same body but different constants,
+class header (decorators, bases, keywords) and the rest of the class body for a method, then the test itself. So two tests with the same body but different constants,
 helpers or fixtures are two checks. They are named `test_x#1`, `test_x#2`, in path order. That context is in every check of the folder, read or not, so a
 helper one file defines can decide an assertion in another.
 

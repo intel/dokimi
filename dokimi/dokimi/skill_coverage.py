@@ -13,7 +13,8 @@ a test can swap the transport for a stub:
 
 A check is one ``evals.json`` row (its id) or one test of a task's ``tests/``: a ``test_*`` function (named by
 the function) or a ``test_*`` method of a ``Test*`` class (named ``Class::method``). A task check's text is the
-module-level code of the whole ``tests/`` folder (conftest, helpers, every test file), then the test; a test whose
+module-level code of the whole ``tests/`` folder (conftest, helpers, every test file), then the class header
+(decorators, bases, keywords) and the rest of the class body for a method, then the test; a test whose
 text differs between tasks gets a number.
 A requirement that no check names is uncovered: it is a *candidate check* to write.
 
@@ -176,7 +177,8 @@ def _module_code(tests: Path) -> list[str]:
 def _task_checks(root: Path) -> list[tuple[str, str, str]]:
     """(task, check name, source) for each test: a ``test_*`` function of a test file under a task's ``tests/``, and
     each ``test_*`` method of a ``Test*`` class in one (named ``Class::method``). The source is the module code of the
-    folder (see :func:`_module_code`), then the class body's other statements for a method, then the test itself."""
+    folder (see :func:`_module_code`), then the class header (decorators, bases, keywords) and the rest of the
+    class body for a method, then the test itself."""
     out: list[tuple[str, str, str]] = []
     for task_dir in sorted(p for p in root.iterdir() if _is_task(p)):
         tests = task_dir / "tests"
