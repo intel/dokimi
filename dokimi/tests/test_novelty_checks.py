@@ -79,6 +79,11 @@ def test_a_standalone_double_dash_ends_the_options_of_a_command():
     assert grade_check(_veto(), "q", "perf report --stdio -- ./perf.data --foo", None).passed is True
 
 
+def test_a_comma_ends_the_operands_of_a_prose_double_dash():
+    # In prose " -- " is a dash: the operands run to the comma, so a later flag is still checked.
+    assert grade_check(_veto(), "q", "Use perf report --stdio -- it, and --bogus works too", None).passed is False
+
+
 def test_a_tool_check_leaves_its_subcommands_alone():
     check = identifiers_check("perf", "usage: perf [--version] [--help] COMMAND")
     assert grade_check(check, "q", "perf report --stdio", None).passed is True
