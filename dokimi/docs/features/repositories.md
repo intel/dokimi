@@ -89,6 +89,6 @@ Record a rule hypothesis and the cases it is intended to help. Read keep/review/
 
 Use the built-in seeded-review or replay grader to evaluate review findings against the task evidence. Read recall, decoys and matching limits rather than assuming a passing review is complete.
 
-**Boundary:** Built-in review_seed and review_replay graders.
+**Boundary:** Built-in `dokimi:review_seeds` and `dokimi:review_replay` graders.
 
 [How to use it](../repo-evaluation-contract.md) · [Implementation](../../dokimi/commands/tasks_generate.py) · [Back to feature tree](README.md)
