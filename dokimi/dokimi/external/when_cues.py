@@ -3,7 +3,7 @@
 
 """The "when" clause cues of a skill description, per language (``description-no-when`` in
 :mod:`dokimi.external.validate`). Kept apart from the validator so that module stays under the
-file-length cap; ``validate`` re-exports :func:`when_clause_found`.
+file-length cap; ``validate`` imports :func:`when_clause_found` from here.
 """
 
 from __future__ import annotations

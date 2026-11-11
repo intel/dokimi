@@ -51,7 +51,7 @@ naming such a file is ``path-escapes-skill``. Code spans that name no file are n
 and neither are code fences: those are usually examples or paths in the user's own project.
 
 Descriptions: one with no "when" clause is a ``warn`` (``description-no-when``); the cues are
-English, Spanish, French, German, Portuguese, Russian, Chinese, Japanese and Korean (``WHEN_CUES``),
+English, Spanish, French, German, Portuguese, Russian, Chinese, Japanese and Korean (``when_cues.WHEN_CUES``),
 and a description in a script none covers is not checked. One whose tokens overlap another skill's at a
 Jaccard similarity of at least :data:`NEAR_DUPLICATE_JACCARD` is a ``warn`` too (``description-near-duplicate``). Skills with
 ``disable-model-invocation: true`` are exempt from both, as the model never chooses them.
