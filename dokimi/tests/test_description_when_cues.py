@@ -67,6 +67,8 @@ HAS_WHEN = [
     pytest.param("Use ao executar a publicação de uma versão.", id="pt-ao-executar"),
     pytest.param("エラーが発生したときには、このスキルを使います。", id="ja-toki-ni-wa-after-verb"),
     pytest.param("デプロイ時には、このスキルを使います。", id="ja-ji-ni-wa-after-noun"),
+    pytest.param("배포 시 사용하는 스킬입니다.", id="ko-noun-si-deploy"),
+    pytest.param("커밋 시 실행합니다.", id="ko-noun-si-commit"),
 ]
 
 # No "when" clause in the language's own words; also the wording a bare cue would wrongly accept.
