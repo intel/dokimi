@@ -244,6 +244,17 @@ def test_a_pinned_source_gets_only_the_tree_path_check_for_a_manifest_that_stays
     repo_run._refuse_typed(unpinned, SimpleNamespace(manifest="sub/../ok.yaml", manifest_file=None))
 
 
+def test_no_typed_manifest_or_a_manifest_file_leaves_the_manifest_path_unchecked(tmp_path):
+    from types import SimpleNamespace
+
+    from dokimi.commands import repo_run
+
+    source = SimpleNamespace(location=str(tmp_path), remote=False, rev=None, subdir=None)
+    assert repo_run._refuse_typed(source, SimpleNamespace(manifest=None, manifest_file=None)) is None
+    # `--manifest-file` supplies the manifest, so a `--manifest` beside it is not read as a tree path.
+    assert repo_run._refuse_typed(source, SimpleNamespace(manifest="../x.yaml", manifest_file="m.yaml")) is None
+
+
 @pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
 def test_git_tree_follows_a_link_before_it_goes_up_a_level(tmp_path):
     from dokimi.repos.source import GitTree, SourceArgumentError
