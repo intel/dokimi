@@ -69,7 +69,7 @@ def _subject_file(tmp_path: Path, text: str) -> str:
         pytest.param(lambda d: ["eval", "personas", "validate", "--file",
                     _personas_file(d, {"product": "p", "personas": [{"id": "x"}]})],
          "missing fields", id="personas-validate-entry-missing-fields"),
-        pytest.param(lambda d: ["dashboard", "generate", "--results-dir", str(d / "empty"), "--output-dir", str(d)],
+        pytest.param(lambda d: ["dashboard", "generate", "--results-dir", str(d / "empty"), "--out-dir", str(d)],
          "No evaluation results found. Run benchmark first.", id="dashboard-generate-no-results"),
         pytest.param(lambda d: ["catalog", "show", "--kind", "product", "no-such-product"],
          "not found in registry", id="catalog-show-unknown-product"),

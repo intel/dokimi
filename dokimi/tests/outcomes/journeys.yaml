@@ -122,7 +122,7 @@ criteria:
     evidence:
       - id: cjm-repo-reach
         kind: cli_scenario
-        invokes: ["repo reach --dry-run", "repo reach --scenarios --out", "repo reach --budget"]
+        invokes: ["repo reach --dry-run", "repo reach --scenarios --out-dir", "repo reach --budget"]
         stubs: [harness (fake executable behind a harness profile), model]
     scope: the fake harness reads files by rule; this shows the measurement and artifact, not any real harness's loading behaviour
   AC-J04-004:
@@ -265,7 +265,7 @@ criteria:
     evidence:
       - id: cjm-tasks-check-graders
         kind: cli_scenario
-        invokes: ["eval check --manifest --out", "eval check --warm"]
+        invokes: ["eval check --manifest --out-dir", "eval check --warm"]
         stubs: [Docker (FakeRunner runs the task scripts on the host)]
     scope: verifier sanity on null and oracle; says nothing about task relevance or coverage (AC-J07-004)
   AC-J07-002:
@@ -275,7 +275,7 @@ criteria:
     evidence:
       - id: cjm-tasks-check-graders
         kind: cli_scenario
-        invokes: ["eval check --manifest --out"]
+        invokes: ["eval check --manifest --out-dir"]
         stubs: [Docker (FakeRunner runs the task scripts on the host)]
   AC-J07-003:
     delivery: available

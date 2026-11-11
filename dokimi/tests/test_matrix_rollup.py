@@ -416,7 +416,7 @@ def test_arms_run_refuses_a_non_string_non_integer_id_before_any_call(monkeypatc
     questions.write_text(json.dumps([{"id": "a", "text": "x"}, {"id": bad, "text": "y"}]))
     out = tmp_path / "o.json"
     args = build_parser().parse_args(["arms", "run", "--product", "x", "--arms", "baseline",
-                                      "--questions", str(questions), "--out-json", str(out)])
+                                      "--questions", str(questions), "--out", str(out)])
     with refusal() as exc:
         args.func(args)
     assert exc.code == 2
