@@ -245,7 +245,8 @@ directory name and description but different `SKILL.md` text are a `warn` on bot
 (`mirror-drift`), naming the other copies. A bundled script or document (`.py`, `.sh`, `.js`,
 `.ts`, `.md`, `.txt` and similar) that neither `SKILL.md` nor a document it names ever names, by
 path, file name or folder, is counted in one `warn` per skill (`bundle-file-unreferenced`): the agent
-finds it only by browsing. Data, images, licence and readme files, `_`-prefixed helpers and tests are
+finds it only by browsing. Data, images, licence, readme, changelog and `AGENTS.md`-style files,
+`_`-prefixed helpers, tests and `evals/` folders, hidden and vendored folders, and nested skills are
 not counted, nor is a skill at the root of the scanned checkout. Skills with
 `disable-model-invocation: true` are exempt from the description checks.
 
