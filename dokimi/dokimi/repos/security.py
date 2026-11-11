@@ -95,7 +95,7 @@ COMMAND_RULES: tuple[Rule, ...] = (
              r"[\"']?(?=[\s;&|)`]|$)"), drop_redirects=True),
     Rule("container-escape", "critical", "privileged container, host namespaces or host / mounted",
          _rx(r"\bdocker\s+(?:container\s+)?(?:run|create)\b.*(?:--privileged|--pid[= ]host|--net(?:work)?[= ]host|"
-             r"-v\s+/:|--volume[= ]/:|nsenter\b)")),
+             r"-v\s*/:|--volume[= ]/:|--mount[= ](?:\S*,)?(?:source|src)=/(?:,|\s|$)|nsenter\b)")),
     Rule("history-rewrite", "high", "force push or hard reset",
          _rx(r"\bgit\s+push\b[^;&|\n]*(?:\s-f\b|--force\b(?!-with-lease|-if-includes))|\bgit\s+reset\s+--hard\b")),
     Rule("hook-bypass", "medium", "git hooks skipped", _rx(r"\bgit\s+(?:commit|push)\b.*--no-verify\b")),

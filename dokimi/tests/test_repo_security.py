@@ -462,3 +462,21 @@ def test_overlapping_canaries_are_both_redacted():
 @pytest.mark.parametrize("text", ["/usr/bin/sudo id", "/usr/bin/doas id", "/bin/su - root", "ls && /usr/bin/sudo id"])
 def test_privilege_escalation_by_absolute_path(text):
     assert "privilege-escalation" in _rules(sec.command_findings(text, "trace"))
+
+
+@pytest.mark.parametrize("text", [
+    "docker run --mount type=bind,source=/,target=/host ubuntu",
+    "docker run --mount type=bind,src=/,dst=/host ubuntu",
+    "docker run --mount=type=bind,source=/,target=/host ubuntu",
+    "docker run -v/:/host ubuntu",
+    "docker run -v /:/host ubuntu",
+])
+def test_container_escape_sees_a_host_root_mount(text):
+    found = sec.command_findings(text, "trace")
+    assert [(f.rule, f.severity) for f in found if f.rule == "container-escape"] == [("container-escape", "critical")]
+
+
+@pytest.mark.parametrize("text", ["docker run --mount type=bind,source=/home/x,target=/x ubuntu",
+                                  "docker run -v /srv:/data ubuntu"])
+def test_container_escape_leaves_a_bind_of_a_subdirectory_alone(text):
+    assert "container-escape" not in _rules(sec.command_findings(text, "trace"))
