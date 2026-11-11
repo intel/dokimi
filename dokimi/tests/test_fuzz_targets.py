@@ -158,6 +158,23 @@ def test_parse_json_contains_tries_a_bounded_number_of_starts(monkeypatch: pytes
     assert parse_json("[ " * (CONTAINS_JSON_MAX_STARTS + 5) + '{"a": 1}', contains=True) == (False, None)
 
 
+def test_parse_json_contains_stops_at_the_first_recursion_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    import json
+
+    from dokimi.eval import reference_checks
+    from dokimi.eval.reference_checks import parse_json
+
+    calls: list[int] = []
+
+    def too_deep(self: json.JSONDecoder, s: str, idx: int = 0) -> tuple[object, int]:
+        calls.append(idx)
+        raise RecursionError
+
+    monkeypatch.setattr(reference_checks.json.JSONDecoder, "raw_decode", too_deep)
+    assert parse_json("[" * 50, contains=True) == (False, None)
+    assert len(calls) == 2  # the json.loads of the whole text, then one try before the scan stops
+
+
 def test_names_pin_the_byte_to_target_order() -> None:
     # A seed stores its target's index in byte 0: this order is append-only, so a new
     # target goes at the end and the seeds already saved keep their target.
