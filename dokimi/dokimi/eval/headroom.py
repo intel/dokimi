@@ -34,9 +34,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import ROUND_FLOOR, Context, Decimal
 from fractions import Fraction
-from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
+from typing import Any, Dict, Iterable, List, NamedTuple, Optional, Sequence, Set, Tuple
 
-from dokimi.records import Answer, Record, Run
+from dokimi.records import Record, Run
 
 DEFAULT_CEILING = 0.9
 DEFAULT_FLOOR = 0.0
@@ -215,13 +215,21 @@ def repeated_ids(run: Run) -> List[str]:
 
 
 _Scores = Dict[str, Dict[str, List[Fraction]]]
-_Cell = Tuple[str, str, Fraction, Optional[Answer]]
+
+
+class _Cell(NamedTuple):
+    """One run's score of one item and arm, with the answer it scored."""
+
+    key: str
+    arm: str
+    value: Fraction
+    text: Optional[str]
+    replayed: bool
 
 
 def _collect(runs: Sequence[Run]) -> Tuple[_Scores, Dict[str, Set[str]], int]:
     """Question id -> arm -> the per-run scores (0-1, exact), question id -> the arms it listed,
     and the number of scores left out as cached repeats (see :func:`_count`)."""
-    scores: _Scores = {}
     arms_of: Dict[str, Set[str]] = {}
     cells: List[_Cell] = []
     for index, run in enumerate(runs, start=1):
@@ -234,34 +242,31 @@ def _collect(runs: Sequence[Run]) -> Tuple[_Scores, Dict[str, Set[str]], int]:
         for rec in run:
             names = _listed_arms(rec) | set(rec.scores)
             arms_of.setdefault(rec.key, set()).update(names | declared)
-            scores.setdefault(rec.key, {})
             for arm in names:
                 value = rec.score(arm)
                 if value is not None:
-                    cells.append((rec.key, arm, Fraction(str(value)) / 100, rec.answer(arm)))
-    return scores, arms_of, _count(cells, scores)
+                    answer = rec.answer(arm)
+                    cells.append(_Cell(rec.key, arm, Fraction(str(value)) / 100,
+                                       answer.text if answer else None, bool(answer and answer.replayed)))
+    scores, left_out = _count(cells, arms_of)
+    return scores, arms_of, left_out
 
 
-def _replayed(cell: _Cell) -> bool:
-    return cell[3] is not None and cell[3].replayed
-
-
-def _count(cells: List[_Cell], scores: _Scores) -> int:
-    """Add each scored cell to ``scores``, except a replayed answer whose text a counted cell of the
-    same item and arm already has; returns how many were left out."""
+def _count(cells: List[_Cell], items: Iterable[str]) -> Tuple[_Scores, int]:
+    """Question id -> arm -> the scores that count, for each id of ``items``, and how many were left
+    out: a replayed answer whose text a counted cell of the same item and arm already has."""
+    scores: _Scores = {key: {} for key in items}
     seen: Dict[Tuple[str, str], Set[Optional[str]]] = {}
     left_out = 0
     # Fresh answers first, so a replay meets its original whichever input comes first.
-    for cell in sorted(cells, key=_replayed):
-        key, arm, value, answer = cell
-        texts = seen.setdefault((key, arm), set())
-        text = answer.text if answer is not None else None
-        if _replayed(cell) and text in texts:
+    for cell in sorted(cells, key=lambda c: c.replayed):
+        texts = seen.setdefault((cell.key, cell.arm), set())
+        if cell.replayed and cell.text in texts:
             left_out += 1
             continue
-        texts.add(text)
-        scores[key].setdefault(arm, []).append(value)
-    return left_out
+        texts.add(cell.text)
+        scores[cell.key].setdefault(cell.arm, []).append(cell.value)
+    return scores, left_out
 
 
 def _sort_key(qid: str):
