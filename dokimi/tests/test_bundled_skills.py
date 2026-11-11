@@ -113,8 +113,8 @@ def test_the_harness_name_check_reads_the_skills_commands():
 @pytest.mark.parametrize("text, names", [
     ("run `python cli.py tasks run --harnesses=docker-probee`", ["docker-probee"]),
     ("(--harnesses docker-oracle).", ["docker-oracle"]),
-    ("--harnesses docker-oracle,docker-probe \\\n  --out-json x", ["docker-oracle", "docker-probe"]),
-    ("--harnesses \\\n  docker-oracle --out-json x", ["docker-oracle"]),
+    ("--harnesses docker-oracle,docker-probe \\\n  --out x", ["docker-oracle", "docker-probe"]),
+    ("--harnesses \\\n  docker-oracle --out x", ["docker-oracle"]),
     ("--harnesses docker-oracle, docker-probe", ["docker-oracle"]),
     ("--harnesses docker-oracle,\\\n  docker-probe", ["docker-oracle"]),
 ])

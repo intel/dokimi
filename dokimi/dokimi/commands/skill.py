@@ -10,6 +10,7 @@ is the one-skill routing that ``novelty routing`` used to be (#94 M3).
 
 from __future__ import annotations
 
+from dokimi import cli_flags
 import argparse
 
 
@@ -82,7 +83,7 @@ def register_skill(skill_sub, positive_int) -> None:
     _add_common(analyze_p, positive_int)
     _add_model_args(analyze_p, positive_int)
     analyze_p.add_argument("--out-dir", default=None, dest="out_dir")
-    analyze_p.add_argument("--out-json", default=None, dest="out_json")
+    cli_flags.add(analyze_p, "output", "--out", default=None, dest="out_json")
     analyze_p.add_argument("--view-format", default="html", choices=["html", "md"],
                            dest="view_format")
     analyze_p.add_argument("--no-classify", action="store_true", dest="no_classify",

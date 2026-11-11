@@ -129,7 +129,7 @@ it in [`architecture.md`](architecture.md).
 python cli.py docs check \
   --root . \
   --spec benchmarks/spec.v1.yaml \
-  --out-json baselines/current.json \
+  --out baselines/current.json \
   --out-md reports/current.md
 
 jq '.documents[0].metrics' baselines/current.json

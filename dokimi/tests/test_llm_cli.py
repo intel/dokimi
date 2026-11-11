@@ -970,7 +970,7 @@ def test_benchmark_preflight_exit_status_follows_the_cli_login(monkeypatch, tmp_
         "benchmark", "preflight", "--library", "onetbb", "--doc-source", "local:docs",
         "--provider", answer, "--model", "sonnet" if answer == "claude-cli" else "gpt-4o",
         "--judge-provider", "claude-cli", "--judge-model", "opus",
-        "--output-dir", str(tmp_path / "out"),
+        "--out-dir", str(tmp_path / "out"),
     ])
     if exits:
         with refusal() as out:

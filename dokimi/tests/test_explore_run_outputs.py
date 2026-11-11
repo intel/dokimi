@@ -20,7 +20,7 @@ def _run(tmp_path, *extra):
     (tasks / "t.yaml").write_text(TASK, encoding="utf-8")
     args = build_parser().parse_args([
         "explore", "run", "--all", "--arms", "oracle,empty", "--tasks-root", str(tasks),
-        "--repo-root", str(tmp_path), "--output-dir", str(tmp_path / "out"), *extra,
+        "--repo-root", str(tmp_path), "--out-dir", str(tmp_path / "out"), *extra,
     ])
     args.func(args)
 
@@ -31,7 +31,7 @@ def _blocker(tmp_path):
     return blocker
 
 
-@pytest.mark.parametrize("flag", ["--out-json", "--out-md"])
+@pytest.mark.parametrize("flag", ["--out", "--out-md"])
 def test_an_unwritable_output_is_reported_not_a_traceback(tmp_path, capsys, flag):
     target = _blocker(tmp_path) / "report"
     with refusal() as out:
@@ -42,6 +42,6 @@ def test_an_unwritable_output_is_reported_not_a_traceback(tmp_path, capsys, flag
 
 def test_a_writable_output_still_saves_both_files(tmp_path, capsys):
     out_json, out_md = tmp_path / "r.json", tmp_path / "r.md"
-    _run(tmp_path, "--out-json", str(out_json), "--out-md", str(out_md))
+    _run(tmp_path, "--out", str(out_json), "--out-md", str(out_md))
     assert out_json.is_file() and out_md.is_file()
     assert "oracle: n=1" in capsys.readouterr().out
