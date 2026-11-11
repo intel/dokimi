@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any, NoReturn
 if TYPE_CHECKING:
     from dokimi.repos import RepoSource
 
+from dokimi import cli_flags
 from dokimi.commands.repo_skill_reach import add_skill_reach_parser
 from dokimi.exit_codes import EXIT_USAGE
 from dokimi.commands.repo_scan import _print_scan_text, _typecheck_or_exit
@@ -737,7 +738,7 @@ def register(sub, positive_int, eval_sub) -> None:
                          help="Read a saved reach.json instead of probing: no harness runs, no cost. The source is "
                          "still read, to check the file's repository, harness and sha; the receipt goes beside the file")
     reach_p.add_argument("--bin", default=None, help="Harness executable (default: the profile's `bin`)")
-    reach_p.add_argument("--out", default=None, help="Output directory: reach.json and traces/ (default: reach-out)")
+    cli_flags.add(reach_p, "output", "--out-dir", dest="out", default=None, help="Output directory: reach.json and traces/ (default: reach-out)")
     reach_p.add_argument("--scenarios", default=None,
                          help="Comma list of scenario kinds: root, cwd, read, bash, shadow (default: root,cwd,read). "
                          "bash cats each probe file through the Bash tool, for a profile with a bash tool mode; "

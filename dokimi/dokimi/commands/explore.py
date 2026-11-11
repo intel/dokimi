@@ -9,6 +9,7 @@ import argparse
 from pathlib import Path
 from typing import NoReturn
 
+from dokimi import cli_flags
 from dokimi.utils import InputError
 
 _TASKS_ROOT_HELP = (
@@ -186,7 +187,7 @@ def register(sub, positive_int) -> None:
     )
     run_p.add_argument("--baseline-arm", default=None)
     run_p.add_argument("--model", default=None)
-    run_p.add_argument("--output-dir", default="results/explore-runs")
-    run_p.add_argument("--out-json", default=None)
+    cli_flags.add(run_p, "output", "--out-dir", dest="output_dir", default="results/explore-runs")
+    cli_flags.add(run_p, "output", "--out", dest="out_json", default=None)
     run_p.add_argument("--out-md", default=None, help="Also render a Markdown report")
     run_p.set_defaults(func=cmd_explore_run)

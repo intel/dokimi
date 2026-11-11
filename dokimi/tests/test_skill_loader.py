@@ -319,7 +319,7 @@ def test_arms_run_exits_2_with_a_message_when_skill_md_is_a_directory(tmp_path, 
     questions = tmp_path / "q.json"
     questions.write_text('{"questions": [{"id": "q1", "question": "How?"}]}', encoding="utf-8")
     monkeypatch.setattr("sys.argv", ["dokimi", "arms", "run", "--product", "lib", "--questions", str(questions),
-                                     "--arms", f"skill:{skill}", "--out-json", str(tmp_path / "out.json")])
+                                     "--arms", f"skill:{skill}", "--out", str(tmp_path / "out.json")])
     with pytest.raises(SystemExit) as exc:
         cli.main()
     assert exc.value.code == 2

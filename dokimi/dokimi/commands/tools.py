@@ -15,6 +15,7 @@ import threading
 import time
 from pathlib import Path
 
+from dokimi import cli_flags
 from dokimi.llm import PROVIDERS as API_PROVIDERS
 from dokimi.defaults import DEFAULT_ANSWER_PROVIDER
 from dokimi.exit_codes import EXIT_FAILURE, EXIT_INCONCLUSIVE, EXIT_USAGE
@@ -222,7 +223,7 @@ def register(sub: argparse._SubParsersAction, positive_int) -> None:
                         help="Start no new call once the priced calls have spent this much; the calls "
                              "not started are recorded as skipped and, if there are any, the command "
                              "exits 3 (default: no cap)")
-    pref_p.add_argument("--out-json", default="tool_preference.json", dest="out_json")
+    cli_flags.add(pref_p, "output", "--out", default="tool_preference.json", dest="out_json")
     pref_p.add_argument("--items-out", default=None, dest="items_out",
                         help="Also write the expanded items (messages + tools per item) here")
     pref_p.add_argument("--dry-run", action="store_true", dest="dry_run",

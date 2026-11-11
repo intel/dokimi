@@ -907,7 +907,7 @@ local source.
 # a window of merged PRs with their threads; --slurp writes the pages as one JSON list
 gh api graphql --paginate --slurp -F query=@replay-threads.graphql \
     -F q='repo:IntelPython/dpnp is:pr is:merged merged:2026-10-01..2026-10-27' > threads.json
-python cli.py eval tasks generate ~/dpnp --from replay --threads threads.json --out ~/dpnp/.agent-eval/tasks
+python cli.py eval tasks generate ~/dpnp --from replay --threads threads.json --out-dir ~/dpnp/.agent-eval/tasks
 ```
 
 `replay-threads.graphql` asks for the fields the command reads. A search
@@ -1060,7 +1060,7 @@ a task is as right as the index it came from.
 ```bash
 # the index must be built at the revision the source names; that SHA is each task's base
 python cli.py eval tasks generate ~/repo@<sha> --from graph --index index.scip \
-    --out ~/repo/.agent-eval/tasks [--references 9] [--derives 3] [--seed 7] [--dry-run]
+    --out-dir ~/repo/.agent-eval/tasks [--references 9] [--derives 3] [--seed 7] [--dry-run]
 ```
 
 Two questions:
@@ -1147,7 +1147,7 @@ GitHub call and reads the history with git.
 ```bash
 gh api graphql --paginate --slurp -F query=@authoring-prs.graphql \
     -F q='repo:intel/dokimi is:pr is:merged merged:2026-10-01..2026-10-27' > prs.json
-python cli.py eval tasks generate ~/dokimi --from prs --prs prs.json --out ~/dokimi/.agent-eval/tasks
+python cli.py eval tasks generate ~/dokimi --from prs --prs prs.json --out-dir ~/dokimi/.agent-eval/tasks
 ```
 
 ```graphql
@@ -2253,12 +2253,12 @@ python cli.py repo compare repo-runs/pilot --baseline guidance:none --metric roo
 
 ```bash
 # enumeration tasks with gold from a SCIP index built at <sha> (§4.7): no LLM, no docker
-python cli.py eval tasks generate ~/dpnp@<sha> --from graph --index index.scip --out ~/dpnp/.agent-eval/tasks
+python cli.py eval tasks generate ~/dpnp@<sha> --from graph --index index.scip --out-dir ~/dpnp/.agent-eval/tasks
 ```
 
 ```bash
 # review tasks from the threads of merged PRs (§4.6): no LLM, no docker, no GitHub call
-python cli.py eval tasks generate ~/dpnp --from replay --threads threads.json --out ~/dpnp/.agent-eval/tasks
+python cli.py eval tasks generate ~/dpnp --from replay --threads threads.json --out-dir ~/dpnp/.agent-eval/tasks
 # a task starts from its PR's base: guidance:rev:<sha> runs the guidance under review there
 # (replace <sha> with that revision; the quotes keep the shell from reading <sha> as a redirect)
 python cli.py repo run ~/dpnp --task review_replay_pr3107 --arm 'guidance:none,guidance:rev:<sha>' \
@@ -2272,7 +2272,7 @@ python cli.py repo hits judge repo-runs/replay --judge openai/gpt-5.1 --labels l
 
 ```bash
 # authoring tasks from merged PRs (§4.8): no LLM, no docker, no GitHub call; the manifest needs entry_points.test
-python cli.py eval tasks generate ~/dokimi --from prs --prs prs.json --out ~/dokimi/.agent-eval/tasks
+python cli.py eval tasks generate ~/dokimi --from prs --prs prs.json --out-dir ~/dokimi/.agent-eval/tasks
 python cli.py eval check ~/dokimi --task authoring_pr405   # base fails, oracle passes, twice each
 python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric pass_share
 ```
