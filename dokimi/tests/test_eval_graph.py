@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import errno
 import json
 import os
 from pathlib import Path
@@ -262,6 +263,22 @@ def test_a_partial_fallback_write_leaves_no_frozen_file(tmp_path, monkeypatch, c
 
     assert result.returncode == 2 and "No space" in result.stderr
     assert not out.exists()
+
+
+def test_a_file_written_during_the_call_survives_the_no_hard_links_fallback(tmp_path, monkeypatch, capsys):
+    out = tmp_path / "g.json"
+
+    def racer(self, prompt, system, *, accept=None, draw=0):
+        out.write_text("other run", encoding="utf-8")
+        return json.dumps(REPLY), None
+
+    monkeypatch.setattr(LLMClient, "_default_transport", racer)
+    monkeypatch.setattr(os, "link", lambda src, dst: (_ for _ in ()).throw(PermissionError(errno.EPERM, "EPERM")))
+
+    result = _run(capsys, str(_skill(tmp_path)), "--out", str(out))
+
+    assert result.returncode == 2 and "frozen" in result.stderr
+    assert out.read_text(encoding="utf-8") == "other run"
 
 
 def test_a_refused_skill_makes_no_out_directory(tmp_path, monkeypatch, capsys):
