@@ -1,7 +1,12 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""`evaluate`: a bad --custom-questions path or --output-dir exits 1 with a message."""
+"""`evaluate`: a bad --custom-questions file, a bad --questions-from file or a bad --output-dir ends with an `Error:` message and no traceback.
+
+A missing, directory, unreadable, empty, non-JSON or non-UTF-8 --custom-questions file and an unwritable --output-dir exit 2
+(all but the missing file are also shown to leave no output directory). An unparseable --questions-from file raises `InputError`
+naming that flag at construction, and `load_questions_payload` names a flag only when it is given one.
+"""
 
 from __future__ import annotations
 
