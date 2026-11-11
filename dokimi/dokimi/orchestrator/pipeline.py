@@ -61,8 +61,12 @@ def load_questions_payload(path: Path, flag: Optional[str] = None) -> List[Dict[
     return load_questions(path, flag=flag).questions
 
 
-def _check_custom_questions(path: Path) -> None:
-    """``--custom-questions`` must be a readable JSON file: missing is ``FileNotFoundError``, a device, directory or unparseable file ``InputError``."""
+def _check_custom_questions(path: Path, parse: bool = True) -> None:
+    """``--custom-questions`` must be a readable file: missing is ``FileNotFoundError``, a device or directory ``InputError``.
+
+    With ``parse`` (the run will read the file) an unparseable file is an ``InputError`` too; a run that reuses a
+    cached or ``--questions-from`` set never reads it, so it is not parsed.
+    """
     if not path.exists():
         raise FileNotFoundError(f"--custom-questions path does not exist: {path}")
     refuse_device(path, "--custom-questions")
@@ -73,7 +77,7 @@ def _check_custom_questions(path: Path) -> None:
             path.open("rb").close()
     except OSError as exc:  # unreadable: refused here, before the output directories exist
         raise InputError(f"--custom-questions {path}: {exc.strerror or exc}") from exc
-    if path.is_file():  # the run reads it again through the same function, with the same flag
+    if parse and path.is_file():  # the run reads it again through the same function, with the same flag
         read_json_input(path, flag="--custom-questions")
 
 
@@ -184,7 +188,9 @@ class EvaluationPipeline:
         self.golden_pinned = False
         if custom_questions_path:
             _custom_path = Path(custom_questions_path)
-            _check_custom_questions(_custom_path)
+            # The run reads the file only when it builds the question set: not with --questions-from, not from a cache.
+            _cached = (self.output_dir / "questions" / f"{self.product_key}.json").exists() and not force_regen
+            _check_custom_questions(_custom_path, parse=questions_from is None and not _cached)
             self.custom_questions_path: Optional[Path] = _custom_path
         elif questions_from is None and self.questions_root is not None:
             _auto_golden = self.questions_root / f"{self.product_key.lower()}_golden.json"

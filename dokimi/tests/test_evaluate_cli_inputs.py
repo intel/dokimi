@@ -80,6 +80,27 @@ def test_an_unparseable_custom_questions_file_exits_2_before_any_output_director
     assert not out_dir.exists()
 
 
+def _pipeline(tmp_path, bad, out="out", **kw):
+    return EvaluationPipeline(product="Demo", product_key="demo", output_dir=tmp_path / out,
+                              description="A demo product", custom_questions_path=bad, **kw)
+
+
+def test_a_custom_questions_file_the_run_never_reads_does_not_stop_it(tmp_path):
+    """A cached re-run and a questions_from run reuse a set without reading --custom-questions."""
+    bad = tmp_path / "bad.json"
+    bad.write_bytes(b"")
+    good = tmp_path / "good.json"
+    good.write_text("[]", encoding="utf-8")
+    cached = tmp_path / "out" / "questions" / "demo.json"
+    cached.parent.mkdir(parents=True)
+    cached.write_text("[]", encoding="utf-8")
+
+    _pipeline(tmp_path, bad)  # cached, no force_regen
+    _pipeline(tmp_path, bad, out="fresh", questions_from=good)  # no cache here
+    with pytest.raises(InputError, match=rf"^--custom-questions {re.escape(str(bad))}: "):
+        _pipeline(tmp_path, bad, force_regen=True)  # the run regenerates, so it reads the file
+
+
 def test_an_unparseable_questions_from_file_names_the_flag(tmp_path):
     source = tmp_path / "earlier (v1).json"
     source.write_text("not json", encoding="utf-8")
