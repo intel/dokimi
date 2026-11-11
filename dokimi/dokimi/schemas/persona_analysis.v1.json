@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/intel/dokimi/schemas/persona_analysis.v1.json",
+  "title": "Persona analysis v1",
+  "description": "`personas/<product>_analysis.json`, written by `eval personas discover --repo ... --save-analysis` (dokimi.personas.analyzer): the GitHub signals the persona generator is prompted with. Every list is empty when the repository could not be read.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "readme_content",
+    "use_cases",
+    "issues_analysis",
+    "api_patterns",
+    "description",
+    "topics"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "persona_analysis.v1"
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}(?![\\s\\S])",
+      "description": "The envelope: the id of the run that saved this file (dokimi.artifacts.run_id). Absent from files saved before the envelope."
+    },
+    "dokimi_version": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The envelope: the dokimi version that saved this file. Absent from files saved before the envelope."
+    },
+    "library_name": {
+      "type": "string",
+      "description": "Only in an analysis made from a description (create_minimal_analysis)."
+    },
+    "readme_content": {
+      "type": "string"
+    },
+    "use_cases": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "issues_analysis": {
+      "type": "object",
+      "properties": {
+        "common_questions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "common_labels": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "sample_issues": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        }
+      }
+    },
+    "api_patterns": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "description": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "The repository's description; null when GitHub has none."
+    },
+    "topics": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}
