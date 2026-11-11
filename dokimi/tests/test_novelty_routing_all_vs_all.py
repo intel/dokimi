@@ -506,7 +506,9 @@ def test_a_name_conflict_hint_names_catalog_routing_on_each_holding_directory(tm
     with pytest.raises(InputError) as refusal:
         args.func(args)
     text = str(refusal.value)
-    assert f"catalog routing {root}/skills/a" in text and f"catalog routing {root}/skills/b" in text
+    normalized = text.replace("\\", "/")
+    assert f"catalog routing {root.as_posix()}/skills/a" in normalized
+    assert f"catalog routing {root.as_posix()}/skills/b" in normalized
     assert "--against" not in text
 
 
