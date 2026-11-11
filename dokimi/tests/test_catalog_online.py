@@ -917,6 +917,11 @@ def test_an_apostrophe_is_part_of_a_url_but_a_quote_or_sentence_mark_after_a_bar
     assert online_checks.extract_urls(body) == ["https://en.wikipedia.org/wiki/Moore's_law", "https://x.com/a"]
 
 
+def test_curly_quotes_dashes_and_cjk_punctuation_end_a_bare_url():
+    body = "see “https://a.com/x” and https://b.com/y—and more and 「https://c.com/z」\n"
+    assert online_checks.extract_urls(body) == ["https://a.com/x", "https://b.com/y", "https://c.com/z"]
+
+
 def test_a_quote_after_a_bare_url_ends_it_so_a_list_or_a_template_is_read():
     body = "urls = 'https://a.com/x','https://b.com/y' and Use {'url': 'https://pypi.org/simple'}\n"
     assert online_checks.extract_urls(body) == ["https://a.com/x", "https://b.com/y", "https://pypi.org/simple"]
