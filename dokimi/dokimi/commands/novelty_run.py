@@ -1,8 +1,9 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""Run-wide pieces of `novelty analyze` and `novelty probe`: the spend cap, the second judge,
-and the provenance stamp on the written JSON."""
+"""Run-wide pieces of `novelty analyze` and `novelty probe`: the `--max-usd` flag and the clean
+stop at the cap (the cap object is `dokimi.novelty.cost.spend_cap`), the second judge, and the
+provenance stamp on the written JSON."""
 
 from __future__ import annotations
 
