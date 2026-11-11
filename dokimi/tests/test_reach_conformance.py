@@ -391,8 +391,8 @@ def test_fixtures_digest_does_not_depend_on_the_walk_order(tmp_path, monkeypatch
 def test_fixtures_digest_of_a_utf8_tree_is_pinned(tmp_path):
     tree = tmp_path / "t"
     (tree / "a").mkdir(parents=True)
-    (tree / "a" / "AGENTS.md").write_text("x\n", encoding="utf-8")
-    (tree / "café.md").write_text("y\n", encoding="utf-8")
+    (tree / "a" / "AGENTS.md").write_bytes(b"x\n")
+    (tree / "café.md").write_bytes(b"y\n")
     os.symlink("café.md", tree / "LINK.md")
     assert cf.fixtures_digest(tree) == "ecd772f493d33197ae32630940a50ff007b06d673cf30d75e1bc7fdbf42773dc"
 
