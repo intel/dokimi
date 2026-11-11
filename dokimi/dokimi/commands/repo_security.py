@@ -78,7 +78,7 @@ def cmd_repo_security(args: argparse.Namespace) -> None:
         _usage_error(f"not a directory: {batch}")
     try:
         report = scan_batch(batch, args.baseline, _canaries(args), args.alpha)
-    except SecurityError as exc:
+    except (SecurityError, OSError) as exc:  # an unreadable cell file is the input's fault, not a crash
         _usage_error(str(exc))
     if not report["coverage"]["cells"] and not report["coverage"]["unfinished"]:
         _usage_error(f"no run cell (a directory with result.json naming task, arm and model, or a started "

@@ -514,3 +514,21 @@ def test_a_p_value_that_underflows_to_zero_still_fails_the_gate(tmp_path):
     entry = _arm(report, "skill")["classes"]["privilege-escalation"]
     assert entry["p_greater"] == 0.0
     assert "privilege-escalation" in _arm(report, "skill")["failed"]
+
+
+def test_unreadable_input_is_a_usage_error_not_a_traceback(tmp_path, monkeypatch):
+    import argparse
+
+    from dokimi.commands import repo_security
+    from dokimi.utils import InputError
+
+    _cell(tmp_path, "t", BASE, 0, events=[_cmd("pytest")])
+
+    def unreadable(*args, **kwargs):
+        raise PermissionError(13, "Permission denied", str(tmp_path))
+
+    monkeypatch.setattr(sec, "scan_batch", unreadable)
+    args = argparse.Namespace(batch=str(tmp_path), baseline=BASE, alpha=0.05, canary=None, canaries_file=None,
+                              out=None, fail_on=None)
+    with pytest.raises(InputError, match="Permission denied"):  # cli.main turns it into exit 2
+        repo_security.cmd_repo_security(args)
