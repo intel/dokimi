@@ -392,6 +392,23 @@ def test_novelty_routing_all_vs_all_is_a_tombstone_for_catalog_routing():
     ) == ["catalog", "routing", "skills/", "--queries-by-skill", "q.json", "--reps=2", "--out", "o.json"]
 
 
+def test_novelty_routing_tombstone_keeps_the_last_of_a_repeated_option():
+    # argparse keeps the last value of a store option, so the printed command must name that one.
+    assert moved_argv(["novelty", "routing", "--artifact", "skill:a", "--artifact", "skill:b",
+                       "--catalog", "root1", "--catalog", "root2"]) == [
+        "skill", "routing", "skill:b", "--against", "root2"]
+    assert moved_argv(["novelty", "routing", "--all-vs-all", "--catalog", "root-a",
+                       "--catalog=root-b"]) == ["catalog", "routing", "root-b"]
+
+
+def test_novelty_routing_tombstone_keeps_a_bare_artifact_path_as_text():
+    # A bare --artifact path was read as text (load_artifact_text), so the new SKILL must say so.
+    assert moved_argv(["novelty", "routing", "--artifact", "AGENTS.md", "--competitors", "skill:r"]) == [
+        "skill", "routing", "text:AGENTS.md", "--competitors", "skill:r"]
+    assert moved_argv(["novelty", "routing", "--artifact", "text:n.md"]) == [
+        "skill", "routing", "text:n.md"]
+
+
 def test_novelty_routing_tombstone_keeps_a_flag_the_new_leaf_refuses():
     argv = moved_argv(["novelty", "routing", "--all-vs-all", "--artifact", "skill:x", "--catalog", "skills/"])
     assert argv == ["catalog", "routing", "skills/", "--artifact", "skill:x"]

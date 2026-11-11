@@ -206,12 +206,18 @@ def _novelty_routing_argv(rest: list[str]) -> list[str]:
         else:
             kept.append(rest[i])
         i += 1
+    # argparse keeps the last of a repeated option, so the rewrite does too.
+    artifact = [_legacy_artifact(values["--artifact"][-1])] if values["--artifact"] else []
     if all_vs_all:
-        root = values["--catalog"][:1]
-        return ["catalog", "routing", *root, *kept, *(["--artifact", values["--artifact"][0]]
-                                                       if values["--artifact"] else [])]
-    against = ["--against", values["--catalog"][0]] if values["--catalog"] else []
-    return ["skill", "routing", *values["--artifact"][:1], *against, *kept]
+        stray = ["--artifact", values["--artifact"][-1]] if values["--artifact"] else []
+        return ["catalog", "routing", *values["--catalog"][-1:], *kept, *stray]
+    against = ["--against", values["--catalog"][-1]] if values["--catalog"] else []
+    return ["skill", "routing", *artifact, *against, *kept]
+
+
+def _legacy_artifact(ref: str) -> str:
+    """A retired `--artifact` value as the new SKILL: a bare path was always text, so it stays text."""
+    return ref if ref.startswith(("skill:", "text:")) else f"text:{ref}"
 
 
 # The moves of #94 M1-M3 and D11. Not yet: `novelty view` (the proposal maps it to `report $RUN`).

@@ -55,50 +55,47 @@ def add_catalog_routing(catalog_sub, positive_int) -> None:
 def _add_routing_options(routing_p, positive_int) -> None:
     """The options both routing leaves take: the field, the queries, the model and the spend cap."""
     routing_p.add_argument("--competitors", nargs="+", default=None,
-                           help="Other artifacts the selector sees. Selection among one "
-                                "candidate is not routing: the sibling confusion is the "
-                                "failure mode (every `dpnp-*` skill scored 0.0 lexically)")
+                           help="Other artifacts the selector sees. One candidate is not "
+                                "routing: sibling confusion is the failure mode (every "
+                                "`dpnp-*` skill scored 0.0 lexically)")
     routing_p.add_argument("--include-disabled", action="store_true", dest="include_disabled",
-                           help="Keep skills that set disable-model-invocation in the field. "
-                                "Off by default: no harness lists them, so the model cannot "
-                                "select them and a card for one measures a choice that does "
-                                "not exist")
+                           help="Keep skills with disable-model-invocation in the field. Off by "
+                                "default: no harness lists them, so their card measures a "
+                                "choice that does not exist")
     routing_p.add_argument("--keep-copies-under", default=None, dest="keep_copies_under",
                            metavar="DIR",
-                           help="With --against (ROOT for catalog routing): a directory under it, relative to it. For a catalog "
-                                "name whose copies differ, keep only the copies under DIR and leave "
-                                "out the others; the copies under DIR must have one content. Names "
-                                "whose copies agree are not affected")
+                           help="DIR under the catalog root (--against, or ROOT for catalog routing), "
+                                "relative to it: when a name's copies differ, keep only those "
+                                "under DIR, which must agree. Other names are unchanged")
     routing_p.add_argument("--include-invalid", action="store_true", dest="include_invalid",
-                           help="Keep catalog and skill: competitors with a spec error in the field. "
-                                "A description over 1024 characters alone never leaves a skill "
-                                "out: it is kept and warned about")
+                           help="Keep catalog and skill: competitors with a spec error. A "
+                                "description over 1024 characters alone never drops a skill: "
+                                "it is kept and warned about")
     routing_p.add_argument("--queries", default=None,
                            help="JSON list (or one per line) of user-shaped requests that "
                                 "should select this artifact, written independently of it")
     routing_p.add_argument("--queries-from-headings", action="store_true",
                            dest="queries_from_headings",
-                           help="Derive queries from the artifact's own headings. Triage "
-                                "only: the artifact then defines both the problem scope and "
-                                "its own relevance, and the result is stamped as such")
+                           help="Derive queries from the artifact's headings. Triage only: the "
+                                "artifact then sets its own problem scope and relevance, and "
+                                "the result is stamped as such")
     routing_p.add_argument("--model", default=None,
                            help="Also ask this model to pick from the same cards. Optional: "
                                 "without it only the free lexical floor is computed")
     routing_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=PROVIDERS)
     routing_p.add_argument("--max-tokens", type=positive_int, default=None, dest="max_tokens")
     routing_p.add_argument("--seed", type=int, default=0,
-                           help="Seeds only the card order: each query's cards are listed in "
-                                "a seeded random permutation, so a position-biased model scores "
-                                "about 1/N. It does not make the model's answers repeatable; "
-                                "measure that with --reps")
+                           help="Seeds only the card order (a seeded permutation per query, so "
+                                "a position-biased model scores about 1/N). Not answer "
+                                "repeatability: use --reps")
     routing_p.add_argument("--reps", type=positive_int, default=1,
-                           dest="repeats",
-                           help="Ask the model this many times per query, with the same card "
-                                "order each time, and report per-query agreement and the "
-                                "run-to-run noise floor. Needs --model; costs N times the calls")
+                           dest="repeats", metavar="N",
+                           help="Ask the model N times per query, same card order, and report "
+                                "per-query agreement and the run-to-run noise floor. Needs "
+                                "--model; N times the calls")
     routing_p.add_argument("--estimate-only", action="store_true", dest="estimate_only",
-                           help="Print the calls, input and output tokens and the list-price "
-                                "expected_usd that --model would make, as JSON, and make no model call. "
-                                "Without --model the run is lexical and the bill is zero")
+                           help="Print the calls, tokens and list-price expected_usd that "
+                                "--model would make, as JSON, and make no call. Without "
+                                "--model the bill is zero")
     routing_p.add_argument("--out", default=None)
     add_spend_cap(routing_p)
