@@ -73,8 +73,6 @@ def _print_inspect(reports: list[dict]) -> None:
 
 def cmd_tasks_inspect(args: argparse.Namespace) -> None:
     """Detect the eval-task format of a path (or of everything under it) and report its structure."""
-    import json
-
     from dokimi.artifacts import save_artifact, stamp
     from dokimi.task_formats import inspect_path
 
@@ -89,7 +87,9 @@ def cmd_tasks_inspect(args: argparse.Namespace) -> None:
         except OSError as exc:
             raise InputError(f"cannot write {args.out}: {exc}") from exc
     if args.json:
-        print(json.dumps(stamp("task_inspect", dict(payload)), indent=2, default=str))
+        from dokimi import cli_output
+
+        cli_output.emit_leaf("eval inspect", stamp("task_inspect", dict(payload)))
     else:
         _print_inspect(reports)
 
@@ -318,9 +318,9 @@ def register(sub, positive_int, eval_sub) -> None:
         help="Detect the eval-task format of a file or directory tree and report its structure (no run)",
     )
     inspect_p.add_argument("path", help="A task directory, a dataset file, or a tree holding either")
-    inspect_p.add_argument("--json", action="store_true", help="Print the task_inspect.v1 report as JSON")
+    inspect_p.add_argument("--json", action="store_true", help="Print cli_output.v1 on stdout (the task_inspect.v1 report under data)")
     inspect_p.add_argument("--out", default=None, help="Write the task_inspect.v1 report to this file")
-    inspect_p.set_defaults(func=cmd_tasks_inspect)
+    inspect_p.set_defaults(func=cmd_tasks_inspect, emits_cli_output=True, cli_kind="eval inspect")
 
     harnesses_p = tasks_sub.add_parser("harnesses", help="List known coding harness aliases")
     harnesses_p.set_defaults(func=cmd_tasks_harnesses)

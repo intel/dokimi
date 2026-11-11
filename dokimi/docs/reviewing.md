@@ -267,8 +267,8 @@ these, in order, before writing what it showed (the fields:
   cell started with or read (above): a finding's `rule` is the agent's own
   label. A hit cited without attribution (a `guidance:none` one) needs none.
 - **Totals from command output.** Copy counts, costs and turns from
-  `repo report --json` (`total_cost_usd`, a row's `n`, `cost_usd`, `turns`),
-  `repo compare --json` (`n_tasks`, `delta`, `mde`) and `grade.json` `metrics`
+  `repo report --json` (under `data`: `total_cost_usd`, a row's `n`, `cost_usd`, `turns`),
+  `repo compare --json` (under `data`: `n_tasks`, `delta`, `mde`) and `grade.json` `metrics`
   (`n_threads`, `n_findings`, `n_severe`). A total no command prints, such as
   the gold threads (`n_threads`, once per task), is summed by a script over
   those files, not by hand. A range is the lowest and highest per-cell value

@@ -65,8 +65,8 @@ declares `guidance.imports` (`claude-code`; it is null for `codex` and `copilot`
 > python cli.py repo budget <source> [--harness claude-code] [--out FILE] [--json] [--fail-on-warning]
 > ```
 >
-> `--out` and `--json` carry the inventory as a `repo_budget.v1` artifact (`schemas/repo_budget.v1.json`),
-> stamped with its `schema_version`, so a CI gate on the JSON can tell a changed shape.
+> `--out` carries the inventory as a `repo_budget.v1` artifact (`schemas/repo_budget.v1.json`), stamped with its
+> `schema_version`; `--json` prints the same artifact under `data` of a `cli_output.v1` document.
 >
 > `repo inspect` (§8.1) needs no manifest: a static look at what the tree offers an agent.
 >
@@ -2340,7 +2340,7 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   `parse_errors` on every row. `repo report --hits` prints, instead of the table, each credited pair of
   the `dokimi:review_replay` cells (`details.matches`, §4.5) by task, arm,
   model and rep: the thread and its comment, then the finding that hit it.
-  `--hits --json` gives `{batch, replay_cells, without_matches, grader_failures, cells, hits}`, one
+  `--hits --json` gives, under `data` of the `cli_output.v1` envelope, `{batch, replay_cells, without_matches, grader_failures, cells, hits}`, one
   record in `hits` per pair (`task`, `arm`, `model`, `rep`, `cell` and the
   match's fields; the first five come from the cell's `result.json`, and a
   match key of the same name does not replace them), and one in `cells` per

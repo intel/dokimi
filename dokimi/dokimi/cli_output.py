@@ -75,9 +75,25 @@ def error_document(kind: str, code: str, message: str, *, field: str | None = No
                                                   "retryable": code == "infra", "field": field})
 
 
+_printed = False
+
+
 def emit(doc: dict[str, Any]) -> None:
     """Print the one document on stdout."""
-    print(json.dumps(doc, indent=2))
+    global _printed
+    _printed = True
+    print(json.dumps(doc, indent=2, default=str))
+
+
+def printed() -> bool:
+    """True once this process has printed its document (cli.py checks it before a fallback document)."""
+    return _printed
+
+
+def reset() -> None:
+    """Forget the document of an earlier run in this process (cli.main calls it once per run)."""
+    global _printed
+    _printed = False
 
 
 def emit_leaf(kind: str, data: Any, **fields: Any) -> None:

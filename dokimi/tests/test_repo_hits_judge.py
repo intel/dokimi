@@ -129,7 +129,7 @@ def test_judge_reads_the_full_texts_and_writes_recall_judged_per_cell(tmp_path, 
     raw = load_artifact("repo_hits_judged", _judged(batch, "guidance:raw", 1))
     assert raw["counts"] == {"same point": 1, "related": 1, "unrelated": 0, "unjudged": 0}
     assert raw["judge"] == {"provider": "anthropic", "model": "claude-opus-5-5"}
-    result = json.loads(out)
+    result = json.loads(out)["data"]
     assert [(r["arm"], r["cells"], r["pairs"], r["recall"], r["recall_judged"]) for r in result["rows"]] == [
         ("guidance:none", 1, 2, 0.667, 0.333), ("guidance:raw", 1, 2, 0.667, 0.333)]
     assert (result["calls"], result["spent_usd"], result["calibration"]) == (4, 1.6, None)
@@ -158,7 +158,7 @@ def test_a_cell_with_no_credited_pair_is_written_and_counted_in_the_means(tmp_pa
     assert code == 0 and len(judge_llm.requests) == 4
     empty = load_artifact("repo_hits_judged", _judged(batch, "guidance:raw", 3))
     assert (empty["pairs"], empty["n_threads"], empty["recall"], empty["recall_judged"]) == ([], 3, 0.0, 0.0)
-    raw = next(r for r in json.loads(out)["rows"] if r["arm"] == "guidance:raw")
+    raw = next(r for r in json.loads(out)["data"]["rows"] if r["arm"] == "guidance:raw")
     assert (raw["cells"], raw["pairs"], raw["recall"], raw["recall_judged"]) == (2, 2, 0.3335, 0.1665)
 
 
@@ -173,7 +173,7 @@ def test_a_cell_whose_answer_has_no_findings_json_counts_as_0_in_the_means(tmp_p
     (rd / "grade.json").write_text(json.dumps({**grade, "metrics": metrics, "details": details}))
     assert metrics["parse_error"] is True and "matches" not in details
     code, out, _ = _run(capsys, "judge", str(batch), "--judge", JUDGE, "--json")
-    result = json.loads(out)
+    result = json.loads(out)["data"]
     assert (code, len(judge_llm.requests), result["replay_cells"], result["written"]) == (0, 4, 5, 3)
     raw = next(r for r in result["rows"] if r["arm"] == "guidance:raw")
     assert (raw["cells"], raw["pairs"], raw["recall"], raw["recall_judged"]) == (2, 2, 0.3335, 0.1665)
@@ -237,7 +237,7 @@ def test_a_judge_call_that_fails_leaves_its_pair_unjudged_and_the_run_goes_on(tm
     failed = [p for p in raw["pairs"] if p["label"] is None]
     assert [p["error"] for p in failed] == ["judge call failed: RuntimeError: provider said 500"]
     assert (raw["counts"]["unjudged"], raw["recall_judged"]) == (1, None)
-    result = json.loads(out)
+    result = json.loads(out)["data"]
     assert result["unjudged_cells"] == [f"{TASK}__guidance-raw__{MODEL}__r1"] and result["calls"] == 3
 
 
@@ -283,7 +283,7 @@ def test_failures_not_in_a_row_with_one_error_do_not_stop_the_run(tmp_path, caps
     _put(batch, "guidance:raw", 3, [_f(30, "mul adds")])
     with llm.use_adapter(_failing(fail)) as fake:
         code, out, _ = _run(capsys, "judge", str(batch), "--judge", JUDGE, "--json")
-    assert (code, len(fake.requests), json.loads(out)["budget_stop"]) == (0, 5, None)
+    assert (code, len(fake.requests), json.loads(out)["data"]["budget_stop"]) == (0, 5, None)
 
 
 def test_a_label_in_another_case_counts_as_that_label(tmp_path, capsys, monkeypatch):
@@ -295,7 +295,7 @@ def test_a_label_in_another_case_counts_as_that_label(tmp_path, capsys, monkeypa
 
     with llm.use_adapter(llm.FakeAdapter(respond=titled)) as fake:
         code, out, _ = _run(capsys, "judge", str(batch), "--judge", JUDGE, "--json")
-    result = json.loads(out)
+    result = json.loads(out)["data"]
     assert (code, len(fake.requests), result["unjudged_cells"]) == (0, 4, [])
     assert [(r["arm"], r["recall_judged"]) for r in result["rows"]] == [("guidance:none", 0.333),
                                                                          ("guidance:raw", 0.333)]
@@ -360,7 +360,7 @@ def test_dry_run_counts_the_pairs_and_prices_them_with_no_call(tmp_path, capsys,
     with llm.use_adapter(llm.FakeAdapter()) as fake:
         code, out, _ = _run(capsys, "judge", str(batch), "--judge", JUDGE, "--dry-run", "--json")
     assert (code, fake.requests) == (0, [])
-    assert json.loads(out) == {"batch": str(batch), "judge": {"provider": "anthropic", "model": "claude-opus-5-5"},
+    assert json.loads(out)["data"] == {"batch": str(batch), "judge": {"provider": "anthropic", "model": "claude-opus-5-5"},
                                "cells": 2, "pairs": 4, "to_judge": 4, "estimated_usd": 0.04}
     assert priced == [("claude-opus-5-5", "anthropic")] * 4
     assert not list(batch.glob(f"*/{HITS_JUDGED}"))
@@ -411,7 +411,7 @@ def test_an_unpriced_judge_under_max_usd_stops_the_run_and_says_why(tmp_path, ca
         assert lines[-1] == "1 judge call(s), $0.0000, and 1 call(s) with no known price: the spend is not known"
         assert not list(batch.glob(f"*/{HITS_JUDGED}"))
         code, out, _ = _run(capsys, "judge", str(batch), "--judge", JUDGE, "--json")  # no cap: every pair
-    result = json.loads(out)
+    result = json.loads(out)["data"]
     assert (code, len(fake.requests), result["calls"], result["spent_usd"]) == (0, 5, 4, 0.0)
     assert (result["unpriced_calls"], result["budget_stop"], result["budget_stopped"]) == (4, None, [])
 
@@ -427,9 +427,11 @@ def test_pairs_in_the_response_cache_still_finish_after_an_unpriced_stop(tmp_pat
     _put(batch, "guidance:none", 1, [_f(11, "The TODO is repeated five times"), _f(30, "mul adds")])  # not cached
     with llm.use_adapter(llm.FakeAdapter(respond=_reply)) as fake:  # no cost_usd: the judge has no known price
         code, out, _ = _run(capsys, "judge", str(batch), "--judge", JUDGE, "--max-usd", "5", "--json")
-    result = json.loads(out)
+    result = json.loads(out)["data"]
     assert (code, len(fake.requests), result["calls"]) == (1, 1, 1)  # none's first pair live, then the stop
     assert result["budget_stopped"] == [f"{TASK}__guidance-none__{MODEL}__r1"] and result["budget_stop"] == UNPRICED_STOP
+    document = json.loads(out)
+    assert (document["status"], document["cost"]["calls"], document["cost"]["cap_usd"]) == ("budget_stopped", 1, 5.0)
     assert result["written"] == 1 and (raw / HITS_JUDGED).is_file()  # the raw arm replayed after the stop
     assert load_artifact("repo_hits_judged", raw / HITS_JUDGED)["counts"]["unjudged"] == 0
 
@@ -498,9 +500,9 @@ def test_a_judged_cell_regraded_out_of_the_hits_loses_its_earlier_file(tmp_path,
     stale.write_text(earlier)
     code, out, _ = _run(capsys, "judge", str(batch), "--judge", JUDGE, "--json")
     assert code == 0 and not stale.exists() and kept.is_file()
-    assert json.loads(out)["stale_removed"] == [f"{TASK}__guidance-raw__{MODEL}__r1"]
+    assert json.loads(out)["data"]["stale_removed"] == [f"{TASK}__guidance-raw__{MODEL}__r1"]
     code, out, _ = _run(capsys, "judge", str(batch), "--judge", JUDGE, "--json")
-    assert (code, json.loads(out)["stale_removed"]) == (0, [])  # nothing left to remove
+    assert (code, json.loads(out)["data"]["stale_removed"]) == (0, [])  # nothing left to remove
 
 
 def test_an_earlier_file_of_a_regraded_cell_that_cannot_be_removed_stops_the_run_before_any_call(tmp_path, capsys,
@@ -558,7 +560,7 @@ def test_a_pair_whose_full_text_is_missing_is_reported_and_not_judged(tmp_path, 
     assert sum(line.startswith("not judged, full text not found: ") for line in lines) == 2
     assert (f"unjudged cells: 1 (a pair not judged: recall_judged null, left out of the means): "
             f"{TASK}__guidance-raw__{MODEL}__r1") in lines
-    result = json.loads(_run(capsys, "judge", str(batch), "--judge", JUDGE, "--json")[1])
+    result = json.loads(_run(capsys, "judge", str(batch), "--judge", JUDGE, "--json")[1])["data"]
     assert result["unjudged_cells"] == [f"{TASK}__guidance-raw__{MODEL}__r1"]
     row = next(r for r in result["rows"] if r["arm"] == "guidance:raw")
     assert (row["cells"], row["recall"], row["recall_judged"]) == (2, 0.5, 0.333)  # r3 alone: 1 same point of 3
@@ -588,10 +590,10 @@ def test_labels_are_compared_per_arm_and_an_unknown_thread_is_refused(tmp_path, 
     sheet_file.write_text(json.dumps(entries))
     code, out, _ = _run(capsys, "judge", str(batch), "--judge", JUDGE, "--labels", str(sheet_file), "--json")
     assert code == 0
-    assert json.loads(out)["calibration"] == [  # none: agree on t_todo, not on t_op; raw: agree on thread 7
+    assert json.loads(out)["data"]["calibration"] == [  # none: agree on t_todo, not on t_op; raw: agree on thread 7
         {"arm": "guidance:none", "model": MODEL, "labelled": 2, "agreement": 0.5, "kappa": 0.333},
         {"arm": "guidance:raw", "model": MODEL, "labelled": 1, "agreement": 1.0, "kappa": None}]
-    assert json.loads(out)["uncalibrated_rows"] == []
+    assert json.loads(out)["data"]["uncalibrated_rows"] == []
     text = _run(capsys, "judge", str(batch), "--judge", JUDGE, "--labels", str(sheet_file))[1]
     assert "kappa 0.333" in text and "uncalibrated" not in text
     judge_llm.requests.clear()
@@ -626,7 +628,7 @@ def test_labels_no_pair_shares_with_the_judge_leave_recall_judged_uncalibrated(t
     with llm.use_adapter(llm.FakeAdapter(respond=(lambda _: "no idea") if unparsed else _reply)):
         code, out, _ = _run(capsys, "judge", str(batch), "--judge", JUDGE, "--labels", str(labels), "--json")
         assert code == 0
-        result = json.loads(out)
+        result = json.loads(out)["data"]
         text = _run(capsys, "judge", str(batch), "--judge", JUDGE, "--labels", str(labels))[1].splitlines()
     assert result["uncalibrated_rows"] == _rows("guidance:none", "guidance:raw")
     assert result["calibration"] == ([{"arm": arm, "model": MODEL, "labelled": 0, "agreement": None, "kappa": None}
@@ -639,7 +641,7 @@ def test_labels_on_one_arm_only_name_the_arm_left_uncalibrated(tmp_path, capsys,
     labels = _sheet(tmp_path, capsys, batch, label=lambda e: "related" if e["arm"] == "guidance:none" else None)
     code, out, _ = _run(capsys, "judge", str(batch), "--judge", JUDGE, "--labels", str(labels), "--json")
     assert code == 0
-    result = json.loads(out)
+    result = json.loads(out)["data"]
     assert [c["arm"] for c in result["calibration"]] == ["guidance:none"]
     assert result["uncalibrated_rows"] == _rows("guidance:raw")
     text = _run(capsys, "judge", str(batch), "--judge", JUDGE, "--labels", str(labels))[1].splitlines()
@@ -664,7 +666,7 @@ def test_labels_on_one_answer_model_of_an_arm_name_the_other_model_uncalibrated(
     labels = _sheet(tmp_path, capsys, batch, label=lambda e: "related" if e["model"] == MODEL else None)
     code, out, _ = _run(capsys, "judge", str(batch), "--judge", JUDGE, "--labels", str(labels), "--json")
     assert code == 0
-    result = json.loads(out)
+    result = json.loads(out)["data"]
     assert [(r["arm"], r["model"]) for r in result["rows"]] == [
         ("guidance:none", MODEL), ("guidance:none", OTHER), ("guidance:raw", MODEL)]
     assert [(c["arm"], c["model"], c["labelled"]) for c in result["calibration"]] == [
@@ -675,7 +677,7 @@ def test_labels_on_one_answer_model_of_an_arm_name_the_other_model_uncalibrated(
                         "person's and the judge's label")
     labels.unlink()
     labels = _sheet(tmp_path, capsys, batch)  # every row labelled
-    result = json.loads(_run(capsys, "judge", str(batch), "--judge", JUDGE, "--labels", str(labels), "--json")[1])
+    result = json.loads(_run(capsys, "judge", str(batch), "--judge", JUDGE, "--labels", str(labels), "--json")[1])["data"]
     assert [(c["arm"], c["model"]) for c in result["calibration"]] == [(r["arm"], r["model"]) for r in result["rows"]]
     assert result["uncalibrated_rows"] == []
     text = _run(capsys, "judge", str(batch), "--judge", JUDGE, "--labels", str(labels))[1]

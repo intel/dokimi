@@ -5,7 +5,7 @@
 
 The envelope and its schema, the error path of a leaf that opted in (exit 2 for input, exit 5 for
 a crash), the ``data schema show cli_output.v1`` kind, and the inventory: every leaf with ``--json``
-either prints the envelope or is named in ``NOT_YET_ENVELOPE``, which only shrinks.
+sets ``emits_cli_output``, and a --json leaf that exits without its document gets one.
 """
 
 from __future__ import annotations
@@ -19,15 +19,6 @@ import pytest
 from dokimi import cli, cli_output
 from dokimi.artifacts import schema_errors
 from dokimi.utils import InputError
-
-# --json leaves still on their own payload (the envelope changes their shape): remove a row when
-# the leaf sets `emits_cli_output`, never add one.
-NOT_YET_ENVELOPE = {
-    ("catalog", "formats"), ("eval", "inspect"), ("repo", "budget"), ("repo", "compare"),
-    ("repo", "fetch"), ("repo", "hits", "judge"), ("repo", "inspect"), ("repo", "report"),
-    ("repo", "scan"), ("repo", "validate"),
-}
-
 
 def _leaves(parser: argparse.ArgumentParser, prefix: tuple[str, ...] = ()):
     """Every leaf parser under ``parser`` as (path, parser); an alias is the same parser twice."""
@@ -163,18 +154,6 @@ def test_a_crash_without_json_is_not_wrapped(monkeypatch, capsys):
     assert capsys.readouterr().out == ""
 
 
-def test_a_json_leaf_outside_the_opt_in_that_crashes_re_raises_and_prints_no_envelope(monkeypatch, capsys):
-    from dokimi.commands import repo
-
-    def crash(args):
-        raise RuntimeError("repo fell over")
-
-    monkeypatch.setattr(repo, "cmd_repo_validate", crash)
-    with pytest.raises(RuntimeError):
-        _run_main(monkeypatch, ["repo", "validate", "x", "--json"])
-    assert capsys.readouterr().out == ""
-
-
 def test_a_malformed_run_id_still_gets_the_input_document_with_a_null_run_id(monkeypatch, capsys):
     monkeypatch.setenv("DOKIMI_RUN_ID", "bad id!")
     with pytest.raises(SystemExit) as exc:
@@ -186,14 +165,63 @@ def test_a_malformed_run_id_still_gets_the_input_document_with_a_null_run_id(mon
     assert schema_errors("cli_output.v1", doc) == []
 
 
-def test_the_inventory_every_json_leaf_is_enveloped_or_named_as_not_yet():
+def test_every_json_leaf_emits_cli_output():
     leaves = _json_leaves()
     enveloped = {path for path, p in leaves.items() if p.get_default("emits_cli_output")}
-    assert enveloped == {("backends",), ("runs", "list"), ("runs", "show"), ("trace", "inspect"),
-                         ("trace", "consistency"), ("trace", "prefilter")}
-    assert set(leaves) == enveloped | NOT_YET_ENVELOPE
-    assert not enveloped & NOT_YET_ENVELOPE
+    assert set(leaves) == enveloped
     assert all(leaves[path].get_default("cli_kind") for path in enveloped - {("backends",)})
+
+
+def test_a_json_leaf_that_exits_without_its_document_prints_one_with_the_same_code(monkeypatch, capsys):
+    from dokimi.commands import backends
+
+    def refuse(args):
+        print("✗ no backend", file=sys.stderr)
+        sys.exit(2)
+
+    monkeypatch.setattr(backends, "cmd_backends", refuse)
+    with pytest.raises(SystemExit) as exc:
+        _run_main(monkeypatch, ["backends", "--json"])
+    assert exc.value.code == 2
+    doc = json.loads(capsys.readouterr().out)
+    assert doc["status"] == "failed" and doc["error"]["code"] == "input"
+    assert schema_errors("cli_output.v1", doc) == []
+
+
+@pytest.mark.parametrize("argv, kind, message", [
+    (["repo", "budget", "--json"], "repo budget", "the following arguments are required: source"),
+    (["repo", "validate", ".", "--json", "--no-such-flag"], "repo validate", "unrecognized arguments: --no-such-flag"),
+    (["repo", "validate", ".", "--json", "--cache-dir"], "repo validate", "argument --cache-dir: expected one argument"),
+])
+def test_a_json_leaf_usage_error_prints_its_failed_document_with_exit_2(monkeypatch, capsys, argv, kind, message):
+    with pytest.raises(SystemExit) as exc:
+        _run_main(monkeypatch, argv)
+    assert exc.value.code == 2
+    doc = json.loads(capsys.readouterr().out)
+    assert (doc["kind"], doc["status"], doc["error"]["code"]) == (kind, "failed", "input")
+    assert doc["reason"] == message and schema_errors("cli_output.v1", doc) == []
+
+
+def test_a_usage_error_of_a_group_prints_no_document(monkeypatch, capsys):
+    with pytest.raises(SystemExit) as exc:
+        _run_main(monkeypatch, ["repo", "no-such-leaf", "--json"])
+    assert exc.value.code == 2
+    assert capsys.readouterr().out == ""  # a group is not a --json leaf: its error stays on stderr
+
+
+def test_a_json_leaf_that_exits_1_after_its_document_prints_one_document(monkeypatch, capsys):
+    from dokimi.commands import backends
+
+    def fail(args):
+        cli_output.emit_leaf("backends", {"rows": []}, status="failed", reason="gate")
+        sys.exit(1)
+
+    monkeypatch.setattr(backends, "cmd_backends", fail)
+    with pytest.raises(SystemExit) as exc:
+        _run_main(monkeypatch, ["backends", "--json"])
+    assert exc.value.code == 1
+    doc = json.loads(capsys.readouterr().out)  # one document: the leaf's own, not a second one
+    assert doc["status"] == "failed" and doc["reason"] == "gate"
 
 
 def test_a_group_leaf_names_itself_on_a_crash_document(monkeypatch, capsys):
@@ -264,4 +292,12 @@ def test_a_trace_leaf_refused_before_any_read_prints_an_input_error_document(tmp
     assert exc.value.code == 2
     assert doc["kind"] == "trace prefilter" and doc["status"] == "failed" and doc["data"] is None
     assert doc["error"]["code"] == "input" and doc["error"]["message"].startswith("guidance ")
+    assert schema_errors("cli_output.v1", doc) == []
+
+
+def test_catalog_formats_json_is_the_envelope_with_its_packages_under_data(tmp_path, monkeypatch, capsys):
+    _run_main(monkeypatch, ["catalog", "formats", "--root", str(tmp_path), "--json"])
+    doc = json.loads(capsys.readouterr().out)
+    assert doc["kind"] == "catalog formats" and doc["status"] == "complete"
+    assert doc["data"]["root"] == str(tmp_path) and doc["data"]["packages"] == []
     assert schema_errors("cli_output.v1", doc) == []

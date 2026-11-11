@@ -393,12 +393,23 @@ def cmd_repo_report(args: argparse.Namespace) -> None:
     try:
         if args.hits:
             found = load_hits(batch_dir)
-            print(json.dumps(found, indent=2) if args.json else format_hits(found))
+            _print_leaf(args, "repo report", found, format_hits)
             return
         summary = summarize(batch_dir)
     except CellFileError as exc:  # a cell file that is not the JSON repo run wrote: an input refusal
         raise InputError(str(exc)) from exc
-    print(json.dumps(summary, indent=2) if args.json else format_report(summary))
+    _print_leaf(args, "repo report", summary, format_report)
+
+
+def _print_leaf(args: argparse.Namespace, kind: str, data, text_of) -> None:
+    """The leaf's ``--json`` document (its payload under ``data``) or, without ``--json``, ``text_of(data)``
+    (built only when printed, as before the envelope)."""
+    if args.json:
+        from dokimi import cli_output
+
+        cli_output.emit_leaf(kind, data)
+    else:
+        print(text_of(data))
 
 
 def cmd_repo_compare(args: argparse.Namespace) -> None:
@@ -422,7 +433,9 @@ def cmd_repo_compare(args: argparse.Namespace) -> None:
     except (CompareError, CellFileError, LedgerError) as exc:  # an unusable baseline, arm, metric, cell or ledger
         raise InputError(str(exc)) from exc
     if args.json:
-        print(json.dumps(summary, indent=2))
+        from dokimi import cli_output
+
+        cli_output.emit_leaf("repo compare", summary)
         return
     text = format_compare(summary)
     if "ledger" in summary:
@@ -539,11 +552,11 @@ def register(repo_sub, eval_sub, positive_int, source_help: str, cache_help: str
 
     report_p = repo_sub.add_parser("report", help="Per (task, arm, model) table over a batch directory")
     report_p.add_argument("batch_dir", help="<out>/<batch> of `repo run`")
-    report_p.add_argument("--json", action="store_true", help="Print the summary as JSON")
+    report_p.add_argument("--json", action="store_true", help="Print cli_output.v1 on stdout (the summary under data)")
     report_p.add_argument("--hits", action="store_true",
                           help="Instead of the table: each (thread, finding) pair that credited a "
                           "dokimi:review_replay thread, by task, arm, model and rep (grade.json details.matches)")
-    report_p.set_defaults(func=cmd_repo_report)
+    report_p.set_defaults(func=cmd_repo_report, emits_cli_output=True, cli_kind="repo report")
 
     compare_p = repo_sub.add_parser(
         "compare", help="Treatment arms against a baseline arm, paired by task, over one or more batch directories")
@@ -566,8 +579,8 @@ def register(repo_sub, eval_sub, positive_int, source_help: str, cache_help: str
     compare_p.add_argument("--ledger", default=None, metavar="FILE",
                            help="Also give each guidance rule of this repo_ledger.v1 file a verdict (keep, review or "
                            "insufficient-evidence) from its linked cases, against its baseline (dokimi/docs/rule-ledger.md)")
-    compare_p.add_argument("--json", action="store_true", help="Print the comparison as JSON")
-    compare_p.set_defaults(func=cmd_repo_compare)
+    compare_p.add_argument("--json", action="store_true", help="Print cli_output.v1 on stdout (the comparison under data)")
+    compare_p.set_defaults(func=cmd_repo_compare, emits_cli_output=True, cli_kind="repo compare")
 
     from . import repo_hits
 

@@ -253,7 +253,7 @@ failed check.
 | 1 | A verdict or a gate that ran and failed, or a runtime failure (a model call, a run, a clone or fetch). | `baseline compare --strict` over a changed model, `repo reach` with a harness binary that cannot run, `eval triggers generate --strict` over a lint finding |
 | 2 | A bad invocation: a missing, unreadable or malformed input file, a device given as one (`<flag> <path>: not a file`), a flag combination the command refuses, an output file that cannot be written, a missing provider credential, a source string that is malformed, unpinned or not a repository root. | `baseline save` on a bad eval file, `benchmark preflight` with no golden set, `repo scan --manifest ../x.yaml` |
 | 3 | The run stopped short because a budget ran out (`--max-cost-usd`, or a call with no price) and kept the partial output; the summary covers the rest. `tools preference` today; other commands still exit 1 on a budget stop. | `tools preference --max-cost-usd 5` with calls not run |
-| 5 | A crash in a leaf that prints the `cli_output.v1` document with `--json`: `backends`, `runs list\|show` and `trace inspect\|consistency\|prefilter` today; an `infra` document is printed on stdout first. Other commands still exit 1 on a crash. | `backends --json` when `detect` raises |
+| 5 | A crash in a leaf run with `--json`: it prints the `cli_output.v1` document (`error.code` `infra`) on stdout first. Every leaf with `--json` does this; a crash without `--json` is a traceback and exit 1. | `backends --json` when `detect` raises |
 
 A command that validates its input and then runs exits 2 for the first and 1
 for the second. Not every command follows this yet: `repo run` and
