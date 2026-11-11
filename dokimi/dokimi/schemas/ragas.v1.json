@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/intel/dokimi/schemas/ragas.v1.json",
   "title": "RAGAS meta-evaluation v1",
-  "description": "`<answers>_ragas.json`, written by `eval score ragas` (and by the `evaluate` pipeline's RAGAS step): RAGAS metric scores of the answers, with and without the retrieved documents. The writer owns the metric shape; only the envelope and the schema version are checked here.",
+  "description": "`<answers>_ragas.json`, written by `eval score ragas` (and by `answers generate --ragas`): RAGAS metric scores of the answers, with and without the retrieved documents. The writer owns the metric shape; only the envelope and the schema version are checked here.",
   "type": "object",
   "required": ["schema_version"],
   "properties": {
