@@ -47,6 +47,9 @@ under a vendored directory such as `node_modules` and any `.git` are not hashed,
 they select nothing). Skill resources and owned tasks select their skill, and a
 changed or removed task also selects the skill that owned it at the base;
 registry, suite, shared machinery and unclaimed changes select conservatively.
+A ROOT that git reaches only through an enclosing repository that tracks no file
+under it (a skills folder under a git-tracked `$HOME`) is not a checkout: its
+`source` has no commit and every skill is selected.
 A file git ignores under the shared machinery (`tools/`, `scripts/`, `dokimi/`,
 `.github/`) selects nothing and does not mark the source `dirty`, whatever its name.
 Selection limits what can fail: a finding in a skill that is not selected is
@@ -245,6 +248,17 @@ directory name and description but different `SKILL.md` text are a `warn` on bot
 (`mirror-drift`), naming the other copies. Skills with
 `disable-model-invocation: true` are exempt from the description checks.
 
+The scan also reads the shell commands in `SKILL.md` and its bundled text files; nothing is run. A `curl`
+or `wget` piped into a shell or an interpreter (`| sh`, `| sudo bash`, `| python3`) is a `warn`
+(`pipe-to-shell`). So is `--dangerously-skip-permissions`, `--yolo` or `bypassPermissions`, which switch off
+an agent's permission prompts (`permission-bypass-flag`). A `pip`, `npm` or `npx` install that names a
+package with no version is a `warn` with the count for the skill (`install-unpinned`); a requirements
+file, a local path, a URL or a `git+` source is not counted. Installs are read from code only: the fenced
+blocks and code spans of a prose file (Markdown, `.mdx`, `.txt`, `.rst`, `.adoc`), and the whole of any other
+text file, such as a script. The scan reads at most 200
+bundled files of 256 KiB or less; a binary or non-UTF-8 file counts toward the 200 too and is not checked. A skill at the root of a
+checkout reads its own `SKILL.md` only.
+
 Frontmatter that is not valid YAML (a bare colon in `description:`, say) stops
 the skill from loading. The scan reports that as a `frontmatter-parse` error
 carrying the YAML message, and it exits 1 with or without `--strict`, as a load
@@ -252,6 +266,11 @@ error does. The YAML message is on the indented `frontmatter-parse` line under
 the skill (and in its `findings` in JSON); the row's main line and its JSON
 `error` field say the frontmatter has invalid YAML, with the line, not that the
 skill is missing a `description`.
+
+A `SKILL.md` that loads but cannot be read during the scan (a permission error, or
+a name the OS refuses) is an `unreadable` error. It exits 1 with or without
+`--strict`, as `frontmatter-parse` does, and routing leaves that skill out, since
+its disable flag and digest are unknown.
 
 A `SKILL.md` with no frontmatter at all (it does not start with a `---` line) also
 stops the skill from loading, and its error says "no frontmatter". One whose
@@ -315,7 +334,8 @@ A large catalog is easier to scan one skill at a time:
   they are not printed, and they do not set the state or the `--strict` exit. The
   codes are the `code` of each finding in the JSON output (`name-mismatch`,
   `description-no-when`, ...); an unknown code is a usage error. `frontmatter-parse`
-  is refused (a skill that does not load always fails), and so is `--kind tasks`.
+  is refused (a skill that does not load always fails), and so is `unreadable` (a
+  `SKILL.md` the OS will not read fails the scan too), and `--kind tasks`.
 - `--jsonl PATH` writes one JSON row per skill as it is reviewed and prints only
   the counts. `--jobs N` reviews N skills in parallel. `--resume` keeps the rows
   already in PATH and reviews only the skills without one (a half-written last
@@ -432,7 +452,7 @@ $ python cli.py tasks run --tasks demo-widget \
     --harnesses docker-oracle,docker-claude-skill:C:/Users/Public/content-repo/skills/demo-skill \
     --baseline-harness docker-oracle \
     --model us.anthropic.claude-haiku-4-5-20251001-v1:0 \
-    --dry-run --out-json results/demo-widget.json
+    --dry-run --out results/demo-widget.json
 Saved task run artifact: results\demo-widget.json
 Saved task run report:   results\demo-widget.md
 docker-oracle: 0/1 pass (0.00%), ops=1, elapsed=0.00s
@@ -460,7 +480,7 @@ demo-locate-widget      demo    1 ref(s)        Where is the widget width clampe
 $ python cli.py explore run --all \
     --tasks-root C:/Users/Public/content-repo/explore_tasks \
     --repo-root C:/Users/Public/content-repo/product-checkout \
-    --arms oracle,empty --baseline-arm empty --out-json results/explore.json
+    --arms oracle,empty --baseline-arm empty --out results/explore.json
 Saved explore run artifact: results\explore.json
 oracle: n=1 file_f1=1.000 line_f1=n/a validity=1.000
 empty: n=1 file_f1=0.000 line_f1=n/a validity=1.000

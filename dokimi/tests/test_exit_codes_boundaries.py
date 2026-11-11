@@ -25,6 +25,7 @@ from dokimi.eval import arms_run
 from dokimi.records import RecordError
 from dokimi.repos import SourceError
 from dokimi.repos.reach import ReachError
+from tests.cli_refusal import refusal
 
 PIN = "a" * 40
 
@@ -41,7 +42,7 @@ def _questions(tmp_path):
 
 def _arms_argv(tmp_path, *extra):
     return ["arms", "run", "--product", "onedal", "--questions", _questions(tmp_path),
-            "--arms", "baseline", "--out-json", str(tmp_path / "a.json"),
+            "--arms", "baseline", "--out", str(tmp_path / "a.json"),
             "--out-md", str(tmp_path / "a.md"), *extra]
 
 
@@ -59,9 +60,9 @@ def test_arm_run_failure_keeps_exit_1(error, tmp_path, monkeypatch, capsys):
 
     monkeypatch.setattr("dokimi.eval.arm_runner.ArmRunner.run", boom)
     _argv(monkeypatch, *_arms_argv(tmp_path))
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cli.main()
-    assert exc.value.code == 1
+    assert exc.code == 1
     assert str(error) in capsys.readouterr().err
 
 
@@ -75,21 +76,21 @@ def test_arm_run_sampling_probe_failure_keeps_exit_1_before_any_answer(tmp_path,
     monkeypatch.setattr("dokimi.eval.arm_runner.ArmRunner.run",
                         lambda self, *a, **k: answered.append(1) or [])
     _argv(monkeypatch, *_arms_argv(tmp_path, "--judge", "--judge-temperature", "0.5"))
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cli.main()
-    assert exc.value.code == 1
+    assert exc.code == 1
     assert not answered
     assert "Probe call" in capsys.readouterr().err
 
 
 def test_arm_run_unknown_arm_spec_exits_2(tmp_path, monkeypatch, capsys):
     _argv(monkeypatch, "arms", "run", "--product", "onedal", "--questions", _questions(tmp_path),
-          "--arms", "no-such-arm-kind", "--out-json", str(tmp_path / "a.json"),
+          "--arms", "no-such-arm-kind", "--out", str(tmp_path / "a.json"),
           "--out-md", str(tmp_path / "a.md"))
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cli.main()
-    assert exc.value.code == 2
-    assert "Error building arms/plugins" in capsys.readouterr().err
+    assert exc.code == 2
+    assert "cannot build arms/plugins" in capsys.readouterr().err
 
 
 @pytest.fixture
@@ -125,9 +126,9 @@ def test_matrix_cell_refused_at_probe_stops_before_any_answer(tmp_path, monkeypa
           "--out-dir", str(tmp_path / "matrix"))
     from dokimi.exit_codes import EXIT_FAILURE
 
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cli.main()
-    assert exc.value.code == EXIT_FAILURE
+    assert exc.code == EXIT_FAILURE
     assert probed == ["gpt-4o-mini", "reject-temp-model"]  # each cell probed once, in order
     assert answered == []
     assert not (tmp_path / "matrix" / "cells").exists()
@@ -157,9 +158,9 @@ def test_matrix_cell_that_cannot_be_set_up_exits_2_before_any_answer(tmp_path, m
     ]}), encoding="utf-8")
     _argv(monkeypatch, "arms", "matrix-run", "--product", "onedal", "--questions", _questions(tmp_path),
           "--arms", "baseline", "--matrix-cells", str(cells), "--out-dir", str(tmp_path / "matrix"))
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cli.main()
-    assert exc.value.code == 2
+    assert exc.code == 2
     assert calls == ["gpt-4o-mini", "bad-cell-model"]
     assert answered == []
     assert not (tmp_path / "matrix").exists()
@@ -181,9 +182,9 @@ def test_matrix_cell_that_fails_while_it_runs_exits_1(tmp_path, monkeypatch, cap
 
     monkeypatch.setattr("dokimi.eval.arm_runner.ArmRunner.run", fail)
     _argv(monkeypatch, *_one_cell(tmp_path))
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cli.main()
-    assert exc.value.code == 1
+    assert exc.code == 1
     assert "Error running matrix cell 'c1': provider returned 500" in capsys.readouterr().err
 
 
@@ -199,9 +200,9 @@ def test_matrix_cell_whose_judge_probe_fails_exits_1_before_any_answer(tmp_path,
     monkeypatch.setattr("dokimi.llm.llm_call_with_usage", fake_usage)
     monkeypatch.setattr("dokimi.eval.arm_runner.ArmRunner.run", lambda self, *a, **k: answered.append(1) or [])
     _argv(monkeypatch, *_one_cell(tmp_path), "--judge", "--judge-model", "judge-x", "--judge-temperature", "0.5")
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cli.main()
-    assert exc.value.code == 1
+    assert exc.code == 1
     assert answered == []
     assert "Error running matrix cell 'c1'" in capsys.readouterr().err
 
@@ -218,26 +219,26 @@ def test_matrix_out_dir_with_no_existing_ancestor_exits_2(tmp_path, monkeypatch,
 
     monkeypatch.setattr("pathlib.Path.exists", lambda self: False)
     monkeypatch.setattr("pathlib.Path.is_symlink", lambda self: False)
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         arms._check_cells_dir(tmp_path / "z" / "out")
-    assert exc.value.code == 2
+    assert exc.code == 2
     assert "cannot write" in capsys.readouterr().err
 
 
 def test_repo_fetch_git_failure_keeps_exit_1(monkeypatch, capsys):
     monkeypatch.setattr("dokimi.repos.open_source", _failed_fetch)
     _argv(monkeypatch, "repo", "fetch", f"https://127.0.0.1:9/example.git@{PIN}")
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cli.main()
-    assert exc.value.code == 1
+    assert exc.code == 1
     assert "git fetch failed" in capsys.readouterr().err
 
 
 def test_repo_fetch_unpinned_remote_exits_2(monkeypatch, capsys):
     _argv(monkeypatch, "repo", "fetch", "https://example.com/example.git")
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cli.main()
-    assert exc.value.code == 2
+    assert exc.code == 2
     assert "must be pinned" in capsys.readouterr().err
 
 
@@ -251,9 +252,9 @@ def test_repo_unreachable_source_keeps_exit_1(command, tmp_path, monkeypatch, ca
     monkeypatch.setattr("dokimi.repos.open_source", _failed_fetch)
     _argv(monkeypatch, "repo", command, f"https://127.0.0.1:9/example.git@{PIN}",
           "--cache-dir", str(tmp_path / "cache"))
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cli.main()
-    assert exc.value.code == 1
+    assert exc.code == 1
     assert "✗ git fetch failed" in capsys.readouterr().err
 
 
@@ -270,9 +271,9 @@ def test_repo_source_os_or_value_error_keeps_exit_1_with_a_message(error, comman
     monkeypatch.setattr("dokimi.repos.open_source", open_failed)
     _argv(monkeypatch, "repo", command, f"https://127.0.0.1:9/example.git@{PIN}",
           "--cache-dir", str(tmp_path / "cache"))
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cli.main()
-    assert exc.value.code == 1
+    assert exc.code == 1
     assert str(error) in capsys.readouterr().err
 
 
@@ -288,12 +289,12 @@ def test_repo_fetch_and_reach_os_or_value_error_keeps_exit_1_with_a_message(comm
         raise error
 
     monkeypatch.setattr("dokimi.repos.open_source", open_failed)
-    extra = ["--model", "m", "--out", str(tmp_path / "out")] if command == "reach" else []
+    extra = ["--model", "m", "--out-dir", str(tmp_path / "out")] if command == "reach" else []
     _argv(monkeypatch, "repo", command, f"https://127.0.0.1:9/example.git@{PIN}",
           "--cache-dir", str(tmp_path / "cache"), *extra)
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cli.main()
-    assert exc.value.code == 1
+    assert exc.code == 1
     assert str(error) in capsys.readouterr().err
 
 
@@ -301,19 +302,19 @@ def test_repo_fetch_and_reach_os_or_value_error_keeps_exit_1_with_a_message(comm
 def test_repo_unpinned_remote_exits_2_for_every_source_command(command, tmp_path, monkeypatch, capsys):
     _argv(monkeypatch, "repo", command, "https://example.com/example.git",
           "--cache-dir", str(tmp_path / "cache"))
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cli.main()
-    assert exc.value.code == 2
-    assert "✗" in capsys.readouterr().err
+    assert exc.code == 2
+    assert "Error: a remote source must be pinned to a revision" in capsys.readouterr().err
 
 
 def test_repo_reach_fetch_failure_keeps_exit_1(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr("dokimi.repos.open_source", _failed_fetch)
     _argv(monkeypatch, "repo", "reach", f"https://127.0.0.1:9/example.git@{PIN}",
-          "--model", "m", "--out", str(tmp_path / "out"))
-    with pytest.raises(SystemExit) as exc:
+          "--model", "m", "--out-dir", str(tmp_path / "out"))
+    with refusal() as exc:
         cli.main()
-    assert exc.value.code == 1
+    assert exc.code == 1
     assert "git fetch failed" in capsys.readouterr().err
 
 
@@ -341,13 +342,13 @@ def test_repo_manifest_path_leaving_the_tree_exits_2_with_a_message(command, tmp
     repo = tmp_path / "repo"
     repo.mkdir()
     _argv(monkeypatch, "repo", command, str(repo), "--manifest", "../x.yaml")
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cli.main()
-    assert exc.value.code == 2
+    assert exc.code == 2
     assert "path escapes the repository" in capsys.readouterr().err
 
 
-REACH_ARGS = ["--harness", "claude-code", "--model", "m", "--out", "reach-out"]
+REACH_ARGS = ["--harness", "claude-code", "--model", "m", "--out-dir", "reach-out"]
 
 
 @pytest.mark.parametrize("command", ["validate", "scan", "reach"])
@@ -365,11 +366,51 @@ def test_repo_manifest_read_that_fails_in_git_keeps_exit_1(command, tmp_path, mo
     assert "git show failed" in err
 
 
+def test_repo_reach_plan_scenario_read_that_fails_in_git_keeps_exit_1(tmp_path, monkeypatch, capsys):
+    # The shadow read that `repo reach` plans its scenarios from is a git read of the tree: a failure there is a
+    # fetch failure (exit 1), not a usage error. Only the manifest read was pinned before this.
+    from types import SimpleNamespace
+
+    def failing_shadow(profile, tree, kinds):
+        raise SourceError("git ls-tree failed: fatal: could not fetch the tree from promisor remote")
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    monkeypatch.setattr("dokimi.commands.repo._load_manifest", lambda tree, args, **kwargs: SimpleNamespace())
+    monkeypatch.setattr("dokimi.repos.reach.probe_files", lambda tree, manifest, profile: ["AGENTS.md"])
+    monkeypatch.setattr("dokimi.repos.reach.followable", lambda tree, files: (files, {}, []))
+    monkeypatch.setattr("dokimi.repos.reach.shadow_for", failing_shadow)
+    err = _expect_exit(monkeypatch, capsys, 1, "repo", "reach", str(repo), *REACH_ARGS[:-1],
+                       str(tmp_path / "reach-out"))
+    assert "git ls-tree failed" in err
+
+
+def test_repo_reach_from_saved_git_read_that_fails_keeps_exit_1(tmp_path, monkeypatch, capsys):
+    # A git read that fails while a saved probe is checked against its tree (check_saved_reach) is a fetch failure
+    # (exit 1), not a usage error. Only the manifest read in the same try was pinned before this.
+    from types import SimpleNamespace
+
+    def failing_check(reach, manifest_id, profile_name, sha):
+        raise SourceError("git show failed: fatal: could not fetch the blob from promisor remote")
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    saved = tmp_path / "reach.json"
+    saved.write_text("{}", encoding="utf-8")
+    monkeypatch.setattr("dokimi.commands.repo._saved_reach_inputs",
+                        lambda args: (SimpleNamespace(name="claude-code"), SimpleNamespace(), {"scenarios": []}))
+    monkeypatch.setattr("dokimi.repos.open_source", lambda source, cache: SimpleNamespace(sha="a" * 40))
+    monkeypatch.setattr("dokimi.commands.repo._load_manifest", lambda tree, args, **kwargs: SimpleNamespace(id="m"))
+    monkeypatch.setattr("dokimi.repos.receipt.check_saved_reach", failing_check)
+    err = _expect_exit(monkeypatch, capsys, 1, "repo", "reach", str(repo), "--from", str(saved))
+    assert "git show failed" in err
+
+
 def _expect_exit(monkeypatch, capsys, code, *argv):
     _argv(monkeypatch, *argv)
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cli.main()
-    assert exc.value.code == code
+    assert exc.code == code
     return capsys.readouterr().err
 
 
@@ -377,7 +418,7 @@ def test_repo_validate_invalid_manifest_exits_2(tmp_path, monkeypatch, capsys):
     (tmp_path / ".agent-eval").mkdir()
     (tmp_path / ".agent-eval" / "repo-eval.yaml").write_text("schema: no-such-schema\n", encoding="utf-8")
     err = _expect_exit(monkeypatch, capsys, 2, "repo", "validate", str(tmp_path))
-    assert err.startswith("✗ ")
+    assert err.startswith("Error: ")
 
 
 @pytest.mark.parametrize("command", ["validate", "scan"])
@@ -386,7 +427,7 @@ def test_repo_manifest_yaml_timestamp_out_of_range_exits_2(command, tmp_path, mo
     (tmp_path / ".agent-eval").mkdir()
     (tmp_path / ".agent-eval" / "repo-eval.yaml").write_text("id: 2026-99-99\n", encoding="utf-8")
     err = _expect_exit(monkeypatch, capsys, 2, "repo", command, str(tmp_path))
-    assert err.startswith("✗ ") and "Traceback" not in err
+    assert err.startswith("Error: ") and "Traceback" not in err
 
 
 def test_manifest_read_that_fails_in_git_stays_a_source_error():
@@ -430,10 +471,10 @@ def test_repo_scan_unwritable_out_exits_2(tmp_path, monkeypatch, capsys):
 
 def test_repo_reach_unknown_harness_profile_exits_2(tmp_path, monkeypatch, capsys):
     _argv(monkeypatch, "repo", "reach", str(tmp_path), "--harness", "no-such-harness",
-          "--model", "m", "--out", str(tmp_path / "out"))
-    with pytest.raises(SystemExit) as exc:
+          "--model", "m", "--out-dir", str(tmp_path / "out"))
+    with refusal() as exc:
         cli.main()
-    assert exc.value.code == 2
+    assert exc.code == 2
     assert "no harness profile" in capsys.readouterr().err
 
 
@@ -444,10 +485,10 @@ def test_repo_reach_probe_workspace_failure_keeps_exit_1(tmp_path, monkeypatch, 
         raise ReachError("could not create the probe workspace")
 
     monkeypatch.setattr("dokimi.repos.reach.run_reach", workspace_failed)
-    _argv(monkeypatch, "repo", "reach", str(tmp_path), "--model", "m", "--out", str(tmp_path / "out"))
-    with pytest.raises(SystemExit) as exc:
+    _argv(monkeypatch, "repo", "reach", str(tmp_path), "--model", "m", "--out-dir", str(tmp_path / "out"))
+    with refusal() as exc:
         cli.main()
-    assert exc.value.code == 1
+    assert exc.code == 1
     assert "probe workspace" in capsys.readouterr().err
 
 
@@ -456,10 +497,10 @@ def test_repo_reach_unrunnable_harness_binary_keeps_exit_1_with_a_message(tmp_pa
     # and must print its message, not escape as a ProfileError traceback.
     (tmp_path / "CLAUDE.md").write_text("# guidance\n", encoding="utf-8")
     _argv(monkeypatch, "repo", "reach", str(tmp_path), "--model", "m", "--bin", str(tmp_path / "no-such-claude"),
-          "--out", str(tmp_path / "out"))
-    with pytest.raises(SystemExit) as exc:
+          "--out-dir", str(tmp_path / "out"))
+    with refusal() as exc:
         cli.main()
-    assert exc.value.code == 1
+    assert exc.code == 1
     assert "cannot run" in capsys.readouterr().err
 
 
@@ -470,10 +511,10 @@ def test_repo_reach_workspace_source_error_keeps_exit_1_with_a_message(tmp_path,
         raise SourceError("path escapes the repository: ../x")
 
     monkeypatch.setattr("dokimi.repos.reach.run_reach", links_escape)
-    _argv(monkeypatch, "repo", "reach", str(tmp_path), "--model", "m", "--out", str(tmp_path / "out"))
-    with pytest.raises(SystemExit) as exc:
+    _argv(monkeypatch, "repo", "reach", str(tmp_path), "--model", "m", "--out-dir", str(tmp_path / "out"))
+    with refusal() as exc:
         cli.main()
-    assert exc.value.code == 1
+    assert exc.code == 1
     assert "path escapes the repository" in capsys.readouterr().err
 
 
@@ -490,9 +531,9 @@ class _NoLibraries:
 def test_batch_with_no_known_library_exits_2(monkeypatch, capsys):
     monkeypatch.setattr(benchmark, "_load_registry", lambda args: _NoLibraries())
     _argv(monkeypatch, "benchmark", "batch", "--libraries", "no-such-library")
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cli.main()
-    assert exc.value.code == 2
+    assert exc.code == 2
     assert "No libraries to run." in capsys.readouterr().err
 
 
@@ -509,11 +550,11 @@ def test_preflight_unknown_doc_source_format_exits_2(tmp_path, monkeypatch, caps
     monkeypatch.setenv("OPENAI_API_KEY", "test")
     monkeypatch.setattr(benchmark, "_load_registry", lambda args: _OneLibrary())
     _argv(monkeypatch, "benchmark", "preflight", "--library", "onetbb",
-          "--doc-source", "bogus:docs", "--output-dir", str(tmp_path / "out"),
+          "--doc-source", "bogus:docs", "--out-dir", str(tmp_path / "out"),
           "--provider", "openai", "--judge-provider", "openai")
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cli.main()
-    assert exc.value.code == 2
+    assert exc.code == 2
     assert "Unknown --doc-source format" in capsys.readouterr().err
 
 
@@ -528,14 +569,14 @@ def test_preflight_refuses_a_local_doc_source_path_that_does_not_exist(tmp_path,
     monkeypatch.setenv("OPENAI_API_KEY", "test")
     monkeypatch.setattr(benchmark, "_load_registry", lambda args: _OneLibrary())
     _argv(monkeypatch, "benchmark", "preflight", "--library", "onetbb", "--doc-source", f"{prefix}{docs}",
-          "--output-dir", str(tmp_path / "out"), "--provider", "openai", "--judge-provider", "openai")
+          "--out-dir", str(tmp_path / "out"), "--provider", "openai", "--judge-provider", "openai")
     if exists:
         cli.main()
         assert "Preflight OK" in capsys.readouterr().out
         return
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cli.main()
-    assert exc.value.code == 2
+    assert exc.code == 2
     assert f"doc source path does not exist: {prefix}{docs}" in capsys.readouterr().err
 
 
@@ -546,11 +587,11 @@ def test_external_content_walkthrough_states_the_exit_of_a_preflight_without_key
     stated = int(re.search(r"It exited (\d+) here because no API keys were set", doc.read_text(encoding="utf-8")).group(1))
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.setattr(benchmark, "_load_registry", lambda args: _OneLibrary())
-    _argv(monkeypatch, "benchmark", "preflight", "--library", "onetbb", "--output-dir", str(tmp_path / "out"),
+    _argv(monkeypatch, "benchmark", "preflight", "--library", "onetbb", "--out-dir", str(tmp_path / "out"),
           "--provider", "openai", "--judge-provider", "openai")
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cli.main()
-    assert exc.value.code == stated
+    assert exc.code == stated
     assert "missing OPENAI_API_KEY for provider openai" in capsys.readouterr().err
 
 
@@ -580,9 +621,9 @@ def test_trigger_set_rewrite_returning_nothing_keeps_exit_1(tmp_path, monkeypatc
     ])
     _argv(monkeypatch, "eval", "triggers", "generate", "--catalog", str(_skill_root(tmp_path)),
           "--questions", spec, "--rewrite", "--model", "m", "--out", str(tmp_path / "o.json"))
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cli.main()
-    assert exc.value.code == 1
+    assert exc.code == 1
     assert "rewrite returned empty text" in capsys.readouterr().err
 
 
@@ -597,9 +638,9 @@ def test_trigger_set_question_without_text_exits_2(text_fields, tmp_path, monkey
     ])
     _argv(monkeypatch, "eval", "triggers", "generate", "--catalog", str(_skill_root(tmp_path)),
           "--questions", spec, "--out", str(tmp_path / "o.json"))
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cli.main()
-    assert exc.value.code == 2
+    assert exc.code == 2
     assert "has no text" in capsys.readouterr().err
 
 
@@ -613,9 +654,9 @@ def test_trigger_set_no_text_refused_before_any_rewrite_call(tmp_path, monkeypat
     ])
     _argv(monkeypatch, "eval", "triggers", "generate", "--catalog", str(_skill_root(tmp_path)),
           "--questions", spec, "--rewrite", "--model", "m", "--out", str(tmp_path / "o.json"))
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cli.main()
-    assert exc.value.code == 2
+    assert exc.code == 2
     assert "has no text" in capsys.readouterr().err
     assert rewrite_calls == []
     assert not (tmp_path / "o.json").exists()
@@ -642,9 +683,9 @@ def test_trigger_set_file_without_labels_is_refused_where_it_would_write_an_empt
     path.write_text(json.dumps({"questions": [{"id": "u1", "question": "How do I cook rice?"}]}), encoding="utf-8")
     _argv(monkeypatch, "eval", "triggers", "generate", "--catalog", str(_skill_root(tmp_path)),
           "--trigger-set", str(path), *fmt, "--out", str(tmp_path / "o.json"))
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cli.main()
-    assert exc.value.code == 2
+    assert exc.code == 2
     assert "resolves for none of 1 questions" in capsys.readouterr().err
     assert not (tmp_path / "o.json").exists()
 
@@ -667,9 +708,9 @@ def test_questions_file_with_a_field_label_and_no_labels_is_refused_and_says_so(
     path.write_text(json.dumps({"questions": [{"id": "u1", "question": "How do I cook rice?"}]}), encoding="utf-8")
     _argv(monkeypatch, "eval", "triggers", "generate", "--catalog", str(_skill_root(tmp_path)),
           "--format", "questions", "--questions", f"{path}=@expected_skill", "--out", str(tmp_path / "o.json"))
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cli.main()
-    assert exc.value.code == 2
+    assert exc.code == 2
     assert "@expected_skill resolves for none of 1 questions (none has that field, so the file has no labels)" \
         in capsys.readouterr().err
 
@@ -685,9 +726,9 @@ def test_trigger_set_unresolved_field_rule_is_refused_before_any_rewrite_call(tm
     _argv(monkeypatch, "eval", "triggers", "generate", "--catalog", str(_skill_root(tmp_path)),
           "--questions", f"{path}=@metadata.skil_under_test", "--rewrite", "--model", "m",
           "--out", str(tmp_path / "o.json"))
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cli.main()
-    assert exc.value.code == 2
+    assert exc.code == 2
     assert "resolves for none of 3 questions" in capsys.readouterr().err
     assert rewrite_calls == []
     assert not (tmp_path / "o.json").exists()
@@ -702,9 +743,9 @@ def test_trigger_set_strict_refusal_exits_1(tmp_path, monkeypatch, capsys):
     ])
     _argv(monkeypatch, "eval", "triggers", "generate", "--catalog", str(_skill_root(tmp_path)),
           "--questions", spec, "--strict", "--out", str(tmp_path / "o.json"))
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         cli.main()
-    assert exc.value.code == 1
+    assert exc.code == 1
     assert not (tmp_path / "o.json").exists()
     # The gate that fired is the unresolved label: the summary is printed before the exit.
     assert json.loads(capsys.readouterr().out)["label_unresolved"] == 1
@@ -720,9 +761,10 @@ def test_missing_ragas_extra_keeps_its_base_exit(monkeypatch):
 
     monkeypatch.setattr(importlib.util, "find_spec", without_ragas)
     message = "RAGAS meta-evaluation needs the ragas extra: pip install 'dokimi[ragas]'"
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         evaluate._require_ragas()
-    assert exc.value.code == message
+    assert exc.code == 1
+    assert message in exc.err
 
 
 # ── questions refine: only the artifact refusal is a usage error; a run-time ValueError is not ──

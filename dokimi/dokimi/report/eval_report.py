@@ -20,13 +20,10 @@ import os
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
 
+from dokimi.artifacts import save_artifact
+# This module defines a local ``stats()`` helper, hence the ``eval_stats`` alias.
 from dokimi.eval import stats as eval_stats
 from dokimi.records import BASELINE, CONTEXT, Record, RecordError, record, records
-
-#: Mirrors :data:`dokimi.eval.stats.HAS_SCIPY`; the tests themselves
-#: live there now. Note this module defines a local ``stats()`` helper, hence
-#: the ``eval_stats`` alias.
-HAS_SCIPY = eval_stats.HAS_SCIPY
 
 try:
     from zoneinfo import ZoneInfo
@@ -36,28 +33,23 @@ except ImportError:
 
 
 def significance_test(evals):
-    """Paired t-test, Wilcoxon, and Cohen's d_z on (with_docs - without_docs) pairs.
+    """Sign-flip p, its inverted 95% interval and Cohen's d_z on (with_docs - without_docs) pairs.
 
     Delegates to :func:`dokimi.eval.stats.paired_test`, which is also
     what the arms and model-comparison reports use, so the three cannot drift
-    apart. Two behaviour changes came with that:
+    apart: ``delta_std``/``cohens_d`` use the sample SD (n-1), and
+    ``significant`` is ``p < 0.05`` on the one sign-flip test, whose interval
+    excludes 0 exactly then. ``None`` with fewer than two pairs.
 
-    * ``delta_std``/``cohens_d`` now use the sample SD (n-1). This copy divided
-      by ``n``, which inflated d_z relative to every other report in the repo.
-    * ``significant`` also requires Wilcoxon < 0.05 when it could be computed,
-      matching the other reports instead of trusting the t-test alone.
-
-    ``significant`` stays ``None`` when no test could run (no SciPy, too few
-    pairs, or zero-variance deltas) rather than claiming "not significant".
+    ``significant`` stays ``None`` when there is no verdict (every pair tied,
+    or the floor ``2 / 2**k`` over the k changed pairs is not below 0.05)
+    rather than claiming "not significant"; ``n_changed`` shows which.
     """
     pairs = []
     for e in records(evals, kind="evaluations"):
         w, wo = e.score(CONTEXT), e.score(BASELINE)
         if w is not None and wo is not None:
             pairs.append((w, wo))
-    if len(pairs) < eval_stats.MIN_PAIRS_FOR_TEST:
-        return None
-
     result = eval_stats.paired_test([p[0] for p in pairs], [p[1] for p in pairs])
     if result is None:
         return None
@@ -65,8 +57,6 @@ def significance_test(evals):
     # No multiplicity correction on this path; see eval/stats.arm_significance.
     result.pop("p_adjusted", None)
     result.pop("significant_adjusted", None)
-    if result["p_ttest"] is None:
-        result["significant"] = None
     return result
 
 
@@ -234,11 +224,20 @@ def _load_eval(eval_path: str) -> dict:
     return data
 
 
+def _sidecar_question_text(e: Record) -> str | None:
+    """The record's question text, else its raw ``question_text`` when that is a string (a blank
+    one stays ``""``); ``None`` when there is none or it is not text."""
+    raw = e.raw.get("question_text")
+    return e.question_text or (raw if isinstance(raw, str) else None)
+
+
 def _write_qa_json(path: str, payload: dict) -> None:
-    """Write the Q&A sidecar, or raise a RecordError naming ``path``."""
+    """Save the Q&A sidecar as a ``report_qa`` artifact, or raise a RecordError naming ``path``.
+
+    A payload the schema refuses raises ``ArtifactValidationError``, the payload kept at ``<path>.rejected``.
+    """
     try:
-        with open(path, "w", encoding="utf-8") as jf:
-            json.dump(payload, jf, indent=2, ensure_ascii=False)
+        save_artifact("report_qa", payload, path, ensure_ascii=False)  # people read it
     except OSError as exc:
         raise RecordError(f"cannot write {path}: {exc.strerror or exc}") from exc
 
@@ -326,8 +325,8 @@ def generate_report(eval_path: str, out_path: str, qa_json_out: str | None = Non
     if sig:
         sig_label = ("✅ **Statistically significant** (p < 0.05)" if sig.get("significant")
                      else "❌ **Not statistically significant** (p ≥ 0.05)" if sig.get("significant") is False
-                     else "⚠️ Cannot determine (too few pairs, or "
-                          "zero-variance deltas)")
+                     else "⚠️ Cannot determine (every pair tied, or too few "
+                          "changed pairs for any p to reach 0.05)")
         # Use the band eval.stats already computed. Recomputing it here needed
         # abs(cohens_d), which raises on the None that a zero-variance sample
         # now reports, and could drift from stats.effect_label.
@@ -349,11 +348,11 @@ def generate_report(eval_path: str, out_path: str, qa_json_out: str | None = Non
             "",
             "| Metric | Value |",
             "|---|---|",
-            f"| Paired t-test p-value | {_val('p_ttest')} |",
-            f"| Wilcoxon signed-rank p | {_val('p_wilcoxon')} |",
+            f"| Sign-flip p (two-sided) | {_val('p')} |",
+            f"| Changed pairs (non-zero delta) | {sig['n_changed']} of {sig['n']} |",
             f"| Cohen's d (effect size) | {_val('cohens_d')} ({effect_label}) |",
-            f"| 95% CI on the delta | [{_val('ci_lo')}, {_val('ci_hi')}] "
-            f"({_val('ci_method')}) |",
+            f"| 95% CI on the delta | [{'-inf' if sig['ci_lo'] is None else sig['ci_lo']}, "
+            f"{'+inf' if sig['ci_hi'] is None else sig['ci_hi']}] ({_val('ci_method')}) |",
             f"| Delta mean ± std | {sig['delta_mean']:+} ± {sig['delta_std']} |",
             "",
         ]
@@ -528,7 +527,7 @@ def generate_report(eval_path: str, out_path: str, qa_json_out: str | None = Non
         a = answers_by_id.get(e.key)
         qa_records.append({
             "question_id": e.question_id,
-            "question_text": e.question_text or e.raw.get("question_text"),
+            "question_text": _sidecar_question_text(e),
             "difficulty": e.difficulty,
             "source": "static" if static_prefix and e.key.startswith(static_prefix) else "dynamic",
             "with_docs_score": e.score(CONTEXT),

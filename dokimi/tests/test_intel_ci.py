@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import email
 import importlib.util
+import json
+import re
 import subprocess
 import sys
 import tomllib
@@ -33,7 +35,10 @@ def _workflow(name: str) -> dict:
 
 def test_every_push_and_tag_run_keeps_its_own_concurrency_group() -> None:
     """Each main push is tested: a shared group would drop a queued one, so group as ci.yml does."""
-    assert _workflow("intel-ci.yml")["concurrency"] == _workflow("ci.yml")["concurrency"]
+    ci, intel = _workflow("ci.yml")["concurrency"], _workflow("intel-ci.yml")["concurrency"]
+    assert intel["cancel-in-progress"] == ci["cancel-in-progress"]
+    assert ci["group"].endswith("|| github.event.pull_request.number || github.run_id }}")
+    assert intel["group"] == "${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}"
 
 
 def _requirements(specs: list[str]) -> dict[str, Requirement]:
@@ -221,3 +226,31 @@ def test_wheel_requires_land_in_the_metadata_headers(newline: str,
     assert message.get_all("Requires-Dist") == ["mkl", "numpy >=2"]
     assert message.get_payload().strip() == "Description."
     assert text.count(newline * 2) == 1 and ("\r\n" in text) == (newline == "\r\n")
+
+
+def _renovate_and_exact_pins(config_text: str) -> tuple[dict[str, str], dict[str, str]]:
+    """The pins renovate's ci/config.yml regex finds and the `==` pins of the test list, both by canonical name."""
+    text = (_REPO / ".github" / "renovate.json5").read_text(encoding="utf-8")
+    manager = text[text.index('managerFilePatterns: ["/^ci/config'):]
+    literal = re.search(r"matchStrings: \[(\".*\")\]", manager)
+    assert literal is not None
+    pattern = re.compile(json.loads(literal.group(1)).replace("(?<", "(?P<"))
+    found: dict[str, str] = {canonicalize_name(m["depName"]): m["currentValue"] for m in pattern.finditer(config_text)}
+    exact = {n: str(next(iter(r.specifier)).version) for n, r in _requirements(
+        yaml.safe_load(config_text)["test"]["requires"]).items()
+        if str(r.specifier).startswith("==")}
+    return found, exact
+
+
+def test_renovate_bumps_the_exact_pins_in_ci_config() -> None:
+    """The pins in ci/config.yml must equal requirements-test.txt, so renovate's regex has to find each one."""
+    found, exact = _renovate_and_exact_pins((_REPO / "ci" / "config.yml").read_text(encoding="utf-8"))
+    assert found == exact
+    assert "mypy" in found
+
+
+def test_renovate_finds_a_mixed_case_exact_pin_under_its_canonical_name() -> None:
+    """The regex reads "PyYAML ==6.0.1" as written, the test list as pyyaml: both sides key it by canonical name."""
+    found, exact = _renovate_and_exact_pins(
+        'test:\n  requires:\n    - "pytest >=9"\n    - "PyYAML ==6.0.1"\n    - "Foo_Bar ==1.2"\n')
+    assert found == exact == {"pyyaml": "6.0.1", "foo-bar": "1.2"}

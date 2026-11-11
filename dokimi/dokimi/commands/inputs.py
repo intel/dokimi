@@ -6,17 +6,18 @@
 from __future__ import annotations
 
 from pathlib import Path
-from dokimi.utils import InputError
+from dokimi.utils import InputError, refuse_device
 
 
 def read_text_or_exit(path: str | None, flag: str) -> str | None:
     """The text of the file `flag` names, None when the flag is unset.
 
     A file that cannot be read stops the command with a message naming the flag and the
-    path, instead of a traceback.
+    path, instead of a traceback; so does a device (``<flag> <path>: not a file``).
     """
     if not path:
         return None
+    refuse_device(path, flag)
     try:
         return Path(path).read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as exc:

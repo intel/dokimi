@@ -10,6 +10,7 @@ serialization); no real store is read.
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 
 import pytest
@@ -152,7 +153,25 @@ def test_the_command_reads_a_store_and_a_claude_log_together(tmp_path, capsys):
     args = build_parser().parse_args(["trace", "prefilter", str(guide), str(db), str(claude),
                                       "--min-sessions", "1", "--json"])
     args.func(args)
-    assert json.loads(capsys.readouterr().out)["sessions"] == 2
+    assert json.loads(capsys.readouterr().out)["data"]["sessions"] == 2
+
+
+@pytest.mark.skipif(not os.path.isdir("/dev/fd"), reason="needs /dev/fd")
+def test_a_session_log_through_a_pipe_is_read_whole(tmp_path, capsys):
+    """The store sniff reads no byte of a pipe: what it read would be missing from the log."""
+    guide = tmp_path / "AGENTS.md"
+    guide.write_text(GUIDE, encoding="utf-8")
+    read_fd, write_fd = os.pipe()
+    try:
+        os.write(write_fd, (json.dumps({"type": "user", "message": {"role": "user", "content": "hi"}}) + "\n").encode())
+        os.close(write_fd)
+        args = build_parser().parse_args(["trace", "prefilter", str(guide), f"/dev/fd/{read_fd}",
+                                          "--min-sessions", "1", "--json"])
+        args.func(args)
+    finally:
+        os.close(read_fd)
+    captured = capsys.readouterr()
+    assert json.loads(captured.out)["data"]["sessions"] == 1 and "✗" not in captured.err
 
 
 def test_a_user_message_of_several_text_blocks_is_one_prompt(tmp_path):

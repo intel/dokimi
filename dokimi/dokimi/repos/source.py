@@ -93,6 +93,10 @@ class RepoTree(Protocol):
 
     def read_text(self, path: str) -> str: ...
 
+    def read_bytes(self, path: str) -> bytes:
+        """The file's bytes as stored: no decoding, no newline translation."""
+        ...
+
     def resolve(self, path: str, dirs: bool = False) -> str:
         """The file ``path`` names once symlinks are followed, as in a checkout; ``path`` itself
         if it is not a link. :class:`SourceError` if it escapes the tree, dangles, loops or
@@ -107,12 +111,12 @@ class RepoTree(Protocol):
 
 
 class WorkTree:
-    """A directory on disk, read as it is (uncommitted changes included)."""
+    """A directory on disk, read as it is (uncommitted changes included); ``files``, when given, is its listing."""
 
-    def __init__(self, root: str | Path):
+    def __init__(self, root: str | Path, files: list[str] | None = None):
         self.root = Path(root).resolve()
         self.label = str(self.root)
-        self._files: list[str] | None = None
+        self._files: list[str] | None = sorted(files) if files is not None else None
 
     def _resolve(self, path: str) -> Path:
         target = (self.root / path).resolve()
@@ -150,6 +154,9 @@ class WorkTree:
 
     def read_text(self, path: str) -> str:
         return self._resolve(path).read_text(encoding="utf-8")
+
+    def read_bytes(self, path: str) -> bytes:
+        return self._resolve(path).read_bytes()
 
     def resolve(self, path: str, dirs: bool = False) -> str:
         try:
@@ -222,6 +229,10 @@ class GitTree:
     def read_text(self, path: str) -> str:
         """The file's text; a symlink is followed, as it is in a checkout."""
         return _git(self.git_dir, "show", f"{self.sha}:{self.resolve(path)}")
+
+    def read_bytes(self, path: str) -> bytes:
+        """The file's bytes as stored; a symlink is followed."""
+        return _run_git(self.git_dir, ["show", f"{self.sha}:{self.resolve(path)}"], None, True).stdout_bytes
 
     def resolve(self, path: str, dirs: bool = False) -> str:
         start = path = _norm(path)
@@ -356,15 +367,24 @@ def cache_path(url: str, cache_dir: Path) -> Path:
     return cache_dir / f"{slug.removesuffix('.git')}-{digest}.git"
 
 
+def check_pinned_root(source: RepoSource) -> None:
+    """Refuse a pinned local path that is a subdirectory of a repository (SourceArgumentError); no-op otherwise.
+
+    Cheap, so a command can call it before it reads its input files; ``open_source`` calls it too.
+    """
+    if not source.remote and source.rev is not None:
+        # ls-tree lists paths relative to -C, git show reads them from the root.
+        prefix = _git(Path(source.location), "rev-parse", "--show-prefix").strip()
+        if prefix:
+            raise SourceArgumentError(f"{source.location} is {prefix!r} inside a repository; give its root")
+
+
 def open_source(source: RepoSource, cache_dir: Path | None = None) -> RepoTree:
     """Return a readable tree for ``source``, cloning or fetching as needed."""
     if not source.remote:
         if source.rev is None:
             return WorkTree(source.location)
-        # ls-tree lists paths relative to -C, git show reads them from the root.
-        prefix = _git(Path(source.location), "rev-parse", "--show-prefix").strip()
-        if prefix:
-            raise SourceArgumentError(f"{source.location} is {prefix!r} inside a repository; give its root")
+        check_pinned_root(source)
         sha = resolve_rev(Path(source.location), source.rev)
         return GitTree(Path(source.location), sha, label=f"{source.location}@{sha[:12]}")
     git_dir = ensure_clone(source.location, cache_dir or default_cache_dir())

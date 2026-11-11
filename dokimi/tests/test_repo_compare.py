@@ -14,9 +14,12 @@ from pathlib import Path
 import pytest
 
 from dokimi.cli import build_parser
+from dokimi.eval import sign_flip
 from dokimi.eval.binary_stats import mcnemar_test
+from dokimi.eval.sign_flip import sign_flip_p
 from dokimi.repos import compare as compare_mod
-from dokimi.repos.compare import CompareError, compare, format_compare, parse_selector, sign_flip_p
+from dokimi.repos.compare import CompareError, compare, format_compare, parse_selector
+from tests.cli_refusal import refusal
 
 
 def _cell(batch: Path, task: str, arm: str, rep: int, *, success: bool | None = True, score: float | None = None,
@@ -105,7 +108,7 @@ def test_sign_flip_has_no_p_when_every_task_tied():
 
 def test_sign_flip_monte_carlo_counts_the_observed_pattern_and_follows_its_seed():
     # 18 identical wins: no resample beats the observed sum by chance alone, so p is 1 / (N + 1), never 0
-    assert compare_mod.EXACT_MAX == 16 and compare_mod.N_RESAMPLES == 20_000
+    assert sign_flip.EXACT_MAX == 16 and sign_flip.N_RESAMPLES == 20_000
     assert sign_flip_p([1.0] * 18) == pytest.approx(1 / 20_001, abs=1e-6)
     assert sign_flip_p([1.0] * 16) == pytest.approx(2 / 2 ** 16, abs=1e-6)  # 16 changed tasks: still exact
     d18 = [1.0] * 12 + [-1.0] * 6
@@ -135,7 +138,7 @@ def test_sign_flip_monte_carlo_tracks_the_exact_distribution(monkeypatch):
     deltas = [0.33, -0.67, 1.0, 0.33, 0.33, -0.33, 0.67, 0.33, 1.0, -0.33, 0.67, 0.33, 0.33, 0.67, -1.0, 0.33,
               0.67, 0.33]
     sampled = sign_flip_p(deltas)  # 18 non-zero deltas: above EXACT_MAX
-    monkeypatch.setattr(compare_mod, "EXACT_MAX", 18)
+    monkeypatch.setattr(sign_flip, "EXACT_MAX", 18)
     assert sampled == pytest.approx(sign_flip_p(deltas), abs=0.01)
 
 
@@ -549,9 +552,9 @@ def test_a_metric_no_cell_reports_is_refused(tmp_path, capsys):
     with pytest.raises(CompareError, match="--metric label"):  # reported, but not a number
         compare([b], "guidance:none", metrics=("label",))
     args = build_parser().parse_args(["repo", "compare", str(b), "--baseline", "guidance:none", "--metric", "typo"])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2 and "--metric typo" in capsys.readouterr().err
+    assert exc.code == 2 and "--metric typo" in capsys.readouterr().err
 
 
 def test_a_task_lacking_a_metric_is_listed_as_unpaired_for_that_metric(tmp_path):
@@ -687,18 +690,18 @@ def test_cli_passes_model_and_metric_and_refuses_a_missing_dir(tmp_path, capsys)
     assert {r["model"] for r in rows} == {"m-2"}
     assert [r["delta"]["mean"] for r in rows if r["measure"] == "metric:n_build_fail"] == [-2.0]
     args = build_parser().parse_args(["repo", "compare", str(tmp_path / "nope"), "--baseline", "guidance:none"])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2 and "not a directory" in capsys.readouterr().err
+    assert exc.code == 2 and "not a directory" in capsys.readouterr().err
 
 
 def test_cli_exits_on_a_bad_baseline(tmp_path, capsys):
     b = tmp_path / "b1"
     _cell(b, "fix_a", "guidance:none", 1)
     args = build_parser().parse_args(["repo", "compare", str(b), "--baseline", "guidance:raw"])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2 and "no finished cell matches the baseline" in capsys.readouterr().err
+    assert exc.code == 2 and "no finished cell matches the baseline" in capsys.readouterr().err
 
 
 def test_a_repeated_treatment_or_metric_is_one_comparison(tmp_path):
@@ -721,9 +724,9 @@ def test_an_empty_arm_list_is_refused_not_an_empty_comparison(tmp_path, capsys, 
     with pytest.raises(CompareError, match="no treatment arms"):
         compare([b], "guidance:none", [])
     args = build_parser().parse_args(["repo", "compare", str(b), "--baseline", "guidance:none", "--arm", spec])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2 and "no treatment arms" in capsys.readouterr().err
+    assert exc.code == 2 and "no treatment arms" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("bad", [float("inf"), float("-inf"), float("nan")])
@@ -743,10 +746,10 @@ def test_an_unusable_cost_rejects_the_cell_naming_it(tmp_path, capsys, bad):
     _cell(b, "fix_0", "guidance:none", 1, cost=bad)
     _cell(b, "fix_0", "guidance:raw", 1)
     args = build_parser().parse_args(["repo", "compare", str(b), "--baseline", "guidance:none"])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
     err = capsys.readouterr().err
-    assert exc.value.code == 2 and "has no usable `agent`" in err and "Traceback" not in err
+    assert exc.code == 2 and "has no usable `agent`" in err and "Traceback" not in err
     assert "fix_0__guidance-none__m-1__r1" in err and "guidance-raw" not in err
 
 

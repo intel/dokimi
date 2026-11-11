@@ -37,7 +37,7 @@ mutations: [deleted-tests, weakened-criterion]
 valid_inaction: false
 steps: none
 reproduce: >
-  python cli.py tasks run --tasks-root <tasks-root> --tasks rangeparse-open-end --harnesses docker-oracle --out-json results/oracle.json
+  python cli.py tasks run --tasks-root <tasks-root> --tasks rangeparse-open-end --harnesses docker-oracle --out results/oracle.json
 ```
 
 Mutations not chosen: skipped step (one-step fix), false test claim (the

@@ -11,8 +11,10 @@ The path rule (:mod:`.core`) takes a path-like claim one of them names for a bra
 
 from __future__ import annotations
 
+import importlib
 import posixpath
 import re
+import warnings
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -155,14 +157,130 @@ def _option(arg: str) -> tuple[str | None, str | None]:
 
 
 def _hook_source(opt: str, value: str, line: int) -> Source | None:
-    """A ``--branch`` name, or a ``--pattern`` the hook tries with ``re.match``; an invalid regex gives none."""
+    """A ``--branch`` name, or a ``--pattern`` the hook tries with ``re.match``; an invalid regex, or one
+    :func:`_backtracks` refuses, gives none."""
     where = f"{HOOK} ({PRE_COMMIT}:{line})"
     if opt == "--branch":
         return Source(value, None, f"branch of {where}")
     try:
+        if _backtracks(value):
+            return None
         return Source(value, re.compile(value), f"branch pattern of {where}")
     except (re.error, OverflowError, RecursionError):  # `a{999999999999}`, a deep nest of groups
         return None
+
+
+_SRE: Any = importlib.import_module("re._parser")  # the parse re.compile reads; private, and no public API gives it
+_REPEATS = (_SRE.MAX_REPEAT, _SRE.MIN_REPEAT, _SRE.POSSESSIVE_REPEAT)
+_SPAN = 64  # the most items :func:`_follow` reads, so the check stays linear in the pattern
+
+
+def _backtracks(pattern: str) -> bool:
+    """A repeat that can run more than once (``*``, ``+``, ``{m,n}`` with n over 1) holds a varying item (a repeat with
+    m under n, ``?`` too) that can end at the same place two ways, as the next character can be one it takes or one
+    that follows it, or an alternation two of whose branches can start with the same character or one be empty:
+    ``(a+)+``, ``(a*)*``, ``(a{1,5})+``, ``(a?a?)+``, ``(a|aa)+``. ``([0-9]+\\.)+`` ends each pass at a ``.``: it passes,
+    as do the other slow shapes (``.*a.*a.*a.*b``)."""
+    with warnings.catch_warnings():  # `re.compile` of the pattern warned already (a nested set)
+        warnings.simplefilter("ignore")
+        return _nests(_SRE.parse(pattern), False, None)
+
+
+def _nests(sub: Any, inside: bool, end: set[str] | None) -> bool:
+    """``sub`` holds such a repeat; ``inside`` one. ``end``: the characters that can come after the end of ``sub``
+    (None: not known)."""
+    for i, (op, av) in enumerate(sub):
+        if op in _REPEATS:
+            if _nests_repeat(sub, i, inside, end):
+                return True
+        elif op is _SRE.BRANCH or op is _SRE.GROUPREF_EXISTS:  # `(?(1)yes|no)` without `no` has an empty branch
+            alts = av[1] if op is _SRE.BRANCH else [av[1], av[2] or []]
+            after = _follow(sub, i + 1, end) if inside else None
+            if (inside and _overlap(alts)) or any(_nests(a, inside, after) for a in alts):
+                return True
+        else:
+            after = _follow(sub, i + 1, end) if inside and op in (_SRE.SUBPATTERN, _SRE.ATOMIC_GROUP) else None
+            if any(_nests(x, inside, after) for x in (av if isinstance(av, tuple) else (av,)) if isinstance(x, _SRE.SubPattern)):
+                return True
+    return False
+
+
+def _nests_repeat(sub: Any, i: int, inside: bool, end: set[str] | None) -> bool:
+    """The repeat ``sub[i]`` is a varying item of an outer repeat that can end two ways, or holds such a repeat."""
+    lo, hi, body = sub[i][1]
+    after = _follow(sub, i + 1, end) if inside else None
+    if inside and lo < hi:  # taking the body once more or not is told by the next character, or it is not
+        first = _first(body)
+        if first is None or after is None or first & after:
+            return True
+    again = _follow(body, 0, None) if hi > 1 else None
+    tail = again if not inside else (None if again is None or after is None else again | after)
+    return _nests(body, inside or hi > 1, tail if hi > 1 else after)
+
+
+def _follow(items: Any, start: int, end: set[str] | None) -> set[str] | None:
+    """The characters that can start ``items[start:]`` (read by index, not copied), then ``end`` when all of them can
+    be empty; None when not known, or when more than ``_SPAN`` of them can be empty in a row."""
+    out: set[str] = set()
+    for j in range(start, min(len(items), start + _SPAN)):
+        op, av = items[j]
+        if items[j:j + 1].getwidth()[0] > 0:
+            first = _first(items[j:j + 1])
+            return None if first is None else out | first
+        first = _first(av[-1]) if op in _REPEATS else None  # a repeat that can be skipped; else not known
+        if first is None:
+            return None
+        out |= first
+    return None if end is None or start + _SPAN < len(items) else out | end
+
+
+def _overlap(alts: list[Any]) -> bool:
+    """Two of ``alts`` can start with the same character, or one can match the empty string."""
+    seen: set[str] = set()
+    for alt in alts:
+        first = _first(alt)
+        if first is None or seen & first:
+            return True
+        seen |= first
+    return False
+
+
+def _first(sub: Any) -> set[str] | None:
+    """The characters ``sub`` can start with, in either case; None when it can be empty or they are not read."""
+    if not sub or sub[0:1].getwidth()[0] == 0:
+        return None
+    op, av = sub[0]
+    if op is _SRE.LITERAL:
+        return _cased(av)
+    if op is _SRE.IN:
+        return _class_chars(av)
+    if op in (*_REPEATS, _SRE.SUBPATTERN, _SRE.ATOMIC_GROUP):
+        return _first(av if op is _SRE.ATOMIC_GROUP else av[-1])
+    return None
+
+
+def _class_chars(items: list[Any]) -> set[str] | None:
+    """The characters of a parsed ``[...]``; None for a negated one, a category such as ``\\w`` or a wide range."""
+    out: set[str] = set()
+    for op, av in items:
+        if op is _SRE.LITERAL:
+            out |= _cased(av)
+        elif op is _SRE.RANGE and av[1] - av[0] < 256:
+            out |= {c for i in range(av[0], av[1] + 1) for c in _cased(i)}
+        else:
+            return None
+    return out
+
+
+def _cased(code: int) -> set[str]:
+    """The characters a case-insensitive ``re`` takes for ``chr(code)`` (a superset). ``re`` folds one character to one
+    (``İ`` to ``i``), where ``str.lower`` gives ``i̇``: the first character of a longer result counts too."""
+    out = {chr(code)}
+    for _ in range(2):
+        for c in out.copy():
+            for s in (c.lower(), c.upper()):
+                out |= {s, s[0]}
+    return out
 
 
 def _filter_sources(scan: Scan, flows: list[str]) -> list[Source]:
@@ -196,17 +314,29 @@ class _Glob:
         self._atoms = [(re.compile(a), q) for a, q in atoms]
 
     def _skip(self, at: set[int]) -> set[int]:
-        for i, (_, q) in enumerate(self._atoms):  # an optional atom can be passed over
-            if i in at and q in ("?", "*"):
-                at.add(i + 1)
-        return at
+        """``at`` and each atom after a run of optional atoms (``?``, ``*``) that starts at one of them."""
+        out: set[int] = set()
+        for i in at:
+            while i not in out:  # an index already in ``out`` had its run walked
+                out.add(i)
+                if i == len(self._atoms) or self._atoms[i][1] not in ("?", "*"):
+                    break
+                i += 1
+        return out
 
     def match(self, text: str) -> bool:
-        """The whole of ``text`` matches."""
+        """The whole of ``text`` matches; the walk stops at the first character no atom it can be at takes."""
         at = self._skip({0})
         for ch in text:
-            at = self._skip({j for i in at if i < len(self._atoms) and self._atoms[i][0].fullmatch(ch)
-                             for j in ((i, i + 1) if self._atoms[i][1] in ("+", "*") else (i + 1,))})
+            took: set[int] = set()
+            for i in at:
+                if i < len(self._atoms):
+                    atom, q = self._atoms[i]
+                    if atom.fullmatch(ch):
+                        took.update((i, i + 1) if q in ("+", "*") else (i + 1,))
+            at = self._skip(took)
+            if not at:
+                return False
         return len(self._atoms) in at
 
 

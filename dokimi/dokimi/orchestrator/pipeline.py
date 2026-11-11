@@ -13,7 +13,7 @@ from dokimi.defaults import (ANSWERING_METHOD_VERSION, DEFAULT_ANSWER_MODEL, DEF
                              answers_method_version as answers_method_version_of)
 from dokimi.eval.stats import paired_summary
 from dokimi.mcp.factory import create_doc_source_client, resolve_library_id_for_product
-from dokimi.utils import same_evaluator
+from dokimi.utils import InputError, refuse_device, same_evaluator
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +58,20 @@ def load_questions_payload(path: Path) -> List[Dict[str, Any]]:
     from dokimi.questions.artifact import load_questions
 
     return load_questions(path).questions
+
+
+def _check_custom_questions(path: Path) -> None:
+    """``--custom-questions`` must be a readable file: missing is ``FileNotFoundError``, a device or directory ``InputError``."""
+    if not path.exists():
+        raise FileNotFoundError(f"--custom-questions path does not exist: {path}")
+    refuse_device(path, "--custom-questions")
+    if path.is_dir():  # refuse_device lets a directory pass; reading it ends in IsADirectoryError
+        raise InputError(f"--custom-questions {path}: not a file")
+    try:  # a regular file only: opening a named pipe here would take the writer's one read
+        if path.is_file():
+            path.open("rb").close()
+    except OSError as exc:  # unreadable: refused here, before the output directories exist
+        raise InputError(f"--custom-questions {path}: {exc.strerror or exc}") from exc
 
 
 class EvaluationPipeline:
@@ -167,10 +181,7 @@ class EvaluationPipeline:
         self.golden_pinned = False
         if custom_questions_path:
             _custom_path = Path(custom_questions_path)
-            if not _custom_path.exists():
-                raise FileNotFoundError(
-                    f"--custom-questions path does not exist: {_custom_path}"
-                )
+            _check_custom_questions(_custom_path)
             self.custom_questions_path: Optional[Path] = _custom_path
         elif questions_from is None and self.questions_root is not None:
             _auto_golden = self.questions_root / f"{self.product_key.lower()}_golden.json"
@@ -222,6 +233,7 @@ class EvaluationPipeline:
                 raise FileNotFoundError(
                     f"--questions-from: questions file not found: {qf}"
                 )
+            refuse_device(qf, "--questions-from")
             self.external_questions_path: Optional[Path] = qf
             logger.info(f"Will reuse questions from: {qf}")
         else:
@@ -545,6 +557,7 @@ class EvaluationPipeline:
         path = self.custom_questions_path
         if not (path and path.exists()):
             return []
+        refuse_device(path, "--custom-questions")
         custom_questions = load_questions_payload(path)
         output = getattr(self, "questions_path", None)
         own_output = output is not None and Path(path).resolve() == Path(output).resolve()
@@ -704,8 +717,7 @@ class EvaluationPipeline:
                 "judge_model": self.judge_model,
                 "judge_provider": self.judge_provider,
                 "question_set_hash": question_set_hash,
-                "evaluator_independence_warning": same_evaluator(
-                    self.provider, str(self.model), self.judge_provider, str(self.judge_model)),
+                "evaluator_independence_warning": same_evaluator(str(self.model), str(self.judge_model)),
             },
         )
         

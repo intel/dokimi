@@ -11,6 +11,7 @@ import sys
 from pathlib import Path
 from typing import Any, Callable, List, cast
 
+from dokimi import cli_flags
 from dokimi.llm import CALLER_CHOICES, credential_env_var, resolve_api_key
 from dokimi.utils import warn_judge_independence as _warn_judge_independence
 from dokimi.eval.judge import JUDGE_PROVIDERS
@@ -28,7 +29,7 @@ from dokimi.defaults import (
 from dokimi.commands.library import _load_registry
 from dokimi.exit_codes import EXIT_USAGE
 from dokimi.llm_cli import SamplingError, check_sampling
-from dokimi.utils import check_bedrock_model
+from dokimi.utils import InputError, check_bedrock_model, refuse_device
 
 
 def _refuse_judge_sampling(args: argparse.Namespace) -> None:
@@ -38,8 +39,7 @@ def _refuse_judge_sampling(args: argparse.Namespace) -> None:
     try:
         check_sampling(provider, getattr(args, "judge_temperature", None), None)
     except SamplingError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError(str(exc)) from exc
     check_bedrock_model(provider, args.judge_model)
 
 
@@ -198,6 +198,10 @@ def _check_questions_from(questions_from: str, key: str) -> tuple[Path, list, st
     if not qf.exists():
         return qf, [], f"questions source not found: {qf}"
     try:
+        refuse_device(qf, "--questions-from")  # before the read: /dev/zero ends in a MemoryError with no message
+    except InputError as exc:
+        return qf, [], str(exc)
+    try:
         return qf, load_questions_payload(qf), None
     except Exception as exc:
         return qf, [], f"questions source invalid: {qf} ({exc})"
@@ -258,8 +262,7 @@ def cmd_benchmark_preflight(args: argparse.Namespace) -> None:
     try:
         entry = registry.get(args.library)
     except KeyError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError(str(exc)) from exc
 
     plan = _resolved_benchmark_plan(entry, args)
     _print_plan(plan)
@@ -325,8 +328,7 @@ def cmd_benchmark_run(args: argparse.Namespace) -> None:
     try:
         entry = registry.get(args.library)
     except KeyError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError(str(exc)) from exc
 
     output_dir = args.output_dir or f"results/{entry.key}{DEFAULT_RESULTS_SUFFIX}"
     n_runs = getattr(args, "multi_run", 1)
@@ -337,8 +339,7 @@ def cmd_benchmark_run(args: argparse.Namespace) -> None:
     if questions_from:
         _, _, problem = _check_questions_from(questions_from, entry.key)
         if problem:
-            print(f"Error: {problem}", file=sys.stderr)
-            sys.exit(EXIT_USAGE)
+            raise InputError(f"{problem}")
 
     if n_runs == 1:
         _run_single_library(
@@ -416,8 +417,7 @@ def cmd_benchmark_batch(args: argparse.Namespace) -> None:
                 print(f"Warning: {exc}", file=sys.stderr)
 
     if not entries:
-        print("No libraries to run.", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError("No libraries to run.")
 
     print(f"Batch run: {len(entries)} libraries → {args.output_dir}")
     results = []
@@ -476,7 +476,7 @@ def register(sub, positive_int) -> None:
     bench_run_p.add_argument("--library", "--target", required=True, dest="library", help="Target key from registry (e.g., onetbb). --library kept as compatibility alias")
     bench_run_p.add_argument("--doc-source", default=None, dest="doc_source",
                              help="Override doc/context source (default: first in registry entry)")
-    bench_run_p.add_argument("--output-dir", default=None, dest="output_dir",
+    cli_flags.add(bench_run_p, "output", "--out-dir", default=None, dest="output_dir",
                              help="Output directory (default: results/{target}_final)")
     bench_run_p.add_argument("--model", default=DEFAULT_ANSWER_MODEL)
     bench_run_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=CALLER_CHOICES)
@@ -517,7 +517,7 @@ def register(sub, positive_int) -> None:
     bench_pre_p = benchmark_sub.add_parser("preflight", help="Validate resolved benchmark plan without running LLM calls")
     bench_pre_p.add_argument("--library", "--target", required=True, dest="library", help="Target key from registry (e.g., onetbb)")
     bench_pre_p.add_argument("--doc-source", default=None, dest="doc_source", help="Override doc/context source")
-    bench_pre_p.add_argument("--output-dir", default=None, dest="output_dir", help="Output directory (default: results/{target}_final)")
+    cli_flags.add(bench_pre_p, "output", "--out-dir", default=None, dest="output_dir", help="Output directory (default: results/{target}_final)")
     bench_pre_p.add_argument("--model", default=DEFAULT_ANSWER_MODEL)
     bench_pre_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=CALLER_CHOICES)
     bench_pre_p.add_argument("--judge-model", default=JUDGE_MODEL_FOR_PROVIDER, dest="judge_model",
@@ -539,7 +539,7 @@ def register(sub, positive_int) -> None:
                                     "Omit or use --all for all registered libraries.")
     bench_batch_p.add_argument("--all", action="store_true", dest="all_libraries",
                                help="Run for all libraries in registry")
-    bench_batch_p.add_argument("--output-dir", default="results", dest="output_dir")
+    cli_flags.add(bench_batch_p, "output", "--out-dir", default="results", dest="output_dir")
     bench_batch_p.add_argument("--model", default=DEFAULT_ANSWER_MODEL)
     bench_batch_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=CALLER_CHOICES)
     bench_batch_p.add_argument("--judge-model", default=JUDGE_MODEL_FOR_PROVIDER, dest="judge_model",

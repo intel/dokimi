@@ -42,8 +42,8 @@ Harbor tasks: oracle and isolation have harnesses; expect `pass_rate: 1.0`
 from the oracle and a clean probe.
 
 ```bash
-python cli.py tasks run --tasks-root <tasks-root> --tasks <id> --harnesses docker-oracle --out-json results/oracle.json
-python cli.py tasks run --tasks-root <tasks-root> --tasks <id> --harnesses docker-probe --out-json results/probe.json
+python cli.py tasks run --tasks-root <tasks-root> --tasks <id> --harnesses docker-oracle --out results/oracle.json
+python cli.py tasks run --tasks-root <tasks-root> --tasks <id> --harnesses docker-probe --out results/probe.json
 ```
 
 **Manual for Harbor:** there is no null harness. Copy the task directory to a
@@ -53,7 +53,7 @@ verifier runs on the untouched workspace with the harness's own mounts. Expect
 `pass_rate: 0.0`.
 
 ```bash
-python cli.py tasks run --tasks-root <scratch-root> --tasks <id> --harnesses docker-oracle --out-json results/null.json
+python cli.py tasks run --tasks-root <scratch-root> --tasks <id> --harnesses docker-oracle --out results/null.json
 ```
 
 A task that passes the oracle but also passes untouched does not discriminate.

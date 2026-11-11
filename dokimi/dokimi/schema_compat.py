@@ -28,18 +28,22 @@ is the break this check cannot see.
 Usage::
 
     python -m dokimi.schema_compat --base origin/main
+
+Exits 0 when nothing breaks, 1 after a breaking change, 2 when git cannot read ``--base``.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 from dokimi import process
+from dokimi.console import tolerate_console_encoding
 
 SCHEMA_DIR = Path(__file__).resolve().parent / "schemas"
 
@@ -255,6 +259,12 @@ def _git_proc(*args: str) -> process.Completed:
 FIXTURE_DIR = "../../tests/fixtures/artifacts"
 
 
+def _nul_paths(*args: str) -> list[str]:
+    """``git <args>``'s ``-z`` listing split on NUL, each path by :func:`os.fsdecode`: a name that is
+    not valid UTF-8 comes back as the path that names the file, not with U+FFFD in it."""
+    return [os.fsdecode(field) for field in _git_proc(*args).stdout_bytes.split(b"\0")]
+
+
 def _renamed_from(base: str, rel: str) -> str | None:
     """Where the directory ``rel`` (relative to the schemas) lived at ``base``, if it was moved.
 
@@ -263,9 +273,13 @@ def _renamed_from(base: str, rel: str) -> str | None:
     git's rename detection says where the files came from: the first renamed file under the
     directory gives the old directory, as a path from the repository root with a trailing ``/``.
     """
-    top = Path(_git("rev-parse", "--show-toplevel").strip()).resolve()
+    # By fsdecode, as SCHEMA_DIR.resolve() names it, less git's newline only: a final "\r" or space stays.
+    out = os.fsdecode(_git_proc("rev-parse", "--show-toplevel").stdout_bytes).removesuffix("\n")
+    if not out:  # git before 2.25, outside a work tree, prints nothing and exits 0
+        raise GitError("git rev-parse --show-toplevel: printed no work tree to follow moved schemas in")
+    top = Path(out).resolve()
     prefix = (SCHEMA_DIR / rel).resolve().relative_to(top).as_posix() + "/"
-    fields = _git_proc("-C", str(top), "diff", "--name-status", "-M", "-z", base).nul_fields()
+    fields = _nul_paths("-C", str(top), "diff", "--name-status", "-M", "-z", base)
     i = 0
     while i < len(fields) - 2:
         status = fields[i]
@@ -280,9 +294,15 @@ def _renamed_from(base: str, rel: str) -> str | None:
     return None
 
 
+def _ls_tree_names(*args: str) -> list[str]:
+    """The names ``git ls-tree -z --name-only <args>`` lists, split on NUL: unquoted, with a
+    ``\\r``, a space or a non-ASCII byte as git stores it."""
+    return [name for name in _nul_paths("ls-tree", "-z", "--name-only", *args) if name]
+
+
 def _base_has_schemas(base: str) -> bool:
     """Whether ``base`` has schemas here, or at a path git says they were moved from."""
-    if any(n.endswith(".json") for n in _git("ls-tree", "--name-only", base, "./").split()):
+    if any(n.endswith(".json") for n in _ls_tree_names(base, "./")):
         return True
     return _renamed_from(base, ".") is not None
 
@@ -301,12 +321,11 @@ def compare_against(base: str) -> dict[str, Diff]:
     If the schemas were moved since ``base``, the base side is read from where they were.
     """
     schema_dir, fixture_dir = "./", f"./{FIXTURE_DIR}/"
-    names = [n for n in _git("ls-tree", "--name-only", base, "./").split() if n.endswith(".json")]
+    names = [n for n in _ls_tree_names(base, "./") if n.endswith(".json")]
     if not names and (moved := _renamed_from(base, ".")):
         schema_dir = moved
         fixture_dir = _renamed_from(base, FIXTURE_DIR) or fixture_dir
-        names = [n for n in _git("ls-tree", "--full-tree", "--name-only", f"{base}:{moved}").split()
-                 if n.endswith(".json")]
+        names = [n for n in _ls_tree_names("--full-tree", f"{base}:{moved}") if n.endswith(".json")]
     results: dict[str, Diff] = {}
     for name in names:
         old = json.loads(_git("show", f"{base}:{schema_dir}{name}"))
@@ -327,10 +346,16 @@ def main(argv: list[str] | None = None) -> int:
                                      description=__doc__.split("\n\n")[0])
     parser.add_argument("--base", required=True, help="git revision to compare against")
     args = parser.parse_args(argv)
+    tolerate_console_encoding()  # a schema name that is not UTF-8 prints with "?", not UnicodeEncodeError
 
-    results = compare_against(args.base)
+    try:
+        results = compare_against(args.base)
+        no_base_schemas = not results and not _base_has_schemas(args.base)
+    except GitError as exc:
+        print(f"cannot diff against {args.base}: {exc}", file=sys.stderr)
+        return 2
     n_breaking = 0
-    if not results and not _base_has_schemas(args.base) and any(SCHEMA_DIR.glob("*.json")):
+    if no_base_schemas and any(SCHEMA_DIR.glob("*.json")):
         print(f"WARNING  - no schemas found at {args.base} to compare against: nothing was "
               "checked. If the schemas moved, git did not detect the move.")
     for name, diff in sorted(results.items()):

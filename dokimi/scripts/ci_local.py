@@ -202,6 +202,7 @@ class Context:
             "github.event.pull_request.base.ref": base,
             "github.base_ref": base,
             "github.event_name": "pull_request",
+            "github.event.action": "synchronize",
             "matrix.python-version": py,
             "matrix.coverage": "true",
             "runner.temp": str(tmp),
@@ -250,10 +251,10 @@ def network_ok() -> bool:
 def make_isolated_env(tmp: Path, py: str) -> tuple[Path, dict]:
     """A fresh venv and a copy of the tracked tree, for jobs that `pip install .`."""
     src = tmp / "src"
-    files = subprocess.run(
+    files = [os.fsdecode(f) for f in subprocess.run(
         ["git", "ls-files", "-co", "--exclude-standard", "-z"],
         cwd=REPO, check=True, capture_output=True,
-    ).stdout.decode().split("\0")
+    ).stdout.split(b"\0")]
     for f in filter(None, files):
         if (REPO / f).is_file():
             (src / f).parent.mkdir(parents=True, exist_ok=True)

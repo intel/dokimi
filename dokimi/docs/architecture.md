@@ -364,7 +364,9 @@ next release.
   baseline arm over one or more batches, one value per task and arm (gate
   share, score, cost, turns, chosen `grade.json` metrics, `result.json`
   `process` counts), with a sign-flip permutation p, an interval over tasks
-  that inverts it (`dokimi/repos/compare_interval.py`) and Holm's correction.
+  that inverts it (`dokimi/eval/sign_flip.py`, shared with the arms track's
+  `dokimi/eval/stats.py`; `dokimi/repos/compare_interval.py` prints it) and
+  Holm's correction.
   `dokimi/repos/compare_tasks.py` holds
   what its `--task` selection keeps; `dokimi/repos/compare_reach.py` how small
   an effect a row can find (`mde`, an uncorrected t-based estimate, and the
@@ -384,7 +386,7 @@ next release.
   task per merged pull request of a threads file `gh api graphql` wrote (the
   change as reviewed, gold from the reviewers' threads on its lines, and
   `addressed` from the PR's own later commits), read with git and no GitHub
-  call. `repo tasks authoring` (`authoring.py`, `authoring_prs.py`,
+  call. `eval tasks generate --from prs` (`authoring.py`, `authoring_prs.py`,
   `authoring_prompt.py`): one `dokimi:hidden_tests` task per merged pull
   request, its description as the prompt, its tests hidden until the grade and
   the rest of its diff as the oracle (contract §4.8); `merged.py` holds what the
@@ -392,10 +394,10 @@ next release.
 - `dokimi/repos/graph_tasks.py` — `eval tasks generate --from graph`:
   `dokimi:graph_enum` tasks (references to a function, direct subclasses of a
   class) with gold from a SCIP index of a pinned revision, read with
-  `dokimi/repos/code_index/`. It, `eval tasks generate --from replay` and `repo tasks
-  authoring` are the commands that write into a repository's tasks directory.
+  `dokimi/repos/code_index/`. `eval tasks generate --from graph|replay|prs` is the
+  command that writes into a repository's tasks directory.
 
-Entry points: `python cli.py repo {validate,scan,fetch,reach,budget,tasks authoring,run,report}` (replay tasks: `eval tasks generate --from replay`)
+Entry points: `python cli.py repo {validate,scan,fetch,reach,budget,run,report}` (replay and authoring tasks: `eval tasks generate --from replay|prs`)
 (`python cli.py repo --help` is the current list). The interface a repository
 codes against is [repo-evaluation-contract.md](repo-evaluation-contract.md),
 still marked PROPOSED: the per-host egress proxy (§2) is not implemented, so
@@ -505,7 +507,9 @@ These GitHub Actions workflows run on PRs (see `.github/workflows/`):
 `ci.yml`, `agent-quality.yml` and `docs.yml`, described below. `ci.yml`'s
 `static` job runs `python -m dokimi.schema_compat`, which fails an in-place edit that narrows
 an existing schema version, unless a reviewer applies the `schema-break-ok`
-label. `conda-forge.yml` runs only when a PR or a push to `main` changes
+label (it exits 1 for a narrowing, which the label overrides only when the run printed a
+`BREAKING` finding, and 2 when git cannot read the base; any other exit fails the step
+whatever the label). `conda-forge.yml` runs only when a PR or a push to `main` changes
 `pyproject.toml`, one of the two scripts it runs or the workflow file (also weekly, and by
 hand, `workflow_dispatch`): it solves the runtime dependencies from conda-forge
 alone (`scripts/conda_forge_specs.py` turns them into match specs) on Python

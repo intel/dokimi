@@ -11,11 +11,11 @@ import sys
 from pathlib import Path
 
 from dokimi.llm import CALLER_CHOICES
-from dokimi.commands._output import exit_on_unwritable
+from dokimi.commands._output import exit_on_rejected, exit_on_unwritable
 from dokimi.defaults import DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER
 from dokimi.personas.analyzer import PersonaAnalyzer
 from dokimi.personas.generator import PersonaGenerator
-from dokimi.utils import InputError
+from dokimi.utils import InputError, refuse_device
 
 
 def cmd_personas_discover(args: argparse.Namespace) -> None:
@@ -37,7 +37,7 @@ def cmd_personas_discover(args: argparse.Namespace) -> None:
         if args.save_analysis:
             output_path = Path(args.output) if args.output else Path(f"personas/{args.product}.json")
             analysis_path = output_path.parent / f"{args.product}_analysis.json"
-            with exit_on_unwritable(analysis_path):
+            with exit_on_unwritable(analysis_path), exit_on_rejected("persona_analysis"):
                 analyzer.save_analysis(analysis, analysis_path)
             print(f"✓ Saved analysis to {analysis_path}")
     else:
@@ -60,7 +60,7 @@ def cmd_personas_discover(args: argparse.Namespace) -> None:
 
     # Save personas
     output_path = Path(args.output) if args.output else Path(f"personas/{args.product}.json")
-    with exit_on_unwritable(output_path):
+    with exit_on_unwritable(output_path), exit_on_rejected("personas"):
         generator.save_personas(personas, output_path)
 
     print(f"\n✓ Generated {len(personas['personas'])} personas for {args.product}")
@@ -77,6 +77,7 @@ def cmd_personas_approve(args: argparse.Namespace) -> None:
 
     if not persona_file.exists():
         raise InputError(f"File not found: {persona_file}")
+    refuse_device(persona_file, "--file")
 
     # Validate JSON structure
     try:
