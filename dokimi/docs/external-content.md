@@ -340,7 +340,8 @@ A large catalog is easier to scan one skill at a time:
   they are not printed, and they do not set the state or the `--strict` exit. The
   codes are the `code` of each finding in the JSON output (`name-mismatch`,
   `description-no-when`, ...); an unknown code is a usage error. `frontmatter-parse`
-  is refused (a skill that does not load always fails), and so is `unreadable` (a
+  and `not-a-skill-no-frontmatter` are refused (a skill that does not load always
+  fails), and so is `unreadable` (a
   `SKILL.md` the OS will not read fails the scan too), and `--kind tasks`.
 - `--jsonl PATH` writes one JSON row per skill as it is reviewed and prints only
   the counts. `--jobs N` reviews N skills in parallel. `--resume` keeps the rows
