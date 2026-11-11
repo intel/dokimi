@@ -115,6 +115,23 @@ def test_a_directory_near_the_path_length_limit_is_writable(tmp_path, monkeypatc
     assert list(tmp_path.iterdir()) == []
 
 
+@pytest.mark.parametrize("make_dir", [False, True])
+def test_a_probe_name_that_is_taken_is_left_alone_and_a_shorter_one_used(tmp_path, monkeypatch, make_dir):
+    """The long name is an entry of the user's (a file, or for ``make_dir`` a folder): it is neither used nor removed."""
+    monkeypatch.setattr("dokimi.write_probe.secrets.token_hex", lambda n: "0" * (2 * n))
+    taken = tmp_path / ".write-probe-0000000000000000"
+    if make_dir:
+        taken.mkdir()
+    else:
+        taken.write_text("mine", encoding="utf-8")
+    assert can_write(tmp_path, make_dir=make_dir) is True
+    assert [p.name for p in tmp_path.iterdir()] == [taken.name]
+    if make_dir:
+        assert taken.is_dir()
+    else:
+        assert taken.read_text(encoding="utf-8") == "mine"
+
+
 def test_a_probe_dir_that_fits_but_takes_no_child_is_replaced_by_a_shorter_one(tmp_path, monkeypatch):
     """Linux: the 29-character probe directory fits exactly, and then no file fits inside it; a shorter directory name
     must be tried, and the long one removed."""
@@ -137,6 +154,118 @@ def test_a_probe_dir_that_fits_but_takes_no_child_is_replaced_by_a_shorter_one(t
     monkeypatch.setattr(os, "mkdir", guarded_mkdir)
     assert can_write(tmp_path, make_dir=True) is True
     assert list(tmp_path.iterdir()) == []
+
+
+def _limit_path_length(monkeypatch, limit, make_error):
+    """A path over ``limit`` characters is refused by ``make_error(path)``, as the file system does."""
+    real_open, real_mkdir = os.open, os.mkdir
+
+    def guarded_open(path, *args, **kwargs):
+        if len(os.fspath(path)) > limit:
+            raise make_error(os.fspath(path))
+        return real_open(path, *args, **kwargs)
+
+    def guarded_mkdir(path, *args, **kwargs):
+        if len(os.fspath(path)) > limit:
+            raise make_error(os.fspath(path))
+        return real_mkdir(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "open", guarded_open)
+    monkeypatch.setattr(os, "mkdir", guarded_mkdir)
+
+
+def _name_too_long(path):
+    return OSError(errno.ENAMETOOLONG, "File name too long", path)
+
+
+def _windows_name_too_long(path):
+    """CPython maps WinError 206 (ERROR_FILENAME_EXCED_RANGE) to ENOENT."""
+    error = OSError(errno.ENOENT, "The filename or extension is too long", path)
+    error.winerror = 206
+    return error
+
+
+@pytest.mark.parametrize("make_error", [_name_too_long, _windows_name_too_long])
+@pytest.mark.parametrize("make_dir", [False, True])
+def test_a_directory_near_the_limit_is_writable_whichever_error_reports_the_long_name(tmp_path, monkeypatch, make_error,
+                                                                                      make_dir):
+    """Windows reports a path past the limit as ENOENT with WinError 206, and the short probe names must still run."""
+    _limit_path_length(monkeypatch, len(os.fspath(tmp_path)) + 2 + (2 + 1 if make_dir else 0), make_error)
+    assert can_write(tmp_path, make_dir=make_dir) is True
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_an_enoent_without_the_windows_path_length_code_is_a_refusal(tmp_path, monkeypatch):
+    """A plain ENOENT (a directory removed under the probe) is not a long name: no shorter name is tried."""
+    _limit_path_length(monkeypatch, len(os.fspath(tmp_path)) + 2,
+                       lambda path: OSError(errno.ENOENT, "No such file or directory", path))
+    assert can_write(tmp_path) is False
+
+
+@pytest.mark.parametrize("make_dir", [False, True])
+def test_a_directory_that_cannot_hold_the_output_name_is_not_writable(tmp_path, monkeypatch, make_dir):
+    """The probe file is as long as the output's name: a directory that takes a 1-character child and not
+    ``routing.json`` is refused with ``child``, and accepted without it."""
+    _limit_path_length(monkeypatch, len(os.fspath(tmp_path)) + 2 + (2 + 1 if make_dir else 0), _name_too_long)
+    assert can_write(tmp_path, make_dir=make_dir) is True
+    assert can_write(tmp_path, make_dir=make_dir, child="routing.json") is False
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize("make_dir", [False, True])
+def test_a_directory_that_holds_the_output_name_is_writable(tmp_path, monkeypatch, make_dir):
+    _limit_path_length(monkeypatch, len(os.fspath(tmp_path)) + 1 + len("routing.json") + (1 + 2 if make_dir else 0),
+                       _name_too_long)
+    assert can_write(tmp_path, make_dir=make_dir, child="routing.json") is True
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize("name", ["a", "ab", "x" * 28, "x" * 29, "x" * 255])
+def test_the_probe_file_is_as_long_as_the_output_name(tmp_path, monkeypatch, name):
+    lengths = []
+    real = os.open
+
+    def record(path, *args, **kwargs):
+        lengths.append(len(os.path.basename(path)))
+        return real(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "open", record)
+    assert can_write(tmp_path, child=name) is True
+    assert lengths == [len(name)]
+
+
+def test_routing_out_with_a_name_over_the_limit_is_refused_before_any_run(tmp_path):
+    from dokimi.commands.novelty_routing_inputs import checked_out_path
+
+    with pytest.raises(InputError, match="not writable"):
+        checked_out_path(str(tmp_path / ("n" * 300 + ".json")), "routing")
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_routing_out_with_a_name_over_the_limit_in_a_missing_directory_is_refused(tmp_path):
+    from dokimi.commands.novelty_routing_inputs import checked_out_path
+
+    with pytest.raises(InputError, match="not writable"):
+        checked_out_path(str(tmp_path / "new" / ("n" * 300 + ".json")), "routing")
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_routing_out_in_a_directory_that_cannot_hold_its_name_is_refused(tmp_path, monkeypatch):
+    from dokimi.commands.novelty_routing_inputs import checked_out_path
+
+    _limit_path_length(monkeypatch, len(os.fspath(tmp_path)) + 2, _name_too_long)
+    with pytest.raises(InputError, match="not writable"):
+        checked_out_path(str(tmp_path / "routing.json"), "routing")
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_trigger_probe_out_whose_partial_name_is_over_the_limit_is_refused_before_any_run(tmp_path, monkeypatch):
+    """``--out`` of 250 characters fits; the ``.partial`` sidecar written beside it does not."""
+    from test_trigger_probe import _cli
+
+    with pytest.raises(InputError, match="--out: not a writable file path"):
+        _cli(tmp_path, monkeypatch, "--out", "p" * 250 + ".json")
+    assert list(tmp_path.glob("p*")) == []
 
 
 def _refuse_new_folder(monkeypatch, where):

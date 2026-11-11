@@ -71,7 +71,10 @@ def checked_out_path(out: str | None, command: str, default: str | None = None) 
     if not os.path.isdir(ancestor):
         raise InputError(f"{label}: {ancestor} is not a directory, so the file cannot be created under it{hint}")
     # A missing parent is made by the writer first (a directory, then the file in it): probe both rights.
-    if not can_write(target if os.path.exists(target) else ancestor, make_dir=ancestor != target.parent):
+    # The probe file is as long as the output's own name, so a name over the limit is refused here, not by the writer.
+    exists = os.path.exists(target)
+    if not can_write(target if exists else ancestor, make_dir=ancestor != target.parent,
+                     child=None if exists else target.name):
         raise InputError(f"{label} is not writable{hint}")
     return path
 

@@ -42,7 +42,7 @@ def cmd_catalog_trigger_probe(args: argparse.Namespace) -> None:
     # Checked before any paid run, so a bad --out costs nothing.
     out_path = Path(args.out)
     partial = out_path.with_name(out_path.name + ".partial")
-    if out_path.is_dir() or not out_path.parent.is_dir() or not can_write(out_path.parent):
+    if out_path.is_dir() or not out_path.parent.is_dir() or not can_write(out_path.parent, child=partial.name):
         raise InputError(f"--out: not a writable file path: {out_path}")
     if not args.timeout > 0:
         raise InputError(f"--timeout must be > 0, got {args.timeout}")
