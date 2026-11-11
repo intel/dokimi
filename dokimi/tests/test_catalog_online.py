@@ -545,7 +545,7 @@ def test_package_that_exists_is_not_a_finding(tmp_path):
     assert review.findings == []
 
 
-@pytest.mark.parametrize("status", [403, 429, 503])
+@pytest.mark.parametrize("status", [403, 410, 429, 503])
 def test_registry_refusals_are_not_findings(tmp_path, status):
     root = _one_skill(tmp_path, "pip install requests\n")
 
@@ -692,7 +692,7 @@ def test_no_data_answer_from_the_resolver_is_a_dead_link(tmp_path):
 
 def test_temporary_resolver_failure_is_not_a_dead_link(tmp_path):
     url = "https://real-site.example-tool.dev/"
-    root = _one_skill(tmp_path, f"See {url}\n")
+    root = _one_skill(tmp_path, f"See {url} and https://docs.example-tool.dev/ok\n")
     error = httpx.ConnectError("Temporary failure in name resolution")
     error.__cause__ = socket.gaierror(socket.EAI_AGAIN, "Temporary failure in name resolution")
     web = Web({url: error})
