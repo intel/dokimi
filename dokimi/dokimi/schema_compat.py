@@ -36,7 +36,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -44,6 +43,7 @@ from typing import Any
 
 from dokimi import process
 from dokimi.console import tolerate_console_encoding
+from dokimi.process_io import path_text
 
 SCHEMA_DIR = Path(__file__).resolve().parent / "schemas"
 
@@ -260,9 +260,9 @@ FIXTURE_DIR = "../../tests/fixtures/artifacts"
 
 
 def _nul_paths(*args: str) -> list[str]:
-    """``git <args>``'s ``-z`` listing split on NUL, each path by :func:`os.fsdecode`: a name that is
-    not valid UTF-8 comes back as the path that names the file, not with U+FFFD in it."""
-    return [os.fsdecode(field) for field in _git_proc(*args).stdout_bytes.split(b"\0")]
+    """``git <args>``'s ``-z`` listing split on NUL, each path by :func:`~dokimi.process_io.path_text`: on
+    POSIX a name that is not valid UTF-8 comes back as the path that names the file, on Windows with U+FFFD."""
+    return [path_text(field) for field in _git_proc(*args).stdout_bytes.split(b"\0")]
 
 
 def _renamed_from(base: str, rel: str) -> str | None:
@@ -273,8 +273,8 @@ def _renamed_from(base: str, rel: str) -> str | None:
     git's rename detection says where the files came from: the first renamed file under the
     directory gives the old directory, as a path from the repository root with a trailing ``/``.
     """
-    # By fsdecode, as SCHEMA_DIR.resolve() names it, less git's newline only: a final "\r" or space stays.
-    out = os.fsdecode(_git_proc("rev-parse", "--show-toplevel").stdout_bytes).removesuffix("\n")
+    # By path_text, as SCHEMA_DIR.resolve() names it on POSIX, less git's newline only: a final "\r" or space stays.
+    out = path_text(_git_proc("rev-parse", "--show-toplevel").stdout_bytes).removesuffix("\n")
     if not out:  # git before 2.25, outside a work tree, prints nothing and exits 0
         raise GitError("git rev-parse --show-toplevel: printed no work tree to follow moved schemas in")
     top = Path(out).resolve()

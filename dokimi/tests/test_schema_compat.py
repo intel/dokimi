@@ -634,6 +634,35 @@ def test_main_reports_a_breaking_edit_to_a_schema_whose_name_is_not_utf8(
     assert "BREAKING r?.v1.json <root>: 'a' is now required" in capsys.readouterr().out
 
 
+def test_a_git_path_that_is_not_utf8_does_not_raise_on_windows(monkeypatch):
+    """Windows os.fsdecode is strict UTF-8 and raised UnicodeDecodeError on a tree made on Linux."""
+    import dokimi.schema_compat as sc
+    from dokimi import process_io
+
+    def windows_fsdecode(raw):
+        return raw.decode("utf-8", "surrogatepass") if isinstance(raw, bytes) else raw
+
+    class Proc:
+        stdout_bytes = b"schemas/l\xffint.json\0"
+
+    monkeypatch.setattr(process_io, "_POSIX", False)
+    monkeypatch.setattr(process_io.os, "fsdecode", windows_fsdecode)
+    monkeypatch.setattr(sc, "_git_proc", lambda *args: Proc())
+    assert sc._ls_tree_names("HEAD", "./") == ["schemas/l�int.json"]
+    assert sc._nul_paths("diff", "-z") == ["schemas/l�int.json", ""]
+
+
+@_BYTE_NAMES
+def test_a_git_path_that_is_not_utf8_stays_its_bytes_on_posix(monkeypatch):
+    import dokimi.schema_compat as sc
+
+    class Proc:
+        stdout_bytes = b"schemas/l\xffint.json\0"
+
+    monkeypatch.setattr(sc, "_git_proc", lambda *args: Proc())
+    assert sc._ls_tree_names("HEAD", "./") == [os.fsdecode(b"schemas/l\xffint.json")]
+
+
 # ── exit codes: 0 compatible, 1 a breaking edit, 2 a base git cannot read ──
 
 def test_main_exits_2_and_names_the_cause_when_git_cannot_read_the_base(
