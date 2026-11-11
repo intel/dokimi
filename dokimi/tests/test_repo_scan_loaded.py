@@ -59,3 +59,12 @@ def test_a_repository_without_rules_gets_no_new_warning(tmp_path, capsys):
     payload = _scan(capsys, str(_write(tmp_path / "r", {"CLAUDE.md": "# guidance\n"})))
     assert payload["files"] == ["CLAUDE.md"]
     assert not [w for w in payload["warnings"] if "rules" in w or "import" in w]
+
+
+def test_an_import_through_a_linked_directory_is_checked_as_the_file_it_reaches(tmp_path, capsys):
+    root = _write(tmp_path / "r", {"src/real.py": "x = 1\n", "CLAUDE.md": "@lnk/x.md\n",
+                                   "docs/x.md": "See `src/gone_dl.py`.\n"})
+    (root / "lnk").symlink_to("docs")
+    payload = _scan(capsys, str(root))
+    assert payload["files"] == ["CLAUDE.md", "docs/x.md"]
+    assert _fails(payload) == {("docs/x.md", "src/gone_dl.py")}

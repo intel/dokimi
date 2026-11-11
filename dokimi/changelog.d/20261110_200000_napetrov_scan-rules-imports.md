@@ -7,4 +7,6 @@
   `claude-code` profile). A stale path in a rule or an imported file reaches the agent as surely
   as one in CLAUDE.md, and was not checked before. They are named by path, so a repository with no
   rules gets no new warning; a non-Markdown import (`@package.json`) is not read as guidance. A
-  written manifest scans what it names, as before, so its `--fail-on-fail` gate does not move.
+  written manifest scans what it names, as before, so its `--fail-on-fail` gate does not move. A
+  default scan's gate can: a stale claim in a rule now fails it, and a rule that links to nothing
+  or out of the tree makes the scan `incomplete`.
