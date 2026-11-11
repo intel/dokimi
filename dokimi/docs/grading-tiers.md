@@ -68,7 +68,7 @@ with the docs, not knowledge of the skill) and is still a model grading free tex
 | `judge_verdict`, `verdict_source`, `checks` on each checked run; a record-level `checks` block (`checked_runs`, `overruled`, `vetoed`, `judge_passed_vetoed`, `decided`, `judge_agreed`) | `measure.py` `ProbeRun`, `MeasureResult.checks_summary`, `report.py` |
 | `identifiers` check: every identifier the answer names (long options by default, inside `within`) is in `known`; `--no-x` counts when `--x` is known and the check sets `negations: true` or the help lists `--[no-]x`. `role` and `tier` validated on every check | `dokimi/eval/reference_checks.py` |
 | `skill novelty ground --atoms A --tool "perf report" [--tool ...]`: runs the tool's `--help`, writes an `identifiers` veto with the help's sha256 into the atoms that name the tool | `dokimi/novelty/grounding.py`, `commands/novelty_ground.py` |
-| Key verification: the same command writes `meta.key_status` on each checked atom (`verified`, `not_found` with the `missing` names, `unverifiable` when the key names no option) and prints the counts. A `not_found` is a review flag, not an error | `grounding.py` `verify_keys` |
+| Key verification: the same command writes `meta.key_status` on each checked atom (`verified`, `not_found` with the `missing` names, `unverifiable` when the key names no option or one of its checks could not finish) and prints the counts. A `not_found` is a review flag, not an error | `grounding.py` `verify_keys` |
 
 A `--tool` check applies only where the tool's name is followed directly by an option, so a
 `perf` check does not judge `perf report --stdio`: give each subcommand as its own `--tool`.
