@@ -127,7 +127,7 @@ def test_a_file_written_during_the_call_is_not_replaced(tmp_path, monkeypatch, c
 
     assert result.returncode == 2 and "frozen" in result.stderr
     assert out.read_text(encoding="utf-8") == "other run"
-    assert [p.name for p in tmp_path.iterdir() if p.name.endswith(".staged")] == []
+    assert [p.name for p in tmp_path.iterdir() if p.name.startswith(".eval-graph-")] == []
 
 
 def test_a_bad_model_ref_is_a_usage_error(capsys):
@@ -217,7 +217,7 @@ def test_no_hard_links_falls_back_to_an_exclusive_create(tmp_path, monkeypatch, 
 
     assert result.returncode == 0, result.stderr
     assert load_artifact("need_graph", out)["provenance"]["model"] == "google-vertex/x"
-    assert [p.name for p in tmp_path.iterdir() if p.name.endswith(".staged")] == []
+    assert [p.name for p in tmp_path.iterdir() if p.name.startswith(".eval-graph-")] == []
 
 
 def test_a_failed_write_exits_2_and_leaves_no_staged_file(tmp_path, monkeypatch, capsys):
