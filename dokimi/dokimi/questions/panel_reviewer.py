@@ -14,15 +14,14 @@ Python aggregates the scores; LLM never computes weighted average.
 
 from __future__ import annotations
 
-import json
 import logging
-import os
 import statistics
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from dokimi.artifacts import save_artifact
 from dokimi.llm import llm_call, extract_json_object
 from dokimi.defaults import DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER
 
@@ -275,12 +274,13 @@ class QuestionPanelReviewer:
             print(f"[{i}/{n}] Reviewing: {q[:60]}…", flush=True)
             review = self.review_question(q, library_name)
             results.append(_review_to_dict(review))
-            if output_path:
-                _save_incremental_report(results, library_name, output_path, self)
+            if output_path:  # the whole report so far: a run cut short leaves a valid file
+                save_artifact("question_panel", _report_to_dict(_build_report(library_name, results)),
+                              output_path)
 
         report = _build_report(library_name, results)
         if output_path:
-            output_path.write_text(json.dumps(_report_to_dict(report), indent=2), encoding="utf-8")
+            save_artifact("question_panel", _report_to_dict(report), output_path)
 
         return report
 
@@ -326,7 +326,7 @@ def _build_report(library_name: str, results: List[Dict]) -> QuestionPanelReport
             "revise": revise,
             "drop": drop,
             "mean_panel_score": round(statistics.mean(scores), 1) if scores else None,
-            "top_flags": sorted(flag_counts.items(), key=lambda x: -x[1])[:5],
+            "top_flags": [[f, n] for f, n in sorted(flag_counts.items(), key=lambda x: -x[1])[:5]],
         },
     )
 
@@ -335,11 +335,3 @@ def _report_to_dict(r: QuestionPanelReport) -> Dict[str, Any]:
     from dataclasses import asdict
     return asdict(r)
 
-
-def _save_incremental_report(results, library_name, path, reviewer):
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    out = {"library_name": library_name, "total": len(results),
-           "questions": results}
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(out, f, indent=2)
-    os.replace(tmp, path)
