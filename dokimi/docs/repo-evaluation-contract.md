@@ -2336,8 +2336,8 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   agent answers with no findings JSON that parsed (`grade.json`
   `parse_error`, §4.5) notes how many, `(scored 0)` on a score-only row and
   `(counted as failed)` on a gate row; a cell whose `result.json` says
-  `grader_failure` is counted under `grader_fail` instead. `--json` gives
-  `parse_errors` on every row. `repo report --hits` prints, instead of the table, each credited pair of
+  `grader_failure` is counted under `grader_fail` instead. `--json` gives,
+  under `data`, `parse_errors` on every row. `repo report --hits` prints, instead of the table, each credited pair of
   the `dokimi:review_replay` cells (`details.matches`, §4.5) by task, arm,
   model and rep: the thread and its comment, then the finding that hit it.
   `--hits --json` gives, under `data` of the `cli_output.v1` envelope, `{batch, replay_cells, without_matches, grader_failures, cells, hits}`, one
@@ -2369,9 +2369,9 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   removes the `hits_judged.json` an earlier run left in every other finished
   cell of the batch, one regraded since into a grader failure, a grade
   without `matches` that is not a parse error, or another grader, and a line names those cells
-  (`--json`: `stale_removed`). The command prints, per (arm, model), the cells written, their
+  (`--json`, under `data`: `stale_removed`). The command prints, per (arm, model), the cells written, their
   pairs and label counts, the mean `recall` of those cells and the mean
-  `recall_judged` of those whose `recall_judged` is not null (`--json`: the
+  `recall_judged` of those whose `recall_judged` is not null (`--json`, under `data`: the
   same as JSON); `repo compare --metric judge:recall_judged` compares it
   across arms (below). Before any call it refuses, with exit 2,
   a judge that runs the model of any answer of the batch (`meta.json` or
@@ -2404,7 +2404,7 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   in progress gets none (an earlier one is removed), and the command exits 1. A
   cell with an unjudged pair is written with `recall_judged` null and left out
   of the mean `recall_judged`; a line counts and names those cells
-  (`unjudged cells: N`; `--json`: `unjudged_cells`).
+  (`unjudged cells: N`; `--json`, under `data`: `unjudged_cells`).
   `--dry-run` counts the pairs and prints their cost at list price (one call
   each; prompt characters over 4, 100 reply tokens) and makes no call.
   A run that judges holds the batch's lock (`<batch>/_eval/lock`, which
@@ -2421,11 +2421,11 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   it parses (a redraw would be a further call), and pairs replayed from the
   response cache still finish; when
   pairs are left, the cells they are in get no file, the line naming those
-  cells says why (`--json`: `budget_stop`; drop `--max-usd` to run
+  cells says why (`--json`, under `data`: `budget_stop`; drop `--max-usd` to run
   unmetered), and the command exits 1. When none is left, the run ends as
   one with no cap does (exit 0, `budget_stop` null). Without
   `--max-usd` an unpriced call counts as 0, and the spend line says how many
-  calls had no price and that the spend is not known (`--json`:
+  calls had no price and that the spend is not known (`--json`, under `data`:
   `unpriced_calls`). A reply replayed from the response cache is free. A
   `hits_judged.json` that cannot be written, or an earlier one that cannot
   be removed (a read-only batch, a directory in its place), stops
@@ -2439,7 +2439,7 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   carries both the person's and the judge's label (a sheet left `null`,
   `[]`, labels only on pairs the judge left `unjudged`), a line says
   `recall_judged` is uncalibrated; when only some rows have such pairs, a
-  line names the others as `arm (model)`. `--json` lists the rows with no
+  line names the others as `arm (model)`. `--json` lists, under `data`, the rows with no
   such pair in `uncalibrated_rows`, sorted, each `{"arm", "model"}` (every
   row without `--labels`); `calibration` is `null` without `--labels`.
 - `repo hits sheet <batch> --out FILE` makes no call. It writes a JSON list of
@@ -2469,7 +2469,7 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   delta against the baseline with a 95% interval over tasks, the tasks up, down and tied, and a two-sided
   sign-flip permutation p (exact up to 16 changed tasks, Monte Carlo above with a fixed seed; at one cell per
   task and arm it equals McNemar's exact test). Every measure's interval inverts that test
-  (`dokimi/eval/sign_flip.py`, which the arms track shares; `delta.method` is `sign_flip_inversion` in `--json`): it is every
+  (`dokimi/eval/sign_flip.py`, which the arms track shares; `delta.method` is `sign_flip_inversion` under `data` in `--json`): it is every
   shift theta at which the test on the per-task deltas minus theta does not reject at the uncorrected two-sided
   5% level, each end found by bisection between the mean and a far bound. It excludes 0 exactly when p is below
   0.05: the row's own p places 0, and above 16 changed tasks the interval's Monte Carlo draws are those of p, drawn
@@ -2492,7 +2492,7 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   `(t(0.975, n-1) + t(0.80, n-1)) * sd / sqrt(n)` over the per-task deltas, of
   the mean delta a one-sample t test at the uncorrected two-sided 5% level
   detects with 80% power at that spread, the t quantiles at `n-1` degrees of
-  freedom (every row has `mde` in `--json`; `null` for one task or deltas with
+  freedom (every row has `mde` under `data` in `--json`; `null` for one task or deltas with
   no spread, and then no note). It is not the power of the sign-flip test nor
   of the Holm-corrected decision; a Holm-calibrated figure would depend on the
   other rows' observed p, which a figure for planning the next run's task count
@@ -2519,7 +2519,7 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   cell's task is the one its `meta.json` records, else, for a cell only
   `plan.json` names, the longest task id of the batch's finished cells that its
   name starts with followed by `__`; a cell of neither is missing only without
-  `--task`), the `--json` summary records the
+  `--task`), the `--json` summary, under `data`, records the
   selection as `task_filter` (`tasks`, and `of`, the number of tasks of the
   batches that have a finished cell, the ids `--task` can name, and
   `dropped_arms`: without `--arm`, the arms with no finished cell among the
@@ -2557,7 +2557,7 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   from an unjudged pair or a cell with no gold thread, a file that cannot be read, is not JSON or is not
   `repo_hits_judged.v1`) does not report it, as a cell lacking a `grade.json`
   metric does: it is left out of its task's mean and `n`, and a null is never
-  read as 0. `--json` gives `judged_cells` (`null` without a `judge:` metric):
+  read as 0. `--json` gives, under `data`, `judged_cells` (`null` without a `judge:` metric):
   `metrics`, the `judge:` names asked for, and `arms`, per compared arm its
   `cells` (of the compared models) and the counts `read`, `no_file`, `not_judged`
   (no file, and a cell `repo hits judge` never judges: a grader failure, a grade
@@ -2648,7 +2648,7 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   Cells of one task may differ (pooled batches): a flag any cell sets counts,
   and a cell with no `task.json` whose `arm_rev` no checked cell of the task
   has leaves the task unknown, as its history was not read.
-  The `--json` summary's `leak` holds one entry per checked arm (`[]` when
+  The `--json` summary's `leak`, under `data`, holds one entry per checked arm (`[]` when
   none is): `arm`, `kind` (`guidance:rev` or `patch`), `revisions` (each
   `rev` and `sha`), `checked`, `not_checked` (the arm's other tasks, whose
   `task.json` is not replay-style), `by_date` (task → the latest applicable
