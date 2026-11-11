@@ -833,7 +833,7 @@ and warns when fewer than five calls were answered. When `--out` already holds a
 not itself partial, the partial one goes to the first of `<out stem>.partial.json`,
 `<out stem>.partial2.json`, ... beside it that is free or a partial result it can write (a
 sidecar that is not a regular file, such as a FIFO or a symlink, is skipped without being
-opened or followed; a stem that fits its own sidecar name keeps it, and one too long for a name to
+opened or followed; a stem that fits its own sidecar name keeps it (bar the digest-shaped case below), and one too long for a name to
 fit the file system is cut for that name (leaving room for a counter of six digits, so the
 numbered names share one stem) and ends in a digest of the whole stem, so the partial result is
 still saved and two long outs keep separate sidecars, and a short stem that ends in a digest-shaped tag (in either case)
