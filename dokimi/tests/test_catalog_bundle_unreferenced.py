@@ -285,3 +285,18 @@ def test_a_bundle_with_more_documents_than_the_walk_cap_is_not_judged(tmp_path, 
     texts["scripts/run.py"] = "x\n"
     review = _review_with_texts(tmp_path, "Read [z](docs/_z.md).\n", texts)
     assert _unreferenced(review) == []
+
+
+def test_a_plain_folder_mention_in_a_nested_document_names_that_documents_folder(tmp_path):
+    review = _review_with_texts(
+        tmp_path,
+        "Read [guide](references/guide.md).\n",
+        {
+            "references/guide.md": "Helpers in ./scripts/ do the work.\n",
+            "references/scripts/run.py": "x\n",
+            "scripts/other.py": "x\n",
+        },
+    )
+    [message] = _unreferenced(review)
+    assert "scripts/other.py" in message
+    assert "references/scripts/run.py" not in message

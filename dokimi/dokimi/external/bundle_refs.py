@@ -125,6 +125,27 @@ def _named(rel: str, text: str, links: set[str]) -> bool:
     )
 
 
+_RELATIVE = re.compile(r"(?<![\w./-])((?:\.\.?/)+)")
+
+
+def _from_folder(text: str, folder: str) -> str:
+    """``text`` with its ``./`` and ``../`` paths resolved from the skill root, for a document in ``folder``.
+
+    In ``references/guide.md`` the words ``./scripts/`` name ``references/scripts/``, not the root's.
+    """
+    if folder == ".":
+        return text
+
+    def resolve(match: re.Match[str]) -> str:
+        base = folder
+        for part in match.group(1).split("/")[:-1]:
+            if part == "..":
+                base = posixpath.dirname(base) or "."
+        return "" if base == "." else base + "/"
+
+    return _RELATIVE.sub(resolve, text)
+
+
 def _matchable(text: str) -> str:
     """The text the names are looked up in: folder link destinations and the ``./``-style prefixes dropped.
 
@@ -189,8 +210,8 @@ def unreferenced_message(
                 continue
             if more := _read_doc(skill_path.parent / rel):
                 docs_read += 1
-                text += "\n" + _matchable(more.lower())
                 folder = PurePosixPath(rel).parent.as_posix()
+                text += "\n" + _matchable(_from_folder(more.lower(), folder))
                 linked.update(_target(folder, link) for link in doc_links(more) if link)
     if incomplete:
         return None
