@@ -537,10 +537,20 @@ def test_cv_of_values_at_the_float_maximum_matches_the_closed_form():
     assert _cv([big, -big, -big]) == pytest.approx(-2 * 3 ** 0.5, rel=1e-12)
 
 
-def test_cv_of_ordinary_values_is_the_plain_formula_bit_for_bit():
-    xs = [3.0, 5.0, 8.0, 13.0, 21.5]
+@pytest.mark.parametrize("xs", [
+    [3.0, 5.0, 8.0, 13.0, 21.5],
+    [0.0, 1000.0, 250.5, 3.25],
+    [120.0, 118.0, 131.0, 99.0, 140.0, 125.0, 117.0],
+])
+def test_cv_of_ordinary_values_is_the_plain_formula_to_rounding(xs):
+    """The shared sd scales by a power of two, so the last digit may differ from the plain formula; nothing more."""
     mu = sum(xs) / len(xs)
-    assert _cv(xs) == math.sqrt(sum((x - mu) ** 2 for x in xs) / (len(xs) - 1)) / mu
+    assert _cv(xs) == pytest.approx(math.sqrt(sum((x - mu) ** 2 for x in xs) / (len(xs) - 1)) / mu, rel=1e-15)
+
+
+def test_cv_of_finite_values_whose_squares_underflow_is_the_exact_value():
+    """Squares of 1e-170 underflowed to 0.0, so the cv read 0.0: [1, 2, 3] scaled has mean 2 and sd 1, cv 0.5."""
+    assert _cv([1e-170, 2e-170, 3e-170]) == pytest.approx(0.5, rel=1e-12)
 
 
 def test_cv_keeps_none_for_one_value_and_zero_for_a_zero_mean():

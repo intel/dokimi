@@ -87,9 +87,9 @@ ZERO_VARIANCE_REL_TOL = 1e-9
 _HUGE_TOTAL = 2.0 ** 900
 
 
-def _is_degenerate(mean: float, sd: float, floor: float = 1.0) -> bool:
-    """True when ``sd`` is zero or indistinguishable from it at this scale (``floor``: the unit, in the values' own scale)."""
-    return sd <= ZERO_VARIANCE_REL_TOL * max(floor, abs(mean))
+def _is_degenerate(mean: float, sd: float) -> bool:
+    """True when ``sd`` is zero or indistinguishable from it at this scale."""
+    return sd <= ZERO_VARIANCE_REL_TOL * max(1.0, abs(mean))
 
 
 def _rnd(x: float, ndigits: Optional[int]) -> float:
@@ -480,7 +480,7 @@ def point_biserial(flags: Sequence[bool], totals: Sequence[float]) -> Dict[str, 
     pairs = [(flag, t / scale) for flag, t in pairs]
     all_totals = [t for _, t in pairs]
     sd = _sample_sd(all_totals)
-    if _is_degenerate(_mean(all_totals), sd, floor=1.0 / scale):
+    if _is_degenerate(_mean(all_totals), sd):
         return {"r": None, "n": n, "n_pass": n_pass,
                 "reason": "no variance in the totals: nothing for the item to discriminate"}
     mean_pass = _mean([t for flag, t in pairs if flag])
