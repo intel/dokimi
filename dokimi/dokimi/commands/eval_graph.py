@@ -43,8 +43,12 @@ def _publish(graph: dict, out: Path) -> None:
         except OSError:
             payload = staged.read_bytes()
             fd = os.open(out, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
-            with os.fdopen(fd, "wb") as handle:
-                handle.write(payload)
+            try:
+                with os.fdopen(fd, "wb") as handle:
+                    handle.write(payload)
+            except BaseException:  # a half-written file would be frozen and unreadable
+                out.unlink(missing_ok=True)
+                raise
     except FileExistsError:
         raise _frozen(out) from None
     except OSError as exc:
@@ -67,6 +71,9 @@ def cmd_eval_graph(args: argparse.Namespace) -> None:
         raise InputError(f"cannot stat {out}: {exc.strerror or exc}") from exc
     if present:
         raise _frozen(out)
+    _kind, name, description, _frontmatter, _body = load_artifact_ref(_as_skill(args.skill))
+    if not description.strip():
+        raise InputError(f"{args.skill} has no description to build a need graph from")
     try:  # before the paid call, not after it: a missing directory is made, as save_artifact does
         out.parent.mkdir(parents=True, exist_ok=True)
         writable = os.access(out.parent, os.W_OK | os.X_OK)
@@ -74,9 +81,6 @@ def cmd_eval_graph(args: argparse.Namespace) -> None:
         raise InputError(f"cannot write to {out.parent}: {exc.strerror or exc}") from exc
     if not writable:
         raise InputError(f"cannot write to {out.parent}: checked before the paid call")
-    _kind, name, description, _frontmatter, _body = load_artifact_ref(_as_skill(args.skill))
-    if not description.strip():
-        raise InputError(f"{args.skill} has no description to build a need graph from")
     from dokimi.llm import PROVIDER_ALIASES
 
     provider, model = args.extract_model

@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -175,6 +176,7 @@ def test_a_symlink_at_out_is_refused(tmp_path, monkeypatch, capsys):
     assert result.returncode == 2 and "frozen" in result.stderr and prompts == []
 
 
+@pytest.mark.skipif(os.name == "nt" or os.geteuid() == 0, reason="needs POSIX permissions as non-root")
 def test_a_missing_out_dir_is_made_and_an_unwritable_one_refused_before_the_call(tmp_path, monkeypatch, capsys):
     prompts = _stub(monkeypatch, REPLY)
     skill = _skill(tmp_path)
@@ -232,3 +234,41 @@ def test_a_failed_write_exits_2_and_leaves_no_staged_file(tmp_path, monkeypatch,
 
     assert result.returncode == 2 and "cannot write" in result.stderr and "No space" in result.stderr
     assert not (tmp_path / "g.json").exists()
+
+
+def test_a_partial_fallback_write_leaves_no_frozen_file(tmp_path, monkeypatch, capsys):
+    _stub(monkeypatch, REPLY)
+    monkeypatch.setattr(os, "link", lambda src, dst: (_ for _ in ()).throw(PermissionError(1, "EPERM")))
+    real_fdopen = os.fdopen
+
+    class Full:
+        def __init__(self, fd):
+            self.inner = real_fdopen(fd, "wb")
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            self.inner.close()
+
+        def write(self, data):
+            self.inner.write(data[:100])
+            raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(os, "fdopen", lambda fd, mode: Full(fd))
+    out = tmp_path / "g.json"
+
+    result = _run(capsys, str(_skill(tmp_path)), "--out", str(out))
+
+    assert result.returncode == 2 and "No space" in result.stderr
+    assert not out.exists()
+
+
+def test_a_refused_skill_makes_no_out_directory(tmp_path, monkeypatch, capsys):
+    _stub(monkeypatch, REPLY)
+    notes = tmp_path / "notes.md"
+    notes.write_text("just text", encoding="utf-8")
+
+    result = _run(capsys, str(notes), "--out", str(tmp_path / "new" / "g.json"))
+
+    assert result.returncode == 2 and not (tmp_path / "new").exists()
