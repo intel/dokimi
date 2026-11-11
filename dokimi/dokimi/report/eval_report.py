@@ -224,6 +224,13 @@ def _load_eval(eval_path: str) -> dict:
     return data
 
 
+def _sidecar_question_text(e: Record) -> str | None:
+    """The record's question text, else its raw ``question_text`` when that is a string (a blank
+    one stays ``""``); ``None`` when there is none or it is not text."""
+    raw = e.raw.get("question_text")
+    return e.question_text or (raw if isinstance(raw, str) else None)
+
+
 def _write_qa_json(path: str, payload: dict) -> None:
     """Save the Q&A sidecar as a ``report_qa`` artifact, or raise a RecordError naming ``path``.
 
@@ -520,7 +527,7 @@ def generate_report(eval_path: str, out_path: str, qa_json_out: str | None = Non
         a = answers_by_id.get(e.key)
         qa_records.append({
             "question_id": e.question_id,
-            "question_text": e.question_text or None,
+            "question_text": _sidecar_question_text(e),
             "difficulty": e.difficulty,
             "source": "static" if static_prefix and e.key.startswith(static_prefix) else "dynamic",
             "with_docs_score": e.score(CONTEXT),

@@ -306,12 +306,14 @@ def test_the_sidecar_keeps_non_ascii_text_readable(tmp_path, monkeypatch):
     assert _saved(sidecar, "report_qa")["records"][0]["question_text"] == "Как запустить цикл?"
 
 
-def test_a_question_text_that_is_not_text_reads_as_none_in_the_sidecar(tmp_path, monkeypatch):
-    """The sidecar takes the record's text, not the raw value: a bad eval file is not a rejected save."""
+@pytest.mark.parametrize(("question_text", "in_sidecar"), [(5, None), ("", ""), (None, None)])
+def test_a_question_text_that_is_not_text_reads_as_none_in_the_sidecar(tmp_path, monkeypatch,
+                                                                       question_text, in_sidecar):
+    """A bad eval file is not a rejected save: a value that is not text is null; a blank stays "" as before."""
     out = tmp_path / "lib_full.md"
     assert _cli(monkeypatch, "report", "eval", "--product", "lib", "--eval",
-                str(_eval_file(tmp_path, question_text=5)), "--out", str(out)) == 0
-    assert _saved(tmp_path / "lib_full.qa.json", "report_qa")["records"][0]["question_text"] is None
+                str(_eval_file(tmp_path, question_text=question_text)), "--out", str(out)) == 0
+    assert _saved(tmp_path / "lib_full.qa.json", "report_qa")["records"][0]["question_text"] == in_sidecar
 
 
 def test_a_sidecar_the_schema_refuses_is_kept_as_rejected_and_exits_1(tmp_path, monkeypatch, capsys):
