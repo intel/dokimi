@@ -480,3 +480,9 @@ def test_container_escape_sees_a_host_root_mount(text):
                                   "docker run -v /srv:/data ubuntu"])
 def test_container_escape_leaves_a_bind_of_a_subdirectory_alone(text):
     assert "container-escape" not in _rules(sec.command_findings(text, "trace"))
+
+
+@pytest.mark.parametrize("text", ["cat /eval/run/home/.ssh/id_rsa", "cat /eval/run/home/.aws/credentials",
+                                  "cat /srv/agent/.kube/config"])
+def test_secret_read_under_any_home_directory(text):
+    assert "secret-read" in _rules(sec.command_findings(text, "trace"))
