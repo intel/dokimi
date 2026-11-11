@@ -1,0 +1,3 @@
+### Fixed
+
+- **A schema path or a fixture name that is not UTF-8 no longer stops the schema check or the fixture digest on Windows** — `python -m dokimi.schema_compat` read git's NUL-separated listing with `os.fsdecode`, which is strict UTF-8 on Windows and raised `UnicodeDecodeError`; it reads it as the other git readers do now (a byte that is not UTF-8 stays on POSIX and becomes U+FFFD on Windows). `fixtures_digest`, the reach matrix's fixture digest, raised `UnicodeEncodeError` on a fixture whose name or link target is not UTF-8; it digests the name's bytes now. The digest of a UTF-8 tree is unchanged.
