@@ -579,6 +579,14 @@ def test_410_gone_is_a_dead_link(tmp_path):
     assert _codes(review) == ["link-dead"]
 
 
+def test_a_redirect_with_no_location_is_an_answer_not_a_crash(tmp_path):
+    url = "https://docs.example-tool.dev/bare-redirect"
+    root = _one_skill(tmp_path, f"See {url} and https://docs.example-tool.dev/ok\n")
+
+    [review] = _reviews(root, Web({url: 302}))
+    assert _codes(review) == []
+
+
 def test_head_refused_but_get_working_is_not_dead(tmp_path):
     url = "https://docs.example-tool.dev/head-refused"
     root = _one_skill(tmp_path, f"See {url}\n")

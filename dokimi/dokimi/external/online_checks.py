@@ -497,7 +497,7 @@ def _final_status(client: httpx.Client, method: str, url: str) -> int:
         if _internal_url(url):
             raise _InternalHop(f"redirect from {start} into {url}, which is not a public host: not requested")
         with client.stream(method, url, follow_redirects=False) as response:
-            if not response.is_redirect:
+            if not response.has_redirect_location:  # a 3xx with no Location is an answer, not a hop
                 return response.status_code
             url = str(response.url.join(response.headers["location"]))
         hops += 1
