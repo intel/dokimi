@@ -118,8 +118,8 @@ def test_a_changed_file_with_an_encoded_surrogate_name_takes_no_index_blob(tmp_p
 
 
 def test_the_status_and_flag_readers_name_a_file_with_an_encoded_surrogate_as_the_index_does(windows_decoding):
-    assert utils._worktree_changed(b" M skill/\xed\xa0\x80.sh\0") == {"skill/\ud800.sh"}
-    assert utils._flagged(b"S skill/\xed\xa0\x80.sh\0h skill/b\0H skill/c\0") == {"skill/\ud800.sh", "skill/b"}
+    assert process_io.worktree_changed(b" M skill/\xed\xa0\x80.sh\0") == {"skill/\ud800.sh"}
+    assert process_io.flagged(b"S skill/\xed\xa0\x80.sh\0h skill/b\0H skill/c\0") == {"skill/\ud800.sh", "skill/b"}
 
 
 @pytest.mark.skipif(os.name != "posix" or sys.platform == "darwin", reason="a file name that is not UTF-8")
@@ -165,8 +165,8 @@ def test_a_listed_name_windows_cannot_decode_is_still_replaced(windows_decoding)
 
 
 def test_the_index_readers_skip_a_name_that_is_not_utf8(windows_decoding):
-    assert utils._worktree_changed(b" M " + BAD + b"\0") == set()
-    assert utils._flagged(b"S " + BAD + b"\0H x\0") == set()
+    assert process_io.worktree_changed(b" M " + BAD + b"\0") == set()
+    assert process_io.flagged(b"S " + BAD + b"\0H x\0") == set()
 
 
 def test_tracked_modes_keeps_a_path_that_is_not_utf8(repo, windows_decoding):

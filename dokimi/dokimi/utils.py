@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, Mapping, Sequen
 
 from dokimi import llm_cli
 from dokimi.defaults import BEDROCK_MODEL_IDS
-from dokimi.process_io import disk_path_text, exact_path_text
+from dokimi.process_io import disk_path_text, exact_path_text, flagged, worktree_changed
 
 if TYPE_CHECKING:
     from dokimi.process import Env
@@ -292,7 +292,7 @@ def _index_blobs(top: str) -> tuple[dict[str, str], frozenset[str]]:
     dirty = run(["git", "-C", top, "--no-optional-locks", "status", "--porcelain=v1", "-z", "-uno"], timeout=120,
                 env=env, capture_limit=None)
     trusted = staged.ok and tags.ok and dirty.ok  # a failed ls-files prints no entry, so ``held`` stays empty
-    changed = _worktree_changed(dirty.stdout_bytes) | _flagged(tags.stdout_bytes)
+    changed = worktree_changed(dirty.stdout_bytes) | flagged(tags.stdout_bytes)
     out: dict[str, str] = {}
     held: set[str] = set()
     for entry in staged.stdout_bytes.split(b"\0"):
@@ -307,28 +307,6 @@ def _index_blobs(top: str) -> tuple[dict[str, str], frozenset[str]]:
         if trusted and len(fields) == 3 and fields[2] == b"0" and rel not in changed:
             out[rel] = os.fsdecode(fields[1])
     return out, frozenset(held)
-
-
-def _worktree_changed(status: bytes) -> set[str]:
-    """The tracked paths whose work tree differs from the index, from ``git status --porcelain=v1 -z``: an entry is
-    ``XY path``, and a rename or copy in the index is followed by its origin path."""
-    changed: set[str] = set()
-    items = iter(status.split(b"\0"))
-    for entry in items:
-        if len(entry) < 4:
-            continue
-        if b"R" in entry[:2] or b"C" in entry[:2]:
-            next(items, None)
-        if entry[1:2] != b" ":
-            if (name := exact_path_text(entry[3:])) is not None:  # a replaced name is the key of another file
-                changed.add(name)
-    return changed
-
-
-def _flagged(tags: bytes) -> set[str]:
-    """The index entries git does not check against the disk: skip-worktree (``S``) and assume-unchanged (lower case)."""
-    names = (exact_path_text(entry[2:]) for entry in tags.split(b"\0") if entry[:1] == b"S" or entry[:1].islower())
-    return {name for name in names if name is not None}
 
 
 _ARG_BUDGET = 24_000  # bytes of path arguments per git call: under the smallest command line limit (Windows, 32 KB)

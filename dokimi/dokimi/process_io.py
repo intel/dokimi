@@ -39,6 +39,28 @@ def disk_path_text(raw: bytes) -> str:
     return path_text(raw) if exact is None else exact
 
 
+def worktree_changed(status: bytes) -> set[str]:
+    """The tracked paths whose work tree differs from the index, from ``git status --porcelain=v1 -z``: an entry is
+    ``XY path``, and a rename or copy in the index is followed by its origin path."""
+    changed: set[str] = set()
+    items = iter(status.split(b"\0"))
+    for entry in items:
+        if len(entry) < 4:
+            continue
+        if b"R" in entry[:2] or b"C" in entry[:2]:
+            next(items, None)
+        if entry[1:2] != b" ":
+            if (name := exact_path_text(entry[3:])) is not None:  # a replaced name is the key of another file
+                changed.add(name)
+    return changed
+
+
+def flagged(tags: bytes) -> set[str]:
+    """The index entries git does not check against the disk: skip-worktree (``S``) and assume-unchanged (lower case)."""
+    names = (exact_path_text(entry[2:]) for entry in tags.split(b"\0") if entry[:1] == b"S" or entry[:1].islower())
+    return {name for name in names if name is not None}
+
+
 class PipeReader:
     def __init__(self, pipe: IO[bytes], consume: Callable[[bytes], None], chunk_size: int):
         self.pipe, self.consume, self.chunk_size = pipe, consume, chunk_size
