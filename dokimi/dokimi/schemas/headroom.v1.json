@@ -51,7 +51,8 @@
         "provisional": {"type": "integer", "minimum": 0},
         "flagged_provisional": {"type": "integer", "minimum": 0},
         "no_flag": {"type": "integer", "minimum": 0},
-        "unmeasured": {"type": "integer", "minimum": 0}
+        "unmeasured": {"type": "integer", "minimum": 0},
+        "replayed_repeats": {"type": "integer", "minimum": 0, "description": "Scores left out as cached repeats: a replayed answer (arms.v1 replayed true) whose text another input run gave for the same item and arm. Absent from files written before the count (issue #370)."}
       }
     }
   }

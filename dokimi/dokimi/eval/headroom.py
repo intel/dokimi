@@ -23,6 +23,10 @@ per repetition of the same question set. Each ``Run`` passed here counts as one 
 drop repeated inputs first (the CLI does, by content digest). A question id repeated within one
 run is refused: it would count as two runs. Nothing here draws a confidence interval; the paired
 statistics of a comparison stay in :mod:`dokimi.eval.stats`.
+
+A replayed answer (``replayed: true``: the response cache served it) whose text another run already
+gave for the same item and arm is a cached repeat, not a sample: its score is left out of the reps
+and the means, and ``summary.replayed_repeats`` counts it. A replay that repeats no other input counts.
 """
 
 from __future__ import annotations
@@ -32,7 +36,7 @@ from decimal import ROUND_FLOOR, Context, Decimal
 from fractions import Fraction
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
-from dokimi.records import Record, Run
+from dokimi.records import Answer, Record, Run
 
 DEFAULT_CEILING = 0.9
 DEFAULT_FLOOR = 0.0
@@ -117,7 +121,7 @@ def headroom(
     """
     check_thresholds(ceiling, floor, min_reps)
     control = _no_skill_arm(runs, no_skill_arm)
-    scores, arms_of = _collect(runs)
+    scores, arms_of, replayed_repeats = _collect(runs)
     if scores and not any(control in per_arm for per_arm in scores.values()):
         # Every item would read as "no ceiling, not a floor": unmeasured, not headroom. Refuse it instead.
         raise ValueError(
@@ -150,6 +154,7 @@ def headroom(
         # Not measured is not "no headroom": an item with no no-skill score is counted apart from no_flag.
         "no_flag": sum(1 for i in items if i.flag is None and i.no_skill is not None),
         "unmeasured": sum(1 for i in items if i.no_skill is None),
+        "replayed_repeats": replayed_repeats,
     }
     return {
         "no_skill_arm": control,
@@ -209,10 +214,16 @@ def repeated_ids(run: Run) -> List[str]:
     return repeated
 
 
-def _collect(runs: Sequence[Run]) -> Tuple[Dict[str, Dict[str, List[Fraction]]], Dict[str, Set[str]]]:
-    """Question id -> arm -> the per-run scores (0-1, exact), and question id -> the arms it listed."""
-    scores: Dict[str, Dict[str, List[Fraction]]] = {}
+_Scores = Dict[str, Dict[str, List[Fraction]]]
+_Cell = Tuple[str, str, Fraction, Optional[Answer]]
+
+
+def _collect(runs: Sequence[Run]) -> Tuple[_Scores, Dict[str, Set[str]], int]:
+    """Question id -> arm -> the per-run scores (0-1, exact), question id -> the arms it listed,
+    and the number of scores left out as cached repeats (see :func:`_count`)."""
+    scores: _Scores = {}
     arms_of: Dict[str, Set[str]] = {}
+    cells: List[_Cell] = []
     for index, run in enumerate(runs, start=1):
         dupes = repeated_ids(run)
         if dupes:
@@ -223,12 +234,34 @@ def _collect(runs: Sequence[Run]) -> Tuple[Dict[str, Dict[str, List[Fraction]]],
         for rec in run:
             names = _listed_arms(rec) | set(rec.scores)
             arms_of.setdefault(rec.key, set()).update(names | declared)
-            per_arm = scores.setdefault(rec.key, {})
+            scores.setdefault(rec.key, {})
             for arm in names:
                 value = rec.score(arm)
                 if value is not None:
-                    per_arm.setdefault(arm, []).append(Fraction(str(value)) / 100)
-    return scores, arms_of
+                    cells.append((rec.key, arm, Fraction(str(value)) / 100, rec.answer(arm)))
+    return scores, arms_of, _count(cells, scores)
+
+
+def _replayed(cell: _Cell) -> bool:
+    return cell[3] is not None and cell[3].replayed
+
+
+def _count(cells: List[_Cell], scores: _Scores) -> int:
+    """Add each scored cell to ``scores``, except a replayed answer whose text a counted cell of the
+    same item and arm already has; returns how many were left out."""
+    seen: Dict[Tuple[str, str], Set[Optional[str]]] = {}
+    left_out = 0
+    # Fresh answers first, so a replay meets its original whichever input comes first.
+    for cell in sorted(cells, key=_replayed):
+        key, arm, value, answer = cell
+        texts = seen.setdefault((key, arm), set())
+        text = answer.text if answer is not None else None
+        if _replayed(cell) and text in texts:
+            left_out += 1
+            continue
+        texts.add(text)
+        scores[key].setdefault(arm, []).append(value)
+    return left_out
 
 
 def _sort_key(qid: str):
@@ -266,6 +299,10 @@ def format_table(result: Dict[str, Any]) -> str:
     if unscored:
         counts = [f"{arm} in {n} item{'' if n == 1 else 's'}" for arm, n in sorted(unscored.items())]
         lines.append("note: no run scored these arms, so the floor test leaves them out: " + "; ".join(counts))
+    if result["summary"]["replayed_repeats"]:
+        n = result["summary"]["replayed_repeats"]
+        lines.append(f"note: {n} replayed answer{'' if n == 1 else 's'} (DOKIMI_RESPONSE_CACHE) left out of "
+                     "the reps and the means: another run gave the same answer")
     s = result["summary"]
     th = result["thresholds"]
     lines.append("")

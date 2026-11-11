@@ -762,10 +762,11 @@ an earlier one (whitespace and key order do not count), is skipped with a note, 
 not add a rep. Numbers are compared as numbers: `95.0` and `95` are the same content. A question id repeated within one
 file is an error (exit 2): it would count as two runs.
 
-Cached replays are not detected. With `DOKIMI_RESPONSE_CACHE` set, a repeated `arms run` replays
-the same answers and judgments, but its file has a new `generated_at` and so counts as a fresh rep.
-Collect repeats with the cache off when the reps feed `eval headroom`. Recording replay provenance
-per answer, so headroom can exclude cached repeats, is tracked in #370.
+A cached replay is not a fresh rep. With `DOKIMI_RESPONSE_CACHE` set, a repeated `arms run` replays
+the same answers and judgments, and the file marks each answer the cache served with `replayed: true`.
+A replayed answer whose text another input file gave for the same item and arm is left out of the reps
+and the means, counted in the summary's `replayed_repeats` and noted under the table; a replay that
+repeats no other input counts once. Files written before the flag carry none: collect their repeats with the cache off.
 
 The table always goes to stdout: the flagged and provisional items, with the no-skill arm
 in its own column, a note naming any arm no run scored, and the counts. The JSON goes to
