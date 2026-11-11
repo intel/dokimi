@@ -44,10 +44,10 @@ EXAMPLES_SHOWN = 3
 DOC_SUFFIXES = frozenset({".md", ".mdx", ".txt"})
 DOC_MAX_BYTES = 256 * 1024
 DOCS_READ_MAX = 50
-# A path prefix that names the skill root or the current folder: ``./scripts/``, ``../scripts/``, ``${CLAUDE_SKILL_DIR}/scripts/``.
 # The destination of an inline folder link (``[x](scripts/)``): its folder is in ``links``, so the text is no mention.
 _FOLDER_DEST = re.compile(r"\]\([^)\n]*/\)")
 SKILL_ROOT_LINK = "${claude_skill_dir}/"  # lowercased: a link through it names a file from the skill root
+# A path prefix that names the skill root or the current folder: ``./scripts/``, ``../scripts/``, ``${CLAUDE_SKILL_DIR}/scripts/``.
 _PATH_PREFIX = re.compile(r"(?<![\w.-])(?:\$\{claude_skill_dir\}/|\.\.?/)")
 
 
