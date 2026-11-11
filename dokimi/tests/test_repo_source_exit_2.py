@@ -230,6 +230,20 @@ def test_a_windows_manifest_path_leaving_an_unpinned_tree_is_refused_as_typed(tm
     repo_run._refuse_typed(source, SimpleNamespace(manifest="sub\\..\\ok.yaml", manifest_file=None))
 
 
+def test_a_pinned_source_gets_only_the_tree_path_check_for_a_manifest_that_stays_in_the_tree(tmp_path):
+    from types import SimpleNamespace
+
+    from dokimi.commands import repo_run
+    from dokimi.utils import InputError
+
+    pinned = SimpleNamespace(location="https://example.invalid/r.git", remote=True, rev="a" * 40, subdir=None)
+    repo_run._refuse_typed(pinned, SimpleNamespace(manifest="sub/../ok.yaml", manifest_file=None))
+    with pytest.raises(InputError, match=r"^path escapes the repository: \.\./x\.yaml$"):
+        repo_run._refuse_typed(pinned, SimpleNamespace(manifest="../x.yaml", manifest_file=None))
+    unpinned = SimpleNamespace(location=str(tmp_path), remote=False, rev=None, subdir=None)
+    repo_run._refuse_typed(unpinned, SimpleNamespace(manifest="sub/../ok.yaml", manifest_file=None))
+
+
 @pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
 def test_git_tree_follows_a_link_before_it_goes_up_a_level(tmp_path):
     from dokimi.repos.source import GitTree, SourceArgumentError
