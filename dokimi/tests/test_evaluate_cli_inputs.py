@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 
 import pytest
@@ -12,6 +13,8 @@ import pytest
 from tests.cli_refusal import refusal
 
 from dokimi.cli import build_parser
+from dokimi.orchestrator.pipeline import EvaluationPipeline, load_questions_payload
+from dokimi.utils import InputError
 
 
 def _evaluate(*extra: str):
@@ -55,6 +58,39 @@ def test_an_unreadable_custom_questions_file_exits_2_before_any_output_directory
     assert f"Error: --custom-questions {locked}: Permission denied" in err
     assert "Traceback" not in err
     assert not out_dir.exists()
+
+
+@pytest.mark.parametrize("content", [b"", b"not json", b"\xff\xfe\x00{"], ids=["empty", "not-json", "not-utf8"])
+def test_an_unparseable_custom_questions_file_exits_2_before_any_output_directory(tmp_path, capsys, content):
+    bad, out_dir = tmp_path / "q.md", tmp_path / "out"
+    bad.write_bytes(content)
+    with refusal() as out:
+        _evaluate("--output-dir", str(out_dir), "--custom-questions", str(bad))
+    assert out.code == 2
+    err = capsys.readouterr().err
+    assert err.startswith(f"Error: --custom-questions {bad}: ")
+    assert "Traceback" not in err
+    assert not out_dir.exists()
+
+
+def test_an_unparseable_questions_from_file_names_the_flag(tmp_path):
+    source = tmp_path / "earlier.json"
+    source.write_text("not json", encoding="utf-8")
+
+    with pytest.raises(InputError, match=rf"^--questions-from {source}: "):
+        EvaluationPipeline(product="Demo", product_key="demo", output_dir=tmp_path / "out",
+                           description="A demo product", questions_from=source)
+    assert not (tmp_path / "out").exists()
+
+
+def test_load_questions_payload_names_the_flag_only_when_given_one(tmp_path):
+    empty = tmp_path / "q.json"
+    empty.write_bytes(b"")
+
+    with pytest.raises(json.JSONDecodeError):
+        load_questions_payload(empty)
+    with pytest.raises(InputError, match=rf"^--custom-questions {empty}: "):
+        load_questions_payload(empty, "--custom-questions")
 
 
 def test_an_unwritable_output_dir_exits_2_with_a_message(tmp_path, capsys):
