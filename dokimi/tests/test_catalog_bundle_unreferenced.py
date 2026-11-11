@@ -93,7 +93,7 @@ def test_test_files_outside_a_tests_folder_are_not_counted(tmp_path, rel):
     assert "bundle-file-unreferenced" not in _codes(review)
 
 
-@pytest.mark.parametrize("doc", ["README.md", "CONTRIBUTING.md", "AGENTS.md"])
+@pytest.mark.parametrize("doc", ["README.md", "AGENTS.md"])
 def test_a_skipped_document_that_skill_md_names_is_still_read(tmp_path, doc):
     # Not counted itself, but an agent that opens it is pointed at the script it names.
     skill_dir = _skill(tmp_path / "skills", "kit", name="kit", description="Use when testing.", body=f"See {doc}.\n")
@@ -300,3 +300,77 @@ def test_a_plain_folder_mention_in_a_nested_document_names_that_documents_folder
     [message] = _unreferenced(review)
     assert "scripts/other.py" in message
     assert "references/scripts/run.py" not in message
+
+
+@pytest.mark.parametrize("folder", ["tests", "test", "__tests__", "evals", ".github"])
+def test_a_named_document_in_an_excluded_folder_names_its_files(tmp_path, folder):
+    # The folder is left out of the count, but a document in it that SKILL.md names still names what it links.
+    review = _review_with_texts(
+        tmp_path,
+        f"See {folder}/guide.md.\n",
+        {f"{folder}/guide.md": "Run `scripts/run.py`.\n", "scripts/run.py": "x\n"},
+    )
+    assert _unreferenced(review) == []
+
+
+@pytest.mark.parametrize("doc", ["CHANGELOG.md", "CONTRIBUTING.md", "NOTICE.md"])
+def test_a_changelog_contributing_or_notice_does_not_name_files(tmp_path, doc):
+    # Only README and AGENTS-type documents supply references; a changelog that mentions a script does not.
+    review = _review_with_texts(tmp_path, f"See {doc}.\n", {doc: "Run `scripts/run.py`.\n", "scripts/run.py": "x\n"})
+    [message] = _unreferenced(review)
+    assert "1 of 1" in message and "scripts/run.py" in message
+
+
+def test_a_readme_names_the_files_it_points_to(tmp_path):
+    review = _review_with_texts(tmp_path, "See README.md.\n", {"README.md": "Run `scripts/run.py`.\n", "scripts/run.py": "x\n"})
+    assert _unreferenced(review) == []
+
+
+def test_a_named_document_over_the_read_cap_gives_no_claim(tmp_path, monkeypatch):
+    from dokimi.external import bundle_refs
+
+    monkeypatch.setattr(bundle_refs, "DOC_MAX_BYTES", 32)
+    review = _review_with_texts(
+        tmp_path,
+        "See guide.md.\n",
+        {"guide.md": "Run `scripts/run.py` first, then read the rest of this guide.\n", "scripts/run.py": "x\n"},
+    )
+    assert _unreferenced(review) == []
+
+
+def test_a_named_document_that_is_not_utf8_gives_no_claim(tmp_path):
+    skill_dir = _skill(tmp_path / "skills", "kit", name="kit", description="Use when testing.", body="See bad.md.\n")
+    (skill_dir / "bad.md").write_bytes(b"\xff\xfeRun scripts/run.py\n")
+    (skill_dir / "scripts").mkdir()
+    (skill_dir / "scripts" / "run.py").write_text("x\n", encoding="utf-8")
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert _unreferenced(review) == []
+
+
+def test_a_named_symlinked_document_gives_no_claim(tmp_path):
+    skill_dir = _skill(tmp_path / "skills", "kit", name="kit", description="Use when testing.", body="See link.md.\n")
+    (skill_dir / "real.md").write_text("Run `scripts/run.py`.\n", encoding="utf-8")
+    os.symlink(skill_dir / "real.md", skill_dir / "link.md")
+    (skill_dir / "scripts").mkdir()
+    (skill_dir / "scripts" / "run.py").write_text("x\n", encoding="utf-8")
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert _unreferenced(review) == []
+
+
+def test_a_bundle_with_many_files_and_large_documents_is_judged_quickly(tmp_path):
+    import time
+
+    docs = {
+        f"docs/d{i:02d}.md": "filler line for the document\n" * 8000 + f"Run `scripts/s{i:02d}.py`.\n"
+        for i in range(30)
+    }
+    texts = dict(docs)
+    texts.update({f"scripts/s{i:02d}.py": "x\n" for i in range(30)})
+    texts.update({f"scripts/u{i:03d}.py": "x\n" for i in range(300)})
+    body = "See " + ", ".join(docs) + ".\n"
+    started = time.monotonic()
+    review = _review_with_texts(tmp_path, body, texts)
+    elapsed = time.monotonic() - started
+    [message] = _unreferenced(review)
+    assert "300 of 360" in message  # 30 documents, 30 scripts they name, and 300 they do not
+    assert elapsed < 10

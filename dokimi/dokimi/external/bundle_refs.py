@@ -13,10 +13,11 @@ Only code and documents count (:data:`COUNTED_SUFFIXES`): data, images and fonts
 scripts, not by the agent. A file is named when ``SKILL.md`` holds its path relative to the skill,
 its file name, or the path of a folder above it named alone (``references/`` covers every file under
 it; ``references/a.md`` covers only ``a.md``), case ignored; a named document is read too, so the
-files it names count as named. Licence, readme and changelog files, ``AGENTS.md``, ``__init__.py``
-and other ``_``-prefixed helpers, tests, hidden and vendored folders, and a nested skill's folder
-are left out. A skill at the root of a scanned checkout is not
-checked, since its bundle is the rest of that checkout.
+files it names count as named, unless it is a changelog, contributing or notice file, which names
+nothing here. Licence, readme and changelog files, ``AGENTS.md``, ``__init__.py`` and other
+``_``-prefixed helpers, tests, hidden and vendored folders, and a nested skill's folder are left out
+of the count; a document in a test or hidden folder that ``SKILL.md`` names is still read. A skill at
+the root of a scanned checkout is not checked, since its bundle is the rest of that checkout.
 """
 
 from __future__ import annotations
@@ -44,6 +45,8 @@ EXAMPLES_SHOWN = 3
 DOC_SUFFIXES = frozenset({".md", ".mdx", ".txt"})
 DOC_MAX_BYTES = 256 * 1024
 DOCS_READ_MAX = 50
+# Documents whose text names no file the agent needs for the task: a changelog or a notice that mentions a script does not.
+NON_REFERENCE_STEMS = frozenset({"changelog", "contributing", "notice"})
 # The destination of an inline folder link (``[x](scripts/)``): its folder is in ``links``, so the text is no mention.
 _FOLDER_DEST = re.compile(r"\]\([^)\n]*/\)")
 SKILL_ROOT_LINK = "${claude_skill_dir}/"  # lowercased: a link through it names a file from the skill root
@@ -65,8 +68,8 @@ def _walk(skill_dir: Path, *, counted: bool) -> list[str]:
         here = Path(dirpath)
         dirnames[:] = sorted(
             d for d in dirnames
-            if not d.startswith(".") and d not in VENDORED_DIR_NAMES and d.lower() not in SKIPPED_DIRS
-            and not _is_skill_dir(here / d)
+            if d not in VENDORED_DIR_NAMES and not _is_skill_dir(here / d)
+            and (not counted or (not d.startswith(".") and d.lower() not in SKIPPED_DIRS))
         )
         for name in sorted(filenames):
             if len(found) > WALK_MAX_FILES:
@@ -88,10 +91,27 @@ def _walk(skill_dir: Path, *, counted: bool) -> list[str]:
     return found
 
 
-def _whole(name: str) -> str:
-    """A regex for ``name`` as a whole path or file name in a text: not a part of a longer one (``build.py`` in ``rebuild.py``)."""
-    # Not followed by a dotted suffix either: ``build.py`` does not name ``build.py.bak``.
-    return r"(?<![\w.-])" + re.escape(name) + r"(?![\w-]|\.\w)"
+_WORD = re.compile(r"\w")
+
+
+def _mentions(needle: str, text: str, before: str) -> bool:
+    """Whether ``needle`` occurs in ``text`` as a whole path or file name: not preceded by a word character or a
+    character of ``before``, and not followed by a word character, ``-``, or a dot and a word character (so
+    ``build.py`` is not a part of ``rebuild.py``, and does not name ``build.py.bak``).
+
+    A search with ``str.find`` per occurrence, not a regex over the whole text for each candidate: a bundle's
+    documents can be megabytes long.
+    """
+    i = text.find(needle)
+    while i != -1:
+        end = i + len(needle)
+        after = text[end:end + 1]
+        if (i == 0 or not (_WORD.match(text[i - 1]) or text[i - 1] in before)) and not (
+            _WORD.match(after) or after == "-" or (after == "." and _WORD.match(text[end + 1:end + 2]))
+        ):
+            return True
+        i = text.find(needle, i + 1)
+    return False
 
 
 def _target(folder: str, link: str) -> str:
@@ -112,17 +132,12 @@ def _named(rel: str, text: str, links: set[str]) -> bool:
     percent-encoding decoded), lowercased.
     """
     parts = rel.lower().split("/")
-    if "/".join(parts) in links or re.search(_whole("/".join(parts)), text):
-        return True
-    if any("/".join(parts[:i]) in links for i in range(1, len(parts))):  # a folder link to an ancestor
-        return True
-    if re.search(_whole(parts[-1]), text):
+    if "/".join(parts) in links or any("/".join(parts[:i]) in links for i in range(1, len(parts))):
+        return True  # a link to the file, or a folder link to an ancestor
+    if _mentions("/".join(parts), text, ".-") or _mentions(parts[-1], text, ".-"):
         return True
     # A folder named alone (``references/``), not as the start of another file's path (``scripts/a.py``).
-    return any(
-        re.search(r"(?<![\w./-])" + re.escape("/".join(parts[:i])) + r"/(?![\w-]|\.\w)", text)
-        for i in range(1, len(parts))
-    )
+    return any(_mentions("/".join(parts[:i]) + "/", text, "./-") for i in range(1, len(parts)))
 
 
 _RELATIVE = re.compile(r"(?<![\w./-])((?:\.\.?/)+)")
@@ -156,16 +171,17 @@ def _matchable(text: str) -> str:
     return _PATH_PREFIX.sub("", _FOLDER_DEST.sub("]", text))
 
 
-def _read_doc(path: Path) -> str:
-    """The text of a named document the agent may read on, or "" when it is not one or cannot be read."""
+def _read_doc(path: Path) -> Optional[str]:
+    """The text of a named document: "" for a file that is not a document, None for a document that cannot be
+    read (a symlink, a FIFO or another non-file, over :data:`DOC_MAX_BYTES`, not UTF-8), whose names are unknown."""
     if path.suffix.lower() not in DOC_SUFFIXES:
         return ""
     try:
         if path.is_symlink() or not path.is_file() or path.stat().st_size > DOC_MAX_BYTES:  # a FIFO blocks the read
-            return ""
+            return None
         return path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
-        return ""
+        return None
 
 
 def _named_closure(
@@ -177,27 +193,37 @@ def _named_closure(
     doc_links: Callable[[str], Iterable[Optional[str]]],
 ) -> tuple[set[str], bool]:
     """The bundled files that ``SKILL.md`` or a document it names mentions, followed from there, and whether
-    the search was incomplete: the document walk was truncated, or a named document was past the read cap.
+    the search was incomplete: the document walk was truncated, a named document was past the read cap, or a
+    named document could not be read (its names are unknown).
 
-    ``text`` and ``linked`` are the names of ``SKILL.md`` and its links; both grow with each document read.
+    ``text`` holds the names of ``SKILL.md``; ``linked`` the names of its links and of each document read. Each
+    pass checks the candidates against the text not yet checked (``unseen``), and each document read adds to it.
     """
     named_files: set[str] = set()
     docs_read = 0
     incomplete = len(docs) > WALK_MAX_FILES
     candidates = list(dict.fromkeys(files + docs))
+    unseen = text  # the text no candidate has been checked against yet: a candidate is only new against it
     while True:
-        new = [rel for rel in candidates if rel not in named_files and _named(rel, text, linked)]
+        new = [rel for rel in candidates if rel not in named_files and _named(rel, unseen, linked)]
         if not new:
             break
+        unseen = ""
         for rel in new:
             named_files.add(rel)
+            if PurePosixPath(rel).stem.lower() in NON_REFERENCE_STEMS:
+                continue
             if docs_read >= DOCS_READ_MAX:
                 incomplete = incomplete or PurePosixPath(rel).suffix.lower() in DOC_SUFFIXES
                 continue
-            if more := _read_doc(skill_dir / rel):
+            more = _read_doc(skill_dir / rel)
+            if more is None:  # named, but its text cannot be read: what it names is unknown
+                incomplete = True
+                continue
+            if more:
                 docs_read += 1
                 folder = PurePosixPath(rel).parent.as_posix()
-                text += "\n" + _matchable(_from_folder(more.lower(), folder))
+                unseen += "\n" + _matchable(_from_folder(more.lower(), folder))
                 linked.update(_target(folder, link) for link in doc_links(more) if link)
     return named_files, incomplete
 
