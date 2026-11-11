@@ -137,6 +137,21 @@ def test_a_standalone_path_with_a_space_that_exists_is_fine(tmp_path):
     assert review.findings == []
 
 
+def test_existing_paths_joined_by_a_separator_are_fine(tmp_path):
+    review, _ = _review(
+        tmp_path,
+        "Run `python scripts/a.py,scripts/b.py` and `scripts/a.py;scripts/b.py`.\n",
+        files=["scripts/a.py", "scripts/b.py"],
+    )
+    assert review.findings == []
+
+
+def test_a_missing_path_in_a_separator_joined_list_is_named_alone(tmp_path):
+    review, _ = _review(tmp_path, "Run `python scripts/a.py;scripts/zz.py`.\n", files=["scripts/a.py"])
+    [finding] = review.findings
+    assert finding.message.startswith("'scripts/zz.py' (in ")
+
+
 def test_a_malformed_quote_falls_back_to_whitespace_words(tmp_path):
     review, _ = _review(tmp_path, "Run `cp 'scripts/a.sh /tmp/x`.\n")
     [finding] = review.findings
