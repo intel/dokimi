@@ -37,9 +37,10 @@ def _publish(graph: dict, out: Path) -> None:
     guessed and planted: a symlink at a predictable staging name would send the write to
     an unrelated file in a shared directory.
     """
-    from dokimi.artifacts import save_artifact
+    from dokimi.artifacts import ArtifactValidationError, save_artifact
 
     stage_dir = None
+    keep_stage = False  # a rejected payload is kept beside the staged file, and the message names it
     try:
         stage_dir = Path(tempfile.mkdtemp(prefix=".eval-graph-", dir=out.parent))
         staged = stage_dir / out.name
@@ -57,12 +58,15 @@ def _publish(graph: dict, out: Path) -> None:
             except BaseException:  # a half-written file would be frozen and unreadable
                 out.unlink(missing_ok=True)
                 raise
+    except ArtifactValidationError:
+        keep_stage = True
+        raise
     except FileExistsError:
         raise _frozen(out) from None
     except OSError as exc:
         raise InputError(f"cannot write {out}: {exc.strerror or exc}") from exc
     finally:
-        if stage_dir is not None:
+        if stage_dir is not None and not keep_stage:
             shutil.rmtree(stage_dir, ignore_errors=True)
 
 

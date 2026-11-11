@@ -331,7 +331,7 @@ def test_a_spend_cap_without_a_known_price_stops_before_anything_is_written(tmp_
 
     result = _run(capsys, str(_skill(tmp_path)), "--out", str(out), "--max-usd", "5")
 
-    assert result.returncode == 1 and "nothing was written" in result.stderr
+    assert result.returncode == 1 and "no price is known" in result.stderr
     assert not out.exists()
 
 
