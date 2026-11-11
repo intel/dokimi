@@ -78,10 +78,10 @@ def _make_dir_and_file(directory: str, width: int | None) -> tuple[str, str]:
 
 
 def _name_width(child: str | None) -> int | None:
-    """The length the file system limits a name by: bytes on POSIX, characters on Windows."""
+    """The length the file system limits a name by: bytes on POSIX, UTF-16 code units on Windows."""
     if child is None:
         return None
-    return len(child) if os.name == "nt" else len(os.fsencode(child))
+    return len(child.encode("utf-16-le", "surrogatepass")) // 2 if os.name == "nt" else len(os.fsencode(child))
 
 
 def can_write(path: str | os.PathLike[str], *, make_dir: bool = False, child: str | None = None) -> bool:

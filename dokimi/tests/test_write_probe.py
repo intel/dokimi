@@ -234,6 +234,15 @@ def test_the_probe_file_is_as_long_as_the_output_name(tmp_path, monkeypatch, nam
     assert lengths == [len(name)]
 
 
+@pytest.mark.parametrize(("name", "writable"), [("é" * 200, True), ("\U0001d49c" * 200, False),
+                                                 ("\U0001d49c" * 127, True)])
+def test_on_windows_the_output_name_is_measured_in_utf16_units(tmp_path, monkeypatch, name, writable):
+    """NTFS limits a name to 255 UTF-16 units: 200 non-BMP characters are 400, so the probe refuses them."""
+    monkeypatch.setattr(os, "name", "nt")
+    # the probe file is ASCII of the name's width, so Linux's own 255-byte limit stands in for NTFS's
+    assert can_write(tmp_path, child=name) is writable
+
+
 def test_routing_out_with_a_name_over_the_limit_is_refused_before_any_run(tmp_path):
     from dokimi.commands.novelty_routing_inputs import checked_out_path
 
