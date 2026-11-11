@@ -90,6 +90,12 @@ def test_a_claude_cli_judge_is_an_alias_of_another_family():
     assert (args.judge_provider, args.judge_model) == ("claude-cli", "opus")
 
 
+def test_a_claude_cli_answerer_judges_on_its_cli_when_no_judge_provider_is_named():
+    # The CLI's argparse default (anthropic) must not stop the rule from taking the answerer's provider.
+    args = parse_args([*COMMANDS["arms run"], "--provider", "claude-cli", "--model", "sonnet", "--judge"])
+    assert (args.judge_provider, args.judge_model) == ("claude-cli", "opus")
+
+
 @pytest.mark.parametrize("answerer, provider, judge", [
     ("claude-sonnet-5-5", "anthropic", None),  # no other Anthropic default: refused
     ("claude-sonnet-5-5", "openai", DEFAULT_GENERATOR_MODEL),

@@ -150,6 +150,12 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
+def _names_judge_provider(token: str) -> bool:
+    """True for ``--judge-provider`` (``=value`` too) or an argparse abbreviation of it (``--judge-p``)."""
+    flag = token.split("=", 1)[0]
+    return flag.startswith("--judge-p") and "--judge-provider".startswith(flag)
+
+
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     """Parse ``argv`` (default ``sys.argv[1:]``), then fill in defaults that hang on another flag.
 
@@ -172,8 +178,17 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         matrix = getattr(args, "matrix_cells", None) or getattr(args, "matrix_cell", None)
         answerer, answerer_provider = (None, None) if matrix else (getattr(args, "model", None),
                                                                     getattr(args, "provider", None))
+        # argparse fills --judge-provider with its default (anthropic), so the rule could not see that no provider was
+        # named. A claude-cli answerer with no --judge-provider given judges on its own CLI: the rule picks the alias.
+        named = any(_names_judge_provider(t) for t in raw)
+        on_cli = answerer_provider is not None and llm_cli.backend(answerer_provider) is not None
+        follow_answerer = on_cli and not named
         try:
-            args.judge_model, _ = default_judge(answerer, args.judge_provider, answerer_provider)
+            judge_model, judge_provider = default_judge(answerer, None if follow_answerer else args.judge_provider,
+                                                        answerer_provider)
+            args.judge_model = judge_model
+            if follow_answerer:
+                args.judge_provider = judge_provider
         except JudgeIsAnswerer as e:
             # Only a run that judges is refused: arms run, subjects run and benchmark preflight judge with
             # --judge (or not at all), so without it the judge is the base default, as before the rule.
