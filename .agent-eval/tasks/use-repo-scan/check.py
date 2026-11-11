@@ -80,7 +80,9 @@ def manifest_metrics() -> dict:
                             "--json"], capture_output=True, text=True, timeout=300)
         print(p.stderr[-1500:])
         if p.returncode == 0:
-            data = json.loads(p.stdout).get("data") or {}  # cli_output.v1: the scan payload sits under data
+            payload = json.loads(p.stdout)
+            # The task's base commit prints the scan flat; a cli_output.v1 envelope keeps it under data.
+            data = payload["data"] if isinstance(payload.get("data"), dict) else payload
             out["scan_covers_agents_md"] = "AGENTS.md" in data.get("files", [])
             fails = {(c.get("file"), str(c.get("claim"))) for c in data.get("claims", [])
                      if str(c.get("status", "")).startswith("fail")}
