@@ -84,6 +84,11 @@ def test_a_comma_ends_the_operands_of_a_prose_double_dash():
     assert grade_check(_veto(), "q", "Use perf report --stdio -- it, and --bogus works too", None).passed is False
 
 
+def test_a_comma_inside_a_word_after_a_standalone_double_dash_is_an_operand():
+    # "0,1" is one word of the wrapped command: the operands run on past it to the flag after.
+    assert grade_check(_veto(), "q", "perf report --stdio -- taskset -c 0,1 ./prog --foo", None).passed is True
+
+
 @pytest.mark.parametrize("answer", [
     "Run perf report --stdio. Try --bogus elsewhere.",  # the sentence end
     "perf report --stdio | grep --bogus",  # a pipe
