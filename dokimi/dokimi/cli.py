@@ -77,6 +77,13 @@ def _label_routes(parser: argparse.ArgumentParser, prefix: tuple[str, ...] = ())
 class _RoutedParser(argparse.ArgumentParser):
     """The top-level parser. Its ``--help`` lists the roots by section (``dokimi.cli_routes``)."""
 
+    def parse_known_args(self, args=None, namespace=None):
+        ns, extras = super().parse_known_args(args, namespace)
+        # An option before the leaf name ends up here: the parsed leaf's namespace has its kind and --json.
+        if extras and _emits_cli_output(ns):
+            _usage_document(getattr(ns, "cli_kind", ns.cmd), f"unrecognized arguments: {' '.join(extras)}")
+        return ns, extras
+
     def format_help(self) -> str:
         sub = _subparsers(self)
         listed = {action.dest: action for action in sub._choices_actions} if sub else {}
@@ -105,35 +112,51 @@ class _RoutedParser(argparse.ArgumentParser):
 
 def _usage_document(kind: str, message: str) -> None:
     """A --json leaf's usage error (a bad value, a missing or unknown argument) prints its failed document first;
-    argparse then prints its usage on stderr and exits 2."""
+    argparse then prints its usage on stderr and exits 2. One document per run: a leaf that already printed
+    its own (its extras, reported again by the root) keeps it."""
     from dokimi import cli_output
 
+    if cli_output.printed():
+        return
     cli_output.emit(cli_output.envelope(kind, run_id=cli_output.current_run_id(), status="failed", reason=message,
                                         error={"code": "input", "message": message, "retryable": False, "field": None}))
 
 
-def _json_leaf_argv() -> bool:
-    return "--json" in sys.argv[1:]
-
-
+def _json_requested(parser: argparse.ArgumentParser, tokens: Sequence[str]) -> bool:
+    """True when argparse reads ``--json`` as this parser's option in ``tokens``: the exact token, a prefix
+    argparse accepts (``--jso``), or ``--json=<value>``. Tokens after a bare ``--`` are positional."""
+    for token in tokens:
+        if token == "--":
+            return False
+        name = token.partition("=")[0]
+        if len(name) < 3 or not name.startswith("--") or not "--json".startswith(name):
+            continue
+        if name == "--json":
+            return True
+        if parser.allow_abbrev and [o for o in parser._option_string_actions if o.startswith(name)] == ["--json"]:
+            return True
+    return False
 
 
 class _LeafParser(argparse.ArgumentParser):
     """A subcommand's parser: under --json, a usage error of an opted-in leaf prints its document too."""
+
+    _json_argv = False  # set per parse: whether this leaf's own tokens ask for --json
 
     def _document_kind(self) -> str:
         # the same kind _document_on_exit writes: the leaf's cli_kind, else its name ("backends", not "dokimi backends")
         return self._defaults.get("cli_kind") or self.prog.removeprefix("dokimi ")
 
     def error(self, message: str) -> NoReturn:
-        if self._defaults.get("emits_cli_output") and _json_leaf_argv():
+        if self._defaults.get("emits_cli_output") and self._json_argv:
             _usage_document(self._document_kind(), message)
         super().error(message)
 
     def parse_known_args(self, args=None, namespace=None):
+        self._json_argv = _json_requested(self, sys.argv[1:] if args is None else args)
         ns, extras = super().parse_known_args(args, namespace)
         # argparse reports these on the root parser, which knows no leaf: the document comes from here.
-        if extras and self._defaults.get("emits_cli_output") and _json_leaf_argv():
+        if extras and self._defaults.get("emits_cli_output") and self._json_argv:
             _usage_document(self._document_kind(), f"unrecognized arguments: {' '.join(extras)}")
         return ns, extras
 
@@ -256,12 +279,12 @@ def main() -> None:
     if threading.current_thread() is threading.main_thread():  # signal.signal works only there
         process.install_signal_handlers()  # SIGTERM/SIGHUP: kill the process groups we started, then exit
     tolerate_console_encoding()
-    args = parse_args()
     from dokimi import cli_output
     from dokimi.artifacts import run_id
     from dokimi.utils import InputError
 
-    cli_output.reset()
+    cli_output.reset()  # before the parse: a usage error prints its document from there
+    args = parse_args()
 
     try:
         run_id()  # a malformed DOKIMI_RUN_ID stops here, not at the first save after paid calls

@@ -192,6 +192,10 @@ def test_a_json_leaf_that_exits_without_its_document_prints_one_with_the_same_co
     (["repo", "budget", "--json"], "repo budget", "the following arguments are required: source"),
     (["repo", "validate", ".", "--json", "--no-such-flag"], "repo validate", "unrecognized arguments: --no-such-flag"),
     (["repo", "validate", ".", "--json", "--cache-dir"], "repo validate", "argument --cache-dir: expected one argument"),
+    (["repo", "validate", ".", "--jso", "--no-such-flag"], "repo validate", "unrecognized arguments: --no-such-flag"),
+    (["repo", "validate", ".", "--json=true"], "repo validate", "argument --json: ignored explicit argument 'true'"),
+    (["--no-such-flag", "repo", "validate", ".", "--json"], "repo validate", "unrecognized arguments: --no-such-flag"),
+    (["repo", "--no-such-flag", "validate", ".", "--json"], "repo validate", "unrecognized arguments: --no-such-flag"),
 ])
 def test_a_json_leaf_usage_error_prints_its_failed_document_with_exit_2(monkeypatch, capsys, argv, kind, message):
     with pytest.raises(SystemExit) as exc:
@@ -301,3 +305,60 @@ def test_catalog_formats_json_is_the_envelope_with_its_packages_under_data(tmp_p
     assert doc["kind"] == "catalog formats" and doc["status"] == "complete"
     assert doc["data"]["root"] == str(tmp_path) and doc["data"]["packages"] == []
     assert schema_errors("cli_output.v1", doc) == []
+
+
+def test_a_json_after_a_bare_double_dash_is_not_a_json_request(monkeypatch, capsys):
+    with pytest.raises(SystemExit) as exc:
+        _run_main(monkeypatch, ["repo", "budget", "--", "--json"])
+    assert exc.value.code == 2
+    assert capsys.readouterr().out == ""  # the --json after -- is a positional: no document
+
+
+@pytest.mark.parametrize("code, error_code, retryable", [(1, None, None), (2, "input", False), (5, "infra", True)])
+def test_a_json_leaf_exit_without_its_document_pins_status_error_and_retryable(monkeypatch, capsys, code,
+                                                                               error_code, retryable):
+    from dokimi.commands import backends
+
+    def leave(args):
+        print("✗ nope", file=sys.stderr)
+        sys.exit(code)
+
+    monkeypatch.setattr(backends, "cmd_backends", leave)
+    with pytest.raises(SystemExit) as exc:
+        _run_main(monkeypatch, ["backends", "--json"])
+    assert exc.value.code == code
+    doc = json.loads(capsys.readouterr().out)
+    assert doc["kind"] == "backends" and doc["status"] == "failed"
+    assert doc["reason"] == f"exit {code}: see stderr"
+    if error_code is None:
+        assert doc["error"] is None
+    else:
+        assert doc["error"]["code"] == error_code and doc["error"]["retryable"] is retryable
+    assert schema_errors("cli_output.v1", doc) == []
+
+
+def test_a_json_leaf_that_exits_0_without_a_document_prints_nothing(monkeypatch, capsys):
+    from dokimi.commands import backends
+
+    def done(args):
+        sys.exit(0)
+
+    monkeypatch.setattr(backends, "cmd_backends", done)
+    with pytest.raises(SystemExit) as exc:
+        _run_main(monkeypatch, ["backends", "--json"])
+    assert exc.value.code == 0
+    assert capsys.readouterr().out == ""
+
+
+def test_a_group_leaf_that_exits_1_names_itself_in_its_document(monkeypatch, capsys):
+    from dokimi.commands import runs
+
+    def fail(args):
+        sys.exit(1)
+
+    monkeypatch.setattr(runs, "cmd_runs_list", fail)
+    with pytest.raises(SystemExit) as exc:
+        _run_main(monkeypatch, ["runs", "list", "--json"])
+    assert exc.value.code == 1
+    doc = json.loads(capsys.readouterr().out)
+    assert doc["kind"] == "runs list" and doc["error"] is None
