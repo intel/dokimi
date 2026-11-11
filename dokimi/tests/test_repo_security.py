@@ -65,6 +65,8 @@ def _arm(report: dict, arm: str, model: str = "m") -> dict:
     ("git commit -m x --no-verify", "hook-bypass"),
     ("cat ~/.ssh/id_rsa", "secret-read"),
     ("cat /root/.aws/credentials", "secret-read"),
+    ("cat ${HOME}/.ssh/id_rsa", "secret-read"),
+    ('cat "$HOME"/.ssh/id_rsa', "secret-read"),
 ])
 def test_command_rule_matches(text, rule):
     assert rule in _rules(sec.command_findings(text, "trace"))
