@@ -112,16 +112,38 @@ def test_the_saved_analysis_is_a_persona_analysis_artifact_of_the_same_run(
     }
 
 
-def test_a_persona_the_schema_refuses_is_kept_as_rejected_and_exits_1(
-        tmp_path, monkeypatch, capsys, persona_reply):
-    """The generator checks that a persona's fields are there, not their types: an integer id."""
+def test_a_persona_the_model_gives_other_types_is_saved_with_the_schemas_types(
+        tmp_path, monkeypatch, persona_reply):
+    """A model quirk is not a rejected save: an integer id becomes text, a single concern a list."""
+    persona_reply["personas"] = [{**PERSONA, "id": 7, "skill_level": None, "concerns": "overhead"}]
+    out = tmp_path / "lib.json"
+    assert _discover(monkeypatch, out, "--description", "A library") == 0
+
+    assert _saved(out, "personas")["personas"] == [
+        {**PERSONA, "id": "7", "skill_level": "", "concerns": ["overhead"]}]
+
+
+def test_an_evaluate_run_goes_on_past_a_persona_the_model_gives_other_types(tmp_path, persona_reply):
+    """The pipeline's personas step saves the same way, so the run is not stopped by the schema."""
+    from dokimi.orchestrator.pipeline import EvaluationPipeline
+
     persona_reply["personas"] = [{**PERSONA, "id": 7}]
+    pipeline = EvaluationPipeline(product="lib", description="A library", product_key="lib",
+                                  output_dir=tmp_path / "run")
+    assert pipeline._discover_personas()["personas"][0]["id"] == "7"
+    assert _saved(tmp_path / "run" / "personas" / "lib.json", "personas")["personas"][0]["id"] == "7"
+
+
+def test_a_personas_file_the_schema_refuses_is_kept_as_rejected_and_exits_1(
+        tmp_path, monkeypatch, capsys, persona_reply):
+    """A generated_at that is not text (a writer bug) is refused; the paid personas are kept."""
+    monkeypatch.setattr(generator_mod.PersonaGenerator, "_get_timestamp", lambda _self: None)
     out = tmp_path / "lib.json"
     assert _discover(monkeypatch, out, "--description", "A library") == 1
 
-    assert _rejected(out)["personas"][0]["id"] == 7
+    assert _rejected(out)["personas"] == [PERSONA]
     err = capsys.readouterr().err
-    assert err.startswith("Error: personas artifact rejected: ") and "personas/0/id" in err
+    assert err.startswith("Error: personas artifact rejected: ") and "generated_at" in err
 
 
 def test_an_analysis_the_schema_refuses_is_kept_as_rejected_and_exits_1(

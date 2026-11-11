@@ -71,6 +71,23 @@ Important:
 """
 
 
+_TEXT_FIELDS = ("id", "name", "description", "skill_level")
+_LIST_FIELDS = ("concerns", "typical_questions")
+
+
+def _typed(persona: Dict[str, Any]) -> Dict[str, Any]:
+    """``persona`` with the types the personas schema holds: a text field the model gave as another
+    value becomes text, a list field given as one value a one-item list (``None``: empty)."""
+    out = dict(persona)
+    for key in _TEXT_FIELDS:
+        if not isinstance(out[key], str):
+            out[key] = "" if out[key] is None else str(out[key])
+    for key in _LIST_FIELDS:
+        if not isinstance(out[key], list):
+            out[key] = [] if out[key] is None else [out[key]]
+    return out
+
+
 class PersonaGenerator:
     """
     Generate persona proposals using LLM analysis.
@@ -176,6 +193,7 @@ class PersonaGenerator:
                 if missing:
                     raise ValueError(f"Persona missing required fields: {missing}")
             
+            personas = [_typed(persona) for persona in personas]
             result = {
                 "product": library_name,
                 "generated_at": self._get_timestamp(),
