@@ -23,11 +23,11 @@ from dokimi.defaults import (
     DEFAULT_ANSWER_PROVIDER,
     DEFAULT_JUDGE_PROVIDER,
     JUDGE_MODEL_FOR_PROVIDER,
-    default_judge_model,
 )
 from dokimi.eval.arms_refusals import refuse_cli_arms, refuse_cli_cell, refuse_cli_cell_model
 from dokimi.eval.cells import HARNESS_ARMS_RUNNER, MatrixCellDescriptor
 from dokimi.eval.question_text import EmptyQuestionError
+from dokimi.judge_rule import JudgeIsAnswerer, default_judge
 from dokimi.utils import InputError, check_bedrock_model, question_id, warn_judge_independence
 
 if TYPE_CHECKING:
@@ -56,7 +56,7 @@ class ArmsRunConfig:
     baseline_arm: str = "baseline"
     stats_correction: str = "holm"
     judge: bool = False
-    #: Left out, the default judge that runs on ``judge_provider``, as for ``--judge-model``.
+    #: Left out, the default judge on ``judge_provider`` that is not the answerer's family (``model``), as for ``--judge-model``.
     judge_model: str = JUDGE_MODEL_FOR_PROVIDER
     judge_provider: str = DEFAULT_JUDGE_PROVIDER
     judge_temperature: float | None = None
@@ -74,10 +74,14 @@ class ArmsRunConfig:
 
     def __post_init__(self) -> None:
         if self.judge_model is JUDGE_MODEL_FOR_PROVIDER:
-            model = default_judge_model(self.judge_provider)
-            if model is None:
-                raise ValueError(f"judge provider {self.judge_provider!r} has no default judge "
-                                 f"model; pass judge_model")
+            # The shared rule (judge_rule.default_judge): not the answerer's family, on the judge's provider.
+            try:
+                model, _ = default_judge(self.model, self.judge_provider, self.provider)
+            except JudgeIsAnswerer:
+                if self.judge:
+                    raise
+                # arms run judges only with --judge: a run that does not judge is not refused, and keeps the base default.
+                model, _ = default_judge(None, self.judge_provider)
             object.__setattr__(self, "judge_model", model)
 
 

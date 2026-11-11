@@ -40,7 +40,8 @@ from dokimi.commands import (
 )
 from dokimi import __version__, cli_routes, llm_cli, process
 from dokimi.console import tolerate_console_encoding
-from dokimi.defaults import JUDGE_MODEL_FOR_PROVIDER, default_judge_model
+from dokimi.defaults import JUDGE_MODEL_FOR_PROVIDER
+from dokimi.judge_rule import JudgeIsAnswerer, default_judge
 
 
 def _subparsers(parser: argparse.ArgumentParser) -> argparse._SubParsersAction | None:
@@ -166,11 +167,22 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         parser.exit(2, cli_routes.moved_text(moved_flags) + "\n")
     args = parser.parse_args(raw)
     if getattr(args, "judge_model", None) is JUDGE_MODEL_FOR_PROVIDER:
-        model = default_judge_model(args.judge_provider)
-        if model is None:
-            parser.error(f"--judge-provider {args.judge_provider} has no default judge model; "
-                         f"pass --judge-model")
-        args.judge_model = model
+        # The shared rule (judge_rule.default_judge): the answerer is the command's --model/--provider, when it has them.
+        # With --matrix-cells / --matrix-cell every cell sets its own model, so the top-level one is no answerer.
+        matrix = getattr(args, "matrix_cells", None) or getattr(args, "matrix_cell", None)
+        answerer, answerer_provider = (None, None) if matrix else (getattr(args, "model", None),
+                                                                    getattr(args, "provider", None))
+        try:
+            args.judge_model, _ = default_judge(answerer, args.judge_provider, answerer_provider)
+        except JudgeIsAnswerer as e:
+            # Only a run that judges is refused: arms run, subjects run and benchmark preflight judge with
+            # --judge (or not at all), so without it the judge is the base default, as before the rule.
+            if not getattr(args, "judge", True):
+                args.judge_model, _ = default_judge(None, args.judge_provider)
+            else:
+                parser.error(str(e))
+        except ValueError as e:
+            parser.error(str(e))
     judge_provider, judge_model = getattr(args, "judge_provider", None), getattr(args, "judge_model", None)
     if judge_provider in llm_cli.BACKENDS and judge_model is not None \
             and not llm_cli.accepts_model(judge_provider, judge_model):

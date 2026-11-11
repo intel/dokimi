@@ -463,9 +463,11 @@ def test_an_unanswered_login_check_is_a_warning_not_a_pass(monkeypatch):
 
 
 def test_the_default_judge_runs_on_the_cli():
-    from dokimi.defaults import DEFAULT_JUDGE_MODEL, default_judge_model
+    from dokimi.defaults import DEFAULT_GENERATOR_MODEL
+    from dokimi.judge_rule import default_judge
 
-    assert default_judge_model("claude-cli") == DEFAULT_JUDGE_MODEL
+    # The shared rule: the first Claude alias not of the answerer's family (a gpt answerer: opus).
+    assert default_judge(DEFAULT_GENERATOR_MODEL, "claude-cli") == ("opus", "claude-cli")
 
 
 def test_a_cli_provider_needs_a_claude_model_on_the_command_line():

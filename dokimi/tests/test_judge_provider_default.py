@@ -14,8 +14,9 @@ from dokimi.defaults import (
     DEFAULT_GENERATOR_MODEL,
     DEFAULT_JUDGE_MODEL,
     JUDGE_MODEL_FOR_PROVIDER,
-    default_judge_model,
 )
+from dokimi.eval.arms_run import ArmsRunConfig
+from dokimi.judge_rule import default_judge
 
 
 def _judge_commands() -> dict[str, list[str]]:
@@ -43,6 +44,9 @@ def _judge_commands() -> dict[str, list[str]]:
 
 
 COMMANDS = _judge_commands()
+#: The commands that answer a question (have ``--model``); the ``eval score``/``eval judge`` ones only grade.
+ANSWERED_COMMANDS = {"arms run", "arms matrix-run", "benchmark run", "benchmark preflight",
+                     "benchmark batch", "evaluate", "subjects run"}
 
 
 def test_the_commands_that_take_a_judge_provider_are_all_covered():
@@ -57,18 +61,49 @@ def test_the_commands_that_take_a_judge_provider_are_all_covered():
 def test_every_judge_command_defaults_the_model_to_its_provider(command):
     argv = COMMANDS[command]
     assert build_parser().parse_args(argv).judge_model is JUDGE_MODEL_FOR_PROVIDER
+    # The answerer is the default gpt-6.1-sol; a command with no answerer (eval score/judge) judges it.
+    if command in ANSWERED_COMMANDS:
+        argv = [*argv, "--model", DEFAULT_JUDGE_MODEL]
     assert parse_args([*argv, "--judge-provider", "openai"]).judge_model == DEFAULT_GENERATOR_MODEL
 
 
 @pytest.mark.parametrize("provider, model", [
     ("anthropic", DEFAULT_JUDGE_MODEL),
     ("amazon-bedrock", DEFAULT_JUDGE_MODEL),
-    ("openai", DEFAULT_GENERATOR_MODEL),
 ])
 def test_a_provider_alone_takes_the_default_judge_that_runs_there(provider, model):
     args = parse_args([*COMMANDS["eval score pointwise"], "--judge-provider", provider])
     assert (args.judge_provider, args.judge_model) == (provider, model)
     assert type(args.judge_model) is str
+
+
+def test_a_provider_alone_whose_default_judge_is_the_answerer_exits(capsys):
+    # The default answerer gpt-6.1-sol is the only default on openai: the shared rule refuses it.
+    with pytest.raises(SystemExit) as exc:
+        parse_args([*COMMANDS["benchmark run"], "--judge-provider", "openai"])
+    assert exc.value.code == 2
+    assert "--judge-provider openai: the default judge there is the model under measurement" in capsys.readouterr().err
+
+
+def test_a_claude_cli_judge_is_an_alias_of_another_family():
+    args = parse_args([*COMMANDS["arms run"], "--judge-provider", "claude-cli"])
+    assert (args.judge_provider, args.judge_model) == ("claude-cli", "opus")
+
+
+@pytest.mark.parametrize("answerer, provider, judge", [
+    ("claude-sonnet-5-5", "anthropic", None),  # no other Anthropic default: refused
+    ("claude-sonnet-5-5", "openai", DEFAULT_GENERATOR_MODEL),
+    ("gpt-6.1-sol", "claude-cli", "opus"),
+])
+def test_arms_run_judge_is_not_the_answerer(answerer, provider, judge):
+    if judge is None:
+        with pytest.raises(ValueError, match="pass --judge-model as well"):
+            ArmsRunConfig(product="demo", model=answerer, provider="openai", judge_provider=provider, judge=True)
+        # Not judging, the conflict is not a refusal: nothing reads the judge.
+        assert ArmsRunConfig(product="demo", model=answerer, provider="openai", judge_provider=provider).judge is False
+    else:
+        config = ArmsRunConfig(product="demo", model=answerer, provider="openai", judge_provider=provider, judge=True)
+        assert config.judge_model == judge
 
 
 def test_no_judge_flags_keep_the_default_judge():
@@ -105,8 +140,9 @@ def test_a_provider_with_no_default_judge_exits_before_running(provider, capsys)
 
 def test_the_placeholder_reads_as_the_default_judge_without_parse_args():
     assert JUDGE_MODEL_FOR_PROVIDER == DEFAULT_JUDGE_MODEL
-    assert default_judge_model("openai") == DEFAULT_GENERATOR_MODEL
-    assert default_judge_model("google") is None
+    assert default_judge(None, "openai") == (DEFAULT_GENERATOR_MODEL, "openai")
+    with pytest.raises(ValueError, match="has no default judge model"):
+        default_judge(None, "google")
 
 
 def test_the_legacy_cli_shim_exports_the_resolving_parse_args():
@@ -121,4 +157,18 @@ def test_the_legacy_cli_shim_exports_the_resolving_parse_args():
     assert "parse_args" in shim.__all__
     assert shim.parse_args is parse_args
     args = shim.parse_args([*COMMANDS["eval score pointwise"], "--judge-provider", "openai"])
+    assert args.judge_model == DEFAULT_GENERATOR_MODEL
+
+
+def test_preflight_judges_nothing_so_a_default_judge_on_the_answerer_is_not_refused():
+    # benchmark preflight makes no LLM call and has no --judge: the judge is the base default, not a refusal.
+    args = parse_args(["benchmark", "preflight", "--library", "onetbb", "--judge-provider", "openai"])
+    assert args.judge_model == DEFAULT_GENERATOR_MODEL
+
+
+def test_a_matrix_run_takes_no_top_level_model_as_its_answerer(tmp_path):
+    # Every matrix cell sets its own model, so the default top-level --model is not the answerer.
+    args = parse_args(["arms", "matrix-run", "--product", "p", "--questions", "q.jsonl",
+                       "--arms", "a.json", "--matrix-cells", str(tmp_path / "cells.json"),
+                       "--judge", "--judge-provider", "openai"])
     assert args.judge_model == DEFAULT_GENERATOR_MODEL
