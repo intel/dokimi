@@ -154,7 +154,8 @@ def test_the_json_row_has_the_finding(tmp_path, capsys):
 
 
 @pytest.mark.parametrize("opener", ["  ---\nname: indent\ndescription: y\n  ---\n# X\n",
-                                    "\n---\nname: late\ndescription: y\n---\n# Late\n"])
+                                    "\n---\nname: late\ndescription: y\n---\n# Late\n",
+                                    "<!-- generated -->\n---\nname: deck\ndescription: Use when decks.\n---\n# Deck\n"])
 def test_indented_or_late_frontmatter_is_a_broken_skill_not_plain_markdown(tmp_path, opener):
     # The loader's error stands for it, as for frontmatter after a blank line: no hint, and the scan fails.
     _plain(tmp_path, "broken", opener)

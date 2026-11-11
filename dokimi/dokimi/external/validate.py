@@ -400,6 +400,14 @@ def _skill_digest(skill: Skill) -> str:
     return hashlib.sha256(skill.path.read_bytes()).hexdigest()
 
 
+def _has_late_frontmatter(lines: list[str]) -> bool:
+    """Whether a line that is exactly ``---`` is followed by a ``name:`` or ``description:`` line in the first 20 lines."""
+    return any(
+        lines[i].rstrip() == "---" and lines[i + 1].startswith(("name:", "description:"))
+        for i in range(min(len(lines) - 1, 20))
+    )
+
+
 def _unloaded_review(entry: SkillCatalogEntry) -> Optional[SkillReview]:
     """A review for an entry that did not load, only when its ``SKILL.md`` is plain Markdown (no frontmatter) or
     has broken YAML; else None.
@@ -422,8 +430,8 @@ def _unloaded_review(entry: SkillCatalogEntry) -> Optional[SkillReview]:
         return None  # an empty file is not prose: the loader's error stands
     lines = text.lstrip("\ufeff").splitlines()
     first = next((line.rstrip() for line in lines if line.strip()), "")
-    if first.strip() == "---" and lines[0].rstrip() != "---":
-        return None  # frontmatter after blank lines or indented: a broken skill, not prose; the loader's error stands
+    if (first.strip() == "---" and lines[0].rstrip() != "---") or (first.strip() != "---" and _has_late_frontmatter(lines)):
+        return None  # frontmatter after blank lines, an indent or another line: a broken skill, not prose; the loader's error stands
     if first.strip() != "---":
         at_root = candidate.parent.resolve() == entry.source_root.resolve()  # as _frontmatter_findings reads it
         hint = no_frontmatter_message(lines, _dir_name_of(candidate.parent), at_root=at_root)
