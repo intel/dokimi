@@ -15,8 +15,7 @@ from typing import TYPE_CHECKING, Any, NoReturn
 if TYPE_CHECKING:
     from dokimi.repos import RepoSource
 
-from dokimi import cli_flags
-from dokimi import cli_output
+from dokimi import cli_flags, cli_output
 from dokimi.commands.repo_skill_reach import add_skill_reach_parser
 from dokimi.exit_codes import EXIT_USAGE
 from dokimi.commands.repo_scan import _print_scan_text, _typecheck_or_exit
