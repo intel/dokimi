@@ -257,10 +257,11 @@ def test_no_typed_manifest_or_a_manifest_file_leaves_the_manifest_path_unchecked
 
 @pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
 def test_git_tree_follows_a_link_before_it_goes_up_a_level(tmp_path):
-    from dokimi.repos.source import GitTree, SourceArgumentError
+    from dokimi.repos.source import GitTree, SourceArgumentError, SourceError
 
     tree = tmp_path / "t"
     (tree / "sub" / "deep").mkdir(parents=True)
+    (tree / "sub" / "deep" / "f.txt").write_text("deep", encoding="utf-8")  # git holds no empty directory
     (tree / "repo-eval.yaml").write_text("root", encoding="utf-8")
     (tree / "sub" / "repo-eval.yaml").write_text("sub", encoding="utf-8")
     try:
@@ -281,3 +282,11 @@ def test_git_tree_follows_a_link_before_it_goes_up_a_level(tmp_path):
     assert git_tree.resolve("link/../../repo-eval.yaml") == "repo-eval.yaml"
     with pytest.raises(SourceArgumentError, match="^path escapes the repository: link/../../../repo-eval.yaml$"):
         git_tree.resolve("link/../../../repo-eval.yaml")
+    # A `..` after a directory the tree lacks is no path, as ENOENT is in a checkout; a file is no directory either.
+    for missing in ("nope/../repo-eval.yaml", "repo-eval.yaml/../repo-eval.yaml"):
+        assert not git_tree.is_file(missing)
+        assert not git_tree.is_dir(missing)
+        with pytest.raises(SourceError, match="^not a directory in "):
+            git_tree.read_text(missing)
+    assert not git_tree.is_dir("nope/..")
+    assert git_tree.is_dir("sub/..")

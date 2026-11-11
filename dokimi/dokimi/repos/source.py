@@ -41,6 +41,10 @@ class SourceError(ValueError):
     """Raised for an unusable source spec or a git operation that failed."""
 
 
+class _NoSuchPath(SourceError):
+    """A path walks up out of a directory the tree does not have, which a checkout answers with ENOENT."""
+
+
 class SourceArgumentError(SourceError):
     """A source or a path that is wrong as given or as laid out: a local path that is not the repository
     root, a path that leaves the tree, a link that goes nowhere. No git operation failed, so a caller
@@ -215,10 +219,16 @@ class GitTree:
         return self._dirs
 
     def is_file(self, path: str) -> bool:
-        return self._follow(path, follow_last=False) in set(self.files())
+        try:
+            return self._follow(path, follow_last=False) in set(self.files())
+        except _NoSuchPath:
+            return False
 
     def is_dir(self, path: str) -> bool:
-        return self._follow(path, follow_last=False) in self._dir_set()
+        try:
+            return self._follow(path, follow_last=False) in self._dir_set()
+        except _NoSuchPath:
+            return False
 
     def _links(self) -> set[str]:
         if self._symlinks is None:
@@ -236,7 +246,8 @@ class GitTree:
 
     def _follow(self, path: str, follow_last: bool = True) -> str:
         """The tree path ``path`` names, walked one component at a time: a ``..`` after a link goes up from the
-        link's target, as in a checkout. :class:`SourceArgumentError` if it leaves the tree or loops."""
+        link's target, as in a checkout. :class:`SourceArgumentError` if it leaves the tree or loops; a ``..``
+        after a directory the tree does not have is not a path (ENOENT in a checkout)."""
         if posixpath.isabs(path):
             raise SourceArgumentError(f"path escapes the repository: {path}")
         links = self._links()
@@ -250,6 +261,8 @@ class GitTree:
             if part == "..":
                 if not walked:
                     raise SourceArgumentError(f"path escapes the repository: {via or path}")
+                if "/".join(walked) not in self._dir_set():
+                    raise _NoSuchPath(f"not a directory in {self.sha[:12]}: {'/'.join(walked)}")
                 walked.pop()
                 continue
             walked.append(part)
