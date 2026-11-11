@@ -21,7 +21,11 @@ context layer and reports the delta together with its significance.
 Context layers it can measure: local Markdown/URL documentation, Context7 and
 real MCP servers, skills (`SKILL.md` and bundles), agent profiles (system
 prompts), plugins, and whole code repositories with their own tasks and graders
-(manifest validation and pinned sources today; the task-run contract is proposed).
+(validation, pinned sources, task runs, reports and comparisons are implemented;
+individual extensions remain proposed).
+
+Explore the [feature tree and 48 illustrated cards](https://github.com/intel/dokimi/blob/main/dokimi/docs/features/README.md)
+for the full capability map, including partial workflows and development directions.
 
 Evidence tracks:
 
