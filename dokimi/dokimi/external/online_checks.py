@@ -464,8 +464,11 @@ def _distinct_urls(body: str) -> tuple[list[str], list[str]]:
     body = "\n".join(outside_fences(body))  # a fenced block is code: its URLs are an example, not a link to follow
     literal = {m.end() for m in _LITERAL_START_RE.finditer(body)}
     body = body.replace("](", "  ")  # a markdown link's text and its target are both URLs; the length is kept
+    code = [m.span() for m in _CODE_SPAN_RE.finditer(body)]  # a URL in a code span is an example, as in a fence
     for m in _URL_RE.finditer(body):
         if _TEMPLATE_RE.search(m.group()) or body[m.end():m.end() + 1] in ("<", "{", "$"):
+            continue
+        if any(start <= m.start() < end for start, end in code):
             continue
         destination = m.start() in literal or m.start() - 1 in literal  # also "](<url>)", which starts after "<"
         autolink = m.start() > 0 and body[m.start() - 1] == "<" and body[m.end():m.end() + 1] == ">"

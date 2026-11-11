@@ -597,6 +597,13 @@ def test_anchors_of_one_page_are_one_request_and_one_finding(tmp_path):
     assert web.requests == [("HEAD", "https://docs.example-tool.dev/guide"), ("GET", "https://docs.example-tool.dev/guide")]
 
 
+def test_a_url_in_a_code_span_is_an_example_not_a_link(tmp_path):
+    root = _one_skill(tmp_path, "Set the base URL to `https://api.example-tool.dev/v1` first.\n")
+
+    [review] = _reviews(root, Web({"https://api.example-tool.dev/v1": 404}))
+    assert _codes(review) == []
+
+
 def test_head_refused_but_get_working_is_not_dead(tmp_path):
     url = "https://docs.example-tool.dev/head-refused"
     root = _one_skill(tmp_path, f"See {url}\n")
