@@ -25,7 +25,7 @@ Defaults: `results/<target>_final/`, `openai/gpt-6.1-sol` answer model, `anthrop
 For fair model/context comparisons, seed once and reuse questions:
 
 ```bash
-python cli.py benchmark run --target onetbb --output-dir results/onetbb_seed
+python cli.py benchmark run --target onetbb --out-dir results/onetbb_seed
 python cli.py benchmark run --target onetbb --questions-from results/onetbb_seed --model gpt-6-astra
 ```
 

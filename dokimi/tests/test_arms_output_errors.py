@@ -32,7 +32,7 @@ def test_unwritable_out_json_exits_2_naming_the_path(tmp_path, capsys):
     blocker.write_text("x", encoding="utf-8")  # a regular file: nothing can be created below it
     target = blocker / "delta.json"
     with refusal() as exc:
-        _plugin_delta(tmp_path, "--out-json", str(target))
+        _plugin_delta(tmp_path, "--out", str(target))
     assert exc.code == 2
     err = capsys.readouterr().err
     assert f"Error: cannot write {target}" in err
@@ -43,7 +43,7 @@ def test_unwritable_out_md_exits_2_naming_the_path(tmp_path, capsys):
     out_md = tmp_path / "is-a-dir"
     out_md.mkdir()
     with refusal() as exc:
-        _plugin_delta(tmp_path, "--out-json", str(tmp_path / "delta.json"), "--out-md", str(out_md))
+        _plugin_delta(tmp_path, "--out", str(tmp_path / "delta.json"), "--out-md", str(out_md))
     assert exc.code == 2
     assert f"Error: cannot write {out_md}" in capsys.readouterr().err
 

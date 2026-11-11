@@ -401,7 +401,7 @@ def _run(argv: list[str]) -> None:
 def test_tasks_run_stages_swe_bench_rows_for_a_dry_run(tmp_path):
     out = tmp_path / "out"
     _run(["tasks", "run", "--swe-bench", str(FIXTURE), "--tasks", PYTEST_ID,
-          "--harnesses", "docker-oracle", "--output-dir", str(out), "--dry-run"])
+          "--harnesses", "docker-oracle", "--out-dir", str(out), "--dry-run"])
     assert (out / "swe-bench-tasks" / PYTEST_ID / "tests" / "eval.sh").is_file()
     runs = json.loads((out / "task_runs.json").read_text())
     assert [r["task"] for r in runs["results"]] == [PYTEST_ID]
@@ -410,7 +410,7 @@ def test_tasks_run_stages_swe_bench_rows_for_a_dry_run(tmp_path):
 def test_tasks_run_names_a_missing_swe_bench_instance(tmp_path):
     with pytest.raises(InputError, match="--swe-bench: .*no instance x__y-1"):
         _run(["tasks", "run", "--swe-bench", str(FIXTURE), "--tasks", "x__y-1",
-              "--harnesses", "docker-oracle", "--output-dir", str(tmp_path)])
+              "--harnesses", "docker-oracle", "--out-dir", str(tmp_path)])
 
 
 
@@ -421,7 +421,7 @@ def test_tasks_run_refuses_an_all_selection_with_no_runnable_row(tmp_path):
     out = tmp_path / "out"
     with pytest.raises(InputError, match="no runnable rows"):
         _run(["tasks", "run", "--swe-bench", str(data), "--all",
-              "--harnesses", "docker-oracle", "--output-dir", str(out), "--dry-run"])
+              "--harnesses", "docker-oracle", "--out-dir", str(out), "--dry-run"])
     assert not (out / "task_runs.json").exists()
 
 

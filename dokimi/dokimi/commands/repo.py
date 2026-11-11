@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any, NoReturn
 if TYPE_CHECKING:
     from dokimi.repos import RepoSource
 
+from dokimi import cli_flags
 from dokimi import cli_output
 from dokimi.commands.repo_skill_reach import add_skill_reach_parser
 from dokimi.exit_codes import EXIT_USAGE
@@ -745,7 +746,7 @@ def register(sub, positive_int, eval_sub) -> None:
                          help="Read a saved reach.json instead of probing: no harness runs, no cost. The source is "
                          "still read, to check the file's repository, harness and sha; the receipt goes beside the file")
     reach_p.add_argument("--bin", default=None, help="Harness executable (default: the profile's `bin`)")
-    reach_p.add_argument("--out", default=None, help="Output directory: reach.json and traces/ (default: reach-out)")
+    cli_flags.add(reach_p, "output", "--out-dir", dest="out", default=None, help="Output directory: reach.json and traces/ (default: reach-out)")
     reach_p.add_argument("--scenarios", default=None,
                          help="Comma list of scenario kinds: root, cwd, read, bash, shadow (default: root,cwd,read). "
                          "bash cats each probe file through the Bash tool, for a profile with a bash tool mode; "
@@ -764,7 +765,7 @@ def register(sub, positive_int, eval_sub) -> None:
     reach_p.add_argument("--keep", action="store_true", help="Keep the temporary workspace")
     reach_p.add_argument("--format", choices=["matrix", "receipt"], default="matrix",
                          help="matrix: the table (default). receipt: print the effective-instructions/v0 receipt as JSON and "
-                         "write it to effective_instructions.json in --out (docs/repo-evaluation-contract.md §7.1)")
+                         "write it to effective_instructions.json in --out-dir (docs/repo-evaluation-contract.md §7.1)")
     reach_p.add_argument("--dry-run", action="store_true", dest="dry_run",
                          help="Print the files and the exact argv of every scenario; run no harness. It makes the "
                          "checks a run makes before its first harness call, so it builds the workspace and removes it")

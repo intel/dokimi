@@ -9,6 +9,7 @@ import argparse
 import sys
 from pathlib import Path
 
+from dokimi import cli_flags
 from dokimi.utils import InputError
 
 _TASKS_ROOT_HELP = (
@@ -342,10 +343,10 @@ def register(sub, positive_int, eval_sub) -> None:
         help=("A SWE-bench dataset (.jsonl or .json rows); --tasks names instance ids. "
               "Each row runs in its prebuilt swebench/sweb.eval.* image (docker-* harnesses)."),
     )
-    run_p.add_argument("--output-dir", default="results/task-runs", dest="output_dir")
-    run_p.add_argument("--out-json", default=None, dest="out_json")
+    cli_flags.add(run_p, "output", "--out-dir", default="results/task-runs", dest="output_dir")
+    cli_flags.add(run_p, "output", "--out", default=None, dest="out_json")
     run_p.add_argument("--out-md", default=None, dest="out_md",
-                       help="Markdown report path (default: alongside --out-json)")
+                       help="Markdown report path (default: alongside --out)")
     run_p.add_argument(
         "--repeats", type=positive_int, default=1,
         help="Run each (task, harness) cell N times for pass-rate/cost variance (default: 1)",

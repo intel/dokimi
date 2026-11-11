@@ -34,7 +34,7 @@ get structurally better or worse?"
 python cli.py docs check \
   --root . \
   --spec benchmarks/spec.v1.yaml \
-  --out-json baselines/current.json \
+  --out baselines/current.json \
   --out-md reports/current.md
 ```
 
@@ -53,7 +53,7 @@ python cli.py docs compare \
   --base baselines/baseline.json \
   --candidate baselines/current.json \
   --spec benchmarks/spec.v1.yaml \
-  --out-json reports/compare.json \
+  --out reports/compare.json \
   --out-md reports/compare.md
 ```
 
@@ -128,7 +128,7 @@ python cli.py benchmark run \
   --provider openai \
   --judge-model claude-sonnet-5-5 \
   --judge-provider anthropic \
-  --output-dir results/onetbb_sol
+  --out-dir results/onetbb_sol
 ```
 
 The run writes:
@@ -158,7 +158,7 @@ python cli.py benchmark run \
   --judge-model claude-sonnet-5-5 \
   --judge-provider anthropic \
   --multi-run 3 \
-  --output-dir results/onetbb_sol
+  --out-dir results/onetbb_sol
 ```
 
 Multi-run mode creates numbered run directories and prints the mean and
@@ -175,7 +175,7 @@ python cli.py benchmark run \
   --model gpt-6.1-sol \
   --judge-model claude-sonnet-5-5 \
   --judge-provider anthropic \
-  --output-dir results/onedal_seed
+  --out-dir results/onedal_seed
 ```
 
 Then reuse that question set for each model:
@@ -188,7 +188,7 @@ python cli.py benchmark run \
   --provider openai \
   --judge-model claude-sonnet-5-5 \
   --judge-provider anthropic \
-  --output-dir results/onedal_astra
+  --out-dir results/onedal_astra
 
 python cli.py benchmark run \
   --library onedal \
@@ -197,7 +197,7 @@ python cli.py benchmark run \
   --provider anthropic \
   --judge-model claude-sonnet-5-5 \
   --judge-provider anthropic \
-  --output-dir results/onedal_opus55
+  --out-dir results/onedal_opus55
 ```
 
 Interpret model comparisons using two separate signals:
@@ -213,7 +213,7 @@ Generate a cross-run dashboard when you have multiple eval files:
 ```bash
 python cli.py dashboard generate \
   --results-dir results \
-  --output-dir reports
+  --out-dir reports
 ```
 
 The dashboard reads evaluation artifacts and writes `reports/DASHBOARD.md` and
@@ -267,7 +267,7 @@ python cli.py arms run \
   --questions <content-checkout>/questions/onetbb_golden.json \
   --arms "baseline,docs,skill:<content-checkout>/skills/onetbb-quickstart" \
   --judge \
-  --out-json results/arms/onetbb_skill.json \
+  --out results/arms/onetbb_skill.json \
   --out-md results/arms/onetbb_skill.md
 ```
 
@@ -441,7 +441,7 @@ any answer is generated, so on these models leave
 `--temperature` and `--judge-temperature` unset. Their sampling cannot be
 pinned, only measured: run the same configuration several times
 (`benchmark run --multi-run N`; for `arms run`, repeat the run into separate
-`--out-json` files) and quote the spread.
+`--out` files) and quote the spread.
 
 - `--temperature`, `--seed`: sampling for answer generation, recorded in
   `run_config`. Omitted from the request when unset.
