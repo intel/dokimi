@@ -316,11 +316,12 @@ criteria:
     delivery: partial
     enforce: true
     capability: eval-coverage
-    surfaces: ["eval coverage --graph"]
+    surfaces: ["eval coverage --graph", "eval graph --artifact --out"]
     evidence:
       - {id: cjm-eval-coverage-gaps, kind: unit, stubs: []}
+      - {id: cjm-eval-graph-build, kind: unit, stubs: [the graph-author model call]}
     gaps:
-      - "the need graph is built by a model and read as given: building, interviewing and drafting labels are not commands yet (#331)"
+      - "the built graph is one model draw read as given: interviewing the user and drafting labels are not commands yet (#331)"
 
   # ---------------------------------------------------------------- J11
   AC-J11-001:

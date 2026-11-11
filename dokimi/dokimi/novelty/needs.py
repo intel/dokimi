@@ -22,6 +22,7 @@ exactly what a value-ranking shortener discards.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -71,6 +72,9 @@ Return ONLY JSON:
 {{"nodes": [{{"id": "n1", "text": "...", "type": "intent", "path_class": "core"}}],
   "edges": [{{"from": "n1", "to": "n2", "kind": "requires"}}]}}
 """
+
+# Recorded in a saved graph's provenance: a graph built under another prompt is another graph.
+PROMPT_VERSION = hashlib.sha256((_GRAPH_SYSTEM + _GRAPH_PROMPT).encode("utf-8")).hexdigest()[:12]
 
 
 @dataclass
@@ -147,11 +151,11 @@ class NeedGraph:
         )
 
 
-def build_need_graph(name: str, description: str, *, client: LLMClient) -> NeedGraph:
+def build_need_graph(name: str, description: str, *, client: LLMClient, strict: bool = False) -> NeedGraph:
     """Build a need graph from an artifact's name and description **only**.
 
     The signature is the guarantee: there is no parameter through which the body could
-    reach the graph author.
+    reach the graph author. A failed call builds an empty graph, or raises when ``strict``.
     """
     graph = NeedGraph(artifact_name=name, description=description)
     try:
@@ -164,6 +168,8 @@ def build_need_graph(name: str, description: str, *, client: LLMClient) -> NeedG
             usable=_has_a_node,
         )
     except Exception:
+        if strict:
+            raise
         return graph
     for index, row in enumerate(data.get("nodes", []) or [], start=1):
         if not isinstance(row, dict) or not str(row.get("text", "")).strip():
