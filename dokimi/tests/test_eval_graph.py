@@ -292,3 +292,34 @@ def test_a_planted_staging_symlink_cannot_redirect_the_write(tmp_path, monkeypat
     assert victim.read_text(encoding="utf-8") == "PRECIOUS"
     assert not out.is_symlink() and load_artifact("need_graph", out)["nodes"]
     assert [p.name for p in tmp_path.iterdir() if p.name.startswith(".eval-graph-")] == []
+
+
+def test_a_null_text_is_no_node_and_a_null_only_reply_writes_nothing(tmp_path, monkeypatch, capsys):
+    _stub(monkeypatch, {"nodes": [{"id": "n1", "text": None, "path_class": "core"}]})
+    out = tmp_path / "g.json"
+
+    result = _run(capsys, str(_skill(tmp_path)), "--out", str(out))
+
+    assert result.returncode == 1 and "nothing was written" in result.stderr
+    assert not out.exists()
+
+
+def test_a_repaired_id_never_takes_a_later_explicit_id_or_its_edge(tmp_path, monkeypatch, capsys):
+    _stub(monkeypatch, {
+        "nodes": [
+            {"id": "a", "text": "save", "path_class": "core"},
+            {"id": "a", "text": "recover", "path_class": "core"},
+            {"id": "n2-1", "text": "plot", "path_class": "core"},
+        ],
+        "edges": [{"from": "a", "to": "n2-1", "kind": "requires"}],
+    })
+    out = tmp_path / "g.json"
+
+    result = _run(capsys, str(_skill(tmp_path)), "--out", str(out))
+
+    assert result.returncode == 0, result.stderr
+    graph = load_artifact("need_graph", out)
+    by_id = {n["id"]: n["text"] for n in graph["nodes"]}
+    assert by_id["n2-1"] == "plot" and by_id["a"] == "save"
+    assert graph["edges"] == [{"from": "a", "to": "n2-1", "kind": "requires"}]
+    load_graph(out)

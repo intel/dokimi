@@ -175,15 +175,18 @@ def build_need_graph(name: str, description: str, *, client: LLMClient, strict: 
         if strict:
             raise
         return graph
+    rows = [(index, row) for index, row in enumerate(data.get("nodes", []) or [], start=1)
+            if _text(row) is not None]
+    # Every original id is reserved before any replacement is made, so a replacement never takes
+    # a later node's id (its edges would then point at the wrong node).
+    reserved = {str(row.get("id") or f"n{index}") for index, row in rows}
     taken: set[str] = set()
-    for index, row in enumerate(data.get("nodes", []) or [], start=1):
-        if not isinstance(row, dict) or not str(row.get("text", "")).strip():
-            continue
+    for index, row in rows:
         node_type = _label(row.get("type", "intent"))
         path_class = _label(row.get("path_class", "core"))
         graph.nodes.append(NeedNode(
-            id=_unique_id(str(row.get("id") or f"n{index}"), index, taken),
-            text=str(row["text"]).strip(),
+            id=_unique_id(str(row.get("id") or f"n{index}"), index, taken, reserved),
+            text=_text(row),
             type=node_type if node_type in NODE_TYPES else "intent",
             path_class=path_class if path_class in PATH_CLASSES else "supporting",
         ))
@@ -201,21 +204,28 @@ def _label(value) -> str:
     return str(value).strip().lower().replace("-", "_").replace(" ", "_")
 
 
-def _unique_id(node_id: str, index: int, taken: set[str]) -> str:
-    """The model's id, or a fresh ``n<index>[-k]`` when it repeats one: ``needs`` labels need one node per id."""
+def _unique_id(node_id: str, index: int, taken: set[str], reserved: set[str]) -> str:
+    """The model's id, or a fresh ``n<index>[-k]`` when it repeats one: ``needs`` labels need one node per id.
+
+    A fresh id is never one of the ``reserved`` original ids of the graph, so an edge that names
+    that original id still lands on the node that owns it."""
     candidate, k = node_id, 1
-    while candidate in taken:
+    while candidate in taken or (candidate != node_id and candidate in reserved):
         candidate, k = f"n{index}-{k}", k + 1
     taken.add(candidate)
     return candidate
 
 
+def _text(row) -> str | None:
+    """A node's text when it is a non-empty string. A null is no node: ``str(None)`` freezes as ``None``."""
+    value = row.get("text") if isinstance(row, dict) else None
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
 def _has_a_node(reply: dict) -> bool:
     """Cache only a graph with a node in it: an object with none builds an empty graph."""
     nodes = reply.get("nodes")
-    return isinstance(nodes, list) and any(
-        isinstance(row, dict) and str(row.get("text", "")).strip() for row in nodes
-    )
+    return isinstance(nodes, list) and any(_text(row) is not None for row in nodes)
 
 
 def match_atoms(atoms: list[Atom], graph: NeedGraph) -> dict[str, dict]:
