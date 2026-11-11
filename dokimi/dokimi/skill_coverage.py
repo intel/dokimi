@@ -140,9 +140,11 @@ def _source(text: str, node: ast.stmt) -> str:
 
 
 def _header(text: str, node: ast.ClassDef) -> str:
-    """A class's decorators and its ``class`` line (bases and keywords included): what its methods' checks inherit."""
+    """A class's decorators and its header (the ``class`` line, bases and keywords included, however many lines
+    they take): what its methods' checks inherit."""
     start = min([node.lineno, *(d.lineno for d in node.decorator_list)])
-    return "".join(_lines(text)[start - 1:node.lineno]).rstrip("\n")
+    end = max(node.lineno, node.body[0].lineno - 1)
+    return "".join(_lines(text)[start - 1:end]).rstrip("\n")
 
 
 def _is_test(node: ast.stmt) -> bool:

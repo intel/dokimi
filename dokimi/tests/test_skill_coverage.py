@@ -213,6 +213,17 @@ def test_a_test_class_decorator_is_part_of_its_methods_check(tmp_path):
     assert any('["-x"]' in c.source for c in checks) and any('["-y"]' in c.source for c in checks)
 
 
+def test_a_test_class_header_that_spans_lines_is_part_of_its_methods_check(tmp_path):
+    root = tmp_path / "tasks"
+    for task, flag in (("t1", "-x"), ("t2", "-y")):
+        _task(root, task, {"test_output.py": (
+            "class Base:\n    pass\n\n\n"
+            f"class TestOutput(\n    Base,\n    flag='{flag}',\n):\n"
+            "    def test_a(self):\n        assert self.flag\n")})
+    checks = sc.load_checks(root)
+    assert sorted(c.name for c in checks) == ["TestOutput::test_a#1", "TestOutput::test_a#2"]  # not merged
+
+
 def test_a_test_class_method_reads_the_module_code_of_its_folder(tmp_path):
     root = tmp_path / "tasks"
     _task(root, "t1", {"conftest.py": 'ANSWER = "-x"\n',
