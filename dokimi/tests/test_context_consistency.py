@@ -548,8 +548,8 @@ def test_cv_of_ordinary_values_is_the_plain_formula_to_rounding(xs):
     assert _cv(xs) == pytest.approx(math.sqrt(sum((x - mu) ** 2 for x in xs) / (len(xs) - 1)) / mu, rel=1e-15)
 
 
-def test_cv_of_finite_values_whose_squares_underflow_is_the_exact_value():
-    """Squares of 1e-170 underflowed to 0.0, so the cv read 0.0: [1, 2, 3] scaled has mean 2 and sd 1, cv 0.5."""
+def test_cv_of_finite_values_whose_squares_underflow_is_the_value_to_rounding():
+    """Squares of 1e-170 underflowed to 0.0, so the cv read 0.0: [1, 2, 3] scaled has mean 2 and sd 1, cv 0.5 to within an ulp."""
     assert _cv([1e-170, 2e-170, 3e-170]) == pytest.approx(0.5, rel=1e-12)
 
 
