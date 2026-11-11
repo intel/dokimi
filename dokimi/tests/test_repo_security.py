@@ -624,11 +624,12 @@ def test_a_linked_trace_after_an_rc_is_unfinished_and_not_read(tmp_path):
     cell = _cell(batch, "t", "skill", 0, events=[])
     _with_record(cell, agent={"rc": 0}, process=None)
     host = tmp_path / "host.jsonl"
-    host.write_text('{"type": "x"}\n', encoding="utf-8")
+    host.write_text("not json\n", encoding="utf-8")  # if the target were read, it would add a second reason
     (cell / "events.jsonl").unlink()
     (cell / "events.jsonl").symlink_to(host)
     report = sec.scan_batch(batch, BASE)
-    assert [u["cell"] for u in report["coverage"]["unfinished"]] == ["t__skill__m__r0"]
+    [unfinished] = report["coverage"]["unfinished"]
+    assert unfinished["cell"] == "t__skill__m__r0" and "readable event" not in unfinished["reason"]
     assert not any(a["arm"] == "skill" for a in report["arms"])
 
 
