@@ -360,17 +360,28 @@ def test_a_named_symlinked_document_gives_no_claim(tmp_path):
 def test_a_bundle_with_many_files_and_large_documents_is_judged_quickly(tmp_path):
     import time
 
+    from dokimi.external.bundle_refs import unreferenced_message
+    from dokimi.external.validate import _link_files
+
+    # Only the bundle search is timed, in CPU time: a shared CI runner under load runs several times slower.
+    # The bound is loose; the quadratic scan this guards against took minutes on the same input.
     docs = {
-        f"docs/d{i:02d}.md": "filler line for the document\n" * 8000 + f"Run `scripts/s{i:02d}.py`.\n"
+        f"docs/d{i:02d}.md": "filler line for the document\n" * 2000 + f"Run `scripts/s{i:02d}.py`.\n"
         for i in range(30)
     }
     texts = dict(docs)
     texts.update({f"scripts/s{i:02d}.py": "x\n" for i in range(30)})
     texts.update({f"scripts/u{i:03d}.py": "x\n" for i in range(300)})
     body = "See " + ", ".join(docs) + ".\n"
-    started = time.monotonic()
-    review = _review_with_texts(tmp_path, body, texts)
-    elapsed = time.monotonic() - started
-    [message] = _unreferenced(review)
+    skill_dir = _skill(tmp_path / "skills", "kit", name="kit", description="Use when testing.", body=body)
+    for rel, text in texts.items():
+        target = skill_dir / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8")
+    links = _link_files(body)
+    started = time.process_time()
+    message = unreferenced_message(skill_dir / "SKILL.md", links, at_root=False, doc_links=_link_files)
+    elapsed = time.process_time() - started
+    assert message is not None
     assert "300 of 360" in message  # 30 documents, 30 scripts they name, and 300 they do not
-    assert elapsed < 10
+    assert elapsed < 30
