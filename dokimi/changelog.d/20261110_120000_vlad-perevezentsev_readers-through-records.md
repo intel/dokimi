@@ -12,4 +12,6 @@
   --context stored`, `eval judge agreement --judges`) counted every arm
   stored as `null`, and every record without `arms`, as one that cites
   missing material. Only an arm whose `judge_context_sha256` has no matching
-  text is counted now.
+  text is counted now. In an artifact that has `judge_materials`, a malformed
+  answers list or record is now a `RecordError`, as in every other reader,
+  instead of being skipped.
