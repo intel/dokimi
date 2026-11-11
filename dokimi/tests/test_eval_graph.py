@@ -323,3 +323,35 @@ def test_a_repaired_id_never_takes_a_later_explicit_id_or_its_edge(tmp_path, mon
     assert by_id["n2-1"] == "plot" and by_id["a"] == "save"
     assert graph["edges"] == [{"from": "a", "to": "n2-1", "kind": "requires"}]
     load_graph(out)
+
+
+def test_a_spend_cap_without_a_known_price_stops_before_anything_is_written(tmp_path, monkeypatch, capsys):
+    _stub(monkeypatch, REPLY)
+    out = tmp_path / "g.json"
+
+    result = _run(capsys, str(_skill(tmp_path)), "--out", str(out), "--max-usd", "5")
+
+    assert result.returncode == 1 and "nothing was written" in result.stderr
+    assert not out.exists()
+
+
+def test_a_blank_description_is_refused_before_the_call(tmp_path, monkeypatch, capsys):
+    prompts = _stub(monkeypatch, REPLY)
+    out = tmp_path / "g.json"
+
+    result = _run(capsys, str(_skill(tmp_path, description="   ")), "--out", str(out))
+
+    assert result.returncode == 2 and "description" in result.stderr
+    assert prompts == [] and not out.exists()
+
+
+def test_the_default_graph_author_is_recorded_in_provenance(tmp_path, monkeypatch, capsys):
+    from dokimi.defaults import DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER
+
+    _stub(monkeypatch, REPLY)
+    out = tmp_path / "g.json"
+
+    result = _run(capsys, str(_skill(tmp_path)), "--out", str(out))
+
+    assert result.returncode == 0, result.stderr
+    assert load_artifact("need_graph", out)["provenance"]["model"] == f"{DEFAULT_JUDGE_PROVIDER}/{DEFAULT_JUDGE_MODEL}"
