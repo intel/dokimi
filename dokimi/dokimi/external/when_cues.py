@@ -39,8 +39,8 @@ _LETTER_RE = re.compile(r"[^\W\d_]")
 def when_clause_found(description: str) -> Optional[bool]:
     """Whether the description has a "when" cue; None when most of its letters are in a script no cue list covers."""
     text = " ".join(description.split())
+    if WHEN_RE.search(text):
+        return True
     letters = len(_LETTER_RE.findall(text))
     covered = len(_COVERED_LETTER_RE.findall(text))
-    if letters - covered > covered:
-        return None
-    return WHEN_RE.search(text) is not None
+    return None if letters - covered > covered else False

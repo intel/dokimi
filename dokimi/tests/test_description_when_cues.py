@@ -218,3 +218,7 @@ def test_a_script_no_cue_list_covers_gets_no_warning_end_to_end(tmp_path, descri
     )
     [review] = review_skills(read_skill_manifest(tmp_path))
     assert "description-no-when" not in [f.code for f in review.findings]
+
+
+def test_an_english_when_clause_passes_in_a_script_no_cue_list_covers():
+    assert when_clause_found("Δημιουργεί αναφορές. Use when needed.") is True
