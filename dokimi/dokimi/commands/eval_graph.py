@@ -13,7 +13,9 @@ from __future__ import annotations
 
 import argparse
 import os
+import shutil
 import sys
+import tempfile
 from pathlib import Path
 
 from dokimi.exit_codes import EXIT_FAILURE
@@ -30,11 +32,17 @@ def _publish(graph: dict, out: Path) -> None:
     ``os.link`` fails when ``out`` exists, so a file that appeared during the model call
     (another run, an editor) is refused rather than replaced. A filesystem with no hard
     links (vfat, some SMB and FUSE mounts) gets an ``O_EXCL`` create of the same bytes.
+
+    The staging happens in a directory made fresh for this write, so its name cannot be
+    guessed and planted: a symlink at a predictable staging name would send the write to
+    an unrelated file in a shared directory.
     """
     from dokimi.artifacts import save_artifact
 
-    staged = out.with_name(f".{out.name}.{os.getpid()}.staged")
+    stage_dir = None
     try:
+        stage_dir = Path(tempfile.mkdtemp(prefix=".eval-graph-", dir=out.parent))
+        staged = stage_dir / out.name
         save_artifact("need_graph", graph, staged)
         try:
             os.link(staged, out)
@@ -54,7 +62,8 @@ def _publish(graph: dict, out: Path) -> None:
     except OSError as exc:
         raise InputError(f"cannot write {out}: {exc.strerror or exc}") from exc
     finally:
-        staged.unlink(missing_ok=True)
+        if stage_dir is not None:
+            shutil.rmtree(stage_dir, ignore_errors=True)
 
 
 def cmd_eval_graph(args: argparse.Namespace) -> None:

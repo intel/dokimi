@@ -272,3 +272,23 @@ def test_a_refused_skill_makes_no_out_directory(tmp_path, monkeypatch, capsys):
     result = _run(capsys, str(notes), "--out", str(tmp_path / "new" / "g.json"))
 
     assert result.returncode == 2 and not (tmp_path / "new").exists()
+
+
+def test_a_planted_staging_symlink_cannot_redirect_the_write(tmp_path, monkeypatch, capsys):
+    victim = tmp_path / "victim.txt"
+    victim.write_text("PRECIOUS", encoding="utf-8")
+    out = tmp_path / "g.json"
+    predictable = tmp_path / f".{out.name}.{os.getpid()}.staged"
+
+    def transport(self, prompt, system, *, accept=None, draw=0):
+        predictable.symlink_to(victim)  # the staging name the old code used, planted during the call
+        return json.dumps(REPLY), None
+
+    monkeypatch.setattr(LLMClient, "_default_transport", transport)
+
+    result = _run(capsys, str(_skill(tmp_path)), "--out", str(out))
+
+    assert result.returncode == 0, result.stderr
+    assert victim.read_text(encoding="utf-8") == "PRECIOUS"
+    assert not out.is_symlink() and load_artifact("need_graph", out)["nodes"]
+    assert [p.name for p in tmp_path.iterdir() if p.name.startswith(".eval-graph-")] == []
