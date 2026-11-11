@@ -354,6 +354,53 @@ def test_analyze_stops_rather_than_publish_a_measurement_the_cap_cut_short(tmp_p
         analyze(body, config, extractor=extractor, answerer=answerer, judge=judge)
 
 
+@pytest.mark.parametrize("reason", ["spend_cap", "no_price"])
+def test_analyze_refuses_answers_the_judge_never_graded(tmp_path, monkeypatch, reason):
+    # Every answer was asked and paid for, but the cap refused each grading call: no run was
+    # cut, so only the ungraded half of the gate decides. The stop must still name the count.
+    from dokimi.novelty import measure
+    from dokimi.novelty.analyze import AnalyzeConfig, analyze, load_artifact_text
+    from dokimi.novelty.client import SpendCapReached
+
+    from tests.test_novelty_analyze import SKILL, _clients
+
+    path = tmp_path / "accel-tuning" / "SKILL.md"
+    path.parent.mkdir(parents=True)
+    path.write_text(SKILL, encoding="utf-8")
+    kind, name, description, frontmatter, body = load_artifact_text(f"skill:{path}")
+    config = AnalyzeConfig(
+        artifact_ref=f"skill:{path}", artifact_kind=kind, name=name,
+        description=description, frontmatter=frontmatter, concurrency=1,
+    )
+    real = measure.run_measurement
+
+    def ungraded_only(*a, **kw):
+        result = real(*a, **kw)
+        result.not_run, result.ungraded = 0, 2
+        result.stop = (reason, "the judge call was refused")
+        return result
+
+    monkeypatch.setattr(measure, "run_measurement", ungraded_only)
+    extractor, answerer, judge = _clients()
+    with pytest.raises(SpendCapReached, match="2 probe answers (were )?not run or graded"):
+        analyze(body, config, extractor=extractor, answerer=answerer, judge=judge)
+
+
+def test_save_probe_measure_keeps_an_ungraded_answer_in_the_partial_file(tmp_path):
+    # save_probe_measure must pass the ungraded count on: without it the file is an ordinary
+    # probes.json, with answers nobody graded and no status.
+    from dokimi.commands.novelty_budget import save_probe_measure
+    from dokimi.novelty import measure
+
+    result = measure.MeasureResult(runs=[object()], arms=("full",), with_arm="full", not_run=0,
+                                   ungraded=1, stop=("spend_cap", "cap"), probes=[])
+    out = tmp_path / "probes.json"
+    with pytest.raises(SystemExit, match="1 of them not graded"):
+        save_probe_measure({"runs": []}, out, result)
+    assert (tmp_path / "probes.partial.json").exists()
+    assert not out.exists()
+
+
 def test_novelty_items_refuses_a_partial_probe_file_by_name(tmp_path):
     from dokimi.novelty.items import ProbeFileError, load_probe_cells
 
@@ -597,6 +644,8 @@ def test_a_partial_probe_file_drops_the_summaries_computed_over_the_cut_subset(t
     payload = {"runs": [{"verdict": "correct"}], "paired": {"lenient": {"n_paired": 1}},
                "arms": {"lenient": {"full": 1.0}}, "abstentions": {"n": 0},
                "reversal_paired": {"n": 1}, "probes": {"n": 3},
+               "reversal_resisted": {"n": 1}, "reversal_resisted_by_arm": {"full": 1.0},
+               "confidence_correlation": {"r": 0.5},
                # the second judge shares the run's cap, so it is refused once the cap stops the run
                "judge2": {"model": "j2", "stopped": "spend cap reached", "cost": 0.0}}
     out = tmp_path / "probes.json"
@@ -604,7 +653,10 @@ def test_a_partial_probe_file_drops_the_summaries_computed_over_the_cut_subset(t
         save_probe_run(payload, out, done=1, not_run=5, stop=("spend_cap", "cap"))
     saved = json.loads((tmp_path / "probes.partial.json").read_text(encoding="utf-8"))
     assert saved["runs"] == [{"verdict": "correct"}] and saved["probes"] == {"n": 3}
-    for block in ("paired", "arms", "abstentions", "reversal_paired", "judge2"):
+    # a literal list, not PARTIAL_SUMMARIES: a block dropped from that tuple must fail here
+    for block in ("paired", "arms", "abstentions", "reversal_resisted",
+                  "reversal_resisted_by_arm", "reversal_paired", "confidence_correlation",
+                  "judge2"):
         assert saved[block] is None
 
 
