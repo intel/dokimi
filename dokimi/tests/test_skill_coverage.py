@@ -213,6 +213,23 @@ def test_a_test_class_decorator_is_part_of_its_methods_check(tmp_path):
     assert any('["-x"]' in c.source for c in checks) and any('["-y"]' in c.source for c in checks)
 
 
+def test_a_test_class_method_reads_the_module_code_of_its_folder(tmp_path):
+    root = tmp_path / "tasks"
+    _task(root, "t1", {"conftest.py": 'ANSWER = "-x"\n',
+                       "test_output.py": "class TestOutput:\n    def test_a(self):\n        assert ANSWER\n"})
+    (check,) = sc.load_checks(root)
+    assert check.name == "TestOutput::test_a" and 'ANSWER = "-x"' in check.source
+
+
+def test_async_tests_and_test_files_named_by_suffix_are_checks(tmp_path):
+    root = tmp_path / "tasks"
+    _task(root, "t1", {
+        "test_async.py": "async def test_x():\n    assert 1\n\n\nclass TestC:\n    async def test_y(self):\n        assert 1\n",
+        "sub/foo_test.py": "def test_z():\n    assert 1\n",
+    })
+    assert sorted(c.name for c in sc.load_checks(root)) == ["TestC::test_y", "test_x", "test_z"]
+
+
 def test_task_checks_that_share_a_long_prefix_stay_apart_with_their_full_source(tmp_path):
     prefix = "".join(f"    x{i} = {i}\n" for i in range(300))  # longer than the old per-check clip
     root = tmp_path / "tasks"
