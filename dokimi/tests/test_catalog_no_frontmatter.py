@@ -162,3 +162,27 @@ def test_indented_or_late_frontmatter_is_a_broken_skill_not_plain_markdown(tmp_p
     codes = [f.code for r in review_skills(read_skill_manifest(tmp_path)) if r for f in r.findings]
     assert "not-a-skill-no-frontmatter" not in codes
     assert main(["catalog", "check", "--root", str(tmp_path), "--kind", "skills"]) == 1
+
+
+def test_a_root_skill_gets_the_h1_name_not_the_directory_name(tmp_path):
+    real = tmp_path / "real"
+    real.mkdir()
+    root = tmp_path / "repo-dir"  # a valid spec name, so only at_root keeps it out of the hint
+    root.symlink_to(real)
+    (root / "SKILL.md").write_text("# Deck Builder\n\nBuilds decks.\n", encoding="utf-8")
+    [review] = review_skills(read_skill_manifest(root))
+    assert _block(review.findings[0])["name"] == "deck-builder"
+
+
+def test_the_count_leaves_out_other_load_errors(tmp_path, capsys):
+    _plain(tmp_path, "plain", "# Plain\n\nNotes.\n")
+    _plain(tmp_path, "bad", "---\nname: bad\ndescription: [unclosed\n---\n# Body\n")
+    assert main(["catalog", "check", "--root", str(tmp_path), "--kind", "skills"]) == 1
+    assert "2 error, of them 1 plain Markdown" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("text", ["", " \n\n", "﻿---\nname: bom\ndescription: [unclosed\n---\n# B\n"])
+def test_an_empty_file_or_a_bom_before_frontmatter_is_not_plain_markdown(tmp_path, text):
+    _plain(tmp_path, "odd", text)
+    codes = [f.code for r in review_skills(read_skill_manifest(tmp_path)) if r for f in r.findings]
+    assert "not-a-skill-no-frontmatter" not in codes
