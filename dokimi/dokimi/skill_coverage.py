@@ -143,7 +143,8 @@ def _header(text: str, node: ast.ClassDef) -> str:
     """A class's decorators and its header (the ``class`` line, bases and keywords included, however many lines
     they take): what its methods' checks inherit."""
     start = min([node.lineno, *(d.lineno for d in node.decorator_list)])
-    end = max(node.lineno, node.body[0].lineno - 1)
+    first = node.body[0]  # the header ends before the first statement, and before that statement's decorators
+    end = max(node.lineno, min([first.lineno, *(d.lineno for d in getattr(first, "decorator_list", []))]) - 1)
     return "".join(_lines(text)[start - 1:end]).rstrip("\n")
 
 

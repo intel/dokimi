@@ -219,9 +219,10 @@ def test_a_test_class_header_that_spans_lines_is_part_of_its_methods_check(tmp_p
         _task(root, task, {"test_output.py": (
             "class Base:\n    pass\n\n\n"
             f"class TestOutput(\n    Base,\n    flag='{flag}',\n):\n"
-            "    def test_a(self):\n        assert self.flag\n")})
+            "    @pytest.mark.skip(reason='header')\n    def test_a(self):\n        assert self.flag\n")})
     checks = sc.load_checks(root)
     assert sorted(c.name for c in checks) == ["TestOutput::test_a#1", "TestOutput::test_a#2"]  # not merged
+    assert all(c.source.count("reason='header'") == 1 for c in checks)  # the method's decorator is not read twice
 
 
 def test_a_test_class_method_reads_the_module_code_of_its_folder(tmp_path):
