@@ -158,21 +158,11 @@ def test_parse_json_contains_tries_a_bounded_number_of_starts(monkeypatch: pytes
     assert parse_json("[ " * (CONTAINS_JSON_MAX_STARTS + 5) + '{"a": 1}', contains=True) == (False, None)
 
 
-def test_parse_json_contains_stops_at_the_first_recursion_error(monkeypatch: pytest.MonkeyPatch) -> None:
-    import json
-
-    from dokimi.eval import reference_checks
+def test_parse_json_contains_finds_a_value_after_a_start_too_deep_to_decode() -> None:
     from dokimi.eval.reference_checks import parse_json
 
-    calls: list[int] = []
-
-    def too_deep(self: json.JSONDecoder, s: str, idx: int = 0) -> tuple[object, int]:
-        calls.append(idx)
-        raise RecursionError
-
-    monkeypatch.setattr(reference_checks.json.JSONDecoder, "raw_decode", too_deep)
-    assert parse_json("[" * 50, contains=True) == (False, None)
-    assert len(calls) == 2  # the json.loads of the whole text, then one try before the scan stops
+    # The first "[" runs into the decoder's depth limit; the object after it is still the first JSON found.
+    assert parse_json('[ {"a": 1}, ' + "[1," * 10000, contains=True) == (True, {"a": 1})
 
 
 def test_names_pin_the_byte_to_target_order() -> None:
