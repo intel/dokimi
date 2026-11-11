@@ -409,6 +409,20 @@ def test_novelty_routing_tombstone_keeps_a_bare_artifact_path_as_text():
         "skill", "routing", "text:n.md"]
 
 
+def test_novelty_routing_tombstone_reads_a_unique_flag_prefix_as_the_retired_flag():
+    # The retired parser allowed any unique prefix (allow_abbrev), so the printed command spells it out.
+    assert moved_argv(["novelty", "routing", "--artifact", "skill:a", "--cat", "skills/", "--rep", "3"]) == [
+        "skill", "routing", "skill:a", "--against", "skills/", "--reps", "3"]
+    assert moved_argv(["novelty", "routing", "--all", "--cat", "R", "--repeat=2"]) == [
+        "catalog", "routing", "R", "--reps=2"]
+
+
+def test_novelty_routing_tombstone_leaves_an_ambiguous_prefix_alone():
+    # `--c` is a prefix of --catalog and --competitors: argparse refused it, so it is not rewritten.
+    assert moved_argv(["novelty", "routing", "--artifact", "skill:a", "--c", "x"]) == [
+        "skill", "routing", "skill:a", "--c", "x"]
+
+
 def test_novelty_routing_tombstone_keeps_a_flag_the_new_leaf_refuses():
     argv = moved_argv(["novelty", "routing", "--all-vs-all", "--artifact", "skill:x", "--catalog", "skills/"])
     assert argv == ["catalog", "routing", "skills/", "--artifact", "skill:x"]

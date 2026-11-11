@@ -186,6 +186,7 @@ def _novelty_routing_argv(rest: list[str]) -> list[str]:
     ``--against``). ``--repeats`` is ``--reps`` in both. A flag the new leaf does not take stays in the
     printed argv, so the new parser refuses it.
     """
+    rest = [_retired_spelling(tok) for tok in rest]
     values: dict[str, list[str]] = {"--artifact": [], "--catalog": []}
     kept: list[str] = []
     all_vs_all = "--all-vs-all" in rest
@@ -213,6 +214,24 @@ def _novelty_routing_argv(rest: list[str]) -> list[str]:
         return ["catalog", "routing", *values["--catalog"][-1:], *kept, *stray]
     against = ["--against", values["--catalog"][-1]] if values["--catalog"] else []
     return ["skill", "routing", *artifact, *against, *kept]
+
+
+# The flags `novelty routing` took (its parser allowed any unique prefix of one).
+_RETIRED_ROUTING_FLAGS = (
+    "--all-vs-all", "--artifact", "--catalog", "--competitors", "--estimate-only",
+    "--include-disabled", "--include-invalid", "--keep-copies-under", "--max-tokens", "--max-usd",
+    "--model", "--out", "--provider", "--queries", "--queries-by-skill", "--queries-from-headings",
+    "--repeats", "--seed",
+)
+
+
+def _retired_spelling(token: str) -> str:
+    """A token with a retired flag's prefix spelt in full, as argparse would have read it."""
+    name, eq, value = token.partition("=")
+    if not name.startswith("--") or name in _RETIRED_ROUTING_FLAGS:
+        return token
+    hits = [flag for flag in _RETIRED_ROUTING_FLAGS if flag.startswith(name)]
+    return hits[0] + eq + value if len(hits) == 1 else token
 
 
 def _legacy_artifact(ref: str) -> str:
