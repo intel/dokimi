@@ -36,6 +36,13 @@ if TYPE_CHECKING:
     from dokimi.eval.arm_runner import ArmRunner
 
 
+class _DefaultJudgeProvider(str):
+    """The judge provider left out: equal to the default name, told apart from a named one by identity."""
+
+
+JUDGE_PROVIDER_DEFAULT = _DefaultJudgeProvider(DEFAULT_JUDGE_PROVIDER)
+
+
 class DeferredJudge(str):
     """The provider's default judge, left out, where it is the answerer: refused at run start, not at construction.
 
@@ -66,7 +73,7 @@ class ArmsRunConfig:
     judge: bool = False
     #: Left out, the default judge on ``judge_provider`` that is not the answerer's family (``model``), as for ``--judge-model``.
     judge_model: str = JUDGE_MODEL_FOR_PROVIDER
-    judge_provider: str = DEFAULT_JUDGE_PROVIDER
+    judge_provider: str = JUDGE_PROVIDER_DEFAULT
     judge_temperature: float | None = None
     judge_panel: str = ""
     top_k: int = 5
@@ -85,8 +92,8 @@ class ArmsRunConfig:
             # The shared rule (judge_rule.default_judge): not the answerer's family, on the judge's provider.
             # A CLI answerer with the default judge provider (the field's default, so not named) judges on its CLI,
             # as ``dokimi arms run --provider claude-cli`` does.
-            provider = None if (self.judge_provider == DEFAULT_JUDGE_PROVIDER and cli_backend(self.provider)) \
-                else self.judge_provider
+            left_out = self.judge_provider is JUDGE_PROVIDER_DEFAULT
+            provider = None if (left_out and cli_backend(self.provider)) else self.judge_provider
             try:
                 model, picked = default_judge(self.model, provider, self.provider)
             except JudgeIsAnswerer:
@@ -103,7 +110,9 @@ def refuse_deferred_self_judge(config: ArmsRunConfig) -> None:
 
     An explicit judge model is never refused here: that is warn-only, as ``warn_self_judging`` says.
     """
-    if config.judge and isinstance(config.judge_model, DeferredJudge) and same_model(config.judge_model, config.model):
+    # A matrix cell is warned, not refused: one judge serves every cell, as on the CLI (the changelog says so).
+    if (config.judge and config.matrix_cell is None and isinstance(config.judge_model, DeferredJudge)
+            and same_model(config.judge_model, config.model)):
         raise JudgeIsAnswerer(f"--judge-provider {config.judge_provider}: the default judge there is the model under "
                               f"measurement ({config.model}); pass --judge-model as well")
 

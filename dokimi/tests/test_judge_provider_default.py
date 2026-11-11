@@ -109,6 +109,19 @@ def test_a_library_claude_cli_answerer_judges_on_its_cli_like_the_cli_does():
     refuse_deferred_self_judge(config)
 
 
+def test_a_library_judge_provider_named_is_kept_for_a_claude_cli_answerer():
+    # An explicit anthropic judge is not the field default: it is kept, as on base.
+    config = ArmsRunConfig(product="demo", model="opus", provider="claude-cli", judge=True, judge_provider="anthropic")
+    assert (config.judge_provider, config.judge_model) == ("anthropic", "claude-sonnet-5-5")
+
+
+def test_a_matrix_cell_whose_model_is_the_default_judge_is_warned_not_refused():
+    config = ArmsRunConfig(product="demo", judge=True, judge_provider="openai")
+    cell = replace(config, matrix_cell="gpt", model="gpt-6.1-sol", provider="openai")
+    refuse_deferred_self_judge(cell)  # warn-only: no raise
+    assert cell.judge_model == "gpt-6.1-sol"
+
+
 def test_a_claude_cli_answerer_judges_on_its_cli_when_no_judge_provider_is_named():
     # The CLI's argparse default (anthropic) must not stop the rule from taking the answerer's provider.
     args = parse_args([*COMMANDS["arms run"], "--provider", "claude-cli", "--model", "sonnet", "--judge"])
