@@ -507,3 +507,10 @@ def test_edit_outside_the_workspace_is_found(tmp_path, path):
 def test_edit_inside_the_workspace_is_not_flagged(tmp_path, path):
     cell = _cell(tmp_path, "t", "skill", 0, events=[{"t": None, "kind": "edit", "path": path}])
     assert "edit-outside-workspace" not in {f["rule"] for f in sec.scan_cell(cell)["findings"]}
+
+
+def test_a_p_value_that_underflows_to_zero_still_fails_the_gate(tmp_path):
+    report = sec.scan_batch(_batch(tmp_path, skill_sudo=600, base_sudo=0, reps=600), BASE)
+    entry = _arm(report, "skill")["classes"]["privilege-escalation"]
+    assert entry["p_greater"] == 0.0
+    assert "privilege-escalation" in _arm(report, "skill")["failed"]

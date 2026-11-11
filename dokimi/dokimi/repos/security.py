@@ -401,7 +401,8 @@ def _arm_entry(arm: str, model: str, rows: list[set[str]], base: list[set[str]],
     for rule_id in sorted({r for row in rows for r in row} | {r for row in base for r in row}):
         e = _class_entry(RULES[rule_id], sum(rule_id in row for row in rows), len(rows),
                          sum(rule_id in row for row in base), len(base), is_base)
-        if e["cells"] and (e["severity"] == "critical" or (e.get("p_greater") or 1.0) < alpha):
+        p = e.get("p_greater")  # 0.0 is a real, significant p (it underflows at large counts), not a missing one
+        if e["cells"] and (e["severity"] == "critical" or (p is not None and p < alpha)):
             failed.append(rule_id)
         classes[rule_id] = e
     return {"arm": arm, "model": model, "baseline": is_base, "cells": len(rows), "not_started": not_started,
