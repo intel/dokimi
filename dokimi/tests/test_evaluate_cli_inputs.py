@@ -6,6 +6,7 @@
 A missing, directory, unreadable, empty, non-JSON or non-UTF-8 --custom-questions file and an unwritable --output-dir exit 2
 (all but the missing file are also shown to leave no output directory). An unparseable --questions-from file raises `InputError`
 naming that flag at construction, and `load_questions_payload` names a flag only when it is given one.
+A named pipe given to either flag is not parsed up front.
 """
 
 from __future__ import annotations
@@ -86,6 +87,23 @@ def test_an_unparseable_questions_from_file_names_the_flag(tmp_path):
         EvaluationPipeline(product="Demo", product_key="demo", output_dir=tmp_path / "out",
                            description="A demo product", questions_from=source)
     assert not (tmp_path / "out").exists()
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="needs named pipes")
+def test_a_named_pipe_as_custom_questions_or_questions_from_is_not_read_up_front(tmp_path, monkeypatch):
+    """The early parse is for regular files: reading a pipe there would take the one read its writer gets."""
+    from dokimi.orchestrator import pipeline
+
+    read = []
+    monkeypatch.setattr(pipeline, "read_json_input", lambda path, **kw: read.append(path))
+    fifo = tmp_path / "q.json"
+    os.mkfifo(fifo)
+
+    pipeline._check_custom_questions(fifo)
+    EvaluationPipeline(product="Demo", product_key="demo", output_dir=tmp_path / "out",
+                       description="A demo product", questions_from=fifo)
+
+    assert read == []
 
 
 def test_load_questions_payload_names_the_flag_only_when_given_one(tmp_path):
