@@ -155,7 +155,10 @@ def test_the_json_row_has_the_finding(tmp_path, capsys):
 
 @pytest.mark.parametrize("opener", ["  ---\nname: indent\ndescription: y\n  ---\n# X\n",
                                     "\n---\nname: late\ndescription: y\n---\n# Late\n",
-                                    "<!-- generated -->\n---\nname: deck\ndescription: Use when decks.\n---\n# Deck\n"])
+                                    "<!-- generated -->\n---\nname: deck\ndescription: Use when decks.\n---\n# Deck\n",
+                                    "# T\n\n\n\n\n---\nname: a\ndescription: b\n---\n",
+                                    "# T\n---\ndescription: b\n---\n",
+                                    "# T\n---  \nname: a\n---\n"])
 def test_indented_or_late_frontmatter_is_a_broken_skill_not_plain_markdown(tmp_path, opener):
     # The loader's error stands for it, as for frontmatter after a blank line: no hint, and the scan fails.
     _plain(tmp_path, "broken", opener)
@@ -181,7 +184,7 @@ def test_the_count_leaves_out_other_load_errors(tmp_path, capsys):
     assert "2 error, of them 1 plain Markdown" in capsys.readouterr().out
 
 
-@pytest.mark.parametrize("text", ["", " \n\n", "﻿---\nname: bom\ndescription: [unclosed\n---\n# B\n"])
+@pytest.mark.parametrize("text", ["", " \n\n", "﻿\n", "﻿---\nname: bom\ndescription: [unclosed\n---\n# B\n"])
 def test_an_empty_file_or_a_bom_before_frontmatter_is_not_plain_markdown(tmp_path, text):
     _plain(tmp_path, "odd", text)
     codes = [f.code for r in review_skills(read_skill_manifest(tmp_path)) if r for f in r.findings]
