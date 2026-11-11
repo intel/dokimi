@@ -5,13 +5,18 @@
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
+
 import pytest
 
+from dokimi.ingest import docling_loader
 from dokimi.ingest.docling_loader import (
     convert_to_markdown,
     discover_documents,
     docling_available,
     is_supported,
+    materialize_markdown,
 )
 
 
@@ -54,3 +59,20 @@ def test_convert_raises_clear_error_without_docling(tmp_path):
     f.write_text("x")
     with pytest.raises(ImportError, match="dokimi\\[ocr\\]"):
         convert_to_markdown(f)
+
+
+@pytest.mark.skipif(not hasattr(os, "symlink"), reason="needs symlinks")
+def test_materialize_markdown_skips_a_dangling_link_at_the_first_name(tmp_path, monkeypatch):
+    monkeypatch.setattr(docling_loader, "convert_to_markdown", lambda path: "# converted\n")
+    out_dir = tmp_path / "md"
+    out_dir.mkdir()
+    link = out_dir / "a-pdf.md"
+    try:
+        link.symlink_to(Path("..") / "elsewhere.md")
+    except OSError:
+        pytest.skip("symlinks are not allowed here")
+    written = materialize_markdown([tmp_path / "a.pdf"], out_dir)
+    assert written == [out_dir / "a-pdf-2.md"]
+    assert written[0].read_text(encoding="utf-8") == "# converted\n"
+    assert not (tmp_path / "elsewhere.md").exists()
+    assert link.is_symlink()

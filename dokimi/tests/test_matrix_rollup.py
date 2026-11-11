@@ -16,6 +16,7 @@ from dokimi.cli import build_parser
 from dokimi.commands.arms import _load_questions, cmd_arms_matrix_run
 from dokimi.eval.matrix_rollup import build_matrix_rollup, strip_internal_payloads
 from dokimi.report.matrix_rollup_report import _md_cell, render_matrix_rollup_report
+from tests.cli_refusal import refusal
 
 
 def _arms_artifact(matrix_cell: str, plugin_set: str = "none") -> dict:
@@ -203,9 +204,9 @@ def test_arms_matrix_run_rejects_sanitized_cell_name_collisions(tmp_path: Path):
         str(tmp_path / "out"),
     ])
 
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2
+    assert exc.code == 2
 
 
 def test_arms_matrix_run_rejects_unwired_harnesses(tmp_path: Path):
@@ -240,9 +241,9 @@ def test_arms_matrix_run_rejects_unwired_harnesses(tmp_path: Path):
         str(matrix),
     ])
 
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2
+    assert exc.code == 2
 
 
 def test_arms_run_selected_matrix_cell_rejects_unwired_harness(tmp_path: Path):
@@ -279,9 +280,9 @@ def test_arms_run_selected_matrix_cell_rejects_unwired_harness(tmp_path: Path):
         "agent-cell",
     ])
 
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2
+    assert exc.code == 2
 
 
 def test_arms_matrix_run_keeps_cell_artifacts_away_from_generated_names(tmp_path: Path, monkeypatch):
@@ -416,8 +417,9 @@ def test_arms_run_refuses_a_non_string_non_integer_id_before_any_call(monkeypatc
     out = tmp_path / "o.json"
     args = build_parser().parse_args(["arms", "run", "--product", "x", "--arms", "baseline",
                                       "--questions", str(questions), "--out-json", str(out)])
-    with pytest.raises(SystemExit):
+    with refusal() as exc:
         args.func(args)
+    assert exc.code == 2
     err = capsys.readouterr().err
     # The questions.v2 schema refuses 1.5 and true; 1.0 passes it and the arms loader refuses it.
     assert (f"questions[1]: id must be a string or an integer, got {bad!r}" in err

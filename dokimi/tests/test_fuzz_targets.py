@@ -116,10 +116,11 @@ def test_a_malformed_tagged_scalar_is_invalid_frontmatter(text: str) -> None:
 
 @pytest.mark.parametrize("contains", [False, True])
 def test_parse_json_reads_deep_nesting_as_not_json(contains: bool) -> None:
-    # A reply nested past the recursion limit is "not JSON", not a crash of the judge.
+    # A deeply nested reply is "not JSON", not a crash of the judge. The contains scan is quadratic
+    # in the depth: 20000 hit the 60 s CI timeout on py3.14 (coverage), so only contains uses 5000.
     from dokimi.eval.reference_checks import parse_json
 
-    assert parse_json("[" * 20000, contains=contains) == (False, None)
+    assert parse_json("[" * (5000 if contains else 20000), contains=contains) == (False, None)
 
 
 def test_names_pin_the_byte_to_target_order() -> None:

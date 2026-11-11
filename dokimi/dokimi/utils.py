@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, Mapping, Sequence, Tuple
 
+from dokimi import llm_cli
 from dokimi.defaults import BEDROCK_MODEL_IDS
 from dokimi.process_io import disk_path_text, exact_path_text
 
@@ -205,10 +206,12 @@ class GitTree:
         return any("/".join(parts[j:i]) in inner for i in range(max(first, j + 1), len(parts) + 1))
 
     def _inner_ignored(self, rel: str) -> frozenset[str] | None:
-        if rel not in self.nested:  # one git call per nested repository, none for a directory without .git
+        if rel not in self.nested:  # read once per nested repository, no git call for a directory without .git
             here = self.top / rel
             if not os.path.lexists(here / ".git"):
                 self.nested[rel] = None
+            elif (why := _not_own_top(here)) is not None:
+                raise OSError(errno.EIO, f"git cannot read this nested repository: {why}", os.fspath(here))
             elif (inner := _ignored_paths(os.fspath(here))) is not None:
                 self.nested[rel] = inner
             else:  # leaving nothing out would hash its ignored files only where git cannot read it
@@ -219,6 +222,18 @@ class GitTree:
 def is_symlink_loop(exc: OSError) -> bool:
     """A symlink loop: ``ELOOP``, or on Windows EINVAL with WinError 1921 (ERROR_CANT_RESOLVE_FILENAME)."""
     return exc.errno == errno.ELOOP or getattr(exc, "winerror", None) == 1921
+
+
+def _not_own_top(here: Path) -> str | None:
+    """Why git does not read ``here`` as its own work tree's top: git's message, or the top it found instead (git skips
+    a ``.git`` it cannot read as a repository and walks up to the enclosing one). None when it does."""
+    from dokimi.process import run
+
+    top = run(["git", "-C", os.fspath(here), "rev-parse", "--show-toplevel"], timeout=60, env=_git_env())
+    if not top.ok:
+        return top.stderr.strip() or f"exit {top.returncode}"
+    found = os.fsdecode(top.stdout_bytes).removesuffix("\n")  # git ends the name with one newline
+    return None if Path(os.path.realpath(found)) == Path(os.path.realpath(here)) else f"git reads {found} instead"
 
 
 def _git_env() -> "Env":
@@ -351,14 +366,17 @@ def _hash_objects(top: Path, rels: list[str], *, as_args: bool) -> list[str] | N
                    input=data, capture_limit=None)
     except OSError:
         return None
+    if not done.ok:  # git's own words name the file or filter to fix
+        why = "timed out" if done.timed_out else done.stderr.strip() or f"exit code {done.returncode}"
+        raise OSError(errno.EIO, f"git hash-object failed: {why}", os.fspath(top))
     ids = [os.fsdecode(i) for i in done.stdout_bytes.split()]
-    return ids if done.ok and len(ids) == len(rels) else None
+    return ids if len(ids) == len(rels) else None
 
 
 def file_contents(paths: Iterable[Path], tree: GitTree | None) -> dict[Path, bytes]:
     """What a digest holds for each file: git's blob id for a file in ``tree`` (the index's when git finds it unchanged,
-    else ``hash-object``'s with the work tree's filters). Otherwise the sha256 of its bytes: no tree, a file outside it,
-    or git failing."""
+    else ``hash-object``'s with the work tree's filters). Otherwise the sha256 of its bytes: no tree or a file outside
+    it. A ``hash-object`` that fails raises ``OSError``, as a repository git cannot read does."""
     found = list(dict.fromkeys(paths))
     out = _blob_contents(found, tree) if tree is not None else {}
     for path in found:
@@ -381,8 +399,9 @@ def _blob_contents(paths: list[Path], tree: GitTree) -> dict[Path, bytes]:
             (odd if "\n" in rel or rel.startswith('"') or rel.endswith("\r") else plain).append((path, rel))
     for hashed, as_args in ((plain, False), (odd, True)):
         ids = _blob_ids(tree.top, [rel for _, rel in hashed], as_args=as_args) if hashed else []
-        if ids is not None:
-            out.update({path: bytes.fromhex(blob) for (path, _), blob in zip(hashed, ids, strict=True)})
+        if ids is None:  # a sha256 of the bytes here would move the digest with the host load that failed git
+            raise OSError(errno.EIO, "git hash-object failed", os.fspath(tree.top))
+        out.update({path: bytes.fromhex(blob) for (path, _), blob in zip(hashed, ids, strict=True)})
     return out
 
 
@@ -602,7 +621,9 @@ def _model_core(model: str) -> tuple[str, str | None]:
     ``org/name`` id stays, so a re-upload under another organization is another model; a known vendor
     (``qwen/``, ``z-ai/``) goes, as its Bedrock ``vendor.`` prefix does, unless a ``huggingface/`` route precedes it.
     """
-    name = (model or "").strip().lower()
+    # sonnet[1m] is the same model with a larger window: the 1M context form goes, and no other bracket
+    # (qwen3[8b] and qwen3[32b] are two models)
+    name = re.sub(r"\[1m\]$", "", (model or "").strip().lower())
     arn = _BEDROCK_ARN.search(name)  # only a Bedrock ARN's tail: ``foundation-model/X`` alone is an org/name id
     if arn:
         name = name[arn.end():]
@@ -615,7 +636,7 @@ def _model_core(model: str) -> tuple[str, str | None]:
     if not hub and len(parts) > 1 and _VENDOR_SLUGS.get(parts[0], parts[0]) in _VENDORS:
         parts.pop(0)  # OpenRouter's ``qwen/X`` is Bedrock's ``qwen.X``: the vendor, not an organization
     name = "/".join(parts)
-    name = re.sub(r"-v?\d+:\d+$", "", name)
+    name = re.sub(r"(?<!claude)-v?\d+:\d+$", "", name)  # not Claude 2's own version: claude-v2:1
     for prefix in _REGION_PROFILES:
         if name.startswith(prefix):
             name = name[len(prefix):]
@@ -643,26 +664,27 @@ def same_model(a: str, b: str) -> bool:
 
     The same id matches, and so does a dated snapshot and its undated alias (the alias runs
     some snapshot of it), or the same id behind another route or region profile. Two dated
-    ids match only on the same date, and a bare family name (``haiku``) is not a full id.
+    ids match only on the same date. A Claude CLI alias (``sonnet``, ``opus[1m]``) matches a
+    full id of its family, since the CLI runs the alias as one of them (which one is not known here).
 
     The provider is not part of the identity: the same weights on Bedrock and on the direct
     API are still one model for the self-judge warning and for a baseline's model check.
     """
     (base_a, date_a), (base_b, date_b) = model_identity(a), model_identity(b)
-    if base_a is None or base_b is None or (date_a and date_b and date_a != date_b):
+    if base_a is None or base_b is None:
+        return False
+    # The alias rule applies only when neither side keeps an organization: ``myorg/sonnet`` is not the CLI's sonnet.
+    if "/" not in base_a and "/" not in base_b and (llm_cli.is_alias(a) or llm_cli.is_alias(b)):
+        family_a = llm_cli.family(a)
+        return family_a is not None and family_a == llm_cli.family(b)
+    if date_a and date_b and date_a != date_b:
         return False
     return base_a == base_b
 
 
-def same_evaluator(answer_provider: str, answer_model: str, judge_provider: str, judge_model: str) -> bool:
-    """Whether the answer and judge are one model, for the independence warning and its stored flag.
-
-    The model-name rule, or the CLI alias rule when a logged-in CLI route is involved.
-    """
-    from dokimi import llm_cli
-
-    return (same_model(answer_model, judge_model)
-            or llm_cli.same_model(answer_provider, answer_model, judge_provider, judge_model))
+def same_evaluator(answer_model: str, judge_model: str) -> bool:
+    """Whether the answer and judge are one model, for the independence warning and its stored flag."""
+    return same_model(answer_model, judge_model)
 
 
 def warn_judge_independence(
@@ -679,7 +701,7 @@ def warn_judge_independence(
     """
     import sys
 
-    same = same_evaluator(answer_provider, answer_model, judge_provider, judge_model)
+    same = same_evaluator(answer_model, judge_model)
     if same:
         first, second = roles
         print(
