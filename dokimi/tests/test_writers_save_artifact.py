@@ -306,9 +306,10 @@ def test_the_sidecar_keeps_non_ascii_text_readable(tmp_path, monkeypatch):
     assert _saved(sidecar, "report_qa")["records"][0]["question_text"] == "Как запустить цикл?"
 
 
-@pytest.mark.parametrize(("question_text", "in_sidecar"), [(5, None), ("", ""), (None, None)])
-def test_a_question_text_that_is_not_text_reads_as_none_in_the_sidecar(tmp_path, monkeypatch,
-                                                                       question_text, in_sidecar):
+@pytest.mark.parametrize(("question_text", "in_sidecar"), [(5, None), ("", ""), (None, None)],
+                         ids=["number", "blank", "null"])
+def test_the_sidecar_nulls_a_question_text_that_is_not_text_and_keeps_a_blank(tmp_path, monkeypatch,
+                                                                              question_text, in_sidecar):
     """A bad eval file is not a rejected save: a value that is not text is null; a blank stays "" as before."""
     out = tmp_path / "lib_full.md"
     assert _cli(monkeypatch, "report", "eval", "--product", "lib", "--eval",
