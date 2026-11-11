@@ -39,10 +39,10 @@ def _refuse_typed(source, args: argparse.Namespace) -> None:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(1)
     if args.manifest and not args.manifest_file:
-        try:
-            tree_path(args.manifest)
+        try:  # as the host reads it: on Windows `..\x` is `../x`, also for a pinned tree, which is read with `/`
+            tree_path(os.path.normpath(args.manifest).replace(os.path.sep, "/"))
         except SourceArgumentError as exc:
-            raise InputError(str(exc)) from exc
+            raise InputError(f"path escapes the repository: {args.manifest}") from exc
         if not source.remote and source.rev is None:  # a native path: on Windows `..\x` leaves the tree too
             tree = Path(source.location).resolve()
             if not Path(os.path.normpath(tree / args.manifest)).is_relative_to(tree):

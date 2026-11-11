@@ -222,12 +222,29 @@ def test_a_windows_manifest_path_leaving_an_unpinned_tree_is_refused_as_typed(tm
 
     source = SimpleNamespace(location=str(tmp_path), remote=False, rev=None, subdir=None)
     # What Windows does with `..\x`, written back with `/` so the posix tree compares.
-    windows_path = SimpleNamespace(normpath=lambda p: ntpath.normpath(p).replace("\\", "/"))
+    windows_path = SimpleNamespace(normpath=lambda p: ntpath.normpath(p).replace("\\", "/"), sep="/")
     monkeypatch.setattr(repo_run, "os", SimpleNamespace(path=windows_path))  # only this module; posixpath stays
     for manifest in ("..\\outside.yaml", "sub\\..\\..\\outside.yaml"):
         with pytest.raises(InputError, match=r"^path escapes the repository: "):
             repo_run._refuse_typed(source, SimpleNamespace(manifest=manifest, manifest_file=None))
     repo_run._refuse_typed(source, SimpleNamespace(manifest="sub\\..\\ok.yaml", manifest_file=None))
+
+
+def test_a_windows_manifest_path_leaving_a_pinned_tree_is_refused_as_typed(monkeypatch):
+    import ntpath
+    from types import SimpleNamespace
+
+    from dokimi.commands import repo_run
+    from dokimi.utils import InputError
+
+    pinned = SimpleNamespace(location="https://example.invalid/r.git", remote=True, rev="a" * 40, subdir=None)
+    windows_path = SimpleNamespace(normpath=ntpath.normpath, sep="\\")  # Windows: `\` separates, as typed
+    monkeypatch.setattr(repo_run, "os", SimpleNamespace(path=windows_path))
+    for manifest in ("..\\outside.yaml", "sub\\..\\..\\outside.yaml"):
+        with pytest.raises(InputError) as raised:
+            repo_run._refuse_typed(pinned, SimpleNamespace(manifest=manifest, manifest_file=None))
+        assert str(raised.value) == f"path escapes the repository: {manifest}"
+    repo_run._refuse_typed(pinned, SimpleNamespace(manifest="sub\\..\\ok.yaml", manifest_file=None))
 
 
 def test_a_pinned_source_gets_only_the_tree_path_check_for_a_manifest_that_stays_in_the_tree(tmp_path):
