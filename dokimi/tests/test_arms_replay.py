@@ -115,6 +115,16 @@ def test_a_replay_whose_original_is_not_an_input_counts_once():
     assert result["summary"]["replayed_repeats"] == 2
 
 
+def test_replays_with_no_fresh_original_count_at_their_mean_in_any_order():
+    first = _arms_run([("q1", {"baseline": 80, "skill": 80})], replayed=True)
+    second = _arms_run([("q1", {"baseline": 100, "skill": 100})], replayed=True)  # re-judged higher
+    for runs in ([first, second], [second, first]):
+        result = headroom(runs, min_reps=1)
+        item = result["items"][0]
+        assert (item["reps"], item["no_skill"], item["flag"]) == (1, 0.9, "ceiling")
+        assert result["summary"]["replayed_repeats"] == 2
+
+
 def test_a_replayed_answer_with_another_text_is_a_sample_of_its_own():
     result = headroom([_arms_run(SCORES, text="a"), _arms_run(SCORES, text="b", replayed=True)])
     assert result["items"][0]["reps"] == 2

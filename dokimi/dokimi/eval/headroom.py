@@ -24,9 +24,10 @@ drop repeated inputs first (the CLI does, by content digest). A question id repe
 run is refused: it would count as two runs. Nothing here draws a confidence interval; the paired
 statistics of a comparison stay in :mod:`dokimi.eval.stats`.
 
-A replayed answer (``replayed: true``: the response cache served it) whose text another run already
-gave for the same item and arm is a cached repeat, not a sample: its score is left out of the reps
-and the means, and ``summary.replayed_repeats`` counts it. A replay that repeats no other input counts.
+A replayed answer (``replayed: true``: the response cache served it) whose text a fresh answer of
+another run has for the same item and arm is a cached repeat, not a sample: its score is left out of
+the reps and the means, and ``summary.replayed_repeats`` counts it. The replays of one text that no
+fresh answer has are one rep, scored at their mean (each one past the first is counted as left out).
 """
 
 from __future__ import annotations
@@ -254,18 +255,25 @@ def _collect(runs: Sequence[Run]) -> Tuple[_Scores, Dict[str, Set[str]], int]:
 
 def _count(cells: List[_Cell], items: Iterable[str]) -> Tuple[_Scores, int]:
     """Question id -> arm -> the scores that count, for each id of ``items``, and how many were left
-    out: a replayed answer whose text a counted cell of the same item and arm already has."""
+    out. A replayed answer whose text a fresh one of the same item and arm has is left out; the
+    replays of one text no fresh answer has count once, at the mean of their scores."""
     scores: _Scores = {key: {} for key in items}
-    seen: Dict[Tuple[str, str], Set[Optional[str]]] = {}
-    left_out = 0
-    # Fresh answers first, so a replay meets its original whichever input comes first.
-    for cell in sorted(cells, key=lambda c: c.replayed):
-        texts = seen.setdefault((cell.key, cell.arm), set())
-        if cell.replayed and cell.text in texts:
-            left_out += 1
+    fresh: Set[Tuple[str, str, Optional[str]]] = set()
+    replays: Dict[Tuple[str, str, Optional[str]], List[Fraction]] = {}
+    for cell in cells:
+        if cell.replayed:
+            replays.setdefault((cell.key, cell.arm, cell.text), []).append(cell.value)
             continue
-        texts.add(cell.text)
+        fresh.add((cell.key, cell.arm, cell.text))
         scores[cell.key].setdefault(cell.arm, []).append(cell.value)
+    left_out = 0
+    # The mean, not the first file's score: which of the copies counts must not hang on the input order.
+    for (key, arm, text), values in replays.items():
+        if (key, arm, text) in fresh:
+            left_out += len(values)
+            continue
+        left_out += len(values) - 1
+        scores[key].setdefault(arm, []).append(sum(values, Fraction(0)) / len(values))
     return scores, left_out
 
 
