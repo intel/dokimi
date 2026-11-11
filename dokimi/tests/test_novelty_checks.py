@@ -84,6 +84,16 @@ def test_a_comma_ends_the_operands_of_a_prose_double_dash():
     assert grade_check(_veto(), "q", "Use perf report --stdio -- it, and --bogus works too", None).passed is False
 
 
+@pytest.mark.parametrize("answer", [
+    "Run perf report --stdio. Try --bogus elsewhere.",  # the sentence end
+    "perf report --stdio | grep --bogus",  # a pipe
+    "`perf report --stdio` and `ls --bogus`",  # a backtick
+    "perf report --stdio # then --bogus",  # a comment
+])
+def test_each_stop_of_the_within_scope_keeps_a_later_flag_of_another_clause_out_of_the_check(answer):
+    assert grade_check(_veto(), "q", answer, None).passed is True
+
+
 def test_a_tool_check_leaves_its_subcommands_alone():
     check = identifiers_check("perf", "usage: perf [--version] [--help] COMMAND")
     assert grade_check(check, "q", "perf report --stdio", None).passed is True
