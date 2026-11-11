@@ -1,0 +1,10 @@
+### Changed
+
+- **`repo scan` without a manifest also checks `.claude/rules` and `@` imports** — besides the
+  default guidance globs, a scan with no `repo-eval.yaml` and no `--manifest-file` checks every
+  Markdown file Claude Code loads with them: the `.claude/rules/**/*.md` files and the files a
+  CLAUDE.md `@` import chain reaches (what `repo budget` lists as `rule` and `import` for the
+  `claude-code` profile). A stale path in a rule or an imported file reaches the agent as surely
+  as one in CLAUDE.md, and was not checked before. They are named by path, so a repository with no
+  rules gets no new warning; a non-Markdown import (`@package.json`) is not read as guidance. A
+  written manifest scans what it names, as before, so its `--fail-on-fail` gate does not move.

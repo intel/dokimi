@@ -1,0 +1,61 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+"""`repo scan` without a manifest also checks the rules and @ imports Claude Code loads with CLAUDE.md."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from dokimi.cli import build_parser
+
+
+def _write(root: Path, files: dict[str, str]) -> Path:
+    for rel, text in files.items():
+        path = root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
+    return root
+
+
+def _scan(capsys, *argv: str) -> dict:
+    args = build_parser().parse_args(["repo", "scan", *argv, "--json"])
+    args.func(args)
+    return json.loads(capsys.readouterr().out)
+
+
+def _fails(payload: dict) -> set[tuple[str, str]]:
+    return {(c["file"], c["claim"]) for c in payload["claims"] if c["status"] == "fail"}
+
+
+LOADED = {
+    "src/real.py": "x = 1\n",
+    "CLAUDE.md": "Run `src/real.py`.\n@docs/agent.md\n@package.json\n",
+    "docs/agent.md": "The entry point is `src/gone_import.py`.\n",
+    "package.json": '{"main": "src/gone_json.py"}\n',
+    ".claude/rules/build.md": "---\npaths: []\n---\nBuild from `src/gone_rule.py`.\n",
+    "lib/.claude/rules/lib.md": "The library lives in `src/gone_lazy.py`.\n",
+}
+
+
+def test_a_default_scan_checks_the_rules_and_imports_claude_code_loads(tmp_path, capsys):
+    payload = _scan(capsys, str(_write(tmp_path / "r", LOADED)))
+    assert payload["files"] == [".claude/rules/build.md", "CLAUDE.md", "docs/agent.md", "lib/.claude/rules/lib.md"]
+    assert _fails(payload) == {(".claude/rules/build.md", "src/gone_rule.py"), ("docs/agent.md", "src/gone_import.py"),
+                               ("lib/.claude/rules/lib.md", "src/gone_lazy.py")}
+
+
+def test_a_written_manifest_scans_only_what_it_names(tmp_path, capsys):
+    root = _write(tmp_path / "r", LOADED)
+    manifest = tmp_path / "m.yaml"
+    manifest.write_text("schema: repo_manifest.v1\nid: r\nguidance:\n  globs: [CLAUDE.md]\n", encoding="utf-8")
+    payload = _scan(capsys, str(root), "--manifest-file", str(manifest))
+    assert payload["files"] == ["CLAUDE.md"]
+    assert _fails(payload) == set()
+
+
+def test_a_repository_without_rules_gets_no_new_warning(tmp_path, capsys):
+    payload = _scan(capsys, str(_write(tmp_path / "r", {"CLAUDE.md": "# guidance\n"})))
+    assert payload["files"] == ["CLAUDE.md"]
+    assert not [w for w in payload["warnings"] if "rules" in w or "import" in w]

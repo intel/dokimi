@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import os
 import shutil
+import sys
 
 from dokimi.utils import InputError
 
@@ -30,6 +31,29 @@ def _typecheck_or_exit(args: argparse.Namespace):
         raise InputError(f"--typecheck-tool {tool}: not on PATH")
     python = os.path.abspath(args.python_env) if args.python_env is not None else None  # the tool runs elsewhere
     return Check(tool, python)
+
+
+def _loaded_with_default(tree, manifest) -> tuple[str, ...]:
+    """The Markdown rules and ``@`` imports Claude Code loads with the default guidance; () for a written manifest.
+
+    The default globs name CLAUDE.md but not what it pulls in: a stale path in a ``.claude/rules`` file or an
+    imported file reaches the agent as surely as one in CLAUDE.md. They are named by path, not glob, so a repository
+    without rules gets no warning for them. A written manifest scans what it says, so a gate on it does not change.
+    """
+    if manifest.path != "<default>":
+        return ()
+    from dokimi.repos.budget import budget
+    from dokimi.repos.harness_profile import load_profile
+
+    p = load_profile("claude-code")
+    entries = budget(tree, p.guidance_names, p.import_max_depth, p.reads_claude_rules,
+                     claude_displaces_agents=p.claude_displaces_agents, follow_imports=p.follows_imports)["entries"]
+    # Only Markdown is read as guidance: an `@package.json` import is loaded, but its text is no guidance claims
+    loaded = tuple(e["path"] for e in entries if e["kind"] in ("rule", "import") and e["path"].endswith(".md"))
+    if loaded:
+        print(f"note: also checking {len(loaded)} .claude/rules and @ imported files Claude Code loads with the default guidance",
+              file=sys.stderr)
+    return loaded
 
 
 def _print_scan_text(manifest, payload: dict, out: str | None) -> None:

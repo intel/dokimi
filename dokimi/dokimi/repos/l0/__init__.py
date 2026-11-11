@@ -24,10 +24,11 @@ from .typecheck import Check, check_fences
 __all__ = ["ADAPTERS", "Check", "Claim", "Scan", "guidance_files", "scan_repo"]
 
 
-def guidance_files(tree: RepoTree, manifest: RepoManifest) -> list[str]:
-    """Files the manifest's guidance globs and ``also_scan`` match, in tree order."""
+def guidance_files(tree: RepoTree, manifest: RepoManifest, also: tuple[str, ...] = ()) -> list[str]:
+    """Files the manifest's guidance globs and ``also_scan`` match, and the paths ``also`` names, in tree order."""
     patterns = (*manifest.guidance_globs, *manifest.also_scan)
-    return [f for f in tree.files() if any(match_glob(p, f) for p in patterns)]
+    named = set(also)
+    return [f for f in tree.files() if f in named or any(match_glob(p, f) for p in patterns)]
 
 
 def _coverage_warnings(tree: RepoTree, manifest: RepoManifest, files: list[str]) -> tuple[list[str], list[str]]:
@@ -54,15 +55,18 @@ def _is_build_input(path: str) -> bool:
 
 
 def scan_repo(tree: RepoTree, manifest: RepoManifest, static: dict[str, Any] | None = None,
-              typecheck: Check | None = None) -> dict[str, Any]:
+              typecheck: Check | None = None, also: tuple[str, ...] = ()) -> dict[str, Any]:
     """The ``repo_readiness.v1`` payload (without ``schema_version``) for ``tree``.
+
+    ``also`` names more files to scan as guidance, by path rather than glob: a file named so that matches nothing
+    is no coverage warning.
 
     ``static`` is the document the repository's ``static`` entry point wrote.
     Its claims replace the framework's claim on the same file, line and text,
     because the repository knows its own rules better. ``typecheck`` adds the
     ``python_fence`` claims (§8.2); None leaves the Python fences unchecked.
     """
-    files = guidance_files(tree, manifest)
+    files = guidance_files(tree, manifest, also)
     scan = Scan(tree, frozenset(manifest.build_systems), repo_url=manifest.source_url, guidance=tuple(files))
     detected = not manifest.build_systems
     if detected:
