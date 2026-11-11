@@ -201,6 +201,18 @@ def test_a_parametrized_task_check_keeps_its_decorators_and_stays_apart(tmp_path
     assert any('("-y", "a")' in c.source for c in checks)
 
 
+def test_a_test_class_decorator_is_part_of_its_methods_check(tmp_path):
+    root = tmp_path / "tasks"
+    for task, flag in (("t1", "-x"), ("t2", "-y")):
+        _task(root, task, {"test_output.py": (
+            "import pytest\n\n"
+            f'@pytest.mark.parametrize("flag", ["{flag}"])\n'
+            "class TestOutput:\n    def test_a(self, flag):\n        assert flag\n")})
+    checks = sc.load_checks(root)
+    assert sorted(c.name for c in checks) == ["TestOutput::test_a#1", "TestOutput::test_a#2"]  # not merged
+    assert any('["-x"]' in c.source for c in checks) and any('["-y"]' in c.source for c in checks)
+
+
 def test_task_checks_that_share_a_long_prefix_stay_apart_with_their_full_source(tmp_path):
     prefix = "".join(f"    x{i} = {i}\n" for i in range(300))  # longer than the old per-check clip
     root = tmp_path / "tasks"

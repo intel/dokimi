@@ -128,12 +128,21 @@ def check_files(root: Path) -> list[Path]:
     return [p.resolve() for task in root.iterdir() if _is_task(task) for p in (task / "tests").rglob("*.py")]
 
 
+def _lines(text: str) -> list[str]:
+    return re.findall(r"[^\r\n]*(?:\r\n|\r|\n)|[^\r\n]+\Z", text)  # the line breaks ast counts, not splitlines's
+
+
 def _source(text: str, node: ast.stmt) -> str:
     """The function's source from its first decorator to its last line (``ast.get_source_segment`` starts at ``def``,
     so a parametrize decorator would be lost and two differently parametrized checks would read as one)."""
-    lines = re.findall(r"[^\r\n]*(?:\r\n|\r|\n)|[^\r\n]+\Z", text)  # the line breaks ast counts, not splitlines's
     start = min([node.lineno, *(d.lineno for d in getattr(node, "decorator_list", []))])
-    return "".join(lines[start - 1:node.end_lineno]).rstrip("\n")
+    return "".join(_lines(text)[start - 1:node.end_lineno]).rstrip("\n")
+
+
+def _header(text: str, node: ast.ClassDef) -> str:
+    """A class's decorators and its ``class`` line (bases and keywords included): what its methods' checks inherit."""
+    start = min([node.lineno, *(d.lineno for d in node.decorator_list)])
+    return "".join(_lines(text)[start - 1:node.lineno]).rstrip("\n")
 
 
 def _is_test(node: ast.stmt) -> bool:
@@ -177,7 +186,7 @@ def _task_checks(root: Path) -> list[tuple[str, str, str]]:
                 if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and _is_test(node):
                     out.append((task_dir.name, node.name, "\n\n".join([*module, _source(text, node) or node.name])))
                 elif isinstance(node, ast.ClassDef) and _is_test_class(node):
-                    context = [_source(text, s) for s in node.body if not _is_test(s)]
+                    context = [_header(text, node), *(_source(text, s) for s in node.body if not _is_test(s))]
                     for method in node.body:
                         if isinstance(method, (ast.FunctionDef, ast.AsyncFunctionDef)) and _is_test(method):
                             out.append((task_dir.name, f"{node.name}::{method.name}",
