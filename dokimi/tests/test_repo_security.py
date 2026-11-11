@@ -586,12 +586,30 @@ def test_agent_that_ran_without_a_trace_is_unfinished_not_not_started(tmp_path):
     assert report["coverage"]["not_started"] == []
 
 
-def test_agent_that_ran_with_an_empty_trace_is_measured(tmp_path):
+def test_an_empty_trace_with_an_agent_rc_is_not_started(tmp_path):
+    # the runner writes rc even when the agent never started: its trace is then an empty file, not a measured clean run
     batch = tmp_path / "b"
     _cell(batch, "t", BASE, 0, events=[_cmd("pytest")])
-    _with_record(_cell(batch, "t", "skill", 0, events=[]), agent={"rc": 0}, process=None)
+    _with_record(_cell(batch, "t", "skill", 0, events=[]), agent={"rc": 1}, process=None)
     report = sec.scan_batch(batch, BASE)
-    assert report["coverage"]["unfinished"] == [] and _arm(report, "skill")["cells"] == 1
+    assert report["coverage"]["unfinished"] == [] and _arm(report, "skill")["not_started"] == 1
+    assert _arm(report, "skill")["cells"] == 0
+
+
+def test_an_agent_rc_with_a_missing_trace_is_unfinished_and_started(tmp_path):
+    batch = tmp_path / "b"
+    _cell(batch, "t", BASE, 0, events=[_cmd("pytest")])
+    cell = _cell(batch, "t", "skill", 0, events=[])
+    _with_record(cell, agent={"rc": 0}, process=None)
+    (cell / "events.jsonl").unlink()
+    report = sec.scan_batch(batch, BASE)
+    assert [u["cell"] for u in report["coverage"]["unfinished"]] == ["t__skill__m__r0"]
+    assert not any(a["arm"] == "skill" for a in report["arms"])  # unfinished, so in no rate
+
+
+@pytest.mark.parametrize("text, expected", [(r"\x41\x42", "AB"), (r"\v\f", "\v\f"), (r"\101\x41", "AA")])
+def test_strace_hex_and_vertical_escapes_decode(text, expected):
+    assert sec._strace_text(text) == expected
 
 
 def test_a_model_without_a_baseline_cell_fails_the_gate(tmp_path):

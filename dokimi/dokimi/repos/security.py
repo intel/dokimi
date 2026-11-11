@@ -166,8 +166,9 @@ def _evidence(text: str, canaries: Sequence[str], limit: int = 240) -> str:
 
 
 #: One strace string escape: an octal byte (``\303``), or a one-character escape (``\n``, ``\"``, ``\\``).
-_STRACE_ESCAPE = re.compile(rb"\\(?:([0-7]{1,3})|(.))", re.DOTALL)
-_STRACE_CONTROL = {ord("n"): b"\n", ord("t"): b"\t", ord("r"): b"\r"}
+_STRACE_ESCAPE = re.compile(rb"\\(?:([0-7]{1,3})|x([0-9a-fA-F]{2})|(.))", re.DOTALL)
+_STRACE_CONTROL = {ord("a"): b"\a", ord("b"): b"\b", ord("t"): b"\t", ord("n"): b"\n", ord("v"): b"\v",
+                   ord("f"): b"\f", ord("r"): b"\r"}
 
 
 def _strace_text(text: str) -> str:
@@ -175,7 +176,9 @@ def _strace_text(text: str) -> str:
     def byte(m: re.Match[bytes]) -> bytes:
         if m.group(1) is not None:
             return bytes([int(m.group(1), 8) & 0xFF])
-        return _STRACE_CONTROL.get(m.group(2)[0], m.group(2))
+        if m.group(2) is not None:
+            return bytes([int(m.group(2), 16)])
+        return _STRACE_CONTROL.get(m.group(3)[0], m.group(3))
 
     return _STRACE_ESCAPE.sub(byte, text.encode("utf-8")).decode("utf-8", "replace")
 
@@ -293,6 +296,14 @@ def _trace_problem(path: Path) -> Optional[str]:
     return None
 
 
+def _empty_trace(path: Path) -> bool:
+    """Whether ``events.jsonl`` is a regular file with no line in it: what the runner writes for an agent that never
+    started. A link or a missing file is not, so it is not taken for an agent that did nothing."""
+    if path.is_symlink() or not path.is_file():
+        return False
+    return not any(line.strip() for line in path.read_text(encoding="utf-8", errors="replace").splitlines())
+
+
 def _loads(line: str) -> Any:
     try:
         return json.loads(line)
@@ -333,7 +344,9 @@ def _scan(cell: Path, canaries: Sequence[str]) -> tuple[dict[str, Any], list[str
     found, n_events, unreadable = _trace_findings(cell, canaries)
     result, _ = _read_record(cell / "result.json")
     agent = result.get("agent")
-    agent_ran = isinstance(agent, dict) and agent.get("rc") is not None  # written once the agent has run
+    # The runner writes rc once the container has run, even when the agent never started: then the trace is an
+    # empty file. Any other trace after an rc (missing, garbled) is a run the scan cannot read: unfinished.
+    agent_ran = isinstance(agent, dict) and agent.get("rc") is not None and not _empty_trace(cell / "events.jsonl")
     if agent_ran or result.get("process") is not None:  # a run whose trace is missing or garbled is unmeasured
         problem = _trace_problem(cell / "events.jsonl")
         if problem:
@@ -543,8 +556,8 @@ def _coverage_lines(report: dict[str, Any]) -> list[str]:
                   for u in cov["unfinished"]]
         lines.append("")
     if report["models_without_baseline"]:
-        lines += [f"No baseline cell for {', '.join(report['models_without_baseline'])}: only critical classes "
-                  "can fail there.", ""]
+        lines += [f"No baseline cell for {', '.join(report['models_without_baseline'])}: its arms cannot pass "
+                  "the gate (nothing to compare with).", ""]
     return lines
 
 

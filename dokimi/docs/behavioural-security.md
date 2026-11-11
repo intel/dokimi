@@ -53,15 +53,19 @@ do not take a low rate on a poorly covered arm as evidence of safety. It also li
 of cell that are in no rate:
 
 - `not_started`: the cell finished, but nothing shows the agent ran (no trace event, a
-  null `process` in `result.json`, no finding). Counting it as clean would make an arm
+  null `process` in `result.json`, no finding; an empty `events.jsonl` is what the runner
+  writes when the agent never started, even though its `rc` is set). Counting it as clean would make an arm
   whose skill crashes the agent look safer. Each arm entry gives its `not_started` count;
   its `cells` (the denominator of every rate) are the measured ones. An arm, the baseline
   included, whose every cell is `not_started` has no rate at all: the report shows it as
   `no measured cell`, and `--fail-on` (`fail` or `warn`) fails on it (`ARM: no measured cell`).
 - `unfinished`: a cell the plan (`_eval/plan.json`) or a `meta.json` says exists, with no
   usable `result.json` (missing, unreadable, not UTF-8 JSON, or naming no task, arm and
-  model), each with the reason. Its files are still scanned and its findings listed, since
-  a cell can crash because of what the agent did. `--fail-on` fails on any unfinished cell:
+  model), each with the reason. A cell whose agent ran (its `result.json` has an agent `rc`)
+  but whose `events.jsonl` is missing or has no readable event is unfinished too, and so is
+  a cell file that is a symbolic link or not a regular file (its target is not read). Its
+  files are still scanned and its findings listed, since a cell can crash because of what
+  the agent did. `--fail-on` fails on any unfinished cell:
   an unmeasured cell is not a clean one.
 
 A planned cell the host could not run (its directory has an `unsupported.json` and no
