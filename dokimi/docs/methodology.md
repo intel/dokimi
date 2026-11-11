@@ -65,7 +65,7 @@ python cli.py evaluate \
   --context7-id intel/mkl-dnn
 ```
 
-Outputs are written under `results/<library>/` or the requested `--output-dir`:
+Outputs are written under `results/<library>/` or the requested `--out-dir`:
 
 - `personas/<product>.json`: discovered or cached personas; not written when the
   questions come from a golden set or `--questions-from`.

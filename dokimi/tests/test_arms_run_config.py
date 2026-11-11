@@ -69,7 +69,7 @@ def unresolvable(tmp_path: Path, monkeypatch) -> dict[str, Path]:
 
 
 @pytest.mark.parametrize("command", [
-    ["arms", "run", "--out-json", "{out}/a.json", "--out-md", "{out}/a.md"],
+    ["arms", "run", "--out", "{out}/a.json", "--out-md", "{out}/a.md"],
     ["arms", "matrix-run", "--matrix-cells", "{cells}", "--out-dir", "{out}"],
 ])
 def test_a_doc_arm_without_a_library_id_stops_the_run_before_any_answer(command, unresolvable,
