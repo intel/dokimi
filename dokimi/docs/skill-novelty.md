@@ -799,7 +799,7 @@ field rule under `field` (`include_disabled`, `include_invalid`, `keep_copies_un
 `{skill, length, limit, message}` per kept skill whose description is over 1024 characters); a single-artifact run
 records it too. An all-vs-all run also lists in `field.dropped_queries` each skill whose queries it dropped, as
 `{skill, reasons, keep_flags, queries}`, one record per skill, with each reason `disabled`, `invalid` or `conflict`. A query for a catalog skill
-that failed to load refuses the run and names the load error. It takes no `--artifact`, `--queries` or `--queries-from-headings`. `--estimate-only` prints the calls and the
+that failed to load refuses the run and names the load error. It refuses `--artifact`, `--queries` and `--queries-from-headings`: it takes `--queries-by-skill` only. `--estimate-only` prints the calls and the
 list-price cost of the whole run as JSON, in the shape of a single-artifact estimate, with no client built and
 no query sent; it needs no `--out`. `--reps` needs `--model`
 and asks each query that many times, as a single-artifact run does: the model arm then carries a
