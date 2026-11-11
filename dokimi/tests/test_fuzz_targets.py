@@ -138,7 +138,18 @@ def test_parse_json_contains_tries_a_bounded_number_of_starts(monkeypatch: pytes
 
     monkeypatch.setattr(reference_checks.json.JSONDecoder, "raw_decode", spy)
     assert parse_json("[" * 20000, contains=True) == (False, None)
-    assert 0 < len(calls) <= CONTAINS_JSON_MAX_STARTS
+    assert 0 < len(calls) <= CONTAINS_JSON_MAX_STARTS + 1  # + the json.loads of the whole text
+    calls.clear()
+    # A decoder that reports a JSONDecodeError at the depth limit (Python 3.14) never raises
+    # RecursionError: only the cap bounds the scan there, whatever this Python does.
+    def reject(self: json.JSONDecoder, s: str, idx: int = 0) -> tuple[object, int]:
+        calls.append(idx)
+        raise json.JSONDecodeError("too deep", s, idx)
+
+    monkeypatch.setattr(reference_checks.json.JSONDecoder, "raw_decode", reject)
+    assert parse_json("[" * 20000, contains=True) == (False, None)
+    assert len(calls) == 1 + CONTAINS_JSON_MAX_STARTS
+    monkeypatch.setattr(reference_checks.json.JSONDecoder, "raw_decode", spy)
     calls.clear()
     # A value after fewer stray brackets than the cap, in prose, is still found.
     assert parse_json("{ [ " * 10 + 'then {"a": [1]} done', contains=True) == (True, {"a": [1]})
