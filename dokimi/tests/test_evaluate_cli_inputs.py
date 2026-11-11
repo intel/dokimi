@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 
 import pytest
 
@@ -80,10 +81,10 @@ def test_an_unparseable_custom_questions_file_exits_2_before_any_output_director
 
 
 def test_an_unparseable_questions_from_file_names_the_flag(tmp_path):
-    source = tmp_path / "earlier.json"
+    source = tmp_path / "earlier (v1).json"
     source.write_text("not json", encoding="utf-8")
 
-    with pytest.raises(InputError, match=rf"^--questions-from {source}: "):
+    with pytest.raises(InputError, match=rf"^--questions-from {re.escape(str(source))}: "):
         EvaluationPipeline(product="Demo", product_key="demo", output_dir=tmp_path / "out",
                            description="A demo product", questions_from=source)
     assert not (tmp_path / "out").exists()
@@ -107,12 +108,12 @@ def test_a_named_pipe_as_custom_questions_or_questions_from_is_not_read_up_front
 
 
 def test_load_questions_payload_names_the_flag_only_when_given_one(tmp_path):
-    empty = tmp_path / "q.json"
+    empty = tmp_path / "q (v1).json"
     empty.write_bytes(b"")
 
     with pytest.raises(json.JSONDecodeError):
         load_questions_payload(empty)
-    with pytest.raises(InputError, match=rf"^--custom-questions {empty}: "):
+    with pytest.raises(InputError, match=rf"^--custom-questions {re.escape(str(empty))}: "):
         load_questions_payload(empty, "--custom-questions")
 
 
