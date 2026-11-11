@@ -73,7 +73,7 @@ Full list of changes: [v0.1.0...v0.2.0](https://github.com/intel/dokimi/compare/
   | `ingest docling` | `data import docling` |
 
   The bare groups `personas`, `questions`, `context`, `library`, `product`, `dataset` and `ingest` point to `eval personas`, `eval questions`, `trace`, `catalog`, `catalog`, `data export` and `data import`.
-- Exit codes: 0 success; 1 a failed check, gate or run; 2 bad input or usage, with one `Error: <message>` line on stderr; 3 a budget stopped `tools preference` (partial output kept; other commands still exit 1 on a budget stop); 5 a crash in `backends`, `runs` or `trace` with `--json`. Most bad-input refusals move from 1 to 2. The table, and the commands that still exit 1 on some bad input (`repo run`, `eval check`), are in [docs/quickstart.md](docs/quickstart.md).
+- Exit codes: 0 success; 1 a failed check, gate or run; 2 bad input or usage, with one `Error: <message>` line on stderr (`✗` for a failed `repo` `--out` write); 3 a budget stopped `tools preference` (partial output kept; other commands still exit 1 on a budget stop); 5 a crash in `backends`, `runs` or `trace` with `--json`. Most bad-input refusals move from 1 to 2. The table, and the commands that still exit 1 on some bad input (`repo run`, `eval check`), are in [docs/quickstart.md](docs/quickstart.md).
 - These now exit 1 where they exited 2: `eval score pairwise` when every comparison failed, `eval judge agreement --judges` when a judge scored nothing, `tools preference` when every call failed.
 - Nothing measured is no longer a pass: `tasks run`, `eval check`, `repo run`, `docs check --strict` and `eval judge wording|agreement --strict` exit 1 when a planned cell errored, went unscored or is missing.
 - One same-model rule covers `baseline compare`, the self-judge warning and `repo compare`: the provider is not part of a model's identity and a dated id matches its alias, which `baseline compare --strict` reports as not verified.
@@ -88,7 +88,7 @@ Full list of changes: [v0.1.0...v0.2.0](https://github.com/intel/dokimi/compare/
 - An `mcp:` source's `;id=` wins over a registered product's `context7_id` in `answers`, `questions`, `arms run` and `benchmark run` (the registry library was queried before).
 - OpenRouter output is no longer capped at 2000 tokens.
 - Novelty calls request 16384 output tokens when `--max-tokens` is not given (litellm sent 4096 on Bedrock), and a reply cut at the output ceiling is an error instead of a bad parse.
-- The novelty default judge skips any model of the answerer's family; with `--judge-provider anthropic` and an Anthropic answerer the run fails until `--judge-model` is given.
+- The novelty default judge is never the model under measurement; when it would be, `--judge-provider anthropic` needs `--judge-model`.
 - `novelty analyze` cost totals leave out calls replayed from the response cache (counted in a new `replayed_calls`), and `usd` is `null` when a call returned no usage.
 - Under `--provider openai`, a model litellm does not know as OpenAI goes to the configured endpoint as `openai/<model>`. A bare Bedrock judge name, or a `--judge2` equal to the first judge, exits 2.
 - `--provider openai-codex` is removed from `answers generate`, `eval questions generate`, `eval personas discover`, `evaluate` and `benchmark run|preflight|batch`, which could not run it.
@@ -126,7 +126,7 @@ Full list of changes: [v0.1.0...v0.2.0](https://github.com/intel/dokimi/compare/
 
 - Most commands refuse a missing, unreadable or wrong-shape input, a device or directory given as a file, or a mistyped source with a message instead of a traceback.
 - A NaN or infinite score no longer passes a gate or crashes an aggregate, and `paired_test` returns a result for finite deltas up to about 1e300.
-- A guidance file whose path holds a carriage return is found, and on Linux and macOS a path that is not valid UTF-8 keeps its bytes in the `guidance:overlay`, `guidance:none` and `patch:` arms and in `schema_compat`, and `guidance:as-skill` packages such a file (its name shown with U+FFFD).
+- A guidance file whose path holds a carriage return is found, and on Linux a path that is not valid UTF-8 keeps its bytes in the `guidance:overlay`, `guidance:none` and `patch:` arms and in `schema_compat`, and `guidance:as-skill` packages such a file (its name shown with U+FFFD).
 - `repo scan` reads a root symlink to a directory as that directory.
 - `data import docling` no longer writes through a symlink.
 - Skill discovery skips `.git`, `node_modules`, `site-packages` and virtualenvs, so a dependency's copy of a skill is not loaded as a catalog skill.
