@@ -44,6 +44,8 @@ def test_an_old_spelling_tombstones_with_the_new_argv(old, new, capsys):
     ["repo", "scan", "src", "--out", "report.json"],
     ["repo", "run", "src", "--out-dir", "runs"],  # the new spelling is not rewritten
     ["docs", "check", "--out", "x.json"],
+    ["repo", "scan", "--", "--out-json"],  # after `--` every token is a positional, not a flag
+    ["repo", "run", "--", "--out", "d"],
 ])
 def test_a_canonical_or_file_spelling_is_not_moved(argv):
     assert cli_routes.moved_flags_argv(argv) is None
@@ -54,6 +56,11 @@ def test_the_directory_move_applies_only_to_the_directory_leaves():
     assert cli_routes.moved_flags_argv(["repo", "run", "src", "--out", "d"]) == [
         "repo", "run", "src", "--out-dir", "d"]
     assert cli_routes.moved_flags_argv(["novelty", "atoms", "--out", "f"]) is None
+
+
+def test_a_moved_flag_before_the_delimiter_moves_and_the_positional_after_it_stays():
+    assert cli_routes.moved_flags_argv(["repo", "run", "--out", "d", "--", "--out"]) == [
+        "repo", "run", "--out-dir", "d", "--", "--out"]
 
 
 def test_old_and_new_spellings_parse_to_the_same_value():

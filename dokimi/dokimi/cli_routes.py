@@ -299,6 +299,8 @@ def moved_flags_argv(argv: Sequence[str]) -> list[str] | None:
     rewritten = list(argv)
     changed = False
     for index, token in enumerate(rewritten):
+        if token == "--":  # the end of options: what follows is positional
+            break
         name, equals, value = token.partition("=")
         for move in FLAG_MOVES:
             if name == move.old and (not move.leaves or leaf in move.leaves):
