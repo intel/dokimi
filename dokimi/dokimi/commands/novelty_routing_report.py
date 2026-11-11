@@ -197,8 +197,6 @@ def no_competitors_conflict(args: argparse.Namespace, conflicts: dict[str, list[
 
 def check_all_vs_all_args(args: argparse.Namespace) -> None:
     """Refuse the flag combinations ``catalog routing`` cannot run with, and name every missing flag."""
-    if args.artifact:
-        raise InputError("catalog routing takes no --artifact: every skill in the field is the gold in turn")
     if args.queries or args.queries_from_headings:
         raise InputError("catalog routing takes --queries-by-skill, not --queries or --queries-from-headings")
     # --out is not needed to estimate, which writes nothing, as a single-artifact estimate.
