@@ -168,6 +168,40 @@ def _read_doc(path: Path) -> str:
         return ""
 
 
+def _named_closure(
+    skill_dir: Path,
+    files: list[str],
+    docs: list[str],
+    text: str,
+    linked: set[str],
+    doc_links: Callable[[str], Iterable[Optional[str]]],
+) -> tuple[set[str], bool]:
+    """The bundled files that ``SKILL.md`` or a document it names mentions, followed from there, and whether
+    the search was incomplete: the document walk was truncated, or a named document was past the read cap.
+
+    ``text`` and ``linked`` are the names of ``SKILL.md`` and its links; both grow with each document read.
+    """
+    named_files: set[str] = set()
+    docs_read = 0
+    incomplete = len(docs) > WALK_MAX_FILES
+    candidates = list(dict.fromkeys(files + docs))
+    while True:
+        new = [rel for rel in candidates if rel not in named_files and _named(rel, text, linked)]
+        if not new:
+            break
+        for rel in new:
+            named_files.add(rel)
+            if docs_read >= DOCS_READ_MAX:
+                incomplete = incomplete or PurePosixPath(rel).suffix.lower() in DOC_SUFFIXES
+                continue
+            if more := _read_doc(skill_dir / rel):
+                docs_read += 1
+                folder = PurePosixPath(rel).parent.as_posix()
+                text += "\n" + _matchable(_from_folder(more.lower(), folder))
+                linked.update(_target(folder, link) for link in doc_links(more) if link)
+    return named_files, incomplete
+
+
 def unreferenced_message(
     skill_path: Path,
     links: Iterable[Optional[str]],
@@ -193,27 +227,8 @@ def unreferenced_message(
     if len(files) > WALK_MAX_FILES:  # a checkout, not a bundle: a partial list would be a wrong count
         return None
     linked = {_target(".", link) for link in links if link}
-    named_files: set[str] = set()
-    docs_read = 0
-    # A truncated document walk, or a named document past the read cap, can hide a name a script
-    # relies on: then nothing is claimed about the bundle's files.
-    incomplete = len(docs) > WALK_MAX_FILES
-    candidates = list(dict.fromkeys(files + docs))
-    while True:
-        new = [rel for rel in candidates if rel not in named_files and _named(rel, text, linked)]
-        if not new:
-            break
-        for rel in new:
-            named_files.add(rel)
-            if docs_read >= DOCS_READ_MAX:
-                incomplete = incomplete or PurePosixPath(rel).suffix.lower() in DOC_SUFFIXES
-                continue
-            if more := _read_doc(skill_path.parent / rel):
-                docs_read += 1
-                folder = PurePosixPath(rel).parent.as_posix()
-                text += "\n" + _matchable(_from_folder(more.lower(), folder))
-                linked.update(_target(folder, link) for link in doc_links(more) if link)
-    if incomplete:
+    named_files, incomplete = _named_closure(skill_path.parent, files, docs, text, linked, doc_links)
+    if incomplete:  # a name the search cannot see may be the one a script relies on: claim nothing
         return None
     missing = [rel for rel in files if rel not in named_files]
     if not missing:
