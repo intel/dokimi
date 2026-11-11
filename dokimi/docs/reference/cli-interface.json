@@ -4547,12 +4547,31 @@
               "group_required": null,
               "hidden": false,
               "is_flag": false,
-              "key": "--artifact",
+              "key": "skill",
+              "kind": "argument",
+              "nargs": null,
+              "position": 0,
+              "required": true,
+              "type": null
+            },
+            {
+              "action": "_StoreAction",
+              "choices": null,
+              "const": null,
+              "default": [
+                "anthropic",
+                "claude-sonnet-5-5"
+              ],
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": false,
+              "key": "--extract-model",
               "kind": "option",
               "nargs": null,
               "position": null,
-              "required": true,
-              "type": null
+              "required": false,
+              "type": "dokimi.commands.repo_hits._judge_ref#f8f456f0565f"
             },
             {
               "action": "_HelpAction",
@@ -4579,44 +4598,12 @@
               "group_required": null,
               "hidden": false,
               "is_flag": false,
-              "key": "--max-tokens",
-              "kind": "option",
-              "nargs": null,
-              "position": null,
-              "required": false,
-              "type": "dokimi.commands.eval_graph._positive#41c554773b92"
-            },
-            {
-              "action": "_StoreAction",
-              "choices": null,
-              "const": null,
-              "default": null,
-              "group_key": null,
-              "group_required": null,
-              "hidden": false,
-              "is_flag": false,
               "key": "--max-usd",
               "kind": "option",
               "nargs": null,
               "position": null,
               "required": false,
               "type": "dokimi.commands.novelty_run.usd_amount#af10a4ceaa08"
-            },
-            {
-              "action": "_StoreAction",
-              "choices": null,
-              "const": null,
-              "default": "claude-sonnet-5-5",
-              "group_key": null,
-              "group_required": null,
-              "hidden": false,
-              "is_flag": false,
-              "key": "--model",
-              "kind": "option",
-              "nargs": null,
-              "position": null,
-              "required": false,
-              "type": null
             },
             {
               "action": "_StoreAction",
@@ -4632,30 +4619,6 @@
               "nargs": null,
               "position": null,
               "required": true,
-              "type": null
-            },
-            {
-              "action": "_StoreAction",
-              "choices": [
-                "'amazon-bedrock'",
-                "'anthropic'",
-                "'claude-cli'",
-                "'google-vertex'",
-                "'openai'",
-                "'openai-codex'",
-                "'openrouter'"
-              ],
-              "const": null,
-              "default": "anthropic",
-              "group_key": null,
-              "group_required": null,
-              "hidden": false,
-              "is_flag": false,
-              "key": "--provider",
-              "kind": "option",
-              "nargs": null,
-              "position": null,
-              "required": false,
               "type": null
             }
           ],

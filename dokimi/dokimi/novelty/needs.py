@@ -74,7 +74,11 @@ Return ONLY JSON:
 """
 
 # Recorded in a saved graph's provenance: a graph built under another prompt is another graph.
-PROMPT_VERSION = hashlib.sha256((_GRAPH_SYSTEM + _GRAPH_PROMPT).encode("utf-8")).hexdigest()[:12]
+def _prompt_version(system: str, prompt: str) -> str:
+    return "sha256:" + hashlib.sha256((system + "\0" + prompt).encode("utf-8")).hexdigest()
+
+
+PROMPT_VERSION = _prompt_version(_GRAPH_SYSTEM, _GRAPH_PROMPT)
 
 
 @dataclass
@@ -171,13 +175,14 @@ def build_need_graph(name: str, description: str, *, client: LLMClient, strict: 
         if strict:
             raise
         return graph
+    taken: set[str] = set()
     for index, row in enumerate(data.get("nodes", []) or [], start=1):
         if not isinstance(row, dict) or not str(row.get("text", "")).strip():
             continue
-        node_type = str(row.get("type", "intent"))
-        path_class = str(row.get("path_class", "core"))
+        node_type = _label(row.get("type", "intent"))
+        path_class = _label(row.get("path_class", "core"))
         graph.nodes.append(NeedNode(
-            id=str(row.get("id") or f"n{index}"),
+            id=_unique_id(str(row.get("id") or f"n{index}"), index, taken),
             text=str(row["text"]).strip(),
             type=node_type if node_type in NODE_TYPES else "intent",
             path_class=path_class if path_class in PATH_CLASSES else "supporting",
@@ -189,6 +194,20 @@ def build_need_graph(name: str, description: str, *, client: LLMClient, strict: 
         if isinstance(e, dict) and str(e.get("from")) in known and str(e.get("to")) in known
     ]
     return graph
+
+
+def _label(value) -> str:
+    """``"Rare-Critical"`` as ``rare_critical``: a model's casing must not cost a node its weight."""
+    return str(value).strip().lower().replace("-", "_").replace(" ", "_")
+
+
+def _unique_id(node_id: str, index: int, taken: set[str]) -> str:
+    """The model's id, or a fresh ``n<index>[-k]`` when it repeats one: ``needs`` labels need one node per id."""
+    candidate, k = node_id, 1
+    while candidate in taken:
+        candidate, k = f"n{index}-{k}", k + 1
+    taken.add(candidate)
+    return candidate
 
 
 def _has_a_node(reply: dict) -> bool:

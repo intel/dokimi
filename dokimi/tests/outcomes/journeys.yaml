@@ -316,7 +316,7 @@ criteria:
     delivery: partial
     enforce: true
     capability: eval-coverage
-    surfaces: ["eval coverage --graph", "eval graph --artifact --out"]
+    surfaces: ["eval coverage --graph", "eval graph --out"]
     evidence:
       - {id: cjm-eval-coverage-gaps, kind: unit, stubs: []}
       - {id: cjm-eval-graph-build, kind: unit, stubs: [the graph-author model call]}
