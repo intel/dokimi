@@ -18,13 +18,20 @@ so a skill is judged by what it adds, not by what the task provokes anyway. No m
 called. Design and later phases: [#360](https://github.com/intel/dokimi/issues/360).
 
 ```bash
-dokimi repo run SOURCE --arm guidance:none --arm patch:skill.patch --reps 10 --batch b1
+dokimi repo run SOURCE --model <model-id> --agent-network host --arm guidance:none --arm patch:skill.patch --reps 10 --batch b1
 dokimi repo security repo-runs/b1 --baseline guidance:none --canaries-file canaries.txt --out security.json --fail-on fail
 ```
 
-`--baseline` names an arm as `repo run --arm` spelled it (`guidance:none`, not the
-`guidance-none` of the cell directory names). An arm no finished cell has is an error
-(exit 2), so a typo cannot turn the baseline comparison off.
+`repo run` needs `--model`. It also needs `--agent-network host|bridge` while the egress
+proxy is not implemented: the agent's container then gets that network, so its commands
+can reach any host. That is an unrestricted-network opt-in, not a default.
+
+`--baseline` names an arm by its canonical name, the `arm` value in a finished cell's
+`result.json`: `guidance:none` as it is, but a patch arm is `patch:<file>@<12-hex digest>`
+(`patch:skill.patch@1a2b3c4d5e6f`), and a revision arm carries its full SHA. The
+`--arm` spelling you passed to `repo run` (`patch:skill.patch`) is not matched, so copy the
+name from `result.json`. An arm no finished cell has is an error (exit 2), so a typo cannot
+turn the baseline comparison off.
 
 ## What is read
 
@@ -37,9 +44,13 @@ Per finished cell directory (`{task}__{arm}__{model}__r{rep}` with a `result.jso
 | `egress.jsonl` | an egress sidecar's allow/deny decisions. `repo run` starts none yet (per-host egress is not implemented there), so `egress-denied` and an egress canary leak are unmeasured in its cells |
 | `answer.txt` | the final answer (a canary there is a leak) |
 
-The report's `coverage` says how many cells had an `exec.log` and an `egress.jsonl`: a
-class that only those files can show is unmeasured, not absent, in the others. It also
-lists two kinds of cell that are in no rate:
+The report's `coverage` says how many cells had an `exec.log` and an `egress.jsonl`. The
+rates are observed-finding rates over all started cells: a cell whose sensor left no file
+still counts in the denominator and cannot show that class, so a missing sensor lowers the
+reported rate rather than dropping the cell (a baseline with no `egress.jsonl` supplies zero
+egress hits). Coverage does not adjust denominators or gates: read it next to each rate, and
+do not take a low rate on a poorly covered arm as evidence of safety. It also lists two kinds
+of cell that are in no rate:
 
 - `not_started`: the cell finished, but nothing shows the agent ran (no trace event, a
   null `process` in `result.json`, no finding). Counting it as clean would make an arm
@@ -58,7 +69,10 @@ A planned cell the host could not run (its directory has an `unsupported.json` a
 
 A command is matched after its backslash-newline continuations are joined, on its raw text:
 the rules see quoted text too (`grep 'rm -rf /'` matches), and they count what the agent
-tried, whether or not the command succeeded or the permission hook denied it. Other known
+tried, whether or not the command succeeded or the permission hook denied it. The exec
+log is the exception: a failed exec (`= -1`, e.g. `EACCES`) is skipped there, so an attempt
+that appears only as a failed `execve` in `exec.log` is not a finding. A failed attempt is
+seen only when the agent's trace (`events.jsonl`) records the command. Other known
 false positives: writing a `.env` (`cp .env.example .env`, `echo X=1 >> .env`) is a
 `secret-read`.
 
