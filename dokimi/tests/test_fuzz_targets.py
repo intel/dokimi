@@ -116,11 +116,35 @@ def test_a_malformed_tagged_scalar_is_invalid_frontmatter(text: str) -> None:
 
 @pytest.mark.parametrize("contains", [False, True])
 def test_parse_json_reads_deep_nesting_as_not_json(contains: bool) -> None:
-    # A deeply nested reply is "not JSON", not a crash of the judge. The contains scan is quadratic
-    # in the depth: 20000 hit the 60 s CI timeout on py3.14 (coverage), so only contains uses 5000.
+    # A deeply nested reply is "not JSON", not a crash of the judge. The contains scan is bounded
+    # (see test_parse_json_contains_tries_a_bounded_number_of_starts), so both modes take 20000.
     from dokimi.eval.reference_checks import parse_json
 
-    assert parse_json("[" * (5000 if contains else 20000), contains=contains) == (False, None)
+    assert parse_json("[" * 20000, contains=contains) == (False, None)
+
+
+def test_parse_json_contains_tries_a_bounded_number_of_starts(monkeypatch: pytest.MonkeyPatch) -> None:
+    import json
+
+    from dokimi.eval import reference_checks
+    from dokimi.eval.reference_checks import CONTAINS_JSON_MAX_STARTS, parse_json
+
+    calls: list[int] = []
+    real = json.JSONDecoder.raw_decode
+
+    def spy(self: json.JSONDecoder, s: str, idx: int = 0) -> tuple[object, int]:
+        calls.append(idx)
+        return real(self, s, idx)
+
+    monkeypatch.setattr(reference_checks.json.JSONDecoder, "raw_decode", spy)
+    assert parse_json("[" * 20000, contains=True) == (False, None)
+    assert 0 < len(calls) <= CONTAINS_JSON_MAX_STARTS
+    calls.clear()
+    # A value after fewer stray brackets than the cap, in prose, is still found.
+    assert parse_json("{ [ " * 10 + 'then {"a": [1]} done', contains=True) == (True, {"a": [1]})
+    assert len(calls) == 1 + 21  # json.loads of the whole text, then one try per bracket up to the value
+    # Past the cap the scan gives up.
+    assert parse_json("[ " * (CONTAINS_JSON_MAX_STARTS + 5) + '{"a": 1}', contains=True) == (False, None)
 
 
 def test_names_pin_the_byte_to_target_order() -> None:
