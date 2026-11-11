@@ -1,3 +1,13 @@
+---
+depends_on:
+  - dokimi/dokimi/repos/security.py
+  - dokimi/dokimi/commands/repo_security.py
+---
+<!--
+Copyright (C) 2026 Intel Corporation
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Behavioural security of a run
 
 A static scanner (SkillSpector, agent-scan, semgrep) reads a skill's text. `dokimi repo
