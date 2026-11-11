@@ -51,7 +51,7 @@ self-judge; `arms run` and `subjects run` warn on stderr and do not refuse, so n
 | Step | Command | Cost |
 |---|---|---|
 | 1. Does it load? | `dokimi catalog check --root <catalog> --kind skills [--strict]` | free |
-| 2. Is it ever picked? | `dokimi novelty routing --artifact skill:<dir> --catalog <catalog> --queries queries.json [--model …]` | free without `--model` |
+| 2. Is it ever picked? | `dokimi skill routing skill:<dir> --against <catalog> --queries queries.json [--model …]` | free without `--model` |
 | 3. What will step 4 cost? | `dokimi skill novelty analyze --artifact skill:<dir> --tier triage --include-resources --estimate-only` | free |
 | 4. What does it add? | the same command without `--estimate-only`, plus `--model`, `--provider`, `--judge-model` and `--max-usd` | ~100 calls |
 | 5a. Do answers improve? | `dokimi arms run --product <p> --questions <set.json> --arms baseline,skill:<dir> --model <model> --provider <provider> --judge --judge-model <judge-model> --judge-provider <judge-provider>` | one answer and one grade per question and arm |
@@ -59,7 +59,7 @@ self-judge; `arms run` and `subjects run` warn on stderr and do not refuse, so n
 
 - **Competitors** are the other skills an agent sees next to this one when it
   picks a skill to load. For a catalog skill they are its siblings in the
-  same catalog: `--catalog <dir>` takes every other skill the catalog lists: a root
+  same catalog: `--against <dir>` takes every other skill the catalog lists: a root
   `skills.yaml` decides what it lists; without one, every `SKILL.md` under it
   counts except a `template/` copy (vendored and VCS directories such as `.git`,
   `node_modules`, `site-packages` and virtualenvs are not walked). A
@@ -77,7 +77,7 @@ self-judge; `arms run` and `subjects run` warn on stderr and do not refuse, so n
   tiers cost 5–20 times more, so run them only when whoever asked agrees to
   the bill. Pass `--max-usd` to `novelty` steps: the run stops once it has
   spent that much (calls in flight can overshoot), writes no artifact when the
-  cap trips (except `novelty routing --model`, which saves the calls it made as
+  cap trips (except `skill routing --model`, which saves the calls it made as
   a `partial` result), and stops at the first call to a model with no known
   price. Set
   the cap above the expected dollar spend: the triage example below was about

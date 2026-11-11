@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, NoReturn
 
 from dokimi.commands.inputs import placebo_text_for_arms_or_exit
 from dokimi.commands.novelty_run import (add_judge2_args, add_spend_cap, judge2_client, spend_cap,
-                                         stamp, stops_at_cap)
+                                         stamp)
 from dokimi.commands.novelty_routing_inputs import (
     checked_out_path,
     load_all_vs_all_field,
@@ -376,10 +376,10 @@ def _cmd_routing_all_vs_all(args: argparse.Namespace) -> None:
     print_all_vs_all_summary(*summary)
 
 
-def cmd_novelty_routing(args: argparse.Namespace) -> None:
-    """Can this artifact be selected against its competitors? Lexical floor, model on top."""
+def cmd_routing(args: argparse.Namespace) -> None:
+    """Can a skill (or each skill under a root) be selected against its competitors? Lexical floor, model on top."""
     if args.repeats > 1 and not args.model:
-        raise InputError("--repeats needs --model: the lexical floor is deterministic, so repeating it measures nothing")
+        raise InputError("--reps needs --model: the lexical floor is deterministic, so repeating it measures nothing")
     from dokimi.novelty.routing import (
         check_field,
         lexical_routing,
@@ -388,8 +388,6 @@ def cmd_novelty_routing(args: argparse.Namespace) -> None:
 
     if args.all_vs_all:
         return _cmd_routing_all_vs_all(args)
-    if not args.artifact:
-        raise InputError("pass --artifact <skill:path>, or --all-vs-all for the whole field")
     gold, body, competitors, left_out, conflicts = load_routing_field(args)
     # Checked before the query file is read, so the message is about the real problem.
     if not competitors and conflicts:
@@ -561,82 +559,12 @@ def _bundle_from_args(args: argparse.Namespace):
 
 
 def register(sub, positive_int) -> None:
-    """Add the `novelty` group: `routing` and `view` (`skill` took the rest, #94 M2)."""
+    """Add the `novelty` group: `view`. `routing` moved to `skill routing` and `catalog routing` (#94 M3)."""
     novelty_p = sub.add_parser(
         "novelty",
         help="Measure what an artifact's content adds to a model",
     )
     novelty_sub = novelty_p.add_subparsers(dest="novelty_cmd", required=True)
-
-    routing_p = novelty_sub.add_parser(
-        "routing", help="Can the artifact be selected against competitors? (name+description)"
-    )
-    routing_p.add_argument("--artifact", default=None,
-                           help="skill:<path> or text:<path> under test (required unless "
-                                "--all-vs-all)")
-    routing_p.add_argument("--all-vs-all", action="store_true", dest="all_vs_all",
-                           help="Route every skill that has queries against the whole field, "
-                                "in turn: a confusion matrix and the attractors, the skills "
-                                "picked for queries written for another skill. Takes "
-                                "--queries-by-skill and --out, and no --artifact")
-    routing_p.add_argument("--queries-by-skill", default=None, dest="queries_by_skill",
-                           help="With --all-vs-all: a JSON object of skill name to the list of "
-                                "requests that should select that skill")
-    routing_p.add_argument("--competitors", nargs="+", default=None,
-                           help="Other artifacts the selector sees. Selection among one "
-                                "candidate is not routing: the sibling confusion is the "
-                                "failure mode (every `dpnp-*` skill scored 0.0 lexically)")
-    routing_p.add_argument("--catalog", default=None,
-                           help="Directory of skills to take the competitors from: every "
-                                "skill the catalog lists (skills.yaml when present, else every "
-                                "SKILL.md under it; a template/ copy and vendored or VCS "
-                                "directories like .git are left out, and a byte-identical copy "
-                                "under another path counts once) except the artifact itself, the "
-                                "siblings a harness lists next to it. Combines with --competitors")
-    routing_p.add_argument("--include-disabled", action="store_true", dest="include_disabled",
-                           help="Keep skills that set disable-model-invocation in the field. "
-                                "Off by default: no harness lists them, so the model cannot "
-                                "select them and a card for one measures a choice that does "
-                                "not exist")
-    routing_p.add_argument("--keep-copies-under", default=None, dest="keep_copies_under",
-                           metavar="DIR",
-                           help="With --catalog: a directory under it, relative to it. For a catalog "
-                                "name whose copies differ, keep only the copies under DIR and leave "
-                                "out the others; the copies under DIR must have one content. Names "
-                                "whose copies agree are not affected")
-    routing_p.add_argument("--include-invalid", action="store_true", dest="include_invalid",
-                           help="Keep catalog and skill: competitors with a spec error in the field. "
-                                "A description over 1024 characters alone never leaves a skill "
-                                "out: it is kept and warned about")
-    routing_p.add_argument("--queries", default=None,
-                           help="JSON list (or one per line) of user-shaped requests that "
-                                "should select this artifact, written independently of it")
-    routing_p.add_argument("--queries-from-headings", action="store_true",
-                           dest="queries_from_headings",
-                           help="Derive queries from the artifact's own headings. Triage "
-                                "only: the artifact then defines both the problem scope and "
-                                "its own relevance, and the result is stamped as such")
-    routing_p.add_argument("--model", default=None,
-                           help="Also ask this model to pick from the same cards. Optional: "
-                                "without it only the free lexical floor is computed")
-    routing_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=PROVIDERS)
-    routing_p.add_argument("--max-tokens", type=positive_int, default=None, dest="max_tokens")
-    routing_p.add_argument("--seed", type=int, default=0,
-                           help="Seeds only the card order: each query's cards are listed in "
-                                "a seeded random permutation, so a position-biased model scores "
-                                "about 1/N. It does not make the model's answers repeatable; "
-                                "measure that with --repeats")
-    routing_p.add_argument("--repeats", type=positive_int, default=1,
-                           help="Ask the model this many times per query, with the same card "
-                                "order each time, and report per-query agreement and the "
-                                "run-to-run noise floor. Needs --model; costs N times the calls")
-    routing_p.add_argument("--estimate-only", action="store_true", dest="estimate_only",
-                           help="Print the calls, input and output tokens and the list-price "
-                                "expected_usd that --model would make, as JSON, and make no model call. "
-                                "Without --model the run is lexical and the bill is zero")
-    routing_p.add_argument("--out", default=None)
-    add_spend_cap(routing_p)
-    routing_p.set_defaults(func=stops_at_cap(cmd_novelty_routing))
 
     view_p = novelty_sub.add_parser("view", help="Re-render the annotated artifact view")
     view_p.add_argument("--novelty", required=True, help="novelty.json from `skill novelty analyze`")

@@ -669,12 +669,12 @@ the absence of detectable corruption — not proof that the wordings are faithfu
 ## Can the artifact be selected at all
 
 ```bash
-python cli.py novelty routing --artifact skill:path/to/skill \
+python cli.py skill routing skill:path/to/skill \
     --competitors skill:sibling-a skill:sibling-b ... \
-    --queries queries.json [--model M [--repeats N]]
+    --queries queries.json [--model M [--reps N]]
 ```
 
-`--catalog <dir>` takes the competitors from a skill directory instead: every skill the catalog
+`--against <dir>` takes the competitors from a skill directory instead: every skill the catalog
 lists except the artifact itself. A `skills.yaml` at the root decides what the catalog lists;
 without one, every `SKILL.md` under it counts, except a `template/` copy and vendored or VCS
 directories such as `.git` and `node_modules`, which are not walked. A byte-identical copy under
@@ -700,18 +700,18 @@ The directory-name check applies to a `skill:` competitor under a `skills/` dire
 (`skills/<dir>/SKILL.md`, `plugins/x/skills/<dir>/SKILL.md`), as it does in a catalog. A `skill:`
 competitor anywhere else is read as a root skill, and its name is not checked against its
 directory: `tools/database/SKILL.md` named `db` is routed when passed explicitly, while a
-`--catalog` scan of its tree leaves it out with a name error. Keep the directory name and the
+`--against` scan of its tree leaves it out with a name error. Keep the directory name and the
 `name` field equal to get the same field from both.
 A name that conflicts with another catalog skill leaves the field, and the error names the directory of each
-copy and suggests `--catalog <dir>` for one of them, or `--keep-copies-under <dir>`. `--keep-copies-under <dir>`
-keeps only the copies under `<dir>`, a directory relative to `--catalog`, and only for a name whose copies differ
+copy and suggests `--against <dir>` for one of them, or `--keep-copies-under <dir>`. `--keep-copies-under <dir>`
+keeps only the copies under `<dir>`, a directory relative to `--against`, and only for a name whose copies differ
 and that have one content under `<dir>`; the others of that name are named on stderr and left out, and the rest of
-the field is unchanged (unlike `--catalog <dir>`, which leaves out every skill outside that directory). A copy of that name outside `<dir>` that fails to load is left out too, with a
+the field is unchanged (unlike `--against <dir>`, which leaves out every skill outside that directory). A copy of that name outside `<dir>` that fails to load is left out too, with a
 note, once a copy under `<dir>` is in the field. An absolute
-path, a path that leaves `--catalog` (`../`), a file, or an empty value is refused with exit 2. A skill directory
+path, a path that leaves `--against` (`../`), a file, or an empty value is refused with exit 2. A skill directory
 directly beneath the catalog (`review/SKILL.md`) is kept by its own name, `--keep-copies-under review`, since
-`--catalog` has no directory to point at for it. A `SKILL.md` in the catalog root itself cannot be picked by
-`--catalog` or `--keep-copies-under`: dedupe or rename it.
+`--against` has no directory to point at for it. A `SKILL.md` in the catalog root itself cannot be picked by
+`--against` or `--keep-copies-under`: dedupe or rename it.
 A `skill:` competitor that is not a `SKILL.md`, or a directory without one, is skipped with a
 warning. A shell glob must be expanded first, with the prefix on each path
 (`skill:dir/a/SKILL.md skill:dir/b/SKILL.md`): an unexpanded `skill:dir/*` is refused as a missing
@@ -741,7 +741,7 @@ Two numbers, reported side by side and never merged:
   with the candidate count. It *tends* to it: at five queries the realised rate is a fixed
   offset from `1/N`, so read small query sets as such. `--seed` fixes that card order and
   nothing else: the model's answers are still sampled and can differ between runs, so measure
-  that spread with `--repeats`. Each permutation and the position
+  that spread with `--reps`. Each permutation and the position
   the gold card was shown at are recorded per query. **An abstention counts against
   `selection_rate`** — not picking anything is the routing failure — with
   `selection_rate_among_answered` beside it; a failed call is excluded from both and
@@ -749,7 +749,7 @@ Two numbers, reported side by side and never merged:
   Each abstention or unparseable pick keeps the model's raw reply under
   `per_query[].raw_reply` (the first 2000 characters), so a decline can be read. A reply cut
   at the output ceiling is an abstention too, whether or not its price is known.
-  `--repeats N` asks each query N times with the same card order, so the spread between
+  `--reps N` asks each query N times with the same card order, so the spread between
   repeats is the model's own sampling noise. The result's `noise` block gives each query's
   agreement across its repeats (`per_query`), the selection rate of each repeat, and
   `half_range`, half the gap between the highest and lowest of those rates: a crude noise
@@ -758,9 +758,9 @@ Two numbers, reported side by side and never merged:
   fresh sample, so under `DOKIMI_RESPONSE_CACHE` a repeat is not a
   replay. Repeats need `--model`, and cost N times the calls. With repeats, `n_calls` is
   queries x repeats, `n_abstained` and `n_failed` count calls, and each `per_query` row
-  carries its `repeat` index. In an `--all-vs-all` run each `noise` row also names its `gold`
+  carries its `repeat` index. In an `catalog routing` run each `noise` row also names its `gold`
   skill, since two skills can list the same request. `noise` is always an object: `n_repeats` is the
-  repeat count, and with `--repeats 1` it is 1 with `mean_agreement`, `half_range`, `unstable_queries`
+  repeat count, and with `--reps 1` it is 1 with `mean_agreement`, `half_range`, `unstable_queries`
   and each row's `agreement` null (nothing to agree with), so a reader tests those fields, not `noise`, for null.
 
 A single-artifact `--model` run also writes a `cost` block (calls, input and output tokens, cache read and
@@ -770,14 +770,14 @@ the provider they may or may not be counted inside `input_tokens`. A run without
 no calls and has no `cost` block. `usd` is also `null` when a call returned no usage, and a
 call that raised is not counted. A call replayed from the response cache is counted in
 `replayed_calls` and left out of the token and `usd` totals, since this run did not pay for it;
-`llm_calls` still counts it. `--all-vs-all` writes the same `cost` block over its model arm.
+`llm_calls` still counts it. `catalog routing` writes the same `cost` block over its model arm.
 
 `recall_at_3` comes back `null` with three or fewer candidates, where every rank is `<= 3`
 and the figure would be a structural 1.0. The lexical arm also reports `n_queries_given`
 next to `n_queries_scored`, since a query with no content words is dropped rather than
 counted as a miss.
 
-**All skills against each other.** `novelty routing --all-vs-all --catalog <dir>
+**All skills against each other.** `catalog routing <dir>
 --queries-by-skill queries.json --out routing.json` (add `--model M` for the model arm) makes
 every skill that has queries the gold in turn, routed against the whole field. The file is a
 JSON object of skill name to the requests that should select it, each written without the
@@ -801,7 +801,7 @@ records it too. An all-vs-all run also lists in `field.dropped_queries` each ski
 `{skill, reasons, keep_flags, queries}`, one record per skill, with each reason `disabled`, `invalid` or `conflict`. A query for a catalog skill
 that failed to load refuses the run and names the load error. It takes no `--artifact`, `--queries` or `--queries-from-headings`. `--estimate-only` prints the calls and the
 list-price cost of the whole run as JSON, in the shape of a single-artifact estimate, with no client built and
-no query sent; it needs no `--out`. `--repeats` needs `--model`
+no query sent; it needs no `--out`. `--reps` needs `--model`
 and asks each query that many times, as a single-artifact run does: the model arm then carries a
 `noise` block (agreement per query, the rate of each repeat, `half_range`), and its counts are
 calls, one per query per repeat. The model arm also records the selector `model`, so two runs with
@@ -813,15 +813,15 @@ it is more likely a typo. Missing `--queries-by-skill` and `--out` are reported 
 
 **Cost of `--model` in all-vs-all.** The model arm makes one selector call per query and repeat,
 across every skill in the field: the call count is the number of queries in `queries.json` that have a
-content word (one without is unscored in both arms and not sent) times `--repeats`, and a failed call still counts. Each call sends the whole field's cards, so a large field costs
+content word (one without is unscored in both arms and not sent) times `--reps`, and a failed call still counts. Each call sends the whole field's cards, so a large field costs
 more per call as well as in calls. Before the first call the run prints that count to stderr
 (`all-vs-all: --model makes N model calls, one per query and repeat, ...`). The run does not pause for it,
 so count the queries first, or pass `--max-usd` to stop the run at a spend limit. A lexical-only run (no `--model`) makes no model calls.
 A stored response in `DOKIMI_RESPONSE_CACHE` is replayed without a call, so a rerun can make
 fewer calls than the printed count.
 
-**A routing run stopped by `--max-usd` keeps what it paid for.** `novelty routing --model`, single
-artifact or `--all-vs-all`, writes the result of the calls made before the cap (or a call with no
+**A routing run stopped by `--max-usd` keeps what it paid for.** `skill routing --model`, single
+artifact or `catalog routing`, writes the result of the calls made before the cap (or a call with no
 known price) stopped it, prints the summary and `cost` lines, and still exits non-zero with the
 cap message and the path of the file. The file carries
 `"partial": {"reason": "spend_cap", "calls_done": N, "calls_planned": M, "message": ...}` at the

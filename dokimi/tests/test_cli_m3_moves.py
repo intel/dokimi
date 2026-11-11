@@ -11,6 +11,7 @@ import pytest
 
 from dokimi import cli_routes
 from dokimi.cli import build_parser, parse_args
+from dokimi.cli_routes import moved_argv
 from dokimi.commands.catalog import cmd_catalog_list, cmd_catalog_show
 from dokimi.utils import InputError
 from tests.cli_refusal import refusal
@@ -347,3 +348,67 @@ def test_docs_check_and_compare_keep_the_old_flags():
     assert (check.spec, check.strict, check.out_json) == ("s.yaml", True, "baselines/current.json")
     compare = build_parser().parse_args(["docs", "compare", "--base", "a", "--candidate", "b"])
     assert (compare.base, compare.candidate, compare.spec) == ("a", "b", None)
+
+
+def test_skill_routing_takes_one_skill_and_an_against_root(tmp_path):
+    args = build_parser().parse_args(
+        ["skill", "routing", "skills/s", "--against", str(tmp_path), "--reps", "2"]
+    )
+    assert args.artifact == "skill:skills/s"  # a bare path is a skill: the field reads it as a ref
+    assert args.catalog == str(tmp_path) and args.repeats == 2
+    assert args.all_vs_all is False and callable(args.func)
+
+
+def test_skill_routing_keeps_a_text_ref_as_it_is():
+    args = build_parser().parse_args(["skill", "routing", "text:notes.md"])
+    assert args.artifact == "text:notes.md"
+
+
+def test_catalog_routing_takes_a_root_and_runs_all_vs_all(tmp_path):
+    args = build_parser().parse_args(
+        ["catalog", "routing", str(tmp_path), "--reps", "3", "--queries-by-skill", "q.json"]
+    )
+    assert args.catalog == str(tmp_path) and args.repeats == 3
+    assert args.all_vs_all is True and args.artifact is None and args.queries_by_skill == "q.json"
+    assert callable(args.func)
+
+
+def test_catalog_routing_refuses_an_artifact(capsys):
+    with pytest.raises(SystemExit) as exc:
+        build_parser().parse_args(["catalog", "routing", "skills/", "--artifact", "skill:x"])
+    assert exc.value.code == 2
+
+
+def test_novelty_routing_is_a_tombstone_for_one_skill():
+    assert moved_argv(
+        ["novelty", "routing", "--artifact", "skill:a", "--catalog", "skills/", "--repeats", "3", "--model", "m"]
+    ) == ["skill", "routing", "skill:a", "--against", "skills/", "--reps", "3", "--model", "m"]
+
+
+def test_novelty_routing_all_vs_all_is_a_tombstone_for_catalog_routing():
+    assert moved_argv(
+        ["novelty", "routing", "--all-vs-all", "--catalog", "skills/", "--queries-by-skill", "q.json",
+         "--repeats=2", "--out", "o.json"]
+    ) == ["catalog", "routing", "skills/", "--queries-by-skill", "q.json", "--reps=2", "--out", "o.json"]
+
+
+def test_novelty_routing_tombstone_keeps_a_flag_the_new_leaf_refuses():
+    argv = moved_argv(["novelty", "routing", "--all-vs-all", "--artifact", "skill:x", "--catalog", "skills/"])
+    assert argv == ["catalog", "routing", "skills/", "--artifact", "skill:x"]
+
+
+def test_novelty_routing_tombstone_without_a_catalog_leaves_the_root_out():
+    assert moved_argv(["novelty", "routing", "--all-vs-all", "--competitors", "x"]) == [
+        "catalog", "routing", "--competitors", "x"]
+
+
+def test_novelty_routing_prints_the_new_command_and_exits_2(capsys):
+    with pytest.raises(SystemExit) as exc:
+        parse_args(["novelty", "routing", "--artifact", "skill:a", "--catalog", "skills/"])
+    assert exc.value.code == 2
+    assert "moved: dokimi skill routing skill:a --against skills/" in capsys.readouterr().err
+
+
+def test_novelty_view_still_lives_under_novelty():
+    args = build_parser().parse_args(["novelty", "view", "--novelty", "n.json", "--atoms", "a.json"])
+    assert args.novelty_cmd == "view"

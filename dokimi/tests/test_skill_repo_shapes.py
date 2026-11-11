@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""Skill-repo shapes met in public catalogs: `catalog check` and `novelty routing` over each.
+"""Skill-repo shapes met in public catalogs: `catalog check` and `skill routing` over each.
 
 Every shape is invented (tests/skill_repo_shapes.py). The sweep asserts no command crashes;
 the expectation table asserts the status each shape should get. A shape whose bug is being
@@ -26,7 +26,7 @@ from tests.skill_repo_shapes import PROBE_QUERIES, SHAPES, build_shape, probe_ar
 class Expect:
     scan: frozenset[int]  # `catalog check --format json` exit codes
     strict: frozenset[int]  # the same with --strict
-    routing: int  # `novelty routing --catalog` exit code
+    routing: int  # `skill routing --against` exit code
     field: tuple[str, ...] | None  # competitor names when routing exits 0; None = not checked
 
 
@@ -104,8 +104,8 @@ def _scan(root: Path, capsys, *, strict: bool = False) -> tuple[int, str]:
 def _routing(root: Path, artifact: Path, queries: Path, tmp_path: Path, capsys,
              *extra: str) -> tuple[int, dict | None, str]:
     out_file = tmp_path / "routing.json"
-    argv = ["novelty", "routing", "--artifact", f"skill:{artifact}", "--catalog", str(root),
-            "--queries", str(queries), "--out", str(out_file), *extra]
+    argv = ["skill", "routing", f"skill:{artifact}", "--against", str(root), "--queries",
+            str(queries), "--out", str(out_file), *extra]
     code, _, err = _run(argv, capsys)
     payload = json.loads(out_file.read_text(encoding="utf-8")) if code == 0 else None
     return code, payload, err
@@ -190,8 +190,8 @@ def test_all_vs_all_names_the_flag_when_queries_name_a_disabled_skill(shape_path
     by_skill = tmp_path / "by_skill.json"
     by_skill.write_text(json.dumps({"gizmo-lint": ["lint a gizmo config"],
                                     "door-check": ["check a door latch"]}), encoding="utf-8")
-    argv = ["novelty", "routing", "--all-vs-all", "--catalog", str(root),
-            "--queries-by-skill", str(by_skill), "--out", str(tmp_path / "avsa.json")]
+    argv = ["catalog", "routing", str(root), "--queries-by-skill", str(by_skill),
+            "--out", str(tmp_path / "avsa.json")]
     code, _, err = _run(argv, capsys)
     assert code == 0 and "WARNING" in err and "gizmo-lint" in err and "--include-disabled" in err
     code, _, _ = _run([*argv, "--include-disabled"], capsys)
@@ -204,8 +204,8 @@ def test_headings_as_queries_on_a_skill_with_no_headings_is_a_usage_refusal(shap
     build_shape("no_usable_headings", root)
     artifact = root / "skills" / "door-check"  # its only body line is prose, no heading
     out_file = tmp_path / "routing.json"
-    argv = ["novelty", "routing", "--artifact", f"skill:{artifact}", "--catalog", str(root),
-            "--queries-from-headings", "--out", str(out_file)]
+    argv = ["skill", "routing", f"skill:{artifact}", "--against", str(root), "--queries-from-headings",
+            "--out", str(out_file)]
     code, _, err = _run(argv, capsys)
     assert code == 2 and "no usable queries" in err and "headings" in err
     # The refusal still leaves a record, so a batch run shows why it has no rate.

@@ -406,6 +406,9 @@ def register(sub, positive_int, eval_sub) -> None:
 
     catalog_eval.register(catalog_sub)
     library.add_intents(catalog_sub)  # catalog intents (#94 M2)
+    from dokimi.commands.routing_parser import add_catalog_routing
+
+    add_catalog_routing(catalog_sub, positive_int)  # catalog routing: all-vs-all (#94 M3)
 
     kinds = ["product", "subject"]
     list_p = catalog_sub.add_parser(

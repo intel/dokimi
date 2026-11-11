@@ -64,11 +64,11 @@ def test_a_non_skill_file_among_competitors_is_skipped_with_a_warning(tmp_path, 
     queries = tmp_path / "q.json"
     queries.write_text(json.dumps(["profile a binary"]), encoding="utf-8")
     out = tmp_path / "routing.json"
-    args = _parse("novelty", "routing",
-                  "--artifact", _skill(tmp_path, "a", "profile a binary with perf"),
-                  "--competitors", f"skill:{helper}", f"skill:{empty}",
-                  _skill(tmp_path, "b", "tune a database"),
-                  "--queries", str(queries), "--out", str(out))
+    args = _parse("skill", "routing",
+                  _skill(tmp_path, "a", "profile a binary with perf"), "--competitors",
+                  f"skill:{helper}", f"skill:{empty}", _skill(tmp_path, "b", "tune a database"),
+                  "--queries",
+                  str(queries), "--out", str(out))
     args.func(args)
     assert json.loads(out.read_text(encoding="utf-8"))["n_candidates"] == 2
     err = capsys.readouterr().err
@@ -79,9 +79,9 @@ def test_a_non_skill_file_among_competitors_is_skipped_with_a_warning(tmp_path, 
 def test_a_non_skill_artifact_is_still_refused(tmp_path):
     helper = tmp_path / "activation-rule.mjs"
     helper.write_text("export {}\n", encoding="utf-8")
-    args = _parse("novelty", "routing", "--artifact", f"skill:{helper}",
-                  "--competitors", _skill(tmp_path, "b", "tune a database"),
-                  "--queries", "x")
+    args = _parse("skill", "routing", f"skill:{helper}", "--competitors",
+                  _skill(tmp_path, "b", "tune a database"), "--queries",
+                  "x")
     with pytest.raises(InputError, match="cannot load an artifact"):
         args.func(args)
 
@@ -106,15 +106,15 @@ def test_a_disable_model_invocation_skill_is_not_a_competitor_unless_asked(tmp_p
     queries = tmp_path / "q.json"
     queries.write_text(json.dumps(["my binary is slow"]), encoding="utf-8")
     out = tmp_path / "routing.json"
-    args = _parse("novelty", "routing", "--artifact", gold, "--catalog", str(catalog),
-                  "--queries", str(queries), "--out", str(out))
+    args = _parse("skill", "routing", gold, "--against", str(catalog), "--queries",
+                  str(queries), "--out", str(out))
     args.func(args)
     assert json.loads(out.read_text(encoding="utf-8"))["n_candidates"] == 2
     assert "left out catalog skill 'ultra'" in capsys.readouterr().err
 
     kept = tmp_path / "kept.json"
-    args = _parse("novelty", "routing", "--artifact", gold, "--catalog", str(catalog),
-                  "--queries", str(queries), "--out", str(kept), "--include-disabled")
+    args = _parse("skill", "routing", gold, "--against", str(catalog), "--queries",
+                  str(queries), "--out", str(kept), "--include-disabled")
     args.func(args)
     assert json.loads(kept.read_text(encoding="utf-8"))["n_candidates"] == 3
 
@@ -123,9 +123,9 @@ def test_an_explicit_disabled_competitor_is_skipped_with_a_warning(tmp_path, cap
     queries = tmp_path / "q.json"
     queries.write_text(json.dumps(["profile a binary"]), encoding="utf-8")
     hidden = _model_hidden_skill(tmp_path, "ultra", "compress output hard")
-    args = _parse("novelty", "routing", "--artifact", _skill(tmp_path, "a", "profile a binary"),
-                  "--competitors", hidden, _skill(tmp_path, "b", "tune a database"),
-                  "--queries", str(queries), "--out", str(tmp_path / "r.json"))
+    args = _parse("skill", "routing", _skill(tmp_path, "a", "profile a binary"), "--competitors",
+                  hidden, _skill(tmp_path, "b", "tune a database"), "--queries",
+                  str(queries), "--out", str(tmp_path / "r.json"))
     args.func(args)
     assert json.loads((tmp_path / "r.json").read_text(encoding="utf-8"))["n_candidates"] == 2
     assert f"skipped competitor {hidden}: disable-model-invocation" in capsys.readouterr().err
@@ -136,9 +136,9 @@ def test_include_disabled_keeps_a_disabled_skill_named_as_a_competitor(tmp_path,
     queries.write_text(json.dumps(["profile a binary"]), encoding="utf-8")
     hidden = _model_hidden_skill(tmp_path, "ultra", "compress output hard")
     out = tmp_path / "r.json"
-    args = _parse("novelty", "routing", "--artifact", _skill(tmp_path, "a", "profile a binary"),
-                  "--competitors", hidden, _skill(tmp_path, "b", "tune a database"),
-                  "--queries", str(queries), "--out", str(out), "--include-disabled")
+    args = _parse("skill", "routing", _skill(tmp_path, "a", "profile a binary"), "--competitors",
+                  hidden, _skill(tmp_path, "b", "tune a database"), "--queries",
+                  str(queries), "--out", str(out), "--include-disabled")
     args.func(args)
     assert json.loads(out.read_text(encoding="utf-8"))["n_candidates"] == 3
     assert "skipped competitor" not in capsys.readouterr().err
@@ -148,9 +148,9 @@ def test_a_disabled_artifact_is_still_routed_but_warned_about(tmp_path, capsys):
     queries = tmp_path / "q.json"
     queries.write_text(json.dumps(["profile a binary"]), encoding="utf-8")
     artifact = _model_hidden_skill(tmp_path, "ultra", "compress output hard")
-    args = _parse("novelty", "routing", "--artifact", artifact,
-                  "--competitors", _skill(tmp_path, "b", "tune a database"),
-                  "--queries", str(queries), "--out", str(tmp_path / "r.json"))
+    args = _parse("skill", "routing", artifact, "--competitors",
+                  _skill(tmp_path, "b", "tune a database"), "--queries",
+                  str(queries), "--out", str(tmp_path / "r.json"))
     args.func(args)
     assert "the model cannot select it" in capsys.readouterr().err
 
@@ -181,8 +181,8 @@ def test_a_mirror_of_a_catalog_skill_is_counted_once(tmp_path, capsys):
     queries = tmp_path / "q.json"
     queries.write_text(json.dumps(["my binary is slow"]), encoding="utf-8")
     out = tmp_path / "routing.json"
-    args = _parse("novelty", "routing", "--artifact", f"skill:{root / 'skills' / 'perf'}",
-                  "--catalog", str(root), "--queries", str(queries), "--out", str(out))
+    args = _parse("skill", "routing", f"skill:{root / 'skills' / 'perf'}", "--against",
+                  str(root), "--queries", str(queries), "--out", str(out))
     args.func(args)
     assert json.loads(out.read_text(encoding="utf-8"))["n_candidates"] == 2
     err = capsys.readouterr().err
@@ -240,11 +240,10 @@ def test_two_catalog_skills_with_one_name_and_different_content_are_skipped_with
     queries = tmp_path / "q.json"
     queries.write_text(json.dumps(["my binary is slow"]), encoding="utf-8")
     args = _parse(
-        "novelty",
+        "skill",
         "routing",
-        "--artifact",
         f"skill:{root / 'skills' / 'perf'}",
-        "--catalog",
+        "--against",
         str(root),
         "--queries",
         str(queries),
@@ -330,9 +329,9 @@ def test_an_explicit_spec_error_competitor_is_skipped_with_a_warning(tmp_path, c
     long_ref = _skill(tmp_path, "long", "tune a long thing", dir_name="skills/long-dir")
     queries = tmp_path / "q.json"
     queries.write_text(json.dumps(["profile a binary"]), encoding="utf-8")
-    argv = ["novelty", "routing", "--artifact", _skill(tmp_path, "a", "profile a binary"),
-            "--competitors", long_ref, _skill(tmp_path, "b", "tune a database"),
-            "--queries", str(queries), "--out", str(tmp_path / "r.json")]
+    argv = ["skill", "routing", _skill(tmp_path, "a", "profile a binary"), "--competitors",
+            long_ref, _skill(tmp_path, "b", "tune a database"), "--queries",
+            str(queries), "--out", str(tmp_path / "r.json")]
     left_out: list[str] = []
     field = routing_field(_parse(*argv), {"a"}, left_out)
     assert [c.name for c in field] == ["b"]
@@ -485,8 +484,8 @@ def test_a_disabled_skill_named_by_a_query_warns_once_and_counts_the_field_once(
     queries = tmp_path / "queries_by_skill.json"
     queries.write_text(json.dumps({"perf": ["profile a slow binary"],
                                    "grill": ["interview me about my plan"]}), encoding="utf-8")
-    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
-                  "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"))
+    args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries),
+                  "--out", str(tmp_path / "o.json"))
     with pytest.raises(InputError):
         args.func(args)
     err = capsys.readouterr().err
@@ -548,8 +547,8 @@ def test_a_kept_skill_over_the_limit_warns_with_its_name_and_length(tmp_path, ca
     _catalog_skill(root, "perf", "profile a slow binary with perf")
     _catalog_skill(root, "wide", "x" * 1100)
     ref = _skill(tmp_path, "huge", "y" * 1500)
-    argv = ["novelty", "routing", "--artifact", f"skill:{root / 'skills' / 'perf'}",
-            "--catalog", str(root), "--competitors", ref]
+    argv = ["skill", "routing", f"skill:{root / 'skills' / 'perf'}", "--against",
+            str(root), "--competitors", ref]
     left_out: list[str] = []
     field = routing_field(_parse(*argv), {"perf"}, left_out)
     assert sorted(c.name for c in field) == ["huge", "wide"]
@@ -575,13 +574,13 @@ def test_the_saved_result_lists_the_kept_skills_over_the_limit(tmp_path, all_vs_
     out = tmp_path / "r.json"
     if all_vs_all:
         queries = _write_queries(tmp_path, {"perf": ["profile my binary"], "wide": ["x"]})
-        argv = ["novelty", "routing", "--all-vs-all", "--catalog", str(root),
-                "--queries-by-skill", str(queries), "--out", str(out)]
+        argv = ["catalog", "routing", str(root), "--queries-by-skill", str(queries),
+                "--out", str(out)]
     else:
         queries = tmp_path / "q.json"
         queries.write_text(json.dumps(["profile my binary"]), encoding="utf-8")
-        argv = ["novelty", "routing", "--artifact", f"skill:{root / 'skills' / 'perf'}",
-                "--catalog", str(root), "--queries", str(queries), "--out", str(out)]
+        argv = ["skill", "routing", f"skill:{root / 'skills' / 'perf'}", "--against",
+                str(root), "--queries", str(queries), "--out", str(out)]
     args = _parse(*argv)
     args.func(args)
     field = json.loads(out.read_text(encoding="utf-8"))["field"]
@@ -598,8 +597,8 @@ def test_the_saved_field_rule_records_include_invalid(tmp_path):
     queries = tmp_path / "q.json"
     queries.write_text(json.dumps(["profile my binary"]), encoding="utf-8")
     out = tmp_path / "r.json"
-    argv = ["novelty", "routing", "--artifact", f"skill:{root / 'skills' / 'perf'}",
-            "--catalog", str(root), "--queries", str(queries), "--out", str(out)]
+    argv = ["skill", "routing", f"skill:{root / 'skills' / 'perf'}", "--against",
+            str(root), "--queries", str(queries), "--out", str(out)]
     args = _parse(*argv)
     args.func(args)
     assert json.loads(out.read_text(encoding="utf-8"))["field"]["include_invalid"] is False
@@ -612,8 +611,8 @@ def test_the_include_invalid_flag_reaches_the_routing_field(tmp_path, capsys):
     root = _long_description_catalog(tmp_path)
     queries = tmp_path / "q.json"
     queries.write_text(json.dumps(["profile my binary"]), encoding="utf-8")
-    argv = ["novelty", "routing", "--artifact", f"skill:{root / 'skills' / 'perf'}",
-            "--catalog", str(root), "--queries", str(queries), "--out", str(tmp_path / "r.json")]
+    argv = ["skill", "routing", f"skill:{root / 'skills' / 'perf'}", "--against",
+            str(root), "--queries", str(queries), "--out", str(tmp_path / "r.json")]
     left_out: list[str] = []
     field = routing_field(_parse(*argv), {"perf"}, left_out)
     assert field == []
@@ -637,8 +636,8 @@ def test_queries_naming_a_disabled_skill_say_so_and_suggest_the_flag(tmp_path):
         "disable-model-invocation: true\n---\n\n# B\n", encoding="utf-8")
     queries = _write_queries(tmp_path, {"perf": ["profile a slow binary"],
                                         "grill": ["interview me about my plan"]})
-    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
-                  "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"))
+    args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries),
+                  "--out", str(tmp_path / "o.json"))
     with pytest.raises(InputError, match="at least two skills") as exc:
         args.func(args)
     message = str(exc.value)
@@ -656,8 +655,8 @@ def test_the_disabled_skill_routes_once_include_disabled_is_passed(tmp_path, cap
     queries = _write_queries(tmp_path, {"perf": ["profile a slow binary"],
                                         "grill": ["interview me about my plan"]})
     out = tmp_path / "o.json"
-    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
-                  "--queries-by-skill", str(queries), "--out", str(out), "--include-disabled")
+    args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries),
+                  "--out", str(out), "--include-disabled")
     args.func(args)
     assert json.loads(out.read_text(encoding="utf-8"))["result"]["n_skills"] == 2
 
@@ -679,15 +678,15 @@ def test_a_name_no_rule_left_out_is_refused_alone_and_the_left_out_names_are_dro
     names = ["perf", "cache", "long", "db", "grill", "both"]
     out = tmp_path / "o.json"
     queries = _write_queries(tmp_path, {name: ["profile my slow binary"] for name in names + ["ghost"]})
-    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
-                  "--queries-by-skill", str(queries), "--out", str(out))
+    args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries),
+                  "--out", str(out))
     with pytest.raises(InputError, match="not in the field: `ghost`") as exc:
         args.func(args)
     assert not any(f"`{name}`" in str(exc.value) for name in names)
     assert not out.exists()
     queries = _write_queries(tmp_path, {name: ["profile my slow binary"] for name in names})
-    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
-                  "--queries-by-skill", str(queries), "--out", str(out))
+    args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries),
+                  "--out", str(out))
     args.func(args)
     err = capsys.readouterr().err
     assert "`db`" in err and "--keep-copies-under" in err
@@ -705,8 +704,9 @@ def test_a_skill_competitor_records_every_rule_that_left_it_out(tmp_path):
             f"---\nname: {name}\ndescription: tune a thing\n{extra}---\n\n# B\n",
             encoding="utf-8")
         refs.append(f"skill:{tmp_path / 'skills' / f'{name}-dir'}")
-    args = _parse("novelty", "routing", "--all-vs-all", "--competitors", *refs,
-                  "--queries-by-skill", "q.json")
+    (tmp_path / "none").mkdir()
+    args = _parse("catalog", "routing", str(tmp_path / "none"), "--competitors", *refs, "--queries-by-skill",
+                  "q.json")
     dropped: dict[str, set[str]] = {}
     assert routing_field(args, set(), [], dropped) == []
     assert dropped == {"long": {"invalid"}, "both": {"disabled", "invalid"}}
@@ -720,7 +720,7 @@ def test_routing_artifact_with_broken_frontmatter_names_the_yaml_line(tmp_path):
     (broken / "SKILL.md").write_text(
         "---\nname: software-factory\ndescription: Use when: the user wants a factory\n---\n\n# b\n",
         encoding="utf-8")
-    args = _parse("novelty", "routing", "--artifact", f"skill:{broken}")
+    args = _parse("skill", "routing", f"skill:{broken}")
     with pytest.raises(InputError, match="line 3") as info:
         load_routing_field(args)
     assert "quote" in str(info.value) and "missing a 'description'" not in str(info.value)
@@ -733,8 +733,8 @@ def test_the_skill_under_test_over_the_limit_is_warned_and_saved(tmp_path, capsy
     queries = tmp_path / "q.json"
     queries.write_text(json.dumps(["profile my binary"]), encoding="utf-8")
     out = tmp_path / "r.json"
-    args = _parse("novelty", "routing", "--artifact", ref, "--catalog", str(root),
-                  "--queries", str(queries), "--out", str(out))
+    args = _parse("skill", "routing", ref, "--against", str(root), "--queries",
+                  str(queries), "--out", str(out))
     args.func(args)
     err = capsys.readouterr().err
     assert "WARNING: skill 'big': description is 1139 characters" in err

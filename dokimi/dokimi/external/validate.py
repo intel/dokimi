@@ -759,7 +759,7 @@ def _name_conflicts(by_name: dict[str, list[tuple[SkillReview, str, str]]]) -> N
                     "warn",
                     "name-conflict",
                     f"name {name!r} is also used by {', '.join(others)}, with different content; "
-                    "`novelty routing --catalog` leaves this name out of the field "
+                    "`skill routing --against` leaves this name out of the field "
                     "until one is renamed or removed",
                 )
             )

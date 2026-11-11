@@ -79,7 +79,7 @@ Outputs are written under `results/<library>/` or the requested `--output-dir`:
 The benchmark separates model responsibilities because self-judging can inflate scores.
 
 - **Generator model**: creates personas and questions. Default `openai/gpt-6.1-sol` on every command.
-- **Answer model**: answers every question in both conditions (`--model`). Default `openai/gpt-6.1-sol` on every command that has one; `tasks run`, `explore run`, `repo run`, `novelty routing` and `tools preference` have no default `--model`.
+- **Answer model**: answers every question in both conditions (`--model`). Default `openai/gpt-6.1-sol` on every command that has one; `tasks run`, `explore run`, `repo run`, `skill routing` and `tools preference` have no default `--model`.
 - **Judge model**: scores answers. It should differ from the answer model/provider for stronger evaluator independence. Default `anthropic/claude-sonnet-5-5` on every command.
 - **Panel judges**: optional role-diverse judges for stricter review.
 
@@ -87,7 +87,7 @@ The defaults live in `dokimi/defaults.py` and changed on 2026-10-13; scores from
 
 `benchmark`, `eval score pointwise`, `eval score panel` and `evaluate` warn when the normalized answer model and judge model match, and so do `arms run --judge` and `subjects run --judge`. Commands that read a saved answers or questions file warn when the judge is the model the file records. Evaluation artifacts also store model/provider metadata and `question_set_hash` so later comparisons can prove they used the same question set.
 
-Supported providers in the main pipeline (`evaluate`, `benchmark`, `answers generate`, `eval questions generate`, `eval personas discover`) are OpenAI, Anthropic, Google Vertex, OpenRouter, Amazon Bedrock and `claude-cli`; `openai-codex` only on the commands that call `dokimi.llm` directly (`arms`, `subjects run`, `skill novelty`, `skill shorten`, `novelty routing`, `eval questions analyze|review`, `eval score panel`, `tools preference`).
+Supported providers in the main pipeline (`evaluate`, `benchmark`, `answers generate`, `eval questions generate`, `eval personas discover`) are OpenAI, Anthropic, Google Vertex, OpenRouter, Amazon Bedrock and `claude-cli`; `openai-codex` only on the commands that call `dokimi.llm` directly (`arms`, `subjects run`, `skill novelty`, `skill shorten`, `skill routing`, `eval questions analyze|review`, `eval score panel`, `tools preference`).
 
 ## Question Sources
 

@@ -14,7 +14,7 @@ from dokimi.cli import build_parser
 from dokimi.commands import novelty as novelty_cmd
 from dokimi.metrics.usage import UsageRecord
 from dokimi.novelty.client import LLMClient, SpendCap, SpendCapReached
-from tests.cli_paths import novelty_argv
+from tests.cli_paths import artifact_flag, novelty_argv
 
 
 def _parse(*argv):
@@ -89,7 +89,7 @@ def test_a_cap_that_could_never_trip_is_refused(value):
 def test_every_command_that_calls_a_model_takes_the_flag(sub):
     extra = {"probe": ["--atoms", "a.json"], "shorten": ["--atoms", "a.json"],
              "routing": ["--competitors", "skill:y"]}.get(sub, [])
-    args = _parse(*novelty_argv(sub), "--artifact", "skill:x", *extra, "--max-usd", "3")
+    args = _parse(*novelty_argv(sub), *artifact_flag(sub, "skill:x"), *extra, "--max-usd", "3")
     assert args.max_usd == 3.0
 
 

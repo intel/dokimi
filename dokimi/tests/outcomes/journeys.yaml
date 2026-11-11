@@ -362,7 +362,7 @@ criteria:
     delivery: available
     enforce: true
     capability: novelty
-    surfaces: ["skill novelty analyze --max-usd", "skill novelty probe --max-usd", "novelty routing --max-usd"]
+    surfaces: ["skill novelty analyze --max-usd", "skill novelty probe --max-usd", "skill routing --max-usd"]
     refs: [docs/skill-novelty.md#cost-and-how-it-is-kept-down, dokimi/commands/novelty.py]
     evidence:
       - {id: cjm-novelty-spend-cap, kind: unit, stubs: [model client prices]}
@@ -383,7 +383,7 @@ criteria:
       - id: cjm-novelty-authoring-path
         kind: cli_scenario
         invokes:
-          - "novelty routing --artifact --competitors --queries"
+          - "skill routing --competitors --queries"
           - "skill novelty analyze --estimate-only"
           - "skill novelty atoms --extract-model --out"
           - "skill novelty probe --atoms --model --judge-model"

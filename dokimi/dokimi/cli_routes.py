@@ -17,7 +17,8 @@ the section of the operation it will hold once the renames of #94 §4 land.
 from __future__ import annotations
 
 import shlex
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, field
 
 SECTIONS: tuple[str, ...] = ("The loop", "Subjects", "Evals", "Analysis and data")
 
@@ -56,6 +57,9 @@ class Tombstone:
     old: tuple[str, ...]
     new: tuple[str, ...]
     flags: tuple[str, ...] = ()
+    # For a move whose argv changes shape (a flag becomes a positional): the argv after ``old``
+    # becomes the whole printed argv. It replaces ``new``, ``flags`` and the rest of the argv.
+    rewrite: Callable[[list[str]], list[str]] | None = field(default=None, compare=False)
 
 
 ROOTS: tuple[Root, ...] = (
@@ -119,7 +123,8 @@ LEAVES: tuple[Leaf, ...] = (
     Leaf(("skill", "novelty", "items"), FREE),
     Leaf(("skill", "shorten"), PAID),
     Leaf(("skill", "check"), FREE),
-    Leaf(("novelty", "routing"), PAID),
+    Leaf(("skill", "routing"), PAID),
+    Leaf(("catalog", "routing"), PAID),
     Leaf(("novelty", "view"), FREE),
     Leaf(("repo", "validate"), FREE),
     Leaf(("repo", "scan"), FREE),
@@ -173,7 +178,43 @@ LEAVES: tuple[Leaf, ...] = (
     Leaf(("data", "schema", "show"), FREE),
 )
 
-# The moves of #94 M1-M3 (`eval`, `skill`, `catalog`, `trace`, `data`, replay, `docs`) and D11. Not yet: `novelty routing`.
+def _novelty_routing_argv(rest: list[str]) -> list[str]:
+    """The argv `novelty routing` moved to, given the argv after it (#94 M3).
+
+    ``--all-vs-all`` moves to ``catalog routing ROOT`` (its ``--catalog`` value becomes ROOT). Any other
+    call moves to ``skill routing SKILL`` (its ``--artifact`` value becomes SKILL, ``--catalog`` becomes
+    ``--against``). ``--repeats`` is ``--reps`` in both. A flag the new leaf does not take stays in the
+    printed argv, so the new parser refuses it.
+    """
+    values: dict[str, list[str]] = {"--artifact": [], "--catalog": []}
+    kept: list[str] = []
+    all_vs_all = "--all-vs-all" in rest
+    i = 0
+    while i < len(rest):
+        name, eq, value = rest[i].partition("=")
+        if name == "--all-vs-all":
+            i += 1
+            continue
+        if name in values:
+            if eq:
+                values[name].append(value)
+            elif i + 1 < len(rest):
+                values[name].append(rest[i + 1])
+                i += 1
+        elif name == "--repeats":
+            kept.append("--reps" + eq + value)
+        else:
+            kept.append(rest[i])
+        i += 1
+    if all_vs_all:
+        root = values["--catalog"][:1]
+        return ["catalog", "routing", *root, *kept, *(["--artifact", values["--artifact"][0]]
+                                                       if values["--artifact"] else [])]
+    against = ["--against", values["--catalog"][0]] if values["--catalog"] else []
+    return ["skill", "routing", *values["--artifact"][:1], *against, *kept]
+
+
+# The moves of #94 M1-M3 and D11. Not yet: `novelty view` (the proposal maps it to `report $RUN`).
 # A bare retired root comes last: the first match wins, and a root matches every path under it.
 TOMBSTONES: tuple[Tombstone, ...] = (
     Tombstone(("tasks", "inspect"), ("eval", "inspect")),
@@ -202,6 +243,7 @@ TOMBSTONES: tuple[Tombstone, ...] = (
     Tombstone(("novelty", "probe"), ("skill", "novelty", "probe")),
     Tombstone(("novelty", "items"), ("skill", "novelty", "items")),
     Tombstone(("novelty", "shorten"), ("skill", "shorten")),
+    Tombstone(("novelty", "routing"), ("skill", "routing"), rewrite=_novelty_routing_argv),
     Tombstone(("catalog", "scan"), ("catalog", "check")),
     Tombstone(("library", "intents"), ("catalog", "intents")),
     Tombstone(("library", "list"), ("catalog", "list"), ("--kind", "product")),
@@ -284,6 +326,8 @@ def moved_argv(
             all(a in ("-h", "--help") for a in argv[n:]) or not argv[n].startswith("-")
         ):
             continue
+        if tomb.rewrite is not None:
+            return tomb.rewrite(list(argv[n:]))
         return [*tomb.new, *tomb.flags, *argv[n:]]
     return None
 

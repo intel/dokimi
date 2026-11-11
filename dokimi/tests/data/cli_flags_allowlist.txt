@@ -15,7 +15,6 @@
 --agent-network
 --all
 --all-atoms
---all-vs-all  # novelty routing (#172) adds it: no registry concept yet; a F1b migration names it
 --allow-self-judge
 --allow-unsafe
 --allow-unsupported

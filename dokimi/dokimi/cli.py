@@ -137,7 +137,7 @@ def build_parser() -> argparse.ArgumentParser:
     catalog.register(sub, positive_int, eval_sub)  # catalog; eval triggers generate; catalog intents
     explore.register(sub, positive_int)         # explore (ExploreBench)
     skill.register(sub, positive_int)           # skill: novelty, shorten (#94 M2)
-    novelty.register(sub, positive_int)         # novelty (routing, view: not yet moved)
+    novelty.register(sub, positive_int)         # novelty (view: not yet moved)
     repo.register(sub, positive_int, eval_sub)  # repo; eval check
     tools.register(sub, positive_int)           # tools (tool-choice probes)
     context.register(sub, positive_int)         # trace: inspect, consistency, prefilter (#94 M2)

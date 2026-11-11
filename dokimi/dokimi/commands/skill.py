@@ -4,8 +4,8 @@
 """skill subcommand group: measure one skill (#94 M2, M3).
 
 ``skill novelty`` (analyze, atoms, probe, items) and ``skill shorten`` are the moved leaves;
-``skill check SKILL`` is the catalog check scoped to one skill (#94 M3). ``skill routing`` follows
-with the routing moves of #94 §4.
+``skill check SKILL`` is the catalog check scoped to one skill (#94 M3), and ``skill routing SKILL``
+is the one-skill routing that ``novelty routing`` used to be (#94 M3).
 """
 
 from __future__ import annotations
@@ -22,6 +22,9 @@ def register(sub, positive_int) -> None:
     skill_sub = skill_p.add_subparsers(dest="skill_cmd", required=True)
     register_skill(skill_sub, positive_int)
     register_check(skill_sub)
+    from dokimi.commands.routing_parser import add_skill_routing
+
+    add_skill_routing(skill_sub, positive_int)
 
 
 def cmd_skill_check(args: argparse.Namespace) -> None:
