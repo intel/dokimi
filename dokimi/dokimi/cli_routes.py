@@ -184,7 +184,8 @@ def _novelty_routing_argv(rest: list[str]) -> list[str]:
     ``--all-vs-all`` moves to ``catalog routing ROOT`` (its ``--catalog`` value becomes ROOT). Any other
     call moves to ``skill routing SKILL`` (its ``--artifact`` value becomes SKILL, ``--catalog`` becomes
     ``--against``). ``--repeats`` is ``--reps`` in both. A flag the new leaf does not take stays in the
-    printed argv, so the new parser refuses it.
+    printed argv, so the new parser refuses it. A value flag with no value (none follows, or a flag does)
+    stays there too. An ambiguous prefix raises :class:`AmbiguousRetiredFlag`, as no command can refuse it.
     """
     rest = [_retired_spelling(tok) for tok in rest]
     values: dict[str, list[str]] = {"--artifact": [], "--catalog": []}
@@ -199,7 +200,7 @@ def _novelty_routing_argv(rest: list[str]) -> list[str]:
         if name in values:
             if eq:
                 values[name].append(value)
-            elif i + 1 < len(rest) and not rest[i + 1].startswith("--"):
+            elif i + 1 < len(rest) and (rest[i + 1] == "-" or not rest[i + 1].startswith("-")):
                 values[name].append(rest[i + 1])
                 i += 1
             else:

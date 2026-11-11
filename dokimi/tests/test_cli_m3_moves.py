@@ -438,6 +438,8 @@ def test_novelty_routing_tombstone_keeps_a_value_flag_with_no_value_for_the_new_
          ["skill", "routing", "skill:a", "--against", "c", "--catalog"]),
         (["novelty", "routing", "--artifact", "--catalog", "c"],
          ["skill", "routing", "--against", "c", "--artifact"]),
+        (["novelty", "routing", "--artifact", "-x"],
+         ["skill", "routing", "--artifact", "-x"]),
     ]:
         argv = moved_argv(old)
         assert argv == new
