@@ -454,7 +454,7 @@ $ python cli.py tasks run --tasks demo-widget \
     --harnesses docker-oracle,docker-claude-skill:C:/Users/Public/content-repo/skills/demo-skill \
     --baseline-harness docker-oracle \
     --model us.anthropic.claude-haiku-4-5-20251001-v1:0 \
-    --dry-run --out-json results/demo-widget.json
+    --dry-run --out results/demo-widget.json
 Saved task run artifact: results\demo-widget.json
 Saved task run report:   results\demo-widget.md
 docker-oracle: 0/1 pass (0.00%), ops=1, elapsed=0.00s
@@ -482,7 +482,7 @@ demo-locate-widget      demo    1 ref(s)        Where is the widget width clampe
 $ python cli.py explore run --all \
     --tasks-root C:/Users/Public/content-repo/explore_tasks \
     --repo-root C:/Users/Public/content-repo/product-checkout \
-    --arms oracle,empty --baseline-arm empty --out-json results/explore.json
+    --arms oracle,empty --baseline-arm empty --out results/explore.json
 Saved explore run artifact: results\explore.json
 oracle: n=1 file_f1=1.000 line_f1=n/a validity=1.000
 empty: n=1 file_f1=0.000 line_f1=n/a validity=1.000

@@ -42,7 +42,7 @@ def test_tasks_run_dry_run_writes_schema_artifact(tmp_path):
         "claude-code",
         "--model",
         "m",
-        "--out-json",
+        "--out",
         str(out),
         "--dry-run",
     ])
@@ -64,7 +64,7 @@ def test_tasks_run_out_md_creates_missing_parent_dir(tmp_path):
     args = parser.parse_args([
         "tasks", "run", "--tasks", "toy-task", "--tasks-root", str(tmp_path),
         "--harnesses", "codex", "--model", "m",
-        "--out-json", str(out), "--out-md", str(md), "--dry-run",
+        "--out", str(out), "--out-md", str(md), "--dry-run",
     ])
     args.func(args)  # must not raise FileNotFoundError
     assert md.is_file()
@@ -91,7 +91,7 @@ def test_tasks_run_all_without_root_exits_with_a_readable_message(tmp_path):
     parser = build_parser()
     args = parser.parse_args([
         "tasks", "run", "--all", "--harnesses", "codex", "--dry-run",
-        "--out-json", str(tmp_path / "runs.json"),
+        "--out", str(tmp_path / "runs.json"),
     ])
     with pytest.raises(InputError) as excinfo:
         args.func(args)
@@ -102,7 +102,7 @@ def test_tasks_run_named_task_without_root_exits_with_a_readable_message(tmp_pat
     parser = build_parser()
     args = parser.parse_args([
         "tasks", "run", "--tasks", "toy-task", "--harnesses", "codex", "--dry-run",
-        "--out-json", str(tmp_path / "runs.json"),
+        "--out", str(tmp_path / "runs.json"),
     ])
     with pytest.raises(InputError) as excinfo:
         args.func(args)
@@ -115,7 +115,7 @@ def test_tasks_run_with_a_missing_skill_path_exits_before_writing_anything(tmp_p
     args = build_parser().parse_args([
         "tasks", "run", "--tasks", "toy-task", "--tasks-root", str(tmp_path),
         "--harnesses", f"docker-claude-skill:{tmp_path / 'nope' / 'SKILL.md'}",
-        "--out-json", str(out), "--dry-run",
+        "--out", str(out), "--dry-run",
     ])
     with pytest.raises(InputError) as excinfo:
         args.func(args)
@@ -130,7 +130,7 @@ def test_tasks_run_with_an_unwritable_out_json_exits_with_a_message(tmp_path):
     out = blocker / "runs.json"
     args = build_parser().parse_args([
         "tasks", "run", "--tasks", "toy-task", "--tasks-root", str(tmp_path),
-        "--harnesses", "codex", "--model", "m", "--out-json", str(out), "--dry-run",
+        "--harnesses", "codex", "--model", "m", "--out", str(out), "--dry-run",
     ])
     with pytest.raises(InputError) as excinfo:
         args.func(args)
@@ -145,7 +145,7 @@ def test_tasks_run_with_an_unwritable_out_md_keeps_the_artifact_and_exits_with_a
     md = blocker / "report.md"
     args = build_parser().parse_args([
         "tasks", "run", "--tasks", "toy-task", "--tasks-root", str(tmp_path),
-        "--harnesses", "codex", "--model", "m", "--out-json", str(out), "--out-md", str(md),
+        "--harnesses", "codex", "--model", "m", "--out", str(out), "--out-md", str(md),
         "--dry-run",
     ])
     with pytest.raises(InputError) as excinfo:
@@ -188,7 +188,7 @@ def _run_tasks(tmp_path, monkeypatch, harness_for):
     args = build_parser().parse_args([
         "tasks", "run", "--tasks", "toy-task", "--tasks-root", str(tmp_path),
         "--harnesses", "codex", "--baseline-harness", "claude-code", "--model", "m",
-        "--out-json", str(tmp_path / "runs.json"), "--dry-run", "--output-dir", str(tmp_path / "task-runs"),
+        "--out", str(tmp_path / "runs.json"), "--dry-run", "--out-dir", str(tmp_path / "task-runs"),
     ])
     try:
         args.func(args)
@@ -252,8 +252,8 @@ def test_command_harness_exit_code_verdict_is_a_complete_run(tmp_path, capsys, s
     harness = f'command:"{Path(sys.executable).as_posix()}" -c "{script}"'
     args = build_parser().parse_args([
         "tasks", "run", "--tasks", "toy-task", "--tasks-root", str(tmp_path),
-        "--harnesses", harness, "--out-json", str(tmp_path / "runs.json"),
-        "--output-dir", str(tmp_path / "task-runs"),
+        "--harnesses", harness, "--out", str(tmp_path / "runs.json"),
+        "--out-dir", str(tmp_path / "task-runs"),
     ])
     try:
         args.func(args)
@@ -294,7 +294,7 @@ def test_tasks_run_refuses_a_repeated_task_or_harness_before_running(tmp_path, c
     _fixture_task(tmp_path / "other")
     value = value.format(root=tmp_path)
     argv = ["tasks", "run", "--tasks", "toy-task", "--tasks-root", str(tmp_path),
-            "--harnesses", "command:true", "--out-json", str(tmp_path / "runs.json")]
+            "--harnesses", "command:true", "--out", str(tmp_path / "runs.json")]
     argv[argv.index(flag) + 1] = value
     args = build_parser().parse_args(argv)
     with pytest.raises(InputError) as exc:
@@ -332,7 +332,7 @@ def test_unsupported_dry_run_preserves_artifacts(tmp_path, capsys):
     out = tmp_path / "plan.json"
     args = build_parser().parse_args([
         "tasks", "run", "--tasks", "toy-task", "--tasks-root", str(tmp_path),
-        "--harnesses", "codex", "--dry-run", "--out-json", str(out), "--output-dir", str(tmp_path / "task-runs"),
+        "--harnesses", "codex", "--dry-run", "--out", str(out), "--out-dir", str(tmp_path / "task-runs"),
     ])
     with pytest.raises(SystemExit) as exc:
         args.func(args)

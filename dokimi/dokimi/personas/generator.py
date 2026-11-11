@@ -8,6 +8,7 @@ from typing import Dict, Any, Optional
 from pathlib import Path
 import json
 
+from dokimi.artifacts import save_artifact
 from dokimi.llm import LLM, ChatModel, Invoker, check_caller_provider
 from dokimi.llm import LANGCHAIN_AVAILABLE
 from dokimi.defaults import DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER
@@ -68,6 +69,23 @@ Important:
 - Focus on REAL user types based on the provided data
 - Include a mix of skill levels (beginner, intermediate, advanced)
 """
+
+
+_TEXT_FIELDS = ("id", "name", "description", "skill_level")
+_LIST_FIELDS = ("concerns", "typical_questions")
+
+
+def _typed(persona: Dict[str, Any]) -> Dict[str, Any]:
+    """``persona`` with the types the personas schema holds: a text field the model gave as another
+    value becomes text, a list field given as one value a one-item list (``None``: empty)."""
+    out = dict(persona)
+    for key in _TEXT_FIELDS:
+        if not isinstance(out[key], str):
+            out[key] = "" if out[key] is None else str(out[key])
+    for key in _LIST_FIELDS:
+        if not isinstance(out[key], list):
+            out[key] = [] if out[key] is None else [out[key]]
+    return out
 
 
 class PersonaGenerator:
@@ -175,6 +193,7 @@ class PersonaGenerator:
                 if missing:
                     raise ValueError(f"Persona missing required fields: {missing}")
             
+            personas = [_typed(persona) for persona in personas]
             result = {
                 "product": library_name,
                 "generated_at": self._get_timestamp(),
@@ -215,10 +234,8 @@ class PersonaGenerator:
         return datetime.now(timezone.utc).replace(tzinfo=None).isoformat() + "Z"
     
     def save_personas(self, personas: Dict[str, Any], output_path: Path):
-        """Save generated personas to JSON file."""
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(output_path, 'w', encoding="utf-8") as f:
-            json.dump(personas, f, indent=2)
+        """Save generated personas as a ``personas`` artifact (``ArtifactValidationError`` if its schema refuses them)."""
+        save_artifact("personas", personas, output_path)
         logger.info(f"✓ Saved {len(personas['personas'])} personas to {output_path}")
     
     def load_personas(self, input_path: Path) -> Dict[str, Any]:

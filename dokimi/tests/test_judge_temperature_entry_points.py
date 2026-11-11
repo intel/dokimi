@@ -92,7 +92,7 @@ def test_evaluate_pipeline_forwards_and_records_judge_temperature(tmp_path, requ
 
     monkeypatch.setattr(EvaluationPipeline, "run", run)
     with pytest.raises(SystemExit):
-        _run(["evaluate", "--product", "L", "--description", "d", "--output-dir", str(tmp_path),
+        _run(["evaluate", "--product", "L", "--description", "d", "--out-dir", str(tmp_path),
               "--judge-provider", "amazon-bedrock", "--judge-model", "us.anthropic.x",
               "--judge-temperature", "0"])
     assert len(requests) == 2 and all(r["temperature"] == 0.0 for r in requests)
@@ -225,7 +225,7 @@ def test_arms_run_judge_whose_sampling_probe_fails_exits_1_before_any_answer(tmp
                         lambda self, *a, **k: answered.append(1) or [])
     with refusal() as exc:
         _run(["arms", "run", "--product", "onedal", "--questions", _questions(tmp_path),
-              "--arms", "baseline", "--out-json", str(tmp_path / "a.json"), "--out-md", str(tmp_path / "a.md"),
+              "--arms", "baseline", "--out", str(tmp_path / "a.json"), "--out-md", str(tmp_path / "a.md"),
               "--judge", "--judge-provider", "amazon-bedrock", "--judge-model", "us.anthropic.only-t1",
               "--judge-temperature", "0"])
     assert exc.code == 1
@@ -274,7 +274,7 @@ def test_arms_run_sampling_litellm_refuses_before_any_call_exits_2(tmp_path, cli
     from tests.test_exit_codes_boundaries import _questions
 
     assert _exit_code(["arms", "run", "--product", "onedal", "--questions", _questions(tmp_path),
-                       "--arms", "baseline", "--out-json", str(tmp_path / "a.json"),
+                       "--arms", "baseline", "--out", str(tmp_path / "a.json"),
                        "--out-md", str(tmp_path / "a.md"), *flags]) == 2
     assert client_refused == []
     assert "Error: cannot build arms/plugins" in capsys.readouterr().err

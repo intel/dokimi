@@ -401,7 +401,7 @@ jobs:
           flags=()
           if [ "$WARM" = true ]; then flags+=(--warm); fi
           if [ "$ALLOW_UNSUPPORTED" = true ]; then flags+=(--allow-unsupported); fi
-          dokimi eval check . --manifest "$MANIFEST" --task "$TASK" --out "$RUNNER_TEMP/repo-check" "${flags[@]}"
+          dokimi eval check . --manifest "$MANIFEST" --task "$TASK" --out-dir "$RUNNER_TEMP/repo-check" "${flags[@]}"
       # always(): a hung oracle ends in the job timeout, which cancels the job; a
       # cancelled job still runs these steps, so the run leaves a verdict.
       - name: Summary

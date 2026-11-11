@@ -191,9 +191,10 @@ def test_repo_tasks_authoring_names_the_prs_argv_and_runs_nothing(capsys):
     with pytest.raises(SystemExit) as exc:
         parse_args(["repo", "tasks", "authoring", "src", *flags])
     assert exc.value.code == 2
-    new = ["eval", "tasks", "generate", "--from", "prs", "src", *flags]
+    # `--out` names a directory on `eval tasks generate`, so the printed argv carries `--out-dir` (F1b)
+    new = ["eval", "tasks", "generate", "--from", "prs", "src", *["--out-dir" if f == "--out" else f for f in flags]]
     assert capsys.readouterr().err == "moved: dokimi " + " ".join(new) + "\n"
-    args = build_parser().parse_args(new)  # the flags kept their names: the printed argv parses as it is
+    args = build_parser().parse_args(new)  # the printed argv parses as it is
     assert (args.from_kind, args.source, args.prs, args.out, args.manifest_file, args.max_lines, args.prompt_file,
             args.force, args.cache_dir) == ("prs", "src", "p.json", "t", "m.yaml", 50, "i.txt", True, "c")
 

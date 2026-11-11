@@ -78,7 +78,7 @@ spread is measured with `--reps` rather than pinned away.
 ```bash
 python cli.py tools preference --groups groups.json --dry-run      # count items and calls
 python cli.py tools preference --groups groups.json \
-  --model claude-haiku-5-5 --provider anthropic --reps 3 --out-json pref.json
+  --model claude-haiku-5-5 --provider anthropic --reps 3 --out pref.json
 ```
 
 `--max-cost-usd` caps the spend: once the priced calls have spent it, no new
