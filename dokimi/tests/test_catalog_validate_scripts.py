@@ -826,7 +826,7 @@ def test_a_shebang_flag_word_or_end_of_options_that_changes_no_parse_keeps_the_c
     assert runner.calls[0].argv == ("/usr/bin/bash", "-n")
 
 
-@pytest.mark.parametrize("shebang", [b"#!/bin/bash -eo posix", b"#!/bin/bash -euo"])
+@pytest.mark.parametrize("shebang", [b"#!/bin/bash -eo posix", b"#!/bin/bash -euo", b"#!/bin/bash -ea pipefail"])
 def test_a_shebang_flag_word_with_a_parse_changing_or_no_operand_is_not_checked(tmp_path, shebang):
     skill = _bundle(tmp_path, {"run.sh": shebang + b"\nif true; then\n"})
     runner = process.FakeRunner(lambda call: process.reply(stderr="bash: line 3: syntax error\n", returncode=2))
