@@ -175,18 +175,18 @@ def build_need_graph(name: str, description: str, *, client: LLMClient, strict: 
         if strict:
             raise
         return graph
-    rows = [(index, row) for index, row in enumerate(data.get("nodes", []) or [], start=1)
-            if _text(row) is not None]
+    rows = [(index, row, text) for index, row in enumerate(data.get("nodes", []) or [], start=1)
+            if (text := _text(row)) is not None]
     # Every original id is reserved before any replacement is made, so a replacement never takes
     # a later node's id (its edges would then point at the wrong node).
-    reserved = {str(row.get("id") or f"n{index}") for index, row in rows}
+    reserved = {str(row.get("id") or f"n{index}") for index, row, _ in rows}
     taken: set[str] = set()
-    for index, row in rows:
+    for index, row, text in rows:
         node_type = _label(row.get("type", "intent"))
         path_class = _label(row.get("path_class", "core"))
         graph.nodes.append(NeedNode(
             id=_unique_id(str(row.get("id") or f"n{index}"), index, taken, reserved),
-            text=_text(row),
+            text=text,
             type=node_type if node_type in NODE_TYPES else "intent",
             path_class=path_class if path_class in PATH_CLASSES else "supporting",
         ))
