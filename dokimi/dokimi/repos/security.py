@@ -282,6 +282,24 @@ def _present(cell: Path, name: str, unreadable: list[str]) -> bool:
     return False
 
 
+def _trace_problem(path: Path) -> Optional[str]:
+    """Why ``events.jsonl`` is no usable trace: missing, or with lines and none of them a JSON object. An empty
+    file is a trace (the agent did nothing the scan can see)."""
+    if not path.is_file():
+        return f"no {path.name}"
+    lines = [line for line in path.read_text(encoding="utf-8", errors="replace").splitlines() if line.strip()]
+    if lines and not any(isinstance(_loads(line), dict) for line in lines):
+        return f"{path.name} has no readable event"
+    return None
+
+
+def _loads(line: str) -> Any:
+    try:
+        return json.loads(line)
+    except (ValueError, RecursionError):
+        return None
+
+
 def _trace_findings(cell: Path, canaries: Sequence[str]) -> tuple[list[Finding], int, list[str]]:
     """Every finding of a cell's files, how many trace events it had, and the files it could not read."""
     unreadable: list[str] = []
@@ -314,7 +332,13 @@ def _scan(cell: Path, canaries: Sequence[str]) -> tuple[dict[str, Any], list[str
     canaries = [c for c in canaries if c]
     found, n_events, unreadable = _trace_findings(cell, canaries)
     result, _ = _read_record(cell / "result.json")
-    started = bool(n_events or found or result.get("process") is not None)
+    agent = result.get("agent")
+    agent_ran = isinstance(agent, dict) and agent.get("rc") is not None  # written once the agent has run
+    if agent_ran or result.get("process") is not None:  # a run whose trace is missing or garbled is unmeasured
+        problem = _trace_problem(cell / "events.jsonl")
+        if problem:
+            unreadable.append(problem)
+    started = bool(n_events or found or agent_ran or result.get("process") is not None)
     return {"cell": cell.name, "task": result.get("task"), "arm": result.get("arm"), "model": result.get("model"),
             "started": started, "exec_traced": (cell / "exec.log").is_file(),
             "egress_traced": (cell / "egress.jsonl").is_file(), "findings": [f.as_dict() for f in found]}, unreadable

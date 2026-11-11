@@ -555,3 +555,40 @@ def test_a_planned_name_outside_the_batch_is_an_error(tmp_path):
     (batch / "_eval" / "plan.json").write_text(json.dumps({"cells": ["../outside"]}), encoding="utf-8")
     with pytest.raises(sec.SecurityError, match="inside the batch"):
         sec.scan_batch(batch, BASE)
+
+
+def _with_record(cell: Path, **fields) -> Path:
+    record = json.loads((cell / "result.json").read_text(encoding="utf-8"))
+    record.update(fields)
+    (cell / "result.json").write_text(json.dumps(record), encoding="utf-8")
+    return cell
+
+
+def test_finished_cell_without_a_readable_trace_is_unfinished_not_clean(tmp_path):
+    batch = tmp_path / "b"
+    _cell(batch, "t", BASE, 0, events=[_cmd("pytest")])
+    lost = _with_record(_cell(batch, "t", "skill", 0, events=[_cmd("pytest")]), process={"pid": 1})
+    (lost / "events.jsonl").unlink()
+    garbled = _with_record(_cell(batch, "t", "skill", 1, events=[]), process={"pid": 2})
+    (garbled / "events.jsonl").write_text("not json\n", encoding="utf-8")
+    report = sec.scan_batch(batch, BASE)
+    assert sorted(u["cell"] for u in report["coverage"]["unfinished"]) == sorted([lost.name, garbled.name])
+    assert report["coverage"]["cells"] == 1 and [a["arm"] for a in report["arms"]] == [BASE]
+
+
+def test_agent_that_ran_without_a_trace_is_unfinished_not_not_started(tmp_path):
+    batch = tmp_path / "b"
+    _cell(batch, "t", BASE, 0, events=[_cmd("pytest")])
+    failed = _with_record(_cell(batch, "t", "skill", 0, events=[]), agent={"rc": 0}, process=None)
+    (failed / "events.jsonl").unlink()
+    report = sec.scan_batch(batch, BASE)
+    assert [u["cell"] for u in report["coverage"]["unfinished"]] == [failed.name]
+    assert report["coverage"]["not_started"] == []
+
+
+def test_agent_that_ran_with_an_empty_trace_is_measured(tmp_path):
+    batch = tmp_path / "b"
+    _cell(batch, "t", BASE, 0, events=[_cmd("pytest")])
+    _with_record(_cell(batch, "t", "skill", 0, events=[]), agent={"rc": 0}, process=None)
+    report = sec.scan_batch(batch, BASE)
+    assert report["coverage"]["unfinished"] == [] and _arm(report, "skill")["cells"] == 1
