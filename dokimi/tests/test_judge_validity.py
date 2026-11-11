@@ -973,11 +973,11 @@ class TestStrictCli:
         return code, capsys.readouterr().err
 
     @pytest.mark.outcome("cjm-judge-cap-inconclusive")
-    def test_an_inconclusive_pass_warns_and_exits_zero_unless_strict(self, tmp_path, monkeypatch, capsys):
+    def test_an_inconclusive_pass_warns_and_exits_3_and_strict_exits_1(self, tmp_path, monkeypatch, capsys):
         code, err = self._run(tmp_path, monkeypatch, capsys, 5)
-        assert code == 0
+        assert code == 3  # inconclusive is exit 3, not 0 (AC-J11-002, §2.6)
         assert "INCONCLUSIVE at this sample size: truncate_20" in err
-        assert self._run(tmp_path, monkeypatch, capsys, 5, "--strict")[0] == 1
+        assert self._run(tmp_path, monkeypatch, capsys, 5, "--strict")[0] == 1  # --strict: a failure (its help)
 
     def test_the_hint_names_the_knob_the_mode_reads(self, tmp_path, monkeypatch, capsys):
         assert "more --bases" in self._run(tmp_path, monkeypatch, capsys, 5)[1]
@@ -1146,7 +1146,7 @@ def test_a_variant_skipped_without_a_noop_is_still_reported():
     assert s["unmeasured_variants"] == ["mismatched_answer"]
 
 
-@pytest.mark.parametrize("strict, code", [((), 0), (("--strict",), 1)])
+@pytest.mark.parametrize("strict, code", [((), 3), (("--strict",), 1)])  # inconclusive: 3; --strict: 1
 def test_cli_warns_on_an_unmeasured_variant(tmp_path, monkeypatch, capsys, strict, code):
     import json
 

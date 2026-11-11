@@ -41,6 +41,7 @@ from dokimi.commands import (
 from dokimi import __version__, cli_routes, llm_cli, process
 from dokimi.console import tolerate_console_encoding
 from dokimi.defaults import JUDGE_MODEL_FOR_PROVIDER, default_judge_model
+from dokimi.exit_codes import EXIT_INFRA
 
 
 def _subparsers(parser: argparse.ArgumentParser) -> argparse._SubParsersAction | None:
@@ -218,11 +219,11 @@ def main() -> None:
         # --strict gates, and a malformed file must not read as a failed gate.
         sys.exit(2)
     except Exception as exc:
-        if not _emits_cli_output(args):
-            raise
-        # A --json leaf still prints its one document on a crash, and the crash exits 5 (§2.6).
+        # A crash is an infra failure, exit 5 for every command (§2.6): it never reads as a failed verdict.
         traceback.print_exc()
-        _exit_with_document(args, "infra", f"{type(exc).__name__}: {exc}")
+        if _emits_cli_output(args):  # a --json leaf still prints its one document on a crash
+            _exit_with_document(args, "infra", f"{type(exc).__name__}: {exc}")
+        sys.exit(EXIT_INFRA)
 
 
 if __name__ == "__main__":
