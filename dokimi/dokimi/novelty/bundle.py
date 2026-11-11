@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -60,6 +61,7 @@ from dokimi.metrics.bundle_coverage import (  # noqa: F401
     named_exclusions,
 )
 
+from .answer_key import ABSENT, AnswerKeyRecord, parse_answer_key, shown
 from .artifact import load_artifact_text
 from .spans import dangling_fence, protection_tags
 
@@ -448,27 +450,27 @@ class AnswerKeyVerdict:
         return self.problem is None
 
 
-def _replay_selection(record: dict) -> dict[str, Any]:
+def _replay_selection(record: AnswerKeyRecord) -> dict[str, Any]:
     """The ``load_bundle`` arguments that reproduce a recorded selection."""
-    rows = record["files"]
+    rows = record.files
     # The roles the extraction asked for, not the roles of the files it happened to select:
     # a role whose files were all over budget selects nothing, and a rebuild narrowed to the
     # selected roles would call those files policy and lose the gap.
-    requested = record.get("resource_roles")
+    requested = record.resource_roles
     if requested is None:       # a record from before the roles were recorded
-        requested = sorted({row["role"] for row in rows[1:]}) or None
+        requested = sorted({row.role for row in rows[1:]}) or None
     # Prefer the budgets the extraction actually used. Older records do not carry them, and
     # for those the selection is reproduced from its result: capping at the largest
     # selected file and at the selected total makes the same greedy pick.
     budgets: dict[str, int] = {}
-    if record.get("max_file_words") and record.get("max_total_words"):
-        budgets = {"max_file_words": int(record["max_file_words"]),
-                   "max_total_words": int(record["max_total_words"])}
-    elif record.get("include_resources") and all("words" in r for r in rows[1:]):
-        selected = [int(row["words"]) for row in rows[1:]]
+    if record.max_file_words and record.max_total_words:
+        budgets = {"max_file_words": int(record.max_file_words),
+                   "max_total_words": int(record.max_total_words)}
+    elif record.include_resources and all(row.words is not ABSENT for row in rows[1:]):
+        selected = [int(row.words) for row in rows[1:]]
         budgets = {"max_file_words": max(selected, default=0),
                    "max_total_words": sum(selected)}
-    include = bool(record.get("include_resources"))
+    include = record.include_resources
     return {"include_resources": include,
             "roles": tuple(requested) if requested is not None and include else None,
             **budgets}
@@ -491,7 +493,7 @@ def _changes_answer_key(row: dict, asked_roles: list | None) -> bool:
     return True
 
 
-def check_answer_key(ref: str, record: dict | None, *,
+def check_answer_key(ref: str, record: Mapping[str, Any] | AnswerKeyRecord | None, *,
                      source: str = "atoms.json") -> AnswerKeyVerdict:
     """Is the answer key extracted under ``record`` still valid for ``ref`` as it is now?
 
@@ -505,16 +507,16 @@ def check_answer_key(ref: str, record: dict | None, *,
 
     Args:
         ref: The artifact reference to probe (``skill:<path>``).
-        record: The ``bundle`` block of the saved atoms (empty or ``None`` for a file
-            written before bundle provenance).
+        record: The ``bundle`` block of the saved atoms, or its parsed form (empty or
+            ``None`` for a file written before bundle provenance).
         source: How to name the record in messages (the atoms file's path).
 
     Returns:
         A verdict; never raises for a stale or foreign key. ``problem`` is one of
         :data:`ANSWER_KEY_PROBLEMS`.
     """
-    record = record or {}
-    if not record:
+    key = parse_answer_key(record)
+    if not key.present:
         try:
             body = load_artifact_text(ref)[4]
         except (OSError, ValueError, RecursionError) as exc:
@@ -523,44 +525,44 @@ def check_answer_key(ref: str, record: dict | None, *,
             f"WARNING: {source} predates bundle provenance; assuming the entry point only. "
             "Re-run `skill novelty atoms` if the atoms came from bundled files.",))
 
-    rows = record.get("files") or []
-    if not rows or any("role" not in row or "path" not in row for row in rows):
+    rows = key.files
+    if not key.usable_files:
         return AnswerKeyVerdict(problem="no_file_rows", message=(
             f"{source} records a bundle without usable file rows; re-run `skill novelty atoms` "
             "rather than probing against an answer key whose provenance cannot be checked"))
     try:
-        now = load_bundle(ref, **_replay_selection(record))
+        now = load_bundle(ref, **_replay_selection(key))
     except (OSError, ValueError, RecursionError) as exc:
         return AnswerKeyVerdict(problem="unloadable", message=f"cannot load {ref}: {exc}")
 
     # An answer key is for one artifact. Without this, skill A's atoms were accepted
     # against skill B whenever the relative paths lined up -- unconditionally so for
     # entry-point-only recordings, where both sides are just ["SKILL.md"].
-    recorded_name = record.get("artifact_name")
+    recorded_name = key.artifact_name
     if recorded_name and recorded_name != now.name:
         return AnswerKeyVerdict(problem="wrong_artifact", message=(
             f"these atoms were extracted from `{recorded_name}` and --artifact is "
             f"`{now.name}`: an answer key belongs to one artifact. Extract atoms for this "
             "one instead."))
 
-    recorded = [row["path"] for row in rows]
+    recorded = [row.path for row in rows]
     rebuilt = [item.path for item in now.files]
     # Same path, different bytes: still a stale key, and a word count cannot see it (`64`
     # to `128` keeps the count). The digest does; the word count is the fallback for a
     # record written before digests. The entry point is exempt (see the docstring).
     edited = [
-        row["path"]
+        row.path
         for row, item in zip(rows[1:], now.files[1:], strict=False)
-        if (row.get("sha256") and item.sha256 and row["sha256"] != item.sha256)
-        or (not row.get("sha256") and "words" in row and row["words"] != item.words)
+        if (row.sha256 and item.sha256 and row.sha256 != item.sha256)
+        or (not row.sha256 and row.words is not ABSENT and row.words != item.words)
     ]
     # The rebuild is filtered to the roles the extraction measured, so a file added since
     # in a role that had no file then would be filtered out of `rebuilt` and pass
     # unnoticed. Compare every path the walk saw against every path the extraction saw.
     added: list[str] = []
-    if record.get("include_resources") and "excluded" in record:
-        seen = set(recorded) | {row.get("path") for row in record.get("excluded") or []}
-        asked = record.get("resource_roles")
+    if key.include_resources and key.excluded is not None:
+        seen = set(recorded) | set(key.excluded)
+        asked = key.resource_roles
         added = sorted(
             {row["path"] for row in now.excluded
              if row["path"] not in seen and _changes_answer_key(row, asked)}
@@ -579,22 +581,23 @@ def check_answer_key(ref: str, record: dict | None, *,
     notes: list[str] = []
     # Allowed to differ, not allowed to differ silently: atoms extracted from text that is
     # gone will read as `still_missing`, a result about the edit that must be recognisable.
-    entry_recorded = rows[0].get("sha256")
+    entry_recorded = rows[0].sha256
     entry_changed = bool(entry_recorded and entry_recorded != now.files[0].sha256)
     if entry_changed:
         notes.append(
             f"NOTE: {now.files[0].path} has changed since these atoms were extracted. That "
             "is the re-measure step, so the run proceeds; atoms whose text was removed will "
             "score `still_missing` because of the edit, not because of the model.")
-    if record.get("include_resources"):
+    if key.include_resources:
         notes.append(f"Measuring the bundle recorded in {source}: {len(recorded)} files, "
-                     f"{record.get('resource_words_measured', 0)} bundled words")
+                     f"{key.resource_words_measured} bundled words")
     return AnswerKeyVerdict(text=now.text, bundle=now, notes=tuple(notes),
                             recorded=tuple(recorded), rebuilt=tuple(rebuilt),
                             entry_point_changed=entry_changed)
 
 
-def entry_point_only(record: dict | None, spans: list, atoms: list) -> tuple[list, list, str | None]:
+def entry_point_only(record: Mapping[str, Any] | AnswerKeyRecord | None, spans: list,
+                     atoms: list) -> tuple[list, list, str | None]:
     """Restrict spans and atoms to the entry point when they came from a bundle.
 
     Shortening rewrites one file. A candidate built over bundle spans would propose
@@ -609,22 +612,24 @@ def entry_point_only(record: dict | None, spans: list, atoms: list) -> tuple[lis
     Raises:
         ValueError: A bundle record without the file rows or the entry point's range.
     """
-    record = record or {}
-    if not record.get("include_resources"):
+    key = parse_answer_key(record)
+    if not key.include_resources:
         return spans, atoms, None
-    if not record.get("files"):
+    if not key.files or not key.files[0].is_object:
         raise ValueError("the atoms record a bundle run without file rows; re-run "
                          "`skill novelty atoms`")
-    entry = record["files"][0]
-    if "end" not in entry:
-        raise ValueError(f"the atoms record no span range for {entry.get('path')}")
-    kept = [span for span in spans if span.start < entry["end"]]
+    entry = key.files[0]
+    if entry.end is ABSENT:
+        raise ValueError(f"the atoms record no span range for {shown(entry.path)}")
+    if entry.path is ABSENT:
+        raise ValueError("the atoms record a bundle whose entry point has no path")
+    kept = [span for span in spans if span.start < entry.end]
     kept_ids = {span.id for span in kept}
     kept_atoms = [atom for atom in atoms
                   if atom.span_ids and all(sid in kept_ids for sid in atom.span_ids)]
     note = (
-        f"NOTE these atoms were extracted from a {record.get('n_files')}-file bundle. "
-        f"Shortening rewrites one file, so only the {len(kept)} spans of {entry['path']} and "
+        f"NOTE these atoms were extracted from a {key.n_files}-file bundle. "
+        f"Shortening rewrites one file, so only the {len(kept)} spans of {shown(entry.path)} and "
         f"the {len(kept_atoms)} atoms they carry are scored ({len(spans) - len(kept)} bundle "
         "spans and their atoms dropped); knowledge scores here say nothing about the "
         "bundled files.")
