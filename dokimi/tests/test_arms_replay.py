@@ -127,6 +127,20 @@ def test_replays_with_no_fresh_original_count_at_their_mean_in_any_order():
         assert NOTE in format_table(result).splitlines()
 
 
+def test_three_replays_of_a_fresh_answer_are_all_left_out():
+    one = [("q1", {"baseline": 95})]
+    result = headroom([_arms_run(one)] + [_arms_run(one, replayed=True) for _ in range(3)], min_reps=1)
+    assert result["items"][0]["reps"] == 1
+    assert result["summary"]["replayed_repeats"] == 3
+
+
+def test_three_replays_with_no_fresh_original_count_once():
+    one = [("q1", {"baseline": 95})]
+    result = headroom([_arms_run(one, replayed=True) for _ in range(3)], min_reps=1)
+    assert result["items"][0]["reps"] == 1
+    assert result["summary"]["replayed_repeats"] == 2
+
+
 def test_a_replayed_answer_with_another_text_is_a_sample_of_its_own():
     result = headroom([_arms_run(SCORES, text="a"), _arms_run(SCORES, text="b", replayed=True)])
     assert result["items"][0]["reps"] == 2
