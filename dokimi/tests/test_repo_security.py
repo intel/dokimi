@@ -494,3 +494,16 @@ def test_exec_log_decodes_strace_utf8_escapes(tmp_path):
     assert sec.parse_exec_log(log) == ["echo " + canary]
     cell = _cell(tmp_path, "t", "skill", 0, events=[_cmd("pytest")], exec_log=log)
     assert "canary-leak" in {f["rule"] for f in sec.scan_cell(cell, [canary])["findings"]}
+
+
+@pytest.mark.parametrize("path", ["/ws/src/../../outside.txt", "src/../../outside.txt", "../outside.txt",
+                                  "C:\\Windows\\System32\\drivers\\etc\\hosts", "\\\\server\\share\\x", "~/x"])
+def test_edit_outside_the_workspace_is_found(tmp_path, path):
+    cell = _cell(tmp_path, "t", "skill", 0, events=[{"t": None, "kind": "edit", "path": path}])
+    assert "edit-outside-workspace" in {f["rule"] for f in sec.scan_cell(cell)["findings"]}
+
+
+@pytest.mark.parametrize("path", ["..notes", "src/../ok.txt", "src/ok.txt", "src/..hidden/x.txt"])
+def test_edit_inside_the_workspace_is_not_flagged(tmp_path, path):
+    cell = _cell(tmp_path, "t", "skill", 0, events=[{"t": None, "kind": "edit", "path": path}])
+    assert "edit-outside-workspace" not in {f["rule"] for f in sec.scan_cell(cell)["findings"]}

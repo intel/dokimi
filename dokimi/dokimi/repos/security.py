@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import json
 import math
+import posixpath
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -219,6 +220,15 @@ def _canary_hits(text: str, canaries: Sequence[str], source: str) -> list[Findin
             for c in canaries if c and c in text]
 
 
+def _outside_workspace(path: str) -> bool:
+    """Whether an edit path leaves the workspace: an absolute path (POSIX, a drive letter, a UNC share), or a
+    relative one whose normalised form climbs out (``src/../../x``), but not a name that starts with dots."""
+    p = path.replace("\\", "/")
+    if p.startswith(("/", "~")) or re.match(r"[A-Za-z]:", p):
+        return True
+    return posixpath.normpath(p).split("/")[0] == ".."
+
+
 def _event_findings(event: dict[str, Any], canaries: Sequence[str]) -> list[Finding]:
     """The findings of one ``events.jsonl`` event: a command line, a read path or an edit path."""
     kind = event.get("kind")
@@ -231,7 +241,7 @@ def _event_findings(event: dict[str, Any], canaries: Sequence[str]) -> list[Find
     if kind != "edit":
         return []
     found = _canary_hits(path, canaries, "edit")
-    if path.startswith(("/", "~", "..")):  # relative_path leaves a path outside the workspace absolute
+    if _outside_workspace(path):
         found.append(Finding("edit-outside-workspace", "high", "trace", _evidence(path, canaries)))
     return found
 
