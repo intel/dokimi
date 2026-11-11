@@ -826,6 +826,15 @@ def test_a_shebang_flag_word_or_end_of_options_that_changes_no_parse_keeps_the_c
     assert runner.calls[0].argv == ("/usr/bin/bash", "-n")
 
 
+@pytest.mark.parametrize("shebang", [b"#!/bin/bash -eo posix", b"#!/bin/bash -euo"])
+def test_a_shebang_flag_word_with_a_parse_changing_or_no_operand_is_not_checked(tmp_path, shebang):
+    skill = _bundle(tmp_path, {"run.sh": shebang + b"\nif true; then\n"})
+    runner = process.FakeRunner(lambda call: process.reply(stderr="bash: line 3: syntax error\n", returncode=2))
+
+    assert script_findings(skill, which=_tools("bash"), runner=runner) == []
+    assert runner.calls == []
+
+
 def test_a_ksh_script_is_checked_with_extglob_on_as_ksh_always_has_it(tmp_path):
     skill = _bundle(tmp_path, {"run.sh": b"#!/bin/ksh\ncase $1 in @(a|b)) echo x;; esac\n"})
     runner = process.FakeRunner(lambda call: process.reply(returncode=0))
