@@ -486,3 +486,11 @@ def test_container_escape_leaves_a_bind_of_a_subdirectory_alone(text):
                                   "cat /srv/agent/.kube/config"])
 def test_secret_read_under_any_home_directory(text):
     assert "secret-read" in _rules(sec.command_findings(text, "trace"))
+
+
+def test_exec_log_decodes_strace_utf8_escapes(tmp_path):
+    canary = "token-é-123456789"  # strace prints the UTF-8 bytes of é as octal escapes
+    log = r'execve("/bin/echo", ["echo", "token-\303\251-123456789"], 0x0) = 0' + "\n"
+    assert sec.parse_exec_log(log) == ["echo " + canary]
+    cell = _cell(tmp_path, "t", "skill", 0, events=[_cmd("pytest")], exec_log=log)
+    assert "canary-leak" in {f["rule"] for f in sec.scan_cell(cell, [canary])["findings"]}

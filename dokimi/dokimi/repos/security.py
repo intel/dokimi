@@ -164,6 +164,21 @@ def _evidence(text: str, canaries: Sequence[str], limit: int = 240) -> str:
     return text if len(text) <= limit else text[: limit - 3] + "..."
 
 
+#: One strace string escape: an octal byte (``\303``), or a one-character escape (``\n``, ``\"``, ``\\``).
+_STRACE_ESCAPE = re.compile(rb"\\(?:([0-7]{1,3})|(.))", re.DOTALL)
+_STRACE_CONTROL = {ord("n"): b"\n", ord("t"): b"\t", ord("r"): b"\r"}
+
+
+def _strace_text(text: str) -> str:
+    """An strace argument as text: its escapes are bytes, and the bytes are UTF-8 (``\\303\\251`` is é)."""
+    def byte(m: re.Match[bytes]) -> bytes:
+        if m.group(1) is not None:
+            return bytes([int(m.group(1), 8) & 0xFF])
+        return _STRACE_CONTROL.get(m.group(2)[0], m.group(2))
+
+    return _STRACE_ESCAPE.sub(byte, text.encode("utf-8")).decode("utf-8", "replace")
+
+
 def parse_exec_log(text: str) -> list[str]:
     """The command lines of an ``strace -f -e trace=execve`` log; a failed exec (``= -1``) is skipped."""
     out = []
@@ -171,7 +186,7 @@ def parse_exec_log(text: str) -> list[str]:
         m = _EXECVE.search(line)
         if not m or re.search(r"\)\s*=\s*-1\b", line):
             continue
-        argv = [a.encode().decode("unicode_escape", "replace") for a in _ARGV_ITEM.findall(m.group("argv"))]
+        argv = [_strace_text(a) for a in _ARGV_ITEM.findall(m.group("argv"))]
         out.append(" ".join(argv) if argv else m.group("path"))
     return out
 
