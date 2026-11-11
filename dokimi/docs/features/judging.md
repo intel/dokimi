@@ -19,9 +19,15 @@ Each card describes one capability. Images use fictional tasks and simplified do
 
 Choose reference, checklist, pointwise, pairwise or other supported scoring according to the task. Grounding and RAGAS signals supplement evaluation; lexical matches are not proof of truth.
 
-**Boundary:** Grounding includes lexical limitations; no universal correctness oracle.
+**Input:** The grading configuration and representative scored cases.
 
-[How to use it](../methodology.md) · [Implementation](../../dokimi/eval/grounding.py) · [Back to feature tree](README.md)
+**Scope and limits:** Grounding includes lexical limitations; no universal correctness oracle.
+
+**Result:** Scores and evidence produced by the selected grading method.
+
+**Next step:** Follow the linked guide for the exact command and output schema, then [interpret the result](../start/results.md).
+
+[Usage guide](../methodology.md) · [Implementation](../../dokimi/eval/grounding.py) · [Back to feature tree](README.md)
 
 <a id="33-check-the-judges"></a>
 
@@ -29,13 +35,19 @@ Choose reference, checklist, pointwise, pairwise or other supported scoring acco
 
 ![Check the judges: Probe order, wording and degradation sensitivity.](../assets/features/33-check-the-judges.webp)
 
-**Availability:** Available + proposed extensions.
+**Availability:** Partial — implemented core with proposed extensions.
 
 Probe judge validity with degraded answers and examine agreement, order and wording sensitivity. Existing answer panels and the proposed novelty panel have different entry points.
 
-**Boundary:** Existing panels/calibration; novelty panel PR [#489](https://github.com/intel/dokimi/issues/489); integration [#407](https://github.com/intel/dokimi/issues/407).
+**Input:** The grading configuration and representative scored cases.
 
-[How to use it](../methodology.md) · [Implementation](../../dokimi/commands/judge_reliability.py) · [Back to feature tree](README.md)
+**Scope and limits:** Existing panels/calibration; novelty panel PR [#489](https://github.com/intel/dokimi/issues/489); integration [#407](https://github.com/intel/dokimi/issues/407).
+
+**Result:** Judge reliability diagnostics for the tested cases and judges.
+
+**Next step:** Follow the linked guide for the exact command and output schema, then [interpret the result](../start/results.md).
+
+[Usage guide](../methodology.md) · [Implementation](../../dokimi/commands/judge_reliability.py) · [Back to feature tree](README.md)
 
 <a id="34-ground-novelty-checks"></a>
 
@@ -47,6 +59,12 @@ Probe judge validity with degraded answers and examine agreement, order and word
 
 The proposed identifier checks compare an answer with tool evidence such as help text, while retaining the judge as a separate signal. Broader execution and source checks remain proposals.
 
-**Boundary:** PR [#472](https://github.com/intel/dokimi/issues/472): identifier checks; exec/source grading remain proposed.
+**Input:** The grading configuration and representative scored cases.
 
-[How to use it](../skill-novelty.md) · [Back to feature tree](README.md)
+**Scope and limits:** PR [#472](https://github.com/intel/dokimi/issues/472): identifier checks; exec/source grading remain proposed.
+
+**Result:** Proposed grounding evidence for novelty checks; not a general correctness guarantee.
+
+**Next step:** Read the linked proposal for progress and the related guide for existing components. This card is not a runnable end-to-end interface.
+
+[Related existing workflow](../skill-novelty.md) · [Back to feature tree](README.md)

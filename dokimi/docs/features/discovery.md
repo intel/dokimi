@@ -19,9 +19,15 @@ Each card describes one capability. Images use fictional tasks and simplified do
 
 Probe skill placements under the intended harness. A file on disk is not necessarily listed to the agent, and a listed skill is not necessarily selected.
 
-**Boundary:** repo skill-reach; discovery depends on the harness.
+**Input:** Your context artifact, actual harness or catalog, and representative user requests.
 
-[How to use it](../what-it-measures.md) · [Implementation](../../dokimi/commands/repo_skill_reach.py) · [Back to feature tree](README.md)
+**Scope and limits:** repo skill-reach; discovery depends on the harness.
+
+**Result:** Discovery evidence under the selected loading condition.
+
+**Next step:** Follow the linked guide for the exact command and output schema, then [interpret the result](../start/results.md).
+
+[Usage guide](../what-it-measures.md) · [Implementation](../../dokimi/commands/repo_skill_reach.py) · [Back to feature tree](README.md)
 
 <a id="14-will-it-choose-the-right-skill"></a>
 
@@ -29,13 +35,19 @@ Probe skill placements under the intended harness. A file on disk is not necessa
 
 ![Will it choose the right skill?: Probe routing, triggering and missed selections.](../assets/features/14-will-it-choose-the-right-skill.webp)
 
-**Availability:** Available + proposed extensions.
+**Availability:** Partial — implemented core with proposed extensions.
 
 Test requests that should select a skill and requests that should not. Compare competing descriptions and inspect actual selection, not only keyword overlap.
 
-**Boundary:** Existing routing; CLI relocation in PR [#595](https://github.com/intel/dokimi/issues/595). Need relevance also matters.
+**Input:** Your context artifact, actual harness or catalog, and representative user requests.
 
-[How to use it](../skill-novelty-walkthrough.md) · [Implementation](../../dokimi/commands/novelty.py) · [Back to feature tree](README.md)
+**Scope and limits:** Existing routing; CLI relocation in PR [#595](https://github.com/intel/dokimi/issues/595). Need relevance also matters.
+
+**Result:** Routing outcomes against actual competing skills and user queries.
+
+**Next step:** Follow the linked guide for the exact command and output schema, then [interpret the result](../start/results.md).
+
+[Usage guide](../skill-novelty-walkthrough.md) · [Implementation](../../dokimi/commands/novelty.py) · [Back to feature tree](README.md)
 
 <a id="15-why-did-it-choose-that-tool"></a>
 
@@ -47,9 +59,15 @@ Test requests that should select a skill and requests that should not. Compare c
 
 Change tool wording or position while holding the request fixed. Repeat the trials to distinguish preference sensitivity from one random choice.
 
-**Boundary:** Tool preference experiments; control presentation changes.
+**Input:** Your context artifact, actual harness or catalog, and representative user requests.
 
-[How to use it](../tool-preference.md) · [Implementation](../../dokimi/commands/tools.py) · [Back to feature tree](README.md)
+**Scope and limits:** Tool preference experiments; control presentation changes.
+
+**Result:** Tool-choice distributions under the tested naming/order conditions.
+
+**Next step:** Follow the linked guide for the exact command and output schema, then [interpret the result](../start/results.md).
+
+[Usage guide](../tool-preference.md) · [Implementation](../../dokimi/commands/tools.py) · [Back to feature tree](README.md)
 
 <a id="16-what-instructions-loaded"></a>
 
@@ -61,9 +79,15 @@ Change tool wording or position while holding the request fixed. Repeat the tria
 
 Use reach probes and effective-instruction evidence to distinguish loaded, truncated, fetched, not-loaded and error outcomes. Keep the harness/version and scenario with the receipt.
 
-**Boundary:** Reach probes, receipts and matrices; expected vs observed loading.
+**Input:** Your context artifact, actual harness or catalog, and representative user requests.
 
-[How to use it](../reach-matrix.md) · [Implementation](../../dokimi/commands/repo.py) · [Back to feature tree](README.md)
+**Scope and limits:** Reach probes, receipts and matrices; expected vs observed loading.
+
+**Result:** Evidence of guidance loading in the tested harness scenarios.
+
+**Next step:** Follow the linked guide for the exact command and output schema, then [interpret the result](../start/results.md).
+
+[Usage guide](../reach-matrix.md) · [Implementation](../../dokimi/commands/repo.py) · [Back to feature tree](README.md)
 
 <a id="17-budget-the-context"></a>
 
@@ -75,9 +99,15 @@ Use reach probes and effective-instruction evidence to distinguish loaded, trunc
 
 Inspect startup, lazy and on-demand guidance volume before a paid run. The repository budget counts characters; it is not a token invoice or a complete runtime context trace.
 
-**Boundary:** Repository budget is measured in characters, not tokens.
+**Input:** Your context artifact, actual harness or catalog, and representative user requests.
 
-[How to use it](../repo-evaluation-contract.md) · [Implementation](../../dokimi/commands/repo.py) · [Back to feature tree](README.md)
+**Scope and limits:** Repository budget is measured in characters, not tokens.
+
+**Result:** Context-size estimates or measurements for the selected path.
+
+**Next step:** Follow the linked guide for the exact command and output schema, then [interpret the result](../start/results.md).
+
+[Usage guide](../repo-evaluation-contract.md) · [Implementation](../../dokimi/commands/repo.py) · [Back to feature tree](README.md)
 
 <a id="18-split-or-merge-skills"></a>
 
@@ -89,9 +119,15 @@ Inspect startup, lazy and on-demand guidance volume before a paid run. The repos
 
 Compare a regrouped catalog against both the original and a wording-only control. This is a research direction: routing, cross-skill coverage and load cost must be measured together.
 
-**Boundary:** Issue [#424](https://github.com/intel/dokimi/issues/424); design / experiments, not a shipped optimizer.
+**Input:** Your context artifact, actual harness or catalog, and representative user requests.
 
-[How to use it](../skill-novelty-walkthrough.md) · [Back to feature tree](README.md)
+**Scope and limits:** Issue [#424](https://github.com/intel/dokimi/issues/424); design / experiments, not a shipped optimizer.
+
+**Result:** A research question about skill boundaries, not an automatic restructuring decision.
+
+**Next step:** Read the linked proposal for progress and the related guide for existing components. This card is not a runnable end-to-end interface.
+
+[Related existing workflow](../skill-novelty-walkthrough.md) · [Back to feature tree](README.md)
 
 <a id="47-match-the-real-harness"></a>
 
@@ -103,6 +139,12 @@ Compare a regrouped catalog against both the original and a wording-only control
 
 Check the harness support matrix before treating an experiment as deployment evidence. Unsupported MCP, sidecars or verifier arrangements should remain explicit limitations.
 
-**Boundary:** Issues [#354](https://github.com/intel/dokimi/issues/354)/[#355](https://github.com/intel/dokimi/issues/355): harness fidelity, MCP / sidecars / verifier support gaps.
+**Input:** Your context artifact, actual harness or catalog, and representative user requests.
 
-[How to use it](../coding-harnesses.md) · [Back to feature tree](README.md)
+**Scope and limits:** Issues [#354](https://github.com/intel/dokimi/issues/354)/[#355](https://github.com/intel/dokimi/issues/355): harness fidelity, MCP / sidecars / verifier support gaps.
+
+**Result:** Harness-specific evidence within the supported fidelity checks.
+
+**Next step:** Follow the linked guide for the exact command and output schema, then [interpret the result](../start/results.md).
+
+[Usage guide](../coding-harnesses.md) · [Back to feature tree](README.md)

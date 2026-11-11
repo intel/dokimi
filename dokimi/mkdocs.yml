@@ -100,6 +100,14 @@ validation:
 
 nav:
   - Home: README.md
+  - Start here:
+      - start/README.md
+      - Skill authors and reviewers: start/skills.md
+      - Repository maintainers: start/repositories.md
+      - Evaluators and researchers: start/experiments.md
+      - Agents and CI: start/automation.md
+      - Read results: start/results.md
+      - Contributors: start/contributors.md
   - Features:
       - features/README.md
       - "Does the context help?": features/experiments.md
@@ -110,16 +118,11 @@ nav:
       - "Can the grades be trusted?": features/judging.md
       - "What did the agent do?": features/traces.md
       - "Will it keep working?": features/continuous-evaluation.md
-  - User journeys:
-      - user-journeys/README.md
-      - user-journeys/journeys.md
-      - user-journeys/flow-map.md
-      - user-journeys/traceability.md
-  - Using Dokimi:
+  - Practical guides:
       - what-it-measures.md
       - reviewing.md
       - external-content.md
-      - quickstart.md
+      - Q&A pipeline tutorial: quickstart.md
       - runs.md
       - user-flow.md
       - benchmarking-and-comparison.md
@@ -155,5 +158,11 @@ nav:
       - example-execution.md
       - ingestion-docling.md
       - research-register.md
+  - User journeys:
+      - user-journeys/README.md
+      - user-journeys/journeys.md
+      - user-journeys/flow-map.md
+      - user-journeys/traceability.md
+  - All guides: documentation-index.md
   - CLI reference: reference/cli/
   - API reference: reference/api/

@@ -19,9 +19,15 @@ Each card describes one capability. Images use fictional tasks and simplified do
 
 Run the same tasks, model and grader with and without one context change. Inspect paired outcomes and uncertainty before deciding whether to adopt it.
 
-**Boundary:** A/B and N-way arms; controlled context experiments.
+**Input:** A fixed evaluation set and the context or runner variants you want to compare.
 
-[How to use it](../evaluating-treatments.md) · [Implementation](../../dokimi/commands/arms.py) · [Back to feature tree](README.md)
+**Scope and limits:** A/B and N-way arms; controlled context experiments.
+
+**Result:** Paired outcomes and reported differences between context conditions.
+
+**Next step:** Follow the linked guide for the exact command and output schema, then [interpret the result](../start/results.md).
+
+[Usage guide](../evaluating-treatments.md) · [Implementation](../../dokimi/commands/arms.py) · [Back to feature tree](README.md)
 
 <a id="02-bring-your-agent-context"></a>
 
@@ -33,9 +39,15 @@ Run the same tasks, model and grader with and without one context change. Inspec
 
 Choose injected docs, a callable source, a skill, a catalog or a profile according to what the agent will actually receive. Injection and agent-selected loading answer different questions.
 
-**Boundary:** Local docs, Context7, persona/system prompts; support varies by track.
+**Input:** A fixed evaluation set and the context or runner variants you want to compare.
 
-[How to use it](../adding-doc-source.md) · [Implementation](../../dokimi/commands/arms.py) · [Back to feature tree](README.md)
+**Scope and limits:** Local docs, Context7, persona/system prompts; support varies by track.
+
+**Result:** Answers or task outcomes tied to the supplied context condition.
+
+**Next step:** Follow the linked guide for the exact command and output schema, then [interpret the result](../start/results.md).
+
+[Usage guide](../adding-doc-source.md) · [Implementation](../../dokimi/commands/arms.py) · [Back to feature tree](README.md)
 
 <a id="03-test-combinations"></a>
 
@@ -47,9 +59,15 @@ Choose injected docs, a callable source, a skill, a catalog or a profile accordi
 
 Compare each treatment alone and together against the same baseline. Inspect interaction contrasts where the chosen report supports them.
 
-**Boundary:** Combined treatments; do not assume all tracks support every combination.
+**Input:** A fixed evaluation set and the context or runner variants you want to compare.
 
-[How to use it](../evaluating-treatments.md) · [Implementation](../../dokimi/commands/arms.py) · [Back to feature tree](README.md)
+**Scope and limits:** Combined treatments; do not assume all tracks support every combination.
+
+**Result:** Per-arm outcomes and, where supported, interaction contrasts.
+
+**Next step:** Follow the linked guide for the exact command and output schema, then [interpret the result](../start/results.md).
+
+[Usage guide](../evaluating-treatments.md) · [Implementation](../../dokimi/commands/arms.py) · [Back to feature tree](README.md)
 
 <a id="04-compare-models-harnesses"></a>
 
@@ -61,9 +79,15 @@ Compare each treatment alone and together against the same baseline. Inspect int
 
 Hold the task and grading contract fixed, then compare supported models and harnesses. Record unavailable tools and unsupported environments rather than scoring them as failures.
 
-**Boundary:** Codex, Claude Code, Harbor, BenchFlow: capabilities differ.
+**Input:** A fixed evaluation set and the context or runner variants you want to compare.
 
-[How to use it](../coding-harnesses.md) · [Implementation](../../dokimi/commands/tasks.py) · [Back to feature tree](README.md)
+**Scope and limits:** Codex, Claude Code, Harbor, BenchFlow: capabilities differ.
+
+**Result:** Comparable task outcomes for the supported runner/model cells.
+
+**Next step:** Follow the linked guide for the exact command and output schema, then [interpret the result](../start/results.md).
+
+[Usage guide](../coding-harnesses.md) · [Implementation](../../dokimi/commands/tasks.py) · [Back to feature tree](README.md)
 
 <a id="05-run-real-coding-tasks"></a>
 
@@ -75,9 +99,15 @@ Hold the task and grading contract fixed, then compare supported models and harn
 
 Supply an executable task with an environment, reference solution and verifier. The agent edits the repository; tests grade the resulting work.
 
-**Boundary:** Container-backed tasks; grader quality still matters.
+**Input:** A fixed evaluation set and the context or runner variants you want to compare.
 
-[How to use it](../coding-harnesses.md) · [Implementation](../../dokimi/commands/tasks.py) · [Back to feature tree](README.md)
+**Scope and limits:** Container-backed tasks; grader quality still matters.
+
+**Result:** Agent patches and executable grader outcomes.
+
+**Next step:** Follow the linked guide for the exact command and output schema, then [interpret the result](../start/results.md).
+
+[Usage guide](../coding-harnesses.md) · [Implementation](../../dokimi/commands/tasks.py) · [Back to feature tree](README.md)
 
 <a id="06-make-cost-visible"></a>
 
@@ -89,6 +119,12 @@ Supply an executable task with an environment, reference solution and verifier. 
 
 Inspect recorded usage and estimated spend before committing to a batch. Use the budget controls exposed by the selected command; pricing and usage availability depend on the provider.
 
-**Boundary:** Cost controls and measurements are track-dependent.
+**Input:** A fixed evaluation set and the context or runner variants you want to compare.
 
-[How to use it](../quickstart.md) · [Implementation](../../dokimi/commands/novelty_budget.py) · [Back to feature tree](README.md)
+**Scope and limits:** Cost controls and measurements are track-dependent.
+
+**Result:** Recorded usage and cost estimates where the provider supports them.
+
+**Next step:** Follow the linked guide for the exact command and output schema, then [interpret the result](../start/results.md).
+
+[Usage guide](../quickstart.md) · [Implementation](../../dokimi/commands/novelty_budget.py) · [Back to feature tree](README.md)

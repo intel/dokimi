@@ -150,13 +150,13 @@ def test_slugs_keep_underscores_and_skip_code_fences(tmp_path):
 
 
 def test_the_index_links_every_doc_in_the_directory():
-    index = DOCS / "README.md"
+    index = DOCS / "documentation-index.md"
     linked = {
         target.split("#", 1)[0] for target in _relative_links(index)
     }
     missing = sorted(
         path.name for path in DOCS.glob("*.md")
-        if path.name not in {"README.md"} and path.name not in linked
+        if path.name not in {"README.md", index.name} and path.name not in linked
     )
     assert missing == []
 

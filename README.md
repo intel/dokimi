@@ -32,6 +32,10 @@ The image uses fictional tasks to explain the comparison. Read the measured delt
 
 Each card states what works today and where it stops. Open PRs, partial workflows and research directions are included, with links, so they are discoverable without being advertised as released functionality.
 
+## Choose your starting point
+
+[Skill author or reviewer](dokimi/docs/start/skills.md) · [Repository maintainer](dokimi/docs/start/repositories.md) · [Evaluator or researcher](dokimi/docs/start/experiments.md) · [Agent / CI operator](dokimi/docs/start/automation.md) · [Contributor](dokimi/docs/start/contributors.md)
+
 ## Start with a free check
 
 From a checkout, with Python 3.11 or newer:
