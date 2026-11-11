@@ -171,17 +171,19 @@ def test_main_against_a_base(monkeypatch, tmp_path, capsys):
     fixtures = {"b.v1.json": {"a": 1}}
 
     def fake_git(*args):
+        if args[0] == "cat-file":  # the object id is the schema's name here
+            return json.dumps(base[args[2]])
         rel = args[1].split(":./", 1)[1]
         if rel.startswith(sc.FIXTURE_DIR + "/"):
             name = rel.rsplit("/", 1)[1]
             if name not in fixtures:
                 raise sc.GitPathMissing("no such path")
             return json.dumps(fixtures[name])
-        return json.dumps(base[rel])
+        raise AssertionError(f"unexpected git {args}")
 
     monkeypatch.setattr(sc, "SCHEMA_DIR", tmp_path)
     monkeypatch.setattr(sc, "_git", fake_git)
-    monkeypatch.setattr(sc, "_ls_tree_names", lambda *args: [*base, "README.md"])
+    monkeypatch.setattr(sc, "_ls_tree_blobs", lambda *args: [(n, n) for n in [*base, "README.md"]])
     assert sc.main(["--base", "X"]) == 1
     out = capsys.readouterr()
     assert "BREAKING b.v1.json <root>: 'a' is now required" in out.out
@@ -431,7 +433,7 @@ def test_main_warns_when_the_base_has_no_schemas_to_compare(monkeypatch, tmp_pat
 
     (tmp_path / "a.v1.json").write_text(json.dumps(OBJ), encoding="utf-8")
     monkeypatch.setattr(sc, "SCHEMA_DIR", tmp_path)
-    monkeypatch.setattr(sc, "_ls_tree_names", lambda *args: [])
+    monkeypatch.setattr(sc, "_ls_tree_blobs", lambda *args: [])
     monkeypatch.setattr(sc, "_renamed_from", lambda base, rel: None)
     assert sc.main(["--base", "X"]) == 0
     assert "WARNING  - no schemas found at X to compare against" in capsys.readouterr().out
@@ -643,13 +645,30 @@ def test_a_git_path_that_is_not_utf8_does_not_raise_on_windows(monkeypatch):
         return raw.decode("utf-8", "surrogatepass") if isinstance(raw, bytes) else raw
 
     class Proc:
-        stdout_bytes = b"schemas/l\xffint.json\0"
+        stdout_bytes = b"100644 blob " + b"a" * 40 + b"\tschemas/l\xffint.json\0"
 
     monkeypatch.setattr(process_io, "_POSIX", False)
     monkeypatch.setattr(process_io.os, "fsdecode", windows_fsdecode)
     monkeypatch.setattr(sc, "_git_proc", lambda *args: Proc())
-    assert sc._ls_tree_names("HEAD", "./") == ["schemas/l�int.json"]
-    assert sc._nul_paths("diff", "-z") == ["schemas/l�int.json", ""]
+    assert sc._ls_tree_blobs("HEAD", "./") == [("schemas/l\ufffdint.json", "a" * 40)]
+    assert sc._nul_paths("diff", "-z") == [f"100644 blob {'a' * 40}\tschemas/l\ufffdint.json", ""]
+
+
+@_BYTE_NAMES
+def test_main_checks_a_schema_whose_name_is_not_utf8_on_windows(monkeypatch, tmp_path, capsys):
+    """Windows names the listed schema l<U+FFFD>int.json, which git show cannot open: the base is read by
+    its object id, so the check runs (the file is not in a Windows tree, so it counts as removed) instead
+    of stopping with exit 2."""
+    import dokimi.schema_compat as sc
+    from dokimi import process_io
+
+    (tmp_path / os.fsdecode(b"l\xffint.v1.json")).write_text(json.dumps(OBJ), encoding="utf-8")
+    (tmp_path / "ok.v1.json").write_text(json.dumps(OBJ), encoding="utf-8")
+    _commit_all(tmp_path)
+    monkeypatch.setattr(process_io, "_POSIX", False)
+    monkeypatch.setattr(sc, "SCHEMA_DIR", tmp_path)
+    assert sc.main(["--base", "HEAD"]) == 1
+    assert "schema file removed" in capsys.readouterr().out
 
 
 @_BYTE_NAMES
@@ -657,10 +676,10 @@ def test_a_git_path_that_is_not_utf8_stays_its_bytes_on_posix(monkeypatch):
     import dokimi.schema_compat as sc
 
     class Proc:
-        stdout_bytes = b"schemas/l\xffint.json\0"
+        stdout_bytes = b"100644 blob " + b"b" * 40 + b"\tschemas/l\xffint.json\0"
 
     monkeypatch.setattr(sc, "_git_proc", lambda *args: Proc())
-    assert sc._ls_tree_names("HEAD", "./") == [os.fsdecode(b"schemas/l\xffint.json")]
+    assert sc._ls_tree_blobs("HEAD", "./") == [(os.fsdecode(b"schemas/l\xffint.json"), "b" * 40)]
 
 
 # ── exit codes: 0 compatible, 1 a breaking edit, 2 a base git cannot read ──

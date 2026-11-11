@@ -294,15 +294,18 @@ def _renamed_from(base: str, rel: str) -> str | None:
     return None
 
 
-def _ls_tree_names(*args: str) -> list[str]:
-    """The names ``git ls-tree -z --name-only <args>`` lists, split on NUL: unquoted, with a
-    ``\\r``, a space or a non-ASCII byte as git stores it."""
-    return [name for name in _nul_paths("ls-tree", "-z", "--name-only", *args) if name]
+def _ls_tree_blobs(*args: str) -> list[tuple[str, str]]:
+    """The ``(name, object id)`` of each entry ``git ls-tree -z <args>`` lists: the name unquoted, with a
+    ``\\r``, a space or a non-ASCII byte as git stores it. The object id reads the entry whatever its
+    name decodes to, as a name with U+FFFD in it (Windows) names no path to ``git show``."""
+    entries = _git_proc("ls-tree", "-z", *args).stdout_bytes.split(b"\0")
+    return [(path_text(name), meta.split()[2].decode("ascii"))
+            for meta, _, name in (entry.partition(b"\t") for entry in entries) if name]
 
 
 def _base_has_schemas(base: str) -> bool:
     """Whether ``base`` has schemas here, or at a path git says they were moved from."""
-    if any(n.endswith(".json") for n in _ls_tree_names(base, "./")):
+    if any(n.endswith(".json") for n, _ in _ls_tree_blobs(base, "./")):
         return True
     return _renamed_from(base, ".") is not None
 
@@ -320,15 +323,14 @@ def compare_against(base: str) -> dict[str, Diff]:
 
     If the schemas were moved since ``base``, the base side is read from where they were.
     """
-    schema_dir, fixture_dir = "./", f"./{FIXTURE_DIR}/"
-    names = [n for n in _ls_tree_names(base, "./") if n.endswith(".json")]
-    if not names and (moved := _renamed_from(base, ".")):
-        schema_dir = moved
+    fixture_dir = f"./{FIXTURE_DIR}/"
+    blobs = [(n, oid) for n, oid in _ls_tree_blobs(base, "./") if n.endswith(".json")]
+    if not blobs and (moved := _renamed_from(base, ".")):
         fixture_dir = _renamed_from(base, FIXTURE_DIR) or fixture_dir
-        names = [n for n in _ls_tree_names("--full-tree", f"{base}:{moved}") if n.endswith(".json")]
+        blobs = [(n, oid) for n, oid in _ls_tree_blobs("--full-tree", f"{base}:{moved}") if n.endswith(".json")]
     results: dict[str, Diff] = {}
-    for name in names:
-        old = json.loads(_git("show", f"{base}:{schema_dir}{name}"))
+    for name, oid in blobs:
+        old = json.loads(_git("cat-file", "blob", oid))
         current = SCHEMA_DIR / name
         if not current.exists():
             results[name] = Diff(breaking=["schema file removed: artifacts written under it "
