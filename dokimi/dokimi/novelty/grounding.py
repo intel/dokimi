@@ -200,8 +200,8 @@ def verify_keys(atoms: list[dict]) -> dict[str, int]:
     line, and every such option is in the help), ``not_found`` (with the ``missing`` names), or
     ``unverifiable`` (the key names no checked option, or one of its checks could not finish).
     This checks the skill's claim, not a model's answer. A ``not_found`` is a review flag, not an
-    error: a negative claim ("there is no ``--device xpu``") or a version-bound one names an option
-    the help rightly lacks.
+    error: a claim names an option the help lacks, as a version-bound one rightly does. A negative
+    claim ("there is no ``--device xpu``") is ``unverifiable``: the clause negates the mention.
     """
     counts = {"verified": 0, "not_found": 0, "unverifiable": 0}
     for atom in atoms:

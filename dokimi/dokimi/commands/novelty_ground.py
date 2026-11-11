@@ -48,5 +48,6 @@ def cmd_novelty_ground(args: argparse.Namespace) -> None:
     print(f"{changed} of {len(data.get('atoms', []))} atoms got a veto check -> {out}",
           file=sys.stderr)
     print("answer keys: " + ", ".join(f"{n} {status}" for status, n in keys.items())
-          + " (not_found is a review flag: negative and version-bound claims land there)",
+          + " (not_found is a review flag: a claim names an option the help lacks;"
+          " a negative claim is unverifiable)",
           file=sys.stderr)
