@@ -528,7 +528,7 @@ def test_estimate_only_prints_the_expected_calls_and_a_dollar_figure(tmp_path, c
 
 
 def test_the_cli_prices_a_triage_estimate_with_the_triage_extractor_profile(tmp_path, capsys):
-    from dokimi.commands.novelty import _role_models
+    from dokimi.novelty.cost import role_models
 
     root = tmp_path / "s"
     root.mkdir()
@@ -541,7 +541,7 @@ def test_the_cli_prices_a_triage_estimate_with_the_triage_extractor_profile(tmp_
     args.func(args)
     payload = json.loads(capsys.readouterr().out)
     by_role, tokens = payload["estimate"]["by_role"], payload["tokens"]
-    models = _role_models(args)
+    models = role_models(args)
     triage = estimate_usd(by_role, tokens, models, "triage")
     assert payload["expected_usd"] == triage
     assert triage != estimate_usd(by_role, tokens, models, None)
@@ -551,11 +551,11 @@ def test_the_cli_prices_a_triage_estimate_with_the_triage_extractor_profile(tmp_
 
 
 def test_the_extractor_defaults_to_the_judge_provider_not_the_answerer(tmp_path):
-    from dokimi.commands.novelty import _role_models
+    from dokimi.novelty.cost import role_models
 
     args = _parse("skill", "novelty", "analyze", "--artifact", f"skill:{tmp_path}", "--provider", "anthropic",
                   "--judge-model", "judge-m", "--judge-provider", "openai", "--estimate-only")
-    models = _role_models(args)
+    models = role_models(args)
     assert models["judge"] == ("judge-m", "openai")
     assert models["extractor"] == models["judge"]
 
@@ -706,7 +706,7 @@ def test_an_estimate_for_an_artifact_beyond_the_fitted_range_says_it_extrapolate
 
 
 def test_the_cli_passes_each_arm_share_to_the_dollar_figure(tmp_path, capsys):
-    from dokimi.commands.novelty import _role_models
+    from dokimi.novelty.cost import role_models
 
     root = tmp_path / "s"
     root.mkdir()
@@ -721,7 +721,7 @@ def test_the_cli_passes_each_arm_share_to_the_dollar_figure(tmp_path, capsys):
         args.func(args)
         payload = json.loads(capsys.readouterr().out)
         by_role, tokens = payload["estimate"]["by_role"], payload["tokens"]
-        models = _role_models(args)
+        models = role_models(args)
         assert payload["expected_usd"] == estimate_usd(by_role, tokens, models, "triage", share)
         # The 0.5 share a two-arm run uses would price the answerer at the two-arm rate.
         assert payload["expected_usd"] != estimate_usd(by_role, tokens, models, "triage", 0.5)

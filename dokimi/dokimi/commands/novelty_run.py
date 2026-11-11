@@ -12,18 +12,6 @@ import math
 import sys
 
 
-def spend_cap(args: argparse.Namespace):
-    """The invocation's one ``--max-usd`` cap, shared by every role client."""
-    from dokimi.novelty.client import SpendCap
-
-    limit = getattr(args, "max_usd", None)
-    if limit is None:
-        return None
-    if getattr(args, "_spend_cap", None) is None:
-        args._spend_cap = SpendCap(limit_usd=limit)
-    return args._spend_cap
-
-
 def stops_at_cap(command):
     """Turn a reached spend cap into a clean exit instead of a traceback."""
     from dokimi.novelty.client import SpendCapReached
