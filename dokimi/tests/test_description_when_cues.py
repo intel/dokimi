@@ -157,6 +157,8 @@ NO_WHEN = [
     pytest.param("PostgreSQL 트리거를 생성하고 관리하는 도구입니다.", id="ko-tritgeo-noun-not-when"),
     pytest.param("每天准时运行备份任务。", id="zh-zhunshi-not-when"),
     pytest.param("在项目当中定时清理缓存。", id="zh-dang-zhong-dingshi-not-when"),
+    pytest.param("このツールは時には失敗します。", id="ja-toki-ni-wa-adverb-after-wa"),
+    pytest.param("彼はときには休む。", id="ja-toki-ni-wa-adverb-after-ha"),
 ]
 
 
