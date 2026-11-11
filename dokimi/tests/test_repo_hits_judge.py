@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 
 from dokimi import caching, llm
-from dokimi.artifacts import ArtifactValidationError, load_artifact, validate_artifact
+from dokimi.artifacts import ArtifactValidationError, load_artifact, schema_errors, validate_artifact
 from dokimi.cli import build_parser
 from dokimi.metrics.usage import UsageRecord
 from dokimi.repos.graders import main, review
@@ -114,7 +114,7 @@ def _rows(*arms: str, model: str = MODEL) -> list[dict[str, str]]:
 def test_judge_reads_the_full_texts_and_writes_recall_judged_per_cell(tmp_path, capsys, judge_llm):
     batch = _batch(tmp_path)
     code, out, _ = _run(capsys, "judge", str(batch), "--judge", JUDGE, "--json")
-    assert code == 0
+    assert code == 0 and json.loads(out)["status"] == "complete"  # a finished run, not budget_stopped
     assert len(LONG) > review.CUT
     todo = next(p for p in judge_llm.prompts if "The TODO is repeated" in p)
     assert '{"file": "src/calc.py", "line": 10, "comment": ' + json.dumps(LONG) + "}" in todo
@@ -256,6 +256,29 @@ def test_the_same_judge_error_three_calls_in_a_row_stops_the_run_with_exit_1(tmp
     none = load_artifact("repo_hits_judged", _judged(batch, "guidance:none", 1))
     assert (none["counts"]["unjudged"], none["recall_judged"]) == (1, None)
     assert not stale.exists() and not _judged(batch, "guidance:raw", 3).exists()
+
+
+def test_a_judge_stop_with_json_prints_a_failed_document_with_its_cost(tmp_path, capsys, monkeypatch):
+    monkeypatch.delenv(caching.RESPONSE_CACHE_ENV, raising=False)
+    batch = _batch(tmp_path)
+    _put(batch, "guidance:raw", 3, [_f(30, "mul adds")])
+    with llm.use_adapter(_failing(lambda n: RuntimeError("invalid api key") if n > 1 else None)):
+        code, out, _ = _run(capsys, "judge", str(batch), "--judge", JUDGE, "--json")
+    doc = json.loads(out)  # exactly one document; a JudgeFailing stop is exit 1 with no error object
+    assert code == 1 and (doc["status"], doc["error"]) == ("failed", None)
+    assert doc["cost"]["calls"] == 1 and doc["cost"]["spent_usd"] == 0.4 and doc["cost"]["priced"] is True
+    assert schema_errors("cli_output.v1", doc) == []
+
+
+def test_a_write_stop_with_json_prints_an_input_error_document_with_exit_2(tmp_path, capsys, judge_llm):
+    batch = _batch(tmp_path)
+    _put(batch, "guidance:raw", 3, [_f(30, "mul adds")])
+    _judged(batch, "guidance:raw", 1).mkdir()  # a directory where the file goes: the save fails
+    code, out, _ = _run(capsys, "judge", str(batch), "--judge", JUDGE, "--json")
+    doc = json.loads(out)
+    assert code == 2 and (doc["status"], doc["error"]["code"]) == ("failed", "input")
+    assert doc["cost"]["calls"] == 4 and doc["cost"]["priced"] is True
+    assert schema_errors("cli_output.v1", doc) == []
 
 
 class _AuthError(Exception):
