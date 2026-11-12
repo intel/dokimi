@@ -86,8 +86,9 @@ _printed = False
 def emit(doc: dict[str, Any]) -> None:
     """Print the one document on stdout."""
     global _printed
-    _printed = True
-    print(json.dumps(doc, indent=2))  # strict: a value JSON cannot hold raises, as save_artifact refuses it
+    text = json.dumps(doc, indent=2)  # strict: a value JSON cannot hold raises, as save_artifact refuses it
+    _printed = True  # only once serialized: a raise leaves the fallback document to print
+    print(text)
 
 
 def printed() -> bool:

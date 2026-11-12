@@ -476,3 +476,12 @@ def test_eval_inspect_json_still_prints_a_non_json_value_as_its_str(monkeypatch,
     _run_main(monkeypatch, ["eval", "inspect", str(tmp_path), "--json"])
     doc = json.loads(capsys.readouterr().out)
     assert doc["data"]["items"] == [{"path": "x", "fields": "{1, 2}"}]
+
+
+def test_a_payload_that_will_not_serialize_leaves_the_fallback_document_to_print(monkeypatch, capsys):
+    # the document counts as printed only once it is serialized: a TypeError must not hide main's infra document
+    cli_output.reset()  # a document printed by an earlier test in this process does not count here
+    with pytest.raises(TypeError):
+        cli_output.emit(cli_output.envelope("repo budget", data={"items": {1, 2}}))
+    assert cli_output.printed() is False
+    assert capsys.readouterr().out == ""
