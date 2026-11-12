@@ -175,11 +175,14 @@ def build_need_graph(name: str, description: str, *, client: LLMClient, strict: 
         if strict:
             raise
         return graph
-    rows = [(index, row, text) for index, row in enumerate(data.get("nodes", []) or [], start=1)
+    nodes = data.get("nodes", []) or []
+    # Every original id is reserved before any replacement is made, the ids of rejected rows too:
+    # a replacement never takes a later node's id (its edges would then point at the wrong node),
+    # and an edge to a rejected node stays dropped instead of landing on a replacement.
+    reserved = {str(row.get("id") or f"n{index}")
+                for index, row in enumerate(nodes, start=1) if isinstance(row, dict)}
+    rows = [(index, row, text) for index, row in enumerate(nodes, start=1)
             if (text := _text(row)) is not None]
-    # Every original id is reserved before any replacement is made, so a replacement never takes
-    # a later node's id (its edges would then point at the wrong node).
-    reserved = {str(row.get("id") or f"n{index}") for index, row, _ in rows}
     taken: set[str] = set()
     for index, row, text in rows:
         node_type = _label(row.get("type", "intent"))

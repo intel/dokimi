@@ -353,6 +353,26 @@ def test_a_repaired_id_never_takes_a_later_explicit_id_or_its_edge(tmp_path, mon
     load_graph(out)
 
 
+def test_a_rejected_row_keeps_its_id_reserved_so_its_edge_is_dropped(tmp_path, monkeypatch, capsys):
+    _stub(monkeypatch, {
+        "nodes": [
+            {"id": "a", "text": "save", "path_class": "core"},
+            {"id": "a", "text": "recover", "path_class": "core"},
+            {"id": "n2-1", "text": None, "path_class": "core"},
+        ],
+        "edges": [{"from": "a", "to": "n2-1", "kind": "requires"}],
+    })
+    out = tmp_path / "g.json"
+
+    result = _run(capsys, str(_skill(tmp_path)), "--out", str(out))
+
+    assert result.returncode == 0, result.stderr
+    graph = load_artifact("need_graph", out)
+    assert {n["id"]: n["text"] for n in graph["nodes"]} == {"a": "save", "n2-2": "recover"}
+    assert graph["edges"] == []
+    load_graph(out)
+
+
 def test_a_spend_cap_without_a_known_price_stops_before_anything_is_written(tmp_path, monkeypatch, capsys):
     _stub(monkeypatch, REPLY)
     out = tmp_path / "g.json"
