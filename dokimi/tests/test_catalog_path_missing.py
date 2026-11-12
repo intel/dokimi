@@ -261,3 +261,24 @@ def test_a_missing_path_before_a_semicolon_is_named_when_quotes_do_not_balance(t
     review, _ = _review(tmp_path, 'Run `python scripts/run.py;echo "done`.\n')
     [finding] = review.findings
     assert finding.message.startswith("'scripts/run.py' (in ")
+
+
+def test_a_list_with_a_comma_and_a_space_is_read_one_by_one(tmp_path):
+    review, _ = _review(
+        tmp_path,
+        "Run `python scripts/a.py, scripts/b.py`.\n",
+        files=["scripts/a.py", "scripts/b.py"],
+    )
+    assert review.findings == []
+
+
+def test_a_list_with_a_dot_slash_after_the_comma_is_read_one_by_one(tmp_path):
+    review, _ = _review(tmp_path, "Run `scripts/a.py,./scripts/b.py`.\n", files=["scripts/a.py"])
+    [finding] = review.findings
+    assert finding.message.startswith("'scripts/b.py' (in ")
+
+
+def test_a_quoted_list_of_bundled_paths_is_read_one_by_one(tmp_path):
+    review, _ = _review(tmp_path, 'Run `cp "scripts/a.py;scripts/b.py" /tmp/x`.\n', files=["scripts/a.py"])
+    [finding] = review.findings
+    assert finding.message.startswith("'scripts/b.py' (in ")
