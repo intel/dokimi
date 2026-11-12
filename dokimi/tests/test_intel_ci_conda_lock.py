@@ -1,0 +1,158 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+"""ci/conda-lock/: Intel CI's conda test environments come from the locks on a PR or a main push, and are current."""
+
+from __future__ import annotations
+
+import argparse
+import importlib.util
+import re
+import types
+from pathlib import Path
+
+import pytest
+import yaml
+
+_REPO = Path(__file__).resolve().parents[2]
+pytestmark = pytest.mark.skipif(not (_REPO / "ci" / "lock.py").is_file(),
+                                reason="not a checkout: ci/ is next to the project")
+_LINE = re.compile(r"https://conda\.anaconda\.org/conda-forge/(noarch|linux-64)/[^/#\s]+\.(conda|tar\.bz2)#[0-9a-f]{64}")
+
+
+def _script(name: str, monkeypatch: pytest.MonkeyPatch) -> types.ModuleType:
+    monkeypatch.syspath_prepend(str(_REPO / "ci"))
+    spec = importlib.util.spec_from_file_location(f"ci_{name}", _REPO / "ci" / f"{name}.py")
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _versions(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    lock = _script("lock", monkeypatch)
+    return [p.version for p in lock.matrix.declared("conda-build", lock.recipe())]
+
+
+def test_each_declared_python_has_a_lock_solved_from_todays_specs(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A PR that changes the recipe's requirements or ci/config.yml's test list must re-run ci/lock.py."""
+    lock = _script("lock", monkeypatch)
+    versions = _versions(monkeypatch)
+    assert versions
+    stale = {v: lock.specs(v) for v in versions
+             if not lock.hooks.lock_path(v).is_file() or lock.locked_specs(lock.hooks.lock_path(v)) != lock.specs(v)}
+    assert stale == {}
+    assert sorted(p.name for p in lock.hooks.CONDA_LOCKS.glob("*.txt")) == sorted(
+        lock.hooks.lock_path(v).name for v in versions)
+
+
+def test_a_lock_lists_hashed_conda_forge_builds_of_its_python_and_not_the_package(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """The artifact under test is installed on top of the lock; a dokimi build in it would shadow that."""
+    hooks = _script("hooks", monkeypatch)
+    for version in _versions(monkeypatch):
+        lines = hooks.lock_path(version).read_text(encoding="utf-8").splitlines()
+        packages = lines[lines.index("@EXPLICIT") + 1:]
+        assert [line for line in packages if not _LINE.fullmatch(line)] == []
+        names = [line.rsplit("/", 1)[1].rsplit("-", 2)[0] for line in packages]
+        assert "dokimi" not in names and len(names) == len(set(names))
+        python = next(line for line in packages if line.rsplit("/", 1)[1].startswith("python-3."))
+        assert f"/python-{version}." in python
+
+
+def _args(tmp_path: Path, event: str) -> argparse.Namespace:
+    artifacts = tmp_path / "artifacts"
+    artifacts.mkdir()
+    (artifacts / "dokimi-0.2.0-pyh01cfe5d_0.conda").write_bytes(b"package")
+    return argparse.Namespace(kind="conda", python="3.12", artifacts=artifacts, work=tmp_path / "work", event=event,
+                              commit="")
+
+
+def _record_conda(hooks: types.ModuleType, monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, ...]]:
+    calls: list[tuple[str, ...]] = []
+    monkeypatch.setattr(hooks, "conda", lambda *args: calls.append(args))
+    monkeypatch.setattr(hooks, "stage_channel", lambda packages, channel: None)
+    monkeypatch.setattr(hooks, "run_recipe_tests", lambda env_dir: calls.append(("recipe tests", str(env_dir))))
+    return calls
+
+
+@pytest.mark.parametrize("event", ["pr", "push"])
+def test_a_pr_or_push_creates_the_env_from_the_lock_then_adds_the_artifact(
+        event: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """No solve against today's conda-forge: create --file the lock, install the artifact --no-deps, run its tests."""
+    hooks = _script("hooks", monkeypatch)
+    calls = _record_conda(hooks, monkeypatch)
+    monkeypatch.setattr(hooks, "unmet_depends", lambda env_dir, packages: [])
+    args = _args(tmp_path, event)
+    env = hooks.install(args)
+    package = str(args.artifacts / "dokimi-0.2.0-pyh01cfe5d_0.conda")
+    assert calls == [
+        ("create", "-y", "-q", "-p", str(env), "--file", str(hooks.lock_path("3.12"))),
+        ("install", "-y", "-q", "-p", str(env), "--no-deps", package),
+        ("recipe tests", str(env)),
+    ]
+
+
+@pytest.mark.parametrize("event", ["tag", "schedule"])
+def test_a_tag_or_the_schedule_resolves_the_latest_conda_forge_builds(
+        event: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """These test what `conda install dokimi` gets today, so they solve the specs and leave the lock alone."""
+    hooks = _script("hooks", monkeypatch)
+    calls = _record_conda(hooks, monkeypatch)
+    hooks.install(_args(tmp_path, event))
+    assert len(calls) == 1 and calls[0][0] == "create"
+    create = calls[0]
+    assert "--file" not in create
+    assert create[create.index("conda-forge") + 1:] == (
+        "python 3.12.*", *hooks.test_requirements()[0], "dokimi=0.2.0=pyh01cfe5d_0")
+
+
+def test_a_lock_that_misses_a_dependency_of_the_artifact_stops_before_the_tests(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A recipe change the lock does not follow fails with what is unmet and how to refresh it."""
+    hooks = _script("hooks", monkeypatch)
+    calls = _record_conda(hooks, monkeypatch)
+    monkeypatch.setattr(hooks, "unmet_depends",
+                        lambda env_dir, packages: ["dokimi-0.2.0-pyh01cfe5d_0.conda needs regex >=2024, has none"])
+    with pytest.raises(hooks.HookError) as error:
+        hooks.install(_args(tmp_path, "pr"))
+    assert str(error.value) == ("ci/conda-lock/linux-64-py3.12.txt does not satisfy "
+                                "dokimi-0.2.0-pyh01cfe5d_0.conda needs regex >=2024, has none: run python ci/lock.py")
+    assert [call[0] for call in calls] == ["create", "install"]
+
+
+def test_a_missing_lock_names_the_command_that_writes_it(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    hooks = _script("hooks", monkeypatch)
+    calls = _record_conda(hooks, monkeypatch)
+    monkeypatch.setattr(hooks, "CONDA_LOCKS", tmp_path / "none")
+    monkeypatch.setattr(hooks, "ROOT", tmp_path)
+    with pytest.raises(hooks.HookError, match=r"^none/linux-64-py3\.12\.txt is missing: run python ci/lock\.py$"):
+        hooks.install_locked(tmp_path / "env", [], "3.12")
+    assert calls == []
+
+
+@pytest.mark.parametrize(("system", "skip"), [("conda-build", ["--no-test"]), ("rattler-build", ["--test", "skip"])])
+def test_build_skips_the_recipe_tests_only_when_asked(system: str, skip: list[str], tmp_path: Path,
+                                                      monkeypatch: pytest.MonkeyPatch) -> None:
+    build = _script("build", monkeypatch)
+    python = build.matrix.Python("3.12", "3.12")
+    tested, untested = (build.commands(system, tmp_path / "meta.yaml", python, ["conda-forge"], tmp_path, test=t)[0]
+                        for t in (True, False))
+    assert untested == [*tested, *skip]
+
+
+def test_the_workflow_takes_the_latest_releases_on_a_tag_or_the_schedule_alone(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The build's recipe tests, both test jobs' --event and hooks.py's FLOATING agree; a failed schedule reports."""
+    hooks = _script("hooks", monkeypatch)
+    workflow = yaml.safe_load((_REPO / ".github" / "workflows" / "intel-ci.yml").read_text(encoding="utf-8"))
+    jobs = workflow["jobs"]
+    events = {step["env"]["EVENT"] for name in ("test", "test-wheel") for step in jobs[name]["steps"]
+              if "EVENT" in step.get("env", {})}
+    assert events == {"${{ startsWith(github.ref, 'refs/tags/') && 'tag' || github.event_name == 'schedule' && "
+                      "'schedule' || github.event_name == 'pull_request' && 'pr' || 'push' }}"}
+    assert hooks.FLOATING == ("tag", "schedule")
+    build = next(step for step in jobs["build"]["steps"] if "LATEST" in step.get("env", {}))
+    assert build["env"]["LATEST"] == "${{ startsWith(github.ref, 'refs/tags/') || github.event_name == 'schedule' }}"
+    assert build["run"].count("--no-test") == 1 and build["run"].index("--no-test") > build["run"].index("else")
+    assert workflow[True]["schedule"] and jobs["report"]["if"] == "${{ failure() && github.event_name == 'schedule' }}"
+    assert set(jobs["report"]["needs"]) == {"build", "test", "build-wheel", "test-wheel"}
