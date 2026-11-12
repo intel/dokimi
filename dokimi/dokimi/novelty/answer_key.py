@@ -13,7 +13,7 @@ span range that is missing) fails inside the check that uses it, where it always
 """
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any
@@ -26,6 +26,11 @@ class _Absent(Enum):
 
 #: Marks a key the saved record does not have, as distinct from one stored as ``null``.
 ABSENT: Any = _Absent.ABSENT
+
+
+def _rows(value: Any) -> bool:
+    """Whether a stored value is a list of rows: any sequence but a string or bytes."""
+    return isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray))
 
 
 @dataclass(frozen=True)
@@ -102,7 +107,7 @@ def parse_answer_key(record: Mapping[str, Any] | AnswerKeyRecord | None) -> Answ
         return record
     raw = record or {}
     files = raw.get("files") or []
-    rows = tuple(_recorded_file(row) for row in files) if isinstance(files, list) else ()
+    rows = tuple(_recorded_file(row) for row in files) if _rows(files) else ()
     excluded = None
     if "excluded" in raw:
         listed = raw.get("excluded") or []

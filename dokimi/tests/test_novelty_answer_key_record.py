@@ -146,3 +146,13 @@ def test_a_copied_or_pickled_record_keeps_the_absent_marker_and_its_verdict(tmp_
     assert outcome(copy.deepcopy(key)) == outcome(key)
     assert check_answer_key(f"skill:{root}", copy.deepcopy(key)).problem == \
         check_answer_key(f"skill:{root}", key).problem
+
+
+def test_a_files_tuple_is_read_as_the_list_it_is(tmp_path):
+    # the old code took any sequence of rows; a tuple is still a list of rows
+    root = _tree(tmp_path)
+    record = load_bundle(f"skill:{root}", include_resources=True).summary()
+    as_tuple = {**record, "files": tuple(record["files"])}
+    verdict = check_answer_key(f"skill:{root}", as_tuple, source="a.json")
+    assert verdict.ok, verdict.message
+    assert verdict.recorded == tuple(row["path"] for row in record["files"])
