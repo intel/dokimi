@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
+
 class _Absent(Enum):
     """The type of :data:`ABSENT`: an enum member survives copy, deepcopy and pickle as itself."""
 
@@ -73,11 +74,17 @@ class AnswerKeyRecord:
     resource_words_measured: Any = 0
     files: tuple[RecordedFile, ...] = ()
     excluded: tuple[Any, ...] | None = None
+    excluded_ok: bool = True
 
     @property
     def usable_files(self) -> bool:
         """Whether there is at least one file row and every row is usable."""
         return bool(self.files) and all(row.usable for row in self.files)
+
+    @property
+    def usable(self) -> bool:
+        """Whether the file rows and the ``excluded`` list can both be checked."""
+        return self.usable_files and self.excluded_ok
 
 
 def shown(value: Any) -> Any:
@@ -109,9 +116,13 @@ def parse_answer_key(record: Mapping[str, Any] | AnswerKeyRecord | None) -> Answ
     files = raw.get("files") or []
     rows = tuple(_recorded_file(row) for row in files) if _rows(files) else ()
     excluded = None
+    excluded_ok = True
     if "excluded" in raw:
         listed = raw.get("excluded") or []
-        excluded = tuple(_excluded_path(row) for row in listed) if isinstance(listed, list) else ()
+        # a row is an object with a path; anything else cannot say what it excludes
+        excluded_ok = _rows(listed) and all(
+            isinstance(row, Mapping) and isinstance(row.get("path"), str) for row in listed)
+        excluded = tuple(_excluded_path(row) for row in listed) if _rows(listed) else ()
     return AnswerKeyRecord(
         present=bool(raw),
         artifact_name=raw.get("artifact_name"),
@@ -123,4 +134,5 @@ def parse_answer_key(record: Mapping[str, Any] | AnswerKeyRecord | None) -> Answ
         resource_words_measured=raw.get("resource_words_measured", 0),
         files=rows,
         excluded=excluded,
+        excluded_ok=excluded_ok,
     )

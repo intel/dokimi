@@ -526,9 +526,12 @@ def check_answer_key(ref: str, record: Mapping[str, Any] | AnswerKeyRecord | Non
             "Re-run `skill novelty atoms` if the atoms came from bundled files.",))
 
     rows = key.files
-    if not key.usable_files:
+    if not key.usable:
+        lacks = " or ".join(name for name, ok in (
+            ("usable file rows", key.usable_files), ("a usable excluded list", key.excluded_ok))
+            if not ok)
         return AnswerKeyVerdict(problem="no_file_rows", message=(
-            f"{source} records a bundle without usable file rows; re-run `skill novelty atoms` "
+            f"{source} records a bundle without {lacks}; re-run `skill novelty atoms` "
             "rather than probing against an answer key whose provenance cannot be checked"))
     try:
         now = load_bundle(ref, **_replay_selection(key))

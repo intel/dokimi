@@ -156,3 +156,13 @@ def test_a_files_tuple_is_read_as_the_list_it_is(tmp_path):
     verdict = check_answer_key(f"skill:{root}", as_tuple, source="a.json")
     assert verdict.ok, verdict.message
     assert verdict.recorded == tuple(row["path"] for row in record["files"])
+
+
+@pytest.mark.parametrize("excluded", [{"path": "references/big.md"}, [5], ["references/big.md", None]])
+def test_a_malformed_excluded_list_is_refused_not_read_as_empty(tmp_path, excluded):
+    # read as empty, the still-excluded file looked added: the verdict blamed the artifact
+    root = _tree(tmp_path)
+    record = load_bundle(f"skill:{root}", include_resources=True).summary()
+    verdict = check_answer_key(f"skill:{root}", {**record, "excluded": excluded}, source="a.json")
+    assert (verdict.ok, verdict.problem) == (False, "no_file_rows")
+    assert "excluded" in verdict.message
