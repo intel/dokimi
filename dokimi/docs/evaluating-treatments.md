@@ -789,6 +789,48 @@ no-skill arm, or when `--out` is one of the input files (or its `.rejected` sibl
 aggregate divided by 100 and are not range-checked. Only arms runs are read. The flags are descriptive: they do not
 change any score or any gate.
 
+## Skill coverage: which checks name each requirement
+
+`eval skill-coverage` lists the checkable requirements a SKILL.md states (triggers, out of
+scope, must hold, success criteria, failure modes) and names, for each one, the eval checks
+that would fail if a run violated it. Requirements no check names are printed as **candidate
+checks** to write. The eval set is either an `evals.json`, a skill directory, or a tasks root;
+a check is an evals row (by id), a `test_*` function in a test file under a task's `tests/` (any
+subfolder), or a `test_*` method of a `Test*` class (named `Class::method`). A task check's text is the
+module-level code of the whole `tests/` folder (constants, helpers, imports, and `conftest.py`), then the
+class header (decorators, bases, keywords) and the rest of the class body for a method, then the test itself. So two tests with the same body but different constants,
+helpers or fixtures are two checks. They are named `test_x#1`, `test_x#2`, in path order. That context is in every check of the folder, read or not, so a
+helper one file defines can decide an assertion in another.
+
+```bash
+python cli.py eval skill-coverage skills/demo/SKILL.md evals/evals.json \
+    --model anthropic/claude-sonnet-5-5 --max-usd 2 --out skill_coverage.json
+```
+
+- Two model calls: one lists the requirements, one maps them to the checks. Both go through
+  the novelty client. `--max-usd` is checked before each call: once spend has reached the cap, the
+  next call is refused and the run exits 1 with nothing written. The call that crosses the cap is
+  already paid, so spend can exceed the cap by that one call. A call whose price is unknown also
+  stops the run (exit 1).
+- The map is LLM-estimated. On a prototype's labelled calibration set of 88 items (not shipped),
+  item precision was about .92 and recall 1.0, and link precision about .70, with the model and the
+  check text of that time. Neither figure was re-measured on the current check text, and the report
+  does not carry them: its label says only that the map is LLM-estimated. Nothing reads the output
+  as a score or a gate, and the command exits 0 whenever the map was made.
+- The checks go to the mapping call in one prompt, capped at **120,000 characters**. The cap is checked
+  before the first paid call: an eval set over it exits 2 with a message to map a smaller set. The
+  folder's module code is repeated in each of its checks, so a large `tests/` folder with many tests
+  reaches the cap sooner.
+- A check name the model invents is dropped and counted (`check_names_dropped`); requirements
+  past 80 are cut and counted (`requirements_dropped`). A listed row that is not a requirement (not an
+  object, an unknown section, or no text) is counted separately (`requirements_unusable`), not as a cut.
+- This is not `eval coverage`. That command checks the `needs` labels of a need graph against
+  the eval set's structure. This one maps requirements of the skill's text to checks, so the
+  two can disagree; neither reads the other's output.
+- `--out` writes a `skill_coverage.v1` artifact (`dokimi runs show` reads it). A bad reply from
+  the model, or a SKILL.md or evals set that cannot be read, exits 1 or 2 respectively. An `--out` that
+  would overwrite an input or cannot be written, and an empty eval set, exit 2 before any paid call.
+
 ## Leak gate and split lock: is the candidate skill carrying the answers?
 
 A skill tuned against the items it is scored on measures nothing. `eval leak` checks a
