@@ -227,7 +227,8 @@ def test_report_compare_warns_about_a_judged_run_with_no_scored_treatment():
     judged = _arms_run(answers=[], evaluations=[
         {"question_id": "q1", "scores": {"baseline": {"aggregate": 40}, "docs": {"aggregate": 70}}}])
     warnings = check_run_consistency([("a", baseline_only), ("b", judged)], "g", pool_replicates=True)
-    assert [w for w in warnings if "no scored non-baseline arm" in w]
+    assert [w for w in warnings if "no scored non-baseline arm" in w] == [
+        "Run 'a' has records but no scored non-baseline arm — it contributes a baseline column and no delta."]
 
 
 def test_report_compare_does_not_warn_about_a_run_with_no_records():
