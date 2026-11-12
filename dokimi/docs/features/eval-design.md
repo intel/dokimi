@@ -117,13 +117,13 @@ The proposed workflow maps checkable statements in a skill to existing checks an
 
 **Availability:** Available on main.
 
-Check that a null solution fails and an oracle passes, then challenge the verifier with adversarial controls. A successful control run does not prove that the grader cannot be fooled.
+Check that a null solution fails and an oracle passes, and that the task's isolation holds. A passing check does not prove that the grader cannot be fooled. Answer-only question sets have a separate red-team check: `eval redteam` tests whether their grading blocks the answers it should (see [answer formats](../answer-formats.md)).
 
-**Input:** Executable tasks, their verifier, a null workspace and reference solution; additional adversarial controls where supported.
+**Input:** Executable tasks, their verifier, a null workspace and reference solution.
 
-**Scope and limits:** Self-check and verifier red-team; controls cannot prove perfection.
+**Scope and limits:** Self-check of executable tasks (null, oracle and isolation checks). No adversarial controls are implemented; `eval redteam` covers answer-grading blocks, not repository task verifiers. Checks cannot prove perfection.
 
-**Result:** Control results exposing weaknesses in the tested grader.
+**Result:** Check results exposing weaknesses in the tested grader.
 
 **Next step:** Use the linked workflow to configure this check, then [interpret the result](../start/results.md).
 
