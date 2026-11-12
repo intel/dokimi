@@ -465,6 +465,17 @@ def test_novelty_routing_tombstone_refuses_all_vs_all_without_a_catalog(capsys):
     assert "no replacement" in capsys.readouterr().err
 
 
+def test_novelty_routing_tombstone_refuses_a_stray_token_after_a_no_value_flag():
+    # The retired parser had no positionals and these flags take no value: `y` after them was an
+    # error. Left in the printed argv, `y` became the SKILL positional of `skill routing`.
+    for old in (["novelty", "routing", "--queries-from-headings", "y", "--competitors", "a"],
+                ["novelty", "routing", "--estimate-only", "y", "--artifact", "skill:a"],
+                ["novelty", "routing", "--include-invalid", "y", "--artifact", "skill:a"],
+                ["novelty", "routing", "--include-disabled", "y", "--artifact", "skill:a"]):
+        with pytest.raises(ValueError, match="unrecognized arguments: y$"):
+            moved_argv(old)
+
+
 def test_novelty_routing_tombstone_refuses_a_stray_token_after_a_value_flag():
     # The retired parser had no positionals: `y` after the value of --artifact or --catalog was an
     # error. Taking the flag out of the argv must not let `y` join --competitors.

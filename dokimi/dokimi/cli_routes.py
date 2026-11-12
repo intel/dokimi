@@ -224,6 +224,8 @@ def _split_routing_argv(rest: list[str]) -> tuple[dict[str, list[str]], list[str
         elif name == "--competitors":
             i = _take_competitors(rest, i, eq, value, kept)
         else:
+            if name in _RETIRED_NO_VALUE_FLAGS:
+                _refuse_stray(rest, i + 1)
             kept.append("--reps" + eq + value if name == "--repeats" else rest[i])
             i += 1
     return values, kept
@@ -273,6 +275,9 @@ def _take_competitors(rest: list[str], i: int, eq: str, value: str, kept: list[s
         i += 1
     return i
 
+
+# The retired flags that take no value: a plain token after one is stray.
+_RETIRED_NO_VALUE_FLAGS = ("--estimate-only", "--include-disabled", "--include-invalid", "--queries-from-headings")
 
 # The flags `novelty routing` took (its parser allowed any unique prefix of one).
 _RETIRED_ROUTING_FLAGS = (
