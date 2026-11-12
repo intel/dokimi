@@ -28,6 +28,8 @@ is the break this check cannot see.
 Usage::
 
     python -m dokimi.schema_compat --base origin/main
+
+Exits 0 when nothing breaks, 1 after a breaking change, 2 when git cannot read ``--base``.
 """
 
 from __future__ import annotations
@@ -346,9 +348,14 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     tolerate_console_encoding()  # a schema name that is not UTF-8 prints with "?", not UnicodeEncodeError
 
-    results = compare_against(args.base)
+    try:
+        results = compare_against(args.base)
+        no_base_schemas = not results and not _base_has_schemas(args.base)
+    except GitError as exc:
+        print(f"cannot diff against {args.base}: {exc}", file=sys.stderr)
+        return 2
     n_breaking = 0
-    if not results and not _base_has_schemas(args.base) and any(SCHEMA_DIR.glob("*.json")):
+    if no_base_schemas and any(SCHEMA_DIR.glob("*.json")):
         print(f"WARNING  - no schemas found at {args.base} to compare against: nothing was "
               "checked. If the schemas moved, git did not detect the move.")
     for name, diff in sorted(results.items()):

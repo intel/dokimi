@@ -71,8 +71,9 @@ def test_a_missing_default_root_is_no_runs_and_exits_0(tmp_path, monkeypatch, ca
 
     out = _list(monkeypatch, capsys).out
     assert out == "no runs under results/ (it does not exist; DOKIMI_RUNS_DIR names another root)\n"
-    data = json.loads(_list(monkeypatch, capsys, "--json").out)
+    data = json.loads(_list(monkeypatch, capsys, "--json").out)["data"]
     assert (data["root"], data["artifacts"], data["total"]) == ("results", [], 0)
+    assert json.loads(_list(monkeypatch, capsys, "--json").out)["status"] == "complete"
 
 
 @pytest.mark.parametrize("make, message", [
@@ -134,8 +135,11 @@ def test_kind_is_repeatable_and_subject_matches_exactly(monkeypatch, capsys, fil
 
 
 def test_json_has_the_vocabulary_fields_and_every_count(monkeypatch, capsys, filled):
-    data = json.loads(_list(monkeypatch, capsys, "--json", "--kind", "arms").out)
+    doc = json.loads(_list(monkeypatch, capsys, "--json", "--kind", "arms").out)
+    data = doc["data"]
 
+    assert (doc["summary"]["shown"], doc["summary"]["total"]) == (1, 4)
+    assert doc["status"] == "partial" and doc["reason"] == "1 entry under the root could not be read"  # broken.json
     assert data["artifacts"] == [{
         "schema_version": "arms.v1", "kind": "arms", "run_id": "r-arms", "subject": "onetbb",
         "model": "m", "generated_at": "2026-10-29T14:02:00Z", "path": "arms/onetbb.json",
@@ -272,7 +276,7 @@ def test_the_artifacts_of_one_run_are_listed_together_and_the_runs_newest_first(
 
 
 def test_json_lists_the_runs_in_the_order_of_the_rows(monkeypatch, capsys, two_runs):
-    data = json.loads(_list(monkeypatch, capsys, "--json").out)
+    data = json.loads(_list(monkeypatch, capsys, "--json").out)["data"]
 
     assert [a["path"] for a in data["artifacts"]] == ["a/eval.json", "a/arms.json", "q.json",
                                                       "b/eval.json"]
@@ -290,7 +294,7 @@ def test_a_filter_groups_only_the_rows_it_keeps(monkeypatch, capsys, two_runs):
     out = _list(monkeypatch, capsys, "--kind", "eval").out
     assert out.split("\n\n")[1].splitlines()[1] == "runs: 2 (2 artifacts)"
 
-    data = json.loads(_list(monkeypatch, capsys, "--json", "--kind", "questions").out)
+    data = json.loads(_list(monkeypatch, capsys, "--json", "--kind", "questions").out)["data"]
     assert data["runs"] == []
     out = _list(monkeypatch, capsys, "--kind", "questions").out
     assert out.split("\n\n")[1].splitlines()[1] == "runs: 0; no run_id: 1 (runs show PATH says why)"

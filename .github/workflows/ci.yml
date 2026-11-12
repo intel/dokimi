@@ -21,11 +21,10 @@ permissions:
 # Runners: pull_request runs, fork PRs too, go to dokimi-ec2 (persistent hosts); main, schedules and LINUX_RUNNER_OFF=true
 # go to intel-ubuntu-latest (ephemeral), forks of the repo to ubuntu-latest. https://github.com/intel/dokimi/pull/272
 
-# A new push to a PR supersedes the run in flight. Every other run gets a group of its
-# own (run_id): in a shared group a third queued run cancels the pending second one
-# even with cancel-in-progress false, so pushes to main would be dropped.
+# A new push to a PR supersedes the run in flight; other runs get a group of their own (run_id), as a shared one drops queued main pushes.
+# A label the steps do not read gets one too and skips its jobs, so it cancels nothing: https://github.com/intel/dokimi/actions/runs/42551017626
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  group: ${{ github.workflow }}-${{ (github.event_name == 'pull_request' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["skip-changelog","schema-break-ok"]'), github.event.label.name) && github.run_id) || github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 defaults:
@@ -47,6 +46,7 @@ jobs:
   # runner for the same reason.
   static:
     name: Static checks (ruff, schema, zizmor, licenses, pre-commit, bandit, secrets, changelog, schema compat)
+    if: ${{ !(github.event_name == 'pull_request' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["skip-changelog","schema-break-ok"]'), github.event.label.name)) }}
     runs-on: ${{ github.repository_owner != 'intel' && 'ubuntu-latest' || github.event_name == 'pull_request' && vars.LINUX_RUNNER_OFF != 'true' && 'dokimi-ec2' || 'intel-ubuntu-latest' }}
     timeout-minutes: 15
     steps:
@@ -206,15 +206,8 @@ jobs:
         env:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
         run: python scripts/check_docs_review_triggers.py --base "origin/$BASE_REF" --head HEAD
-      # A PR that changes the schemas (dokimi/schemas/) may not narrow an existing
-      # schema version in place (dokimi/schema_compat.py says why and what to do
-      # instead). A reviewer who has decided a narrowing is safe (it states an
-      # invariant every written artifact already met) applies the `schema-break-ok`
-      # label; the findings are still printed, the job just does not fail on them.
-      # WARNING lines (narrowings no base fixture hits) never fail the step; they go
-      # to the step summary and as annotations so a reviewer sees them.
-      # Diffs against the base branch's current tip, not base.sha (the base as it
-      # stood when the PR was opened), or main's own later edits get blamed on the PR.
+      # `schema-break-ok` certifies a reviewer found the narrowing states an invariant every written artifact already met.
+      # Diffs against the base branch's tip, not base.sha (the base at open), or main's later edits get blamed on the PR.
       - name: schema_compat vs the PR base
         if: ${{ !cancelled() && github.event_name == 'pull_request' }}
         env:
@@ -231,6 +224,10 @@ jobs:
           if [ "$status" -eq 0 ]; then
             exit 0
           fi
+          if [ "$status" -ne 1 ] || ! grep -q '^BREAKING' compat.txt; then
+            echo "::error::schema_compat compared nothing against origin/$BASE_REF (status $status, no BREAKING finding); the schema-break-ok label does not cover that"
+            exit "$status"
+          fi
           if [ "$OVERRIDE" = true ]; then
             echo "::warning::breaking schema edits accepted by the schema-break-ok label"
             exit 0
@@ -239,6 +236,7 @@ jobs:
 
   typecheck:
     name: mypy
+    if: ${{ !(github.event_name == 'pull_request' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["skip-changelog","schema-break-ok"]'), github.event.label.name)) }}
     runs-on: ${{ github.repository_owner != 'intel' && 'ubuntu-latest' || github.event_name == 'pull_request' && vars.LINUX_RUNNER_OFF != 'true' && 'dokimi-ec2' || 'intel-ubuntu-latest' }}
     timeout-minutes: 15
     steps:
@@ -488,6 +486,7 @@ jobs:
   # Windows runners.
   windows-smoke:
     name: Windows smoke test (py3.13)
+    if: ${{ !(github.event_name == 'pull_request' && (github.event.action == 'labeled' || github.event.action == 'unlabeled') && !contains(fromJSON('["skip-changelog","schema-break-ok"]'), github.event.label.name)) }}
     runs-on: windows-latest
     timeout-minutes: 20
     defaults:

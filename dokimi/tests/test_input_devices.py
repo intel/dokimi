@@ -109,7 +109,7 @@ def test_personas_validate_refuses_a_device(monkeypatch, capsys):
 
 def test_evaluate_refuses_a_device_as_custom_questions(monkeypatch, tmp_path, capsys):
     assert _main(monkeypatch, "evaluate", "--product", "Demo", "--description", "d",
-                 "--output-dir", str(tmp_path / "out"), "--custom-questions", DEVICE) == 2
+                 "--out-dir", str(tmp_path / "out"), "--custom-questions", DEVICE) == 2
     assert "Error: --custom-questions /dev/null: not a file" in capsys.readouterr().err
 
 
@@ -134,7 +134,7 @@ def test_benchmark_refuses_a_device_as_questions_from_with_its_own_message(monke
     monkeypatch.setattr("dokimi.mcp.factory.create_doc_source_client", lambda doc_source: object())
     monkeypatch.setattr(benchmark, "_run_single_library", lambda *a, **k: pytest.fail("the run started"))
     assert _main(monkeypatch, "benchmark", command, "--library", "onetbb", "--doc-source", "local:docs",
-                 "--provider", "openai", "--judge-provider", "openai", "--output-dir", str(tmp_path / "out"),
+                 "--provider", "openai", "--judge-provider", "openai", "--out-dir", str(tmp_path / "out"),
                  "--questions-from", DEVICE) == 2
     err = capsys.readouterr().err
     assert "--questions-from /dev/null: not a file" in err
@@ -171,6 +171,18 @@ def test_novelty_analyze_refuses_a_device_as_placebo_text(monkeypatch, capsys):
 def test_trace_prefilter_refuses_a_device_as_the_guidance_file(monkeypatch, tmp_path, capsys):
     assert _main(monkeypatch, "trace", "prefilter", DEVICE, str(tmp_path / "s.jsonl")) == 2
     assert capsys.readouterr().err.strip() == "Error: guidance /dev/null: not a file"
+
+
+@pytest.mark.parametrize("kind", ["missing", "directory"])
+def test_trace_prefilter_exits_2_naming_a_guidance_path_it_cannot_read(monkeypatch, tmp_path, capsys, kind):
+    """A missing guidance file (or a directory, in a path with a space) is a refused input, not a runtime failure."""
+    guidance = tmp_path / "my guidance"
+    if kind == "directory":
+        guidance.mkdir()
+    assert _main(monkeypatch, "trace", "prefilter", str(guidance), str(tmp_path / "s.jsonl")) == 2
+    err = capsys.readouterr().err
+    assert err.startswith(f"Error: guidance {guidance}: ")
+    assert "Traceback" not in err
 
 
 def _prefilter_inputs(tmp_path):
@@ -231,3 +243,41 @@ def test_trace_prefilter_refuses_a_terminal_session_before_its_format_is_sniffed
     out, err = capsys.readouterr()
     assert f"✗ {terminal}: not a file" in err
     assert "1 session(s)" in out
+
+
+def _trace(tmp_path):
+    """One readable stream-json trace: a tool call and a result event."""
+    good = tmp_path / "run.jsonl"
+    lines = [
+        {"type": "assistant", "message": {"id": "m1", "role": "assistant",
+                                          "usage": {"input_tokens": 5, "output_tokens": 2},
+                                          "content": [{"type": "tool_use", "id": "t1", "name": "Read",
+                                                       "input": {"file_path": "a.py"}}]}},
+        {"type": "result", "subtype": "success", "is_error": False, "num_turns": 1},
+    ]
+    good.write_text("\n".join(json.dumps(line) for line in lines) + "\n", encoding="utf-8")
+    return str(good)
+
+
+def test_trace_inspect_reports_a_device_trace_and_still_reads_the_others(monkeypatch, tmp_path, capsys):
+    good = _trace(tmp_path)
+    assert _main(monkeypatch, "trace", "inspect", good, DEVICE) == 1
+    out, err = capsys.readouterr()
+    assert "✗ /dev/null: not a file" in err
+    assert "run.jsonl" in out
+
+
+def test_trace_consistency_reports_a_device_trace_and_still_reads_the_others(monkeypatch, tmp_path, capsys):
+    good = _trace(tmp_path)
+    assert _main(monkeypatch, "trace", "consistency", good, DEVICE) == 1
+    out, err = capsys.readouterr()
+    assert "✗ /dev/null: not a file" in err
+    assert "1 run(s)" in err
+    assert out.strip()
+
+
+@pytest.mark.parametrize("flag", ["--outcomes", "--contract"])
+def test_trace_consistency_refuses_a_device_as_outcomes_or_contract(monkeypatch, tmp_path, capsys, flag):
+    good = _trace(tmp_path)
+    assert _main(monkeypatch, "trace", "consistency", flag, DEVICE, good) == 2
+    assert f"Error: {flag} /dev/null: not a file" in capsys.readouterr().err

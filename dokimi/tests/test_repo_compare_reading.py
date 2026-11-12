@@ -16,6 +16,7 @@ from dokimi.repos.compare import CompareError, compare, format_compare, min_dete
 from dokimi.repos.runner import cell_name
 
 from test_repo_compare import _cell, _row
+from tests.cli_refusal import refusal
 
 
 def _first(batch: Path, task: str, arm: str, rep: int, tokens: int | None) -> None:
@@ -177,9 +178,9 @@ def test_task_refuses_an_id_no_cell_has(tmp_path, capsys):
     with pytest.raises(CompareError, match=r"has --task t9, fix_x$"):
         compare([b], "guidance:none", tasks=["t1", "t9", "fix_x"])
     args = build_parser().parse_args(["repo", "compare", str(b), "--baseline", "guidance:none", "--task", "t9"])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2 and "no finished cell of the compared batches has --task t9" in capsys.readouterr().err
+    assert exc.code == 2 and "no finished cell of the compared batches has --task t9" in capsys.readouterr().err
 
 
 def test_min_detectable_effect_arithmetic():
@@ -234,8 +235,8 @@ def test_no_mde_where_the_sign_flip_p_cannot_reach_005(tmp_path, deltas, changed
 
 
 SIX_MIXED = [0.5, -0.5, 0.25, -0.25, 0.5, -0.5]  # six changed tasks: a sign-flip p floor of 2/64
-HOLM_NOTE = ("  score inconclusive: the interval includes 0; with Holm over 2 rows, p_holm cannot go below {} here: "
-             "no effect can reach p_holm < 0.05")
+HOLM_NOTE = ("  score inconclusive: the interval includes 0; with Holm over 2 rows that can reach p < 0.05, p_holm "
+             "cannot go below {} here: no effect can reach p_holm < 0.05")
 
 
 def _two_score_arms(b: Path, raw: list[float], other: list[float]) -> None:

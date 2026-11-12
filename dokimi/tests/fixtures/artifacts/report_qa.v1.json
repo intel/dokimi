@@ -1,0 +1,23 @@
+{
+  "schema_version": "report_qa.v1",
+  "eval_path": "results/demo/eval/demo.json",
+  "report_path": "results/demo/reports/demo_full.md",
+  "generated_at": "2026-11-01T00:00:00+00:00",
+  "run_metadata": {
+    "answer_model": "demo-model"
+  },
+  "count": 1,
+  "records": [
+    {
+      "question_id": "q1",
+      "question_text": "How do I install the library?",
+      "difficulty": "beginner",
+      "source": "dynamic",
+      "with_docs_score": 80.0,
+      "without_docs_score": 60.0,
+      "delta": 20.0,
+      "with_docs_answer": "pip install demo",
+      "without_docs_answer": "I am not sure."
+    }
+  ]
+}

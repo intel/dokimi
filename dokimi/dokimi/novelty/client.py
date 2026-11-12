@@ -69,6 +69,11 @@ class SpendCapReached(BaseException):
     reply: str | None = None
     truncated: bool = False
 
+    def __init__(self, message: str, *, reason: str = "spend_cap") -> None:
+        super().__init__(message)
+        # "spend_cap" for the limit; "no_price" for a call the cap cannot meter.
+        self.reason = reason
+
 
 @dataclass
 class SpendCap:
@@ -85,9 +90,18 @@ class SpendCap:
     spent_usd: float = 0.0
     calls: int = 0
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
+    # Set by the first call with no known price: the run stops for every worker, not just
+    # the one whose call raised, since an unpriced call never raises ``spent_usd``.
+    _unpriced: bool = field(default=False, repr=False, compare=False)
 
     def before_call(self, model: str) -> None:
         with self._lock:
+            if self._unpriced:
+                raise SpendCapReached(
+                    f"the run stopped on a call with no known price; not calling {model}. "
+                    "Drop --max-usd to run unmetered",
+                    reason="no_price",
+                )
             if self.spent_usd >= self.limit_usd:
                 raise SpendCapReached(
                     f"spend cap reached: ${self.spent_usd:.2f} of ${self.limit_usd:.2f} "
@@ -101,9 +115,11 @@ class SpendCap:
             if usage is not None and usage.replayed:
                 return
             if usage is None or usage.cost_usd is None:
+                self._unpriced = True
                 raise SpendCapReached(
                     f"no price is known for {model}, so --max-usd cannot be enforced; "
-                    f"stopped after {self.calls} calls. Drop --max-usd to run unmetered"
+                    f"stopped after {self.calls} calls. Drop --max-usd to run unmetered",
+                    reason="no_price",
                 )
             self.spent_usd += usage.cost_usd
 
@@ -304,12 +320,10 @@ def roll_up_cost(clients: list[LLMClient]) -> dict[str, Any]:
 
 
 def same_client(a: LLMClient, b: LLMClient) -> bool:
-    """Whether two clients run one model: the same name, a CLI alias and a full id of its family,
-    or an equivalent API id (``anthropic/x``, a Bedrock ``us.anthropic.x-v1:0``), as
-    :func:`~dokimi.utils.same_evaluator` reads it."""
-    from dokimi.utils import same_evaluator
+    """Whether two clients run one model: the same name, or a CLI alias and a full id of its family."""
+    from dokimi.utils import same_model
 
-    return a.model == b.model or same_evaluator(a.provider, a.model, b.provider, b.model)
+    return a.model == b.model or same_model(a.model, b.model)
 
 
 # Substring of a lowercased model id -> vendor, first match wins. Minimal on purpose:
@@ -332,18 +346,11 @@ def extractor_judge_relation(extractor_model: str, judge: LLMClient,
     """How the model that wrote the answer key relates to the judge, who grades against it.
 
     Takes a name, not a client: a saved atoms file records only the extractor's model id.
-    The provider is needed only to match a CLI alias to its full id. A bare alias (``sonnet``)
-    names a CLI model only, so a record that lacks the provider (saved before it was recorded)
-    is read as the CLI's.
     """
-    from dokimi.llm_cli import CLAUDE_CLI, _full_id, same_model
+    from dokimi.utils import same_model
 
-    if not extractor_provider and _full_id(extractor_model) in CLAUDE_CLI.aliases:
-        extractor_provider = CLAUDE_CLI.name
-    # the same id behind a routing prefix or a Bedrock spelling is one model; a version suffix is not dropped
-    identical = (extractor_model == judge.model
-                 or _full_id(extractor_model) == _full_id(judge.model)
-                 or same_model(extractor_provider, extractor_model, judge.provider, judge.model))
+    # the same id behind a routing prefix or a Bedrock spelling is one model (utils.same_model, the one rule)
+    identical = extractor_model == judge.model or same_model(extractor_model, judge.model)
     vendor = vendor_of(extractor_model)
     return {
         "extractor": extractor_model,
@@ -381,7 +388,7 @@ def default_judge(model: str, provider: str | None = None,
                   answerer_provider: str | None = None) -> tuple[str, str]:
     """A (model, provider) judge that is not the answerer, when the caller did not name one.
 
-    The default judge, unless it is the model under measurement (by bare name, so a
+    The default judge, unless it is the model under measurement (by ``same_model``, so a
     Bedrock ``us.anthropic.claude-...`` id counts too); then the default generator,
     which is of the other family. With ``provider`` (an explicit ``--judge-provider``)
     only a default that runs there is taken: its own provider, or Bedrock for a name in
@@ -392,22 +399,23 @@ def default_judge(model: str, provider: str | None = None,
     Raises:
         ValueError: ``provider`` runs no default judge other than ``model``.
     """
-    from dokimi.llm_cli import backend, same_model
+    from dokimi.llm_cli import backend
+    from dokimi.utils import same_model
 
-    bare = model.rsplit("/", 1)[-1].rsplit("anthropic.", 1)[-1]
     if provider is None and answerer_provider is not None and backend(answerer_provider) is not None:
         provider = answerer_provider
     # Hard-coded for claude-cli; a second CLI backend (codex-cli) needs its own alias list here.
     if provider == "claude-cli":
         # The CLI's aliases: the first one not of the answerer's family, so the judge is never the answerer.
+        # The model itself is compared, not a bare name: ``myorg/sonnet`` is not the CLI's sonnet.
         for alias in ("opus", "sonnet", "haiku"):
-            if not same_model("claude-cli", alias, "claude-cli", bare):
+            if not same_model(alias, model):
                 return alias, provider
         raise ValueError(f"judge provider {provider}: no judge of another family than {model}; "
                          "pass --judge-model as well")
     candidates = [(m, p) for m, p in ((DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER),
                                       (DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER))
-                  if m != bare and not same_model(answerer_provider or "", bare, p, m)]
+                  if m != model and not same_model(model, m)]
     if provider is None:
         return candidates[0]
     for m, p in candidates:

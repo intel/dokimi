@@ -48,6 +48,10 @@ from typing import Any
 
 from dokimi.context import shell
 from dokimi.context.trace import TraceError
+from dokimi.eval.stats import _mean as stats_mean
+from dokimi.eval.stats import _pow2_scale as pow2_scale
+from dokimi.eval.stats import _sample_sd as sample_sd
+from dokimi.utils import InputError, refuse_device
 
 _WRITE_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
 RULES = ("requires", "forbids", "before", "after_last", "last_ok")
@@ -100,7 +104,10 @@ class Run:
 
 def read_run(path: Path, grain: str = "split") -> Run:
     try:
+        refuse_device(path)
         raw = path.read_text(encoding="utf-8-sig", errors="replace")
+    except InputError as exc:
+        raise TraceError(str(exc)) from exc
     except OSError as exc:
         raise TraceError(f"cannot read {path}: {exc}") from exc
     run = parse_run(raw, str(path), grain)
@@ -359,6 +366,7 @@ def _bash_events(tool: str, args: dict[str, Any], grain: str) -> list[Event]:
 
 def load_outcomes(path: Path) -> dict[str, bool]:
     """``{"trace path or file name": true|false}``, or a list of ``{"trace": .., "passed": ..}``."""
+    refuse_device(path, "--outcomes")
     data = json.loads(path.read_text(encoding="utf-8"))
     if isinstance(data, list):
         for r in data:
@@ -416,6 +424,7 @@ class Matcher:
 def load_contract(path: Path) -> dict[str, Any]:
     import yaml
 
+    refuse_device(path, "--contract")
     text = path.read_text(encoding="utf-8")  # outside the try: bad UTF-8 is a ValueError, not a YAML error
     try:
         data = yaml.safe_load(text) or {}
@@ -549,11 +558,14 @@ def _mean(xs: list[float]) -> float | None:
 def _cv(xs: list[float]) -> float | None:
     if len(xs) < 2:
         return None
-    mu = sum(xs) / len(xs)
+    if math.isfinite(top := max(abs(x) for x in xs)) and top > 2.0 ** 900:
+        # The cv does not depend on the scale, and the sd itself may leave the float range: https://github.com/intel/dokimi/issues/543
+        scale = pow2_scale(xs)
+        xs = [x / scale for x in xs]
+    mu = stats_mean(xs)
     if not mu:
         return 0.0
-    sd = math.sqrt(sum((x - mu) ** 2 for x in xs) / (len(xs) - 1))
-    return sd / mu
+    return sample_sd(xs) / mu
 
 
 def strategies(runs: list[Run], threshold: float) -> list[list[int]]:

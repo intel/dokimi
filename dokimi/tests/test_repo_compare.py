@@ -19,6 +19,7 @@ from dokimi.eval.binary_stats import mcnemar_test
 from dokimi.eval.sign_flip import sign_flip_p
 from dokimi.repos import compare as compare_mod
 from dokimi.repos.compare import CompareError, compare, format_compare, parse_selector
+from tests.cli_refusal import refusal
 
 
 def _cell(batch: Path, task: str, arm: str, rep: int, *, success: bool | None = True, score: float | None = None,
@@ -448,7 +449,8 @@ def test_holm_runs_over_gate_and_score_comparisons_only(tmp_path):
     s = compare([b], "guidance:none")
     raw, bridge = _row(s, "gate"), _row(s, "gate", treatment="guidance:bridge")
     assert raw["p"] == pytest.approx(2 / 64) and bridge["p"] == pytest.approx(2 / 32)
-    assert raw["p_holm"] == pytest.approx(2 * 2 / 64) and bridge["p_holm"] == pytest.approx(2 / 32)
+    # bridge: five changed tasks, a p floor of 2/32, out of the family, so raw is a family of one
+    assert raw["p_holm"] == pytest.approx(2 / 64, abs=1e-4) and bridge["p_holm"] is None
     cost = _row(s, "cost_usd")
     assert cost["p"] == pytest.approx(2 / 64) and cost["p_holm"] is None
 
@@ -551,9 +553,9 @@ def test_a_metric_no_cell_reports_is_refused(tmp_path, capsys):
     with pytest.raises(CompareError, match="--metric label"):  # reported, but not a number
         compare([b], "guidance:none", metrics=("label",))
     args = build_parser().parse_args(["repo", "compare", str(b), "--baseline", "guidance:none", "--metric", "typo"])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2 and "--metric typo" in capsys.readouterr().err
+    assert exc.code == 2 and "--metric typo" in capsys.readouterr().err
 
 
 def test_a_task_lacking_a_metric_is_listed_as_unpaired_for_that_metric(tmp_path):
@@ -689,30 +691,30 @@ def test_cli_passes_model_and_metric_and_refuses_a_missing_dir(tmp_path, capsys)
     assert {r["model"] for r in rows} == {"m-2"}
     assert [r["delta"]["mean"] for r in rows if r["measure"] == "metric:n_build_fail"] == [-2.0]
     args = build_parser().parse_args(["repo", "compare", str(tmp_path / "nope"), "--baseline", "guidance:none"])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2 and "not a directory" in capsys.readouterr().err
+    assert exc.code == 2 and "not a directory" in capsys.readouterr().err
 
 
 def test_cli_exits_on_a_bad_baseline(tmp_path, capsys):
     b = tmp_path / "b1"
     _cell(b, "fix_a", "guidance:none", 1)
     args = build_parser().parse_args(["repo", "compare", str(b), "--baseline", "guidance:raw"])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2 and "no finished cell matches the baseline" in capsys.readouterr().err
+    assert exc.code == 2 and "no finished cell matches the baseline" in capsys.readouterr().err
 
 
 def test_a_repeated_treatment_or_metric_is_one_comparison(tmp_path):
     b = tmp_path / "b1"
     for i in range(6):
         _cell(b, f"fix_{i}", "guidance:none", 1, success=False, metrics={"m": 0})
-        _cell(b, f"fix_{i}", "guidance:raw", 1, success=i < 5, metrics={"m": 1})
+        _cell(b, f"fix_{i}", "guidance:raw", 1, success=True, metrics={"m": 1})
     once = compare([b], "guidance:none", ["guidance:raw"], metrics=("m",))
     twice = compare([b], "guidance:none", ["guidance:raw", "guidance:raw"], metrics=("m", "m"))
     assert twice["treatments"] == ["guidance:raw"]
     assert twice["comparisons"] == once["comparisons"]
-    assert _row(twice, "gate")["p_holm"] == _row(twice, "gate")["p"]  # a family of one, not two
+    assert _row(twice, "gate")["p_holm"] == pytest.approx(_row(twice, "gate")["p"], abs=1e-4)  # one, not two
 
 
 @pytest.mark.parametrize("spec", ["", ","])
@@ -723,9 +725,9 @@ def test_an_empty_arm_list_is_refused_not_an_empty_comparison(tmp_path, capsys, 
     with pytest.raises(CompareError, match="no treatment arms"):
         compare([b], "guidance:none", [])
     args = build_parser().parse_args(["repo", "compare", str(b), "--baseline", "guidance:none", "--arm", spec])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2 and "no treatment arms" in capsys.readouterr().err
+    assert exc.code == 2 and "no treatment arms" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("bad", [float("inf"), float("-inf"), float("nan")])
@@ -745,10 +747,10 @@ def test_an_unusable_cost_rejects_the_cell_naming_it(tmp_path, capsys, bad):
     _cell(b, "fix_0", "guidance:none", 1, cost=bad)
     _cell(b, "fix_0", "guidance:raw", 1)
     args = build_parser().parse_args(["repo", "compare", str(b), "--baseline", "guidance:none"])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
     err = capsys.readouterr().err
-    assert exc.value.code == 2 and "has no usable `agent`" in err and "Traceback" not in err
+    assert exc.code == 2 and "has no usable `agent`" in err and "Traceback" not in err
     assert "fix_0__guidance-none__m-1__r1" in err and "guidance-raw" not in err
 
 

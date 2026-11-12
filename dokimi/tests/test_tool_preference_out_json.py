@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""The --out-json pre-flight of `tools preference`: refused before any probe call, or accepted."""
+"""The --out pre-flight of `tools preference`: refused before any probe call, or accepted."""
 
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ def test_cli_refuses_an_unwritable_out_json_before_any_call(monkeypatch, tmp_pat
         out = tmp_path / "pref.json"
         out.mkdir()
     args = build_parser().parse_args(["tools", "preference", "--groups", str(GROUPS), "--model", "m",
-                                      "--reps", "1", "--factors", "assertive", "--out-json", str(out)])
+                                      "--reps", "1", "--factors", "assertive", "--out", str(out)])
     with pytest.raises(SystemExit) as exc:
         args.func(args)
     assert exc.value.code == 2

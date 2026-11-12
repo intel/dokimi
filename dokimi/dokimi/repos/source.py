@@ -367,15 +367,24 @@ def cache_path(url: str, cache_dir: Path) -> Path:
     return cache_dir / f"{slug.removesuffix('.git')}-{digest}.git"
 
 
+def check_pinned_root(source: RepoSource) -> None:
+    """Refuse a pinned local path that is a subdirectory of a repository (SourceArgumentError); no-op otherwise.
+
+    Cheap, so a command can call it before it reads its input files; ``open_source`` calls it too.
+    """
+    if not source.remote and source.rev is not None:
+        # ls-tree lists paths relative to -C, git show reads them from the root.
+        prefix = _git(Path(source.location), "rev-parse", "--show-prefix").strip()
+        if prefix:
+            raise SourceArgumentError(f"{source.location} is {prefix!r} inside a repository; give its root")
+
+
 def open_source(source: RepoSource, cache_dir: Path | None = None) -> RepoTree:
     """Return a readable tree for ``source``, cloning or fetching as needed."""
     if not source.remote:
         if source.rev is None:
             return WorkTree(source.location)
-        # ls-tree lists paths relative to -C, git show reads them from the root.
-        prefix = _git(Path(source.location), "rev-parse", "--show-prefix").strip()
-        if prefix:
-            raise SourceArgumentError(f"{source.location} is {prefix!r} inside a repository; give its root")
+        check_pinned_root(source)
         sha = resolve_rev(Path(source.location), source.rev)
         return GitTree(Path(source.location), sha, label=f"{source.location}@{sha[:12]}")
     git_dir = ensure_clone(source.location, cache_dir or default_cache_dir())

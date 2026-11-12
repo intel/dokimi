@@ -4,6 +4,7 @@
 """Tests for the paired-statistics helpers used by the N-arm comparison."""
 
 import itertools
+import math
 import pytest
 
 from dokimi.eval import stats
@@ -213,8 +214,8 @@ def test_arm_significance_shares_one_baseline_across_arms():
     for sig in res.values():
         assert sig["correction"] == "holm"
         assert sig["family_size"] == 3
-        # docs has 5 changed pairs (no verdict under the floor) and still counts in the family.
-        assert sig["family_tested"] == 3
+        # docs has 5 changed pairs (no verdict under the floor): a member, but out of the multiplier.
+        assert sig["family_tested"] == 2
 
 
 def test_arm_significance_infers_arms_when_not_given():
@@ -224,7 +225,8 @@ def test_arm_significance_infers_arms_when_not_given():
 
 def test_arm_significance_adjusted_p_is_never_below_raw():
     res = stats.arm_significance(_factorial_evaluations(), "baseline")
-    for sig in res.values():
+    assert res["docs"]["p_adjusted"] is None  # under the floor: never corrected in the family
+    for sig in (res["skill:x"], res["docs+skill:x"]):
         assert sig["p_adjusted"] >= sig["p"]
         # A corrected verdict can only be stricter than the uncorrected one.
         assert not (sig["significant_adjusted"] and not sig["significant"])
@@ -520,7 +522,7 @@ def test_interaction_test_alone_reports_no_adjusted_keys():
 def test_arm_significance_leaves_the_adjusted_verdict_unknown_when_no_test_ran():
     """None, not False: an untestable arm is not a demonstrated null."""
     evaluations = [
-        _ev(baseline=50, docs=50, **{"skill:x": 50 + i}) for i in range(6)
+        _ev(baseline=50, docs=50, **{"skill:x": 51 + i}) for i in range(6)
     ]
     res = stats.arm_significance(
         evaluations, "baseline", ["baseline", "docs", "skill:x"]
@@ -715,11 +717,76 @@ def test_arm_significance_leaves_out_an_arm_with_fewer_than_two_pairs():
 def test_arm_significance_correction_changes_the_adjusted_p():
     holm = stats.arm_significance(_factorial_evaluations(), "baseline")
     bh = stats.arm_significance(_factorial_evaluations(), "baseline", correction="bh")
-    # p is 0.03125, 0.03125 and 0.0625 (docs): Holm takes 3 x 0.03125, BH 3/2 x 0.03125.
-    assert holm["docs+skill:x"]["p_adjusted"] == 0.0938
-    assert bh["docs+skill:x"]["p_adjusted"] == 0.0469
+    # p is 0.03125 twice and 0.0625 (docs, out of the multiplier): Holm takes 2 x 0.03125, BH 0.03125.
+    assert holm["docs+skill:x"]["p_adjusted"] == 0.0625
+    assert bh["docs+skill:x"]["p_adjusted"] == 0.0312
     assert holm["skill:x"]["significant_adjusted"] is False and bh["skill:x"]["significant_adjusted"] is True
-    assert holm["docs"]["significant_adjusted"] is None  # under the floor, yet in the family of 3
+    assert holm["docs"]["significant_adjusted"] is None and holm["docs"]["p_adjusted"] is None
+
+
+def test_sample_sd_of_values_at_1e300_is_finite_and_scales_linearly():
+    """Squaring a deviation of 1e300 overflowed: https://github.com/intel/dokimi/issues/475."""
+    # [1, -1, 1, -1, 1, 1]: mean 1/3, squared deviations sum to 16/3, sd = sqrt(16/15).
+    assert stats._sample_sd([1e300, -1e300, 1e300, -1e300, 1e300, 1e300]) == pytest.approx(
+        4 / 15 ** 0.5 * 1e300, rel=1e-12
+    )
+
+
+def test_mean_and_sd_of_values_near_the_float_maximum_stay_finite():
+    """The sum and the deviations left the float range though every value is finite: https://github.com/intel/dokimi/issues/553."""
+    big = 1.7e308
+    assert stats._mean([big, big, big, -big]) == pytest.approx(big / 2, rel=1e-12)
+    # [1, -1, -1, -1, -1]: mean -3/5, so the first deviation is 1.6 * 1.7e308 in plain floats, yet the sd is sqrt(4/5) * 1.7e308.
+    sd = stats._sample_sd([big, -big, -big, -big, -big])
+    assert math.isfinite(sd)
+    assert sd == pytest.approx((4 / 5) ** 0.5 * big, rel=1e-12)
+    # [1, -1, -1] at 1.5e308: the first deviation is 2e308, the sd sqrt(4/3) * 1.5e308 = 1.732e308.
+    sd = stats._sample_sd([1.5e308, -1.5e308, -1.5e308])
+    assert math.isfinite(sd)
+    assert sd == pytest.approx((4 / 3) ** 0.5 * 1.5e308, rel=1e-12)
+
+
+def test_mean_of_huge_values_keeps_a_small_term_that_survives_the_cancellation():
+    """Scaling the 1e-100 by 2**1023 would underflow it to zero before the large terms cancel."""
+    big = 1.7e308
+    assert stats._mean([big, big, -big, -big, 1e-100]) == pytest.approx(2e-101, rel=1e-12, abs=0.0)
+
+
+def test_paired_test_at_1e200_matches_the_scaled_down_deltas():
+    """The sd overflowed here: https://github.com/intel/dokimi/issues/475."""
+    small = [1.0, -1.0, 3.0, 2.0, 1.0, -1.0]
+    ref = stats.paired_test(small, [0.0] * 6, rounded=False)
+    res = stats.paired_test([d * 1e200 for d in small], [0.0] * 6, rounded=False)
+    # Deltas with mean 5/6 and squared deviations summing to 77/6: sd = sqrt(77/30).
+    assert res["delta_std"] == pytest.approx((77 / 30) ** 0.5 * 1e200, rel=1e-12)
+    assert res["delta_mean"] == pytest.approx(5 / 6 * 1e200, rel=1e-12)
+    assert res["cohens_d"] == ref["cohens_d"] == 0.52
+    # The interval ends are searched for, not computed: they agree with the scaled-down ones to a tolerance, not to the bit.
+    assert res["exact"]["ci_lo"] == pytest.approx(ref["exact"]["ci_lo"] * 1e200, rel=1e-6)
+    assert res["exact"]["ci_hi"] == pytest.approx(ref["exact"]["ci_hi"] * 1e200, rel=1e-6)
+    assert res["p"] == ref["p"]
+    assert res["significant"] is ref["significant"]
+
+
+def test_mean_ci_raises_when_the_interval_leaves_the_float_range():
+    """A finite sd of 1.27e308 puts the t interval past the largest float: an error, not [-inf, inf]."""
+    pytest.importorskip("scipy")
+    with pytest.raises(OverflowError):
+        stats.mean_ci([9e307, -9e307])
+    with pytest.raises(OverflowError):  # the sd itself is inf
+        stats.mean_ci([1.7e308, -1.7e308, 1.7e308])
+    ci = stats.mean_ci([1e300, -1e300, 1e300], ndigits=None)
+    assert ci["lo"] < 0 < ci["hi"] and ci["hi"] < float("inf")
+
+
+def test_paired_test_raises_when_the_deltas_leave_the_float_range():
+    """Sign-flip sums that overflow would read as a measured zero effect: an error instead."""
+    pytest.importorskip("scipy")
+    for big in (9e307, 1.7e308):
+        with pytest.raises(OverflowError):
+            stats.paired_test([big, -big] * 3, [0.0] * 6, rounded=False)
+    res = stats.paired_test([1e300, -1e300] * 3, [0.0] * 6, rounded=False)
+    assert res is not None and math.isfinite(res["delta_std"])
 
 
 def test_importing_the_cli_does_not_load_scipy():
