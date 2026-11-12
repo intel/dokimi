@@ -242,3 +242,16 @@ def test_the_judge_model_help_names_the_claude_cli_judge_the_rule_picks():
     assert default_judge("gpt-6.1-sol", "claude-cli") == ("opus", "claude-cli")
     assert "opus on claude-cli (sonnet when the answerer is opus)" in JUDGE_MODEL_HELP
     assert "claude-cli (an alias)" not in JUDGE_MODEL_HELP
+
+
+def test_a_library_refused_default_self_judge_stops_before_the_probe_or_the_library_lookup(monkeypatch):
+    # the refusal reads only the config, so it comes before the network-backed steps of prepare_arms
+    from dokimi.eval import arms_run
+
+    calls: list[str] = []
+    monkeypatch.setattr(arms_run, "_treatments", lambda *a, **k: calls.append("treatments"))
+    monkeypatch.setattr(arms_run, "check_sampling_support", lambda config: calls.append("probe"))
+    config = ArmsRunConfig(product="demo", model="claude-sonnet-5-5", provider="anthropic", judge=True)
+    with pytest.raises(JudgeIsAnswerer):
+        arms_run.prepare_arms(config, ["baseline"], [])
+    assert calls == []

@@ -429,6 +429,7 @@ def prepare_arms(config: ArmsRunConfig, specs: list[str], questions: list[dict])
     from dokimi.eval.session import check_session_questions
 
     _refuse_judged_session(config)
+    refuse_deferred_self_judge(config)  # reads only the config: before the probe and the library lookup
     if config.session_turns is not None:
         check_session_questions(questions, config.session_turns)
     treatments, library_id, plugin_set = _treatments(config, specs, questions)
@@ -436,7 +437,6 @@ def prepare_arms(config: ArmsRunConfig, specs: list[str], questions: list[dict])
     check_sampling_support(config)
     judge = None
     if config.judge:
-        refuse_deferred_self_judge(config)
         _check_judge(config, questions)
         judge = _build_judge(config)
 
