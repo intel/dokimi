@@ -19,12 +19,6 @@ def path_text(raw: bytes) -> str:
     return os.fsdecode(raw) if _POSIX else raw.decode("utf-8", errors="replace")
 
 
-def path_text_is_lossy(raw: bytes) -> bool:
-    """Whether :func:`path_text` loses bytes of ``raw``: on Windows a name that is not valid UTF-8 reads as
-    one with U+FFFD, which no longer says which file it was."""
-    return not _POSIX and path_text(raw).encode("utf-8") != raw
-
-
 def exact_path_text(raw: bytes) -> str | None:
     """:func:`path_text` for a map keyed by file name: None for a name Windows cannot decode, since the replaced name is
     another file's key (``l\\xffint`` and ``l\\ufffdint`` would share one). It decodes as Windows' ``os.fsdecode`` does,

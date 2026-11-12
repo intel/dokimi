@@ -43,7 +43,7 @@ from typing import Any
 
 from dokimi import process
 from dokimi.console import tolerate_console_encoding
-from dokimi.process_io import path_text, path_text_is_lossy
+from dokimi.process_io import exact_path_text, path_text
 
 SCHEMA_DIR = Path(__file__).resolve().parent / "schemas"
 
@@ -300,7 +300,7 @@ def _ls_tree_blobs(*args: str) -> list[tuple[str, str]]:
     for meta, _, name in (entry.partition(b"\t") for entry in entries):
         if not name:
             continue
-        if name.endswith(b".json") and path_text_is_lossy(name):
+        if name.endswith(b".json") and exact_path_text(name) is None:
             raise GitError(f"the schema {name!r} is not valid UTF-8, so on Windows it cannot be matched to a "
                            "file in the work tree: compare on a platform that keeps its bytes")
         blobs.append((path_text(name), meta.split()[2].decode("ascii")))
