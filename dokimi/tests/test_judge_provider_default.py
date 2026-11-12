@@ -207,10 +207,12 @@ def test_the_legacy_cli_shim_exports_the_resolving_parse_args():
     assert args.judge_model == DEFAULT_GENERATOR_MODEL
 
 
-def test_preflight_judges_nothing_so_a_default_judge_on_the_answerer_is_not_refused():
-    # benchmark preflight makes no LLM call and has no --judge: the judge is the base default, not a refusal.
-    args = parse_args(["benchmark", "preflight", "--library", "onetbb", "--judge-provider", "openai"])
-    assert args.judge_model == DEFAULT_GENERATOR_MODEL
+def test_preflight_refuses_the_judge_that_run_refuses(capsys):
+    # preflight shows the plan the run will take: the same flags that `benchmark run` refuses are refused here
+    with pytest.raises(SystemExit) as exc:
+        parse_args(["benchmark", "preflight", "--library", "onetbb", "--judge-provider", "openai"])
+    assert exc.value.code == 2
+    assert "the default judge there is the model under measurement" in capsys.readouterr().err
 
 
 def test_a_matrix_run_takes_no_top_level_model_as_its_answerer(tmp_path):
