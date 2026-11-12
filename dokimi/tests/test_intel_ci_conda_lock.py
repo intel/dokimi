@@ -41,11 +41,69 @@ def test_each_declared_python_has_a_lock_solved_from_todays_specs(monkeypatch: p
     lock = _script("lock", monkeypatch)
     versions = _versions(monkeypatch)
     assert versions
-    stale = {v: lock.specs(v) for v in versions
-             if not lock.hooks.lock_path(v).is_file() or lock.locked_specs(lock.hooks.lock_path(v)) != lock.specs(v)}
+    paths = {v: lock.hooks.lock_path(v, lock.PLATFORM) for v in versions}
+    stale = {v: lock.specs(v) for v, path in paths.items()
+             if not path.is_file() or lock.locked_specs(path) != lock.specs(v)}
     assert stale == {}
-    assert sorted(p.name for p in lock.hooks.CONDA_LOCKS.glob("*.txt")) == sorted(
-        lock.hooks.lock_path(v).name for v in versions)
+    assert sorted(p.name for p in lock.hooks.CONDA_LOCKS.glob("*.txt")) == sorted(path.name for path in paths.values())
+
+
+def _generator(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, declared: list[str]) -> types.ModuleType:
+    """ci/lock.py on a Windows machine, with the declared versions and the solver stubbed, writing under tmp_path."""
+    lock = _script("lock", monkeypatch)
+    monkeypatch.setattr(lock.hooks, "HOST_SUBDIR", "win-64")
+    monkeypatch.setattr(lock.hooks, "CONDA_LOCKS", tmp_path / "ci" / "conda-lock")
+    monkeypatch.setattr(lock.hooks, "ROOT", tmp_path)
+    monkeypatch.setattr(lock, "recipe", lambda: tmp_path / "meta.yaml")
+    monkeypatch.setattr(lock.matrix, "declared", lambda system, selector: [types.SimpleNamespace(version=v) for v in declared])
+    monkeypatch.setattr(lock, "specs", lambda version: [f"python {version}.*"])
+    monkeypatch.setattr(lock, "solve", lambda wanted, min_age_days: [])
+    return lock
+
+
+def test_the_locks_are_for_linux_64_whatever_machine_writes_them(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Run from Windows or macOS, ci/lock.py still solves, labels and names the files for the Linux runners."""
+    lock = _generator(tmp_path, monkeypatch, ["3.12"])
+    assert lock.main([]) == 0
+    written = sorted(p.name for p in (tmp_path / "ci" / "conda-lock").iterdir())
+    assert written == ["linux-64-py3.12.txt"]
+    assert "# platform: linux-64\n" in (tmp_path / "ci" / "conda-lock" / written[0]).read_text(encoding="utf-8")
+
+
+def test_the_solve_targets_linux_64_whatever_machine_runs_it(monkeypatch: pytest.MonkeyPatch) -> None:
+    """py-rattler is asked for linux-64 and noarch records, not the machine's subdir."""
+    platforms: list[list[str]] = []
+
+    async def solve(channels: list[str], specs: list[str], **options: list[str]) -> list:
+        platforms.append(options["platforms"])
+        return []
+
+    rattler = types.ModuleType("rattler")
+    for name in ("GenericVirtualPackage", "PackageName", "Version"):
+        setattr(rattler, name, lambda *args: args)
+    rattler.solve = solve  # type: ignore[attr-defined]
+    build_string = types.ModuleType("rattler.package.build_string")
+    build_string.BuildString = lambda build: build  # type: ignore[attr-defined]
+    for name, module in (("rattler", rattler), ("rattler.package", types.ModuleType("rattler.package")),
+                         ("rattler.package.build_string", build_string)):
+        monkeypatch.setitem(sys.modules, name, module)
+    lock = _script("lock", monkeypatch)
+    monkeypatch.setattr(lock.hooks, "HOST_SUBDIR", "osx-64")
+    assert lock.solve(["python 3.12.*"], 7) == []
+    assert platforms == [["linux-64", "noarch"]]
+
+
+def test_a_full_run_removes_the_locks_of_versions_no_longer_declared(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The directory must hold exactly the declared versions' locks; a run for some versions leaves the others."""
+    lock = _generator(tmp_path, monkeypatch, ["3.12"])
+    directory = tmp_path / "ci" / "conda-lock"
+    directory.mkdir(parents=True)
+    for name in ("linux-64-py3.11.txt", "linux-64-py3.12.txt", "osx-64-py3.11.txt"):
+        (directory / name).write_text("old\n", encoding="utf-8")
+    assert lock.main(["--python", "3.12"]) == 0
+    assert (directory / "linux-64-py3.11.txt").is_file()
+    assert lock.main([]) == 0
+    assert sorted(p.name for p in directory.iterdir()) == ["linux-64-py3.12.txt", "osx-64-py3.11.txt"]
 
 
 def test_a_lock_lists_hashed_conda_forge_builds_of_its_python_and_not_the_package(

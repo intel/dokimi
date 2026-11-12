@@ -215,9 +215,9 @@ def read_yaml(path: Path) -> object:
     raise HookError(f"reading {path.name} needs PyYAML or ruamel.yaml")
 
 
-def lock_path(version: str) -> Path:
-    """The conda lock ci/lock.py writes for one Python version."""
-    return CONDA_LOCKS / f"{HOST_SUBDIR}-py{version}.txt"
+def lock_path(version: str, subdir: str | None = None) -> Path:
+    """The conda lock ci/lock.py writes for one Python version, for the machine's platform unless subdir is given."""
+    return CONDA_LOCKS / f"{subdir or HOST_SUBDIR}-py{version}.txt"
 
 
 def test_requirements() -> tuple[list[str], list[str], list[str] | None]:
