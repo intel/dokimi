@@ -73,12 +73,19 @@ Return ONLY JSON:
   "edges": [{{"from": "n1", "to": "n2", "kind": "requires"}}]}}
 """
 
-# Recorded in a saved graph's provenance: a graph built under another prompt is another graph.
 def _prompt_version(system: str, prompt: str) -> str:
     return "sha256:" + hashlib.sha256((system + "\0" + prompt).encode("utf-8")).hexdigest()
 
 
-PROMPT_VERSION = _prompt_version(_GRAPH_SYSTEM, _GRAPH_PROMPT)
+def prompt_version() -> str:
+    """The hash of the prompt the model sees: the template with the node types and path classes filled in."""
+    filled = _GRAPH_PROMPT.format(name="{name}", description="{description}",
+                                  types=", ".join(NODE_TYPES), classes=", ".join(PATH_CLASSES))
+    return _prompt_version(_GRAPH_SYSTEM, filled)
+
+
+# Recorded in a saved graph's provenance: a graph built under another prompt is another graph.
+PROMPT_VERSION = prompt_version()
 
 
 @dataclass
@@ -175,6 +182,12 @@ def build_need_graph(name: str, description: str, *, client: LLMClient, strict: 
         if strict:
             raise
         return graph
+    return graph_from_reply(name, description, data)
+
+
+def graph_from_reply(name: str, description: str, data: dict) -> NeedGraph:
+    """The graph a model reply (its parsed JSON object) holds: the usable nodes and the edges between them."""
+    graph = NeedGraph(artifact_name=name, description=description)
     nodes = data.get("nodes", []) or []
     # Every original id, rejected rows included, is reserved before any repair, so a repaired id
     # never takes a later node's id or the id an edge to a rejected node names.

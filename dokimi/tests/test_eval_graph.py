@@ -115,6 +115,17 @@ def test_prompt_version_is_a_full_sha256():
     assert PROMPT_VERSION.startswith("sha256:") and len(PROMPT_VERSION) == 7 + 64
 
 
+def test_no_hard_links_is_refused_before_the_paid_call(tmp_path, monkeypatch, capsys):
+    prompts = _stub(monkeypatch, REPLY)
+    monkeypatch.setattr(os, "link", lambda src, dst: (_ for _ in ()).throw(PermissionError(errno.EPERM, "EPERM")))
+    out = tmp_path / "g.json"
+
+    result = _run(capsys, str(_skill(tmp_path)), "--out", str(out), "--extract-model", "gemini/x")
+
+    assert result.returncode == 2 and "no hard links" in result.stderr
+    assert prompts == [] and not out.exists()  # a paid graph is never built and then dropped
+
+
 def test_a_file_written_during_the_call_is_not_replaced(tmp_path, monkeypatch, capsys):
     out = tmp_path / "g.json"
 
@@ -195,12 +206,14 @@ def test_a_missing_out_dir_is_made_and_an_unwritable_one_refused_before_the_call
 
 
 
-def test_prompt_version_changes_with_the_prompt():
-    from dokimi.novelty.needs import _GRAPH_PROMPT, _GRAPH_SYSTEM, _prompt_version
+def test_prompt_version_changes_with_the_node_types_and_path_classes(monkeypatch):
+    from dokimi.novelty import needs
+    from dokimi.novelty.needs import _prompt_version
 
-    assert PROMPT_VERSION == _prompt_version(_GRAPH_SYSTEM, _GRAPH_PROMPT)
-    assert _prompt_version(_GRAPH_SYSTEM, _GRAPH_PROMPT + " ") != PROMPT_VERSION
+    assert PROMPT_VERSION == needs.prompt_version()
     assert _prompt_version("a", "bc") != _prompt_version("ab", "c")
+    monkeypatch.setattr(needs, "PATH_CLASSES", (*needs.PATH_CLASSES, "extra"))  # the prompt the author sees changes
+    assert needs.prompt_version() != PROMPT_VERSION
 
 
 def test_no_hard_links_refuses_and_never_creates_out(tmp_path, monkeypatch, capsys):
@@ -233,22 +246,6 @@ def test_a_failed_write_exits_2_and_leaves_no_staged_file(tmp_path, monkeypatch,
 
     assert result.returncode == 2 and "cannot write" in result.stderr and "No space" in result.stderr
     assert not (tmp_path / "g.json").exists()
-
-
-def test_a_file_written_during_the_call_survives_a_filesystem_without_hard_links(tmp_path, monkeypatch, capsys):
-    out = tmp_path / "g.json"
-
-    def racer(self, prompt, system, *, accept=None, draw=0):
-        out.write_text("other run", encoding="utf-8")
-        return json.dumps(REPLY), None
-
-    monkeypatch.setattr(LLMClient, "_default_transport", racer)
-    monkeypatch.setattr(os, "link", lambda src, dst: (_ for _ in ()).throw(PermissionError(errno.EPERM, "EPERM")))
-
-    result = _run(capsys, str(_skill(tmp_path)), "--out", str(out))
-
-    assert result.returncode == 2 and "no hard links" in result.stderr
-    assert out.read_text(encoding="utf-8") == "other run"
 
 
 def test_a_refused_skill_makes_no_out_directory(tmp_path, monkeypatch, capsys):
@@ -343,14 +340,14 @@ def test_a_rejected_row_keeps_its_id_reserved_so_its_edge_is_dropped(tmp_path, m
     load_graph(out)
 
 
-def test_a_spend_cap_without_a_known_price_stops_before_anything_is_written(tmp_path, monkeypatch, capsys):
-    _stub(monkeypatch, REPLY)
+def test_a_call_with_no_known_price_keeps_its_paid_reply_as_the_graph(tmp_path, monkeypatch, capsys):
+    prompts = _stub(monkeypatch, REPLY)
     out = tmp_path / "g.json"
 
     result = _run(capsys, str(_skill(tmp_path)), "--out", str(out), "--max-usd", "5")
 
-    assert result.returncode == 1 and "no price is known" in result.stderr
-    assert not out.exists()
+    assert len(prompts) == 1 and result.returncode == 0  # one paid call, and its reply is kept
+    assert out.exists() and "could not be metered" in result.stderr
 
 
 def test_a_blank_description_is_refused_before_the_call(tmp_path, monkeypatch, capsys):
@@ -359,7 +356,7 @@ def test_a_blank_description_is_refused_before_the_call(tmp_path, monkeypatch, c
 
     result = _run(capsys, str(_skill(tmp_path, description="   ")), "--out", str(out))
 
-    assert result.returncode == 2 and "description" in result.stderr
+    assert result.returncode == 2 and "cannot load skill" in result.stderr and "--artifact" not in result.stderr
     assert prompts == [] and not out.exists()
 
 

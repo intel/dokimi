@@ -12,6 +12,7 @@ its ids.
 from __future__ import annotations
 
 import argparse
+import errno
 import os
 import shutil
 import sys
@@ -82,9 +83,10 @@ def cmd_eval_graph(args: argparse.Namespace) -> None:
         raise InputError(f"cannot stat {out}: {exc.strerror or exc}") from exc
     if present:
         raise _frozen(out)
-    _kind, name, description, _frontmatter, _body = load_artifact_ref(_as_skill(args.skill))
-    if not description.strip():
-        raise InputError(f"{args.skill} has no description to build a need graph from")
+    try:
+        _kind, name, description, _frontmatter, _body = load_artifact_ref(_as_skill(args.skill))
+    except InputError as exc:  # the loader's message names --artifact, which this command does not have
+        raise InputError(f"cannot load skill {args.skill}: {str(exc).partition(': ')[2] or exc}") from exc
     try:  # before the paid call, not after it: a missing directory is made, as save_artifact does
         out.parent.mkdir(parents=True, exist_ok=True)
         writable = os.access(out.parent, os.W_OK | os.X_OK)
@@ -92,6 +94,7 @@ def cmd_eval_graph(args: argparse.Namespace) -> None:
         raise InputError(f"cannot write to {out.parent}: {exc.strerror or exc}") from exc
     if not writable:
         raise InputError(f"cannot write to {out.parent}: checked before the paid call")
+    _check_hard_links(out)
     from dokimi.llm import PROVIDER_ALIASES
 
     provider, model = args.extract_model
@@ -99,8 +102,13 @@ def cmd_eval_graph(args: argparse.Namespace) -> None:
     client = LLMClient(model=model, provider=provider, role="graph", cap=spend_cap(args))
     try:
         graph = build_need_graph(name, description, client=client, strict=True)
-    except SpendCapReached:
-        raise
+    except SpendCapReached as exc:
+        if exc.reason != "no_price" or not (exc.reply or "").strip():
+            raise
+        # The call is paid for and its reply is the graph, as measure.py keeps such a reply.
+        print(f"Warning: no price is known for {provider}/{model}, so this call could not be metered; "
+              "its reply is the graph", file=sys.stderr)
+        graph = _graph_from_unmetered(name, description, exc.reply)
     except Exception as exc:  # an unreachable or unauthenticated model: not "an empty graph"
         print(f"Error: the graph-author call failed: {exc}; nothing was written", file=sys.stderr)
         sys.exit(EXIT_FAILURE)
@@ -114,6 +122,38 @@ def cmd_eval_graph(args: argparse.Namespace) -> None:
     print(f"{out}: {len(graph.nodes)} nodes ("
           + ", ".join(f"{c} {n}" for c, n in counts.items() if n) + ")")
     print("Every node is a hypothesis: review the file, then label the evals' `needs` with its ids.")
+
+
+_NO_HARD_LINKS = {errno.EPERM, errno.EOPNOTSUPP, errno.ENOTSUP}
+
+
+def _check_hard_links(out: Path) -> None:
+    """Refuse a filesystem with no hard links before the paid call: the graph is published by one."""
+    probe = Path(tempfile.mkdtemp(prefix=".eval-graph-probe-", dir=out.parent))
+    try:
+        (probe / "a").write_bytes(b"")
+        os.link(probe / "a", probe / "b")
+    except OSError as exc:
+        if exc.errno in _NO_HARD_LINKS:
+            raise InputError(
+                f"cannot write {out}: no hard links on this filesystem, so the graph is not "
+                f"published there ({exc.strerror or exc}); write it to a filesystem with hard links"
+            ) from exc
+        raise InputError(f"cannot write {out}: {exc.strerror or exc}") from exc
+    finally:
+        shutil.rmtree(probe, ignore_errors=True)
+
+
+def _graph_from_unmetered(name: str, description: str, reply: str):
+    """The graph of a paid reply whose call had no known price (the reply is kept, as measure.py keeps it)."""
+    from dokimi.novelty.client import parse_json_object
+    from dokimi.novelty.needs import graph_from_reply
+
+    try:
+        data = parse_json_object(reply)
+    except ValueError:  # not a JSON object: no node, so the caller refuses it
+        data = {}
+    return graph_from_reply(name, description, data)
 
 
 def _as_skill(ref: str) -> str:
