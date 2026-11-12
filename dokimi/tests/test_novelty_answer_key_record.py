@@ -174,3 +174,12 @@ def test_an_excluded_list_is_not_read_when_resources_are_not(tmp_path):
     record = load_bundle(f"skill:{root}", include_resources=False).summary()
     verdict = check_answer_key(f"skill:{root}", {**record, "excluded": [5]}, source="a.json")
     assert verdict.ok, verdict.message
+
+
+def test_an_excluded_row_without_a_path_is_read_as_the_base_read_it(tmp_path):
+    # the CLI loader accepts a row with no path (a symlink entry); base read it as path None and went on
+    root = _tree(tmp_path)
+    record = load_bundle(f"skill:{root}", include_resources=True).summary()
+    row = {"role": "reference", "reason": "symlink"}
+    verdict = check_answer_key(f"skill:{root}", {**record, "excluded": [row]}, source="a.json")
+    assert verdict.ok, verdict.message
