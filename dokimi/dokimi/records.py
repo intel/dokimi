@@ -97,6 +97,9 @@ class Answer:
     docs: tuple[Doc, ...] = ()
     doc_source: Optional[str] = None
     error: Optional[str] = None
+    #: Whether the response cache served it (an arms answer's ``replayed: true``); a file
+    #: written before the flag, or any other value, reads as not replayed.
+    replayed: bool = False
     #: The persisted payload, for fields this module does not model (metrics,
     #: transcripts, metadata). Read-only by convention.
     raw: Mapping[str, Any] = field(default_factory=dict)
@@ -568,6 +571,7 @@ def _answer(payload: Mapping[str, Any]) -> Answer:
         docs=docs,
         doc_source=doc_source if isinstance(doc_source, str) else None,
         error=_text(payload.get("error")),
+        replayed=payload.get("replayed") is True,
         raw=payload,
     )
 
