@@ -14,6 +14,7 @@ import argparse
 import contextlib
 import io
 import json
+import os
 from pathlib import Path
 from unittest.mock import patch
 
@@ -348,6 +349,14 @@ def _observed(base: Path) -> dict:
 
 
 def test_gate_outputs_match_golden(tmp_path):
-    observed = _observed(tmp_path.resolve())
-    rendered = json.dumps(observed, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
-    assert rendered == GOLDEN.read_text(encoding="utf-8")
+    # Round-trip through JSON so tuples compare as the lists the golden file holds.
+    observed = json.loads(json.dumps(_observed(tmp_path.resolve())))
+    if os.environ.get("DOKIMI_UPDATE_GOLDEN"):
+        GOLDEN.write_text(json.dumps(observed, indent=2, sort_keys=True, ensure_ascii=False) + "\n",
+                          encoding="utf-8")
+    golden = json.loads(GOLDEN.read_text(encoding="utf-8"))
+    assert sorted(observed) == sorted(golden), "gate golden sections changed; see the module docstring"
+    for section in sorted(golden):
+        assert observed[section] == golden[section], (
+            f"gate golden section {section!r} moved; regenerate with DOKIMI_UPDATE_GOLDEN=1 "
+            "only with a changelog fragment that says what moved")
