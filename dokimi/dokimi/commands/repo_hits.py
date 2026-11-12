@@ -116,15 +116,17 @@ def cmd_repo_hits_judge(args: argparse.Namespace) -> None:
         _judge(batch_dir, args)
 
 
-def _crashed(exc: Exception, done: Any, args: argparse.Namespace) -> NoReturn:
-    """A crash after the judge's calls, with --json: the traceback on stderr, then the infra document with the cost
-    of those calls (exit 5, as main's fallback; a $0 document would say the run was free and safe to retry)."""
+def _failed_after_calls(exc: Exception, done: Any, args: argparse.Namespace, code: str, message: str) -> NoReturn:
+    """A failure after the judge's calls, with --json: the document carries the cost of those calls, so a $0
+    document does not say the run was free and safe to retry. The exit code is the one main gives ``code``
+    (input 2; infra 5, with the traceback on stderr as a crash has)."""
     from dokimi import cli_output
 
-    traceback.print_exc()
-    cli_output.emit(cli_output.error_document("repo hits judge", "infra", f"{type(exc).__name__}: {exc}",
-                                              run_id=cli_output.current_run_id(), cost=_cost(done.meter, args.max_usd)))
-    sys.exit(cli_output.EXIT_OF_ERROR["infra"])
+    if code == "infra":
+        traceback.print_exc()
+    cli_output.emit(cli_output.error_document("repo hits judge", code, message, run_id=cli_output.current_run_id(),
+                                              cost=_cost(done.meter, args.max_usd)))
+    sys.exit(cli_output.EXIT_OF_ERROR[code])
 
 
 def _judge(batch_dir: Path, args: argparse.Namespace) -> None:
@@ -142,10 +144,14 @@ def _judge(batch_dir: Path, args: argparse.Namespace) -> None:
         _stopped(exc, exc.done, EXIT_USAGE, args)
     except JudgeFailing as exc:  # the provider refuses every call (an auth error, a missing key): exit 1
         _stopped(exc, exc.done, EXIT_FAILURE, args, ", and the cell in progress gets none")
+    except (InputError, llm_cli.SamplingError) as exc:  # bad input, not a bug: exit 2 as main reports it
+        if args.json:
+            _failed_after_calls(exc, done, args, "input", str(exc) or type(exc).__name__)
+        raise
     except Exception as exc:
-        if not args.json or isinstance(exc, (InputError, llm_cli.SamplingError)):  # main reports these: no traceback
+        if not args.json:
             raise
-        _crashed(exc, done, args)
+        _failed_after_calls(exc, done, args, "infra", f"{type(exc).__name__}: {exc}")
     if args.json:
         from dokimi import cli_output
 
