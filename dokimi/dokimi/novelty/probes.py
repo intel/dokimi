@@ -384,6 +384,7 @@ def build_probe_set(
     paraphrases: int = 1,
     reversals: bool = True,
     batch: int = 20,
+    into: ProbeSet | None = None,
 ) -> ProbeSet:
     """Build the probe set for a list of atoms.
 
@@ -396,15 +397,19 @@ def build_probe_set(
             generator returns one alternative per call).
         reversals: Whether to add the planted-inversion probe.
         batch: Atoms per wording-generation call.
+        into: An empty set to fill in place and return, so a caller whose generator raises
+            part-way (a spend cap) still holds the probes accepted so far.
     """
-    probes: list[Probe] = [
+    built = into if into is not None else ProbeSet(probes=[])
+    probes = built.probes
+    probes.extend(
         Probe(atom_id=a.id, kind="direct", question=a.question, expected=a.answer)
         for a in atoms
-    ]
+    )
     if client is None:
-        return ProbeSet(probes=probes)
+        return built
 
-    fidelity: dict[str, dict] = {}
+    fidelity = built.fidelity
 
     def tally(kind: str, reasons: list[str]) -> bool:
         row = fidelity.setdefault(
@@ -443,7 +448,7 @@ def build_probe_set(
                         expected=f"Refuse the premise. The truth is: {atom.statement}",
                         expect_refusal=True,
                     ))
-    return ProbeSet(probes=probes, fidelity=fidelity)
+    return built
 
 
 def _chunks(items: list, size: int) -> list[list]:

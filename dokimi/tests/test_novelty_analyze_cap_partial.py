@@ -121,6 +121,18 @@ def test_a_cap_after_the_wordings_keeps_every_probe_before_the_first_answer(tmp_
     validate_artifact("novelty", record)
 
 
+def test_a_cap_between_the_two_wording_calls_keeps_the_paraphrases_already_paid_for(tmp_path):
+    record = _run(tmp_path, _after("Reword each question")).artifact
+    assert record["partial"]["stage"] == "probes" and record["partial"]["reason"] == "spend_cap"
+    items = record["probes"]["items"]
+    kinds = {item["kind"] for item in items}
+    assert kinds == {"direct", "paraphrase"}
+    assert len(items) == record["probes"]["n_probes"]
+    assert record["probes"]["by_kind"]["paraphrase"]["kept"] > 0
+    assert "reversal" not in record["probes"]["by_kind"]
+    validate_artifact("novelty", record)
+
+
 def test_a_cap_in_the_paid_classify_stage_keeps_the_complete_measurement(tmp_path):
     result = _run(tmp_path, _after("judge how it functions"))
     partial = result.artifact["partial"]

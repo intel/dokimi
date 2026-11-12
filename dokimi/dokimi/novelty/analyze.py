@@ -299,9 +299,11 @@ def _analyze(
     relevance = needs.match_atoms(atom_list, graph)
 
     progress.stage = "probes"
-    probe_set = progress.probe_set = probes.build_probe_set(
+    progress.probe_set = probes.ProbeSet(probes=[])
+    probe_set = probes.build_probe_set(
         atom_list, client=extractor,
         paraphrases=config.paraphrases, reversals=config.reversals,
+        into=progress.probe_set,
     )
     probe_list = probe_set.probes
     # A generated wording that lost the version bound, or a "reversal" that never
