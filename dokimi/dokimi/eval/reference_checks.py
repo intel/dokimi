@@ -406,7 +406,7 @@ _OPERANDS = re.compile(r"(?<!\S)--(?!\S)(?:(?![.,](?:\s|$))[^\n;!?`#])*")
 #: default pattern, names no option (``--input "no --stdin"``; a quoted ``--x`` still does).
 _VALUE_WORD = re.compile(
     r"((?<![\w-])--[A-Za-z][\w-]*\s+)"
-    r"(?!(?:not|never|without|rather|instead|avoid\w*|and|but|then|while)\b|[\w.-]*n't\b)"
+    r"(?!(?:not|never|without|rather|instead|avoid\w*|and|but|then|while)\b|[\w.-]*n['’]t\b)"
     r"(?:\"(?!-)[^\"\n]*\"(?!\w)|'(?!-)[^'\n]*'(?!\w)|[\w./][\w./-]*)",
     re.IGNORECASE)
 

@@ -387,6 +387,7 @@ def test_a_clause_word_or_a_contraction_after_a_flag_keeps_its_clause():
     assert grade_check(_veto(), "q", "Run perf report --stdio, not --tui then --stdin.", None).passed is False
     # "doesn't" after a flag still negates the mention that follows it.
     assert grade_check(_veto(), "q", "Run perf report --stdio doesn't take --stdin.", None).passed is True
+    assert grade_check(_veto(), "q", "Run perf report --stdio doesn’t take --stdin.", None).passed is True
     # A comma ends an assigned value: the flag after it is no value of --input, so "not" does not reach it.
     answer = "perf report --stdio not --input=a.data, --stdin"
     assert "--stdin" in grade_check(_veto(), "q", answer, None).detail
