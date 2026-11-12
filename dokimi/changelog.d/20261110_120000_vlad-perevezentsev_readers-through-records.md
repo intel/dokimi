@@ -15,6 +15,6 @@
   text is counted now. In an artifact whose `judge_materials` is an object, a
   malformed answers list or record is now a `RecordError`, as in every other
   reader, instead of being skipped (a missing or non-object `judge_materials`
-  still gives an empty store without reading the answers). A record that carries both "id" and
-  "question_id" is now keyed by "question_id", as the judges look it up; it
-  was keyed by "id".
+  still gives an empty store without reading the answers). A record that
+  carries both "id" and "question_id" is now keyed by "question_id", as the
+  judges look it up; it was keyed by "id".
