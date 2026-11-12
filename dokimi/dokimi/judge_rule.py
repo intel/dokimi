@@ -80,3 +80,28 @@ def default_judge(answerer: str | None, provider: str | None = None,
     if provider == "claude-cli":
         return _claude_cli_judge(answerer, provider)
     return _default_pair(answerer, provider)
+
+
+def apply_default_judge(args, *, matrix: bool, named: bool) -> None:
+    """Fill ``args.judge_model`` (and ``judge_provider`` on a CLI answerer) with :func:`default_judge`.
+
+    The answerer is ``args.model`` and ``args.provider``, unless *matrix*: the cells of a matrix set their own
+    models, so the top-level one is no answerer. *named* says the caller gave ``--judge-provider``, so a CLI answerer
+    does not move the judge to its own CLI. A run that does not judge (no ``--judge``) keeps the base default instead
+    of the refused one. Raises :class:`JudgeIsAnswerer` or ``ValueError`` when no judge can be picked.
+    """
+    answerer, answerer_provider = (None, None) if matrix else (getattr(args, "model", None),
+                                                               getattr(args, "provider", None))
+    on_cli = answerer_provider is not None and llm_cli.backend(answerer_provider) is not None
+    follow_answerer = on_cli and not named
+    try:
+        judge_model, picked = default_judge(answerer, None if follow_answerer else args.judge_provider,
+                                            answerer_provider)
+    except JudgeIsAnswerer:
+        if getattr(args, "judge", True):
+            raise
+        args.judge_model, _ = default_judge(None, args.judge_provider)
+        return
+    args.judge_model = judge_model
+    if follow_answerer:
+        args.judge_provider = picked

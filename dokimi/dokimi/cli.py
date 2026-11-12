@@ -41,7 +41,7 @@ from dokimi.commands import (
 from dokimi import __version__, cli_routes, llm_cli, process
 from dokimi.console import tolerate_console_encoding
 from dokimi.defaults import JUDGE_MODEL_FOR_PROVIDER
-from dokimi.judge_rule import JudgeIsAnswerer, default_judge
+from dokimi.judge_rule import apply_default_judge
 
 
 def _subparsers(parser: argparse.ArgumentParser) -> argparse._SubParsersAction | None:
@@ -172,31 +172,14 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     if moved_flags is not None:  # a moved flag spelling: print the argv with the new one
         parser.exit(2, cli_routes.moved_text(moved_flags) + "\n")
     args = parser.parse_args(raw)
-    if getattr(args, "judge_model", None) is JUDGE_MODEL_FOR_PROVIDER:
-        # The shared rule (judge_rule.default_judge): the answerer is the command's --model/--provider, when it has them.
+    # argparse fills --judge-provider with its default (anthropic), so the rule needs to know whether one was named.
+    args.judge_provider_named = any(_names_judge_provider(t) for t in raw)
+    # A command that reads its answerer from a descriptor (subjects run) resolves the judge itself, once it is loaded.
+    if getattr(args, "judge_model", None) is JUDGE_MODEL_FOR_PROVIDER and not getattr(args, "defer_judge_default", False):
         # With --matrix-cells / --matrix-cell every cell sets its own model, so the top-level one is no answerer.
         matrix = getattr(args, "matrix_cells", None) or getattr(args, "matrix_cell", None)
-        answerer, answerer_provider = (None, None) if matrix else (getattr(args, "model", None),
-                                                                    getattr(args, "provider", None))
-        # argparse fills --judge-provider with its default (anthropic), so the rule could not see that no provider was
-        # named. A claude-cli answerer with no --judge-provider given judges on its own CLI: the rule picks the alias.
-        named = any(_names_judge_provider(t) for t in raw)
-        on_cli = answerer_provider is not None and llm_cli.backend(answerer_provider) is not None
-        follow_answerer = on_cli and not named
         try:
-            judge_model, picked_provider = default_judge(answerer,
-                                                         None if follow_answerer else args.judge_provider,
-                                                         answerer_provider)
-            args.judge_model = judge_model
-            if follow_answerer:
-                args.judge_provider = picked_provider
-        except JudgeIsAnswerer as e:
-            # Only a run that judges is refused: arms run, subjects run and benchmark preflight judge with
-            # --judge (or not at all), so without it the judge is the base default, as before the rule.
-            if not getattr(args, "judge", True):
-                args.judge_model, _ = default_judge(None, args.judge_provider)
-            else:
-                parser.error(str(e))
+            apply_default_judge(args, matrix=bool(matrix), named=args.judge_provider_named)
         except ValueError as e:
             parser.error(str(e))
     cur_judge_provider, cur_judge_model = getattr(args, "judge_provider", None), getattr(args, "judge_model", None)

@@ -21,6 +21,7 @@ from dokimi.defaults import (
     JUDGE_MODEL_FOR_PROVIDER,
     JUDGE_MODEL_HELP,
 )
+from dokimi.judge_rule import apply_default_judge
 from dokimi.utils import InputError
 
 
@@ -100,6 +101,13 @@ def cmd_subjects_run(args: argparse.Namespace) -> None:
         raise InputError(f"cannot load subject: {exc}") from exc
     if descriptor.subject.kind == "repo":
         raise InputError("repo subjects are not run by `subjects run` yet; check them with `repo validate`")
+    if getattr(args, "judge_model", None) is JUDGE_MODEL_FOR_PROVIDER:
+        # The answerer is the descriptor's cells when it has explicit ones; the top-level --model is only the implicit cell.
+        try:
+            apply_default_judge(args, matrix=descriptor.matrix_cells_explicit,
+                                named=getattr(args, "judge_provider_named", False))
+        except ValueError as exc:
+            raise InputError(str(exc)) from exc
     # Attached, not produced: `skill novelty analyze` makes it, so a bad path fails here,
     # before any cell runs.
     try:
@@ -291,7 +299,7 @@ def register(sub, positive_int) -> None:
         dest="skip_work",
         help="Skip suite.tasks even when the subject descriptor declares them.",
     )
-    run_p.set_defaults(func=cmd_subjects_run)
+    run_p.set_defaults(func=cmd_subjects_run, defer_judge_default=True)
 
     evidence_p = subjects_sub.add_parser(
         "evidence",

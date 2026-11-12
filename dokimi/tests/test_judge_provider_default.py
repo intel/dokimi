@@ -17,7 +17,7 @@ from dokimi.defaults import (
     JUDGE_MODEL_FOR_PROVIDER,
 )
 from dokimi.eval.arms_run import ArmsRunConfig, refuse_deferred_self_judge
-from dokimi.judge_rule import default_judge
+from dokimi.judge_rule import JudgeIsAnswerer, apply_default_judge, default_judge
 
 
 def _judge_commands() -> dict[str, list[str]]:
@@ -65,7 +65,10 @@ def test_every_judge_command_defaults_the_model_to_its_provider(command):
     # The answerer is the default gpt-6.1-sol; a command with no answerer (eval score/judge) judges it.
     if command in ANSWERED_COMMANDS:
         argv = [*argv, "--model", DEFAULT_JUDGE_MODEL]
-    assert parse_args([*argv, "--judge-provider", "openai"]).judge_model == DEFAULT_GENERATOR_MODEL
+    args = parse_args([*argv, "--judge-provider", "openai"])
+    if command == "subjects run":  # resolved once the descriptor is loaded, see the test below
+        apply_default_judge(args, matrix=False, named=True)
+    assert args.judge_model == DEFAULT_GENERATOR_MODEL
 
 
 @pytest.mark.parametrize("provider, model", [
@@ -171,9 +174,13 @@ def test_an_explicit_default_name_is_kept_on_another_provider():
 @pytest.mark.parametrize("provider", ["google", "google-vertex", "openrouter"])
 def test_a_provider_with_no_default_judge_exits_before_running(provider, capsys):
     with pytest.raises(SystemExit) as exc:
-        parse_args([*COMMANDS["subjects run"], "--judge-provider", provider])
+        parse_args([*COMMANDS["arms run"], "--judge-provider", provider])
     assert exc.value.code == 2
     assert f"--judge-provider {provider} has no default judge model; pass --judge-model" in capsys.readouterr().err
+    # subjects run takes its judge once the descriptor is loaded, and refuses it there.
+    args = parse_args([*COMMANDS["subjects run"], "--judge-provider", provider])
+    with pytest.raises(ValueError, match=f"--judge-provider {provider} has no default judge model"):
+        apply_default_judge(args, matrix=False, named=True)
     args = parse_args([*COMMANDS["subjects run"], "--judge-provider", provider, "--judge-model", "m"])
     assert args.judge_model == "m"
 
@@ -212,3 +219,15 @@ def test_a_matrix_run_takes_no_top_level_model_as_its_answerer(tmp_path):
                        "--arms", "a.json", "--matrix-cells", str(tmp_path / "cells.json"),
                        "--judge", "--judge-provider", "openai"])
     assert args.judge_model == DEFAULT_GENERATOR_MODEL
+
+
+def test_subjects_run_judge_provider_is_not_refused_before_the_descriptor_loads():
+    # The top-level --model of subjects run is no answerer when the descriptor has explicit cells, so the rule waits.
+    args = parse_args([*COMMANDS["subjects run"], "--judge", "--judge-provider", "openai"])
+    assert args.judge_model is JUDGE_MODEL_FOR_PROVIDER
+    apply_default_judge(args, matrix=True, named=True)
+    assert args.judge_model == DEFAULT_GENERATOR_MODEL
+    # Implicit cells: the top-level model is the answerer, and it is still refused.
+    args = parse_args([*COMMANDS["subjects run"], "--judge", "--judge-provider", "openai"])
+    with pytest.raises(JudgeIsAnswerer):
+        apply_default_judge(args, matrix=False, named=True)
