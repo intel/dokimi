@@ -104,7 +104,10 @@ def cmd_repo_validate(args: argparse.Namespace) -> None:
         _write_json(args.out, report.to_dict())
     failed = not report.ok or bool(args.fail_on_warning and report.warnings)
     if args.json:
-        cli_output.emit_leaf("repo validate", report.to_dict(), status="failed" if failed else "complete")
+        reason = None if not failed else (f"{len(report.errors)} error(s)" if not report.ok
+                                          else f"{len(report.warnings)} warning(s) under --fail-on-warning")
+        cli_output.emit_leaf("repo validate", report.to_dict(), status="failed" if failed else "complete",
+                             reason=reason)
     else:
         mark = "✓" if report.ok else "✗"
         families = ", ".join(f"{k} {v}" for k, v in report.to_dict()["tasks"]["by_family"].items())
@@ -163,12 +166,22 @@ def cmd_repo_scan(args: argparse.Namespace) -> None:
     if args.json:
         failed = bool(args.fail_on_fail and (payload["counts"]["fail"] or payload["incomplete"]) or static_errors)
         cli_output.emit_leaf("repo scan", stamp("repo_readiness", dict(payload)),
-                             status="failed" if failed else "complete")
+                             status="failed" if failed else "complete",
+                             reason=_scan_reason(payload, static_errors) if failed else None)
     else:
         _print_scan_text(manifest, payload, args.out)
     _scan_gate(payload, args.fail_on_fail)  # runs first: an invalid --static still gets the incomplete reason
     if static_errors:
         sys.exit(1)
+
+
+def _scan_reason(payload: dict, static_errors: list) -> str:
+    """Why a --json scan failed: the --static problems, else the incomplete scan, else the failed claims."""
+    if static_errors:
+        return f"{len(static_errors)} --static problem(s) not merged"
+    if payload["incomplete"]:
+        return "scan incomplete: " + "; ".join(payload["incomplete_reasons"])
+    return f"{payload['counts']['fail']} claim(s) failed"
 
 
 def _scan_gate(payload: dict, fail_on_fail: bool) -> None:
@@ -226,7 +239,8 @@ def cmd_repo_inspect(args: argparse.Namespace) -> None:
     failed = bool(args.fail_on_error and payload["counts"]["error"])
     if args.json:
         cli_output.emit_leaf("repo inspect", stamp("repo_environment", dict(payload)),
-                             status="failed" if failed else "complete")
+                             status="failed" if failed else "complete",
+                             reason=f"{payload['counts']['error']} error(s) under --fail-on-error" if failed else None)
     else:
         c = payload["counts"]
         roots = sum(i["scope"] == "root" for i in payload["instructions"])
@@ -555,7 +569,8 @@ def cmd_repo_budget(args: argparse.Namespace) -> None:
     failed = bool(args.fail_on_warning and payload["warnings"])
     if args.json:
         cli_output.emit_leaf("repo budget", stamp("repo_budget", dict(payload)),
-                             status="failed" if failed else "complete")
+                             status="failed" if failed else "complete",
+                             reason=f"{len(payload['warnings'])} warning(s) under --fail-on-warning" if failed else None)
     else:
         t = payload["totals"]
         print(f"{payload['tree']}: start {t['start']:,} chars, lazy {t['lazy']:,}, "
