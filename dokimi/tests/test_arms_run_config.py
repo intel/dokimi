@@ -24,7 +24,7 @@ from tests.cli_refusal import refusal
 ARMS_RUN = ["arms", "run", "--product", "demo", "--questions", "q.json", "--arms", "baseline"]
 
 
-@pytest.mark.parametrize("judge_provider", [[], ["--judge-provider", "claude-cli"]])
+@pytest.mark.parametrize("judge_provider", [[], ["--judge-provider", "openai"], ["--judge-provider", "claude-cli"]])
 def test_the_config_defaults_are_what_arms_run_runs_without_a_flag(judge_provider):
     # A command without a flag (subjects run has no --temperature) and a caller building the
     # config both run these defaults, so they must not drift from the flags'; see #270.

@@ -18,5 +18,10 @@
     `--judge`, `subjects run` without `--judge`) is not refused.
     A matrix (`arms matrix-run --matrix-cells`) has one judge for all its cells, resolved without
     a cell's model; a cell whose model is that judge is still warned about, not refused.
+  - **An explicit `--judge-model` also moves the judge provider.** With `--provider claude-cli` and
+    `--judge --judge-model claude-opus-5-5` and no `--judge-provider`, the judge was the Anthropic API
+    model before; it is now the same model on `claude-cli`, the subscription. A `--judge-model` from
+    another family is refused, but the message names `--judge-provider claude-cli` even when that flag
+    was not passed.
   - **Scores of runs judged on `claude-cli` change.** Their judge is the alias above, so their scores
     are not comparable with earlier runs. Re-baseline them, as with the earlier default changes.
