@@ -593,8 +593,9 @@ def test_an_option_inside_a_quoted_flag_value_is_a_file_name_not_an_option():
     assert grade_check(_veto(), "q", "perf report --input 'no --stdin'", None).passed is True
 
 
-def test_a_refused_reply_with_no_verdict_is_a_datum_when_the_veto_fails():
-    # Without a verdict the judge's grade is missing, but the veto still decides the answer.
+def test_a_refused_reply_with_no_verdict_stays_ungraded_and_the_veto_still_grades_it():
+    # Without a verdict the judge's grade is missing: the file stays partial, and the veto's
+    # verdict is recorded on the run.
     atom = Atom(statement="perf report shows text with --stdio", question="How to get text?",
                 answer="perf report --stdio", span_ids=("s1",),
                 meta={"grading": {"checks": [_veto()]}})
@@ -604,5 +605,5 @@ def test_a_refused_reply_with_no_verdict_is_a_datum_when_the_veto_fails():
     result = run_measurement([atom], build_probes([atom]), "artifact", answerer=answerer,
                              judge=judge, arms=("full",), concurrency=1)
     run = result.runs[0]
-    assert result.stop[0] == "no_price" and result.ungraded == 0
+    assert result.stop[0] == "no_price" and result.ungraded == 1
     assert (run.verdict, run.verdict_source) == ("wrong_other", "check")

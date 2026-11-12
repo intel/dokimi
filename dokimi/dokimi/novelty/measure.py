@@ -172,8 +172,8 @@ class MeasureResult:
     with_arm: str = "full"
     # (probe, arm) jobs the spend cap stopped before they were answered; 0 for a whole run.
     not_run: int = 0
-    # Answers the cap paid for but the judge call was refused: kept in ``runs`` as ``ERRORED``
-    # (no datum) unless a failed veto decides them; counted here so the run is not finished.
+    # Answers the cap paid for but the judge call was refused: kept in ``runs`` (no datum),
+    # and counted here so the run is not taken as finished.
     ungraded: int = 0
     # (reason, message) of a call the cap refused; None when nothing was stopped.
     stop: tuple[str, str] | None = None
@@ -415,7 +415,7 @@ def _capped_grade_run(probe: Probe, arm: str, response: str, confidence: float |
                       exc: SpendCapReached, stops: list[SpendCapReached],
                       ungraded: list[ProbeRun]) -> ProbeRun:
     """The answer was paid for and the judge hit the cap: keep the verdict a refused judge reply
-    names, else keep the run ungraded (no datum) unless a failed veto decides it. Either way the
+    names, else keep the run ungraded (no datum). The checks grade the run either way, and the
     measurement stops here."""
     stops.append(exc)
     named = _reply_verdict(exc.reply)
@@ -426,7 +426,7 @@ def _capped_grade_run(probe: Probe, arm: str, response: str, confidence: float |
     )
     if probe.grading:  # the veto runs on the answer whatever the refused judge reply said
         _apply_checks(run, probe, response, named or ERRORED)
-    if named is None and run.verdict_source != "check":
+    if named is None:
         ungraded.append(run)
     return run
 
