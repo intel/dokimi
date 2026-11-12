@@ -120,9 +120,8 @@ COMMAND_RULES: tuple[Rule, ...] = (
              r"|--no-verify\b)"
              r"|push\b.*--no-verify\b)")),
     Rule("secret-read", "high", "credential store read, by a command or a read tool (the finding's source says which)",
-         # any absolute home: the runner's own HOME is /eval/run/home, not /root or /home/<user>
-         # a relative `.ssh` (or `./.ssh`) counts too; each name ends at a separator or the end (`.awsome` is no `.aws`);
-         # `.env` ends at a separator or a shell operator (`source .env;`, `cat .env|grep`)
+         # a name ends at a separator, an operator or the end (`.awsome` is no `.aws`); `.env` at whitespace, a quote, an operator or the end
+         # `.env` is not cut at `/`, so a venv's `.env/bin` is no hit; the runner's HOME is /eval/run/home
          _rx(r"(?:(?:~|\$HOME\"?|\$\{HOME\}\"?|/\S*?)/|(?:^|[\s=\"'])(?:\./)?)\.(?:ssh|aws|gnupg|netrc|docker/config\.json"
              r"|kube/config)(?=[/\s;&|)<>`\"':*,}]|$)|(?:^|[\s/=\"'])\.env(?=[\s;&|)<>`\"']|$)")),
 )
