@@ -16,6 +16,7 @@ from dokimi.cli import build_parser
 from dokimi.commands.evaluate import _run_ragas_eval
 from dokimi.eval import ragas_eval
 from tests.test_eval_output_write_errors import _JUDGE_COMMANDS, _Report, _stub_judge_commands
+from tests.test_judge_validity import _answers
 
 EXPECTED_VERSION = {
     "pairwise": "pairwise.v1",
@@ -140,3 +141,21 @@ def test_grounding_command_exits_1_when_its_payload_is_refused(tmp_path, monkeyp
         args.func(args)
     assert exc.value.code == 1
     assert not out.exists() and (tmp_path / "grounding.json.rejected").exists()
+
+
+def test_validity_report_is_saved_with_the_envelope(tmp_path, monkeypatch):
+    # Every eval report goes through save_artifact, so runs list and show can read it.
+    import dokimi.eval.judge as judge_mod
+    import dokimi.eval.judge_validity as jv
+
+    answers = tmp_path / "answers.json"
+    answers.write_text(json.dumps(_answers()))
+    out = tmp_path / "validity.json"
+    monkeypatch.setattr(judge_mod, "Judge", lambda **kw: None)
+    monkeypatch.setattr(jv, "judge_scorer", lambda judge: lambda lib, q, a: float(len(a)))
+    args = build_parser().parse_args(["eval", "judge", "validate", "--answers", str(answers),
+                                      "--variants", "truncate_20", "--output", str(out)])
+    args.func(args)
+    saved = json.loads(out.read_text())
+    assert saved["schema_version"] == "judge_validity.v1"
+    assert saved["run_id"] and saved["dokimi_version"]
