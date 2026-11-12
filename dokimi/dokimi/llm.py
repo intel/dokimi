@@ -24,8 +24,8 @@ What a caller can rely on:
 
 - **Providers.** :data:`PROVIDERS` (canonical name -> key variable) plus :data:`PROVIDER_ALIASES`.
   :func:`resolve_model` is this module's model-name map and :func:`credential_env_var` its
-  key-variable map. A provider outside the table is passed to litellm as its own route prefix
-  (``azure/<model>``) with no key, so litellm reads that vendor's variable. A provider in
+  key-variable map. A provider outside the table is its own litellm route (``azure/<model>``),
+  sent no key: litellm reads the vendor's variable raw (``file:`` is not read). A provider in
   :data:`dokimi.llm_cli.BACKENDS` (``claude-cli``) is a logged-in coding-agent CLI, not an API: no
   key, no tools, no sampling control (:mod:`dokimi.llm_cli`). An explicit ``api_key`` wins over
   the environment; either may be ``file:<path>``, and an unreadable file raises ``ValueError``.
