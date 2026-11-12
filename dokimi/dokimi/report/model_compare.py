@@ -856,8 +856,8 @@ def _cost_cell(cs: dict) -> str:
         return "—"
     cost_known, total_calls = cs.get("cost_known_n"), cs.get("total_llm_calls", cs.get("n"))
     if cost_known is not None and total_calls is not None and cost_known < total_calls:
-        return f"${cost_usd:.4f} ({cost_known}/{total_calls})"
-    return f"${cost_usd:.4f}"
+        return f"{fmt.usd(cost_usd)} ({cost_known}/{total_calls})"
+    return fmt.usd(cost_usd)
 
 
 def _resource_usage_lines(runs: list[tuple[str, dict]], pooled: bool) -> list[str]:

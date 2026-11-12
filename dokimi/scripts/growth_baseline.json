@@ -60,7 +60,7 @@
     "dokimi/questions/validator.py::QuestionValidator.__init__": {"complexity": 11},
     "dokimi/questions/validator.py::QuestionValidator._deduplicate": {"complexity": 13},
     "dokimi/records.py::record": {"complexity": 14, "rationale": "pre-existing when the gate was introduced"},
-    "dokimi/report/arms_report.py::render_arms_report": {"complexity": 21},
+    "dokimi/report/arms_report.py::render_arms_report": {"complexity": 20},
     "dokimi/report/eval_report.py::generate_report": {"complexity": 18},
     "dokimi/report/generator.py::ReportGenerator._format_markdown": {"complexity": 16},
     "dokimi/report/model_compare.py::check_run_consistency": {"complexity": 13},

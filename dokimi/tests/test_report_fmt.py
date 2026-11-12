@@ -27,6 +27,7 @@ from dokimi.report import fmt
 from dokimi.report.arms_report import render_arms_report
 from dokimi.report.exploration_report import render_exploration_metrics, render_explore_report
 from dokimi.report.generator import ReportGenerator
+from dokimi.report.model_compare import generate_section_report
 from dokimi.report.plugin_delta_report import render_plugin_delta_report
 from dokimi.report.subject_report import render_subject_scorecard
 from dokimi.report.task_runs_report import render_task_runs_report
@@ -267,7 +268,7 @@ def test_goldens_hold_the_edge_values():
     texts = {name: "\n".join(lines) for name, lines in json.loads(GOLDEN.read_text(encoding="utf-8")).items()}
     assert set(texts) == set(CASES)
     for name, marks in {
-        "arms": ["<0.0001", "+nan", "[-inf, +0.003]", "| -0.00001 |", "$0.0000 (3/4)", "12.5%", "100%"],
+        "arms": ["<0.0001", "+nan", "[-inf, +0.003]", "| -0.00001 |", "<$0.0001 (3/4)", "12.5%", "100%"],
         "plugin_delta": ["$-0.0000", "| -4 |", "| +inf |", "| nan |"],
         "subject": ["0.123 / 3", "n/a / 0.500", "nan / 2", "-0.000 / True", "(<1% unread)", "12.35%"],
         "task_runs": ["<$0.0001", "| $0.0001 |", "[-0.0, +100.0] pp", "| nan |", "$-0.0000", "nan%"],
@@ -277,6 +278,17 @@ def test_goldens_hold_the_edge_values():
     }.items():
         missing = [m for m in marks if m not in texts[name]]
         assert not missing, f"{name}: {missing}"
+
+
+def test_a_sub_cent_cost_reads_under_a_hundredth_of_a_cent_in_every_cost_cell():
+    """A real cost under $0.00005 printed $0.0000 in ``arms run`` and ``report model-compare``: a free run, which it is not."""
+    run = {"baseline_arm": "baseline", "model": "m", "provider": "p",
+           "evaluations": [{"question_id": "q0", "question_text": "q", "scores": {"baseline": {"aggregate": 50}}}],
+           "cost_summary": {"baseline": {"total_cost_usd": 0.00001, "cost_known_n": 1, "total_llm_calls": 2}}}
+    compare = "\n".join(generate_section_report([("r", run)], ["r"], "Regular"))
+    assert "| **r** | <$0.0001 (1/2) |" in compare
+    assert "| `baseline` | <$0.0001 (3/4) |" in CASES["arms"]()
+    assert "| <$0.0001 | <$0.0001 |" in CASES["task_runs"]()
 
 
 def test_a_delta_prints_its_own_sign_in_both_delta_tables():

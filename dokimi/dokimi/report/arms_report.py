@@ -168,15 +168,12 @@ def render_arms_report(data: Dict[str, Any]) -> str:
             if not cs:
                 continue
             cost = cs.get("total_cost_usd")
-            if cost is None:
-                cost_s = "—"
-            else:
-                cost_s = f"${cost:.4f}"
-                # Flag a partial total when some rows lacked litellm pricing.
-                known = cs.get("cost_known_n")
-                n = cs.get("total_llm_calls", cs.get("n"))
-                if known is not None and n is not None and known < n:
-                    cost_s += f" ({known}/{n})"
+            cost_s = fmt.usd(cost)
+            # Flag a partial total when some rows lacked litellm pricing.
+            known = cs.get("cost_known_n")
+            n = cs.get("total_llm_calls", cs.get("n"))
+            if cost is not None and known is not None and n is not None and known < n:
+                cost_s += f" ({known}/{n})"
             lines.append(
                 f"| `{arm}` | {cost_s} | {cs.get('prompt_tokens', 0)} | "
                 f"{cs.get('completion_tokens', 0)} | {fmt.fixed(cs.get('mean_latency_sec'), 3)} | "
