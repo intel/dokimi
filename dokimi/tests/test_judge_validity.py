@@ -1053,6 +1053,27 @@ def test_report_is_written_before_a_console_that_cannot_print_it(tmp_path, monke
     assert json.loads(out.read_text())["summary"]["n_pairs"] > 0
 
 
+def test_validity_report_is_saved_with_the_envelope(tmp_path, monkeypatch, capsys):
+    # Every eval report goes through save_artifact, so runs list and show can read it.
+    import json
+
+    import dokimi.eval.judge as judge_mod
+    import dokimi.eval.judge_validity as jv
+    from dokimi.cli import build_parser
+
+    answers = tmp_path / "answers.json"
+    answers.write_text(json.dumps(_answers()))
+    out = tmp_path / "validity.json"
+    monkeypatch.setattr(judge_mod, "Judge", lambda **kw: None)
+    monkeypatch.setattr(jv, "judge_scorer", lambda judge: lambda lib, q, a: float(len(a)))
+    args = build_parser().parse_args(["eval", "judge", "validate", "--answers", str(answers),
+                                      "--variants", "truncate_20", "--output", str(out)])
+    args.func(args)
+    saved = json.loads(out.read_text())
+    assert saved["schema_version"] == "judge_validity.v1"
+    assert saved["run_id"] and saved["dokimi_version"]
+
+
 def test_mismatched_answer_is_drawn_per_base():
     answers = [
         {"question_id": f"Q{i}", "question_text": "q", "arms": {"a": {"answer": f"Answer {i}. " * 40}}}

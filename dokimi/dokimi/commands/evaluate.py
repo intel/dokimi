@@ -38,11 +38,6 @@ def _load_answers(path: str):
     return load(path, section="answers")
 
 
-def _write_json_or_exit(path: Path, payload: dict, code: int = EXIT_USAGE) -> None:
-    """Write ``payload`` as JSON to ``path``, or exit ``code`` naming ``path`` when it cannot be written."""
-    write_text_or_exit(path, json.dumps(payload, indent=2), code)
-
-
 def _require_ragas() -> None:
     """Exit before any model call when the ragas extra is not installed."""
     if importlib.util.find_spec("ragas") is None:
@@ -410,7 +405,7 @@ def cmd_eval_judge_validity(args: argparse.Namespace) -> None:
         result["summary"]["answers_model"] = run.meta.get("model")
         if typed is not None:
             result["summary"]["typed_arm"] = typed.report_fields()
-        _write_json_or_exit(out, result, code=2)
+        save_artifact_or_exit("judge_validity", result, out, code=2)
 
     print()
     print(report.format_summary())

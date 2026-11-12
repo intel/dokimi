@@ -59,6 +59,7 @@ CONTENTS = {
     "checklist.v1": {"questions": 1},
     "judge_wording.v1": {},
     "cross_judge.v1": {"unscored": 0},
+    "judge_validity.v1": {},
     "pairwise.v1": {"errors": 0},
     "personas.v1": {"personas": 2},
     "persona_analysis.v1": {"use_cases": 1, "api_patterns": 2, "topics": 1},

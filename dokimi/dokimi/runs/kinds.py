@@ -89,6 +89,7 @@ FIELDS: dict[str, KindFields] = {
     "checklist": KindFields(model=("summary.judge",), counts=("questions",)),
     "judge_wording": KindFields(model=("summary.judge",)),
     "cross_judge": KindFields(counts=("unscored",)),
+    "judge_validity": KindFields(),
     "pairwise": KindFields(model=("summary.judge",), counts=("errors",)),
     "personas": KindFields(subject=("product",), model=("model",), time=("generated_at",),
                            counts=("personas",)),

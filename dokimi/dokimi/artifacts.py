@@ -94,6 +94,7 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "checklist": "checklist.v1",
     "judge_wording": "judge_wording.v1",
     "cross_judge": "cross_judge.v1",
+    "judge_validity": "judge_validity.v1",
     "pairwise": "pairwise.v1",
     "personas": "personas.v1",
     "persona_analysis": "persona_analysis.v1",
