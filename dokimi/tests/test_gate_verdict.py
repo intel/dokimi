@@ -4,7 +4,7 @@
 """The shared Verdict: what each property answers, and that the answers agree."""
 
 from dokimi.gate.regression import detect_regressions
-from dokimi.gate.verdict import Verdict
+from dokimi.gate.verdict import Check, Verdict
 
 
 def test_a_critical_regression_reads_as_fail_everywhere():
@@ -21,3 +21,11 @@ def test_a_warn_regression_reads_as_warn():
     assert verdict.has_warnings and not verdict.has_critical
     assert verdict.status == "WARN"
 
+
+def test_a_verdict_that_measured_nothing_does_not_pass():
+    assert not Verdict().passed
+    assert Verdict(enabled=False).passed
+
+
+def test_a_verdict_with_a_measured_passing_check_passes():
+    assert Verdict(checks=[Check("x", passed=True)]).passed

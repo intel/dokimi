@@ -82,8 +82,10 @@ class Verdict:
 
     @property
     def passed(self) -> bool:
-        """Every check passed (a verdict with no checks passed)."""
-        return all(c.passed for c in self.checks)
+        """Every check passed, and an enabled verdict measured at least one check: a verdict
+        that measured nothing does not pass (its status is NOT MEASURED)."""
+        return all(c.passed for c in self.checks) and (
+            not self.enabled or any(c.measured for c in self.checks))
 
     @property
     def failures(self) -> list[Check]:
