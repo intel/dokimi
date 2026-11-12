@@ -171,6 +171,9 @@ FINDING_CODES = (
     "unreadable",
     "permission-bypass-flag",
     "pipe-to-shell",
+    "script-crlf",
+    "script-lint",
+    "script-syntax",
 )
 
 

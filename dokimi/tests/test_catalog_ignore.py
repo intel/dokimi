@@ -210,6 +210,12 @@ def _emitted_codes() -> set[str]:
                     and isinstance(node.value, str):
                 if kebab.match(node.value):
                     codes.add(node.value)
+            # script_checks returns bare (level, code, message) tuples; only those are finding codes
+            # (its SYNTAX_CODES holds ruff's "invalid-syntax", which is not one).
+            if path.name == "script_checks.py" and isinstance(node, ast.Tuple) and len(node.elts) == 3 \
+                    and isinstance(node.elts[0], ast.Constant) and node.elts[0].value in ("note", "warn", "error") \
+                    and isinstance(node.elts[1], ast.Constant) and isinstance(node.elts[1].value, str):
+                codes.add(node.elts[1].value)
     return codes
 
 
