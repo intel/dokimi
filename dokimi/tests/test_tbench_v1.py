@@ -393,6 +393,24 @@ def test_harbor_view_ignores_an_export_planted_in_the_shared_temp_dir(tmp_path, 
     assert (view.path.parents[1].stat().st_mode & 0o777) == 0o700
 
 
+def test_the_content_key_of_a_utf8_task_is_unchanged(tmp_path):
+    _write(tmp_path / "ok.md", "ok\n")
+    _write(tmp_path / "sub" / "é.md", "two\n")
+    assert harbor_export._content_key(tmp_path, "r") == "24f0603eabd3edd9"
+
+
+def test_the_content_key_hashes_the_bytes_of_a_file_name_that_is_not_utf8(tmp_path):
+    _write(tmp_path / "ok.md", "ok\n")
+    before = harbor_export._content_key(tmp_path)
+    try:
+        with open(os.fsencode(tmp_path) + b"/n\xff.md", "wb") as handle:
+            handle.write(b"x")
+    except OSError:
+        pytest.skip("the file system refuses a name that is not UTF-8")
+    after = harbor_export._content_key(tmp_path)
+    assert after != before and len(after) == 16
+
+
 def test_harbor_harness_runs_the_export_not_the_source(tmp_path, monkeypatch):
     from docker_cli_fake import DockerCLI
 
