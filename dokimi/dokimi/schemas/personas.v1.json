@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/intel/dokimi/schemas/personas.v1.json",
+  "title": "Personas v1",
+  "description": "`personas/<product>.json`, written by `eval personas discover` and the `evaluate` pipeline (dokimi.personas.generator): the user personas a model proposed for one product, read by `eval personas validate`, `eval questions generate --personas` and the pipeline. The generator checks that each persona has its six fields; a person may edit the file before it is used.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "product",
+    "generated_at",
+    "model",
+    "provider",
+    "personas"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "personas.v1"
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}(?![\\s\\S])",
+      "description": "The envelope: the id of the run that saved this file (dokimi.artifacts.run_id). Absent from files saved before the envelope."
+    },
+    "dokimi_version": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The envelope: the dokimi version that saved this file. Absent from files saved before the envelope."
+    },
+    "product": {
+      "type": "string"
+    },
+    "generated_at": {
+      "type": "string",
+      "description": "UTC, ISO 8601 with a trailing Z."
+    },
+    "model": {
+      "type": "string",
+      "description": "The generator model."
+    },
+    "provider": {
+      "type": "string"
+    },
+    "personas": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "description",
+          "skill_level",
+          "concerns",
+          "typical_questions"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "lowercase_snake_case; questions name their persona by it."
+          },
+          "name": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "skill_level": {
+            "type": "string",
+            "description": "beginner, intermediate or advanced, as the prompt asks; not enforced."
+          },
+          "concerns": {
+            "type": "array"
+          },
+          "typical_questions": {
+            "type": "array"
+          }
+        }
+      }
+    }
+  }
+}

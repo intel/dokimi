@@ -104,7 +104,7 @@ def test_benchmark_preflight_missing_credential_exits_2(tmp_path, monkeypatch, c
     monkeypatch.setattr(
         "sys.argv",
         ["dokimi", "benchmark", "preflight", "--library", "onetbb", "--provider", "openai",
-         "--judge-provider", "openai", "--output-dir", str(tmp_path / "out")],
+         "--judge-provider", "openai", "--out-dir", str(tmp_path / "out")],
     )
     with pytest.raises(SystemExit) as exc:
         cli.main()
