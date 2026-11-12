@@ -67,7 +67,8 @@ def _run_ragas_eval(answers, output_path, args) -> None:
 
         # Save ragas results alongside answers
         ragas_path = output_path.with_name(output_path.stem + "_ragas.json")
-        save_artifact_or_exit("ragas", result.to_dict(), ragas_path, code=2)
+        payload = {**result.to_dict(), "ragas_model": f"{ragas_provider}/{ragas_model}"}
+        save_artifact_or_exit("ragas", payload, ragas_path, code=2)
 
         print(result.format_summary())
         print(f"✅ Saved RAGAS results to {ragas_path}")

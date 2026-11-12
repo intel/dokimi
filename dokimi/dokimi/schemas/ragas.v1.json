@@ -11,6 +11,7 @@
     "dokimi_version": {"type": "string", "minLength": 1, "description": "The envelope: the dokimi version that saved this file. Absent from files saved before the envelope."},
     "ragas_summary": {"type": "object", "description": "Mean RAGAS metrics per condition: `with_docs` and `without_docs`."},
     "ragas_n_evaluated": {"type": "object", "description": "Questions scored per condition: `with_docs` and `without_docs`."},
-    "ragas_per_question": {"type": "object", "description": "Per-question RAGAS scores per condition: `with_docs` and `without_docs`."}
+    "ragas_per_question": {"type": "object", "description": "Per-question RAGAS scores per condition: `with_docs` and `without_docs`."},
+    "ragas_model": {"type": "string", "description": "The judge that scored the answers, `provider/model`, as `eval score ragas` ran it (`--ragas-provider`, `--ragas-model`). Absent from files saved before it was recorded."}
   }
 }

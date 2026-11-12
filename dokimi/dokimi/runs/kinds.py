@@ -84,7 +84,7 @@ FIELDS: dict[str, KindFields] = {
     "catalog_eval": KindFields(subject=("root",), counts=("skills", "problems")),
     "reach_matrix": KindFields(time=("generated_at",), counts=("runs", "cells")),
     "repo_hits_judged": KindFields(subject=("task",), model=("judge.model",), counts=("pairs",)),
-    "ragas": KindFields(),
+    "ragas": KindFields(model=("ragas_model",)),
     "grounding": KindFields(counts=("per_question",)),
     "checklist": KindFields(model=("summary.judge",), counts=("questions",)),
     "judge_wording": KindFields(model=("summary.judge",)),

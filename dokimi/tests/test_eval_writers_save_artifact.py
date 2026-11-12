@@ -100,6 +100,9 @@ def test_ragas_output_saves_with_the_envelope(tmp_path, monkeypatch):
     args = types.SimpleNamespace(ragas_model="m", ragas_provider="anthropic")
     _run_ragas_eval([], tmp_path / "answers.json", args)
     _assert_saved_with_envelope(tmp_path / "answers_ragas.json", "ragas.v1", "ragas_summary")
+    # The judge that scored the answers is recorded, so runs list and show can name it.
+    saved = json.loads((tmp_path / "answers_ragas.json").read_text(encoding="utf-8"))
+    assert saved["ragas_model"] == "anthropic/m"
 
 
 def test_a_payload_its_schema_refuses_exits_1_and_keeps_it_beside_the_path(tmp_path, capsys):
