@@ -270,6 +270,11 @@ The sample is tiny, but it is the failure the judge is known to have
 ([degrade.py](https://github.com/intel/dokimi/blob/main/dokimi/dokimi/eval/degrade.py)'s
 `wrong_tools`: fluent and wrong), seen in real answers, and caught without a model.
 
+**Known limit:** a standalone `--` ends the options of its command, so the words after it, up to the end
+of the clause, are operands and their flags are not checked. In prose this can hide a flag:
+`perf report --stdio -- and add --bogus` passes the veto. A comma ends the operands (`-- it, and --bogus`
+is caught), but without one the scan cannot tell prose from an argument. Kept as is, not changed in this round.
+
 ### What the prototype supports
 
 * Tier 1/2 checks are worth having as **vetoes** and as **key verification**, not as a
