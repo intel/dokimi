@@ -69,12 +69,16 @@ def _bundle_path(word: str) -> Optional[str]:
 def _words(span: str) -> list[str]:
     """The words of a code span as a shell reads them: a quoted or escaped argument is one word.
 
-    The shell tokenizer runs first, so its quotes and escapes (``a\\,b.svg``, ``"a\\"b,c.svg"``) hold.
-    Then a word is split where a ``,`` or ``;`` comes before a bundle folder (``scripts/a.py,scripts/b.py``).
-    A span whose quotes do not balance is split on whitespace.
+    The shell tokenizer runs first, so its quotes and escapes (``a\\,b.svg``, ``"a\\"b,c.svg"``) hold,
+    and a ``;`` is a command separator as in the shell (``run.py;echo``). Then a word is split where a
+    ``,`` or ``;`` comes before a bundle folder (``scripts/a.py,scripts/b.py``), which also splits a
+    list inside quotes. A span whose quotes do not balance is split on whitespace.
     """
     try:
-        words = shlex.split(span)
+        lexer = shlex.shlex(span, posix=True, punctuation_chars=";")
+        lexer.whitespace_split = True
+        lexer.commenters = ""
+        words = list(lexer)
     except ValueError:
         words = span.split()
     return [part for word in words for part in SEPARATOR_RE.split(word) if part]
