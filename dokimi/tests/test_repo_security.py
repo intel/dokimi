@@ -71,9 +71,18 @@ def _arm(report: dict, arm: str, model: str = "m") -> dict:
     ("cat /root/.aws/credentials", "secret-read"),
     ("cat ${HOME}/.ssh/id_rsa", "secret-read"),
     ('cat "$HOME"/.ssh/id_rsa', "secret-read"),
+    ("cat .ssh/id_rsa", "secret-read"),
+    ("cat ./.ssh/id_rsa", "secret-read"),
+    ("source .env;", "secret-read"),
+    ("cat .env|grep X", "secret-read"),
 ])
 def test_command_rule_matches(text, rule):
     assert rule in _rules(sec.command_findings(text, "trace"))
+
+
+@pytest.mark.parametrize("text", ["ls /tmp/.awsome", "cat /tmp/.sshd_config", "cat notes.ssh", "cat .env.example"])
+def test_a_dotted_name_that_only_starts_like_a_secret_path_is_not_a_read(text):
+    assert "secret-read" not in _rules(sec.command_findings(text, "trace"))
 
 
 @pytest.mark.parametrize("text", [
