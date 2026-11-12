@@ -276,7 +276,7 @@ def test_an_unreadable_queries_file_exits_with_a_message(tmp_path, content):
 def test_a_catalog_that_is_not_a_directory_is_refused(tmp_path):
     args = _parse("skill", "routing", _skill(tmp_path, "a", "d"), "--against",
                   str(tmp_path / "nope"), "--queries-from-headings")
-    with pytest.raises(InputError, match="catalog is not a directory"):
+    with pytest.raises(InputError, match="--against is not a directory"):
         args.func(args)
 
 

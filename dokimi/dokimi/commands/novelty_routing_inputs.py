@@ -138,13 +138,13 @@ def routing_field(args: argparse.Namespace, exclude: set[str],
     from dokimi.novelty.catalog_keep import check_keep_copies_under
     from dokimi.novelty.routing import catalog_competitors, over_limit_warnings
 
+    if args.catalog and not Path(args.catalog).is_dir():
+        label = "ROOT" if getattr(args, "all_vs_all", False) else "--against"
+        raise InputError(f"{label} is not a directory: {args.catalog}")
     if args.keep_copies_under is not None:
         if not args.catalog:
             raise InputError("--keep-copies-under needs --against: it picks between the copies of "
                              "a catalog")
-        if not Path(args.catalog).is_dir():
-            label = "ROOT" if getattr(args, "all_vs_all", False) else "--against"
-            raise InputError(f"{label} is not a directory: {args.catalog}")
         try:
             check_keep_copies_under(args.catalog, args.keep_copies_under)
         except ValueError as exc:
