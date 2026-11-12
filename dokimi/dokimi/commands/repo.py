@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 from dokimi import cli_flags, cli_output
 from dokimi.commands.repo_skill_reach import add_skill_reach_parser
 from dokimi.exit_codes import EXIT_USAGE
-from dokimi.commands.repo_scan import _print_scan_text, _typecheck_or_exit
+from dokimi.commands.repo_scan import _print_scan_text, _scan_gate, _scan_reason, _typecheck_or_exit
 from dokimi.utils import InputError
 
 
@@ -173,30 +173,6 @@ def cmd_repo_scan(args: argparse.Namespace) -> None:
     _scan_gate(payload, args.fail_on_fail)  # runs first: an invalid --static still gets the incomplete reason
     if static_errors:
         sys.exit(1)
-
-
-def _scan_reason(payload: dict, static_errors: list, fail_on_fail: bool) -> str:
-    """Why a --json scan failed: every cause the gate tripped on, joined by ``; `` (a scan can fail on more than
-    one). The --static problems always fail the run; the failed claims and the incomplete scan only under
-    --fail-on-fail."""
-    parts = []
-    if static_errors:
-        parts.append(f"{len(static_errors)} --static problem(s) not merged")
-    if fail_on_fail and payload["counts"]["fail"]:
-        parts.append(f"{payload['counts']['fail']} claim(s) failed")
-    if fail_on_fail and payload["incomplete"]:
-        reasons = "; ".join(payload.get("incomplete_reasons") or [])
-        parts.append(f"scan incomplete: {reasons}" if reasons else "scan incomplete")
-    return "; ".join(parts)
-
-
-def _scan_gate(payload: dict, fail_on_fail: bool) -> None:
-    """--fail-on-fail: exit 1 on a failed claim or an incomplete scan, saying on stderr what the scan missed."""
-    if not fail_on_fail or not (payload["counts"]["fail"] or payload["incomplete"]):
-        return
-    if payload["incomplete"]:
-        print(f"✗ scan incomplete: {'; '.join(payload['incomplete_reasons'])}", file=sys.stderr)
-    sys.exit(1)
 
 
 def _code_index(path: str | None) -> Any:
