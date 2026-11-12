@@ -6,14 +6,17 @@
 from __future__ import annotations
 
 import json
+import math
+import sys
 
 import pytest
 
 from dokimi.cli import build_parser
-from dokimi.context.consistency import (apply_outcomes, check_contract, jsd,
+from dokimi.context.consistency import (_cv, apply_outcomes, check_contract, jsd,
                                         load_contract, load_outcomes, parse_contract, parse_run,
                                         pass_at, pass_hat, profile, run_from_events, seq_distance)
 from dokimi.context.shell import program as _program
+from dokimi.utils import InputError
 from dokimi.context.shell import written as _written
 
 
@@ -193,7 +196,7 @@ def test_cli_arms_outcomes_and_json(tmp_path, capsys):
         "--arm", f"skill={tmp_path}/skill/*.jsonl", "--outcomes", str(outcomes),
         "--contract", str(contract), "--json"])
     args.func(args)
-    rep = json.loads(capsys.readouterr().out)
+    rep = json.loads(capsys.readouterr().out)["data"]
     assert rep["base"]["result"]["success_rate"] == 0.5
     assert rep["skill"]["result"]["pass^2"] == 1.0
     assert rep["skill"]["path"]["order_distance"] == 0
@@ -358,9 +361,9 @@ def test_cli_refuses_malformed_files_cleanly(tmp_path, flag, content):
     f = tmp_path / "bad"
     f.write_text(content)
     args = build_parser().parse_args(["trace", "consistency", str(tmp_path / "t.jsonl"), flag, str(f)])
-    with pytest.raises(SystemExit) as exc:
+    with pytest.raises(InputError) as exc:
         args.func(args)
-    assert str(exc.value).startswith("✗")
+    assert str(f) in str(exc.value)
 
 
 @pytest.mark.parametrize("content", ["a: 2026-99-99\n", "[" * 100000], ids=["bad-date", "deep"])
@@ -369,9 +372,9 @@ def test_cli_names_a_contract_whose_yaml_does_not_load(tmp_path, content):
     f = tmp_path / "c.yaml"
     f.write_text(content)
     args = build_parser().parse_args(["trace", "consistency", str(tmp_path / "t.jsonl"), "--contract", str(f)])
-    with pytest.raises(SystemExit) as exc:
+    with pytest.raises(InputError) as exc:
         args.func(args)
-    assert str(exc.value).startswith(f"✗ {f}: not valid YAML")
+    assert str(exc.value).startswith(f"{f}: not valid YAML")
 
 
 def test_an_outcome_key_shared_by_two_arms_must_be_the_full_path(tmp_path):
@@ -395,7 +398,7 @@ def test_cli_catches_an_outcome_key_shared_across_arms(tmp_path):
     o.write_text('{"1.jsonl": false}')
     args = build_parser().parse_args(["trace", "consistency", "--arm", f"base={tmp_path}/base/*.jsonl",
                                       "--arm", f"skill={tmp_path}/skill/*.jsonl", "--outcomes", str(o)])
-    with pytest.raises(SystemExit) as exc:
+    with pytest.raises(InputError) as exc:
         args.func(args)
     assert "1.jsonl" in str(exc.value)
 
@@ -412,7 +415,7 @@ def test_a_trace_given_twice_counts_once(tmp_path, capsys):
         f"{tmp_path}/a/./r1.jsonl", f"{tmp_path}/a/r1.jsonl", "--contract", str(contract), "--json"])
     args.func(args)
     out = capsys.readouterr()
-    rep = json.loads(out.out)
+    rep = json.loads(out.out)["data"]
     assert rep["A"]["result"]["runs"] == 2 and rep["A"]["contract"]["conformance_rate"] == 0.5
     assert rep["runs"]["result"]["runs"] == 1
     assert out.err.count("given twice") == 2
@@ -521,3 +524,36 @@ def test_a_message_id_seen_twice_counts_its_largest_usage_once():
     lines = [{"type": "assistant", "message": {"id": "x", "usage": {"output_tokens": n}, "content": []}}
              for n in (9, 5)]
     assert parse_run("\n".join(json.dumps(x) for x in lines)).output_tokens == 9
+
+
+def test_cv_of_values_at_1e300_matches_the_closed_form():
+    """Squaring a deviation of 1e300 overflowed: https://github.com/intel/dokimi/issues/543."""
+    # [1, -1, 1, -1, 1, 1]: mean 1/3, sd = 4/sqrt(15), so cv = 12/sqrt(15).
+    assert _cv([1e300, -1e300, 1e300, -1e300, 1e300, 1e300]) == pytest.approx(12 / 15 ** 0.5, rel=1e-12)
+
+
+def test_cv_of_values_at_the_float_maximum_matches_the_closed_form():
+    big = sys.float_info.max
+    # [1, -1, -1]: mean -1/3, sd = sqrt(4/3), so cv = -2 sqrt(3); big - mean and sum(xs) overflow in plain floats.
+    assert _cv([big, -big, -big]) == pytest.approx(-2 * 3 ** 0.5, rel=1e-12)
+
+
+@pytest.mark.parametrize("xs", [
+    [3.0, 5.0, 8.0, 13.0, 21.5],
+    [0.0, 1000.0, 250.5, 3.25],
+    [120.0, 118.0, 131.0, 99.0, 140.0, 125.0, 117.0],
+])
+def test_cv_of_ordinary_values_is_the_plain_formula_to_rounding(xs):
+    """The shared sd scales by a power of two, so the last digit may differ from the plain formula; nothing more."""
+    mu = sum(xs) / len(xs)
+    assert _cv(xs) == pytest.approx(math.sqrt(sum((x - mu) ** 2 for x in xs) / (len(xs) - 1)) / mu, rel=1e-15)
+
+
+def test_cv_of_finite_values_whose_squares_underflow_is_the_value_to_rounding():
+    """Squares of 1e-170 underflowed to 0.0, so the cv read 0.0: [1, 2, 3] scaled has mean 2 and sd 1, cv 0.5 to within an ulp."""
+    assert _cv([1e-170, 2e-170, 3e-170]) == pytest.approx(0.5, rel=1e-12)
+
+
+def test_cv_keeps_none_for_one_value_and_zero_for_a_zero_mean():
+    assert _cv([5.0]) is None
+    assert _cv([1e300, -1e300]) == 0.0

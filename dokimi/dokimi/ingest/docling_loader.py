@@ -15,6 +15,7 @@ rest of the pipeline keeps working without it.
 from __future__ import annotations
 
 import importlib.util
+import os
 from pathlib import Path
 
 # Document types Docling can convert to Markdown.
@@ -77,7 +78,7 @@ def materialize_markdown(inputs, out_dir) -> list[Path]:
         base = f"{src.stem}-{src.suffix.lstrip('.').lower()}"
         dest = out_dir / f"{base}.md"
         i = 2
-        while dest.exists():
+        while os.path.lexists(dest):  # a link of any kind is taken: a write would follow it (#545)
             dest = out_dir / f"{base}-{i}.md"
             i += 1
         dest.write_text(markdown, encoding="utf-8")

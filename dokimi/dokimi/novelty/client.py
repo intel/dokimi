@@ -69,6 +69,11 @@ class SpendCapReached(BaseException):
     reply: str | None = None
     truncated: bool = False
 
+    def __init__(self, message: str, *, reason: str = "spend_cap") -> None:
+        super().__init__(message)
+        # "spend_cap" for the limit; "no_price" for a call the cap cannot meter.
+        self.reason = reason
+
 
 @dataclass
 class SpendCap:
@@ -85,9 +90,18 @@ class SpendCap:
     spent_usd: float = 0.0
     calls: int = 0
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
+    # Set by the first call with no known price: the run stops for every worker, not just
+    # the one whose call raised, since an unpriced call never raises ``spent_usd``.
+    _unpriced: bool = field(default=False, repr=False, compare=False)
 
     def before_call(self, model: str) -> None:
         with self._lock:
+            if self._unpriced:
+                raise SpendCapReached(
+                    f"the run stopped on a call with no known price; not calling {model}. "
+                    "Drop --max-usd to run unmetered",
+                    reason="no_price",
+                )
             if self.spent_usd >= self.limit_usd:
                 raise SpendCapReached(
                     f"spend cap reached: ${self.spent_usd:.2f} of ${self.limit_usd:.2f} "
@@ -101,9 +115,11 @@ class SpendCap:
             if usage is not None and usage.replayed:
                 return
             if usage is None or usage.cost_usd is None:
+                self._unpriced = True
                 raise SpendCapReached(
                     f"no price is known for {model}, so --max-usd cannot be enforced; "
-                    f"stopped after {self.calls} calls. Drop --max-usd to run unmetered"
+                    f"stopped after {self.calls} calls. Drop --max-usd to run unmetered",
+                    reason="no_price",
                 )
             self.spent_usd += usage.cost_usd
 

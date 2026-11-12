@@ -24,12 +24,13 @@ from __future__ import annotations
 import hashlib
 import json
 from collections import Counter
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from dokimi.utils import InputError, read_json_input
 
 from .batching import retry_wording
-from .client import LLMClient, OutputTruncated, accepting
+from .client import LLMClient, OutputTruncated, SpendCapReached, accepting
 from .spans import Span
 
 ATOM_KINDS = ("proposition", "edge", "motif", "contract", "example")
@@ -222,6 +223,9 @@ class ExtractionReport:
     call_error: str = ""
     unusable_error: str = ""
     sampled: dict | None = None
+    # Set when --max-usd stopped extraction: how many spans were read, and the message.
+    partial: dict | None = None
+    pre_cap: tuple[int, int] | None = None  # (spans, tokens) unread before a cap stop
 
     @property
     def last_error(self) -> str:
@@ -231,13 +235,15 @@ class ExtractionReport:
         return _EMPTY_REPLY if self.empty_span_ids else ""
 
     def warnings(self, n_spans: int) -> list[str]:
-        """Artifact warnings: spans left unread, and the calls re-asking cost."""
+        """Artifact warnings: spans left unread, and the calls re-asking cost. Spans a cap stopped
+        are left out: the exit names them."""
         out: list[str] = []
-        if self.unread_span_ids:
+        unread, unread_tokens = self.pre_cap or (len(self.unread_span_ids), self.unread_tokens)
+        if unread:
             unparseable = len(self.unparseable_span_ids)
             empty = len(self.empty_span_ids)
             unusable = len(self.unusable_span_ids)
-            failed = len(self.unread_span_ids) - unparseable - empty - unusable
+            failed = unread - unparseable - empty - unusable
             causes = []
             if unparseable:
                 causes.append(
@@ -263,8 +269,8 @@ class ExtractionReport:
                     f"re-asked (last error: {self.call_error})"
                 )
             out.append(
-                f"atom extraction could not read {len(self.unread_span_ids)} of {n_spans} "
-                f"spans ({self.unread_tokens} tokens): {'; '.join(causes)}. Unread spans "
+                f"atom extraction could not read {unread} of {n_spans} "
+                f"spans ({unread_tokens} tokens): {'; '.join(causes)}. Unread spans "
                 f"are left out of `frac_carrying_nothing` and dead weight, labelled "
                 f"`unread`, kept by every shortening candidate, and listed in "
                 f"`extraction.unread_span_ids`; whatever they assert is missing from "
@@ -294,6 +300,47 @@ class ExtractionReport:
             "reached": None,
             "sampled": self.sampled,
         }
+
+
+def _unread_at_cap(stop: SpendCapReached, batch: list[Span], parse: Callable[[str], list],
+                   valid_ids: set[str], seen: set[str], atoms: list[Atom]) -> list[Span]:
+    """The batch the cap leaves unread. A call with no price is paid for and its reply comes back
+    on the exception: when that reply is usable its atoms are kept here, and the batch is read."""
+    if not stop.reply:
+        return batch
+    kept: list[Atom] = []
+    try:  # all or nothing: a reply that fails part-way keeps no atoms, and its batch is unread
+        _keep_atoms(parse(stop.reply), valid_ids, set(seen), kept)
+    except Exception:  # not usable, as after any failed call
+        return batch
+    atoms.extend(kept)
+    seen.update(atom.id for atom in kept)
+    return []
+
+
+def _stop_at_cap(spans: list[Span], batch: list[Span], pending: list, report: ExtractionReport,
+                 stop: SpendCapReached) -> None:
+    """The cap ends extraction: ``batch`` and the batches queued behind it go unread, and the
+    atoms read so far stand (the caller saves them as a partial result)."""
+    report.pre_cap = (len(report.unread_span_ids), report.unread_tokens)
+    for rest in [batch, *(queued for queued, _is_half in pending)]:
+        _mark_unread(rest, report)
+    pending.clear()
+    read = len(spans) - sum(span.unread for span in spans)
+    message = (f"--max-usd stopped extraction with {read} of {len(spans)} spans read"
+               if stop.reason == "spend_cap" else
+               f"extraction stopped with {read} of {len(spans)} spans read: {stop}")
+    report.partial = {"reason": stop.reason, "stage": "extraction", "spans_read": read,
+                      "spans_total": len(spans), "message": message}
+
+
+def _keep_atoms(rows: list, valid_ids: set[str], seen: set[str], atoms: list[Atom]) -> None:
+    """Append each row's atom that is usable and new, in the reply's order."""
+    for row in rows:
+        atom = _atom_from_row(row, valid_ids)
+        if atom is not None and atom.id not in seen:
+            seen.add(atom.id)
+            atoms.append(atom)
 
 
 def extract_atoms(
@@ -384,6 +431,10 @@ def extract_atoms(
                 continue
             unparseable = True
             rows = parse(reply)
+        except SpendCapReached as exc:
+            _stop_at_cap(spans, _unread_at_cap(exc, batch, parse, valid_ids, seen, atoms),
+                         pending, report, exc)
+            break
         except Exception as exc:
             cut = isinstance(exc, OutputTruncated)
             if (unparseable or cut) and len(batch) > 1:
@@ -408,15 +459,11 @@ def extract_atoms(
                 report.call_error = error
             _mark_unread(batch, report)
             continue
-        for row in rows:
-            atom = _atom_from_row(row, valid_ids)
-            if atom is None or atom.id in seen:
-                continue
-            seen.add(atom.id)
-            atoms.append(atom)
-    if not atoms and lost is not None and all(span.unread for span in spans):
-        # Only when nothing was read: spans that were read and asserted nothing are a
-        # result, and a recovered parse error is not a failure.
+        _keep_atoms(rows, valid_ids, seen, atoms)
+    if (not atoms and lost is not None and report.partial is None
+            and all(span.unread for span in spans)):
+        # Only when nothing was read and the cap did not stop the run: a cap-stopped run keeps
+        # its partial result for the caller to save; spans read with no atoms are a result.
         raise ExtractionError(f"no atoms: every extraction call failed ({lost})") from lost
     report.sampled = sample_record(len(atoms), cap)
     return atoms
@@ -545,8 +592,12 @@ def save_atoms(
     extractor: str | None = None, extractor_provider: str | None = None, cap: int | None = None,
     bundle: dict | None = None, extraction: ExtractionReport | None = None,
     sample: list[Atom] | None = None,
+    partial: dict | None = None,
 ) -> None:
     """Write atoms plus their spans as one JSON file (input to ``skill novelty probe``).
+
+    ``partial`` marks a file that ``--max-usd`` cut short: ``status`` and ``partial`` are set,
+    and :func:`load_atoms_record` refuses it.
 
     ``atoms`` is every extracted atom and ``sample`` the ones a run probes
     (:func:`sample_atoms`): ``sampled_atom_ids`` lists those, in probe order, when they leave
@@ -579,6 +630,8 @@ def save_atoms(
                              if sample is not None and len(sample) < len(atoms) else None),
         "spans": [span.as_dict() for span in spans],
     }
+    if partial is not None:
+        payload.update(status="partial", partial=partial)
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
@@ -731,6 +784,14 @@ def load_atoms_record(path) -> tuple[list[Atom], list[Span], dict]:
     types its readers use.
     """
     data = read_json_input(path)
+    if isinstance(data, dict) and "partial" in data:
+        partial = data["partial"] if isinstance(data["partial"], dict) else {}
+        if partial.get("reason") == "no_price":  # a call with no price: a higher cap will not help
+            raise InputError(f"{path} is a partial atoms file: {partial.get('message', '')}, so "
+                             "it is not a finished atom set. Drop --max-usd to run unmetered")
+        raise InputError(f"{path} is a partial atoms file: --max-usd stopped the run before it "
+                         "finished, so it is not a finished atom set. Rerun with a higher "
+                         "--max-usd, or without the cap")
     try:
         atoms, spans = _atoms_from_record(data)
         _check_bundle_shape(data.get("bundle"))

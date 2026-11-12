@@ -61,6 +61,11 @@ EXPECTED: dict[str, tuple[dict, str | None, str | None, str | None]] = {
     "catalog_eval.v1": ({}, "demo-catalog", None, None),
     "reach_matrix.v1": ({}, None, None, "2026-10-31T04:37:00+00:00"),
     "repo_hits_judged.v1": ({}, "review_replay_pr3098", "gpt-5.1", None),
+    "personas.v1": ({}, "demo", "gen-m", "2026-11-01T00:00:00Z"),
+    "persona_analysis.v1": ({}, None, None, None),
+    "question_panel.v1": ({}, "demo", None, "2026-11-01T00:00:00+00:00"),
+    "question_quality.v1": ({}, "demo", None, None),
+    "report_qa.v1": ({}, None, None, "2026-11-01T00:00:00+00:00"),
 }
 
 

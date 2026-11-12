@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dokimi"
-version = "0.1.0"
+version = "0.2.0"
 description = "Measures whether a skill, MCP doc source, documentation set or agent profile actually improves AI-agent answers and task outcomes"
 readme = "README.md"
 requires-python = ">=3.11"

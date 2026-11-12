@@ -18,6 +18,7 @@ from dokimi.repos.hits_judge import cell_doc
 from dokimi.repos.report import REPLAY
 from tests import test_repo_hits_judge as hits
 from tests.test_repo_compare import _cell, _row
+from tests.cli_refusal import refusal
 
 JUDGED = "metric:judge:recall_judged"
 NONE, RAW = "guidance:none", "guidance:raw"
@@ -249,9 +250,9 @@ def test_a_judge_field_other_than_recall_judged_is_refused(tmp_path, capsys, nam
     with pytest.raises(CompareError, match=f"--metric {name}: .* the only one accepted is judge:recall_judged$"):
         compare([b], NONE, metrics=("recall", name))
     args = build_parser().parse_args(["repo", "compare", str(b), "--baseline", NONE, "--metric", name])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2 and "only one accepted is judge:recall_judged" in capsys.readouterr().err
+    assert exc.code == 2 and "only one accepted is judge:recall_judged" in capsys.readouterr().err
 
 
 def test_no_cell_with_a_usable_file_is_refused_with_the_hits_judge_hint(tmp_path):

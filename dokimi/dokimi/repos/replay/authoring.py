@@ -27,7 +27,7 @@ from ..graders.typecheck import REFERENCE_DIR
 from ..manifest import RepoManifest
 from . import authoring_prompt
 from .history import History
-from .merged import Skip, left_out
+from .merged import Skip, left_out, need_utf8_paths
 
 GRADER = "dokimi:hidden_tests"
 _TEST_DIRS = frozenset({"test", "tests", "__tests__"})
@@ -110,6 +110,7 @@ def _make(h: History, manifest: RepoManifest, change: Change,
     changed = h.statuses(change.base, change.target)
     if not changed:
         raise Skip(f"{change.target[:12]} changes nothing against its base {change.base[:12]}")
+    need_utf8_paths([p for _, p in changed])
     leave_out = sorted({p for _, p in changed if left_out(manifest, p)})
     rest = [(s, p) for s, p in changed if p not in leave_out]
     if not rest:
