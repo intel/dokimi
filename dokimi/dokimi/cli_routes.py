@@ -184,44 +184,74 @@ LEAVES: tuple[Leaf, ...] = (
 def _novelty_routing_argv(rest: list[str]) -> list[str]:
     """The argv `novelty routing` moved to, given the argv after it (#94 M3).
 
-    ``--all-vs-all`` moves to ``catalog routing ROOT`` (its ``--catalog`` value becomes ROOT). Any other
-    call moves to ``skill routing SKILL`` (its ``--artifact`` value becomes SKILL, ``--catalog`` becomes
-    ``--against``). ``--repeats`` is ``--reps`` in both. A flag the new leaf does not take stays in the
-    printed argv, so the new parser refuses it. A value flag with no value (none follows, or a flag does)
-    stays there too. An ambiguous prefix raises :class:`AmbiguousRetiredFlag`, as no command can refuse it.
+    ``--all-vs-all`` moves to ``catalog routing ROOT`` (its ``--catalog`` value becomes ROOT), and needs a
+    ``--catalog``: a competitors-only call has no replacement. Any other call moves to ``skill routing SKILL``
+    (its ``--artifact`` value becomes SKILL, ``--catalog`` becomes ``--against``). A bare ``--competitors``
+    path was text, so it moves as ``text:``. ``--repeats`` is ``--reps`` in both. A flag the new leaf does
+    not take stays in the printed argv, so the new parser refuses it. A value flag with no value (none
+    follows, or a flag does) stays there too. A plain token right after a ``--artifact`` or ``--catalog``
+    value is refused, as the retired parser refused it. An ambiguous prefix raises
+    :class:`AmbiguousRetiredFlag`, as no command can refuse it.
     """
     rest = [_retired_spelling(tok) for tok in rest]
+    values, kept = _split_routing_argv(rest)
+    all_vs_all = "--all-vs-all" in rest
+    # argparse keeps the last of a repeated option, so the rewrite does too.
+    artifact = [_legacy_artifact(values["--artifact"][-1])] if values["--artifact"] else []
+    if all_vs_all:
+        if not values["--catalog"]:
+            raise RetiredFlagError("novelty routing --all-vs-all without --catalog has no replacement: "
+                                   "catalog routing needs a ROOT, and the skills come from it")
+        stray = ["--artifact", values["--artifact"][-1]] if values["--artifact"] else []
+        return ["catalog", "routing", *values["--catalog"][-1:], *kept, *stray]
+    against = ["--against", values["--catalog"][-1]] if values["--catalog"] else []
+    return ["skill", "routing", *artifact, *against, *kept]
+
+
+def _split_routing_argv(rest: list[str]) -> tuple[dict[str, list[str]], list[str]]:
+    """The values of --artifact and --catalog, and the argv that stays (the other flags, in order)."""
     values: dict[str, list[str]] = {"--artifact": [], "--catalog": []}
     kept: list[str] = []
-    all_vs_all = "--all-vs-all" in rest
     i = 0
     while i < len(rest):
         name, eq, value = rest[i].partition("=")
         if name == "--all-vs-all":
             i += 1
-            continue
-        if name in values:
-            if eq:
-                values[name].append(value)
-            elif i + 1 < len(rest) and (rest[i + 1] == "-" or not rest[i + 1].startswith("-")):
-                values[name].append(rest[i + 1])
-                i += 1
-            else:
-                # No value follows: the flag stays in the printed argv, and the new leaf refuses it
-                # with the "expected one argument" error the retired parser gave.
-                kept.append(rest[i])
-        elif name == "--repeats":
-            kept.append("--reps" + eq + value)
+        elif name in values:
+            i = _take_value_flag(rest, i, name, eq, value, values, kept)
+        elif name == "--competitors":
+            i = _take_competitors(rest, i, eq, value, kept)
         else:
-            kept.append(rest[i])
+            kept.append("--reps" + eq + value if name == "--repeats" else rest[i])
+            i += 1
+    return values, kept
+
+
+def _take_value_flag(rest: list[str], i: int, name: str, eq: str, value: str,
+                     values: dict[str, list[str]], kept: list[str]) -> int:
+    """Take one --artifact or --catalog and its value; returns the next index."""
+    if eq:
+        values[name].append(value)
+        return i + 1
+    if i + 1 < len(rest) and (rest[i + 1] == "-" or not rest[i + 1].startswith("-")):
+        values[name].append(rest[i + 1])
+        if i + 2 < len(rest) and not rest[i + 2].startswith("-"):
+            raise RetiredFlagError(f"unrecognized arguments: {rest[i + 2]}")
+        return i + 2
+    # No value follows: the flag stays in the printed argv, and the new leaf refuses it, since it has
+    # no such flag (its error text is not the retired parser's).
+    kept.append(rest[i])
+    return i + 1
+
+
+def _take_competitors(rest: list[str], i: int, eq: str, value: str, kept: list[str]) -> int:
+    """Take --competitors and the values that follow it (nargs="+"); a bare path was text. Returns the next index."""
+    kept.append(rest[i] if not eq else f"--competitors={_legacy_competitor(value)}")
+    i += 1
+    while i < len(rest) and (rest[i] == "-" or not rest[i].startswith("-")):
+        kept.append(_legacy_competitor(rest[i]))
         i += 1
-    # argparse keeps the last of a repeated option, so the rewrite does too.
-    artifact = [_legacy_artifact(values["--artifact"][-1])] if values["--artifact"] else []
-    if all_vs_all:
-        stray = ["--artifact", values["--artifact"][-1]] if values["--artifact"] else []
-        return ["catalog", "routing", *values["--catalog"][-1:], *kept, *stray]
-    against = ["--against", values["--catalog"][-1]] if values["--catalog"] else []
-    return ["skill", "routing", *artifact, *against, *kept]
+    return i
 
 
 # The flags `novelty routing` took (its parser allowed any unique prefix of one).
@@ -233,7 +263,11 @@ _RETIRED_ROUTING_FLAGS = (
 )
 
 
-class AmbiguousRetiredFlag(ValueError):
+class RetiredFlagError(ValueError):
+    """A retired call the retired parser refused, or that has no replacement: no command is printed."""
+
+
+class AmbiguousRetiredFlag(RetiredFlagError):
     """A prefix that named two retired flags: the retired parser refused it, so no command is printed."""
 
 
@@ -255,6 +289,11 @@ def _retired_spelling(token: str) -> str:
 def _legacy_artifact(ref: str) -> str:
     """A retired `--artifact` value as the new SKILL: a bare path was always text, so it stays text."""
     return ref if ref.startswith(("skill:", "text:")) else f"text:{ref}"
+
+
+def _legacy_competitor(ref: str) -> str:
+    """A retired `--competitors` value: a bare path was text on the retired command, and is still text."""
+    return _legacy_artifact(ref)
 
 
 # The moves of #94 M1-M3 and D11. Not yet: `novelty view` (the proposal maps it to `report $RUN`).

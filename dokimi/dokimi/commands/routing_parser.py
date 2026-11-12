@@ -48,13 +48,17 @@ def add_catalog_routing(catalog_sub, positive_int) -> None:
     routing_p.add_argument("--queries-by-skill", default=None, dest="queries_by_skill",
                            help="A JSON object of skill name to the list of "
                                 "requests that should select that skill")
-    _add_routing_options(routing_p, positive_int)
+    _add_routing_options(routing_p, positive_int, refused=True)
     routing_p.set_defaults(all_vs_all=True, artifact=None, func=stops_at_cap(cmd_routing))
 
 
-def _add_routing_options(routing_p, positive_int) -> None:
-    """The options both routing leaves take: the field, the queries, the model and the spend cap."""
-    routing_p.add_argument("--competitors", nargs="+", default=None,
+def _add_routing_options(routing_p, positive_int, refused: bool = False) -> None:
+    """The options both routing leaves take: the field, the queries, the model and the spend cap.
+
+    ``refused``: the leaf refuses --queries and --queries-from-headings (it takes --queries-by-skill).
+    They stay registered, so `--queries` is not read as `--queries-by-skill`, and say so in help.
+    """
+    routing_p.add_argument("--competitors", nargs="+", default=None, type=_skill_ref,
                            help="Other artifacts the selector sees. One candidate is not "
                                 "routing: sibling confusion is the failure mode (every "
                                 "`dpnp-*` skill scored 0.0 lexically)")
@@ -72,11 +76,13 @@ def _add_routing_options(routing_p, positive_int) -> None:
                                 "description over 1024 characters alone never drops a skill: "
                                 "it is kept and warned about")
     routing_p.add_argument("--queries", default=None,
-                           help="JSON list (or one per line) of user-shaped requests that "
+                           help="Refused here: use --queries-by-skill" if refused else
+                                "JSON list (or one per line) of user-shaped requests that "
                                 "should select this artifact, written independently of it")
     routing_p.add_argument("--queries-from-headings", action="store_true",
                            dest="queries_from_headings",
-                           help="Derive queries from the artifact's headings. Triage only: the "
+                           help="Refused here: use --queries-by-skill" if refused else
+                                "Derive queries from the artifact's headings. Triage only: the "
                                 "artifact then sets its own problem scope and relevance, and "
                                 "the result is stamped as such")
     routing_p.add_argument("--model", default=None,

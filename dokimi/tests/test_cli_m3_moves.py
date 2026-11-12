@@ -454,9 +454,41 @@ def test_novelty_routing_tombstone_keeps_a_flag_the_new_leaf_refuses():
     assert argv == ["catalog", "routing", "skills/", "--artifact", "skill:x"]
 
 
-def test_novelty_routing_tombstone_without_a_catalog_leaves_the_root_out():
-    assert moved_argv(["novelty", "routing", "--all-vs-all", "--competitors", "x"]) == [
-        "catalog", "routing", "--competitors", "x"]
+def test_novelty_routing_tombstone_refuses_all_vs_all_without_a_catalog(capsys):
+    # The retired parser ran --all-vs-all on competitors alone; no catalog routing command can, and
+    # a printed `catalog routing --competitors` needs a ROOT, so the tombstone says there is none.
+    with pytest.raises(ValueError, match="no replacement"):
+        moved_argv(["novelty", "routing", "--all-vs-all", "--competitors", "skill:a", "skill:b"])
+    with pytest.raises(SystemExit) as exc:
+        parse_args(["novelty", "routing", "--all-vs-all", "--competitors", "skill:a", "--queries-by-skill", "q.json"])
+    assert exc.value.code == 2
+    assert "no replacement" in capsys.readouterr().err
+
+
+def test_novelty_routing_tombstone_refuses_a_stray_token_after_a_value_flag():
+    # The retired parser had no positionals: `y` after the value of --artifact or --catalog was an
+    # error. Taking the flag out of the argv must not let `y` join --competitors.
+    for old in (["novelty", "routing", "--competitors", "a", "b", "--artifact", "x", "y"],
+                ["novelty", "routing", "--competitors", "a", "--catalog", "R", "y"]):
+        with pytest.raises(ValueError, match="unrecognized arguments: y"):
+            moved_argv(old)
+    assert moved_argv(["novelty", "routing", "--artifact", "x", "--competitors", "a", "b"]) == [
+        "skill", "routing", "text:x", "--competitors", "text:a", "text:b"]
+
+
+def test_novelty_routing_tombstone_reads_a_bare_competitor_path_as_text():
+    # A bare --competitors path was text on the retired command; the new leaf reads a bare path as a
+    # skill, so the printed command says text: for it. skill: and text: pass through.
+    assert moved_argv(["novelty", "routing", "--artifact", "skill:a", "--competitors", "skills/b",
+                       "skill:c", "--queries", "q.txt"]) == [
+        "skill", "routing", "skill:a", "--competitors", "text:skills/b", "skill:c", "--queries", "q.txt"]
+    assert moved_argv(["novelty", "routing", "--artifact", "skill:a", "--competitors=skills/b"]) == [
+        "skill", "routing", "skill:a", "--competitors=text:skills/b"]
+
+
+def test_the_new_leaf_reads_a_bare_competitor_path_as_a_skill():
+    args = build_parser().parse_args(["skill", "routing", "skill:a", "--competitors", "skills/b"])
+    assert args.competitors == ["skill:skills/b"]
 
 
 def test_novelty_routing_prints_the_new_command_and_exits_2(capsys):
