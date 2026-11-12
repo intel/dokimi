@@ -8,6 +8,8 @@ The two call sites exercise one field combination each, so each field is pinned 
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pytest
 
 from dokimi.container_policy import ContainerPolicy
@@ -87,3 +89,11 @@ def test_group_by_name_is_the_named_argv():
 def test_unknown_group_name_is_refused():
     with pytest.raises(KeyError):
         ContainerPolicy().group("entrypoint")
+
+
+def test_docs_do_not_name_a_removed_symbol():
+    # test_docs_code_refs.py checks code spans in docs, not a bare name in prose, so this checks the prose
+    root = Path(__file__).resolve().parents[1]
+    stale = [p.relative_to(root).as_posix() for p in (root / "docs").rglob("*.md")
+             if "TASK_CONTAINER_HARDENING" in p.read_text(encoding="utf-8")]
+    assert stale == []
