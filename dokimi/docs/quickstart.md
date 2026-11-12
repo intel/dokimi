@@ -32,13 +32,12 @@ export GITHUB_TOKEN="ghp_..."
 pip install dokimi               # released package
 # or, from a source checkout:
 pip install -e ".[dev]"          # package + dev tooling
-# or, dependencies only (no console entry point):
+# or, dependencies only:
 pip install -r requirements.txt
 ```
 
-The package installs provide the `dokimi` console entry point used below;
-`python -m dokimi …` is equivalent. The dependencies-only route does not install
-the package: replace `dokimi` with `python cli.py` in every command. Source-install and requirements-file commands run from the inner `dokimi/` package directory; see [installation](start/README.md#install).
+The package install provides the `dokimi` console entry point used below.
+`python -m dokimi …` is equivalent. The dependencies-only route installs no `dokimi` command: run `python -m dokimi …` from the inner `dokimi/` package directory in its place. Source-install and requirements-file commands run from the inner `dokimi/` package directory; see [installation](start/README.md#install).
 
 The pipeline degrades gracefully if optional deps are missing — see
 [Troubleshooting](#troubleshooting).
