@@ -35,6 +35,7 @@ from dokimi.repos import container
 from dokimi.repos.container import CONTENT_DIR, ContainerSpec, DockerRunner, Mount
 
 from docker_cli_fake import DockerCLI
+from test_tbench_v1 import _tb1  # a terminal-bench task: the one layout whose container_env is not empty
 
 GOLDEN = Path(__file__).parent / "fixtures" / "docker" / "run_argv_golden.json"
 _TMP = "<tmp>"
@@ -149,6 +150,8 @@ def _task_cases(root: Path, out: dict[str, Any]) -> None:
         task = load_task(_task_dir(root, f"sandboxed-{nname}", [_TASK_NETWORKS[nname], _TASK_CPUS["two"]]))
         out[f"task/sandboxed/{nname}"] = _guarded(_solver_run_calls, task, mode="claude", sandbox=sandbox)
     out["sandbox/run_args"] = sandbox.run_args()
+    tbench = load_task(_tb1(root / "tbench"))
+    out["task/oracle/terminal-bench"] = _guarded(_solver_run_calls, tbench, mode="oracle")
 
 
 def _fidelity_cases(out: dict[str, Any]) -> None:
@@ -184,3 +187,14 @@ def test_every_docker_run_argv_is_byte_identical(tmp_path):
     assert sorted(got) == sorted(want)
     changed = sorted(k for k in want if got[k] != want[k])
     assert changed == [], f"argv changed for: {changed[:10]}"
+
+
+def test_a_task_container_env_is_pinned_before_the_image(tmp_path):
+    # Moving the -e flags after the image keeps the argv's words and starts a container that exits at
+    # once; only the position pins that, so the grid must carry a case with container_env.
+    env_argvs = [(key, argv) for key, calls in capture(tmp_path).items() if isinstance(calls, list)
+                 for argv in calls if isinstance(argv, list) and "TEST_DIR=/tests" in argv]
+    assert env_argvs, "no grid case carries container_env"
+    for key, argv in env_argvs:
+        image_at = argv.index("sleep") - 1
+        assert argv.index("TEST_DIR=/tests") < image_at, key

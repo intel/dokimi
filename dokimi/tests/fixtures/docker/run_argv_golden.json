@@ -2933,6 +2933,44 @@
    "1800"
   ]
  ],
+ "task/oracle/terminal-bench": [
+  [
+   "run",
+   "-d",
+   "--name",
+   "container-x",
+   "--init",
+   "--cap-drop",
+   "ALL",
+   "--security-opt",
+   "no-new-privileges",
+   "--pids-limit",
+   "32768",
+   "--cap-add",
+   "CHOWN",
+   "--cap-add",
+   "DAC_OVERRIDE",
+   "--cap-add",
+   "FOWNER",
+   "--cap-add",
+   "SETUID",
+   "--cap-add",
+   "SETGID",
+   "--network",
+   "bridge",
+   "-e",
+   "GREETING=hi there",
+   "-e",
+   "TEST_DIR=/tests",
+   "--cpus",
+   "4",
+   "--memory",
+   "8192m",
+   "img:latest",
+   "sleep",
+   "1800"
+  ]
+ ],
  "task/sandboxed/allowlist": [
   [
    "run",
