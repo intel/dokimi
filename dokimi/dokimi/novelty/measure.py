@@ -173,7 +173,7 @@ class MeasureResult:
     # (probe, arm) jobs the spend cap stopped before they were answered; 0 for a whole run.
     not_run: int = 0
     # Answers the cap paid for but the judge call was refused: kept in ``runs`` as ``ERRORED``
-    # (no datum), and counted here so the run is not taken as finished.
+    # (no datum) unless a failed veto decides them; counted here so the run is not finished.
     ungraded: int = 0
     # (reason, message) of a call the cap refused; None when nothing was stopped.
     stop: tuple[str, str] | None = None
