@@ -758,7 +758,7 @@ Two numbers, reported side by side and never merged:
   fresh sample, so under `DOKIMI_RESPONSE_CACHE` a repeat is not a
   replay. Repeats need `--model`, and cost N times the calls. With repeats, `n_calls` is
   queries x repeats, `n_abstained` and `n_failed` count calls, and each `per_query` row
-  carries its `repeat` index. In an `catalog routing` run each `noise` row also names its `gold`
+  carries its `repeat` index. In a `catalog routing` run each `noise` row also names its `gold`
   skill, since two skills can list the same request. `noise` is always an object: `n_repeats` is the
   repeat count, and with `--reps 1` it is 1 with `mean_agreement`, `half_range`, `unstable_queries`
   and each row's `agreement` null (nothing to agree with), so a reader tests those fields, not `noise`, for null.

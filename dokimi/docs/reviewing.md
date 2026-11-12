@@ -77,7 +77,7 @@ self-judge; `arms run` and `subjects run` warn on stderr and do not refuse, so n
   tiers cost 5–20 times more, so run them only when whoever asked agrees to
   the bill. Pass `--max-usd` to `novelty` steps: the run stops once it has
   spent that much (calls in flight can overshoot), writes no artifact when the
-  cap trips (except `skill routing --model`, `atoms` and `probe`, which save the calls it made as
+  cap trips (except `skill routing --model`, `catalog routing --model`, `atoms` and `probe`, which save the calls it made as
   a `partial` result), and stops at the first call to a model with no known
   price. Set
   the cap above the expected dollar spend: the triage example below was about
