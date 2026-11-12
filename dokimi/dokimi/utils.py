@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, Iterable, Mapping, Sequen
 
 from dokimi import llm_cli
 from dokimi.defaults import BEDROCK_MODEL_IDS
+from dokimi.process_io import disk_path_text, exact_path_text, flagged, worktree_changed
 
 if TYPE_CHECKING:
     from dokimi.process import Env
@@ -218,6 +219,11 @@ class GitTree:
         return self.nested[rel]
 
 
+def is_symlink_loop(exc: OSError) -> bool:
+    """A symlink loop: ``ELOOP``, or on Windows EINVAL with WinError 1921 (ERROR_CANT_RESOLVE_FILENAME)."""
+    return exc.errno == errno.ELOOP or getattr(exc, "winerror", None) == 1921
+
+
 def _not_own_top(here: Path) -> str | None:
     """Why git does not read ``here`` as its own work tree's top: git's message, or the top it found instead (git skips
     a ``.git`` it cannot read as a repository and walks up to the enclosing one). None when it does."""
@@ -269,7 +275,7 @@ def _ignored_paths(top: str) -> frozenset[str] | None:
                  timeout=120, env=_git_env(), capture_limit=None)
     if not listed.ok:
         return None
-    return frozenset(os.fsdecode(name).rstrip("/") for name in listed.stdout_bytes.split(b"\0") if name)
+    return frozenset(disk_path_text(name).rstrip("/") for name in listed.stdout_bytes.split(b"\0") if name)
 
 
 def _index_blobs(top: str) -> tuple[dict[str, str], frozenset[str]]:
@@ -286,7 +292,7 @@ def _index_blobs(top: str) -> tuple[dict[str, str], frozenset[str]]:
     dirty = run(["git", "-C", top, "--no-optional-locks", "status", "--porcelain=v1", "-z", "-uno"], timeout=120,
                 env=env, capture_limit=None)
     trusted = staged.ok and tags.ok and dirty.ok  # a failed ls-files prints no entry, so ``held`` stays empty
-    changed = _worktree_changed(dirty.stdout_bytes) | _flagged(tags.stdout_bytes)
+    changed = worktree_changed(dirty.stdout_bytes) | flagged(tags.stdout_bytes)
     out: dict[str, str] = {}
     held: set[str] = set()
     for entry in staged.stdout_bytes.split(b"\0"):
@@ -294,31 +300,13 @@ def _index_blobs(top: str) -> tuple[dict[str, str], frozenset[str]]:
         fields = meta.split()
         if not name:
             continue
-        rel = os.fsdecode(name)
+        rel = exact_path_text(name)
+        if rel is None:  # a replaced name would stand for the real file that has it
+            continue
         held.update(rel.rsplit("/", i)[0] for i in range(rel.count("/") + 1))  # the path and each directory above it
         if trusted and len(fields) == 3 and fields[2] == b"0" and rel not in changed:
             out[rel] = os.fsdecode(fields[1])
     return out, frozenset(held)
-
-
-def _worktree_changed(status: bytes) -> set[str]:
-    """The tracked paths whose work tree differs from the index, from ``git status --porcelain=v1 -z``: an entry is
-    ``XY path``, and a rename or copy in the index is followed by its origin path."""
-    changed: set[str] = set()
-    items = iter(status.split(b"\0"))
-    for entry in items:
-        if len(entry) < 4:
-            continue
-        if b"R" in entry[:2] or b"C" in entry[:2]:
-            next(items, None)
-        if entry[1:2] != b" ":
-            changed.add(os.fsdecode(entry[3:]))
-    return changed
-
-
-def _flagged(tags: bytes) -> set[str]:
-    """The index entries git does not check against the disk: skip-worktree (``S``) and assume-unchanged (lower case)."""
-    return {os.fsdecode(entry[2:]) for entry in tags.split(b"\0") if entry[:1] == b"S" or entry[:1].islower()}
 
 
 _ARG_BUDGET = 24_000  # bytes of path arguments per git call: under the smallest command line limit (Windows, 32 KB)
@@ -463,8 +451,9 @@ def _tracked_modes(base: Path, spec: str) -> dict[str, bool]:
     modes: dict[str, bool] = {}
     for record in done.stdout_bytes.split(b"\0"):
         meta, tab, name = record.partition(b"\t")
-        if tab:
-            modes[os.fsdecode(name)] = meta.split()[0] == b"100755"
+        key = exact_path_text(name)
+        if tab and key is not None:  # a name Windows cannot decode would take the key of a real file
+            modes[key] = meta.split()[0] == b"100755"
     return modes
 
 

@@ -1183,16 +1183,18 @@ def test_cross_judge_judges_refuses_one_damaged_question_among_eight_int_ids(
     assert "different material" in capsys.readouterr().err
 
 
-def test_from_artifact_skips_a_malformed_answer_list_and_non_scalar_ids():
-    """No exception; a record with a list id is skipped and counted, the rest are served."""
+def test_from_artifact_refuses_a_malformed_answer_list_and_non_scalar_ids():
+    """The answers are read as `eval judge agreement` reads them first: a list id or list is a RecordError."""
     from dokimi.eval.judge_context import JudgeContextStore
+    from dokimi.records import RecordError
 
     data = _material_run(n=2)
-    data["answers"][0]["question_id"] = ["a"]  # from_artifact reads the answer records
-    store = JudgeContextStore.from_artifact(data)
-    assert store.get("Q1", "skill") == BODY and list(store._ctx) == [("Q1", "skill")]
+    data["answers"][0]["question_id"] = ["a"]
+    with pytest.raises(RecordError, match=r"answers\[0\]: question_id must be a string or an integer"):
+        JudgeContextStore.from_artifact(data)
     data["answers"] = 5
-    assert JudgeContextStore.from_artifact(data).materials() == {}
+    with pytest.raises(RecordError, match="'answers' must be a list, got int"):
+        JudgeContextStore.from_artifact(data)
 
 
 def test_digest_text_tells_a_lone_surrogate_from_its_removal():
@@ -1243,39 +1245,23 @@ def test_digest_text_surrogatepass_handles_lone_surrogates():
     assert result.startswith("sha256:") and len(result) == 71
 
 
-def test_from_artifact_guards_against_malformed_data():
-    """from_artifact checks digest, record, and arms types without raising."""
+def test_from_artifact_skips_a_malformed_digest_and_refuses_a_malformed_record():
+    """A digest of the wrong type is skipped; a record, arms or arm of the wrong type is a RecordError."""
     from dokimi.eval.judge_context import JudgeContextStore
+    from dokimi.records import RecordError
 
-    # List digest on arm record
     store = JudgeContextStore.from_artifact({
         "judge_materials": {},
-        "answers": [{
-            "question_id": "q1",
-            "arms": {"a": {"judge_context_sha256": ["x"]}},
-        }],
+        "answers": [{"question_id": "q1", "arms": {"a": {"judge_context_sha256": ["x"]}}}],
     })
     assert store.materials() == {}
-
-    # Non-dict record
-    store = JudgeContextStore.from_artifact({
-        "judge_materials": {},
-        "answers": [1],
-    })
-    assert store.materials() == {}
-
-    # Arms as a list
-    store = JudgeContextStore.from_artifact({
-        "judge_materials": {},
-        "answers": [{"question_id": "q1", "arms": [1]}],
-    })
-    assert store.materials() == {}
-
-    # An arm entry that is not a dict, next to one that is served
+    for answers in ([1], [{"question_id": "q1", "arms": [1]}]):
+        with pytest.raises(RecordError, match=r"answers\[0\]"):
+            JudgeContextStore.from_artifact({"judge_materials": {}, "answers": answers})
     data = _material_run(n=1)
     data["answers"][0]["arms"]["broken"] = 1
-    store = JudgeContextStore.from_artifact(data)
-    assert store.get("Q0", "skill") == BODY and store.get("Q0", "broken") is None
+    with pytest.raises(RecordError, match="arms.broken: expected an object or null, got int"):
+        JudgeContextStore.from_artifact(data)
 
 
 def test_unreproducible_arms_skips_malformed_records_and_scores():
