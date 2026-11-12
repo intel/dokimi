@@ -550,10 +550,9 @@ def _describe_deltas(
             raise OverflowError("deltas too large: their spread or sum leaves the float range")
         row = sign_flip_row(d, seed=seed, exact=True)
         p, lo, hi, shown_lo, shown_hi = row["p"], row["lo"], row["hi"], row["ci_lo"], row["ci_hi"]
-        n_changed = row["n_changed"]
     else:  # a NaN delta is no evidence either way: no p, no verdict, open ends
         p, lo, hi, shown_lo, shown_hi = None, None, None, None, None
-        n_changed = sum(1 for x in d if abs(x) > EPS)
+    n_changed = sum(1 for x in d if abs(x) > EPS)
 
     return {
         "n": len(d),
