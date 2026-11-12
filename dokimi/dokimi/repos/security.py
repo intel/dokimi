@@ -87,8 +87,9 @@ COMMAND_RULES: tuple[Rule, ...] = (
              # a bare `-` is stdin, not an option, and a redirect (`2>&1`, `> log`) is no argument
              r"(?!(?:\s+(?:-[^\s-]\S*|--\S+))*\s+(?:-[^\s-]*[cemp]\S*|(?!-(?:\s|$))(?!\d*[<>&])[^\s\-;&|)<>])))"
              # the shell may be named by its path (`/bin/bash -c "$(curl ...)"`); eval, source and `.` only start a command
-             r"|(?:(?:^|[\s;&|(])(?:[^\s;&|()]*/)?(?:(?:ba|z|da)?sh\s+(?:-\w+\s+)*)"
-             r"|(?:^\s*|[\n;&|({!]\s*|\b(?:then|do|else)\s+)(?:eval|source|\.)\s+)[\"']?(?:<\(|\$\()"
+             r"|(?:(?:^|[\s;&|(])(?:[^\s;&|(]*/)?(?:(?:ba|z|da)?sh\s+(?:-\w+\s+)*)"
+             # `[^\S\n]*`, not `\s*`: a run of newlines must not be scanned again from every newline
+             r"|(?:^\s*|[\n;&|({!][^\S\n]*|\b(?:then|do|else)\s+)(?:eval|source|\.)\s+)[\"']?(?:<\(|\$\()"
              r"\s*(?:sudo\s+)?(?:curl|wget)\b")),
     # words after `install`, an index or links option taken with its URL value; then a package word that is a
     # URL, has git+ in it, or the system guard's override

