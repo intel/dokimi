@@ -36,7 +36,7 @@ result differs from its expectation. `out/` is not committed.
 | Workers | `ThreadPoolExecutor(jobs)` + `pool.map` | `Workers` threads |
 | Timeout | agent killed, the cell is graded (an outcome, not a retry) | inside `Work` |
 | Crash | process dies; no `result.json` → cell is *missing*, the next run fills it | `Crash` |
-| Late result of an old attempt | impossible in-process: threads die with the process | `LateCommit`, mutation only |
+| Late result of an old attempt | none after SIGKILL: threads die with the process (a second Ctrl-C is not modelled, open question 4) | `LateCommit`, mutation only |
 | Cancel | Ctrl-C: `KeyboardInterrupt`; `pool.map` cancels queued futures, running cells finish | `Cancel`, `CancelGuard` |
 | Exclusion of concurrent runs on one batch | `batch_lock` (flock on `_eval/lock`) | `Locked` |
 | Execution pinning | `execution.id` in `meta.json`/`result.json`; `check_batch_executions` before any cell | `Configs`, `StartCheck` |
@@ -54,7 +54,7 @@ result differs from its expectation. `out/` is not committed.
 | `Work(w)` | agent run, then `meta.json`, `events.jsonl`, `answer.txt`, `task.json`, grade, written by path |
 | `Commit(w)` | `_write_json(rd / "result.json", record)` |
 | `Crash(i)` | SIGKILL / OOM / reboot: flock released, threads gone |
-| `Cancel(i)`, `Finish(i)` | Ctrl-C; pool join and the exit code of `cmd_repo_run` (1 on errors, interrupt, budget stop, probe failure) |
+| `Cancel(i)`, `Finish(i)` | Ctrl-C; pool join and the exit code of `cmd_repo_run` (1 on errors, budget stop, probe failure; an interrupt exits by `KeyboardInterrupt`, 130) |
 | `LateCommit(a)` | mutation `AcceptStale` only |
 
 ## Properties
@@ -64,7 +64,7 @@ result differs from its expectation. `out/` is not committed.
 | P1 | `RetryNotRepetition` | a cell is one sample at most, however often it ran | `load_cells` reads one `result.json` per dir; the retry reuses the cell name |
 | P2 | `OnlyValidAttempts` | a counted result is a finished attempt of that cell, beside that attempt's files only | `run_cell` rmtree's before an attempt; `result.json` written last; `_refuse_shared_cells` |
 | P3 | `NoStaleOverwrite` | no `result.json` from an attempt that no longer owns the dir | `batch_lock`; threads die with the process; `_refuse_shared_cells` |
-| P4 | `OneConfig` | the cells of one report row ran under one `execution.id` | `check_batch_executions`; `_refuse_mixed_executions` in `load_cells` |
+| P4 | `OneConfig` | the cells of one report row ran under one `execution.id` | `check_batch_executions`; `refuse_mixed_executions` in `summarize` and `compare` |
 | P5 | `PartialNotComplete` | exit 0 only with every planned cell done; the rest are *missing* | exit logic of `cmd_repo_run`; `record_plan` + `load_cells` |
 | P6 | `CancelContract` | no attempt starts after Ctrl-C; the run does not exit 0 | `pool.map` cancels pending futures when the main thread raises |
 | P7 | `InvocationEnds` (liveness) | every invocation ends | under `Fairness` only |
@@ -119,7 +119,7 @@ tla2tools v1.8.0 (TLC2 Version 2026.11.06.222357, rev d8fb231), 4 TLC workers, T
    attempt's `meta.json`/answer. Fixed: `_refuse_shared_cells`.
 2. **A part-way `--force` with another execution pools two executions** (`code_main_force_crash`,
    found by TLC on its first run of `fixed`): `--force` replaced r1, then the run stopped; r2 kept
-   the old execution and `repo report` pooled both in one row. Fixed: `_refuse_mixed_executions`.
+   the old execution and `repo report` pooled both in one row. Fixed: `refuse_mixed_executions`. The same refusal catches a harness binary replaced mid-batch, which the model does not have (one execution per invocation, while the code hashes `--bin` per cell).
 3. **Ctrl-C** (`mut_no_cancel_guard`): a probe with `_thread.interrupt_main()` started queued cells,
    but a real SIGINT wakes the main thread and `pool.map` cancels them. Not a bug; the test pins it.
 
@@ -130,6 +130,12 @@ Open questions (left as they are):
 2. A grader with write access to the run dir could leave a `result.json` when the host fails to
    write its own (`CellCrash`); a resume would reuse it.
 3. Caps (timeout, max turns, per-cell budget) are not in `execution.id`, so one row can mix caps.
+4. A second Ctrl-C leaves `batch_lock` while the pool's threads still finish their cells, so another
+   `repo run` can take the batch meanwhile (pre-existing; the model has no second interrupt).
+5. Not modelled: a cell failing inside a live process (`CellCrash`, `PrepError`), so P5 is checked
+   on crashes and Ctrl-C, not on the cell-error path. P1 and P4 follow closely from how `Samples`
+   and `Counted` are defined; the mutations show they are not vacuous.
+6. `run.sh` is not part of CI; the action → code table can drift from the code.
 
 ## A formal-verification evaluator for agent tasks (proposal)
 

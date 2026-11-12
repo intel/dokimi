@@ -194,22 +194,23 @@ def load_cells(batch_dir: Path) -> tuple[list[dict[str, Any]], list[str]]:
         with reading_cells([str(path)]):
             rec["score_task"] = bool(rec["score_task"] if "score_task" in rec else rec["grade"]["score_only"])
         finished.append(rec)
-    _refuse_mixed_executions(batch_dir, finished)
     done = {r["cell"] for r in finished}
     unsupported = {p.parent.name for p in batch_dir.glob(f"*/{UNSUPPORTED_FILE}")}
     return finished, sorted((planned | started) - done - unsupported)
 
 
-def _refuse_mixed_executions(batch_dir: Path, finished: list[dict[str, Any]]) -> None:
-    """One (arm, model) of a batch ran with one execution: a --force run that stopped part way leaves two."""
-    seen: dict[tuple[str, str], set[str]] = defaultdict(set)
-    for rec in finished:
+def refuse_mixed_executions(cells: list[dict[str, Any]], where: str) -> None:
+    """One (batch, arm, model) ran with one execution: a ``--force`` run that stopped part way, or a harness
+    binary replaced mid-batch, leaves two, and pooling them would blend two setups in one row."""
+    seen: dict[tuple[str, str, str], set[str]] = defaultdict(set)
+    for rec in cells:
         ran = recorded_execution(rec).get("id")
-        seen[(rec["arm"], rec["model"])].add(ran if isinstance(ran, str) else "unrecorded")
-    for (arm, model), ids in sorted(seen.items()):
+        seen[(rec.get("batch", ""), rec["arm"], rec["model"])].add(ran if isinstance(ran, str) else "unrecorded")
+    for (batch, arm, model), ids in sorted(seen.items()):
         if len(ids) > 1:
-            raise CellFileError(f"{batch_dir}: the cells of arm {arm}, model {model} ran with executions "
-                                f"{', '.join(sorted(ids))}; rerun the batch with --force to finish it, or use another --batch")
+            raise CellFileError(f"{batch or where}: the cells of arm {arm}, model {model} ran with executions "
+                                f"{', '.join(sorted(ids))}; rerun the cells of the older ones with --force "
+                                "(--task, --arm, --model) to finish them, or use another --batch")
 
 
 def load_unsupported(batch_dir: Path) -> list[dict[str, Any]]:
@@ -226,6 +227,7 @@ def load_unsupported(batch_dir: Path) -> list[dict[str, Any]]:
 
 def summarize(batch_dir: Path) -> dict[str, Any]:
     cells, missing = load_cells(batch_dir)
+    refuse_mixed_executions(cells, str(batch_dir))
     groups: dict[tuple[str, str, str], list[dict[str, Any]]] = defaultdict(list)
     for rec in cells:
         groups[(rec["task"], rec["arm"], rec["model"])].append(rec)

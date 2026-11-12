@@ -19,7 +19,7 @@ import yaml
 
 from dokimi.cli import build_parser
 from dokimi.repos import runner as repo_runner
-from dokimi.repos.report import CellFileError, summarize
+from dokimi.repos.report import CellFileError, refuse_mixed_executions, summarize
 from repo_eval_fixture import FakeRunner, fake_harness, make_repo
 
 
@@ -79,14 +79,13 @@ def test_ctrl_c_starts_no_queued_cell(setup, monkeypatch):
         return real(ctx, task, arm, rep, *args, **kwargs)
 
     monkeypatch.setattr(repo_runner, "run_cell", run_cell)
-    with pytest.raises(KeyboardInterrupt):
-        _run(setup, "--task", "fix_add", "--reps", "5", "--jobs", "2")
-    batch = setup["out"] / "b1"
-    for _ in range(100):  # the running cells are not joined; they end on their own
-        if len(list(batch.glob("*/result.json"))) == 2:
-            break
-        time.sleep(0.05)
-    time.sleep(0.3)  # a thread that would start another cell has had the time to
+    old = signal.signal(signal.SIGINT, signal.default_int_handler)  # a shell may have left SIGINT ignored
+    try:
+        with pytest.raises(KeyboardInterrupt):
+            _run(setup, "--task", "fix_add", "--reps", "5", "--jobs", "2")
+    finally:
+        signal.signal(signal.SIGINT, old)
+    batch = setup["out"] / "b1"  # the pool joined the two running cells before the interrupt left run_batch
     assert sorted(started) == [1, 2]
     summary = summarize(batch)  # the running cells finished; the queued ones are missing, not failed
     assert summary["cells"] == 2
@@ -146,3 +145,18 @@ def test_a_resume_after_a_crash_between_the_artifacts_and_result_json_reruns_the
     assert summary["missing"] == [] and summary["rows"][0]["n"] == 1
     assert json.loads((rd / "meta.json").read_text())["start_sha"] == first
     assert len(_agents(setup)) == 2  # the retry is a second attempt at r1, not an r2
+
+
+def _cell(arm, model, ran, batch=""):
+    return {"batch": batch, "arm": arm, "model": model, "execution": {"id": ran}}
+
+
+def test_the_mixed_execution_refusal_is_per_batch_arm_and_model():
+    # one execution per row is the rule; two arms, two models or two batches may each have their own
+    ok = [_cell("a", "m", "e1"), _cell("a", "m", "e1"), _cell("b", "m", "e2"), _cell("a", "n", "e3"),
+          _cell("a", "m", "e4", batch="other")]
+    refuse_mixed_executions(ok, "b1")
+    with pytest.raises(CellFileError, match="arm a, model m ran with executions e1, e4"):
+        refuse_mixed_executions([*ok, _cell("a", "m", "e4")], "b1")
+    with pytest.raises(CellFileError, match="e1, unrecorded"):
+        refuse_mixed_executions([_cell("a", "m", "e1"), {"arm": "a", "model": "m"}], "b1")

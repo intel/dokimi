@@ -2304,9 +2304,10 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   cell again. The same holds for a finished cell of a task this host cannot
   run, except that `--force` keeps it: once its file is removed, the cell runs
   on a host that meets the task's requirements. A `--force` run that stops part
-  way (Ctrl-C, a crash, a failed cell) can leave finished cells of two `id`s in
-  one arm and model; `repo report` and `repo compare` refuse such a batch, naming
-  both `id`s, until a `--force` run finishes it. A plan naming one cell twice (a
+  way (Ctrl-C, a crash, a failed cell), or a harness binary replaced while the
+  batch runs, can leave finished cells of two `id`s in one arm and model; `repo
+  report` refuses such a batch and `repo compare` such a compared row, naming
+  both `id`s, until `--force` reruns the cells of the older one. A plan naming one cell twice (a
   repeated `--task` or `--model`, or two `--model` strings with one directory
   name, `a/b` and `a:b`) is refused before any agent starts. Ctrl-C lets the
   running cells finish and starts no queued one. A batch stays on the eval tree it

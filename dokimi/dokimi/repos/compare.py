@@ -123,7 +123,7 @@ from .compare_reach import holm_floor, min_detectable
 from .compare_tasks import CompareError, select_tasks
 from .compare_values import finite_values, task_values
 from .process_counts import as_measure, process_order, process_values
-from .report import (load_cells, mismatch_warnings, model_mismatch, resolved_models,
+from .report import (load_cells, mismatch_warnings, model_mismatch, refuse_mixed_executions, resolved_models,
                      unmeasured_note, uptake_counts)
 from .useful import USEFUL_MEASURES, useful_arms_line, useful_counts
 
@@ -203,6 +203,7 @@ def compare(batch_dirs: list[Path], baseline: str, treatments: list[str] | None 
     treatments = _treatments(cells, baseline, base_sel, treatments, scope)
     compared = _in_models([c for c in cells if any(selector_matches(parse_selector(t), c) for t in [baseline, *treatments])],
                           models)  # a judged-recall file of an excluded arm or model does not count
+    refuse_mixed_executions(compared, "batch")  # only the rows compared: a mixed arm left out does not block
     check_reported(metrics, compared, scope)
     measures = ["gate", "score", *([f"pass^{pass_k}"] if pass_k else []),
                 *(["path_distance"] if path_stability else []), "cost_usd", "turns", "first_prompt_tokens",
