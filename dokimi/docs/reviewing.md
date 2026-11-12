@@ -46,7 +46,8 @@ model that grades its own answers inflates the scores. `novelty`, `arms run` and
 `subjects run` refuse a judged run whose default judge is the model under measurement:
 the command exits 2 with `pass --judge-model as well`, so name
 `--judge --judge-model <other> --judge-provider <judge-provider>` yourself. An explicit
-`--judge-model` equal to the answerer only warns on stderr.
+For `arms run` and `subjects run`, an explicit `--judge-model` equal to the answerer only warns on stderr.
+`novelty` does not: it refuses that judge unless you also pass `--allow-self-judge`.
 
 ## A skill
 
