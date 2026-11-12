@@ -14,6 +14,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -351,6 +352,15 @@ def test_a_utc_date_is_recorded_with_z_whichever_form_git_prints():
     log = f"{sha}\0002030-01-01T00:00:00+00:00\0002030-02-01T00:00:00+00:00\0g\0\n:000000 100644 A\0AGENTS.md\0"
     assert guidance_history._parse_log(log.encode()) == [
         ((sha, "2030-01-01T00:00:00Z", "2030-02-01T00:00:00Z", "g"), ["AGENTS.md"])]
+
+
+@pytest.mark.skipif(sys.platform in ("win32", "darwin"), reason="the file system takes only UTF-8 names")
+def test_a_log_path_that_is_not_utf8_keeps_its_byte():
+    sha = "a" * 40
+    dirname = os.fsdecode(b"r\xff")
+    log = f"{sha}\0002030-01-01T00:00:00Z\0002030-01-01T00:00:00Z\0g\0\n:100644 100644 a b M\0{dirname}/AGENTS.md\0"
+    assert guidance_history._parse_log(os.fsencode(log)) == [
+        ((sha, "2030-01-01T00:00:00Z", "2030-01-01T00:00:00Z", "g"), [f"{dirname}/AGENTS.md"])]
 
 
 @pytest.mark.skipif(os.name == "nt", reason="a carriage return in a file name")

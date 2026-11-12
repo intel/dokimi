@@ -1,0 +1,191 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/intel/dokimi/schemas/question_panel.v1.json",
+  "title": "Question panel review v1",
+  "description": "`reports/<product>_question_panel.json`, written by `eval questions review` (dokimi.questions.panel_reviewer): each question's scores from a panel of role-differentiated reviewers. Saved after every question, so a run cut short leaves the questions reviewed so far.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "library_name",
+    "total",
+    "reviewed_at",
+    "questions",
+    "summary"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "question_panel.v1"
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}(?![\\s\\S])",
+      "description": "The envelope: the id of the run that saved this file (dokimi.artifacts.run_id). Absent from files saved before the envelope."
+    },
+    "dokimi_version": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The envelope: the dokimi version that saved this file. Absent from files saved before the envelope."
+    },
+    "library_name": {
+      "type": "string"
+    },
+    "total": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "reviewed_at": {
+      "type": "string",
+      "description": "UTC, ISO 8601, of the save."
+    },
+    "questions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "question",
+          "panel_score",
+          "std",
+          "agreement_score",
+          "recommendation",
+          "flags",
+          "needs_attention",
+          "votes"
+        ],
+        "properties": {
+          "question": {
+            "type": "string"
+          },
+          "panel_score": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "std": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "agreement_score": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "recommendation": {
+            "enum": [
+              "keep",
+              "revise",
+              "drop",
+              "unknown"
+            ],
+            "description": "unknown: no reviewer gave scores."
+          },
+          "flags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "needs_attention": {
+            "type": "boolean"
+          },
+          "votes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "reviewer",
+                "scores",
+                "primary_score",
+                "reasoning",
+                "flags",
+                "error"
+              ],
+              "properties": {
+                "reviewer": {
+                  "type": "string"
+                },
+                "scores": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "number"
+                  },
+                  "description": "0-100 per dimension of the reviewer; empty when the call failed."
+                },
+                "primary_score": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "reasoning": {
+                  "type": "string"
+                },
+                "flags": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "error": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "Why the reviewer gave no scores."
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "required": [
+        "keep",
+        "revise",
+        "drop",
+        "mean_panel_score",
+        "top_flags"
+      ],
+      "properties": {
+        "keep": {
+          "type": "integer"
+        },
+        "revise": {
+          "type": "integer"
+        },
+        "drop": {
+          "type": "integer"
+        },
+        "mean_panel_score": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "top_flags": {
+          "type": "array",
+          "description": "[flag, count] pairs, most frequent first, at most five.",
+          "items": {
+            "type": "array",
+            "prefixItems": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "minItems": 2,
+            "maxItems": 2
+          }
+        }
+      }
+    }
+  }
+}

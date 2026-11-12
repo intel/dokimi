@@ -16,9 +16,11 @@ repository offers an agent), ``plan`` (the cells a run promises to measure),
 into an agent's context), ``effective_instructions`` (the effective-instructions/v0
 receipt of a reach probe), ``need_graph`` and ``eval_coverage`` (a frozen need graph and an
 eval set's coverage of it), ``task_inspect`` (which eval-task format each
-path under a tree is), ``repo_hits_judged`` (a judge's labels of one replay cell's credited pairs)
-and ``dokimi_config`` (a repository's subjects and where their evals are) and ``reach_matrix`` (the reach
-conformance matrix). This module stamps each with a ``schema_version`` and validates it against the JSON Schema in
+path under a tree is), ``repo_hits_judged`` (a judge's labels of one replay cell's credited pairs),
+``dokimi_config`` (a repository's subjects and where their evals are), ``reach_matrix`` (the reach
+conformance matrix), ``personas`` and ``persona_analysis`` (proposed user personas and the GitHub
+signals behind them), ``question_panel`` and ``question_quality`` (reviews of a question set) and
+``report_qa`` (the Q&A sidecar of ``report eval``). This module stamps each with a ``schema_version`` and validates it against the JSON Schema in
 ``dokimi/schemas/`` on save and load, so fixtures and baselines stay
 forward-compatible and self-describing.
 
@@ -87,6 +89,11 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "catalog_eval": "catalog_eval.v1",
     "reach_matrix": "reach_matrix.v1",
     "repo_hits_judged": "repo_hits_judged.v1",
+    "personas": "personas.v1",
+    "persona_analysis": "persona_analysis.v1",
+    "question_panel": "question_panel.v1",
+    "question_quality": "question_quality.v1",
+    "report_qa": "report_qa.v1",
 }
 
 # kind -> superseded versions still accepted on *load*, newest first. An artifact written under an
@@ -223,7 +230,7 @@ def stamp(kind: str, data: dict) -> dict:
     return {**head, **{k: v for k, v in data.items() if k not in head}}
 
 
-def save_artifact(kind: str, data: dict, path: Path | str) -> dict:
+def save_artifact(kind: str, data: dict, path: Path | str, *, ensure_ascii: bool = True) -> dict:
     """Write ``data`` to ``path`` as a ``kind`` artifact; return exactly what was written.
 
     - ``schema_version`` is set to the current version for ``kind`` and leads the document,
@@ -249,7 +256,8 @@ def save_artifact(kind: str, data: dict, path: Path | str) -> dict:
       its target when the target's directory exists; otherwise ``FileNotFoundError`` is raised
       and nothing is written (the target's directories are *not* created). A link loop raises
       ``OSError``. ``<name>.rejected`` stays beside ``path``, not the target.
-    - JSON with ``indent=2``, ASCII-escaped, UTF-8.
+    - JSON with ``indent=2``, UTF-8, ASCII-escaped unless ``ensure_ascii`` is false (a file
+      people read, such as the ``report_qa`` sidecar); either way it parses to the same payload.
     """
     if kind not in SCHEMA_VERSIONS:
         raise KeyError(f"Unknown artifact kind: {kind!r}")
@@ -259,10 +267,11 @@ def save_artifact(kind: str, data: dict, path: Path | str) -> dict:
         head = {"schema_version": SCHEMA_VERSIONS[kind], **envelope(kind)}
     except InputError as exc:  # a malformed DOKIMI_RUN_ID in library use: keep the paid payload
         rejected = path.with_name(path.name + ".rejected")
-        rejected.write_text(json.dumps({"schema_version": SCHEMA_VERSIONS[kind], **data}, indent=2), encoding="utf-8")
+        rejected.write_text(json.dumps({"schema_version": SCHEMA_VERSIONS[kind], **data}, indent=2,
+                                       ensure_ascii=ensure_ascii), encoding="utf-8")
         raise InputError(f"{exc}\n(not written to {path}; payload kept at {rejected})") from exc
     payload = {**head, **{k: v for k, v in data.items() if k not in head}}
-    text = json.dumps(payload, indent=2)
+    text = json.dumps(payload, indent=2, ensure_ascii=ensure_ascii)
     try:
         validate_artifact(kind, payload)
     except ArtifactValidationError as exc:

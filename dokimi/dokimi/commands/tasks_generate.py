@@ -16,6 +16,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from dokimi import cli_flags
 from dokimi.utils import InputError
 
 if TYPE_CHECKING:
@@ -195,7 +196,7 @@ def add_parser(eval_tasks_sub, positive_int) -> None:
     gen_p.add_argument("--index", default=None, metavar="FILE",
                        help="A SCIP code index of the source at its revision (scip-python, scip-clang, ...); "
                        "dokimi never builds one")
-    gen_p.add_argument("--out", required=True,
+    cli_flags.add(gen_p, "output", "--out-dir", dest="out", required=True,
                        help="Directory that gets one <task id>/ per task, usually the manifest's `tasks`")
     gen_p.add_argument("--references", type=_count, default=None, metavar="N",
                        help="Reference tasks to write (default 9); about half with a name other symbols share")

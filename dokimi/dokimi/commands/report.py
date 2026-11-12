@@ -9,7 +9,9 @@ import argparse
 import sys
 import json
 from pathlib import Path
+from dokimi.commands._output import exit_on_rejected
 from dokimi.exit_codes import EXIT_USAGE
+from dokimi.utils import InputError
 
 
 def _write_combined_report(args, regular_runs, golden_runs, run_ids, warnings) -> None:
@@ -41,21 +43,15 @@ def cmd_report_model_compare(args: argparse.Namespace) -> None:
 
     run_ids = [rid.strip() for rid in args.run_ids.split(",")]
     if not run_ids or any(not rid for rid in run_ids) or len(set(run_ids)) != len(run_ids):
-        print("Error: --run-ids must contain unique, non-empty labels", file=sys.stderr)
-        raise SystemExit(EXIT_USAGE)
+        raise InputError("--run-ids must contain unique, non-empty labels")
 
     if not args.regular_runs and not args.golden_runs:
-        print("Error: must provide at least --regular-runs or --golden-runs", file=sys.stderr)
-        raise SystemExit(EXIT_USAGE)
+        raise InputError("must provide at least --regular-runs or --golden-runs")
 
     for flag, paths in (("--regular-runs", args.regular_runs), ("--golden-runs", args.golden_runs)):
         if paths and len(paths) != len(run_ids):
-            print(
-                f"Error: number of {flag} paths ({len(paths)}) must match "
-                f"number of run IDs ({len(run_ids)})",
-                file=sys.stderr,
-            )
-            raise SystemExit(EXIT_USAGE)
+            raise InputError(f"number of {flag} paths ({len(paths)}) must match "
+                             f"number of run IDs ({len(run_ids)})")
 
     regular_runs = []
     if args.regular_runs:
@@ -88,10 +84,17 @@ def cmd_report_model_compare(args: argparse.Namespace) -> None:
     _write_combined_report(args, regular_runs, golden_runs, run_ids, all_warnings)
 
 
+def _generate_eval_report(eval_path: str, out_path: str) -> None:
+    """``generate_report``; exit 1 when the schema refuses the Q&A sidecar (the markdown is written by then)."""
+    from dokimi.report.eval_report import generate_report
+
+    with exit_on_rejected("report_qa"):
+        generate_report(eval_path=eval_path, out_path=out_path)
+
+
 def cmd_report_eval(args: argparse.Namespace) -> None:
     """Generate quality report from eval JSON (dynamic vs static breakdown)."""
     from dokimi.records import RecordError
-    from dokimi.report.eval_report import generate_report
 
     if args.out:
         out = args.out
@@ -100,10 +103,9 @@ def cmd_report_eval(args: argparse.Namespace) -> None:
     else:
         out = f"results/{args.product}/reports/{args.product}_full.md"
     try:
-        generate_report(eval_path=args.eval, out_path=out)
+        _generate_eval_report(args.eval, out)
     except RecordError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        raise SystemExit(EXIT_USAGE) from None
+        raise InputError(str(exc)) from exc
     except OSError as exc:
         print(f"Error: cannot write {out}: {exc}", file=sys.stderr)
         raise SystemExit(EXIT_USAGE) from None
@@ -118,11 +120,9 @@ def cmd_report_generate(args: argparse.Namespace) -> None:
     try:
         eval_data = json.loads(Path(args.eval).read_text(encoding="utf-8"))
     except OSError as exc:
-        print(f"Error: cannot read {args.eval}: {exc}", file=sys.stderr)
-        raise SystemExit(EXIT_USAGE) from None
+        raise InputError(f"cannot read {args.eval}: {exc}") from exc
     except ValueError as exc:  # not UTF-8 or not JSON
-        print(f"Error: {args.eval} is not valid JSON: {exc}", file=sys.stderr)
-        raise SystemExit(EXIT_USAGE) from None
+        raise InputError(f"{args.eval} is not valid JSON: {exc}") from exc
     # Every --format: a report of no evaluations has nothing to show, and an empty
     # eval means the run that wrote it judged nothing: a failed run, exit 1.
     evaluations = eval_data.get("evaluations", []) if isinstance(eval_data, dict) else eval_data
@@ -130,18 +130,15 @@ def cmd_report_generate(args: argparse.Namespace) -> None:
         print(f"Error: --eval {args.eval} holds no evaluations", file=sys.stderr)
         raise SystemExit(1)
     if not isinstance(eval_data, dict):
-        print(f"Error: {args.eval} must hold a JSON object", file=sys.stderr)
-        raise SystemExit(EXIT_USAGE)
+        raise InputError(f"{args.eval} must hold a JSON object")
     from dokimi.questions.artifact import load_questions
 
     try:
         questions_data = load_questions(args.questions).artifact
     except OSError as exc:
-        print(f"Error: cannot read {args.questions}: {exc}", file=sys.stderr)
-        raise SystemExit(EXIT_USAGE) from None
+        raise InputError(f"cannot read {args.questions}: {exc}") from exc
     except ValueError as exc:  # ArtifactValidationError: names the record and the fix
-        print(f"Error: {exc}", file=sys.stderr)
-        raise SystemExit(EXIT_USAGE) from exc
+        raise InputError(str(exc)) from exc
 
     # Generate report
     generator = ReportGenerator()
@@ -152,8 +149,7 @@ def cmd_report_generate(args: argparse.Namespace) -> None:
             output_format=args.format
         )
     except RecordError as exc:
-        print(f"Error: {args.eval} {exc}", file=sys.stderr)
-        raise SystemExit(EXIT_USAGE) from None
+        raise InputError(f"{args.eval} {exc}") from exc
 
     print(f"Loaded {len(eval_data.get('evaluations', []))} evaluations from {args.eval}")
     print(f"Loaded {len(questions_data.get('questions', []))} questions from {args.questions}")

@@ -237,7 +237,7 @@ def test_arms_plugin_delta_cli_writes_json_and_markdown(tmp_path: Path):
         str(baseline),
         "--plugin-json",
         str(plugin),
-        "--out-json",
+        "--out",
         str(out_json),
     ])
     args.func(args)

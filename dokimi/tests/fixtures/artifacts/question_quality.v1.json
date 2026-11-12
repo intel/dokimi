@@ -1,0 +1,35 @@
+{
+  "schema_version": "question_quality.v1",
+  "library_name": "demo",
+  "total": 2,
+  "difficulty_distribution": {
+    "beginner": 1,
+    "intermediate": 0,
+    "advanced": 1
+  },
+  "trivial_count": 1,
+  "trivial_pct": 50.0,
+  "diversity_score": 0.631,
+  "questions": [
+    {
+      "question": "What is a thread?",
+      "difficulty": "beginner",
+      "trivial": true,
+      "reason": "General knowledge.",
+      "error": null
+    },
+    {
+      "question": "How do I cut task scheduling overhead?",
+      "difficulty": "advanced",
+      "trivial": false,
+      "reason": "Needs the library docs.",
+      "error": null
+    }
+  ],
+  "trivial_questions": [
+    "What is a thread?"
+  ],
+  "recommendations": [
+    "50% of questions are trivial (answerable without extra context). Consider regenerating with stricter persona constraints."
+  ]
+}
