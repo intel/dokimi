@@ -209,8 +209,8 @@ def refuse_mixed_executions(cells: list[dict[str, Any]], where: str) -> None:
     for (batch, arm, model), ids in sorted(seen.items()):
         if len(ids) > 1:
             raise CellFileError(f"{batch or where}: the cells of arm {arm}, model {model} ran with executions "
-                                f"{', '.join(sorted(ids))}; rerun the cells of the older ones with --force "
-                                "(--task, --arm, --model) to finish them, or use another --batch")
+                                f"{', '.join(sorted(ids))}; rerun that arm and model with --force and the batch's --task and "
+                                "--reps, so every cell has one execution, or use another --batch")
 
 
 def load_unsupported(batch_dir: Path) -> list[dict[str, Any]]:

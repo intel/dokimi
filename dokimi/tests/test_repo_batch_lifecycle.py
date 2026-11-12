@@ -19,6 +19,7 @@ import yaml
 
 from dokimi.cli import build_parser
 from dokimi.repos import runner as repo_runner
+from dokimi.repos.compare import compare
 from dokimi.repos.report import CellFileError, refuse_mixed_executions, summarize
 from repo_eval_fixture import FakeRunner, fake_harness, make_repo
 
@@ -160,3 +161,15 @@ def test_the_mixed_execution_refusal_is_per_batch_arm_and_model():
         refuse_mixed_executions([*ok, _cell("a", "m", "e4")], "b1")
     with pytest.raises(CellFileError, match="e1, unrecorded"):
         refuse_mixed_executions([_cell("a", "m", "e1"), {"arm": "a", "model": "m"}], "b1")
+
+
+def test_compare_refuses_only_a_compared_row_of_two_executions(setup):
+    _run(setup, "--task", "fix_add", "--arm", "guidance:none,guidance:bridge", "--reps", "2")
+    b1 = setup["out"] / "b1"
+    target = b1 / "fix_add__guidance-bridge__m-1__r1/result.json"
+    rec = json.loads(target.read_text())
+    rec["execution"]["id"] = "old"  # what a --force run stopped part way leaves beside the new cells
+    target.write_text(json.dumps(rec))
+    with pytest.raises(CellFileError, match="arm guidance:bridge, model m-1 ran with executions"):
+        compare([b1], "guidance:none", ["guidance:bridge"])
+    assert compare([b1], "guidance:none", ["guidance:raw"])["comparisons"]  # the mixed arm is not compared

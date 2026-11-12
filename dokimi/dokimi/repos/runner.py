@@ -444,7 +444,7 @@ def _refuse_shared_cells(cells: list[tuple[Task, str, AgentOptions, int]]) -> No
     shared = sorted(name for name, n in names.items() if n > 1)
     if shared:
         raise ValueError(f"cell {shared[0]} is planned {names[shared[0]]} times (a repeated --task or --model, or "
-                         "two --model strings with one name on disk, or a repeated --arm); give each once")
+                         "two --model strings with one name on disk); give each once")
 
 
 UNSUPPORTED_FILE = "unsupported.json"
