@@ -3,7 +3,7 @@
   "ragas_summary": {"with_docs": {"faithfulness": 0.9}, "without_docs": {"faithfulness": 0.5}},
   "ragas_n_evaluated": {"with_docs": 1, "without_docs": 1},
   "ragas_per_question": {
-    "with_docs": [{"question_id": "q1", "faithfulness": 0.9}],
-    "without_docs": [{"question_id": "q1", "faithfulness": 0.5}]
+    "with_docs": {"q1": {"faithfulness": 0.9}},
+    "without_docs": {"q1": {"faithfulness": 0.5}}
   }
 }
