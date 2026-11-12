@@ -154,9 +154,11 @@ def test_the_json_row_has_the_finding(tmp_path, capsys):
 
 
 @pytest.mark.parametrize("per_skill", [[], ["--per-skill"]])
-def test_a_fenced_frontmatter_example_in_plain_markdown_is_still_plain_markdown(tmp_path, capsys, per_skill):
-    # Docs about skills show a frontmatter block in a fence near the top: that is prose, not misplaced frontmatter.
-    text = "# Tool\n\nExplains metadata.\n\n```yaml\n---\nname: example\ndescription: Use when testing.\n---\n```\n"
+@pytest.mark.parametrize("example", ["```yaml\n---\nname: example\ndescription: Use when testing.\n---\n```\n",
+                                     "> ---\n> name: example\n> description: Use when testing.\n> ---\n"])
+def test_a_fenced_frontmatter_example_in_plain_markdown_is_still_plain_markdown(tmp_path, capsys, per_skill, example):
+    # Docs about skills show a frontmatter block in a fence or a quote near the top: that is prose, not misplaced frontmatter.
+    text = "# Tool\n\nExplains metadata.\n\n" + example
     _plain(tmp_path, "tool", text)
     [review] = review_skills(read_skill_manifest(tmp_path))
     [finding] = review.findings

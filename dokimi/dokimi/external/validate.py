@@ -89,7 +89,7 @@ from .content_checks import content_findings
 from .listing import in_field
 from .no_frontmatter import NO_FRONTMATTER, no_frontmatter_message
 from .paths import _exists, _in_checkout, _inside, _resolved
-from .skill_markdown import link_pieces, outside_fences
+from .skill_markdown import QUOTE_MARK_RE, link_pieces, outside_fences
 
 NAME_PATTERN = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 NAME_MAX = 64
@@ -430,7 +430,8 @@ def _unloaded_review(entry: SkillCatalogEntry) -> Optional[SkillReview]:
         return None  # an empty file is not prose: the loader's error stands
     lines = text.lstrip("\ufeff").splitlines()
     first = next((line.rstrip() for line in lines if line.strip()), "")
-    if (first.strip() == "---" and lines[0].rstrip() != "---") or (first.strip() != "---" and _has_late_frontmatter(outside_fences("\n".join(lines)))):
+    unquoted = "\n".join("" if QUOTE_MARK_RE.match(line) else line for line in lines)  # a quoted example is prose too
+    if (first.strip() == "---" and lines[0].rstrip() != "---") or (first.strip() != "---" and _has_late_frontmatter(outside_fences(unquoted))):
         return None  # frontmatter after blank lines, an indent or another line: a broken skill, not prose; the loader's error stands
     if first.strip() != "---":
         at_root = candidate.parent.resolve() == entry.source_root.resolve()  # as _frontmatter_findings reads it
