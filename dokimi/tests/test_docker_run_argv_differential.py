@@ -7,7 +7,8 @@
 flags moved into :mod:`dokimi.docker_cmd` and :class:`dokimi.container_policy.ContainerPolicy`.
 :func:`capture` replays the same inputs through the public entry points and must reproduce
 that file exactly: flag order, values and the argv tail included. A diff here is an argv
-change, which is a behaviour change of the docker command, not a refactor.
+change, which is a behaviour change of the docker command, not a refactor. A planned change is
+re-taken with ``scripts/refresh_docker_run_golden.py``, and the diff of that file is reviewed.
 
 Call sites covered: the repo container (``DockerRunner.argv``), the example runner's docker
 backend, the solver's task container (``_start_container``, with and without an egress
