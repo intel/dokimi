@@ -72,7 +72,7 @@ def _stopped(exc: Exception, done: Any, code: int, args: argparse.Namespace, mor
     if args.json:
         from dokimi import cli_output
 
-        error = {"code": "input", "message": str(exc), "retryable": False, "field": None} if code == EXIT_USAGE else None
+        error = cli_output.error_object("input", str(exc)) if code == EXIT_USAGE else None
         cli_output.emit(cli_output.envelope("repo hits judge", run_id=cli_output.current_run_id(), status="failed",
                                             reason=str(exc), error=error, cost=_cost(done.meter, args.max_usd)))
     sys.exit(code)

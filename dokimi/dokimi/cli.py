@@ -118,8 +118,8 @@ def _usage_document(kind: str, message: str) -> None:
 
     if cli_output.printed():
         return
-    cli_output.emit(cli_output.envelope(kind, run_id=cli_output.current_run_id(), status="failed", reason=message,
-                                        error={"code": "input", "message": message, "retryable": False, "field": None}))
+    cli_output.emit(cli_output.error_document(kind, "input", message, run_id=cli_output.current_run_id(),
+                                              reason=message))
 
 
 def _json_requested(parser: argparse.ArgumentParser, tokens: Sequence[str]) -> bool:
@@ -267,11 +267,14 @@ def _document_on_exit(args: argparse.Namespace, code: int) -> None:
 
     if cli_output.printed():
         return
-    error = {"code": "input" if code == 2 else "infra", "message": "see stderr", "retryable": code == 5,
-             "field": None} if code in (2, 5) else None
     kind = getattr(args, "cli_kind", args.cmd)  # a group leaf names itself, e.g. "runs list"
-    cli_output.emit(cli_output.envelope(kind, run_id=cli_output.current_run_id(), status="failed",
-                                        reason=f"exit {code}: see stderr", error=error))
+    reason = f"exit {code}: see stderr"
+    if code in (2, 5):
+        doc = cli_output.error_document(kind, "input" if code == 2 else "infra", "see stderr",
+                                        run_id=cli_output.current_run_id(), reason=reason)
+    else:
+        doc = cli_output.envelope(kind, run_id=cli_output.current_run_id(), status="failed", reason=reason)
+    cli_output.emit(doc)
 
 
 def main() -> None:

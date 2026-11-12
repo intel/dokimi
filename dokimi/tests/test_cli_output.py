@@ -401,3 +401,12 @@ def test_a_priced_judge_cost_has_the_remaining_budget_floored_at_zero(spent, cap
 
     cost = _cost(SimpleNamespace(spent_usd=spent, calls=2, unpriced=0), cap)
     assert cost["remaining_usd"] == remaining and cost["cap_usd"] == cap and cost["priced"] is True
+
+
+def test_an_error_object_is_retryable_only_for_infra_and_an_error_document_takes_a_reason():
+    # one error object for every document: the retry rule lives in error_object alone
+    assert cli_output.error_object("infra", "x")["retryable"] is True
+    assert cli_output.error_object("input", "x", field="--n")["retryable"] is False
+    doc = cli_output.error_document("repo budget", "moved", "moved: dokimi x", reason="the new spelling")
+    assert doc["reason"] == "the new spelling" and doc["error"]["retryable"] is False
+    assert schema_errors("cli_output.v1", doc) == []
