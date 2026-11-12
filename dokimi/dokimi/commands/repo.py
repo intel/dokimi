@@ -167,7 +167,7 @@ def cmd_repo_scan(args: argparse.Namespace) -> None:
         failed = bool(args.fail_on_fail and (payload["counts"]["fail"] or payload["incomplete"]) or static_errors)
         cli_output.emit_leaf("repo scan", stamp("repo_readiness", dict(payload)),
                              status="failed" if failed else "complete",
-                             reason=_scan_reason(payload, static_errors) if failed else None)
+                             reason=_scan_reason(payload, static_errors, args.fail_on_fail) if failed else None)
     else:
         _print_scan_text(manifest, payload, args.out)
     _scan_gate(payload, args.fail_on_fail)  # runs first: an invalid --static still gets the incomplete reason
@@ -175,15 +175,16 @@ def cmd_repo_scan(args: argparse.Namespace) -> None:
         sys.exit(1)
 
 
-def _scan_reason(payload: dict, static_errors: list) -> str:
-    """Why a --json scan failed: every cause the gate tripped on, the --static problems, the failed claims and the
-    incomplete scan, joined by ``; `` (a scan can fail on more than one)."""
+def _scan_reason(payload: dict, static_errors: list, fail_on_fail: bool) -> str:
+    """Why a --json scan failed: every cause the gate tripped on, joined by ``; `` (a scan can fail on more than
+    one). The --static problems always fail the run; the failed claims and the incomplete scan only under
+    --fail-on-fail."""
     parts = []
     if static_errors:
         parts.append(f"{len(static_errors)} --static problem(s) not merged")
-    if payload["counts"]["fail"]:
+    if fail_on_fail and payload["counts"]["fail"]:
         parts.append(f"{payload['counts']['fail']} claim(s) failed")
-    if payload["incomplete"]:
+    if fail_on_fail and payload["incomplete"]:
         reasons = "; ".join(payload.get("incomplete_reasons") or [])
         parts.append(f"scan incomplete: {reasons}" if reasons else "scan incomplete")
     return "; ".join(parts)

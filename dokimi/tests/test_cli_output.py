@@ -490,10 +490,13 @@ def test_a_payload_that_will_not_serialize_leaves_the_fallback_document_to_print
 def test_a_failed_scan_with_no_incomplete_reason_still_says_what_failed():
     from dokimi.commands.repo import _scan_reason
 
-    assert _scan_reason({"incomplete": True, "incomplete_reasons": [], "counts": {"fail": 0}}, []) == "scan incomplete"
-    assert _scan_reason({"incomplete": False, "incomplete_reasons": [], "counts": {"fail": 2}}, []) == "2 claim(s) failed"
+    assert _scan_reason({"incomplete": True, "incomplete_reasons": [], "counts": {"fail": 0}}, [], True) == "scan incomplete"
+    assert _scan_reason({"incomplete": False, "incomplete_reasons": [], "counts": {"fail": 2}}, [], True) == "2 claim(s) failed"
     # every cause the gate tripped on is in the reason, not only the first
-    assert _scan_reason({"incomplete": True, "incomplete_reasons": ["x"], "counts": {"fail": 2}}, []) == \
+    assert _scan_reason({"incomplete": True, "incomplete_reasons": ["x"], "counts": {"fail": 2}}, [], True) == \
         "2 claim(s) failed; scan incomplete: x"
-    assert _scan_reason({"incomplete": False, "incomplete_reasons": [], "counts": {"fail": 0}}, ["bad"]) == \
+    assert _scan_reason({"incomplete": False, "incomplete_reasons": [], "counts": {"fail": 0}}, ["bad"], True) == \
+        "1 --static problem(s) not merged"
+    # without --fail-on-fail, failed claims and an incomplete scan are not what failed the run
+    assert _scan_reason({"incomplete": True, "incomplete_reasons": ["x"], "counts": {"fail": 2}}, ["bad"], False) == \
         "1 --static problem(s) not merged"
