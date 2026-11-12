@@ -114,7 +114,8 @@ def _rows(*arms: str, model: str = MODEL) -> list[dict[str, str]]:
 def test_judge_reads_the_full_texts_and_writes_recall_judged_per_cell(tmp_path, capsys, judge_llm):
     batch = _batch(tmp_path)
     code, out, _ = _run(capsys, "judge", str(batch), "--judge", JUDGE, "--json")
-    assert code == 0 and json.loads(out)["status"] == "complete"  # a finished run, not budget_stopped
+    doc = json.loads(out)
+    assert code == 0 and (doc["status"], doc["reason"]) == ("complete", None)  # a finished run, not budget_stopped
     assert len(LONG) > review.CUT
     todo = next(p for p in judge_llm.prompts if "The TODO is repeated" in p)
     assert '{"file": "src/calc.py", "line": 10, "comment": ' + json.dumps(LONG) + "}" in todo
@@ -277,7 +278,20 @@ def test_a_write_stop_with_json_prints_an_input_error_document_with_exit_2(tmp_p
     code, out, _ = _run(capsys, "judge", str(batch), "--judge", JUDGE, "--json")
     doc = json.loads(out)
     assert code == 2 and (doc["status"], doc["error"]["code"]) == ("failed", "input")
+    assert doc["error"]["retryable"] is False
     assert doc["cost"]["calls"] == 4 and doc["cost"]["priced"] is True
+    assert schema_errors("cli_output.v1", doc) == []
+
+
+def test_an_unpriced_judge_under_max_usd_json_has_no_remaining_budget_and_gives_the_stop_as_reason(
+        tmp_path, capsys, monkeypatch):
+    monkeypatch.delenv(caching.RESPONSE_CACHE_ENV, raising=False)
+    batch = _batch(tmp_path)
+    with llm.use_adapter(llm.FakeAdapter(respond=_reply)):  # no cost_usd: the judge has no known price
+        code, out, _ = _run(capsys, "judge", str(batch), "--judge", JUDGE, "--max-usd", "0.5", "--json")
+    doc = json.loads(out)
+    assert code == 1 and (doc["status"], doc["reason"]) == ("budget_stopped", UNPRICED_STOP)
+    assert (doc["cost"]["remaining_usd"], doc["cost"]["priced"]) == (None, False)  # not "the full budget left"
     assert schema_errors("cli_output.v1", doc) == []
 
 
