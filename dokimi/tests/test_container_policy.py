@@ -91,6 +91,16 @@ def test_unknown_group_name_is_refused():
         ContainerPolicy().group("entrypoint")
 
 
+def test_group_names_are_one_literal_type():
+    # a typo in a layout is a mypy error, not a KeyError on the path that runs it
+    from typing import get_args
+
+    from dokimi.container_policy import Group
+
+    assert set(get_args(Group)) == {"init", "security", "cap_drop", "hardening", "pids", "cap_add",
+                                    "network", "resource", "read_only"}
+
+
 def test_docs_do_not_name_a_removed_symbol():
     # test_docs_code_refs.py checks code spans in docs, not a bare name in prose, so this checks the prose
     root = Path(__file__).resolve().parents[1]

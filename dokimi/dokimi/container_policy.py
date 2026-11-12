@@ -19,11 +19,15 @@ left at its default adds no flag, so each call site opts in to what it runs with
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 PIDS_LIMIT = 32768  # threads count too: a Bazel server and a -j build on a many-core host use thousands
 # What a task container keeps of root's capabilities after ``--cap-drop ALL``: chown, DAC override,
 # file owner, and setuid/setgid for task scripts that drop privileges.
 TASK_CAP_ADD = ("CHOWN", "DAC_OVERRIDE", "FOWNER", "SETUID", "SETGID")
+# The flag groups :meth:`ContainerPolicy.group` names; a layout item is one of these or an argv list.
+Group = Literal["init", "security", "cap_drop", "hardening", "pids", "cap_add", "network", "resource",
+                "read_only"]
 
 
 @dataclass(frozen=True)
@@ -38,7 +42,7 @@ class ContainerPolicy:
     memory: str | None = None  # --memory, as docker spells it ("512m", "2g")
     read_only: bool = False  # --read-only: the container's root filesystem
 
-    def group(self, name: str) -> list[str]:
+    def group(self, name: Group) -> list[str]:
         """The argv of one flag group by name: ``init``, ``security``, ``cap_drop``, ``hardening``
         (security then cap drop), ``pids``, ``cap_add``, ``network``, ``resource``, ``read_only``.
         An unknown name is a ``KeyError``."""

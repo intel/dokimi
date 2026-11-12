@@ -24,7 +24,7 @@ import os
 from collections.abc import Callable, Iterable, Mapping
 
 from dokimi import process
-from dokimi.container_policy import ContainerPolicy
+from dokimi.container_policy import ContainerPolicy, Group
 
 BINARY = "docker"
 BUILD_TIMEOUT_S = 3 * 3600  # default: a wedged daemon or a hung RUN step fails the build instead of hanging the batch
@@ -45,7 +45,7 @@ def argv(*args: str) -> list[str]:
     return [BINARY, *args]
 
 
-def run_spec(policy: ContainerPolicy, layout: Iterable[str | Iterable[str]], image: str,
+def run_spec(policy: ContainerPolicy, layout: Iterable[Group | list[str]], image: str,
              command: Iterable[str] = ()) -> list[str]:
     """``run`` with the flags of *layout* in its order, then *image* and *command*. No binary: pass
     the result to :func:`argv`, or prefix the caller's own binary.

@@ -58,7 +58,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from dokimi import docker_cmd, process
-from dokimi.container_policy import task_container_policy
+from dokimi.container_policy import Group, task_container_policy
 from dokimi.metrics.usage import UsageRecord
 
 from .agent_sandbox import (
@@ -355,7 +355,7 @@ class DockerSolverHarness:
                            + _task_verify_timeout(task) + 600))
         self._docker(["rm", "-f", container], log, check=False)
         network = None if sandbox is not None else start_network(plan, solve_in_container=inside)
-        layout = [["-d"], ["--name", container], "init", "cap_drop", "security", "pids", "cap_add",
+        layout: list[Group | list[str]] = [["-d"], ["--name", container], "init", "cap_drop", "security", "pids", "cap_add",
                   "network" if sandbox is None else sandbox.run_args(), docker_cmd.env_args(task.container_env), "resource"]
         self._docker(docker_cmd.run_spec(task_container_policy(network=network, cpus=cpus, memory=memory),
                                          layout, image, ["sleep", str(lifetime)]), log)

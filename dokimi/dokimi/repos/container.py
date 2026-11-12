@@ -42,7 +42,7 @@ from pathlib import Path
 from typing import Protocol
 
 from dokimi import docker_cmd, process
-from dokimi.container_policy import PIDS_LIMIT, ContainerPolicy
+from dokimi.container_policy import PIDS_LIMIT, ContainerPolicy, Group
 from dokimi.docker_cmd import (  # noqa: F401  (re-exported: the names callers have always imported from here)
     BUILD_TIMEOUT_S,
     INFRA_EXIT,
@@ -131,7 +131,7 @@ class DockerRunner:
             mounts = docker_cmd.mount_args((m.host, m.container, m.read_only) for m in spec.mounts)
         except ValueError as exc:
             raise ContainerError(str(exc)) from exc
-        layout = [
+        layout: list[Group | list[str]] = [
             ["--rm"], "init", "hardening", "pids", "network",
             ["-w", spec.workdir],
             ["--name", spec.name] if spec.name else [],
