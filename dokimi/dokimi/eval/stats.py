@@ -488,7 +488,8 @@ def point_biserial(flags: Sequence[bool], totals: Sequence[float]) -> Dict[str, 
     Returns:
         ``{"r": float | None, "n": int, "n_pass": int, "reason": str | None}``. ``r`` is
         ``None`` when it is undefined: fewer than three respondents, no variance in the
-        totals, or an item every respondent passed or failed. ``reason`` names which.
+        totals, a total that is not finite, or an item every respondent passed or failed.
+        ``reason`` names which.
     """
     if len(flags) != len(totals):
         raise ValueError(
@@ -503,6 +504,8 @@ def point_biserial(flags: Sequence[bool], totals: Sequence[float]) -> Dict[str, 
     if n_pass in (0, n):
         return {"r": None, "n": n, "n_pass": n_pass,
                 "reason": "no variance in the item: every respondent scored it the same"}
+    if not all(math.isfinite(t) for _, t in pairs):
+        return {"r": None, "n": n, "n_pass": n_pass, "reason": "a total is not finite"}
     top = max(abs(t) for _, t in pairs)
     # Totals this large would overflow a sum or a difference; r does not depend on the scale: https://github.com/intel/dokimi/issues/553
     scale = _pow2_scale([top]) if math.isfinite(top) and top > _HUGE_TOTAL else 1.0

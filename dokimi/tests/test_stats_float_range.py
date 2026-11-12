@@ -80,6 +80,21 @@ def test_paired_summary_paired_delta_and_arm_significance_refuse_the_same_deltas
         stats.arm_significance(evals, "without_docs")
 
 
+@pytest.mark.parametrize("bad", [math.inf, -math.inf, math.nan])
+def test_point_biserial_refuses_a_total_that_is_not_finite(bad):
+    result = stats.point_biserial([1, 1, 0, 0], [bad, 1.0, 2.0, 3.0])
+    assert result == {"r": None, "n": 4, "n_pass": 2, "reason": "a total is not finite"}
+
+
+@pytest.mark.parametrize("flags, totals, reason", [
+    ([1, 0], [math.inf, 1.0], "fewer than 3 respondents"),
+    ([1, 1, 1], [math.inf, 1.0, 2.0], "no variance in the item: every respondent scored it the same"),
+    ([0, 0, 0, 0], [math.nan, 1.0, 2.0, 3.0], "no variance in the item: every respondent scored it the same"),
+])
+def test_point_biserial_keeps_the_older_refusals_ahead_of_the_non_finite_one(flags, totals, reason):
+    assert stats.point_biserial(flags, totals)["reason"] == reason
+
+
 def test_paired_summary_of_ordinary_scores_is_unchanged():
     s = stats.paired_summary(_evals(80.0, 60.0))
     assert (s.delta_mean, s.delta_min, s.delta_max, s.improvements) == (20.0, 20.0, 20.0, 3)
