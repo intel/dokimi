@@ -12,8 +12,9 @@ import time
 import pytest
 
 from dokimi.eval.reference_checks import grade_check, validate_grading
+from dokimi.metrics.usage import UsageRecord
 from dokimi.novelty.atoms import Atom
-from dokimi.novelty.client import LLMClient
+from dokimi.novelty.client import LLMClient, SpendCap
 from dokimi.novelty.grounding import (add_checks, help_identifiers, help_text, identifiers_check,
                                      verify_keys)
 from dokimi.novelty.measure import resolve_verdict, run_checks, run_measurement
@@ -291,6 +292,22 @@ def test_a_judge_failure_keeps_its_checks_and_a_sufficient_check_does_not_decide
 def test_a_failed_veto_is_wrong_even_when_the_judge_failed():
     run = _judge_fails_check_run("perf report --stdin", [_veto()])
     assert (run.verdict, run.verdict_source) == ("wrong_other", "check")
+
+
+def test_a_judge_reply_the_cap_refused_after_it_came_back_still_gets_the_checks():
+    # The judge's reply came back under the cap, so its verdict is kept; the veto must still run.
+    atom = Atom(statement="perf report shows text with --stdio", question="How to get text?",
+                answer="perf report --stdio", span_ids=("s1",),
+                meta={"grading": {"checks": [_veto()]}})
+    answerer = LLMClient(model="a", transport=lambda p, s: ("perf report --stdin", None))
+    judge = LLMClient(model="b", cap=SpendCap(limit_usd=1.0), transport=lambda p, s:
+                      (json.dumps({"verdict": "correct_complete"}), UsageRecord()))
+    result = run_measurement([atom], build_probes([atom]), "artifact", answerer=answerer,
+                             judge=judge, arms=("full",), concurrency=1)
+    run = result.runs[0]
+    assert result.stop[0] == "no_price"
+    assert (run.verdict, run.verdict_source) == ("wrong_other", "check")
+    assert run.checks and run.checks[0]["passed"] is False
 
 
 def test_a_help_that_describes_options_with_rejection_words_is_still_a_listing(tmp_path):

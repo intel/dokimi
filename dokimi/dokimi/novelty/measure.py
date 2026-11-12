@@ -423,6 +423,8 @@ def _capped_grade_run(probe: Probe, arm: str, response: str, confidence: float |
         question=probe.question, response=response, verdict=named or ERRORED,
         confidence=confidence,
     )
+    if probe.grading:  # the veto runs on the answer whatever the refused judge reply said
+        _apply_checks(run, probe, response, named or ERRORED)
     if named is None:
         ungraded.append(run)
     return run
