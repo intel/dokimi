@@ -376,7 +376,7 @@ class ReportGenerator:
         
         for item in top_deltas:
             lines.append(
-                f"| {item['question_id']} | **+{item['delta']:.1f}** | "
+                f"| {item['question_id']} | **{fmt.signed(item['delta'])}** | "
                 f"{fmt.fixed(item['with_score'])} | {fmt.fixed(item['without_score'])} | "
                 f"{item['question_text']}... |"
             )
@@ -393,7 +393,7 @@ class ReportGenerator:
         
         for item in bottom_deltas:
             lines.append(
-                f"| {item['question_id']} | **{item['delta']:.1f}** | "
+                f"| {item['question_id']} | **{fmt.signed(item['delta'])}** | "
                 f"{fmt.fixed(item['with_score'])} | {fmt.fixed(item['without_score'])} | "
                 f"{item['question_text']}... |"
             )

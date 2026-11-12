@@ -273,10 +273,19 @@ def test_goldens_hold_the_edge_values():
         "task_runs": ["<$0.0001", "| $0.0001 |", "[-0.0, +100.0] pp", "| nan |", "$-0.0000", "nan%"],
         "explore": ["| 0.123 ", "| -0.000 ", "| nan ", "| +0.876 "],
         "exploration_metrics": ["| 0.334 ", "| -0.000 ", "| n/a "],
-        "generator": ["**+-0.0**", "**-30.0**", "| — |"],
+        "generator": ["| **-0.0** |", "**-30.0**", "| — |"],
     }.items():
         missing = [m for m in marks if m not in texts[name]]
         assert not missing, f"{name}: {missing}"
+
+
+def test_a_delta_prints_its_own_sign_in_both_delta_tables():
+    """The improvements table lists the top 10 whatever their sign: a fixed ``+`` printed ``+-30.0``."""
+    text = _generator_report()
+    top = text[text.index("## Top 10: Biggest Improvements"):text.index("## Bottom 10: Biggest Degradations")]
+    bottom = text[text.index("## Bottom 10: Biggest Degradations"):text.index("## Performance by Topic")]
+    assert "| q2 | **-30.0** |" in top and "| q3 | **+0.0** |" in bottom
+    assert "+-" not in text
 
 
 @pytest.mark.parametrize("call, expected", [
