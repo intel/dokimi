@@ -245,6 +245,28 @@ def test_the_published_package_builds_with_the_locked_backend() -> None:
             f"requirements-ci.lock.txt has {sorted(versions)} for the build backend {spec}")
 
 
+def _release_jobs() -> dict[str, dict]:
+    return yaml.safe_load((ROOT.parent / ".github/workflows/release.yml").read_text(encoding="utf-8"))["jobs"]
+
+
+def _runs(job: dict) -> str:
+    return " ".join(step.get("run", "") for step in job.get("steps", []))
+
+
+def test_the_release_files_never_share_a_job_with_unhashed_upgrades() -> None:
+    """Only test-newest resolves past the lock, on the release's own tree, and attach and pypi wait for it."""
+    jobs = _release_jobs()
+    upgrading = sorted(name for name, job in jobs.items() if "--upgrade" in _runs(job))
+    assert upgrading == ["test-newest"], upgrading
+    assert "pytest" in _runs(jobs["test-newest"])
+    for publisher in ("attach", "pypi"):
+        needs = jobs[publisher]["needs"]
+        assert {"build", "test-newest"} <= set([needs] if isinstance(needs, str) else needs), (publisher, needs)
+    checkouts = [[s.get("with") for s in jobs[j]["steps"] if s.get("uses", "").startswith("actions/checkout@")]
+                 for j in ("build", "test-newest")]
+    assert checkouts[0] == checkouts[1] and len(checkouts[0]) == 1, checkouts
+
+
 def test_a_replacement_update_is_exempt_from_the_release_age_wait() -> None:
     """A replacement keeps the version, so no release date exists and renovate/stability-days would stay pending;
     only a github-actions replacement: one from another manager keeps the 7-day wait."""
