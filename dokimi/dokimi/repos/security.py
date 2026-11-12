@@ -99,7 +99,9 @@ COMMAND_RULES: tuple[Rule, ...] = (
              r"[\"']?(?=[\s;&|)`]|$)"), drop_redirects=True),
     Rule("container-escape", "critical", "privileged container, host namespaces or host / mounted",
          _rx(r"\bdocker\s+(?:container\s+)?(?:run|create)\b.*(?:--privileged|--pid[= ]host|--net(?:work)?[= ]host|"
-             r"-v\s*/:|--volume[= ]/:|--mount[= ](?:\S*,)?(?:source|src)=/(?:,|\s|$)|nsenter\b)")),
+             # the host root, quoted or not, and the Docker socket (host control, as --privileged gives) as a bind
+             r"-v\s*[\"']?/:|--volume[= ][\"']?/:|(?:-v|--volume|--mount)[= ]?\s*[\"']?[^\s\"']*docker\.sock|"
+             r"--mount[= ](?:\S*,)?(?:source|src)=/(?:,|\s|$)|nsenter\b)")),
     # git's global options (`-C dir`, `-c k=v`, `--git-dir=x`) may come before the subcommand; a short flag may be
     # one of several (`-fu`); `+ref` is a force push; `-n` is --no-verify for commit (for push it is a dry run)
     Rule("history-rewrite", "high", "force push or hard reset",
