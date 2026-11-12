@@ -310,6 +310,8 @@ def test_a_delta_prints_its_own_sign_in_both_delta_tables():
     (lambda: fmt.signed(-3.5, 0), "-4"),
     (lambda: fmt.percent(0.125, 1), "12.5%"),
     (lambda: fmt.percent(0.995), "100%"),
+    (lambda: fmt.points(-0.5), "-50.00 pp"),
+    (lambda: fmt.points(0.00004, 1), "+0.0 pp"),
     (lambda: fmt.plain(80.0), "80.0"),
     (lambda: fmt.plain(3, 3), "3"),
     (lambda: fmt.plain(0.12345, 3), "0.123"),
@@ -329,13 +331,25 @@ def test_each_formatter_prints_its_number_kind(call, expected):
     assert call() == expected
 
 
-@pytest.mark.parametrize("formatter", [fmt.fixed, fmt.signed, fmt.percent, fmt.usd, fmt.usd_delta, fmt.p_value,
+@pytest.mark.parametrize("formatter", [fmt.fixed, fmt.signed, fmt.percent, fmt.points, fmt.usd, fmt.usd_delta, fmt.p_value,
                                        fmt.delta, fmt.ci_end])
 @pytest.mark.parametrize("value", [None, True, False, "0.5"])
 def test_a_value_that_is_not_a_number_prints_the_missing_mark(formatter, value):
     """A bool is an int in Python; printed as one, a flag would read as a 100% rate or a p of 1."""
     assert formatter(value) == "—"
     assert formatter(value, missing="n/a") == "n/a"
+
+
+def test_a_flag_in_a_task_run_rate_cell_is_no_rate():
+    """A bool is an int: ``skill_invocation_rate: true`` printed ``100% (2)`` and a ``pass_rate: true`` 100.00%."""
+    data = _task_runs()
+    stats = data["summary"]["per_harness"]["docker-b"]
+    stats.update(pass_rate=True, skill_invocation_rate=True)
+    data["summary"]["comparisons"]["docker-b"]["pass_rate_delta"] = True
+    headline, comparison = [line for line in render_task_runs_report(data).split("\n")
+                            if line.startswith("| `docker-b` | ")][:2]
+    assert headline.startswith("| `docker-b` | — | 0 | — | $0.1235 |") and headline.endswith("| 2/2 | — |")
+    assert comparison.startswith("| `docker-b` | — | +1.00 |")
 
 
 def test_plain_prints_any_stored_value_but_none():

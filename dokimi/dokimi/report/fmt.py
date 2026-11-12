@@ -32,6 +32,11 @@ def percent(value: Any, digits: int = 0, *, missing: str = DASH) -> str:
     return f"{value * 100:.{digits}f}%" if is_number(value) else missing
 
 
+def points(value: Any, digits: int = 2, *, missing: str = DASH) -> str:
+    """A difference of two rates in percentage points with its sign: 0.5 is ``+50.00 pp``."""
+    return f"{value * 100:+.{digits}f} pp" if is_number(value) else missing
+
+
 def plain(value: Any, digits: int | None = None, *, missing: str = DASH) -> str:
     """``value`` as stored, a float at ``digits`` decimals when given; ``missing`` only for ``None``."""
     if value is None:

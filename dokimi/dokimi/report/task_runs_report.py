@@ -28,6 +28,7 @@ from typing import Any
 
 from dokimi.eval.binary_stats import PASS_RATE_CI_CONFIDENCE
 from dokimi.harnesses.runner import is_errored
+from dokimi.measure import is_number
 from dokimi.report import fmt
 
 
@@ -89,13 +90,10 @@ def _mcnemar_lines(cmp: dict[str, Any], baseline: str | None) -> list[str]:
         if significant is None:
             significant = mc.get("significant")
         lo, hi = mc.get("ci_lo"), mc.get("ci_hi")
-        ci_s = (
-            f"[{lo*100:+.1f}, {hi*100:+.1f}] pp"
-            if isinstance(lo, (int, float)) and isinstance(hi, (int, float))
-            else "—"
-        )
+        ci_s = (f"[{fmt.signed(lo * 100)}, {fmt.signed(hi * 100)}] pp"
+                if is_number(lo) and is_number(hi) else fmt.DASH)
         lines.append(
-            f"| `{harness}` | {mc.get('paired_pass_rate_delta', 0)*100:+.2f} pp | {ci_s} | "
+            f"| `{harness}` | {fmt.points(mc.get('paired_pass_rate_delta', 0))} | {ci_s} | "
             f"{mc.get('n_gained', 0)} | {mc.get('n_lost', 0)} | "
             f"{mc.get('n_both_passed', 0)} | {mc.get('n_both_failed', 0)} | "
             f"{fmt.p_value(mc.get('p_exact'))} | {fmt.p_value(mc.get('p_adjusted'))} | "
@@ -146,8 +144,8 @@ def _discovery_lines(data: dict[str, Any]) -> list[str]:
     ]
     for h, g in gaps.items():
         gap = g.get("gap")
-        if isinstance(gap, (int, float)):
-            gap_s = f"{gap*100:+.2f} pp"
+        if is_number(gap):
+            gap_s = fmt.points(gap)
         elif g.get("with_skill_pass_rate") is None or g.get("discover_pass_rate") is None:
             gap_s = "— (no scored cells)"
         else:
@@ -209,14 +207,12 @@ def render_task_runs_report(data: dict[str, Any]) -> str:
         c = s.get("cost", {})
         rate = s.get("pass_rate")
         scored = s.get("scored", s.get("n", 0))
-        rate_s = "—" if rate is None else f"{rate*100:.2f}% ({s.get('passed', 0)}/{scored})"
+        rate_s = fmt.percent(rate, 2) + (f" ({s.get('passed', 0)}/{scored})" if is_number(rate) else "")
         ci = s.get("pass_rate_ci") or {}
-        ci_s = (f"{ci['lo']*100:.0f}–{ci['hi']*100:.0f}%"
-                if isinstance(ci.get("lo"), (int, float)) and isinstance(ci.get("hi"), (int, float))
-                else "—")
+        ci_s = (f"{fmt.fixed(ci['lo'] * 100, 0)}–{fmt.percent(ci['hi'])}"
+                if is_number(ci.get("lo")) and is_number(ci.get("hi")) else fmt.DASH)
         sir = s.get("skill_invocation_rate")
-        sir_s = (f"{sir*100:.0f}% ({s.get('skill_invocation_n', 0)})"
-                 if isinstance(sir, (int, float)) else "—")
+        sir_s = fmt.percent(sir) + (f" ({s.get('skill_invocation_n', 0)})" if is_number(sir) else "")
         lines.append(
             f"| `{h}` | {rate_s} | {s.get('errored', 0)} | {ci_s} | {fmt.usd(c.get('total_cost_usd'))} | "
             f"{fmt.usd(c.get('cost_per_pass_usd'))} | "
@@ -292,16 +288,11 @@ def render_task_runs_report(data: dict[str, Any]) -> str:
         for h, cr in cmp.items():
             prd = cr.get("pass_rate_delta")
             withheld = cr.get("passed_delta", 0) is None
-            if isinstance(prd, (int, float)):
-                prd_s = f"{prd*100:+.2f} pp"
-            elif withheld:
-                prd_s = "— (arms lost different cells)"
-            else:
-                prd_s = "—"
+            prd_s = fmt.points(prd, missing="— (arms lost different cells)" if withheld else fmt.DASH)
             # With a delta in hand, a null gain/change is the formula's own
             # undefined case; without one, it is withheld with the delta. An
             # artifact older than these keys has no reason to give.
-            has_delta = isinstance(prd, (int, float))
+            has_delta = is_number(prd)
             ng_s = _norm_cell(cr.get("normalized_gain"), "withheld" if withheld else
                              "baseline at 100%" if has_delta and "normalized_gain" in cr
                              else None)
