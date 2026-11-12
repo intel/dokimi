@@ -87,3 +87,19 @@ def test_a_payload_its_schema_refuses_exits_1_and_keeps_it_beside_the_path(tmp_p
     assert exc.value.code == 1  # a writer bug, not an unwritable path
     assert not out.exists() and (tmp_path / "grounding.json.rejected").exists()
     assert "payload kept at" in capsys.readouterr().err
+
+
+def test_grounding_command_exits_1_when_its_payload_is_refused(tmp_path, monkeypatch):
+    import dokimi.eval.grounding as grounding
+
+    summary = {"n_evaluated": 1, "grounding_score": {"mean": None, "lo": None, "hi": None},
+               "citation_rate": 0.0, "threshold": 0.5}
+    monkeypatch.setattr(grounding, "evaluate_grounding", lambda answers, threshold: {"summary": summary, "per_question": 5})
+    answers = tmp_path / "answers.json"
+    answers.write_text(json.dumps({"answers": []}), encoding="utf-8")
+    out = tmp_path / "grounding.json"
+    args = build_parser().parse_args(["eval", "score", "grounding", "--answers", str(answers), "--output", str(out)])
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 1
+    assert not out.exists() and (tmp_path / "grounding.json.rejected").exists()
