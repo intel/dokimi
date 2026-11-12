@@ -14,7 +14,7 @@ Each card describes one capability. Images use fictional tasks and simplified do
 
 ## Will the agent discover and load it?
 
-![Will the agent discover it?: Separate a present file from a discoverable skill.](../assets/features/13-will-the-agent-discover-it.webp)
+![Will the agent discover and load it?: Separate a present file from a discoverable skill.](../assets/features/13-will-the-agent-discover-it.webp)
 
 **Availability:** Available on main.
 

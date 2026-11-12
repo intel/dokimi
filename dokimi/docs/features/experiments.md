@@ -34,7 +34,7 @@ Run the same tasks, model and grader with and without one context change. Inspec
 
 ## Bring your agent context and combine treatments
 
-![Bring your agent context: Compare the inputs your agent actually uses.](../assets/features/02-bring-your-agent-context.webp)
+![Bring your agent context and combine treatments: Compare the inputs your agent actually uses.](../assets/features/02-bring-your-agent-context.webp)
 
 **Availability:** Available on main.
 

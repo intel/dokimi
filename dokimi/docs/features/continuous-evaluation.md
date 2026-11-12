@@ -9,45 +9,26 @@ SPDX-License-Identifier: Apache-2.0
 
 Each card describes one capability. Images use fictional tasks and simplified document excerpts; they are explanations, not captured product screens, runnable configurations or benchmark evidence. Each image shows its own card; Open PR and Research images carry a badge saying so.
 
+<a id="40-catch-the-next-regression"></a>
 <a id="39-keep-results-usable"></a>
 
-## Keep results usable
+## Keep results and catch regressions
 
-![Keep results usable: Review and reuse the evidence after a run.](../assets/features/39-keep-results-usable.webp)
-
-**Availability:** Partial — implemented core with proposed extensions.
-
-Inspect persisted run artifacts, reports and dashboards without rerunning the model. Resume and re-render only where the selected track supports them; retain source and configuration provenance.
-
-**Input:** Stored run artifacts and the selected report reader's supported schema.
-
-**Scope and limits:** Support varies by track; unified JSON envelope PR [#590](https://github.com/intel/dokimi/pull/590).
-
-**Result:** Inspectable stored artifacts and supported reports.
-
-**Next step:** Use the linked workflow to configure this check, then [interpret the result](../start/results.md).
-
-[Usage guide](../runs.md) · [Implementation](../../dokimi/commands/runs.py) · [Back to feature tree](README.md)
-
-<a id="40-catch-the-next-regression"></a>
-
-## Catch the next regression
-
-![Catch the next regression: Recheck known tasks when context changes.](../assets/features/40-catch-the-next-regression.webp)
+![Keep results and catch regressions: Recheck known tasks when context changes.](../assets/features/40-catch-the-next-regression.webp)
 
 **Availability:** Partial.
 
-Compare a change against saved baselines and explicit thresholds in existing CI workflows. The broader record/revalidate lifecycle is not one complete shipped workflow.
+Inspect persisted run artifacts, reports and dashboards without rerunning the model, keeping source and configuration provenance; resume and re-render only where the selected track supports them. Compare a change against saved baselines and explicit thresholds in existing CI workflows. The broader record/revalidate lifecycle is not one complete shipped workflow.
 
-**Input:** A saved baseline, comparable candidate results and explicit regression thresholds.
+**Input:** Stored run artifacts readable by the selected report reader, a saved baseline, comparable candidate results and explicit regression thresholds.
 
-**Scope and limits:** Baseline gates / reusable CI in main; full record/revalidate [#318](https://github.com/intel/dokimi/issues/318)/[#121](https://github.com/intel/dokimi/issues/121)/[#138](https://github.com/intel/dokimi/issues/138).
+**Scope and limits:** Support varies by track; unified JSON envelope PR [#590](https://github.com/intel/dokimi/pull/590). Baseline gates and reusable CI are on main; full record/revalidate in [#318](https://github.com/intel/dokimi/issues/318)/[#121](https://github.com/intel/dokimi/issues/121)/[#138](https://github.com/intel/dokimi/issues/138).
 
-**Result:** Baseline comparison findings under configured thresholds.
+**Result:** Inspectable stored artifacts and reports, and baseline comparison findings under configured thresholds.
 
 **Next step:** Use the linked workflow to configure this check, then [interpret the result](../start/results.md).
 
-[Usage guide](../benchmarking-and-comparison.md) · [Implementation](../../dokimi/commands/baseline_regression.py) · [Back to feature tree](README.md)
+[Usage guide](../benchmarking-and-comparison.md) · [Implementation](../../dokimi/commands/baseline_regression.py) · [Runs guide](../runs.md) · [Runs implementation](../../dokimi/commands/runs.py) · [Back to feature tree](README.md)
 
 <a id="41-compare-unsafe-behaviour"></a>
 

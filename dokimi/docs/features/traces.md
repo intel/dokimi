@@ -14,7 +14,7 @@ Each card describes one capability. Images use fictional tasks and simplified do
 
 ## Budget and inspect the context
 
-![Inspect the context window: See how the session context evolves.](../assets/features/35-inspect-the-context-window.webp)
+![Budget and inspect the context: See how the session context evolves.](../assets/features/35-inspect-the-context-window.webp)
 
 **Availability:** Available on main.
 

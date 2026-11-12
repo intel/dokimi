@@ -29,7 +29,7 @@ A static check finds structural problems. A loading check establishes what reach
 
 ## Explore further
 
-- [Feature tree](features/README.md): 41 illustrated capabilities, each with its own scope and availability.
+- [Feature tree](features/README.md): 39 illustrated capabilities, each with its own scope and availability.
 - [All guides](documentation-index.md): the complete document index.
 - [CLI reference](https://intel.github.io/dokimi/reference/cli/): commands and options generated from code.
 - [Source and contribution guidance](https://github.com/intel/dokimi).

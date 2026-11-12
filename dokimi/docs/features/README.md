@@ -42,12 +42,11 @@ Reviewed against [ae08a920](https://github.com/intel/dokimi/tree/ae08a92063d4bd1
 - **[Do the tests cover the work?](eval-design.md)**
     - [Build tasks from real work](eval-design.md#25-build-tasks-from-real-work)
     - [Test repository exploration](eval-design.md#26-test-repository-exploration)
-    - [Generate evaluation questions](eval-design.md#27-generate-evaluation-questions)
+    - [Assess documentation and generate questions](eval-design.md#27-generate-evaluation-questions)
     - [Which needs are untested?](eval-design.md#28-which-needs-are-untested)
     - [Which skill rules lack checks?](eval-design.md#29-which-skill-rules-lack-checks)
     - [Can the grader be trusted?](eval-design.md#30-can-the-grader-be-trusted)
     - [Is there room to improve?](eval-design.md#31-is-there-room-to-improve)
-    - [Assess documentation](eval-design.md#38-assess-documentation)
 - **[Can the grades be trusted?](judging.md)**
     - [Choose the grading method](judging.md#32-choose-the-grading-method)
     - [Check the judges](judging.md#33-check-the-judges)
@@ -57,8 +56,7 @@ Reviewed against [ae08a920](https://github.com/intel/dokimi/tree/ae08a92063d4bd1
     - [Compare execution paths](traces.md#36-compare-execution-paths)
     - [Find candidates for ablation](traces.md#37-find-candidates-for-ablation)
 - **[Will it keep working?](continuous-evaluation.md)**
-    - [Keep results usable](continuous-evaluation.md#39-keep-results-usable)
-    - [Catch the next regression](continuous-evaluation.md#40-catch-the-next-regression)
+    - [Keep results and catch regressions](continuous-evaluation.md#40-catch-the-next-regression)
     - [Compare unsafe behaviour](continuous-evaluation.md#41-compare-unsafe-behaviour)
     - [Close the improvement loop](continuous-evaluation.md#42-close-the-improvement-loop)
     - [Publish evidence with a skill](continuous-evaluation.md#48-publish-evidence-with-a-skill)

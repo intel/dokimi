@@ -95,7 +95,7 @@ Scan a catalog with per-skill results, worker jobs and resumption. Use ignore ru
 
 ## Check skill structure and packaging
 
-![Check skill structure: Turn ambiguous skill packaging into findings.](../assets/features/12-check-skill-structure.webp)
+![Check skill structure and packaging: Turn ambiguous skill packaging into findings.](../assets/features/12-check-skill-structure.webp)
 
 **Availability:** Partial — implemented core with proposed extensions.
 

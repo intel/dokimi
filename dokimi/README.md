@@ -24,7 +24,7 @@ prompts), plugins, and whole code repositories with their own tasks and graders
 (validation, pinned sources, task runs, reports and comparisons are implemented;
 individual extensions remain proposed).
 
-Explore the [feature tree and 41 illustrated cards](https://github.com/intel/dokimi/blob/main/dokimi/docs/features/README.md)
+Explore the [feature tree and 39 illustrated cards](https://github.com/intel/dokimi/blob/main/dokimi/docs/features/README.md)
 for the full capability map, including partial workflows and development directions.
 
 Evidence tracks:

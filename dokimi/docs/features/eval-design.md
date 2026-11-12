@@ -50,24 +50,25 @@ Evaluate whether an agent locates the relevant file and line for a repository qu
 [Usage guide](../what-it-measures.md) · [Implementation](../../dokimi/commands/explore.py) · [Back to feature tree](README.md)
 
 <a id="27-generate-evaluation-questions"></a>
+<a id="38-assess-documentation"></a>
 
-## Generate evaluation questions
+## Assess documentation and generate questions
 
-![Generate evaluation questions: Create a task set grounded in the intended user.](../assets/features/27-generate-evaluation-questions.webp)
+![Assess documentation and generate questions: Create a task set grounded in the intended user.](../assets/features/27-generate-evaluation-questions.webp)
 
 **Availability:** Available on main.
 
-Use source docs and personas to draft evaluation questions, then deduplicate and validate them. Generated questions still need review for relevance, ambiguity and answerability.
+Before using documentation as agent context, run documentation metrics on structure, freshness, readability and examples; optional Docling ingestion brings non-Markdown content in. Then use the source docs and personas to draft evaluation questions, deduplicate and validate them. Generated questions still need review for relevance, ambiguity and answerability.
 
-**Input:** Source documentation and personas or intended-user descriptions for question generation.
+**Input:** A documentation corpus, a benchmark spec selecting metrics, and personas or intended-user descriptions for question generation.
 
-**Scope and limits:** Generation is a starting point; inspect the resulting checks.
+**Scope and limits:** Metrics describe the selected corpus/spec, not agent task improvement; example metrics may execute supported code examples, and Docling needs its own dependencies. Generation is a starting point: inspect the resulting checks.
 
-**Result:** Generated questions that need review before becoming an evaluation set.
+**Result:** Documentation metrics within each metric's scope, and generated questions that need review before becoming an evaluation set.
 
 **Next step:** Use the linked workflow to configure this check, then [interpret the result](../start/results.md).
 
-[Usage guide](../quickstart.md) · [Implementation](../../dokimi/commands/questions.py) · [Back to feature tree](README.md)
+[Usage guide](../quickstart.md) · [Implementation](../../dokimi/commands/questions.py) · [Static benchmark workflow](../benchmarking-and-comparison.md#static-documentation-benchmark) · [Optional ingestion](../ingestion-docling.md) · [Metrics implementation](../../dokimi/commands/run.py) · [Back to feature tree](README.md)
 
 <a id="28-which-needs-are-untested"></a>
 
@@ -149,22 +150,3 @@ Check whether tasks have useful headroom and protect held-out evaluation materia
 
 [Headroom command reference](https://intel.github.io/dokimi/reference/cli/eval/) · [Methodology](../methodology.md) · [Implementation](../../dokimi/commands/headroom.py) · [Back to feature tree](README.md)
 
-<a id="38-assess-documentation"></a>
-
-## Assess documentation
-
-![Assess documentation: Inspect documentation before using it as agent context.](../assets/features/38-assess-documentation.webp)
-
-**Availability:** Available on main.
-
-Run documentation metrics and inspect structure, freshness, readability and examples. Optional Docling ingestion brings non-Markdown content into the workflow.
-
-**Input:** A documentation corpus and a benchmark spec selecting metrics; optional ingestion prepares non-Markdown sources.
-
-**Scope and limits:** Metrics describe the selected corpus/spec, not agent task improvement. Example metrics may execute supported code examples; optional Docling ingestion requires its own dependencies.
-
-**Result:** Documentation metrics within the selected metric's scope.
-
-**Next step:** Use the linked workflow to configure this check, then [interpret the result](../start/results.md).
-
-[Static benchmark workflow](../benchmarking-and-comparison.md#static-documentation-benchmark) · [Optional ingestion](../ingestion-docling.md) · [Implementation](../../dokimi/commands/run.py) · [Back to feature tree](README.md)
