@@ -43,7 +43,7 @@ from typing import Any
 
 from dokimi import process
 from dokimi.console import tolerate_console_encoding
-from dokimi.process_io import path_text
+from dokimi.process_io import path_text, path_text_is_lossy
 
 SCHEMA_DIR = Path(__file__).resolve().parent / "schemas"
 
@@ -259,12 +259,6 @@ def _git_proc(*args: str) -> process.Completed:
 FIXTURE_DIR = "../../tests/fixtures/artifacts"
 
 
-def _nul_paths(*args: str) -> list[str]:
-    """``git <args>``'s ``-z`` listing split on NUL, each path by :func:`~dokimi.process_io.path_text`: on
-    POSIX a name that is not valid UTF-8 comes back as the path that names the file, on Windows with U+FFFD."""
-    return [path_text(field) for field in _git_proc(*args).stdout_bytes.split(b"\0")]
-
-
 def _renamed_from(base: str, rel: str) -> str | None:
     """Where the directory ``rel`` (relative to the schemas) lived at ``base``, if it was moved.
 
@@ -279,7 +273,7 @@ def _renamed_from(base: str, rel: str) -> str | None:
         raise GitError("git rev-parse --show-toplevel: printed no work tree to follow moved schemas in")
     top = Path(out).resolve()
     prefix = (SCHEMA_DIR / rel).resolve().relative_to(top).as_posix() + "/"
-    fields = _nul_paths("-C", str(top), "diff", "--name-status", "-M", "-z", base)
+    fields = _git_proc("-C", str(top), "diff", "--name-status", "-M", "-z", base).nul_fields()
     i = 0
     while i < len(fields) - 2:
         status = fields[i]
@@ -297,10 +291,20 @@ def _renamed_from(base: str, rel: str) -> str | None:
 def _ls_tree_blobs(*args: str) -> list[tuple[str, str]]:
     """The ``(name, object id)`` of each entry ``git ls-tree -z <args>`` lists: the name unquoted, with a
     ``\\r``, a space or a non-ASCII byte as git stores it. The object id reads the entry whatever its
-    name decodes to, as a name with U+FFFD in it (Windows) names no path to ``git show``."""
+    name decodes to, as a name with U+FFFD in it (Windows) names no path to ``git show``.
+
+    On Windows a ``.json`` name that is not valid UTF-8 raises :class:`GitError` naming its bytes: it reads
+    with U+FFFD, so it cannot be matched to a work-tree file, and a removal of it would pass."""
     entries = _git_proc("ls-tree", "-z", *args).stdout_bytes.split(b"\0")
-    return [(path_text(name), meta.split()[2].decode("ascii"))
-            for meta, _, name in (entry.partition(b"\t") for entry in entries) if name]
+    blobs = []
+    for meta, _, name in (entry.partition(b"\t") for entry in entries):
+        if not name:
+            continue
+        if name.endswith(b".json") and path_text_is_lossy(name):
+            raise GitError(f"the schema {name!r} is not valid UTF-8, so on Windows it cannot be matched to a "
+                           "file in the work tree: compare on a platform that keeps its bytes")
+        blobs.append((path_text(name), meta.split()[2].decode("ascii")))
+    return blobs
 
 
 def _base_has_schemas(base: str) -> bool:
@@ -329,11 +333,6 @@ def compare_against(base: str) -> dict[str, Diff]:
         fixture_dir = _renamed_from(base, FIXTURE_DIR) or fixture_dir
         blobs = [(n, oid) for n, oid in _ls_tree_blobs("--full-tree", f"{base}:{moved}") if n.endswith(".json")]
     results: dict[str, Diff] = {}
-    names = [name for name, _ in blobs]
-    if clash := sorted({name for name in names if names.count(name) > 1}):
-        # Windows reads two names that differ in bytes that are not UTF-8 as one: one key, one work-tree file.
-        raise GitError(f"{base} has two schemas that read as {clash[0]!r} on this platform: "
-                       "compare on a platform that keeps their bytes apart")
     for name, oid in blobs:
         old = json.loads(_git("cat-file", "blob", oid))
         current = SCHEMA_DIR / name

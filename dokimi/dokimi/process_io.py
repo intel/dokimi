@@ -19,6 +19,12 @@ def path_text(raw: bytes) -> str:
     return os.fsdecode(raw) if _POSIX else raw.decode("utf-8", errors="replace")
 
 
+def path_text_is_lossy(raw: bytes) -> bool:
+    """Whether :func:`path_text` loses bytes of ``raw``: on Windows a name that is not valid UTF-8 reads as
+    one with U+FFFD, which no longer says which file it was."""
+    return not _POSIX and path_text(raw).encode("utf-8") != raw
+
+
 class PipeReader:
     def __init__(self, pipe: IO[bytes], consume: Callable[[bytes], None], chunk_size: int):
         self.pipe, self.consume, self.chunk_size = pipe, consume, chunk_size
