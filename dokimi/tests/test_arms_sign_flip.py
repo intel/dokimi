@@ -317,7 +317,8 @@ NO_NUMPY = (
     "sys.modules['numpy'] = sys.modules['scipy'] = None\n"  # an import fails, find_spec("scipy") is None: as if uninstalled
     "import dokimi.cli, dokimi.config_check\n"
     "from dokimi.eval import stats\n"
-    "print(stats.sign_flip_p([1.0] * 6))\n"
+    "from dokimi.eval.sign_flip import sign_flip_p\n"
+    "print(sign_flip_p([1.0] * 6))\n"
 )
 
 
