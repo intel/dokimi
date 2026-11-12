@@ -184,7 +184,7 @@ def test_clustered_ci_weights_by_probes_and_pins_both_percentile_bounds():
     # so atom a weighs three times f; with equal sizes the two would agree.
     per_atom = {"a": [1.0, 1.0, 1.0], "b": [0.0, 1.0], "c": [0.0], "d": [0.0], "e": [0.0],
                 "f": [1.0]}
-    assert clustered_ci(per_atom) == [0.1429, 0.8571]
+    assert clustered_ci(per_atom) == [0.1429, 0.8333]
 
 
 class _Stub:

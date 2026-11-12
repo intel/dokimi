@@ -235,8 +235,8 @@ def test_no_mde_where_the_sign_flip_p_cannot_reach_005(tmp_path, deltas, changed
 
 
 SIX_MIXED = [0.5, -0.5, 0.25, -0.25, 0.5, -0.5]  # six changed tasks: a sign-flip p floor of 2/64
-HOLM_NOTE = ("  score inconclusive: the interval includes 0; with Holm over 2 rows, p_holm cannot go below {} here: "
-             "no effect can reach p_holm < 0.05")
+HOLM_NOTE = ("  score inconclusive: the interval includes 0; with Holm over 2 rows that can reach p < 0.05, p_holm "
+             "cannot go below {} here: no effect can reach p_holm < 0.05")
 
 
 def _two_score_arms(b: Path, raw: list[float], other: list[float]) -> None:
