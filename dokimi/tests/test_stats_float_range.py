@@ -95,6 +95,34 @@ def test_point_biserial_keeps_the_older_refusals_ahead_of_the_non_finite_one(fla
     assert stats.point_biserial(flags, totals)["reason"] == reason
 
 
+def test_point_biserial_reads_tiny_totals_that_vary_as_a_correlation():
+    result = stats.point_biserial([1, 1, 0, 0], [1e-300, 2e-300, 3e-300, 4e-300])
+    assert result["reason"] is None
+    assert result["r"] == stats.point_biserial([1, 1, 0, 0], [1.0, 2.0, 3.0, 4.0])["r"] == -0.8944
+
+
+@pytest.mark.parametrize("exponent", [-60, -1000, 0, 1000])
+def test_point_biserial_r_does_not_depend_on_the_scale_of_the_totals(exponent):
+    flags = [1, 1, 0, 1, 0, 0, 1]
+    totals = [9.0, 7.5, 3.25, 8.0, 5.5, 2.0, 6.75]
+    expected = stats.point_biserial(flags, totals)["r"]
+    assert expected == 0.8797
+    assert stats.point_biserial(flags, [t * 2.0 ** exponent for t in totals])["r"] == expected
+
+
+def test_point_biserial_reads_subnormal_totals_one_step_apart_as_a_correlation():
+    step = 5e-324
+    result = stats.point_biserial([1, 1, 0, 0], [step, 2 * step, 3 * step, 4 * step])
+    assert (result["r"], result["reason"]) == (-0.8944, None)
+
+
+@pytest.mark.parametrize("value", [0.0, 3.0, 1e-300, 5e-324, -2e300])
+def test_point_biserial_of_equal_totals_has_no_variance(value):
+    result = stats.point_biserial([1, 1, 0, 0], [value] * 4)
+    assert result["r"] is None
+    assert result["reason"].startswith("no variance in the totals")
+
+
 def test_paired_summary_of_ordinary_scores_is_unchanged():
     s = stats.paired_summary(_evals(80.0, 60.0))
     assert (s.delta_mean, s.delta_min, s.delta_max, s.improvements) == (20.0, 20.0, 20.0, 3)

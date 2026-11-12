@@ -83,10 +83,6 @@ CORRECTIONS = ("holm", "bh")
 ZERO_VARIANCE_REL_TOL = 1e-9
 
 
-#: Totals above this are scaled by a power of two before ``point_biserial`` sums them (a sum of 2**900 needs 2**124 of them to overflow).
-_HUGE_TOTAL = 2.0 ** 900
-
-
 def _is_degenerate(mean: float, sd: float) -> bool:
     """True when ``sd`` is zero or indistinguishable from it at this scale."""
     return sd <= ZERO_VARIANCE_REL_TOL * max(1.0, abs(mean))
@@ -507,8 +503,9 @@ def point_biserial(flags: Sequence[bool], totals: Sequence[float]) -> Dict[str, 
     if not all(math.isfinite(t) for _, t in pairs):
         return {"r": None, "n": n, "n_pass": n_pass, "reason": "a total is not finite"}
     top = max(abs(t) for _, t in pairs)
-    # Totals this large would overflow a sum or a difference; r does not depend on the scale: https://github.com/intel/dokimi/issues/553
-    scale = _pow2_scale([top]) if math.isfinite(top) and top > _HUGE_TOTAL else 1.0
+    # r does not depend on the scale. Large totals would overflow a sum (#553); small ones fall under the floor of 1.0
+    # in _is_degenerate and read as no variance (#601). Dividing by a power of two is exact.
+    scale = _pow2_scale([top]) if top > 0 else 1.0
     pairs = [(flag, t / scale) for flag, t in pairs]
     all_totals = [t for _, t in pairs]
     sd = _sample_sd(all_totals)
