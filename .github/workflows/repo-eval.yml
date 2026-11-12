@@ -229,11 +229,12 @@ jobs:
                   rng = [env["BEFORE"], "HEAD"]
               else:
                   return None
-              r = subprocess.run(["git", "diff", "--no-renames", "--name-only", "-z", *rng], capture_output=True, text=True)
+              r = subprocess.run(["git", "diff", "--no-renames", "--name-only", "-z", *rng], capture_output=True)
               if r.returncode:
-                  print(f"::warning::git diff {' '.join(rng)} failed, checking every task: {r.stderr.strip()}")
+                  print(f"::warning::git diff {' '.join(rng)} failed, checking every task: {r.stderr.decode('utf-8', 'replace').strip()}")
                   return None
-              return r.stdout.split('\0') if r.stdout else []
+              # os.fsdecode: a file name that is not UTF-8 stays the name of the file; text=True raised on it
+              return [os.fsdecode(f) for f in r.stdout.split(b'\0')] if r.stdout else []
 
           import posixpath
           # empty is the default: a caller forwarding an unset dispatch input passes '', not `changed`
@@ -271,7 +272,8 @@ jobs:
                   hits = [f for f in files if harness(f)]
                   if hits:
                       smoke = ids(env["SMOKE_TASKS"]) or all_ids
-                      print(f"outside the task directories: {' '.join(hits[:10])}; adding the smoke set")
+                      shown = [os.fsencode(h).decode('utf-8', 'backslashreplace') for h in hits[:10]]  # \xff, not a crash on stdout
+                      print(f"outside the task directories: {' '.join(shown)}; adding the smoke set")
                       unknown = [t for t in smoke if t not in all_ids]
                       if unknown:
                           sys.exit(f"::error title=smoke-tasks::no such task(s): {', '.join(unknown)}")
@@ -283,6 +285,17 @@ jobs:
                   sys.exit(f"::error title=tasks::no such task(s): {', '.join(unknown)}")
           excluded = set(ids(env["EXCLUDE_TASKS"]))
           sel = [t for t in dict.fromkeys(sel) if t not in excluded]
+          # a task id goes into the job matrix, GITHUB_OUTPUT and the summary as UTF-8 text
+          def is_utf8(name):
+              try:
+                  name.encode('utf-8')
+              except UnicodeEncodeError:
+                  return False
+              return True
+
+          odd = [os.fsencode(t).decode('utf-8', 'backslashreplace') for t in sel if not is_utf8(t)]
+          if odd:
+              sys.exit(f"::error title=tasks::task directory name(s) that are not UTF-8: {', '.join(odd)}")
           print(f"tasks-check: {' '.join(sel) or 'none'}")
           out(id=m["id"], tasks=json.dumps(sel))
           with open(env["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as f:
@@ -401,7 +414,7 @@ jobs:
           flags=()
           if [ "$WARM" = true ]; then flags+=(--warm); fi
           if [ "$ALLOW_UNSUPPORTED" = true ]; then flags+=(--allow-unsupported); fi
-          dokimi eval check . --manifest "$MANIFEST" --task "$TASK" --out "$RUNNER_TEMP/repo-check" "${flags[@]}"
+          dokimi eval check . --manifest "$MANIFEST" --task "$TASK" --out-dir "$RUNNER_TEMP/repo-check" "${flags[@]}"
       # always(): a hung oracle ends in the job timeout, which cancels the job; a
       # cancelled job still runs these steps, so the run leaves a verdict.
       - name: Summary

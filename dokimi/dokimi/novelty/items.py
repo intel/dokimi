@@ -266,6 +266,13 @@ _POOLED_AS_ONE = (
 )
 
 
+def _refuse_partial(raw: str, data: dict) -> None:
+    """A partial probe result (``--max-usd`` stopped the measurement) is not a finished one."""
+    if "partial" in data:
+        raise ProbeFileError(f"{raw} is a partial probe result (--max-usd stopped the measurement); "
+                             "it is not a finished measurement")
+
+
 def load_probe_cells(paths: list[str]) -> tuple[list[dict], list[str]]:
     """Read ``skill novelty probe`` outputs into item-analysis cells, one per file.
 
@@ -297,6 +304,7 @@ def load_probe_cells(paths: list[str]) -> tuple[list[dict], list[str]]:
                 f"{raw} has `runs` as {type(runs_value).__name__}, not a list; "
                 "it is not `skill novelty probe` output"
             )
+        _refuse_partial(raw, data)
         _check_probe_strings(raw, data)
         runs = []
         for row in runs_value:

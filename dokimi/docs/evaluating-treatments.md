@@ -108,7 +108,7 @@ once with no plugin and once with the plugin enabled, then compare the two
 python cli.py arms plugin-delta \
   --baseline-json results/arms/oneTBB-none.json \
   --plugin-json results/arms/oneTBB-caveman.json \
-  --out-json results/arms/oneTBB-caveman-delta.json
+  --out results/arms/oneTBB-caveman-delta.json
 ```
 
 The command writes a `plugin_delta.v1` artifact plus a Markdown report with
@@ -137,7 +137,7 @@ python cli.py arms run \
   --questions <content-checkout>/questions/onetbb_golden.json \
   --arms "baseline,docs,profile:data/agent_profiles/concise_expert.md,skill:<content-checkout>/skills/onetbb-quickstart" \
   --judge \
-  --out-json results/arms/oneTBB.json \
+  --out results/arms/oneTBB.json \
   --out-md results/arms/oneTBB.md
 ```
 

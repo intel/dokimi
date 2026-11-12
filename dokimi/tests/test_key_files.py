@@ -30,7 +30,7 @@ def _preflight(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(
         "sys.argv",
         ["dokimi", "benchmark", "preflight", "--library", "onetbb", "--provider", "anthropic",
-         "--judge-provider", "anthropic", "--output-dir", str(tmp_path / "out")],
+         "--judge-provider", "anthropic", "--out-dir", str(tmp_path / "out")],
     )
     with pytest.raises(SystemExit) as exc:
         cli.main()
