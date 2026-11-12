@@ -20,7 +20,16 @@ from typing import Any
 
 from dokimi.llm_cli import backend as cli_backend
 from dokimi.metrics.usage import UsageRecord
-from dokimi.judge_rule import default_judge  # noqa: F401 - the one default-judge rule; commands/novelty imports it from here
+from dokimi import judge_rule
+
+
+def default_judge(model: str, provider: str | None = None,
+                  answerer_provider: str | None = None) -> tuple[str, str]:
+    """The one default-judge rule (:func:`dokimi.judge_rule.default_judge`), under the ``model`` keyword it had here.
+
+    ``commands/novelty`` imports it from this module, and callers used ``default_judge(model=...)``.
+    """
+    return judge_rule.default_judge(model, provider, answerer_provider)
 
 # A transport takes (prompt, system) and returns (text, usage).
 Transport = Callable[[str, "str | None"], "tuple[str, UsageRecord | None]"]
