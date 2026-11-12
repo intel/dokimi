@@ -275,10 +275,9 @@ timeout = 60
 # the reason; ours are fixed where they are raised.
 filterwarnings = [
   "error",
-  # litellm's __init__ ignores this pydantic notice with a process-wide filter,
-  # which pytest resets per test; a litellm response model first built in a later
-  # test then warns, once per model (ReadOnly TypedDict items are not enforced).
-  "ignore:Item 'summary' on TypedDict class 'ChatCompletionReasoningItem' is using the `ReadOnly` qualifier:UserWarning:pydantic._internal._generate_schema",
+  # pydantic notes it does not enforce ReadOnly on any TypedDict; litellm ignores it process-wide,
+  # but pytest resets filters per test and litellm adds ReadOnly items each release.
+  "ignore:(Items? .*|Extra items) on TypedDict class .* (is|are) using the `ReadOnly` qualifier:UserWarning:pydantic._internal._generate_schema",
 ]
 # Test order is shuffled and `random` reseeded per test (pytest-randomly), so a
 # test that leans on another's leftovers fails. The header prints the seed;
