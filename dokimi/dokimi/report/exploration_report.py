@@ -18,6 +18,10 @@ from __future__ import annotations
 
 from typing import Any
 
+from dokimi.report import fmt
+
+_MISSING = "n/a"  # this report's mark for a missing value
+
 
 def render_explore_report(artifact: dict[str, Any]) -> str:
     """Markdown leaderboard for an ``explore_runs.v1`` artifact."""
@@ -36,10 +40,10 @@ def render_explore_report(artifact: dict[str, Any]) -> str:
     ):
         lines.append(
             f"| {_cell(arm)} | {stats.get('n', 0)} "
-            f"| {_fmt(stats.get('avg_file_f1'))} "
-            f"| {_fmt(stats.get('avg_line_f1'))} "
-            f"| {_fmt(stats.get('avg_citation_validity_rate'))} "
-            f"| {_fmt(stats.get('avg_citation_compactness'))} |"
+            f"| {fmt.fixed(stats.get('avg_file_f1'), 3, missing=_MISSING)} "
+            f"| {fmt.fixed(stats.get('avg_line_f1'), 3, missing=_MISSING)} "
+            f"| {fmt.fixed(stats.get('avg_citation_validity_rate'), 3, missing=_MISSING)} "
+            f"| {fmt.fixed(stats.get('avg_citation_compactness'), 3, missing=_MISSING)} |"
         )
 
     comparisons = summary.get("comparisons", {})
@@ -49,8 +53,8 @@ def render_explore_report(artifact: dict[str, Any]) -> str:
         for arm, cmp_row in comparisons.items():
             lines.append(
                 f"| {_cell(arm)} | {_cell(cmp_row.get('baseline_arm'))} "
-                f"| {_fmt_delta(cmp_row.get('file_f1_delta'))} "
-                f"| {_fmt_delta(cmp_row.get('line_f1_delta'))} |"
+                f"| {fmt.signed(cmp_row.get('file_f1_delta'), 3, missing=_MISSING)} "
+                f"| {fmt.signed(cmp_row.get('line_f1_delta'), 3, missing=_MISSING)} |"
             )
     lines.append("")
     return "\n".join(lines)
@@ -82,7 +86,7 @@ def render_exploration_metrics(artifact: dict[str, Any]) -> str:
         lines.append(
             f"| {_cell(row.get('task'))} | {_cell(row.get('harness'))} "
             f"| {_int(em.get('pre_edit_tool_calls'))} "
-            f"| {_fmt(em.get('repeated_read_ratio'))} "
+            f"| {fmt.fixed(em.get('repeated_read_ratio'), 3, missing=_MISSING)} "
             f"| {_int(em.get('broad_search_count'))}/"
             f"{_int(em.get('broad_search_after_subagent_count'))} "
             f"| {_int(em.get('main_agent_tokens'))} "
@@ -95,14 +99,6 @@ def render_exploration_metrics(artifact: dict[str, Any]) -> str:
 def _sort_key(value: Any) -> float:
     # Highest file-F1 first; None sinks to the bottom.
     return -value if isinstance(value, (int, float)) else 1.0
-
-
-def _fmt(value: Any) -> str:
-    return f"{value:.3f}" if isinstance(value, (int, float)) else "n/a"
-
-
-def _fmt_delta(value: Any) -> str:
-    return f"{value:+.3f}" if isinstance(value, (int, float)) else "n/a"
 
 
 def _int(value: Any) -> str:

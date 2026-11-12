@@ -6,20 +6,13 @@
 from typing import Any, Dict, List
 
 from dokimi.eval.arm_summary import TOOL_COUNTS
-from dokimi.eval.sign_flip import fmt_small
 from dokimi.records import read
+from dokimi.report import fmt
 
 
 def _md_cell(text: str) -> str:
     """Make text safe for a single Markdown table cell."""
     return (text or "").replace("\n", " ").replace("|", r"\|")
-
-
-def _fmt_p(p: Any) -> str:
-    """Render a p-value, marking values too small to show at 4 decimals."""
-    if p is None:
-        return "—"
-    return "<0.0001" if p < 0.0001 else f"{p:.4f}"
 
 
 _TTEST_MARK = "†"
@@ -31,58 +24,16 @@ def _is_ttest_p(result: Dict[str, Any]) -> bool:
     return "p" not in result and result.get("p_ttest") is not None
 
 
-def _fmt_raw_p(result: Dict[str, Any]) -> str:
+def _raw_p(result: Dict[str, Any]) -> str:
     """The sign-flip ``p``, or an old record's ``p_ttest`` marked with :data:`_TTEST_MARK`."""
     if _is_ttest_p(result):
-        return _fmt_p(result["p_ttest"]) + _TTEST_MARK
-    return _fmt_p(result.get("p"))
+        return fmt.p_value(result["p_ttest"]) + _TTEST_MARK
+    return fmt.p_value(result.get("p"))
 
 
 def _ttest_note(results: List[Dict[str, Any]]) -> List[str]:
     """The note under a table that printed a ``p_ttest``, so it is not read as the sign-flip p."""
     return ["", _TTEST_NOTE] if any(_is_ttest_p(r) for r in results) else []
-
-
-def _fmt_ci(lo: Any, hi: Any) -> str:
-    """``[lo, hi]`` at 1 decimal, an open end (``None``) as ``-inf`` / ``+inf``; a non-zero end 1 decimal would
-    print as 0.0 gets 2 significant digits, so it keeps its side of 0."""
-    return f"[{'-inf' if lo is None else _ci_end(lo)}, {'+inf' if hi is None else _ci_end(hi)}]"
-
-
-def _ci_end(end: float) -> str:
-    text = f"{end:+.1f}"
-    return fmt_small(end) if end and float(text) == 0 else text
-
-
-def _fmt_estimate(value: Any) -> str:
-    """The estimate beside a 95% CI, printed as :func:`_ci_end` prints the ends, or a dash when absent: the stored
-    estimate lies inside its stored ends, so the printed one lies inside the printed interval (0.04 in [+0.04, +0.04]).
-    The interaction table's arm deltas print the same way, so an arm's +0.04 reads +0.04 in both tables."""
-    return _ci_end(value) if isinstance(value, (int, float)) else "—"
-
-
-def _fmt_num(value: Any, digits: int = 1) -> str:
-    """Signed fixed-point, or a dash when the value is genuinely absent.
-
-    ``value or 0`` would print ``+0.00`` for a missing Cohen's d_z, which reads
-    as a measured null effect rather than as "undefined here".
-    """
-    if not isinstance(value, (int, float)):
-        return "—"
-    return f"{value:+.{digits}f}"
-
-
-def _fmt_sig(significant: Any) -> str:
-    """Render a significance verdict, keeping "unknown" distinct from "no".
-
-    ``None`` means no verdict: no p (every pair tied), or too few changed pairs
-    for any p to reach 0.05 (and, in a record written before the sign-flip
-    test, too few pairs or a degenerate sample). Printing ``no`` there asserts
-    the absence of an effect on the strength of absent evidence.
-    """
-    if significant is None:
-        return "—"
-    return "yes" if significant else "no"
 
 
 def _significance_lines(
@@ -118,11 +69,11 @@ def _significance_lines(
         # when it is None would report an uncorrected claim under a column
         # header that promises correction.
         lines.append(
-            f"| `{arm}` | {_fmt_estimate(sig.get('delta_mean'))} | "
-            f"{_fmt_ci(sig.get('ci_lo'), sig.get('ci_hi'))} | "
-            f"{_fmt_num(sig.get('cohens_d'), 2)} | {sig.get('effect', '—')} | "
-            f"{_fmt_raw_p(sig)} | {_fmt_p(sig.get('p_adjusted'))} | "
-            f"{_fmt_sig(sig.get('significant_adjusted'))} | {sig.get('n', 0)} |"
+            f"| `{arm}` | {fmt.ci_end(sig.get('delta_mean'))} | "
+            f"{fmt.ci(sig.get('ci_lo'), sig.get('ci_hi'))} | "
+            f"{fmt.signed(sig.get('cohens_d'), 2)} | {sig.get('effect', '—')} | "
+            f"{_raw_p(sig)} | {fmt.p_value(sig.get('p_adjusted'))} | "
+            f"{fmt.verdict(sig.get('significant_adjusted'))} | {sig.get('n', 0)} |"
         )
     lines += _ttest_note([sig for _, sig in rows])
     lines.append("")
@@ -153,13 +104,13 @@ def _interaction_lines(summary: Dict[str, Any]) -> List[str]:
     for it in interactions:
         lines.append(
             f"| `{it.get('arm_a')}` | `{it.get('arm_b')}` | "
-            f"{_fmt_estimate(it.get('delta_a'))} | {_fmt_estimate(it.get('delta_b'))} | "
-            f"{_fmt_estimate(it.get('additive_expectation'))} | "
-            f"{_fmt_estimate(it.get('delta_combined'))} | "
-            f"**{_fmt_estimate(it.get('interaction'))}** | "
-            f"{_fmt_ci(it.get('ci_lo'), it.get('ci_hi'))} | "
-            f"{_fmt_raw_p(it)} | {_fmt_p(it.get('p_adjusted'))} | "
-            f"{_fmt_sig(it.get('significant_adjusted'))} | {it.get('n', 0)} |"
+            f"{fmt.ci_end(it.get('delta_a'))} | {fmt.ci_end(it.get('delta_b'))} | "
+            f"{fmt.ci_end(it.get('additive_expectation'))} | "
+            f"{fmt.ci_end(it.get('delta_combined'))} | "
+            f"**{fmt.ci_end(it.get('interaction'))}** | "
+            f"{fmt.ci(it.get('ci_lo'), it.get('ci_hi'))} | "
+            f"{_raw_p(it)} | {fmt.p_value(it.get('p_adjusted'))} | "
+            f"{fmt.verdict(it.get('significant_adjusted'))} | {it.get('n', 0)} |"
         )
     lines += _ttest_note(interactions)
     lines.append("")
@@ -195,14 +146,8 @@ def render_arms_report(data: Dict[str, Any]) -> str:
             stats = summary["per_arm"].get(arm, {})
             avg = stats.get("avg_aggregate")
             delta = stats.get("delta_vs_baseline")
-            avg_s = "—" if avg is None else f"{avg:.1f}"
-            if arm == baseline:
-                delta_s = "(baseline)"
-            elif delta is None:
-                delta_s = "—"
-            else:
-                delta_s = f"{delta:+.1f}"
-            lines.append(f"| `{arm}` | {avg_s} | {delta_s} | {stats.get('n', 0)} | {stats.get('errors', '—')} |")
+            delta_s = "(baseline)" if arm == baseline else fmt.signed(delta)
+            lines.append(f"| `{arm}` | {fmt.fixed(avg)} | {delta_s} | {stats.get('n', 0)} | {stats.get('errors', '—')} |")
         lines.append("")
         lines.extend(_significance_lines(summary, arms, baseline))
         lines.extend(_interaction_lines(summary))
@@ -232,16 +177,11 @@ def render_arms_report(data: Dict[str, Any]) -> str:
                 n = cs.get("total_llm_calls", cs.get("n"))
                 if known is not None and n is not None and known < n:
                     cost_s += f" ({known}/{n})"
-            ttft = cs.get("mean_ttft_sec")
-            ttft_s = "—" if ttft is None else f"{ttft:.3f}"
-            chr_ = cs.get("cache_hit_ratio")
-            chr_s = "—" if chr_ is None else f"{chr_:.1%}"
-            lat = cs.get("mean_latency_sec")
-            lat_s = "—" if lat is None else f"{lat:.3f}"
             lines.append(
                 f"| `{arm}` | {cost_s} | {cs.get('prompt_tokens', 0)} | "
-                f"{cs.get('completion_tokens', 0)} | {lat_s} | {ttft_s} | "
-                f"{chr_s} | {cs.get('n', 0)} |"
+                f"{cs.get('completion_tokens', 0)} | {fmt.fixed(cs.get('mean_latency_sec'), 3)} | "
+                f"{fmt.fixed(cs.get('mean_ttft_sec'), 3)} | {fmt.percent(cs.get('cache_hit_ratio'), 1)} | "
+                f"{cs.get('n', 0)} |"
             )
         lines.append("")
 
@@ -271,12 +211,10 @@ def render_arms_report(data: Dict[str, Any]) -> str:
         lines.append("| Arm | Tool-use rate | Avg tool calls | Skill-load rate | Avg iterations | n |")
         lines.append("| --- | ---: | ---: | ---: | ---: | ---: |")
         for arm_name, s in agentic_stats.items():
-            skill_rate = s.get("skill_load_rate")
-            skill_s = "—" if skill_rate is None else f"{skill_rate * 100:.0f}%"
             lines.append(
-                f"| `{arm_name}` | {s.get('tool_use_rate', 0) * 100:.0f}% | "
-                f"{s.get('avg_tool_calls', 0):.1f} | {skill_s} | "
-                f"{s.get('avg_iterations', 0):.1f} | {s.get('n', 0)} |"
+                f"| `{arm_name}` | {fmt.percent(s.get('tool_use_rate', 0))} | "
+                f"{fmt.fixed(s.get('avg_tool_calls', 0))} | {fmt.percent(s.get('skill_load_rate'))} | "
+                f"{fmt.fixed(s.get('avg_iterations', 0))} | {s.get('n', 0)} |"
             )
         lines.append("")
         old = [arm for arm, s in agentic_stats.items() if s.get("tool_counts") != TOOL_COUNTS]
@@ -290,9 +228,6 @@ def render_arms_report(data: Dict[str, Any]) -> str:
 
     selection = data.get("skill_selection_summary") or {}
     if selection:
-        def pct(v: Any) -> str:
-            return "—" if v is None else f"{v * 100:.0f}%"
-
         lines.append("## Skill selection")
         lines.append("")
         lines.append(
@@ -307,9 +242,9 @@ def render_arms_report(data: Dict[str, Any]) -> str:
         lines.append("| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |")
         for arm_name, s in selection.items():
             lines.append(
-                f"| `{arm_name}` | {pct(s.get('selection_accuracy'))} | {pct(s.get('recall'))} | "
-                f"{pct(s.get('precision'))} | {pct(s.get('recall_any'))} | {pct(s.get('multi_load_rate'))} | "
-                f"{pct(s.get('misroute_rate'))} | {pct(s.get('false_trigger_rate'))} | "
+                f"| `{arm_name}` | {fmt.percent(s.get('selection_accuracy'))} | {fmt.percent(s.get('recall'))} | "
+                f"{fmt.percent(s.get('precision'))} | {fmt.percent(s.get('recall_any'))} | {fmt.percent(s.get('multi_load_rate'))} | "
+                f"{fmt.percent(s.get('misroute_rate'))} | {fmt.percent(s.get('false_trigger_rate'))} | "
                 f"{s.get('n_positive', 0)}/{s.get('n_negative', 0)} | {s.get('n', 0)} | "
                 f"{s.get('n_failed', 0)} |"
             )
@@ -327,10 +262,7 @@ def render_arms_report(data: Dict[str, Any]) -> str:
             q = ev.question_text
             q_short = (q[:60] + "…") if len(q) > 60 else q
             q_short = _md_cell(q_short)
-            cells = []
-            for arm in arms:
-                score = ev.score(arm)
-                cells.append("—" if score is None else f"{score:.0f}")
+            cells = [fmt.fixed(ev.score(arm), 0) for arm in arms]
             lines.append(f"| {q_short} | " + " | ".join(cells) + " |")
         lines.append("")
 

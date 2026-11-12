@@ -28,6 +28,7 @@ from typing import Any
 
 from dokimi.eval.binary_stats import PASS_RATE_CI_CONFIDENCE
 from dokimi.harnesses.runner import is_errored
+from dokimi.report import fmt
 
 
 def _or_dash(value: object) -> object:
@@ -39,18 +40,9 @@ def _md_cell(text: str) -> str:
     return (text or "").replace("\n", " ").replace("|", r"\|")
 
 
-def _fmt_cost(v: float | None) -> str:
-    if not isinstance(v, (int, float)):
-        return "—"
-    # A real but sub-cent per-pass cost is not $0.0000.
-    return "<$0.0001" if 0 < v < 0.00005 else f"${v:.4f}"
-
-
-def _fmt_norm(v: Any, reason: str | None) -> str:
+def _norm_cell(v: Any, reason: str | None) -> str:
     """A normalized gain/change cell; a null says why when the reason is known."""
-    if isinstance(v, (int, float)):
-        return f"{v:+.2f}"
-    return f"— ({reason})" if reason else "—"
+    return fmt.signed(v, 2, missing=f"— ({reason})" if reason else fmt.DASH)
 
 
 def _self_report(output_dir: str | None) -> tuple[str, int | None]:
@@ -66,13 +58,6 @@ def _self_report(output_dir: str | None) -> tuple[str, int | None]:
         return "", None
     text = (obj.get("result") or "").strip().replace("\n", " ")
     return text[:160], obj.get("num_turns")
-
-
-def _fmt_p(p: Any) -> str:
-    """Render a p-value; ``—`` means no test could run, which is not ``p = 1``."""
-    if not isinstance(p, (int, float)):
-        return "—"
-    return "<0.0001" if p < 0.0001 else f"{p:.4f}"
 
 
 def _mcnemar_lines(cmp: dict[str, Any], baseline: str | None) -> list[str]:
@@ -103,7 +88,6 @@ def _mcnemar_lines(cmp: dict[str, Any], baseline: str | None) -> list[str]:
         significant = mc.get("significant_adjusted")
         if significant is None:
             significant = mc.get("significant")
-        sig_s = "—" if significant is None else ("yes" if significant else "no")
         lo, hi = mc.get("ci_lo"), mc.get("ci_hi")
         ci_s = (
             f"[{lo*100:+.1f}, {hi*100:+.1f}] pp"
@@ -114,8 +98,8 @@ def _mcnemar_lines(cmp: dict[str, Any], baseline: str | None) -> list[str]:
             f"| `{harness}` | {mc.get('paired_pass_rate_delta', 0)*100:+.2f} pp | {ci_s} | "
             f"{mc.get('n_gained', 0)} | {mc.get('n_lost', 0)} | "
             f"{mc.get('n_both_passed', 0)} | {mc.get('n_both_failed', 0)} | "
-            f"{_fmt_p(mc.get('p_exact'))} | {_fmt_p(mc.get('p_adjusted'))} | "
-            f"{sig_s} | {mc.get('n', 0)} |"
+            f"{fmt.p_value(mc.get('p_exact'))} | {fmt.p_value(mc.get('p_adjusted'))} | "
+            f"{fmt.verdict(significant)} | {mc.get('n', 0)} |"
         )
     excluded = sum(mc.get("n_excluded", 0) for _, mc in rows)
     if excluded:
@@ -136,10 +120,6 @@ def _mcnemar_lines(cmp: dict[str, Any], baseline: str | None) -> list[str]:
         ]
     lines.append("")
     return lines
-
-
-def _fmt_rate(v: Any) -> str:
-    return f"{v*100:.0f}%" if isinstance(v, (int, float)) and not isinstance(v, bool) else "—"
 
 
 def _discovery_lines(data: dict[str, Any]) -> list[str]:
@@ -181,10 +161,10 @@ def _discovery_lines(data: dict[str, Any]) -> list[str]:
                 gap_s = "— (arms lost different cells)"
             else:
                 gap_s = "— (arms ran or lost different cells)"
-        lines.append(f"| `{h}` | {_fmt_rate(g.get('with_skill_pass_rate'))} | "
-                     f"{_fmt_rate(g.get('discover_pass_rate'))} | {gap_s} | "
-                     f"{_fmt_rate(g.get('with_skill_invocation_rate'))} | "
-                     f"{_fmt_rate(g.get('discover_invocation_rate'))} |")
+        lines.append(f"| `{h}` | {fmt.percent(g.get('with_skill_pass_rate'))} | "
+                     f"{fmt.percent(g.get('discover_pass_rate'))} | {gap_s} | "
+                     f"{fmt.percent(g.get('with_skill_invocation_rate'))} | "
+                     f"{fmt.percent(g.get('discover_invocation_rate'))} |")
     lines.append("")
     return lines + note
 
@@ -238,8 +218,8 @@ def render_task_runs_report(data: dict[str, Any]) -> str:
         sir_s = (f"{sir*100:.0f}% ({s.get('skill_invocation_n', 0)})"
                  if isinstance(sir, (int, float)) else "—")
         lines.append(
-            f"| `{h}` | {rate_s} | {s.get('errored', 0)} | {ci_s} | {_fmt_cost(c.get('total_cost_usd'))} | "
-            f"{_fmt_cost(c.get('cost_per_pass_usd'))} | "
+            f"| `{h}` | {rate_s} | {s.get('errored', 0)} | {ci_s} | {fmt.usd(c.get('total_cost_usd'))} | "
+            f"{fmt.usd(c.get('cost_per_pass_usd'))} | "
             f"{s.get('elapsed_sec', 0)/60:.1f} | {_or_dash(c.get('completion_tokens'))} | "
             f"{_or_dash(c.get('cache_read_tokens'))} | "
             f"{c.get('cost_known_n', '—')}/{s.get('n', 0)} | {sir_s} |"
@@ -322,18 +302,16 @@ def render_task_runs_report(data: dict[str, Any]) -> str:
             # undefined case; without one, it is withheld with the delta. An
             # artifact older than these keys has no reason to give.
             has_delta = isinstance(prd, (int, float))
-            ng_s = _fmt_norm(cr.get("normalized_gain"), "withheld" if withheld else
+            ng_s = _norm_cell(cr.get("normalized_gain"), "withheld" if withheld else
                              "baseline at 100%" if has_delta and "normalized_gain" in cr
                              else None)
-            nc_s = _fmt_norm(cr.get("normalized_change"), "withheld" if withheld else
+            nc_s = _norm_cell(cr.get("normalized_change"), "withheld" if withheld else
                              "both at 0% or 100%" if has_delta and "normalized_change" in cr
                              else None)
             pd = cr.get("passed_delta", 0)
             pd_s = "—" if pd is None else f"{pd:+}"
-            cd = cr.get("cost_delta_usd")
-            cd_s = f"{cd:+.4f}" if isinstance(cd, (int, float)) else "—"
             lines.append(f"| `{h}` | {prd_s} | {ng_s} | {nc_s} | {pd_s} | "
-                         f"{cr.get('operation_count_delta', 0):+} | {cd_s} |")
+                         f"{cr.get('operation_count_delta', 0):+} | {fmt.signed(cr.get('cost_delta_usd'), 4)} |")
         lines.append("")
         lines.extend(_mcnemar_lines(cmp, baseline))
     lines.extend(_discovery_lines(data))
@@ -351,7 +329,7 @@ def render_task_runs_report(data: dict[str, Any]) -> str:
             c = cell[(t, h)]
             err_s = f" (+{c['errored']} err)" if c["errored"] else ""
             pass_s = f"{c['passed']}/{c['n']}" if c["n"] else "—"
-            cols.append(f"{pass_s}{err_s} | {_fmt_cost(c['cost'])}")
+            cols.append(f"{pass_s}{err_s} | {fmt.usd(c['cost'])}")
         lines.append(f"| {t} | {diff_of.get(t, '?')} | " + " | ".join(cols) + " |")
     lines.append("")
 
@@ -383,7 +361,7 @@ def render_task_runs_report(data: dict[str, Any]) -> str:
                     else "(harness error)" if det["errored"] else "(no result)"
                 )
                 lines.append(f"| `{h}` | {det['repeat']} | {rw_s} | {pass_s} | {turns_s} | "
-                             f"{_fmt_cost(det['cost'])} | {_md_cell(claim)} |")
+                             f"{fmt.usd(det['cost'])} | {_md_cell(claim)} |")
         lines.append("")
 
     return "\n".join(lines)

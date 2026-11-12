@@ -7,6 +7,10 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
+from dokimi.report import fmt
+
+_MISSING = "-"  # this report's mark for a missing value
+
 
 def render_plugin_delta_report(data: Dict[str, Any]) -> str:
     lines: List[str] = []
@@ -41,9 +45,9 @@ def render_plugin_delta_report(data: Dict[str, Any]) -> str:
         for arm in data.get("arms", []):
             row = score_deltas.get(arm) or {}
             lines.append(
-                f"| `{arm}` | {_fmt(row.get('baseline_avg_aggregate'))} | "
-                f"{_fmt(row.get('plugin_avg_aggregate'))} | "
-                f"{_fmt_signed(row.get('aggregate_delta'))} | {row.get('n', 0)} |"
+                f"| `{arm}` | {fmt.fixed(row.get('baseline_avg_aggregate'), missing=_MISSING)} | "
+                f"{fmt.fixed(row.get('plugin_avg_aggregate'), missing=_MISSING)} | "
+                f"{fmt.signed(row.get('aggregate_delta'), missing=_MISSING)} | {row.get('n', 0)} |"
             )
         lines.append("")
 
@@ -56,11 +60,11 @@ def render_plugin_delta_report(data: Dict[str, Any]) -> str:
         for arm in data.get("arms", []):
             row = cost_deltas.get(arm) or {}
             lines.append(
-                f"| `{arm}` | {_fmt_money_delta(_delta(row, 'total_cost_usd'))} | "
-                f"{_fmt_signed(_delta(row, 'prompt_tokens'), digits=0)} | "
-                f"{_fmt_signed(_delta(row, 'completion_tokens'), digits=0)} | "
-                f"{_fmt_signed(_delta(row, 'total_tokens'), digits=0)} | "
-                f"{_fmt_signed(_delta(row, 'mean_latency_sec'))} |"
+                f"| `{arm}` | {fmt.usd_delta(_delta(row, 'total_cost_usd'), missing=_MISSING)} | "
+                f"{fmt.signed(_delta(row, 'prompt_tokens'), 0, missing=_MISSING)} | "
+                f"{fmt.signed(_delta(row, 'completion_tokens'), 0, missing=_MISSING)} | "
+                f"{fmt.signed(_delta(row, 'total_tokens'), 0, missing=_MISSING)} | "
+                f"{fmt.signed(_delta(row, 'mean_latency_sec'), missing=_MISSING)} |"
             )
         lines.append("")
 
@@ -73,8 +77,8 @@ def render_plugin_delta_report(data: Dict[str, Any]) -> str:
         for arm in data.get("arms", []):
             row = text_deltas.get(arm) or {}
             lines.append(
-                f"| `{arm}` | {_fmt_signed(_delta(row, 'raw_answer_chars'), digits=0)} | "
-                f"{_fmt_signed(_delta(row, 'final_answer_chars'), digits=0)} |"
+                f"| `{arm}` | {fmt.signed(_delta(row, 'raw_answer_chars'), 0, missing=_MISSING)} | "
+                f"{fmt.signed(_delta(row, 'final_answer_chars'), 0, missing=_MISSING)} |"
             )
         lines.append("")
 
@@ -84,21 +88,3 @@ def render_plugin_delta_report(data: Dict[str, Any]) -> str:
 def _delta(row: dict, field: str):
     value = row.get(field)
     return value.get("delta") if isinstance(value, dict) else None
-
-
-def _fmt(value: Any, *, digits: int = 1) -> str:
-    if not isinstance(value, (int, float)):
-        return "-"
-    return f"{value:.{digits}f}"
-
-
-def _fmt_signed(value: Any, *, digits: int = 1) -> str:
-    if not isinstance(value, (int, float)):
-        return "-"
-    return f"{value:+.{digits}f}"
-
-
-def _fmt_money_delta(value: Any) -> str:
-    if not isinstance(value, (int, float)):
-        return "-"
-    return f"${value:+.4f}"

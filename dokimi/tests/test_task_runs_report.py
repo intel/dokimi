@@ -444,18 +444,6 @@ def test_discovery_gap_both_arms_fully_errored():
     assert data["summary"]["discovery_gaps"][arms[2]]["with_skill_pass_rate"] is None
 
 
-def test_fmt_rate_rejects_bools():
-    """bool is a subclass of int, so _fmt_rate(True) must not render as 100%."""
-    from dokimi.report.task_runs_report import _fmt_rate
-
-    assert _fmt_rate(0.5) == "50%"
-    assert _fmt_rate(1.0) == "100%"
-    assert _fmt_rate(0.0) == "0%"
-    assert _fmt_rate(True) == "—"
-    assert _fmt_rate(False) == "—"
-    assert _fmt_rate(None) == "—"
-
-
 def test_discovery_gap_no_scored_cells_differs_from_different_attempted():
     """When gap is None, distinguish between no scored cells vs arms attempted different cells."""
     arms = ["docker-claude", "docker-claude-skill:s", "docker-claude-skill-discover:s"]

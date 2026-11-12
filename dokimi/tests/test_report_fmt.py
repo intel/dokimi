@@ -23,6 +23,7 @@ from pathlib import Path
 import pytest
 
 from dokimi.eval.arm_summary import TOOL_COUNTS
+from dokimi.report import fmt
 from dokimi.report.arms_report import render_arms_report
 from dokimi.report.exploration_report import render_exploration_metrics, render_explore_report
 from dokimi.report.generator import ReportGenerator
@@ -276,3 +277,47 @@ def test_goldens_hold_the_edge_values():
     }.items():
         missing = [m for m in marks if m not in texts[name]]
         assert not missing, f"{name}: {missing}"
+
+
+@pytest.mark.parametrize("call, expected", [
+    (lambda: fmt.fixed(2.25), "2.2"),
+    (lambda: fmt.fixed(-0.04), "-0.0"),
+    (lambda: fmt.fixed(None, missing="n/a"), "n/a"),
+    (lambda: fmt.signed(0.0, 2), "+0.00"),
+    (lambda: fmt.signed(-3.5, 0), "-4"),
+    (lambda: fmt.percent(0.125, 1), "12.5%"),
+    (lambda: fmt.percent(0.995), "100%"),
+    (lambda: fmt.plain(80.0), "80.0"),
+    (lambda: fmt.plain(3, 3), "3"),
+    (lambda: fmt.plain(0.12345, 3), "0.123"),
+    (lambda: fmt.usd(0.00001), "<$0.0001"),
+    (lambda: fmt.usd(0.00005), "$0.0001"),
+    (lambda: fmt.usd(0), "$0.0000"),
+    (lambda: fmt.usd_delta(-0.00001), "$-0.0000"),
+    (lambda: fmt.p_value(0.00009), "<0.0001"),
+    (lambda: fmt.p_value(0.0001), "0.0001"),
+    (lambda: fmt.delta(0.0), "0.0"),
+    (lambda: fmt.delta(0.04), "+0.04"),
+    (lambda: fmt.ci_end(0.0), "+0.0"),
+    (lambda: fmt.ci_end(-0.00001), "-0.00001"),
+    (lambda: fmt.ci(None, 0.25), "[-inf, +0.2]"),
+])
+def test_each_formatter_prints_its_number_kind(call, expected):
+    assert call() == expected
+
+
+@pytest.mark.parametrize("formatter", [fmt.fixed, fmt.signed, fmt.percent, fmt.usd, fmt.usd_delta, fmt.p_value,
+                                       fmt.delta, fmt.ci_end])
+@pytest.mark.parametrize("value", [None, True, False, "0.5"])
+def test_a_value_that_is_not_a_number_prints_the_missing_mark(formatter, value):
+    """A bool is an int in Python; printed as one, a flag would read as a 100% rate or a p of 1."""
+    assert formatter(value) == "—"
+    assert formatter(value, missing="n/a") == "n/a"
+
+
+def test_plain_prints_any_stored_value_but_none():
+    assert [fmt.plain(v, 3) for v in (None, True, "x", 2, 0.5)] == ["—", "True", "x", "2", "0.500"]
+
+
+def test_verdict_keeps_unknown_apart_from_no():
+    assert [fmt.verdict(v) for v in (None, True, False)] == ["—", "yes", "no"]

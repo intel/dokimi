@@ -37,7 +37,8 @@ from typing import Any
 
 from dokimi.records import Record, arm_answers, arm_names, arm_scores, read
 from dokimi.eval.judge_context import PROTOCOL_MIXED as JUDGE_CONTEXT_MIXED
-from dokimi.eval import sign_flip, stats as arm_stats
+from dokimi.eval import stats as arm_stats
+from dokimi.report import fmt
 from dokimi.utils import InputError, read_json_input
 
 try:
@@ -572,11 +573,6 @@ def _avg(lst: list[float]) -> float:
     return round(sum(lst) / len(lst), 1) if lst else 0.0
 
 
-def _num_or_dash(v: float | None) -> str:
-    """Render a metric, or an em dash when no usable score backs it."""
-    return "—" if v is None else str(v)
-
-
 def _rank_key(field: str):
     """Sort key that ranks runs with no usable value for *field* last."""
     def key(item):
@@ -584,12 +580,6 @@ def _rank_key(field: str):
         return (v is not None, v if v is not None else 0.0)
 
     return key
-
-
-def _fmt_delta(d: float | None) -> str:
-    if d is None:
-        return "N/A"
-    return sign_flip.fmt_delta(d)
 
 
 def significance_test(
@@ -927,12 +917,12 @@ def _overall_summary_lines(run_ids: list[str], summary_stats: dict[str, dict], a
         st = summary_stats[run_id]
         # An arm with no usable score prints as "—" rather than a numeric zero,
         # which would read as a legitimate score of 0/100.
-        delta_str = "—" if st["delta_avg"] is None else f"**{_fmt_delta(st['delta_avg'])}**"
+        delta_str = "—" if st["delta_avg"] is None else f"**{fmt.delta(st['delta_avg'])}**"
         # Make partial coverage visible: a delta over fewer pairs than questions
         # is weaker evidence than the question count alone suggests.
         scored_str = f"{st['n_paired']} ({st['unpaired']} unscored)" if st["unpaired"] else str(st["n_paired"])
-        cells = [str(st["n"]), scored_str, _num_or_dash(st["with_avg"]), _num_or_dash(st["without_avg"]),
-                 delta_str, _num_or_dash(st["improved"]), _num_or_dash(st["degraded"])]
+        cells = [str(st["n"]), scored_str, fmt.plain(st["with_avg"]), fmt.plain(st["without_avg"]),
+                 delta_str, fmt.plain(st["improved"]), fmt.plain(st["degraded"])]
         lines.append(f"| **{run_id}** | " + " | ".join(cells) + " |")
     return lines + [""]
 
@@ -977,8 +967,8 @@ def _significance_row(run_id: str, sig: dict) -> str:
     p_adj = sig.get("p_adjusted")
     p_adj_str = p_adj if p_adj is not None else "N/A"
     return (
-        f"| **{run_id}** | {_fmt_delta(sig['delta_mean'])} | {p} | "
-        f"{p_adj_str} | {sig['n_changed']} of {sig['n']} | {_fmt_delta(sig['cohens_d'])} "
+        f"| **{run_id}** | {fmt.delta(sig['delta_mean'], missing='N/A')} | {p} | "
+        f"{p_adj_str} | {sig['n_changed']} of {sig['n']} | {fmt.delta(sig['cohens_d'], missing='N/A')} "
         f"| {sig['effect']} | {sig_mark} |"
     )
 
@@ -1022,8 +1012,7 @@ def _difficulty_cells(sc: list[dict], has_treatment: bool) -> str:
         # Same pairs and one-arm rule as the overall summary: the context mean
         # covers the questions the delta does.
         st = _run_summary(sc)
-        delta_cell = "—" if st["delta_avg"] is None else _fmt_delta(st["delta_avg"])
-        return f" {_num_or_dash(st['with_avg'])} | {delta_cell} |"
+        return f" {fmt.plain(st['with_avg'])} | {fmt.delta(st['delta_avg'])} |"
     # No treatment score in this bucket: report the baseline.
     without_scores = [s["without_docs"] for s in sc if s["without_docs"] is not None]
     wo = _avg(without_scores) if without_scores else None
@@ -1127,7 +1116,7 @@ def _benefit_lines(
         helped_pct = round(100 * st["improved"] / n_paired)
         hurt_pct = round(100 * st["degraded"] / n_paired)
         lines.append(
-            f"| **{run_id}** | **{_fmt_delta(st['delta_avg'])}** | "
+            f"| **{run_id}** | **{fmt.delta(st['delta_avg'], missing='N/A')}** | "
             f"{st['improved']} ({helped_pct}%) | {st['degraded']} ({hurt_pct}%) |"
         )
     return lines + [""]
@@ -1145,7 +1134,7 @@ def _ranking_lines(summary_stats: dict[str, dict], has_treatment: bool, arm_labe
     if not has_treatment:
         return lines + [
             "### By absolute quality (baseline)",
-            *_rank_table(summary_stats, "without_avg", "Baseline avg", _num_or_dash),
+            *_rank_table(summary_stats, "without_avg", "Baseline avg", fmt.plain),
             "",
             "> **Note:** Treatment utilization ranking requires treatment arm.",
             "",
@@ -1153,9 +1142,9 @@ def _ranking_lines(summary_stats: dict[str, dict], has_treatment: bool, arm_labe
         ]
     return lines + [
         f"### By absolute quality ({arm_label})",
-        *_rank_table(summary_stats, "with_avg", f"{arm_label} avg", _num_or_dash),
+        *_rank_table(summary_stats, "with_avg", f"{arm_label} avg", fmt.plain),
         "",
         "### By treatment utilisation (Delta)",
-        *_rank_table(summary_stats, "delta_avg", "Delta", _fmt_delta),
+        *_rank_table(summary_stats, "delta_avg", "Delta", lambda d: fmt.delta(d, missing="N/A")),
         "",
     ]
