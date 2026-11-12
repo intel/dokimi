@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import os
 import re
 import shutil
 import subprocess
@@ -238,13 +239,14 @@ def test_only_a_same_repo_refresh_pr_counts_as_open(diff_rc: int, fork: bool, cl
     workflow = yaml.safe_load((_REPO / ".github" / "workflows" / "conda-lock.yml").read_text(encoding="utf-8"))
     step = next(s for s in workflow["jobs"]["refresh"]["steps"] if s.get("name") == "Open or update the refresh PR")
     log, prs, bin_dir = tmp_path / "calls.txt", tmp_path / "prs.json", tmp_path / "bin"
+    jq = shutil.which("jq")
     prs.write_text(f'[{{"number": 701, "isCrossRepository": {str(fork).lower()}}}]', encoding="utf-8")
     bin_dir.mkdir()
     (bin_dir / "git").write_text(f'#!/bin/sh\necho "git $*" >> {log}\n[ "$1" = diff ] && exit {diff_rc}\nexit 0\n',
                                  encoding="utf-8")
     (bin_dir / "gh").write_text(
         f'#!/bin/sh\necho "gh $*" >> {log}\n[ "$2" = list ] || exit 0\n'
-        f'while [ $# -gt 0 ]; do [ "$1" = --jq ] && filter=$2; shift; done\njq -r "$filter" {prs}\n', encoding="utf-8")
+        f'while [ $# -gt 0 ]; do [ "$1" = --jq ] && filter=$2; shift; done\n{jq} -r "$filter" {prs}\n', encoding="utf-8")
     for tool in bin_dir.iterdir():
         tool.chmod(0o755)
     env = {"PATH": f"{bin_dir}:/usr/bin:/bin", "RUN_URL": "https://example.invalid/run/1"}
@@ -300,6 +302,15 @@ def test_the_recipe_tests_run_its_imports_and_commands_in_the_env(tmp_path: Path
     """With the build's --no-test, these are the only place a PR's conda job runs the recipe's own tests."""
     hooks = _script("hooks", monkeypatch)
     calls: list[list[str]] = []
-    monkeypatch.setattr(hooks, "run", lambda command, **options: calls.append(command))
+    paths: list[str] = []
+
+    def record(command: list[str], **options: dict) -> None:
+        calls.append(command)
+        paths.append(options["env"]["PATH"])
+
+    monkeypatch.setattr(hooks, "run", record)
+    monkeypatch.setenv("PATH", "/runner/bin")
     hooks.run_recipe_tests(tmp_path)
     assert calls == [[str(hooks.env_python(tmp_path)), "-c", "import dokimi"], ["pip", "check"], ["dokimi", "--help"]]
+    expected = os.pathsep.join([*map(str, hooks.env_path(tmp_path)), "/runner/bin"])
+    assert paths == [expected] * 3
