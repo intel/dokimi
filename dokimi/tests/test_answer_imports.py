@@ -572,14 +572,18 @@ def test_eval_reference_cli_without_judge_on_an_arms_run(tmp_path):
     assert data["evaluations"][0]["scores"]["baseline"]["passed"] is True
 
 
-@pytest.mark.parametrize("content", [b"", b"not json", bytes.fromhex("fffe007b")], ids=["empty", "not-json", "not-utf8"])
+@pytest.mark.parametrize("content", [b"", b"not json", bytes.fromhex("fffe007b"), None, "directory"],
+                         ids=["empty", "not-json", "not-utf8", "missing", "directory"])
 def test_eval_reference_cli_refuses_an_unparseable_answers_file(tmp_path, content):
     from tests.cli_refusal import refusal
 
     q = tmp_path / "q.json"
     q.write_text(json.dumps({"questions": []}))
     a = tmp_path / "a.json"
-    a.write_bytes(content)
+    if content == "directory":
+        a.mkdir()
+    elif content is not None:
+        a.write_bytes(content)
     out = tmp_path / "e.json"
     args = build_parser().parse_args(["eval", "score", "reference", "--answers", str(a), "--questions", str(q),
                                       "-o", str(out), "--no-judge"])
