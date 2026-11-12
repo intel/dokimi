@@ -321,7 +321,7 @@ def test_git_tree_follows_a_link_before_it_goes_up_a_level(tmp_path):
     for missing in ("nope/../repo-eval.yaml", "repo-eval.yaml/../repo-eval.yaml"):
         assert not git_tree.is_file(missing)
         assert not git_tree.is_dir(missing)
-        with pytest.raises(SourceError, match="^not a directory in "):
+        with pytest.raises(SourceError, match=f"^no such path in {sha[:12]}: {missing}$"):
             git_tree.read_text(missing)
     assert not git_tree.is_dir("nope/..")
     assert git_tree.is_dir("sub/..")

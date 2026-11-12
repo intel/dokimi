@@ -262,7 +262,7 @@ class GitTree:
                 if not walked:
                     raise SourceArgumentError(f"path escapes the repository: {via or path}")
                 if "/".join(walked) not in self._dir_set():
-                    raise _NoSuchPath(f"not a directory in {self.sha[:12]}: {'/'.join(walked)}")
+                    raise _NoSuchPath(f"no such path in {self.sha[:12]}: {path}")
                 walked.pop()
                 continue
             walked.append(part)
