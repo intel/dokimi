@@ -83,6 +83,8 @@ def test_a_directory_ref_hashes_the_bytes_of_a_file_name_that_is_not_utf8(tmp_pa
         pytest.skip("the file system refuses a name that is not UTF-8")
     after = _digest_ref(str(tmp_path), base=tmp_path)
     assert after != before and after is not None and after.startswith("sha256:")
+    os.rename(os.fsencode(tmp_path) + b"/n\xff.md", os.fsencode(tmp_path) + b"/n\xfe.md")
+    assert _digest_ref(str(tmp_path), base=tmp_path) != after
 
 
 def test_the_scorecard_carries_the_distribution_digest(tmp_path: Path, monkeypatch):

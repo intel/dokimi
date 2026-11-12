@@ -412,6 +412,8 @@ def test_the_content_key_hashes_the_bytes_of_a_file_name_that_is_not_utf8(tmp_pa
         pytest.skip("the file system refuses a name that is not UTF-8")
     after = harbor_export._content_key(tmp_path)
     assert after != before and len(after) == 16
+    os.rename(os.fsencode(tmp_path) + b"/n\xff.md", os.fsencode(tmp_path) + b"/n\xfe.md")
+    assert harbor_export._content_key(tmp_path) != after
 
 
 def test_harbor_harness_runs_the_export_not_the_source(tmp_path, monkeypatch):
