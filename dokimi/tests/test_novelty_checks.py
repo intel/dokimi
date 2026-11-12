@@ -346,6 +346,15 @@ def test_an_existence_denial_right_after_a_flag_is_no_claim_of_it():
                        None).passed is False
 
 
+def test_a_contracted_denial_or_a_curly_apostrophe_is_the_same_denial_and_negation():
+    # Models write "doesn't" and the curly apostrophe; both deny the flag and negate the mention.
+    check = _veto()
+    assert grade_check(check, "q", "perf report --stdin doesn't exist.", None).passed is True
+    assert grade_check(check, "q", "perf report --stdin isn’t an option.", None).passed is True
+    assert grade_check(check, "q", "perf report --stdio (don’t use --stdin)", None).passed is True
+    assert grade_check(check, "q", "perf report --stdio (don't use --stdin)", None).passed is True
+
+
 def test_help_text_accepts_a_help_whose_only_options_are_bracketed_negations(tmp_path):
     tool = tmp_path / "bracketed.py"
     tool.write_text(

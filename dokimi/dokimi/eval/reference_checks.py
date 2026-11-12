@@ -391,11 +391,12 @@ def scope_pairs(within: str, answer: str, *, timeout: float) -> list[tuple[str, 
             if not _negated_before(answer, m.start())]
 
 
-_NEGATED = re.compile(r"(?i)\bnot\b|n't\b|\bnever\b|\bno\b|\bavoid\w*|\bwithout\b|\binstead of\b|\brather than\b")
+_NEGATED = re.compile(r"(?i)\bnot\b|n['’]t\b|\bnever\b|\bno\b|\bavoid\w*|\bwithout\b|\binstead of\b|\brather than\b")
 #: An existence denial right after a flag, in its code span or not, denies it: only these two phrases, on one
 #: line; other words after a flag leave its claim standing.
 _DENIED_AFTER = re.compile(
-    r"""[ \t`'"*)]*(?:does[ \t]+not[ \t]+exist|is[ \t]+not[ \t]+an[ \t]+option)(?![\w-])""", re.IGNORECASE)
+    r"""[ \t`'"*)]*(?:does(?:[ \t]+not|n['’]t)[ \t]+exist|(?:is[ \t]+not|isn['’]t)[ \t]+an[ \t]+option)(?![\w-])""",
+    re.IGNORECASE)
 #: An option with an assigned value (``--input=--stdin``): the value is a file name, not an option.
 _ASSIGNED = re.compile(r"""(?<![\w-])(--[A-Za-z][\w-]*)=(?:"[^"\n]*"|'[^'\n]*'|[^\s,;|&]+)""")
 #: A standalone ``--`` ends the options of a command: the words after it, up to the end of the
