@@ -10,6 +10,8 @@ SHAs of a toy history built per test. No network, no docker.
 from __future__ import annotations
 
 import json
+import os
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -19,7 +21,8 @@ import dokimi.repos.replay.threads as threads_module
 from dokimi.cli import build_parser
 from dokimi.repos import RepoSource, load_manifest, open_source
 from dokimi.repos.replay import History, ReplayError, load_pull_requests
-from dokimi.repos.replay.history import map_line, near
+from dokimi.repos.replay.history import _entries, map_line, near
+from dokimi.repos.replay.merged import Skip, need_utf8_paths
 from dokimi.repos.replay.threads import gold_problem
 from dokimi.repos.workspace import export_eval_dir, load_tasks, prepare_workspace, source_git_dir
 from repo_eval_fixture import FakeRunner, git, make_repo, write
@@ -713,3 +716,74 @@ def test_map_line_carries_a_line_through_a_diff(line, hunks, expected):
 ])
 def test_near_is_within_window_lines_of_a_change(hunks, window, expected):
     assert near(10, hunks, window) is expected
+
+
+NON_UTF8 = os.fsdecode(b"r\xff.py") if os.name != "nt" else "r.py"
+needs_byte_names = pytest.mark.skipif(sys.platform in ("win32", "darwin"), reason="the file system takes only UTF-8 names")
+
+
+@needs_byte_names
+def test_history_names_a_path_that_is_not_utf8_by_its_bytes(tmp_path):
+    """A byte 0xff in a name stays that byte (``os.fsdecode``), not U+FFFD, which names no file."""
+    root = tmp_path / "bytes"
+    write(root, "a.py", "a\n")
+    git(root, "init", "-q")
+    git(root, "add", "-A")
+    git(root, "commit", "-qm", "one")
+    write(root, NON_UTF8, "b\n")
+    git(root, "add", "-A")
+    git(root, "commit", "-qm", "two")
+    h = History(root / ".git")
+    assert h.changed("HEAD~1", "HEAD") == [NON_UTF8]
+    assert h.statuses("HEAD~1", "HEAD") == [("A", NON_UTF8)]
+
+
+@needs_byte_names
+def test_a_name_status_listing_keeps_the_bytes_of_a_path_that_is_not_utf8():
+    assert _entries(b"A\0" + os.fsencode(NON_UTF8) + b"\0R100\0a.py\0" + os.fsencode(NON_UTF8) + b"\0") == [
+        ("A", "", NON_UTF8), ("R", "a.py", NON_UTF8)]
+
+
+@needs_byte_names
+def test_a_pr_that_changes_a_path_that_is_not_utf8_is_skipped_naming_it_escaped(hist, tmp_path, capsys):
+    root = hist["root"]
+    main = git(root, "rev-parse", "--abbrev-ref", "HEAD")
+    git(root, "checkout", "-qb", "pr61")
+    write(root, os.fsdecode(b"src/\xff.py"), "one\ntwo\n")
+    rev = _commit(root, "adds a file that is not UTF-8")
+    merge = _squash(root, main, "pr61")
+    with pytest.raises(SystemExit):  # no pull request gave a task
+        _replay(root, _pages(_pr(61, rev, merge, [_t("src/long.py", 10, rev)])), tmp_path / "tasks")
+    printed = capsys.readouterr().out
+    assert "PR 61: skipped: src/\\xff.py is not a UTF-8 file name, which task.json cannot hold" in printed
+    assert not (tmp_path / "tasks" / "review_replay_pr61").exists()
+
+
+@needs_byte_names
+def test_a_thread_carried_back_to_a_path_that_is_not_utf8_is_left_out_and_the_task_written(hist, tmp_path, capsys):
+    """The reviewed revision does not change the file, a later commit renames it: the gold file would be the
+    name that ``task.json`` cannot hold."""
+    root = hist["root"]
+    main = git(root, "rev-parse", "--abbrev-ref", "HEAD")
+    odd = os.fsdecode(b"src/\xff.py")
+    write(root, odd, "one\ntwo\nthree\n")
+    _commit(root, "a file that is not UTF-8")
+    git(root, "checkout", "-qb", "pr62")
+    _set(root, "src/long.py", 10, "a10")
+    rev = _commit(root, "the reviewed change")
+    git(root, "mv", odd, "src/ok.py")
+    head = _commit(root, "rename it")
+    merge = _squash(root, main, "pr62")
+    threads = [_t("src/long.py", 10, rev), _t("src/long.py", 11, rev), _t("src/ok.py", 2, head)]
+    _replay(root, _pages(_pr(62, head, merge, threads)), tmp_path / "tasks")
+    task, gold, _ = _load(tmp_path / "tasks", 62)
+    assert task["reviewed_commit"] == rev
+    assert [(g["id"], g["file"]) for g in gold] == [("pr62-t1", "src/long.py"), ("pr62-t2", "src/long.py")]
+    assert "pr62-t3 left out: src/\\xff.py is not a UTF-8 file name, which task.json cannot hold" in capsys.readouterr().out
+
+
+@needs_byte_names
+def test_a_changed_path_that_is_not_utf8_skips_the_pull_request_naming_it_escaped():
+    need_utf8_paths(["a.py", "né.py"])  # UTF-8 names pass
+    with pytest.raises(Skip, match=r"^src/\\xff.py is not a UTF-8 file name, which task.json cannot hold$"):
+        need_utf8_paths(["a.py", os.fsdecode(b"src/\xff.py")])

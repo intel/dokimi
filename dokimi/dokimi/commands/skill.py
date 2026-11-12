@@ -10,6 +10,7 @@ with the routing moves of #94 §4.
 
 from __future__ import annotations
 
+from dokimi import cli_flags
 import argparse
 
 
@@ -44,7 +45,9 @@ def register_check(skill_sub) -> None:
                               "A skill that fails to load may be named differently")
     check_p.add_argument("--root", required=True, help="Local checkout the skill is under")
     check_p.add_argument("--strict", action="store_true",
-                         help="Exit 1 on a spec error of the skill as well as on one that does not load")
+                         help="Exit 1 on a spec error of the skill as well as on one that does not load, "
+                              "and on a skill that grants unrestricted Bash and has a pipe-to-shell or "
+                              "permission-bypass-flag finding")
     check_p.add_argument("--format", choices=["text", "json"], default="text",
                          help="text: one line for the skill; json: the catalog check's row for it")
     check_p.set_defaults(func=cmd_skill_check)
@@ -79,7 +82,7 @@ def register_skill(skill_sub, positive_int) -> None:
     _add_common(analyze_p, positive_int)
     _add_model_args(analyze_p, positive_int)
     analyze_p.add_argument("--out-dir", default=None, dest="out_dir")
-    analyze_p.add_argument("--out-json", default=None, dest="out_json")
+    cli_flags.add(analyze_p, "output", "--out", default=None, dest="out_json")
     analyze_p.add_argument("--view-format", default="html", choices=["html", "md"],
                            dest="view_format")
     analyze_p.add_argument("--no-classify", action="store_true", dest="no_classify",

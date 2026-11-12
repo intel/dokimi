@@ -20,6 +20,7 @@ from itertools import pairwise
 from pathlib import Path
 
 from dokimi import process
+from dokimi.process_io import path_text
 
 from .threads import ReplayError
 
@@ -142,13 +143,13 @@ class History:
     def changed(self, a: str, b: str) -> list[str]:
         """Every path that differs between ``a`` and ``b``, a rename as its two paths."""
         raw = self._git("diff-tree", "-r", "-z", "--name-only", "--no-renames", a, b).stdout_bytes
-        return [p.decode("utf-8", "replace") for p in raw.split(b"\0") if p]
+        return [path_text(p) for p in raw.split(b"\0") if p]
 
     def statuses(self, a: str, b: str) -> list[tuple[str, str]]:
         """``(status letter, path)`` of every path that differs between ``a`` and ``b``; a rename is a delete and
         an add."""
         raw = self._git("diff-tree", "-r", "-z", "--name-status", "--no-renames", a, b).stdout_bytes
-        parts = [p.decode("utf-8", "replace") for p in raw.split(b"\0")]
+        parts = [path_text(p) for p in raw.split(b"\0")]
         return [(parts[i][:1], parts[i + 1]) for i in range(0, len(parts) - 1, 2) if parts[i]]
 
     def n_lines_changed(self, a: str, b: str, paths: list[str]) -> int:
@@ -255,7 +256,7 @@ def _entries(raw: bytes) -> list[tuple[str, str, str]]:
     """``(status letter, old path, new path)`` per entry of a ``-z --name-status -M`` listing, one
     diff or a log's diffs one after another; an added file's old path is ``""``. ``-M`` without
     ``-C`` reports no copies."""
-    parts = [p.decode("utf-8", "replace") for p in raw.split(b"\0")]
+    parts = [path_text(p) for p in raw.split(b"\0")]
     out = []
     i = 0
     while i + 1 < len(parts) and parts[i]:

@@ -694,9 +694,8 @@ Both commands exit 2, before any build, on a source that does not parse (a local
 directory, an unpinned remote) and on a pinned local path inside a repository that is not its root; a
 source that parses but cannot be opened (clone, fetch, revision) exits 1 with a `✗` line. A manifest that
 is missing or malformed exits 1 too; a `--manifest` path that leaves the source tree is refused as a
-source and exits 2 for an unpinned local directory; a link in the tree that leads out of it, the default
-manifest's or one `--manifest` names, is part of the tree and exits 1. A pinned source (`<repo>@<sha>`) does not look the path
-up outside the commit: it reports a missing manifest and exits 1.
+source and exits 2, for an unpinned local directory and for a pinned source (`<repo>@<sha>`) alike; a link in the tree that leads out of it, the default
+manifest's or one `--manifest` names, is part of the tree and exits 1.
 
 Nothing checked is not a pass. Both commands refuse an export with no task, and
 exit 1 as `incomplete` when nothing was measured: `eval check` when no task
@@ -907,7 +906,7 @@ local source.
 # a window of merged PRs with their threads; --slurp writes the pages as one JSON list
 gh api graphql --paginate --slurp -F query=@replay-threads.graphql \
     -F q='repo:IntelPython/dpnp is:pr is:merged merged:2026-10-01..2026-10-27' > threads.json
-python cli.py eval tasks generate ~/dpnp --from replay --threads threads.json --out ~/dpnp/.agent-eval/tasks
+python cli.py eval tasks generate ~/dpnp --from replay --threads threads.json --out-dir ~/dpnp/.agent-eval/tasks
 ```
 
 `replay-threads.graphql` asks for the fields the command reads. A search
@@ -1041,7 +1040,7 @@ that is not its root (`<repo>/sub@<sha>`: give the root). It exits 1 when the th
 request, when no pull request gave a task (written, or kept from before), and
 on an error that is not one pull request's own: a malformed pull request, a
 source it cannot open, a manifest that is missing or malformed, the prompt file, or a task it cannot write. Each prints
-`✗` and the reason; on an unpinned local directory a `--manifest` path that leaves the source tree exits 2 instead (a pinned source reports a missing manifest, exit 1). A git failure while one pull request is built skips that
+`✗` and the reason; a `--manifest` path that leaves the source tree exits 2 instead, pinned or not. A git failure while one pull request is built skips that
 pull request with the reason.
 `eval check` then runs the tasks, and two arms measure the guidance
 (§9):
@@ -1060,7 +1059,7 @@ a task is as right as the index it came from.
 ```bash
 # the index must be built at the revision the source names; that SHA is each task's base
 python cli.py eval tasks generate ~/repo@<sha> --from graph --index index.scip \
-    --out ~/repo/.agent-eval/tasks [--references 9] [--derives 3] [--seed 7] [--dry-run]
+    --out-dir ~/repo/.agent-eval/tasks [--references 9] [--derives 3] [--seed 7] [--dry-run]
 ```
 
 Two questions:
@@ -1147,7 +1146,7 @@ GitHub call and reads the history with git.
 ```bash
 gh api graphql --paginate --slurp -F query=@authoring-prs.graphql \
     -F q='repo:intel/dokimi is:pr is:merged merged:2026-10-01..2026-10-27' > prs.json
-python cli.py eval tasks generate ~/dokimi --from prs --prs prs.json --out ~/dokimi/.agent-eval/tasks
+python cli.py eval tasks generate ~/dokimi --from prs --prs prs.json --out-dir ~/dokimi/.agent-eval/tasks
 ```
 
 ```graphql
@@ -1247,7 +1246,7 @@ a repository that is not its root (`<repo>/sub@<sha>`: give the root). It exits 
 holds no pull request, when no pull request gave a task (written, or kept from before), and on
 an error that is not one pull request's own: a malformed pull request (a `number` that is not
 an integer), a source it cannot open, a manifest that is missing or malformed, the prompt file (unreadable or empty), or a task it
-cannot write. Each prints `✗` and the reason; on an unpinned local directory a `--manifest` path that leaves the source tree exits 2 instead (a pinned source reports a missing manifest, exit 1). Grading a task needs the manifest's
+cannot write. Each prints `✗` and the reason; a `--manifest` path that leaves the source tree exits 2 instead, pinned or not. Grading a task needs the manifest's
 `entry_points.test` (§2).
 
 ## 5. Aligning oneDAL `dev/agent_evals` (uxlfoundation/oneDAL#3818)
@@ -1618,7 +1617,7 @@ per scenario).
 ### 7.1 Effective-instructions receipt (`effective_instructions.v1`)
 
 `repo reach --format receipt` prints, and writes to `effective_instructions.json`
-in `--out`, a receipt in the shape of `effective-instructions/v0`
+in `--out-dir`, a receipt in the shape of `effective-instructions/v0`
 (agentsmd/agents.md#213). It is built from the reach payload and from the
 start-up chain of `repo budget` (`repos/budget.py`). It makes no
 LLM call. `repo reach --from <reach.json> --format receipt` builds the same
@@ -2253,12 +2252,12 @@ python cli.py repo compare repo-runs/pilot --baseline guidance:none --metric roo
 
 ```bash
 # enumeration tasks with gold from a SCIP index built at <sha> (§4.7): no LLM, no docker
-python cli.py eval tasks generate ~/dpnp@<sha> --from graph --index index.scip --out ~/dpnp/.agent-eval/tasks
+python cli.py eval tasks generate ~/dpnp@<sha> --from graph --index index.scip --out-dir ~/dpnp/.agent-eval/tasks
 ```
 
 ```bash
 # review tasks from the threads of merged PRs (§4.6): no LLM, no docker, no GitHub call
-python cli.py eval tasks generate ~/dpnp --from replay --threads threads.json --out ~/dpnp/.agent-eval/tasks
+python cli.py eval tasks generate ~/dpnp --from replay --threads threads.json --out-dir ~/dpnp/.agent-eval/tasks
 # a task starts from its PR's base: guidance:rev:<sha> runs the guidance under review there
 # (replace <sha> with that revision; the quotes keep the shell from reading <sha> as a redirect)
 python cli.py repo run ~/dpnp --task review_replay_pr3107 --arm 'guidance:none,guidance:rev:<sha>' \
@@ -2272,7 +2271,7 @@ python cli.py repo hits judge repo-runs/replay --judge openai/gpt-5.1 --labels l
 
 ```bash
 # authoring tasks from merged PRs (§4.8): no LLM, no docker, no GitHub call; the manifest needs entry_points.test
-python cli.py eval tasks generate ~/dokimi --from prs --prs prs.json --out ~/dokimi/.agent-eval/tasks
+python cli.py eval tasks generate ~/dokimi --from prs --prs prs.json --out-dir ~/dokimi/.agent-eval/tasks
 python cli.py eval check ~/dokimi --task authoring_pr405   # base fails, oracle passes, twice each
 python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric pass_share
 ```
@@ -2484,8 +2483,12 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   A `process` count, `first_prompt_tokens` or `first_useful_*` only one arm reports for the shared tasks of a
   (treatment, model) is not compared; a warning names it. When neither arm
   reports it (a batch run before `repo run` recorded it), the row is absent.
-  Holm's correction runs over the gate and score comparisons of one call; the
-  rest are descriptive. Three notes under a comparison keep a row from being
+  Holm's correction runs over the gate and score comparisons of one call that
+  can reach p < 0.05; the rest are descriptive. A gate or score row whose
+  changed tasks give a p floor (`2 / 2^k`) of 0.05 or more can never be
+  significant, so it stays out of the multiplier: its `p_holm` and
+  `p_holm_floor` are `null`, and the other rows are corrected as if it were
+  not there. Three notes under a comparison keep a row from being
   misread, and change no delta, interval or p. A gate or score row of 2+ tasks whose
   interval includes 0 is inconclusive, not evidence of no effect: the note
   gives `mde`, a planning figure: an approximate, uncorrected t-based estimate,
@@ -2503,10 +2506,11 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   effect can reach p < 0.05 here`). Holm's correction can lift that floor: a
   gate or score row's `p_holm_floor` is its `p_holm` with its p put at that
   floor and the other p of the family as observed (in every `--json` row;
-  `null` on a descriptive row or one with every task tied), and where it is not below
+  `null` on a descriptive row, one with every task tied or one under the
+  floor rule), and where it is not below
   0.05, `mde` is `null` and the note names Holm instead (`with Holm over 2
-  rows, p_holm cannot go below 0.0625 here: no effect can reach p_holm <
-  0.05`); a family of one row is the raw rule. `p_holm_floor` decides only
+  rows that can reach p < 0.05, p_holm cannot go below 0.0625 here: no effect
+  can reach p_holm < 0.05`); a family of one row is the raw rule. `p_holm_floor` decides only
   whether `mde` is given, not its size. A gate or score row whose interval
   excludes 0 while its `p_holm` is 0.05 or more (Holm's correction lifted its p
   across 0.05; the interval agrees with the raw p, and Holm's step-down has no
