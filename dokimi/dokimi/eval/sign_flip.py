@@ -191,7 +191,7 @@ def _rounded(end: float | None) -> float | None:
     return math.copysign(1e-4, end) if out == 0 and end != 0 else out + 0.0  # + 0.0: no -0.0
 
 
-def sign_flip_row(deltas: list[float], seed: int = 0, *, exact: bool = True) -> dict:
+def sign_flip_row(deltas: list[float], seed: int = 0, *, exact: bool) -> dict:
     """The test of one row, as both row builders print it: :func:`eval.stats._describe_deltas` (arms) and
     :func:`repos.compare.sign_flip_summary` (repo compare). They shape their own keys around this.
 
