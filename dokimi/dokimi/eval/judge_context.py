@@ -209,8 +209,9 @@ class JudgeContextStore:
         A digest whose text is missing, or whose text does not hash to it, is
         skipped with a warning: that answer falls back to its snippets, which is
         visible in its ``judge_context_source``, rather than being judged on text
-        that is not what the arms run's judge saw. The answers are read through
-        :mod:`dokimi.records`: a malformed list or record is a ``RecordError``.
+        that is not what the arms run's judge saw. When ``judge_materials`` is an
+        object, the answers are read through :mod:`dokimi.records`: a malformed
+        list or record is a ``RecordError``; otherwise the store is empty.
         """
         store = cls()
         materials = data.get("judge_materials") if isinstance(data, dict) else None

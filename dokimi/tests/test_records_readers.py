@@ -131,7 +131,8 @@ def test_judge_context_keeps_the_good_records_beside_a_bad_digest(caplog):
     {"answers": [{"question_id": "q1", "arms": {"skill:x": _cited()}}]},
     {"judge_materials": [TEXT], "answers": [{"question_id": "q1", "arms": {"skill:x": _cited()}}]},
     {"judge_materials": {DIGEST: TEXT}},
-], ids=["no-materials", "materials-not-an-object", "no-answers"])
+    {"judge_materials": None, "answers": [1]},
+], ids=["no-materials", "materials-not-an-object", "no-answers", "null-materials-before-malformed-answers"])
 def test_judge_context_without_materials_or_answers_stores_nothing(data):
     assert JudgeContextStore.from_artifact(data).materials() == {}
 
