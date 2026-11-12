@@ -831,3 +831,16 @@ def test_git_rules_see_global_options_and_combined_flags(text, rule):
 ])
 def test_git_rules_leave_safe_git_commands_alone(text):
     assert not sec.command_findings(text, "trace")
+
+
+def test_baseline_help_names_the_arm_as_result_json_does():
+    # `repo run --arm` does not spell a patch or revision arm the way result.json does (patch:x@digest)
+    import argparse
+
+    from dokimi.commands import repo_security
+
+    root = argparse.ArgumentParser()
+    subs = root.add_subparsers(dest="cmd")
+    repo_security.register(subs)
+    text = next(a.help for a in subs.choices["security"]._actions if "--baseline" in a.option_strings)
+    assert "as `result.json` names it" in text and "patch:skill.patch@1a2b3c4d5e6f" in text

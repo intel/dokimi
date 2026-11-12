@@ -101,8 +101,8 @@ def register(repo_sub) -> None:
     )
     p.add_argument("batch", help="<out>/<batch> of `repo run` (its finished cell directories hold result.json)")
     p.add_argument("--baseline", required=True,
-                   help="The arm others are compared to, as `repo run --arm` names it (e.g. guidance:none); "
-                        "an arm no finished cell has is an error")
+                   help="The arm others are compared to, as `result.json` names it (e.g. guidance:none, or "
+                        "patch:skill.patch@1a2b3c4d5e6f for a patch arm); an arm no finished cell has is an error")
     p.add_argument("--alpha", type=_alpha, default=0.05,
                    help="One-sided Fisher exact level for a non-critical class to fail an arm (default 0.05)")
     p.add_argument("--canary", action="append", metavar="VALUE",
