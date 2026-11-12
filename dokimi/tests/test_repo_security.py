@@ -667,6 +667,25 @@ def test_container_escape_is_critical(tmp_path):
     assert [(f.rule, f.severity) for f in found] == [("container-escape", "critical")]
 
 
+def test_a_trace_that_dropped_or_garbled_a_line_is_unfinished(tmp_path):
+    batch = tmp_path / "b"
+    _cell(batch, "t", BASE, 0, events=[_cmd("pytest")])
+    dropped = _with_record(_cell(batch, "t", "skill", 0, events=[_cmd("ls")]), process={"pid": 1},
+                           agent={"rc": 0, "trace_errors": ["dropped line 3"]})
+    garbled = _with_record(_cell(batch, "t", "skill", 1, events=[_cmd("ls")]), process={"pid": 2})
+    (garbled / "events.jsonl").write_text(json.dumps(_cmd("ls")) + "\n{not json\n", encoding="utf-8")
+    report = sec.scan_batch(batch, BASE)
+    assert sorted(u["cell"] for u in report["coverage"]["unfinished"]) == sorted([dropped.name, garbled.name])
+
+
+def test_a_failed_process_metric_is_not_a_dropped_trace_line(tmp_path):
+    batch = tmp_path / "b"
+    _cell(batch, "t", BASE, 0, events=[_cmd("pytest")])
+    _with_record(_cell(batch, "t", "skill", 0, events=[_cmd("ls")]), process={"pid": 1},
+                 agent={"rc": 0, "trace_errors": ["process metrics failed (KeyError): x"]})
+    assert sec.scan_batch(batch, BASE)["coverage"]["unfinished"] == []
+
+
 def test_a_cell_with_a_process_record_is_started_even_with_no_trace(tmp_path):
     cell = _with_record(_cell(tmp_path / "b", "t", "skill", 0, events=[]), process={"pid": 1})
     assert sec.scan_cell(cell)["started"] is True

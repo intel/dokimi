@@ -291,9 +291,20 @@ def _trace_problem(path: Path) -> Optional[str]:
     if not path.is_file():
         return f"no {path.name}"
     lines = [line for line in path.read_text(encoding="utf-8", errors="replace").splitlines() if line.strip()]
-    if lines and not any(isinstance(_loads(line), dict) for line in lines):
+    readable = sum(isinstance(_loads(line), dict) for line in lines)
+    if lines and not readable:
         return f"{path.name} has no readable event"
+    if readable < len(lines):
+        return f"{path.name} has {len(lines) - readable} line(s) that are not JSON objects"
     return None
+
+
+def _conversion_errors(agent: Any) -> list[str]:
+    """The runner's ``trace_errors`` that are lost trace lines. A failed process metric is in the same list, and is not one."""
+    errors = agent.get("trace_errors") if isinstance(agent, dict) else None
+    if not isinstance(errors, list):
+        return []
+    return [str(e) for e in errors if not str(e).startswith("process metrics failed")]
 
 
 def _empty_trace(path: Path) -> bool:
@@ -344,15 +355,17 @@ def _scan(cell: Path, canaries: Sequence[str]) -> tuple[dict[str, Any], list[str
     found, n_events, unreadable = _trace_findings(cell, canaries)
     result, _ = _read_record(cell / "result.json")
     agent = result.get("agent")
-    # After an rc, an empty trace with no trace_errors means the agent never started.
-    # A missing or garbled trace, or an empty one with trace_errors, is unfinished.
+    # After an rc, an empty trace with no lost trace line means the agent never started.
+    # A missing or garbled trace, or one the runner lost lines from (empty or not), is unfinished.
     empty = _empty_trace(cell / "events.jsonl")
-    garbled = isinstance(agent, dict) and bool(agent.get("trace_errors")) and empty
+    conversion = _conversion_errors(agent)
+    garbled = bool(conversion)
     agent_ran = isinstance(agent, dict) and agent.get("rc") is not None and (not empty or garbled)
     if agent_ran or result.get("process") is not None:  # a run whose trace is missing or garbled is unmeasured
         # a linked trace is not read (its target may be a host file): _present already made the cell unfinished
-        problem = None if (cell / "events.jsonl").is_symlink() else (
-            _trace_problem(cell / "events.jsonl") or ("the runner read no line of the trace" if garbled else None))
+        problem = None if (cell / "events.jsonl").is_symlink() else (_trace_problem(cell / "events.jsonl") or (
+            ("the runner read no line of the trace" if empty else f"the runner dropped trace lines: {conversion[0][:120]}")
+            if garbled else None))
         if problem:
             unreadable.append(problem)
     started = bool(n_events or found or agent_ran or result.get("process") is not None)
