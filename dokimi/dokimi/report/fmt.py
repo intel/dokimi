@@ -3,8 +3,10 @@
 
 """The number cells of the Markdown reports: one formatter per kind of number.
 
-Each prints ``missing`` (an em dash unless the renderer passes its own mark) for a value that is not a
-number, so a missing measurement never reads as a zero. A bool is not a number here (:func:`is_number`).
+Each number formatter prints ``missing`` (an em dash unless the renderer passes its own mark) for a value
+that is not a number, so a missing measurement never reads as a zero; a bool is not a number here
+(:func:`is_number`). :func:`plain` prints any stored value but ``None``; :func:`verdict` and :func:`ci` say
+what they print for ``None``.
 """
 
 from __future__ import annotations
