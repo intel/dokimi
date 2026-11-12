@@ -109,7 +109,7 @@ def test_an_unwritable_scorecard_exits_2_naming_it(tmp_path, monkeypatch, capsys
     target = blocker / "scorecard.json"
 
     _run(tmp_path, monkeypatch, subject_id="s", products='["a"]', questions='["q.json"]',
-         extra_args=("--out-json", str(target)))
+         extra_args=("--out", str(target)))
 
     assert capsys.readouterr().err.splitlines()[0].startswith(f"Error: cannot write {target}: ")
 
@@ -136,7 +136,7 @@ def test_an_unwritable_report_dir_exits_2_after_the_scorecard_is_saved(tmp_path,
     target = blocker / "sub" / "x.md"
 
     _run(tmp_path, monkeypatch, subject_id="s", products='["a"]', questions='["q.json"]',
-         extra_args=("--out-json", str(tmp_path / "card.json"), "--out-md", str(target)))
+         extra_args=("--out", str(tmp_path / "card.json"), "--out-md", str(target)))
 
     assert saved == [tmp_path / "card.json"]
     assert capsys.readouterr().err.splitlines()[0].startswith(f"Error: cannot write {target}: ")
@@ -149,7 +149,7 @@ def test_a_report_path_that_is_a_directory_exits_2_naming_it(tmp_path, monkeypat
     target.mkdir()
 
     _run(tmp_path, monkeypatch, subject_id="s", products='["a"]', questions='["q.json"]',
-         extra_args=("--out-json", str(tmp_path / "card.json"), "--out-md", str(target)))
+         extra_args=("--out", str(tmp_path / "card.json"), "--out-md", str(target)))
 
     assert capsys.readouterr().err.splitlines()[0].startswith(f"Error: cannot write {target}: ")
 

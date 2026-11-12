@@ -1,0 +1,32 @@
+{
+  "schema_version": "persona_analysis.v1",
+  "readme_content": "# demo\n\nA parallel library.",
+  "use_cases": [
+    "simulations"
+  ],
+  "issues_analysis": {
+    "common_questions": [
+      "How to install?"
+    ],
+    "common_labels": [
+      "question"
+    ],
+    "sample_issues": [
+      {
+        "title": "How to install?",
+        "labels": [
+          "question"
+        ],
+        "url": "https://github.com/o/demo/issues/1"
+      }
+    ]
+  },
+  "api_patterns": [
+    "demo::parallel_for(range, body);",
+    "demo::task_arena arena;"
+  ],
+  "description": "A parallel library",
+  "topics": [
+    "cpp"
+  ]
+}

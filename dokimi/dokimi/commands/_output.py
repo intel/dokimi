@@ -9,6 +9,7 @@ import contextlib
 import sys
 from pathlib import Path
 
+from dokimi.artifacts import ArtifactValidationError
 from dokimi.exit_codes import EXIT_FAILURE, EXIT_USAGE
 
 
@@ -37,6 +38,14 @@ def save_artifact_or_exit(kind: str, payload: dict, path: Path, code: int = EXIT
     except ArtifactValidationError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         sys.exit(EXIT_FAILURE)
+@contextlib.contextmanager
+def exit_on_rejected(kind: str):
+    """Exit 1 when the ``kind`` schema refuses a save inside the block; save_artifact keeps the payload at ``<name>.rejected``."""
+    try:
+        yield
+    except ArtifactValidationError as exc:
+        print(f"Error: {kind} artifact rejected: {exc}", file=sys.stderr)
+        sys.exit(1)
 
 
 def write_text_or_exit(path: Path, text: str, code: int = EXIT_USAGE) -> None:
