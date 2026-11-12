@@ -523,7 +523,7 @@ def register(sub, positive_int) -> None:
     bench_pre_p.add_argument("--judge-model", default=JUDGE_MODEL_FOR_PROVIDER, dest="judge_model",
                              help=JUDGE_MODEL_HELP)
     bench_pre_p.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, dest="judge_provider", choices=JUDGE_PROVIDERS)
-    # Preflight makes no LLM call and judges nothing: it warns about the judge, it does not refuse one.
+    # Preflight makes no LLM call, but it plans the run that `benchmark run` makes, so it refuses the judge that run refuses.
     bench_pre_p.set_defaults(judge=True)
     bench_pre_p.add_argument("--registry", default=None, help="Path to custom products.yaml")
     bench_pre_p.add_argument("--max-tokens", type=positive_int, default=DEFAULT_MAX_TOKENS_PER_QUESTION, dest="max_tokens")
