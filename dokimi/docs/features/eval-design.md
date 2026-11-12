@@ -81,7 +81,7 @@ Provide a frozen need graph and explicit needs labels on the eval checks. Inspec
 
 **Input:** A frozen need graph and eval checks with explicit need labels.
 
-**Scope and limits:** Basic eval coverage in main; graph builder PR [#594](https://github.com/intel/dokimi/issues/594); broader [#331](https://github.com/intel/dokimi/issues/331).
+**Scope and limits:** Basic eval coverage in main; graph builder PR [#594](https://github.com/intel/dokimi/pull/594); broader [#331](https://github.com/intel/dokimi/issues/331).
 
 **Result:** Coverage gaps within the declared need-space model, not all possible user work.
 
@@ -101,9 +101,9 @@ The proposed workflow maps checkable statements in a skill to existing checks an
 
 **Input:** A SKILL.md and existing eval rows or executable task checks to map against its requirements.
 
-**Scope and limits:** PR [#441](https://github.com/intel/dokimi/issues/441): LLM-estimated candidates, not a verified coverage score.
+**Scope and limits:** PR [#441](https://github.com/intel/dokimi/pull/441): LLM-estimated candidates, not a verified coverage score.
 
-**Result:** A proposed rule-to-check mapping; consult the linked implementation status.
+**Result:** A proposed rule-to-check mapping; see PR [#441](https://github.com/intel/dokimi/pull/441) for the current implementation before relying on it.
 
 **Next step:** Read the linked proposal for progress and the related guide for existing components. This card is not a runnable end-to-end interface.
 
@@ -117,17 +117,17 @@ The proposed workflow maps checkable statements in a skill to existing checks an
 
 **Availability:** Available on main.
 
-Check that a null solution fails and an oracle passes, then challenge the verifier with adversarial controls. A successful control run does not prove that the grader cannot be fooled.
+For executable repository tasks, `eval check` confirms that a null solution fails and an oracle passes, and checks verifier isolation. Separately, for answer-only question grading, `eval redteam QUESTIONS.json` challenges grading blocks with synthetic adversarial answers; it does not exercise repository task verifiers. Passing controls do not prove that a grader cannot be fooled.
 
-**Input:** Executable tasks, their verifier, a null workspace and reference solution; additional adversarial controls where supported.
+**Input:** Executable tasks with their verifier, a null workspace and a reference solution (`eval check`); or a questions file with grading blocks (`eval redteam`).
 
-**Scope and limits:** Self-check and verifier red-team; controls cannot prove perfection.
+**Scope and limits:** Null/oracle and isolation checks for task verifiers; red-teaming applies only to answer-grading blocks. Controls cannot prove perfection.
 
 **Result:** Control results exposing weaknesses in the tested grader.
 
 **Next step:** Use the linked workflow to configure this check, then [interpret the result](../start/results.md).
 
-[Grader self-check](../repo-evaluation-contract.md#43-self-check-eval-check-no-llm) · [Implementation](../../dokimi/commands/repo_run.py) · [Back to feature tree](README.md)
+[Grader self-check](../repo-evaluation-contract.md#43-self-check-eval-check-no-llm) · [Answer-grading red-team](../answer-formats.md#red-teaming-the-grading) · [Implementation](../../dokimi/commands/repo_run.py) · [Red-team implementation](../../dokimi/commands/redteam.py) · [Back to feature tree](README.md)
 
 <a id="31-is-there-room-to-improve"></a>
 
@@ -141,7 +141,7 @@ Check whether tasks have useful headroom and protect held-out evaluation materia
 
 **Input:** Recorded arm outcomes, reference question content and repetition/cache provenance.
 
-**Scope and limits:** Headroom and run hygiene; replay provenance fix PR [#596](https://github.com/intel/dokimi/issues/596).
+**Scope and limits:** Headroom and run hygiene; replay provenance fix PR [#596](https://github.com/intel/dokimi/pull/596).
 
 **Result:** Headroom diagnostics identifying cases with little room to distinguish variants.
 

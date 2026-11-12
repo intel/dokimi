@@ -121,7 +121,7 @@ Run the existing skill/catalog validation before paid evaluation. Structural war
 
 **Input:** Skill metadata, descriptions, paths and bundle structure in the catalog being checked.
 
-**Scope and limits:** main checks; PRs [#454](https://github.com/intel/dokimi/issues/454), [#556](https://github.com/intel/dokimi/issues/556), [#557](https://github.com/intel/dokimi/issues/557), [#558](https://github.com/intel/dokimi/issues/558), [#559](https://github.com/intel/dokimi/issues/559) extend them.
+**Scope and limits:** main checks; PRs [#454](https://github.com/intel/dokimi/pull/454), [#556](https://github.com/intel/dokimi/pull/556), [#557](https://github.com/intel/dokimi/pull/557), [#558](https://github.com/intel/dokimi/pull/558), [#559](https://github.com/intel/dokimi/pull/559) extend them.
 
 **Result:** Structural findings from existing checks; proposed extensions are separate.
 
@@ -141,9 +141,9 @@ The proposed checks inspect Python/shell syntax, line endings and optional lint 
 
 **Input:** A skill's bundled Python/shell scripts and optional local syntax/lint tools.
 
-**Scope and limits:** PR [#455](https://github.com/intel/dokimi/issues/455); warnings / notes, optional bash, ruff and shellcheck.
+**Scope and limits:** PR [#455](https://github.com/intel/dokimi/pull/455); warnings / notes, optional bash, ruff and shellcheck.
 
-**Result:** Proposed script findings; see the linked implementation before relying on them.
+**Result:** Proposed script findings; see PR [#455](https://github.com/intel/dokimi/pull/455) for the current implementation before relying on them.
 
 **Next step:** Read the linked proposal for progress and the related guide for existing components. This card is not a runnable end-to-end interface.
 
@@ -161,7 +161,7 @@ The proposed opt-in network checks distinguish confirmed missing packages/links 
 
 **Input:** Package references and external URLs in the selected catalog, with opt-in network access for the proposed checks.
 
-**Scope and limits:** PR [#459](https://github.com/intel/dokimi/issues/459); opt-in, warning-only checks; network errors are not absence.
+**Scope and limits:** PR [#459](https://github.com/intel/dokimi/pull/459); opt-in, warning-only checks; network errors are not absence.
 
 **Result:** Proposed reference checks; no shipped end-to-end path is promised here.
 
@@ -181,7 +181,7 @@ The proposed packaging findings identify missing bundle paths, unreferenced file
 
 **Input:** SKILL.md, its named resources and the bundle's files/paths for the proposed packaging heuristics.
 
-**Scope and limits:** PRs [#556](https://github.com/intel/dokimi/issues/556), [#558](https://github.com/intel/dokimi/issues/558), [#559](https://github.com/intel/dokimi/issues/559); unrestricted Bash warning separately in [#557](https://github.com/intel/dokimi/issues/557).
+**Scope and limits:** PRs [#556](https://github.com/intel/dokimi/pull/556), [#558](https://github.com/intel/dokimi/pull/558), [#559](https://github.com/intel/dokimi/pull/559); unrestricted Bash warning separately in [#557](https://github.com/intel/dokimi/pull/557).
 
 **Result:** Proposed packaging findings; consult the linked development work.
 

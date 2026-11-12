@@ -41,7 +41,7 @@ Probe judge validity with degraded answers and examine agreement, order and word
 
 **Input:** Representative saved answers or control cases, judge identities and the reliability test configuration.
 
-**Scope and limits:** Existing panels/calibration; novelty panel PR [#489](https://github.com/intel/dokimi/issues/489); integration [#407](https://github.com/intel/dokimi/issues/407).
+**Scope and limits:** Existing panels/calibration; novelty panel PR [#489](https://github.com/intel/dokimi/pull/489); integration [#407](https://github.com/intel/dokimi/issues/407).
 
 **Result:** Judge reliability diagnostics for the tested cases and judges.
 
@@ -61,7 +61,7 @@ The proposed identifier checks compare an answer with tool evidence such as help
 
 **Input:** Novelty probes, claimed identifiers and tool-help/reference evidence for the proposed grounding checks.
 
-**Scope and limits:** PR [#472](https://github.com/intel/dokimi/issues/472): identifier checks; exec/source grading remain proposed.
+**Scope and limits:** PR [#472](https://github.com/intel/dokimi/pull/472): identifier checks; exec/source grading remain proposed.
 
 **Result:** Proposed grounding evidence for novelty checks; not a general correctness guarantee.
 

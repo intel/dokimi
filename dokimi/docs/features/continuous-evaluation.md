@@ -21,7 +21,7 @@ Inspect persisted run artifacts, reports and dashboards without rerunning the mo
 
 **Input:** Stored run artifacts and the selected report reader's supported schema.
 
-**Scope and limits:** Support varies by track; unified JSON envelope PR [#590](https://github.com/intel/dokimi/issues/590).
+**Scope and limits:** Support varies by track; unified JSON envelope PR [#590](https://github.com/intel/dokimi/pull/590).
 
 **Result:** Inspectable stored artifacts and supported reports.
 
@@ -61,7 +61,7 @@ The proposed security comparison surfaces unsafe behaviour per arm relative to a
 
 **Input:** Recorded repository-run traces per arm and baseline; additional canary/exec/egress evidence where available.
 
-**Scope and limits:** PR [#588](https://github.com/intel/dokimi/issues/588) / [#360](https://github.com/intel/dokimi/issues/360); broader traps and instrumentation remain incomplete.
+**Scope and limits:** PR [#588](https://github.com/intel/dokimi/pull/588) / [#360](https://github.com/intel/dokimi/issues/360); broader traps and instrumentation remain incomplete.
 
 **Result:** Proposed per-arm unsafe-behaviour evidence; isolation alone does not establish safety.
 

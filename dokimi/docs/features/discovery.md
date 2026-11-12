@@ -41,7 +41,7 @@ Test requests that should select a skill and requests that should not. Compare c
 
 **Input:** The skill or catalog, actual competing skills and representative selection/non-selection requests.
 
-**Scope and limits:** Existing routing; CLI relocation in PR [#595](https://github.com/intel/dokimi/issues/595). Need relevance also matters.
+**Scope and limits:** Existing routing; CLI relocation in PR [#595](https://github.com/intel/dokimi/pull/595). Need relevance also matters.
 
 **Result:** Routing outcomes against actual competing skills and user queries.
 

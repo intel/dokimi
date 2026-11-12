@@ -21,7 +21,7 @@ Scan guidance claims against repository files, symbols, commands and build label
 
 **Input:** Your repository guidance and the paths, identifiers or commands it names.
 
-**Scope and limits:** Static scans / fence checks; Claude rules and imports in PR [#593](https://github.com/intel/dokimi/issues/593).
+**Scope and limits:** Static scans / fence checks; Claude rules and imports in PR [#593](https://github.com/intel/dokimi/pull/593).
 
 **Result:** Static findings about guidance references and claims the scanner can check.
 
@@ -127,4 +127,4 @@ Use the built-in seeded-review or replay grader to evaluate review findings agai
 
 **Next step:** Use the linked workflow to configure this check, then [interpret the result](../start/results.md).
 
-[Usage guide](../repo-evaluation-contract.md) · [Implementation](../../dokimi/commands/tasks_generate.py) · [Back to feature tree](README.md)
+[Usage guide](../repo-evaluation-contract.md) · [Implementation](../../dokimi/repos/graders/review.py) · [Back to feature tree](README.md)
