@@ -752,3 +752,14 @@ def test_a_harness_error_in_trace_errors_is_not_a_lost_trace_line():
     assert sec._conversion_errors({"trace_errors": harness}) == []
     lost = ["line 3: not JSON", "a message whose content is not a list"]
     assert sec._conversion_errors({"trace_errors": harness + lost}) == lost
+
+
+def test_a_string_strace_cut_at_its_limit_is_no_argument():
+    # strace prints a string longer than its -s limit cut, then `...`: the cut text is a prefix of the argument, so
+    # a rule must not judge it (the apt cleanup path cut to /var/lib/apt/lis is not a delete of /var/lib/apt)
+    cut = '101 execve("/usr/bin/bash", ["bash", "-c", "cd /x && rm -rf /var/lib/apt/lis"...], 0x7ff /* 9 vars */) = 0\n'
+    (line,) = sec.parse_exec_log(cut)
+    assert line == "bash -c"
+    assert not sec.command_findings(line, "exec")
+    full = cut.replace('lis"...', 'lists/*"')
+    assert "destructive-delete" not in _rules(sec.command_findings(sec.parse_exec_log(full)[0], "exec"))

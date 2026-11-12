@@ -40,7 +40,7 @@ Per finished cell directory (`{task}__{arm}__{model}__r{rep}` with a `result.jso
 | File | Gives |
 |---|---|
 | `events.jsonl` | the agent's commands, reads and edits from its own trace |
-| `exec.log` | `strace -f -e trace=execve` of the agent, when the image records one: commands a script the agent wrote ran, which the trace does not show |
+| `exec.log` | `strace -f -s 4096 -e trace=execve` of the agent, when the image records one: commands a script the agent wrote ran, which the trace does not show |
 | `egress.jsonl` | an egress sidecar's allow/deny decisions. `repo run` starts none yet (per-host egress is not implemented there), so `egress-denied` and an egress canary leak are unmeasured in its cells |
 | `answer.txt` | the final answer (a canary there is a leak) |
 

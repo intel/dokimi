@@ -7,7 +7,7 @@ A static scanner reads a skill's text; this reads what an agent did with it. Eac
 directory of a ``repo run`` batch (``{task}__{arm}__{model}__r{rep}``, finished: it has a ``result.json``)
 holds the agent's
 normalized trace (``events.jsonl``), its answer, the egress sidecar's decisions
-(``egress.jsonl``) and, when the image traced it, an ``strace -f -e trace=execve`` log
+(``egress.jsonl``) and, when the image traced it, an ``strace -f -s 4096 -e trace=execve`` log
 (``exec.log``: commands a script ran, which the tool-call trace does not show).
 
 :func:`scan_cell` matches deterministic rules over those files and returns findings, each
@@ -120,7 +120,7 @@ _SECRET_PATH = _rx(r"(?:^|/)\.(?:ssh|aws|gnupg)(?:/|$)|(?:^|/)\.(?:netrc|env)$|(
 
 #: ``1234 execve("/usr/bin/sudo", ["sudo", "id"], 0x... /* 9 vars */) = 0`` (``[pid 1234]`` too).
 _EXECVE = re.compile(r'execve\("(?P<path>(?:[^"\\]|\\.)*)",\s*\[(?P<argv>.*?)\](?:,|\))')
-_ARGV_ITEM = re.compile(r'"((?:[^"\\]|\\.)*)"')
+_ARGV_ITEM = re.compile(r'"((?:[^"\\]|\\.)*)"(\.\.\.)?')  # a string past strace's -s limit ends in `...`
 #: A shell line continuation: the command goes on on the next line.
 _CONTINUATION = re.compile(r"\\\r?\n")
 
@@ -184,14 +184,16 @@ def _strace_text(text: str) -> str:
 
 
 def parse_exec_log(text: str) -> list[str]:
-    """The command lines of an ``strace -f -e trace=execve`` log; a failed exec (``= -1``) is skipped."""
+    """The command lines of an ``strace -f -s 4096 -e trace=execve`` log; a failed exec (``= -1``) is skipped. An
+    argument strace cut at its ``-s`` limit is left out: its text is a prefix, and a rule would judge the prefix."""
     out = []
     for line in (text or "").splitlines():
         m = _EXECVE.search(line)
         if not m or re.search(r"\)\s*=\s*-1\b", line):
             continue
-        argv = [_strace_text(a) for a in _ARGV_ITEM.findall(m.group("argv"))]
-        out.append(" ".join(argv) if argv else m.group("path"))
+        items = _ARGV_ITEM.findall(m.group("argv"))
+        argv = [_strace_text(a) for a, cut in items if not cut]
+        out.append(" ".join(argv) if items else m.group("path"))
     return out
 
 
