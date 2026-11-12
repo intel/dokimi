@@ -3,16 +3,17 @@
 
 """The hardening and resource flags of a ``docker run``, spelled once.
 
-Every container the package starts with the docker CLI takes its ``--network``, hardening,
-resource and ``--init`` flags from :class:`ContainerPolicy`: the repo container
-(:class:`dokimi.repos.container.DockerRunner`), the example runner's docker backend, the
-solver's task container and the fidelity capture's client. Each call site sets the fields it
-wants and lays the groups out with :func:`dokimi.docker_cmd.run_spec`, in the order its argv
+Every ``docker run`` the package builds takes its ``--network``, hardening, resource and ``--init``
+flags from :class:`ContainerPolicy`: the repo container (:class:`dokimi.repos.container.DockerRunner`),
+the example runner's docker backend, the solver's task container and the fidelity capture's client.
+The egress sidecar's ``docker create`` still spells its ``--network`` inline. Each call site sets the
+fields it wants and lays the groups out with :func:`dokimi.docker_cmd.run_spec`, in the order its argv
 has always had; that order is pinned by ``tests/test_container_argv_characterization.py`` and
 ``tests/test_docker_run_argv_differential.py``.
 
-The builder chooses nothing and validates nothing: a field left at its default adds no flag,
-so each call site opts in to what it runs with.
+This module also holds the task container's defaults (:data:`PIDS_LIMIT`, :data:`TASK_CAP_ADD`,
+:func:`task_container_policy`). The policy itself chooses nothing and validates nothing: a field
+left at its default adds no flag, so each call site opts in to what it runs with.
 """
 
 from __future__ import annotations
