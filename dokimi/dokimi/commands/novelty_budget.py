@@ -133,8 +133,8 @@ def verify_or_partial(sample, spans, client) -> dict | None:
 def run_estimate(args: argparse.Namespace, settings, text: str, estimate_usd) -> tuple[dict, int]:
     """The run's estimate, with ``expected_usd`` at list prices, and the artifact's token count.
 
-    ``estimate_usd`` is the command's pricing (``dokimi.novelty.cost.estimate_usd``), passed
-    in because that module imports this one.
+    ``estimate_usd`` is the command's pricing (``dokimi.novelty.cost.estimate_usd``), looked up
+    by the caller at call time, so a test that patches ``cost.estimate_usd`` takes effect.
     """
     from dokimi.novelty.measure import parse_arms
     from dokimi.novelty.spans import segment
