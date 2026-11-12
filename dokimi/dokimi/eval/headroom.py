@@ -27,8 +27,8 @@ statistics of a comparison stay in :mod:`dokimi.eval.stats`.
 A replayed answer (``replayed: true``: the response cache served it) whose text a fresh answer of
 another run has for the same item and arm is a cached repeat, not a sample: its score is left out of
 the reps and the means. The replays of one text that no fresh answer has are one rep, scored at their
-mean. ``summary.replayed_repeats`` counts the replays that added no rep: the left-out ones, and each
-of those copies past the first.
+mean. ``summary.replayed_repeats`` counts the scores of replays that added no rep: the left-out ones,
+and each of those copies past the first. A replay with no score adds no rep for that reason, not counted.
 """
 
 from __future__ import annotations
@@ -231,7 +231,7 @@ class _Cell(NamedTuple):
 
 def _collect(runs: Sequence[Run]) -> Tuple[_Scores, Dict[str, Set[str]], int]:
     """Question id -> arm -> the per-run scores (0-1, exact), question id -> the arms it listed,
-    and the number of replayed answers that added no rep (see :func:`_count`)."""
+    and the number of scores of replayed answers that added no rep (see :func:`_count`)."""
     arms_of: Dict[str, Set[str]] = {}
     cells: List[_Cell] = []
     for index, run in enumerate(runs, start=1):
@@ -255,8 +255,8 @@ def _collect(runs: Sequence[Run]) -> Tuple[_Scores, Dict[str, Set[str]], int]:
 
 
 def _count(cells: List[_Cell], items: Iterable[str]) -> Tuple[_Scores, int]:
-    """Question id -> arm -> the scores that count, for each id of ``items``, and how many replayed
-    answers added no rep. A replayed answer whose text a fresh one of the same item and arm has is
+    """Question id -> arm -> the scores that count, for each id of ``items``, and how many scores of
+    replayed answers added no rep. A replayed answer whose text a fresh one of the same item and arm has is
     left out; the replays of one text no fresh answer has count once, at the mean of their scores."""
     scores: _Scores = {key: {} for key in items}
     fresh: Set[Tuple[str, str, Optional[str]]] = set()
@@ -315,7 +315,7 @@ def format_table(result: Dict[str, Any]) -> str:
         lines.append("note: no run scored these arms, so the floor test leaves them out: " + "; ".join(counts))
     if result["summary"]["replayed_repeats"]:
         n = result["summary"]["replayed_repeats"]
-        lines.append(f"note: {n} replayed answer{'' if n == 1 else 's'} (DOKIMI_RESPONSE_CACHE) added no rep: "
+        lines.append(f"note: {n} score{'' if n == 1 else 's'} of replayed answers (DOKIMI_RESPONSE_CACHE) added no rep: "
                      "a copy of a fresh answer is left out, the copies of an answer no run gave fresh "
                      "count once, at their mean")
     s = result["summary"]

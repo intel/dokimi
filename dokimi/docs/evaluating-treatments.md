@@ -767,8 +767,8 @@ A cached replay is not a fresh rep. With `DOKIMI_RESPONSE_CACHE` set, a repeated
 the same answers and judgments, and the file marks each answer the cache served with `replayed: true`.
 A replayed answer whose text a fresh answer of another input file has for the same item and arm is left
 out of the reps and the means. Replays of one text that no fresh answer has count as one rep at the mean
-of their scores, whatever the order of the files. The summary's `replayed_repeats` counts the replays
-that added no rep, and a note under the table gives it. Files written before the flag carry none: collect their repeats with the cache off.
+of their scores, whatever the order of the files. The summary's `replayed_repeats` counts the scores of
+replays that added no rep (a replay with no score is not one), and a note under the table gives it. Files written before the flag carry none: collect their repeats with the cache off.
 
 The table always goes to stdout: the flagged and provisional items, with the no-skill arm
 in its own column, a note naming any arm no run scored, and the counts. The JSON goes to

@@ -89,8 +89,8 @@ def _arms_run(items, *, replayed=False, text="x", baseline="baseline"):
 
 
 SCORES = [("q1", {"baseline": 95, "skill": 96})]
-NOTE = ("note: 2 replayed answers (DOKIMI_RESPONSE_CACHE) added no rep: a copy of a fresh answer is "
-        "left out, the copies of an answer no run gave fresh count once, at their mean")
+NOTE = ("note: 2 scores of replayed answers (DOKIMI_RESPONSE_CACHE) added no rep: a copy of a fresh answer "
+        "is left out, the copies of an answer no run gave fresh count once, at their mean")
 
 
 def test_a_fully_replayed_repeat_adds_no_rep():
@@ -112,7 +112,7 @@ def test_a_replay_whose_original_is_not_an_input_counts_once():
     replays = [_arms_run(SCORES, replayed=True), _arms_run(SCORES, replayed=True)]
     result = headroom(replays, min_reps=1)
     assert result["items"][0]["reps"] == 1
-    assert "note: 2 replayed answers" in format_table(result)
+    assert "note: 2 scores of replayed answers" in format_table(result)
     assert result["summary"]["replayed_repeats"] == 2
 
 
@@ -139,6 +139,15 @@ def test_three_replays_with_no_fresh_original_count_once():
     result = headroom([_arms_run(one, replayed=True) for _ in range(3)], min_reps=1)
     assert result["items"][0]["reps"] == 1
     assert result["summary"]["replayed_repeats"] == 2
+
+
+def test_a_replay_the_judge_did_not_score_is_not_counted_as_a_repeat():
+    fresh = _arms_run([("q1", {"baseline": 90, "skill": 90})])
+    unjudged = _arms_run([("q1", {"baseline": None, "skill": None})], replayed=True)
+    result = headroom([fresh, unjudged], min_reps=1)
+    assert result["items"][0]["reps"] == 1
+    assert result["summary"]["replayed_repeats"] == 0  # no score was left out
+    assert "replayed" not in format_table(result)
 
 
 def test_a_replayed_answer_with_another_text_is_a_sample_of_its_own():
