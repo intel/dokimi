@@ -676,6 +676,24 @@ def test_main_exits_2_for_a_base_schema_whose_name_is_not_utf8_on_windows(
 
 
 @_BYTE_NAMES
+def test_main_exits_2_for_a_base_schema_named_with_an_encoded_surrogate_on_windows(
+        monkeypatch, tmp_path, capsys):
+    """Windows decodes l<ED A0 80>int.v1.json as a lone surrogate, but the lossy reading used as the key is
+    three U+FFFD: a removal of it passed when the branch added l<U+FFFD x3>int.v1.json."""
+    import dokimi.schema_compat as sc
+    from dokimi import process_io
+
+    (tmp_path / os.fsdecode(b"l\xed\xa0\x80int.v1.json")).write_text(json.dumps(OBJ), encoding="utf-8")
+    _commit_all(tmp_path)
+    (tmp_path / os.fsdecode(b"l\xed\xa0\x80int.v1.json")).unlink()
+    (tmp_path / "l���int.v1.json").write_text(json.dumps(OBJ), encoding="utf-8")
+    monkeypatch.setattr(process_io, "_POSIX", False)
+    monkeypatch.setattr(sc, "SCHEMA_DIR", tmp_path)
+    assert sc.main(["--base", "HEAD"]) == 2
+    assert "b'l\\xed\\xa0\\x80int.v1.json'" in capsys.readouterr().err
+
+
+@_BYTE_NAMES
 def test_main_ignores_a_base_file_that_is_not_a_schema_and_not_utf8_on_windows(
         monkeypatch, tmp_path, capsys):
     import dokimi.schema_compat as sc

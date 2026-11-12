@@ -293,14 +293,15 @@ def _ls_tree_blobs(*args: str) -> list[tuple[str, str]]:
     ``\\r``, a space or a non-ASCII byte as git stores it. The object id reads the entry whatever its
     name decodes to, as a name with U+FFFD in it (Windows) names no path to ``git show``.
 
-    On Windows a ``.json`` name that is not valid UTF-8 raises :class:`GitError` naming its bytes: it reads
-    with U+FFFD, so it cannot be matched to a work-tree file, and a removal of it would pass."""
+    On Windows a ``.json`` name that is not valid UTF-8, or an encoded lone surrogate, raises :class:`GitError`
+    naming its bytes: it reads with U+FFFD, so it cannot be matched to a work-tree file, and a removal of it
+    would pass."""
     entries = _git_proc("ls-tree", "-z", *args).stdout_bytes.split(b"\0")
     blobs = []
     for meta, _, name in (entry.partition(b"\t") for entry in entries):
         if not name:
             continue
-        if name.endswith(b".json") and exact_path_text(name) is None:
+        if name.endswith(b".json") and exact_path_text(name) != path_text(name):
             raise GitError(f"the schema {name!r} is not valid UTF-8, so on Windows it cannot be matched to a "
                            "file in the work tree: compare on a platform that keeps its bytes")
         blobs.append((path_text(name), meta.split()[2].decode("ascii")))
