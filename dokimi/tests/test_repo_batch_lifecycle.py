@@ -68,6 +68,7 @@ def test_ctrl_c_starts_no_queued_cell(setup, monkeypatch):
     # pool.map cancels the queued cells; _thread.interrupt_main() sends no signal and would let them start.
     started = []
     both = threading.Barrier(2)
+    ended = threading.Semaphore(0)
     real = repo_runner.run_cell
 
     def run_cell(ctx, task, arm, rep, *args, **kwargs):
@@ -77,7 +78,10 @@ def test_ctrl_c_starts_no_queued_cell(setup, monkeypatch):
             if rep == 1:
                 os.kill(os.getpid(), signal.SIGINT)  # what Ctrl-C sends
             time.sleep(0.3)  # the main thread takes the interrupt while these cells still run
-        return real(ctx, task, arm, rep, *args, **kwargs)
+        try:
+            return real(ctx, task, arm, rep, *args, **kwargs)
+        finally:
+            ended.release()
 
     monkeypatch.setattr(repo_runner, "run_cell", run_cell)
     old = signal.signal(signal.SIGINT, signal.default_int_handler)  # a shell may have left SIGINT ignored
@@ -86,7 +90,8 @@ def test_ctrl_c_starts_no_queued_cell(setup, monkeypatch):
             _run(setup, "--task", "fix_add", "--reps", "5", "--jobs", "2")
     finally:
         signal.signal(signal.SIGINT, old)
-    batch = setup["out"] / "b1"  # the pool joined the two running cells before the interrupt left run_batch
+    batch = setup["out"] / "b1"
+    assert all(ended.acquire(timeout=30) for _ in range(2))  # running cells finish, maybe after run_batch raised
     assert sorted(started) == [1, 2]
     summary = summarize(batch)  # the running cells finished; the queued ones are missing, not failed
     assert summary["cells"] == 2
