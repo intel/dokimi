@@ -113,8 +113,8 @@ The full path with reading notes: [skill-novelty-walkthrough.md](skill-novelty-w
 With no `repo-eval.yaml` in the repository, steps 1 and 2 check the default
 guidance globs (`<repo>/**/AGENTS.md`, `<repo>/**/CLAUDE.md`,
 `<repo>/.github/copilot-instructions.md`, `<repo>/.github/instructions/*.md`)
-and say so; step 1 also checks the `.claude/rules` files and `@` imports Claude Code
-loads with them.
+and say so; step 1 also checks the `.claude/rules` files, `@` imports and `CLAUDE.local.md`
+that Claude Code loads with them.
 To choose the files for `scan`, write a guidance-only manifest outside the tree and pass
 it with `--manifest-file`:
 
