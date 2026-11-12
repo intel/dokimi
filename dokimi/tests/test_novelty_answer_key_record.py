@@ -133,7 +133,7 @@ def test_a_copied_or_pickled_record_keeps_the_absent_marker_and_its_verdict(tmp_
     root = _tree(tmp_path)
     key = parse_answer_key({"include_resources": True, "n_files": 1,
                             "files": [{"role": "entry_point", "path": "SKILL.md"}]})
-    for clone in (copy.copy(key), copy.deepcopy(key), pickle.loads(pickle.dumps(key))):
+    for clone in (copy.copy(key), copy.deepcopy(key), pickle.loads(pickle.dumps(key))):  # nosec B301 - bytes made here
         assert clone.files[0].end is ABSENT
         assert clone == key
 
