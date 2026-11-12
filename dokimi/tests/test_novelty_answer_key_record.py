@@ -166,3 +166,11 @@ def test_a_malformed_excluded_list_is_refused_not_read_as_empty(tmp_path, exclud
     verdict = check_answer_key(f"skill:{root}", {**record, "excluded": excluded}, source="a.json")
     assert (verdict.ok, verdict.problem) == (False, "no_file_rows")
     assert "excluded" in verdict.message
+
+
+def test_an_excluded_list_is_not_read_when_resources_are_not(tmp_path):
+    # without include_resources the check never reads excluded, so a malformed one changes no verdict
+    root = _tree(tmp_path)
+    record = load_bundle(f"skill:{root}", include_resources=False).summary()
+    verdict = check_answer_key(f"skill:{root}", {**record, "excluded": [5]}, source="a.json")
+    assert verdict.ok, verdict.message

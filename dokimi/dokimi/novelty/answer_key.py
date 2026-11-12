@@ -119,9 +119,10 @@ def parse_answer_key(record: Mapping[str, Any] | AnswerKeyRecord | None) -> Answ
     excluded_ok = True
     if "excluded" in raw:
         listed = raw.get("excluded") or []
-        # a row is an object with a path; anything else cannot say what it excludes
-        excluded_ok = _rows(listed) and all(
-            isinstance(row, Mapping) and isinstance(row.get("path"), str) for row in listed)
+        # a row is an object with a path; anything else cannot say what it excludes. The check reads
+        # excluded only with include_resources, so a record without them is not refused for it.
+        excluded_ok = not raw.get("include_resources") or (_rows(listed) and all(
+            isinstance(row, Mapping) and isinstance(row.get("path"), str) for row in listed))
         excluded = tuple(_excluded_path(row) for row in listed) if _rows(listed) else ()
     return AnswerKeyRecord(
         present=bool(raw),
