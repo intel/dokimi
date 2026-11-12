@@ -357,6 +357,7 @@ def test_gate_outputs_match_golden(tmp_path):
     golden = json.loads(GOLDEN.read_text(encoding="utf-8"))
     assert sorted(observed) == sorted(golden), "gate golden sections changed; see the module docstring"
     for section in sorted(golden):
-        assert observed[section] == golden[section], (
+        # Compared as JSON text: in Python 1 == 1.0 == True, but the published output tells them apart.
+        assert json.dumps(observed[section], sort_keys=True) == json.dumps(golden[section], sort_keys=True), (
             f"gate golden section {section!r} moved; regenerate with DOKIMI_UPDATE_GOLDEN=1 "
             "only with a changelog fragment that says what moved")
