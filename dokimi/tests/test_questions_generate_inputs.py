@@ -73,7 +73,7 @@ class _FakeGenerator:
     def generate_questions(self, **_):
         return [{"question": "q?"}]
 
-    def save_questions(self, questions, output_path):
+    def save_questions(self, questions, output_path, product=None):
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text("[]", encoding="utf-8")
 
@@ -128,9 +128,9 @@ class _BogusGenerator(_FakeGenerator):
     def generate_questions(self, **_):
         return [{"bogus": 1}]
 
-    def save_questions(self, questions, output_path):
+    def save_questions(self, questions, output_path, product=None):
         from dokimi.questions.llm_gen import QuestionGenerator
-        QuestionGenerator.save_questions(self, questions, output_path)
+        QuestionGenerator.save_questions(self, questions, output_path, product)
 
 
 def test_generate_exits_1_when_the_generated_set_fails_validation(tmp_path, monkeypatch, capsys):
