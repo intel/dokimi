@@ -29,6 +29,7 @@ read(data) / load(path) -> Run
     ``arms.v1`` file, joined by question id) or a bare record list. With
     ``section="answers"`` (or ``"evaluations"``) only that list is read, and an
     artifact without it is an error: a command that needs answers refuses an eval file.
+    With ``required=False`` as well, an object without it has no records instead.
 records(items) / record(item)
     Records from persisted dicts. A :class:`Record` passes through unchanged, so a
     function documented as taking records accepts either.
@@ -240,20 +241,26 @@ def load(path: Union[str, Path], *, section: Optional[str] = None) -> Run:
     return read(data, source=str(path), section=section)
 
 
-def read(data: Any, *, source: str = "<input>", section: Optional[str] = None) -> Run:
-    """Records of an artifact: a wrapped ``answers``/``evaluations`` object or a bare list."""
-    if section not in (None, "answers", "evaluations"):
-        raise ValueError(f"section must be 'answers' or 'evaluations', not {section!r}")
+def read(data: Any, *, source: str = "<input>", section: Optional[str] = None, required: bool = True) -> Run:
+    """Records of an artifact: a wrapped ``answers``/``evaluations`` object or a bare list.
+
+    With ``section`` and ``required=False``, an object without that list reads as no records;
+    one that holds it as anything but a list is still an error.
+    """
+    _check_section(section, required)
     if isinstance(data, Run):
         return data
     if isinstance(data, list):
         return _run(records(data, source=source, kind=section), {})
     if not isinstance(data, Mapping):
         raise RecordError(f"{source}: expected a JSON object or a list of records, got {type(data).__name__}")
+    meta = {k: v for k, v in data.items() if k not in ("answers", "evaluations")}
     answers = _list(data, "answers", source) if section in (None, "answers") else None
     evaluations = _list(data, "evaluations", source) if section in (None, "evaluations") else None
     if section is not None and (answers if section == "answers" else evaluations) is None:
-        raise RecordError(f"{source}: no '{section}' list")
+        if required:
+            raise RecordError(f"{source}: no '{section}' list")
+        return _run([], meta)
     if answers is None and evaluations is None:
         raise RecordError(f"{source}: no 'answers' or 'evaluations' list")
     if answers is not None and evaluations is not None:
@@ -262,7 +269,6 @@ def read(data: Any, *, source: str = "<input>", section: Optional[str] = None) -
         recs = records(answers, source=f"{source} answers", kind="answers")
     else:
         recs = records(evaluations or [], source=f"{source} evaluations", kind="evaluations")
-    meta = {k: v for k, v in data.items() if k not in ("answers", "evaluations")}
     return _run(recs, meta)
 
 
@@ -450,6 +456,13 @@ def _run(recs: Sequence[Record], meta: dict[str, Any]) -> Run:
         return Run(tuple(recs), "arms", conditions, baseline if isinstance(baseline, str) and baseline else None,
                    meta)
     return Run(tuple(recs), "binary", BINARY, BASELINE, meta)
+
+
+def _check_section(section: Optional[str], required: bool) -> None:
+    if section not in (None, "answers", "evaluations"):
+        raise ValueError(f"section must be 'answers' or 'evaluations', not {section!r}")
+    if not required and section is None:
+        raise ValueError("required=False needs a section")
 
 
 def _question_id(item: Mapping[str, Any], where: str) -> Optional[QuestionId]:
