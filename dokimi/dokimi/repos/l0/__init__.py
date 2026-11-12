@@ -54,12 +54,33 @@ def _is_build_input(path: str) -> bool:
             or name in ("BUILD", "BUILD.bazel", "WORKSPACE", "WORKSPACE.bazel", "MODULE.bazel"))
 
 
+def _frontmatter_lines(tree: RepoTree, files: list[str]) -> dict[str, int]:
+    """The number of lines of frontmatter in each rule file of ``files`` (a rule without any is not listed)."""
+    from dokimi.repos.budget import RULE_GLOB
+    from dokimi.repos.rule_frontmatter import _FRONTMATTER
+
+    out: dict[str, int] = {}
+    for f in files:
+        if not RULE_GLOB.match(f):
+            continue
+        try:
+            text = tree.read_text(f).removeprefix("\ufeff")
+        except (SourceError, OSError, ValueError, RuntimeError):
+            continue
+        m = _FRONTMATTER.match(text)
+        if m:
+            out[f] = m.group(0).count("\n")
+    return out
+
+
 def scan_repo(tree: RepoTree, manifest: RepoManifest, static: dict[str, Any] | None = None,
-              typecheck: Check | None = None, also: tuple[str, ...] = ()) -> dict[str, Any]:
+              typecheck: Check | None = None, also: tuple[str, ...] = (),
+              not_counted: tuple[str, ...] = ()) -> dict[str, Any]:
     """The ``repo_readiness.v1`` payload (without ``schema_version``) for ``tree``.
 
     ``also`` names more files to scan as guidance, by path rather than glob: a file named so that matches nothing
     is no coverage warning.
+    ``not_counted`` are the warnings of the rules the tree cannot list (a link to a directory): the scan is incomplete.
 
     ``static`` is the document the repository's ``static`` entry point wrote.
     Its claims replace the framework's claim on the same file, line and text,
@@ -79,7 +100,9 @@ def scan_repo(tree: RepoTree, manifest: RepoManifest, static: dict[str, Any] | N
     for f in checked:
         scan.check_file(f)
     typecheck_block = None if typecheck is None else check_fences(scan, checked, typecheck)
-    framework = [dict(c.to_dict(), source="framework") for c in scan.claims]
+    # Claude Code removes a rule's frontmatter before it loads the rule: a line in it is not text the agent reads
+    strip = _frontmatter_lines(tree, files)
+    framework = [dict(c.to_dict(), source="framework") for c in scan.claims if c.line > strip.get(c.file, 0)]
 
     static_info: dict[str, Any] | None = None
     repository: list[dict[str, Any]] = []
@@ -104,6 +127,8 @@ def scan_repo(tree: RepoTree, manifest: RepoManifest, static: dict[str, Any] | N
     unscanned += [f"build file not scanned: {f}: {why}" for f, why in unread.items()]
     warnings += unscanned
     reasons += unscanned  # every warning that makes the scan incomplete, in the order of `warnings`
+    warnings += not_counted
+    reasons += not_counted
     sha = getattr(tree, "sha", None)
     return {
         "repo": {"id": manifest.id, "tree": tree.label, "sha": sha, "manifest": manifest.path},

@@ -113,3 +113,40 @@ def test_a_rule_linked_to_a_guidance_name_is_still_checked(tmp_path, capsys):
     (root / ".claude/rules/x.md").symlink_to("../../private/CLAUDE.local.md")
     payload = _scan(capsys, str(root))
     assert _fails(payload) == {("private/CLAUDE.local.md", "src/gone_rule_link.py")}
+
+
+def test_a_rules_link_to_a_directory_makes_the_default_scan_incomplete(tmp_path, capsys):
+    # budget warns that the rules behind a linked .claude/rules are not counted; the scan must say so too,
+    # or --fail-on-fail reads the unchecked rules as a clean pass
+    root = _write(tmp_path / "r", {"src/real.py": "x = 1\n", "CLAUDE.md": "# guidance\n",
+                                   "shared/rules/a.md": "See `src/gone_a.py`.\n"})
+    (root / ".claude").mkdir()
+    (root / ".claude/rules").symlink_to("../shared/rules")
+    payload = _scan(capsys, str(root))
+    assert payload["incomplete"]
+    assert any(".claude/rules" in r for r in payload["incomplete_reasons"])
+
+
+def test_a_rule_is_scanned_without_its_frontmatter(tmp_path, capsys):
+    # Claude Code removes a rule's frontmatter before it loads the rule, so a path in it is not read as text
+    root = _write(tmp_path / "r", {"src/real.py": "x = 1\n", "CLAUDE.md": "# guidance\n",
+                                   ".claude/rules/b.md": "---\ndescription: run before `src/gone_b.py`\n---\nbody\n"})
+    payload = _scan(capsys, str(root))
+    assert ".claude/rules/b.md" not in {f for f, _ in _fails(payload)}
+
+
+def test_the_note_counts_only_the_files_the_default_globs_do_not_match(tmp_path, capsys):
+    root = _write(tmp_path / "r", {"src/real.py": "x = 1\n", "CLAUDE.md": "@.github/instructions/a.md\n",
+                                   ".github/instructions/a.md": "x\n", ".claude/rules/b.md": "y\n"})
+    args = build_parser().parse_args(["repo", "scan", str(root), "--json"])
+    args.func(args)
+    assert "also checking 1 files" in capsys.readouterr().err
+
+
+def test_a_named_file_that_matches_no_glob_adds_no_coverage_warning(tmp_path, capsys):
+    # the rule and the import are named through `also`; a coverage warning for either would be a false alarm
+    root = _write(tmp_path / "r", {"src/real.py": "x = 1\n", "CLAUDE.md": "@docs/agent.md\n",
+                                   "docs/agent.md": "Run `src/real.py`.\n",
+                                   ".claude/rules/build.md": "Build with `src/real.py`.\n"})
+    payload = _scan(capsys, str(root))
+    assert not [w for w in payload["warnings"] if "docs/agent.md" in w or "build.md" in w]

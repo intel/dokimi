@@ -33,21 +33,25 @@ def _typecheck_or_exit(args: argparse.Namespace):
     return Check(tool, python)
 
 
-def _loaded_with_default(tree, manifest) -> tuple[str, ...]:
-    """The Markdown rules and ``@`` imports Claude Code loads with the default guidance; () for a written manifest.
+def _loaded_with_default(tree, manifest) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """The Markdown rules and ``@`` imports Claude Code loads with the default guidance, and the warnings of the rules
+    budget does not count (a linked ``.claude/rules``); both () for a written manifest.
 
     The default globs name CLAUDE.md but not what it pulls in: a stale path in a ``.claude/rules`` file or an
     imported file reaches the agent as surely as one in CLAUDE.md. They are named by path, not glob, so a repository
     without rules gets no warning for them. A written manifest scans what it says, so a gate on it does not change.
     """
     if manifest.path != "<default>":
-        return ()
+        return (), ()
     from dokimi.repos.budget import budget
     from dokimi.repos.harness_profile import load_profile
 
     p = load_profile("claude-code")
-    entries = budget(tree, p.guidance_names, p.import_max_depth, p.reads_claude_rules,
-                     claude_displaces_agents=p.claude_displaces_agents, follow_imports=p.follows_imports)["entries"]
+    inventory = budget(tree, p.guidance_names, p.import_max_depth, p.reads_claude_rules,
+                       claude_displaces_agents=p.claude_displaces_agents, follow_imports=p.follows_imports)
+    entries = inventory["entries"]
+    # a rule the tree cannot list (a link to a directory, a dangling link) is not checked, so the scan is incomplete
+    not_counted = tuple(w for w in inventory["warnings"] if "are not counted" in w)
     # Only Markdown is read as guidance: an `@package.json` import is loaded, but its text is no guidance claims
     listed = set(tree.files())
     # budget lists a rule or import that is also a guidance name (CLAUDE.local.md, or a rule linked to it) as guidance,
@@ -61,10 +65,12 @@ def _loaded_with_default(tree, manifest) -> tuple[str, ...]:
     reached = (_listed(tree, listed, e["path"]) for e in entries
                if e["kind"] in ("rule", "import") or _unmatched_guidance(e))
     loaded = tuple(dict.fromkeys(p for p in reached if p is not None and _target(tree, p).endswith(".md")))
-    if loaded:
-        print(f"note: also checking {len(loaded)} files Claude Code loads beyond the default globs: rules, @ imports, "
+    # a file the default globs match is checked anyway, so the note counts only the files they do not match
+    new = [p for p in loaded if not any(match_glob(g, p) for g in manifest.guidance_globs)]
+    if new:
+        print(f"note: also checking {len(new)} files Claude Code loads beyond the default globs: rules, @ imports, "
               "and guidance names such as CLAUDE.local.md", file=sys.stderr)
-    return loaded
+    return loaded, not_counted
 
 
 def _target(tree, path: str) -> str:
