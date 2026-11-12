@@ -432,7 +432,7 @@ def _apply_checks(run: ProbeRun, probe: Probe, response: str, verdict: str) -> N
     """Grade ``run`` by its program checks. They run on any answer, even when the judge failed:
     a failed judge is kept as its own verdict, and resolve_verdict lets only a veto decide that run.
     """
-    run.checks = run_checks(probe.grading, probe.question, response)
+    run.checks = run_checks(probe.grading or {}, probe.question, response)
     run.judge_verdict = verdict
     run.verdict, run.verdict_source = resolve_verdict(verdict, run.checks)
 
