@@ -51,10 +51,13 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           branch=ci/conda-lock-refresh
+          # --head also matches fork PRs: only the bot's own branch counts.
+          open_pr() { gh pr list --head "$branch" --state open --json number,isCrossRepository \
+            --jq 'map(select(.isCrossRepository | not)) | .[0].number // empty'; }
           if git diff --quiet -- ci/conda-lock; then
             echo "The locks are current."
             # A refresh PR still open proposes locks main has since passed: retire it.
-            stale="$(gh pr list --head "$branch" --state open --json number --jq '.[0].number')"
+            stale="$(open_pr)"
             if [ -n "$stale" ]; then
               gh pr close "$stale" --delete-branch \
                 --comment "Closed by $RUN_URL: main's locks already match a fresh solve, so this refresh is obsolete."
@@ -68,7 +71,7 @@ jobs:
           git commit -q -s -m "ci(conda-lock): refresh the Intel CI conda locks"
           gh auth setup-git
           git push --force origin "$branch"
-          if [ -z "$(gh pr list --head "$branch" --state open --json number --jq '.[0].number')" ]; then
+          if [ -z "$(open_pr)" ]; then
             gh pr create --base main --head "$branch" --label dependencies \
               --title "ci(conda-lock): refresh the Intel CI conda locks" \
               --body "Re-solved by $RUN_URL from the specs in each lock's header, with builds at least 7 days old. Intel CI on this PR tests the new locks."

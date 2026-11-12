@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import re
+import shutil
 import subprocess
 import sys
 import types
@@ -226,6 +227,34 @@ def test_current_locks_close_an_open_refresh_pr_and_push_nothing(open_pr: str, t
         assert closes == []
     assert not [call for call in calls if call.split()[1] in ("push", "commit", "switch")]
     assert not [call for call in calls if call.startswith("gh pr create")]
+
+
+@pytest.mark.skipif(sys.platform == "win32" or shutil.which("jq") is None, reason="the stub gh applies --jq with jq")
+@pytest.mark.parametrize(("diff_rc", "fork", "closed", "created"),
+                         [(0, True, False, False), (1, True, False, True), (0, False, True, False), (1, False, False, False)])
+def test_only_a_same_repo_refresh_pr_counts_as_open(diff_rc: int, fork: bool, closed: bool, created: bool,
+                                                    tmp_path: Path) -> None:
+    """A fork PR from a branch of the same name is neither closed nor taken for the bot's PR."""
+    workflow = yaml.safe_load((_REPO / ".github" / "workflows" / "conda-lock.yml").read_text(encoding="utf-8"))
+    step = next(s for s in workflow["jobs"]["refresh"]["steps"] if s.get("name") == "Open or update the refresh PR")
+    log, prs, bin_dir = tmp_path / "calls.txt", tmp_path / "prs.json", tmp_path / "bin"
+    prs.write_text(f'[{{"number": 701, "isCrossRepository": {str(fork).lower()}}}]', encoding="utf-8")
+    bin_dir.mkdir()
+    (bin_dir / "git").write_text(f'#!/bin/sh\necho "git $*" >> {log}\n[ "$1" = diff ] && exit {diff_rc}\nexit 0\n',
+                                 encoding="utf-8")
+    (bin_dir / "gh").write_text(
+        f'#!/bin/sh\necho "gh $*" >> {log}\n[ "$2" = list ] || exit 0\n'
+        f'while [ $# -gt 0 ]; do [ "$1" = --jq ] && filter=$2; shift; done\njq -r "$filter" {prs}\n', encoding="utf-8")
+    for tool in bin_dir.iterdir():
+        tool.chmod(0o755)
+    env = {"PATH": f"{bin_dir}:/usr/bin:/bin", "RUN_URL": "https://example.invalid/run/1"}
+    done = subprocess.run(["/bin/bash", "-e", "-c", step["run"]], env=env, capture_output=True, text=True, check=False)
+    calls = log.read_text(encoding="utf-8").splitlines()
+    assert done.returncode == 0, done.stderr
+    assert [c for c in calls if c.startswith("gh pr close")] == (["gh pr close 701 --delete-branch --comment "
+                                                                  f"Closed by {env['RUN_URL']}: main's locks already match a "
+                                                                  "fresh solve, so this refresh is obsolete."] if closed else [])
+    assert any(c.startswith("gh pr create") for c in calls) is created
 
 
 def test_the_workflow_takes_the_latest_releases_on_a_tag_or_the_schedule_alone(monkeypatch: pytest.MonkeyPatch) -> None:
