@@ -10,6 +10,15 @@ import math
 from dokimi.gate.verdict import Check, Verdict
 
 
+# The summary metric each band condition reads.
+_BAND_KEYS = {
+    "score_below": "score",
+    "coverage_below": "coverage",
+    "freshness_below": "freshness_lite",
+    "readability_below": "readability",
+}
+
+
 def _metric(summary: dict, key: str, condition: str) -> float:
     """The summary value a condition reads. A missing key reads as 0.0; None is an error."""
     raw = summary.get(key, 0.0)
@@ -47,7 +56,6 @@ def check_critical_bands(summary: dict, spec: dict) -> Verdict:
         return Verdict(enabled=False)
 
     checks: list[Check] = []
-    known_conditions = {"score_below", "coverage_below", "freshness_below", "readability_below"}
 
     for band in bands:
         if not isinstance(band, dict):
@@ -56,26 +64,11 @@ def check_critical_bands(summary: dict, spec: dict) -> Verdict:
         condition = band.get("condition", "")
         if not condition:
             raise ValueError("critical_bands.fail_on entry missing 'condition' key")
-        if condition not in known_conditions:
-            raise ValueError(f"Unknown critical_bands condition: {condition} (known: {', '.join(sorted(known_conditions))})")
+        if condition not in _BAND_KEYS:
+            raise ValueError(f"Unknown critical_bands condition: {condition} (known: {', '.join(sorted(_BAND_KEYS))})")
 
         threshold = float(band.get("value", 0.0))
-
-        if condition == "score_below":
-            actual = _metric(summary, "score", "score_below")
-            violated = _below(actual, threshold)
-            checks.append(_band_check(condition, threshold, actual, violated))
-        elif condition == "coverage_below":
-            actual = _metric(summary, "coverage", "coverage_below")
-            violated = _below(actual, threshold)
-            checks.append(_band_check(condition, threshold, actual, violated))
-        elif condition == "freshness_below":
-            actual = _metric(summary, "freshness_lite", "freshness_below")
-            violated = _below(actual, threshold)
-            checks.append(_band_check(condition, threshold, actual, violated))
-        elif condition == "readability_below":
-            actual = _metric(summary, "readability", "readability_below")
-            violated = _below(actual, threshold)
-            checks.append(_band_check(condition, threshold, actual, violated))
+        actual = _metric(summary, _BAND_KEYS[condition], condition)
+        checks.append(_band_check(condition, threshold, actual, _below(actual, threshold)))
 
     return Verdict(checks=checks)
