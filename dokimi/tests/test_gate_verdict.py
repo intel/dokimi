@@ -40,7 +40,7 @@ def test_trust_label_covers_a_disabled_verdict():
 
 
 def test_check_severity_and_level_are_literal_types():
-    # a typo in a severity must fail type checking, not read as a pass
+    # pins the annotations a type checker reads; a severity typo then fails mypy, not the status
     hints = typing.get_type_hints(Check)
     assert hints["severity"] == typing.Literal["info", "warn", "fail"]
     assert hints["level"] == typing.Optional[typing.Literal["OK", "WARN", "CRITICAL"]]
