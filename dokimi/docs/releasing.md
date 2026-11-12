@@ -62,10 +62,14 @@ the `Fragment for package changes` step in `ci.yml`'s `static` job asks for it.
 
    Read the collected section as a user would and tidy it. Merge the PR.
 
-2. **Release.** A maintainer creates the GitHub Release, and with it the tag,
-   on the merge commit:
+2. **Release.** A maintainer first runs the release workflow on `main` and
+   waits for it to pass while `main` is still the merge commit: the workflow
+   runs only after the Release is published, so a failure there leaves a Release
+   without files and spends the version. Then the maintainer creates the GitHub
+   Release, and with it the tag, on the merge commit:
 
    ```bash
+   gh workflow run release.yml -R intel/dokimi --ref main  # no tag: it does not exist yet
    python scripts/check_release.py vX.Y.Z --notes > notes.md
    gh release create vX.Y.Z -R intel/dokimi --target <merge-commit-sha> \
      --title "dokimi X.Y.Z" --notes-file notes.md
