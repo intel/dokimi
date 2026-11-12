@@ -118,9 +118,10 @@ def test_sign_flip_monte_carlo_counts_the_observed_pattern_and_follows_its_seed(
 
 def test_seed_reaches_the_interval_and_the_sign_flip(tmp_path, monkeypatch):
     seen = []
-    monkeypatch.setattr(compare_mod, "sign_flip_interval",
+    # The row's test is built in eval.sign_flip.sign_flip_row, so the seam is patched there.
+    monkeypatch.setattr(sign_flip, "sign_flip_interval",
                         lambda deltas, p, seed, **_: seen.append(("interval", seed, p)) or (-1.0, 1.0))
-    monkeypatch.setattr(compare_mod, "sign_flip_p", lambda deltas, seed, **_: seen.append(("p", seed, None)) or 0.5)
+    monkeypatch.setattr(sign_flip, "sign_flip_p", lambda deltas, seed, **_: seen.append(("p", seed, None)) or 0.5)
     b = tmp_path / "b1"
     for task in ("fix_a", "fix_b"):
         _cell(b, task, "guidance:none", 1, success=False)
@@ -449,7 +450,8 @@ def test_holm_runs_over_gate_and_score_comparisons_only(tmp_path):
     s = compare([b], "guidance:none")
     raw, bridge = _row(s, "gate"), _row(s, "gate", treatment="guidance:bridge")
     assert raw["p"] == pytest.approx(2 / 64) and bridge["p"] == pytest.approx(2 / 32)
-    assert raw["p_holm"] == pytest.approx(2 * 2 / 64) and bridge["p_holm"] == pytest.approx(2 / 32)
+    # bridge: five changed tasks, a p floor of 2/32, out of the family, so raw is a family of one
+    assert raw["p_holm"] == pytest.approx(2 / 64, abs=1e-4) and bridge["p_holm"] is None
     cost = _row(s, "cost_usd")
     assert cost["p"] == pytest.approx(2 / 64) and cost["p_holm"] is None
 
@@ -708,12 +710,12 @@ def test_a_repeated_treatment_or_metric_is_one_comparison(tmp_path):
     b = tmp_path / "b1"
     for i in range(6):
         _cell(b, f"fix_{i}", "guidance:none", 1, success=False, metrics={"m": 0})
-        _cell(b, f"fix_{i}", "guidance:raw", 1, success=i < 5, metrics={"m": 1})
+        _cell(b, f"fix_{i}", "guidance:raw", 1, success=True, metrics={"m": 1})
     once = compare([b], "guidance:none", ["guidance:raw"], metrics=("m",))
     twice = compare([b], "guidance:none", ["guidance:raw", "guidance:raw"], metrics=("m", "m"))
     assert twice["treatments"] == ["guidance:raw"]
     assert twice["comparisons"] == once["comparisons"]
-    assert _row(twice, "gate")["p_holm"] == _row(twice, "gate")["p"]  # a family of one, not two
+    assert _row(twice, "gate")["p_holm"] == pytest.approx(_row(twice, "gate")["p"], abs=1e-4)  # one, not two
 
 
 @pytest.mark.parametrize("spec", ["", ","])

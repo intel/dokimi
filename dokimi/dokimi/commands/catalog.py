@@ -16,8 +16,18 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from dokimi.commands.catalog_scan import print_skill_row, skill_row
+from dokimi.commands.catalog_scan import print_skill_row, skill_row, unrestricted_and_risky
 from dokimi.utils import InputError
+
+
+def _print_strict_reasons(rows: list, strict: bool) -> None:
+    """Print the ``strict:`` line of each row that --strict fails only for unrestricted Bash with a risky command."""
+    from dokimi.commands import catalog_scan
+
+    for row in rows if strict else []:
+        reason = catalog_scan.strict_reason(row)
+        if reason is not None:
+            print(reason)
 
 
 def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bool) -> tuple[bool, int]:
@@ -47,9 +57,9 @@ def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bo
         row = skill_row(skill, review, nested_in, ignore=ignore)
         counts[row["state"]] += 1
         report["skills"].append(row)
-        # A load error, or a SKILL.md the OS will not read, always fails; a spec error fails only with --strict.
+        # A load error, or a SKILL.md the OS will not read, always fails; a spec error, or unrestricted Bash with a risky command, only with --strict.
         unreadable = review is not None and any(f.code == "unreadable" for f in review.findings)
-        if not skill.loaded or unreadable or (args.strict and row["state"] == "error"):
+        if not skill.loaded or unreadable or (args.strict and (row["state"] == "error" or unrestricted_and_risky(row))):
             failed = True
     if not as_json:
         shown = f"{sum(counts.values())} of {len(skills)}" if only is not None else f"{len(skills)}"
@@ -59,6 +69,7 @@ def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bo
         )
         for row in report["skills"]:
             print_skill_row(row)
+        _print_strict_reasons(report["skills"], args.strict)
         print()
     _granularity_section(skills, reviews, root, report, as_json)
     return failed, len(skills)
@@ -434,7 +445,8 @@ def register(sub, positive_int, eval_sub) -> None:
         "--strict",
         action="store_true",
         help="Exit 1 on a skill spec error (name not the directory name or not kebab-case, "
-        "description over 1024 characters) as well as on a skill that does not load; with "
+        "description over 1024 characters) as well as on a skill that does not load, and on a skill "
+        "that grants unrestricted Bash and has a pipe-to-shell or permission-bypass-flag finding; with "
         "--kind all, also on a tasks-only root with no SKILL.md",
     )
     scan_p.add_argument(
