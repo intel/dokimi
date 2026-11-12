@@ -502,6 +502,14 @@ def test_novelty_routing_tombstone_refuses_a_positional_the_retired_parser_had_n
             moved_argv(old)
 
 
+def test_novelty_routing_tombstone_reads_a_negative_number_as_a_value_the_way_argparse_does():
+    # Neither parser has an option that looks like a negative number, so argparse took -5 as a value or
+    # a positional: a stray after --estimate-only, and a competitor after --competitors.
+    with pytest.raises(ValueError, match="unrecognized arguments: -5$"):
+        moved_argv(["novelty", "routing", "--estimate-only", "-5", "--competitors", "a"])
+    assert "text:-5" in moved_argv(["novelty", "routing", "--competitors", "a", "-5"])
+
+
 def test_novelty_routing_tombstone_refuses_a_stray_token_after_a_value_flag():
     # The retired parser had no positionals: `y` after the value of --artifact or --catalog was an
     # error. Taking the flag out of the argv must not let `y` join --competitors.

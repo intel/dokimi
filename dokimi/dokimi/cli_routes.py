@@ -16,6 +16,7 @@ the section of the operation it will hold once the renames of #94 §4 land.
 
 from __future__ import annotations
 
+import re
 import shlex
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
@@ -244,9 +245,13 @@ def _split_routing_argv(rest: list[str]) -> tuple[dict[str, list[str]], list[str
     return values, kept
 
 
+# argparse reads a negative number as a value or positional when no option looks like one (none does here).
+_NEGATIVE_NUMBER = re.compile(r"-\d+|-\d*\.\d+")
+
+
 def _is_plain(token: str) -> bool:
-    """argparse reads a bare `-` and any token not starting with `-` as a value or positional, not a flag."""
-    return token == "-" or not token.startswith("-")
+    """argparse reads a bare `-`, a negative number, and any token not starting with `-` as a value or positional."""
+    return token == "-" or not token.startswith("-") or _NEGATIVE_NUMBER.fullmatch(token) is not None
 
 
 def _take_value_flag(rest: list[str], i: int, name: str, eq: str, value: str,
