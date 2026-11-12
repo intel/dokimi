@@ -7,27 +7,28 @@ SPDX-License-Identifier: Apache-2.0
 
 [Feature tree](README.md) · [Detailed guide](../reviewing.md)
 
-Each card describes one capability. Images use fictional tasks and simplified document excerpts; they are explanations, not captured product screens, runnable configurations or benchmark evidence. Availability applies to the working path described below, not everything depicted in a shared scene.
+Each card describes one capability. Images use fictional tasks and simplified document excerpts; they are explanations, not captured product screens, runnable configurations or benchmark evidence. Each image shows its own card; Open PR and Research images carry a badge saying so.
 
 <a id="13-will-the-agent-discover-it"></a>
+<a id="16-what-instructions-loaded"></a>
 
-## Will the agent discover it?
+## Will the agent discover and load it?
 
-![Will the agent discover it?: Separate a present file from a discoverable skill.](../assets/features/13-will-the-agent-discover-it.webp)
+![Will the agent discover and load it?: Separate a present file from a discoverable skill.](../assets/features/13-will-the-agent-discover-it.webp)
 
 **Availability:** Available on main.
 
-Probe skill placements under the intended harness. A file on disk is not necessarily listed to the agent, and a listed skill is not necessarily selected.
+A file on disk is not necessarily listed to the agent, and a listed skill or instruction file is not necessarily loaded or selected. Probe skill placements under the intended harness, and use reach probes and effective-instruction receipts to distinguish loaded, truncated, fetched, not-loaded and error outcomes. Keep the harness/version and scenario with each receipt.
 
-**Input:** A supported harness profile/version/model and a fixture catalogue defining skill placements, not arbitrary user task queries.
+**Input:** A supported harness profile/version/model, a fixture catalogue of skill placements, and your repository's guidance files and loading scenarios.
 
-**Scope and limits:** `repo skill-reach` measures listing across fixture placements. Use the routing card below to test selection of your actual skill against real requests.
+**Scope and limits:** `repo skill-reach` measures listing across fixture placements; reach probes and matrices compare expected and observed loading. Use the routing card below to test selection of your actual skill against real requests.
 
-**Result:** Discovery evidence under the selected loading condition.
+**Result:** Discovery and loading evidence under the tested harness scenarios.
 
 **Next step:** Use the linked workflow to configure this check, then [interpret the result](../start/results.md).
 
-[Command reference](https://intel.github.io/dokimi/reference/cli/repo/) · [Implementation](../../dokimi/commands/repo_skill_reach.py) · [Back to feature tree](README.md)
+[Command reference](https://intel.github.io/dokimi/reference/cli/repo/) · [Implementation](../../dokimi/commands/repo_skill_reach.py) · [Reach matrix guide](../reach-matrix.md) · [Reach implementation](../../dokimi/commands/repo.py) · [Back to feature tree](README.md)
 
 <a id="14-will-it-choose-the-right-skill"></a>
 
@@ -41,7 +42,7 @@ Test requests that should select a skill and requests that should not. Compare c
 
 **Input:** The skill or catalog, actual competing skills and representative selection/non-selection requests.
 
-**Scope and limits:** Existing routing; CLI relocation in PR [#595](https://github.com/intel/dokimi/issues/595). Need relevance also matters.
+**Scope and limits:** Existing routing; CLI relocation in PR [#595](https://github.com/intel/dokimi/pull/595). Need relevance also matters.
 
 **Result:** Routing outcomes against actual competing skills and user queries.
 
@@ -69,46 +70,6 @@ Change tool wording or position while holding the request fixed. Repeat the tria
 
 [Usage guide](../tool-preference.md) · [Implementation](../../dokimi/commands/tools.py) · [Back to feature tree](README.md)
 
-<a id="16-what-instructions-loaded"></a>
-
-## What instructions loaded?
-
-![What instructions loaded?: Inspect effective instructions, not just files on disk.](../assets/features/16-what-instructions-loaded.webp)
-
-**Availability:** Available on main.
-
-Use reach probes and effective-instruction evidence to distinguish loaded, truncated, fetched, not-loaded and error outcomes. Keep the harness/version and scenario with the receipt.
-
-**Input:** Your repository tree, guidance files, harness profile and loading scenarios.
-
-**Scope and limits:** Reach probes, receipts and matrices; expected vs observed loading.
-
-**Result:** Evidence of guidance loading in the tested harness scenarios.
-
-**Next step:** Use the linked workflow to configure this check, then [interpret the result](../start/results.md).
-
-[Usage guide](../reach-matrix.md) · [Implementation](../../dokimi/commands/repo.py) · [Back to feature tree](README.md)
-
-<a id="17-budget-the-context"></a>
-
-## Budget the context
-
-![Budget the context: See where instruction volume enters the session.](../assets/features/17-budget-the-context.webp)
-
-**Availability:** Available on main.
-
-Inspect startup, lazy and on-demand guidance volume before a paid run. The repository budget counts characters; it is not a token invoice or a complete runtime context trace.
-
-**Input:** A repository/context configuration and the selected model/harness's loading assumptions.
-
-**Scope and limits:** Repository budget is measured in characters, not tokens.
-
-**Result:** Context-size estimates or measurements for the selected path.
-
-**Next step:** Use the linked workflow to configure this check, then [interpret the result](../start/results.md).
-
-[Usage guide](../repo-evaluation-contract.md) · [Implementation](../../dokimi/commands/repo.py) · [Back to feature tree](README.md)
-
 <a id="18-split-or-merge-skills"></a>
 
 ## Split or merge skills?
@@ -129,22 +90,3 @@ Compare a regrouped catalog against both the original and a wording-only control
 
 [Related existing workflow](../skill-novelty-walkthrough.md) · [Back to feature tree](README.md)
 
-<a id="47-match-the-real-harness"></a>
-
-## Match the real harness
-
-![Match the real harness: Record where the experiment differs from deployment.](../assets/features/47-match-the-real-harness.webp)
-
-**Availability:** Partial.
-
-Check the harness support matrix before treating an experiment as deployment evidence. Unsupported MCP, sidecars or verifier arrangements should remain explicit limitations.
-
-**Input:** A concrete harness version, declared arm configuration and corresponding real-harness payload/fixture evidence.
-
-**Scope and limits:** Issues [#354](https://github.com/intel/dokimi/issues/354)/[#355](https://github.com/intel/dokimi/issues/355): harness fidelity, MCP / sidecars / verifier support gaps.
-
-**Result:** Harness-specific evidence within the supported fidelity checks.
-
-**Next step:** Use the linked workflow to configure this check, then [interpret the result](../start/results.md).
-
-[Usage guide](../coding-harnesses.md) · [Back to feature tree](README.md)

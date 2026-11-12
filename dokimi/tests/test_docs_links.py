@@ -20,8 +20,8 @@ DOCS = PROJECT / "docs"
 #: their URL on GitHub (`REPO_LINK`); a same-page `#anchor` works there as on GitHub.
 PYPI_README = PROJECT / tomllib.loads(
     (PROJECT / "pyproject.toml").read_text(encoding="utf-8"))["project"]["readme"]
-#: Link *sources*: the docs plus the project README, which is the entry point most readers
-#: arrive through and links into `docs/` ten times.
+#: Link *sources*: every doc under docs/ plus the package README and the repository-root
+#: README, the two entry points most readers arrive through.
 SOURCES = sorted(DOCS.rglob("*.md")) + [PROJECT / "README.md", PROJECT.parent / "README.md"]
 LINK = re.compile(r"\[[^\]]+\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
 #: A reference-style definition, `[label]: target`, which an inline-only pattern never sees.
@@ -55,7 +55,7 @@ def test_every_relative_doc_link_resolves():
             if not file_part:
                 continue
             if not (path.parent / file_part).resolve().exists():
-                broken.append(f"{path.name} -> {target}")
+                broken.append(f"{path.relative_to(PROJECT.parent)} -> {target}")
     assert broken == []
 
 
@@ -74,7 +74,7 @@ def test_every_link_to_a_repository_file_resolves():
     for path in SOURCES:
         for target, file, anchor in _repo_links(path):
             if not file.exists() or (anchor and file.is_file() and anchor not in _slugs(file)):
-                broken.append(f"{path.name} -> {target}")
+                broken.append(f"{path.relative_to(PROJECT.parent)} -> {target}")
     assert broken == []
 
 
@@ -132,7 +132,7 @@ def test_every_anchor_link_points_at_a_real_heading():
             if not target_path.exists():
                 continue                      # the missing-file test owns that failure
             if anchor not in _slugs(target_path):
-                broken.append(f"{path.name} -> {target}")
+                broken.append(f"{path.relative_to(PROJECT.parent)} -> {target}")
     assert broken == []
 
 
@@ -150,6 +150,7 @@ def test_slugs_keep_underscores_and_skip_code_fences(tmp_path):
 
 
 def test_the_index_links_every_doc_in_the_directory():
+    """Top-level docs only; subfolder pages are reached through their README and mkdocs nav."""
     index = DOCS / "documentation-index.md"
     linked = {
         target.split("#", 1)[0] for target in _relative_links(index)

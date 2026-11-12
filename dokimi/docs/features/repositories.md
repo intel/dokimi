@@ -7,7 +7,7 @@ SPDX-License-Identifier: Apache-2.0
 
 [Feature tree](README.md) · [Detailed guide](../repo-evaluation-contract.md)
 
-Each card describes one capability. Images use fictional tasks and simplified document excerpts; they are explanations, not captured product screens, runnable configurations or benchmark evidence. Availability applies to the working path described below, not everything depicted in a shared scene.
+Each card describes one capability. Images use fictional tasks and simplified document excerpts; they are explanations, not captured product screens, runnable configurations or benchmark evidence. Each image shows its own card; Open PR and Research images carry a badge saying so.
 
 <a id="19-check-repository-claims"></a>
 
@@ -21,7 +21,7 @@ Scan guidance claims against repository files, symbols, commands and build label
 
 **Input:** Your repository guidance and the paths, identifiers or commands it names.
 
-**Scope and limits:** Static scans / fence checks; Claude rules and imports in PR [#593](https://github.com/intel/dokimi/issues/593).
+**Scope and limits:** Static scans / fence checks; Claude rules and imports in PR [#593](https://github.com/intel/dokimi/pull/593).
 
 **Result:** Static findings about guidance references and claims the scanner can check.
 
@@ -50,6 +50,7 @@ Inspect instruction scopes, capabilities, checks, hooks and scripts. An optional
 [Usage guide](../repo-evaluation-contract.md) · [Implementation](../../dokimi/commands/repo.py) · [Back to feature tree](README.md)
 
 <a id="21-own-a-repeatable-repo-eval"></a>
+<a id="22-compare-guidance-changes"></a>
 
 ## Own a repeatable repo eval
 
@@ -57,37 +58,17 @@ Inspect instruction scopes, capabilities, checks, hooks and scripts. An optional
 
 **Availability:** Available on main.
 
-Keep the manifest, tasks and graders with the repository. Validate it, run the chosen arms, and compare reports while preserving the task and source revisions.
+Keep the manifest, tasks and graders with the repository. Validate it, run baseline and candidate guidance arms (revisions, removal, bridge, format, overlay variants and patches), and compare reports while preserving task and source revisions. Check the contract for the exact arm grammar and compatible harness.
 
-**Input:** A repository-owned evaluation manifest, tasks, execution environment and grader contracts.
+**Input:** A repository-owned evaluation manifest, tasks, execution environment, grader contracts, and the guidance conditions to compare.
 
-**Scope and limits:** Repository manifest workflow and executable review tasks.
+**Scope and limits:** Repository manifest workflow and executable review tasks; guidance variants, format/as-skill and overlays vary by harness.
 
-**Result:** Validated repository-owned tasks and their recorded run outcomes.
-
-**Next step:** Use the linked workflow to configure this check, then [interpret the result](../start/results.md).
-
-[Usage guide](../repo-evaluation-contract.md) · [Implementation](../../dokimi/commands/repo_run.py) · [Back to feature tree](README.md)
-
-<a id="22-compare-guidance-changes"></a>
-
-## Compare guidance changes
-
-![Compare guidance changes: Measure instruction edits and code-context patches.](../assets/features/22-compare-guidance-changes.webp)
-
-**Availability:** Available on main.
-
-Compare supported guidance revisions, removal, bridge, format or overlay variants and patches. Check the contract for the exact arm grammar and compatible harness.
-
-**Input:** Matched repository task runs under baseline and candidate guidance conditions.
-
-**Scope and limits:** Guidance variants, format/as-skill and overlays vary by harness.
-
-**Result:** Comparison evidence for the tested guidance conditions.
+**Result:** Validated repository-owned tasks, their recorded run outcomes and comparison evidence for the tested guidance conditions.
 
 **Next step:** Use the linked workflow to configure this check, then [interpret the result](../start/results.md).
 
-[Usage guide](../what-it-measures.md) · [Implementation](../../dokimi/repos/arms.py) · [Back to feature tree](README.md)
+[Usage guide](../repo-evaluation-contract.md) · [Implementation](../../dokimi/commands/repo_run.py) · [Arm implementation](../../dokimi/repos/arms.py) · [Back to feature tree](README.md)
 
 <a id="23-keep-a-rule-ledger"></a>
 
@@ -127,4 +108,4 @@ Use the built-in seeded-review or replay grader to evaluate review findings agai
 
 **Next step:** Use the linked workflow to configure this check, then [interpret the result](../start/results.md).
 
-[Usage guide](../repo-evaluation-contract.md) · [Implementation](../../dokimi/commands/tasks_generate.py) · [Back to feature tree](README.md)
+[Usage guide](../repo-evaluation-contract.md) · [Implementation](../../dokimi/repos/graders/review.py) · [Back to feature tree](README.md)

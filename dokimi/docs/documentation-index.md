@@ -24,7 +24,7 @@ code.
 
 ## Feature catalog
 
-The [feature tree](features/README.md) links to all 48 cards, grouped by the question they answer. Availability and limitations live in the owning cards.
+The [feature tree](features/README.md) links to all 39 cards, grouped by the question they answer. Availability and limitations live in the owning cards.
 
 ## User journeys
 

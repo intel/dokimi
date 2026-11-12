@@ -15,64 +15,55 @@ Reviewed against [ae08a920](https://github.com/intel/dokimi/tree/ae08a92063d4bd1
 
 - **[Does the context help?](experiments.md)**
     - [Does the context help?](experiments.md#01-does-the-context-help)
-    - [Bring your agent context](experiments.md#02-bring-your-agent-context)
-    - [Test combinations](experiments.md#03-test-combinations)
+    - [Bring your agent context and combine treatments](experiments.md#02-bring-your-agent-context)
     - [Compare models & harnesses](experiments.md#04-compare-models-harnesses)
     - [Run real coding tasks](experiments.md#05-run-real-coding-tasks)
     - [Make cost visible](experiments.md#06-make-cost-visible)
 - **[Which parts of a skill matter?](skills.md)**
     - [What did the skill teach?](skills.md#07-what-did-the-skill-teach)
-    - [Find the useful passages](skills.md#08-find-the-useful-passages)
     - [Read the whole bundle](skills.md#09-read-the-whole-bundle)
     - [Shorten without losing value](skills.md#10-shorten-without-losing-value)
     - [Scan a skill collection](skills.md#11-scan-a-skill-collection)
-    - [Check skill structure](skills.md#12-check-skill-structure)
+    - [Check skill structure and packaging](skills.md#12-check-skill-structure)
     - [Check bundled scripts](skills.md#43-check-bundled-scripts)
     - [Check external references](skills.md#44-check-external-references)
-    - [Find bundle packaging gaps](skills.md#45-find-bundle-packaging-gaps)
     - [Relate skills to user needs](skills.md#46-relate-skills-to-user-needs)
 - **[Will the agent use it?](discovery.md)**
-    - [Will the agent discover it?](discovery.md#13-will-the-agent-discover-it)
+    - [Will the agent discover and load it?](discovery.md#13-will-the-agent-discover-it)
     - [Will it choose the right skill?](discovery.md#14-will-it-choose-the-right-skill)
     - [Why did it choose that tool?](discovery.md#15-why-did-it-choose-that-tool)
-    - [What instructions loaded?](discovery.md#16-what-instructions-loaded)
-    - [Budget the context](discovery.md#17-budget-the-context)
     - [Split or merge skills?](discovery.md#18-split-or-merge-skills)
-    - [Match the real harness](discovery.md#47-match-the-real-harness)
 - **[Does repository guidance work?](repositories.md)**
     - [Check repository claims](repositories.md#19-check-repository-claims)
     - [Understand repository scope](repositories.md#20-understand-repository-scope)
     - [Own a repeatable repo eval](repositories.md#21-own-a-repeatable-repo-eval)
-    - [Compare guidance changes](repositories.md#22-compare-guidance-changes)
     - [Keep a rule ledger](repositories.md#23-keep-a-rule-ledger)
     - [Review code with a grader](repositories.md#24-review-code-with-a-grader)
 - **[Do the tests cover the work?](eval-design.md)**
     - [Build tasks from real work](eval-design.md#25-build-tasks-from-real-work)
     - [Test repository exploration](eval-design.md#26-test-repository-exploration)
-    - [Generate evaluation questions](eval-design.md#27-generate-evaluation-questions)
+    - [Assess documentation and generate questions](eval-design.md#27-generate-evaluation-questions)
     - [Which needs are untested?](eval-design.md#28-which-needs-are-untested)
     - [Which skill rules lack checks?](eval-design.md#29-which-skill-rules-lack-checks)
     - [Can the grader be trusted?](eval-design.md#30-can-the-grader-be-trusted)
     - [Is there room to improve?](eval-design.md#31-is-there-room-to-improve)
-    - [Assess documentation](eval-design.md#38-assess-documentation)
 - **[Can the grades be trusted?](judging.md)**
     - [Choose the grading method](judging.md#32-choose-the-grading-method)
     - [Check the judges](judging.md#33-check-the-judges)
     - [Ground novelty checks](judging.md#34-ground-novelty-checks)
 - **[What did the agent do?](traces.md)**
-    - [Inspect the context window](traces.md#35-inspect-the-context-window)
+    - [Budget and inspect the context](traces.md#35-inspect-the-context-window)
     - [Compare execution paths](traces.md#36-compare-execution-paths)
     - [Find candidates for ablation](traces.md#37-find-candidates-for-ablation)
 - **[Will it keep working?](continuous-evaluation.md)**
-    - [Keep results usable](continuous-evaluation.md#39-keep-results-usable)
-    - [Catch the next regression](continuous-evaluation.md#40-catch-the-next-regression)
+    - [Keep results and catch regressions](continuous-evaluation.md#40-catch-the-next-regression)
     - [Compare unsafe behaviour](continuous-evaluation.md#41-compare-unsafe-behaviour)
     - [Close the improvement loop](continuous-evaluation.md#42-close-the-improvement-loop)
     - [Publish evidence with a skill](continuous-evaluation.md#48-publish-evidence-with-a-skill)
 
 ## Read a card
 
-The illustration explains one question using concrete documents, task outcomes or trace evidence. Related features can share a scene, but every leaf has a separate card and scope. The text is the accessible equivalent and supplies the limits that cannot fit into the artwork. All examples are fictional; outcome marks illustrate a comparison, not a measured improvement in Dokimi.
+The illustration explains one question using concrete documents, task outcomes or trace evidence. Every leaf has its own card, scope and illustration. The text is the accessible equivalent and supplies the limits that cannot fit into the artwork. All examples are fictional; outcome marks illustrate a comparison, not a measured improvement in Dokimi.
 
 Use [reviewing](../reviewing.md) for a cheapest-first workflow, [what Dokimi measures](../what-it-measures.md) for the measurement model, and [user journeys](../user-journeys/README.md) for acceptance criteria. The tree is the capability navigation; those pages serve different purposes.
 

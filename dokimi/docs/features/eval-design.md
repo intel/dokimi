@@ -7,7 +7,7 @@ SPDX-License-Identifier: Apache-2.0
 
 [Feature tree](README.md) · [Detailed guide](../external-content.md)
 
-Each card describes one capability. Images use fictional tasks and simplified document excerpts; they are explanations, not captured product screens, runnable configurations or benchmark evidence. Availability applies to the working path described below, not everything depicted in a shared scene.
+Each card describes one capability. Images use fictional tasks and simplified document excerpts; they are explanations, not captured product screens, runnable configurations or benchmark evidence. Each image shows its own card; Open PR and Research images carry a badge saying so.
 
 <a id="25-build-tasks-from-real-work"></a>
 
@@ -50,24 +50,25 @@ Evaluate whether an agent locates the relevant file and line for a repository qu
 [Usage guide](../what-it-measures.md) · [Implementation](../../dokimi/commands/explore.py) · [Back to feature tree](README.md)
 
 <a id="27-generate-evaluation-questions"></a>
+<a id="38-assess-documentation"></a>
 
-## Generate evaluation questions
+## Assess documentation and generate questions
 
-![Generate evaluation questions: Create a task set grounded in the intended user.](../assets/features/27-generate-evaluation-questions.webp)
+![Assess documentation and generate questions: Create a task set grounded in the intended user.](../assets/features/27-generate-evaluation-questions.webp)
 
 **Availability:** Available on main.
 
-Use source docs and personas to draft evaluation questions, then deduplicate and validate them. Generated questions still need review for relevance, ambiguity and answerability.
+Before using documentation as agent context, run documentation metrics on structure, freshness, readability and examples; optional Docling ingestion brings non-Markdown content in. Then use the source docs and personas to draft evaluation questions, deduplicate and validate them. Generated questions still need review for relevance, ambiguity and answerability.
 
-**Input:** Source documentation and personas or intended-user descriptions for question generation.
+**Input:** A documentation corpus, a benchmark spec selecting metrics, and personas or intended-user descriptions for question generation.
 
-**Scope and limits:** Generation is a starting point; inspect the resulting checks.
+**Scope and limits:** Metrics describe the selected corpus/spec, not agent task improvement; example metrics may execute supported code examples, and Docling needs its own dependencies. Generation is a starting point: inspect the resulting checks.
 
-**Result:** Generated questions that need review before becoming an evaluation set.
+**Result:** Documentation metrics within each metric's scope, and generated questions that need review before becoming an evaluation set.
 
 **Next step:** Use the linked workflow to configure this check, then [interpret the result](../start/results.md).
 
-[Usage guide](../quickstart.md) · [Implementation](../../dokimi/commands/questions.py) · [Back to feature tree](README.md)
+[Usage guide](../quickstart.md) · [Implementation](../../dokimi/commands/questions.py) · [Static benchmark workflow](../benchmarking-and-comparison.md#static-documentation-benchmark) · [Optional ingestion](../ingestion-docling.md) · [Metrics implementation](../../dokimi/commands/run.py) · [Back to feature tree](README.md)
 
 <a id="28-which-needs-are-untested"></a>
 
@@ -81,7 +82,7 @@ Provide a frozen need graph and explicit needs labels on the eval checks. Inspec
 
 **Input:** A frozen need graph and eval checks with explicit need labels.
 
-**Scope and limits:** Basic eval coverage in main; graph builder PR [#594](https://github.com/intel/dokimi/issues/594); broader [#331](https://github.com/intel/dokimi/issues/331).
+**Scope and limits:** Basic eval coverage in main; graph builder PR [#594](https://github.com/intel/dokimi/pull/594); broader [#331](https://github.com/intel/dokimi/issues/331).
 
 **Result:** Coverage gaps within the declared need-space model, not all possible user work.
 
@@ -101,9 +102,9 @@ The proposed workflow maps checkable statements in a skill to existing checks an
 
 **Input:** A SKILL.md and existing eval rows or executable task checks to map against its requirements.
 
-**Scope and limits:** PR [#441](https://github.com/intel/dokimi/issues/441): LLM-estimated candidates, not a verified coverage score.
+**Scope and limits:** PR [#441](https://github.com/intel/dokimi/pull/441): LLM-estimated candidates, not a verified coverage score.
 
-**Result:** A proposed rule-to-check mapping; consult the linked implementation status.
+**Result:** A proposed rule-to-check mapping; see PR [#441](https://github.com/intel/dokimi/pull/441) for the current implementation before relying on it.
 
 **Next step:** Read the linked proposal for progress and the related guide for existing components. This card is not a runnable end-to-end interface.
 
@@ -141,7 +142,7 @@ Check whether tasks have useful headroom and protect held-out evaluation materia
 
 **Input:** Recorded arm outcomes, reference question content and repetition/cache provenance.
 
-**Scope and limits:** Headroom and run hygiene; replay provenance fix PR [#596](https://github.com/intel/dokimi/issues/596).
+**Scope and limits:** Headroom and run hygiene; replay provenance fix PR [#596](https://github.com/intel/dokimi/pull/596).
 
 **Result:** Headroom diagnostics identifying cases with little room to distinguish variants.
 
@@ -149,22 +150,3 @@ Check whether tasks have useful headroom and protect held-out evaluation materia
 
 [Headroom command reference](https://intel.github.io/dokimi/reference/cli/eval/) · [Methodology](../methodology.md) · [Implementation](../../dokimi/commands/headroom.py) · [Back to feature tree](README.md)
 
-<a id="38-assess-documentation"></a>
-
-## Assess documentation
-
-![Assess documentation: Inspect documentation before using it as agent context.](../assets/features/38-assess-documentation.webp)
-
-**Availability:** Available on main.
-
-Run documentation metrics and inspect structure, freshness, readability and examples. Optional Docling ingestion brings non-Markdown content into the workflow.
-
-**Input:** A documentation corpus and a benchmark spec selecting metrics; optional ingestion prepares non-Markdown sources.
-
-**Scope and limits:** Metrics describe the selected corpus/spec, not agent task improvement. Example metrics may execute supported code examples; optional Docling ingestion requires its own dependencies.
-
-**Result:** Documentation metrics within the selected metric's scope.
-
-**Next step:** Use the linked workflow to configure this check, then [interpret the result](../start/results.md).
-
-[Static benchmark workflow](../benchmarking-and-comparison.md#static-documentation-benchmark) · [Optional ingestion](../ingestion-docling.md) · [Implementation](../../dokimi/commands/run.py) · [Back to feature tree](README.md)
