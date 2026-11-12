@@ -538,6 +538,14 @@ def _unfinished_entry(batch: Path, name: str, reason: str, canaries: Sequence[st
     return {"cell": name, "reason": reason, "findings": findings}
 
 
+def _declared_arm(cell: Path) -> str:
+    """The ``arm`` a finished cell's ``result.json`` names, or ``""`` when it is a link (not read, as in ``_scan``)."""
+    if (cell / "result.json").is_symlink():
+        return ""
+    arm = _read_record(cell / "result.json")[0].get("arm")
+    return arm if isinstance(arm, str) else ""
+
+
 def scan_batch(batch: Path, baseline_arm: str, canaries: Sequence[str] = (), alpha: float = 0.05) -> dict[str, Any]:
     """:func:`scan_cell` over every finished cell of ``batch``, then :func:`compare_arms`.
 
@@ -546,6 +554,11 @@ def scan_batch(batch: Path, baseline_arm: str, canaries: Sequence[str] = (), alp
     ``coverage.unfinished`` with their findings; they count in no rate.
     """
     finished, unfinished = cells(batch)
+    # the arms named by the finished cells, before any is read: a cell whose trace is garbled is unfinished, not absent
+    declared = [_declared_arm(c) for c in finished]
+    arms = sorted({a for a in declared if a})
+    if finished and baseline_arm not in arms and all(declared):  # a linked record may be the baseline: not a typo
+        raise SecurityError(f"no finished cell of the baseline arm {baseline_arm!r}; the batch has: {', '.join(arms)}")
     scans = []
     for c in finished:
         scan, unreadable = _scan(c, canaries)
@@ -554,9 +567,6 @@ def scan_batch(batch: Path, baseline_arm: str, canaries: Sequence[str] = (), alp
         else:
             scans.append(scan)
     unfinished = dict(sorted(unfinished.items()))
-    arms = sorted({str(s["arm"]) for s in scans})
-    if scans and baseline_arm not in arms:
-        raise SecurityError(f"no finished cell of the baseline arm {baseline_arm!r}; the batch has: {', '.join(arms)}")
     report = compare_arms(scans, baseline_arm, alpha)
     report["batch"] = str(batch)
     report["coverage"] = {

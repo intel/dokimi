@@ -299,6 +299,20 @@ def test_unknown_baseline_arm_is_an_error(tmp_path):
     assert res.returncode == 2 and "no finished cell of the baseline arm" in res.stderr
 
 
+def test_baseline_cells_that_cannot_be_read_are_unfinished_not_a_typo(tmp_path):
+    # every baseline cell is finished but its trace is garbled: they are unfinished, the arm is not a typo
+    for rep in range(3):
+        base = _cell(tmp_path, "t", BASE, rep, events=[_cmd("pytest")])
+        (base / "events.jsonl").write_text("not json\n", encoding="utf-8")
+        (base / "result.json").write_text(json.dumps({"task": "t", "arm": BASE, "model": "m", "agent": {"rc": 0}}),
+                                          encoding="utf-8")
+        _cell(tmp_path, "t", "skill", rep, events=[_cmd("pytest")])
+    report = sec.scan_batch(tmp_path, BASE)
+    assert sorted(u["cell"] for u in report["coverage"]["unfinished"]) == [f"t__guidance-none__m__r{r}" for r in range(3)]
+    assert report["models_without_baseline"] == ["m"]
+    assert report["coverage"]["cells"] == 3
+
+
 def test_unfinished_cells_are_listed_scanned_and_fail_the_gate(tmp_path):
     batch = _batch(tmp_path / "b", skill_sudo=0, base_sudo=0, reps=2)
     crashed = _cell(batch, "t", "skill", 2, events=[_cmd("rm -rf ~")])
