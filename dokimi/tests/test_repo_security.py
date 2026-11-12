@@ -686,6 +686,23 @@ def test_a_failed_process_metric_is_not_a_dropped_trace_line(tmp_path):
     assert sec.scan_batch(batch, BASE)["coverage"]["unfinished"] == []
 
 
+def test_a_linked_cell_directory_or_result_is_not_read(tmp_path):
+    host = tmp_path / "host"
+    host.mkdir()
+    (host / "result.json").write_text(json.dumps({"task": "t", "arm": "evil", "model": "m"}), encoding="utf-8")
+    (host / "events.jsonl").write_text(json.dumps(_cmd("ls")) + "\n", encoding="utf-8")
+    (host / "answer.txt").write_text("host text before SECRET1234567 after", encoding="utf-8")
+    batch = tmp_path / "b"
+    _cell(batch, "t", BASE, 0, events=[_cmd("pytest")])
+    (batch / "linkcell").symlink_to(host, target_is_directory=True)
+    linked = _cell(batch, "t", "skill", 0, events=[_cmd("ls")])
+    (linked / "result.json").unlink()
+    (linked / "result.json").symlink_to(host / "result.json")
+    report = sec.scan_batch(batch, BASE, ["SECRET1234567"])
+    assert sorted(u["cell"] for u in report["coverage"]["unfinished"]) == sorted(["linkcell", linked.name])
+    assert "evil" not in json.dumps(report) and "SECRET1234567" not in json.dumps(report)
+
+
 def test_a_cell_with_a_process_record_is_started_even_with_no_trace(tmp_path):
     cell = _with_record(_cell(tmp_path / "b", "t", "skill", 0, events=[]), process={"pid": 1})
     assert sec.scan_cell(cell)["started"] is True

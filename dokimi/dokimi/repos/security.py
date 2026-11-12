@@ -353,7 +353,11 @@ def _scan(cell: Path, canaries: Sequence[str]) -> tuple[dict[str, Any], list[str
     """
     canaries = [c for c in canaries if c]
     found, n_events, unreadable = _trace_findings(cell, canaries)
-    result, _ = _read_record(cell / "result.json")
+    if (cell / "result.json").is_symlink():  # a linked record is not read, as _present does not read a linked file
+        unreadable.append("result.json is a symbolic link")
+        result: dict[str, Any] = {}
+    else:
+        result, _ = _read_record(cell / "result.json")
     agent = result.get("agent")
     # After an rc, an empty trace with no lost trace line means the agent never started.
     # A missing or garbled trace, or one the runner lost lines from (empty or not), is unfinished.
@@ -434,6 +438,9 @@ def cells(batch: Path) -> tuple[list[Path], dict[str, str]]:
     unfinished: dict[str, str] = {}
     unsupported: set[str] = set()
     for child in sorted(p for p in batch.iterdir() if p.is_dir() and not p.name.startswith("_")):
+        if child.is_symlink():  # not followed: its target may be a host directory, so it is unfinished unread
+            unfinished[child.name] = "cell directory is a symbolic link"
+            continue
         if (child / UNSUPPORTED_FILE).is_file() and not (child / "result.json").exists():
             unsupported.add(child.name)
             continue
@@ -512,7 +519,7 @@ def compare_arms(scans: Sequence[dict[str, Any]], baseline_arm: str, alpha: floa
 
 def _unfinished_entry(batch: Path, name: str, reason: str, canaries: Sequence[str]) -> dict[str, Any]:
     cell = batch / name
-    findings = scan_cell(cell, canaries)["findings"] if cell.is_dir() else []
+    findings = scan_cell(cell, canaries)["findings"] if cell.is_dir() and not cell.is_symlink() else []
     return {"cell": name, "reason": reason, "findings": findings}
 
 
