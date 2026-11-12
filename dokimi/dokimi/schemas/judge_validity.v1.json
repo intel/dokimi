@@ -5,7 +5,8 @@
   "description": "The `--output` of `eval judge validate`: whether the judge tells a real answer from one degraded on purpose (the validity gate). `judge_temperature` is added by the command.",
   "type": "object",
   "required": [
-    "schema_version"
+    "schema_version",
+    "summary"
   ],
   "properties": {
     "schema_version": {

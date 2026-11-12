@@ -23,8 +23,7 @@ from dokimi.defaults import (
 )
 from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.eval.judge_validity import DEFAULT_MIN_ACCURACY, NoUsablePairs
-from dokimi.commands._output import save_artifact_or_exit, write_text_or_exit
-from dokimi.exit_codes import EXIT_USAGE
+from dokimi.commands._output import save_artifact_or_exit
 from dokimi.utils import InputError, warn_judge_independence, warn_recorded_self_judge
 
 

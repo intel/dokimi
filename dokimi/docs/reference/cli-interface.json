@@ -12661,6 +12661,7 @@
                 "'grounding'",
                 "'guidance_reach'",
                 "'headroom'",
+                "'judge_validity'",
                 "'judge_wording'",
                 "'leak'",
                 "'matrix_rollup'",
