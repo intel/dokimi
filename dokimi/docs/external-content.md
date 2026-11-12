@@ -315,9 +315,13 @@ do, and only these two; each finding is a `warn`, so the exit code does not chan
 - `link-dead`: an `http(s)` URL in `SKILL.md` that answers 404 or 410, or whose host
   does not resolve while another request in the run got an HTTP answer (with none, the
   link is not checked: the resolver is not shown to work). A HEAD request is tried first and a GET only when HEAD is not 2xx or 3xx.
-  Placeholder hosts (`example.com`/`.org`/`.net`, `localhost`, loopback addresses,
-  a host or a path segment starting `your-*`, as in `github.com/your-username/your-repo`)
-  and template URLs (`<id>`, `{id}`, `${VAR}`) are not requested. A URL in a code span or a
+  Placeholder hosts (`example.com`/`.org`/`.net`, `localhost`, `.test`, `.invalid`,
+  a host or a path segment starting `your-*`, as in `github.com/your-username/your-repo`,
+  a path segment `OWNER`, `REPO`, `USER` or `USERNAME`), hosts of the operator's network
+  (loopback, private, link-local, CGNAT, reserved and multicast addresses, a name with no
+  dot such as `my-api:8000`, `.local` and `.internal` names) and template URLs (`<id>`,
+  `{id}`, `${VAR}`) are not requested. The host is read as written, not resolved: a public
+  name that points at a private address is still requested. A URL in a code span or a
   fenced block is an example, not a link, and is not requested either; a `#fragment` is not
   part of the request, so anchors of one page are one request. At most 20 URLs per skill are
   checked.
