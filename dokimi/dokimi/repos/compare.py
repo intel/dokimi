@@ -54,7 +54,8 @@ Holm-corrected decision. The sign-flip p over k changed tasks cannot go below ``
 effect of any size reaches p < 0.05: ``mde`` is ``None`` there too, and the note says how low p can go instead.
 ``mde`` is ``None`` too where a gate or score row's ``p_holm_floor`` (its ``p_holm`` with its p at that floor and the
 family's other p as observed, :mod:`.compare_reach`) is not below 0.05, and the note names Holm: that floor decides
-whether ``mde`` is given, not its size. A gate or score row whose interval excludes 0 while its ``p_holm`` is 0.05
+whether ``mde`` is given, not its size. A row whose changed tasks cannot give p < 0.05 is outside that family (it can
+never reject, so it adds nothing to the multiplier): its ``p_holm`` and ``p_holm_floor`` are ``None``. A gate or score row whose interval excludes 0 while its ``p_holm`` is 0.05
 or more (Holm lifted its p across 0.05; the interval agrees with the raw p) has ``interval_p_disagree``: the
 interval is uncorrected, and ``p_holm`` decides the row (the inconclusive note then gives way to this one). A
 descriptive row with p below 0.05 is named on a line saying its p is uncorrected and outside Holm's family.
@@ -110,8 +111,7 @@ from pathlib import Path
 from typing import Any
 
 from dokimi.context.consistency import Run, run_from_events
-from dokimi.eval.sign_flip import (ALPHA, EPS, METHOD, min_sign_flip_p, sign_flip_interval, sign_flip_p,
-                                   within)
+from dokimi.eval.sign_flip import ALPHA, EPS, METHOD, min_sign_flip_p, sign_flip_row, within
 from dokimi.eval.stats import correct_family
 from dokimi.utils import same_model
 
@@ -119,7 +119,7 @@ from .compare_judged import (check_reported, judge_names, judge_warnings, judged
                              read_judged)
 from .compare_leak import format_leak, leak_check
 from .compare_interval import format_interval, includes_zero
-from .compare_reach import holm_floor, min_detectable
+from .compare_reach import holm_family, holm_floor, min_detectable
 from .compare_tasks import CompareError, select_tasks
 from .compare_values import finite_values, task_values
 from .process_counts import as_measure, process_order, process_values
@@ -368,15 +368,17 @@ def _check_models(models: list[str] | None, rows: list[dict[str, Any]], unpaired
 
 def _holm(rows: list[dict[str, Any]]) -> None:
     """``p_holm`` on the gate and score rows, corrected as one family; their ``interval_p_disagree`` reads it.
+    A row whose changed tasks cannot give p < :data:`ALPHA` is out of the family: its ``p_holm`` is None.
     ``p_holm_floor`` is a row's ``p_holm`` at its p floor: where it cannot go below :data:`ALPHA`, ``mde`` is None."""
     primary = [r for r in rows if r["measure"] in PRIMARY]
     ps = [r["p"] for r in primary]
-    for i, (row, (p, below)) in enumerate(zip(primary, correct_family(ps), strict=True)):
+    changed = [r["up"] + r["down"] for r in primary]
+    for i, (row, (p, below)) in enumerate(zip(primary, correct_family(holm_family(ps, changed)), strict=True)):
         d = row["delta"]
         row["p_holm"] = p
         row["interval_p_disagree"] = below is not None and includes_zero(d["lo"], d["hi"]) == below
         if p is not None:
-            row["p_holm_floor"], reachable = holm_floor(ps, i, min_sign_flip_p(row["up"] + row["down"]))
+            row["p_holm_floor"], reachable = holm_floor(ps, changed, i)
             row["mde"] = row["mde"] if reachable else None
 
 
@@ -577,11 +579,11 @@ def sign_flip_summary(pairs: list[dict[str, Any]], measure: str = "gate", seed: 
     Holm's p is known. ``measure`` is not read: every measure gets the same statistics.
     """
     deltas = [p["delta"] for p in pairs]
-    p = sign_flip_p(deltas, seed=seed, exact=exact)
-    lo, hi = sign_flip_interval(deltas, p, seed=seed)
+    row = sign_flip_row(deltas, seed=seed, exact=exact)
+    p, lo, hi = row["p"], row["ci_lo"], row["ci_hi"]
     mean = sum(deltas) / len(deltas)
     sd = statistics.stdev(deltas) if len(deltas) > 1 else 0.0
-    reachable = min_sign_flip_p(sum(abs(d) > EPS for d in deltas)) < ALPHA  # else no effect can be detected
+    reachable = min_sign_flip_p(row["n_changed"]) < ALPHA  # else no effect can be detected
     return {
         "n_tasks": len(pairs),
         "baseline_mean": _round(_mean([p["baseline"] for p in pairs])),
@@ -673,8 +675,8 @@ def _inconclusive_note(r: dict[str, Any], family: int) -> str | None:
     if floor >= ALPHA:
         return head + (f"with {changed} changed task{'' if changed == 1 else 's'} the sign-flip p cannot go below "
                        f"{floor:.4g}: no effect can reach p < {ALPHA} here")
-    return head + (f"with Holm over {family} rows, p_holm cannot go below {holm:.4g} here: no effect can reach "
-                   f"p_holm < {ALPHA}")
+    return head + (f"with Holm over {family} rows that can reach p < {ALPHA}, p_holm cannot go below {holm:.4g} "
+                   f"here: no effect can reach p_holm < {ALPHA}")
 
 
 def _headroom_note(row: dict[str, Any]) -> str:

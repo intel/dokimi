@@ -144,6 +144,58 @@ def test_a_quoted_file_name_does_not_hide_its_task(repo, tmp_path):
     assert _select(repo, tmp_path) == ["t1"]
 
 
+BYTE_NAME = os.fsdecode(b"r\xff.py") if os.name != "nt" else "r.py"
+needs_byte_names = pytest.mark.skipif(
+    sys.platform in ("win32", "darwin"), reason="the file system takes only UTF-8 names"
+)
+
+
+@needs_byte_names
+def test_a_file_name_that_is_not_utf8_selects_its_task(repo, tmp_path):
+    """``text=True`` made ``subprocess.run`` raise on byte 0xff: a traceback, not the fallback."""
+    _write(repo, f"{TASKS}/t1/{BYTE_NAME}")
+    assert _select(repo, tmp_path) == ["t1"]
+
+
+@needs_byte_names
+def test_a_file_name_that_is_not_utf8_outside_the_tasks_runs_the_smoke_set(repo, tmp_path):
+    _write(repo, f"{EVAL_DIR}/{BYTE_NAME}")
+    result, _ = _run_step(repo, tmp_path)
+    assert result.returncode == 0, result.stderr
+    assert f"outside the task directories: {EVAL_DIR}/r\\xff.py; adding the smoke set" in result.stdout
+    assert "tasks-check: t1" in result.stdout
+
+
+@needs_byte_names
+def test_a_file_name_that_is_not_utf8_beside_the_eval_dir_selects_nothing(repo, tmp_path):
+    _write(repo, BYTE_NAME)
+    assert _select(repo, tmp_path) == []
+
+
+@needs_byte_names
+def test_a_selected_task_directory_that_is_not_utf8_fails_the_step_naming_it_escaped(repo, tmp_path):
+    """Its id would go into the job matrix, ``GITHUB_OUTPUT`` and the summary, which are UTF-8 text."""
+    _write(repo, f"{TASKS}/t{BYTE_NAME}/task.json", "{}")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "a task whose name is not UTF-8")
+    _git(repo, "update-ref", "refs/remotes/origin/main", "HEAD")
+    _write(repo, f"{TASKS}/t{BYTE_NAME}/grader.py", "changed\n")
+    result, temp = _run_step(repo, tmp_path)
+    assert result.returncode == 1 and "Traceback" not in result.stderr
+    assert "::error title=tasks::task directory name(s) that are not UTF-8: tr\\xff.py" in result.stderr
+    assert "tasks=" not in (temp / "out").read_text(encoding="utf-8")
+
+
+@needs_byte_names
+def test_a_task_directory_that_is_not_utf8_and_not_selected_is_left_alone(repo, tmp_path):
+    _write(repo, f"{TASKS}/t{BYTE_NAME}/task.json", "{}")
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "a task whose name is not UTF-8")
+    _git(repo, "update-ref", "refs/remotes/origin/main", "HEAD")
+    _write(repo, f"{TASKS}/t1/grader.py", "changed\n")
+    assert _select(repo, tmp_path) == ["t1"]
+
+
 def test_both_sides_of_a_move_between_tasks_are_selected(repo, tmp_path):
     _write(repo, f"{TASKS}/t1/big.py", "".join(f"line {i}\n" for i in range(200)))
     _git(repo, "add", "-A")
