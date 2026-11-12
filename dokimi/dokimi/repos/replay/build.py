@@ -30,7 +30,7 @@ from typing import Any
 
 from ..manifest import RepoManifest
 from .history import History, addressed, carry
-from .merged import Skip, base_of, check_merged, left_out
+from .merged import Skip, base_of, check_merged, left_out, need_utf8_paths
 from .threads import PullRequest, ReplayError, Thread, gold_problem, review_bodies
 
 PATCH = "change.patch"
@@ -104,6 +104,7 @@ def _make(h: History, manifest: RepoManifest, pr: PullRequest, opts: Options,
     if base is None:
         raise Skip(f"the reviewed revision {rev[:12]} shares no history with the base branch")
     changed = h.changed(base, rev)
+    need_utf8_paths(changed)
     leave_out = sorted({p for p in changed if left_out(manifest, p)})
     if not changed:
         raise Skip(f"the reviewed revision {rev[:12]} changes nothing against the base branch")
@@ -173,6 +174,10 @@ def _anchor_problem(h: History, manifest: RepoManifest, commit: str, path: str, 
     at = carry(h, commit, rev, path, line)
     if at is None:
         return f"its line changed between {commit[:12]} and the reviewed revision {rev[:12]}", None
+    try:
+        need_utf8_paths([at[0]])  # gold.json is UTF-8 text, and a path carried back may be one the patch never changes
+    except Skip as skip:
+        return str(skip), None
     if left_out(manifest, at[0]):
         return "on a guidance file or under eval_dir, which the patch leaves out", None
     n_lines = h.lines(rev, at[0])

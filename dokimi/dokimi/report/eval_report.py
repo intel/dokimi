@@ -20,6 +20,7 @@ import os
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
 
+from dokimi.artifacts import save_artifact
 # This module defines a local ``stats()`` helper, hence the ``eval_stats`` alias.
 from dokimi.eval import stats as eval_stats
 from dokimi.records import BASELINE, CONTEXT, Record, RecordError, record, records
@@ -223,11 +224,20 @@ def _load_eval(eval_path: str) -> dict:
     return data
 
 
+def _sidecar_question_text(e: Record) -> str | None:
+    """The record's question text, else its raw ``question_text`` when that is a string (a blank
+    one stays ``""``); ``None`` when there is none or it is not text."""
+    raw = e.raw.get("question_text")
+    return e.question_text or (raw if isinstance(raw, str) else None)
+
+
 def _write_qa_json(path: str, payload: dict) -> None:
-    """Write the Q&A sidecar, or raise a RecordError naming ``path``."""
+    """Save the Q&A sidecar as a ``report_qa`` artifact, or raise a RecordError naming ``path``.
+
+    A payload the schema refuses raises ``ArtifactValidationError``, the payload kept at ``<path>.rejected``.
+    """
     try:
-        with open(path, "w", encoding="utf-8") as jf:
-            json.dump(payload, jf, indent=2, ensure_ascii=False)
+        save_artifact("report_qa", payload, path, ensure_ascii=False)  # people read it
     except OSError as exc:
         raise RecordError(f"cannot write {path}: {exc.strerror or exc}") from exc
 
@@ -517,7 +527,7 @@ def generate_report(eval_path: str, out_path: str, qa_json_out: str | None = Non
         a = answers_by_id.get(e.key)
         qa_records.append({
             "question_id": e.question_id,
-            "question_text": e.question_text or e.raw.get("question_text"),
+            "question_text": _sidecar_question_text(e),
             "difficulty": e.difficulty,
             "source": "static" if static_prefix and e.key.startswith(static_prefix) else "dynamic",
             "with_docs_score": e.score(CONTEXT),

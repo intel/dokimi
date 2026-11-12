@@ -252,7 +252,7 @@ def test_evaluate_command_forwards_questions_root(tmp_path, monkeypatch):
         "evaluate",
         "--product", "DemoProduct",
         "--description", "A demo product",
-        "--output-dir", str(tmp_path / "out"),
+        "--out-dir", str(tmp_path / "out"),
         "--questions-root", str(questions_root),
     ])
     args.func(args)
@@ -1112,7 +1112,7 @@ def test_evaluate_prints_no_personas_line_when_personas_skipped(tmp_path, monkey
     monkeypatch.setattr(EvaluationPipeline, "run", run)
     args = build_parser().parse_args([
         "evaluate", "--product", "DemoProduct", "--description", "d",
-        "--output-dir", str(tmp_path / "out"),
+        "--out-dir", str(tmp_path / "out"),
     ])
     args.func(args)
     out = capsys.readouterr().out

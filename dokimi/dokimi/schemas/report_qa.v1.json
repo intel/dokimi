@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/intel/dokimi/schemas/report_qa.v1.json",
+  "title": "Eval report Q&A sidecar v1",
+  "description": "`<report>.qa.json` beside the markdown of `report eval` (dokimi.report.eval_report): each evaluated question with its scores and, when the answers file is found, both answers.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "eval_path",
+    "report_path",
+    "generated_at",
+    "run_metadata",
+    "count",
+    "records"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "report_qa.v1"
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}(?![\\s\\S])",
+      "description": "The envelope: the id of the run that saved this file (dokimi.artifacts.run_id). Absent from files saved before the envelope."
+    },
+    "dokimi_version": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The envelope: the dokimi version that saved this file. Absent from files saved before the envelope."
+    },
+    "eval_path": {
+      "type": "string"
+    },
+    "report_path": {
+      "type": "string"
+    },
+    "generated_at": {
+      "type": "string",
+      "description": "UTC, ISO 8601."
+    },
+    "run_metadata": {
+      "description": "The eval file's run_metadata, copied; {} when it has none."
+    },
+    "count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "records": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "question_id",
+          "question_text",
+          "difficulty",
+          "source",
+          "with_docs_score",
+          "without_docs_score",
+          "delta",
+          "with_docs_answer",
+          "without_docs_answer"
+        ],
+        "properties": {
+          "question_id": {
+            "type": [
+              "string",
+              "integer"
+            ]
+          },
+          "question_text": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "difficulty": {
+            "description": "Copied from the eval record."
+          },
+          "source": {
+            "enum": [
+              "static",
+              "dynamic"
+            ]
+          },
+          "with_docs_score": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "without_docs_score": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "delta": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "with_docs_answer": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "From the answers file beside the eval (`/eval/` -> `/answers/`); null when there is none."
+          },
+          "without_docs_answer": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

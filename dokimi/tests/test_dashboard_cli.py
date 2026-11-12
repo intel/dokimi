@@ -36,7 +36,7 @@ def test_generate_exits_2_with_a_message_when_the_output_dir_is_a_file(tmp_path,
     blocker = tmp_path / "out"
     blocker.write_text("not a directory", encoding="utf-8")
     args = build_parser().parse_args(
-        ["dashboard", "generate", "--results-dir", str(results), "--output-dir", str(blocker)])
+        ["dashboard", "generate", "--results-dir", str(results), "--out-dir", str(blocker)])
 
     with refusal() as out:
         args.func(args)
@@ -51,7 +51,7 @@ def test_generate_writes_both_files_into_a_fresh_output_dir(tmp_path):
     results = _results(tmp_path)
     out = tmp_path / "out" / "nested"
     args = build_parser().parse_args(
-        ["dashboard", "generate", "--results-dir", str(results), "--output-dir", str(out)])
+        ["dashboard", "generate", "--results-dir", str(results), "--out-dir", str(out)])
 
     args.func(args)
 

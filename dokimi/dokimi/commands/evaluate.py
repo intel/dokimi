@@ -98,15 +98,10 @@ def cmd_eval_panel_score(args: argparse.Namespace) -> None:
         for entry in args.judge_configs.split(","):
             parts = entry.strip().split(":")
             if len(parts) != 3:
-                print(
-                    f"Error: --judge-configs entry '{entry}' must be 'role:model:provider'.",
-                    file=sys.stderr,
-                )
-                sys.exit(EXIT_USAGE)
+                raise InputError(f"--judge-configs entry '{entry}' must be 'role:model:provider'.")
             role, model, provider = parts
             if role not in JUDGE_ROLES:
-                print(f"Error: unknown role '{role}'. Valid: {list(JUDGE_ROLES)}", file=sys.stderr)
-                sys.exit(EXIT_USAGE)
+                raise InputError(f"unknown role '{role}'. Valid: {list(JUDGE_ROLES)}")
             judges.append(JudgeConfig(role=role.strip(), model=model.strip(), provider=provider.strip(),
                                       temperature=args.judge_temperature))
         roles = [j.role for j in judges]
@@ -114,8 +109,7 @@ def cmd_eval_panel_score(args: argparse.Namespace) -> None:
         roles = [r.strip() for r in args.roles.split(",")] if args.roles else DEFAULT_PANEL
         unknown = [r for r in roles if r not in JUDGE_ROLES]
         if unknown:
-            print(f"Error: unknown roles: {unknown}. Valid: {list(JUDGE_ROLES)}", file=sys.stderr)
-            sys.exit(EXIT_USAGE)
+            raise InputError(f"unknown roles: {unknown}. Valid: {list(JUDGE_ROLES)}")
         judges = [JudgeConfig(role=r, model=args.model, provider=args.provider,
                               temperature=args.judge_temperature) for r in roles]
 
@@ -194,8 +188,7 @@ def cmd_eval_score(args: argparse.Namespace) -> None:
     try:
         method_version = answers_method_version(run.meta)
     except ValueError as exc:  # refused before any judge call is paid for
-        print(f"Error: {args.answers}: {exc}", file=sys.stderr)
-        sys.exit(EXIT_USAGE)
+        raise InputError(f"{args.answers}: {exc}") from exc
     print(f"Evaluating with judge: {args.judge_provider}/{args.judge_model}")
 
     # Evaluate

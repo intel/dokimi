@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import argparse
-import sys
 from pathlib import Path
 
 from dokimi.llm import CALLER_CHOICES
@@ -20,7 +19,6 @@ from dokimi.defaults import (
     DEFAULT_MAX_TOKENS_PER_QUESTION,
     DEFAULT_RETRIEVAL_TOP_K,
 )
-from dokimi.exit_codes import EXIT_USAGE
 from dokimi.utils import InputError
 
 
@@ -35,19 +33,15 @@ def _load_runtime_config() -> dict:
     try:
         loaded = yaml.safe_load(config_path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError) as exc:
-        print(f"Error: cannot read {config_path}: {exc}", file=sys.stderr)
-        raise SystemExit(EXIT_USAGE) from exc
+        raise InputError(f"cannot read {config_path}: {exc}") from exc
     except (yaml.YAMLError, ValueError, RecursionError) as exc:  # ValueError: a bad date; RecursionError: deep nesting
-        print(f"Error: invalid YAML in {config_path}: {exc}", file=sys.stderr)
-        raise SystemExit(EXIT_USAGE) from exc
+        raise InputError(f"invalid YAML in {config_path}: {exc}") from exc
     if loaded is not None and not isinstance(loaded, dict):
-        print(f"Error: expected a mapping in {config_path}", file=sys.stderr)
-        raise SystemExit(EXIT_USAGE)
+        raise InputError(f"expected a mapping in {config_path}")
     config = loaded or {}
     for key in ("products", "retrieval"):
         if config.get(key) is not None and not isinstance(config[key], dict):
-            print(f"Error: '{key}' in {config_path} must be a mapping", file=sys.stderr)
-            raise SystemExit(EXIT_USAGE)
+            raise InputError(f"'{key}' in {config_path} must be a mapping")
     return config
 
 
@@ -57,11 +51,9 @@ def _load_questions(path: str) -> list:
     try:
         return load_questions(path).questions
     except ValueError as exc:  # ArtifactValidationError: names the record and the fix
-        print(f"Error: {exc}", file=sys.stderr)
-        raise SystemExit(EXIT_USAGE) from exc
+        raise InputError(str(exc)) from exc
     except OSError as exc:
-        print(f"Error: cannot read {path}: {exc.strerror or exc}", file=sys.stderr)
-        raise SystemExit(EXIT_USAGE) from exc
+        raise InputError(f"cannot read {path}: {exc.strerror or exc}") from exc
 
 
 def _output_path(args: argparse.Namespace) -> Path:
@@ -87,9 +79,8 @@ def cmd_answers_generate(args: argparse.Namespace) -> None:
     if args.top_k is None:
         args.top_k = _retrieval_cfg.get("top_k", DEFAULT_RETRIEVAL_TOP_K)
         if isinstance(args.top_k, bool) or not isinstance(args.top_k, int) or args.top_k < 1:
-            print(f"Error: retrieval.top_k in the config must be a positive integer, "
-                  f"got {args.top_k!r}", file=sys.stderr)
-            sys.exit(EXIT_USAGE)
+            raise InputError(f"retrieval.top_k in the config must be a positive integer, "
+                             f"got {args.top_k!r}")
 
     questions = _load_questions(args.questions)
     print(f"Loaded {len(questions)} questions from {args.questions}")
@@ -110,8 +101,7 @@ def cmd_answers_generate(args: argparse.Namespace) -> None:
                 args.product, mcp_client, explicit_id=context7_id
             )
         except ValueError as exc:
-            print(f"Error: {exc}", file=sys.stderr)
-            raise SystemExit(EXIT_USAGE) from exc
+            raise InputError(str(exc)) from exc
 
     print(f"Generating answers for {args.product} (library_id={library_id})")
     print(f"Using model: {args.provider}/{args.model}")
