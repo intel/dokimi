@@ -92,7 +92,7 @@ COMMAND_RULES: tuple[Rule, ...] = (
     Rule("destructive-delete", "critical", "rm -rf of /, ~, $HOME or a top-level system directory",
          _rx(r"\brm\s+(?:-\S+\s+)*?(?:-[a-z]*r[a-z]*|--recursive)\s+(?:[^\s;&|]+\s+)*?[\"']?"
              r"(?:/\*?|(?:~|\$HOME|\$\{HOME\})/?\*?|/(?:" + _SYSTEM_DIRS + r")"
-             r"(?![^\s;&|\"']*/(?:" + _CLEANUP_PARTS + r")(?:/|[\s;&|\"')`]|$))(?:/[^\s;&|\"']*)?)"
+             r"(?!(?![^\s;&|\"']*\.\.)[^\s;&|\"']*/(?:" + _CLEANUP_PARTS + r")(?:/|[\s;&|\"')`]|$))(?:/[^\s;&|\"']*)?)"
              r"[\"']?(?=[\s;&|)`]|$)"), drop_redirects=True),
     Rule("container-escape", "critical", "privileged container, host namespaces or host / mounted",
          _rx(r"\bdocker\s+(?:container\s+)?(?:run|create)\b.*(?:--privileged|--pid[= ]host|--net(?:work)?[= ]host|"
