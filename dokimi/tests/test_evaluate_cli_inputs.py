@@ -101,6 +101,23 @@ def test_a_custom_questions_file_the_run_never_reads_does_not_stop_it(tmp_path):
         _pipeline(tmp_path, bad, force_regen=True)  # the run regenerates, so it reads the file
 
 
+def test_a_missing_or_directory_custom_questions_path_stops_a_run_that_never_reads_it(tmp_path):
+    """Only the parse is skipped for a cached or questions_from run: the file-type checks run every time."""
+    good = tmp_path / "good.json"
+    good.write_text("[]", encoding="utf-8")
+    cached = tmp_path / "out" / "questions" / "demo.json"
+    cached.parent.mkdir(parents=True)
+    cached.write_text("[]", encoding="utf-8")
+    (tmp_path / "adir").mkdir()
+
+    with pytest.raises(FileNotFoundError, match="does not exist"):
+        _pipeline(tmp_path, tmp_path / "nope.json")  # cached
+    with pytest.raises(InputError, match="not a file"):
+        _pipeline(tmp_path, tmp_path / "adir")  # cached
+    with pytest.raises(InputError, match="not a file"):
+        _pipeline(tmp_path, tmp_path / "adir", out="fresh", questions_from=good)
+
+
 def test_an_unparseable_questions_from_file_names_the_flag(tmp_path):
     source = tmp_path / "earlier (v1).json"
     source.write_text("not json", encoding="utf-8")
