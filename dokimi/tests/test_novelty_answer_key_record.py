@@ -160,7 +160,8 @@ def test_a_files_tuple_is_read_as_the_list_it_is(tmp_path):
 
 @pytest.mark.parametrize("excluded", [{"path": "references/big.md"}, [5], ["references/big.md", None]])
 def test_a_malformed_excluded_list_is_refused_not_read_as_empty(tmp_path, excluded):
-    # read as empty, the still-excluded file looked added: the verdict blamed the artifact
+    # refused by name: read as an empty list the still-excluded file would look added, and a bare
+    # TypeError from a non-mapping row is the crash this check replaces
     root = _tree(tmp_path)
     record = load_bundle(f"skill:{root}", include_resources=True).summary()
     verdict = check_answer_key(f"skill:{root}", {**record, "excluded": excluded}, source="a.json")
@@ -183,3 +184,30 @@ def test_an_excluded_row_without_a_path_is_read_as_the_base_read_it(tmp_path):
     row = {"role": "reference", "reason": "symlink"}
     verdict = check_answer_key(f"skill:{root}", {**record, "excluded": [row]}, source="a.json")
     assert verdict.ok, verdict.message
+
+
+def test_a_malformed_excluded_list_does_not_mask_an_unloadable_artifact(tmp_path):
+    # the list is read after the artifact loads, so a gone artifact keeps its own verdict
+    root = _tree(tmp_path)
+    record = load_bundle(f"skill:{root}", include_resources=True).summary()
+    verdict = check_answer_key(f"skill:{root / 'missing'}", {**record, "excluded": [5]}, source="a.json")
+    assert verdict.problem == "unloadable", verdict.message
+
+
+def test_a_malformed_excluded_list_does_not_mask_a_wrong_artifact(tmp_path):
+    # the artifact check runs before the list is read, so the verdict still names the artifact
+    root = _tree(tmp_path)
+    record = load_bundle(f"skill:{root}", include_resources=True).summary()
+    verdict = check_answer_key(f"skill:{root}", {**record, "excluded": [5], "artifact_name": "other"},
+                               source="a.json")
+    assert verdict.problem == "wrong_artifact", verdict.message
+
+
+def test_an_excluded_path_that_is_not_a_string_is_refused_as_a_deliberate_change(tmp_path):
+    # base accepted {"path": 5} against a matching tree; it is refused now because a non-string
+    # path cannot say which file it excludes. Pinned so the change stays visible.
+    root = _tree(tmp_path)
+    record = load_bundle(f"skill:{root}", include_resources=True).summary()
+    verdict = check_answer_key(f"skill:{root}", {**record, "excluded": [{"path": 5, "role": "x"}]},
+                               source="a.json")
+    assert (verdict.ok, verdict.problem) == (False, "no_file_rows")

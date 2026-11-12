@@ -526,12 +526,9 @@ def check_answer_key(ref: str, record: Mapping[str, Any] | AnswerKeyRecord | Non
             "Re-run `skill novelty atoms` if the atoms came from bundled files.",))
 
     rows = key.files
-    if not key.usable:
-        lacks = " or ".join(name for name, ok in (
-            ("usable file rows", key.usable_files), ("a usable excluded list", key.excluded_ok))
-            if not ok)
+    if not key.usable_files:
         return AnswerKeyVerdict(problem="no_file_rows", message=(
-            f"{source} records a bundle without {lacks}; re-run `skill novelty atoms` "
+            f"{source} records a bundle without usable file rows; re-run `skill novelty atoms` "
             "rather than probing against an answer key whose provenance cannot be checked"))
     try:
         now = load_bundle(ref, **_replay_selection(key))
@@ -547,6 +544,12 @@ def check_answer_key(ref: str, record: Mapping[str, Any] | AnswerKeyRecord | Non
             f"these atoms were extracted from `{recorded_name}` and --artifact is "
             f"`{now.name}`: an answer key belongs to one artifact. Extract atoms for this "
             "one instead."))
+    # Checked after the load and the artifact check, where the list is first read, so a
+    # malformed list changes neither an unloadable nor a wrong-artifact verdict.
+    if not key.excluded_ok:
+        return AnswerKeyVerdict(problem="no_file_rows", message=(
+            f"{source} records a bundle without a usable excluded list; re-run `skill novelty "
+            "atoms` rather than probing against an answer key whose provenance cannot be checked"))
 
     recorded = [row.path for row in rows]
     rebuilt = [item.path for item in now.files]
