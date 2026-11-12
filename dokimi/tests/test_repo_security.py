@@ -763,3 +763,27 @@ def test_a_string_strace_cut_at_its_limit_is_no_argument():
     assert not sec.command_findings(line, "exec")
     full = cut.replace('lis"...', 'lists/*"')
     assert "destructive-delete" not in _rules(sec.command_findings(sec.parse_exec_log(full)[0], "exec"))
+
+
+@pytest.mark.parametrize("text, rule", [
+    ("git -C repo push --force", "history-rewrite"),
+    ("git -c user.name=x push -f origin main", "history-rewrite"),
+    ("git push -fu origin main", "history-rewrite"),
+    ("git push origin +main", "history-rewrite"),
+    ("git reset -q --hard", "history-rewrite"),
+    ("git -C repo commit -n -m x", "hook-bypass"),
+    ("git commit -an -m x", "hook-bypass"),
+])
+def test_git_rules_see_global_options_and_combined_flags(text, rule):
+    assert rule in _rules(sec.command_findings(text, "trace"))
+
+
+@pytest.mark.parametrize("text", [
+    "git -C repo push -u origin main",
+    "git -C repo push --force-with-lease origin br",
+    "git push origin main",
+    "git commit --no-edit --amend",
+    "git reset --soft HEAD~1",
+])
+def test_git_rules_leave_safe_git_commands_alone(text):
+    assert not sec.command_findings(text, "trace")
