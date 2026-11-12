@@ -26,7 +26,7 @@ from typing import Mapping
 
 from dokimi.artifacts import INPUT_KINDS, is_run_id
 from dokimi.runs.kinds import FIELDS, VERSION_KINDS, read_field
-from dokimi.utils import InputError
+from dokimi.utils import InputError, is_symlink_loop
 
 ENV_VAR = "DOKIMI_RUNS_DIR"
 DEFAULT_ROOT = Path("results")
@@ -48,7 +48,7 @@ def lookup(path: Path | str) -> os.stat_result | None:
     try:
         return os.stat(path)
     except OSError as exc:
-        if exc.errno in _ABSENT:
+        if exc.errno in _ABSENT or is_symlink_loop(exc):
             return None
         raise
 

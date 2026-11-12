@@ -11,6 +11,7 @@ import math
 import sys
 from pathlib import Path
 
+from dokimi import cli_flags
 from dokimi.exit_codes import EXIT_USAGE
 from dokimi.metrics.example_runner import ExecutionRefused
 from dokimi.report.json_report import write_json
@@ -155,7 +156,7 @@ def register(sub, positive_int) -> None:
     check_p = docs_sub.add_parser("check", help="Run the static benchmark spec and save a snapshot")
     check_p.add_argument("--root", default=".")
     check_p.add_argument("--spec", default="benchmarks/spec.v1.yaml")
-    check_p.add_argument("--out-json", default="baselines/current.json")
+    cli_flags.add(check_p, "output", "--out", dest="out_json", default="baselines/current.json")
     check_p.add_argument("--out-md", default="reports/current.md")
     check_p.add_argument("--strict", action="store_true", help="Enable hard gate and critical bands (exit 1 on failure)")
     check_p.set_defaults(func=cmd_run)
@@ -168,6 +169,6 @@ def register_compare(sub, positive_int) -> None:
     cmp_p.add_argument("--base", required=True)
     cmp_p.add_argument("--candidate", required=True)
     cmp_p.add_argument("--spec", default=None, help="Spec file for regression thresholds")
-    cmp_p.add_argument("--out-json", default="reports/compare.json")
+    cli_flags.add(cmp_p, "output", "--out", dest="out_json", default="reports/compare.json")
     cmp_p.add_argument("--out-md", default="reports/compare.md")
     cmp_p.set_defaults(func=cmd_compare)

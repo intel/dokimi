@@ -406,7 +406,7 @@ def _cases_and_digest(cases: list[Case] | None, catalogue: Path | None,
 
 def _trace_dir(out_dir: Path) -> Path:
     """out_dir/skill-traces, emptied of the traces an earlier run left there; not traces/, which
-    `repo reach` owns, so the two probes can share an --out without deleting each other's evidence."""
+    `repo reach` owns, so the two probes can share an --out-dir without deleting each other's evidence."""
     trace_dir = out_dir / "skill-traces"
     trace_dir.mkdir(parents=True, exist_ok=True)
     for old in trace_dir.iterdir():

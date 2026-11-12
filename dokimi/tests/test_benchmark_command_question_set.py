@@ -135,7 +135,7 @@ def test_questions_root_is_forwarded_to_every_run(monkeypatch, tmp_path):
     questions_root.mkdir(parents=True)
     args = build_parser().parse_args([
         "benchmark", "run", "--library", "onetbb",
-        "--output-dir", str(tmp_path / "out"),
+        "--out-dir", str(tmp_path / "out"),
         "--questions-root", str(questions_root),
     ])
     assert args.questions_root == str(questions_root)
@@ -189,7 +189,7 @@ def test_preflight_reports_the_questions_root(monkeypatch, tmp_path, capsys):
     args = build_parser().parse_args([
         "benchmark", "preflight", "--library", "onetbb",
         "--doc-source", "local:docs",
-        "--output-dir", str(tmp_path / "out"),
+        "--out-dir", str(tmp_path / "out"),
         "--questions-root", str(questions_root),
         "--provider", "openai", "--judge-provider", "openai",
     ])
@@ -250,7 +250,7 @@ def _preflight(monkeypatch, tmp_path, *extra, env=("OPENAI_API_KEY",)):
         "--provider", "openai", "--judge-provider", "openai",
         *extra,
     ])
-    if "--output-dir" not in extra:
+    if "--out-dir" not in extra:
         args.output_dir = str(tmp_path / "out")
     args.func(args)
 
@@ -346,7 +346,7 @@ def _preflight_with_doc_source(monkeypatch, tmp_path, *extra, error=None, creden
         "benchmark", "preflight", "--library", "onetbb",
         "--doc-source", "local:docs",
         "--provider", "openai", "--judge-provider", "openai",
-        "--output-dir", str(tmp_path / "out"), *extra,
+        "--out-dir", str(tmp_path / "out"), *extra,
     ])
     args.func(args)
 
@@ -387,7 +387,7 @@ def test_preflight_input_error_wins_over_a_check_failure(monkeypatch, tmp_path, 
     blocker = tmp_path / "file"
     blocker.write_text("not a directory", encoding="utf-8")
     with refusal() as exc:
-        _preflight_with_doc_source(monkeypatch, tmp_path, "--output-dir", str(blocker / "out"))
+        _preflight_with_doc_source(monkeypatch, tmp_path, "--out-dir", str(blocker / "out"))
     assert exc.code == 2
     err = capsys.readouterr().err
     assert "output dir not writable" in err and "doc source check failed" in err
@@ -415,7 +415,7 @@ def test_preflight_questions_from_skips_root_check(monkeypatch, tmp_path, capsys
     args = build_parser().parse_args([
         "benchmark", "preflight", "--library", "onetbb",
         "--doc-source", "local:docs",
-        "--output-dir", str(tmp_path / "out"),
+        "--out-dir", str(tmp_path / "out"),
         "--questions-from", str(questions_dir / "onetbb.json"),
         "--questions-root", str(empty_root),
         "--provider", "openai", "--judge-provider", "openai",
@@ -430,7 +430,7 @@ def test_preflight_rejects_an_unwritable_output_dir(monkeypatch, tmp_path, capsy
     blocker.write_text("not a directory", encoding="utf-8")
 
     with refusal() as exc:
-        _preflight(monkeypatch, tmp_path, "--output-dir", str(blocker / "out"))
+        _preflight(monkeypatch, tmp_path, "--out-dir", str(blocker / "out"))
 
     assert exc.code == 2  # unwritable output is an input refusal (docs/quickstart.md)
     assert "output dir not writable" in capsys.readouterr().err
@@ -458,7 +458,7 @@ def test_run_rejects_an_unusable_questions_from_before_any_call(
 
     args = build_parser().parse_args([
         "benchmark", "run", "--library", "onetbb", "--multi-run", str(multi_run),
-        "--output-dir", str(tmp_path / "out"),
+        "--out-dir", str(tmp_path / "out"),
         "--questions-from", str(make_source(tmp_path)),
     ])
     with refusal() as exc:

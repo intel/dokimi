@@ -159,7 +159,7 @@ questions = ["{questions.as_posix()}"]
 def _arms_run(io, *flags: str) -> list[str]:
     return ["arms", "run", "--product", "demo", "--questions", str(io["questions"]),
             "--arms", f"baseline,docs:local:{io['docs']}",
-            "--out-json", str(io["out"] / "arms.json"), "--out-md", str(io["out"] / "arms.md"),
+            "--out", str(io["out"] / "arms.json"), "--out-md", str(io["out"] / "arms.md"),
             *flags]
 
 

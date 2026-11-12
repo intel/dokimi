@@ -292,7 +292,7 @@ def tree_sha256(root: Path) -> str:
     """sha256 over the relative paths and bytes of the files under ``root``."""
     h = hashlib.sha256()
     for path in sorted(p for p in root.rglob("*") if p.is_file()):
-        h.update(path.relative_to(root).as_posix().encode() + b"\0")
+        h.update(os.fsencode(path.relative_to(root).as_posix()) + b"\0")
         h.update(hashlib.sha256(path.read_bytes()).digest())
     return h.hexdigest()
 

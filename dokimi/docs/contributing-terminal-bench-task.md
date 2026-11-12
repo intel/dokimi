@@ -21,7 +21,7 @@ repository, not here. This framework runs them from a checkout you name:
 ```bash
 python cli.py eval tasks list --tasks-root <checkout>/evaluation/harbor/tasks
 python cli.py tasks run  --tasks-root <checkout>/evaluation/harbor/tasks \
-  --tasks <task-name> --harnesses docker-oracle --out-json results/runs.json
+  --tasks <task-name> --harnesses docker-oracle --out results/runs.json
 ```
 
 This page is the format reference: everything a task directory must contain for
@@ -200,7 +200,7 @@ python cli.py tasks run \
   --tasks-root <checkout>/evaluation/harbor/tasks \
   --tasks <library>-<concept> \
   --harnesses docker-oracle \
-  --out-json results/oracle.json
+  --out results/oracle.json
 ```
 
 Expect `passed: 1` / `pass_rate: 1.0` in the summary. The oracle solves with
@@ -213,7 +213,7 @@ python cli.py tasks run \
   --tasks-root <checkout>/evaluation/harbor/tasks \
   --tasks <library>-<concept> \
   --harnesses docker-probe \
-  --out-json results/probe.json
+  --out results/probe.json
 ```
 
 The probe needs no LLM. It runs the agent's launch (uid 10001 in the task
