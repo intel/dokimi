@@ -111,8 +111,7 @@ from pathlib import Path
 from typing import Any
 
 from dokimi.context.consistency import Run, run_from_events
-from dokimi.eval.sign_flip import (ALPHA, EPS, METHOD, min_sign_flip_p, sign_flip_interval, sign_flip_p,
-                                   within)
+from dokimi.eval.sign_flip import ALPHA, EPS, METHOD, min_sign_flip_p, sign_flip_row, within
 from dokimi.eval.stats import correct_family
 from dokimi.utils import same_model
 
@@ -580,11 +579,11 @@ def sign_flip_summary(pairs: list[dict[str, Any]], measure: str = "gate", seed: 
     Holm's p is known. ``measure`` is not read: every measure gets the same statistics.
     """
     deltas = [p["delta"] for p in pairs]
-    p = sign_flip_p(deltas, seed=seed, exact=exact)
-    lo, hi = sign_flip_interval(deltas, p, seed=seed)
+    row = sign_flip_row(deltas, seed=seed, exact=exact)
+    p, lo, hi = row["p"], row["ci_lo"], row["ci_hi"]
     mean = sum(deltas) / len(deltas)
     sd = statistics.stdev(deltas) if len(deltas) > 1 else 0.0
-    reachable = min_sign_flip_p(sum(abs(d) > EPS for d in deltas)) < ALPHA  # else no effect can be detected
+    reachable = min_sign_flip_p(row["n_changed"]) < ALPHA  # else no effect can be detected
     return {
         "n_tasks": len(pairs),
         "baseline_mean": _round(_mean([p["baseline"] for p in pairs])),
