@@ -53,10 +53,12 @@ def _publish(graph: dict, out: Path) -> None:
         except FileExistsError:
             raise
         except OSError as exc:
-            raise InputError(
-                f"cannot write {out}: no hard links on this filesystem, so the graph is not "
-                f"published there ({exc.strerror or exc}); write it to a filesystem with hard links"
-            ) from exc
+            if exc.errno in _NO_HARD_LINKS:
+                raise InputError(
+                    f"cannot write {out}: no hard links on this filesystem, so the graph is not "
+                    f"published there ({exc.strerror or exc}); write it to a filesystem with hard links"
+                ) from exc
+            raise  # a full disk or an I/O error: the outer handler names it
     except ArtifactValidationError:
         keep_stage = True
         raise

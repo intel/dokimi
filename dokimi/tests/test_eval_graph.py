@@ -232,6 +232,25 @@ def test_no_hard_links_refuses_and_never_creates_out(tmp_path, monkeypatch, caps
     assert [p.name for p in tmp_path.iterdir() if p.name.startswith(".eval-graph-")] == []
 
 
+def test_a_full_disk_at_publish_is_not_reported_as_no_hard_links(tmp_path, monkeypatch, capsys):
+    from dokimi.commands import eval_graph
+
+    _stub(monkeypatch, REPLY)
+    monkeypatch.setattr(eval_graph, "_check_hard_links", lambda out: None)  # the filesystem passed the probe
+
+    def full(src, dst):
+        raise OSError(errno.ENOSPC, "No space left on device")
+
+    monkeypatch.setattr(os, "link", full)
+    out = tmp_path / "g.json"
+
+    result = _run(capsys, str(_skill(tmp_path)), "--out", str(out), "--extract-model", "gemini/x")
+
+    assert result.returncode == 2 and "no hard links" not in result.stderr
+    assert "cannot write" in result.stderr and "No space left" in result.stderr
+    assert not out.exists()
+
+
 def test_a_failed_write_exits_2_and_leaves_no_staged_file(tmp_path, monkeypatch, capsys):
     from dokimi import artifacts
 
