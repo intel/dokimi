@@ -1122,11 +1122,11 @@ def _benefit_lines(
     return lines + [""]
 
 
-def _rank_table(summary_stats: dict[str, dict], field: str, column: str, fmt) -> list[str]:
+def _rank_table(summary_stats: dict[str, dict], field: str, column: str, cell) -> list[str]:
     """Runs ranked by *field*, those without a value last."""
     ranked = sorted(summary_stats.items(), key=_rank_key(field), reverse=True)
     return [f"| Rank | Run | {column} |", "|---:|---|---:|",
-            *(f"| {rank} | **{run_id}** | {fmt(st[field])} |" for rank, (run_id, st) in enumerate(ranked, 1))]
+            *(f"| {rank} | **{run_id}** | {cell(st[field])} |" for rank, (run_id, st) in enumerate(ranked, 1))]
 
 
 def _ranking_lines(summary_stats: dict[str, dict], has_treatment: bool, arm_label: str) -> list[str]:
