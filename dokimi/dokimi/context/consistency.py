@@ -48,6 +48,9 @@ from typing import Any
 
 from dokimi.context import shell
 from dokimi.context.trace import TraceError
+from dokimi.eval.stats import _mean as stats_mean
+from dokimi.eval.stats import _pow2_scale as pow2_scale
+from dokimi.eval.stats import _sample_sd as sample_sd
 from dokimi.utils import InputError, refuse_device
 
 _WRITE_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
@@ -555,11 +558,14 @@ def _mean(xs: list[float]) -> float | None:
 def _cv(xs: list[float]) -> float | None:
     if len(xs) < 2:
         return None
-    mu = sum(xs) / len(xs)
+    if math.isfinite(top := max(abs(x) for x in xs)) and top > 2.0 ** 900:
+        # The cv does not depend on the scale, and the sd itself may leave the float range: https://github.com/intel/dokimi/issues/543
+        scale = pow2_scale(xs)
+        xs = [x / scale for x in xs]
+    mu = stats_mean(xs)
     if not mu:
         return 0.0
-    sd = math.sqrt(sum((x - mu) ** 2 for x in xs) / (len(xs) - 1))
-    return sd / mu
+    return sample_sd(xs) / mu
 
 
 def strategies(runs: list[Run], threshold: float) -> list[list[int]]:
