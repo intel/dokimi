@@ -93,7 +93,7 @@
     },
     "answers": {
       "type": "array",
-      "description": "One record per question: answers[].arms.<arm> is that arm's answer. A single-turn answer carries replayed (boolean): true when the response cache (DOKIMI_RESPONSE_CACHE) served it instead of a model call, a repeat of an earlier run's answer rather than a fresh sample. Session and agentic answers, which never go through the cache, and files written before the flag have no replayed (issue #370)."
+      "description": "One record per question: answers[].arms.<arm> is that arm's answer. A single-turn answer the model gave carries replayed (boolean): true when the response cache (DOKIMI_RESPONSE_CACHE) served it instead of a model call, a repeat of an earlier run's answer rather than a fresh sample. Error cells (no answer, never cached), session and agentic answers (which never go through the cache) and files written before the flag have no replayed (issue #370)."
     },
     "evaluations": {
       "type": "array"
