@@ -86,6 +86,7 @@ from .catalog import SkillCatalogEntry, _within
 from .command_checks import command_findings
 from .content_checks import content_findings
 from .listing import in_field
+from .script_checks import script_findings
 from .paths import _exists, _in_checkout, _inside, _resolved
 from .skill_markdown import link_pieces, outside_fences
 
@@ -170,6 +171,9 @@ FINDING_CODES = (
     "unreadable",
     "permission-bypass-flag",
     "pipe-to-shell",
+    "script-crlf",
+    "script-lint",
+    "script-syntax",
 )
 
 
@@ -706,6 +710,8 @@ def review_skills(
                 Finding("warn", code, message)
                 for code, message in content_findings(skill, at_root=at_root and not standalone)
             ]
+            review.findings += [Finding(*item) for item in script_findings(
+                skill.path.parent, checkout=None if standalone else entry.source_root)]
             if not hidden:
                 review.findings += _description_findings(skill)
             review.content_sha256 = _skill_digest(skill)
