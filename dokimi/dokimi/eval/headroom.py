@@ -28,7 +28,8 @@ A replayed answer (``replayed: true``: the response cache served it) whose text 
 another run has for the same item and arm is a cached repeat, not a sample: its score is left out of
 the reps and the means. The replays of one text that no fresh answer has are one rep, scored at their
 mean. ``summary.replayed_repeats`` counts the scores of replays that added no rep: the left-out ones,
-and each of those copies past the first. A replay with no score adds no rep for that reason, not counted.
+and each of those copies past the first. A replay with no score adds no rep because it has no score,
+and is not counted.
 """
 
 from __future__ import annotations
