@@ -223,7 +223,7 @@ def test_every_emitted_finding_code_can_be_ignored():
     # --ignore accepts FINDING_CODES only: a code a review reports and the tuple lacks is refused.
     codes = _emitted_codes()
     # The scan itself must find codes from both sources, or the check below proves nothing.
-    assert {"name-mismatch", "legacy-model-id", "hidden-unicode"} <= codes
+    assert {"name-mismatch", "legacy-model-id", "hidden-unicode", "script-syntax"} <= codes
     assert codes - set(FINDING_CODES) == set()
 
 
