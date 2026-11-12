@@ -476,6 +476,17 @@ def test_novelty_routing_tombstone_refuses_a_stray_token_after_a_no_value_flag()
             moved_argv(old)
 
 
+def test_novelty_routing_tombstone_refuses_a_stray_token_after_a_kept_value_flag():
+    # --queries, --model and the other flags the new leaf keeps take one value: a second plain token
+    # after it was an error in the retired parser, and must not become the SKILL positional.
+    for old in (["novelty", "routing", "--queries", "q.txt", "y", "--competitors", "a"],
+                ["novelty", "routing", "--model", "m", "y", "--artifact", "skill:a"],
+                ["novelty", "routing", "--seed=1", "y", "--artifact", "skill:a"],
+                ["novelty", "routing", "--repeats", "2", "-", "--artifact", "skill:a"]):
+        with pytest.raises(ValueError, match="unrecognized arguments: (y|-)$"):
+            moved_argv(old)
+
+
 def test_novelty_routing_tombstone_refuses_a_stray_token_after_a_value_flag():
     # The retired parser had no positionals: `y` after the value of --artifact or --catalog was an
     # error. Taking the flag out of the argv must not let `y` join --competitors.

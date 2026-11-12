@@ -224,10 +224,13 @@ def _split_routing_argv(rest: list[str]) -> tuple[dict[str, list[str]], list[str
         elif name == "--competitors":
             i = _take_competitors(rest, i, eq, value, kept)
         else:
-            if name in _RETIRED_NO_VALUE_FLAGS:
-                _refuse_stray(rest, i + 1)
             kept.append("--reps" + eq + value if name == "--repeats" else rest[i])
             i += 1
+            if name in _RETIRED_VALUE_FLAGS and not eq and i < len(rest) and _is_plain(rest[i]):
+                kept.append(rest[i])
+                i += 1
+            if name in _RETIRED_VALUE_FLAGS or name in _RETIRED_NO_VALUE_FLAGS:
+                _refuse_stray(rest, i)
     return values, kept
 
 
@@ -278,6 +281,11 @@ def _take_competitors(rest: list[str], i: int, eq: str, value: str, kept: list[s
 
 # The retired flags that take no value: a plain token after one is stray.
 _RETIRED_NO_VALUE_FLAGS = ("--estimate-only", "--include-disabled", "--include-invalid", "--queries-from-headings")
+
+# The retired flags that the new leaf keeps and that take one value: the value is kept, and a second
+# plain token after it is stray.
+_RETIRED_VALUE_FLAGS = ("--keep-copies-under", "--max-tokens", "--max-usd", "--model", "--out", "--provider",
+                        "--queries", "--queries-by-skill", "--repeats", "--seed")
 
 # The flags `novelty routing` took (its parser allowed any unique prefix of one).
 _RETIRED_ROUTING_FLAGS = (
