@@ -195,6 +195,11 @@
         "n_probes": {"type": "integer", "minimum": 0},
         "malformed_rate": {"type": "number", "minimum": 0, "maximum": 1},
         "checks": {"type": "string"},
+        "items": {
+          "type": "array",
+          "items": {"type": "object"},
+          "description": "Partial record only: every probe built before the stop (atom_id, kind, question, expected, expect_refusal), so the wordings paid for are kept."
+        },
         "by_kind": {
           "type": "object",
           "additionalProperties": {

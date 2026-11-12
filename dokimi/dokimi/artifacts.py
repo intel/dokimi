@@ -317,9 +317,11 @@ def load_artifact(kind: str, path: Path | str, *, validate: bool = True) -> dict
     data = read_json_input(path)
     if not isinstance(data, dict):
         raise InputError(f"{path} is not a {kind} artifact: expected a JSON object, got {type(data).__name__}")
-    if kind == "novelty" and "partial" in data:
+    if kind == "novelty" and ("partial" in data or data.get("status") == "partial"):
         # What `skill novelty analyze` keeps when --max-usd stops it: not a finished analysis.
-        reason = (data["partial"] or {}).get("reason") if isinstance(data["partial"], dict) else None
+        # Either marker alone is enough: the schema lets a record carry one without the other.
+        block = data.get("partial")
+        reason = block.get("reason") if isinstance(block, dict) else None
         raise InputError(f"{path} is a partial novelty artifact: the run was stopped before it "
                          "finished, so it is not a finished analysis. " + (
                              "Drop --max-usd to run unmetered" if reason == "no_price" else

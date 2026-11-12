@@ -103,6 +103,8 @@ def stopped_record(progress: Progress, stop: SpendCapReached, *, artifact_kind: 
         "warnings": sorted(set(progress.warnings)),
         "extracted_atoms": [atom.as_dict() for atom in progress.extracted],
         "source_spans": [span.as_dict() for span in progress.spans],
-        **({"probes": progress.probe_set.as_dict()} if progress.probe_set is not None else {}),
+        **({"probes": {**progress.probe_set.as_dict(),
+                       "items": [probe.as_dict() for probe in progress.probe_set.probes]}}
+           if progress.probe_set is not None else {}),
         **({"runs": [row.as_dict() for row in result.runs]} if result is not None else {}),
     }

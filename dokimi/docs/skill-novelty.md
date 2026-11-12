@@ -1127,14 +1127,17 @@ no known price), `stage` (`extraction`, `verify`, `need_graph`, `probes`, `measu
 or `attribution`: the stage that was running), `message`, `cause` (the cap's own text, with what was
 spent), and `spans_read` / `spans_total` for an extraction stop or `calls_done` / `calls_planned`
 (probe answers) once the measurement started. It keeps the `extracted_atoms` and `source_spans`
-(the unread spans are in `extraction.unread_span_ids`), the `probes` once built and the `runs`
-(probe answers and judgments) so far; it has no `paired`, `arms`, `k0` or view summaries, and no
+(the unread spans are in `extraction.unread_span_ids`), the `probes` once built (with the
+wordings and answer keys in `probes.items`, so a stop before the first answer still keeps them) and
+the `runs` (probe answers and judgments) so far; it has no `paired`, `arms`, `k0` or view summaries, and no
 `novelty.md` or annotated view is written. The exit is non-zero (1), the message names the file and
 how to get the paid calls back: with `DOKIMI_RESPONSE_CACHE` set on the capped run, a rerun with a
 higher `--max-usd` and the same cache replays them at $0 (a reply that was cut off or unusable is
-asked again); without it the message says the calls were not cached. `novelty view`, `subjects`
+asked again; after a `no_price` stop the message says to price the model or drop `--max-usd`
+instead, since a higher cap does not help); without it the message says the calls were not cached. `novelty view`, `subjects`
 (`--novelty-artifact`) and every other reader of a `novelty.json` refuse a partial file by name,
-and `runs list` does not list it (it opens with `status`, not `schema_version`).
+and `runs list` does not list it (it opens with `status`, not `schema_version`). A record
+with `status: "partial"` but no `partial` block is refused too.
 `shorten` still loses its work at the cap (a follow-up). Before its first paid
 call `analyze` prints the run's expected cost at list prices to stderr.
 

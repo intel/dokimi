@@ -110,6 +110,17 @@ def test_a_cap_in_measurement_keeps_the_atoms_and_the_answers_paid_for(tmp_path)
     validate_artifact("novelty", record)
 
 
+def test_a_cap_after_the_wordings_keeps_every_probe_before_the_first_answer(tmp_path):
+    record = _run(tmp_path, _after("Rewrite each statement below")).artifact
+    assert record["partial"]["stage"] == "measurement" and record["partial"]["calls_done"] == 0
+    assert record["runs"] == []
+    items = record["probes"]["items"]
+    assert len(items) == record["probes"]["n_probes"] > 0
+    assert all(item["question"] and item["expected"] and item["atom_id"] for item in items)
+    assert {"paraphrase", "reversal"} <= {item["kind"] for item in items}
+    validate_artifact("novelty", record)
+
+
 def test_a_cap_in_the_paid_classify_stage_keeps_the_complete_measurement(tmp_path):
     result = _run(tmp_path, _after("judge how it functions"))
     partial = result.artifact["partial"]
@@ -194,6 +205,17 @@ def test_the_message_says_a_rerun_replays_the_paid_calls_when_the_cache_was_set(
         args.func(args)
 
 
+def test_a_no_price_stop_does_not_advise_a_higher_cap(tmp_path, monkeypatch):
+    monkeypatch.setenv("DOKIMI_RESPONSE_CACHE", str(tmp_path / "cache"))
+    args, _out_dir = _command(tmp_path, monkeypatch, lambda prompt: None)
+    with pytest.raises(SystemExit) as stop:
+        args.func(args)
+    message = str(stop.value)
+    assert "Rerun with the model priced, or without --max-usd, and the same DOKIMI_RESPONSE_CACHE" \
+        in message
+    assert "higher --max-usd" not in message
+
+
 def test_the_message_does_not_claim_a_replay_when_the_cache_variable_names_a_file(tmp_path,
                                                                                monkeypatch):
     not_a_directory = tmp_path / "cache-file"
@@ -230,6 +252,14 @@ def test_a_partial_analyze_file_is_refused_by_the_readers_of_a_finished_one(tmp_
     with pytest.raises(SystemExit):
         args.func(args)
     partial = out_dir / "novelty.partial.json"
+    record = json.loads(partial.read_text(encoding="utf-8"))
+    del record["partial"]  # the schema lets `status` stand alone
+    status_only = tmp_path / "status-only.json"
+    status_only.write_text(json.dumps(record), encoding="utf-8")
+    for source in (partial, status_only):
+        for validate in (True, False):
+            with pytest.raises(InputError, match="partial novelty artifact"):
+                load_artifact("novelty", source, validate=validate)
     for read in (lambda: load_artifact("novelty", partial),
                  lambda: load_artifact("novelty", partial, validate=False),
                  lambda: load_view_inputs(str(partial), str(tmp_path / "atoms.json")),

@@ -47,9 +47,11 @@ def exit_partial(summary: str, path: Path, note: str = "") -> NoReturn:
     raise SystemExit(f"{summary}; the partial result is in {path}{note}")
 
 
-def replay_hint() -> str:
+def replay_hint(reason: str = "spend_cap") -> str:
     """How a rerun gets the calls this run paid for back at $0: the response cache, which must
-    have been set on the run that paid (every novelty call goes through it)."""
+    have been set on the run that paid (every novelty call goes through it). A higher
+    ``--max-usd`` is advised only for a ``spend_cap`` stop: a call with no price is refused
+    whatever the cap, so that stop is cured by a price or by dropping the cap."""
     from dokimi.caching import RESPONSE_CACHE_ENV, response_cache_dir
 
     try:
@@ -57,7 +59,9 @@ def replay_hint() -> str:
     except ValueError:  # the variable names a file: no call was cached
         active = False
     if active:
-        return (f". Rerun with a higher --max-usd and the same {RESPONSE_CACHE_ENV}: the calls "
+        rerun = ("a higher --max-usd" if reason == "spend_cap"
+                 else "the model priced, or without --max-usd,")
+        return (f". Rerun with {rerun} and the same {RESPONSE_CACHE_ENV}: the calls "
                 "already paid for replay at $0 (a cut-off or unusable reply is asked again)")
     return (f". {RESPONSE_CACHE_ENV} was not set on this run, so a rerun pays for these calls "
             "again; set it to a directory before the next run to replay them at $0")
@@ -73,7 +77,8 @@ def save_analyze_partial(result, out: Path) -> NoReturn:
     partial = result.partial
     cause = partial.get("cause")
     summary = f"{partial['message']} ({cause})" if cause else partial["message"]
-    exit_partial(summary, write_run(result.artifact, out, partial), replay_hint())
+    exit_partial(summary, write_run(result.artifact, out, partial),
+                 replay_hint(partial["reason"]))
 
 
 def write_run(payload: dict, out: Path, partial: dict | None = None) -> Path:
