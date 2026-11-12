@@ -987,3 +987,22 @@ def test_judge_takes_provider_slash_model_only(tmp_path, capsys):
             build_parser().parse_args(["repo", "hits", "judge", str(tmp_path), "--judge", bad])
         assert stopped.value.code == 2
         assert "takes PROVIDER/MODEL" in capsys.readouterr().err
+
+
+def test_a_crash_after_the_judge_calls_with_json_prints_an_infra_document_with_their_cost(tmp_path, capsys, judge_llm,
+                                                                                         monkeypatch):
+    # a crash outside the judge's own exits (here in summary) still reports the calls it paid for, not $0
+    import dokimi.repos.hits_judge as hits_judge
+
+    batch = _batch(tmp_path)
+    _put(batch, "guidance:raw", 3, [_f(30, "mul adds")])
+
+    def broken(*args, **kwargs):
+        raise RuntimeError("summary broke")
+
+    monkeypatch.setattr(hits_judge, "summary", broken)
+    code, out, _ = _run(capsys, "judge", str(batch), "--judge", JUDGE, "--json")
+    doc = json.loads(out)  # exactly one document, with the crash's infra error and the cost of the calls made before it
+    assert code == 5 and (doc["status"], doc["error"]["code"], doc["error"]["retryable"]) == ("failed", "infra", True)
+    assert doc["cost"]["calls"] > 0 and doc["cost"]["priced"] is True and doc["cost"]["spent_usd"] > 0
+    assert schema_errors("cli_output.v1", doc) == []

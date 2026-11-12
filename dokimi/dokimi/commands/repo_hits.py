@@ -10,6 +10,7 @@ import argparse
 import contextlib
 import json
 import sys
+import traceback
 from collections import Counter
 from collections.abc import Iterator
 from pathlib import Path
@@ -115,19 +116,36 @@ def cmd_repo_hits_judge(args: argparse.Namespace) -> None:
         _judge(batch_dir, args)
 
 
+def _crashed(exc: Exception, done: Any, args: argparse.Namespace) -> NoReturn:
+    """A crash after the judge's calls, with --json: the traceback on stderr, then the infra document with the cost
+    of those calls (exit 5, as main's fallback; a $0 document would say the run was free and safe to retry)."""
+    from dokimi import cli_output
+
+    traceback.print_exc()
+    cli_output.emit(cli_output.error_document("repo hits judge", "infra", f"{type(exc).__name__}: {exc}",
+                                              run_id=cli_output.current_run_id(), cost=_cost(done.meter, args.max_usd)))
+    sys.exit(cli_output.EXIT_OF_ERROR["infra"])
+
+
 def _judge(batch_dir: Path, args: argparse.Namespace) -> None:
+    from dokimi import llm_cli
     from dokimi.repos.hits_calibration import calibrate
-    from dokimi.repos.hits_judge import HitsWriteError, JudgeFailing, format_summary, judge_cells, summary
+    from dokimi.repos.hits_judge import HitsWriteError, JudgeFailing, Judged, Meter, format_summary, judge_cells, summary
 
     found, pairs, labels = _read(batch_dir, args)
+    done = Judged(meter=Meter(args.max_usd))  # made here, so a crash after the calls still knows what they cost
     try:
-        done = judge_cells(batch_dir, found, pairs, args.judge, args.max_usd)
+        judge_cells(batch_dir, found, pairs, args.judge, args.max_usd, done=done)
+        calibration = calibrate(labels, done.labels(), pairs) if labels is not None else None
+        result = summary(found, pairs, args.judge, done, calibration)
     except HitsWriteError as exc:  # an output write, as `sheet`'s: exit 2
         _stopped(exc, exc.done, EXIT_USAGE, args)
     except JudgeFailing as exc:  # the provider refuses every call (an auth error, a missing key): exit 1
         _stopped(exc, exc.done, EXIT_FAILURE, args, ", and the cell in progress gets none")
-    calibration = calibrate(labels, done.labels(), pairs) if labels is not None else None
-    result = summary(found, pairs, args.judge, done, calibration)
+    except Exception as exc:
+        if not args.json or isinstance(exc, (InputError, llm_cli.SamplingError)):  # main reports these: no traceback
+            raise
+        _crashed(exc, done, args)
     if args.json:
         from dokimi import cli_output
 
