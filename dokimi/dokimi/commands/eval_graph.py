@@ -105,12 +105,13 @@ def cmd_eval_graph(args: argparse.Namespace) -> None:
     try:
         graph = build_need_graph(name, description, client=client, strict=True)
     except SpendCapReached as exc:
-        if exc.reason != "no_price" or not (exc.reply or "").strip():
+        reply = exc.reply or ""
+        if exc.reason != "no_price" or not reply.strip():
             raise
         # The call is paid for and its reply is the graph, as measure.py keeps such a reply.
         print(f"Warning: no price is known for {provider}/{model}, so this call could not be metered; "
               "its reply is the graph", file=sys.stderr)
-        graph = _graph_from_unmetered(name, description, exc.reply)
+        graph = _graph_from_unmetered(name, description, reply)
     except Exception as exc:  # an unreachable or unauthenticated model: not "an empty graph"
         print(f"Error: the graph-author call failed: {exc}; nothing was written", file=sys.stderr)
         sys.exit(EXIT_FAILURE)
