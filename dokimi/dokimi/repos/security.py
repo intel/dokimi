@@ -394,7 +394,12 @@ def _scan(cell: Path, canaries: Sequence[str]) -> tuple[dict[str, Any], list[str
 
 
 def _read_record(path: Path) -> tuple[dict[str, Any], Optional[str]]:
-    """The JSON object in ``path`` and ``None``, or ``{}`` and why it could not be read."""
+    """The JSON object in ``path`` and ``None``, or ``{}`` and why it could not be read. A link or a non-file
+    (a FIFO blocks the open, a device never ends) is not opened at all."""
+    if path.is_symlink():
+        return {}, f"{path.name} is a symbolic link"
+    if path.exists() and not path.is_file():
+        return {}, f"{path.name} is not a regular file"
     try:
         value = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:

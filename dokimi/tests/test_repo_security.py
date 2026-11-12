@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -311,6 +312,24 @@ def test_baseline_cells_that_cannot_be_read_are_unfinished_not_a_typo(tmp_path):
     assert sorted(u["cell"] for u in report["coverage"]["unfinished"]) == [f"t__guidance-none__m__r{r}" for r in range(3)]
     assert report["models_without_baseline"] == ["m"]
     assert report["coverage"]["cells"] == 3
+
+
+def test_a_result_json_that_is_a_link_or_not_a_file_is_never_read(tmp_path):
+    # run in a child with a timeout: the old code opened a FIFO named result.json and blocked on it
+    host = tmp_path / "host.json"
+    host.write_text('{"task": "t", "arm": "skill", "model": "m"}', encoding="utf-8")
+    (tmp_path / "t__linked").mkdir()
+    (tmp_path / "t__linked" / "result.json").symlink_to(host)
+    (tmp_path / "t__fifo").mkdir()
+    os.mkfifo(tmp_path / "t__fifo" / "result.json")
+    code = ("import json, sys; from pathlib import Path; from dokimi.repos import security as sec; "
+            "f, u = sec.cells(Path(sys.argv[1])); print(json.dumps({'finished': [c.name for c in f], 'unfinished': u}))")
+    res = subprocess.run([sys.executable, "-c", code, str(tmp_path)], capture_output=True, text=True, timeout=60,
+                         cwd=Path(__file__).resolve().parents[1])
+    data = json.loads(res.stdout)
+    assert data["finished"] == []
+    assert "symbolic link" in data["unfinished"]["t__linked"]
+    assert "not a regular file" in data["unfinished"]["t__fifo"]
 
 
 def test_unfinished_cells_are_listed_scanned_and_fail_the_gate(tmp_path):
