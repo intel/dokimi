@@ -145,7 +145,8 @@ def _moved_exit(parser: argparse.ArgumentParser, argv: list[str], text: str) -> 
 
     leaf = _leaf_at(parser, argv)
     if leaf is not None and leaf._defaults.get("emits_cli_output") and _json_requested(leaf, argv):
-        cli_output.emit(cli_output.error_document(_leaf_kind(leaf), "moved", text, reason=text))
+        cli_output.emit(cli_output.error_document(_leaf_kind(leaf), "moved", text, reason=text,
+                                                  run_id=cli_output.current_run_id()))
     parser.exit(2, text + "\n")
 
 
