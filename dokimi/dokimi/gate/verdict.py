@@ -117,13 +117,13 @@ class Verdict:
 
     @property
     def has_warnings(self) -> bool:
-        """A graded check landed at WARN."""
-        return any(c.level == "WARN" for c in self.checks)
+        """A warn-severity check did not pass (a regression graded WARN)."""
+        return bool(self.warnings)
 
     @property
     def has_critical(self) -> bool:
-        """A graded check landed at CRITICAL."""
-        return any(c.level == "CRITICAL" for c in self.checks)
+        """A fail-severity check did not pass (a regression graded CRITICAL)."""
+        return bool(self.failures)
 
     @property
     def status(self) -> str:

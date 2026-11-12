@@ -40,7 +40,8 @@ def _regression_check(name: str, delta: float, warn: float, critical: float) -> 
         value=delta,
         threshold=(warn, critical),
         message=f"{name} delta {delta:+.4f} graded {level}",
-        severity="warn",
+        # CRITICAL is a fail-severity check, so the verdict's status and flags read it as FAIL
+        severity="fail" if level == "CRITICAL" else "warn",
         level=level,
     )
 
