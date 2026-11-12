@@ -130,8 +130,8 @@ labelled deprecated is not listed. Some listed IDs are short names (`o1`, `o3-mi
 `gpt-4`, `dall-e-2`) that can also appear in prose about a model; a finding there is a
 prompt to reword it; a code span does not silence the warning, and there is no suppression yet. A few rows
 name no replacement (`sora-2`, `gpt-5.4-cyber`), and the finding then points at the vendor page.
-The list includes Imagen and Veo IDs, so it reaches past the text models. Warnings do not fail
-`--strict`, which gates on `error` rows only.
+The list includes Imagen and Veo IDs, so it reaches past the text models. This warning does not
+fail `--strict`. Of the warnings, only the unrestricted-Bash pair does (`allowed-tools-unrestricted-bash` below).
 
 ## The layout the readers expect
 
@@ -238,12 +238,33 @@ file exists from the catalog root instead. Example links such as `[Title](URL)`
 are common, so `--strict` does not fail on them. A link, or a `../` code span,
 that reaches a file outside the skill directory is a `warn`
 (`link-escapes-skill`, `path-escapes-skill`), since it breaks when the skill is
-installed alone. A description with no "when" clause (`use when ...`, `when deploying ...`) is a `warn`
+installed alone. An `allowed-tools` that grants `Bash` for every command (`Bash`
+with no pattern, or `Bash(*)`) is a `warn` (`allowed-tools-unrestricted-bash`);
+its message names a `pipe-to-shell` or `permission-bypass-flag` hit in the same
+skill, since those commands then run with no prompt, and that pair fails `--strict`. A description with no "when" clause (`use when ...`, `when deploying ...`) is a `warn`
 (`description-no-when`), and so is one that overlaps another skill's by at least
 half and shares three words (`description-near-duplicate`). Two skills in different paths with the same
 directory name and description but different `SKILL.md` text are a `warn` on both
 (`mirror-drift`), naming the other copies. Skills with
 `disable-model-invocation: true` are exempt from the description checks.
+
+The scan also reads the scripts a skill bundles: each `.sh`, `.bash` and `.py` file, and each file that
+starts with `#!`, under the skill directory (a file over 1 MB, and a link out of the directory, is not read).
+At most 200 files of a bundle are walked: every file counts, `SKILL.md` and non-script files included, in walk
+order (a directory's files sorted by name, then its subdirectories). Files past the cap are not checked and give
+no finding; a subdirectory with its own `SKILL.md` is another skill and is skipped.
+A file with a `#!` line and no `.sh`, `.bash` or `.py` suffix is read for CRLF only.
+Nothing is run or imported. A CRLF line ending in a shell script or a `#!` file is a `warn` (`script-crlf`): bash and a
+shebang interpreter fail on the carriage return on Linux. A Python file that the running Python's
+`ast.parse` rejects is a `warn` (`script-syntax`). So is a shell script that `bash -n` rejects: the text
+goes to bash on stdin with no environment, and only when bash is on PATH; a script whose shebang names
+a shell other than bash, sh, dash or ksh is not checked that way, and a `.sh` with no shebang is taken as bash. The shebang's `env` options and `NAME=value` words are looked through, and `-O extglob` is given to `bash -n` when the shebang asks for it, when the shebang names ksh (which always has the extended patterns on), or when a `shopt -s` command of the script turns extglob on (`bash -n` runs no `shopt -s extglob`). A `shopt -s extglob` counts wherever it is: in a function, a `( )`, an `if` branch, or later in the file than the pattern it would parse. The option is then given for the whole script, which is the rule on purpose: it reads a script right whose top-level `if` branch sets extglob and is followed by extglob patterns. The cost is a missed error: a pattern that is an error without a shopt, but is accepted because a shopt sits elsewhere (in a function, a subshell, an untaken branch, or later in the file), is not flagged. A shebang argument that changes parsing and is not one of these leaves the script unchecked. When `ruff` or `shellcheck` is on
+PATH, its `.py` files are linted with `ruff check --select S,E9,F63,F7,F82` and its `.sh` and `.bash`
+files with `shellcheck -f json`, and one `note` (`script-lint`) gives the count and the top three rules of each tool. Both run with their config
+ignored (`--isolated`, `--norc`), so a skill's own config files do not change the result. A missing tool
+adds nothing, and so does a tool that cannot start. The vendored and scaffold trees are left out
+(`.git`, `node_modules`, `site-packages`, `.venv`, `templates` and the rest the loader skips). A skill
+at the root of the checkout has no script bundle: its bundle would be the whole checkout, tests included.
 
 The scan also reads the shell commands in `SKILL.md` and its bundled text files; nothing is run. A `curl`
 or `wget` piped into a shell or an interpreter (`| sh`, `| sudo bash`, `| python3`) is a `warn`

@@ -59,7 +59,7 @@ def test_correct_family_display_matches_adjust_pvalues():
 
 
 def test_apply_correction_boundary_is_significant_for_the_arms_family():
-    results = [{"p": BOUNDARY_IN, "significant": True} for _ in range(3)]
+    results = [{"p": BOUNDARY_IN, "significant": True, "n_changed": 8} for _ in range(3)]
     stats._apply_correction(results, correction="holm", label="arms")
     for res in results:
         assert res["p_adjusted"] == 0.05  # display stays rounded
@@ -67,34 +67,35 @@ def test_apply_correction_boundary_is_significant_for_the_arms_family():
 
 
 def test_apply_correction_boundary_just_above_alpha_is_not_significant():
-    results = [{"p": BOUNDARY_OUT, "significant": True} for _ in range(3)]
+    results = [{"p": BOUNDARY_OUT, "significant": True, "n_changed": 8} for _ in range(3)]
     stats._apply_correction(results, correction="holm", label="arms")
     assert [r["significant_adjusted"] for r in results] == [False, False, False]
 
 
 def test_apply_correction_leaves_no_verdict_under_the_floor_rule():
     # significant is None under the floor (2 / 2**5 at five changed pairs): the corrected verdict follows it
-    results = [{"p": BOUNDARY_IN, "significant": None}, {"p": BOUNDARY_IN, "significant": True}]
+    results = [{"p": BOUNDARY_IN, "significant": None, "n_changed": 5},
+               {"p": BOUNDARY_IN, "significant": True, "n_changed": 8}]
     stats._apply_correction(results, correction="holm", label="arms")
     assert [r["significant_adjusted"] for r in results] == [None, True]
 
 
 def test_apply_correction_records_family_fields_and_none_entries():
     results = [
-        {"p": 0.01, "significant": True},
-        {"p": None, "significant": None},
-        {"p": 0.04, "significant": True},
-        {"p": 0.0625, "significant": None},  # under the floor: no verdict, still in the family
+        {"p": 0.01, "significant": True, "n_changed": 8},
+        {"p": None, "significant": None, "n_changed": 0},
+        {"p": 0.04, "significant": True, "n_changed": 8},
+        {"p": 0.0625, "significant": None, "n_changed": 4},  # under the floor: no verdict, out of the multiplier
     ]
     stats._apply_correction(results, correction="holm", label="interactions")
-    # Holm over the three p-values: 3*0.01 = 0.03, 2*0.04 = 0.08, then max(0.08, 1*0.0625).
-    assert [r["p_adjusted"] for r in results] == [0.03, None, 0.08, 0.08]
-    assert [r["significant_adjusted"] for r in results] == [True, None, False, None]
+    # Holm over the two p-values that can reach 0.05: 2*0.01 = 0.02, then max(0.02, 1*0.04).
+    assert [r["p_adjusted"] for r in results] == [0.02, None, 0.04, None]
+    assert [r["significant_adjusted"] for r in results] == [True, None, True, None]
     for res in results:
         assert res["correction"] == "holm"
         assert res["correction_family"] == "interactions"
         assert res["family_size"] == 4
-        assert res["family_tested"] == 3
+        assert res["family_tested"] == 2
 
 
 # On [0.01, 0.02, 0.03] the two methods differ. Holm steps down: 3 * 0.01 = 0.03,
@@ -102,7 +103,7 @@ def test_apply_correction_records_family_fields_and_none_entries():
 # min(0.03, 0.02 * 3/2) = 0.03, min(0.03, 0.01 * 3) = 0.03.
 @pytest.mark.parametrize("correction, adjusted", [("bh", [0.03, 0.03, 0.03]), ("holm", [0.03, 0.04, 0.04])])
 def test_apply_correction_uses_the_requested_method(correction, adjusted):
-    results = [{"p": p, "significant": True} for p in (0.01, 0.02, 0.03)]
+    results = [{"p": p, "significant": True, "n_changed": 8} for p in (0.01, 0.02, 0.03)]
     stats._apply_correction(results, correction=correction, label="arms")
     assert [r["p_adjusted"] for r in results] == adjusted
     assert all(r["correction"] == correction for r in results)
@@ -120,7 +121,7 @@ def test_apply_correction_on_an_empty_family_adds_nothing():
 
 
 def _three_runs(monkeypatch, p):
-    fake = {"p": p, "significant": True}
+    fake = {"p": p, "significant": True, "n_changed": 6}
     monkeypatch.setattr(model_compare, "significance_test", lambda *_, **__: dict(fake))
     run_ids = ["a", "b", "c"]
     all_run_scores = {rid: [{"with_docs": 60, "without_docs": 50}] * 6 for rid in run_ids}
@@ -167,7 +168,7 @@ def test_model_compare_corrects_real_scores_before_rounding():
 
 
 def test_model_compare_skips_runs_without_pairs(monkeypatch):
-    fake = {"p": BOUNDARY_IN, "significant": True}
+    fake = {"p": BOUNDARY_IN, "significant": True, "n_changed": 6}
     monkeypatch.setattr(model_compare, "significance_test", lambda *_, **__: dict(fake))
     all_run_scores = {
         "a": [{"with_docs": 60, "without_docs": 50}] * 6,
