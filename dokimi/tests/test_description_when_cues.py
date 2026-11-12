@@ -71,6 +71,8 @@ HAS_WHEN = [
     pytest.param("デプロイ時には、このスキルを使います。", id="ja-ji-ni-wa-after-noun"),
     pytest.param("배포 시 사용하는 스킬입니다.", id="ko-noun-si-deploy"),
     pytest.param("커밋 시 실행합니다.", id="ko-noun-si-commit"),
+    pytest.param("구매 시 영수증을 발행합니다.", id="ko-noun-si-purchase"),
+    pytest.param("판매 시 재고를 갱신합니다.", id="ko-noun-si-sale"),
     pytest.param("需要生成报告时，请使用本技能。", id="zh-shi-comma-qing-shiyong"),
     pytest.param("在用户提交代码时运行检查。", id="zh-shi-yunxing"),
 ]
@@ -95,6 +97,8 @@ NO_WHEN = [
     pytest.param("いつか使えるように整理したライブラリです。", id="ja-itsuka-not-when"),
     pytest.param("모든 경우에 적용되는 린터입니다.", id="ko-modeun-gyeongu-not-when"),
     pytest.param("보고서를 생성하는 도구입니다. 때로는 오류를 출력합니다.", id="ko-ttaeroneun-not-when"),
+    pytest.param("현대 시 작품을 번역합니다.", id="ko-si-poem-not-when"),
+    pytest.param("매 시 정각에 백업합니다.", id="ko-si-hour-not-when"),
     pytest.param("国際化対応の文字列を抽出します。", id="ja-kokusai-not-sai"),
     pytest.param("배포를 자동화하는 도구입니다. 파이프라인을 구성합니다.", id="ko-plain"),
     pytest.param("오류가 많기 때문에 도구를 만들었습니다.", id="ko-ttaemun-not-ttae"),
