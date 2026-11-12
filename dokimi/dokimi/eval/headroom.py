@@ -24,10 +24,10 @@ drop repeated inputs first (the CLI does, by content digest). A question id repe
 run is refused: it would count as two runs. Nothing here draws a confidence interval; the paired
 statistics of a comparison stay in :mod:`dokimi.eval.stats`.
 
-A replayed answer (``replayed: true``: the response cache served it) whose text a fresh answer of
-another run has for the same item and arm is a cached repeat, not a sample: its score is left out of
-the reps and the means. The replays of one text that no fresh answer has are one rep, scored at their
-mean. ``summary.replayed_repeats`` counts the scores of replays that added no rep: the left-out ones,
+A replayed answer (``replayed: true``: the response cache served it) whose text a scored fresh answer
+of another run has for the same item and arm is a cached repeat, not a sample: its score is left out
+of the reps and the means. The replays of one text that no scored fresh answer has are one rep, scored
+at their mean. ``summary.replayed_repeats`` counts the scores of replays that added no rep: the left-out ones,
 and each of those copies past the first. A replay with no score adds no rep because it has no score,
 and is not counted.
 """
@@ -257,8 +257,9 @@ def _collect(runs: Sequence[Run]) -> Tuple[_Scores, Dict[str, Set[str]], int]:
 
 def _count(cells: List[_Cell], items: Iterable[str]) -> Tuple[_Scores, int]:
     """Question id -> arm -> the scores that count, for each id of ``items``, and how many scores of
-    replayed answers added no rep. A replayed answer whose text a fresh one of the same item and arm has is
-    left out; the replays of one text no fresh answer has count once, at the mean of their scores."""
+    replayed answers added no rep. A replayed answer whose text a scored fresh one of the same item and
+    arm has is left out; the replays of one text no scored fresh answer has count once, at their mean.
+    Only scored cells come in, so an unscored fresh answer does not hold its replay out."""
     scores: _Scores = {key: {} for key in items}
     fresh: Set[Tuple[str, str, Optional[str]]] = set()
     replays: Dict[Tuple[str, str, Optional[str]], List[Fraction]] = {}
@@ -317,8 +318,8 @@ def format_table(result: Dict[str, Any]) -> str:
     if result["summary"]["replayed_repeats"]:
         n = result["summary"]["replayed_repeats"]
         lines.append(f"note: {n} score{'' if n == 1 else 's'} of replayed answers (DOKIMI_RESPONSE_CACHE) added no rep: "
-                     "a copy of a fresh answer is left out, the copies of an answer no run gave fresh "
-                     "count once, at their mean")
+                     "a copy of a scored fresh answer is left out, the copies of an answer no run scored "
+                     "fresh count once, at their mean")
     s = result["summary"]
     th = result["thresholds"]
     lines.append("")
