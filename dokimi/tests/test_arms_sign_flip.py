@@ -160,12 +160,12 @@ HOLM_ARMS = {"a": [5, 6, 7, 8, 9, 10, 11, 12], "b": [5, -1, 4, 6, 3, 2, 7, 1], "
 
 def test_holm_corrects_the_sign_flip_p_across_three_arms_one_under_the_floor():
     res = stats.arm_significance(_arm_evaluations(HOLM_ARMS), "baseline", ["baseline", "a", "b", "c"])
-    # Holm: 3 x 2/256, then 2 x 6/256; c's 0.25 stays in the family and counts in the multiplier
+    # Holm: 2 x 2/256, then 1 x 6/256; c's 0.25 is under the floor, out of the multiplier, with no adjusted p
     assert [res[a]["p"] for a in "abc"] == [0.0078, 0.0234, 0.25]
-    assert [res[a]["p_adjusted"] for a in "abc"] == [0.0234, 0.0469, 0.25]
-    assert [res[a]["exact"]["p_adjusted"] for a in "abc"] == [3 * 2 / 256, 2 * 6 / 256, 0.25]
+    assert [res[a]["p_adjusted"] for a in "abc"] == [0.0156, 0.0234, None]
+    assert [res[a]["exact"]["p_adjusted"] for a in "abc"] == [2 * 2 / 256, 6 / 256, None]
     assert [res[a]["significant_adjusted"] for a in "abc"] == [True, True, None]
-    assert [(res[a]["family_size"], res[a]["family_tested"]) for a in "abc"] == [(3, 3)] * 3
+    assert [(res[a]["family_size"], res[a]["family_tested"]) for a in "abc"] == [(3, 2)] * 3
     assert (res["c"]["n_changed"], res["c"]["significant"]) == (3, None)
 
 
@@ -290,9 +290,9 @@ def test_model_compare_prints_one_sign_flip_p_column():
     section = text.split("## Statistical Significance")[1].split("\n## ")[0]
     assert "| Run | Delta | p (sign-flip) | p (adjusted) | Changed pairs |" in section
     assert "t-test" not in section and "Wilcoxon" not in section and "t_stat" not in section
-    # Holm over both runs: 2 x 2/64 and 1 x 2/32; the run of five changed pairs is in the family, with no verdict
-    assert "| **six** | +10.0 | 0.0312 | 0.0625 | 6 of 6 | N/A | unknown | No |" in section
-    assert "| **five** | +8.3 | 0.0625 | 0.0625 | 5 of 6 | +2.0 | large | N/A |" in section
+    # The run of five changed pairs is under the floor: out of the family, no adjusted p, no verdict
+    assert "| **six** | +10.0 | 0.0312 | 0.0312 | 6 of 6 | N/A | unknown | OK Yes |" in section
+    assert "| **five** | +8.3 | 0.0625 | N/A | 5 of 6 | +2.0 | large | N/A |" in section
 
 
 def test_model_compare_prints_a_small_significant_delta_with_its_sign():
@@ -317,7 +317,8 @@ NO_NUMPY = (
     "sys.modules['numpy'] = sys.modules['scipy'] = None\n"  # an import fails, find_spec("scipy") is None: as if uninstalled
     "import dokimi.cli, dokimi.config_check\n"
     "from dokimi.eval import stats\n"
-    "print(stats.sign_flip_p([1.0] * 6))\n"
+    "from dokimi.eval.sign_flip import sign_flip_p\n"
+    "print(sign_flip_p([1.0] * 6))\n"
 )
 
 
