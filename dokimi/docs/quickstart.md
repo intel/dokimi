@@ -259,7 +259,7 @@ A command that validates its input and then runs exits 2 for the first and 1
 for the second. Not every command follows this yet: `repo run` and
 `eval check` exit 2 for a source that does not parse or a pinned local path inside a repository,
 but still exit 1 for other input refusals (a missing or malformed manifest, a bad arm; the `✗` lines;
-a `--manifest` path that leaves an unpinned local source tree as typed is exit 2, as a source refusal; a link in the tree that leads out of it is exit 1; on a pinned source it is a missing manifest, exit 1), and
+a `--manifest` path that leaves the source tree as typed is exit 2, pinned or not, as a source refusal; a link in the tree that leads out of it is exit 1), and
 `tools preference` exits 1 when every call failed and 3 when `--max-cost-usd`
 or an unpriced model stopped it short. `repo run --max-batch-usd`,
 `repo hits judge --max-usd` and the novelty commands' `--max-usd` still exit 1
