@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/intel/dokimi/schemas/question_quality.v1.json",
+  "title": "Question quality report v1",
+  "description": "`reports/<product>_question_quality.json`, written by `eval questions analyze` (dokimi.questions.quality_analyzer): a model's difficulty and triviality label for each question, and the distribution over the set.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "library_name",
+    "total",
+    "difficulty_distribution",
+    "trivial_count",
+    "trivial_pct",
+    "diversity_score",
+    "questions",
+    "trivial_questions",
+    "recommendations"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "question_quality.v1"
+    },
+    "run_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}(?![\\s\\S])",
+      "description": "The envelope: the id of the run that saved this file (dokimi.artifacts.run_id). Absent from files saved before the envelope."
+    },
+    "dokimi_version": {
+      "type": "string",
+      "minLength": 1,
+      "description": "The envelope: the dokimi version that saved this file. Absent from files saved before the envelope."
+    },
+    "library_name": {
+      "type": "string"
+    },
+    "total": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "difficulty_distribution": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "trivial_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "trivial_pct": {
+      "type": "number"
+    },
+    "diversity_score": {
+      "type": "number",
+      "description": "Normalized entropy over the difficulty buckets: 0 all one, 1 balanced."
+    },
+    "questions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "question",
+          "difficulty",
+          "trivial",
+          "reason",
+          "error"
+        ],
+        "properties": {
+          "question": {
+            "type": "string"
+          },
+          "difficulty": {
+            "type": "string",
+            "description": "As the model replied; beginner, intermediate or advanced when it followed the prompt. A reply that is not text, or a failed call, reads as intermediate with `error` set."
+          },
+          "trivial": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why the call failed, or that the reply's difficulty was not text."
+          }
+        }
+      }
+    },
+    "trivial_questions": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "recommendations": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    }
+  }
+}

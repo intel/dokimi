@@ -782,7 +782,7 @@ counted as a miss.
 every skill that has queries the gold in turn, routed against the whole field. The file is a
 JSON object of skill name to the requests that should select it, each written without the
 skill's own text. A skill named twice in the file is refused. `--out` must name a file: a directory, a
-path under a non-directory, a FIFO or device, a symlink loop, or an unwritable path is refused before any model call (the same
+path under a non-directory, a FIFO or device, a symlink loop (ELOOP, or WinError 1921 on Windows), or a path that refuses a trial write (an existing file opened for append, nothing truncated; a directory given a temporary file as long as the output's own name, so a name over the file system's limit is refused) is refused before any model call (the same
 check is made for a single-artifact `routing --out`); a missing parent directory is created. The output has a confusion
 matrix (gold to picked to count, with `(none)` for a query no card shares a word with or, in
 the model arm, an abstention, and `(tie)` for a query on which two or more other cards tie for
@@ -833,8 +833,11 @@ and warns when fewer than five calls were answered. When `--out` already holds a
 not itself partial, the partial one goes to the first of `<out stem>.partial.json`,
 `<out stem>.partial2.json`, ... beside it that is free or a partial result it can write (a
 sidecar that is not a regular file, such as a FIFO or a symlink, is skipped without being
-opened or followed; a sidecar name too long for the file system stops the save with that
-error), and the exit
+opened or followed; a stem that fits its own sidecar name keeps it (bar the digest-shaped case below), and one too long for a name to
+fit the file system is cut for that name (leaving room for a counter of six digits, so the
+numbered names share one stem) and ends in a digest of the whole stem, so the partial result is
+still saved and two long outs keep separate sidecars, and a short stem that ends in a digest-shaped tag (in either case)
+as long as a cut one is cut again, so it never takes a cut one's sidecar), and the exit
 message names that path, so a cap never replaces a finished measurement. The calls made are
 scored as in a run with failed calls: a single run's `model.per_query` holds them, and
 `model.n_calls` is `N` rather than queries times repeats. In all-vs-all the calls never made are
@@ -843,9 +846,8 @@ between repeats keeps its picks but is left out of `noise`. The lexical arm is c
 Treat a `partial` file as a prefix of the run, not a measurement of the whole field: the skills
 and queries reached first are over-represented. To finish, raise `--max-usd` and rerun with
 `DOKIMI_RESPONSE_CACHE` set (it must also have been set on the capped run), which replays the
-calls already paid for at no cost. The
-`skill novelty` steps (`analyze`, `atoms`, `probe`) and `skill shorten` still write nothing when the
-cap stops them.
+calls already paid for at no cost. `skill novelty analyze` and `skill shorten` still write nothing
+when the cap stops them; `atoms` and `probe` keep the calls they made as a partial result.
 
 Three properties worth knowing before quoting either:
 
@@ -1115,6 +1117,19 @@ the decision costs nothing. Pricing imports litellm, which tries to fetch its pr
 from the network before it falls back to the copy bundled with the package; on a host
 with no network that is a pause of a few seconds and a warning. Setting
 `LITELLM_LOCAL_MODEL_COST_MAP=True` skips the fetch and uses the bundled prices.
+
+**Spend cap on `atoms` and `probe`.** `--max-usd` stops these at the limit and keeps the work it
+paid for. `atoms` writes `<stem>.partial.json` beside the `--out` file (`atoms.json` by default;
+the spans read so far, the rest marked unread), and `probe` does the same beside its `--out`
+file (`probes.json` by default; the answers so far). Both exit with a message naming the file. A partial file is never read as a
+finished one: `probe` and the other atom readers refuse `atoms.partial.json`, and `novelty items`
+refuses a partial probe file. A partial probe file keeps its `runs` and `probes` and holds null for
+the summaries computed over the answers the cap left (`paired`, `arms`, `abstentions`, the reversal and
+confidence blocks, and `judge2`: the second judge shares the cap, so it cannot regrade at all once
+the cap stops the run).
+A partial file is for inspection; rerun to get a finished one.
+`analyze` and `shorten` still lose their work at the cap (a follow-up). Before its first paid
+call `analyze` prints the run's expected cost at list prices to stderr.
 
 The estimate payload has `expected_calls`, the point figure between
 the two totals (stages, every probe, and half the oracle pairs, split by `by_role`), and

@@ -12,6 +12,8 @@ guidance, and ``eval_dir`` is never in a workspace.
 
 from __future__ import annotations
 
+import os
+
 from ..manifest import RepoManifest, match_glob
 from ..overlays import overlay_of
 from .history import History
@@ -20,6 +22,16 @@ from .threads import PullRequest
 
 class Skip(Exception):
     """A pull request that gives no task; the message says why."""
+
+
+def need_utf8_paths(paths: list[str]) -> None:
+    """:class:`Skip` when a path git gave is not UTF-8 (``os.fsdecode`` keeps its byte): ``task.json`` is UTF-8 text."""
+    for path in paths:
+        try:
+            path.encode()
+        except UnicodeEncodeError:
+            shown = os.fsencode(path).decode("utf-8", "backslashreplace")
+            raise Skip(f"{shown} is not a UTF-8 file name, which task.json cannot hold") from None
 
 
 def check_merged(h: History, pr: PullRequest) -> tuple[str, str]:

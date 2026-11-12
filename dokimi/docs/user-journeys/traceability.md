@@ -53,7 +53,7 @@ AC-J04-003:
   evidence:
     - id: cjm-repo-reach        # the @pytest.mark.outcome id
       kind: cli_scenario
-      invokes: ["repo reach --dry-run", "repo reach --scenarios --out"]
+      invokes: ["repo reach --dry-run", "repo reach --scenarios --out-dir"]
       stubs: [harness (fake executable), model]
   scope: what this evidence covers and what it does not
   gaps: [known missing evidence, in words]

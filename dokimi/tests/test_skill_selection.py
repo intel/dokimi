@@ -622,7 +622,7 @@ def test_arms_run_refuses_bad_expected_skill_before_any_call(monkeypatch, tmp_pa
                                     {"id": "bad", "text": "b", "expected_skill": label}])
     with refusal() as exc:
         _run_cli(["arms", "run", "--product", "x", "--arms", f"skill-catalog:{catalog}",
-                  "--questions", str(q), "--out-json", str(tmp_path / "o.json")])
+                  "--questions", str(q), "--out", str(tmp_path / "o.json")])
     assert exc.code == 2 and match in capsys.readouterr().err
 
 

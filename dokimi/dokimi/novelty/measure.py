@@ -29,7 +29,7 @@ from dataclasses import dataclass, field
 
 from dokimi.utils import InputError
 from .atoms import Atom
-from .client import LLMClient, same_client
+from .client import LLMClient, SpendCapReached, parse_json_object, same_client
 from .controls import (REPEAT_ARM, clustered_ci, control_fields, reversal_by_arm,
                        reversal_paired)
 from .probes import Probe
@@ -170,6 +170,13 @@ class MeasureResult:
     runs: list[ProbeRun] = field(default_factory=list)
     arms: tuple[str, ...] = ()
     with_arm: str = "full"
+    # (probe, arm) jobs the spend cap stopped before they were answered; 0 for a whole run.
+    not_run: int = 0
+    # Answers the cap paid for but the judge call was refused: kept in ``runs`` as ``ERRORED``
+    # (no datum), and counted here so the run is not taken as finished.
+    ungraded: int = 0
+    # (reason, message) of a call the cap refused; None when nothing was stopped.
+    stop: tuple[str, str] | None = None
     # The probes answered, kept so a second judge can regrade a subset (``judge2``).
     probes: list[Probe] = field(default_factory=list)
 
@@ -288,6 +295,29 @@ def check_arms(arms: tuple[str, ...], placebo_text: str | None) -> None:
         raise InputError("the placebo arm needs --placebo-text (domain-mismatched text)")
 
 
+def _unpriced_answer_run(probe: Probe, arm: str, exc: SpendCapReached,
+                         stops: list[SpendCapReached], ungraded: list[ProbeRun]) -> ProbeRun:
+    """The paid answer of a call with no price, kept ungraded (no datum) as the stop's run; a reply
+    cut at the ceiling is kept as an error text instead. An empty reply is no answer: the stop goes
+    on without it."""
+    reply = exc.reply or ""
+    if not reply.strip():
+        raise exc
+    stops.append(exc)
+    # A reply cut at the output ceiling is a prefix, not an answer: stored under the same `<error: `
+    # prefix the priced path uses for a cut reply, so the cut text is not stored as an answer.
+    if exc.truncated:
+        response, confidence = "<error: reply cut at the output ceiling>", None
+    else:
+        response, confidence = reply, _parse_confidence(reply)
+    run = ProbeRun(
+        atom_id=probe.atom_id, probe_kind=probe.kind, arm=arm, question=probe.question,
+        response=response, verdict=ERRORED, confidence=confidence,
+    )
+    ungraded.append(run)
+    return run
+
+
 def run_measurement(
     atoms: list[Atom],
     probes: list[Probe],
@@ -334,6 +364,9 @@ def run_measurement(
     }
     jobs = [(probe, arm) for arm in arms for probe in probes]
 
+    stops: list[SpendCapReached] = []
+    ungraded: list[ProbeRun] = []
+
     def one(job: tuple[Probe, str]) -> ProbeRun:
         probe, arm = job
         answered = True
@@ -342,12 +375,28 @@ def run_measurement(
                 probe.question, contexts.get(arm), answerer,
                 framing=framing, draw=1 if arm == REPEAT_ARM else 0,
             )
+        except SpendCapReached as exc:  # a call with no price: its paid reply is kept, ungraded
+            return _unpriced_answer_run(probe, arm, exc, stops, ungraded)
         except Exception as exc:  # a provider failure is a missing datum, not a wrong answer
             response, confidence = f"<error: {exc}>", None
             verdict = ERRORED
             answered = False
         else:
-            verdict = _grade(probe, response, judge)
+            try:
+                verdict = _grade(probe, response, judge)
+            except SpendCapReached as exc:
+                # The answer was paid for: keep the verdict a refused judge reply names, else
+                # keep it ungraded (no datum). Either way the measurement stops here.
+                stops.append(exc)
+                named = _reply_verdict(exc.reply)
+                run = ProbeRun(
+                    atom_id=probe.atom_id, probe_kind=probe.kind, arm=arm,
+                    question=probe.question, response=response, verdict=named or ERRORED,
+                    confidence=confidence,
+                )
+                if named is None:
+                    ungraded.append(run)
+                return run
         run = ProbeRun(
             atom_id=probe.atom_id, probe_kind=probe.kind, arm=arm,
             question=probe.question, response=response, verdict=verdict,
@@ -361,10 +410,20 @@ def run_measurement(
             run.verdict, run.verdict_source = resolve_verdict(verdict, run.checks)
         return run
 
-    with ThreadPoolExecutor(max_workers=max(1, concurrency)) as pool:
-        runs = list(pool.map(one, jobs))
+    def guarded(job: tuple[Probe, str]) -> ProbeRun | None:
+        try:
+            return one(job)
+        except SpendCapReached as exc:  # the cap stops the measurement: this job is not run
+            stops.append(exc)
+            return None
 
-    return MeasureResult(runs=runs, arms=tuple(arms), with_arm="full", probes=list(probes))
+    with ThreadPoolExecutor(max_workers=max(1, concurrency)) as pool:
+        answered = list(pool.map(guarded, jobs))
+    runs = [run for run in answered if run is not None]
+    stop = (stops[0].reason, str(stops[0])) if stops else None
+    return MeasureResult(runs=runs, arms=tuple(arms), with_arm="full",
+                         not_run=len(jobs) - len(runs), ungraded=len(ungraded), stop=stop,
+                         probes=list(probes))
 
 
 def run_checks(grading: dict, question: str, response: str) -> list[dict]:
@@ -467,6 +526,17 @@ def _grade(probe: Probe, response: str, judge: LLMClient) -> str:
 
 def _names_a_verdict(reply: dict) -> bool:
     return reply.get("verdict") in VERDICTS
+
+
+def _reply_verdict(reply: str | None) -> str | None:
+    """The verdict in a judge reply the cap refused after it came back, or None."""
+    if not reply:
+        return None
+    try:
+        value = parse_json_object(reply)
+    except Exception:
+        return None
+    return value["verdict"] if _names_a_verdict(value) else None
 
 
 def _parse_confidence(text: str) -> float | None:

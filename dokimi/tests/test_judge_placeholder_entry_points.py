@@ -60,7 +60,7 @@ def _evaluate(tmp_path, monkeypatch, *flag):
 
     monkeypatch.setattr(EvaluationPipeline, "run", run)
     with pytest.raises(SystemExit):
-        _run(["evaluate", "--product", "L", "--description", "d", "--output-dir", str(tmp_path), *JUDGE, *flag])
+        _run(["evaluate", "--product", "L", "--description", "d", "--out-dir", str(tmp_path), *JUDGE, *flag])
     return json.loads((tmp_path / "eval" / "L.json").read_text(encoding="utf-8"))
 
 
