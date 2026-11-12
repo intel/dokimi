@@ -160,6 +160,9 @@ NO_WHEN = [
     pytest.param("在项目当中定时清理缓存。", id="zh-dang-zhong-dingshi-not-when"),
     pytest.param("このツールは時には失敗します。", id="ja-toki-ni-wa-adverb-after-wa"),
     pytest.param("彼はときには休む。", id="ja-toki-ni-wa-adverb-after-ha"),
+    pytest.param("当用户提交代码后定时清理缓存。", id="zh-dang-closing-dingshi-not-when"),
+    pytest.param("彼もときには休む。", id="ja-toki-ni-wa-adverb-after-mo"),
+    pytest.param("彼がときには休む。", id="ja-toki-ni-wa-adverb-after-ga"),
 ]
 
 
