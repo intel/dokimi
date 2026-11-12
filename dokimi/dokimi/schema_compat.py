@@ -329,6 +329,11 @@ def compare_against(base: str) -> dict[str, Diff]:
         fixture_dir = _renamed_from(base, FIXTURE_DIR) or fixture_dir
         blobs = [(n, oid) for n, oid in _ls_tree_blobs("--full-tree", f"{base}:{moved}") if n.endswith(".json")]
     results: dict[str, Diff] = {}
+    names = [name for name, _ in blobs]
+    if clash := sorted({name for name in names if names.count(name) > 1}):
+        # Windows reads two names that differ in bytes that are not UTF-8 as one: one key, one work-tree file.
+        raise GitError(f"{base} has two schemas that read as {clash[0]!r} on this platform: "
+                       "compare on a platform that keeps their bytes apart")
     for name, oid in blobs:
         old = json.loads(_git("cat-file", "blob", oid))
         current = SCHEMA_DIR / name

@@ -672,6 +672,28 @@ def test_main_checks_a_schema_whose_name_is_not_utf8_on_windows(monkeypatch, tmp
 
 
 @_BYTE_NAMES
+def test_main_exits_2_for_two_base_schemas_that_read_as_one_name_on_windows(
+        monkeypatch, tmp_path, capsys):
+    """l<FF>int and l<FE>int both read as l<U+FFFD>int on Windows: they shared a key and a work-tree
+    file, so a Windows-valid l<U+FFFD>int.v1.json made the removal of both pass."""
+    import dokimi.schema_compat as sc
+    from dokimi import process_io
+
+    for raw in (b"l\xffint.v1.json", b"l\xfeint.v1.json"):
+        (tmp_path / os.fsdecode(raw)).write_text(json.dumps(OBJ), encoding="utf-8")
+    _commit_all(tmp_path)
+    (tmp_path / os.fsdecode(b"l\xffint.v1.json")).unlink()
+    (tmp_path / os.fsdecode(b"l\xfeint.v1.json")).unlink()
+    (tmp_path / "l�int.v1.json").write_text(json.dumps(OBJ), encoding="utf-8")
+    monkeypatch.setattr(process_io, "_POSIX", False)
+    monkeypatch.setattr(sc, "SCHEMA_DIR", tmp_path)
+    assert sc.main(["--base", "HEAD"]) == 2
+    err = capsys.readouterr().err
+    assert "cannot diff against HEAD" in err
+    assert "two schemas that read as 'l�int.v1.json'" in err
+
+
+@_BYTE_NAMES
 def test_a_git_path_that_is_not_utf8_stays_its_bytes_on_posix(monkeypatch):
     import dokimi.schema_compat as sc
 
