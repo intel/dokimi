@@ -45,3 +45,41 @@ def test_mean_ci_of_one_huge_value_is_that_value(monkeypatch):
 def test_bootstrap_ci_keeps_a_real_inf_in_the_mean():
     ci = stats.bootstrap_ci([math.inf, 1.0, 2.0], n_resamples=50)
     assert ci["mean"] == math.inf
+
+
+def _evals(with_score, without_score, n=3):
+    return [{"id": f"q{i}", "with_docs": {"aggregate": with_score}, "without_docs": {"aggregate": without_score}}
+            for i in range(n)]
+
+
+def test_paired_test_refuses_deltas_beyond_the_float_range():
+    with pytest.raises(OverflowError, match="deltas too large"):
+        stats.paired_test([BIG] * 4, [-BIG] * 4)
+
+
+def test_paired_test_of_a_delta_just_inside_the_range_still_runs():
+    result = stats.paired_test([BIG] * 4, [BIG - 1e300] * 4)
+    assert result["delta_mean"] == pytest.approx(1e300, rel=1e-9)
+    assert stats._deltas([BIG], [-9e306]) == [BIG + 9e306]
+
+
+@pytest.mark.parametrize("bad", [math.nan, math.inf])
+def test_paired_test_keeps_the_meaning_of_a_non_finite_input(bad):
+    result = stats.paired_test([bad, 1.0, 2.0], [0.0, 0.0, 0.0])
+    assert result["p"] is None
+    assert result["significant"] is None
+
+
+def test_paired_summary_paired_delta_and_arm_significance_refuse_the_same_deltas():
+    evals = _evals(BIG, -BIG)
+    with pytest.raises(OverflowError):
+        stats.paired_summary(evals)
+    with pytest.raises(OverflowError):
+        stats.paired_delta(evals, "without_docs", "with_docs")
+    with pytest.raises(OverflowError):
+        stats.arm_significance(evals, "without_docs")
+
+
+def test_paired_summary_of_ordinary_scores_is_unchanged():
+    s = stats.paired_summary(_evals(80.0, 60.0))
+    assert (s.delta_mean, s.delta_min, s.delta_max, s.improvements) == (20.0, 20.0, 20.0, 3)

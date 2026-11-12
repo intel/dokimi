@@ -373,6 +373,17 @@ def _wilson(p: float, n: int, z: float = _Z95) -> Tuple[float, float]:
     return (max(0.0, min(p, centre - half)), min(1.0, max(p, centre + half)))
 
 
+def _deltas(treatment: Sequence[float], control: Sequence[float]) -> List[float]:
+    """``treatment - control`` pair by pair; finite inputs whose difference leaves the float range raise.
+
+    A NaN or inf in the input keeps its meaning in the delta: https://github.com/intel/dokimi/issues/599
+    """
+    deltas = [t - c for t, c in zip(treatment, control, strict=True)]
+    if not all(math.isfinite(d) for d in deltas) and all(math.isfinite(x) for x in (*treatment, *control)):
+        raise OverflowError("deltas too large: a difference of the paired values leaves the float range")
+    return deltas
+
+
 def paired_vectors(
     evaluations: Iterable[RecordLike], arm_a: str, arm_b: str
 ) -> Tuple[List[float], List[float]]:
@@ -399,7 +410,7 @@ def paired_delta(evaluations: Iterable[Any], baseline_arm: str, arm_name: str) -
     difference of two unpaired means would compare different questions.
     """
     arm_vals, base_vals = paired_vectors(evaluations, arm_name, baseline_arm)
-    diffs = [a - b for a, b in zip(arm_vals, base_vals, strict=True)]
+    diffs = _deltas(arm_vals, base_vals)
     return round(sum(diffs) / len(diffs), 1) if diffs else None
 
 
@@ -440,7 +451,7 @@ def paired_summary(evaluations: Iterable[RecordLike]) -> PairedSummary:
     """
     recs = records(evaluations, source="evaluations", kind="evaluations")
     with_s, without_s = paired_vectors(recs, CONTEXT, BASELINE)
-    deltas = [w - wo for w, wo in zip(with_s, without_s, strict=True)]
+    deltas = _deltas(with_s, without_s)
     paired = len(deltas)
     return PairedSummary(
         total=len(recs),
@@ -615,7 +626,7 @@ def paired_test(
     """
     if len(treatment) != len(control) or len(treatment) < 2:
         return None
-    deltas = [t - c for t, c in zip(treatment, control, strict=True)]
+    deltas = _deltas(treatment, control)
     result = _describe_deltas(deltas, confidence=confidence, seed=seed)
     return _finalize(result) if rounded else result
 
@@ -655,7 +666,7 @@ def arm_significance(
         # raw p-values, and paired_test rounds on the way out.
         if len(treat) == len(base) and len(treat) >= 2:
             out[arm] = _describe_deltas(
-                [t - c for t, c in zip(treat, base, strict=True)],
+                _deltas(treat, base),
                 confidence=confidence,
                 seed=seed,
             )
