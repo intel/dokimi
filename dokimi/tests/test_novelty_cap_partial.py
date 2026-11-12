@@ -9,6 +9,7 @@ readers refuse a partial file. analyze names the estimated cost before it spends
 
 from __future__ import annotations
 
+import argparse
 import importlib
 import json
 import os
@@ -210,6 +211,19 @@ def test_an_unpriced_model_prints_no_run_estimate_and_does_not_raise(monkeypatch
     budget.print_run_estimate(None, None, "text", lambda *a, **kw: None)
     captured = capsys.readouterr()
     assert captured.err == "" and captured.out == ""
+
+
+@pytest.mark.parametrize("max_usd, hint", [
+    (2.5, "--max-usd 2.5 stops it at that cap"),
+    (None, "--max-usd caps it"),
+])
+def test_the_run_estimate_line_ends_with_the_max_usd_hint(monkeypatch, capsys, max_usd, hint):
+    budget = importlib.import_module("dokimi.commands.novelty_budget")
+    monkeypatch.setattr(budget, "run_estimate", lambda *a, **kw: ({"expected_usd": 0.42}, 10))
+    args = argparse.Namespace(max_usd=max_usd)
+    budget.print_run_estimate(args, argparse.Namespace(tier="triage"), "text", None)
+    assert capsys.readouterr().err == (
+        f"Expected ~$0.42 for this run at list prices (--tier triage); {hint}\n")
 
 
 def test_an_unpriced_answer_stops_every_queued_probe_not_only_the_one_that_raised():
