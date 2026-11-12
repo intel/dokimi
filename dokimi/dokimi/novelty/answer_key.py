@@ -81,11 +81,6 @@ class AnswerKeyRecord:
         """Whether there is at least one file row and every row is usable."""
         return bool(self.files) and all(row.usable for row in self.files)
 
-    @property
-    def usable(self) -> bool:
-        """Whether the file rows and the ``excluded`` list can both be checked."""
-        return self.usable_files and self.excluded_ok
-
 
 def shown(value: Any) -> Any:
     """A recorded value as a message shows it: an absent key reads as None, as `dict.get` does."""
