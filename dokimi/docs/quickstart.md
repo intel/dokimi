@@ -37,7 +37,7 @@ pip install -r requirements.txt
 ```
 
 The package install provides the `dokimi` console entry point used below.
-`python -m dokimi …` is equivalent. Source-install and requirements-file commands run from the inner `dokimi/` package directory; see [installation](start/README.md#install).
+`python -m dokimi …` is equivalent. The dependencies-only route installs no `dokimi` command: run `python -m dokimi …` from the project directory in its place. Source-install and requirements-file commands run from the inner `dokimi/` package directory; see [installation](start/README.md#install).
 
 The pipeline degrades gracefully if optional deps are missing — see
 [Troubleshooting](#troubleshooting).
