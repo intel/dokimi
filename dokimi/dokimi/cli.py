@@ -122,6 +122,33 @@ def _usage_document(kind: str, message: str) -> None:
                                               reason=message))
 
 
+def _leaf_kind(parser: argparse.ArgumentParser) -> str:
+    """The kind a leaf's document names: its cli_kind, else its name ("backends", not "dokimi backends")."""
+    return parser._defaults.get("cli_kind") or parser.prog.removeprefix("dokimi ")
+
+
+def _leaf_at(parser: argparse.ArgumentParser, tokens: Sequence[str]) -> argparse.ArgumentParser | None:
+    """The leaf parser that ``tokens`` name, walking the subcommands from the root; None when they name no leaf."""
+    node = parser
+    for token in tokens:
+        sub = _subparsers(node)
+        if sub is None or token not in sub.choices:
+            break
+        node = sub.choices[token]
+    return node if node is not parser and _subparsers(node) is None else None
+
+
+def _moved_exit(parser: argparse.ArgumentParser, argv: list[str], text: str) -> NoReturn:
+    """A moved command or spelling exits 2 with its hint on stderr. Under --json the new leaf's failed document
+    (error code ``moved``) comes first, so every --json exit of a leaf has its document."""
+    from dokimi import cli_output
+
+    leaf = _leaf_at(parser, argv)
+    if leaf is not None and leaf._defaults.get("emits_cli_output") and _json_requested(leaf, argv):
+        cli_output.emit(cli_output.error_document(_leaf_kind(leaf), "moved", text, reason=text))
+    parser.exit(2, text + "\n")
+
+
 def _json_requested(parser: argparse.ArgumentParser, tokens: Sequence[str]) -> bool:
     """True when argparse reads ``--json`` as this parser's option in ``tokens``: the exact token, a prefix
     argparse accepts (``--jso``), or ``--json=<value>``. Tokens after a bare ``--`` are positional."""
@@ -144,8 +171,7 @@ class _LeafParser(argparse.ArgumentParser):
     _json_argv = False  # set per parse: whether this leaf's own tokens ask for --json
 
     def _document_kind(self) -> str:
-        # the same kind _document_on_exit writes: the leaf's cli_kind, else its name ("backends", not "dokimi backends")
-        return self._defaults.get("cli_kind") or self.prog.removeprefix("dokimi ")
+        return _leaf_kind(self)  # the kind _document_on_exit writes too
 
     def error(self, message: str) -> NoReturn:
         if self._defaults.get("emits_cli_output") and self._json_argv:
@@ -218,10 +244,10 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     moved = cli_routes.moved_argv(raw)
     if moved is not None:  # a tombstone: say where the command went, do not run anything
         moved = cli_routes.moved_flags_argv(moved) or moved  # the moved flag too, in one step
-        parser.exit(2, cli_routes.moved_text(moved) + "\n")
+        _moved_exit(parser, moved, cli_routes.moved_text(moved))
     moved_flags = cli_routes.moved_flags_argv(raw)
     if moved_flags is not None:  # a moved flag spelling: print the argv with the new one
-        parser.exit(2, cli_routes.moved_text(moved_flags) + "\n")
+        _moved_exit(parser, moved_flags, cli_routes.moved_text(moved_flags))
     args = parser.parse_args(raw)
     if getattr(args, "judge_model", None) is JUDGE_MODEL_FOR_PROVIDER:
         model = default_judge_model(args.judge_provider)

@@ -410,3 +410,25 @@ def test_an_error_object_is_retryable_only_for_infra_and_an_error_document_takes
     doc = cli_output.error_document("repo budget", "moved", "moved: dokimi x", reason="the new spelling")
     assert doc["reason"] == "the new spelling" and doc["error"]["retryable"] is False
     assert schema_errors("cli_output.v1", doc) == []
+
+
+@pytest.mark.parametrize("argv, kind", [
+    (["repo", "validate", ".", "--json", "--out-json", "f"], "repo validate"),  # a moved flag
+    (["tasks", "inspect", "x", "--json"], "eval inspect"),  # a moved command (a tombstone)
+])
+def test_a_moved_spelling_under_json_prints_its_moved_document_with_exit_2(monkeypatch, capsys, argv, kind):
+    with pytest.raises(SystemExit) as exc:
+        _run_main(monkeypatch, argv)
+    assert exc.value.code == 2
+    doc = json.loads(capsys.readouterr().out)
+    assert (doc["kind"], doc["status"], doc["error"]["code"]) == (kind, "failed", "moved")
+    assert doc["reason"].startswith("moved: dokimi ") and schema_errors("cli_output.v1", doc) == []
+
+
+@pytest.mark.parametrize("argv", [["repo", "validate", ".", "--out-json", "f"], ["tasks", "inspect", "x"]])
+def test_a_moved_spelling_without_json_prints_no_document(monkeypatch, capsys, argv):
+    with pytest.raises(SystemExit) as exc:
+        _run_main(monkeypatch, argv)
+    assert exc.value.code == 2
+    captured = capsys.readouterr()
+    assert captured.out == "" and captured.err.startswith("moved: dokimi ")
