@@ -23,7 +23,7 @@ from dokimi.metrics.usage import UsageRecord
 from dokimi import judge_rule
 
 
-def default_judge(model: str, provider: str | None = None,
+def default_judge(model: str | None, provider: str | None = None,
                   answerer_provider: str | None = None) -> tuple[str, str]:
     """The one default-judge rule (:func:`dokimi.judge_rule.default_judge`), under the ``model`` keyword it had here.
 
