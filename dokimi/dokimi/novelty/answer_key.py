@@ -3,8 +3,9 @@
 
 """The saved answer key's ``bundle`` block, parsed once into a typed record.
 
-``atoms.json`` carries the bundle record that :func:`dokimi.novelty.bundle.check_answer_key`
-and :func:`dokimi.novelty.bundle.entry_point_only` read. :func:`parse_answer_key` reads the
+``atoms.json`` carries the bundle record that
+:func:`dokimi.novelty.answer_key_check.check_answer_key` and
+:func:`dokimi.novelty.bundle.entry_point_only` read. :func:`parse_answer_key` reads the
 block once; the checks take the :class:`AnswerKeyRecord` and never index the raw dict.
 
 Values are kept as the record stored them; the one conversion is the truthiness of

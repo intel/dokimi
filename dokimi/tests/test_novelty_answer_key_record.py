@@ -8,7 +8,8 @@ from __future__ import annotations
 import pytest
 
 from dokimi.novelty.answer_key import ABSENT, AnswerKeyRecord, RecordedFile, parse_answer_key
-from dokimi.novelty.bundle import check_answer_key, entry_point_only, load_bundle
+from dokimi.novelty.answer_key_check import check_answer_key
+from dokimi.novelty.bundle import entry_point_only, load_bundle
 from dokimi.novelty.spans import segment
 
 _SKILL = "---\nname: keyrec\ndescription: use when testing keys\n---\n\nUse `--accel` always.\n"

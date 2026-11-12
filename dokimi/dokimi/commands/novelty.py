@@ -196,7 +196,7 @@ def cmd_novelty_probe(args: argparse.Namespace) -> None:
     from dokimi.commands.novelty_atoms_file import (measured_atoms, sampling_record,
                                                     warn_answer_key, warn_unread)
     from dokimi.novelty.atoms import load_atoms_record
-    from dokimi.novelty.bundle import check_answer_key
+    from dokimi.novelty.answer_key_check import check_answer_key
     from dokimi.novelty.measure import SelfJudgeError, check_self_judge, run_measurement
     from dokimi.novelty.probes import build_probe_set
     from dokimi.novelty.report import build_probe_record
