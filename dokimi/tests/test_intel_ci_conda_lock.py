@@ -272,3 +272,34 @@ def test_the_workflow_takes_the_latest_releases_on_a_tag_or_the_schedule_alone(m
     assert build["run"].count("--no-test") == 1 and build["run"].index("--no-test") > build["run"].index("else")
     assert workflow[True]["schedule"] and jobs["report"]["if"] == "${{ failure() && github.event_name == 'schedule' }}"
     assert set(jobs["report"]["needs"]) == {"build", "test", "build-wheel", "test-wheel"}
+
+
+@pytest.mark.parametrize("event", ["pr", "push", "tag", "schedule"])
+def test_a_wheel_installs_on_the_hashed_lock_unless_a_tag_or_the_schedule(
+        event: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A PR or push puts the wheel --no-deps on requirements.lock.txt; only a tag or the schedule floats."""
+    hooks = _script("hooks", monkeypatch)
+    calls: list[list[str]] = []
+    monkeypatch.setattr(hooks, "run", lambda command, **options: calls.append(command))
+    monkeypatch.setattr(hooks, "conda_create", lambda env_dir, *specs, channels=(): None)
+    artifacts = tmp_path / "artifacts"
+    artifacts.mkdir()
+    wheel = artifacts / "dokimi-0.2.0-py3-none-any.whl"
+    wheel.write_bytes(b"wheel")
+    env = hooks.install(argparse.Namespace(kind="wheel", python="3.12", artifacts=artifacts, work=tmp_path / "work",
+                                           event=event, commit=""))
+    pip = [str(hooks.env_python(env)), "-m", "pip", "install", "--no-input"]
+    locked = event in ("pr", "push")
+    assert [c for c in calls if "--require-hashes" in c] == ([[*pip, "--no-deps", "--require-hashes", "-r",
+                                                               str(hooks.LOCK)]] if locked else [])
+    installs = [c for c in calls if str(wheel) in c]
+    assert len(installs) == 1 and ("--no-deps" in installs[0]) is locked
+
+
+def test_the_recipe_tests_run_its_imports_and_commands_in_the_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """With the build's --no-test, these are the only place a PR's conda job runs the recipe's own tests."""
+    hooks = _script("hooks", monkeypatch)
+    calls: list[list[str]] = []
+    monkeypatch.setattr(hooks, "run", lambda command, **options: calls.append(command))
+    hooks.run_recipe_tests(tmp_path)
+    assert calls == [[str(hooks.env_python(tmp_path)), "-c", "import dokimi"], ["pip", "check"], ["dokimi", "--help"]]
