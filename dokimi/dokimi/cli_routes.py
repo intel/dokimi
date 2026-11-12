@@ -189,8 +189,9 @@ def _novelty_routing_argv(rest: list[str]) -> list[str]:
     (its ``--artifact`` value becomes SKILL, ``--catalog`` becomes ``--against``). A bare ``--competitors``
     path was text, so it moves as ``text:``. ``--repeats`` is ``--reps`` in both. A flag the new leaf does
     not take stays in the printed argv, so the new parser refuses it. A value flag with no value (none
-    follows, or a flag does) stays there too. A plain token right after a ``--artifact`` or ``--catalog``
-    value is refused, as the retired parser refused it. An ambiguous prefix raises
+    follows, or a flag does) stays there too. A plain token right after an ``--artifact`` or ``--catalog``
+    value, after the ``=`` form of one, after ``--all-vs-all``, or after ``--competitors=`` is refused, as the
+    retired parser refused it. An ambiguous prefix raises
     :class:`AmbiguousRetiredFlag`, as no command can refuse it.
     """
     rest = [_retired_spelling(tok) for tok in rest]
@@ -216,6 +217,7 @@ def _split_routing_argv(rest: list[str]) -> tuple[dict[str, list[str]], list[str
     while i < len(rest):
         name, eq, value = rest[i].partition("=")
         if name == "--all-vs-all":
+            _refuse_stray(rest, i + 1)
             i += 1
         elif name in values:
             i = _take_value_flag(rest, i, name, eq, value, values, kept)
@@ -227,16 +229,27 @@ def _split_routing_argv(rest: list[str]) -> tuple[dict[str, list[str]], list[str
     return values, kept
 
 
+def _is_plain(token: str) -> bool:
+    """argparse reads a bare `-` and any token not starting with `-` as a value or positional, not a flag."""
+    return token == "-" or not token.startswith("-")
+
+
+def _refuse_stray(rest: list[str], j: int) -> None:
+    """Refuse a plain token where no retired flag takes one: the retired parser said unrecognized arguments."""
+    if j < len(rest) and _is_plain(rest[j]):
+        raise RetiredFlagError(f"unrecognized arguments: {rest[j]}")
+
+
 def _take_value_flag(rest: list[str], i: int, name: str, eq: str, value: str,
                      values: dict[str, list[str]], kept: list[str]) -> int:
     """Take one --artifact or --catalog and its value; returns the next index."""
     if eq:
         values[name].append(value)
+        _refuse_stray(rest, i + 1)
         return i + 1
-    if i + 1 < len(rest) and (rest[i + 1] == "-" or not rest[i + 1].startswith("-")):
+    if i + 1 < len(rest) and _is_plain(rest[i + 1]):
         values[name].append(rest[i + 1])
-        if i + 2 < len(rest) and not rest[i + 2].startswith("-"):
-            raise RetiredFlagError(f"unrecognized arguments: {rest[i + 2]}")
+        _refuse_stray(rest, i + 2)
         return i + 2
     # No value follows: the flag stays in the printed argv, and the new leaf refuses it, since it has
     # no such flag (its error text is not the retired parser's).
@@ -245,10 +258,17 @@ def _take_value_flag(rest: list[str], i: int, name: str, eq: str, value: str,
 
 
 def _take_competitors(rest: list[str], i: int, eq: str, value: str, kept: list[str]) -> int:
-    """Take --competitors and the values that follow it (nargs="+"); a bare path was text. Returns the next index."""
-    kept.append(rest[i] if not eq else f"--competitors={_legacy_competitor(value)}")
+    """Take --competitors and the values that follow it (nargs="+"); a bare path was text. Returns the next index.
+
+    The `=` form takes one value only, so a plain token after it is stray, as argparse refused it.
+    """
+    if eq:
+        kept.append(f"--competitors={_legacy_competitor(value)}")
+        _refuse_stray(rest, i + 1)
+        return i + 1
+    kept.append(rest[i])
     i += 1
-    while i < len(rest) and (rest[i] == "-" or not rest[i].startswith("-")):
+    while i < len(rest) and _is_plain(rest[i]):
         kept.append(_legacy_competitor(rest[i]))
         i += 1
     return i

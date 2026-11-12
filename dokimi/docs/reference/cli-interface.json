@@ -3114,7 +3114,7 @@
               "nargs": "+",
               "position": null,
               "required": false,
-              "type": null
+              "type": "dokimi.commands.routing_parser._skill_ref#528568c46b3b"
             },
             {
               "action": "_StoreTrueAction",
@@ -14472,7 +14472,7 @@
               "nargs": "+",
               "position": null,
               "required": false,
-              "type": null
+              "type": "dokimi.commands.routing_parser._skill_ref#528568c46b3b"
             },
             {
               "action": "_StoreTrueAction",

@@ -468,9 +468,16 @@ def test_novelty_routing_tombstone_refuses_all_vs_all_without_a_catalog(capsys):
 def test_novelty_routing_tombstone_refuses_a_stray_token_after_a_value_flag():
     # The retired parser had no positionals: `y` after the value of --artifact or --catalog was an
     # error. Taking the flag out of the argv must not let `y` join --competitors.
-    for old in (["novelty", "routing", "--competitors", "a", "b", "--artifact", "x", "y"],
-                ["novelty", "routing", "--competitors", "a", "--catalog", "R", "y"]):
-        with pytest.raises(ValueError, match="unrecognized arguments: y"):
+    for old, stray in [
+        (["novelty", "routing", "--competitors", "a", "b", "--artifact", "x", "y"], "y"),
+        (["novelty", "routing", "--competitors", "a", "--catalog", "R", "y"], "y"),
+        (["novelty", "routing", "--competitors", "a", "--catalog=R", "y"], "y"),
+        (["novelty", "routing", "--artifact", "s", "--competitors", "a", "--catalog=R", "y"], "y"),
+        (["novelty", "routing", "--catalog", "R", "--competitors", "a", "--all-vs-all", "y"], "y"),
+        (["novelty", "routing", "--artifact", "skill:a", "-"], "-"),
+        (["novelty", "routing", "--competitors=a", "b"], "b"),
+    ]:
+        with pytest.raises(ValueError, match=f"unrecognized arguments: {stray}$"):
             moved_argv(old)
     assert moved_argv(["novelty", "routing", "--artifact", "x", "--competitors", "a", "b"]) == [
         "skill", "routing", "text:x", "--competitors", "text:a", "text:b"]
