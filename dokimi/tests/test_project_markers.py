@@ -39,3 +39,11 @@ def test_root_files_set_is_unchanged():
         "conftest.py", "pytest.ini", "tox.ini", "requirements.txt", ".pre-commit-config.yaml", ".clang-format",
         ".editorconfig", ".gitignore", "Dockerfile",
     })
+
+
+def test_environment_checks_read_the_shared_makefile_names():
+    # the runner check looked for `include` lines in a second copy of the makefile names; it reads the shared one
+    from dokimi.repos import environment
+
+    assert "_ROOT_MAKEFILES" not in vars(environment)
+    assert environment.MAKEFILE_NAMES is project_markers.MAKEFILE_NAMES
