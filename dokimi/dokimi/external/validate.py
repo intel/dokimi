@@ -430,7 +430,7 @@ def _unloaded_review(entry: SkillCatalogEntry) -> Optional[SkillReview]:
         return None  # an empty file is not prose: the loader's error stands
     lines = text.lstrip("\ufeff").splitlines()
     first = next((line.rstrip() for line in lines if line.strip()), "")
-    if (first.strip() == "---" and lines[0].rstrip() != "---") or (first.strip() != "---" and _has_late_frontmatter(lines)):
+    if (first.strip() == "---" and lines[0].rstrip() != "---") or (first.strip() != "---" and _has_late_frontmatter(outside_fences("\n".join(lines)))):
         return None  # frontmatter after blank lines, an indent or another line: a broken skill, not prose; the loader's error stands
     if first.strip() != "---":
         at_root = candidate.parent.resolve() == entry.source_root.resolve()  # as _frontmatter_findings reads it

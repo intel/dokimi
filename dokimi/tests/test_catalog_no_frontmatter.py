@@ -153,6 +153,18 @@ def test_the_json_row_has_the_finding(tmp_path, capsys):
     assert [f["code"] for f in row["findings"]] == ["not-a-skill-no-frontmatter"]
 
 
+@pytest.mark.parametrize("per_skill", [[], ["--per-skill"]])
+def test_a_fenced_frontmatter_example_in_plain_markdown_is_still_plain_markdown(tmp_path, capsys, per_skill):
+    # Docs about skills show a frontmatter block in a fence near the top: that is prose, not misplaced frontmatter.
+    text = "# Tool\n\nExplains metadata.\n\n```yaml\n---\nname: example\ndescription: Use when testing.\n---\n```\n"
+    _plain(tmp_path, "tool", text)
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    [finding] = review.findings
+    assert (finding.level, finding.code) == ("error", "not-a-skill-no-frontmatter")
+    assert main(["catalog", "check", "--root", str(tmp_path), "--kind", "skills", *per_skill]) == 1
+    assert "1 error, of them 1 plain Markdown with no frontmatter" in capsys.readouterr().out
+
+
 @pytest.mark.parametrize("opener", ["  ---\nname: indent\ndescription: y\n  ---\n# X\n",
                                     "\n---\nname: late\ndescription: y\n---\n# Late\n",
                                     "<!-- generated -->\n---\nname: deck\ndescription: Use when decks.\n---\n# Deck\n",
