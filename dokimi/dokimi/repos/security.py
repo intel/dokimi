@@ -299,12 +299,17 @@ def _trace_problem(path: Path) -> Optional[str]:
     return None
 
 
+#: The runner's ``trace_errors`` entries that drop no trace line: a failed turn or error event (cli_traces), a
+#: num_turns that is no integer (events), a failed process metric (runner). Every other entry is a dropped line.
+_NO_LOST_LINE = ("process metrics failed", "turn.failed: ", "error: ", "result num_turns ")
+
+
 def _conversion_errors(agent: Any) -> list[str]:
-    """The runner's ``trace_errors`` that are lost trace lines. A failed process metric is in the same list, and is not one."""
+    """The runner's ``trace_errors`` that are lost trace lines (see ``_NO_LOST_LINE`` for the entries that are not)."""
     errors = agent.get("trace_errors") if isinstance(agent, dict) else None
     if not isinstance(errors, list):
         return []
-    return [str(e) for e in errors if not str(e).startswith("process metrics failed")]
+    return [str(e) for e in errors if not str(e).startswith(_NO_LOST_LINE)]
 
 
 def _empty_trace(path: Path) -> bool:

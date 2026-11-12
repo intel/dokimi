@@ -742,3 +742,13 @@ def test_alpha_must_lie_strictly_inside_zero_and_one():
     for bad in ("0", "1", "-0.1", "1.5"):
         with pytest.raises(argparse.ArgumentTypeError):
             _alpha(bad)
+
+
+def test_a_harness_error_in_trace_errors_is_not_a_lost_trace_line():
+    # the runner's list also holds errors that drop no trace line: a Codex turn that failed, a bad num_turns, a
+    # failed process metric. Only a line the parser could not read is a lost trace line.
+    harness = ["turn.failed: rate limit reached", "error: stream closed", "result num_turns 'x' is not an integer; "
+               "recorded as null", "process metrics failed (ValueError): bad"]
+    assert sec._conversion_errors({"trace_errors": harness}) == []
+    lost = ["line 3: not JSON", "a message whose content is not a list"]
+    assert sec._conversion_errors({"trace_errors": harness + lost}) == lost
