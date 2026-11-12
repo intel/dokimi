@@ -415,7 +415,8 @@ def _capped_grade_run(probe: Probe, arm: str, response: str, confidence: float |
                       exc: SpendCapReached, stops: list[SpendCapReached],
                       ungraded: list[ProbeRun]) -> ProbeRun:
     """The answer was paid for and the judge hit the cap: keep the verdict a refused judge reply
-    names, else keep the run ungraded (no datum). Either way the measurement stops here."""
+    names, else keep the run ungraded (no datum) unless a failed veto decides it. Either way the
+    measurement stops here."""
     stops.append(exc)
     named = _reply_verdict(exc.reply)
     run = ProbeRun(
@@ -425,7 +426,7 @@ def _capped_grade_run(probe: Probe, arm: str, response: str, confidence: float |
     )
     if probe.grading:  # the veto runs on the answer whatever the refused judge reply said
         _apply_checks(run, probe, response, named or ERRORED)
-    if named is None:
+    if named is None and run.verdict_source != "check":
         ungraded.append(run)
     return run
 

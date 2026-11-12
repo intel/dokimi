@@ -591,3 +591,18 @@ def test_a_path_or_quoted_value_after_a_flag_names_no_option():
 def test_an_option_inside_a_quoted_flag_value_is_a_file_name_not_an_option():
     assert grade_check(_veto(), "q", "perf report --input \"no --stdin\"", None).passed is True
     assert grade_check(_veto(), "q", "perf report --input 'no --stdin'", None).passed is True
+
+
+def test_a_refused_reply_with_no_verdict_is_a_datum_when_the_veto_fails():
+    # Without a verdict the judge's grade is missing, but the veto still decides the answer.
+    atom = Atom(statement="perf report shows text with --stdio", question="How to get text?",
+                answer="perf report --stdio", span_ids=("s1",),
+                meta={"grading": {"checks": [_veto()]}})
+    answerer = LLMClient(model="a", transport=lambda p, s: ("perf report --stdin", None))
+    judge = LLMClient(model="b", cap=SpendCap(limit_usd=1.0), transport=lambda p, s:
+                      ("not json", UsageRecord()))
+    result = run_measurement([atom], build_probes([atom]), "artifact", answerer=answerer,
+                             judge=judge, arms=("full",), concurrency=1)
+    run = result.runs[0]
+    assert result.stop[0] == "no_price" and result.ungraded == 0
+    assert (run.verdict, run.verdict_source) == ("wrong_other", "check")
