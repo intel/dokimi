@@ -270,10 +270,9 @@ The sample is tiny, but it is the failure the judge is known to have
 ([degrade.py](https://github.com/intel/dokimi/blob/main/dokimi/dokimi/eval/degrade.py)'s
 `wrong_tools`: fluent and wrong), seen in real answers, and caught without a model.
 
-**Known limit:** a standalone `--` ends the options of its command, so the words after it, up to the end
-of the clause, are operands and their flags are not checked. In prose this can hide a flag:
-`perf report --stdio -- and add --bogus` passes the veto. A comma ends the operands (`-- it, and --bogus`
-is caught), but without one the scan cannot tell prose from an argument. Kept as is, not changed in this round.
+**Known limit:** a standalone `--` makes the words after it operands, up to the end of the clause, so their
+flags are not checked; a comma ends them. Without a comma the scan cannot tell prose from an argument, so
+`perf report --stdio -- and add --bogus` passes the veto. Kept as is, not changed in this round.
 
 ### What the prototype supports
 
