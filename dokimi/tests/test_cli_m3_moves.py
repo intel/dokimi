@@ -488,9 +488,8 @@ def test_novelty_routing_tombstone_refuses_a_stray_token_after_a_kept_value_flag
 
 
 def test_novelty_routing_tombstone_refuses_a_positional_the_retired_parser_had_no_slot_for():
-    # The retired parser had no positionals: a plain token anywhere the flags did not take it, or after
-    # `--`, was an error, and so was a value after --all-vs-all. The tombstone must not print it into
-    # the new command, where it becomes the SKILL positional.
+    # The retired parser had no positionals: a stray token, one after `--`, or a value on --all-vs-all was an
+    # error. The tombstone must not print it into the new command, where it becomes the SKILL positional.
     for old, pattern in [
         (["novelty", "routing", "y", "--competitors", "a"], "unrecognized arguments: y$"),
         (["novelty", "routing", "--competitors", "a", "--", "y"], "unrecognized arguments: y$"),
