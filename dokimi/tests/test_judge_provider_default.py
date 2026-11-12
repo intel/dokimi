@@ -231,3 +231,12 @@ def test_subjects_run_judge_provider_is_not_refused_before_the_descriptor_loads(
     args = parse_args([*COMMANDS["subjects run"], "--judge", "--judge-provider", "openai"])
     with pytest.raises(JudgeIsAnswerer):
         apply_default_judge(args, matrix=False, named=True)
+
+
+def test_the_judge_model_help_names_the_claude_cli_judge_the_rule_picks():
+    # the help said claude-sonnet-5-5 (an alias) was the claude-cli default; the rule picks opus there
+    from dokimi.defaults import JUDGE_MODEL_HELP
+
+    assert default_judge("gpt-6.1-sol", "claude-cli") == ("opus", "claude-cli")
+    assert "opus on claude-cli (sonnet when the answerer is opus)" in JUDGE_MODEL_HELP
+    assert "claude-cli (an alias)" not in JUDGE_MODEL_HELP

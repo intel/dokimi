@@ -68,8 +68,9 @@ class _JudgeModelForProvider(str):
 #: ``dokimi.cli.parse_args`` reads it as ``DEFAULT_JUDGE_MODEL``.
 JUDGE_MODEL_FOR_PROVIDER = _JudgeModelForProvider(DEFAULT_JUDGE_MODEL)
 JUDGE_MODEL_HELP = (f"Judge model (default: the default judge for --judge-provider that is not the "
-                    f"answerer's family: {DEFAULT_JUDGE_MODEL} on {DEFAULT_JUDGE_PROVIDER}, amazon-bedrock "
-                    f"and claude-cli (an alias), {DEFAULT_GENERATOR_MODEL} on {DEFAULT_GENERATOR_PROVIDER}; "
+                    f"answerer's family: {DEFAULT_JUDGE_MODEL} on {DEFAULT_JUDGE_PROVIDER} and amazon-bedrock, "
+                    f"opus on claude-cli (sonnet when the answerer is opus), "
+                    f"{DEFAULT_GENERATOR_MODEL} on {DEFAULT_GENERATOR_PROVIDER}; "
                     f"other providers need this flag)")
 
 # Decision (2026-03-04): one fixed semantic retrieval config.
