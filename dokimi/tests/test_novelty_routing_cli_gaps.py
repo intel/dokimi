@@ -283,17 +283,7 @@ def test_an_out_symlink_to_a_missing_file_in_an_existing_directory_is_accepted(t
     assert checked_out_path(str(link), "routing") == link
 
 
-def test_an_out_file_that_cannot_be_written_is_refused_up_front(tmp_path, monkeypatch):
-    import os
-
-    from dokimi.commands.novelty_routing_inputs import checked_out_path
-
-    monkeypatch.setattr(os, "access", lambda path, mode: False)
-    with pytest.raises(InputError, match="not writable"):
-        checked_out_path(str(tmp_path / "routing.json"), "routing")
-
-
-# Real permissions, not a patched os.access: a regression to paying for every call needs the
+# Real permissions, not a patched write: a regression to paying for every call needs the
 # checks themselves to be exercised. Root ignores file modes, so these skip there.
 _CANNOT_CHMOD = sys.platform == "win32" or (hasattr(os, "geteuid") and os.geteuid() == 0)
 

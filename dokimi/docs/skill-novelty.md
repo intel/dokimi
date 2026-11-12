@@ -782,7 +782,7 @@ counted as a miss.
 every skill that has queries the gold in turn, routed against the whole field. The file is a
 JSON object of skill name to the requests that should select it, each written without the
 skill's own text. A skill named twice in the file is refused. `--out` must name a file: a directory, a
-path under a non-directory, a FIFO or device, a symlink loop, or an unwritable path is refused before any model call (the same
+path under a non-directory, a FIFO or device, a symlink loop (ELOOP, or WinError 1921 on Windows), or a path that refuses a trial write (an existing file opened for append, nothing truncated; a directory given a temporary file as long as the output's own name, so a name over the file system's limit is refused) is refused before any model call (the same
 check is made for a single-artifact `routing --out`); a missing parent directory is created. The output has a confusion
 matrix (gold to picked to count, with `(none)` for a query no card shares a word with or, in
 the model arm, an abstention, and `(tie)` for a query on which two or more other cards tie for
@@ -833,9 +833,10 @@ and warns when fewer than five calls were answered. When `--out` already holds a
 not itself partial, the partial one goes to the first of `<out stem>.partial.json`,
 `<out stem>.partial2.json`, ... beside it that is free or a partial result it can write (a
 sidecar that is not a regular file, such as a FIFO or a symlink, is skipped without being
-opened or followed; an `--out` stem too long for those names to fit the file system is cut to
-fit and ends in a digest of the whole stem, so the partial result is still saved and two long
-outs keep separate sidecars, and a short stem that ends in a digest-shaped tag (in either case)
+opened or followed; a stem that fits its own sidecar name keeps it (bar the digest-shaped case below), and one too long for a name to
+fit the file system is cut for that name (leaving room for a counter of six digits, so the
+numbered names share one stem) and ends in a digest of the whole stem, so the partial result is
+still saved and two long outs keep separate sidecars, and a short stem that ends in a digest-shaped tag (in either case)
 as long as a cut one is cut again, so it never takes a cut one's sidecar), and the exit
 message names that path, so a cap never replaces a finished measurement. The calls made are
 scored as in a run with failed calls: a single run's `model.per_query` holds them, and

@@ -340,6 +340,16 @@ def test_rev_arm_writes_a_linked_guidance_files_target_at_the_link(toy):
     assert "AGENTS.md" in meta["arm_files"]
 
 
+@pytest.mark.skipif(sys.platform in ("win32", "darwin"), reason="symbolic links; the file system takes only UTF-8 names")
+def test_rev_arm_follows_a_guidance_link_whose_target_is_not_utf8(toy):
+    """The target is read as the ``ls-tree`` entries are (byte 0xff kept), so it names the entry it points at."""
+    directory = os.fsdecode(b"r\xff")
+    _link_commit(toy, "bytelink", {"AGENTS.md": f"{directory}/GUIDE.md"}, {f"{directory}/GUIDE.md": "# bytes\n"})
+    meta, ws = _prep(toy, "guidance:rev:bytelink")
+    assert (ws / "AGENTS.md").read_text() == "# bytes\n" and not (ws / "AGENTS.md").is_symlink()
+    assert "AGENTS.md" in meta["arm_files"]
+
+
 @pytest.mark.skipif(os.name == "nt", reason="symbolic links")
 @pytest.mark.parametrize("target, why", [("../outside.md", "out of the tree"), (".agent-eval/grade.py", "into eval_dir"),
                                          ("docs/missing.md", "not a file there")])
