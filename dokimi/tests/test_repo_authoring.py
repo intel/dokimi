@@ -274,7 +274,7 @@ def test_prs_whose_diff_gives_no_task_say_why(toy, tmp_path, capsys):
     for line in (f"PR 20: skipped: {empty[:12]} changes nothing against its base {t['c0'][:12]}",
                  "PR 21: skipped: it changes only guidance files or files under eval_dir",
                  "PR 22: skipped: it makes src/link.py a symbolic link or a submodule, which a task copies no file for",
-                 f"PR 23: skipped: src/�.py is not in {heads[23][:12]}",  # a path git gives that is not UTF-8
+                 "PR 23: skipped: src/\\xff.py is not a UTF-8 file name, which task.json cannot hold",
                  f"PR 24: skipped: its headRefOid {unrelated[:12]} shares no history with the base branch"):
         assert line in printed, line
     assert sorted(p.name for p in (tmp_path / "tasks").iterdir()) == ["authoring_pr1"]
