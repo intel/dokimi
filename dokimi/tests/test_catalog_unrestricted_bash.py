@@ -150,3 +150,17 @@ def test_an_ignored_risky_code_is_not_named_in_the_grant_message(tmp_path):
     out = subprocess.run([*base, "--ignore", "pipe-to-shell"], capture_output=True, text=True, check=False).stdout
     assert "allowed-tools-unrestricted-bash" in out
     assert "pipe-to-shell" not in out
+
+
+def test_skill_check_strict_help_names_the_unrestricted_bash_gate():
+    import argparse
+
+    from dokimi.cli import build_parser
+
+    def subparser(parser, word):
+        sub = next(a for a in parser._actions if isinstance(a, argparse._SubParsersAction))
+        return sub.choices[word]
+
+    check = subparser(subparser(build_parser(), "skill"), "check")
+    [strict] = [a for a in check._actions if "--strict" in a.option_strings]
+    assert "unrestricted Bash" in strict.help
