@@ -248,7 +248,7 @@ _STATUS_LABEL = {
 
 def trust_label(verdict: Verdict) -> str:
     """The verdict's status with the icon a trust report shows it under (the report JSON's ``verdict``)."""
-    return _STATUS_LABEL[verdict.status]
+    return _STATUS_LABEL.get(verdict.status, verdict.status)
 
 
 def format_trust_block(verdict: Verdict) -> str:

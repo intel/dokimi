@@ -3,7 +3,9 @@
 
 """The shared Verdict: what each property answers, and that the answers agree."""
 
+
 from dokimi.gate.regression import detect_regressions
+from dokimi.gate.trust_gate import trust_label
 from dokimi.gate.verdict import Check, Verdict
 
 
@@ -29,3 +31,7 @@ def test_a_verdict_that_measured_nothing_does_not_pass():
 
 def test_a_verdict_with_a_measured_passing_check_passes():
     assert Verdict(checks=[Check("x", passed=True)]).passed
+
+
+def test_trust_label_covers_a_disabled_verdict():
+    assert trust_label(Verdict(enabled=False)) == "DISABLED"
