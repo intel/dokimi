@@ -58,7 +58,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from dokimi import docker_cmd, process
-from dokimi.container_policy import Group, task_container_policy
+from dokimi.container_policy import task_container_policy
 from dokimi.metrics.usage import UsageRecord
 
 from .agent_sandbox import (
@@ -336,7 +336,6 @@ class DockerSolverHarness:
         """Start the task container on the solve phase's network; returns whether it is on bridge."""
         plan = plan or self._plan(task)
         inside = self._solve_in_container()
-
         cpus_raw = task.environment.get("cpus")
         cpus = str(cpus_raw) if cpus_raw is not None else "4"
 
@@ -348,19 +347,18 @@ class DockerSolverHarness:
             memory = f"{int(memory_mb_raw)}m" if memory_mb_raw is not None else "2g"
         except (TypeError, ValueError):
             memory = "2g"
-
         # PID 1 must outlive the solve and the verifier: when it exits, an
         # in-container agent dies mid-solve and the verifier finds no container.
         lifetime = int(max(1800.0, (task.timeout_sec or _DEFAULT_SOLVE_TIMEOUT)
                            + _task_verify_timeout(task) + 600))
         self._docker(["rm", "-f", container], log, check=False)
-        network = sandbox.network if sandbox is not None else start_network(plan, solve_in_container=inside)
-        sandbox_flags = sandbox.run_args() if sandbox is not None else []
-        layout: list[Group | list[str]] = [
-            ["-d"], ["--name", container], "init", "cap_drop", "security", "pids", "cap_add",
-            "network", sandbox_flags, docker_cmd.env_args(task.container_env), "resource"]
-        self._docker(docker_cmd.run_spec(task_container_policy(network=network, cpus=cpus, memory=memory),
-                                         layout, image, ["sleep", str(lifetime)]), log)
+        network = sandbox.network if sandbox else start_network(plan, solve_in_container=inside)
+        sandbox_flags = sandbox.run_args() if sandbox else []
+        self._docker(docker_cmd.run_spec(
+            task_container_policy(network=network, cpus=cpus, memory=memory),
+            [["-d"], ["--name", container], "init", "cap_drop", "security", "pids", "cap_add",
+             "network", sandbox_flags, docker_cmd.env_args(task.container_env), "resource"],
+            image, ["sleep", str(lifetime)]), log)
         return enter_phase(plan.solve if inside else DEFAULTS["solve"], container, self._docker, log,
                            bridged=network == "bridge")
 
