@@ -10,6 +10,7 @@ import os
 import shlex
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -394,11 +395,13 @@ def test_harbor_view_ignores_an_export_planted_in_the_shared_temp_dir(tmp_path, 
 
 
 def test_the_content_key_of_a_utf8_task_is_unchanged(tmp_path):
-    _write(tmp_path / "ok.md", "ok\n")
-    _write(tmp_path / "sub" / "é.md", "two\n")
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "ok.md").write_bytes(b"ok\n")  # bytes: text mode would write CRLF on Windows
+    (tmp_path / "sub" / "é.md").write_bytes(b"two\n")
     assert harbor_export._content_key(tmp_path, "r") == "24f0603eabd3edd9"
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="a name that is not UTF-8 cannot be created on Windows")
 def test_the_content_key_hashes_the_bytes_of_a_file_name_that_is_not_utf8(tmp_path):
     _write(tmp_path / "ok.md", "ok\n")
     before = harbor_export._content_key(tmp_path)

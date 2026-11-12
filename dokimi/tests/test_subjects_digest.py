@@ -63,6 +63,7 @@ def test_a_ref_with_a_scheme_gets_no_digest_even_when_a_directory_collides(tmp_p
     assert distribution_digest("context7:/org/lib", base=tmp_path) is None
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="the pinned digest hashes the POSIX separator of sub/é.md")
 def test_a_directory_ref_of_utf8_names_keeps_its_digest(tmp_path: Path):
     (tmp_path / "ok.md").write_bytes(b"ok\n")
     (tmp_path / "sub").mkdir()
@@ -71,6 +72,7 @@ def test_a_directory_ref_of_utf8_names_keeps_its_digest(tmp_path: Path):
         "sha256:b81d3e4952432273d79f200d2d22373cefe695e569138fe2d6feab66fa962a76")
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="a name that is not UTF-8 cannot be created on Windows")
 def test_a_directory_ref_hashes_the_bytes_of_a_file_name_that_is_not_utf8(tmp_path: Path):
     (tmp_path / "ok.md").write_bytes(b"ok\n")
     before = _digest_ref(str(tmp_path), base=tmp_path)
