@@ -86,6 +86,19 @@ def test_an_import_budget_counts_as_guidance_is_still_checked(tmp_path, capsys):
     assert _fails(payload) == {("CLAUDE.local.md", "src/gone_local.py")}
 
 
+def test_an_unimported_claude_local_md_is_checked_and_the_note_does_not_call_it_a_rule_or_import(tmp_path, capsys):
+    # Claude Code loads CLAUDE.local.md with no import, so the default scan checks it; the stderr note must
+    # say what it checks, not call the file an @ import or a rule
+    root = _write(tmp_path / "r", {"src/real.py": "x = 1\n", "CLAUDE.md": "# g\n",
+                                   "CLAUDE.local.md": "The entry point is `src/gone_unimported.py`.\n"})
+    args = build_parser().parse_args(["repo", "scan", str(root), "--json"])
+    args.func(args)
+    captured = capsys.readouterr()
+    assert _fails(json.loads(captured.out)) == {("CLAUDE.local.md", "src/gone_unimported.py")}
+    assert "@ imported" not in captured.err
+    assert "CLAUDE.local.md" in captured.err
+
+
 def test_an_explicit_import_of_a_guidance_name_is_still_checked(tmp_path, capsys):
     root = _write(tmp_path / "r", {"src/real.py": "x = 1\n", "CLAUDE.md": "@private/CLAUDE.local.md\n",
                                    "private/CLAUDE.local.md": "See `src/gone_priv.py`.\n"})

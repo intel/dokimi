@@ -62,8 +62,8 @@ def _loaded_with_default(tree, manifest) -> tuple[str, ...]:
                if e["kind"] in ("rule", "import") or _unmatched_guidance(e))
     loaded = tuple(dict.fromkeys(p for p in reached if p is not None and _target(tree, p).endswith(".md")))
     if loaded:
-        print(f"note: also checking {len(loaded)} .claude/rules and @ imported files Claude Code loads with the default guidance",
-              file=sys.stderr)
+        print(f"note: also checking {len(loaded)} files Claude Code loads beyond the default globs: rules, @ imports, "
+              "and guidance names such as CLAUDE.local.md", file=sys.stderr)
     return loaded
 
 
