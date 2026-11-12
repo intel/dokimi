@@ -354,9 +354,11 @@ class DockerSolverHarness:
         lifetime = int(max(1800.0, (task.timeout_sec or _DEFAULT_SOLVE_TIMEOUT)
                            + _task_verify_timeout(task) + 600))
         self._docker(["rm", "-f", container], log, check=False)
-        network = None if sandbox is not None else start_network(plan, solve_in_container=inside)
-        layout: list[Group | list[str]] = [["-d"], ["--name", container], "init", "cap_drop", "security", "pids", "cap_add",
-                  "network" if sandbox is None else sandbox.run_args(), docker_cmd.env_args(task.container_env), "resource"]
+        network = sandbox.network if sandbox is not None else start_network(plan, solve_in_container=inside)
+        sandbox_flags = sandbox.run_args() if sandbox is not None else []
+        layout: list[Group | list[str]] = [
+            ["-d"], ["--name", container], "init", "cap_drop", "security", "pids", "cap_add",
+            "network", sandbox_flags, docker_cmd.env_args(task.container_env), "resource"]
         self._docker(docker_cmd.run_spec(task_container_policy(network=network, cpus=cpus, memory=memory),
                                          layout, image, ["sleep", str(lifetime)]), log)
         return enter_phase(plan.solve if inside else DEFAULTS["solve"], container, self._docker, log,

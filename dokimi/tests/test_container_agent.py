@@ -267,9 +267,15 @@ def test_exec_argv_carries_the_agent_env_in_a_private_file(tmp_path, monkeypatch
     assert client_env["ANTHROPIC_CUSTOM_HEADERS"] == "A: 1\nB: 2"
 
 
-def test_run_args_put_the_container_on_the_internal_network_with_no_mounts(tmp_path):
+def test_run_args_leave_the_network_to_the_task_policy(tmp_path):
+    # the task container's policy spells --network from sandbox.network, so the layout holds it once
+    sandbox = _sandbox(tmp_path)
+    assert sandbox.network == "dokimi-net-x"
+    assert "--network" not in sandbox.run_args()
+
+
+def test_run_args_add_no_mounts_and_a_label(tmp_path):
     args = _sandbox(tmp_path).run_args()
-    assert args[args.index("--network") + 1] == "dokimi-net-x"
     assert "-v" not in args  # a bind mount breaks on a Docker-in-Docker runner
     assert any(a.startswith("/run/abhome:") for a in args)  # the image's /tmp is left alone
     assert not any(a.startswith("/tmp:") for a in args)  # nosec B108 - asserts /tmp is not mounted

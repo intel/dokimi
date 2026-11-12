@@ -922,8 +922,6 @@
   "i"
  ],
  "sandbox/run_args": [
-  "--network",
-  "dokimi-net-r1",
   "--label",
   "dokimi.run=r1",
   "--tmpfs",
