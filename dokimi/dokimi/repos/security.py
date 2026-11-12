@@ -84,7 +84,8 @@ COMMAND_RULES: tuple[Rule, ...] = (
          # and `perl -pe` process the data); a shell, eval or source runs a download taken as its command substitution
          _rx(r"\b(?:curl|wget)\b[^|;&]*\|\s*(?:sudo\s+)?(?:\S*/)?(?:env\s+)?(?:\S*/)?"
              r"(?:(?:ba|z|da)?sh\b|(?:python|perl|ruby|node)[\d.]*(?![\w.-])"
-             r"(?!(?:\s+-\S*)*\s+(?:-\S*[cemp]\S*|[^\s\-;&|)])))"
+             # a bare `-` is stdin, not an option, and a redirect (`2>&1`, `> log`) is no argument
+             r"(?!(?:\s+(?:-[^\s-]\S*|--\S+))*\s+(?:-[^\s-]*[cemp]\S*|(?!-(?:\s|$))(?!\d*[<>&])[^\s\-;&|)<>])))"
              r"|(?:^|[\s;&|(])(?:(?:ba|z|da)?sh\s+(?:-\w+\s+)*|eval\s+|source\s+|\.\s+)[\"']?(?:<\(|\$\()"
              r"\s*(?:sudo\s+)?(?:curl|wget)\b")),
     # words after `install`, an index or links option taken with its URL value; then a package word that is a
@@ -111,14 +112,16 @@ COMMAND_RULES: tuple[Rule, ...] = (
          _rx(r"\bgit\s+(?:-[Cc]\s+\S+\s+|-\S+\s+)*push\b[^;&|\n]*(?:\s-[a-z]*f[a-z]*\b|--force\b(?!-with-lease|-if-includes)"
              r"|\s\+\S)|\bgit\s+(?:-[Cc]\s+\S+\s+|-\S+\s+)*reset\s+(?:-\S+\s+)*--hard\b")),
     Rule("hook-bypass", "medium", "git hooks skipped",
-         _rx(r"\bgit\s+(?:-[Cc]\s+\S+\s+|-\S+\s+)*(?:commit\b[^;&|\n]*(?:\s-[aqsv]*n[aqsv]*\b|--no-verify\b)"
+         # a short flag cluster may end in `-m` or `-F` (`-nm msg`), so the `n` need not be the last letter
+         _rx(r"\bgit\s+(?:-[Cc]\s+\S+\s+|-\S+\s+)*(?:commit\b[^;&|\n]*(?:\s-[aqsv]*n[aqsvn]*(?:[mFC]\S*)?(?=[\s\"';&|)`]|$)"
+             r"|--no-verify\b)"
              r"|push\b.*--no-verify\b)")),
     Rule("secret-read", "high", "credential store read, by a command or a read tool (the finding's source says which)",
          # any absolute home: the runner's own HOME is /eval/run/home, not /root or /home/<user>
          # a relative `.ssh` (or `./.ssh`) counts too; each name ends at a separator or the end (`.awsome` is no `.aws`);
          # `.env` ends at a separator or a shell operator (`source .env;`, `cat .env|grep`)
          _rx(r"(?:(?:~|\$HOME\"?|\$\{HOME\}\"?|/\S*?)/|(?:^|[\s=\"'])(?:\./)?)\.(?:ssh|aws|gnupg|netrc|docker/config\.json"
-             r"|kube/config)(?=[/\s;&|)<>`\"']|$)|(?:^|[\s/=\"'])\.env(?=[\s;&|)<>`\"']|$)")),
+             r"|kube/config)(?=[/\s;&|)<>`\"':*,}]|$)|(?:^|[\s/=\"'])\.env(?=[\s;&|)<>`\"']|$)")),
 )
 
 #: Rules matched on something other than a command line.
