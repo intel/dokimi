@@ -385,29 +385,14 @@ def run_measurement(
             try:
                 verdict = _grade(probe, response, judge)
             except SpendCapReached as exc:
-                # The answer was paid for: keep the verdict a refused judge reply names, else
-                # keep it ungraded (no datum). Either way the measurement stops here.
-                stops.append(exc)
-                named = _reply_verdict(exc.reply)
-                run = ProbeRun(
-                    atom_id=probe.atom_id, probe_kind=probe.kind, arm=arm,
-                    question=probe.question, response=response, verdict=named or ERRORED,
-                    confidence=confidence,
-                )
-                if named is None:
-                    ungraded.append(run)
-                return run
+                return _capped_grade_run(probe, arm, response, confidence, exc, stops, ungraded)
         run = ProbeRun(
             atom_id=probe.atom_id, probe_kind=probe.kind, arm=arm,
             question=probe.question, response=response, verdict=verdict,
             confidence=confidence,
         )
         if probe.grading and answered:
-            # The checks run on any answer, even when the judge failed: a failed judge is kept
-            # as its own verdict, and resolve_verdict lets only a veto decide that run.
-            run.checks = run_checks(probe.grading, probe.question, response)
-            run.judge_verdict = verdict
-            run.verdict, run.verdict_source = resolve_verdict(verdict, run.checks)
+            _apply_checks(run, probe, response, verdict)
         return run
 
     def guarded(job: tuple[Probe, str]) -> ProbeRun | None:
@@ -424,6 +409,32 @@ def run_measurement(
     return MeasureResult(runs=runs, arms=tuple(arms), with_arm="full",
                          not_run=len(jobs) - len(runs), ungraded=len(ungraded), stop=stop,
                          probes=list(probes))
+
+
+def _capped_grade_run(probe: Probe, arm: str, response: str, confidence: float | None,
+                      exc: SpendCapReached, stops: list[SpendCapReached],
+                      ungraded: list[ProbeRun]) -> ProbeRun:
+    """The answer was paid for and the judge hit the cap: keep the verdict a refused judge reply
+    names, else keep the run ungraded (no datum). Either way the measurement stops here."""
+    stops.append(exc)
+    named = _reply_verdict(exc.reply)
+    run = ProbeRun(
+        atom_id=probe.atom_id, probe_kind=probe.kind, arm=arm,
+        question=probe.question, response=response, verdict=named or ERRORED,
+        confidence=confidence,
+    )
+    if named is None:
+        ungraded.append(run)
+    return run
+
+
+def _apply_checks(run: ProbeRun, probe: Probe, response: str, verdict: str) -> None:
+    """Grade ``run`` by its program checks. They run on any answer, even when the judge failed:
+    a failed judge is kept as its own verdict, and resolve_verdict lets only a veto decide that run.
+    """
+    run.checks = run_checks(probe.grading, probe.question, response)
+    run.judge_verdict = verdict
+    run.verdict, run.verdict_source = resolve_verdict(verdict, run.checks)
 
 
 def run_checks(grading: dict, question: str, response: str) -> list[dict]:
