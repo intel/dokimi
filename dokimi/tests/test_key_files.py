@@ -67,6 +67,12 @@ def test_preflight_names_the_variable_dokimi_llm_reads(provider, tmp_path, monke
     assert _credential_error(provider) is None
 
 
+def test_preflight_does_not_ask_an_off_table_provider_for_the_openai_key(monkeypatch):
+    # litellm reads azure's own key (AZURE_API_KEY); the preflight cannot know which variable.
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    assert _credential_error("azure") is None
+
+
 @pytest.fixture
 def ragas_stubs(monkeypatch):
     """Stub ragas and the LangChain classes, recording each chat model and embeddings built."""
