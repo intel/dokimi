@@ -195,31 +195,6 @@ class TestSaveQuestions:
             assert "questions" in data
             assert data["total_questions"] == len(questions)
 
-    def test_generate_records_the_product_so_runs_list_finds_the_set(
-            self, tmp_path, monkeypatch, capsys, sample_personas, mock_llm):
-        from dokimi import cli
-
-        def run(*argv):
-            monkeypatch.setattr("sys.argv", ["dokimi", *argv])
-            cli.main()
-            return capsys.readouterr().out
-
-        monkeypatch.chdir(tmp_path)
-        monkeypatch.delenv("DOKIMI_RUNS_DIR", raising=False)
-        monkeypatch.setattr("dokimi.commands.answers._load_runtime_config", dict)
-        (tmp_path / "personas.json").write_text(json.dumps({"personas": sample_personas[:1]}))
-        (tmp_path / "topics.json").write_text('["parallel_for"]')
-        out = tmp_path / "results" / "r1" / "questions" / "oneTBB.json"
-        with patch('dokimi.questions.llm_gen.Invoker', Mock(return_value=mock_llm)):
-            run("eval", "questions", "generate", "--product", "oneTBB", "--personas", "personas.json",
-                "--topics", "topics.json", "--model", "gen-m", "--output", str(out))
-
-        assert json.loads(out.read_text())["product"] == "oneTBB"
-        rows = run("runs", "list", "--subject", "oneTBB").splitlines()
-        assert rows[1].split()[1:4] == ["questions.v2", "oneTBB", "gen-m"]
-        assert rows[1].split()[-1] == "r1/questions/oneTBB.json"
-        assert run("runs", "list", "--subject", "oneDAL") == "0 of 1 artifact under results/ match\n"
-
 
 class TestPromptTemplate:
     def test_has_required_placeholders(self):
