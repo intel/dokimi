@@ -211,7 +211,8 @@ class JudgeContextStore:
         visible in its ``judge_context_source``, rather than being judged on text
         that is not what the arms run's judge saw. When ``judge_materials`` is an
         object, the answers are read through :mod:`dokimi.records`: a malformed
-        list or record is a ``RecordError``; otherwise the store is empty.
+        list or record is a ``RecordError``. When it is missing or not an object,
+        the store is empty and the answers are not read.
         """
         store = cls()
         materials = data.get("judge_materials") if isinstance(data, dict) else None
