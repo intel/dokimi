@@ -86,7 +86,9 @@ COMMAND_RULES: tuple[Rule, ...] = (
              r"(?:(?:ba|z|da)?sh\b|(?:python|perl|ruby|node)[\d.]*(?![\w.-])"
              # a bare `-` is stdin, not an option, and a redirect (`2>&1`, `> log`) is no argument
              r"(?!(?:\s+(?:-[^\s-]\S*|--\S+))*\s+(?:-[^\s-]*[cemp]\S*|(?!-(?:\s|$))(?!\d*[<>&])[^\s\-;&|)<>])))"
-             r"|(?:^|[\s;&|(])(?:(?:ba|z|da)?sh\s+(?:-\w+\s+)*|eval\s+|source\s+|\.\s+)[\"']?(?:<\(|\$\()"
+             # the shell may be named by its path (`/bin/bash -c "$(curl ...)"`); eval, source and `.` only start a command
+             r"|(?:(?:^|[\s;&|(])(?:\S*/)?(?:(?:ba|z|da)?sh\s+(?:-\w+\s+)*)"
+             r"|(?:^|[;&|(]\s*|\b(?:then|do|else)\s+)(?:eval|source|\.)\s+)[\"']?(?:<\(|\$\()"
              r"\s*(?:sudo\s+)?(?:curl|wget)\b")),
     # words after `install`, an index or links option taken with its URL value; then a package word that is a
     # URL, has git+ in it, or the system guard's override
