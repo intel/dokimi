@@ -35,7 +35,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from dokimi.records import Record, arm_answers, arm_names, arm_scores, records
+from dokimi.records import Record, arm_answers, arm_names, arm_scores, read
 from dokimi.eval.judge_context import PROTOCOL_MIXED as JUDGE_CONTEXT_MIXED
 from dokimi.eval import sign_flip, stats as arm_stats
 from dokimi.utils import InputError, read_json_input
@@ -59,7 +59,7 @@ def load_run(path: str) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise InputError(f"{path} is not a judged arms file: expected a JSON object, got {type(data).__name__}")
     for section in ("answers", "evaluations"):
-        records(data.get(section) or [], source=f"{path} {section}", kind=section)
+        read(data, source=path, section=section, required=False)
     return data
 
 
@@ -87,7 +87,7 @@ def normalize_difficulty(difficulty: Any) -> str:
 
 def _section(run_data: dict, section: str) -> list[Record]:
     """The ``answers`` or ``evaluations`` records of *run_data*; a RecordError (an InputError) if malformed."""
-    return records(run_data.get(section) or [], source=section, kind=section)
+    return list(read(run_data, source="run", section=section, required=False).records)
 
 
 def non_baseline_arms(run_data: dict) -> set[str]:
@@ -338,7 +338,7 @@ def check_run_consistency(
             # all (answers not yet judged): it still names one treatment per run, and that
             # is enough to catch a confounded group before any judge spend.
             per_run[rid] = scored or non_baseline_arms(data)
-            if not scored and (data.get("evaluations") or data.get("answers")):
+            if not scored and (_section(data, "evaluations") or _section(data, "answers")):
                 warnings.append(
                     f"Run '{rid}' has records but no scored non-baseline arm — it "
                     "contributes a baseline column and no delta."

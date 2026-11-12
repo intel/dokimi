@@ -118,9 +118,10 @@ def test_sign_flip_monte_carlo_counts_the_observed_pattern_and_follows_its_seed(
 
 def test_seed_reaches_the_interval_and_the_sign_flip(tmp_path, monkeypatch):
     seen = []
-    monkeypatch.setattr(compare_mod, "sign_flip_interval",
+    # The row's test is built in eval.sign_flip.sign_flip_row, so the seam is patched there.
+    monkeypatch.setattr(sign_flip, "sign_flip_interval",
                         lambda deltas, p, seed, **_: seen.append(("interval", seed, p)) or (-1.0, 1.0))
-    monkeypatch.setattr(compare_mod, "sign_flip_p", lambda deltas, seed, **_: seen.append(("p", seed, None)) or 0.5)
+    monkeypatch.setattr(sign_flip, "sign_flip_p", lambda deltas, seed, **_: seen.append(("p", seed, None)) or 0.5)
     b = tmp_path / "b1"
     for task in ("fix_a", "fix_b"):
         _cell(b, task, "guidance:none", 1, success=False)
