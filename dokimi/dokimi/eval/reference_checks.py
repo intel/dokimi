@@ -232,6 +232,10 @@ def chosen_letters(answer: str) -> Optional[frozenset[str]]:
 
 # --- JSON --------------------------------------------------------------------------------------
 
+#: ``parse_json(contains=True)`` tries ``raw_decode`` from at most this many ``{`` or ``[``:
+#: each try on deeply nested text parses to the decoder's depth limit.
+CONTAINS_JSON_MAX_STARTS = 1000
+
 _FENCE = re.compile(r"^\s*```(?:json)?\s*\n(.*?)\n\s*```\s*$", re.S)
 
 
@@ -239,7 +243,8 @@ def parse_json(answer: str, *, contains: bool = False) -> tuple[bool, Any]:
     """``(parsed, value)``: the answer as JSON (one fenced block is unwrapped).
 
     With ``contains`` the first JSON object or array anywhere in the text counts
-    (promptfoo ``contains-json``).
+    (promptfoo ``contains-json``). The scan gives up after :data:`CONTAINS_JSON_MAX_STARTS`
+    brackets, and then reads the text as not JSON.
     """
     text = answer.strip()
     fenced = _FENCE.match(text)
@@ -251,10 +256,14 @@ def parse_json(answer: str, *, contains: bool = False) -> tuple[bool, Any]:
         pass
     if contains:
         decoder = json.JSONDecoder()
+        tried = 0
         for i, ch in enumerate(text):
             if ch in "{[":
+                if tried == CONTAINS_JSON_MAX_STARTS:
+                    break
+                tried += 1
                 try:
-                    return True, decoder.raw_decode(text[i:])[0]
+                    return True, decoder.raw_decode(text, i)[0]
                 except (ValueError, RecursionError):
                     continue
     return False, None

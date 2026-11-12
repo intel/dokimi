@@ -11,8 +11,12 @@ import fnmatch
 import os
 from pathlib import Path
 
+from dokimi.utils import is_symlink_loop
 
-_MISSING = (errno.ENOENT, errno.ENOTDIR, errno.ELOOP)  # a path that is not there, or a link that loops: no entries
+
+def _missing(exc: OSError) -> bool:
+    """A path that is not there, or a link that loops: no entries."""
+    return exc.errno in (errno.ENOENT, errno.ENOTDIR) or is_symlink_loop(exc)
 
 
 def _listing(base: Path, *, strict: bool = False, dirs: bool = True) -> list[tuple[str, bool, bool]]:
@@ -30,12 +34,12 @@ def _listing(base: Path, *, strict: bool = False, dirs: bool = True) -> list[tup
                 try:
                     out.append((entry.name, entry.is_dir(), entry.is_symlink()))
                 except OSError as exc:
-                    if exc.errno == errno.ELOOP:  # a link that loops: still an entry, so a suite refuses it
+                    if is_symlink_loop(exc):  # a link that loops: still an entry, so a suite refuses it
                         out.append((entry.name, False, True))
-                    elif strict and exc.errno not in _MISSING:
+                    elif strict and not _missing(exc):
                         raise
     except OSError as exc:
-        if strict and exc.errno not in _MISSING:
+        if strict and not _missing(exc):
             raise
     return out
 

@@ -167,6 +167,7 @@ LEAVES: tuple[Leaf, ...] = (
     Leaf(("eval", "headroom"), FREE),
     Leaf(("eval", "leak"), FREE),
     Leaf(("eval", "redteam"), PAID),
+    Leaf(("eval", "skill-coverage"), PAID),
     Leaf(("data", "export"), FREE),
     Leaf(("data", "import", "docling"), FREE),
     Leaf(("tools", "preference"), PAID),

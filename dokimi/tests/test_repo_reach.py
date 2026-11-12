@@ -29,8 +29,8 @@ from dokimi.repos import RepoSource, SourceError, WorkTree, load_manifest, open_
 from dokimi.repos.batch_ledger import execution_id
 from dokimi.repos.events import convert
 from dokimi.repos.transcript import OUTPUT_KEEP, OUTPUT_LIMIT, clip_output
-from tests.process_probe import describe_pid, pid_alive
 from dokimi.repos.harness_profile import ProfileError, load_profile, parse_profile
+from tests.pid_state import describe, wait_until_gone
 from dokimi.repos.reach import (
     ReachError,
     SeededFile,
@@ -649,6 +649,7 @@ def test_reach_timeout_kills_the_harness_process_tree(tmp_path, monkeypatch, mod
     assert not list((tmp_path / "work").iterdir())
 
 
+@pytest.mark.timeout(150)  # 60 s start-up + 30 s for the CLI + 30 s for the pids, so a real leak reaches the assertion
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX signals and process groups")
 def test_sigterm_to_the_cli_kills_the_harness_and_its_helper(tmp_path):
     """The harness leads its own process group, so a SIGTERM to the CLI (as `timeout(1)` sends)
@@ -671,11 +672,8 @@ def test_sigterm_to_the_cli_kills_the_harness_and_its_helper(tmp_path):
         pids = [int(p) for p in pid_file.read_text().split()]
         cli.send_signal(signal.SIGTERM)
         assert cli.wait(timeout=30) == -signal.SIGTERM
-        deadline = time.monotonic() + 30  # returns as soon as both are gone; only a loaded runner waits
-        while any(map(pid_alive, pids)) and time.monotonic() < deadline:
-            time.sleep(0.05)
-        left = [p for p in pids if pid_alive(p)]
-        assert not left, "the harness or its helper outlived the CLI: " + "; ".join(map(describe_pid, left))
+        left = wait_until_gone(pids, 30)  # returns as soon as both are gone; only a loaded runner waits
+        assert not left, "the harness or its helper outlived the CLI: " + "; ".join(map(describe, left))
     finally:
         if cli.poll() is None:
             cli.kill()

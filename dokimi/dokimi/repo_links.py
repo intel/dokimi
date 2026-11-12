@@ -7,11 +7,10 @@ returned, so they match the impact a changed file maps to."""
 
 from __future__ import annotations
 
-import errno
 import os
 from pathlib import Path
 
-from dokimi.utils import _plain_path
+from dokimi.utils import _plain_path, is_symlink_loop
 
 
 def _real(path: Path) -> Path | None:
@@ -24,7 +23,7 @@ def _real(path: Path) -> Path | None:
     try:
         path.stat()
     except OSError as exc:
-        if exc.errno == errno.ELOOP:
+        if is_symlink_loop(exc):
             return None
     return real
 

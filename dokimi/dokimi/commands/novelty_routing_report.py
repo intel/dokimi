@@ -548,25 +548,36 @@ def _name_size(name: str) -> int:
     return len(os.fsencode(name))
 
 
-def _sidecar_stem(out: Path) -> str:
-    """``out``'s stem, as is when ``<stem>.partial<N>.json`` fits the file system's name limit for a
-    counter of up to six digits (``PC_NAME_MAX``, else 255). Otherwise it is cut on a character
-    boundary, measured in the file system's units (:func:`_name_size`; a non-UTF-8 byte is kept),
-    and ends in a digest of the whole stem, so two long outs never share a sidecar. A stem that fits
-    but is as long as a cut one and ends in a digest-shaped tag (in either case, as a case-insensitive file system folds it) is cut
-    again, so it never equals the cut name of another out."""
+_LONGEST_TAIL = ".partial999999.json"  # the numbered sidecar name's tail at a counter of six digits
+
+
+def _name_limit(out: Path) -> int:
+    """The file system's name limit beside ``out`` (``PC_NAME_MAX``), else 255."""
     try:
         name_max = os.pathconf(out.parent, "PC_NAME_MAX")
     except (AttributeError, OSError, ValueError):
-        name_max = 255
-    if name_max <= 0:  # -1: the limit is indeterminate
-        name_max = 255
-    room = name_max - len(".partial.json") - 6
-    stem = out.with_suffix("").name
-    if _name_size(stem) <= room and not (  # a cut name is within 3 units of room
+        return 255
+    return name_max if name_max > 0 else 255  # -1: the limit is indeterminate
+
+
+def _sidecar_stem(out: Path, tail: str = _LONGEST_TAIL) -> str:
+    """``out``'s stem, as is when ``<stem><tail>`` fits the file system's name limit (``tail`` is
+    ``.partial.json``, ``.partial2.json``, ...; by default the longest, a counter of six digits).
+    Otherwise it is cut on a character boundary, measured in the file system's units
+    (:func:`_name_size`; a non-UTF-8 byte is kept), and ends in a digest of the whole stem, so two
+    long outs never share a sidecar. The cut leaves room for the longest tail, so every numbered
+    name of one out has the same stem; only a limit too small for that cuts to this tail alone.
+    A stem that fits but is as long as a cut one and ends in a digest-shaped tag (in either case,
+    as a case-insensitive file system folds it) is cut again, so it never equals the cut name of
+    another out. A limit with no room for the digest in ``tail``'s name raises ``ENAMETOOLONG``."""
+    name_max, stem = _name_limit(out), out.with_suffix("").name
+    fit, tag = name_max - len(tail), "-" + hashlib.sha256(os.fsencode(stem)).hexdigest()[:12]
+    room = name_max - len(_LONGEST_TAIL)
+    if room < len(tag):  # a small limit: cut for this tail alone
+        room = fit
+    if _name_size(stem) <= fit and not (  # a cut name is within 3 units of room
             _name_size(stem) > room - 4 and re.search(r"-[0-9a-f]{12}$", stem, re.IGNORECASE)):
         return stem
-    tag = "-" + hashlib.sha256(os.fsencode(stem)).hexdigest()[:12]
     if room < len(tag):
         raise OSError(errno.ENAMETOOLONG, f"a name limit of {name_max} leaves no room for a partial result's name", str(out))
     stem = stem[: room - len(tag)]
@@ -578,13 +589,14 @@ def _sidecar_stem(out: Path) -> str:
 def _partial_destinations(out: Path) -> Iterator[Path]:
     """Each of ``<out stem>.partial.json``, ``<out stem>.partial2.json``, ... in turn that is free
     or holds a partial result (:func:`_takes_partial`), so a partial result never replaces a
-    finished one. A stem too long for the names to fit is shortened (:func:`_sidecar_stem`)."""
-    base = out.with_name(_sidecar_stem(out))
-    candidate, number = base.with_name(f"{base.name}.partial.json"), 2
+    finished one. A stem too long for a name to fit is shortened for it (:func:`_sidecar_stem`)."""
+    number = 1
     while True:
+        tail = ".partial.json" if number == 1 else f".partial{number}.json"
+        candidate = out.with_name(_sidecar_stem(out, tail) + tail)
         if _takes_partial(candidate):
             yield candidate
-        candidate, number = base.with_name(f"{base.name}.partial{number}.json"), number + 1
+        number += 1
 
 
 def _wrote(path: Path, text: str) -> bool:

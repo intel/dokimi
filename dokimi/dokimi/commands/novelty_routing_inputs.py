@@ -6,14 +6,14 @@
 from __future__ import annotations
 
 import argparse
-import errno
 import os
 import stat
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from dokimi.utils import InputError
+from dokimi.utils import InputError, is_symlink_loop
+from dokimi.write_probe import can_write
 
 if TYPE_CHECKING:
     from dokimi.novelty.routing import Candidate
@@ -24,8 +24,7 @@ def _refuse_a_non_file(path: Path, label: str, hint: str) -> None:
     try:
         mode = os.stat(path).st_mode
     except OSError as exc:
-        # Windows reports a loop as WinError 1921 (ERROR_CANT_RESOLVE_FILENAME), not ELOOP.
-        if exc.errno == errno.ELOOP or getattr(exc, "winerror", None) == 1921:
+        if is_symlink_loop(exc):
             raise InputError(f"{label} is a symlink loop, so the file cannot be written{hint}") from exc
         return  # missing, or under a non-directory: checked_out_path names it
     if not stat.S_ISREG(mode):
@@ -71,11 +70,11 @@ def checked_out_path(out: str | None, command: str, default: str | None = None) 
     ancestor = next((p for p in target.parents if os.path.exists(p)), target.parent)
     if not os.path.isdir(ancestor):
         raise InputError(f"{label}: {ancestor} is not a directory, so the file cannot be created under it{hint}")
-    if os.path.exists(target):
-        writable = os.access(target, os.W_OK)
-    else:
-        writable = os.access(ancestor, os.W_OK | os.X_OK)
-    if not writable:
+    # A missing parent is made by the writer first (a directory, then the file in it): probe both rights.
+    # The probe file is as long as the output's own name, so a name over the limit is refused here, not by the writer.
+    exists = os.path.exists(target)
+    if not can_write(target if exists else ancestor, make_dir=ancestor != target.parent,
+                     child=None if exists else target.name):
         raise InputError(f"{label} is not writable{hint}")
     return path
 
