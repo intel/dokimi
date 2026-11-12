@@ -9,6 +9,7 @@ import argparse
 import importlib.util
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -239,14 +240,18 @@ def test_only_a_same_repo_refresh_pr_counts_as_open(diff_rc: int, fork: bool, cl
     workflow = yaml.safe_load((_REPO / ".github" / "workflows" / "conda-lock.yml").read_text(encoding="utf-8"))
     step = next(s for s in workflow["jobs"]["refresh"]["steps"] if s.get("name") == "Open or update the refresh PR")
     log, prs, bin_dir = tmp_path / "calls.txt", tmp_path / "prs.json", tmp_path / "bin"
-    jq = shutil.which("jq")
+    spaced = tmp_path / "jq dir"  # a jq installed under a path with a space must still run
+    spaced.mkdir()
+    jq = spaced / "jq"
+    jq.symlink_to(str(shutil.which("jq")))
     prs.write_text(f'[{{"number": 701, "isCrossRepository": {str(fork).lower()}}}]', encoding="utf-8")
     bin_dir.mkdir()
-    (bin_dir / "git").write_text(f'#!/bin/sh\necho "git $*" >> {log}\n[ "$1" = diff ] && exit {diff_rc}\nexit 0\n',
-                                 encoding="utf-8")
+    (bin_dir / "git").write_text(
+        f'#!/bin/sh\necho "git $*" >> {shlex.quote(str(log))}\n[ "$1" = diff ] && exit {diff_rc}\nexit 0\n', encoding="utf-8")
     (bin_dir / "gh").write_text(
-        f'#!/bin/sh\necho "gh $*" >> {log}\n[ "$2" = list ] || exit 0\n'
-        f'while [ $# -gt 0 ]; do [ "$1" = --jq ] && filter=$2; shift; done\n{jq} -r "$filter" {prs}\n', encoding="utf-8")
+        f'#!/bin/sh\necho "gh $*" >> {shlex.quote(str(log))}\n[ "$2" = list ] || exit 0\n'
+        f'while [ $# -gt 0 ]; do [ "$1" = --jq ] && filter=$2; shift; done\n'
+        f'{shlex.quote(str(jq))} -r "$filter" {shlex.quote(str(prs))}\n', encoding="utf-8")
     for tool in bin_dir.iterdir():
         tool.chmod(0o755)
     env = {"PATH": f"{bin_dir}:/usr/bin:/bin", "RUN_URL": "https://example.invalid/run/1"}
