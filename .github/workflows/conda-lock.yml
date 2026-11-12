@@ -50,11 +50,17 @@ jobs:
           GH_REPO: ${{ github.repository }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
+          branch=ci/conda-lock-refresh
           if git diff --quiet -- ci/conda-lock; then
             echo "The locks are current."
+            # A refresh PR still open proposes locks main has since passed: retire it.
+            stale="$(gh pr list --head "$branch" --state open --json number --jq '.[0].number')"
+            if [ -n "$stale" ]; then
+              gh pr close "$stale" --delete-branch \
+                --comment "Closed by $RUN_URL: main's locks already match a fresh solve, so this refresh is obsolete."
+            fi
             exit 0
           fi
-          branch=ci/conda-lock-refresh
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git switch -c "$branch"

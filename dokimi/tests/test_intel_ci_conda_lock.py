@@ -8,6 +8,8 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import re
+import subprocess
+import sys
 import types
 from pathlib import Path
 
@@ -139,6 +141,33 @@ def test_build_skips_the_recipe_tests_only_when_asked(system: str, skip: list[st
     tested, untested = (build.commands(system, tmp_path / "meta.yaml", python, ["conda-forge"], tmp_path, test=t)[0]
                         for t in (True, False))
     assert untested == [*tested, *skip]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="runs the step's bash with stub git and gh")
+@pytest.mark.parametrize("open_pr", ["42", ""])
+def test_current_locks_close_an_open_refresh_pr_and_push_nothing(open_pr: str, tmp_path: Path) -> None:
+    """When a fresh solve matches main, the refresh PR left open proposes stale locks and is closed."""
+    workflow = yaml.safe_load((_REPO / ".github" / "workflows" / "conda-lock.yml").read_text(encoding="utf-8"))
+    step = next(s for s in workflow["jobs"]["refresh"]["steps"] if s.get("name") == "Open or update the refresh PR")
+    log = tmp_path / "calls.txt"
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    (bin_dir / "git").write_text(f'#!/bin/sh\necho "git $*" >> {log}\nexit 0\n', encoding="utf-8")
+    (bin_dir / "gh").write_text(f'#!/bin/sh\necho "gh $*" >> {log}\n[ "$2" = list ] && echo "{open_pr}"\nexit 0\n',
+                                encoding="utf-8")
+    for tool in bin_dir.iterdir():
+        tool.chmod(0o755)
+    env = {"PATH": f"{bin_dir}:/usr/bin:/bin", "RUN_URL": "https://example.invalid/run/1"}
+    done = subprocess.run(["/bin/bash", "-e", "-c", step["run"]], env=env, capture_output=True, text=True, check=False)
+    calls = log.read_text(encoding="utf-8").splitlines()
+    assert done.returncode == 0 and "The locks are current." in done.stdout
+    closes = [call for call in calls if call.startswith("gh pr close")]
+    if open_pr:
+        assert len(closes) == 1 and closes[0].startswith("gh pr close 42 --delete-branch --comment ")
+    else:
+        assert closes == []
+    assert not [call for call in calls if call.split()[1] in ("push", "commit", "switch")]
+    assert not [call for call in calls if call.startswith("gh pr create")]
 
 
 def test_the_workflow_takes_the_latest_releases_on_a_tag_or_the_schedule_alone(monkeypatch: pytest.MonkeyPatch) -> None:
