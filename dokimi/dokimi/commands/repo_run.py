@@ -19,16 +19,17 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from dokimi.repos.manifest import RepoManifest
 
+from dokimi import cli_flags
 from dokimi import docker_cmd
 from dokimi.repos.harness_profile import DELEGATION_MODES
-from dokimi.repos.source import SourceArgumentError
+from dokimi.repos.source import SourceArgumentError, tree_path
 from dokimi.utils import tree_digest
 from dokimi.utils import InputError
 
 
 def _refuse_typed(source, args: argparse.Namespace) -> None:
     """Exit 2 for what the user typed: a pinned local path inside a repository, or a ``--manifest`` that leaves
-    an unpinned local tree as written. A path the tree supplies (a link out of it) fails later, with exit 1."""
+    the tree as written. A path the tree supplies (a link out of it) fails later, with exit 1."""
     from dokimi.repos.source import check_pinned_root
 
     try:
@@ -38,10 +39,13 @@ def _refuse_typed(source, args: argparse.Namespace) -> None:
     except ValueError as exc:  # SourceError: git cannot read the pinned path; or a prefix that is not UTF-8
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(1)
-    if args.manifest and not args.manifest_file and not source.remote and source.rev is None:
-        tree = Path(source.location).resolve()
-        if not Path(os.path.normpath(tree / args.manifest)).is_relative_to(tree):
+    if args.manifest and not args.manifest_file:
+        if os.path.splitdrive(args.manifest)[0]:  # `D:/x`, `D:x`, `//host/share/x`: no `/` check sees a drive
             raise InputError(f"path escapes the repository: {args.manifest}")
+        try:  # as the host reads it: on Windows `..\x` is `../x`, also for a pinned tree, which is read with `/`
+            tree_path(os.path.normpath(args.manifest).replace(os.path.sep, "/"))
+        except SourceArgumentError as exc:
+            raise InputError(f"path escapes the repository: {args.manifest}") from exc
 
 
 def _context(args: argparse.Namespace, out: Path, source, pin: bool = False):
@@ -493,7 +497,7 @@ def register(repo_sub, eval_sub, positive_int, source_help: str, cache_help: str
                          "with --warm the host is judged too). Broken tasks, tasks that need egress "
                          "and tasks whose host probe failed still exit 1, and so does a check in "
                          "which no task is ok")
-    check_p.add_argument("--out", default="repo-check", help="Work directory (default: repo-check)")
+    cli_flags.add(check_p, "output", "--out-dir", dest="out", default="repo-check", help="Work directory (default: repo-check)")
     check_p.set_defaults(func=cmd_repo_tasks_check)
 
     run_p = repo_sub.add_parser(
@@ -514,7 +518,7 @@ def register(repo_sub, eval_sub, positive_int, source_help: str, cache_help: str
                        help="Model string passed to the harness as it is; repeatable")
     run_p.add_argument("--reps", type=positive_int, default=1)
     run_p.add_argument("--batch", required=True, help="Batch name: cells go to <out>/<batch>/")
-    run_p.add_argument("--out", default="repo-runs", help="Parent of batch directories (default: repo-runs)")
+    cli_flags.add(run_p, "output", "--out-dir", dest="out", default="repo-runs", help="Parent of batch directories (default: repo-runs)")
     run_p.add_argument("--harness", default="claude-code", help="Built-in profile name or profile YAML path")
     run_p.add_argument("--bin", default=None,
                        help="Harness executable on this host, mounted read-only into the agent's container "

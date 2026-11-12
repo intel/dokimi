@@ -289,6 +289,8 @@ def test_goldens_reach_every_section_branch():
             "| **z** | $0.0000 (0/5) | 0 | 0 | 0 | 0.00s | 0.0% |",
             "| 0 (0%) | 5 (100%) |",
             "| — | 0.0 (baseline) |",
+            # one run, its p (0.0625) under the floor: it is compared, though it is not in the multiplier
+            "adjusted across the 1 run(s) compared here",
         ],
         "unscored_and_arms": ["7 (1 unscored)", "`docs`, `skill:x`", "(4/5)"],
         "pooled_singletons_cost": ["## Resource Usage", "| **y** | $0.5000 |"],
@@ -304,14 +306,14 @@ def test_goldens_reach_every_section_branch():
 
 
 @pytest.mark.parametrize(
-    "p, raw, significant",
-    [(0.05, False, False), (0.049, True, True), (0.049, None, None)],
+    "p, raw, changed, significant",
+    [(0.05, False, 6, False), (0.049, True, 6, True), (0.049, None, 4, None)],
 )
-def test_adjusted_verdict_is_strictly_below_alpha(monkeypatch, p, raw, significant):
+def test_adjusted_verdict_is_strictly_below_alpha(monkeypatch, p, raw, changed, significant):
     # A p exactly at alpha is not significant; no raw verdict (the floor rule) stays no verdict.
-    fake = {"p": p, "significant": raw}
+    fake = {"p": p, "significant": raw, "n_changed": changed}
     monkeypatch.setattr(model_compare, "significance_test", lambda *_, **__: dict(fake))
     scores = {"r": [{"with_docs": 60, "without_docs": 50}] * 6}
     sigs, tested = model_compare._adjusted_significance(["r"], scores, "holm")
-    assert tested == 1
+    assert tested == 1  # the runs compared, floor-bound or not
     assert sigs["r"]["significant_adjusted"] is significant

@@ -259,7 +259,7 @@ def run_case(harness: Harness, model: str, fixture: Path, guidance: Path, out: P
     except OSError as exc:  # a receipt that stays would be read as this run's: fail the run instead
         return run_record(harness.name, case, "failed", f"cannot clear {out}: {exc}", UNKNOWN, model, 0), []
     argv = [sys.executable, "-m", "dokimi", "repo", "reach", str(fixture), "--manifest-file", str(guidance),
-            "--harness", harness.profile_ref, "--model", model, "--out", str(out), "--format", "receipt",
+            "--harness", harness.profile_ref, "--model", model, "--out-dir", str(out), "--format", "receipt",
             "--timeout", str(timeout), "--budget", f"{budget:g}"]
     proc = process.run(argv, timeout=timeout * 16 + 300, env=process.Env.only((), env))
     receipt_path = out / RECEIPT_NAME

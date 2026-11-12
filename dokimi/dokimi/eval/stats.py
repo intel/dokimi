@@ -56,6 +56,7 @@ from __future__ import annotations
 import importlib.util
 import math
 import random
+import statistics
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
@@ -80,6 +81,10 @@ CORRECTIONS = ("holm", "bh")
 #: Relative spread (scaled by the mean) below which d_z is undefined: a float constant shift has sd ~ 3e-15,
 #: not 0, and d_z ~ 2.8e13 ("large"). The sign-flip p needs no such guard.
 ZERO_VARIANCE_REL_TOL = 1e-9
+
+
+#: Totals above this are scaled by a power of two before ``point_biserial`` sums them (a sum of 2**900 needs 2**124 of them to overflow).
+_HUGE_TOTAL = 2.0 ** 900
 
 
 def _is_degenerate(mean: float, sd: float) -> bool:
@@ -284,6 +289,21 @@ def correct_family(
     ]
 
 
+def reachable_pvals(
+    pvals: Sequence[Optional[float]], n_changed: Sequence[int]
+) -> List[Optional[float]]:
+    """``pvals`` with ``None`` where the floor rule bars the result: its p cannot go below :data:`ALPHA`.
+
+    Such a result can never reject, so it stays out of the multiplier (Tarone's
+    argument); the others are corrected as if it were not there
+    (https://github.com/intel/dokimi/issues/478).
+    """
+    return [
+        None if p is not None and min_sign_flip_p(k) >= ALPHA else p
+        for p, k in zip(pvals, n_changed, strict=True)
+    ]
+
+
 # ---------------------------------------------------------------------------
 # Paired comparison
 # ---------------------------------------------------------------------------
@@ -304,13 +324,17 @@ def _round_p(p: Optional[float]) -> Optional[float]:
     return float(f"{p:.3g}")
 
 
-def _mean(vals: Sequence[float]) -> float:
-    return sum(vals) / len(vals)
-
-
 def _pow2_scale(vals: Sequence[float]) -> float:
     """The power of two at or below ``max(abs(vals))``: dividing by it is exact and leaves each value under 2."""
     return math.ldexp(1.0, math.frexp(max(abs(v) for v in vals))[1] - 1)
+
+
+def _mean(vals: Sequence[float]) -> float:
+    mu = sum(vals) / len(vals)
+    if math.isfinite(mu) or not all(math.isfinite(v) for v in vals):
+        return mu
+    # The sum left the float range though every value is finite: average exactly (dividing by a scale would underflow a small term before the large ones cancel).
+    return statistics.mean(vals)
 
 
 def _sample_sd(vals: Sequence[float]) -> float:
@@ -318,6 +342,10 @@ def _sample_sd(vals: Sequence[float]) -> float:
         return 0.0
     mu = _mean(vals)
     devs = [x - mu for x in vals]
+    if all(math.isfinite(v) for v in vals) and not all(math.isfinite(d) for d in devs):
+        # A deviation left the float range (values near +-1e308 of both signs): work on scaled values.
+        scale = _pow2_scale(vals)
+        return scale * _sample_sd([v / scale for v in vals])
     # Scaled so that squaring a deviation of 1e200 cannot overflow: https://github.com/intel/dokimi/issues/475
     scale = _pow2_scale(devs)
     return scale * math.sqrt(sum((d / scale) ** 2 for d in devs) / (len(vals) - 1))
@@ -461,6 +489,10 @@ def point_biserial(flags: Sequence[bool], totals: Sequence[float]) -> Dict[str, 
     if n_pass in (0, n):
         return {"r": None, "n": n, "n_pass": n_pass,
                 "reason": "no variance in the item: every respondent scored it the same"}
+    top = max(abs(t) for _, t in pairs)
+    # Totals this large would overflow a sum or a difference; r does not depend on the scale: https://github.com/intel/dokimi/issues/553
+    scale = _pow2_scale([top]) if math.isfinite(top) and top > _HUGE_TOTAL else 1.0
+    pairs = [(flag, t / scale) for flag, t in pairs]
     all_totals = [t for _, t in pairs]
     sd = _sample_sd(all_totals)
     if _is_degenerate(_mean(all_totals), sd):
@@ -635,8 +667,9 @@ def arm_significance(
 
 
 def set_exact_p_adjusted(results: Sequence[Dict[str, Any]], *, method: str) -> None:
-    """Set ``exact.p_adjusted`` to the family correction of ``p`` before rounding."""
-    exact = adjust_pvalues([r["p"] for r in results], method=method, rounded=False)
+    """Set ``exact.p_adjusted`` to the family correction of ``p`` before rounding (``None`` for a floor-bound result)."""
+    ps = reachable_pvals([r["p"] for r in results], [r["n_changed"] for r in results])
+    exact = adjust_pvalues(ps, method=method, rounded=False)
     for res, p in zip(results, exact, strict=True):
         if "exact" in res:
             res["exact"]["p_adjusted"] = p
@@ -650,14 +683,17 @@ def _apply_correction(
     ``results`` must still hold unrounded p-values. ``label`` names the family
     so a reader can tell which hypotheses were corrected together — arms and
     interaction contrasts are separate families, and pooling them would inflate
-    the multiplier on both. Every result with a p is in the family, one under
-    the floor rule included (as in ``repo compare``), and ``family_tested``
-    counts them. ``significant_adjusted`` is ``None`` wherever ``significant``
-    is (no p, or the floor rule), else the corrected verdict.
+    the multiplier on both. A result under the floor rule (its ``n_changed``
+    cannot give p < :data:`ALPHA`) stays out of the multiplier: its
+    ``p_adjusted`` and ``significant_adjusted`` are ``None``, it still counts
+    in ``family_size``, and ``family_tested`` counts only the results that can
+    reach :data:`ALPHA`. ``significant_adjusted`` is ``None`` wherever
+    ``significant`` is, else the corrected verdict.
     """
-    decided = correct_family([r["p"] for r in results], method=correction)
+    ps = reachable_pvals([r["p"] for r in results], [r["n_changed"] for r in results])
+    decided = correct_family(ps, method=correction)
     set_exact_p_adjusted(results, method=correction)
-    tested = sum(1 for r in results if r["p"] is not None)
+    tested = sum(1 for p in ps if p is not None)
     for res, (adj, adj_significant) in zip(results, decided, strict=True):
         res["p_adjusted"] = adj
         res["correction"] = correction

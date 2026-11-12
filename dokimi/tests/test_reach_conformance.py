@@ -173,7 +173,7 @@ def _fake_reach(monkeypatch, receipt: dict, *, returncode: int = 0, timed_out: b
 
     def fake_run(argv, *, timeout, env, **_):
         calls.append(list(argv))
-        out = Path(argv[argv.index("--out") + 1])
+        out = Path(argv[argv.index("--out-dir") + 1])
         if write:
             out.mkdir(parents=True, exist_ok=True)
             save_artifact("effective_instructions", receipt, out / cf.RECEIPT_NAME)
@@ -281,7 +281,7 @@ def test_run_case_with_a_malformed_receipt_is_failed_not_fatal(tmp_path, monkeyp
     fixture, _receipt = _toy_fixture(tmp_path)
 
     def fake_run(argv, *, timeout, env, **_):
-        out = Path(argv[argv.index("--out") + 1])
+        out = Path(argv[argv.index("--out-dir") + 1])
         out.mkdir(parents=True, exist_ok=True)
         (out / cf.RECEIPT_NAME).write_text(text, encoding="utf-8")
         return process.Completed(argv=tuple(argv), returncode=0)

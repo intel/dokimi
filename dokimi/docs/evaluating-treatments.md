@@ -108,7 +108,7 @@ once with no plugin and once with the plugin enabled, then compare the two
 python cli.py arms plugin-delta \
   --baseline-json results/arms/oneTBB-none.json \
   --plugin-json results/arms/oneTBB-caveman.json \
-  --out-json results/arms/oneTBB-caveman-delta.json
+  --out results/arms/oneTBB-caveman-delta.json
 ```
 
 The command writes a `plugin_delta.v1` artifact plus a Markdown report with
@@ -137,7 +137,7 @@ python cli.py arms run \
   --questions <content-checkout>/questions/onetbb_golden.json \
   --arms "baseline,docs,profile:data/agent_profiles/concise_expert.md,skill:<content-checkout>/skills/onetbb-quickstart" \
   --judge \
-  --out-json results/arms/oneTBB.json \
+  --out results/arms/oneTBB.json \
   --out-md results/arms/oneTBB.md
 ```
 
@@ -753,19 +753,22 @@ python cli.py eval headroom run1/arms.json run2/arms.json run3/arms.json \
   left out of this test and listed in the item's `unscored_arms`; the no-skill arm alone at zero
   is not a floor.
 - **provisional**: fewer than `--min-reps` runs scored the item with its no-skill arm (the
-  reps are those runs). Default 3. A file gives each item zero or one rep (zero when its
+  reps are those runs, less the cached repeats described below). Default 3. A file gives each item zero or one rep (zero when its
   no-skill arm was not scored in that file), so one file alone makes every item provisional at the
-  default of 3; the reps of several files add up.
+  default of 3; the reps of several files add up (a file whose no-skill answer is a cached copy of
+  another file's scored one adds none, see below).
 
 A run is one file. A file repeated on the command line, or holding the same JSON content as
 an earlier one (whitespace and key order do not count), is skipped with a note, so it does
 not add a rep. Numbers are compared as numbers: `95.0` and `95` are the same content. A question id repeated within one
 file is an error (exit 2): it would count as two runs.
 
-Cached replays are not detected. With `DOKIMI_RESPONSE_CACHE` set, a repeated `arms run` replays
-the same answers and judgments, but its file has a new `generated_at` and so counts as a fresh rep.
-Collect repeats with the cache off when the reps feed `eval headroom`. Recording replay provenance
-per answer, so headroom can exclude cached repeats, is tracked in #370.
+A cached replay is not a fresh rep. With `DOKIMI_RESPONSE_CACHE` set, a repeated `arms run` replays
+the same answers and judgments, and the file marks each answer the cache served with `replayed: true`.
+A replayed answer whose text a scored fresh answer of another input file has for the same item and arm
+is left out of the reps and the means. Replays of one text that no scored fresh answer has count as one
+rep at the mean of their scores, whatever the order of the files. The summary's `replayed_repeats` counts the scores of
+replays that added no rep (a replay with no score is not one), and a note under the table gives it. Files written before the flag carry none: collect their repeats with the cache off.
 
 The table always goes to stdout: the flagged and provisional items, with the no-skill arm
 in its own column, a note naming any arm no run scored, and the counts. The JSON goes to
