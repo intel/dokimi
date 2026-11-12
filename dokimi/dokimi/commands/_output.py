@@ -28,7 +28,7 @@ def save_artifact_or_exit(kind: str, payload: dict, path: Path, code: int = EXIT
 
     A payload its schema refuses is a writer bug, so it exits 1 (the payload is kept at ``<path>.rejected``).
     """
-    from dokimi.artifacts import ArtifactValidationError, save_artifact
+    from dokimi.artifacts import save_artifact
 
     try:
         save_artifact(kind, payload, path)
@@ -38,6 +38,8 @@ def save_artifact_or_exit(kind: str, payload: dict, path: Path, code: int = EXIT
     except ArtifactValidationError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         sys.exit(EXIT_FAILURE)
+
+
 @contextlib.contextmanager
 def exit_on_rejected(kind: str):
     """Exit 1 when the ``kind`` schema refuses a save inside the block; save_artifact keeps the payload at ``<name>.rejected``."""

@@ -33,7 +33,11 @@ def _run_id(monkeypatch):
 def _assert_saved_with_envelope(path, version, payload_key):
     data = json.loads(path.read_text(encoding="utf-8"))
     assert list(data)[:3] == ["schema_version", "run_id", "dokimi_version"]
-    assert (data["schema_version"], data["run_id"], data["dokimi_version"]) == (version, "r4-run", __version__)
+    assert (data["schema_version"], data["run_id"], data["dokimi_version"]) == (
+        version,
+        "r4-run",
+        __version__,
+    )
     # the envelope alone passes for a writer that saves an empty report: the payload must be there too
     assert payload_key in data
 
@@ -44,22 +48,40 @@ def test_each_judge_reliability_writer_saves_with_the_envelope(command, tmp_path
 
     _stub_judge_commands(monkeypatch)
     # The stub report scores nothing; the command reads `unscored()` after it has saved.
-    monkeypatch.setattr(cross_judge, "CrossJudgeReport", type("Report", (_Report,), {"unscored": lambda self: []}))
+    monkeypatch.setattr(
+        cross_judge, "CrossJudgeReport", type("Report", (_Report,), {"unscored": lambda self: []})
+    )
     out = tmp_path / "out.json"
-    args = build_parser().parse_args([*_JUDGE_COMMANDS[command], "--answers", "a.json", "--output", str(out)])
+    args = build_parser().parse_args(
+        [*_JUDGE_COMMANDS[command], "--answers", "a.json", "--output", str(out)]
+    )
     args.func(args)
     _assert_saved_with_envelope(out, EXPECTED_VERSION[command], "judge_temperature")
 
 
 def test_grounding_output_saves_with_the_envelope(tmp_path):
     answers = tmp_path / "answers.json"
-    answers.write_text(json.dumps({"answers": [
-        {"question_id": "q1", "question_text": "How do I loop?",
-         "with_docs": {"answer": "use parallel_for",
-                       "retrieved_docs": [{"snippet": "parallel_for runs tasks"}]}},
-    ]}), encoding="utf-8")
+    answers.write_text(
+        json.dumps(
+            {
+                "answers": [
+                    {
+                        "question_id": "q1",
+                        "question_text": "How do I loop?",
+                        "with_docs": {
+                            "answer": "use parallel_for",
+                            "retrieved_docs": [{"snippet": "parallel_for runs tasks"}],
+                        },
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
     out = tmp_path / "grounding.json"
-    args = build_parser().parse_args(["eval", "score", "grounding", "--answers", str(answers), "--output", str(out)])
+    args = build_parser().parse_args(
+        ["eval", "score", "grounding", "--answers", str(answers), "--output", str(out)]
+    )
     args.func(args)
     _assert_saved_with_envelope(out, "grounding.v1", "summary")
 
@@ -70,7 +92,9 @@ def test_ragas_output_saves_with_the_envelope(tmp_path, monkeypatch):
             pass
 
         def evaluate(self, answers, include_without_docs=True):
-            return types.SimpleNamespace(to_dict=lambda: {"ragas_summary": {}}, format_summary=lambda: "")
+            return types.SimpleNamespace(
+                to_dict=lambda: {"ragas_summary": {}}, format_summary=lambda: ""
+            )
 
     monkeypatch.setattr(ragas_eval, "RagasEvaluator", Evaluator)
     args = types.SimpleNamespace(ragas_model="m", ragas_provider="anthropic")
@@ -92,13 +116,23 @@ def test_a_payload_its_schema_refuses_exits_1_and_keeps_it_beside_the_path(tmp_p
 def test_grounding_command_exits_1_when_its_payload_is_refused(tmp_path, monkeypatch):
     import dokimi.eval.grounding as grounding
 
-    summary = {"n_evaluated": 1, "grounding_score": {"mean": None, "lo": None, "hi": None},
-               "citation_rate": 0.0, "threshold": 0.5}
-    monkeypatch.setattr(grounding, "evaluate_grounding", lambda answers, threshold: {"summary": summary, "per_question": 5})
+    summary = {
+        "n_evaluated": 1,
+        "grounding_score": {"mean": None, "lo": None, "hi": None},
+        "citation_rate": 0.0,
+        "threshold": 0.5,
+    }
+    monkeypatch.setattr(
+        grounding,
+        "evaluate_grounding",
+        lambda answers, threshold: {"summary": summary, "per_question": 5},
+    )
     answers = tmp_path / "answers.json"
     answers.write_text(json.dumps({"answers": []}), encoding="utf-8")
     out = tmp_path / "grounding.json"
-    args = build_parser().parse_args(["eval", "score", "grounding", "--answers", str(answers), "--output", str(out)])
+    args = build_parser().parse_args(
+        ["eval", "score", "grounding", "--answers", str(answers), "--output", str(out)]
+    )
     with pytest.raises(SystemExit) as exc:
         args.func(args)
     assert exc.value.code == 1
