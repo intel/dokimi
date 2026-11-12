@@ -274,6 +274,10 @@ The sample is tiny, but it is the failure the judge is known to have
 flags are not checked; a comma ends them. Without a comma the scan cannot tell prose from an argument, so
 `perf report --stdio -- and add --bogus` passes the veto. Kept as is, not changed in this round.
 
+**Known limit:** a negation word earlier in the clause skips the command after it, so
+`No TUI needed: perf report --stdin` passes the veto. A `:` does not end the clause either, because
+`There is no such option: perf report --stdin` is a correct denial and must pass.
+
 ### What the prototype supports
 
 * Tier 1/2 checks are worth having as **vetoes** and as **key verification**, not as a
