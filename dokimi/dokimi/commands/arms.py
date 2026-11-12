@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter
-import os
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -16,6 +15,7 @@ from dokimi import cli_flags
 from dokimi.exit_codes import EXIT_FAILURE, EXIT_USAGE
 from dokimi.llm import ANSWER_PROVIDERS
 from dokimi.utils import InputError, question_id
+from dokimi.write_probe import can_write
 from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.defaults import (
     DEFAULT_ANSWER_MODEL,
@@ -134,14 +134,23 @@ def _load_matrix_inputs(config: ArmsRunConfig, arms: str, questions: str, matrix
 
 def _check_cells_dir(cells_dir: Path) -> None:
     """Exit 2 when *cells_dir* cannot be made: the nearest existing ancestor must be a directory
-    the process can write to. Creates nothing."""
+    the process can write to. It tries the write in that directory (in a directory made there when *cells_dir* is
+    missing) and removes what it made; only a directory that refuses the removal keeps a ``.write-probe-*`` entry.
+    An existing parent of *cells_dir* must also take a file, since the rollup is written there."""
     # A dangling symlink exists as a link but not as a target: it is the nearest entry, and it is refused.
     existing = next((p for p in (cells_dir, *cells_dir.parents) if p.exists() or p.is_symlink()), None)
     if existing is None:  # no ancestor exists at all (an unmounted drive): nothing can be made
         print(f"Error: cannot write {cells_dir}: no existing directory above it", file=sys.stderr)
         sys.exit(EXIT_USAGE)
-    if not existing.is_dir() or not os.access(existing, os.W_OK | os.X_OK):
-        print(f"Error: cannot write {cells_dir}: {existing} is not a writable directory", file=sys.stderr)
+    # The rollup and the plugin deltas are files in the parent (the out dir), which takes a folder-only grant no better.
+    out_dir = cells_dir.parent
+    refused = None
+    if not existing.is_dir() or not can_write(existing, make_dir=existing != cells_dir):
+        refused = existing
+    elif out_dir.is_dir() and not can_write(out_dir):
+        refused = out_dir
+    if refused is not None:
+        print(f"Error: cannot write {cells_dir}: {refused} is not a writable directory", file=sys.stderr)
         sys.exit(EXIT_USAGE)
 
 

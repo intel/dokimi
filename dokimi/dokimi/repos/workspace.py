@@ -49,6 +49,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from dokimi import process
+from dokimi.process_io import path_text
 
 from .arms import ArmError, Skill, resolve_skills, tree_sha256
 from .bases import _patch_paths
@@ -657,7 +658,8 @@ def _link_chain(git_dir: Path, entries: dict[str, tuple[str, str]], path: str, s
         mode, oid = entries.get(target, ("", ""))
         if mode != "120000":
             break
-        dest = _run(["git", "-C", str(git_dir), "cat-file", "blob", oid], env=_git_env(SNAPSHOT_AUTHOR))
+        blob = _run_proc(["git", "-C", str(git_dir), "cat-file", "blob", oid], env=_git_env(SNAPSHOT_AUTHOR))
+        dest = path_text(blob.stdout_bytes)  # as the ls-tree entries: a byte that is not UTF-8 stays one
         target = posixpath.normpath(posixpath.join(posixpath.dirname(target), dest))
         if dest.startswith("/") or target == ".." or target.startswith("../"):
             raise PrepError(f"guidance {path} at {sha[:12]} links out of the tree ({dest})")

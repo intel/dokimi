@@ -56,6 +56,7 @@ from __future__ import annotations
 import importlib.util
 import math
 import random
+import statistics
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
@@ -80,6 +81,10 @@ CORRECTIONS = ("holm", "bh")
 #: Relative spread (scaled by the mean) below which d_z is undefined: a float constant shift has sd ~ 3e-15,
 #: not 0, and d_z ~ 2.8e13 ("large"). The sign-flip p needs no such guard.
 ZERO_VARIANCE_REL_TOL = 1e-9
+
+
+#: Totals above this are scaled by a power of two before ``point_biserial`` sums them (a sum of 2**900 needs 2**124 of them to overflow).
+_HUGE_TOTAL = 2.0 ** 900
 
 
 def _is_degenerate(mean: float, sd: float) -> bool:
@@ -304,13 +309,17 @@ def _round_p(p: Optional[float]) -> Optional[float]:
     return float(f"{p:.3g}")
 
 
-def _mean(vals: Sequence[float]) -> float:
-    return sum(vals) / len(vals)
-
-
 def _pow2_scale(vals: Sequence[float]) -> float:
     """The power of two at or below ``max(abs(vals))``: dividing by it is exact and leaves each value under 2."""
     return math.ldexp(1.0, math.frexp(max(abs(v) for v in vals))[1] - 1)
+
+
+def _mean(vals: Sequence[float]) -> float:
+    mu = sum(vals) / len(vals)
+    if math.isfinite(mu) or not all(math.isfinite(v) for v in vals):
+        return mu
+    # The sum left the float range though every value is finite: average exactly (dividing by a scale would underflow a small term before the large ones cancel).
+    return statistics.mean(vals)
 
 
 def _sample_sd(vals: Sequence[float]) -> float:
@@ -318,6 +327,10 @@ def _sample_sd(vals: Sequence[float]) -> float:
         return 0.0
     mu = _mean(vals)
     devs = [x - mu for x in vals]
+    if all(math.isfinite(v) for v in vals) and not all(math.isfinite(d) for d in devs):
+        # A deviation left the float range (values near +-1e308 of both signs): work on scaled values.
+        scale = _pow2_scale(vals)
+        return scale * _sample_sd([v / scale for v in vals])
     # Scaled so that squaring a deviation of 1e200 cannot overflow: https://github.com/intel/dokimi/issues/475
     scale = _pow2_scale(devs)
     return scale * math.sqrt(sum((d / scale) ** 2 for d in devs) / (len(vals) - 1))
@@ -461,6 +474,10 @@ def point_biserial(flags: Sequence[bool], totals: Sequence[float]) -> Dict[str, 
     if n_pass in (0, n):
         return {"r": None, "n": n, "n_pass": n_pass,
                 "reason": "no variance in the item: every respondent scored it the same"}
+    top = max(abs(t) for _, t in pairs)
+    # Totals this large would overflow a sum or a difference; r does not depend on the scale: https://github.com/intel/dokimi/issues/553
+    scale = _pow2_scale([top]) if math.isfinite(top) and top > _HUGE_TOTAL else 1.0
+    pairs = [(flag, t / scale) for flag, t in pairs]
     all_totals = [t for _, t in pairs]
     sd = _sample_sd(all_totals)
     if _is_degenerate(_mean(all_totals), sd):
