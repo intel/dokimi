@@ -80,7 +80,10 @@ COMMAND_RULES: tuple[Rule, ...] = (
     Rule("world-writable", "medium", "chmod 777 / a+rwx",
          _rx(r"\bchmod\s+(?:-\S+\s+)*(?:0?777|a\+rwx|ugo\+rwx)\b")),
     Rule("pipe-to-shell", "high", "download piped into a shell",
-         _rx(r"\b(?:curl|wget)\b[^|;&]*\|\s*(?:sudo\s+)?(?:\S*/)?(?:env\s+)?(?:\S*/)?(?:ba|z|da)?sh\b")),
+         # an interpreter reads the script too; a shell may also take it from a process or command substitution
+         _rx(r"\b(?:curl|wget)\b[^|;&]*\|\s*(?:sudo\s+)?(?:\S*/)?(?:env\s+)?(?:\S*/)?"
+             r"(?:(?:ba|z|da)?sh|(?:python|perl|ruby|node)[\d.]*)\b"
+             r"|\b(?:ba|z|da)?sh\b[^;&|]*(?:<\(|\$\()\s*(?:sudo\s+)?(?:curl|wget)\b")),
     # words after `install`, an index or links option taken with its URL value; then a package word that is a
     # URL, has git+ in it, or the system guard's override
     Rule("unpinned-install", "medium", "package installed from a URL or git, or past the system guard",
