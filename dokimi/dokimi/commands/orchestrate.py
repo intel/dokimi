@@ -9,6 +9,7 @@ import argparse
 import sys
 from pathlib import Path
 
+from dokimi import cli_flags
 from dokimi.llm import CALLER_CHOICES
 from dokimi.llm_cli import SamplingError, check_sampling
 from dokimi.utils import check_bedrock_model
@@ -78,7 +79,7 @@ def cmd_evaluate(args: argparse.Namespace) -> None:
             doc_source=getattr(args, "doc_source", "context7"),
             context7_id=getattr(args, "context7_id", None),
         )
-    except OSError as exc:  # a missing --custom-questions file, an unusable --output-dir
+    except OSError as exc:  # a missing --custom-questions file, an unusable --out-dir
         raise InputError(str(exc)) from exc
 
     # Run pipeline
@@ -118,7 +119,7 @@ def register(sub, positive_int) -> None:
     eval_p.add_argument("--product", required=True, help="Product name (e.g., oneDNN)")
     eval_p.add_argument("--repo", default=None, help="GitHub repo (e.g., oneapi-src/oneDNN). Optional if --description is given.")
     eval_p.add_argument("--description", default=None, help="Plain-text product description (used when --repo is not available).")
-    eval_p.add_argument("--output-dir", default=".", help="Base output directory")
+    cli_flags.add(eval_p, "output", "--out-dir", dest="output_dir", default=".", help="Base output directory")
     eval_p.add_argument("--custom-questions", default=None, help="Optional: path to manual questions JSON")
     eval_p.add_argument("--questions-root", default=None, dest="questions_root",
                         help="Directory where the golden question set <product>_golden.json "

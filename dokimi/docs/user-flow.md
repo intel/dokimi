@@ -55,7 +55,7 @@ fine for a first look, but two runs then answer different questions and cannot b
 compared. See [external-content.md](external-content.md).
 
 A `questions/<target>.json` already in the output directory is reused instead of
-the root, even after the golden file changed. Use a fresh `--output-dir`, or
+the root, even after the golden file changed. Use a fresh `--out-dir`, or
 `--force-regen` to answer the golden set. With a golden set under
 `--questions-root`, or with `--questions-from`, persona discovery is skipped,
 even with `--force-regen`.
@@ -84,7 +84,7 @@ results/<target>_final/
 ## 4. Reuse same question set for fair comparison
 
 ```bash
-python cli.py benchmark run --target onetbb --questions-root <content-checkout>/questions --output-dir results/onetbb_seed
+python cli.py benchmark run --target onetbb --questions-root <content-checkout>/questions --out-dir results/onetbb_seed
 python cli.py benchmark run --target onetbb --questions-from results/onetbb_seed --model gpt-6-astra
 python cli.py benchmark run --target onetbb --questions-from results/onetbb_seed --model claude-opus-5-5 --provider anthropic
 ```

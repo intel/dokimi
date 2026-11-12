@@ -30,6 +30,7 @@ from dokimi.repos.batch_ledger import execution_id
 from dokimi.repos.events import convert
 from dokimi.repos.transcript import OUTPUT_KEEP, OUTPUT_LIMIT, clip_output
 from dokimi.repos.harness_profile import ProfileError, load_profile, parse_profile
+from tests.pid_state import describe, wait_until_gone
 from dokimi.repos.reach import (
     ReachError,
     SeededFile,
@@ -42,6 +43,7 @@ from dokimi.repos.reach import (
     seed_text,
     token,
 )
+from tests.cli_refusal import refusal
 
 FAKE_HARNESS = r'''
 import json, os, re, sys
@@ -647,17 +649,7 @@ def test_reach_timeout_kills_the_harness_process_tree(tmp_path, monkeypatch, mod
     assert not list((tmp_path / "work").iterdir())
 
 
-def _pid_alive(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-    except OSError:
-        return False
-    try:  # a killed child nobody reaped yet is a zombie: not running
-        return Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0] != "Z"
-    except OSError:
-        return True
-
-
+@pytest.mark.timeout(150)  # 60 s start-up + 30 s for the CLI + 30 s for the pids, so a real leak reaches the assertion
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX signals and process groups")
 def test_sigterm_to_the_cli_kills_the_harness_and_its_helper(tmp_path):
     """The harness leads its own process group, so a SIGTERM to the CLI (as `timeout(1)` sends)
@@ -667,7 +659,7 @@ def test_sigterm_to_the_cli_kills_the_harness_and_its_helper(tmp_path):
     env = {**os.environ, "FAKE_MODE": "linger", "PYTHONPATH": str(Path(__file__).resolve().parents[1])}
     cli = subprocess.Popen([sys.executable, "-m", "dokimi", "repo", "reach", str(root),
                             "--manifest", "evals/repo-eval.yaml", "--harness", str(profile), "--model", "m",
-                            "--out", str(tmp_path / "out"), "--work-dir", str(work), "--scenarios", "root",
+                            "--out-dir", str(tmp_path / "out"), "--work-dir", str(work), "--scenarios", "root",
                             "--timeout", "120"], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
     pid_file = tmp_path / "linger.pids"
     pids: list[int] = []
@@ -680,10 +672,8 @@ def test_sigterm_to_the_cli_kills_the_harness_and_its_helper(tmp_path):
         pids = [int(p) for p in pid_file.read_text().split()]
         cli.send_signal(signal.SIGTERM)
         assert cli.wait(timeout=30) == -signal.SIGTERM
-        deadline = time.monotonic() + 5
-        while any(map(_pid_alive, pids)) and time.monotonic() < deadline:
-            time.sleep(0.05)
-        assert not [p for p in pids if _pid_alive(p)], "the harness or its helper outlived the CLI"
+        left = wait_until_gone(pids, 30)  # returns as soon as both are gone; only a loaded runner waits
+        assert not left, "the harness or its helper outlived the CLI: " + "; ".join(map(describe, left))
     finally:
         if cli.poll() is None:
             cli.kill()
@@ -709,17 +699,17 @@ def test_repo_reach_cli_manifest_file_and_a_failed_scenario(tmp_path, monkeypatc
     args.func(args)
     assert json.loads(capsys.readouterr().out)["files"] == ["AGENTS.md", "CLAUDE.md", "sub/AGENTS.md", "sub/CLAUDE.md"]
     args = build_parser().parse_args([*base, "--manifest-file", str(tmp_path / "nope.yaml"), "--dry-run"])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2 and "nope.yaml" in capsys.readouterr().err
+    assert exc.code == 2 and "nope.yaml" in capsys.readouterr().err
 
     monkeypatch.setenv("FAKE_MODE", "crash")
     (tmp_path / "work").mkdir()
-    args = build_parser().parse_args([*base, "--out", str(tmp_path / "o"), "--work-dir", str(tmp_path / "work"),
+    args = build_parser().parse_args([*base, "--out-dir", str(tmp_path / "o"), "--work-dir", str(tmp_path / "work"),
                                       "--scenarios", "root"])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 1 and (tmp_path / "o" / "reach.json").is_file()
+    assert exc.code == 1 and (tmp_path / "o" / "reach.json").is_file()
 
 
 @pytest.mark.outcome("cjm-repo-reach")
@@ -737,7 +727,7 @@ def test_repo_reach_cli_dry_run_and_run(tmp_path, monkeypatch, capsys):
     work = tmp_path / "work"
     work.mkdir()
     out = tmp_path / "o"
-    args = build_parser().parse_args([*base, "--out", str(out), "--work-dir", str(work),
+    args = build_parser().parse_args([*base, "--out-dir", str(out), "--work-dir", str(work),
                                       "--scenarios", "root,read"])
     args.func(args)
     text = capsys.readouterr().out
@@ -766,9 +756,9 @@ def test_repo_reach_dry_run_shows_the_run_budget_and_turns(tmp_path, capsys):
 def test_repo_reach_rejects_selections_that_would_drop_scenarios(tmp_path, capsys, extra, message):
     args = build_parser().parse_args(["repo", "reach", str(_repo(tmp_path)), "--manifest", "evals/repo-eval.yaml",
                                       "--model", "m", "--dry-run", *extra])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         args.func(args)
-    assert exc.value.code == 2
+    assert exc.code == 2
     assert message in capsys.readouterr().err
 
 

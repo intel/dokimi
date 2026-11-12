@@ -77,9 +77,34 @@ follows the artifact's length and the models. Pass `--max-usd <n>` to every step
 model: the run stops once its calls across all roles have cost that much (calls already in
 flight can overshoot it), and a call with no known price stops it too,
 since the cap cannot see that spend. A step that stops at the cap writes nothing, except
-`novelty routing`, which saves the calls it made as a `partial` result (see
+`atoms`, `probe` and `novelty routing`, which save the calls they made as a `partial` result (see
+the list below and
 [skill-novelty.md](skill-novelty.md)). One measured pair, a 19k-token skill: triage 103 calls,
 about $1.80; `study` 1,901 calls, about $14.50.
+
+What a stopped run leaves behind depends on the step:
+
+- `atoms` keeps the spans it read. It writes `<stem>.partial.json` beside the file it would
+  have written, and marks the spans it did not reach as unread. If the cap stops the
+  faithfulness check, every atom is kept in the same partial file; the atoms checked before the
+  stop keep their verdict, and the rest are unchecked.
+- `probe` keeps the answers it got when the cap stops the measurement. It writes
+  `<stem>.partial.json` beside its output (for `probes.json`, that is `probes.partial.json`).
+  The file holds only the answers received; its `partial` field gives `calls_done` and
+  `calls_planned`, and the difference counts the probe jobs not run. An answer whose judge
+  call the cap refused before it was sent is kept with verdict `error`: it was paid for but
+  never graded, so equal counts do not show that every answer was graded. A judge reply the cap
+  refused after it came back keeps the verdict it names; one that names none is kept as
+  `error` too. If the cap stops it while the
+  paraphrase or reversal wordings are built, nothing is written.
+- Each exits with a message that names the partial file. A partial file is never read as a
+  finished one: the atom readers and `novelty items` refuse it. A later stopped run replaces
+  an earlier partial file, but never a finished one: if `<stem>.partial.json` holds anything
+  other than a partial result, the new one goes to `<stem>.partial2.json` (and so on).
+- `analyze` keeps nothing. If the measurement is cut short, it stops before its classify and
+  attribution stages, writes no artifact, and reports how many probe answers were not run.
+  Raise `--max-usd`, or measure less (a cheaper `--tier` or a lower `--max-atoms`).
+- `shorten` also loses its work at the cap.
 
 ## 3. Triage: is there anything in here? (~100 calls)
 
