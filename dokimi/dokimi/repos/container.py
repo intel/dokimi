@@ -42,7 +42,7 @@ from pathlib import Path
 from typing import Protocol
 
 from dokimi import docker_cmd, process
-from dokimi.container_policy import PIDS_LIMIT, ContainerPolicy, Group
+from dokimi.container_policy import Group, repo_container_policy
 from dokimi.docker_cmd import (  # noqa: F401  (re-exported: the names callers have always imported from here)
     BUILD_TIMEOUT_S,
     INFRA_EXIT,
@@ -124,8 +124,7 @@ class DockerRunner:
     def argv(self, spec: ContainerSpec) -> list[str]:
         if spec.network not in NETWORKS:
             raise ContainerError(f"unknown network {spec.network!r} (known: {', '.join(NETWORKS)})")
-        policy = ContainerPolicy(network=spec.network, init=True, no_new_privileges=True, cap_drop_all=True,
-                                 pids_limit=PIDS_LIMIT)
+        policy = repo_container_policy(spec.network)
         user = spec.user or host_user()
         try:
             mounts = docker_cmd.mount_args((m.host, m.container, m.read_only) for m in spec.mounts)

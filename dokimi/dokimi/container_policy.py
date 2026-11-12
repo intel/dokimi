@@ -18,7 +18,7 @@ left at its default adds no flag, so each call site opts in to what it runs with
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Literal
 
 PIDS_LIMIT = 32768  # threads count too: a Bazel server and a -j build on a many-core host use thousands
@@ -86,8 +86,13 @@ class ContainerPolicy:
         return ["--read-only"] if self.read_only else []
 
 
+def repo_container_policy(network: str | None) -> ContainerPolicy:
+    """The repo container's hardening: ``--init``, ``--cap-drop ALL``, no-new-privileges, a pids limit."""
+    return ContainerPolicy(network=network, init=True, no_new_privileges=True, cap_drop_all=True,
+                           pids_limit=PIDS_LIMIT)
+
+
 def task_container_policy(*, network: str | None, cpus: str, memory: str) -> ContainerPolicy:
-    """The policy of a task container: the repo container's hardening (``--init``, ``--cap-drop ALL``,
-    no-new-privileges, a pids limit) with :data:`TASK_CAP_ADD` back for the container's own steps."""
-    return ContainerPolicy(network=network, init=True, cap_drop_all=True, no_new_privileges=True,
-                           cap_add=TASK_CAP_ADD, pids_limit=PIDS_LIMIT, cpus=cpus, memory=memory)
+    """The repo container's policy with :data:`TASK_CAP_ADD` back for the container's own steps, and the
+    task's cpus and memory."""
+    return replace(repo_container_policy(network), cap_add=TASK_CAP_ADD, cpus=cpus, memory=memory)

@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from dokimi.container_policy import ContainerPolicy
+from dokimi.container_policy import PIDS_LIMIT, ContainerPolicy
 
 _GROUPS = (
     "init_argv",
@@ -99,6 +99,19 @@ def test_group_names_are_one_literal_type():
 
     assert set(get_args(Group)) == {"init", "security", "cap_drop", "hardening", "pids", "cap_add",
                                     "network", "resource", "read_only"}
+
+
+def test_the_task_policy_is_the_repo_policy_plus_its_own_extras():
+    # one copy of the hardening: a tighter pids limit or a dropped flag reaches both containers
+    import dataclasses
+
+    from dokimi.container_policy import TASK_CAP_ADD, repo_container_policy, task_container_policy
+
+    repo = repo_container_policy("none")
+    assert repo == ContainerPolicy(network="none", init=True, no_new_privileges=True, cap_drop_all=True,
+                                   pids_limit=PIDS_LIMIT)
+    assert task_container_policy(network="none", cpus="2", memory="2g") == dataclasses.replace(
+        repo, cap_add=TASK_CAP_ADD, cpus="2", memory="2g")
 
 
 def test_docs_do_not_name_a_removed_symbol():
