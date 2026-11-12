@@ -14,3 +14,7 @@ SPDX-License-Identifier: Apache-2.0
   missing or unknown argument) prints a `failed` document and exits 2 (`input`). A leaf that exits without its
   document prints one (`status: failed`) with the same exit code.
   `repo hits judge` fills the envelope `cost`. `.github/workflows/repo-eval.yml` reads the new shape.
+- **`--json` error paths.** A moved command or flag under `--json` prints a `failed` document (`error.code`
+  `moved`, exit 2) with the hint in `reason`. A failed `repo validate|scan|inspect|budget` gate says why in
+  `reason`. A crash in `repo hits judge` reports the cost of the calls it made. `emit` no longer stringifies a
+  value JSON cannot hold; `eval inspect` still does.
