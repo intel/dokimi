@@ -21,7 +21,10 @@ measured (``value``) against what it allowed (``threshold``), whether it passed,
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
+
+Severity = Literal["info", "warn", "fail"]
+Level = Literal["OK", "WARN", "CRITICAL"]
 
 
 @dataclass
@@ -33,10 +36,10 @@ class Check:
     value: Any = None
     threshold: Any = None
     message: str = ""
-    severity: str = "warn"
+    severity: Severity = "warn"
     measured: bool = True
     basis: str | None = None
-    level: str | None = None
+    level: Level | None = None
 
     def as_dict(self) -> dict:
         """Serializable form (what the scorecard carries). ``basis`` appears only when it is set."""

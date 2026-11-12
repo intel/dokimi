@@ -4,6 +4,7 @@
 """The shared Verdict: what each property answers, and that the answers agree."""
 
 import dataclasses
+import typing
 
 from dokimi.gate.regression import detect_regressions
 from dokimi.gate.trust_gate import trust_label
@@ -36,6 +37,13 @@ def test_a_verdict_with_a_measured_passing_check_passes():
 
 def test_trust_label_covers_a_disabled_verdict():
     assert trust_label(Verdict(enabled=False)) == "DISABLED"
+
+
+def test_check_severity_and_level_are_literal_types():
+    # a typo in a severity must fail type checking, not read as a pass
+    hints = typing.get_type_hints(Check)
+    assert hints["severity"] == typing.Literal["info", "warn", "fail"]
+    assert hints["level"] == typing.Optional[typing.Literal["OK", "WARN", "CRITICAL"]]
 
 
 def test_verdict_has_no_multirun_std_field():
