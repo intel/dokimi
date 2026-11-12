@@ -188,7 +188,7 @@ def test_arms_run_refuses_a_blank_question_before_any_answer_is_paid_for(tmp_pat
     monkeypatch.setattr(arms_run, "probe_sampling", lambda *a: None)
     out = tmp_path / "arms.json"
     monkeypatch.setattr(sys, "argv", ["dokimi", "arms", "run", "--product", "lib", "--questions", str(questions),
-                                      "--arms", "baseline", "--judge", "--out-json", str(out)])
+                                      "--arms", "baseline", "--judge", "--out", str(out)])
     with pytest.raises(SystemExit) as exc:
         cli.main()
     err = capsys.readouterr().err

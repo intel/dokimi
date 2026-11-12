@@ -7,14 +7,15 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter
-import os
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from dokimi import cli_flags
 from dokimi.exit_codes import EXIT_FAILURE, EXIT_USAGE
 from dokimi.llm import ANSWER_PROVIDERS
 from dokimi.utils import InputError, question_id
+from dokimi.write_probe import can_write
 from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.defaults import (
     DEFAULT_ANSWER_MODEL,
@@ -133,14 +134,23 @@ def _load_matrix_inputs(config: ArmsRunConfig, arms: str, questions: str, matrix
 
 def _check_cells_dir(cells_dir: Path) -> None:
     """Exit 2 when *cells_dir* cannot be made: the nearest existing ancestor must be a directory
-    the process can write to. Creates nothing."""
+    the process can write to. It tries the write in that directory (in a directory made there when *cells_dir* is
+    missing) and removes what it made; only a directory that refuses the removal keeps a ``.write-probe-*`` entry.
+    An existing parent of *cells_dir* must also take a file, since the rollup is written there."""
     # A dangling symlink exists as a link but not as a target: it is the nearest entry, and it is refused.
     existing = next((p for p in (cells_dir, *cells_dir.parents) if p.exists() or p.is_symlink()), None)
     if existing is None:  # no ancestor exists at all (an unmounted drive): nothing can be made
         print(f"Error: cannot write {cells_dir}: no existing directory above it", file=sys.stderr)
         sys.exit(EXIT_USAGE)
-    if not existing.is_dir() or not os.access(existing, os.W_OK | os.X_OK):
-        print(f"Error: cannot write {cells_dir}: {existing} is not a writable directory", file=sys.stderr)
+    # The rollup and the plugin deltas are files in the parent (the out dir), which takes a folder-only grant no better.
+    out_dir = cells_dir.parent
+    refused = None
+    if not existing.is_dir() or not can_write(existing, make_dir=existing != cells_dir):
+        refused = existing
+    elif out_dir.is_dir() and not can_write(out_dir):
+        refused = out_dir
+    if refused is not None:
+        print(f"Error: cannot write {cells_dir}: {refused} is not a writable directory", file=sys.stderr)
         sys.exit(EXIT_USAGE)
 
 
@@ -341,7 +351,7 @@ def register(sub, positive_int) -> None:
                             help="With --session-turns, also run each arm as '<arm>+reminder', with this "
                                  "text appended to every user turn in a <system-reminder> block")
     arms_run_p.add_argument("--concurrency", type=positive_int, default=5)
-    arms_run_p.add_argument("--out-json", default=None, dest="out_json",
+    cli_flags.add(arms_run_p, "output", "--out", default=None, dest="out_json",
                             help="Output JSON path (default: results/arms/{product}.json)")
     arms_run_p.add_argument("--out-md", default=None, dest="out_md",
                             help="Output Markdown report path (default: results/arms/{product}.md)")
@@ -354,7 +364,7 @@ def register(sub, positive_int) -> None:
     _add_common_run_args(matrix_run_p, positive_int, matrix_required=True)
     matrix_run_p.add_argument("--out-dir", default=None, dest="out_dir",
                               help="Directory for per-cell artifacts (default: results/arms/{product}-matrix)")
-    matrix_run_p.add_argument("--out-json", default=None, dest="out_json",
+    cli_flags.add(matrix_run_p, "output", "--out", default=None, dest="out_json",
                               help="Matrix rollup JSON path")
     matrix_run_p.add_argument("--out-md", default=None, dest="out_md",
                               help="Matrix rollup Markdown path")
@@ -374,7 +384,7 @@ def register(sub, positive_int) -> None:
         "--plugin-json", required=True, dest="plugin_json",
         help="arms.v1 artifact for the plugin-enabled cell",
     )
-    plugin_delta_p.add_argument("--out-json", default=None, dest="out_json")
+    cli_flags.add(plugin_delta_p, "output", "--out", default=None, dest="out_json")
     plugin_delta_p.add_argument("--out-md", default=None, dest="out_md")
     plugin_delta_p.set_defaults(func=cmd_arms_plugin_delta)
 

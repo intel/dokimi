@@ -6,9 +6,9 @@
 import logging
 from typing import Dict, List, Any, Optional
 from pathlib import Path
-import json
 
 from dokimi import process
+from dokimi.artifacts import save_artifact
 
 try:
     from github import Github, GithubException  # noqa: F401  (re-exported for callers)
@@ -351,8 +351,6 @@ class PersonaAnalyzer:
         }
     
     def save_analysis(self, analysis: Dict[str, Any], output_path: Path):
-        """Save analysis to JSON file."""
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(output_path, 'w', encoding="utf-8") as f:
-            json.dump(analysis, f, indent=2)
+        """Save the analysis as a ``persona_analysis`` artifact (``ArtifactValidationError`` if its schema refuses it)."""
+        save_artifact("persona_analysis", analysis, output_path)
         logger.info(f"Saved analysis to {output_path}")

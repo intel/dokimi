@@ -55,12 +55,18 @@ EXPECTED: dict[str, tuple[dict, str | None, str | None, str | None]] = {
     "dokimi_config.v1": ({}, "skill/onetbb, repo", None, None),
     "headroom.v1": ({}, None, None, None),
     "redteam.v1": ({}, "questions.json", None, None),
+    "skill_coverage.v1": ({}, "demo", "claude-sonnet-5-5", None),
     "leak.v1": ({}, "questions.json", None, None),
     "need_graph.v1": ({}, "dpnp-io", None, None),
     "eval_coverage.v1": ({}, "dpnp-io", None, None),
     "catalog_eval.v1": ({}, "demo-catalog", None, None),
     "reach_matrix.v1": ({}, None, None, "2026-10-31T04:37:00+00:00"),
     "repo_hits_judged.v1": ({}, "review_replay_pr3098", "gpt-5.1", None),
+    "personas.v1": ({}, "demo", "gen-m", "2026-11-01T00:00:00Z"),
+    "persona_analysis.v1": ({}, None, None, None),
+    "question_panel.v1": ({}, "demo", None, "2026-11-01T00:00:00+00:00"),
+    "question_quality.v1": ({}, "demo", None, None),
+    "report_qa.v1": ({}, None, None, "2026-11-01T00:00:00+00:00"),
 }
 
 

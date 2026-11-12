@@ -36,7 +36,7 @@ def test_run_exits_2_on_a_bad_spec(tmp_path, monkeypatch, capsys, content):
     spec = tmp_path / "spec.yaml"
     _write(spec, content)
     code = _main(monkeypatch, "docs", "check", "--root", str(tmp_path), "--spec", str(spec),
-                 "--out-json", str(tmp_path / "o.json"), "--out-md", str(tmp_path / "o.md"))
+                 "--out", str(tmp_path / "o.json"), "--out-md", str(tmp_path / "o.md"))
     assert code == 2
     err = capsys.readouterr().err
     assert err.startswith("Error: ") and str(spec) in err
@@ -52,7 +52,7 @@ def test_compare_exits_2_on_a_bad_snapshot(tmp_path, monkeypatch, capsys, which,
     good = _snapshot(tmp_path / "good.json")
     pair = {"--base": good, "--candidate": good, which: str(bad)}
     code = _main(monkeypatch, "docs", "compare", "--base", pair["--base"], "--candidate", pair["--candidate"],
-                 "--out-json", str(tmp_path / "c.json"), "--out-md", str(tmp_path / "c.md"))
+                 "--out", str(tmp_path / "c.json"), "--out-md", str(tmp_path / "c.md"))
     assert code == 2
     err = capsys.readouterr().err
     assert err.startswith("Error: ") and str(bad) in err
@@ -78,7 +78,7 @@ def test_compare_exits_2_on_a_bad_spec(tmp_path, monkeypatch, capsys, content):
     _write(spec, content)
     good = _snapshot(tmp_path / "good.json")
     code = _main(monkeypatch, "docs", "compare", "--base", good, "--candidate", good, "--spec", str(spec),
-                 "--out-json", str(tmp_path / "c.json"), "--out-md", str(tmp_path / "c.md"))
+                 "--out", str(tmp_path / "c.json"), "--out-md", str(tmp_path / "c.md"))
     assert code == 2
     err = capsys.readouterr().err
     assert err.startswith("Error: ") and str(spec) in err and "Traceback" not in err
@@ -90,7 +90,7 @@ def test_compare_accepts_a_non_negative_regression_threshold(tmp_path, monkeypat
     spec.write_text(f"thresholds: {{regressions: {{score_drop_warn: {value}}}}}\n", encoding="utf-8")
     good = _snapshot(tmp_path / "good.json")
     argv = ["dokimi", "docs", "compare", "--base", good, "--candidate", good, "--spec", str(spec),
-            "--out-json", str(tmp_path / "c.json"), "--out-md", str(tmp_path / "c.md")]
+            "--out", str(tmp_path / "c.json"), "--out-md", str(tmp_path / "c.md")]
     monkeypatch.setattr("sys.argv", argv)
     cli.main()
     assert (tmp_path / "c.json").is_file()
@@ -112,7 +112,7 @@ def test_run_exits_2_when_the_root_has_fewer_docs_than_min_docs(tmp_path, monkey
     spec = tmp_path / "spec.yaml"
     spec.write_text(_SPEC_MIN_DOCS, encoding="utf-8")
     code = _main(monkeypatch, "docs", "check", *strict, "--root", str(tmp_path), "--spec", str(spec),
-                 "--out-json", str(tmp_path / "o.json"), "--out-md", str(tmp_path / "o.md"))
+                 "--out", str(tmp_path / "o.json"), "--out-md", str(tmp_path / "o.md"))
     assert code == 2
     err = capsys.readouterr().err
     assert err.startswith("Error: ") and "min_docs" in err and "Traceback" not in err
@@ -123,7 +123,7 @@ def test_run_exits_2_on_an_unusable_include_pattern(tmp_path, monkeypatch, capsy
     spec = tmp_path / "spec.yaml"
     spec.write_text(_SPEC_MIN_DOCS.replace("'docs/**/*.md'", repr(pattern)), encoding="utf-8")
     code = _main(monkeypatch, "docs", "check", "--root", str(tmp_path), "--spec", str(spec),
-                 "--out-json", str(tmp_path / "o.json"), "--out-md", str(tmp_path / "o.md"))
+                 "--out", str(tmp_path / "o.json"), "--out-md", str(tmp_path / "o.md"))
     assert code == 2
     err = capsys.readouterr().err
     assert err.startswith("Error: ") and f"include pattern {pattern!r}" in err
@@ -141,7 +141,7 @@ def test_run_does_not_report_a_metric_error_as_bad_input(tmp_path, monkeypatch, 
     spec = tmp_path / "spec.yaml"
     spec.write_text(_SPEC_MIN_DOCS.replace("min_docs: 3", "min_docs: 1"), encoding="utf-8")
     monkeypatch.setattr("sys.argv", ["dokimi", "docs", "check", "--root", str(tmp_path), "--spec", str(spec),
-                                     "--out-json", str(tmp_path / "o.json"), "--out-md", str(tmp_path / "o.md")])
+                                     "--out", str(tmp_path / "o.json"), "--out-md", str(tmp_path / "o.md")])
     with pytest.raises(SystemExit) as exc:  # a crash: exit 5, not the input refusal (exit 2)
         cli.main()
     assert exc.value.code == 5
@@ -159,7 +159,7 @@ def test_compare_exits_2_on_a_non_numeric_summary_value(tmp_path, monkeypatch, c
     good = _snapshot(tmp_path / "good.json")
     pair = {"--base": good, "--candidate": good, which: str(bad)}
     code = _main(monkeypatch, "docs", "compare", "--base", pair["--base"], "--candidate", pair["--candidate"],
-                 "--out-json", str(tmp_path / "c.json"), "--out-md", str(tmp_path / "c.md"))
+                 "--out", str(tmp_path / "c.json"), "--out-md", str(tmp_path / "c.md"))
     assert code == 2
     err = capsys.readouterr().err
     role = which[2:]
@@ -177,7 +177,7 @@ def test_compare_does_not_report_a_regression_check_error_as_bad_input(tmp_path,
     spec = tmp_path / "spec.yaml"
     spec.write_text("thresholds: {}\n", encoding="utf-8")
     monkeypatch.setattr("sys.argv", ["dokimi", "docs", "compare", "--base", good, "--candidate", good, "--spec", str(spec),
-                                     "--out-json", str(tmp_path / "c.json"), "--out-md", str(tmp_path / "c.md")])
+                                     "--out", str(tmp_path / "c.json"), "--out-md", str(tmp_path / "c.md")])
     with pytest.raises(SystemExit) as exc:  # a crash: exit 5, not the input refusal (exit 2)
         cli.main()
     assert exc.value.code == 5
@@ -197,7 +197,7 @@ def test_compare_exits_2_when_an_output_cannot_be_written(tmp_path, monkeypatch,
     outs = {"json": str(tmp_path / "c.json"), "md": str(tmp_path / "c.md")}
     outs[which] = str(blocked)
     code = _main(monkeypatch, "docs", "compare", "--base", good, "--candidate", good,
-                 "--out-json", outs["json"], "--out-md", outs["md"])
+                 "--out", outs["json"], "--out-md", outs["md"])
     assert code == 2
     err = capsys.readouterr().err
     assert f"Error: cannot write {blocked}" in err and "Traceback" not in err
@@ -213,7 +213,7 @@ def test_run_exits_2_when_an_output_cannot_be_written(tmp_path, monkeypatch, cap
     outs = {"json": str(tmp_path / "o.json"), "md": str(tmp_path / "o.md")}
     outs[which] = str(blocked)
     code = _main(monkeypatch, "docs", "check", "--root", str(tmp_path), "--spec", str(spec),
-                 "--out-json", outs["json"], "--out-md", outs["md"])
+                 "--out", outs["json"], "--out-md", outs["md"])
     assert code == 2
     err = capsys.readouterr().err
     assert f"Error: cannot write {blocked}" in err and "Traceback" not in err
@@ -231,7 +231,7 @@ def test_run_exits_2_when_the_host_cannot_apply_example_limits(tmp_path, monkeyp
         "metrics:\n", "metrics:\n  example_pass_rate:\n    enabled: true\n"
         "    execution:\n      backend: subprocess\n      allow_host: true\n"), encoding="utf-8")
     code = _main(monkeypatch, "docs", "check", "--root", str(tmp_path), "--spec", str(spec),
-                 "--out-json", str(tmp_path / "o.json"), "--out-md", str(tmp_path / "o.md"))
+                 "--out", str(tmp_path / "o.json"), "--out-md", str(tmp_path / "o.md"))
     assert code == 2
     err = capsys.readouterr().err
     assert err.startswith("Error: python example not run: ") and "mem_mb: null" in err
@@ -249,7 +249,7 @@ def test_strict_run_exits_2_on_a_band_the_gate_cannot_read(tmp_path, monkeypatch
     spec = tmp_path / "spec.yaml"
     spec.write_text(_STRICT_BANDS.format(condition="coverage_belw"), encoding="utf-8")
     code = _main(monkeypatch, "docs", "check", "--strict", "--root", str(tmp_path), "--spec", str(spec),
-                 "--out-json", str(tmp_path / "o.json"), "--out-md", str(tmp_path / "o.md"))
+                 "--out", str(tmp_path / "o.json"), "--out-md", str(tmp_path / "o.md"))
     assert code == 2
     err = capsys.readouterr().err
     assert err.startswith("Error: ") and str(spec) in err and "coverage_belw" in err and "Traceback" not in err
@@ -263,7 +263,7 @@ def test_strict_run_exits_2_when_a_band_metric_is_none(tmp_path, monkeypatch, ca
     monkeypatch.setattr("dokimi.commands.run.save_snapshot", lambda data, path: None)
     monkeypatch.setattr("dokimi.commands.run.write_run_report", lambda data, path: None)
     code = _main(monkeypatch, "docs", "check", "--strict", "--root", str(tmp_path), "--spec", str(spec),
-                 "--out-json", str(tmp_path / "o.json"), "--out-md", str(tmp_path / "o.md"))
+                 "--out", str(tmp_path / "o.json"), "--out-md", str(tmp_path / "o.md"))
     assert code == 2
     err = capsys.readouterr().err
     assert err.startswith("Error: ") and "coverage" in err and "Traceback" not in err

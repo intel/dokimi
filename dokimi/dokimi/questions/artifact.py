@@ -44,7 +44,7 @@ from dokimi.artifacts import (
     schema_version_for,
 )
 from dokimi.questions.normalizer import canonical_question, record_id
-from dokimi.utils import question_id
+from dokimi.utils import question_id, read_json_input
 
 logger = logging.getLogger(__name__)
 
@@ -213,7 +213,7 @@ def _explain(path: Path, data: dict, errors: list[str]) -> str:
             f"dokimi/schemas/{SCHEMA_VERSIONS[KIND]}.json, or drop the record.")
 
 
-def load_questions(path: Path | str, *, validate: bool = True) -> QuestionSet:
+def load_questions(path: Path | str, *, validate: bool = True, flag: str | None = None) -> QuestionSet:
     """Read a question set in any shape this framework has read, and return it as questions.v2.
 
     Accepts questions.v1 and questions.v2 (stamped, or unstamped and matched by shape) and the
@@ -225,9 +225,13 @@ def load_questions(path: Path | str, *, validate: bool = True) -> QuestionSet:
     :class:`~dokimi.artifacts.ArtifactValidationError` names each failing record and the fix; so
     must a ``schema_version`` this reader does not know. A set that is not a list of questions at
     all (e.g. ``{"questions": {...}}``) is refused either way.
+
+    With ``flag`` (the option the file was given to) the file is read by
+    :func:`dokimi.utils.read_json_input`: an unreadable, non-UTF-8 or non-JSON file raises
+    :class:`~dokimi.utils.InputError` ``<flag> <path>: <reason>``. Without it the read is bare.
     """
     path = Path(path)
-    raw = json.loads(path.read_text(encoding="utf-8"))
+    raw = json.loads(path.read_text(encoding="utf-8")) if flag is None else read_json_input(path, flag=flag)
     data, bare_list = _records(raw, path)
     data = _drop_v1_open_nulls(data, _v1_open_nulls()[0])
     current = SCHEMA_VERSIONS[KIND]

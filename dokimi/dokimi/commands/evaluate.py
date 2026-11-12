@@ -579,6 +579,9 @@ def register(sub, positive_int):
 
     redteam.register_eval(eval_sub)  # eval redteam
 
+    from dokimi.commands import skill_coverage
+
+    skill_coverage.register_eval(eval_sub)  # eval skill-coverage
     from dokimi.commands import leak
 
     leak.register_eval(eval_sub)  # eval leak
