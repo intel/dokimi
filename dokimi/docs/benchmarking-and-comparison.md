@@ -359,15 +359,24 @@ python cli.py arms run ... --stats-correction bh
 
 Arm contrasts and factorial-interaction contrasts are corrected as **separate
 families** — pooling them would inflate the multiplier on both — and each row
-records its `correction_family`, `family_size`, and `family_tested`.
+records its `correction_family`, `family_size` (every member), and `family_tested`
+(the members whose p can reach 0.05: the multiplier).
 
 Each row's `p` is one two-sided sign-flip test on the per-question deltas: under
 the null each delta's sign is a fair coin, and p is the share of sign patterns
 whose |sum| reaches the observed one (exact up to 16 changed pairs, Monte Carlo
 with a fixed seed above). A delta within 1e-9 of 0 is a tie and carries no sign,
 so over k changed pairs (`n_changed`) p cannot go below 2/2^k: at 5 or fewer no
-data whatsoever reaches 0.05. The test runs from 2 pairs and its p is printed,
-and an arm under that floor stays in the correction family, as in `repo compare`.
+data whatsoever reaches 0.05. The test runs from 2 pairs and its p is printed.
+An arm under that floor can never be significant, so it stays out of the
+multiplier, as a `repo compare` row does: it counts in `family_size` but not in
+`family_tested`, and its `p_adjusted` is null. The other arms are corrected as if
+it were not there, so a verdict near 0.05 can move toward significant where a
+floor-bound arm shares the family. The 5% family-wise rate holds when whether an
+arm can reach 0.05 follows from the magnitudes of the deltas alone (which are
+ties), as under the sign-flip null, where the signs are fair coins given the
+magnitudes. It can be exceeded if one arm's ties are set by another arm's signs:
+in a constructed case, 6.9% against 4.6% with the arm kept in the family.
 
 The **Sig.** column follows the *adjusted* p-value, not the raw one. Three
 values are possible:
