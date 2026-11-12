@@ -406,6 +406,7 @@ class ArmRunner:
             "plugin_set": self.plugin_set["plugin_set"],
             "plugin_set_id": self.plugin_set["plugin_set_id"],
             "used_system_prompt": bool(cfg.system_prompt),
+            "replayed": rec.replayed,  # served from the response cache: not a fresh sample (#370)
             "context_chunks": [
                 {
                     "source": c.get("source", "unknown"),

@@ -10,7 +10,7 @@ interval when the paraphrases of one atom are not independent (resample atoms).
 
 from __future__ import annotations
 
-import random
+from dokimi.eval.stats import bootstrap_statistics, percentile_bounds
 
 # A second no-artifact answer of the same probe, sampled as a new draw. Its flips against
 # the baseline are what ``added`` and ``degraded`` would be if the artifact did nothing.
@@ -38,16 +38,14 @@ def clustered_ci(
     clusters = [values for values in per_atom.values() if values]
     if len(clusters) < 5:
         return None
-    rng = random.Random(f"novelty-ci-{seed}")
-    n = len(clusters)
-    means = []
-    for _ in range(iterations):
-        picked = [clusters[rng.randrange(n)] for _ in range(n)]
-        total = sum(len(c) for c in picked)
-        means.append(sum(sum(c) for c in picked) / total)
-    means.sort()
-    lo = means[int(0.025 * iterations)]
-    hi = means[min(iterations - 1, int(0.975 * iterations))]
+
+    def pooled_rate(picked: list[int]) -> float:
+        chosen = [clusters[i] for i in picked]
+        total = sum(len(c) for c in chosen)
+        return sum(sum(c) for c in chosen) / total
+
+    means = bootstrap_statistics(len(clusters), pooled_rate, n_resamples=iterations, seed=seed)
+    lo, hi = percentile_bounds(means, 0.95)
     return [round(lo, 4), round(hi, 4)]
 
 
