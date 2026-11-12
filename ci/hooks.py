@@ -12,7 +12,8 @@ conda-forge, pinned to its exact build, with the test requirements ci/config.yml
 lists. Any other event creates the environment from that version's lock in
 ci/conda-lock/ (written by ci/lock.py), installs the artifact into it without
 dependencies, checks that the lock satisfies the artifact's own dependencies and
-runs the recipe's tests, so a new conda-forge build cannot fail a pull request.
+runs the recipe's tests, so a new conda-forge build cannot change a pull request's
+test environment (the build itself still resolves the latest conda-forge builds).
 A wheel's environment has only Python from conda-forge: the wheel and the test
 requirements install with pip, as in the wheel's users' environments. A tag or
 the schedule resolves them from PyPI; any other event installs

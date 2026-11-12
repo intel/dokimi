@@ -24,11 +24,11 @@ SPDX-License-Identifier: Apache-2.0
 
 **What `test.py` proves.** It prints where `dokimi` was imported from and fails if that is inside the checkout. The suite's `conftest.py` puts the checkout on `sys.path`, so pytest imports `dokimi` first (`-p dokimi`), in every xdist worker too. The suite stays offline, as `dokimi/pyproject.toml` makes it. The suite runs with `dokimi/` as the working directory, so the tests that read `data/` and `docs/` find them there. It also checks that the installed package ships its default data files.
 
-**A pull request into `main`.** Actions builds the oldest and the newest Python versions on Linux, as a conda package and as a wheel, and tests each package in its locked environment. A new conda-forge or PyPI release cannot fail it; the weekly lock refresh PR is where one shows up.
+**A pull request into `main`.** Actions builds the oldest and the newest Python versions on Linux, as a conda package and as a wheel, and tests each package in its locked environment. A new conda-forge or PyPI release cannot change those test environments; the weekly lock refresh PR is where one shows up. The builds are not locked: conda-build, the recipe's host requirements and the wheel's build backend still resolve the latest releases.
 
 **A push to `main`, a tag, or the weekly run.** Actions builds and tests every declared version: a push in the locked environments, a tag and the weekly run on the latest releases.
 
-**A change to the recipe's requirements or to `config.yml`'s test list** needs its locks re-solved in the same PR: `pip install py-rattler pyyaml`, then `python ci/lock.py`.
+**A change to the recipe's requirements or to `config.yml`'s test list** needs its locks re-solved in the same PR: `pip install py-rattler pyyaml`, then `python ci/lock.py`. Renovate cannot run it, so a Renovate PR that bumps a `config.yml` pin (the `mypy` one) fails `dokimi/tests/test_intel_ci_conda_lock.py` until the re-solved locks are committed to its branch.
 
 To support another Python, add it to `conda-recipe/conda_build_config.yaml` for the conda package and as a classifier in `dokimi/pyproject.toml` for the wheel; nothing else lists versions. Try it locally from a conda base environment with conda-build:
 
