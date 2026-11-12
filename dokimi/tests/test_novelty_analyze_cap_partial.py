@@ -194,6 +194,20 @@ def test_the_message_says_a_rerun_replays_the_paid_calls_when_the_cache_was_set(
         args.func(args)
 
 
+def test_the_message_does_not_claim_a_replay_when_the_cache_variable_names_a_file(tmp_path,
+                                                                               monkeypatch):
+    not_a_directory = tmp_path / "cache-file"
+    not_a_directory.write_text("x", encoding="utf-8")
+    monkeypatch.setenv("DOKIMI_RESPONSE_CACHE", str(not_a_directory))
+    args, _out_dir = _command(tmp_path, monkeypatch, _answers_cost)
+    with pytest.raises(SystemExit) as stop:
+        args.func(args)
+    message = str(stop.value)
+    assert "DOKIMI_RESPONSE_CACHE was not set on this run" in message
+    assert "a rerun pays for these calls again" in message
+    assert "already paid for replay" not in message
+
+
 def test_a_partial_result_never_replaces_a_finished_novelty_json(tmp_path, monkeypatch):
     args, out_dir = _command(tmp_path, monkeypatch, _answers_cost)
     out_dir.mkdir()
