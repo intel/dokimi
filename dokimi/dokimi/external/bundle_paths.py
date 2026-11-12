@@ -30,7 +30,9 @@ LOCATION_SUFFIX_RE = re.compile(r":(?:\d+(?:[-:]\d+)?|[A-Za-z_]\w*)$")
 BUNDLE_DIRS = ("scripts", "references", "assets", "templates", "examples", "resources")
 # A list of paths written with no space between them (``scripts/a.py,scripts/b.py``): a ``,`` or ``;``
 # that comes right before the next bundle folder. Any other comma or semicolon stays in the name.
-SEPARATOR_RE = re.compile(r"[,;](?=(?:\./)?(?:" + "|".join(BUNDLE_DIRS) + r")/)")
+SEPARATOR_RE = re.compile(
+    r"[,;](?=(?:\./|" + re.escape(SKILL_DIR_VAR) + r")?(?:" + "|".join(BUNDLE_DIRS) + r")/)"
+)
 # A path part that stands for a name the reader fills in, not a file (``scripts/x.py``, ``assets/xxx.png``).
 PLACEHOLDER_PARTS = frozenset(
     {
@@ -80,7 +82,7 @@ def _words(span: str) -> list[str]:
         lexer.commenters = ""
         words = list(lexer)
     except ValueError:
-        words = span.split()
+        words = span.replace(";", " ").split()
     return [part for word in words for part in SEPARATOR_RE.split(word) if part]
 
 

@@ -245,3 +245,19 @@ def test_a_comma_not_followed_by_a_bundle_folder_stays_in_the_name(tmp_path):
     review, _ = _review(tmp_path, "Use `assets/a.svg,b.svg`.\n", files=["assets/a.svg"])
     [finding] = review.findings
     assert finding.message.startswith("'assets/a.svg,b.svg' (in ")
+
+
+def test_a_list_of_skill_dir_paths_with_no_space_is_read_one_by_one(tmp_path):
+    review, _ = _review(
+        tmp_path,
+        "Run `${CLAUDE_SKILL_DIR}/scripts/a.py,${CLAUDE_SKILL_DIR}/scripts/b.py`.\n",
+        files=["scripts/a.py"],
+    )
+    [finding] = review.findings
+    assert finding.message.startswith("'scripts/b.py' (in ")
+
+
+def test_a_missing_path_before_a_semicolon_is_named_when_quotes_do_not_balance(tmp_path):
+    review, _ = _review(tmp_path, 'Run `python scripts/run.py;echo "done`.\n')
+    [finding] = review.findings
+    assert finding.message.startswith("'scripts/run.py' (in ")
