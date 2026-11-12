@@ -455,3 +455,24 @@ def test_a_failed_inspect_gate_under_json_says_why(monkeypatch, capsys, tmp_path
     assert exc.value.code == 1
     doc = json.loads(capsys.readouterr().out)
     assert doc["reason"] == f"{doc['data']['counts']['error']} error(s) under --fail-on-error"
+
+
+def test_emit_refuses_a_payload_value_that_is_not_json(capsys):
+    # --json and --out share one document: a value JSON cannot hold is an error, not a str() in the output
+    with pytest.raises(TypeError):
+        cli_output.emit(cli_output.envelope("repo budget", data={"items": {1, 2}}))
+    assert capsys.readouterr().out == ""
+
+
+def test_eval_inspect_json_still_prints_a_non_json_value_as_its_str(monkeypatch, capsys, tmp_path):
+    # the one leaf that stringified its payload before: it keeps doing so, now in the leaf and not in emit
+    from dokimi import task_formats
+
+    class _Report:
+        def as_dict(self):
+            return {"path": "x", "fields": {1, 2}}
+
+    monkeypatch.setattr(task_formats, "inspect_path", lambda path: [_Report()])
+    _run_main(monkeypatch, ["eval", "inspect", str(tmp_path), "--json"])
+    doc = json.loads(capsys.readouterr().out)
+    assert doc["data"]["items"] == [{"path": "x", "fields": "{1, 2}"}]

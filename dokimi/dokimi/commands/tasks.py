@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -90,7 +91,9 @@ def cmd_tasks_inspect(args: argparse.Namespace) -> None:
     if args.json:
         from dokimi import cli_output
 
-        cli_output.emit_leaf("eval inspect", stamp("task_inspect", dict(payload)))
+        # a value JSON cannot hold prints as its str(), as this leaf always did; emit itself is strict
+        data = json.loads(json.dumps(stamp("task_inspect", dict(payload)), default=str))
+        cli_output.emit_leaf("eval inspect", data)
     else:
         _print_inspect(reports)
 
