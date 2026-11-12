@@ -4,8 +4,8 @@
 """Who answers each role of a novelty run, and what the run is expected to cost.
 
 The command reads its flags; this module turns them into the (model, provider) of each role,
-the three role clients, and the dollar estimate printed before a run. Imports stay local so
-that loading the command module does not load the novelty package.
+the three role clients, and the dollar estimate printed before a run. Command modules import
+this module inside their functions, since importing it loads the novelty package.
 """
 
 from __future__ import annotations
