@@ -282,11 +282,13 @@ def test_goldens_hold_the_edge_values():
 
 def test_a_sub_cent_cost_reads_under_a_hundredth_of_a_cent_in_every_cost_cell():
     """A real cost under $0.00005 printed $0.0000 in ``arms run`` and ``report model-compare``: a free run, which it is not."""
-    run = {"baseline_arm": "baseline", "model": "m", "provider": "p",
-           "evaluations": [{"question_id": "q0", "question_text": "q", "scores": {"baseline": {"aggregate": 50}}}],
-           "cost_summary": {"baseline": {"total_cost_usd": 0.00001, "cost_known_n": 1, "total_llm_calls": 2}}}
-    compare = "\n".join(generate_section_report([("r", run)], ["r"], "Regular"))
-    assert "| **r** | <$0.0001 (1/2) |" in compare
+    def run(known: int) -> dict:
+        return {"baseline_arm": "baseline", "model": "m", "provider": "p",
+                "evaluations": [{"question_id": "q0", "question_text": "q", "scores": {"baseline": {"aggregate": 50}}}],
+                "cost_summary": {"baseline": {"total_cost_usd": 0.00001, "cost_known_n": known, "total_llm_calls": 2}}}
+
+    compare = "\n".join(generate_section_report([("r", run(1)), ("s", run(2))], ["r", "s"], "Regular"))
+    assert "| **r** | <$0.0001 (1/2) |" in compare and "| **s** | <$0.0001 |" in compare
     assert "| `baseline` | <$0.0001 (3/4) |" in CASES["arms"]()
     assert "| <$0.0001 | <$0.0001 |" in CASES["task_runs"]()
 
