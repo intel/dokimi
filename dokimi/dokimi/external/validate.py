@@ -170,7 +170,7 @@ FINDING_CODES = (
 
 @dataclass
 class Finding:
-    """One check that did not pass: ``level`` is ``warn`` or ``error``."""
+    """One check that did not pass: ``level`` is ``note``, ``warn`` or ``error``."""
 
     level: str
     code: str
