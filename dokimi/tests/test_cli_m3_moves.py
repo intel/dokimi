@@ -487,6 +487,21 @@ def test_novelty_routing_tombstone_refuses_a_stray_token_after_a_kept_value_flag
             moved_argv(old)
 
 
+def test_novelty_routing_tombstone_refuses_a_positional_the_retired_parser_had_no_slot_for():
+    # The retired parser had no positionals: a plain token anywhere the flags did not take it, or after
+    # `--`, was an error, and so was a value after --all-vs-all. The tombstone must not print it into
+    # the new command, where it becomes the SKILL positional.
+    for old, pattern in [
+        (["novelty", "routing", "y", "--competitors", "a"], "unrecognized arguments: y$"),
+        (["novelty", "routing", "--competitors", "a", "--", "y"], "unrecognized arguments: y$"),
+        (["novelty", "routing", "--seed", "-5", "y", "--competitors", "a"], "unrecognized arguments: y$"),
+        (["novelty", "routing", "--all-vs-all=1", "--artifact", "skill:a", "--catalog", "R"],
+         "ignored explicit argument '1'"),
+    ]:
+        with pytest.raises(ValueError, match=pattern):
+            moved_argv(old)
+
+
 def test_novelty_routing_tombstone_refuses_a_stray_token_after_a_value_flag():
     # The retired parser had no positionals: `y` after the value of --artifact or --catalog was an
     # error. Taking the flag out of the argv must not let `y` join --competitors.
