@@ -163,6 +163,11 @@ nav:
       - user-journeys/journeys.md
       - user-journeys/flow-map.md
       - user-journeys/traceability.md
+  - In development:
+      - development/README.md
+      - CLI and artifacts: development/interfaces.md
+      - Known limitations: development/limitations.md
+      - Open work index: development/work-index.md
   - All guides: documentation-index.md
   - CLI reference: reference/cli/
   - API reference: reference/api/

@@ -19,13 +19,13 @@ Each card describes one capability. Images use fictional tasks and simplified do
 
 Choose reference, checklist, pointwise, pairwise or other supported scoring according to the task. Grounding and RAGAS signals supplement evaluation; lexical matches are not proof of truth.
 
-**Input:** The grading configuration and representative scored cases.
+**Input:** Answers or task results plus the reference/rubric and grading configuration for the selected method.
 
 **Scope and limits:** Grounding includes lexical limitations; no universal correctness oracle.
 
 **Result:** Scores and evidence produced by the selected grading method.
 
-**Next step:** Follow the linked guide for the exact command and output schema, then [interpret the result](../start/results.md).
+**Next step:** Use the linked workflow to configure this check, then [interpret the result](../start/results.md).
 
 [Usage guide](../methodology.md) · [Implementation](../../dokimi/eval/grounding.py) · [Back to feature tree](README.md)
 
@@ -39,13 +39,13 @@ Choose reference, checklist, pointwise, pairwise or other supported scoring acco
 
 Probe judge validity with degraded answers and examine agreement, order and wording sensitivity. Existing answer panels and the proposed novelty panel have different entry points.
 
-**Input:** The grading configuration and representative scored cases.
+**Input:** Representative saved answers or control cases, judge identities and the reliability test configuration.
 
 **Scope and limits:** Existing panels/calibration; novelty panel PR [#489](https://github.com/intel/dokimi/issues/489); integration [#407](https://github.com/intel/dokimi/issues/407).
 
 **Result:** Judge reliability diagnostics for the tested cases and judges.
 
-**Next step:** Follow the linked guide for the exact command and output schema, then [interpret the result](../start/results.md).
+**Next step:** Use the linked workflow to configure this check, then [interpret the result](../start/results.md).
 
 [Usage guide](../methodology.md) · [Implementation](../../dokimi/commands/judge_reliability.py) · [Back to feature tree](README.md)
 
@@ -59,7 +59,7 @@ Probe judge validity with degraded answers and examine agreement, order and word
 
 The proposed identifier checks compare an answer with tool evidence such as help text, while retaining the judge as a separate signal. Broader execution and source checks remain proposals.
 
-**Input:** The grading configuration and representative scored cases.
+**Input:** Novelty probes, claimed identifiers and tool-help/reference evidence for the proposed grounding checks.
 
 **Scope and limits:** PR [#472](https://github.com/intel/dokimi/issues/472): identifier checks; exec/source grading remain proposed.
 

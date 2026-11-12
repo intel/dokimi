@@ -19,13 +19,13 @@ Each card describes one capability. Images use fictional tasks and simplified do
 
 Inspect supported Claude Code traces for startup load, growth, compaction and tool-result weight. A repository budget predicts loading volume; the trace describes one actual session.
 
-**Input:** Recorded agent runs with the trace fields required by the linked guide.
+**Input:** Supported Claude Code session traces containing context and compaction observations.
 
 **Scope and limits:** Context inspection; compaction is a trace observation.
 
 **Result:** Context growth, loading and compaction evidence available in the trace.
 
-**Next step:** Follow the linked guide for the exact command and output schema, then [interpret the result](../start/results.md).
+**Next step:** Use the linked workflow to configure this check, then [interpret the result](../start/results.md).
 
 [Usage guide](../context-window.md) · [Implementation](../../dokimi/commands/context.py) · [Back to feature tree](README.md)
 
@@ -39,13 +39,13 @@ Inspect supported Claude Code traces for startup load, growth, compaction and to
 
 Repeat one task and compare outcome stability, tool paths and declared process contracts. A stable final answer can hide unstable or wasteful execution paths.
 
-**Input:** Recorded agent runs with the trace fields required by the linked guide.
+**Input:** Repeated runs of the same task and their traces, plus any declared process contracts.
 
 **Scope and limits:** Trace consistency; process contracts are not universal adherence.
 
 **Result:** Outcome and execution-path consistency measures across repeated runs.
 
-**Next step:** Follow the linked guide for the exact command and output schema, then [interpret the result](../start/results.md).
+**Next step:** Use the linked workflow to configure this check, then [interpret the result](../start/results.md).
 
 [Usage guide](../run-consistency.md) · [Implementation](../../dokimi/commands/context.py) · [Back to feature tree](README.md)
 
@@ -59,12 +59,12 @@ Repeat one task and compare outcome stability, tool paths and declared process c
 
 Use session observations to select instructions for an ablation experiment. Referenced, acted-on and corrected rules are candidates to investigate, not established causes of success.
 
-**Input:** Recorded agent runs with the trace fields required by the linked guide.
+**Input:** Session logs and the guidance rules whose observed use you want to investigate.
 
 **Scope and limits:** Session prefilter suggests candidates; it does not establish causality.
 
 **Result:** Candidate instructions for controlled ablation, not automatic deletion decisions.
 
-**Next step:** Follow the linked guide for the exact command and output schema, then [interpret the result](../start/results.md).
+**Next step:** Use the linked workflow to configure this check, then [interpret the result](../start/results.md).
 
 [Usage guide](../session-prefilter.md) · [Implementation](../../dokimi/commands/context.py) · [Back to feature tree](README.md)

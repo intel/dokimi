@@ -30,3 +30,5 @@ Open the local URL printed by MkDocs. Check the home page, your audience route, 
 For a PR, the docs workflow saves the built site as the **docs-preview** artifact for seven days. Download and extract it, then serve the extracted directory with `python -m http.server 8000` to inspect it locally. This is a downloadable preview, not a public preview URL.
 
 A push to `main` builds and publishes [GitHub Pages](https://intel.github.io/dokimi/). An open PR does not change the public site. Documentation reflects main; installed releases may have fewer capabilities.
+
+[All open work](../development/work-index.md) · [Development directions](../development/README.md)

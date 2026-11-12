@@ -19,15 +19,15 @@ Each card describes one capability. Images use fictional tasks and simplified do
 
 Generate candidate tasks from merged-PR inputs, imported review-thread JSON or SCIP references/derives. Inspect generated tasks and preserve provenance; replay generation does not fetch GitHub threads itself.
 
-**Input:** The task, question set or coverage model you want to validate.
+**Input:** Merged-PR inputs, imported review-thread JSON or a supported SCIP code index, depending on the generation mode.
 
 **Scope and limits:** --from prs / replay / graph; replay consumes JSON, not GitHub itself.
 
 **Result:** Candidate tasks that still need validation and representative sampling.
 
-**Next step:** Follow the linked guide for the exact command and output schema, then [interpret the result](../start/results.md).
+**Next step:** Use the linked workflow to configure this check, then [interpret the result](../start/results.md).
 
-[Usage guide](../repo-evaluation-contract.md) · [Implementation](../../dokimi/commands/tasks_generate.py) · [Back to feature tree](README.md)
+[Task sources and generation](../repo-evaluation-contract.md#11-where-the-evaluation-content-comes-from) · [Implementation](../../dokimi/commands/tasks_generate.py) · [Back to feature tree](README.md)
 
 <a id="26-test-repository-exploration"></a>
 
@@ -39,13 +39,13 @@ Generate candidate tasks from merged-PR inputs, imported review-thread JSON or S
 
 Evaluate whether an agent locates the relevant file and line for a repository question. Keep localization evaluation distinct from generating graph-based enumeration tasks.
 
-**Input:** The task, question set or coverage model you want to validate.
+**Input:** Repository localization questions with their reference file/line targets and configured runner.
 
 **Scope and limits:** ExploreBench localization; separate from graph-generated tasks.
 
 **Result:** Exploration-task outcomes for the configured repository and grader.
 
-**Next step:** Follow the linked guide for the exact command and output schema, then [interpret the result](../start/results.md).
+**Next step:** Use the linked workflow to configure this check, then [interpret the result](../start/results.md).
 
 [Usage guide](../what-it-measures.md) · [Implementation](../../dokimi/commands/explore.py) · [Back to feature tree](README.md)
 
@@ -59,13 +59,13 @@ Evaluate whether an agent locates the relevant file and line for a repository qu
 
 Use source docs and personas to draft evaluation questions, then deduplicate and validate them. Generated questions still need review for relevance, ambiguity and answerability.
 
-**Input:** The task, question set or coverage model you want to validate.
+**Input:** Source documentation and personas or intended-user descriptions for question generation.
 
 **Scope and limits:** Generation is a starting point; inspect the resulting checks.
 
 **Result:** Generated questions that need review before becoming an evaluation set.
 
-**Next step:** Follow the linked guide for the exact command and output schema, then [interpret the result](../start/results.md).
+**Next step:** Use the linked workflow to configure this check, then [interpret the result](../start/results.md).
 
 [Usage guide](../quickstart.md) · [Implementation](../../dokimi/commands/questions.py) · [Back to feature tree](README.md)
 
@@ -79,15 +79,15 @@ Use source docs and personas to draft evaluation questions, then deduplicate and
 
 Provide a frozen need graph and explicit needs labels on the eval checks. Inspect uncovered needs, relevance and supported coverage floors. Building the graph is a separate proposed extension.
 
-**Input:** The task, question set or coverage model you want to validate.
+**Input:** A frozen need graph and eval checks with explicit need labels.
 
 **Scope and limits:** Basic eval coverage in main; graph builder PR [#594](https://github.com/intel/dokimi/issues/594); broader [#331](https://github.com/intel/dokimi/issues/331).
 
 **Result:** Coverage gaps within the declared need-space model, not all possible user work.
 
-**Next step:** Read the linked proposal for progress and the related guide for existing components. This card is not a runnable end-to-end interface.
+**Next step:** Use the existing coverage command with your frozen graph and explicit labels. Review the graph-builder proposal separately; its generated needs remain hypotheses.
 
-[Related existing workflow](../repo-evaluation-contract.md) · [Implementation](../../dokimi/commands/eval_coverage.py) · [Back to feature tree](README.md)
+[Coverage command reference](https://intel.github.io/dokimi/reference/cli/eval/) · [Implementation](../../dokimi/commands/eval_coverage.py) · [Back to feature tree](README.md)
 
 <a id="29-which-skill-rules-lack-checks"></a>
 
@@ -99,7 +99,7 @@ Provide a frozen need graph and explicit needs labels on the eval checks. Inspec
 
 The proposed workflow maps checkable statements in a skill to existing checks and lists unmatched statements as candidates. A model-estimated mapping is not a verified coverage score or a gate.
 
-**Input:** The task, question set or coverage model you want to validate.
+**Input:** A SKILL.md and existing eval rows or executable task checks to map against its requirements.
 
 **Scope and limits:** PR [#441](https://github.com/intel/dokimi/issues/441): LLM-estimated candidates, not a verified coverage score.
 
@@ -119,15 +119,15 @@ The proposed workflow maps checkable statements in a skill to existing checks an
 
 Check that a null solution fails and an oracle passes, then challenge the verifier with adversarial controls. A successful control run does not prove that the grader cannot be fooled.
 
-**Input:** The task, question set or coverage model you want to validate.
+**Input:** Executable tasks, their verifier, a null workspace and reference solution; additional adversarial controls where supported.
 
 **Scope and limits:** Self-check and verifier red-team; controls cannot prove perfection.
 
 **Result:** Control results exposing weaknesses in the tested grader.
 
-**Next step:** Follow the linked guide for the exact command and output schema, then [interpret the result](../start/results.md).
+**Next step:** Use the linked workflow to configure this check, then [interpret the result](../start/results.md).
 
-[Usage guide](../repo-evaluation-contract.md) · [Implementation](../../dokimi/commands/repo_run.py) · [Back to feature tree](README.md)
+[Grader self-check](../repo-evaluation-contract.md#43-self-check-eval-check-no-llm) · [Implementation](../../dokimi/commands/repo_run.py) · [Back to feature tree](README.md)
 
 <a id="31-is-there-room-to-improve"></a>
 
@@ -139,15 +139,15 @@ Check that a null solution fails and an oracle passes, then challenge the verifi
 
 Check whether tasks have useful headroom and protect held-out evaluation material. Keep cached replays separate from fresh repetitions when interpreting repeatability.
 
-**Input:** The task, question set or coverage model you want to validate.
+**Input:** Recorded arm outcomes, reference question content and repetition/cache provenance.
 
 **Scope and limits:** Headroom and run hygiene; replay provenance fix PR [#596](https://github.com/intel/dokimi/issues/596).
 
 **Result:** Headroom diagnostics identifying cases with little room to distinguish variants.
 
-**Next step:** Follow the linked guide for the exact command and output schema, then [interpret the result](../start/results.md).
+**Next step:** Use the linked workflow to configure this check, then [interpret the result](../start/results.md).
 
-[Usage guide](../methodology.md) · [Implementation](../../dokimi/commands/headroom.py) · [Back to feature tree](README.md)
+[Headroom command reference](https://intel.github.io/dokimi/reference/cli/eval/) · [Methodology](../methodology.md) · [Implementation](../../dokimi/commands/headroom.py) · [Back to feature tree](README.md)
 
 <a id="38-assess-documentation"></a>
 
@@ -159,12 +159,12 @@ Check whether tasks have useful headroom and protect held-out evaluation materia
 
 Run documentation metrics and inspect structure, freshness, readability and examples. Optional Docling ingestion brings non-Markdown content into the workflow.
 
-**Input:** The task, question set or coverage model you want to validate.
+**Input:** A documentation corpus and a benchmark spec selecting metrics; optional ingestion prepares non-Markdown sources.
 
-**Scope and limits:** Docling ingestion supports PDF / Office / HTML with optional dependencies.
+**Scope and limits:** Metrics describe the selected corpus/spec, not agent task improvement. Example metrics may execute supported code examples; optional Docling ingestion requires its own dependencies.
 
 **Result:** Documentation metrics within the selected metric's scope.
 
-**Next step:** Follow the linked guide for the exact command and output schema, then [interpret the result](../start/results.md).
+**Next step:** Use the linked workflow to configure this check, then [interpret the result](../start/results.md).
 
-[Usage guide](../ingestion-docling.md) · [Implementation](../../dokimi/commands/ingest.py) · [Back to feature tree](README.md)
+[Static benchmark workflow](../benchmarking-and-comparison.md#static-documentation-benchmark) · [Optional ingestion](../ingestion-docling.md) · [Implementation](../../dokimi/commands/run.py) · [Back to feature tree](README.md)

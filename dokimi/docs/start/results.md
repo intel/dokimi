@@ -33,3 +33,5 @@ Start with the output location printed by your command. [Runs list/show](../runs
 State: what was tested, against what baseline, under which conditions, which outcomes changed, what remains unknown, and what you will do next. Use [recorded studies](../skill-novelty-evidence.md) for empirical examples. Feature illustrations are explanatory and supply no additional measured evidence.
 
 [Skill workflow](skills.md) · [Repository workflow](repositories.md) · [Experiment workflow](experiments.md) · [Automation](automation.md)
+
+[Known limitations and reliability fixes](../development/limitations.md) lists current gaps that can affect interpretation.

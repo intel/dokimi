@@ -19,13 +19,13 @@ Each card describes one capability. Images use fictional tasks and simplified do
 
 Extract knowledge atoms, probe with and without the skill, and inspect added, redundant, degraded and still-missing outcomes per model. Confirm useful knowledge on real tasks.
 
-**Input:** A skill or catalog revision and the question named by this card.
+**Input:** A skill/document artifact, extracted knowledge probes and the configured answerer and judge.
 
 **Scope and limits:** Atoms and paired probes; knowledge gain is not task-level benefit.
 
 **Result:** Added, redundant, degraded and still-missing probe outcomes.
 
-**Next step:** Follow the linked guide for the exact command and output schema, then [interpret the result](../start/results.md).
+**Next step:** Use the linked workflow to configure this check, then [interpret the result](../start/results.md).
 
 [Usage guide](../skill-novelty.md) · [Implementation](../../dokimi/novelty/atoms.py) · [Back to feature tree](README.md)
 
@@ -39,13 +39,13 @@ Extract knowledge atoms, probe with and without the skill, and inspect added, re
 
 Use the annotated source view to locate the passages associated with probe outcomes. Treat the annotation as a diagnostic lead, not a causal effect for each sentence.
 
-**Input:** A skill or catalog revision and the question named by this card.
+**Input:** A novelty result and the source revision/spans that were analysed.
 
 **Scope and limits:** Span attribution and annotated HTML; not causal value per sentence.
 
 **Result:** Source annotations identifying passages to investigate.
 
-**Next step:** Follow the linked guide for the exact command and output schema, then [interpret the result](../start/results.md).
+**Next step:** Use the linked workflow to configure this check, then [interpret the result](../start/results.md).
 
 [Usage guide](../skill-novelty.md) · [Implementation](../../dokimi/commands/novelty_run.py) · [Back to feature tree](README.md)
 
@@ -59,13 +59,13 @@ Use the annotated source view to locate the passages associated with probe outco
 
 Include the supporting reference files and scripts when analysing an artifact. A short entry file can delegate most of its useful content to the bundle.
 
-**Input:** A skill or catalog revision and the question named by this card.
+**Input:** A skill entry file and supporting resources selected under explicit resource/word budgets.
 
-**Scope and limits:** Whole-bundle analysis, not just the entry document.
+**Scope and limits:** Supporting resources are subject to resource/word budgets and atom sampling; this is not exhaustive execution or inspection of every bundled file.
 
 **Result:** Bundle-level diagnostics for the resources selected by the analysis.
 
-**Next step:** Follow the linked guide for the exact command and output schema, then [interpret the result](../start/results.md).
+**Next step:** Use the linked workflow to configure this check, then [interpret the result](../start/results.md).
 
 [Usage guide](../skill-novelty.md) · [Implementation](../../dokimi/commands/skill.py) · [Back to feature tree](README.md)
 
@@ -77,15 +77,15 @@ Include the supporting reference files and scripts when analysing an artifact. A
 
 **Availability:** Available on main.
 
-Compare shortening candidates on tokens, knowledge, task value, protection and routing. Preserve important constraints and remeasure the selected candidate on tasks.
+Compare shortening candidates on tokens, knowledge retention, relevance/novelty-weighted knowledge value, protection and routing. The value axis is a knowledge-retention measure or coverage proxy, not measured task value. Preserve important constraints and separately remeasure the selected candidate on tasks.
 
-**Input:** A skill or catalog revision and the question named by this card.
+**Input:** The original artifact, measured atoms and shortening strategies/token budgets; task evals are needed for outcome confirmation.
 
 **Scope and limits:** Five axes; known knowledge alone is not a reason to delete a clause.
 
 **Result:** Shortening candidates to compare and retest on tasks.
 
-**Next step:** Follow the linked guide for the exact command and output schema, then [interpret the result](../start/results.md).
+**Next step:** Use the linked workflow to configure this check, then [interpret the result](../start/results.md).
 
 [Usage guide](../skill-novelty-walkthrough.md) · [Implementation](../../dokimi/novelty/shorten.py) · [Back to feature tree](README.md)
 
@@ -99,13 +99,13 @@ Compare shortening candidates on tokens, knowledge, task value, protection and r
 
 Scan a catalog with per-skill results, worker jobs and resumption. Use ignore rules to define the intended collection; inspect findings before treating them as defects.
 
-**Input:** A skill or catalog revision and the question named by this card.
+**Input:** A local catalog and the skills selected for validation or analysis.
 
 **Scope and limits:** Jobs, ignore, resume; scaling gaps tracked in [#413](https://github.com/intel/dokimi/issues/413) and [#434](https://github.com/intel/dokimi/issues/434).
 
 **Result:** Catalog and skill findings for the selected collection.
 
-**Next step:** Follow the linked guide for the exact command and output schema, then [interpret the result](../start/results.md).
+**Next step:** Use the linked workflow to configure this check, then [interpret the result](../start/results.md).
 
 [Usage guide](../external-content.md) · [Implementation](../../dokimi/commands/catalog_scan.py) · [Back to feature tree](README.md)
 
@@ -119,13 +119,13 @@ Scan a catalog with per-skill results, worker jobs and resumption. Use ignore ru
 
 Run the existing skill/catalog validation before paid evaluation. Structural warnings help locate packaging problems; proposed extra checks are described in the linked PRs.
 
-**Input:** A skill or catalog revision and the question named by this card.
+**Input:** Skill metadata, descriptions, paths and bundle structure in the catalog being checked.
 
 **Scope and limits:** main checks; PRs [#454](https://github.com/intel/dokimi/issues/454), [#556](https://github.com/intel/dokimi/issues/556), [#557](https://github.com/intel/dokimi/issues/557), [#558](https://github.com/intel/dokimi/issues/558), [#559](https://github.com/intel/dokimi/issues/559) extend them.
 
 **Result:** Structural findings from existing checks; proposed extensions are separate.
 
-**Next step:** Follow the linked guide for the exact command and output schema, then [interpret the result](../start/results.md).
+**Next step:** Use the linked workflow to configure this check, then [interpret the result](../start/results.md).
 
 [Usage guide](../external-content.md) · [Implementation](../../dokimi/external/validate.py) · [Back to feature tree](README.md)
 
@@ -139,7 +139,7 @@ Run the existing skill/catalog validation before paid evaluation. Structural war
 
 The proposed checks inspect Python/shell syntax, line endings and optional lint tools without running the bundled script. Warnings and notes are not a complete runtime test.
 
-**Input:** A skill or catalog revision and the question named by this card.
+**Input:** A skill's bundled Python/shell scripts and optional local syntax/lint tools.
 
 **Scope and limits:** PR [#455](https://github.com/intel/dokimi/issues/455); warnings / notes, optional bash, ruff and shellcheck.
 
@@ -159,7 +159,7 @@ The proposed checks inspect Python/shell syntax, line endings and optional lint 
 
 The proposed opt-in network checks distinguish confirmed missing packages/links from unknown or skipped targets. Timeouts and refusals are not evidence that a resource is absent.
 
-**Input:** A skill or catalog revision and the question named by this card.
+**Input:** Package references and external URLs in the selected catalog, with opt-in network access for the proposed checks.
 
 **Scope and limits:** PR [#459](https://github.com/intel/dokimi/issues/459); opt-in, warning-only checks; network errors are not absence.
 
@@ -179,7 +179,7 @@ The proposed opt-in network checks distinguish confirmed missing packages/links 
 
 The proposed packaging findings identify missing bundle paths, unreferenced files and missing frontmatter. Confirm whether an unreferenced file is intentionally present before removing it.
 
-**Input:** A skill or catalog revision and the question named by this card.
+**Input:** SKILL.md, its named resources and the bundle's files/paths for the proposed packaging heuristics.
 
 **Scope and limits:** PRs [#556](https://github.com/intel/dokimi/issues/556), [#558](https://github.com/intel/dokimi/issues/558), [#559](https://github.com/intel/dokimi/issues/559); unrestricted Bash warning separately in [#557](https://github.com/intel/dokimi/issues/557).
 
@@ -199,12 +199,12 @@ The proposed packaging findings identify missing bundle paths, unreferenced file
 
 Build a need hypothesis from the artifact name and description, then relate content to that scope. Confirm user intent separately; stated relevance is not measured task success.
 
-**Input:** A skill or catalog revision and the question named by this card.
+**Input:** A skill's identity/description and the user-need model used by the relevance analysis.
 
 **Scope and limits:** Need relevance analysis; separate from measured task success and coverage.
 
 **Result:** A mapping of skills to the user needs being evaluated.
 
-**Next step:** Follow the linked guide for the exact command and output schema, then [interpret the result](../start/results.md).
+**Next step:** Use the linked workflow to configure this check, then [interpret the result](../start/results.md).
 
 [Usage guide](../skill-novelty.md) · [Implementation](../../dokimi/novelty/needs.py) · [Back to feature tree](README.md)

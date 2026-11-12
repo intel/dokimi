@@ -21,9 +21,15 @@ A manifest is not required for the initial scan. See [the review workflow](../re
 
 ## 2. Check that instructions reach the agent
 
-Use the [reach guide](../reach-matrix.md) and review workflow to select a supported harness, model and budget. Begin with a dry run. Loading depends on harness, file location and task activity; seeing a file in the repository is not evidence of delivery.
+Use the [repository reach probe](../repo-evaluation-contract.md#7-reach-probe-guidance_reachv1) and [review workflow](../reviewing.md#a-repositorys-agent-setup) to select a supported harness, model and budget. Begin with a dry run:
 
-**Result:** loading evidence for the tested scenarios. Fix discovery before judging whether unseen content helps.
+```bash
+dokimi repo reach /path/to/your/repository --model YOUR_MODEL_ID --dry-run
+```
+
+Replace `YOUR_MODEL_ID` with a model supported by your selected harness. `--dry-run` validates and prints the plan; it calls no harness and produces no loading evidence. After reviewing the plan, credentials and budget, rerun without `--dry-run` to execute the paid probe. The [conformance matrix](../reach-matrix.md) tests fixture scenarios and is background evidence, not a substitute for probing your own repository. Loading depends on harness, file location and task activity; seeing a file in the repository is not evidence of delivery.
+
+**Result of the executed probe:** loading evidence for the tested scenarios. Fix discovery before judging whether unseen content helps.
 
 ## 3. Measure the effect on real work
 
@@ -34,3 +40,5 @@ Prepare the repository's task manifest, environment, reference solutions and gra
 **Done when:** actionable guidance findings are resolved or explained, loading is tested for the chosen harness, and any claimed improvement is backed by representative task comparisons.
 
 [Prepare a repository](../preparing-a-repository.md) · [Repository feature cards](../features/repositories.md) · [Read results](results.md)
+
+[Instruction-effectiveness development](../development/README.md#instruction-delivery-and-adherence) · [Current limitations](../development/limitations.md)

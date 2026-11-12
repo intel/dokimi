@@ -60,3 +60,5 @@ Earlier overview topics now live in [measurement concepts](what-it-measures.md),
 <a id="repository-evaluation"></a>
 <a id="extending-dokimi"></a>
 <a id="methodology"></a>
+
+[Features in development](development/README.md) describes the work underway and its limits; [known limitations](development/limitations.md) helps interpret current results.

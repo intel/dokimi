@@ -34,3 +34,5 @@ Read [results and next steps](results.md) and [comparison statistics](../benchma
 **Done when:** another evaluator can identify the tested inputs and conditions, understand the uncertainty and limitations, and reproduce the procedure without relying on the illustration.
 
 [Experiment features](../features/experiments.md) · [Grader checks](../features/judging.md) · [Methodology](../methodology.md)
+
+[Coverage development](../development/README.md#coverage-and-relevance) · [Grading development](../development/README.md#grading-evidence)

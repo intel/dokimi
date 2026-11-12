@@ -19,13 +19,13 @@ Each card describes one capability. Images use fictional tasks and simplified do
 
 Run the same tasks, model and grader with and without one context change. Inspect paired outcomes and uncertainty before deciding whether to adopt it.
 
-**Input:** A fixed evaluation set and the context or runner variants you want to compare.
+**Input:** The same question/task set, baseline and context variant, with fixed model and grader settings.
 
 **Scope and limits:** A/B and N-way arms; controlled context experiments.
 
 **Result:** Paired outcomes and reported differences between context conditions.
 
-**Next step:** Follow the linked guide for the exact command and output schema, then [interpret the result](../start/results.md).
+**Next step:** Use the linked workflow to configure this check, then [interpret the result](../start/results.md).
 
 [Usage guide](../evaluating-treatments.md) · [Implementation](../../dokimi/commands/arms.py) · [Back to feature tree](README.md)
 
@@ -39,13 +39,13 @@ Run the same tasks, model and grader with and without one context change. Inspec
 
 Choose injected docs, a callable source, a skill, a catalog or a profile according to what the agent will actually receive. Injection and agent-selected loading answer different questions.
 
-**Input:** A fixed evaluation set and the context or runner variants you want to compare.
+**Input:** Your document source, MCP reference, skill directory or profile and the evaluation track that will consume it.
 
 **Scope and limits:** Local docs, Context7, persona/system prompts; support varies by track.
 
 **Result:** Answers or task outcomes tied to the supplied context condition.
 
-**Next step:** Follow the linked guide for the exact command and output schema, then [interpret the result](../start/results.md).
+**Next step:** Use the linked workflow to configure this check, then [interpret the result](../start/results.md).
 
 [Usage guide](../adding-doc-source.md) · [Implementation](../../dokimi/commands/arms.py) · [Back to feature tree](README.md)
 
@@ -59,13 +59,13 @@ Choose injected docs, a callable source, a skill, a catalog or a profile accordi
 
 Compare each treatment alone and together against the same baseline. Inspect interaction contrasts where the chosen report supports them.
 
-**Input:** A fixed evaluation set and the context or runner variants you want to compare.
+**Input:** A fixed evaluation set and treatment definitions for the baseline, individual treatments and their combinations.
 
 **Scope and limits:** Combined treatments; do not assume all tracks support every combination.
 
 **Result:** Per-arm outcomes and, where supported, interaction contrasts.
 
-**Next step:** Follow the linked guide for the exact command and output schema, then [interpret the result](../start/results.md).
+**Next step:** Use the linked workflow to configure this check, then [interpret the result](../start/results.md).
 
 [Usage guide](../evaluating-treatments.md) · [Implementation](../../dokimi/commands/arms.py) · [Back to feature tree](README.md)
 
@@ -79,13 +79,13 @@ Compare each treatment alone and together against the same baseline. Inspect int
 
 Hold the task and grading contract fixed, then compare supported models and harnesses. Record unavailable tools and unsupported environments rather than scoring them as failures.
 
-**Input:** A fixed evaluation set and the context or runner variants you want to compare.
+**Input:** Executable tasks with supported environments and graders, plus the model/harness configurations to compare.
 
 **Scope and limits:** Codex, Claude Code, Harbor, BenchFlow: capabilities differ.
 
 **Result:** Comparable task outcomes for the supported runner/model cells.
 
-**Next step:** Follow the linked guide for the exact command and output schema, then [interpret the result](../start/results.md).
+**Next step:** Use the linked workflow to configure this check, then [interpret the result](../start/results.md).
 
 [Usage guide](../coding-harnesses.md) · [Implementation](../../dokimi/commands/tasks.py) · [Back to feature tree](README.md)
 
@@ -99,13 +99,13 @@ Hold the task and grading contract fixed, then compare supported models and harn
 
 Supply an executable task with an environment, reference solution and verifier. The agent edits the repository; tests grade the resulting work.
 
-**Input:** A fixed evaluation set and the context or runner variants you want to compare.
+**Input:** Executable task definitions, container environment, reference solution and verifier.
 
 **Scope and limits:** Container-backed tasks; grader quality still matters.
 
 **Result:** Agent patches and executable grader outcomes.
 
-**Next step:** Follow the linked guide for the exact command and output schema, then [interpret the result](../start/results.md).
+**Next step:** Use the linked workflow to configure this check, then [interpret the result](../start/results.md).
 
 [Usage guide](../coding-harnesses.md) · [Implementation](../../dokimi/commands/tasks.py) · [Back to feature tree](README.md)
 
@@ -119,12 +119,12 @@ Supply an executable task with an environment, reference solution and verifier. 
 
 Inspect recorded usage and estimated spend before committing to a batch. Use the budget controls exposed by the selected command; pricing and usage availability depend on the provider.
 
-**Input:** A fixed evaluation set and the context or runner variants you want to compare.
+**Input:** The selected command's configuration and provider pricing/usage information or stored run usage.
 
 **Scope and limits:** Cost controls and measurements are track-dependent.
 
 **Result:** Recorded usage and cost estimates where the provider supports them.
 
-**Next step:** Follow the linked guide for the exact command and output schema, then [interpret the result](../start/results.md).
+**Next step:** Use the linked workflow to configure this check, then [interpret the result](../start/results.md).
 
 [Usage guide](../quickstart.md) · [Implementation](../../dokimi/commands/novelty_budget.py) · [Back to feature tree](README.md)

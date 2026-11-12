@@ -40,3 +40,5 @@ Keep the original skill revision and the same evaluation set. Edit the passages 
 **Done when:** your review identifies what was checked, findings, costs, unmeasured claims and the next experiment; an improvement claim has task evidence for the tested revision and setup.
 
 [Read the result](results.md) · [All skill features](../features/skills.md) · [Recorded novelty studies](../skill-novelty-evidence.md)
+
+[Upcoming skill and catalog capabilities](../development/README.md#skill-bundles-and-catalogs) · [Guided improvement plans](../development/README.md#guided-improvement)

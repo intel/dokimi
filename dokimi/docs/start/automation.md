@@ -38,3 +38,5 @@ Existing checks and baseline workflows are usable. A universal autonomous optimi
 [Skill route](skills.md) · [Repository route](repositories.md) · [Result interpretation](results.md)
 
 To change Dokimi itself rather than operate it, follow [contributor guidance](contributors.md).
+
+[CI and evidence lifecycle plans](../development/README.md#repeatable-ci-and-evidence) · [CLI migration notes](../development/interfaces.md)

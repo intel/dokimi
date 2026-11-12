@@ -161,3 +161,10 @@ The [feature tree](features/README.md) links to all 48 cards, grouped by the que
   documents (PDF, HTML, …) via Docling, installed with the optional `ocr` extra.
 - [research-register.md](research-register.md) — the register of Dokimi's own
   ideas, experiments (negative ones included), findings and decisions.
+
+## Development and known limitations
+
+- [Feature directions](development/README.md).
+- [CLI and artifact migrations](development/interfaces.md).
+- [Known limitations](development/limitations.md).
+- [Complete open-work index](development/work-index.md).
