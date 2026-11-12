@@ -132,10 +132,13 @@ def bootstrap_ci(
         return {"mean": _rnd(vals[0], ndigits), "lo": _rnd(vals[0], ndigits), "hi": _rnd(vals[0], ndigits), "n": 1}
 
     rng = random.Random(seed)
+    finite = all(math.isfinite(v) for v in vals)
     means = []
     for _ in range(n_resamples):
-        sample_sum = sum(vals[rng.randrange(n)] for _ in range(n))
-        means.append(sample_sum / n)
+        sample = [vals[rng.randrange(n)] for _ in range(n)]
+        mean = sum(sample) / n
+        # A sum that leaves the float range is not a mean that does: https://github.com/intel/dokimi/issues/598
+        means.append(_mean(sample) if finite and not math.isfinite(mean) else mean)
     means.sort()
 
     # Symmetric order statistics: the naive lo=int(a*B), hi=int((1-a)*B) pair
@@ -144,7 +147,7 @@ def bootstrap_ci(
     lo_idx = max(0, int(round(alpha * (n_resamples - 1))))
     hi_idx = min(n_resamples - 1, int(round((1.0 - alpha) * (n_resamples - 1))))
     return {
-        "mean": _rnd(sum(vals) / n, ndigits),
+        "mean": _rnd(_mean(vals), ndigits),
         "lo": _rnd(means[lo_idx], ndigits),
         "hi": _rnd(means[hi_idx], ndigits),
         "n": n,
