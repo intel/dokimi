@@ -267,6 +267,15 @@ def test_the_release_files_never_share_a_job_with_unhashed_upgrades() -> None:
     assert checkouts[0] == checkouts[1] and len(checkouts[0]) == 1, checkouts
 
 
+def test_the_release_gate_tests_what_the_weekly_latest_run_tests() -> None:
+    """The `[ragas]` extra is published, so its tests run before a release, not skip: as ci.yml's test-latest."""
+    latest = yaml.safe_load((ROOT.parent / ".github/workflows/ci.yml").read_text(encoding="utf-8"))["jobs"]["test-latest"]
+    steps = [{k: s.get(k) for k in ("run", "env")} for s in latest["steps"] if "run" in s]
+    gate = [{k: s.get(k) for k in ("run", "env")} for s in _release_jobs()["test-newest"]["steps"] if "run" in s]
+    assert gate == steps and "[ragas]" in _runs(latest), (gate, steps)
+    assert any((s["env"] or {}).get("DOKIMI_REQUIRE_RAGAS") == "1" for s in gate), gate
+
+
 def test_a_replacement_update_is_exempt_from_the_release_age_wait() -> None:
     """A replacement keeps the version, so no release date exists and renovate/stability-days would stay pending;
     only a github-actions replacement: one from another manager keeps the 7-day wait."""

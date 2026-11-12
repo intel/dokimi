@@ -95,9 +95,12 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
         with:
           python-version: '3.13'
+      # With the published `[ragas]` extra, as ci.yml's test-latest: DOKIMI_REQUIRE_RAGAS=1 fails its tests, not skips.
       - name: Install the newest allowed deps
-        run: pip install --upgrade -r requirements.txt -r requirements-test.txt
+        run: pip install --upgrade -r requirements.txt -r requirements-test.txt -e '.[ragas]'
       - name: Run tests
+        env:
+          DOKIMI_REQUIRE_RAGAS: '1'
         run: pytest -q -n auto
 
   # Sigstore bundle per file plus one SLSA provenance for both, keyless via this
