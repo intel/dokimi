@@ -957,10 +957,10 @@ def _adjusted_significance(
         else:
             sigs[run_id] = None
 
-    # The arms' own correction, so the two verdicts cannot drift; a run with no p stays out of the multiplier.
+    # The arms' own correction, so the two verdicts cannot drift; a run with no p, or under the floor rule, stays out.
     family = [sig for rid in run_ids if (sig := sigs[rid])]
     arm_stats._apply_correction(family, correction=correction, label="runs")
-    # Correct on the exact p-values, then round: 3 * round(0.016666, 4) is 0.0501.
+    # Correct on the exact p-values, then round: 3 * round(0.016666, 4) is 0.0501. Runs compared, not family_tested: the multiplier leaves floor-bound runs out.
     tested = sum(sig["p"] is not None for sig in family)
     return {rid: sig and arm_stats._finalize(sig) for rid, sig in sigs.items()}, tested
 

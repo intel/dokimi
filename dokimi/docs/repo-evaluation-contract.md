@@ -2484,8 +2484,12 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   A `process` count, `first_prompt_tokens` or `first_useful_*` only one arm reports for the shared tasks of a
   (treatment, model) is not compared; a warning names it. When neither arm
   reports it (a batch run before `repo run` recorded it), the row is absent.
-  Holm's correction runs over the gate and score comparisons of one call; the
-  rest are descriptive. Three notes under a comparison keep a row from being
+  Holm's correction runs over the gate and score comparisons of one call that
+  can reach p < 0.05; the rest are descriptive. A gate or score row whose
+  changed tasks give a p floor (`2 / 2^k`) of 0.05 or more can never be
+  significant, so it stays out of the multiplier: its `p_holm` and
+  `p_holm_floor` are `null`, and the other rows are corrected as if it were
+  not there. Three notes under a comparison keep a row from being
   misread, and change no delta, interval or p. A gate or score row of 2+ tasks whose
   interval includes 0 is inconclusive, not evidence of no effect: the note
   gives `mde`, a planning figure: an approximate, uncorrected t-based estimate,
@@ -2503,10 +2507,11 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   effect can reach p < 0.05 here`). Holm's correction can lift that floor: a
   gate or score row's `p_holm_floor` is its `p_holm` with its p put at that
   floor and the other p of the family as observed (in every `--json` row;
-  `null` on a descriptive row or one with every task tied), and where it is not below
+  `null` on a descriptive row, one with every task tied or one under the
+  floor rule), and where it is not below
   0.05, `mde` is `null` and the note names Holm instead (`with Holm over 2
-  rows, p_holm cannot go below 0.0625 here: no effect can reach p_holm <
-  0.05`); a family of one row is the raw rule. `p_holm_floor` decides only
+  rows that can reach p < 0.05, p_holm cannot go below 0.0625 here: no effect
+  can reach p_holm < 0.05`); a family of one row is the raw rule. `p_holm_floor` decides only
   whether `mde` is given, not its size. A gate or score row whose interval
   excludes 0 while its `p_holm` is 0.05 or more (Holm's correction lifted its p
   across 0.05; the interval agrees with the raw p, and Holm's step-down has no
