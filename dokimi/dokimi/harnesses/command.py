@@ -217,7 +217,7 @@ def clear_run_dir(path: Path) -> None:
     The dir is deterministic, so a ``reward.txt``, ``result.json`` or
     ``operations.jsonl`` a previous run left there would be read back as this
     run's. Raising makes the cell errored (missing data) instead of a verdict
-    taken from stale files. Pass only the cell's own dir, never ``--output-dir``.
+    taken from stale files. Pass only the cell's own dir, never ``--out-dir``.
     """
     cause = ""
     try:

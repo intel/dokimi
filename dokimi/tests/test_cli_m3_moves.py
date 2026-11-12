@@ -13,6 +13,7 @@ from dokimi import cli_routes
 from dokimi.cli import build_parser, parse_args
 from dokimi.commands.catalog import cmd_catalog_list, cmd_catalog_show
 from dokimi.utils import InputError
+from tests.cli_refusal import refusal
 
 
 def test_catalog_list_requires_a_kind(capsys):
@@ -134,21 +135,21 @@ def test_prs_refuses_a_threads_file(tmp_path):
 
 @pytest.mark.parametrize("flags", [["--from", "replay", "--threads"], ["--from", "prs", "--prs"]])
 @pytest.mark.parametrize(("source", "message"), [
-    ("", "✗ invalid repository source: ''"),
-    ("missing", "✗ local source is not a directory: {missing}"),
-    ("https://example.invalid/r", "✗ a remote source must be pinned to a revision: https://example.invalid/r@<sha>"),
+    ("", "Error: invalid repository source: ''"),
+    ("missing", "Error: local source is not a directory: {missing}"),
+    ("https://example.invalid/r", "Error: a remote source must be pinned to a revision: https://example.invalid/r@<sha>"),
 ])
-def test_replay_and_prs_refuse_a_bad_source_as_a_usage_error(tmp_path, capsys, flags, source, message):
+def test_replay_and_prs_refuse_a_bad_source_as_a_usage_error(tmp_path, flags, source, message):
     """A source refused as typed exits 2, as with --from graph; 1 is for one that cannot be opened."""
     prs = tmp_path / "prs.json"
     prs.write_text('[{"number": 7, "reviewThreads": {"nodes": []}, "mergeCommit": null}]', encoding="utf-8")
     missing = tmp_path / "missing"
     spec = str(missing) if source == "missing" else source
     args = build_parser().parse_args(["eval", "tasks", "generate", spec, *flags, str(prs), "--out", str(tmp_path / "t")])
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as outcome:
         args.func(args)
-    assert exc.value.code == 2
-    assert capsys.readouterr().err.strip() == message.format(missing=missing)
+    assert outcome.code == 2
+    assert outcome.err.strip() == message.format(missing=missing)
 
 
 @pytest.mark.parametrize("flags", [["--from", "replay", "--threads"], ["--from", "prs", "--prs"]])
@@ -190,9 +191,10 @@ def test_repo_tasks_authoring_names_the_prs_argv_and_runs_nothing(capsys):
     with pytest.raises(SystemExit) as exc:
         parse_args(["repo", "tasks", "authoring", "src", *flags])
     assert exc.value.code == 2
-    new = ["eval", "tasks", "generate", "--from", "prs", "src", *flags]
+    # `--out` names a directory on `eval tasks generate`, so the printed argv carries `--out-dir` (F1b)
+    new = ["eval", "tasks", "generate", "--from", "prs", "src", *["--out-dir" if f == "--out" else f for f in flags]]
     assert capsys.readouterr().err == "moved: dokimi " + " ".join(new) + "\n"
-    args = build_parser().parse_args(new)  # the flags kept their names: the printed argv parses as it is
+    args = build_parser().parse_args(new)  # the printed argv parses as it is
     assert (args.from_kind, args.source, args.prs, args.out, args.manifest_file, args.max_lines, args.prompt_file,
             args.force, args.cache_dir) == ("prs", "src", "p.json", "t", "m.yaml", 50, "i.txt", True, "c")
 

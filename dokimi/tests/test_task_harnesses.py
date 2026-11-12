@@ -170,7 +170,7 @@ def test_command_harness_collects_reward_and_operations(tmp_path, monkeypatch):
 def test_command_harness_relative_output_dir_reads_the_agents_failing_reward(
     tmp_path, monkeypatch
 ):
-    """`tasks run` defaults to a relative --output-dir, and the agent runs in the
+    """`tasks run` defaults to a relative --out-dir, and the agent runs in the
     task checkout's parent. The agent's reward 0.0 (written where
     $DOKIMI_OUTPUT_DIR points, exit 0, as Harbor-style agents do) must be the
     one the framework reads, not lost so the cell falls back to rc == 0."""

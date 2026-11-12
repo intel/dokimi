@@ -8,6 +8,7 @@ from __future__ import annotations
 import pytest
 
 from dokimi.cli import build_parser
+from tests.cli_refusal import refusal
 
 
 def _generate(tmp_path, monkeypatch, config_text):
@@ -28,7 +29,7 @@ def _generate(tmp_path, monkeypatch, config_text):
     ("- a\n- b\n", "expected a mapping"),
 ])
 def test_an_invalid_runtime_config_exits_2_with_a_message(tmp_path, monkeypatch, capsys, text, message):
-    with pytest.raises(SystemExit) as exc:
+    with refusal() as exc:
         _generate(tmp_path, monkeypatch, text)
-    assert exc.value.code == 2
+    assert exc.code == 2
     assert message in capsys.readouterr().err

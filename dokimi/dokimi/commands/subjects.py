@@ -10,6 +10,7 @@ import json
 import sys
 from pathlib import Path
 
+from dokimi import cli_flags
 from dokimi.llm import ANSWER_PROVIDERS
 from dokimi.commands._output import exit_on_unwritable
 from dokimi.eval.judge import JUDGE_PROVIDERS
@@ -222,7 +223,7 @@ def register(sub, positive_int) -> None:
     run_p = subjects_sub.add_parser("run", help="Run subject awareness matrix and write scorecard")
     run_p.add_argument("subject", help="Subject descriptor path (.toml or .json)")
     run_p.add_argument("--out-dir", default=None, dest="out_dir")
-    run_p.add_argument("--out-json", default=None, dest="out_json")
+    cli_flags.add(run_p, "output", "--out", default=None, dest="out_json")
     run_p.add_argument("--out-md", default=None, dest="out_md")
     run_p.add_argument("--model", default=DEFAULT_ANSWER_MODEL, help=argparse.SUPPRESS)
     run_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER,

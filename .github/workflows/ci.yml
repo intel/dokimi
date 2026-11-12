@@ -206,15 +206,8 @@ jobs:
         env:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
         run: python scripts/check_docs_review_triggers.py --base "origin/$BASE_REF" --head HEAD
-      # A PR that changes the schemas (dokimi/schemas/) may not narrow an existing
-      # schema version in place (dokimi/schema_compat.py says why and what to do
-      # instead). A reviewer who has decided a narrowing is safe (it states an
-      # invariant every written artifact already met) applies the `schema-break-ok`
-      # label; the findings are still printed, the job just does not fail on them.
-      # WARNING lines (narrowings no base fixture hits) never fail the step; they go
-      # to the step summary and as annotations so a reviewer sees them.
-      # Diffs against the base branch's current tip, not base.sha (the base as it
-      # stood when the PR was opened), or main's own later edits get blamed on the PR.
+      # `schema-break-ok` certifies a reviewer found the narrowing states an invariant every written artifact already met.
+      # Diffs against the base branch's tip, not base.sha (the base at open), or main's later edits get blamed on the PR.
       - name: schema_compat vs the PR base
         if: ${{ !cancelled() && github.event_name == 'pull_request' }}
         env:
@@ -230,6 +223,10 @@ jobs:
           { grep '^WARNING' compat.txt || true; } | sed 's/^WARNING */::warning title=schema_compat::/'
           if [ "$status" -eq 0 ]; then
             exit 0
+          fi
+          if [ "$status" -ne 1 ] || ! grep -q '^BREAKING' compat.txt; then
+            echo "::error::schema_compat compared nothing against origin/$BASE_REF (status $status, no BREAKING finding); the schema-break-ok label does not cover that"
+            exit "$status"
           fi
           if [ "$OVERRIDE" = true ]; then
             echo "::warning::breaking schema edits accepted by the schema-break-ok label"

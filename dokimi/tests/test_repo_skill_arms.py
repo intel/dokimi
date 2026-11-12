@@ -410,6 +410,24 @@ def test_a_tree_hash_changes_with_the_skill_bytes(tmp_path):
     assert tree_sha256(tmp_path / "a") != tree_sha256(tmp_path / "b")
 
 
+def test_a_tree_hash_of_a_utf8_tree_is_the_pinned_digest(tmp_path):
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "SKILL.md").write_bytes(b"# s\n")  # bytes: write_text() would write CRLF on Windows
+    (tmp_path / "sub" / "né.md").write_bytes(b"x\n")
+    assert tree_sha256(tmp_path) == "98a4bc5c4a3dce3eec33ba1d25a590bbed5738298e30c6e31191024157bc983b"
+
+
+@pytest.mark.skipif(sys.platform in ("win32", "darwin"), reason="the file system takes only UTF-8 names")
+def test_a_tree_hash_digests_a_file_name_that_is_not_utf8(tmp_path):
+    """The name's bytes are hashed (``os.fsencode``): ``encode()`` raised ``UnicodeEncodeError``, which
+    ``_install_skills`` let out as a traceback."""
+    write(tmp_path, "SKILL.md", "# s\n")
+    plain = tree_sha256(tmp_path)
+    write(tmp_path, os.fsdecode(b"n\xff.md"), "x\n")
+    assert re.fullmatch(r"[0-9a-f]{64}", digest := tree_sha256(tmp_path))
+    assert digest != plain
+
+
 def test_unmeasured_skill_usage_is_left_out_of_the_counts(tmp_path):
     batch = tmp_path / "b"
 

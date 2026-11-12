@@ -151,7 +151,7 @@ jobs:
             --tasks onetbb-histogram-local-aggregation \
             --tasks-root "${{ runner.temp }}/uxl-skills/evaluation/harbor/tasks" \
             --harnesses docker-oracle,docker-probe \
-            --out-json "${{ github.workspace }}/logs/external-catalog-smoke/runs.json"
+            --out "${{ github.workspace }}/logs/external-catalog-smoke/runs.json"
       # The base the merge commit (refs/pull/N/merge) was built on, its first parent; not origin/$BASE_REF, which may have moved since.
       # A PR that does not merge records nothing. A later docs-only push skips only while origin/$BASE_REF is still this one.
       - name: Record the base this run tested
@@ -202,7 +202,7 @@ jobs:
       - name: Run benchmark
         run: |
           python cli.py docs check --root . --spec benchmarks/spec.v1.yaml \
-            --out-json baselines/current.json --out-md reports/current.md \
+            --out baselines/current.json --out-md reports/current.md \
             --strict
       - name: Upload artifacts
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2

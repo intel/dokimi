@@ -183,3 +183,16 @@ def test_review_questions_saves_json(tmp_path):
     assert data["library_name"] == "oneTBB"
     assert data["total"] == 1
     assert data["questions"][0]["recommendation"] in ("keep", "revise", "drop")
+
+
+def test_review_questions_saves_flagged_question(tmp_path):
+    pr = QuestionPanelReviewer(concurrency=3)
+    flagged = json.dumps({"reasoning": "ok", "flags": ["too_generic"], "technical_accuracy": 40,
+                          "relevance": 40, "depth": 40, "realism": 40, "clarity": 40,
+                          "usefulness": 40, "evaluability": 40, "answerability": 40,
+                          "specificity": 40})
+    out = tmp_path / "report.json"
+    with patch("dokimi.questions.panel_reviewer.llm_call", return_value=flagged):
+        pr.review_questions(["Q1?", "Q2?"], "oneTBB", output_path=out)
+    data = json.loads(out.read_text())
+    assert data["summary"]["top_flags"] == [["too_generic", 2]]
