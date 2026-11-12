@@ -694,9 +694,8 @@ Both commands exit 2, before any build, on a source that does not parse (a local
 directory, an unpinned remote) and on a pinned local path inside a repository that is not its root; a
 source that parses but cannot be opened (clone, fetch, revision) exits 1 with a `✗` line. A manifest that
 is missing or malformed exits 1 too; a `--manifest` path that leaves the source tree is refused as a
-source and exits 2 for an unpinned local directory; a link in the tree that leads out of it, the default
-manifest's or one `--manifest` names, is part of the tree and exits 1. A pinned source (`<repo>@<sha>`) does not look the path
-up outside the commit: it reports a missing manifest and exits 1.
+source and exits 2, for an unpinned local directory and for a pinned source (`<repo>@<sha>`) alike; a link in the tree that leads out of it, the default
+manifest's or one `--manifest` names, is part of the tree and exits 1.
 
 Nothing checked is not a pass. Both commands refuse an export with no task, and
 exit 1 as `incomplete` when nothing was measured: `eval check` when no task
@@ -1041,7 +1040,7 @@ that is not its root (`<repo>/sub@<sha>`: give the root). It exits 1 when the th
 request, when no pull request gave a task (written, or kept from before), and
 on an error that is not one pull request's own: a malformed pull request, a
 source it cannot open, a manifest that is missing or malformed, the prompt file, or a task it cannot write. Each prints
-`✗` and the reason; on an unpinned local directory a `--manifest` path that leaves the source tree exits 2 instead (a pinned source reports a missing manifest, exit 1). A git failure while one pull request is built skips that
+`✗` and the reason; a `--manifest` path that leaves the source tree exits 2 instead, pinned or not. A git failure while one pull request is built skips that
 pull request with the reason.
 `eval check` then runs the tasks, and two arms measure the guidance
 (§9):
@@ -1247,7 +1246,7 @@ a repository that is not its root (`<repo>/sub@<sha>`: give the root). It exits 
 holds no pull request, when no pull request gave a task (written, or kept from before), and on
 an error that is not one pull request's own: a malformed pull request (a `number` that is not
 an integer), a source it cannot open, a manifest that is missing or malformed, the prompt file (unreadable or empty), or a task it
-cannot write. Each prints `✗` and the reason; on an unpinned local directory a `--manifest` path that leaves the source tree exits 2 instead (a pinned source reports a missing manifest, exit 1). Grading a task needs the manifest's
+cannot write. Each prints `✗` and the reason; a `--manifest` path that leaves the source tree exits 2 instead, pinned or not. Grading a task needs the manifest's
 `entry_points.test` (§2).
 
 ## 5. Aligning oneDAL `dev/agent_evals` (uxlfoundation/oneDAL#3818)

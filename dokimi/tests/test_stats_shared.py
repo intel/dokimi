@@ -4,9 +4,10 @@
 """One eval-side bootstrap and one paired delta (eval/stats.py).
 
 The tool-preference cluster CI used to resample with its own RNG stream. It now calls ``eval.stats.bootstrap_ci``;
-these tests pin the wiring (resample counts, seed, output shape) and the golden values. The resampler inventory matches
-functions by name ("bootstrap" or "boot"), so it does not see a resampler under another name: novelty's
-``clustered_ci`` (main's #418) is one, and is out of scope here.
+these tests pin the wiring (resample counts, seed, output shape) and the golden values. Novelty's atom-clustered
+``clustered_ci`` resamples through ``eval.stats.bootstrap_statistics`` with the same integer seed, so with one probe per
+atom it is the same interval as ``bootstrap_ci``. The resampler inventory matches functions by name ("bootstrap" or
+"boot"), so it does not see a resampler under another name.
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ import pytest
 import dokimi
 from dokimi.eval import arm_runner
 from dokimi.eval import stats
+from dokimi.novelty.controls import clustered_ci
 from dokimi.records import BASELINE, CONTEXT
 from dokimi.tool_preference import _boot as group_boot
 
@@ -32,6 +34,13 @@ def test_group_boot_is_the_shared_cluster_bootstrap_at_2000_resamples():
     assert out == {"mean": shared["mean"], "ci95": [shared["lo"], shared["hi"]], "n_groups": 30}
     # Golden value for the integer seed 0 stream.
     assert out["ci95"] == [0.3893, 0.599]
+
+
+def test_novelty_clustered_ci_is_the_shared_bootstrap_when_each_atom_has_one_probe():
+    # One probe per atom: the pooled rate of a resample is its plain mean, so the interval is bootstrap_ci's.
+    values = [float((i * 7) % 10 < 4) for i in range(40)]
+    shared = stats.bootstrap_ci(values, n_resamples=400, seed=0)
+    assert clustered_ci({f"a{i}": [v] for i, v in enumerate(values)}) == [shared["lo"], shared["hi"]]
 
 
 def test_group_boot_of_nothing_and_of_one_group():
@@ -94,8 +103,10 @@ def _bootstrap_definitions() -> set[tuple[str, str]]:
 
 def test_no_second_resampler_named_bootstrap_or_boot():
     # A new resampler must be added here on purpose, after checking it cannot be a call to eval.stats.bootstrap_ci.
+    # bootstrap_statistics is the one RNG draw of the eval side; bootstrap_ci and novelty's clustered_ci call it.
     assert _bootstrap_definitions() == {
         ("eval/stats.py", "bootstrap_ci"),
+        ("eval/stats.py", "bootstrap_statistics"),
         ("tool_preference.py", "_boot"),
     }
 
