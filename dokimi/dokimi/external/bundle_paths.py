@@ -26,12 +26,11 @@ from .paths import _exists, _in_checkout, _resolved
 SKILL_DIR_VAR = "${CLAUDE_SKILL_DIR}/"
 # After a file, a line or a symbol (``run.py:42``, ``run.py:main``): read as the file's name.
 LOCATION_SUFFIX_RE = re.compile(r":(?:\d+(?:[-:]\d+)?|[A-Za-z_]\w*)$")
-# A list of paths written with no space between them (``scripts/a.py,scripts/b.py``): one path per part.
-SEPARATOR_RE = re.compile(r"[,;]")
-# A quoted argument of a span, which keeps its commas and semicolons (``'assets/a,b.svg'``).
-QUOTED_RE = re.compile(r"'[^']*'|\"[^\"]*\"")
 # The folders a skill bundles files in: a code span naming a file under one of them is checked (``path-missing``).
 BUNDLE_DIRS = ("scripts", "references", "assets", "templates", "examples", "resources")
+# A list of paths written with no space between them (``scripts/a.py,scripts/b.py``): a ``,`` or ``;``
+# that comes right before the next bundle folder. Any other comma or semicolon stays in the name.
+SEPARATOR_RE = re.compile(r"[,;](?=(?:\./)?(?:" + "|".join(BUNDLE_DIRS) + r")/)")
 # A path part that stands for a name the reader fills in, not a file (``scripts/x.py``, ``assets/xxx.png``).
 PLACEHOLDER_PARTS = frozenset(
     {
@@ -68,24 +67,17 @@ def _bundle_path(word: str) -> Optional[str]:
 
 
 def _words(span: str) -> list[str]:
-    """The words of a code span as a shell reads them: a quoted argument with a space is one word.
+    """The words of a code span as a shell reads them: a quoted or escaped argument is one word.
 
-    A span whose quotes do not balance is split on whitespace. A ``,`` or ``;`` outside quotes
-    joins paths (``scripts/a.py,scripts/b.py``): it is read as a space there, so the parts are
-    words of their own, while a quoted argument keeps its separators.
+    The shell tokenizer runs first, so its quotes and escapes (``a\\,b.svg``, ``"a\\"b,c.svg"``) hold.
+    Then a word is split where a ``,`` or ``;`` comes before a bundle folder (``scripts/a.py,scripts/b.py``).
+    A span whose quotes do not balance is split on whitespace.
     """
-    pieces: list[str] = []
-    pos = 0
-    for quoted in QUOTED_RE.finditer(span):
-        pieces.append(SEPARATOR_RE.sub(" ", span[pos : quoted.start()]))
-        pieces.append(quoted.group())
-        pos = quoted.end()
-    pieces.append(SEPARATOR_RE.sub(" ", span[pos:]))
-    joined = "".join(pieces)
     try:
-        return shlex.split(joined)
+        words = shlex.split(span)
     except ValueError:
-        return joined.split()
+        words = span.split()
+    return [part for word in words for part in SEPARATOR_RE.split(word) if part]
 
 
 def _missing(skill_dir: Path, text: str, real_dir: Path) -> bool:

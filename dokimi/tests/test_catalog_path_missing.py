@@ -201,3 +201,35 @@ def test_a_span_with_a_backtick_is_quoted_in_the_message(tmp_path):
 def test_a_path_in_parentheses_is_checked(tmp_path):
     review, _ = _review(tmp_path, "Run it (`(scripts/run.py)`).\n")
     assert _codes(review) == ["path-missing"]
+
+
+def test_a_missing_escaped_comma_is_named_whole(tmp_path):
+    review, _ = _review(tmp_path, r"Copy it with `cp assets/a\,b.svg /tmp/out`." + "\n")
+    [finding] = review.findings
+    assert finding.message.startswith("'assets/a,b.svg' (in ")
+
+
+def test_an_escaped_quote_does_not_end_a_quoted_name(tmp_path):
+    review, _ = _review(
+        tmp_path,
+        r'Copy it with `cp "assets/a\"b,c.svg" /tmp/out`.' + "\n",
+        files=['assets/a"b,c.svg'],
+    )
+    assert review.findings == []
+
+
+def test_a_missing_name_with_a_comma_and_an_extension_like_tail_is_named_whole(tmp_path):
+    review, _ = _review(tmp_path, "Use `assets/logo.v1,2.png`.\n")
+    [finding] = review.findings
+    assert finding.message.startswith("'assets/logo.v1,2.png' (in ")
+
+
+def test_an_existing_name_with_a_comma_and_an_extension_like_tail_is_fine(tmp_path):
+    review, _ = _review(tmp_path, "Use `assets/logo.v1,2.png`.\n", files=["assets/logo.v1,2.png"])
+    assert review.findings == []
+
+
+def test_a_list_of_missing_paths_with_no_space_is_read_one_by_one(tmp_path):
+    review, _ = _review(tmp_path, "Run `scripts/a.py,scripts/b.py`.\n", files=["scripts/a.py"])
+    [finding] = review.findings
+    assert finding.message.startswith("'scripts/b.py' (in ")
