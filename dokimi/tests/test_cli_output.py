@@ -206,6 +206,25 @@ def test_a_json_leaf_usage_error_prints_its_failed_document_with_exit_2(monkeypa
     assert doc["reason"] == message and schema_errors("cli_output.v1", doc) == []
 
 
+@pytest.mark.parametrize("argv", [["repo", "budget", "--jso"], ["repo", "budget", "--j"]])
+def test_an_abbreviated_json_flag_on_a_leaf_prints_its_document(monkeypatch, capsys, argv):
+    # the abbreviation branch of _json_requested: only the leaf's own --json is an abbreviation of --json here
+    with pytest.raises(SystemExit) as exc:
+        _run_main(monkeypatch, argv)
+    assert exc.value.code == 2
+    doc = json.loads(capsys.readouterr().out)
+    assert (doc["kind"], doc["status"]) == ("repo budget", "failed")
+
+
+@pytest.mark.parametrize("argv", [["repo", "validate", ".", "--bogus"], ["repo", "validate", ".", "--", "--json"]])
+def test_a_usage_error_without_a_json_request_prints_no_document(monkeypatch, capsys, argv):
+    # no --json token before the bare "--": the leaf's error stays on stderr
+    with pytest.raises(SystemExit) as exc:
+        _run_main(monkeypatch, argv)
+    assert exc.value.code == 2
+    assert capsys.readouterr().out == ""
+
+
 def test_a_usage_error_of_a_group_prints_no_document(monkeypatch, capsys):
     with pytest.raises(SystemExit) as exc:
         _run_main(monkeypatch, ["repo", "no-such-leaf", "--json"])
