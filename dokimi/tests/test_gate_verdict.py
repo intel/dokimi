@@ -3,6 +3,7 @@
 
 """The shared Verdict: what each property answers, and that the answers agree."""
 
+import dataclasses
 
 from dokimi.gate.regression import detect_regressions
 from dokimi.gate.trust_gate import trust_label
@@ -35,3 +36,8 @@ def test_a_verdict_with_a_measured_passing_check_passes():
 
 def test_trust_label_covers_a_disabled_verdict():
     assert trust_label(Verdict(enabled=False)) == "DISABLED"
+
+
+def test_verdict_has_no_multirun_std_field():
+    assert "multirun_std" not in {f.name for f in dataclasses.fields(Verdict)}
+

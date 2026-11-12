@@ -235,7 +235,7 @@ def evaluate_trust(
             severity="fail",
         ))
 
-    return Verdict(checks=checks, multirun_std=multirun_std)
+    return Verdict(checks=checks)
 
 
 _STATUS_LABEL = {

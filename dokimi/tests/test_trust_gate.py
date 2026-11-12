@@ -297,7 +297,6 @@ class TestEveryCheckReportsItsNumbers:
             ("retrieval_hit_rate", True, 0.667, 0.60, "warn", True),
             ("multirun_variance", True, 3.54, 5.0, "fail", True),
         ]
-        assert round(v.multirun_std, 4) == 3.5355
         assert [c.name for c in v.failures] == ["min_questions", "zero_score_fraction"]
         assert [c.name for c in v.warnings] == ["score_cv", "inter_rater_agreement"]
 

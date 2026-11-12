@@ -59,15 +59,13 @@ class Verdict:
     """All checks one gate ran over one artifact.
 
     ``enabled`` is False for a gate the spec switched off; it has no checks that could block. ``artifact_ref``
-    and ``model`` name the ``(artifact, model)`` cell a novelty verdict describes; ``multirun_std`` is the
-    spread of the per-run averages a trust verdict was given.
+    and ``model`` name the ``(artifact, model)`` cell a novelty verdict describes.
     """
 
     checks: list[Check] = field(default_factory=list)
     enabled: bool = True
     artifact_ref: str = ""
     model: str = ""
-    multirun_std: float | None = None
 
     def check(self, name: str) -> Check | None:
         """The first check called ``name``, or ``None``."""
