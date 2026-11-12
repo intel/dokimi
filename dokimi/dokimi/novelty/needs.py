@@ -178,7 +178,8 @@ def build_need_graph(name: str, description: str, *, client: LLMClient, strict: 
     nodes = data.get("nodes", []) or []
     # Every original id is reserved before any replacement is made, the ids of rejected rows too:
     # a replacement never takes a later node's id (its edges would then point at the wrong node),
-    # and an edge to a rejected node stays dropped instead of landing on a replacement.
+    # and an edge to a rejected node's id is dropped instead of landing on a replacement (unless
+    # a kept row shares that id, which is the model's own ambiguity).
     reserved = {str(row.get("id") or f"n{index}")
                 for index, row in enumerate(nodes, start=1) if isinstance(row, dict)}
     rows = [(index, row, text) for index, row in enumerate(nodes, start=1)
