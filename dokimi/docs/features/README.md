@@ -9,7 +9,7 @@ Start with the question you want to answer. Each leaf below links to one feature
 
 **Availability lives in each card:** “Available on main” means implemented in the reviewed source, not verified in every published release. “Partial” names the implemented portion and its unfinished extension. “Open PR” and “Research” describe development work, not shipped interfaces. An open umbrella issue may contain already implemented pieces.
 
-Reviewed against [ae08a920](https://github.com/intel/dokimi/tree/ae08a92063d4bd180f8e03515ab3068f0c71c291) and open feature PRs on 11 November 2026. This is a capability guide, not a release guarantee. Check your installed version and the linked PR before using a development feature.
+Reviewed against [ae08a920](https://github.com/intel/dokimi/tree/ae08a92063d4bd180f8e03515ab3068f0c71c291) and open feature PRs on 11 November 2026. This is a capability guide, not a release guarantee. A source checkout reports the last release number, so confirm a development feature with `dokimi <command> --help`, not `--version`, and check the linked PR.
 
 ## Browse by question
 
@@ -69,7 +69,7 @@ Use [reviewing](../reviewing.md) for a cheapest-first workflow, [what Dokimi mea
 
 ## Maintaining the cards
 
-When a feature changes, update its availability and working boundary in the owning card. The tree links to that card and deliberately does not duplicate its status. Verify code and release availability separately. Keep open-PR and research links beside the unfinished capability. Do not embed volatile statuses into the illustrations. Preserve card anchors when renaming a title, and link a new topic page from both the docs home and site navigation.
+When a feature changes, update its availability and working boundary in the owning card. The tree links to that card and deliberately does not duplicate its status. Verify code and release availability separately. Keep open-PR and research links beside the unfinished capability. Do not embed volatile statuses into the illustrations. Preserve card anchors when renaming a title, and link a new topic page from both the [documentation index](../documentation-index.md) and site navigation.
 
 The artwork was generated for this documentation and exported as individual scene crops. It is not a screenshot of a Dokimi GUI. Source-like fragments are visual explanations; use the linked guides for executable commands, manifests and schemas. Illustrations use the repository's navy, blue and cyan palette, with green for positive evidence and orange for findings. Text labels carry the meaning as well as colour.
 

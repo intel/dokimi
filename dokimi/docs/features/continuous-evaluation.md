@@ -18,11 +18,11 @@ Each card describes one capability. Images use fictional tasks and simplified do
 
 **Availability:** Partial.
 
-Inspect persisted run artifacts, reports and dashboards without rerunning the model, keeping source and configuration provenance; resume and re-render only where the selected track supports them. Compare a change against saved baselines and explicit thresholds in existing CI workflows. The broader record/revalidate lifecycle is not one complete shipped workflow.
+Inspect persisted run artifacts, reports and dashboards without rerunning the model, keeping source and configuration provenance; resume and re-render only where the selected track supports them. Gate a Q&A eval file against a saved baseline with `dokimi baseline compare --max-context-drop/--max-lift-drop` in your own CI job, and compare repository task batches with `dokimi repo compare --baseline <arm>` (or `<batch>/<arm>`); the reusable `repo-eval.yml` workflow runs `repo validate`, `repo scan` and `eval check` only. The broader record/revalidate lifecycle is not one complete shipped workflow.
 
 **Input:** Stored run artifacts readable by the selected report reader, a saved baseline, comparable candidate results and explicit regression thresholds.
 
-**Scope and limits:** Support varies by track; unified JSON envelope PR [#590](https://github.com/intel/dokimi/pull/590). Baseline gates and reusable CI are on main; full record/revalidate in [#318](https://github.com/intel/dokimi/issues/318)/[#121](https://github.com/intel/dokimi/issues/121)/[#138](https://github.com/intel/dokimi/issues/138).
+**Scope and limits:** Support varies by track; unified JSON envelope PR [#590](https://github.com/intel/dokimi/pull/590). Baseline gates and the reusable no-model CI workflow are on main; full record/revalidate in [#318](https://github.com/intel/dokimi/issues/318)/[#121](https://github.com/intel/dokimi/issues/121)/[#138](https://github.com/intel/dokimi/issues/138).
 
 **Result:** Inspectable stored artifacts and reports, and baseline comparison findings under configured thresholds.
 

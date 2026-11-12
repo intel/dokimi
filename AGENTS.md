@@ -65,8 +65,10 @@ also holds a PR to:
 - Executable tasks (Docker + oracle solution + pytest verifier) or harnesses:
   `dokimi/docs/contributing-terminal-bench-task.md`. Tasks live in a
   content repository; the framework reads a checkout via `--tasks-root`.
-- Anything else: the index, `dokimi/docs/README.md`. A new doc page also goes
-  in the `nav:` of `dokimi/mkdocs.yml`, the published site.
+- Anything else: the index, `dokimi/docs/documentation-index.md`. A new page
+  directly under `dokimi/docs/` goes in that index
+  (`dokimi/tests/test_docs_links.py` checks it) and in the `nav:` of
+  `dokimi/mkdocs.yml`, the published site.
 
 Registries, bundled in the package (`dokimi/dokimi/`) so they ship in the wheel:
 

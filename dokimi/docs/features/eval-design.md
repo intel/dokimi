@@ -5,7 +5,7 @@ SPDX-License-Identifier: Apache-2.0
 
 # Do the tests cover the work?
 
-[Feature tree](README.md) · [Detailed guide](../external-content.md)
+[Feature tree](README.md) · [Detailed guide](../external-content.md) · [Skill for designing evals](../../data/skills/dokimi-design-evals/SKILL.md)
 
 Each card describes one capability. Images use fictional tasks and simplified document excerpts; they are explanations, not captured product screens, runnable configurations or benchmark evidence. Each image shows its own card; Open PR and Research images carry a badge saying so.
 
@@ -27,7 +27,7 @@ Generate candidate tasks from merged-PR inputs, imported review-thread JSON or S
 
 **Next step:** Use the linked workflow to configure this check, then [interpret the result](../start/results.md).
 
-[Task sources and generation](../repo-evaluation-contract.md#11-where-the-evaluation-content-comes-from) · [Implementation](../../dokimi/commands/tasks_generate.py) · [Back to feature tree](README.md)
+[Replay tasks](../repo-evaluation-contract.md#46-replay-tasks-from-review-threads) · [Graph tasks](../repo-evaluation-contract.md#47-graph-tasks-from-a-code-index) · [Merged-PR tasks](../repo-evaluation-contract.md#48-authoring-tasks-from-merged-pull-requests) · [Implementation](../../dokimi/commands/tasks_generate.py) · [Back to feature tree](README.md)
 
 <a id="26-test-repository-exploration"></a>
 
@@ -43,11 +43,11 @@ Evaluate whether an agent locates the relevant file and line for a repository qu
 
 **Scope and limits:** ExploreBench localization; separate from graph-generated tasks.
 
-**Result:** Exploration-task outcomes for the configured repository and grader.
+**Result:** Per-arm file and line F1 against each task's reference locations, and the delta to a baseline arm; no grader or judge is involved.
 
 **Next step:** Use the linked workflow to configure this check, then [interpret the result](../start/results.md).
 
-[Usage guide](../what-it-measures.md) · [Implementation](../../dokimi/commands/explore.py) · [Back to feature tree](README.md)
+[Usage guide](../external-content.md#4-exploration-tasks---tasks-root-plus---repo-root) · [Implementation](../../dokimi/commands/explore.py) · [Back to feature tree](README.md)
 
 <a id="27-generate-evaluation-questions"></a>
 <a id="38-assess-documentation"></a>
@@ -120,7 +120,7 @@ The proposed workflow maps checkable statements in a skill to existing checks an
 
 Check that a null solution fails and an oracle passes, and that the task's isolation holds. A passing check does not prove that the grader cannot be fooled. Answer-only question sets have a separate red-team check: `eval redteam` tests whether their grading blocks the answers it should (see [answer formats](../answer-formats.md)).
 
-**Input:** Executable tasks, their verifier, a null workspace and reference solution.
+**Input:** A repository with a `.agent-eval/repo-eval.yaml` manifest whose tasks each have a grader and a reference solution, and Docker; the null step grades the untouched workspace. Harbor and BenchFlow task directories are not accepted.
 
 **Scope and limits:** Self-check of executable tasks (null, oracle and isolation checks). No adversarial controls are implemented; `eval redteam` covers answer-grading blocks, not repository task verifiers. Checks cannot prove perfection.
 
@@ -148,5 +148,5 @@ Check whether tasks have useful headroom and protect held-out evaluation materia
 
 **Next step:** Use the linked workflow to configure this check, then [interpret the result](../start/results.md).
 
-[Headroom command reference](https://intel.github.io/dokimi/reference/cli/eval/) · [Methodology](../methodology.md) · [Implementation](../../dokimi/commands/headroom.py) · [Back to feature tree](README.md)
+[Headroom command reference](https://intel.github.io/dokimi/reference/cli/eval/) · [Headroom guide](../evaluating-treatments.md#headroom-items-a-comparison-cannot-learn-from) · [Leak gate](../evaluating-treatments.md#leak-gate-and-split-lock-is-the-candidate-skill-carrying-the-answers) · [Implementation](../../dokimi/commands/headroom.py) · [Back to feature tree](README.md)
 

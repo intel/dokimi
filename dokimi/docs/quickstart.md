@@ -44,7 +44,7 @@ The pipeline degrades gracefully if optional deps are missing — see
 
 ## Content setup
 
-The target and its question/task content must be configured in your checkout. The `onetbb` commands below are examples for a prepared oneTBB setup, not a self-contained demo. Read [external content](external-content.md) before running them. For a first skill or repository check, use [Start here](start/README.md).
+`onetbb` ships in the package's product registry, and `benchmark run` discovers personas and generates its own questions, so the canonical flow below needs only the credentials above. For a fixed comparison, pass `--questions-root <dir>` with an `onetbb_golden.json` in it; that set then replaces the generated questions. [External content](external-content.md) covers your own targets and question sets. For a first skill or repository check, use [Start here](start/README.md).
 
 ## Canonical flow
 
@@ -63,6 +63,8 @@ For fair model/context comparisons, seed once and reuse questions:
 dokimi benchmark run --target onetbb --out-dir results/onetbb_seed
 dokimi benchmark run --target onetbb --questions-from results/onetbb_seed --model gpt-6-astra
 ```
+
+On the 0.2.0 release this flag is `--output-dir`; `--out-dir` needs a source checkout of main.
 
 See [user-flow.md](user-flow.md) for target/generalization rules.
 
@@ -172,11 +174,12 @@ git-ignored.
 ### Step 6 — Dashboard (optional)
 
 ```bash
-dokimi dashboard generate
+dokimi dashboard generate --results-dir .
 ```
 
-Aggregates per-library results from `eval/*.json` into `DASHBOARD.md` /
-`dashboard.json` for cross-library comparison. Like `report generate`, it averages both
+Aggregates per-library results from `<results-dir>/**/eval/*.json` into `DASHBOARD.md` /
+`dashboard.json` for cross-library comparison. `--results-dir` defaults to `results`;
+`.` reads the `eval/` directory step 4 wrote. Like `report generate`, it averages both
 arms and the delta, per library and per question source, over the questions scored in
 both arms; a run that scored one arm only shows that arm's mean.
 

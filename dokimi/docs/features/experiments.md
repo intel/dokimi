@@ -48,7 +48,7 @@ Choose injected docs, a callable source, a skill, a catalog or a profile accordi
 
 **Next step:** Use the linked workflow to configure this check, then [interpret the result](../start/results.md).
 
-[Usage guide](../adding-doc-source.md) · [Implementation](../../dokimi/commands/arms.py) · [Combining treatments](../evaluating-treatments.md) · [Back to feature tree](README.md)
+[Arm specs](../evaluating-treatments.md#arm-specs-in-detail) · [Doc and MCP sources](../adding-doc-source.md) · [Implementation](../../dokimi/commands/arms.py) · [Combining treatments](../evaluating-treatments.md) · [Back to feature tree](README.md)
 
 <a id="04-compare-models-harnesses"></a>
 <a id="47-match-the-real-harness"></a>
@@ -59,7 +59,7 @@ Choose injected docs, a callable source, a skill, a catalog or a profile accordi
 
 **Availability:** Available on main.
 
-Hold the task and grading contract fixed, then compare supported models and harnesses. Check the harness support matrix before treating an experiment as deployment evidence: record unavailable tools, unsupported environments, MCP, sidecars or verifier arrangements as explicit limitations rather than scoring them as failures.
+Hold the task and grading contract fixed, then compare supported models and harnesses. `tasks run` compares harnesses for one `--model`: run it once per model, or use `repo run`, where `--model` is repeatable. Check the harness support matrix before treating an experiment as deployment evidence: record unavailable tools, unsupported environments, MCP, sidecars or verifier arrangements as explicit limitations rather than scoring them as failures.
 
 **Input:** Executable tasks with supported environments and graders, the model/harness configurations to compare, and the concrete harness version you deploy.
 

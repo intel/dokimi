@@ -17,7 +17,7 @@ dokimi catalog check --root /path/to/catalog --kind skills
 
 **Input:** a local catalog containing skills. **Cost:** no LLM calls. **Result:** structural findings about whether the catalog and skills load. Fix reported problems and rerun. This does not execute bundled scripts or prove usefulness.
 
-For a single skill or a full review, follow the [review workflow](../reviewing.md#a-skill). For machine-readable catalog receipts, use the [automation route](automation.md).
+For a single skill, run `dokimi skill check --root /path/to/catalog <name>`; for a full review, follow the [review workflow](../reviewing.md#a-skill). For machine-readable catalog receipts, use the [automation route](automation.md).
 
 ## 2. Decide what needs measuring
 

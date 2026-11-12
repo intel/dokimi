@@ -58,7 +58,7 @@ Inspect instruction scopes, capabilities, checks, hooks and scripts. An optional
 
 **Availability:** Available on main.
 
-Keep the manifest, tasks and graders with the repository. Validate it, run baseline and candidate guidance arms (revisions, removal, bridge, format, overlay variants and patches), and compare reports while preserving task and source revisions. Check the contract for the exact arm grammar and compatible harness.
+Keep the manifest, tasks and graders with the repository. Validate it, run baseline and candidate guidance arms (revisions, removal, bridge, format, overlay variants and patches), and compare reports while preserving task and source revisions. Check the [contract](../repo-evaluation-contract.md#workspace-preparation-done-by-the-framework) for the exact arm grammar and compatible harness.
 
 **Input:** A repository-owned evaluation manifest, tasks, execution environment, grader contracts, and the guidance conditions to compare.
 
@@ -68,7 +68,7 @@ Keep the manifest, tasks and graders with the repository. Validate it, run basel
 
 **Next step:** Use the linked workflow to configure this check, then [interpret the result](../start/results.md).
 
-[Usage guide](../repo-evaluation-contract.md) · [Implementation](../../dokimi/commands/repo_run.py) · [Arm implementation](../../dokimi/repos/arms.py) · [Back to feature tree](README.md)
+[Usage guide](../repo-evaluation-contract.md) · [Implementation](../../dokimi/commands/repo_run.py) · [Arm grammar](../../dokimi/repos/workspace.py) · [Skill arms](../../dokimi/repos/arms.py) · [Back to feature tree](README.md)
 
 <a id="23-keep-a-rule-ledger"></a>
 
@@ -100,7 +100,7 @@ Record a rule hypothesis and the cases it is intended to help. Read keep/review/
 
 Use the built-in seeded-review or replay grader to evaluate review findings against the task evidence. Read recall, decoys and matching limits rather than assuming a passing review is complete.
 
-**Input:** A task's review contract and candidate patch or answer, with review gold/rubric inputs as required by the grader.
+**Input:** The agent's findings, a JSON block at the end of its answer, and the task's seeds and decoys (`review_seeds`) or the merged PR's human review threads (`review_replay`).
 
 **Scope and limits:** Built-in `dokimi:review_seeds` and `dokimi:review_replay` graders.
 

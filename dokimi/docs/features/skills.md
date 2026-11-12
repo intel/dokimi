@@ -18,7 +18,7 @@ Each card describes one capability. Images use fictional tasks and simplified do
 
 **Availability:** Available on main.
 
-Extract knowledge atoms, probe with and without the skill, and inspect added, redundant, degraded and still-missing outcomes per model. The annotated source view traces those outcomes back to the passages they came from; treat it as a diagnostic lead, not a causal effect for each sentence, and confirm useful knowledge on real tasks.
+Extract knowledge atoms, probe with and without the skill, and inspect added, redundant, degraded and still-missing outcomes per model. The annotated source view traces those outcomes back to the passages they came from (`dokimi novelty view --novelty novelty.json --atoms atoms.json` re-renders it with no model call); treat it as a diagnostic lead, not a causal effect for each sentence, and confirm useful knowledge on real tasks.
 
 **Input:** A skill/document artifact, extracted knowledge probes, the configured answerer and judge, and the analysed source revision.
 
@@ -28,7 +28,7 @@ Extract knowledge atoms, probe with and without the skill, and inspect added, re
 
 **Next step:** Use the linked workflow to configure this check, then [interpret the result](../start/results.md).
 
-[Usage guide](../skill-novelty.md) · [Implementation](../../dokimi/novelty/atoms.py) · [Annotated view](../../dokimi/commands/novelty_run.py) · [Back to feature tree](README.md)
+[Usage guide](../skill-novelty.md) · [Implementation](../../dokimi/novelty/analyze.py) · [Annotated view](../../dokimi/novelty/attribute.py) · [Back to feature tree](README.md)
 
 <a id="09-read-the-whole-bundle"></a>
 
@@ -62,7 +62,7 @@ Compare shortening candidates on tokens, knowledge retention, relevance/novelty-
 
 **Input:** The original artifact, measured atoms and shortening strategies/token budgets; task evals are needed for outcome confirmation.
 
-**Scope and limits:** Five axes; known knowledge alone is not a reason to delete a clause.
+**Scope and limits:** Five axes; the routing axis is always 1.0, because shortening never edits the frontmatter. Known knowledge alone is not a reason to delete a clause.
 
 **Result:** Shortening candidates to compare and retest on tasks.
 
@@ -78,7 +78,7 @@ Compare shortening candidates on tokens, knowledge retention, relevance/novelty-
 
 **Availability:** Available on main.
 
-Scan a catalog with per-skill results, worker jobs and resumption. Use ignore rules to define the intended collection; inspect findings before treating them as defects.
+Scan a catalog with per-skill results, worker jobs and resumption. Choose the skills with `--root` (and its `skills.yaml`, if any) and `--skip-nested`; `--ignore CODE` hides a reviewed finding code for every skill, not for one skill. Inspect findings before treating them as defects.
 
 **Input:** A local catalog and the skills selected for validation or analysis.
 
@@ -165,7 +165,7 @@ Build a need hypothesis from the artifact name and description, then relate cont
 
 **Scope and limits:** Need relevance analysis; separate from measured task success and coverage.
 
-**Result:** A mapping of skills to the user needs being evaluated.
+**Result:** Per-atom relevance for that one skill, against a need graph built from its name and description.
 
 **Next step:** Use the linked workflow to configure this check, then [interpret the result](../start/results.md).
 

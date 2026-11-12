@@ -20,7 +20,7 @@ Each card describes one capability. Images use fictional tasks and simplified do
 
 Before a paid run, budget startup, lazy and on-demand guidance volume for the repository; the budget counts characters, not tokens. After a run, inspect supported Claude Code traces for startup load, growth, compaction and tool-result weight. The budget predicts loading volume; the trace describes one actual session.
 
-**Input:** A repository/context configuration for the budget; supported Claude Code session traces for inspection.
+**Input:** A repository/context configuration for the budget; `claude -p --output-format stream-json --verbose` output files for inspection.
 
 **Scope and limits:** The repository budget is in characters, not a token invoice; compaction is a trace observation.
 
@@ -40,7 +40,7 @@ Before a paid run, budget startup, lazy and on-demand guidance volume for the re
 
 Repeat one task and compare outcome stability, tool paths and declared process contracts. A stable final answer can hide unstable or wasteful execution paths.
 
-**Input:** Repeated runs of the same task and their traces, plus any declared process contracts.
+**Input:** Stream-json traces of repeated runs of one task, a `--outcomes` file of verifier verdicts (without it a run passes when the harness ended cleanly, which is not task success), and an optional `--contract`.
 
 **Scope and limits:** Trace consistency; process contracts are not universal adherence.
 
@@ -58,7 +58,7 @@ Repeat one task and compare outcome stability, tool paths and declared process c
 
 **Availability:** Available on main.
 
-Use session observations to select instructions for an ablation experiment. Referenced, acted-on and corrected rules are candidates to investigate, not established causes of success.
+Use session observations to select instructions for an ablation experiment. A rule the sessions never brought up, or brought up in fewer than `--in-use-rate` of them, is a candidate (one seen in at most `--rare-max` sessions is listed as rare, not ranked); a rule triggered or acted on that often is `in_use`, and a protected rule is kept. A candidate is a rule to test by removing it, not proof that it is unused.
 
 **Input:** Session logs and the guidance rules whose observed use you want to investigate.
 

@@ -24,6 +24,8 @@ python -m pip install dokimi
 dokimi --help
 ```
 
+The guides follow main, where an output file is `--out` and an output directory `--out-dir`. The 0.2.0 release still spells them `--out-json` and `--output-dir`, and a directory `--out` on some `repo` and `eval` commands; see [interface changes](../development/interfaces.md).
+
 For functionality described as available on main, use a source checkout. From the **outer repository root**:
 
 ```bash
@@ -32,7 +34,7 @@ python -m pip install -e .
 dokimi --help
 ```
 
-This enters the package directory containing `pyproject.toml`. The guides here use the installed `dokimi` command, so you do not need to find `cli.py`. Relative input and output paths are resolved from your current working directory; use absolute paths when running elsewhere.
+This enters the package directory containing `pyproject.toml`. These start pages use the installed `dokimi` command. Some linked guides still write `python cli.py …`; with an installed package, type `dokimi …` in its place. Relative input and output paths are resolved from your current working directory; use absolute paths when running elsewhere.
 
 ## Bring the subject you want to check
 

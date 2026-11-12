@@ -27,7 +27,7 @@ Choose reference, checklist, pointwise, pairwise or other supported scoring acco
 
 **Next step:** Use the linked workflow to configure this check, then [interpret the result](../start/results.md).
 
-[Usage guide](../methodology.md) · [Implementation](../../dokimi/eval/grounding.py) · [Back to feature tree](README.md)
+[Usage guide](../answer-formats.md) · [Judge checks](../benchmarking-and-comparison.md#trusting-the-judge) · [Implementation](../../dokimi/eval/grounding.py) · [Back to feature tree](README.md)
 
 <a id="33-check-the-judges"></a>
 
@@ -47,7 +47,7 @@ Probe judge validity with degraded answers and examine agreement, order and word
 
 **Next step:** Use the linked workflow to configure this check, then [interpret the result](../start/results.md).
 
-[Usage guide](../methodology.md) · [Implementation](../../dokimi/commands/judge_reliability.py) · [Back to feature tree](README.md)
+[Usage guide](../benchmarking-and-comparison.md#trusting-the-judge) · [Implementation](../../dokimi/commands/judge_reliability.py) · [Back to feature tree](README.md)
 
 <a id="34-ground-novelty-checks"></a>
 

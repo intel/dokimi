@@ -123,7 +123,7 @@ The [feature tree](features/README.md) links to all 39 cards, grouped by the que
   must pass before it is admitted.
 - [repo-evaluation-agent-modes.md](repo-evaluation-agent-modes.md) —
   *(proposed)* how a repository task states its agent mode, effort, perf
-  protocol and team rules, split from the mergeability proposal (#67).
+  protocol and team rules, split from the mergeability proposal.
 - [preparing-a-repository.md](preparing-a-repository.md) — what to put in a
   repository and its environment so coding agents build, test and review it
   well (runnable pinned commands, tool lines in `AGENTS.md`, true guidance, a

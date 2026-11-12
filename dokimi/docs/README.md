@@ -34,7 +34,7 @@ A static check finds structural problems. A loading check establishes what reach
 - [CLI reference](https://intel.github.io/dokimi/reference/cli/): commands and options generated from code.
 - [Source and contribution guidance](https://github.com/intel/dokimi).
 
-The illustrations explain examples, not measured results. Feature cards distinguish implemented functionality from proposed extensions; check your installed version before using a development feature.
+The illustrations explain examples, not measured results. Feature cards distinguish implemented functionality from proposed extensions. A source checkout reports the last release number, so confirm a development feature with `dokimi <command> --help`, not `--version`.
 
 <a id="what-it-is"></a>
 <a id="which-parts-help-novelty"></a>

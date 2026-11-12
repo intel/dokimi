@@ -27,7 +27,7 @@ The output directory must be outside the catalog checkout and its ancestors, and
 - Estimate paid work and use only the budget controls supported by that track. Keep credentials in the execution environment.
 - Keep receipts with the tested revision; redact sensitive content before sharing artifacts that contain source text.
 
-Use [runs list/show](../runs.md) to inspect supported stored artifacts without new model calls. Use [baselines and comparison workflows](../benchmarking-and-comparison.md) for regression gates, after establishing a qualified evaluation set.
+Use [runs list/show](../runs.md) to inspect supported stored artifacts without new model calls. Use [baselines and comparison workflows](../benchmarking-and-comparison.md) for regression gates, after establishing a qualified evaluation set. For a repository with a `repo-eval.yaml`, the reusable workflow `uses: intel/dokimi/.github/workflows/repo-eval.yml@<sha>`, with `dokimi-ref: <sha>`, runs `repo validate`, `repo scan` and `eval check` with no model and no secret; see *CI for a repository* in [section 9 of the repository evaluation contract](../repo-evaluation-contract.md#9-running).
 
 ## Know the implementation boundary
 

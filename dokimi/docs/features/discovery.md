@@ -38,7 +38,7 @@ A file on disk is not necessarily listed to the agent, and a listed skill or ins
 
 **Availability:** Partial — implemented core with proposed extensions.
 
-Test requests that should select a skill and requests that should not. Compare competing descriptions and inspect actual selection, not only keyword overlap.
+`novelty routing` scores only requests that should select the skill: by lexical overlap without `--model`, and with `--model` by the model's pick from the cards, an upper bound on what a harness selects. Test requests that should not select it, and selection in real Claude Code runs, with [`catalog trigger-probe`](../evaluating-treatments.md#skill-selection-does-the-agent-load-the-right-skill).
 
 **Input:** The skill or catalog, actual competing skills and representative selection/non-selection requests.
 
@@ -76,9 +76,9 @@ Change tool wording or position while holding the request fixed. Repeat the tria
 
 ![Split or merge skills?: Compare granularity against a wording-only control.](../assets/features/18-split-or-merge-skills.webp)
 
-**Availability:** Research.
+**Availability:** Partial — free hints on main; the experiment is research.
 
-Compare a regrouped catalog against both the original and a wording-only control. This is a research direction: routing, cross-skill coverage and load cost must be measured together.
+`catalog check` prints free merge and split hints in its `# granularity` section, a shortlist rather than a decision. Comparing a regrouped catalog against both the original and a wording-only control is a research direction: routing, cross-skill coverage and load cost must be measured together.
 
 **Input:** Candidate skill partitions, matched descriptions and held-out single-skill/cross-skill requests for a proposed experiment.
 
@@ -88,5 +88,5 @@ Compare a regrouped catalog against both the original and a wording-only control
 
 **Next step:** Read the linked proposal for progress and the related guide for existing components. This card is not a runnable end-to-end interface.
 
-[Related existing workflow](../skill-novelty-walkthrough.md) · [Back to feature tree](README.md)
+[Usage guide](../external-content.md#1-scan-the-checkout-before-you-spend-anything) · [Back to feature tree](README.md)
 

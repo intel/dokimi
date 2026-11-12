@@ -10,7 +10,7 @@ For contributors adding commands, metrics, sources, harness support or documenta
 1. Read [AGENTS.md](../../../AGENTS.md), [contributing](../../../CONTRIBUTING.md), and the [architecture](../architecture.md) before editing.
 2. Choose the relevant extension guide: [metric](../contributing-metric.md), [document source](../adding-doc-source.md), or [executable task](../contributing-terminal-bench-task.md). Evaluation content generally belongs with its subject, not in the framework.
 3. Read the [user journeys](../user-journeys/README.md) as the product contract and [traceability](../user-journeys/traceability.md) for acceptance evidence. These are design and verification resources, not a mandatory end-user tutorial.
-4. Update the owning guide and feature card when behavior changes. Link new pages in site navigation. Preserve existing public anchors.
+4. Update the owning guide and feature card when behavior changes. Link a new page from the [documentation index](../documentation-index.md) (`tests/test_docs_links.py` checks it) and add it to `nav:` in `mkdocs.yml` (the strict build fails without it). Preserve existing public anchors.
 5. Run required checks from the package directory, including the strict documentation build. Follow repository contribution rules for commits and PRs.
 
 **Done when:** behavior, commands, documentation and acceptance evidence agree, with any validation limitations recorded in the PR.

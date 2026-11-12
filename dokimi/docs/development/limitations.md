@@ -9,7 +9,7 @@ Use this page when interpreting results or choosing a workflow. This is a snapsh
 
 | Area | Limitation or open defect | What to do today | Tracked work |
 |---|---|---|---|
-| Budget and recovery | Novelty analysis can lose partial work at the cap; estimates can understate spend | Start small, inspect per-command persistence, and do not promise a recoverable capped run | [#624](https://github.com/intel/dokimi/issues/624) |
+| Budget and recovery | `skill novelty analyze` and `skill shorten` can lose paid work at the cap; on main, not 0.2.0, `atoms` and `probe` keep it in a `.partial.json` file; estimates can understate spend | Start small, inspect per-command persistence, and do not promise a recoverable capped `analyze` run | [#624](https://github.com/intel/dokimi/issues/624), [#457](https://github.com/intel/dokimi/pull/457) |
 | Guidance delivery | Whole-file read counters omit searches through grep/rg | Inspect traces when delivery matters; do not translate zero reads into “never seen” | [#626](https://github.com/intel/dokimi/issues/626) |
 | Receipt provenance | Saved loading receipts do not fully pin the harness profile | Keep the profile revision with the experiment and qualify replayed expectations | [#350](https://github.com/intel/dokimi/issues/350) |
 | Delegation | Fork-context skills can escape the intended no-delegation condition | Inspect actual skill configuration and traces before claiming single-agent execution | [#148](https://github.com/intel/dokimi/issues/148) |

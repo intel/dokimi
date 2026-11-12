@@ -15,7 +15,7 @@ After [installation](README.md):
 dokimi repo scan /path/to/your/repository
 ```
 
-**Input:** your local repository. **Cost:** no LLM calls. **Result:** findings about paths, commands and identifiers referenced by guidance. Review `fail` and `unresolved` findings against the actual repository, correct stale instructions, and rerun. The scan does not establish that every instruction is semantically true or that the agent follows it.
+**Input:** your local repository. **Cost:** no LLM calls. **Result:** findings about paths, commands and identifiers referenced by guidance. The text output lists only the `fail` claims and counts the `unresolved` ones; add `--json` to list every claim with its file, line and reason. Review `fail` and `unresolved` claims against the actual repository, correct stale instructions, and rerun. The scan does not establish that every instruction is semantically true or that the agent follows it.
 
 A manifest is not required for the initial scan. See [the review workflow](../reviewing.md#a-repositorys-agent-setup) for default guidance discovery and an explicit manifest.
 
@@ -24,16 +24,16 @@ A manifest is not required for the initial scan. See [the review workflow](../re
 Use the [repository reach probe](../repo-evaluation-contract.md#7-reach-probe-guidance_reachv1) and [review workflow](../reviewing.md#a-repositorys-agent-setup) to select a supported harness, model and budget. Begin with a dry run:
 
 ```bash
-dokimi repo reach /path/to/your/repository --model YOUR_MODEL_ID --dry-run
+dokimi repo reach /path/to/your/repository --harness claude-code --model YOUR_MODEL_ID --dry-run
 ```
 
-Replace `YOUR_MODEL_ID` with a model supported by your selected harness. `--dry-run` validates and prints the plan; it calls no harness and produces no loading evidence. After reviewing the plan, credentials and budget, rerun without `--dry-run` to execute the paid probe. The [conformance matrix](../reach-matrix.md) tests fixture scenarios and is background evidence, not a substitute for probing your own repository. Loading depends on harness, file location and task activity; seeing a file in the repository is not evidence of delivery.
+`--harness` takes a built-in profile (`claude-code`, the default, `codex` or `copilot`) or a profile YAML. Replace `YOUR_MODEL_ID` with a model supported by that harness. `--dry-run` validates and prints the plan; it calls no harness and produces no loading evidence. After reviewing the plan, credentials and budget, rerun without `--dry-run` to execute the paid probe. The [conformance matrix](../reach-matrix.md) tests fixture scenarios and is background evidence, not a substitute for probing your own repository. Loading depends on harness, file location and task activity; seeing a file in the repository is not evidence of delivery.
 
 **Result of the executed probe:** loading evidence for the tested scenarios. Fix discovery before judging whether unseen content helps.
 
 ## 3. Measure the effect on real work
 
-Prepare the repository's task manifest, environment, reference solutions and graders using the [repository evaluation contract](../repo-evaluation-contract.md). Validate tasks and controls before paid agent runs. Compare guidance conditions on the same tasks; use the [rule ledger](../rule-ledger.md) to retain reasons for instructions.
+Prepare the repository's task manifest, environment, reference solutions and graders using the [repository evaluation contract](../repo-evaluation-contract.md). Before paid agent runs, check the manifest with `dokimi repo validate /path/to/your/repository`, then run `dokimi eval check /path/to/your/repository` (it needs Docker and an `image` in the manifest) to confirm that each task fails untouched and passes with its reference solution. Compare guidance conditions on the same tasks; use the [rule ledger](../rule-ledger.md) to retain reasons for instructions.
 
 **Result:** task outcomes and comparison evidence. Without tasks, report a static/loading review, not an outcome improvement.
 
