@@ -73,6 +73,12 @@ jobs:
           expect=()
           if [ -n "$TAG" ]; then expect=(--expect-version "${TAG#v}"); fi
           cd "$RUNNER_TEMP" && python "$smoke" "${expect[@]}"
+      # The newest releases the ranges allow, as a user's `pip install dokimi` gets
+      # today: PR and main runs test the lock, so a release that breaks dokimi shows up here.
+      - name: Tests with the newest dependency releases
+        run: |
+          pip install --upgrade -r requirements.txt -r requirements-test.txt
+          pytest -q -n auto
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: dist
