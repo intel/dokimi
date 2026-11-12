@@ -242,7 +242,7 @@ installed alone. A description with no "when" clause (`use when ...`, `when depl
 (`description-no-when`), and so is one that overlaps another skill's by at least
 half and shares three words (`description-near-duplicate`). The `description-no-when` cue is read in English,
 Spanish, French, German, Portuguese, Russian, Chinese, Japanese and Korean, and a description in a script none
-of them covers (Arabic, Thai, Hebrew, …) is not checked. A Latin-script language without a list of its own
+of them covers (Arabic, Thai, Hebrew, …) is not checked: it gets a `note` (`description-when-not-checked`), so not checked does not read as a pass. A Latin-script language without a list of its own
 (Polish, Dutch, Turkish, Vietnamese) is checked against these cues. Two skills in different paths with the same
 directory name and description but different `SKILL.md` text are a `warn` on both
 (`mirror-drift`), naming the other copies. Skills with
@@ -333,7 +333,7 @@ A large catalog is easier to scan one skill at a time:
 - `--ignore CODE` (repeatable) leaves the findings with that code out of the scan:
   they are not printed, and they do not set the state or the `--strict` exit. The
   codes are the `code` of each finding in the JSON output (`name-mismatch`,
-  `description-no-when`, ...); an unknown code is a usage error. `frontmatter-parse`
+  `description-no-when`, `description-when-not-checked`, ...); an unknown code is a usage error. `frontmatter-parse`
   is refused (a skill that does not load always fails), and so is `unreadable` (a
   `SKILL.md` the OS will not read fails the scan too), and `--kind tasks`.
 - `--jsonl PATH` writes one JSON row per skill as it is reviewed and prints only

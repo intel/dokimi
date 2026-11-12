@@ -233,5 +233,36 @@ def test_a_script_no_cue_list_covers_gets_no_warning_end_to_end(tmp_path, descri
     assert "description-no-when" not in [f.code for f in review.findings]
 
 
+@pytest.mark.parametrize(
+    "description",
+    [
+        pytest.param("يساعد في كتابة ملاحظات الإصدار من السجل.", id="arabic"),
+        pytest.param("ช่วยเขียนบันทึกการเผยแพร่จากประวัติ", id="thai"),
+        pytest.param("מסייע בכתיבת הערות שחרור מתוך היסטוריית הקוד.", id="hebrew"),
+    ],
+)
+def test_a_script_no_cue_list_covers_is_reported_as_not_checked(tmp_path, description):
+    # "not checked" must not read as a pass: the review says so with a note, and no warning.
+    skill_dir = tmp_path / "skills" / "release"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        f"---\nname: release\ndescription: {description}\n---\n# Body\n",
+        encoding="utf-8",
+    )
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert [(f.level, f.code) for f in review.findings] == [("note", "description-when-not-checked")]
+
+
+def test_a_cue_found_description_gets_no_not_checked_note(tmp_path):
+    skill_dir = tmp_path / "skills" / "release"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: release\ndescription: 生成发布说明。当用户要求写发布说明时使用。\n---\n# Body\n",
+        encoding="utf-8",
+    )
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert "description-when-not-checked" not in [f.code for f in review.findings]
+
+
 def test_an_english_when_clause_passes_in_a_script_no_cue_list_covers():
     assert when_clause_found("Δημιουργεί αναφορές. Use when needed.") is True

@@ -52,7 +52,7 @@ and neither are code fences: those are usually examples or paths in the user's o
 
 Descriptions: one with no "when" clause is a ``warn`` (``description-no-when``); the cues are
 English, Spanish, French, German, Portuguese, Russian, Chinese, Japanese and Korean (``when_cues.WHEN_CUES``),
-and a description in a script none covers is not checked. One whose tokens overlap another skill's at a
+and a description in a script none covers is not checked: it gets a ``note`` (``description-when-not-checked``). One whose tokens overlap another skill's at a
 Jaccard similarity of at least :data:`NEAR_DUPLICATE_JACCARD` is a ``warn`` too (``description-near-duplicate``). Skills with
 ``disable-model-invocation: true`` are exempt from both, as the model never chooses them.
 
@@ -146,6 +146,7 @@ FINDING_CODES = (
     "description-near-duplicate",
     "description-no-when",
     "description-too-long",
+    "description-when-not-checked",
     "duplicate",
     "frontmatter-parse",
     "frontmatter-unknown-key",
@@ -526,8 +527,18 @@ def _escapes_link(raw: str) -> Finding:
 
 
 def _description_findings(skill: Skill) -> list[Finding]:
-    """A ``warn`` when the description has no "when" clause (a script with no cue list is not checked)."""
-    if when_clause_found(skill.description) is False:
+    """A ``warn`` when the description has no "when" clause. A script with no cue list gets a ``note``
+    instead: the clause is not checked, and that must not read as a pass."""
+    found = when_clause_found(skill.description)
+    if found is None:
+        return [
+            Finding(
+                "note",
+                "description-when-not-checked",
+                "description is in a script with no 'when' cue list, so its 'when' clause is not checked",
+            )
+        ]
+    if found is False:
         return [
             Finding(
                 "warn",
