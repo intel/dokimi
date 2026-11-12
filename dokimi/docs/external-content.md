@@ -130,8 +130,8 @@ labelled deprecated is not listed. Some listed IDs are short names (`o1`, `o3-mi
 `gpt-4`, `dall-e-2`) that can also appear in prose about a model; a finding there is a
 prompt to reword it; a code span does not silence the warning, and there is no suppression yet. A few rows
 name no replacement (`sora-2`, `gpt-5.4-cyber`), and the finding then points at the vendor page.
-The list includes Imagen and Veo IDs, so it reaches past the text models. Warnings do not fail
-`--strict`, which gates on `error` rows only.
+The list includes Imagen and Veo IDs, so it reaches past the text models. This warning does not
+fail `--strict`. Of the warnings, only the unrestricted-Bash pair does (`allowed-tools-unrestricted-bash` below).
 
 ## The layout the readers expect
 
@@ -238,7 +238,10 @@ file exists from the catalog root instead. Example links such as `[Title](URL)`
 are common, so `--strict` does not fail on them. A link, or a `../` code span,
 that reaches a file outside the skill directory is a `warn`
 (`link-escapes-skill`, `path-escapes-skill`), since it breaks when the skill is
-installed alone. A description with no "when" clause (`use when ...`, `when deploying ...`) is a `warn`
+installed alone. An `allowed-tools` that grants `Bash` for every command (`Bash`
+with no pattern, or `Bash(*)`) is a `warn` (`allowed-tools-unrestricted-bash`);
+its message names a `pipe-to-shell` or `permission-bypass-flag` hit in the same
+skill, since those commands then run with no prompt, and that pair fails `--strict`. A description with no "when" clause (`use when ...`, `when deploying ...`) is a `warn`
 (`description-no-when`), and so is one that overlaps another skill's by at least
 half and shares three words (`description-near-duplicate`). Two skills in different paths with the same
 directory name and description but different `SKILL.md` text are a `warn` on both
