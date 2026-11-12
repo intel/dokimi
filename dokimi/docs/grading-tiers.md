@@ -276,7 +276,8 @@ flags are not checked; a comma ends them. Without a comma the scan cannot tell p
 
 **Known limit:** a negation word earlier in the clause skips the command after it, so
 `No TUI needed: perf report --stdin` passes the veto. A `:` does not end the clause either, because
-`There is no such option: perf report --stdin` is a correct denial and must pass.
+`There is no such option: perf report --stdin` is a correct denial and must pass. `To print without the TUI use perf report --stdin` passes too: a known
+false pass, and a narrow rule for `without`, `no` and `if you can't` forms is tracked in #669.
 
 ### What the prototype supports
 
