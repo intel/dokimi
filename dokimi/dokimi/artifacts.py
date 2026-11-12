@@ -214,6 +214,9 @@ def schema_errors(schema: str | Path, instance: Any) -> list[str]:
 def validate_artifact(kind: str, data: dict) -> None:
     """Validate ``data`` against the schema for ``kind`` (raises on failure)."""
     errors = schema_errors(_schema_path(kind, schema_version_for(kind, data)), data)
+    if kind == "novelty" and "status" not in data:  # only a partial record lacks these
+        errors += [f"<root>: {name!r} is a required property"
+                   for name in ("paired", "k0", "spans") if name not in data]
     if errors:
         details = "\n".join(f"  - {e}" for e in errors)
         raise ArtifactValidationError(f"{kind} artifact validation failed:\n{details}")
@@ -314,6 +317,13 @@ def load_artifact(kind: str, path: Path | str, *, validate: bool = True) -> dict
     data = read_json_input(path)
     if not isinstance(data, dict):
         raise InputError(f"{path} is not a {kind} artifact: expected a JSON object, got {type(data).__name__}")
+    if kind == "novelty" and "partial" in data:
+        # What `skill novelty analyze` keeps when --max-usd stops it: not a finished analysis.
+        reason = (data["partial"] or {}).get("reason") if isinstance(data["partial"], dict) else None
+        raise InputError(f"{path} is a partial novelty artifact: the run was stopped before it "
+                         "finished, so it is not a finished analysis. " + (
+                             "Drop --max-usd to run unmetered" if reason == "no_price" else
+                             "Rerun with a higher --max-usd, or without the cap"))
     if validate:
         try:
             validate_artifact(kind, data)

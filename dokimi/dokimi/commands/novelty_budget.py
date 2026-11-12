@@ -3,9 +3,9 @@
 
 """What a run that ``--max-usd`` stops leaves behind, and what a run is expected to cost.
 
-A stopped atoms or probe run is kept as ``<out stem>.partial.json``, beside the file it would
-have written: a partial result never replaces a finished one, and the readers that take an
-atoms file refuse a partial one.
+A stopped atoms, probe or analyze run is kept as ``<out stem>.partial.json``, beside the file it
+would have written: a partial result never replaces a finished one, and the readers that take an
+atoms file, a probe file or a ``novelty.json`` refuse a partial one.
 """
 
 from __future__ import annotations
@@ -42,9 +42,38 @@ def partial_write(out: Path, write: Callable[[Path], object]) -> Path:
     raise RuntimeError("unreachable: the sidecar names never run out")
 
 
-def exit_partial(summary: str, path: Path) -> NoReturn:
+def exit_partial(summary: str, path: Path, note: str = "") -> NoReturn:
     """Stop with a message that names the partial file, as a run the cap stopped must."""
-    raise SystemExit(f"{summary}; the partial result is in {path}")
+    raise SystemExit(f"{summary}; the partial result is in {path}{note}")
+
+
+def replay_hint() -> str:
+    """How a rerun gets the calls this run paid for back at $0: the response cache, which must
+    have been set on the run that paid (every novelty call goes through it)."""
+    from dokimi.caching import RESPONSE_CACHE_ENV, response_cache_dir
+
+    try:
+        active = response_cache_dir() is not None
+    except ValueError:  # the variable names a file: no call was cached
+        active = False
+    if active:
+        return (f". Rerun with a higher --max-usd and the same {RESPONSE_CACHE_ENV}: the calls "
+                "already paid for replay at $0 (a cut-off or unusable reply is asked again)")
+    return (f". {RESPONSE_CACHE_ENV} was not set on this run, so a rerun pays for these calls "
+            "again; set it to a directory before the next run to replay them at $0")
+
+
+def save_analyze_partial(result, out: Path) -> NoReturn:
+    """Keep what a stopped ``analyze`` paid for beside ``out`` and exit, naming the file.
+
+    ``result`` is a :class:`~dokimi.novelty.analyze.AnalyzeResult` with ``partial`` set. The
+    record goes to the sidecar rules of ``atoms`` and ``probe`` (never over a finished
+    ``novelty.json``).
+    """
+    partial = result.partial
+    cause = partial.get("cause")
+    summary = f"{partial['message']} ({cause})" if cause else partial["message"]
+    exit_partial(summary, write_run(result.artifact, out, partial), replay_hint())
 
 
 def write_run(payload: dict, out: Path, partial: dict | None = None) -> Path:

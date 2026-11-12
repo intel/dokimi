@@ -9,11 +9,9 @@
     "artifact",
     "model",
     "judge_model",
-    "atoms",
-    "paired",
-    "k0",
-    "spans"
+    "atoms"
   ],
+  "$comment": "paired, k0 and spans are required of every record without `status` (a finished run); dokimi.artifacts.validate_artifact enforces it, since a schema keyword for it would narrow this version in place.",
   "properties": {
     "schema_version": {
       "const": "novelty.v1"
@@ -515,6 +513,40 @@
     "judge2": {
       "type": "object",
       "description": "With --judge2: a seeded --judge2-frac subset of the graded runs regraded by a second judge; lenient_agreement, kappa_lenient, exact_agreement over n_compared, and that judge's cost."
+    },
+    "status": {
+      "const": "partial",
+      "description": "Present only on a partial record: `skill novelty analyze` stopped by --max-usd (or a call with no known price) keeps what it paid for in <out stem>.partial.json. Every reader of a finished novelty.json refuses it."
+    },
+    "partial": {
+      "type": "object",
+      "required": ["reason", "stage", "message"],
+      "description": "Why and where the run stopped. reason: spend_cap or no_price. stage: extraction, verify, need_graph, probes, measurement, classify or attribution. extraction adds spans_read and spans_total, measurement calls_done and calls_planned (probe answers, those not graded counted as not done), spend_cap a cause (what was spent). A partial record holds no paired, arms or view summaries: the cut leaves the arms uneven.",
+      "properties": {
+        "reason": {"enum": ["spend_cap", "no_price"]},
+        "stage": {"enum": ["extraction", "verify", "need_graph", "probes", "measurement", "classify", "attribution"]},
+        "message": {"type": "string"},
+        "cause": {"type": "string"},
+        "spans_read": {"type": "integer", "minimum": 0},
+        "spans_total": {"type": "integer", "minimum": 0},
+        "calls_done": {"type": "integer", "minimum": 0},
+        "calls_planned": {"type": "integer", "minimum": 0}
+      }
+    },
+    "extracted_atoms": {
+      "type": "array",
+      "items": {"type": "object"},
+      "description": "Partial record only: every atom extracted before the stop, as `skill novelty atoms` writes them."
+    },
+    "source_spans": {
+      "type": "array",
+      "items": {"type": "object"},
+      "description": "Partial record only: the artifact's spans, which extracted_atoms cite; the ones extraction did not read are named in extraction.unread_span_ids."
+    },
+    "runs": {
+      "type": "array",
+      "items": {"type": "object"},
+      "description": "Partial record only: the probe answers and judgments made before the stop, as `skill novelty probe` writes them."
     }
   },
   "$defs": {
