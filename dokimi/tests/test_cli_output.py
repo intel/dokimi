@@ -485,3 +485,10 @@ def test_a_payload_that_will_not_serialize_leaves_the_fallback_document_to_print
         cli_output.emit(cli_output.envelope("repo budget", data={"items": {1, 2}}))
     assert cli_output.printed() is False
     assert capsys.readouterr().out == ""
+
+
+def test_a_failed_scan_with_no_incomplete_reason_still_says_what_failed():
+    from dokimi.commands.repo import _scan_reason
+
+    assert _scan_reason({"incomplete": True, "incomplete_reasons": [], "counts": {"fail": 0}}, []) == "scan incomplete"
+    assert _scan_reason({"incomplete": False, "incomplete_reasons": [], "counts": {"fail": 2}}, []) == "2 claim(s) failed"

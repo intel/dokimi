@@ -180,7 +180,8 @@ def _scan_reason(payload: dict, static_errors: list) -> str:
     if static_errors:
         return f"{len(static_errors)} --static problem(s) not merged"
     if payload["incomplete"]:
-        return "scan incomplete: " + "; ".join(payload["incomplete_reasons"])
+        reasons = "; ".join(payload.get("incomplete_reasons") or [])
+        return f"scan incomplete: {reasons}" if reasons else "scan incomplete"
     return f"{payload['counts']['fail']} claim(s) failed"
 
 
