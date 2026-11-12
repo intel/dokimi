@@ -203,9 +203,7 @@ def test_prompt_version_changes_with_the_prompt():
     assert _prompt_version("a", "bc") != _prompt_version("ab", "c")
 
 
-def test_no_hard_links_falls_back_to_an_exclusive_create(tmp_path, monkeypatch, capsys):
-    import os
-
+def test_no_hard_links_refuses_and_never_creates_out(tmp_path, monkeypatch, capsys):
     _stub(monkeypatch, REPLY)
 
     def no_links(src, dst):
@@ -216,8 +214,8 @@ def test_no_hard_links_falls_back_to_an_exclusive_create(tmp_path, monkeypatch, 
 
     result = _run(capsys, str(_skill(tmp_path)), "--out", str(out), "--extract-model", "gemini/x")
 
-    assert result.returncode == 0, result.stderr
-    assert load_artifact("need_graph", out)["provenance"]["model"] == "google-vertex/x"
+    assert result.returncode == 2 and "no hard links" in result.stderr
+    assert not out.exists()
     assert [p.name for p in tmp_path.iterdir() if p.name.startswith(".eval-graph-")] == []
 
 
@@ -237,35 +235,7 @@ def test_a_failed_write_exits_2_and_leaves_no_staged_file(tmp_path, monkeypatch,
     assert not (tmp_path / "g.json").exists()
 
 
-def test_a_partial_fallback_write_leaves_no_frozen_file(tmp_path, monkeypatch, capsys):
-    _stub(monkeypatch, REPLY)
-    monkeypatch.setattr(os, "link", lambda src, dst: (_ for _ in ()).throw(PermissionError(1, "EPERM")))
-    real_fdopen = os.fdopen
-
-    class Full:
-        def __init__(self, fd):
-            self.inner = real_fdopen(fd, "wb")
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, *exc):
-            self.inner.close()
-
-        def write(self, data):
-            self.inner.write(data[:100])
-            raise OSError(28, "No space left on device")
-
-    monkeypatch.setattr(os, "fdopen", lambda fd, mode: Full(fd))
-    out = tmp_path / "g.json"
-
-    result = _run(capsys, str(_skill(tmp_path)), "--out", str(out))
-
-    assert result.returncode == 2 and "No space" in result.stderr
-    assert not out.exists()
-
-
-def test_a_file_written_during_the_call_survives_the_no_hard_links_fallback(tmp_path, monkeypatch, capsys):
+def test_a_file_written_during_the_call_survives_a_filesystem_without_hard_links(tmp_path, monkeypatch, capsys):
     out = tmp_path / "g.json"
 
     def racer(self, prompt, system, *, accept=None, draw=0):
@@ -277,7 +247,7 @@ def test_a_file_written_during_the_call_survives_the_no_hard_links_fallback(tmp_
 
     result = _run(capsys, str(_skill(tmp_path)), "--out", str(out))
 
-    assert result.returncode == 2 and "frozen" in result.stderr
+    assert result.returncode == 2 and "no hard links" in result.stderr
     assert out.read_text(encoding="utf-8") == "other run"
 
 

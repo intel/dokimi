@@ -31,7 +31,9 @@ def _publish(graph: dict, out: Path) -> None:
 
     ``os.link`` fails when ``out`` exists, so a file that appeared during the model call
     (another run, an editor) is refused rather than replaced. A filesystem with no hard
-    links (vfat, some SMB and FUSE mounts) gets an ``O_EXCL`` create of the same bytes.
+    links (vfat, some SMB and FUSE mounts) is refused with exit 2 and ``out`` is never
+    created there: a create-then-write could be killed half-way, and the truncated file
+    would be frozen, so every later run refused it.
 
     The staging happens in a directory made fresh for this write, so its name cannot be
     guessed and planted: a symlink at a predictable staging name would send the write to
@@ -49,15 +51,11 @@ def _publish(graph: dict, out: Path) -> None:
             os.link(staged, out)
         except FileExistsError:
             raise
-        except OSError:
-            payload = staged.read_bytes()
-            fd = os.open(out, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
-            try:
-                with os.fdopen(fd, "wb") as handle:
-                    handle.write(payload)
-            except BaseException:  # a half-written file would be frozen and unreadable
-                out.unlink(missing_ok=True)
-                raise
+        except OSError as exc:
+            raise InputError(
+                f"cannot write {out}: no hard links on this filesystem, so the graph is not "
+                f"published there ({exc.strerror or exc}); write it to a filesystem with hard links"
+            ) from exc
     except ArtifactValidationError:
         keep_stage = True
         raise
