@@ -492,3 +492,8 @@ def test_a_failed_scan_with_no_incomplete_reason_still_says_what_failed():
 
     assert _scan_reason({"incomplete": True, "incomplete_reasons": [], "counts": {"fail": 0}}, []) == "scan incomplete"
     assert _scan_reason({"incomplete": False, "incomplete_reasons": [], "counts": {"fail": 2}}, []) == "2 claim(s) failed"
+    # every cause the gate tripped on is in the reason, not only the first
+    assert _scan_reason({"incomplete": True, "incomplete_reasons": ["x"], "counts": {"fail": 2}}, []) == \
+        "2 claim(s) failed; scan incomplete: x"
+    assert _scan_reason({"incomplete": False, "incomplete_reasons": [], "counts": {"fail": 0}}, ["bad"]) == \
+        "1 --static problem(s) not merged"

@@ -176,13 +176,17 @@ def cmd_repo_scan(args: argparse.Namespace) -> None:
 
 
 def _scan_reason(payload: dict, static_errors: list) -> str:
-    """Why a --json scan failed: the --static problems, else the incomplete scan, else the failed claims."""
+    """Why a --json scan failed: every cause the gate tripped on, the --static problems, the failed claims and the
+    incomplete scan, joined by ``; `` (a scan can fail on more than one)."""
+    parts = []
     if static_errors:
-        return f"{len(static_errors)} --static problem(s) not merged"
+        parts.append(f"{len(static_errors)} --static problem(s) not merged")
+    if payload["counts"]["fail"]:
+        parts.append(f"{payload['counts']['fail']} claim(s) failed")
     if payload["incomplete"]:
         reasons = "; ".join(payload.get("incomplete_reasons") or [])
-        return f"scan incomplete: {reasons}" if reasons else "scan incomplete"
-    return f"{payload['counts']['fail']} claim(s) failed"
+        parts.append(f"scan incomplete: {reasons}" if reasons else "scan incomplete")
+    return "; ".join(parts)
 
 
 def _scan_gate(payload: dict, fail_on_fail: bool) -> None:
