@@ -102,6 +102,9 @@ class ArmsRunConfig:
             object.__setattr__(self, "judge_model", model)
             if provider is None:
                 object.__setattr__(self, "judge_provider", picked)
+        elif self.judge and self.judge_provider is JUDGE_PROVIDER_DEFAULT and cli_backend(self.provider):
+            # An explicit judge model with the provider left out judges on a CLI answerer's CLI, as the left-out one does.
+            object.__setattr__(self, "judge_provider", self.provider)
 
 
 def refuse_deferred_self_judge(config: ArmsRunConfig) -> None:

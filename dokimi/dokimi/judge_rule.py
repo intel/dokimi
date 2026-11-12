@@ -105,3 +105,16 @@ def apply_default_judge(args, *, matrix: bool, named: bool) -> None:
     args.judge_model = judge_model
     if follow_answerer:
         args.judge_provider = picked
+
+
+def follow_answerer_cli(args, *, matrix: bool, named: bool) -> None:
+    """An explicit ``--judge-model`` with ``--judge-provider`` left out judges on a CLI answerer's CLI.
+
+    The left-out judge model already does (:func:`apply_default_judge`); an alias given by name, such as ``haiku``,
+    must not reach the Anthropic API, where it is not a model id. A run that does not judge is left alone.
+    """
+    answerer_provider = None if matrix else getattr(args, "provider", None)
+    if (named or not getattr(args, "judge", True) or getattr(args, "judge_model", None) is None
+            or answerer_provider is None or llm_cli.backend(answerer_provider) is None):
+        return
+    args.judge_provider = answerer_provider

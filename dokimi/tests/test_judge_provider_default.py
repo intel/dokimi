@@ -255,3 +255,19 @@ def test_a_library_refused_default_self_judge_stops_before_the_probe_or_the_libr
     with pytest.raises(JudgeIsAnswerer):
         arms_run.prepare_arms(config, ["baseline"], [])
     assert calls == []
+
+
+def test_an_explicit_alias_judge_model_on_a_claude_cli_answerer_judges_on_its_cli():
+    # the left-out judge model follows the CLI answerer onto claude-cli; an explicit alias must too, or the run
+    # sends `haiku` to the Anthropic API and fails at the first judge call, after the answers are paid for
+    args = parse_args([*COMMANDS["arms run"], "--provider", "claude-cli", "--model", "sonnet", "--judge",
+                       "--judge-model", "haiku"])
+    assert (args.judge_provider, args.judge_model) == ("claude-cli", "haiku")
+    config = ArmsRunConfig(product="demo", model="sonnet", provider="claude-cli", judge=True, judge_model="haiku")
+    assert (config.judge_provider, config.judge_model) == ("claude-cli", "haiku")
+
+
+def test_a_named_judge_provider_is_kept_for_an_explicit_judge_model_on_a_claude_cli_answerer():
+    args = parse_args([*COMMANDS["arms run"], "--provider", "claude-cli", "--model", "sonnet", "--judge",
+                       "--judge-model", "haiku", "--judge-provider", "anthropic"])
+    assert (args.judge_provider, args.judge_model) == ("anthropic", "haiku")

@@ -41,7 +41,7 @@ from dokimi.commands import (
 from dokimi import __version__, cli_routes, llm_cli, process
 from dokimi.console import tolerate_console_encoding
 from dokimi.defaults import JUDGE_MODEL_FOR_PROVIDER
-from dokimi.judge_rule import apply_default_judge
+from dokimi.judge_rule import apply_default_judge, follow_answerer_cli
 
 
 def _subparsers(parser: argparse.ArgumentParser) -> argparse._SubParsersAction | None:
@@ -182,6 +182,9 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             apply_default_judge(args, matrix=bool(matrix), named=args.judge_provider_named)
         except ValueError as e:
             parser.error(str(e))
+    # An explicit --judge-model on a CLI answerer judges on its CLI too, unless --judge-provider names one.
+    follow_answerer_cli(args, matrix=bool(getattr(args, "matrix_cells", None) or getattr(args, "matrix_cell", None)),
+                        named=args.judge_provider_named)
     cur_judge_provider, cur_judge_model = getattr(args, "judge_provider", None), getattr(args, "judge_model", None)
     if cur_judge_provider in llm_cli.BACKENDS and cur_judge_model is not None \
             and not llm_cli.accepts_model(cur_judge_provider, cur_judge_model):
