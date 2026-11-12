@@ -63,6 +63,7 @@ from dokimi.measure import as_float, is_number
 from dokimi.utils import same_model
 
 from .grading import SCORE_BOUND, read_grade_json
+from .batch_ledger import recorded_execution
 from .process_counts import process_line, process_means
 from .runner import UNSUPPORTED_FILE, slug
 from .useful import useful_line, useful_summary
@@ -193,9 +194,22 @@ def load_cells(batch_dir: Path) -> tuple[list[dict[str, Any]], list[str]]:
         with reading_cells([str(path)]):
             rec["score_task"] = bool(rec["score_task"] if "score_task" in rec else rec["grade"]["score_only"])
         finished.append(rec)
+    _refuse_mixed_executions(batch_dir, finished)
     done = {r["cell"] for r in finished}
     unsupported = {p.parent.name for p in batch_dir.glob(f"*/{UNSUPPORTED_FILE}")}
     return finished, sorted((planned | started) - done - unsupported)
+
+
+def _refuse_mixed_executions(batch_dir: Path, finished: list[dict[str, Any]]) -> None:
+    """One (arm, model) of a batch ran with one execution: a --force run that stopped part way leaves two."""
+    seen: dict[tuple[str, str], set[str]] = defaultdict(set)
+    for rec in finished:
+        ran = recorded_execution(rec).get("id")
+        seen[(rec["arm"], rec["model"])].add(ran if isinstance(ran, str) else "unrecorded")
+    for (arm, model), ids in sorted(seen.items()):
+        if len(ids) > 1:
+            raise CellFileError(f"{batch_dir}: the cells of arm {arm}, model {model} ran with executions "
+                                f"{', '.join(sorted(ids))}; rerun the batch with --force to finish it, or use another --batch")
 
 
 def load_unsupported(batch_dir: Path) -> list[dict[str, Any]]:

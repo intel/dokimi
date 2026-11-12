@@ -2303,7 +2303,13 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   still run; the file is left in place, and removing it or `--force` runs the
   cell again. The same holds for a finished cell of a task this host cannot
   run, except that `--force` keeps it: once its file is removed, the cell runs
-  on a host that meets the task's requirements. A batch stays on the eval tree it
+  on a host that meets the task's requirements. A `--force` run that stops part
+  way (Ctrl-C, a crash, a failed cell) can leave finished cells of two `id`s in
+  one arm and model; `repo report` and `repo compare` refuse such a batch, naming
+  both `id`s, until a `--force` run finishes it. A plan naming one cell twice (a
+  repeated `--task` or `--model`, or two `--model` strings with one directory
+  name, `a/b` and `a:b`) is refused before any agent starts. Ctrl-C lets the
+  running cells finish and starts no queued one. A batch stays on the eval tree it
   started with: its revision, or for a working tree the digests of its `eval_dir`
   and of the image build context. A batch with a task that
   names a `dokimi:` grader (or a task directory that cannot be read) also stays on the built-in graders' sources.

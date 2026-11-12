@@ -40,6 +40,7 @@ import subprocess
 import sys
 import threading
 import uuid
+from collections import Counter
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -372,6 +373,7 @@ def run_batch(ctx: EvalContext, tasks: list[Task], arms: list[str], options: lis
     that cell's error."""
     validate_tasks(tasks)
     cells = [(t, a, o, r) for t in tasks for a in arms for o in options for r in range(1, reps + 1)]
+    _refuse_shared_cells(cells)
     check_batch_executions(batch_dir, options, {cell_name(t.id, a, o.model, r) for t, a, o, r in cells} if force else None)
     host = probe_host(ctx, batch_dir / "_eval")
     _write_json(batch_dir / "_eval" / "host.json", host)
@@ -434,6 +436,15 @@ def run_batch(ctx: EvalContext, tasks: list[Task], arms: list[str], options: lis
             "errors": state["errors"], "budget_stopped": state["budget_stopped"],
             "unsupported": state["unsupported"], "unsupported_tasks": unsupported, "probe_failed": probe_failed,
             "spent_usd": round(state["spent"], 6)}
+
+
+def _refuse_shared_cells(cells: list[tuple[Task, str, AgentOptions, int]]) -> None:
+    """Refuse a plan naming one cell directory twice: with --jobs 2 both would run in it and mix their files."""
+    names = Counter(cell_name(t.id, a, o.model, r) for t, a, o, r in cells)
+    shared = sorted(name for name, n in names.items() if n > 1)
+    if shared:
+        raise ValueError(f"cell {shared[0]} is planned {names[shared[0]]} times (a repeated --task or --model, or "
+                         "two --model strings with one name on disk); give each once")
 
 
 UNSUPPORTED_FILE = "unsupported.json"
