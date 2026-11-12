@@ -7,9 +7,10 @@ SPDX-License-Identifier: Apache-2.0
 
 [Feature tree](README.md) · [Detailed guide](../skill-novelty.md)
 
-Each card describes one capability. Images use fictional tasks and simplified document excerpts; they are explanations, not captured product screens, runnable configurations or benchmark evidence. Availability applies to the working path described below, not everything depicted in a shared scene.
+Each card describes one capability. Images use fictional tasks and simplified document excerpts; they are explanations, not captured product screens, runnable configurations or benchmark evidence. Each image shows its own card; Open PR and Research images carry a badge saying so.
 
 <a id="07-what-did-the-skill-teach"></a>
+<a id="08-find-the-useful-passages"></a>
 
 ## What did the skill teach?
 
@@ -17,37 +18,17 @@ Each card describes one capability. Images use fictional tasks and simplified do
 
 **Availability:** Available on main.
 
-Extract knowledge atoms, probe with and without the skill, and inspect added, redundant, degraded and still-missing outcomes per model. Confirm useful knowledge on real tasks.
+Extract knowledge atoms, probe with and without the skill, and inspect added, redundant, degraded and still-missing outcomes per model. The annotated source view traces those outcomes back to the passages they came from; treat it as a diagnostic lead, not a causal effect for each sentence, and confirm useful knowledge on real tasks.
 
-**Input:** A skill/document artifact, extracted knowledge probes and the configured answerer and judge.
+**Input:** A skill/document artifact, extracted knowledge probes, the configured answerer and judge, and the analysed source revision.
 
-**Scope and limits:** Atoms and paired probes; knowledge gain is not task-level benefit.
+**Scope and limits:** Atoms, paired probes, span attribution and annotated HTML; knowledge gain is not task-level benefit or per-sentence causal value.
 
-**Result:** Added, redundant, degraded and still-missing probe outcomes.
-
-**Next step:** Use the linked workflow to configure this check, then [interpret the result](../start/results.md).
-
-[Usage guide](../skill-novelty.md) · [Implementation](../../dokimi/novelty/atoms.py) · [Back to feature tree](README.md)
-
-<a id="08-find-the-useful-passages"></a>
-
-## Find the useful passages
-
-![Find the useful passages: Trace probe outcomes back to source spans.](../assets/features/08-find-the-useful-passages.webp)
-
-**Availability:** Available on main.
-
-Use the annotated source view to locate the passages associated with probe outcomes. Treat the annotation as a diagnostic lead, not a causal effect for each sentence.
-
-**Input:** A novelty result and the source revision/spans that were analysed.
-
-**Scope and limits:** Span attribution and annotated HTML; not causal value per sentence.
-
-**Result:** Source annotations identifying passages to investigate.
+**Result:** Added, redundant, degraded and still-missing probe outcomes, and source annotations identifying passages to investigate.
 
 **Next step:** Use the linked workflow to configure this check, then [interpret the result](../start/results.md).
 
-[Usage guide](../skill-novelty.md) · [Implementation](../../dokimi/commands/novelty_run.py) · [Back to feature tree](README.md)
+[Usage guide](../skill-novelty.md) · [Implementation](../../dokimi/novelty/atoms.py) · [Annotated view](../../dokimi/commands/novelty_run.py) · [Back to feature tree](README.md)
 
 <a id="09-read-the-whole-bundle"></a>
 
@@ -110,20 +91,21 @@ Scan a catalog with per-skill results, worker jobs and resumption. Use ignore ru
 [Usage guide](../external-content.md) · [Implementation](../../dokimi/commands/catalog_scan.py) · [Back to feature tree](README.md)
 
 <a id="12-check-skill-structure"></a>
+<a id="45-find-bundle-packaging-gaps"></a>
 
-## Check skill structure
+## Check skill structure and packaging
 
 ![Check skill structure: Turn ambiguous skill packaging into findings.](../assets/features/12-check-skill-structure.webp)
 
 **Availability:** Partial — implemented core with proposed extensions.
 
-Run the existing skill/catalog validation before paid evaluation. Structural warnings help locate packaging problems; proposed extra checks are described in the linked PRs.
+Run the existing skill/catalog validation before paid evaluation; structural warnings help locate packaging problems. Proposed extensions add packaging findings such as missing bundle paths, unreferenced files and missing frontmatter. Confirm an unreferenced file is not intentional before removing it.
 
 **Input:** Skill metadata, descriptions, paths and bundle structure in the catalog being checked.
 
-**Scope and limits:** main checks; PRs [#454](https://github.com/intel/dokimi/pull/454), [#556](https://github.com/intel/dokimi/pull/556), [#557](https://github.com/intel/dokimi/pull/557), [#558](https://github.com/intel/dokimi/pull/558), [#559](https://github.com/intel/dokimi/pull/559) extend them.
+**Scope and limits:** Checks on main; PRs [#454](https://github.com/intel/dokimi/pull/454), [#556](https://github.com/intel/dokimi/pull/556), [#558](https://github.com/intel/dokimi/pull/558), [#559](https://github.com/intel/dokimi/pull/559) add packaging findings, and [#557](https://github.com/intel/dokimi/pull/557) an unrestricted-Bash warning. These are not on main.
 
-**Result:** Structural findings from existing checks; proposed extensions are separate.
+**Result:** Structural findings from existing checks; proposed packaging findings remain separate until merged.
 
 **Next step:** Use the linked workflow to configure this check, then [interpret the result](../start/results.md).
 
@@ -164,26 +146,6 @@ The proposed opt-in network checks distinguish confirmed missing packages/links 
 **Scope and limits:** PR [#459](https://github.com/intel/dokimi/pull/459); opt-in, warning-only checks; network errors are not absence.
 
 **Result:** Proposed reference checks; no shipped end-to-end path is promised here.
-
-**Next step:** Read the linked proposal for progress and the related guide for existing components. This card is not a runnable end-to-end interface.
-
-[Related existing workflow](../external-content.md) · [Back to feature tree](README.md)
-
-<a id="45-find-bundle-packaging-gaps"></a>
-
-## Find bundle packaging gaps
-
-![Find bundle packaging gaps: Make broken or undiscoverable bundle content visible.](../assets/features/45-find-bundle-packaging-gaps.webp)
-
-**Availability:** Open PR.
-
-The proposed packaging findings identify missing bundle paths, unreferenced files and missing frontmatter. Confirm whether an unreferenced file is intentionally present before removing it.
-
-**Input:** SKILL.md, its named resources and the bundle's files/paths for the proposed packaging heuristics.
-
-**Scope and limits:** PRs [#556](https://github.com/intel/dokimi/pull/556), [#558](https://github.com/intel/dokimi/pull/558), [#559](https://github.com/intel/dokimi/pull/559); unrestricted Bash warning separately in [#557](https://github.com/intel/dokimi/pull/557).
-
-**Result:** Proposed packaging findings; consult the linked development work.
 
 **Next step:** Read the linked proposal for progress and the related guide for existing components. This card is not a runnable end-to-end interface.
 

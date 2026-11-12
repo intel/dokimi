@@ -7,27 +7,28 @@ SPDX-License-Identifier: Apache-2.0
 
 [Feature tree](README.md) · [Detailed guide](../context-window.md)
 
-Each card describes one capability. Images use fictional tasks and simplified document excerpts; they are explanations, not captured product screens, runnable configurations or benchmark evidence. Availability applies to the working path described below, not everything depicted in a shared scene.
+Each card describes one capability. Images use fictional tasks and simplified document excerpts; they are explanations, not captured product screens, runnable configurations or benchmark evidence. Each image shows its own card; Open PR and Research images carry a badge saying so.
 
 <a id="35-inspect-the-context-window"></a>
+<a id="17-budget-the-context"></a>
 
-## Inspect the context window
+## Budget and inspect the context
 
 ![Inspect the context window: See how the session context evolves.](../assets/features/35-inspect-the-context-window.webp)
 
 **Availability:** Available on main.
 
-Inspect supported Claude Code traces for startup load, growth, compaction and tool-result weight. A repository budget predicts loading volume; the trace describes one actual session.
+Before a paid run, budget startup, lazy and on-demand guidance volume for the repository; the budget counts characters, not tokens. After a run, inspect supported Claude Code traces for startup load, growth, compaction and tool-result weight. The budget predicts loading volume; the trace describes one actual session.
 
-**Input:** Supported Claude Code session traces containing context and compaction observations.
+**Input:** A repository/context configuration for the budget; supported Claude Code session traces for inspection.
 
-**Scope and limits:** Context inspection; compaction is a trace observation.
+**Scope and limits:** The repository budget is in characters, not a token invoice; compaction is a trace observation.
 
 **Result:** Context growth, loading and compaction evidence available in the trace.
 
 **Next step:** Use the linked workflow to configure this check, then [interpret the result](../start/results.md).
 
-[Usage guide](../context-window.md) · [Implementation](../../dokimi/commands/context.py) · [Back to feature tree](README.md)
+[Usage guide](../context-window.md) · [Budget guide](../repo-evaluation-contract.md) · [Implementation](../../dokimi/commands/context.py) · [Back to feature tree](README.md)
 
 <a id="36-compare-execution-paths"></a>
 

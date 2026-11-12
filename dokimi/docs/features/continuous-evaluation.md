@@ -7,7 +7,7 @@ SPDX-License-Identifier: Apache-2.0
 
 [Feature tree](README.md) · [Detailed guide](../runs.md)
 
-Each card describes one capability. Images use fictional tasks and simplified document excerpts; they are explanations, not captured product screens, runnable configurations or benchmark evidence. Availability applies to the working path described below, not everything depicted in a shared scene.
+Each card describes one capability. Images use fictional tasks and simplified document excerpts; they are explanations, not captured product screens, runnable configurations or benchmark evidence. Each image shows its own card; Open PR and Research images carry a badge saying so.
 
 <a id="39-keep-results-usable"></a>
 

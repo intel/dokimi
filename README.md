@@ -30,7 +30,7 @@ Read the measured delta, uncertainty and task-level evidence together; one passi
 | What did the agent do? | [Context use, execution paths and process contracts](dokimi/docs/features/traces.md) |
 | Will it keep working? | [Reports, baselines, CI and development directions](dokimi/docs/features/continuous-evaluation.md) |
 
-**[Full feature tree: 48 individual cards](dokimi/docs/features/README.md)** · **[Documentation](https://intel.github.io/dokimi/)**
+**[Full feature tree: 41 individual cards](dokimi/docs/features/README.md)** · **[Documentation](https://intel.github.io/dokimi/)**
 
 Each card states what works today and where it stops. Open PRs, partial workflows and research directions are included, with links, so they are discoverable without being advertised as released functionality.
 

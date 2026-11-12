@@ -7,7 +7,7 @@ SPDX-License-Identifier: Apache-2.0
 
 [Feature tree](README.md) · [Detailed guide](../evaluating-treatments.md)
 
-Each card describes one capability. Images use fictional tasks and simplified document excerpts; they are explanations, not captured product screens, runnable configurations or benchmark evidence. Availability applies to the working path described below, not everything depicted in a shared scene.
+Each card describes one capability. Images use fictional tasks and simplified document excerpts; they are explanations, not captured product screens, runnable configurations or benchmark evidence. Each image shows its own card; Open PR and Research images carry a badge saying so.
 
 <a id="01-does-the-context-help"></a>
 
@@ -30,46 +30,28 @@ Run the same tasks, model and grader with and without one context change. Inspec
 [Usage guide](../evaluating-treatments.md) · [Implementation](../../dokimi/commands/arms.py) · [Back to feature tree](README.md)
 
 <a id="02-bring-your-agent-context"></a>
+<a id="03-test-combinations"></a>
 
-## Bring your agent context
+## Bring your agent context and combine treatments
 
 ![Bring your agent context: Compare the inputs your agent actually uses.](../assets/features/02-bring-your-agent-context.webp)
 
 **Availability:** Available on main.
 
-Choose injected docs, a callable source, a skill, a catalog or a profile according to what the agent will actually receive. Injection and agent-selected loading answer different questions.
+Choose injected docs, a callable source, a skill, a catalog or a profile according to what the agent will actually receive; injection and agent-selected loading answer different questions. To learn whether two treatments help together, compare each alone and combined against the same baseline and inspect interaction contrasts where the report supports them.
 
-**Input:** Your document source, MCP reference, skill directory or profile and the evaluation track that will consume it.
+**Input:** Your document source, MCP reference, skill directory or profile, a fixed evaluation set, and the baseline, single and combined treatment definitions.
 
-**Scope and limits:** Local docs, Context7, persona/system prompts; support varies by track.
+**Scope and limits:** Local docs, Context7, persona/system prompts and combined treatments; support varies by track, and not every track supports every combination.
 
-**Result:** Answers or task outcomes tied to the supplied context condition.
-
-**Next step:** Use the linked workflow to configure this check, then [interpret the result](../start/results.md).
-
-[Usage guide](../adding-doc-source.md) · [Implementation](../../dokimi/commands/arms.py) · [Back to feature tree](README.md)
-
-<a id="03-test-combinations"></a>
-
-## Test combinations
-
-![Test combinations: Find whether two treatments help together.](../assets/features/03-test-combinations.webp)
-
-**Availability:** Available on main.
-
-Compare each treatment alone and together against the same baseline. Inspect interaction contrasts where the chosen report supports them.
-
-**Input:** A fixed evaluation set and treatment definitions for the baseline, individual treatments and their combinations.
-
-**Scope and limits:** Combined treatments; do not assume all tracks support every combination.
-
-**Result:** Per-arm outcomes and, where supported, interaction contrasts.
+**Result:** Per-arm answers or task outcomes tied to each context condition and, where supported, interaction contrasts.
 
 **Next step:** Use the linked workflow to configure this check, then [interpret the result](../start/results.md).
 
-[Usage guide](../evaluating-treatments.md) · [Implementation](../../dokimi/commands/arms.py) · [Back to feature tree](README.md)
+[Usage guide](../adding-doc-source.md) · [Implementation](../../dokimi/commands/arms.py) · [Combining treatments](../evaluating-treatments.md) · [Back to feature tree](README.md)
 
 <a id="04-compare-models-harnesses"></a>
+<a id="47-match-the-real-harness"></a>
 
 ## Compare models & harnesses
 
@@ -77,13 +59,13 @@ Compare each treatment alone and together against the same baseline. Inspect int
 
 **Availability:** Available on main.
 
-Hold the task and grading contract fixed, then compare supported models and harnesses. Record unavailable tools and unsupported environments rather than scoring them as failures.
+Hold the task and grading contract fixed, then compare supported models and harnesses. Check the harness support matrix before treating an experiment as deployment evidence: record unavailable tools, unsupported environments, MCP, sidecars or verifier arrangements as explicit limitations rather than scoring them as failures.
 
-**Input:** Executable tasks with supported environments and graders, plus the model/harness configurations to compare.
+**Input:** Executable tasks with supported environments and graders, the model/harness configurations to compare, and the concrete harness version you deploy.
 
-**Scope and limits:** Codex, Claude Code, Harbor, BenchFlow: capabilities differ.
+**Scope and limits:** Codex, Claude Code, Harbor, BenchFlow: capabilities differ. Harness-fidelity gaps (MCP, sidecars, verifier support) are tracked in issues [#354](https://github.com/intel/dokimi/issues/354)/[#355](https://github.com/intel/dokimi/issues/355).
 
-**Result:** Comparable task outcomes for the supported runner/model cells.
+**Result:** Comparable task outcomes for the supported runner/model cells, with fidelity limits stated.
 
 **Next step:** Use the linked workflow to configure this check, then [interpret the result](../start/results.md).
 
