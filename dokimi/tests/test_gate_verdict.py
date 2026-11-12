@@ -28,6 +28,8 @@ def test_a_warn_regression_reads_as_warn():
 
 def test_a_verdict_that_measured_nothing_does_not_pass():
     assert not Verdict().passed
+    assert Verdict().status == "NOT MEASURED"
+    assert not Verdict(checks=[Check("x", passed=True, measured=False)]).passed
     assert Verdict(enabled=False).passed
 
 
@@ -48,4 +50,3 @@ def test_check_severity_and_level_are_literal_types():
 
 def test_verdict_has_no_multirun_std_field():
     assert "multirun_std" not in {f.name for f in dataclasses.fields(Verdict)}
-

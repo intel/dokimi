@@ -120,12 +120,12 @@ class Verdict:
 
     @property
     def has_warnings(self) -> bool:
-        """A warn-severity check did not pass (a regression graded WARN)."""
+        """A warn-severity check did not pass: a regression graded WARN, or a warn check of any gate."""
         return bool(self.warnings)
 
     @property
     def has_critical(self) -> bool:
-        """A fail-severity check did not pass (a regression graded CRITICAL)."""
+        """A fail-severity check did not pass: a regression graded CRITICAL, or a fail check of any gate."""
         return bool(self.failures)
 
     @property
