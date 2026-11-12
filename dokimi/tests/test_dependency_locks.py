@@ -253,3 +253,24 @@ def test_a_replacement_update_is_exempt_from_the_release_age_wait() -> None:
     assert len(exempt) == 1, exempt
     assert 'matchManagers: ["github-actions"]' in exempt[0]
     assert 'matchUpdateTypes: ["replacement"]' in exempt[0]
+
+
+# Files whose shell lines install a lock; changelog fragments are history, and tests quote installs.
+INSTALL_SOURCES = (".github/**/*.yml", ".agent-eval/Dockerfile", "Makefile", "dokimi/Makefile", "dokimi/mkdocs.yml",
+                   "*.md", "dokimi/*.md", "dokimi/docs/**/*.md")
+
+
+def _install_lines(path: Path) -> list[str]:
+    """``path``'s lines that install ``requirements.lock.txt``, a backslash continuation joined to its line."""
+    text = re.sub(r"\\\n\s*", " ", path.read_text(encoding="utf-8"))
+    return [line for line in text.splitlines()
+            if re.search(r"\binstall\b", line) and re.search(r"-r\s+\S*\brequirements\.lock\.txt\b", line)]
+
+
+def test_every_install_of_the_main_lock_passes_no_deps() -> None:
+    """SECURITY.md: the main lock overrides litellm's filelock cap, so an install without --no-deps cannot resolve."""
+    found = {path.relative_to(ROOT.parent).as_posix(): _install_lines(path)
+             for pattern in INSTALL_SOURCES for path in sorted(ROOT.parent.glob(pattern)) if path.is_file()}
+    assert sum(len(lines) for lines in found.values()) >= 10, found
+    missing = [(name, line.strip()) for name, lines in found.items() for line in lines if "--no-deps" not in line]
+    assert missing == []
