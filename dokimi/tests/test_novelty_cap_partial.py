@@ -414,6 +414,17 @@ def test_novelty_items_refuses_a_partial_probe_file_by_name(tmp_path):
     assert str(partial) in str(refused.value)
 
 
+def test_novelty_items_refuses_a_probe_file_marked_partial_by_status_alone(tmp_path):
+    from dokimi.novelty.items import ProbeFileError, load_probe_cells
+
+    run = {"atom_id": "a", "probe_kind": "direct", "arm": "model", "verdict": "yes"}
+    marked = tmp_path / "probes.json"
+    marked.write_text(json.dumps({"status": "partial", "runs": [run]}), encoding="utf-8")
+    with pytest.raises(ProbeFileError, match="partial probe result") as refused:
+        load_probe_cells([str(marked)])
+    assert str(marked) in str(refused.value)
+
+
 def test_an_earlier_file_that_is_not_json_is_kept_and_not_taken_for_a_partial_one(tmp_path):
     from dokimi.commands.novelty_budget import partial_destination
 
