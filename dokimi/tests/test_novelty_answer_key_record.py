@@ -123,3 +123,26 @@ def test_an_entry_point_row_that_is_not_an_object_is_refused_as_a_file_row_error
     assert key.files[0].is_object is False
     with pytest.raises(ValueError, match="without file rows"):
         entry_point_only(key, [], [])
+
+
+def test_a_copied_or_pickled_record_keeps_the_absent_marker_and_its_verdict(tmp_path):
+    # the marker is compared with `is`: a copy must hand back the same marker, not a new object
+    import copy
+    import pickle
+
+    root = _tree(tmp_path)
+    key = parse_answer_key({"include_resources": True, "n_files": 1,
+                            "files": [{"role": "entry_point", "path": "SKILL.md"}]})
+    for clone in (copy.copy(key), copy.deepcopy(key), pickle.loads(pickle.dumps(key))):
+        assert clone.files[0].end is ABSENT
+        assert clone == key
+
+    def outcome(record):
+        try:
+            return ("ok", entry_point_only(record, [], []))
+        except Exception as exc:  # the verdict, not the type, must not depend on a copy
+            return (type(exc).__name__, str(exc))
+
+    assert outcome(copy.deepcopy(key)) == outcome(key)
+    assert check_answer_key(f"skill:{root}", copy.deepcopy(key)).problem == \
+        check_answer_key(f"skill:{root}", key).problem

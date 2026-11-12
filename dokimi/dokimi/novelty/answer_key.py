@@ -15,10 +15,17 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from enum import Enum
 from typing import Any
 
+class _Absent(Enum):
+    """The type of :data:`ABSENT`: an enum member survives copy, deepcopy and pickle as itself."""
+
+    ABSENT = "ABSENT"
+
+
 #: Marks a key the saved record does not have, as distinct from one stored as ``null``.
-ABSENT: Any = object()
+ABSENT: Any = _Absent.ABSENT
 
 
 @dataclass(frozen=True)
