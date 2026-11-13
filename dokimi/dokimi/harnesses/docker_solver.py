@@ -71,7 +71,7 @@ from .agent_sandbox import (
     solver_cli_flags,
 )
 from .claude_json import _last_json_object, _parse_claude_json  # noqa: F401
-from .command import _parse_reward_text
+from .command import _exit_code_verdict, _parse_reward_text
 from .container_agent import (AGENT_BIN, DOCKER_STEP_TIMEOUT, FILES_DIR, TASK_CONTAINER_HARDENING,
                               ContainerSandbox, Docker)
 from .models import HarnessResult, OperationRecord
@@ -657,8 +657,7 @@ class DockerSolverHarness:
                 raise RuntimeError(f"task container {container} state inspect timed out at verify time; see run.log")
             if (getattr(running, "stdout", "") or "").strip() != "true":
                 raise RuntimeError(f"task container {container} is not running at verify time; see run.log")
-        # No reward file written: fall back to verifier exit code.
-        return 1.0 if proc.returncode == 0 else 0.0
+        return _exit_code_verdict(proc.returncode)
 
     def _plan(self, task: TaskSpec, record: Optional[Path] = None) -> NetworkPlan:
         return resolve_recorded(task, self.network, agent=self.mode != "oracle", record=record)

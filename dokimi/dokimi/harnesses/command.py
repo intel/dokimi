@@ -443,6 +443,17 @@ def _find_reward(output_dir: Path | None, stdout: str, stderr: str) -> float | N
     return parsed if parsed is not None else _parse_reward_text(stderr)
 
 
+def _exit_code_verdict(returncode: int) -> float:
+    """The verdict of a reward-file verifier that wrote no ``reward.txt``.
+
+    Exit 0 is not a verdict: a verifier that wrote no reward file passed nothing,
+    so the cell is errored, as a verifier that did not run is. Non-zero stays 0.0.
+    """
+    if returncode == 0:
+        raise RuntimeError("verifier exited 0 but wrote no /logs/verifier/reward.txt; see run.log")
+    return 0.0
+
+
 def _parse_reward_text(text: str, *, reward_file: bool = False) -> float | None:
     """A reward from a ``reward.txt`` (``reward_file``) or from command output.
 
