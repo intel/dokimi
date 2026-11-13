@@ -175,6 +175,7 @@ NO_WHEN = [
     pytest.param("用户请求日志并生成报表的工具。", id="zh-qingqiu-rizhi-not-when"),
     pytest.param("当用户提交代码后准时清理缓存。", id="zh-zhunshi-closing-not-when"),
     pytest.param("每小时运行备份。", id="zh-xiaoshi-closing-not-when"),
+    pytest.param("이 때 로그를 정리하는 도구입니다.", id="ko-i-ttae-not-when"),
     pytest.param("当用户提交代码后即时清理缓存。", id="zh-dang-closing-jishi-not-when"),
     pytest.param("当用户提交代码后小时清理缓存。", id="zh-dang-closing-xiaoshi-hour-not-when"),
     pytest.param("當用戶提交代碼後準時清理緩存。", id="zh-trad-dang-closing-zhunshi-not-when"),
