@@ -57,3 +57,33 @@ def test_runner_check_reads_a_lowercase_makefile(tmp_path):
 
     (tmp_path / "makefile").write_text("include common.mk\n", encoding="utf-8")
     assert environment._runner_file_unread(Scan(WorkTree(tmp_path), frozenset()))
+
+
+def _checks(tmp_path, files):
+    from dokimi.repos.l0.core import Scan
+    from dokimi.repos.source import WorkTree
+
+    for name, text in files.items():
+        (tmp_path / name).write_text(text, encoding="utf-8")
+    return checks.detect_checks(Scan(WorkTree(tmp_path), frozenset()))
+
+
+def test_make_check_reads_gnumakefile_before_makefile(tmp_path):
+    # GNU make reads GNUmakefile first, so the make check takes its targets from there, not from Makefile
+    found = _checks(tmp_path, {"GNUmakefile": "check:\n", "Makefile": "lint:\n"})
+    assert {c.evidence for c in found if c.ecosystem == "make"} == {"GNUmakefile"}
+
+
+def test_python_checks_open_on_a_pipfile_alone(tmp_path):
+    # a root whose only Python manifest is a Pipfile still gets its tox.ini test check
+    found = _checks(tmp_path, {"Pipfile": "[packages]\n", "tox.ini": "[tox]\n"})
+    assert [c.kind for c in found if c.ecosystem == "python"] == ["test"]
+
+
+def test_make_target_scan_reads_a_lowercase_makefile(tmp_path):
+    # the l0 make facts take targets from a lowercase makefile, not only from Makefile
+    from dokimi.repos.l0.core import Scan
+    from dokimi.repos.source import WorkTree
+
+    (tmp_path / "makefile").write_text("onlylower:\n", encoding="utf-8")
+    assert "onlylower" in adapters._make_facts(Scan(WorkTree(tmp_path), frozenset()))["targets"]
