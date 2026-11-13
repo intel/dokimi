@@ -440,6 +440,21 @@ def test_a_folder_link_with_a_title_or_brackets_names_the_folder_of_its_document
     assert "references/scripts/run.py" not in message
 
 
+def test_a_backslash_folder_in_a_nested_document_names_its_own_folder(tmp_path):
+    review = _review_with_texts(
+        tmp_path,
+        "Read [guide](references/guide.md).\n",
+        {
+            "references/guide.md": "Helpers in .\\scripts\\ do the work.\n",
+            "references/scripts/run.py": "x\n",
+            "scripts/other.py": "x\n",
+        },
+    )
+    [message] = _unreferenced(review)
+    assert "(scripts/other.py)" in message
+    assert "references/scripts/run.py" not in message
+
+
 def test_the_unnamed_files_are_listed_in_path_order(tmp_path):
     review = _review(tmp_path, "Use it.\n", ["zeta.py", "scripts/a.py"])
     [message] = _unreferenced(review)
