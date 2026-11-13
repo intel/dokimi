@@ -14,6 +14,7 @@ Paths, saving, the rollup and exit codes stay with the commands.
 from __future__ import annotations
 
 import functools
+import logging
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
@@ -33,6 +34,8 @@ from dokimi.utils import InputError, check_bedrock_model, question_id, warn_judg
 if TYPE_CHECKING:
     from dokimi.eval import Judge, JudgePanel
     from dokimi.eval.arm_runner import ArmRunner
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -166,6 +169,8 @@ def resolve_doc_library_id(treatments, product: str, explicit_id=None, registry=
         except ValueError:
             raise
         except Exception:
+            logger.warning("library id for %r not resolved; using the product name", product,
+                           exc_info=True)
             arm.library_id = product
         return arm.library_id
 

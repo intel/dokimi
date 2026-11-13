@@ -67,7 +67,7 @@ class DocTreatment(Treatment):
         if SENTENCE_TRANSFORMERS_AVAILABLE:
             try:
                 return SentenceTransformerReranker(threshold=threshold)
-            except Exception as exc:  # pragma: no cover - env dependent
+            except Exception as exc:  # noqa: BLE001 - pragma: no cover - env dependent
                 logger.warning("Semantic reranker unavailable (%s); using lexical", exc)
         return SimpleReranker(threshold=threshold)
 

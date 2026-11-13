@@ -260,7 +260,7 @@ class EgressProxy:
             client.sendall(b"HTTP/1.1 200 Connection Established\r\n\r\n")
             state["established"] = True
             _relay(client, remote)
-        except Exception as exc:  # one bad tunnel must not take the proxy down
+        except Exception as exc:  # noqa: BLE001 - one bad tunnel must not take the proxy down
             self._record(state["host"], state["port"], "error", f"{type(exc).__name__}: {exc}")
             if not state["established"]:  # the client learns the route failed, not just a closed socket
                 try:

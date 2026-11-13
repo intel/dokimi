@@ -88,7 +88,7 @@ class LocalMarkdownClient(MCPClient):
         for fp in files:
             try:
                 content = self._read_file(fp, char_limit)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - logged; one unreadable file is skipped
                 logger.debug(f"Skipping {fp}: {exc}")
                 continue
 

@@ -169,7 +169,7 @@ class RetentionOracle:
                 _ADJUDICATE_PROMPT.format(statement=atom.statement, text=text[:12000]),
                 accept=lambda raw: parse_verdict(raw) is not None,
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 - a failed adjudication is no verdict (None), not a wrong one
             return None
         return parse_verdict(reply)
 

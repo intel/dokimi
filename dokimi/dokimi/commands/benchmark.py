@@ -203,7 +203,7 @@ def _check_questions_from(questions_from: str, key: str) -> tuple[Path, list, st
         return qf, [], str(exc)
     try:
         return qf, load_questions_payload(qf), None
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - any load failure is reported as an invalid source
         return qf, [], f"questions source invalid: {qf} ({exc})"
 
 
@@ -228,7 +228,7 @@ def _check_golden_set(questions_root: str, key: str, refuse: Callable[[str], Non
         bad = next((i for i, q in enumerate(cast(List[Any], golden_questions)) if not isinstance(q, dict)), None)
         if bad is not None:
             refuse(f"golden set item {bad} is not a dict: {golden}")
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - any load failure refuses the run, with its message
         refuse(f"golden set invalid: {golden} ({exc})")
 
 
@@ -252,7 +252,7 @@ def _check_doc_source(plan: dict, entry: Any, refuse: Callable[[str], None], err
             warnings.append("context7 id not pinned; client will resolve by target name")
     except ValueError as exc:
         refuse(f"doc source invalid: {plan['doc_source']} ({exc})")
-    except Exception as exc:  # the source cannot be reached or built: a failed check
+    except Exception as exc:  # noqa: BLE001 - the source cannot be reached or built: a failed check
         errors.append(f"doc source check failed: {plan['doc_source']} ({exc})")
 
 
@@ -440,7 +440,7 @@ def cmd_benchmark_batch(args: argparse.Namespace) -> None:
                 registry=registry,
             )
             results.append(r)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - one failed library is recorded; --fail-fast stops
             msg = f"FAILED: {entry.key} — {exc}"
             print(f"\n❌ {msg}", file=sys.stderr)
             failed.append({"library": entry.key, "name": entry.name, "status": "failed", "error": str(exc)})

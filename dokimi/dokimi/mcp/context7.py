@@ -223,7 +223,7 @@ class Context7Client(MCPClient):
                 max_tokens=500
             )
             return len(docs) > 0 and len(docs[0]["content"]) > 0
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - logged; a connection check answers False
             logger.error(f"Context7 connection check failed: {e}")
             return False
 

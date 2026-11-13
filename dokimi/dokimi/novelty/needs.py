@@ -163,7 +163,7 @@ def build_need_graph(name: str, description: str, *, client: LLMClient) -> NeedG
             system=_GRAPH_SYSTEM,
             usable=_has_a_node,
         )
-    except Exception:
+    except Exception:  # noqa: BLE001 - a failed graph call keeps the graph built so far
         return graph
     for index, row in enumerate(data.get("nodes", []) or [], start=1):
         if not isinstance(row, dict) or not str(row.get("text", "")).strip():

@@ -25,7 +25,7 @@ def extract_json_object(text: str) -> dict:
         result = json.loads(text)
         if isinstance(result, dict):
             return result
-    except Exception:
+    except (ValueError, RecursionError):  # not JSON here: try the next form
         pass
     # Markdown fence
     fence = re.search(r"```(?:json)?\s*([\s\S]*?)```", text)
@@ -34,7 +34,7 @@ def extract_json_object(text: str) -> dict:
             result = json.loads(fence.group(1).strip())
             if isinstance(result, dict):
                 return result
-        except Exception:
+        except (ValueError, RecursionError):
             pass
     # First { ... } block
     m = re.search(r"\{[\s\S]*\}", text)
@@ -58,7 +58,7 @@ def extract_json_array(text: str) -> list:
         result = json.loads(text)
         if isinstance(result, list):
             return result
-    except Exception:
+    except (ValueError, RecursionError):  # not JSON here: try the next form
         pass
     # Markdown fence
     fence = re.search(r"```(?:json)?\s*([\s\S]*?)```", text)
@@ -67,7 +67,7 @@ def extract_json_array(text: str) -> list:
             result = json.loads(fence.group(1).strip())
             if isinstance(result, list):
                 return result
-        except Exception:
+        except (ValueError, RecursionError):
             pass
     # First [ ... ] block
     m = re.search(r"\[[\s\S]*\]", text)

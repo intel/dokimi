@@ -41,7 +41,7 @@ def cmd_subjects_list(args: argparse.Namespace) -> None:
 
             descriptor = load_subject(path)
             print(f"{descriptor.id}\t{descriptor.subject.kind}\t{path}")
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - one bad descriptor is listed as ERROR, the rest still print
             print(f"{path}\tERROR\t{exc}")
 
 
