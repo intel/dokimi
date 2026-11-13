@@ -298,6 +298,74 @@ def test_no_replay_is_promised_when_the_cache_dir_is_read_only(tmp_path, monkeyp
     assert "a rerun pays for these calls again" in hint
 
 
+def test_no_replay_is_promised_when_a_cache_write_failed_on_a_full_disk(tmp_path, monkeypatch):
+    from pathlib import Path
+
+    from dokimi import caching
+
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    monkeypatch.setenv("DOKIMI_RESPONSE_CACHE", str(cache))
+
+    def disk_full(self, *args, **kwargs):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(Path, "write_text", disk_full)
+    caching.store_response("k", "text", UsageRecord(cost_usd=0.5))
+    monkeypatch.undo()
+    monkeypatch.setenv("DOKIMI_RESPONSE_CACHE", str(cache))
+    assert os.access(cache, os.W_OK) and not list(cache.iterdir())  # the directory looks fine
+    hint = _replay_hint(monkeypatch, cache)
+    assert "already paid for replay" not in hint
+    assert "a rerun pays for these calls again" in hint
+
+
+def _through_the_cache(cost_of, limit, sent):
+    """Three clients on the real ``LLM`` path (response cache included) over the scripted model;
+    every prompt that reaches the model is appended to ``sent``."""
+    from dokimi import llm
+
+    base = _scripted("informed")
+
+    def adapter(request):
+        content = request.messages[-1]["content"]
+        prompt = content if isinstance(content, str) else "".join(part["text"] for part in content)
+        sent.append(prompt)
+        reply, _usage = base(prompt, None)
+        return llm.Reply(text=reply, usage=UsageRecord(cost_usd=cost_of(prompt)))
+
+    cap = SpendCap(limit_usd=limit)
+    clients = tuple(LLMClient(model=f"{role}-m", role=role, cap=cap)
+                    for role in ("extractor", "answerer", "judge"))
+    return cap, clients, llm.use_adapter(adapter)
+
+
+def test_a_rerun_with_a_higher_cap_and_the_same_cache_replays_the_paid_calls_at_zero(
+        tmp_path, monkeypatch):
+    monkeypatch.setenv("DOKIMI_RESPONSE_CACHE", str(tmp_path / "cache"))
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    path = _skill(tmp_path)
+    kind, name, description, frontmatter, body = load_artifact_text(f"skill:{path}")
+    config = AnalyzeConfig(artifact_ref=f"skill:{path}", artifact_kind=kind, name=name,
+                           description=description, frontmatter=frontmatter, concurrency=1)
+
+    first_sent: list[str] = []
+    cap, (extractor, answerer, judge), adapter = _through_the_cache(_answers_cost, 1.0, first_sent)
+    with adapter:
+        stopped = analyze(body, config, extractor=extractor, answerer=answerer, judge=judge)
+    assert stopped.partial and stopped.partial["reason"] == "spend_cap"
+    assert first_sent and cap.spent_usd == pytest.approx(1.2)
+
+    second_sent: list[str] = []
+    cap, (extractor, answerer, judge), adapter = _through_the_cache(_answers_cost, 100.0, second_sent)
+    with adapter:
+        finished = analyze(body, config, extractor=extractor, answerer=answerer, judge=judge)
+    assert finished.partial is None and "status" not in finished.artifact
+    assert not set(first_sent) & set(second_sent)  # nothing paid for is asked again
+    assert cap.spent_usd == pytest.approx(0.6 * sum(_answers_cost(p) > 0 for p in second_sent))
+    assert finished.artifact["atoms"]["n"] == len(stopped.artifact["extracted_atoms"]) == 2
+
+
 def test_a_partial_result_never_replaces_a_finished_novelty_json(tmp_path, monkeypatch):
     args, out_dir = _command(tmp_path, monkeypatch, _answers_cost)
     out_dir.mkdir()
