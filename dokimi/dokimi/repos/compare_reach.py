@@ -10,8 +10,8 @@ import math
 
 from scipy import stats as sp_stats
 
-from dokimi.eval.sign_flip import ALPHA
-from dokimi.eval.stats import correct_family
+from dokimi.eval.sign_flip import ALPHA, min_sign_flip_p
+from dokimi.eval.stats import correct_family, reachable_pvals
 
 #: The power ``mde`` is sized for, at :data:`~dokimi.eval.sign_flip.ALPHA`, the level the notes read p at.
 POWER = 0.80
@@ -26,7 +26,17 @@ def min_detectable(sd: float, n: int) -> float:
     return (sp_stats.t.ppf(1 - ALPHA / 2, df) + sp_stats.t.ppf(POWER, df)) * sd / math.sqrt(n)
 
 
-def holm_floor(pvals: list[float | None], i: int, floor: float) -> tuple[float | None, bool | None]:
-    """Holm's p of row ``i`` of the family ``pvals`` with its p put at ``floor``, the lowest it can go, and the
-    others as observed; and whether that p is below :data:`ALPHA`. Where it is not, no effect can be."""
-    return correct_family([*pvals[:i], floor, *pvals[i + 1:]])[i]
+def holm_family(pvals: list[float | None], changed: list[int]) -> list[float | None]:
+    """The p of Holm's family: ``pvals`` less a row whose ``changed`` tasks cannot give p < :data:`ALPHA`, as
+    ``None``, since such a row can never reject and so stays out of the multiplier."""
+    return reachable_pvals(pvals, changed)
+
+
+def holm_floor(pvals: list[float | None], changed: list[int], i: int) -> tuple[float | None, bool | None]:
+    """Holm's p of row ``i`` of the family :func:`holm_family` with its p put at the floor of its ``changed[i]``
+    tasks, the lowest it can go, and the others as observed; and whether that p is below :data:`ALPHA`. Where it
+    is not, no effect can be. A row under the floor rule is out of the family: ``(None, None)``."""
+    family = holm_family(pvals, changed)
+    if family[i] is None:
+        return None, None
+    return correct_family([*family[:i], min_sign_flip_p(changed[i]), *family[i + 1:]])[i]
