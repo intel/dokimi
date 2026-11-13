@@ -56,3 +56,8 @@ def test_main_lists_the_sites_of_a_real_diff(capsys):
 
 def test_main_returns_2_when_git_cannot_diff(capsys):
     assert lnep.main(["--base", "no-such-ref-xyz", "--head", "HEAD"]) == 2
+
+
+def test_an_added_line_starting_with_two_pluses_is_not_a_file_header():
+    diff = "--- a/x.py\n+++ b/x.py\n@@ -0,0 +1,2 @@\n+++ y\n+if bad: raise Z\n"
+    assert lnep.added_sites(diff) == [("x.py", 2, "raise", "if bad: raise Z")]

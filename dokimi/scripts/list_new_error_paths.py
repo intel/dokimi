@@ -25,7 +25,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 _HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@")
 _KINDS = (
-    ("raise", re.compile(r"^\s*raise\b")),
+    ("raise", re.compile(r"(?:^|:)\s*raise\b")),
     ("exit", re.compile(r"\bsys\.exit\(|\bSystemExit\(|\bexit_code\s*=\s*[1-9]")),
     ("test", re.compile(r"^\s*(?:async\s+)?def\s+test_\w*\s*\(")),
 )
@@ -34,9 +34,10 @@ _KINDS = (
 def added_sites(diff: str) -> list[tuple[str, int, str, str]]:
     """``(path, line, kind, text)`` for each added line of a ``-U0`` diff that matches a kind."""
     sites: list[tuple[str, int, str, str]] = []
-    path, line = "", 0
+    path, line, prev = "", 0, ""
     for row in diff.splitlines():
-        if row.startswith("+++ "):
+        # An added line `++ x` is the row `+++ x`: a header only follows a `--- ` row.
+        if row.startswith("+++ ") and prev.startswith("--- "):
             path = row[6:] if row.startswith("+++ b/") else ""
         elif m := _HUNK.match(row):
             line = int(m.group(1))
@@ -46,16 +47,18 @@ def added_sites(diff: str) -> list[tuple[str, int, str, str]]:
             if kind:
                 sites.append((path, line, kind, text.strip()))
             line += 1
+        prev = row
     return sites
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser = argparse.ArgumentParser(description=(__doc__ or "").splitlines()[0])
     parser.add_argument("--base", default="origin/main")
     parser.add_argument("--head", default="HEAD")
     args = parser.parse_args(argv)
     result = subprocess.run(
-        ["git", "diff", "-U0", "--no-color", f"{args.base}...{args.head}", "--", "*.py"],
+        ["git", "-c", "core.quotePath=false", "diff", "-U0", "--no-color",
+         f"{args.base}...{args.head}", "--", "*.py"],
         cwd=REPO, capture_output=True, text=True, encoding="utf-8", errors="replace", check=False)
     if result.returncode:
         print(result.stderr.strip(), file=sys.stderr)

@@ -149,7 +149,7 @@ finds little:
 - Trace new error paths and tests to the contract: a new `raise`, `sys.exit`
   or refusal names, in its message, docstring or the PR, the doc, contract or
   issue that asks for it; a test of new behaviour cites the doc line it checks.
-  `python scripts/list_new_error_paths.py --base origin/main` lists them.
+  `python scripts/list_new_error_paths.py --base origin/main` (from `dokimi/`) lists them.
 - An unclear requirement goes in the PR description's "Open questions", not
   into code that guesses: no error path or test the spec cannot be quoted for.
 - Check that the PR title, description, docstrings and changelog fragment say
