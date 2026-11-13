@@ -950,3 +950,11 @@ def test_secret_read_by_a_windows_path(tmp_path, path):
 @pytest.mark.parametrize("text", ["rm -rf /tmp/..", "rm -rf /tmp/../../etc", "rm -rf ~/.."])
 def test_destructive_delete_follows_a_dot_dot_out_of_a_cleanup_dir(text):
     assert "destructive-delete" in _rules(sec.command_findings(text, "trace"))
+
+
+def test_git_global_options_are_matched_in_linear_time():
+    import time
+
+    started = time.monotonic()
+    sec.command_findings("git " + "-c " * 32 + "status", "trace")
+    assert time.monotonic() - started < 1.0
