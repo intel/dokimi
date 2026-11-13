@@ -54,7 +54,7 @@ jobs:
           # --head also matches fork PRs: only the bot's own branch counts.
           open_pr() { gh pr list --head "$branch" --state open --json number,isCrossRepository \
             --jq 'map(select(.isCrossRepository | not)) | .[0].number // empty'; }
-          if git diff --quiet -- ci/conda-lock; then
+          if [ -z "$(git status --porcelain -- ci/conda-lock)" ]; then
             echo "The locks are current."
             # A refresh PR still open proposes locks main has since passed: retire it.
             stale="$(open_pr)"

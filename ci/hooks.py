@@ -402,12 +402,13 @@ def run_recipe_tests(env_dir: Path) -> None:
     _, selector = matrix.detect(ROOT, "")
     meta = read_yaml(selector)
     test = (meta if isinstance(meta, dict) else {}).get("test") or {}
-    env = {**os.environ, "PATH": os.pathsep.join(
-        [*map(str, env_path(env_dir)), os.environ.get("PATH", "")])}
-    for module in test.get("imports") or []:
-        run([str(env_python(env_dir)), "-c", f"import {module}"], env=env)
-    for command in test.get("commands") or []:
-        run(shlex.split(command), env=env)
+    env = {key: value for key, value in os.environ.items() if key in KEEP}  # no runner tokens, as test_env
+    env["PATH"] = os.pathsep.join([*map(str, env_path(env_dir)), env.get("PATH", "")])
+    with tempfile.TemporaryDirectory() as cwd:  # an empty working directory, not the checkout
+        for module in test.get("imports") or []:
+            run([str(env_python(env_dir)), "-c", f"import {module}"], env=env, cwd=cwd)
+        for command in test.get("commands") or []:
+            run(shlex.split(command), env=env, cwd=cwd)
 
 
 def conda_create(

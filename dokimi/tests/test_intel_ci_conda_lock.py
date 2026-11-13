@@ -113,8 +113,9 @@ def test_a_lock_lists_hashed_conda_forge_builds_of_its_python_and_not_the_packag
         monkeypatch: pytest.MonkeyPatch) -> None:
     """The artifact under test is installed on top of the lock; a dokimi build in it would shadow that."""
     hooks = _script("hooks", monkeypatch)
+    monkeypatch.setattr(hooks, "HOST_SUBDIR", "win-64")  # as on Windows: the committed locks are linux-64 anyway
     for version in _versions(monkeypatch):
-        lines = hooks.lock_path(version).read_text(encoding="utf-8").splitlines()
+        lines = hooks.lock_path(version, "linux-64").read_text(encoding="utf-8").splitlines()
         packages = lines[lines.index("@EXPLICIT") + 1:]
         assert [line for line in packages if not _LINE.fullmatch(line)] == []
         names = [line.rsplit("/", 1)[1].rsplit("-", 2)[0] for line in packages]
@@ -231,6 +232,29 @@ def test_current_locks_close_an_open_refresh_pr_and_push_nothing(open_pr: str, t
     assert not [call for call in calls if call.startswith("gh pr create")]
 
 
+@pytest.mark.skipif(sys.platform == "win32" or shutil.which("git") is None, reason="runs the step's check with git")
+@pytest.mark.parametrize(("change", "current"), [("none", True), ("modified", False), ("new", False)])
+def test_the_refresh_step_takes_a_new_or_changed_lock_for_a_change(change: str, current: bool, tmp_path: Path) -> None:
+    """A lock written for a newly declared Python is untracked; the step's check must still see it."""
+    workflow = yaml.safe_load((_REPO / ".github" / "workflows" / "conda-lock.yml").read_text(encoding="utf-8"))
+    step = next(s for s in workflow["jobs"]["refresh"]["steps"] if s.get("name") == "Open or update the refresh PR")
+    check = re.search(r"^\s*if (.+); then$", step["run"], re.M)
+    assert check, step["run"]
+    locks = tmp_path / "ci" / "conda-lock"
+    locks.mkdir(parents=True)
+    (locks / "linux-64-py3.12.txt").write_text("a\n", encoding="utf-8")
+    git = ["git", "-C", str(tmp_path), "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]
+    for args in (["init", "-q"], ["add", "-A"], ["commit", "-q", "-m", "locks"]):
+        subprocess.run([*git, *args], check=True, capture_output=True)
+    if change == "modified":
+        (locks / "linux-64-py3.12.txt").write_text("b\n", encoding="utf-8")
+    elif change == "new":
+        (locks / "linux-64-py3.15.txt").write_text("c\n", encoding="utf-8")
+    done = subprocess.run(["/bin/bash", "-c", f"if {check.group(1)}; then exit 0; else exit 1; fi"],
+                          cwd=tmp_path, capture_output=True, text=True, check=False)
+    assert (done.returncode == 0) is current, done.stderr
+
+
 @pytest.mark.skipif(sys.platform == "win32" or shutil.which("jq") is None, reason="the stub gh applies --jq with jq")
 @pytest.mark.parametrize(("diff_rc", "fork", "closed", "created"),
                          [(0, True, False, False), (1, True, False, True), (0, False, True, False), (1, False, False, False)])
@@ -246,8 +270,10 @@ def test_only_a_same_repo_refresh_pr_counts_as_open(diff_rc: int, fork: bool, cl
     jq.symlink_to(str(shutil.which("jq")))
     prs.write_text(f'[{{"number": 701, "isCrossRepository": {str(fork).lower()}}}]', encoding="utf-8")
     bin_dir.mkdir()
+    status = "echo ' M ci/conda-lock/linux-64-py3.12.txt'" if diff_rc else ":"  # a changed lock, or none
     (bin_dir / "git").write_text(
-        f'#!/bin/sh\necho "git $*" >> {shlex.quote(str(log))}\n[ "$1" = diff ] && exit {diff_rc}\nexit 0\n', encoding="utf-8")
+        f'#!/bin/sh\necho "git $*" >> {shlex.quote(str(log))}\n[ "$1" = status ] && {status}\nexit 0\n',
+        encoding="utf-8")
     (bin_dir / "gh").write_text(
         f'#!/bin/sh\necho "gh $*" >> {shlex.quote(str(log))}\n[ "$2" = list ] || exit 0\n'
         f'while [ $# -gt 0 ]; do [ "$1" = --jq ] && filter=$2; shift; done\n'
@@ -308,14 +334,22 @@ def test_the_recipe_tests_run_its_imports_and_commands_in_the_env(tmp_path: Path
     hooks = _script("hooks", monkeypatch)
     calls: list[list[str]] = []
     paths: list[str] = []
+    leaked: list[bool] = []
+    cwds: list[str] = []
 
     def record(command: list[str], **options: dict) -> None:
         calls.append(command)
         paths.append(options["env"]["PATH"])
+        leaked.append("CI_PROOF_RUNNER_TOKEN" in options["env"])
+        cwds.append(str(options.get("cwd")))
+        assert os.listdir(options["cwd"]) == []
 
     monkeypatch.setattr(hooks, "run", record)
     monkeypatch.setenv("PATH", "/runner/bin")
+    monkeypatch.setenv("CI_PROOF_RUNNER_TOKEN", "secret")
     hooks.run_recipe_tests(tmp_path)
     assert calls == [[str(hooks.env_python(tmp_path)), "-c", "import dokimi"], ["pip", "check"], ["dokimi", "--help"]]
     expected = os.pathsep.join([*map(str, hooks.env_path(tmp_path)), "/runner/bin"])
     assert paths == [expected] * 3
+    assert leaked == [False] * 3
+    assert len(set(cwds)) == 1 and Path(cwds[0]) != hooks.ROOT
