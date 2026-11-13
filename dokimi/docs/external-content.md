@@ -324,6 +324,47 @@ names a planned, paid follow-up command (a model run over the candidates), which
 yet available; its flags may change before it lands. The thresholds are conservative and
 the section is a shortlist, not a judgement.
 
+### Network checks (`--online`, opt in)
+
+`catalog check` opens no connection by default. `--online` adds two checks that
+do, and only these two; each finding is a `warn`, so the exit code does not change:
+
+- `package-not-found`: a `pip install` (or `pip3`), `npm install` or `npx` name in
+  a skill that PyPI (`https://pypi.org/simple/<name>/`) or the npm registry answers
+  404 for. Flags, local paths, `git+`, URL and `file:` specs, and placeholders such as
+  `<package>` or `your-package` are not names.
+- `link-dead`: an `http(s)` URL in `SKILL.md` that answers 404 or 410, or whose host
+  does not resolve while another request in the run got an HTTP answer (with none, the
+  link is not checked: the resolver is not shown to work). A HEAD request is tried first and a GET only when HEAD is not 2xx or 3xx.
+  Placeholder hosts (`example.com`/`.org`/`.net`, `localhost`, `.test`, `.invalid`,
+  a host or a path segment starting `your-*`, as in `github.com/your-username/your-repo`,
+  a path segment `OWNER`, `REPO`, `USER` or `USERNAME`), hosts of the operator's network
+  (loopback, private, link-local, CGNAT, reserved and multicast addresses, a name with no
+  dot such as `my-api:8000`, `.local` and `.internal` names) and template URLs (`<id>`,
+  `{id}`, `${VAR}`) are not requested. The host is read as written, not resolved: a public
+  name that points at a private address is still requested. A URL in a code span or a
+  fenced block is an example, not a link, and is not requested either; a `#fragment` is not
+  part of the request, so anchors of one page are one request. At most 20 URLs per skill are
+  checked.
+
+A 403, 429 or 5xx, a timeout, a refused connection or any other network error is not a
+finding: the registry or site may refuse or be unreachable, not be gone. A target not checked
+(a network error, a DNS failure with no answer in the run, a redirect into a non-public host,
+or a URL past the 20-per-skill cap) gets no finding: it is counted in one summary line,
+`# online: N checked, M not checked (network error: a, ...)`, and under `online` in the JSON
+report. Each distinct
+package or URL is requested once per run, with at most 8 requests in flight and a 5-second
+timeout per request. `--online` does not combine with `--per-skill` (its workers would
+each hold their own cache, and `--resume` would keep rows no network check made), and
+it applies to skills only.
+The package scan reads one line at a time: a requirement in quotes or on a `\` continuation
+line is not checked, and a word after an install command on the same line is read as a package name unless it is
+a common English word that ends the list (such as `in`, `for` or `to`).
+
+```console
+$ python cli.py catalog check --root C:/Users/Public/content-repo --online
+```
+
 Restrict the scan with `--kind`:
 
 ```console

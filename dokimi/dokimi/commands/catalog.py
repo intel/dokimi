@@ -6,7 +6,9 @@
 Points at a local checkout the caller already produced (e.g.
 ``git clone https://github.com/uxlfoundation/skills`` or
 ``https://github.com/intel/skills``) -- nothing here
-fetches anything over the network. See ``dokimi.external.catalog``
+fetches anything over the network, except ``catalog check --online``
+(``dokimi.external.online_checks``), which requests PyPI, npm and the
+links of each skill. See ``dokimi.external.catalog``
 for the manifest formats understood.
 """
 
@@ -45,6 +47,7 @@ def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bo
         return catalog_scan.scan_per_skill(args, root, report, as_json, pairs)
     skills = [entry for entry, _ in pairs]
     reviews = review_skills(skills)  # every skill is reviewed: the cross-catalog checks need them all
+    online = _online_checks(args, skills, reviews, report)
     only = getattr(args, "only", None)  # `skill check SKILL` reports this one skill (#94 M3)
     if only is not None and only not in {entry.name for entry in skills}:
         raise InputError(f"no skill named {only!r} under {root}")
@@ -70,9 +73,30 @@ def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bo
         for row in report["skills"]:
             print_skill_row(row)
         _print_strict_reasons(report["skills"], args.strict)
+        _print_online(online)
         print()
     _granularity_section(skills, reviews, root, report, as_json)
     return failed, len(skills)
+
+
+def _online_checks(args: argparse.Namespace, skills, reviews, report: dict) -> dict | None:
+    """The ``--online`` network checks of the loaded skills, their summary into ``report``; None without the flag."""
+    if not args.online:
+        return None
+    from dokimi.external.online_checks import add_online_findings
+
+    online = add_online_findings([(e.skill, r) for e, r in zip(skills, reviews, strict=True)
+                                  if e.loaded and r is not None])
+    report["online"] = online
+    return online
+
+
+def _print_online(online: dict | None) -> None:
+    """The one summary line of ``--online``, printed after the skill rows."""
+    if online is not None:
+        from dokimi.external.online_checks import format_summary
+
+        print(format_summary(online))
 
 
 def _granularity_section(skills, reviews, root: Path, report: dict, as_json: bool) -> None:
@@ -156,10 +180,13 @@ def _check_scan_flags(args: argparse.Namespace) -> None:
         raise InputError("--resume needs --jsonl: the rows it skips are read from that file")
     if (args.jsonl or args.jobs is not None) and not args.per_skill:
         raise InputError("--jsonl and --jobs need --per-skill: cross-catalog checks need every skill loaded at once")
+    if args.online and args.per_skill:
+        # Each worker would open its own connections and cache, and --resume would keep rows that no network check made.
+        raise InputError("--online checks the whole catalog at once and does not combine with --per-skill")
     if args.kind == "tasks" and (args.per_skill or args.skip_nested or args.jsonl or args.resume
-                                 or args.jobs is not None or args.ignore):
-        raise InputError("--per-skill, --skip-nested, --ignore, --jsonl, --jobs and --resume apply to skills; "
-                         "drop them or use --kind skills|all")
+                                 or args.jobs is not None or args.online or args.ignore):
+        raise InputError("--per-skill, --skip-nested, --ignore, --jsonl, --jobs, --resume and --online apply to "
+                         "skills; drop them or use --kind skills|all")
 
 
 def cmd_catalog_scan(args: argparse.Namespace) -> None:
@@ -487,6 +514,13 @@ def register(sub, positive_int, eval_sub) -> None:
     scan_p.add_argument(
         "--resume", action="store_true",
         help="With --jsonl: keep the rows already in PATH and review only the skills without one",
+    )
+    scan_p.add_argument(
+        "--online", action="store_true",
+        help="Opt in to network checks of the skills: a pip/npm/npx package missing from PyPI or the "
+             "npm registry, and an http(s) link that answers 404/410, or does not resolve while another "
+             "probe got an answer, are warnings; targets not checked are counted in one summary line "
+             "(off by default: no request is made without it; not with --per-skill)",
     )
     scan_p.set_defaults(func=cmd_catalog_scan)
 
