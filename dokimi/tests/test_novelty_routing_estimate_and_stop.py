@@ -6,6 +6,9 @@ from __future__ import annotations
 import argparse
 import json
 
+import pytest
+
+from dokimi.novelty.all_vs_all import all_vs_all
 from dokimi.novelty.routing import Candidate, model_routing
 from dokimi.novelty.routing_estimate import selection_estimate
 
@@ -16,6 +19,14 @@ QUERIES = ["profile my binary", "index a table", "tune the database"]
 
 class AuthenticationError(Exception):
     """Named as litellm's, which is_retryable reads by class name."""
+
+
+class PermissionDeniedError(Exception):
+    pass
+
+
+class NotFoundError(Exception):
+    pass
 
 
 class ContentPolicyViolationError(Exception):
@@ -73,8 +84,39 @@ def test_an_authentication_error_stops_at_the_first_call_and_keeps_the_rows_befo
     assert stub.calls == 3
     assert result["n_calls"] == 2 and result["n_failed"] == 0
     assert "Unable to locate credentials" in result["cap_stop"]
-    assert "stopped at call 3; 2 earlier call(s) kept" in result["cap_stop"]
     assert result["partial"]["calls_done"] == 2 and result["partial"]["calls_planned"] == 6
+    assert result["partial"]["reason"] == "permanent_error"
+    assert result["partial"]["message"] == result["cap_stop"]
+
+
+@pytest.mark.parametrize("exc", [PermissionDeniedError("denied"), NotFoundError("no such model"),
+                                 RuntimeError("Missing credentials for the provider")])
+def test_each_run_wide_error_stops_the_run(exc):
+    def behaviour(n):
+        if n == 2:
+            raise exc
+        return '{"pick": 1}'
+
+    stub = Stub(behaviour)
+    result = model_routing(FIELD, QUERIES, client=stub)
+    assert stub.calls == 2 and result["n_calls"] == 1
+    assert result["partial"]["reason"] == "permanent_error"
+
+
+def test_all_vs_all_stops_at_a_run_wide_error_and_counts_the_calls_of_the_run():
+    def behaviour(n):
+        if n == 4:
+            raise AuthenticationError("bad key")
+        return '{"pick": 1}'
+
+    stub = Stub(behaviour)
+    queries = {"perf": ["profile my binary", "profile a slow binary"],
+               "db": ["tune the database", "index a table"]}
+    arm = all_vs_all(FIELD, queries, client=stub)["model"]
+    assert stub.calls == 4
+    assert arm["partial"]["calls_done"] == 3 and arm["partial"]["calls_planned"] == 4
+    assert arm["partial"]["reason"] == "permanent_error"
+    assert arm["partial"]["message"] == "permanent error: bad key"
 
 
 def test_a_first_call_permanent_error_makes_one_call():
@@ -96,3 +138,29 @@ def test_an_error_of_one_query_is_a_row_and_the_loop_goes_on():
     result = model_routing(FIELD, QUERIES + ["tune the index"], client=stub)
     assert stub.calls == 4
     assert result["n_failed"] == 2 and "cap_stop" not in result and "partial" not in result
+
+
+class BadRequestError(Exception):
+    """A context-length rejection of one oversized query."""
+
+
+class CliCallError(Exception):
+    retryable = False
+
+
+@pytest.mark.parametrize("exc", [
+    BadRequestError("maximum context length is 8192 tokens"),
+    IndexError("reply has no choices"),
+    CliCallError("claude exited 1"),
+    RuntimeError("boom"),
+])
+def test_an_error_that_may_belong_to_one_query_is_a_row_and_a_later_query_is_asked(exc):
+    def behaviour(n):
+        if n == 1:
+            raise exc
+        return '{"pick": 1}'
+
+    stub = Stub(behaviour)
+    result = model_routing(FIELD, QUERIES, client=stub)
+    assert stub.calls == 3 and result["n_calls"] == 3 and result["n_failed"] == 1
+    assert "cap_stop" not in result and "partial" not in result

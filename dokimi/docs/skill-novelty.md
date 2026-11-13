@@ -823,13 +823,13 @@ so count the queries first, or pass `--max-usd` to stop the run at a spend limit
 A stored response in `DOKIMI_RESPONSE_CACHE` is replayed without a call, so a rerun can make
 fewer calls than the printed count.
 
-**A permanent provider error stops a routing run the way the cap does.** An authentication or permission error, an unknown model ID or missing credentials (`dokimi.llm.is_retryable` is false) would fail every later call alike, so the run stops at that call, keeps the rows made before it and writes the partial result below, with the error text and the call it stopped at as the message (`reason` stays `"spend_cap"` in the record). A failure of one query (a refusal, an unparseable reply, a transient error that ran out of retries) is still one failed row, and the run goes on.
+**A permanent provider error that every call would meet stops a routing run the way the cap does.** An authentication or permission error, an unknown model ID (`not found`) or missing credentials would fail every later call alike, so the run stops at that call, keeps the rows made before it and writes the partial result below, with `"reason": "permanent_error"` and the error text as the message (`--max-usd` is not involved; the exit line gives `calls_done` of `calls_planned`). Any other failure is one failed row and the run goes on: a refusal, a request one query makes too long, an unparseable reply, an error the client does not recognise, a transient error that ran out of retries.
 
 **A routing run stopped by `--max-usd` keeps what it paid for.** `novelty routing --model`, single
 artifact or `--all-vs-all`, writes the result of the calls made before the cap (or a call with no
 known price) stopped it, prints the summary and `cost` lines, and still exits non-zero with the
 cap message and the path of the file. The file carries
-`"partial": {"reason": "spend_cap", "calls_done": N, "calls_planned": M, "message": ...}` at the
+`"partial": {"reason": "spend_cap", "calls_done": N, "calls_planned": M, "message": ...}` (`"permanent_error"` for the stop above) at the
 top level (and under the model arm), and no `partial` key when the run finished. The record's
 `status` is then `"partial"` instead of `"ok"` (a single run; an all-vs-all file carries `status`
 only when partial), so a script that checks `status == "ok"` does not take a prefix of the run for

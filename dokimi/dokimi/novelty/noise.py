@@ -9,9 +9,10 @@ from __future__ import annotations
 from collections import Counter
 
 
-def partial_record(message: str, calls_done: int, calls_planned: int) -> dict:
-    """The marker of a result cut short by ``--max-usd``: what ran, of what was planned."""
-    return {"reason": "spend_cap", "calls_done": calls_done, "calls_planned": calls_planned,
+def partial_record(message: str, calls_done: int, calls_planned: int,
+                   reason: str = "spend_cap") -> dict:
+    """The marker of a result cut short by ``--max-usd`` or a permanent error: what ran, of what was planned."""
+    return {"reason": reason, "calls_done": calls_done, "calls_planned": calls_planned,
             "message": message}
 
 

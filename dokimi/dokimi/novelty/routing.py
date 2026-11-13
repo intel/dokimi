@@ -42,13 +42,13 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from dokimi.external.listing import only_description_too_long
-from dokimi.llm import is_retryable
 from dokimi.skills import Skill
 from dokimi.utils import InputError, parse_frontmatter
 
 from .catalog_keep import check_keep_copies_under, keep_past_broken_copies, resolve_kept_copies
 from .client import LLMClient, OutputTruncated, SpendCapReached, parse_json_object
 from .noise import partial_record, repeat_noise
+from .routing_stop import PERMANENT_STOP, is_run_wide
 
 if TYPE_CHECKING:
     from dokimi.external.validate import SkillReview
@@ -266,17 +266,13 @@ def _pick_row(base: dict, reply: str, order: list[int], candidates: list[Candida
             "order": [candidates[i].name for i in order]}
 
 
-_PERMANENT_STOP = "permanent error: "
-# A permanent error that belongs to one query (a refusal), so the loop goes on.
-_PER_QUERY_ERRORS = frozenset({"ContentPolicyViolationError"})
-
 
 def _ask_once(client, prompt: str, base: dict, order: list[int], candidates: list[Candidate],
               gold: int) -> tuple[dict | None, str | None]:
     """One call of the routing loop: its row, and the message when the cap or a permanent error stops the run.
 
     A call the cap refused has no row; one with no price was paid for, so its reply is scored (a cut one as a decline) and the caller stops.
-    A permanent provider error (:func:`dokimi.llm.is_retryable` is False) has no row either and stops the run.
+    A run-wide provider error (:func:`dokimi.novelty.routing_stop.is_run_wide`) has no row either and stops the run.
     """
     try:
         reply = client.text(prompt, accept=partial(_is_pick_reply, n_cards=len(order)),
@@ -289,9 +285,9 @@ def _ask_once(client, prompt: str, base: dict, order: list[int], candidates: lis
             return {**base, "picked": None, "abstained": True, "raw_reply": exc.reply[:_RAW_REPLY_CHARS]}, stop
         return _pick_row(base, exc.reply, order, candidates, gold), stop
     except Exception as exc:  # noqa: BLE001 - one failed query must not lose the rest
-        if not is_retryable(exc) and type(exc).__name__ not in _PER_QUERY_ERRORS:
+        if is_run_wide(exc):
             # No credential, wrong model ID or missing permission fails every later call alike (#677).
-            return None, _PERMANENT_STOP + (str(exc)[:200] or type(exc).__name__)
+            return None, PERMANENT_STOP +(str(exc)[:200] or type(exc).__name__)
         return {**base, "picked": None, "error": str(exc)[:200] or type(exc).__name__}, None
     return _pick_row(base, reply, order, candidates, gold), None
 
@@ -349,9 +345,10 @@ def model_routing(
 
         When the client's ``--max-usd`` cap refuses a call, or a call comes back unpriced, the
         loop stops and the result holds the calls made so far, with ``cap_stop`` (the cap's
-        message). A permanent provider error (``is_retryable`` False: authentication, permission,
-        unknown model, no credentials) stops it the same way, with the error and the calls made in
-        ``cap_stop``; an error of one query (a refusal, an unparseable reply) is a row. A ``partial`` block (:func:`partial_record`) is added only when planned calls
+        message). A run-wide provider error (authentication, permission, unknown model, no
+        credentials) stops it the same way, with the error in ``cap_stop`` and ``stop_reason``
+        ``"permanent_error"`` (else ``"spend_cap"``); any other error is a row of its query. A
+        ``partial`` block (:func:`partial_record`) is added only when planned calls
         were left unmade (``n_calls`` below queries x repeats). A query stopped between repeats
         keeps its rows but is left out of ``noise``. Without a cap that trips, there is no
         ``cap_stop`` key.
@@ -370,8 +367,6 @@ def model_routing(
             groups.append(group)
         if stopped is not None:
             capped = stopped
-            if capped.startswith(_PERMANENT_STOP):
-                capped += f" (stopped at call {len(picks) + 1}; {len(picks)} earlier call(s) kept)"
             break
 
     answered = [p for p in picks if "correct" in p]
@@ -407,8 +402,10 @@ def model_routing(
         # The stop is kept apart from ``partial``: a stop on the run's last planned call leaves
         # nothing unmade, but a caller (all-vs-all) still must not ask a later skill unmetered.
         result["cap_stop"] = capped
+        reason = "permanent_error" if capped.startswith(PERMANENT_STOP) else "spend_cap"
+        result["stop_reason"] = reason
         if len(picks) < len(queries) * repeats:
-            result["partial"] = partial_record(capped, len(picks), len(queries) * repeats)
+            result["partial"] = partial_record(capped, len(picks), len(queries) * repeats, reason)
     return result
 
 

@@ -101,7 +101,7 @@ def test_a_model_run_whose_every_call_fails_prints_no_price_blame(tmp_path, monk
     from dokimi import llm
 
     def failing(prompt, model, **_kwargs):
-        raise RuntimeError("connection: provider refused")
+        raise RuntimeError("provider refused")
 
     monkeypatch.setattr(llm, "llm_call_with_usage", failing)
     payload = _model_run(tmp_path)
