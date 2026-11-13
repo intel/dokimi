@@ -119,6 +119,7 @@ def test_a_json_leaf_prints_one_envelope_on_an_input_error_and_exits_2(monkeypat
     doc = json.loads(out.out)  # exactly one document on stdout
     assert doc["run_id"] == "review-run"
     assert doc["kind"] == "backends" and doc["error"]["code"] == "input"
+    assert doc["reason"] == "--provider wants a model"  # the document says why, as error_document promises
     assert doc["error"]["message"] == "--provider wants a model" and doc["status"] == "failed"
     assert schema_errors("cli_output.v1", doc) == []
 

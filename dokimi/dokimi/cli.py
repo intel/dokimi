@@ -283,7 +283,8 @@ def _exit_with_document(args: argparse.Namespace, code: str, message: str) -> No
     from dokimi import cli_output
 
     kind = getattr(args, "cli_kind", args.cmd)  # a group leaf names itself, e.g. "runs list"
-    cli_output.emit(cli_output.error_document(kind, code, message, run_id=cli_output.current_run_id()))
+    cli_output.emit(cli_output.error_document(kind, code, message, run_id=cli_output.current_run_id(),
+                                              reason=message))
     sys.exit(cli_output.EXIT_OF_ERROR[code])
 
 
