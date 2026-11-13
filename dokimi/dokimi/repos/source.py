@@ -36,6 +36,7 @@ _SHA_RE = re.compile(r"^[0-9a-f]{7,40}$")
 _REMOTE_PREFIXES = ("https://", "ssh://", "file://", "git@")
 _GIT_TIMEOUT_S = 1800
 _FETCH_TRIES = 3  # a fetch that lost a ref to another run's fetch into the cache is run again
+_FETCH_ENV = process.Env.inherit({"GIT_TERMINAL_PROMPT": "0", "LC_ALL": "C"})  # untranslated: its error is matched
 READ_MANY_LIMIT = 2 * 1024 * 1024  # bytes; larger files are not text guidance or code to search
 
 
@@ -521,7 +522,7 @@ def _fetch_refs(git_dir: Path) -> None:
     for attempt in range(_FETCH_TRIES):
         try:
             _git(git_dir, "fetch", "--filter=blob:none", "origin",
-                 "+refs/heads/*:refs/heads/*", "+refs/tags/*:refs/tags/*")
+                 "+refs/heads/*:refs/heads/*", "+refs/tags/*:refs/tags/*", env=_FETCH_ENV)
             return
         except SourceError as exc:
             if "cannot lock ref" not in str(exc) or attempt == _FETCH_TRIES - 1:

@@ -16,6 +16,7 @@ from pathlib import Path
 
 import pytest
 
+from dokimi import process
 from dokimi.repos import source, workspace
 from dokimi.repos.source import RepoSource, SourceError, cache_path, ensure_clone, ensure_rev, resolve_rev
 from dokimi.repos.workspace import source_git_dir
@@ -132,7 +133,10 @@ def _push_topic(tmp_path: Path) -> str:
                           text=True).stdout.strip()
 
 
-def test_a_branch_fetch_that_lost_a_ref_to_another_run_is_run_again(tmp_path, monkeypatch):
+@pytest.mark.parametrize("user_locale", [None, "de_DE.UTF-8"])
+def test_a_branch_fetch_that_lost_a_ref_to_another_run_is_run_again(tmp_path, monkeypatch, user_locale):
+    if user_locale:
+        monkeypatch.setenv("LC_ALL", user_locale)
     url, _ = _origin(tmp_path)
     git_dir = ensure_clone(url, tmp_path / "cache")
     moved = _push_topic(tmp_path)
@@ -146,6 +150,10 @@ def test_a_branch_fetch_that_lost_a_ref_to_another_run_is_run_again(tmp_path, mo
         held.write_text("", encoding="utf-8")  # the other run's fetch is updating refs/heads/topic
         try:
             return real(gd, *args, **kwargs)
+        except SourceError as exc:
+            if kwargs.get("env", process.GIT_ENV).resolve().get("LC_ALL", "C") != "C":  # git as translated
+                raise SourceError(str(exc).replace("cannot lock ref", "konnte Referenz nicht sperren")) from exc
+            raise
         finally:
             held.unlink()
 
