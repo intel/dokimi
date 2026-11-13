@@ -67,7 +67,7 @@ EXPECTED: dict[str, tuple[dict, str | None, str | None, str | None]] = {
     "checklist.v1": ({}, None, "openai/m", None),
     "judge_wording.v1": ({}, None, "openai/m", None),
     "cross_judge.v1": ({}, None, None, None),
-    "judge_validity.v1": ({}, None, None, None),
+    "judge_validity.v1": ({"summary": {"n_pairs": 1, "judge": "openai/m"}}, None, "openai/m", None),
     "pairwise.v1": ({}, None, "openai/m", None),
     "personas.v1": ({}, "demo", "gen-m", "2026-11-01T00:00:00Z"),
     "persona_analysis.v1": ({}, None, None, None),
