@@ -214,10 +214,18 @@ def parse_exec_log(text: str) -> list[str]:
         m = _EXECVE.search(line)
         if not m or re.search(r"\)\s*=\s*-1\b", line):
             continue
+        path = _strace_text(m.group("path"))
         items = _ARGV_ITEM.findall(m.group("argv"))
-        # the executable is the path; argv[0] is whatever the process chose to call itself
-        argv = [_strace_text(a) for a, cut in items[1:] if not cut]
-        out.append(" ".join([_strace_text(m.group("path")), *argv]) if items else m.group("path"))
+        if not items:
+            out.append(path)
+            continue
+        # the executable is the path; argv[0] is whatever the process chose to call itself. A multi-call binary
+        # (busybox) runs the tool that argv[0] names, so that command line is read as well.
+        rest = [_strace_text(a) for a, cut in items[1:] if not cut]
+        out.append(" ".join([path, *rest]))
+        name, cut = items[0]
+        if not cut and posixpath.basename(path) != _strace_text(name):
+            out.append(" ".join([_strace_text(name), *rest]))
     return out
 
 

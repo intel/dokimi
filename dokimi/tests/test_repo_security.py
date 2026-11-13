@@ -930,8 +930,20 @@ def test_an_execve_with_cut_strings_is_matched_in_linear_time():
 
 def test_exec_log_names_the_executable_path_not_a_chosen_argv0():
     log = '1 execve("/bin/rm", ["cleanup", "-rf", "/etc"], 0x0 /* 1 var */) = 0\n'
-    assert sec.parse_exec_log(log) == ["/bin/rm -rf /etc"]
+    assert sec.parse_exec_log(log) == ["/bin/rm -rf /etc", "cleanup -rf /etc"]
     assert "destructive-delete" in {r for c in sec.parse_exec_log(log) for r in _rules(sec.command_findings(c, "exec"))}
+
+
+def test_exec_log_reads_a_multi_call_binary_by_the_tool_its_argv0_names():
+    # busybox runs the tool its argv[0] names: the command line of the tool is read too
+    log = '1 execve("/bin/busybox", ["rm", "-rf", "/"], 0x0 /* 1 var */) = 0\n'
+    lines = sec.parse_exec_log(log)
+    assert "destructive-delete" in {r for c in lines for r in _rules(sec.command_findings(c, "exec"))}
+
+
+def test_exec_log_decodes_the_path_when_argv_is_empty():
+    log = '1 execve("/bin/\\162m", [], 0x0 /* 1 var */) = 0\n'
+    assert sec.parse_exec_log(log) == ["/bin/rm"]
 
 
 def test_a_dropped_trace_error_is_redacted_before_it_is_clipped(tmp_path):
