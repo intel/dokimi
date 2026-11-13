@@ -647,8 +647,9 @@ def test_each_native_grader_maps_to_its_exact_check(tmp_path):
     ]
 
 
-@pytest.mark.parametrize("content", [b"", b"not json", bytes.fromhex("fffe007b"), None, "dir"],
-                         ids=["empty", "not-json", "not-utf8", "missing", "directory"])
+@pytest.mark.parametrize("content", [b"", b"not json", bytes.fromhex("fffe007b"), None, "dir", b"{}", b'{"questions": {}}'],
+                         ids=["empty", "not-json", "not-utf8", "missing", "directory", "empty-object",
+                              "questions-not-a-list"])
 def test_eval_reference_cli_refuses_an_unreadable_questions_file_with_exit_2(tmp_path, monkeypatch, capsys, content):
     from dokimi import cli
 
@@ -666,7 +667,7 @@ def test_eval_reference_cli_refuses_an_unreadable_questions_file_with_exit_2(tmp
         cli.main()
     assert exc.value.code == 2
     err = capsys.readouterr().err
-    assert err.startswith(f"Error: --questions {q}") and "Traceback" not in err
+    assert err.startswith("Error: ") and str(q) in err and "Traceback" not in err
     assert not out.exists()
 
 
