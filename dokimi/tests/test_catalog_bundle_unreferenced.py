@@ -301,6 +301,22 @@ def test_a_plain_folder_mention_in_a_nested_document_names_that_documents_folder
     assert "references/scripts/run.py" not in message
 
 
+def test_a_nested_document_in_a_folder_with_capitals_names_that_folder(tmp_path):
+    # The folder keeps its capitals in the walk, but the document's text is lowercased: its ./ path must match.
+    review = _review_with_texts(
+        tmp_path,
+        "Read [guide](References/guide.md).\n",
+        {
+            "References/guide.md": "Helpers in ./scripts/ do the work.\n",
+            "References/scripts/run.py": "x\n",
+            "scripts/other.py": "x\n",
+        },
+    )
+    [message] = _unreferenced(review)
+    assert "scripts/other.py" in message
+    assert "References/scripts/run.py" not in message
+
+
 @pytest.mark.parametrize("folder", ["tests", "test", "__tests__", "evals", ".github"])
 def test_a_named_document_in_an_excluded_folder_names_its_files(tmp_path, folder):
     # The folder is left out of the count, but a document in it that SKILL.md names still names what it links.

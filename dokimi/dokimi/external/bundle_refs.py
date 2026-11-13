@@ -226,7 +226,7 @@ def _named_closure(
                 continue
             if more:
                 docs_read += 1
-                folder = PurePosixPath(rel).parent.as_posix()
+                folder = PurePosixPath(rel).parent.as_posix().lower()  # the text is lowercased: its folder must be too
                 unseen += "\n" + _matchable(_from_folder(more.lower().replace("\\", "/"), folder))
                 linked.update(_target(folder, link) for link in doc_links(more) if link)
     return named_files, incomplete
