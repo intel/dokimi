@@ -237,15 +237,26 @@ def _split_routing_argv(rest: list[str]) -> tuple[dict[str, list[str]], list[str
         elif _is_plain(rest[i]):
             raise RetiredFlagError(f"unrecognized arguments: {rest[i]}")
         else:
-            kept.append("--reps" + eq + value if name == "--repeats" else rest[i])
-            i += 1
-            if name in _RETIRED_VALUE_FLAGS and not eq and i < len(rest) and _is_plain(rest[i]):
-                kept.append(rest[i])
-                i += 1
-            elif name not in _RETIRED_ROUTING_FLAGS and not eq and i < len(rest) and _is_plain(rest[i]):
-                # Not a flag the retired parser knew: argparse refused it with its value as the extra.
-                raise RetiredFlagError(f"unrecognized arguments: {rest[i - 1]} {rest[i]}")
+            i = _take_kept_flag(rest, i, name, eq, value, kept)
     return values, kept
+
+
+def _take_kept_flag(rest: list[str], i: int, name: str, eq: str, value: str, kept: list[str]) -> int:
+    """Keep a flag the new leaf takes (or refuses), and the value it took; returns the next index.
+
+    A value after a retired value flag is kept. A value after any other flag the retired parser did not know
+    is refused, as argparse refused it with its value as the extra.
+    """
+    kept.append("--reps" + eq + value if name == "--repeats" else rest[i])
+    i += 1
+    if eq or i >= len(rest) or not _is_plain(rest[i]):
+        return i
+    if name in _RETIRED_VALUE_FLAGS:
+        kept.append(rest[i])
+        return i + 1
+    if name not in _RETIRED_ROUTING_FLAGS:
+        raise RetiredFlagError(f"unrecognized arguments: {rest[i - 1]} {rest[i]}")
+    return i
 
 
 # argparse reads a negative number as a value or positional when no option looks like one (none does here).
