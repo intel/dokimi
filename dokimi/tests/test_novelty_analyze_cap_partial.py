@@ -108,6 +108,10 @@ def test_a_cap_in_measurement_keeps_the_atoms_and_the_answers_paid_for(tmp_path)
     assert record["probes"]["n_probes"] > 0 and record["source_spans"]
     # Nothing summarises the uneven arms: no paired figures, no views.
     assert not {"paired", "k0", "arms", "views", "shortening"} & set(record)
+    # What the stopped run paid and how it was configured are kept for its rerun to compare.
+    assert (record["cost"]["usd"], record["cost"]["llm_calls"]) == (1.2, 9)
+    assert record["run_config"]["prompts_sha256"] and record["atoms"]["sampling"] == "full"
+    assert record["atoms"]["faithfulness"]
     validate_artifact("novelty", record)
 
 
@@ -191,6 +195,13 @@ def test_a_call_with_no_price_stops_analyze_and_is_named_as_such(tmp_path):
     assert partial["stage"] == "extraction"
     assert "no price is known" in partial["message"]
     validate_artifact("novelty", result.artifact)
+
+
+def test_a_stop_in_the_need_graph_is_named_as_that_stage(tmp_path):
+    record = _run(tmp_path, lambda prompt: None if "TASK NAME:" in prompt else 0.0).artifact
+    assert record["partial"]["stage"] == "need_graph"
+    assert record["partial"]["message"].startswith("analyze stopped at the need graph: ")
+    validate_artifact("novelty", record)
 
 
 # --- the command ---------------------------------------------------------------------------
