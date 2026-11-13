@@ -411,3 +411,8 @@ def test_a_named_document_over_the_read_cap_names_nothing_it_holds(tmp_path, mon
         },
     )
     assert _unreferenced(review) == []
+
+
+def test_a_folder_written_with_a_backslash_names_its_files(tmp_path):
+    review = _review(tmp_path, "Helpers are in `scripts\\`.\n", ["scripts/helper.py"])
+    assert _unreferenced(review) == []

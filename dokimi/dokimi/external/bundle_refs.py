@@ -166,9 +166,10 @@ def _matchable(text: str) -> str:
 
     A folder destination is in ``links`` as its folder, so ``[scripts](scripts/)`` in a nested document
     does not name the skill-root ``scripts/``; ``./scripts/`` and ``${CLAUDE_SKILL_DIR}/scripts/`` in
-    the text name ``scripts/``. A file's name in a destination still names it, as in the text.
+    the text name ``scripts/``. A file's name in a destination still names it, as in the text. A backslash
+    is read as a path separator, as a document written on Windows has it (``scripts\\``).
     """
-    return _PATH_PREFIX.sub("", _FOLDER_DEST.sub("]", text))
+    return _PATH_PREFIX.sub("", _FOLDER_DEST.sub("]", text.replace("\\", "/")))
 
 
 def _read_doc(path: Path) -> Optional[str]:
