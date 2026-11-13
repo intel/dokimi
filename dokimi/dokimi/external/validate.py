@@ -53,6 +53,9 @@ an error and does not fail ``--strict``. A link to a file outside the skill dire
 naming such a file is ``path-escapes-skill``. Code spans that name no file are not checked,
 and neither are code fences: those are usually examples or paths in the user's own project.
 
+Bundled scripts and documents that ``SKILL.md`` never names are one ``warn`` per skill
+(``bundle-file-unreferenced``, see :mod:`dokimi.external.bundle_refs`).
+
 Descriptions: one with no "when" clause is a ``warn`` (``description-no-when``),
 and so is one whose tokens overlap another skill's at a Jaccard similarity of at least
 :data:`NEAR_DUPLICATE_JACCARD` (``description-near-duplicate``). Skills with
@@ -86,6 +89,7 @@ from dokimi.skills import Skill
 from dokimi.utils import describe_yaml_error, parse_frontmatter_strict
 
 from .catalog import SkillCatalogEntry, _within
+from .bundle_refs import unreferenced_message
 from .command_checks import command_findings
 from .allowed_tools import RISKY_COMMAND_CODES, tool_names, grants_unrestricted_bash, unrestricted_bash_message
 from .content_checks import content_findings
@@ -155,6 +159,7 @@ FINDING_CODES = (
     "allowed-tools-unknown",
     "allowed-tools-unrestricted-bash",
     "body-too-large",
+    "bundle-file-unreferenced",
     "description-near-duplicate",
     "description-no-when",
     "description-too-long",
@@ -397,6 +402,29 @@ def _counterpart(other: tuple[SkillCatalogEntry, Skill, SkillReview], entry: Ski
     if o_entry.source_root.resolve() == entry.source_root.resolve():
         return where
     return f"{where} in {o_entry.source_root.as_posix()}"
+
+
+def _link_files(markdown: str) -> list[Optional[str]]:
+    """The file each Markdown link of ``markdown`` names (see :func:`_file_ref`), None for a link that names none.
+
+    A link through ``${CLAUDE_SKILL_DIR}/`` keeps that prefix: it is from the skill root, not from the
+    folder of the document it is in (:func:`bundle_refs._target` resolves it).
+    """
+    files: list[Optional[str]] = []
+    for raw in link_pieces(outside_fences(markdown))[0]:
+        ref = _file_ref(raw, link=True)
+        if ref is not None and _through_skill_dir(raw):
+            ref = SKILL_DIR_VAR + ref
+        files.append(ref)
+    return files
+
+
+def _through_skill_dir(raw: str) -> bool:
+    """Whether a link destination starts with ``${CLAUDE_SKILL_DIR}/`` (decoded as :func:`_file_ref` decodes it)."""
+    text = raw.strip()
+    if text.startswith("<") and text.endswith(">"):
+        text = text[1:-1].strip()
+    return unquote(_ESCAPE_RE.sub(r"\1", text)).startswith(SKILL_DIR_VAR)
 
 
 def _file_ref(raw: str, link: bool = False) -> Optional[str]:
@@ -669,6 +697,11 @@ def review_skills(
                 Finding("warn", code, message)
                 for code, message in content_findings(skill, at_root=at_root and not standalone)
             ]
+            unreferenced = unreferenced_message(
+                skill.path, _link_files(skill.body), at_root=at_root and not standalone, doc_links=_link_files
+            )
+            if unreferenced is not None:
+                review.findings.append(Finding("warn", "bundle-file-unreferenced", unreferenced))
             review.findings += [Finding(*item) for item in script_findings(
                 skill.path.parent, checkout=None if standalone else entry.source_root)]
             if not hidden:

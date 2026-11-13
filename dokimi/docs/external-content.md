@@ -245,7 +245,14 @@ skill, since those commands then run with no prompt, and that pair fails `--stri
 (`description-no-when`), and so is one that overlaps another skill's by at least
 half and shares three words (`description-near-duplicate`). Two skills in different paths with the same
 directory name and description but different `SKILL.md` text are a `warn` on both
-(`mirror-drift`), naming the other copies. Skills with
+(`mirror-drift`), naming the other copies. A bundled script or document (`.py`, `.sh`, `.js`,
+`.ts`, `.md`, `.txt` and similar) that neither `SKILL.md` nor a document it names ever names, by
+path, file name or folder, is counted in one `warn` per skill (`bundle-file-unreferenced`): the agent
+finds it only by browsing. Data, images, licence, readme, changelog and `AGENTS.md`-style files,
+`_`-prefixed helpers, tests and `evals/` folders, hidden and vendored folders, and nested skills are
+not counted, nor is a skill at the root of the scanned checkout. The check then gives no count and no finding, and
+says nothing about it, when the search cannot see every name: a bundle over 2000 files, more than 50 named
+documents to read, a named document over 256 KiB, not UTF-8, a symlink or a FIFO, a folder that cannot be listed. Skills with
 `disable-model-invocation: true` are exempt from the description checks.
 
 The scan also reads the scripts a skill bundles: each `.sh`, `.bash` and `.py` file, and each file that
