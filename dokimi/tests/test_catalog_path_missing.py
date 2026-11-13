@@ -311,3 +311,19 @@ def test_a_missing_path_next_to_a_shell_operator_or_an_option_is_named(tmp_path,
     review, _ = _review(tmp_path, body)
     assert [finding.message.split("'")[1] for finding in _path_findings(review)] == names
 
+
+def test_a_backslash_in_a_code_span_is_a_character_of_the_name(tmp_path):
+    review, _ = _review(tmp_path, r"Run `scripts/a\b.py`." + "\n", files=[r"scripts/a\b.py"])
+    assert _path_findings(review) == []
+
+
+def test_a_missing_backslash_name_is_named_with_the_backslash(tmp_path):
+    review, _ = _review(tmp_path, r"Run `scripts/a\b.py`." + "\n")
+    [finding] = _path_findings(review)
+    assert finding.message.startswith(r"'scripts/a\\b.py' (in ")  # repr shows the backslash doubled
+
+
+def test_an_escaped_comma_before_a_bundle_folder_stays_in_the_name(tmp_path):
+    review, _ = _review(tmp_path, r"Copy it with `cp scripts/a\,scripts/b.py /tmp/x`." + "\n")
+    [finding] = _path_findings(review)
+    assert finding.message.startswith("'scripts/a,scripts/b.py' (in ")

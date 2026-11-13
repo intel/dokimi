@@ -71,22 +71,37 @@ def _bundle_path(word: str) -> Optional[str]:
     return text
 
 
-def _words(span: str) -> list[str]:
-    """The words of a code span as a shell reads them: a quoted or escaped argument is one word.
+# A backslash before one of these is a shell escape: the escaped character is a character of the name.
+# It is swapped for a placeholder before the tokenizer, so a comma or ``;`` that is escaped does not split.
+# Any other backslash is a character of the name: a code span is literal (``scripts/a\\b.py``).
+_ESCAPED = {",": "\x01", ";": "\x02", '"': "\x03", "'": "\x04", " ": "\x05"}
+_ESCAPE_RE = re.compile(r"\\([,;\"' ])")
 
-    The shell tokenizer runs first, so its quotes and escapes (``a\\,b.svg``, ``"a\\"b,c.svg"``) hold,
-    and a ``;`` is a command separator as in the shell (``run.py;echo``). Then a word is split where a
-    ``,`` or ``;`` comes before a bundle folder (``scripts/a.py,scripts/b.py``), which also splits a
-    list inside quotes. A span whose quotes do not balance is split on whitespace.
+
+def _restore(part: str) -> str:
+    for char, placeholder in _ESCAPED.items():
+        part = part.replace(placeholder, char)
+    return part
+
+
+def _words(span: str) -> list[str]:
+    """The words of a code span as a shell reads them: a quoted argument is one word, and an escaped ``,`` ``;`` quote or space is a character of it.
+
+    The shell tokenizer runs first, with quotes (``"a\\"b,c.svg"``) and no backslash escapes of its own
+    (``scripts/a\\b.py`` keeps its backslash), and a ``;`` is a command separator as in the shell (``run.py;echo``).
+    Then a word is split where a unescaped ``,`` or ``;`` comes before a bundle folder (``scripts/a.py,scripts/b.py``),
+    which also splits a list inside quotes. A span whose quotes do not balance is split on whitespace.
     """
+    protected = _ESCAPE_RE.sub(lambda m: _ESCAPED[m.group(1)], span)
     try:
-        lexer = shlex.shlex(span, posix=True, punctuation_chars=";")
+        lexer = shlex.shlex(protected, posix=True, punctuation_chars=";")
         lexer.whitespace_split = True
         lexer.commenters = ""
+        lexer.escape = ""
         words = list(lexer)
     except ValueError:
         words = span.replace(";", " ").split()
-    return [part for word in words for part in SEPARATOR_RE.split(word) if part]
+    return [_restore(part) for word in words for part in SEPARATOR_RE.split(word) if part]
 
 
 def _missing(skill_dir: Path, text: str, real_dir: Path) -> bool:
