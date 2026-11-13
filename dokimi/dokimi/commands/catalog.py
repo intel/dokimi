@@ -318,8 +318,6 @@ def cmd_catalog_trigger_set(args: argparse.Namespace) -> None:
 
 
 def cmd_catalog_formats(args: argparse.Namespace) -> None:
-    import json
-
     from dokimi.skills import formats
 
     root = Path(args.root)
@@ -328,8 +326,10 @@ def cmd_catalog_formats(args: argparse.Namespace) -> None:
     packages = formats.detect_skill_packages(root)
     summary = formats.summarize(packages)
     if args.json:
-        print(json.dumps({"root": str(root), "summary": summary,
-                          "packages": [p.to_dict(root) for p in packages]}, indent=2))
+        from dokimi import cli_output
+
+        cli_output.emit_leaf("catalog formats", {"root": str(root), "summary": summary,
+                                                 "packages": [p.to_dict(root) for p in packages]})
         return
     for p in packages:
         problems = "; ".join(p.problems) or "ok"
@@ -532,8 +532,8 @@ def register(sub, positive_int, eval_sub) -> None:
              "rules, Copilot instructions, Gemini extensions, Claude plugins)",
     )
     fm_p.add_argument("--root", required=True, help="Local checkout to scan")
-    fm_p.add_argument("--json", action="store_true", help="Print JSON instead of a table")
-    fm_p.set_defaults(func=cmd_catalog_formats)
+    fm_p.add_argument("--json", action="store_true", help="Print cli_output.v1 on stdout (the packages under data)")
+    fm_p.set_defaults(func=cmd_catalog_formats, emits_cli_output=True, cli_kind="catalog formats")
 
     triggers_sub = eval_sub.add_parser("triggers", help="Trigger sets: build them from question sets").add_subparsers(
         dest="eval_triggers_cmd", required=True)
