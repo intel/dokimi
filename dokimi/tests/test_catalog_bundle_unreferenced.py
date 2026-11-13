@@ -439,3 +439,9 @@ def test_a_folder_link_with_a_title_or_brackets_names_the_folder_of_its_document
     [message] = _unreferenced(review)
     assert "(scripts/other.py)" in message
     assert "references/scripts/run.py" not in message
+
+
+def test_the_unnamed_files_are_listed_in_path_order(tmp_path):
+    review = _review(tmp_path, "Use it.\n", ["zeta.py", "scripts/a.py"])
+    [message] = _unreferenced(review)
+    assert "(scripts/a.py, zeta.py)" in message

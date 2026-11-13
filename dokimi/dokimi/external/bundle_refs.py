@@ -93,7 +93,7 @@ def _walk(skill_dir: Path, *, counted: bool) -> list[str]:
             ):
                 continue
             found.append((here / name).relative_to(skill_dir).as_posix())
-    return found
+    return sorted(found)  # path order: os.walk yields a folder's files before its subfolders'
 
 
 _WORD = re.compile(r"\w")
