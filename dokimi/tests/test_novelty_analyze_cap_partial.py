@@ -133,6 +133,18 @@ def test_a_cap_between_the_two_wording_calls_keeps_the_paraphrases_already_paid_
     validate_artifact("novelty", record)
 
 
+@pytest.mark.parametrize("marker, kind", [("Reword each question", "paraphrase"),
+                                          ("Rewrite each statement below", "reversal")])
+def test_a_no_price_wording_call_keeps_the_wordings_its_reply_carried(tmp_path, marker, kind):
+    record = _run(tmp_path, lambda prompt: None if marker in prompt else 0.0).artifact
+    assert record["partial"]["stage"] == "probes" and record["partial"]["reason"] == "no_price"
+    items = record["probes"]["items"]
+    assert kind in {item["kind"] for item in items}
+    assert record["probes"]["by_kind"][kind]["kept"] > 0
+    assert len(items) == record["probes"]["n_probes"]
+    validate_artifact("novelty", record)
+
+
 def test_a_cap_in_the_paid_classify_stage_keeps_the_complete_measurement(tmp_path):
     result = _run(tmp_path, _after("judge how it functions"))
     partial = result.artifact["partial"]

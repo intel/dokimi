@@ -34,10 +34,11 @@ wording on half the probe budget it claims.
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 
 from .atoms import Atom
-from .client import LLMClient
+from .client import LLMClient, SpendCapReached
 
 PROBE_KINDS = ("direct", "paraphrase", "reversal")
 
@@ -425,8 +426,7 @@ def build_probe_set(
         return True
 
     if paraphrases:
-        for chunk in _chunks(atoms, batch):
-            worded = _generate(client, _PARAPHRASE_PROMPT, [a.question for a in chunk])
+        for chunk, worded in _worded(client, _PARAPHRASE_PROMPT, atoms, batch, "question"):
             for atom, question in zip(chunk, worded, strict=False):
                 reasons = check_wording(
                     "paraphrase", source=atom.question, candidate=question,
@@ -436,8 +436,7 @@ def build_probe_set(
                     probes.append(Probe(atom_id=atom.id, kind="paraphrase",
                                         question=question.strip(), expected=atom.answer))
     if reversals:
-        for chunk in _chunks(atoms, batch):
-            worded = _generate(client, _REVERSAL_PROMPT, [a.statement for a in chunk])
+        for chunk, worded in _worded(client, _REVERSAL_PROMPT, atoms, batch, "statement"):
             for atom, question in zip(chunk, worded, strict=False):
                 reasons = check_wording(
                     "reversal", source=atom.statement, candidate=question,
@@ -470,10 +469,37 @@ def _generate(client: LLMClient, template: str, lines: list[str]) -> list[str]:
         rows = client.json_array(template.format(**{key: numbered}))
     except Exception:
         rows = []
+    return _aligned(rows, len(lines))
+
+
+def _worded(client: LLMClient, template: str, atoms: list, batch: int,
+            field_name: str) -> Iterator[tuple[list, list[str]]]:
+    """Each chunk of ``atoms`` with its wordings. A call with no price was paid for: its reply's
+    wordings are yielded, and the stop is raised once the caller has kept them."""
+    from dokimi.llm_json import extract_json_array
+
+    for chunk in _chunks(atoms, batch):
+        lines = [getattr(atom, field_name) for atom in chunk]
+        try:
+            worded = _generate(client, template, lines)
+        except SpendCapReached as stop:
+            if not stop.reply:
+                raise
+            try:
+                rows = extract_json_array(stop.reply)
+            except ValueError:
+                rows = []
+            yield chunk, _aligned(rows, len(lines))
+            raise stop
+        yield chunk, worded
+
+
+def _aligned(rows: list, n: int) -> list[str]:
+    """``n`` wordings from a reply's rows, ``""`` for a row that is missing or not text."""
     worded = [
         # A generator that echoes the "1. " list numbering would otherwise add an anchor.
         re.sub(r"^\d+\.\s+", "", str(row).strip())
         if isinstance(row, (str, int, float)) else ""
         for row in rows
-    ][: len(lines)]
-    return worded + [""] * (len(lines) - len(worded))
+    ][:n]
+    return worded + [""] * (n - len(worded))
