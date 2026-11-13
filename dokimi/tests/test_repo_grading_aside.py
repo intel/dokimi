@@ -6,12 +6,11 @@ lose it (#687): the next grade finishes the moves instead of taking them for a r
 
 from __future__ import annotations
 
-import shutil
+import os
 from pathlib import Path
 
 import pytest
 
-from dokimi.repos import grading
 from dokimi.repos.grading import AGENT_GIT, _set_git_config_aside
 
 
@@ -42,18 +41,19 @@ def _archived(run_dir: Path) -> dict[str, str]:
 @pytest.mark.parametrize("moves_before_crash", [0, 1, 3])
 def test_a_crash_between_the_moves_loses_nothing_on_the_next_grade(tmp_path, monkeypatch, moves_before_crash):
     dot_git = _agent_git(tmp_path)
-    real, done = shutil.move, []
+    real, done = os.rename, []
 
     def crash_after_some(src, dst):
-        if len(done) == moves_before_crash:
-            raise Crash
-        done.append(src)
+        if Path(dst).parent.name == f".{AGENT_GIT}.partial":
+            if len(done) == moves_before_crash:
+                raise Crash
+            done.append(src)
         return real(src, dst)
 
-    monkeypatch.setattr(grading.shutil, "move", crash_after_some)
+    monkeypatch.setattr(os, "rename", crash_after_some)
     with pytest.raises(Crash):
         _set_git_config_aside(tmp_path)
-    monkeypatch.setattr(grading.shutil, "move", real)
+    monkeypatch.setattr(os, "rename", real)
     _set_git_config_aside(tmp_path)
     assert _archived(tmp_path) == {**SOURCES, "hooks/pre-commit": "#!/bin/sh\necho agent\n"}
     assert sorted(p.name for p in dot_git.iterdir()) == ["config"]
@@ -81,27 +81,6 @@ def test_a_regrade_keeps_the_first_git_file_and_removes_a_later_one(tmp_path):
     _set_git_config_aside(tmp_path)
     assert (tmp_path / AGENT_GIT / "dot-git").read_text(encoding="utf-8") == "gitdir: /agent/repo\n"
     assert not (workspace / ".git").exists()
-
-
-def test_a_move_cut_short_in_its_copy_is_redone_from_the_workspace(tmp_path, monkeypatch):
-    dot_git = _agent_git(tmp_path)
-    real = shutil.move
-
-    def copy_cut_short(src, dst):
-        if Path(src).name == "hooks":  # across file systems a move copies, then deletes the source
-            Path(dst).mkdir()
-            (Path(dst) / "pre-commit").write_text("#!/bin/sh\n", encoding="utf-8")
-            raise Crash
-        return real(src, dst)
-
-    monkeypatch.setattr(grading.shutil, "move", copy_cut_short)
-    with pytest.raises(Crash):
-        _set_git_config_aside(tmp_path)
-    monkeypatch.setattr(grading.shutil, "move", real)
-    _set_git_config_aside(tmp_path)
-    assert _archived(tmp_path) == {**SOURCES, "hooks/pre-commit": "#!/bin/sh\necho agent\n"}
-    assert [p.name for p in (tmp_path / AGENT_GIT / "hooks").iterdir()] == ["pre-commit"]
-    assert sorted(p.name for p in dot_git.iterdir()) == ["config"]
 
 
 def test_a_link_in_place_of_the_partial_archive_is_not_moved_into(tmp_path):

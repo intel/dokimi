@@ -271,8 +271,7 @@ def _set_git_config_aside(run_dir: Path) -> None:
             _clear(partial)
             partial.mkdir()
         for name, path in _git_config_sources(dot_git):
-            _clear(partial / name)  # still in the workspace: a move cut short left at most a copy here
-            shutil.move(str(path), str(partial / name))
+            path.rename(partial / name)  # atomic: workspace/ is in the run dir, on its file system
         partial.rename(aside)
     for _, path in _git_config_sources(dot_git):  # what a grader wrote since the first move
         _clear(path)
