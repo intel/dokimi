@@ -65,6 +65,10 @@ def _rx(text: str) -> re.Pattern[str]:
 
 #: A shell word that is an absolute path.
 _ABS_WORD = re.compile(r"(?<![^\s;&|\"'`(])/[^\s;&|\"'`)]*")
+#: A shell word that starts at the home directory: ``~``, ``$HOME`` or ``${HOME}``.
+_HOME_WORD = re.compile(r"(?<![^\s;&|\"'`(])(?:~|\$HOME|\$\{HOME\})(?=/|[\s;&|\"'`)]|$)[^\s;&|\"'`)]*")
+_HOME_PREFIX = re.compile(r"^(?:~|\$HOME|\$\{HOME\})")
+_HOME_STAND_IN = "/__home__"  # no real path is named this; it is only the root that home words are taken from
 _SYSTEM_DIRS = "etc|usr|var|home|root|opt|bin|sbin|lib|lib64|boot|srv|dev|sys|proc"
 #: A path under a system directory with one of these components is routine cleanup (apt lists, pip
 #: and conda caches, an installed package), not the directory: ``/var/lib/apt/lists/*``, ``/root/.cache/pip``.
@@ -230,8 +234,19 @@ def parse_exec_log(text: str) -> list[str]:
 
 
 def _normal_paths(text: str) -> str:
-    """``text`` with each absolute word holding a ``..`` taken to the path it names: ``/tmp/..`` is ``/``."""
-    return _ABS_WORD.sub(lambda m: posixpath.normpath(m.group()) if "/.." in m.group() else m.group(), text)
+    """``text`` with each absolute word, or home word, holding a ``..`` taken to the path it names: ``/tmp/..`` is
+    ``/``, ``~/.cache/../*`` is ``~/*``. A home word is normalised under a stand-in home, so ``..`` can climb out."""
+    def home(m: re.Match[str]) -> str:
+        word = m.group()
+        if "/.." not in word:
+            return word
+        path = posixpath.normpath(_HOME_STAND_IN + _HOME_PREFIX.sub("", word))
+        if path == _HOME_STAND_IN:
+            return "~"
+        return "~" + path[len(_HOME_STAND_IN):] if path.startswith(_HOME_STAND_IN + "/") else path
+
+    text = _ABS_WORD.sub(lambda m: posixpath.normpath(m.group()) if "/.." in m.group() else m.group(), text)
+    return _HOME_WORD.sub(home, text)
 
 
 def command_findings(text: str, source: str, canaries: Sequence[str] = ()) -> list[Finding]:

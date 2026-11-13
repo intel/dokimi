@@ -969,7 +969,10 @@ def test_secret_read_by_a_windows_path(tmp_path, path):
     assert "secret-read" in {f["rule"] for f in sec.scan_cell(cell)["findings"]}
 
 
-@pytest.mark.parametrize("text", ["rm -rf /tmp/..", "rm -rf /tmp/../../etc", "rm -rf ~/.."])
+@pytest.mark.parametrize("text", [
+    "rm -rf /tmp/../*", "rm -rf /tmp/../../etc", "rm -rf ~/.cache/../*", "rm -rf $HOME/x/../*",
+    "rm -rf ~/x/../../root", "rm -rf ${HOME}/.cache/../..",
+])
 def test_destructive_delete_follows_a_dot_dot_out_of_a_cleanup_dir(text):
     assert "destructive-delete" in _rules(sec.command_findings(text, "trace"))
 
