@@ -19,6 +19,7 @@ import posixpath
 import re
 import shutil
 import sys
+import time
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Callable, Protocol
@@ -461,14 +462,31 @@ def isolated_git_env() -> dict[str, str]:
 def ensure_clone(url: str, cache_dir: Path) -> Path:
     """Clone ``url`` bare and blob-less into the cache once; return the git dir."""
     git_dir = cache_path(url, cache_dir)
+    return clone_once(git_dir, lambda tmp: _git(None, "clone", "--bare", "--filter=blob:none", "--", url, str(tmp)))
+
+
+def clone_once(git_dir: Path, clone: Callable[[Path], object]) -> Path:
+    """``git_dir``, made by ``clone(<tmp>)`` and a rename unless it has a ``HEAD``. Another process may clone the
+    same URL meanwhile: each clones into its own directory, and the one whose rename fails uses the other's."""
     if (git_dir / "HEAD").is_file():
         return git_dir
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    tmp = git_dir.with_name(git_dir.name + ".partial")
-    if tmp.exists():
-        shutil.rmtree(tmp)
-    _git(None, "clone", "--bare", "--filter=blob:none", "--", url, str(tmp))
-    tmp.rename(git_dir)
+    git_dir.parent.mkdir(parents=True, exist_ok=True)
+    for old in git_dir.parent.glob(f"{git_dir.name}.*partial"):  # a clone this old was killed by its timeout
+        try:
+            if time.time() - old.stat().st_mtime > _GIT_TIMEOUT_S:
+                shutil.rmtree(old, ignore_errors=True)
+        except OSError:  # another process removed it first
+            pass
+    tmp = git_dir.with_name(f"{git_dir.name}.{os.getpid()}-{os.urandom(3).hex()}.partial")
+    try:
+        clone(tmp)
+        try:
+            tmp.rename(git_dir)
+        except OSError:
+            if not (git_dir / "HEAD").is_file():
+                raise
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
     return git_dir
 
 
