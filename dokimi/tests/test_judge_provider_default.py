@@ -323,3 +323,16 @@ def test_subjects_run_refuses_a_judge_model_the_cli_judge_it_moves_to_cannot_tak
                        "--judge-model", "gpt-4o"])
     with pytest.raises(InputError, match="takes a Claude model"):
         resolve_judge(args, SimpleNamespace(matrix_cells_explicit=False))
+
+
+def test_subjects_run_refuses_a_default_judge_that_is_the_implicit_cell_answerer():
+    from dokimi.commands.subjects import resolve_judge
+    from dokimi.utils import InputError
+
+    argv = [*COMMANDS["subjects run"], "--judge", "--model", "claude-sonnet-5-5"]
+    with pytest.raises(InputError, match="model under measurement"):
+        resolve_judge(parse_args(argv), SimpleNamespace(matrix_cells_explicit=False))
+    # Explicit cells are the answerers, so the top-level --model excludes nothing.
+    args = parse_args(argv)
+    resolve_judge(args, SimpleNamespace(matrix_cells_explicit=True))
+    assert (args.judge_provider, args.judge_model) == ("anthropic", "claude-sonnet-5-5")
