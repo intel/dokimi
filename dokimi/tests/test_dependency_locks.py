@@ -260,17 +260,46 @@ INSTALL_SOURCES = (".github/**/*.yml", ".agent-eval/Dockerfile", "Makefile", "do
                    "*.md", "dokimi/*.md", "dokimi/docs/**/*.md")
 
 
-def _install_lines(path: Path) -> list[str]:
-    """``path``'s lines that install ``requirements.lock.txt``, a backslash continuation joined to its line."""
-    text = re.sub(r"\\\n\s*", " ", path.read_text(encoding="utf-8"))
-    return [line for line in text.splitlines()
-            if re.search(r"\binstall\b", line) and re.search(r"-r\s+\S*\brequirements\.lock\.txt\b", line)]
+# pip's requirement-file forms, as scripts/ci_local.py reads them: -r f, -rf, --requirement f, --requirement=f
+_MAIN_LOCK = re.compile(r"(?:^|\s)(?:-r\s*|--requirement[=\s]\s*)(?:\S*/)?requirements\.lock\.txt\b")
+
+
+def _installs_of_the_main_lock(text: str) -> list[str]:
+    """Each command in ``text`` that installs ``requirements.lock.txt``; a backslash continuation joins its line
+    and ``&&``, ``||``, ``;`` and ``|`` separate commands, so a flag of one command never covers another."""
+    joined = re.sub(r"\\\r?\n\s*", " ", text)
+    return [part.strip() for line in joined.splitlines() for part in re.split(r"&&|\|\||;|\|", line)
+            if re.search(r"\binstall\b", part) and _MAIN_LOCK.search(part)]
+
+
+@pytest.mark.parametrize(("text", "unguarded"), [
+    ("pip install -r requirements.lock.txt", True),
+    ("pip install -rrequirements.lock.txt", True),
+    ("pip install --requirement requirements.lock.txt", True),
+    ("pip install --requirement=dokimi/requirements.lock.txt", True),
+    ("pip install --no-deps wheel && pip install --require-hashes -r requirements.lock.txt", True),
+    ("uv pip install --python x \\\n    -r requirements.lock.txt", True),
+    ("pip install --no-deps --require-hashes -r requirements.lock.txt -r requirements-ci.lock.txt", False),
+    ("pip install --no-deps --requirement=/opt/req/requirements.lock.txt", False),
+    ("uv pip install --python x --no-deps \\\n    -r requirements.lock.txt", False),
+], ids=["short", "joined", "long", "long-equals", "chained", "continued", "guarded", "guarded-long",
+        "guarded-continued"])
+def test_an_install_of_the_main_lock_without_no_deps_is_found(text: str, unguarded: bool) -> None:
+    installs = _installs_of_the_main_lock(text)
+    assert len(installs) == 1, installs
+    assert ("--no-deps" not in installs[0]) is unguarded
+
+
+@pytest.mark.parametrize("text", ["pip install --require-hashes -r requirements-ci.lock.txt",
+                                  "cache-dependency-path: dokimi/requirements.lock.txt"])
+def test_other_locks_and_mentions_of_the_main_lock_are_not_installs_of_it(text: str) -> None:
+    assert _installs_of_the_main_lock(text) == []
 
 
 def test_every_install_of_the_main_lock_passes_no_deps() -> None:
     """SECURITY.md: the main lock overrides litellm's filelock cap, so an install without --no-deps cannot resolve."""
-    found = {path.relative_to(ROOT.parent).as_posix(): _install_lines(path)
+    found = {path.relative_to(ROOT.parent).as_posix(): _installs_of_the_main_lock(path.read_text(encoding="utf-8"))
              for pattern in INSTALL_SOURCES for path in sorted(ROOT.parent.glob(pattern)) if path.is_file()}
-    assert sum(len(lines) for lines in found.values()) >= 10, found
-    missing = [(name, line.strip()) for name, lines in found.items() for line in lines if "--no-deps" not in line]
+    assert sum(len(installs) for installs in found.values()) >= 10, found
+    missing = [(name, install) for name, installs in found.items() for install in installs if "--no-deps" not in install]
     assert missing == []
