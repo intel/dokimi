@@ -18,8 +18,8 @@ as a warning.
 
 ``--relock`` overwrites the lock only when the run passes; a blocked or inconclusive run leaves the old lock.
 
-Exits 1 when the run is blocked (a leak, a changed split, a test item given to the proposer) or inconclusive
-(an item could not be checked, or none could); exits 2 on an unreadable input, a malformed split, lock or
+Exits 1 when the run is blocked (a leak, a changed split, a test item given to the proposer) and 3 when it is
+inconclusive (an item could not be checked, or none could); exits 2 on an unreadable input, a malformed split, lock or
 proposer list, or an unwritable ``--out``. Makes no model call.
 """
 
@@ -30,6 +30,7 @@ import os
 import sys
 from pathlib import Path
 
+from dokimi.exit_codes import EXIT_INCONCLUSIVE
 from dokimi.utils import InputError
 
 
@@ -127,6 +128,8 @@ def cmd_eval_leak(args: argparse.Namespace) -> None:
         except (OSError, ValueError) as e:
             raise InputError(str(e)) from e
         print(f"Wrote leak artifact to {args.out}")
+    if result["status"] == "inconclusive":
+        sys.exit(EXIT_INCONCLUSIVE)
     if result["status"] != "pass":
         sys.exit(1)
 
