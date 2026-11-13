@@ -42,7 +42,6 @@ from dokimi.commands.novelty_routing_report import (
     save_result,
     stop_if_partial,
     warn_blind_skills,
-    warn_shared_queries,
 )
 from dokimi.defaults import (
     DEFAULT_ANSWER_MODEL,
@@ -332,7 +331,6 @@ def _cmd_routing_all_vs_all(args: argparse.Namespace) -> None:
     check_all_vs_all_field(args, field, dropped, conflicts)
     queries_by_skill, dropped_queries = drop_queries_left_out(queries_by_skill, field, dropped,
                                                               unloaded)
-    warn_shared_queries(queries_by_skill)
     if args.estimate_only:
         print_all_vs_all_estimate(args, field, queries_by_skill)
         return
