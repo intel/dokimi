@@ -370,16 +370,16 @@ def _has_late_frontmatter(lines: list[str]) -> bool:
     )
 
 
-# A YAML mapping key at the start of a line, indented or not: ``title: x``, ``  name: x``.
-YAML_KEY_RE = re.compile(r"\s*[A-Za-z_][\w-]*\s*:")
+# A YAML key at the start of a line: ``title: x``, ``  name: x``, ``"name": x``, ``{name: x``, ``- name: x``.
+YAML_KEY_RE = re.compile(r"""\s*(?:-\s+)?[{\[]?\s*["']?[A-Za-z_][\w.-]*["']?\s*:""")
 
 
 def _opens_frontmatter(lines: list[str]) -> bool:
-    """Whether the lines open with a ``---`` block that holds a YAML key (``title:``, ``name:``) before its closing ``---``."""
-    block = []
+    """Whether the lines open with a ``---`` block that is empty or holds a YAML key (``title:``, ``name:``) before its closing ``---``."""
+    block: list[str] = []
     for line in lines[1:]:
         if line.rstrip() == "---":
-            break
+            return not block or any(YAML_KEY_RE.match(line) for line in block)
         block.append(line)
     return any(YAML_KEY_RE.match(line) for line in block)
 
