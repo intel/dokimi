@@ -336,3 +336,11 @@ def test_subjects_run_refuses_a_default_judge_that_is_the_implicit_cell_answerer
     args = parse_args(argv)
     resolve_judge(args, SimpleNamespace(matrix_cells_explicit=True))
     assert (args.judge_provider, args.judge_model) == ("anthropic", "claude-sonnet-5-5")
+
+
+@pytest.mark.parametrize("command", ["arms run", "benchmark run", "benchmark preflight", "benchmark batch", "evaluate"])
+def test_a_named_judge_provider_is_kept_for_a_claude_cli_answerer_when_the_judge_model_is_left_out(command):
+    judge = ["--judge"] if command.startswith("arms") else []
+    args = parse_args([*COMMANDS[command], "--provider", "claude-cli", "--model", "haiku", *judge,
+                       "--judge-provider", "anthropic"])
+    assert (args.judge_provider, args.judge_model) == ("anthropic", "claude-sonnet-5-5")
