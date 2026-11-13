@@ -8,7 +8,8 @@ measured (``value``) against what it allowed (``threshold``), whether it passed,
 
 * ``severity``: ``"fail"`` blocks (a failed fail-severity check makes the verdict ``blocking``), ``"warn"``
   is reported, ``"info"`` is an observation. The soft score gate is ``"fail"`` too: it is report-only
-  because its caller reads ``passed`` and does not act on ``blocking``.
+  because its caller reads ``passed`` and does not act on ``blocking``. So is a CRITICAL regression:
+  ``compare`` reports its ``level``.
 * ``measured``: False when the artifact did not carry the check's input. Such a check passes without having
   been run and is listed as not measured, never as a pass.
 * ``level``: the graded outcome of a gate that grades rather than pass or fail (regression: OK, WARN, CRITICAL).

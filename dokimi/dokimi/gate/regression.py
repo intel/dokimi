@@ -34,7 +34,8 @@ def _regression_check(
     name: str, delta: float, warn: float, critical: float, *, measured: bool = True
 ) -> Check:
     """One metric as a graded check: ``level`` is its OK/WARN/CRITICAL grade, ``threshold`` the
-    ``(warn, critical)`` drops it is graded against. Regressions report; none is a fail-severity check.
+    ``(warn, critical)`` drops it is graded against. Regressions report: a CRITICAL one is a fail-severity
+    check, which ``compare`` does not act on.
     ``measured`` is False when the diff did not carry the metric."""
     level = _classify_regression(delta, warn, critical)
     return Check(
