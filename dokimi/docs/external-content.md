@@ -245,7 +245,7 @@ skill, since those commands then run with no prompt, and that pair fails `--stri
 (`description-no-when`), and so is one that overlaps another skill's by at least
 half and shares three words (`description-near-duplicate`). The `description-no-when` cue is read in English,
 Spanish, French, German, Portuguese, Russian, Chinese, Japanese and Korean, and a description in a script none
-of them covers (Arabic, Thai, Hebrew, …) is not checked: it gets a `note` (`description-when-not-checked`), so not checked does not read as a pass. A Latin-script language without a list of its own
+of them covers (Arabic, Thai, Hebrew, …) is not checked: it gets a `note` (`description-when-not-checked`), so not checked does not read as a pass: its row says `note:` instead of `ok`, and the counts line `1 ok (1 not checked)`. A Latin-script language without a list of its own
 (Polish, Dutch, Turkish, Vietnamese) is checked against these cues. Two skills in different paths with the same
 directory name and description but different `SKILL.md` text are a `warn` on both
 (`mirror-drift`), naming the other copies. Skills with

@@ -326,3 +326,20 @@ def test_a_note_only_row_does_not_read_ok(capsys):
     print_skill_row(row)
     first = capsys.readouterr().out.splitlines()[0]
     assert first.split("\t")[-1] == "note: not checked"
+
+
+@pytest.mark.parametrize("per_skill", [False, True], ids=["catalog", "per-skill"])
+def test_the_counts_line_does_not_read_a_not_checked_skill_as_a_plain_ok(tmp_path, capsys, per_skill):
+    # The row says "note:", so the header must not count the same skill as a plain pass either.
+    from dokimi.cli import build_parser
+
+    skill_dir = tmp_path / "skills" / "release"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: release\ndescription: ช่วยเขียนบันทึกการเผยแพร่จากประวัติ\n---\n# Body\n", encoding="utf-8",
+    )
+    argv = ["catalog", "check", "--root", str(tmp_path), "--kind", "skills"] + (["--per-skill"] if per_skill else [])
+    args = build_parser().parse_args(argv)
+    args.func(args)
+    header = capsys.readouterr().out.splitlines()[0]
+    assert "; 1 ok (1 not checked), 0 warn, 0 error" in header

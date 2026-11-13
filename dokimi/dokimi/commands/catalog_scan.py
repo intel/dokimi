@@ -80,10 +80,20 @@ def _outputs(jsonl: Optional[Path]) -> tuple[Path, ...]:
     return (out, out.with_name(out.name + ".part"))
 
 
+def not_checked(row: dict) -> bool:
+    """Whether an ``ok`` row is only ok because the check did not read it (a ``description-when-not-checked`` note)."""
+    return row["state"] == "ok" and any(f["code"] == "description-when-not-checked" for f in row["findings"])
+
+
+def ok_text(ok: int, unchecked: int) -> str:
+    """``N ok`` for the counts line, with ``(M not checked)`` when some of them were not read, so they do not read as a pass."""
+    return f"{ok} ok ({unchecked} not checked)" if unchecked else f"{ok} ok"
+
+
 def print_skill_row(row: dict) -> None:
     if row["error"] is not None:
         state = f"ERROR: {row['error']}"
-    elif row["state"] == "ok" and not any(f["code"] == "description-when-not-checked" for f in row["findings"]):
+    elif row["state"] == "ok" and not not_checked(row):
         state = "ok"
     elif row["state"] == "ok":
         # A "not checked" note: the skill was not read, so it is not a pass and the state does not say ok.
@@ -183,11 +193,13 @@ class _Tally:
     def __init__(self, strict: bool) -> None:
         self.strict = strict
         self.counts = {"ok": 0, "warn": 0, "error": 0}
+        self.not_checked = 0
         self.failed = False
         self.reasons: list[str] = []
 
     def add(self, row: dict) -> None:
         self.counts[row["state"]] += 1
+        self.not_checked += not_checked(row)
         # A SKILL.md the OS will not read after it loaded has no row error, only its unreadable finding: it fails
         # the scan as a load error does, as the whole-catalog path decides it (catalog.py).
         unreadable = any(f.get("code") == "unreadable" for f in row["findings"])
@@ -302,7 +314,7 @@ def _print_text(root: Path, declared: int, tally: _Tally, resumed: int,
                 jsonl: Optional[Path], rows: Iterable[dict]) -> None:
     counts = tally.counts
     where = f"; {resumed} resumed from {jsonl}" if jsonl is not None and resumed else ""
-    print(f"# skills ({declared} declared under {root}; {counts['ok']} ok, {counts['warn']} warn, "
+    print(f"# skills ({declared} declared under {root}; {ok_text(counts['ok'], tally.not_checked)}, {counts['warn']} warn, "
           f"{counts['error']} error{where})")
     if jsonl is not None:
         print(f"rows written to {jsonl}")

@@ -16,7 +16,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from dokimi.commands.catalog_scan import print_skill_row, skill_row, unrestricted_and_risky
+from dokimi.commands.catalog_scan import not_checked, ok_text, print_skill_row, skill_row, unrestricted_and_risky
 from dokimi.utils import InputError
 
 
@@ -49,6 +49,7 @@ def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bo
     if only is not None and only not in {entry.name for entry in skills}:
         raise InputError(f"no skill named {only!r} under {root}")
     counts = {"ok": 0, "warn": 0, "error": 0}
+    unchecked = 0
     failed = False
     ignore = frozenset(args.ignore or ())
     for (skill, nested_in), review in zip(pairs, reviews, strict=True):
@@ -56,6 +57,7 @@ def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bo
             continue
         row = skill_row(skill, review, nested_in, ignore=ignore)
         counts[row["state"]] += 1
+        unchecked += not_checked(row)
         report["skills"].append(row)
         # A load error, or a SKILL.md the OS will not read, always fails; a spec error, or unrestricted Bash with a risky command, only with --strict.
         unreadable = review is not None and any(f.code == "unreadable" for f in review.findings)
@@ -65,7 +67,7 @@ def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bo
         shown = f"{sum(counts.values())} of {len(skills)}" if only is not None else f"{len(skills)}"
         print(
             f"# skills ({shown} declared under {root}; "
-            f"{counts['ok']} ok, {counts['warn']} warn, {counts['error']} error)"
+            f"{ok_text(counts['ok'], unchecked)}, {counts['warn']} warn, {counts['error']} error)"
         )
         for row in report["skills"]:
             print_skill_row(row)
