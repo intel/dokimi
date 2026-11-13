@@ -559,12 +559,13 @@ def test_regression_gate_threshold_keeps_every_digit_of_an_equal_drop(compare, c
     assert "Regression gate: PASS" in capsys.readouterr().out
 
 
+@pytest.mark.parametrize("gate", ["--max-context-drop", "--max-lift-drop"])
 @pytest.mark.parametrize("judge, answer", [
     (("openai", "openai/unknown"), ("openai", "gpt-6.1-sol")),
     (("anthropic", "claude-sonnet-5-5"), ("openai", "openai/unknown")),
 ])
-def test_regression_gate_refuses_an_unknown_model_behind_a_route(compare, capsys, judge, answer):
+def test_regression_gate_refuses_an_unknown_model_behind_a_route(compare, capsys, judge, answer, gate):
     with refusal() as exc:
-        compare(_eval(answer=answer, judge=judge), _eval(answer=answer, judge=judge), "--max-context-drop", "0")
+        compare(_eval(answer=answer, judge=judge), _eval(answer=answer, judge=judge), gate, "0")
     assert exc.code == 4  # invalid: a model that differs or cannot be verified (§2.6)
     assert "cannot verify" in exc.err
