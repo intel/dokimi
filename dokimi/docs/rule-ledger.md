@@ -101,7 +101,11 @@ comparison of the rule's arm against its baseline over the rule's linked cases
 the same). The p values of the rule results are Holm-corrected together. A result whose
 linked cases mix gate and score tasks has no single test, so it takes no slot in
 that family and is `insufficient-evidence`. So is a result with a grader failure or an agent outage on a
-linked case in either arm: its 0 is not a measurement. The rules' family is separate from the
+linked case in either arm: its 0 is not a measurement. A result whose changed cases cannot reach
+p < alpha (the smallest sign-flip p of that many changed cases is alpha or more) also stays out of the
+family, so it does not raise the multiplier of the others: it keeps its raw `p`, has no `p_holm`, and is
+`insufficient-evidence` with a reason that says to link more cases. The `family` count of the JSON and
+the "Holm over N result(s)" header count only the results adjusted. The rules' family is separate from the
 family of the comparison's own rows.
 
 | Verdict | When | Meaning |
