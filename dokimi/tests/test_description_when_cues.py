@@ -87,6 +87,7 @@ HAS_WHEN = [
     pytest.param("いつ使うか：リリース前。", id="ja-itsu-tsukau"),
     pytest.param("当请求超时，自动重试并记录日志。", id="zh-dang-chaoshi"),
     pytest.param("当事件到达时，发送通知。", id="zh-dang-shijian"),
+    pytest.param("Beim Erstellen eines Release verwenden.", id="de-beim-verwenden"),
 ]
 
 # No "when" clause in the language's own words; also the wording a bare cue would wrongly accept.
@@ -207,6 +208,8 @@ NO_WHEN = [
     pytest.param("监控超时调用并发出告警。", id="zh-chaoshi-not-when"),
     pytest.param("支持延时执行的任务队列管理工具。", id="zh-yanshi-not-when"),
     pytest.param("整理当事人信息，统计查询耗时。", id="zh-dangshiren-not-when"),
+    pytest.param("Hilft beim Schreiben von Commit-Nachrichten.", id="de-hilft-beim-not-when"),
+    pytest.param("Unterstützt Sie beim Erstellen von Berichten.", id="de-unterstuetzt-beim-not-when"),
 ]
 
 

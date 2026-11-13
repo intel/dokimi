@@ -19,7 +19,8 @@ WHEN_CUES = {
           r"whenever\b)",
     "es": r"(?<!vez en )\bcuando\b|\bcuándo\b|\bsiempre que\b|\bcada vez que\b|\ben caso de\b|\bal (?:usar|utilizar|invocar|ejecutar)\b",
     "fr": r"\bquand\b(?!\s+même)|\blorsqu\w*|\bdès que\b|\bchaque fois que\b|\ben cas de\b|\blors (?:de|d')",
-    "de": r"\bwenn\b|\bbeim\b|\bsobald\b|\bimmer dann\b",
+    "de": r"\bwenn\b|\b(?:verwende|nutze|benutze|verwenden|nutzen|benutzen|einsetzen|aufrufen)\b[^.;!?]{0,60}?\bbeim\b|"
+          r"\bbeim\b[^.;!?]{0,60}?\b(?:verwenden|nutzen|benutzen|einsetzen|aufrufen)\b|\bsobald\b|\bimmer dann\b",
     "pt": r"(?<!vez em )\bquando\b|\bsempre que\b|\bcada vez que\b|\bem caso de\b|\bao (?:usar|utilizar|invocar|executar)\b",
     "ru": r"\bкогда\b(?![-‑])|\bкогато\b|\bколи\b|\bвсякий раз\b|\bкаждый раз\b|"
           r"\bпри (?:работе|использовании|необходимости|запросе|наличии|вызове|запуске|получении)\b",
