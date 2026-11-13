@@ -476,3 +476,69 @@ def test_the_unnamed_files_are_listed_in_path_order(tmp_path):
     review = _review(tmp_path, "Use it.\n", ["zeta.py", "scripts/a.py"])
     [message] = _unreferenced(review)
     assert "(scripts/a.py, zeta.py)" in message
+
+
+def test_an_unreadable_folder_withholds_the_claim(tmp_path, monkeypatch):
+    real = os.scandir
+
+    def scandir(path="."):
+        if os.path.basename(os.fspath(path)) == "references":
+            raise PermissionError(13, "Permission denied", os.fspath(path))
+        return real(path)
+
+    monkeypatch.setattr(os, "scandir", scandir)
+    review = _review_with_texts(
+        tmp_path,
+        "Read references/guide.md.\n",
+        {"references/guide.md": "Run scripts/run.py.\n", "scripts/run.py": "x\n"},
+    )
+    assert _unreferenced(review) == []
+
+
+@pytest.mark.parametrize("link", ["scripts\\", ".\\scripts\\", "${CLAUDE_SKILL_DIR}\\scripts\\"])
+def test_a_folder_link_with_a_backslash_names_its_files(tmp_path, link):
+    review = _review_with_texts(tmp_path, f"Use [helpers]({link}).\n", {"scripts/helper.py": "x\n"})
+    assert _unreferenced(review) == []
+
+
+def test_a_nested_folder_link_with_a_backslash_names_its_own_folder(tmp_path):
+    review = _review_with_texts(
+        tmp_path,
+        "Read [guide](references/guide.md).\n",
+        {
+            "references/guide.md": "See [h](..\\scripts\\).\n",
+            "scripts/helper.py": "x\n",
+            "references/scripts/run.py": "x\n",
+        },
+    )
+    [message] = _unreferenced(review)
+    assert "(references/scripts/run.py)" in message
+
+
+@pytest.mark.parametrize("suffix", ["#section", "?view=all"])
+def test_a_nested_folder_link_with_a_fragment_or_query_names_its_own_folder(tmp_path, suffix):
+    review = _review_with_texts(
+        tmp_path,
+        "Read [guide](references/guide.md).\n",
+        {
+            "references/guide.md": f"See [helpers](scripts/{suffix}).\n",
+            "references/scripts/run.py": "x\n",
+            "scripts/other.py": "x\n",
+        },
+    )
+    [message] = _unreferenced(review)
+    assert "(scripts/other.py)" in message
+
+
+def test_a_link_to_the_skill_root_names_the_files_under_it(tmp_path):
+    review = _review_with_texts(tmp_path, "Use [helpers](./).\n", {"scripts/helper.py": "x\n"})
+    assert _unreferenced(review) == []
+
+
+def test_a_nested_link_to_the_skill_root_names_the_files_under_it(tmp_path):
+    review = _review_with_texts(
+        tmp_path,
+        "Read [guide](references/guide.md).\n",
+        {"references/guide.md": "Use [root](../).\n", "scripts/helper.py": "x\n"},
+    )
+    assert _unreferenced(review) == []

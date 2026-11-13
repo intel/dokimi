@@ -47,9 +47,9 @@ DOCS_READ_MAX = 50
 NON_REFERENCE_STEMS = frozenset({"changelog", "contributing", "notice"})
 # The destination of an inline folder link (``[x](scripts/)``): its folder is in ``links``, so the text is no mention.
 _FOLDER_DEST = re.compile(
-    r"\]\([^)\n]*/\)"  # ``[x](scripts/)``
-    r"|\]\(\s*<?[^)\s<>]*/>?(?:\s+(?:\"[^\"\n]*\"|'[^'\n]*'|\([^)\n]*\)))?\s*\)"  # with a title, or in <...>
-    r"|^\s{0,3}\[[^\]\n]+\]:\s*<?[^\s<>]*/>?(?:[ \t]+(?:\"[^\"\n]*\"|'[^'\n]*'|\([^)\n]*\)))?[ \t]*$",  # a reference definition ``[x]: scripts/``
+    r"\]\([^)\n]*/(?:[#?][^)\n]*)?\)"  # ``[x](scripts/)``, ``[x](scripts/#part)``
+    r"|\]\(\s*<?[^)\s<>]*/(?:[#?][^)\s<>]*)?>?(?:\s+(?:\"[^\"\n]*\"|'[^'\n]*'|\([^)\n]*\)))?\s*\)"  # with a title, or in <...>
+    r"|^\s{0,3}\[[^\]\n]+\]:\s*<?[^\s<>]*/(?:[#?][^\s<>]*)?>?(?:[ \t]+(?:\"[^\"\n]*\"|'[^'\n]*'|\([^)\n]*\)))?[ \t]*$",  # a reference definition ``[x]: scripts/``
     re.MULTILINE,
 )
 SKILL_ROOT_LINK = "${claude_skill_dir}/"  # lowercased: a link through it names a file from the skill root
@@ -57,17 +57,17 @@ SKILL_ROOT_LINK = "${claude_skill_dir}/"  # lowercased: a link through it names 
 _PATH_PREFIX = re.compile(r"(?<![\w.-])(?:\$\{claude_skill_dir\}/|\.\.?/)")
 
 
-def _walk(skill_dir: Path, *, counted: bool) -> list[str]:
+def _walk(skill_dir: Path, *, counted: bool, failed: list[OSError]) -> list[str]:
     """The files under ``skill_dir`` an agent may open, relative and sorted, at most :data:`WALK_MAX_FILES` + 1.
 
     One more than the cap tells the caller the bundle is over it. Past the cap the walk goes on
     without collecting, since a stopped ``os.walk`` leaves its directory handles open.
 
     ``counted``: the files the warning counts. Otherwise every document, the skipped ones too (a
-    readme that names a script leads the agent to it).
+    readme that names a script leads the agent to it). A folder that cannot be listed is added to ``failed``.
     """
     found: list[str] = []
-    for dirpath, dirnames, filenames in os.walk(skill_dir):
+    for dirpath, dirnames, filenames in os.walk(skill_dir, onerror=failed.append):
         here = Path(dirpath)
         dirnames[:] = sorted(
             d for d in dirnames
@@ -129,13 +129,14 @@ def _target(folder: str, link: str) -> str:
 
 def _named(rel: str, text: str, links: set[str]) -> bool:
     """Whether ``text`` names the file ``rel``: its path, its file name, or a folder above it named alone.
+    A link to the skill root (``./``) names every file.
 
     Case is ignored (``FORMS.md`` names ``forms.md``). ``links`` are the link destinations of
     ``SKILL.md`` and of the documents read so far, as files from the skill root (escapes and
     percent-encoding decoded), lowercased.
     """
     parts = rel.lower().split("/")
-    if "/".join(parts) in links or any("/".join(parts[:i]) in links for i in range(1, len(parts))):
+    if "." in links or "/".join(parts) in links or any("/".join(parts[:i]) in links for i in range(1, len(parts))):
         return True  # a link to the file, or a folder link to an ancestor
     if _mentions("/".join(parts), text, ".-") or _mentions(parts[-1], text, ".-"):
         return True
@@ -164,15 +165,17 @@ def _from_folder(text: str, folder: str) -> str:
     return _RELATIVE.sub(resolve, text)
 
 
-def _matchable(text: str) -> str:
-    """The text the names are looked up in: folder link destinations and the ``./``-style prefixes dropped.
+def _matchable(text: str, folder: str = ".") -> str:
+    """The text the names are looked up in, for a document in ``folder``: folder link destinations and the
+    ``./``-style prefixes dropped.
 
     A folder destination is in ``links`` as its folder, so ``[scripts](scripts/)`` in a nested document
     does not name the skill-root ``scripts/``; ``./scripts/`` and ``${CLAUDE_SKILL_DIR}/scripts/`` in
     the text name ``scripts/``. A file's name in a destination still names it, as in the text. A backslash
-    is read as a path separator, as a document written on Windows has it (``scripts\\``).
+    is read as a path separator, as a document written on Windows has it (``scripts\\``), after the folder
+    links are dropped: ``[x](scripts\\)`` is no link (``\\)`` escapes the parenthesis), so it is a mention.
     """
-    return _PATH_PREFIX.sub("", _FOLDER_DEST.sub("]", text.replace("\\", "/")))
+    return _PATH_PREFIX.sub("", _from_folder(_FOLDER_DEST.sub("]", text).replace("\\", "/"), folder))
 
 
 def _read_doc(path: Path) -> Optional[str]:
@@ -227,7 +230,7 @@ def _named_closure(
             if more:
                 docs_read += 1
                 folder = PurePosixPath(rel).parent.as_posix().lower()  # the text is lowercased: its folder must be too
-                unseen += "\n" + _matchable(_from_folder(more.lower().replace("\\", "/"), folder))
+                unseen += "\n" + _matchable(more.lower(), folder)
                 linked.update(_target(folder, link) for link in doc_links(more) if link)
     return named_files, incomplete
 
@@ -250,9 +253,12 @@ def unreferenced_message(
         return None
     try:
         text = _matchable(skill_path.read_text(encoding="utf-8").lower())
-        files = _walk(skill_path.parent, counted=True)
-        docs = _walk(skill_path.parent, counted=False)
+        failed: list[OSError] = []
+        files = _walk(skill_path.parent, counted=True, failed=failed)
+        docs = _walk(skill_path.parent, counted=False, failed=failed)
     except (OSError, UnicodeDecodeError):
+        return None
+    if failed:  # a folder that cannot be listed may hold the document that names a file
         return None
     if len(files) > WALK_MAX_FILES:  # a checkout, not a bundle: a partial list would be a wrong count
         return None

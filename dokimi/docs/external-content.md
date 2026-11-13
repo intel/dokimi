@@ -252,7 +252,7 @@ finds it only by browsing. Data, images, licence, readme, changelog and `AGENTS.
 `_`-prefixed helpers, tests and `evals/` folders, hidden and vendored folders, and nested skills are
 not counted, nor is a skill at the root of the scanned checkout. The check then gives no count and no finding, and
 says nothing about it, when the search cannot see every name: a bundle over 2000 files, more than 50 named
-documents to read, a named document over 256 KiB, not UTF-8, a symlink or a FIFO. Skills with
+documents to read, a named document over 256 KiB, not UTF-8, a symlink or a FIFO, a folder that cannot be listed. Skills with
 `disable-model-invocation: true` are exempt from the description checks.
 
 The scan also reads the scripts a skill bundles: each `.sh`, `.bash` and `.py` file, and each file that
