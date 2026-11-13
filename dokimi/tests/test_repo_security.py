@@ -910,3 +910,9 @@ def test_hard_reset_with_the_ref_before_the_flag_is_found(text):
 
 def test_backslash_newline_joins_a_word_the_shell_joins():
     assert "privilege-escalation" in _rules(sec.command_findings("su\\\ndo id", "trace"))
+
+
+def test_exec_log_argv_with_a_bracket_and_a_comma_in_a_string_is_read_whole():
+    log = '1 execve("/bin/bash", ["bash", "-c", "x=[1], rm -rf /"], 0x1 /* 1 var */) = 0\n'
+    found = {r for c in sec.parse_exec_log(log) for r in _rules(sec.command_findings(c, "exec"))}
+    assert "destructive-delete" in found

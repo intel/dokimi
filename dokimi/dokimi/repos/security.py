@@ -139,7 +139,7 @@ _SECRET_PATH = _rx(r"(?:^|/)\.(?:ssh|aws|gnupg)(?:/|$)|(?:^|/)\.(?:netrc|env)$|(
                    r"(?:^|/)\.kube/config$")
 
 #: ``1234 execve("/usr/bin/sudo", ["sudo", "id"], 0x... /* 9 vars */) = 0`` (``[pid 1234]`` too).
-_EXECVE = re.compile(r'execve\("(?P<path>(?:[^"\\]|\\.)*)",\s*\[(?P<argv>.*?)\](?:,|\))')
+_EXECVE = re.compile(r'execve\("(?P<path>(?:[^"\\]|\\.)*)",\s*\[(?P<argv>(?:"(?:[^"\\]|\\.)*"(?:\.\.\.)?|[^"\]])*?)\](?:,|\))')
 _ARGV_ITEM = re.compile(r'"((?:[^"\\]|\\.)*)"(\.\.\.)?')  # a string past strace's -s limit ends in `...`
 #: A shell line continuation: the command goes on on the next line.
 _CONTINUATION = re.compile(r"\\\r?\n")
