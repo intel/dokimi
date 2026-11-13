@@ -360,6 +360,25 @@ def test_a_cache_entry_from_before_the_error_fix_is_not_replayed(tmp_path):
     assert (result.verdict, result.method) == (RETAINED, "llm")
 
 
+def test_a_lexical_only_run_does_not_store_a_placeholder_for_a_later_llm_run(tmp_path):
+    atom, text = _AMBIGUOUS
+    # --lexical-only has no adjudicator: its ambiguous-band answer is a placeholder,
+    # not a verdict, so it must not reach the disk cache under the same key.
+    lexical = RetentionOracle(client=None, cache_dir=tmp_path)
+    assert lexical.verdict(atom, text).verdict == ABSENT
+    assert not list(tmp_path.iterdir())
+    calls: list[int] = []
+
+    def transport(prompt, system):
+        calls.append(1)
+        return '{"verdict": "retained"}', None
+
+    llm = RetentionOracle(client=LLMClient(model="x", transport=transport), cache_dir=tmp_path)
+    result = llm.verdict(atom, text)
+    assert (result.verdict, result.method) == (RETAINED, "llm")
+    assert len(calls) == 1
+
+
 @pytest.mark.parametrize("stored", ['{"verdict": "maybe", "score": 0.5}', "{not json",
                                     '{"verdict": ["absent"]}'])
 def test_an_unusable_disk_cache_entry_is_asked_again(tmp_path, stored):

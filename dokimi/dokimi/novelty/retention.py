@@ -31,7 +31,7 @@ RETAINED = "retained"
 ABSENT = "absent"
 CONTRADICTED = "contradicted"
 _VERDICTS = (RETAINED, ABSENT, CONTRADICTED)
-_CACHE_VERSION = b"retention-cache-v4\0"
+_CACHE_VERSION = b"retention-cache-v5\0"
 
 _STOP = frozenset("""
 a an the and or but if then than that this these those is are was were be been being
@@ -111,11 +111,13 @@ class RetentionOracle:
         score = lexical_overlap(atom.statement, text)
         if score >= self.high:
             result = RetentionVerdict(RETAINED, "lexical", round(score, 4))
-        elif score <= self.low or self.client is None:
-            # Without an adjudicator the ambiguous band resolves to `absent`: the
-            # conservative direction, which under-reports retention rather than
-            # claiming an atom survived that may have been reversed.
+        elif score <= self.low:
             result = RetentionVerdict(ABSENT, "lexical", round(score, 4))
+        elif self.client is None:
+            # No adjudicator: a placeholder `absent`, not a verdict, so it is not memoized
+            # or stored; the cache key names no oracle, so an adjudicated run would replay it.
+            self.decisions += 1
+            return RetentionVerdict(ABSENT, "lexical", round(score, 4))
         else:
             self.escalations += 1
             verdict = self._adjudicate(atom, text)
