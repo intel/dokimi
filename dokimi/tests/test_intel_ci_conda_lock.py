@@ -207,6 +207,8 @@ def _args(tmp_path: Path, event: str) -> argparse.Namespace:
 
 
 def _record_conda(hooks: types.ModuleType, monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, ...]]:
+    """hooks as on the linux-64 runner, whatever machine runs the test, with conda and the tests recorded."""
+    monkeypatch.setattr(hooks, "HOST_SUBDIR", "linux-64")
     calls: list[tuple[str, ...]] = []
     monkeypatch.setattr(hooks, "conda", lambda *args: calls.append(args))
     monkeypatch.setattr(hooks, "stage_channel", lambda packages, channel: None)
@@ -316,6 +318,13 @@ def test_build_skips_the_recipe_tests_only_when_asked(system: str, skip: list[st
     tested, untested = (build.commands(system, tmp_path / "meta.yaml", python, ["conda-forge"], tmp_path, test=t)[0]
                         for t in (True, False))
     assert untested == [*tested, *skip]
+
+
+def test_the_refresh_workflow_solves_main_whatever_ref_a_manual_run_selects() -> None:
+    """The branch is cut from the checkout and its PR is based on main, so the checkout must be main."""
+    workflow = yaml.safe_load((_REPO / ".github" / "workflows" / "conda-lock.yml").read_text(encoding="utf-8"))
+    checkout = next(s for s in workflow["jobs"]["refresh"]["steps"] if s.get("uses", "").startswith("actions/checkout@"))
+    assert checkout["with"]["ref"] == "main"
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="runs the step's bash with stub git and gh")
