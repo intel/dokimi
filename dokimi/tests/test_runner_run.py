@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 import pytest
 
+from dokimi.gate.verdict import Check, Verdict
 from dokimi.runner.run import _weighted_score, _load_spec, run_benchmark, save_snapshot
 from tests.cli_refusal import refusal
 
@@ -66,7 +67,7 @@ def test_run_benchmark_basic(tmp_path):
          patch("dokimi.runner.run.freshness_lite.score", return_value=0.9), \
          patch("dokimi.runner.run.readability.score", return_value=0.7), \
          patch("dokimi.runner.run.check_gate") as gate:
-        gate.return_value = type("G", (), {"enabled": True, "passed": True, "min_score": 0.6})()
+        gate.return_value = Verdict(checks=[Check(name="score", passed=True, value=0.7, threshold=0.6, severity="fail")])
         out = run_benchmark(root, spec)
 
     assert out["summary"]["docs"] == 1
@@ -94,7 +95,7 @@ def test_run_benchmark_with_examples(tmp_path):
          patch("dokimi.runner.run.readability.score", return_value=0.7), \
          patch("dokimi.runner.run.score_examples", return_value=(1.0, [ex_result()])), \
          patch("dokimi.runner.run.check_gate") as gate:
-        gate.return_value = type("G", (), {"enabled": True, "passed": True, "min_score": 0.6})()
+        gate.return_value = Verdict(checks=[Check(name="score", passed=True, value=0.7, threshold=0.6, severity="fail")])
         out = run_benchmark(root, spec)
 
     assert "example_pass_rate" in out["summary"]
