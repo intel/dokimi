@@ -32,6 +32,10 @@
     "summary": {
       "type": "object",
       "description": "The gate's measures: `n_pairs`, the verdict, and the answers model it was measured on."
+    },
+    "rows": {
+      "type": "array",
+      "description": "One row per scored pair (the variant, the intact and degraded scores)."
     }
   }
 }
