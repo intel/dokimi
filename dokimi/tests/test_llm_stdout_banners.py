@@ -41,15 +41,17 @@ def test_a_call_whose_provider_cannot_be_reached_prints_nothing_to_stdout(monkey
     assert capsys.readouterr().out == ""
 
 
-def _price() -> None:
+def _price() -> bool:
+    """``cost_per_token`` raises for a provider litellm does not know, as litellm's own does."""
     with pytest.raises(litellm.BadRequestError, match="LLM Provider NOT provided"):
         llm.cost_per_token(model="nosuchprov/m", prompt_tokens=1, completion_tokens=1)
+    return True
 
 
 @pytest.mark.parametrize("call", [
     lambda: llm.unsupported_sampling_params("m", "nosuchprov", temperature=0.0) == [],  # the check cannot run
     lambda: llm._safe_completion_cost(object(), "m", litellm_model="nosuchprov/m") is None,  # no price
-    lambda: _price() is None,
+    _price,
     lambda: llm_pricing.list_cost_usd("m", "nosuchprov", 1, 1) is None,  # an --estimate-only line
 ], ids=["sampling check", "reply cost", "cost per token", "list price"])
 def test_the_checks_and_pricing_of_an_unknown_provider_print_nothing_to_stdout(capsys, call):
