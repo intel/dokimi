@@ -174,7 +174,8 @@ def test_the_validity_schema_declares_the_rows_a_report_writes():
     # the closed-key check: `rows` is what ValidityReport.to_dict() writes, so the schema must name it
     from tests.artifact_fixtures import artifact_fixture
 
-    artifact_fixture("judge_validity", {"summary": {"n_pairs": 1, "judge": "openai/m"}, "rows": []})
+    fixture = artifact_fixture("judge_validity", {"summary": {"n_pairs": 1, "judge": "openai/m"}, "rows": []})
+    assert fixture["rows"] == []
 
 
 def test_a_refused_payload_whose_rejected_sibling_cannot_be_written_still_exits_1(tmp_path, capsys):
