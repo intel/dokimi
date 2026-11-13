@@ -126,6 +126,17 @@ def test_a_matrix_cell_whose_model_is_the_default_judge_is_warned_not_refused():
     assert cell.judge_model == "gpt-6.1-sol"
 
 
+def test_an_explicit_judge_model_equal_to_the_answerer_is_warned_not_refused():
+    explicit = ArmsRunConfig(product="demo", judge=True, model="claude-sonnet-5-5", provider="anthropic",
+                             judge_model="claude-sonnet-5-5")
+    refuse_deferred_self_judge(explicit)  # warn-only: no raise
+    assert explicit.judge_model == "claude-sonnet-5-5"
+    left_out = ArmsRunConfig(product="demo", judge=True, model="claude-sonnet-5-5", provider="anthropic",
+                             judge_provider="anthropic")
+    with pytest.raises(JudgeIsAnswerer, match="pass --judge-model as well"):
+        refuse_deferred_self_judge(left_out)
+
+
 def test_a_matrix_claude_cli_cell_keeps_the_matrix_judge_provider():
     # cell_config copies the config with the cell's provider: a claude-cli cell must not move the shared judge.
     config = ArmsRunConfig(product="demo", judge=True, model="gpt-6.1-sol", provider="openai")
