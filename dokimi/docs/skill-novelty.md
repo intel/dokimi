@@ -795,7 +795,9 @@ is no attractor, and a tied skill's own rate is lower by the picks inside its gr
 model call is unscored, and a skill with none scored has an own rate of `null`, not 0.0. The lexical arm
 also keeps `per_query`, one row per query whatever `--repeats` is, in the shape of a single-artifact run's
 `per_query` plus the `gold` skill: `query`, `gold`, `rank` of the gold card and `picked` (`rank` is `null` and
-a `reason` replaces `picked` for a query with no content word). A saved run can be rescored from them, for
+a `reason` replaces `picked` for a query with no content word). `picked` follows the confusion matrix, so it is
+`(none)` for a query that shares no word with any card and `(tie)` when two or more other cards tie at the top,
+where a single-artifact run names the first card in the field. A saved run can be rescored from them, for
 corrected gold labels, acceptable alternatives, a dev and test split, or a query-by-query comparison of two
 runs. The model arm's rows are `model.noise.per_query` (`query`, `gold`, `picks`, `n_correct`), also kept
 with one repeat. A run

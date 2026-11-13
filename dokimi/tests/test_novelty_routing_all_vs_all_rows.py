@@ -35,6 +35,15 @@ def test_lexical_arm_has_one_row_per_query_with_gold_pick_and_gold_rank():
     ]
 
 
+def test_picked_follows_the_confusion_matrix_for_no_shared_word_and_ties():
+    field = [Candidate(name="a", description="convert json"),
+             Candidate(name="b", description="tune database"),
+             Candidate(name="c", description="tune database")]
+    rows = all_vs_all(field, {"a": ["zzz qqq", "tune database"]})["lexical"]["per_query"]
+    assert [r["picked"] for r in rows] == ["(none)", "(tie)"]
+    assert [r["rank"] for r in rows] == [3, 3]
+
+
 def test_a_row_reads_like_a_single_artifact_lexical_routing_row():
     queries = ["profile my binary with perf", "my slow program needs advice"]
     single = lexical_routing(FIELD, queries, gold=0)["per_query"]

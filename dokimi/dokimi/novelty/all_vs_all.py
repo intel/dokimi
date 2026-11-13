@@ -94,7 +94,9 @@ def all_vs_all(candidates: list[Candidate], queries_by_skill: dict[str, list[str
         and ``n_unscored`` per gold skill, and ``attractors`` ordered by ``wrongly_picked``. The
         lexical arm also holds ``per_query``: one row per query, whatever ``repeats`` is, with
         ``query``, ``gold``, ``rank`` of the gold card and ``picked`` (``rank`` ``None`` and a
-        ``reason`` for a query with no content word), so a saved run can be rescored. The
+        ``reason`` for a query with no content word). ``picked`` follows the confusion matrix:
+        ``(none)`` when no card shares a word with the query and ``(tie)`` when two or more other
+        cards tie at the top, where ``lexical_routing`` names the first card in the field. So a saved run can be rescored. The
         model arm also records ``model``, ``seed``, ``repeats``, ``noise`` (always an object: as
         :func:`dokimi.novelty.routing.repeat_noise` reports it, pooled over every skill's queries,
         with ``n_repeats`` 1 and null agreement for one repeat), ``n_failed``, ``n_abstained`` and
@@ -166,7 +168,7 @@ def _check_all_vs_all_input(names: list[str], queries_by_skill: dict[str, list[s
         raise RoutingInputError("no skill in the field has queries to route")
 
 
-def _lexical_pick(bm25: BM25, tokens: list[str], gold: int, candidates: list[Candidate]) -> str:
+def _lexical_pick(scores: list[float], gold: int, candidates: list[Candidate]) -> str:
     """The card the lexical arm picks for one query written for ``candidates[gold]``.
 
     The gold is a pick only when it scores strictly above every other card. Two or more other
@@ -174,7 +176,6 @@ def _lexical_pick(bm25: BM25, tokens: list[str], gold: int, candidates: list[Can
     does not depend on the order of the field. One other card tied with the gold is that card:
     the gold sorts after what it ties with, as in ``lexical_routing``.
     """
-    scores = [bm25.score(tokens, i) for i in range(len(candidates))]
     top = max(scores)
     if top <= 0:
         return NO_PICK
@@ -209,10 +210,13 @@ def _lexical_picks(candidates: list[Candidate], queries_by_skill: dict[str, list
                 rows.append({"query": query, "gold": name, "rank": None,
                              "reason": "no content words"})
                 continue
-            pick = _lexical_pick(bm25, tokens, gold, candidates)
+            scores = [bm25.score(tokens, i) for i in range(len(candidates))]
+            pick = _lexical_pick(scores, gold, candidates)
             picks[pick] += 1
-            rows.append({"query": query, "gold": name,
-                         "rank": bm25.rank(tokens, last=gold).index(gold) + 1, "picked": pick})
+            ahead = sum(i != gold and (scores[i] > scores[gold]
+                                       or math.isclose(scores[i], scores[gold], rel_tol=1e-12))
+                        for i in range(len(candidates)))
+            rows.append({"query": query, "gold": name, "rank": ahead + 1, "picked": pick})
         lexical[name] = picks
     return lexical, unscored, rows
 
