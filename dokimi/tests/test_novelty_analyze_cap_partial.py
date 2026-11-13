@@ -176,6 +176,7 @@ def test_a_cap_in_extraction_keeps_the_atoms_read_and_marks_the_rest_unread():
     record = analyze(ROWS, config, extractor=extractor, answerer=idle, judge=judge).artifact
     assert record["partial"]["stage"] == "extraction"
     assert (record["partial"]["spans_read"], record["partial"]["spans_total"]) == (50, 200)
+    assert record["partial"]["cause"].startswith("spend cap reached: $1.20 of $1.00")
     assert len(record["extracted_atoms"]) == 50 and "runs" not in record
     assert len(record["extraction"]["unread_span_ids"]) == 150
     assert len(record["source_spans"]) == 200
@@ -186,6 +187,7 @@ def test_a_call_with_no_price_stops_analyze_and_is_named_as_such(tmp_path):
     result = _run(tmp_path, lambda prompt: None)
     partial = result.artifact["partial"]
     assert partial["reason"] == "no_price" and "cause" not in partial
+    assert partial["stage"] == "extraction"
     assert "no price is known" in partial["message"]
     validate_artifact("novelty", result.artifact)
 
