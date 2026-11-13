@@ -137,6 +137,9 @@ def run_study():
         "n_rows": len(rows),
         "coverage": {j: sum(j in d for d in V.values()) for j in JUDGES},
     }
+    # Name a study judge with no grades before any table is written, instead of a TypeError later.
+    if no_grades := [j for j in JUDGES if not summary["coverage"][j]]:
+        raise SystemExit(f"analyze.py has no grades from {', '.join(no_grades)}; grade those judges first")
 
     # ---------- 1. per-judge headline numbers ----------
     hl = {}

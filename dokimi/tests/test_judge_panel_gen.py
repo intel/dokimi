@@ -114,3 +114,16 @@ def test_gen_skips_optional_judges_that_share_no_answer(tmp_path):
     assert "Traceback" not in r.stderr
     assert (out / "gen_summary.json").exists()  # the outputs after the pair loop are written
     assert "only-p0" in (out / "tables_gen" / "judge_mean_kappa.csv").read_text()
+
+
+def test_analyze_names_a_study_judge_with_no_grades(tmp_path):
+    # glm-5 is a study panel judge that these grades lack: name it before any table is written.
+    out = tmp_path / "out"
+    _write(out, GEN_JUDGES)
+
+    r = subprocess.run([sys.executable, str(RJ / "analyze.py"), str(out)],
+                       capture_output=True, text=True, cwd=out.parent)
+
+    assert r.returncode != 0
+    assert "glm-5" in r.stderr
+    assert "Traceback" not in r.stderr
