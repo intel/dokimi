@@ -48,7 +48,12 @@ DOCS_READ_MAX = 50
 # Documents whose text names no file the agent needs for the task: a changelog or a notice that mentions a script does not.
 NON_REFERENCE_STEMS = frozenset({"changelog", "contributing", "notice"})
 # The destination of an inline folder link (``[x](scripts/)``): its folder is in ``links``, so the text is no mention.
-_FOLDER_DEST = re.compile(r"\]\([^)\n]*/\)")
+_FOLDER_DEST = re.compile(
+    r"\]\([^)\n]*/\)"  # ``[x](scripts/)``
+    r"|\]\(\s*<?[^)\s<>]*/>?(?:\s+(?:\"[^\"\n]*\"|'[^'\n]*'|\([^)\n]*\)))?\s*\)"  # with a title, or in <...>
+    r"|^\s{0,3}\[[^\]\n]+\]:\s*<?[^\s<>]*/>?[ \t]*$",  # a reference definition ``[x]: scripts/``
+    re.MULTILINE,
+)
 SKILL_ROOT_LINK = "${claude_skill_dir}/"  # lowercased: a link through it names a file from the skill root
 # A path prefix that names the skill root or the current folder: ``./scripts/``, ``../scripts/``, ``${CLAUDE_SKILL_DIR}/scripts/``.
 _PATH_PREFIX = re.compile(r"(?<![\w.-])(?:\$\{claude_skill_dir\}/|\.\.?/)")

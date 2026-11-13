@@ -416,3 +416,26 @@ def test_a_named_document_over_the_read_cap_names_nothing_it_holds(tmp_path, mon
 def test_a_folder_written_with_a_backslash_names_its_files(tmp_path):
     review = _review(tmp_path, "Helpers are in `scripts\\`.\n", ["scripts/helper.py"])
     assert _unreferenced(review) == []
+
+
+@pytest.mark.parametrize(
+    "guide",
+    [
+        'See [helpers](scripts/ "Helpers").\n',  # a title after the folder
+        "See [helpers](<scripts/>).\n",  # angle brackets around the folder
+        "See [helpers][h].\n\n[h]: scripts/\n",  # a reference definition for the folder
+    ],
+)
+def test_a_folder_link_with_a_title_or_brackets_names_the_folder_of_its_document(tmp_path, guide):
+    review = _review_with_texts(
+        tmp_path,
+        "Read [guide](references/guide.md).\n",
+        {
+            "references/guide.md": guide,
+            "references/scripts/run.py": "x\n",
+            "scripts/other.py": "x\n",
+        },
+    )
+    [message] = _unreferenced(review)
+    assert "(scripts/other.py)" in message
+    assert "references/scripts/run.py" not in message
