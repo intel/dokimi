@@ -24,6 +24,35 @@ checks.
   schema's.
 - Behaviour differs on Windows or with a `None`, empty or missing input.
 
+## Patterns that hide a defect
+
+Flag these in code the PR adds or changes. Each is must-fix when it changes
+a number, verdict or exit code, otherwise a nit.
+
+- Lost data or failure: a slice, clamp, fallback chain, `or` default, retry
+  or lenient parse that drops input or hides which path ran, with no warning,
+  error or record of it.
+- An error rewritten to a generic message, or reported as `False`, `None`,
+  `-1` or `""` that the caller cannot tell from a result.
+- A return value that matters left unused: a subprocess return code, a
+  validation result nothing acts on.
+- A missing directory or file created where a wrong path should fail.
+- A mode, kind or state passed as a bare string and compared in several
+  places, where an `Enum` or `Literal` would let mypy check it.
+- A default on a parameter that switches behaviour, so a caller gets the mode
+  without asking for it.
+- A `None` check, `or` default or defensive copy on a value that cannot be
+  `None` or is never mutated.
+- Structure without a second user: a base class, protocol, registry, factory
+  or wrapper class with one implementation or entry, or a class that only
+  forwards calls.
+- Code nobody asked for: an option or case the issue and docs do not name, a
+  stub or placeholder return, scaffolding left half-done.
+- A loop that `pathlib`, `itertools`, `collections`, `json` or `shlex`
+  already does.
+- A docstring that restates the function name, or a comment that narrates
+  the next line ("Now we...", "Step 1:").
+
 ## How to raise a finding
 
 - Name the file and line, and show the input that breaks it: a command, a
