@@ -20,7 +20,7 @@ from urllib.parse import unquote
 from dataclasses import dataclass, field
 from typing import Any
 
-from ..source import RepoTree, SourceError
+from ..source import GitTree, RepoTree, SourceArgumentError, SourceError
 from . import branches, workflows
 from .gitignore import GitIgnore, Rule
 from .markdown import PYTHON_LANGS, SHELL_LANGS, STARLARK_LANGS, Fence, split
@@ -133,9 +133,15 @@ class Scan:
         self._texts: dict[str, str] = {}
         self.unread: dict[str, str] = {}  # path -> why it was not read (binary, too big, dangling link)
         self.submodules = self._submodules()
-        # a gitlink is a directory in a checkout, though the file list holds nothing under it; a
-        # `.gitmodules` entry the snapshot has no gitlink for (a stale one) is not
-        held = {m for m in self.submodules if self.tree.is_dir(m)}
+        # a gitlink is a directory in a checkout, declared in `.gitmodules` or not; a declared path
+        # with no gitlink (stale, or leaving the tree) is not
+        held = set(self.tree.gitlinks()) if isinstance(self.tree, GitTree) else set()
+        for m in self.submodules:
+            try:
+                if self.tree.is_dir(m):
+                    held.add(m)
+            except SourceArgumentError:
+                pass
         self.dir_set = {"."} | {posixpath.dirname(f) or "." for f in self.files} | held
         for d in list(self.dir_set):
             while d not in (".", ""):

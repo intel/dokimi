@@ -24,8 +24,10 @@ def _manifest():
     })
 
 
-def _tree_with_lone_gitlink(root, agents: str, gitlink: bool = True) -> GitTree:
-    files = {"AGENTS.md": agents, "ev/tasks/t/task.json": "{}", ".gitmodules": _GITMODULES}
+def _tree_with_lone_gitlink(root, agents: str, gitlink: bool = True, gitmodules: str | None = _GITMODULES) -> GitTree:
+    files = {"AGENTS.md": agents, "ev/tasks/t/task.json": "{}"}
+    if gitmodules is not None:
+        files[".gitmodules"] = gitmodules
     for rel, text in files.items():
         (root / rel).parent.mkdir(parents=True, exist_ok=True)
         (root / rel).write_text(text, encoding="utf-8")
@@ -53,3 +55,20 @@ def test_a_stale_gitmodules_entry_does_not_invent_a_directory(tmp_path):
     payload = scan_repo(tree, _manifest())
     claims = {c["claim"]: c["status"] for c in payload["claims"] if c["claim"].startswith("third_party")}
     assert claims == {"third_party/": "unresolved", "third_party/other.txt": "unresolved"}  # no gitlink: no directory
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
+def test_a_submodule_without_a_gitmodules_entry_is_still_a_directory(tmp_path):
+    tree = _tree_with_lone_gitlink(tmp_path, "See `third_party/` and `third_party/other.txt`.\n", gitmodules=None)
+    payload = scan_repo(tree, _manifest())
+    claims = {c["claim"]: c["status"] for c in payload["claims"] if c["claim"].startswith("third_party")}
+    assert claims == {"third_party/": "ok", "third_party/other.txt": "fail"}  # the directory is there, the file is not
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
+def test_a_declared_path_that_leaves_the_tree_does_not_abort_the_scan(tmp_path):
+    escaping = '[submodule "m"]\n\tpath = ../outside\n\turl = https://example.invalid/m.git\n'
+    tree = _tree_with_lone_gitlink(tmp_path, "See `third_party/`.\n", gitlink=False, gitmodules=escaping)
+    payload = scan_repo(tree, _manifest())
+    claims = {c["claim"]: c["status"] for c in payload["claims"] if c["claim"].startswith("third_party")}
+    assert claims == {"third_party/": "unresolved"}

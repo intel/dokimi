@@ -227,6 +227,11 @@ class GitTree:
         self._files, self._symlinks, self._gitlinks = sorted(files), links, gitlinks
         self._listed = True
 
+    def gitlinks(self) -> set[str]:
+        """The paths the snapshot holds as submodules (mode 160000): directories in a checkout."""
+        self._list()
+        return set(self._gitlinks)
+
     def _dir_set(self) -> set[str]:
         if self._dirs is None:
             dirs: set[str] = set()
