@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from dokimi.utils import model_identity, same_model
 from dokimi.commands import baseline_regression
+from dokimi.exit_codes import EXIT_INVALID
 from dokimi.utils import InputError, read_json_input
 
 BASELINES_DIR = Path("baselines/eval")
@@ -282,13 +283,13 @@ def _report_model_checks(args: argparse.Namespace, entry: dict, baseline_data: d
     if unverified and strict:
         print(f"❌ {policy} cannot verify the {' and '.join(unverified)} model against "
               f"baseline '{entry['name']}'", file=sys.stderr)
-        raise SystemExit(1)
+        raise SystemExit(EXIT_INVALID)  # not comparable: a model cannot be verified (§2.6)
     if mismatches:
         detail = "".join(f"\n  {line}" for line in mismatches)
         if strict:
             print(f"❌ Baseline '{entry['name']}' was scored with different models ({policy}):{detail}",
                   file=sys.stderr)
-            raise SystemExit(1)
+            raise SystemExit(EXIT_INVALID)  # not comparable: the models differ (§2.6)
         print(f"⚠ Baseline model warning: '{entry['name']}' was scored with different models;"
               f" the changes below mix the model change with the content change.{detail}",
               file=sys.stderr)
@@ -392,7 +393,7 @@ def register(sub, positive_int) -> None:
     bl_cmp.add_argument("--product", default=None, help="Product name for baseline lookup")
     bl_cmp.add_argument("--baseline", default=None, help="Baseline name (latest if omitted)")
     bl_cmp.add_argument("--strict", action="store_true",
-                        help="Exit 1 instead of warning when the baseline's answer or judge model "
+                        help="Exit 4 instead of warning when the baseline's answer or judge model "
                              "differs from the current eval's")
     bl_cmp.add_argument("--max-context-drop", type=baseline_regression.threshold, default=None,
                         help="Gate on the mean matched context-score drop in score points (equality passes)")
