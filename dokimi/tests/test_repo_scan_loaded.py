@@ -190,3 +190,14 @@ def test_a_rule_folded_into_a_guidance_alias_of_a_text_file_is_checked(tmp_path,
     payload = _scan(capsys, str(root))
     assert _fails(payload) == {(".claude/rules/x.md", "src/gone_alias.py")}
 
+
+def test_a_rule_linked_to_a_guidance_file_is_scanned_without_its_frontmatter(tmp_path, capsys):
+    # the rule route removes the frontmatter of the file it links to, even when that file is listed as guidance:
+    # the fence in its frontmatter must not hide the stale path in its body
+    root = _write(tmp_path / "r", {"src/real.py": "x = 1\n", "CLAUDE.md": "# guidance\n",
+                                   "private/CLAUDE.local.md": "---\ndescription: |\n  ```text\n---\n"
+                                                              "See `src/gone_fm_link.py`.\n"})
+    (root / ".claude/rules").mkdir(parents=True)
+    (root / ".claude/rules/x.md").symlink_to("../../private/CLAUDE.local.md")
+    payload = _scan(capsys, str(root))
+    assert _fails(payload) == {("private/CLAUDE.local.md", "src/gone_fm_link.py")}

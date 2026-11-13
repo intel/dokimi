@@ -117,13 +117,13 @@ class Claim:
                 "status": self.status, "why": self.why, "ctx": self.ctx[:200]}
 
 
-def _as_loaded(path: str, text: str) -> str:
-    """The text of ``path`` as the scan reads it: a ``.claude/rules`` file without its frontmatter, which Claude Code
-    removes before it loads the rule."""
+def _as_loaded(path: str, text: str, rule_targets: frozenset[str] = frozenset()) -> str:
+    """The text of ``path`` as the scan reads it: a ``.claude/rules`` file, or a file one links to, without its
+    frontmatter, which Claude Code removes before it loads the rule."""
     from dokimi.repos.budget import RULE_GLOB
     from dokimi.repos.rule_frontmatter import blank_frontmatter
 
-    return blank_frontmatter(text) if RULE_GLOB.match(path) else text
+    return blank_frontmatter(text) if RULE_GLOB.match(path) or path in rule_targets else text
 
 
 @dataclass
@@ -147,6 +147,7 @@ class Scan:
         self.by_name: dict[str, list[str]] = {}  # basename -> files and directories
         for x in sorted(self.file_set | (self.dir_set - {"."})):
             self.by_name.setdefault(posixpath.basename(x), []).append(x)
+        self._rule_targets = self._files_rules_reach()
         self._texts: dict[str, str] = {}
         self.unread: dict[str, str] = {}  # path -> why it was not read (binary, too big, dangling link)
         self._words: set[str] | None = None
@@ -165,8 +166,24 @@ class Scan:
         missing = [p for p in paths if p not in self._texts and p not in self.unread and p in self.file_set]
         if missing:
             skip = {} if skipped is None else skipped
-            self._texts.update({p: _as_loaded(p, t) for p, t in self.tree.read_many(missing, skipped=skip).items()})
+            self._texts.update({p: _as_loaded(p, t, self._rule_targets)
+                                for p, t in self.tree.read_many(missing, skipped=skip).items()})
             self.unread.update(skip)
+
+    def _files_rules_reach(self) -> frozenset[str]:
+        """The files a ``.claude/rules`` file links to. Claude Code loads each one as a rule, so its frontmatter goes
+        whatever guidance name the file is also listed under (CLAUDE.local.md, or a link to one)."""
+        from dokimi.repos.budget import RULE_GLOB
+
+        out: set[str] = set()
+        for f in self.files:
+            if not RULE_GLOB.match(f):
+                continue
+            try:
+                out.add(self.tree.resolve(f))
+            except (SourceError, OSError, ValueError):
+                continue
+        return frozenset(out)
 
     def text(self, path: str) -> str:
         if path not in self._texts and path in self.file_set:
