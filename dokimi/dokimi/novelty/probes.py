@@ -34,11 +34,12 @@ wording on half the probe budget it claims.
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 
 from dokimi.utils import InputError
 from .atoms import Atom
-from .client import LLMClient
+from .client import LLMClient, SpendCapReached
 
 PROBE_KINDS = ("direct", "paraphrase", "reversal")
 
@@ -388,6 +389,7 @@ def build_probe_set(
     paraphrases: int = 1,
     reversals: bool = True,
     batch: int = 20,
+    into: ProbeSet | None = None,
 ) -> ProbeSet:
     """Build the probe set for a list of atoms.
 
@@ -400,16 +402,20 @@ def build_probe_set(
             generator returns one alternative per call).
         reversals: Whether to add the planted-inversion probe.
         batch: Atoms per wording-generation call.
+        into: An empty set to fill in place and return, so a caller whose generator raises
+            part-way (a spend cap) still holds the probes accepted so far.
     """
-    probes: list[Probe] = [
+    built = into if into is not None else ProbeSet(probes=[])
+    probes = built.probes
+    probes.extend(
         Probe(atom_id=a.id, kind="direct", question=a.question, expected=a.answer,
               grading=atom_grading(a))
         for a in atoms
-    ]
+    )
     if client is None:
-        return ProbeSet(probes=probes)
+        return built
 
-    fidelity: dict[str, dict] = {}
+    fidelity = built.fidelity
 
     def tally(kind: str, reasons: list[str]) -> bool:
         row = fidelity.setdefault(
@@ -425,8 +431,7 @@ def build_probe_set(
         return True
 
     if paraphrases:
-        for chunk in _chunks(atoms, batch):
-            worded = _generate(client, _PARAPHRASE_PROMPT, [a.question for a in chunk])
+        for chunk, worded in _worded(client, _PARAPHRASE_PROMPT, atoms, batch, "question"):
             for atom, question in zip(chunk, worded, strict=False):
                 reasons = check_wording(
                     "paraphrase", source=atom.question, candidate=question,
@@ -437,8 +442,7 @@ def build_probe_set(
                                         question=question.strip(), expected=atom.answer,
                                         grading=atom_grading(atom)))
     if reversals:
-        for chunk in _chunks(atoms, batch):
-            worded = _generate(client, _REVERSAL_PROMPT, [a.statement for a in chunk])
+        for chunk, worded in _worded(client, _REVERSAL_PROMPT, atoms, batch, "statement"):
             for atom, question in zip(chunk, worded, strict=False):
                 reasons = check_wording(
                     "reversal", source=atom.statement, candidate=question,
@@ -449,7 +453,7 @@ def build_probe_set(
                         expected=f"Refuse the premise. The truth is: {atom.statement}",
                         expect_refusal=True,
                     ))
-    return ProbeSet(probes=probes, fidelity=fidelity)
+    return built
 
 
 def atom_grading(atom: Atom) -> dict | None:
@@ -490,10 +494,37 @@ def _generate(client: LLMClient, template: str, lines: list[str]) -> list[str]:
         rows = client.json_array(template.format(**{key: numbered}))
     except Exception:
         rows = []
+    return _aligned(rows, len(lines))
+
+
+def _worded(client: LLMClient, template: str, atoms: list, batch: int,
+            field_name: str) -> Iterator[tuple[list, list[str]]]:
+    """Each chunk of ``atoms`` with its wordings. A call with no price was paid for: its reply's
+    wordings are yielded, and the stop is raised once the caller has kept them."""
+    from dokimi.llm_json import extract_json_array
+
+    for chunk in _chunks(atoms, batch):
+        lines = [getattr(atom, field_name) for atom in chunk]
+        try:
+            worded = _generate(client, template, lines)
+        except SpendCapReached as stop:
+            if not stop.reply:
+                raise
+            try:
+                rows = extract_json_array(stop.reply)
+            except ValueError:
+                rows = []
+            yield chunk, _aligned(rows, len(lines))
+            raise stop
+        yield chunk, worded
+
+
+def _aligned(rows: list, n: int) -> list[str]:
+    """``n`` wordings from a reply's rows, ``""`` for a row that is missing or not text."""
     worded = [
         # A generator that echoes the "1. " list numbering would otherwise add an anchor.
         re.sub(r"^\d+\.\s+", "", str(row).strip())
         if isinstance(row, (str, int, float)) else ""
         for row in rows
-    ][: len(lines)]
-    return worded + [""] * (len(lines) - len(worded))
+    ][:n]
+    return worded + [""] * (n - len(worded))
