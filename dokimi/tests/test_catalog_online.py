@@ -962,3 +962,8 @@ def _scan_capture(root, capsys, *extra: str) -> tuple[int, dict]:
     except SystemExit as exc:
         code = exc.code
     return code, json.loads(capsys.readouterr().out)
+
+
+def test_pip3_and_npm_add_name_their_packages():
+    assert online_checks.extract_packages("pip3 install nosuch-pkg-xyz\n") == [("pypi", "nosuch-pkg-xyz")]
+    assert online_checks.extract_packages("npm add nosuch-pkg-xyz\n") == [("npm", "nosuch-pkg-xyz")]
