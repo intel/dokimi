@@ -171,8 +171,8 @@ def verify_or_partial(sample, spans, client) -> dict | None:
 def run_estimate(args: argparse.Namespace, settings, text: str, estimate_usd) -> tuple[dict, int]:
     """The run's estimate, with ``expected_usd`` at list prices, and the artifact's token count.
 
-    ``estimate_usd`` is the command's pricing (``dokimi.commands.novelty._estimate_usd``), passed
-    in because that module imports this one.
+    ``estimate_usd`` is the command's pricing (``dokimi.novelty.cost.estimate_usd``), looked up
+    by the caller at call time, so a test that patches ``cost.estimate_usd`` takes effect.
     """
     from dokimi.novelty.measure import parse_arms
     from dokimi.novelty.spans import segment
@@ -201,7 +201,7 @@ def print_run_estimate(args: argparse.Namespace, settings, text: str, estimate_u
 
     estimate, n_tokens = run_estimate(args, settings, text, estimate_usd)
     usd = estimate["expected_usd"]
-    if usd is None:  # _estimate_usd has already said why
+    if usd is None:  # estimate_usd has already said why
         return
     label = f"--tier {settings.tier}" if settings.tier else "default settings"
     cap = (f"--max-usd {args.max_usd:g} stops it at that cap" if args.max_usd is not None

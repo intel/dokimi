@@ -10,6 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from dokimi.novelty import cost as novelty_cost
 from dokimi.utils import InputError
 from dokimi.cli import build_parser
 from dokimi.novelty.client import LLMClient
@@ -668,13 +669,12 @@ def test_with_the_response_cache_on_each_repeat_is_asked_again(monkeypatch, tmp_
 
 
 def test_a_repeat_run_through_the_cli_writes_the_noise_block(tmp_path, monkeypatch, capsys):
-    import dokimi.commands.novelty as novelty
 
     def answer(prompt: str) -> str:
         return _answer_as("perf")(prompt)
 
     monkeypatch.setattr(
-        novelty, "_client",
+        novelty_cost, "client",
         lambda model, provider, role, args: LLMClient(
             model=model, role=role, transport=lambda p, s: (answer(p), None)),
     )
@@ -711,10 +711,9 @@ def test_repeats_without_a_model_are_refused_on_the_cli(tmp_path, repeats):
 
 def test_a_declining_model_is_named_on_the_cli_with_where_its_replies_are(
         tmp_path, monkeypatch, capsys):
-    import dokimi.commands.novelty as novelty
 
     monkeypatch.setattr(
-        novelty, "_client",
+        novelty_cost, "client",
         lambda model, provider, role, args: LLMClient(
             model=model, role=role,
             transport=lambda p, s: ("I would rather not choose.", None)),
@@ -926,7 +925,6 @@ def test_a_fence_with_an_info_string_does_not_close_a_block():
 
 
 def _routing_with_model(tmp_path, monkeypatch, queries_text):
-    from dokimi.commands import novelty as novelty_cmd
 
     calls = []
 
@@ -934,7 +932,7 @@ def _routing_with_model(tmp_path, monkeypatch, queries_text):
         calls.append(prompt)
         return json.dumps({"pick": 1}), None
 
-    monkeypatch.setattr(novelty_cmd, "_client", lambda model, provider, role, args: LLMClient(
+    monkeypatch.setattr(novelty_cost, "client", lambda model, provider, role, args: LLMClient(
         model="fake", role=role, transport=transport))
     queries = tmp_path / "q.txt"
     queries.write_text(queries_text, encoding="utf-8")
@@ -968,9 +966,8 @@ def test_a_run_with_no_scorable_query_makes_no_model_call(tmp_path, monkeypatch)
 
 def test_the_model_row_carries_the_triage_tag_on_self_derived_queries(tmp_path, monkeypatch,
                                                                        capsys):
-    from dokimi.commands import novelty as novelty_cmd
 
-    monkeypatch.setattr(novelty_cmd, "_client", lambda model, provider, role, args: LLMClient(
+    monkeypatch.setattr(novelty_cost, "client", lambda model, provider, role, args: LLMClient(
         model="fake", role=role, transport=lambda prompt, system: (json.dumps({"pick": 1}), None)))
     args = _parse("novelty", "routing",
                   "--artifact", _skill(tmp_path, "a", "profile a binary"),

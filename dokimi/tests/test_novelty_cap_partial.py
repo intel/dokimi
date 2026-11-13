@@ -9,6 +9,7 @@ readers refuse a partial file. analyze names the estimated cost before it spends
 
 from __future__ import annotations
 
+import argparse
 import importlib
 import json
 import os
@@ -16,8 +17,8 @@ import re
 
 import pytest
 
+from dokimi.novelty import cost as novelty_cost
 from dokimi.cli import build_parser
-from dokimi.commands import novelty as novelty_cmd
 from dokimi.metrics.usage import UsageRecord
 from dokimi.novelty.client import LLMClient, SpendCap
 from dokimi.utils import InputError
@@ -69,7 +70,7 @@ def test_the_atoms_command_saves_a_partial_file_and_exits_without_atoms_json(tmp
     artifact.write_text(ROWS, encoding="utf-8")
     cap = SpendCap(limit_usd=1.0)
     calls: list = []
-    monkeypatch.setattr(novelty_cmd, "_client", lambda model, provider, role, args:
+    monkeypatch.setattr(novelty_cost, "client", lambda model, provider, role, args:
                         _paid_extractor(cap, calls))
     out = tmp_path / "atoms.json"
     args = _parse(*novelty_argv("atoms"), "--artifact", str(artifact), "--model", "e",
@@ -102,7 +103,7 @@ def test_the_atoms_command_warns_about_an_empty_reply_the_cap_did_not_cause(tmp_
 
     client = LLMClient(model="e", role="extractor", transport=empty_and_paid,
                        cap=SpendCap(limit_usd=0.5))
-    monkeypatch.setattr(novelty_cmd, "_client", lambda model, provider, role, args: client)
+    monkeypatch.setattr(novelty_cost, "client", lambda model, provider, role, args: client)
     args = _parse(*novelty_argv("atoms"), "--artifact", str(artifact), "--model", "e",
                   "--out", str(tmp_path / "atoms.json"), "--max-usd", "0.5")
     with pytest.raises(SystemExit):
@@ -153,7 +154,7 @@ def test_the_probe_command_saves_the_partial_measurement_and_exits(tmp_path, mon
     artifact.write_text(ROWS, encoding="utf-8")
     atoms = tmp_path / "atoms.json"
     calls: list = []
-    monkeypatch.setattr(novelty_cmd, "_client", lambda model, provider, role, args:
+    monkeypatch.setattr(novelty_cost, "client", lambda model, provider, role, args:
                         _paid_extractor(SpendCap(limit_usd=100.0), calls))
     args = _parse(*novelty_argv("atoms"), "--artifact", str(artifact), "--model", "e",
                                 "--out", str(atoms))
@@ -166,7 +167,7 @@ def test_the_probe_command_saves_the_partial_measurement_and_exits(tmp_path, mon
         return result
 
     monkeypatch.setattr(measure, "run_measurement", capped)
-    monkeypatch.setattr(novelty_cmd, "_clients", lambda args: (
+    monkeypatch.setattr(novelty_cost, "clients", lambda args: (
         LLMClient(model="e", role="extractor", transport=lambda p, system=None: ("[]", None)),
         LLMClient(model="a", role="answerer", transport=lambda p, system=None: ("x", None)),
         LLMClient(model="j", role="judge", transport=lambda p, system=None: ("x", None)),
@@ -193,7 +194,7 @@ def test_analyze_names_the_run_cost_before_it_spends(tmp_path, monkeypatch, caps
     # The package re-exports the function under the module's name, so reach the module itself.
     monkeypatch.setattr(importlib.import_module("dokimi.novelty.analyze"), "analyze",
                         stop_before_any_call)
-    monkeypatch.setattr(novelty_cmd, "_estimate_usd", lambda *a, **kw: 0.42)
+    monkeypatch.setattr(novelty_cost, "estimate_usd", lambda *a, **kw: 0.42)
     artifact = tmp_path / "rows.md"
     artifact.write_text(ROWS, encoding="utf-8")
     args = _parse(*novelty_argv("analyze"), "--artifact", str(artifact), "--model", "m",
@@ -210,6 +211,19 @@ def test_an_unpriced_model_prints_no_run_estimate_and_does_not_raise(monkeypatch
     budget.print_run_estimate(None, None, "text", lambda *a, **kw: None)
     captured = capsys.readouterr()
     assert captured.err == "" and captured.out == ""
+
+
+@pytest.mark.parametrize("max_usd, hint", [
+    (2.5, "--max-usd 2.5 stops it at that cap"),
+    (None, "--max-usd caps it"),
+])
+def test_the_run_estimate_line_ends_with_the_max_usd_hint(monkeypatch, capsys, max_usd, hint):
+    budget = importlib.import_module("dokimi.commands.novelty_budget")
+    monkeypatch.setattr(budget, "run_estimate", lambda *a, **kw: ({"expected_usd": 0.42}, 10))
+    args = argparse.Namespace(max_usd=max_usd)
+    budget.print_run_estimate(args, argparse.Namespace(tier="triage"), "text", None)
+    assert capsys.readouterr().err == (
+        f"Expected ~$0.42 for this run at list prices (--tier triage); {hint}\n")
 
 
 def test_an_unpriced_answer_stops_every_queued_probe_not_only_the_one_that_raised():

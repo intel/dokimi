@@ -19,8 +19,8 @@ import pytest
 
 from dokimi.artifacts import load_artifact, validate_artifact
 from dokimi.cli import build_parser
-from dokimi.commands import novelty as novelty_cmd
 from dokimi.metrics.usage import UsageRecord
+from dokimi.novelty import cost as novelty_cost
 from dokimi.novelty.analyze import AnalyzeConfig, analyze, load_artifact_text
 from dokimi.novelty.client import LLMClient, SpendCap
 from dokimi.utils import InputError
@@ -209,7 +209,7 @@ def test_a_stop_in_the_need_graph_is_named_as_that_stage(tmp_path):
 def _command(tmp_path, monkeypatch, cost_of, *extra):
     path = _skill(tmp_path)
     clients = _clients(cost_of)
-    monkeypatch.setattr(novelty_cmd, "_clients", lambda args: clients)
+    monkeypatch.setattr(novelty_cost, "clients", lambda args: clients)
     out_dir = tmp_path / "run"
     args = build_parser().parse_args([*novelty_argv("analyze"), "--artifact", f"skill:{path}",
                                       "--model", "m", "--out-dir", str(out_dir), "--max-usd", "1",
