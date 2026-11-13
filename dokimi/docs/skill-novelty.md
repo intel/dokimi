@@ -674,6 +674,10 @@ python cli.py skill routing skill:path/to/skill \
     --queries queries.json [--model M [--reps N]]
 ```
 
+A bare path, as `SKILL` or as a `--competitors` value, is a skill: its directory or `SKILL.md`.
+A file that is not a `SKILL.md` is skipped with a warning; pass `text:PATH` to use a file's text as a
+candidate.
+
 `--against <dir>` takes the competitors from a skill directory instead: every skill the catalog
 lists except the artifact itself. A `skills.yaml` at the root decides what the catalog lists;
 without one, every `SKILL.md` under it counts, except a `template/` copy and vendored or VCS
