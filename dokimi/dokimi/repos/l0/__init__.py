@@ -54,25 +54,6 @@ def _is_build_input(path: str) -> bool:
             or name in ("BUILD", "BUILD.bazel", "WORKSPACE", "WORKSPACE.bazel", "MODULE.bazel"))
 
 
-def _frontmatter_lines(tree: RepoTree, files: list[str]) -> dict[str, int]:
-    """The number of lines of frontmatter in each rule file of ``files`` (a rule without any is not listed)."""
-    from dokimi.repos.budget import RULE_GLOB
-    from dokimi.repos.rule_frontmatter import _FRONTMATTER
-
-    out: dict[str, int] = {}
-    for f in files:
-        if not RULE_GLOB.match(f):
-            continue
-        try:
-            text = tree.read_text(f).removeprefix("\ufeff")
-        except (SourceError, OSError, ValueError, RuntimeError):
-            continue
-        m = _FRONTMATTER.match(text)
-        if m:
-            out[f] = m.group(0).count("\n")
-    return out
-
-
 def scan_repo(tree: RepoTree, manifest: RepoManifest, static: dict[str, Any] | None = None,
               typecheck: Check | None = None, also: tuple[str, ...] = (),
               not_counted: tuple[str, ...] = ()) -> dict[str, Any]:
@@ -100,9 +81,7 @@ def scan_repo(tree: RepoTree, manifest: RepoManifest, static: dict[str, Any] | N
     for f in checked:
         scan.check_file(f)
     typecheck_block = None if typecheck is None else check_fences(scan, checked, typecheck)
-    # Claude Code removes a rule's frontmatter before it loads the rule: a line in it is not text the agent reads
-    strip = _frontmatter_lines(tree, files)
-    framework = [dict(c.to_dict(), source="framework") for c in scan.claims if c.line > strip.get(c.file, 0)]
+    framework = [dict(c.to_dict(), source="framework") for c in scan.claims]  # a rule's frontmatter is blanked (Scan)
 
     static_info: dict[str, Any] | None = None
     repository: list[dict[str, Any]] = []

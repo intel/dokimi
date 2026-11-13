@@ -34,7 +34,7 @@ def _typecheck_or_exit(args: argparse.Namespace):
 
 
 def _loaded_with_default(tree, manifest) -> tuple[tuple[str, ...], tuple[str, ...]]:
-    """The Markdown rules and ``@`` imports Claude Code loads with the default guidance, and the warnings of the rules
+    """The rules and the Markdown ``@`` imports Claude Code loads with the default guidance, and the warnings of the rules
     budget does not count (a linked ``.claude/rules``); both () for a written manifest.
 
     The default globs name CLAUDE.md but not what it pulls in: a stale path in a ``.claude/rules`` file or an
@@ -62,9 +62,12 @@ def _loaded_with_default(tree, manifest) -> tuple[tuple[str, ...], tuple[str, ..
         return (e["kind"] == "guidance" and e["when"] != "off"
                 and not any(match_glob(g, e["path"]) for g in manifest.guidance_globs))
 
-    reached = (_listed(tree, listed, e["path"]) for e in entries
+    reached = ((e["kind"], _listed(tree, listed, e["path"])) for e in entries
                if e["kind"] in ("rule", "import") or _unmatched_guidance(e))
-    loaded = tuple(dict.fromkeys(p for p in reached if p is not None and _target(tree, p).endswith(".md")))
+    # a rule is checked whatever its link points to (the contract: every rule file is checked); an import or a
+    # guidance name only when it is Markdown
+    loaded = tuple(dict.fromkeys(p for kind, p in reached if p is not None
+                                 and (kind == "rule" or _target(tree, p).endswith(".md"))))
     # a file the default globs match is checked anyway, so the note counts only the files they do not match
     new = [p for p in loaded if not any(match_glob(g, p) for g in manifest.guidance_globs)]
     if new:

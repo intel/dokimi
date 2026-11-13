@@ -117,6 +117,15 @@ class Claim:
                 "status": self.status, "why": self.why, "ctx": self.ctx[:200]}
 
 
+def _as_loaded(path: str, text: str) -> str:
+    """The text of ``path`` as the scan reads it: a ``.claude/rules`` file without its frontmatter, which Claude Code
+    removes before it loads the rule."""
+    from dokimi.repos.budget import RULE_GLOB
+    from dokimi.repos.rule_frontmatter import blank_frontmatter
+
+    return blank_frontmatter(text) if RULE_GLOB.match(path) else text
+
+
 @dataclass
 class Scan:
     """One L0 scan of one snapshot: the facts it reads lazily, and the claims it found."""
@@ -156,7 +165,7 @@ class Scan:
         missing = [p for p in paths if p not in self._texts and p not in self.unread and p in self.file_set]
         if missing:
             skip = {} if skipped is None else skipped
-            self._texts.update(self.tree.read_many(missing, skipped=skip))
+            self._texts.update({p: _as_loaded(p, t) for p, t in self.tree.read_many(missing, skipped=skip).items()})
             self.unread.update(skip)
 
     def text(self, path: str) -> str:

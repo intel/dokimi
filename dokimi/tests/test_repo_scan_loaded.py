@@ -128,11 +128,38 @@ def test_a_rules_link_to_a_directory_makes_the_default_scan_incomplete(tmp_path,
 
 
 def test_a_rule_is_scanned_without_its_frontmatter(tmp_path, capsys):
-    # Claude Code removes a rule's frontmatter before it loads the rule, so a path in it is not read as text
+    # Claude Code removes a rule's frontmatter before it loads the rule: a path in it is not read as text, and a
+    # path in the body is, on its own line
     root = _write(tmp_path / "r", {"src/real.py": "x = 1\n", "CLAUDE.md": "# guidance\n",
-                                   ".claude/rules/b.md": "---\ndescription: run before `src/gone_b.py`\n---\nbody\n"})
+                                   ".claude/rules/b.md": "---\ndescription: run before `src/gone_b.py`\n---\n"
+                                                         "See `src/gone_body.py`.\n"})
     payload = _scan(capsys, str(root))
-    assert ".claude/rules/b.md" not in {f for f, _ in _fails(payload)}
+    assert ".claude/rules/b.md" in payload["files"]
+    assert _fails(payload) == {(".claude/rules/b.md", "src/gone_body.py")}
+    assert {c["line"] for c in payload["claims"] if c["file"] == ".claude/rules/b.md" and c["status"] == "fail"} == {4}
+
+
+def test_a_code_fence_in_rule_frontmatter_does_not_hide_the_body(tmp_path, capsys):
+    # a fence opened in the frontmatter used to run on to the body, which then read as fence text: its path unchecked
+    rule = "---\ndescription: |\n  ```text\n---\nSee `src/gone_fence.py`.\n"
+    root = _write(tmp_path / "r", {"src/real.py": "x = 1\n", "CLAUDE.md": "# guidance\n", ".claude/rules/f.md": rule})
+    assert _fails(_scan(capsys, str(root))) == {(".claude/rules/f.md", "src/gone_fence.py")}
+
+
+def test_a_line_break_character_in_rule_frontmatter_counts_as_a_line(tmp_path, capsys):
+    # U+2028 ends a line for the scan too: the frontmatter's path is not read, the body's is checked
+    rule = "---\ndescription: a\u2028b\u2028see `src/gone_fm.py`\n---\nSee `src/gone_body_u.py`.\n"
+    root = _write(tmp_path / "r", {"src/real.py": "x = 1\n", "CLAUDE.md": "# guidance\n", ".claude/rules/u.md": rule})
+    assert _fails(_scan(capsys, str(root))) == {(".claude/rules/u.md", "src/gone_body_u.py")}
+
+
+def test_a_rule_linked_to_a_non_markdown_file_is_checked(tmp_path, capsys):
+    # the contract says every rule file is checked; the link's target is no reason to skip it
+    root = _write(tmp_path / "r", {"src/real.py": "x = 1\n", "CLAUDE.md": "# guidance\n",
+                                   "shared.txt": "See `src/gone_txt.py`.\n"})
+    (root / ".claude/rules").mkdir(parents=True)
+    (root / ".claude/rules/x.md").symlink_to("../../shared.txt")
+    assert _fails(_scan(capsys, str(root))) == {(".claude/rules/x.md", "src/gone_txt.py")}
 
 
 def test_the_note_counts_only_the_files_the_default_globs_do_not_match(tmp_path, capsys):
