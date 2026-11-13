@@ -283,7 +283,7 @@ def source_git_dir(source: RepoSource, tree: RepoTree, cache_dir: Path | None = 
         out = _run(["git", "-C", str(root), "rev-parse", "--path-format=absolute", "--git-common-dir"])
         return Path(out.strip())
     git_dir = cache_path(source.location, cache_dir or default_cache_dir()).with_suffix(".full.git")
-    clone_once(git_dir, lambda tmp: _run(["git", "clone", "--bare", "--", source.location, str(tmp)]))
+    clone_once(git_dir, lambda tmp: _run(["git", "clone", "--bare", "--", source.location, str(tmp)]), _GIT_TIMEOUT_S)
     sha = getattr(tree, "sha", None)
     if sha and not _has_commit(git_dir, sha):
         _run(["git", "-C", str(git_dir), "fetch", "origin", "--", sha])

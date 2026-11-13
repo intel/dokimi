@@ -102,3 +102,16 @@ def test_a_partial_clone_older_than_the_git_timeout_is_removed_and_a_running_one
         os.utime(d, (then, then))
     ensure_clone(url, cache)
     assert sorted(p.name for p in cache.iterdir()) == sorted([name, running.name])
+
+
+def test_a_full_clone_partial_is_aged_by_the_full_clones_own_timeout(tmp_path, monkeypatch):
+    url, sha = _origin(tmp_path)
+    spec, cache = RepoSource.parse(f"{url}@{sha}"), tmp_path / "cache"
+    tree = source.open_source(spec, cache)
+    monkeypatch.setattr(workspace, "_GIT_TIMEOUT_S", source._GIT_TIMEOUT_S * 4)  # big full clones get longer
+    running = cache / f"{cache_path(url, cache).with_suffix('.full.git').name}.1-aa.partial"
+    running.mkdir()
+    then = time.time() - source._GIT_TIMEOUT_S * 2
+    os.utime(running, (then, then))
+    source_git_dir(spec, tree, cache)
+    assert running.is_dir()

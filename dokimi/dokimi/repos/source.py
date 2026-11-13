@@ -462,18 +462,20 @@ def isolated_git_env() -> dict[str, str]:
 def ensure_clone(url: str, cache_dir: Path) -> Path:
     """Clone ``url`` bare and blob-less into the cache once; return the git dir."""
     git_dir = cache_path(url, cache_dir)
-    return clone_once(git_dir, lambda tmp: _git(None, "clone", "--bare", "--filter=blob:none", "--", url, str(tmp)))
+    return clone_once(git_dir, lambda tmp: _git(None, "clone", "--bare", "--filter=blob:none", "--", url, str(tmp)),
+                      _GIT_TIMEOUT_S)
 
 
-def clone_once(git_dir: Path, clone: Callable[[Path], object]) -> Path:
+def clone_once(git_dir: Path, clone: Callable[[Path], object], timeout_s: float) -> Path:
     """``git_dir``, made by ``clone(<tmp>)`` and a rename unless it has a ``HEAD``. Another process may clone the
-    same URL meanwhile: each clones into its own directory, and the one whose rename fails uses the other's."""
+    same URL meanwhile: each clones into its own directory, and the one whose rename fails uses the other's.
+    ``timeout_s``: the clone's timeout; a partial directory older than that is no live clone's."""
     if (git_dir / "HEAD").is_file():
         return git_dir
     git_dir.parent.mkdir(parents=True, exist_ok=True)
-    for old in git_dir.parent.glob(f"{git_dir.name}.*partial"):  # a clone this old was killed by its timeout
+    for old in git_dir.parent.glob(f"{git_dir.name}.*partial"):
         try:
-            if time.time() - old.stat().st_mtime > _GIT_TIMEOUT_S:
+            if time.time() - old.stat().st_mtime > timeout_s:
                 shutil.rmtree(old, ignore_errors=True)
         except OSError:  # another process removed it first
             pass
