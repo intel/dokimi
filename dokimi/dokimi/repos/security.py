@@ -149,7 +149,7 @@ _SECRET_PATH = _rx(r"(?:^|[/\\])\.(?:ssh|aws|gnupg)(?:[/\\]|$)|(?:^|[/\\])\.(?:n
 _EXECVE = re.compile(r'execve\("(?P<path>(?:[^"\\]|\\.)*)",\s*\[(?P<argv>(?:"(?:[^"\\]|\\.)*"|\.\.\.|[^".\]])*?)\](?:,|\))')
 _ARGV_ITEM = re.compile(r'"((?:[^"\\]|\\.)*)"(\.\.\.)?')  # a string past strace's -s limit ends in `...`
 #: A shell line continuation: the command goes on on the next line.
-_CONTINUATION = re.compile(r"\\\r?\n")
+_CONTINUATION = re.compile(r"(?<!\\)((?:\\\\)*)\\\r?\n")  # an odd run of backslashes: the last one escapes the newline
 
 
 @dataclass(frozen=True)
@@ -253,7 +253,7 @@ def _normal_paths(text: str) -> str:
 
 def command_findings(text: str, source: str, canaries: Sequence[str] = ()) -> list[Finding]:
     """The command rules ``text`` matches; backslash-newline continuations are joined first."""
-    joined = _CONTINUATION.sub("", text)
+    joined = _CONTINUATION.sub(r"\1", text)
     # quotes are dropped for the rules that read paths: "$HOME"/* and "/"* are $HOME/* and /*
     bare = _normal_paths(_REDIRECT.sub(" ", joined.replace('"', "").replace("'", "")))
     return [Finding(r.id, r.severity, source, _evidence(text, canaries)) for r in COMMAND_RULES
