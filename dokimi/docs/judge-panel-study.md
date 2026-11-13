@@ -307,70 +307,8 @@ What is missing (each item was needed to produce this note):
 
 ## 5. Proposal
 
-All of the following reuse code that exists: the `--judges` spec parser of `eval judge
-agreement`, `JudgePanel` / `_aggregate`, `cross_judge.label`, and `same_evaluator`.
-
-**CLI**
-
-```text
-# proposed, not implemented: the flags of `python cli.py arms run`
-arms run ... \
-  --judges anthropic/claude-sonnet-5-5,openai/gpt-6-luna,bedrock/kimi-k3 \
-  --aggregate majority            # majority | median | mean | unanimous | any | dawid-skene
-  --judge-family-policy refuse    # refuse | warn | allow  (judge vs answer model, and judge vs judge)
-  --judge-escalate contested      # grade with judges[0]; send rows near the threshold, and
-                                  # the baseline/placebo arms, to the rest of the panel
-```
-
-- `--judges` on `arms run` and `arms matrix-run` takes the same `provider/model` list as
-  `eval judge agreement`. `--judge-model` / `--judge-provider` stay as the one-judge form.
-  `--judge-panel ROLES` stays orthogonal: roles × judges, with roles averaged inside a judge
-  first.
-- `--aggregate` defaults to `majority` for verdict-style grading and to `median` for 0–100
-  scores. The latter is the robust form of today's mean, and matches majority in section 3.
-  `dawid-skene` needs ≥ 3 judges and ≥ 50 rows and falls back to `majority` with a warning
-  below that. The rule, and the judges' estimated sensitivity and specificity, go into the
-  run's provenance digest as `_aggregation_policy` does today.
-- `--judge-family-policy`: one `family` field per model in `defaults.py`, next to
-  `JUDGE_MODEL_FOR_PROVIDER`, covering the same table the novelty study keeps. `refuse` is
-  the default for `--judges`. It refuses a judge from the answer model's family, or two judges
-  from one family, unless `allow` is given, and records which policy was in force.
-- `--judge-escalate contested` is the cheap panel. Its cost and accuracy are not measured
-  yet. The case for it is that about 80% of rows are unanimous, and the contested ones
-  concentrate in two arms. This study's data can simulate it before it is built.
-
-**Config** (the `judge:` block in a product config, or a run YAML), so that a product fixes its
-panel once:
-
-```yaml
-judge:
-  judges:
-    - {provider: anthropic, model: claude-sonnet-5-5}
-    - {provider: openai,    model: gpt-6-luna, temperature: null}   # null = model default
-    - {provider: bedrock,   model: kimi-k3,    temperature: null}
-  aggregate: majority
-  min_quorum: 2              # rows with fewer valid votes are insufficient_evidence
-  family_policy: refuse
-  disagreement_threshold: 15  # today's DISAGREEMENT_STD, now configurable
-  escalate: contested
-```
-
-`temperature: null` is needed because gpt-6-luna and kimi-k3 reject `temperature=0`.
-
-**Report** (arms report and `eval judge agreement`):
-
-- A per-judge table of every headline number (arm means, deltas, added/known/degraded where
-  applicable), with the panel row under it. That is section 1 of this note, generated.
-- Pairwise Cohen's kappa and Krippendorff's α for the binary and full scales, plus a
-  same-family flag on pairs.
-- The share of rows that lack unanimity, per arm.
-- A **judge-sensitive** flag on each headline delta, raised inline (not only post hoc) when
-  either the sign differs between judges or the range across judges exceeds the noise floor.
-  It reuses the `JUDGE-DEPENDENT` label, and `--strict` makes it an error as it does today.
-
-**Order of work:** (1) `--judges` + `--aggregate` on `arms run`, with per-judge numbers in
-the report. (2) The family table and policy. (3) Kappa/α and disagreement by arm. (4)
-Escalation. Items 1–3 change no default output for a one-judge run.
+The proposal for `--judges` and `--aggregate` on `arms run` was removed from this page: AGENTS.md
+keeps design plans out of the tree, so the text is not kept here.
 
 ## 6. Old and new judge generations
 
