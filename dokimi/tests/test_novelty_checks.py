@@ -138,6 +138,16 @@ def test_probe_carries_atom_grading_except_reversal():
     assert probes[0].grading and probes[0].as_dict()["grading"]["checks"][0]["role"] == "veto"
 
 
+def test_a_reversal_probe_never_carries_atom_grading():
+    atom = Atom(statement="X does not support Y.", question="Does X support Y?", answer="Yes.",
+                span_ids=("s1",), meta={"grading": {"checks": [_veto()]}})
+    reply = json.dumps(["Is it true that X supports Y?"])
+    client = LLMClient(model="a", transport=lambda p, s: (reply, None))
+    probes = build_probes([atom], client=client, paraphrases=0)
+    reversal = [p for p in probes if p.kind == "reversal"]
+    assert reversal and reversal[0].expect_refusal and reversal[0].grading is None
+
+
 def test_invalid_atom_grading_is_refused():
     atom = Atom(statement="s", question="q", answer="a", span_ids=("s1",), id="a1",
                 meta={"grading": {"checks": [{"type": "identifiers"}]}})
@@ -488,6 +498,24 @@ def test_novelty_ground_creates_the_output_directory(tmp_path, monkeypatch):
     assert data["atoms"][0]["meta"]["grading"]["checks"][0]["type"] == "identifiers"
 
 
+def test_novelty_ground_keeps_the_mode_of_the_atoms_file(tmp_path, monkeypatch):
+    import argparse
+
+    from dokimi.commands import novelty_ground
+    from dokimi.novelty import grounding
+    from dokimi.novelty.atoms import Atom, Span, save_atoms
+    atoms_path = tmp_path / "atoms.json"
+    span = Span(id="s1", kind="prose", text="perf report shows samples", start=0, end=25)
+    save_atoms([Atom(statement="perf report shows samples", question="How?",
+                     answer="perf report --stdio", span_ids=("s1",))], [span], atoms_path)
+    atoms_path.chmod(0o640)
+    monkeypatch.setattr(grounding, "help_text", lambda tool, **k: PERF_HELP)
+    args = argparse.Namespace(atoms=str(atoms_path), out=None, tool=["perf report"],
+                              tool_version=None)
+    novelty_ground.cmd_novelty_ground(args)
+    assert atoms_path.stat().st_mode & 0o777 == 0o640
+
+
 def test_verify_keys_counts_a_key_only_once_a_checked_option_passed(monkeypatch):
     from dokimi.eval import reference_checks
     from dokimi.novelty import grounding
@@ -607,3 +635,39 @@ def test_a_refused_reply_with_no_verdict_stays_ungraded_and_the_veto_still_grade
     run = result.runs[0]
     assert result.stop[0] == "no_price" and result.ungraded == 1
     assert (run.verdict, run.verdict_source) == ("wrong_other", "check")
+
+
+def test_a_tool_path_that_cannot_run_is_an_input_error(tmp_path):
+    tool = tmp_path / "tool.txt"
+    tool.write_text("hello\n", encoding="utf-8")
+    tool.chmod(0o644)
+    with pytest.raises(InputError, match="cannot be run"):
+        help_text(str(tool))
+
+
+@pytest.mark.parametrize("meta", [None, {"grading": None}])
+def test_an_atom_with_null_meta_or_grading_gets_its_check(meta):
+    check = identifiers_check("perf report", PERF_HELP)
+    atoms = [{"id": "a1", "statement": "perf report", "question": "q",
+              "answer": "perf report --stdio", "meta": meta},
+             {"id": "a2", "statement": "other", "question": "q", "answer": "a", "meta": None}]
+    assert add_checks(atoms, [check], ["perf report"]) == 1
+    assert atoms[0]["meta"]["grading"]["checks"] == [check]
+    assert atoms[1]["meta"] is None
+
+
+def test_a_custom_pattern_match_is_read_as_written():
+    from dokimi.eval.reference_checks import identifier_names
+    check = {"type": "identifiers", "known": ["MODE=fast"], "pattern": r"(MODE=\w+)"}
+    unknown, _ = identifier_names(check, "Set MODE=fast to run.")
+    assert unknown == []
+
+
+def test_a_windows_tool_path_keeps_its_backslashes():
+    from dokimi.novelty.grounding import _argv
+    assert _argv(r"C:\Tools\perf.exe report") == [r"C:\Tools\perf.exe", "report"]
+
+
+def test_a_posix_tool_path_keeps_its_escaped_space():
+    from dokimi.novelty.grounding import _argv
+    assert _argv(r"/opt/my\ tools/perf report") == ["/opt/my tools/perf", "report"]

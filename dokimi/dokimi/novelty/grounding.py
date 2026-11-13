@@ -37,10 +37,18 @@ _REJECTION = re.compile(
     r"|unrecognized arguments")
 
 
+_WINDOWS_PATH = re.compile(r"\s*[\"']?[A-Za-z]:\\")
+
+
 def _argv(tool: str) -> list[str]:
     """The words of ``tool``; refused when they do not parse or there are none."""
     try:
-        argv = shlex.split(tool)
+        if _WINDOWS_PATH.match(tool):  # backslashes are path separators here, not escapes
+            lex = shlex.shlex(tool, posix=True)
+            lex.whitespace_split, lex.commenters, lex.escape = True, "", ""
+            argv = list(lex)
+        else:
+            argv = shlex.split(tool)
     except ValueError as exc:
         raise InputError(f"--tool {tool!r} does not parse: {exc}") from None
     if not argv:
@@ -66,6 +74,8 @@ def help_text(tool: str, *, timeout: float = 20.0) -> str:
             done = run([*argv, flag], timeout=timeout, env=Env.inherit())
         except FileNotFoundError:
             raise InputError(f"{argv[0]!r} is not installed; cannot read its help") from None
+        except OSError as exc:
+            raise InputError(f"{argv[0]!r} cannot be run: {exc.strerror or exc}") from None
         if done.timed_out:
             continue
         text = done.stdout + done.stderr
@@ -166,8 +176,8 @@ def add_checks(atoms: list[dict], checks: list[dict], tools: list[str]) -> int:
                 if re.search(_mention(tool), text)]
         if not mine:
             continue
-        meta = atom.setdefault("meta", {})
-        grading = meta.setdefault("grading", {"checks": []})
+        meta = atom["meta"] = atom.get("meta") or {}
+        grading = meta["grading"] = meta.get("grading") or {"checks": []}
         kept = [c for c in grading.get("checks", [])
                 if not (c.get("type") == "identifiers"
                         and (c.get("source") or {}).get("tool") in {m["source"]["tool"] for m in mine})]

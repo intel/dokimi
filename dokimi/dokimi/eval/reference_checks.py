@@ -460,7 +460,7 @@ def scope_options(pattern: str, scope: str, *, timeout: float, negated: bool, re
             continue
         # The first group is unset when another alternative of the pattern matched.
         name = (m.group(1) if m.groups() and m.group(1) is not None else m.group(0))
-        names.append(name.split("=", 1)[0])
+        names.append(name)
     return names
 
 
