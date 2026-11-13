@@ -297,3 +297,17 @@ def test_a_quoted_list_of_bundled_paths_is_read_one_by_one(tmp_path):
     review, _ = _review(tmp_path, 'Run `cp "scripts/a.py;scripts/b.py" /tmp/x`.\n', files=["scripts/a.py"])
     [finding] = _path_findings(review)
     assert finding.message.startswith("'scripts/b.py' (in ")
+
+
+@pytest.mark.parametrize(
+    ("body", "names"),
+    [
+        ("Run `python scripts/run.py|tee log`.\n", ["scripts/run.py"]),
+        ("Run `python scripts/run.py>out.log`.\n", ["scripts/run.py"]),
+        ("Run `python scripts/run.py --config=scripts/settings.yaml`.\n", ["scripts/run.py", "scripts/settings.yaml"]),
+    ],
+)
+def test_a_missing_path_next_to_a_shell_operator_or_an_option_is_named(tmp_path, body, names):
+    review, _ = _review(tmp_path, body)
+    assert [finding.message.split("'")[1] for finding in _path_findings(review)] == names
+

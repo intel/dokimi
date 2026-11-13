@@ -49,6 +49,9 @@ def _bundle_path(word: str) -> Optional[str]:
     file extension), a placeholder part, or a template variable.
     """
     text = word.lstrip("(").rstrip(",;:.)").strip("'\"").rstrip(",;:.)")
+    # A shell operator ends the word (``run.py|tee``, ``run.py>out``); an option value follows its last ``=``.
+    text = re.split(r"[|<>&]", text, maxsplit=1)[0].rstrip(",;:.)")
+    text = text.rsplit("=", 1)[-1].strip("'\"")
     if text.startswith("./"):
         text = text[2:]
     if text.startswith(SKILL_DIR_VAR):
