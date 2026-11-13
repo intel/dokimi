@@ -26,11 +26,13 @@ interaction_significance(evaluations, arms, baseline_arm, ...)
 
 from __future__ import annotations
 
+import math
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from dokimi.records import RecordLike, records
 from dokimi.eval.stats import (
     _apply_correction,
+    _deltas,
     _describe_deltas,
     _finalize,
     _refuse_overflow,
@@ -90,18 +92,19 @@ def _interaction_contrast(
     if len(rows) < 2:
         return None
 
+    bases = [base for _, _, _, base in rows]
+    diffs_a = _deltas([a for _, a, _, _ in rows], bases)
+    diffs_b = _deltas([b for _, _, b, _ in rows], bases)
+    diffs_ab = _deltas([ab for ab, _, _, _ in rows], bases)
     contrasts: List[float] = []
-    diffs_a: List[float] = []
-    diffs_b: List[float] = []
-    diffs_ab: List[float] = []
     for row in rows:
         ab, a, b, base = row
-        contrast, d_a, d_b, d_ab = ab - a - b + base, a - base, b - base, ab - base
-        _refuse_overflow([contrast, d_a, d_b, d_ab], row, "a contrast of the four scores leaves the float range")
+        contrast = ab - a - b + base
+        if not math.isfinite(contrast):
+            # a step of the sum may overflow while the contrast fits: redo it on quarters (exact powers of two)
+            contrast = 4 * (ab / 4 - a / 4 - b / 4 + base / 4)
+        _refuse_overflow([contrast], row, "a contrast of the four scores leaves the float range")
         contrasts.append(contrast)
-        diffs_a.append(d_a)
-        diffs_b.append(d_b)
-        diffs_ab.append(d_ab)
     res = _describe_deltas(contrasts, confidence=confidence, seed=seed)
     delta_a = _arm_delta(diffs_a, confidence, seed)
     delta_b = _arm_delta(diffs_b, confidence, seed)

@@ -36,10 +36,20 @@ def test_a_contrast_beyond_the_float_range_raises_instead_of_an_inf_delta():
 
 
 def test_an_arm_delta_beyond_the_float_range_raises_while_the_contrast_is_finite():
-    # ab - a - b + base = 0, but a - base and ab - base are 3.4e308
-    evaluations = [_ev("q1", BIG, BIG, 0.0, -BIG), _ev("q2", 0.0, 0.0, 0.0, 0.0)]
-    with pytest.raises(OverflowError, match="leaves the float range"):
+    # the contrast is 0 and only ab - base (3.4e308) leaves the range
+    evaluations = [_ev("q1", BIG, 0.0, 0.0, -BIG), _ev("q2", 0.0, 0.0, 0.0, 0.0)]
+    with pytest.raises(OverflowError, match="a difference of the paired values leaves the float range"):
         _test(evaluations)
+
+
+@pytest.mark.filterwarnings("ignore:invalid value encountered in matmul")  # the interval search of a delta this large
+def test_a_contrast_that_fits_is_returned_when_a_step_of_the_sum_overflows():
+    # ab - a is inf, but ab - a - b + base = BIG and every arm delta is finite
+    evaluations = [_ev("q1", BIG, -BIG, BIG, 0.0), _ev("q2", 0.0, 0.0, 0.0, 0.0)]
+    res = _test(evaluations)
+    assert res is not None
+    assert res["interaction"] == BIG / 2
+    assert math.isfinite(res["delta_std"])
 
 
 def test_a_near_range_contrast_that_stays_finite_returns_finite_numbers():
