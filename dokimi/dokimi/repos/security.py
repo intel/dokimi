@@ -135,8 +135,9 @@ OTHER_RULES: tuple[Rule, ...] = (
 
 RULES: dict[str, Rule] = {r.id: r for r in (*COMMAND_RULES, *OTHER_RULES)}
 
-_SECRET_PATH = _rx(r"(?:^|/)\.(?:ssh|aws|gnupg)(?:/|$)|(?:^|/)\.(?:netrc|env)$|(?:^|/)\.docker/config\.json$|"
-                   r"(?:^|/)\.kube/config$")
+# a Windows path separates its names with a backslash: both separators count
+_SECRET_PATH = _rx(r"(?:^|[/\\])\.(?:ssh|aws|gnupg)(?:[/\\]|$)|(?:^|[/\\])\.(?:netrc|env)$|"
+                   r"(?:^|[/\\])\.docker[/\\]config\.json$|(?:^|[/\\])\.kube[/\\]config$")
 
 #: ``1234 execve("/usr/bin/sudo", ["sudo", "id"], 0x... /* 9 vars */) = 0`` (``[pid 1234]`` too).
 _EXECVE = re.compile(r'execve\("(?P<path>(?:[^"\\]|\\.)*)",\s*\[(?P<argv>(?:"(?:[^"\\]|\\.)*"(?:\.\.\.)?|[^"\]])*?)\](?:,|\))')

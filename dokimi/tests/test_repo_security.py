@@ -939,3 +939,9 @@ def test_a_garbled_trace_with_no_agent_record_is_started_and_unfinished(tmp_path
     (cell / "events.jsonl").write_text("not json\n", encoding="utf-8")
     summary, unreadable = sec._scan(cell, [])
     assert summary["started"] and unreadable
+
+
+@pytest.mark.parametrize("path", [r"C:\Users\me\.ssh\id_rsa", r"C:\Users\me\.aws\credentials", r"C:\Users\me\.env"])
+def test_secret_read_by_a_windows_path(tmp_path, path):
+    cell = _cell(tmp_path, "t", "skill", 0, events=[{"kind": "read", "path": path}])
+    assert "secret-read" in {f["rule"] for f in sec.scan_cell(cell)["findings"]}
