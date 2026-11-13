@@ -7,8 +7,8 @@
 - **`repo report` and `repo compare` refuse an arm and model whose cells hold two executions** — a
   `--force` run with another execution that stopped part way (Ctrl-C, a crash, a failed cell), or a
   harness binary replaced while the batch ran, left cells of two executions that were pooled in one
-  row. A batch that reported before can now be refused; the message names both ids, and `--force`
-  on the cells of the older one clears it. `repo compare` checks only the rows it compares.
+  row. A batch that reported before can now be refused; the message names both ids, and a `--force`
+  run over every arm and model of the batch with the same `--task` and `--reps` clears it. `repo compare` checks only the rows it compares.
 
 ### Added
 

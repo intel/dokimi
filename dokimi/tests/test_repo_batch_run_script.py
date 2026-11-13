@@ -39,6 +39,15 @@ print("Error: no such file")
 sys.exit(1)
 """
 
+# prints a verdict line, then exits with the status in FAKE_TLC_RC
+FAKE_TLC_STATUS = f"""#!{sys.executable} -I
+import os
+import sys
+
+print(os.environ["FAKE_TLC_OUT"])
+sys.exit(int(os.environ["FAKE_TLC_RC"]))
+"""
+
 
 def _fake_java(tmp_path: Path) -> Path:
     java = tmp_path / "fake-java"
@@ -111,3 +120,24 @@ def test_a_bare_java_name_is_still_looked_up_on_path(tmp_path):
                          capture_output=True, text=True, check=False)
     assert res.returncode == 0, res.stdout + res.stderr
     assert "pass" in (tmp_path / "out" / "summary.tsv").read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("out, rc, cfg, got, exit_code", [
+    ("Model checking completed. No error has been found.", 1, "fixed", "error rc=1", 1),
+    ("Error: Invariant CancelContract is violated.", 1, "mut_no_cancel_guard", "error rc=1", 1),
+    ("Error: Temporal property InvocationEnds was violated.", 1, "no_fairness", "error rc=1", 1),
+    ("Error: Invariant CancelContract is violated.", 12, "mut_no_cancel_guard", "violation CancelContract", 0),
+    ("Error: Temporal property InvocationEnds was violated.", 13, "no_fairness", "violation InvocationEnds", 0),
+], ids=["pass-then-failure", "invariant-then-failure", "temporal-then-failure", "invariant-12", "temporal-13"])
+def test_a_verdict_in_the_log_counts_only_with_the_status_tlc_gives_it(tmp_path, out, rc, cfg, got, exit_code):
+    java = tmp_path / "fake-java"
+    java.write_text(FAKE_TLC_STATUS, encoding="utf-8")
+    java.chmod(0o755)
+    (tmp_path / "tla2tools.jar").write_text("", encoding="utf-8")
+    env = {**os.environ, "TLA2TOOLS_JAR": str(tmp_path / "tla2tools.jar"), "OUT": str(tmp_path / "out"),
+           "JAVA": str(java), "FAKE_TLC_OUT": out, "FAKE_TLC_RC": str(rc)}
+    res = subprocess.run(["bash", str(RUN), str(FIXED.with_name(f"{cfg}.cfg"))], env=env,
+                         capture_output=True, text=True, check=False)
+    row = (tmp_path / "out" / "summary.tsv").read_text(encoding="utf-8").splitlines()[1].split("\t")
+    assert row[2] == got, res.stdout + res.stderr
+    assert res.returncode == exit_code, res.stdout + res.stderr

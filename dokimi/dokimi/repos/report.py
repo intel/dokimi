@@ -176,6 +176,8 @@ def _check_cell(path: Path, rec: dict[str, Any]) -> None:
     for key in ("task", "arm", "model"):
         if not isinstance(rec.get(key), str):
             raise CellFileError(f"{path} has no usable `{key}`")
+    if "batch" in rec and not isinstance(rec["batch"], str):
+        raise CellFileError(f"{path} has no usable `batch`")
 
 
 def load_cells(batch_dir: Path) -> tuple[list[dict[str, Any]], list[str]]:
@@ -209,7 +211,7 @@ def refuse_mixed_executions(cells: list[dict[str, Any]], where: str) -> None:
     for (batch, arm, model), ids in sorted(seen.items()):
         if len(ids) > 1:
             raise CellFileError(f"{batch or where}: the cells of arm {arm}, model {model} ran with executions "
-                                f"{', '.join(sorted(ids))}; rerun that arm and model with --force and the batch's --task and "
+                                f"{', '.join(sorted(ids))}; rerun every arm and model of the batch with --force and the batch's --task and "
                                 "--reps, so every cell has one execution, or use another --batch")
 
 

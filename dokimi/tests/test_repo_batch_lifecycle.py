@@ -84,6 +84,7 @@ def test_names_that_differ_only_in_case_are_refused_before_any_agent(setup, caps
     assert not _agents(setup)
 
 
+@pytest.mark.skipif(os.name == "nt", reason="os.kill with SIGINT terminates the process on Windows")
 def test_ctrl_c_starts_no_queued_cell(setup, monkeypatch):
     # CancelContract of cfg/fixed.cfg (cfg/mut_no_cancel_guard.cfg breaks it): SIGINT wakes the main thread and
     # pool.map cancels the queued cells; _thread.interrupt_main() sends no signal and would let them start.
@@ -187,6 +188,9 @@ def test_the_mixed_execution_refusal_is_per_batch_arm_and_model():
         refuse_mixed_executions([*ok, _cell("a", "m", "e4")], "b1")
     with pytest.raises(CellFileError, match="e1, unrecorded"):
         refuse_mixed_executions([_cell("a", "m", "e1"), {"arm": "a", "model": "m"}], "b1")
+    # the remedy is a --force run over the whole batch: an arm-only rerun is refused while another arm holds the older id
+    with pytest.raises(CellFileError, match="rerun every arm and model of the batch with --force"):
+        refuse_mixed_executions([_cell("a", "m", "e1"), _cell("a", "m", "e2")], "b1")
 
 
 def test_compare_refuses_only_a_compared_row_of_two_executions(setup):
