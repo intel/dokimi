@@ -6,7 +6,9 @@ every path of ``dokimi.llm`` that reaches litellm, with litellm itself failing o
 
 from __future__ import annotations
 
+import ast
 import socket
+from pathlib import Path
 
 import litellm
 import pytest
@@ -57,3 +59,24 @@ def _price() -> bool:
 def test_the_checks_and_pricing_of_an_unknown_provider_print_nothing_to_stdout(capsys, call):
     assert call()
     assert capsys.readouterr().out == ""
+
+
+def _litellm_loads() -> set[str]:
+    """Each place the package imports litellm, as ``<file>:<innermost enclosing function>``."""
+    root = Path(llm.__file__).parent
+    loads = set()
+    for path in root.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        scope = {child: fn.name for fn in ast.walk(tree) if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef))
+                 for child in ast.walk(fn)}  # breadth-first: an inner function's name comes last and wins
+        for node in ast.walk(tree):
+            names = ([a.name for a in node.names] if isinstance(node, ast.Import)
+                     else [node.module or ""] if isinstance(node, ast.ImportFrom) and not node.level else [])
+            if any(n == "litellm" or n.startswith("litellm.") for n in names):
+                loads.add(f"{path.relative_to(root).as_posix()}:{scope.get(node, '<module>')}")
+    return loads
+
+
+def test_the_package_imports_litellm_only_where_the_banners_are_turned_off():
+    # The flag is process-wide: a load elsewhere would pass the tests above whenever an earlier one ran first.
+    assert _litellm_loads() == {"llm.py:_litellm"}
