@@ -170,6 +170,17 @@ def test_a_malformed_excluded_list_is_refused_not_read_as_empty(tmp_path, exclud
     assert "excluded" in verdict.message
 
 
+@pytest.mark.parametrize("excluded", [{}, "", 0, False])
+def test_a_falsy_non_list_excluded_is_refused_not_read_as_empty(tmp_path, excluded):
+    # a falsy stored value is not a missing list: `or []` turned it into an empty list and the
+    # still-excluded file read as added, so the shape is checked before any truthiness is taken
+    root = _tree(tmp_path)
+    record = load_bundle(f"skill:{root}", include_resources=True).summary()
+    verdict = check_answer_key(f"skill:{root}", {**record, "excluded": excluded}, source="a.json")
+    assert (verdict.ok, verdict.problem) == (False, "no_file_rows")
+    assert "excluded" in verdict.message
+
+
 def test_an_excluded_list_is_not_read_when_resources_are_not(tmp_path):
     # without include_resources the check never reads excluded, so a malformed one changes no verdict
     root = _tree(tmp_path)

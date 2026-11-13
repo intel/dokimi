@@ -114,7 +114,8 @@ def parse_answer_key(record: Mapping[str, Any] | AnswerKeyRecord | None) -> Answ
     excluded = None
     excluded_ok = True
     if "excluded" in raw:
-        listed = raw.get("excluded") or []
+        listed = raw.get("excluded")
+        listed = [] if listed is None else listed  # only a null is the empty list; {}, "", 0 and False are refused
         # a row's path must be a string, absent or null: the CLI loader and the base check take a path-less
         # row as None. Only include_resources reads excluded, so other records are not refused for it.
         excluded_ok = not raw.get("include_resources") or (_rows(listed) and all(
