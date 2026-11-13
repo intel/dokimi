@@ -18,9 +18,13 @@ import shutil
 import sys
 import tempfile
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from dokimi.exit_codes import EXIT_FAILURE
 from dokimi.utils import InputError
+
+if TYPE_CHECKING:
+    from dokimi.novelty.needs import NeedGraph
 
 
 def _frozen(out: Path) -> InputError:
@@ -71,14 +75,10 @@ def _publish(graph: dict, out: Path) -> None:
             shutil.rmtree(stage_dir, ignore_errors=True)
 
 
-def cmd_eval_graph(args: argparse.Namespace) -> None:
-    """Write a need_graph.v1 file; exit 2 on a bad input or an existing --out, 1 on a failed or empty build."""
-    from dokimi.commands.novelty_run import spend_cap
+def _preflight(out: Path, skill: str) -> tuple[str, str]:
+    """Refuse a frozen or unwritable --out, or an unloadable skill, before the paid call; return the skill's name and description."""
     from dokimi.novelty.artifact import load_artifact_ref
-    from dokimi.novelty.client import LLMClient, SpendCapReached
-    from dokimi.novelty.needs import PROMPT_VERSION, build_need_graph
 
-    out = Path(args.out)
     try:
         present = out.exists() or out.is_symlink()
     except OSError as exc:  # a parent this user cannot search
@@ -86,9 +86,9 @@ def cmd_eval_graph(args: argparse.Namespace) -> None:
     if present:
         raise _frozen(out)
     try:
-        _kind, name, description, _frontmatter, _body = load_artifact_ref(_as_skill(args.skill))
+        _kind, name, description, _frontmatter, _body = load_artifact_ref(_as_skill(skill))
     except InputError as exc:  # the loader's message names --artifact, which this command does not have
-        raise InputError(f"cannot load skill {args.skill}: {str(exc).partition(': ')[2] or exc}") from exc
+        raise InputError(f"cannot load skill {skill}: {str(exc).partition(': ')[2] or exc}") from exc
     try:  # before the paid call, not after it: a missing directory is made, as save_artifact does
         out.parent.mkdir(parents=True, exist_ok=True)
         writable = os.access(out.parent, os.W_OK | os.X_OK)
@@ -97,25 +97,47 @@ def cmd_eval_graph(args: argparse.Namespace) -> None:
     if not writable:
         raise InputError(f"cannot write to {out.parent}: checked before the paid call")
     _check_hard_links(out)
+    return name, description
+
+
+def _provider_and_model(args: argparse.Namespace) -> tuple[str, str]:
+    """The graph author's provider and model; provenance records gemini/x as google-vertex/x."""
     from dokimi.llm import PROVIDER_ALIASES
 
     provider, model = args.extract_model
-    provider = PROVIDER_ALIASES.get(provider, provider)  # provenance records gemini/x as google-vertex/x
+    return PROVIDER_ALIASES.get(provider, provider), model
+
+
+def _author(name: str, description: str, args: argparse.Namespace,
+            provider: str, model: str) -> tuple[NeedGraph, bool]:
+    """Ask the graph author for the graph. Returns (graph, unmetered); exits 1 on a failed call."""
+    from dokimi.commands.novelty_run import spend_cap
+    from dokimi.novelty.client import LLMClient, SpendCapReached
+    from dokimi.novelty.needs import build_need_graph
+
     client = LLMClient(model=model, provider=provider, role="graph", cap=spend_cap(args))
-    unmetered = False
     try:
-        graph = build_need_graph(name, description, client=client, strict=True)
+        return build_need_graph(name, description, client=client, strict=True), False
     except SpendCapReached as exc:
         reply = exc.reply or ""
         # A reply cut at the output ceiling is no graph, priced or not (as LLMClient.text refuses it).
         if exc.reason != "no_price" or not reply.strip() or exc.truncated:
             raise
         # The call is paid for and its reply is the graph, as measure.py keeps such a reply.
-        unmetered = True
-        graph = _graph_from_unmetered(name, description, reply)
+        return _graph_from_unmetered(name, description, reply), True
     except Exception as exc:  # an unreachable or unauthenticated model: not "an empty graph"
         print(f"Error: the graph-author call failed: {exc}; nothing was written", file=sys.stderr)
         sys.exit(EXIT_FAILURE)
+
+
+def cmd_eval_graph(args: argparse.Namespace) -> None:
+    """Write a need_graph.v1 file; exit 2 on a bad input or an existing --out, 1 on a failed or empty build."""
+    from dokimi.novelty.needs import PROMPT_VERSION
+
+    out = Path(args.out)
+    name, description = _preflight(out, args.skill)
+    provider, model = _provider_and_model(args)
+    graph, unmetered = _author(name, description, args, provider, model)
     if not graph.nodes:
         print(f"Error: the model returned no usable need node for {name}; nothing was written",
               file=sys.stderr)
