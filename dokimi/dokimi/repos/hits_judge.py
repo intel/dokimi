@@ -534,7 +534,7 @@ def rows(docs: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def summary(found: dict[str, Any], pairs: list[Pair], judge: tuple[str, str], done: Judged,
             calibration: Optional[list[dict[str, Any]]]) -> dict[str, Any]:
-    """What ``repo hits judge`` prints (``--json``: this dict).
+    """What ``repo hits judge`` prints (``--json``: this dict, under ``data`` of the cli_output document).
 
     ``uncalibrated_rows``: the ``{"arm", "model"}`` of each row of ``rows`` with no pair labelled by both the
     person and the judge (every row without ``--labels``), whose ``recall_judged`` no calibration covers: a
