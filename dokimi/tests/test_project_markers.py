@@ -47,3 +47,13 @@ def test_environment_checks_read_the_shared_makefile_names():
 
     assert "_ROOT_MAKEFILES" not in vars(environment)
     assert environment.MAKEFILE_NAMES is project_markers.MAKEFILE_NAMES
+
+
+def test_runner_check_reads_a_lowercase_makefile(tmp_path):
+    # a lowercase makefile with an include line is read by the runner check, not only `Makefile`
+    from dokimi.repos import environment
+    from dokimi.repos.l0.core import Scan
+    from dokimi.repos.source import WorkTree
+
+    (tmp_path / "makefile").write_text("include common.mk\n", encoding="utf-8")
+    assert environment._runner_file_unread(Scan(WorkTree(tmp_path), frozenset()))
