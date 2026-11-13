@@ -7,14 +7,17 @@ own partial directory, and the one that loses the rename uses the winner's clone
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+import pytest
+
 from dokimi.repos import source, workspace
-from dokimi.repos.source import RepoSource, cache_path, ensure_clone, resolve_rev
+from dokimi.repos.source import RepoSource, SourceError, cache_path, ensure_clone, ensure_rev, resolve_rev
 from dokimi.repos.workspace import source_git_dir
 
 
@@ -115,3 +118,53 @@ def test_a_full_clone_partial_is_aged_by_the_full_clones_own_timeout(tmp_path, m
     os.utime(running, (then, then))
     source_git_dir(spec, tree, cache)
     assert running.is_dir()
+
+
+def _push_topic(tmp_path: Path) -> str:
+    """A new commit in the origin on branch ``topic``; its SHA."""
+    work = tmp_path / "work"
+    (work / "README.md").write_text("moved\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(work), "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qam", "m"],
+                   check=True)
+    subprocess.run(["git", "-C", str(work), "push", "-q", str(tmp_path / "origin.git"), "HEAD:refs/heads/topic"],
+                   check=True)
+    return subprocess.run(["git", "-C", str(work), "rev-parse", "HEAD"], check=True, capture_output=True,
+                          text=True).stdout.strip()
+
+
+def test_a_branch_fetch_that_lost_a_ref_to_another_run_is_run_again(tmp_path, monkeypatch):
+    url, _ = _origin(tmp_path)
+    git_dir = ensure_clone(url, tmp_path / "cache")
+    moved = _push_topic(tmp_path)
+    real, held, fetches = source._git, git_dir / "refs" / "heads" / "topic.lock", []
+
+    def other_run_holds_the_ref_once(gd, *args, **kwargs):
+        if args[:1] != ("fetch",) or fetches:
+            return real(gd, *args, **kwargs)
+        fetches.append(args)
+        held.parent.mkdir(parents=True, exist_ok=True)
+        held.write_text("", encoding="utf-8")  # the other run's fetch is updating refs/heads/topic
+        try:
+            return real(gd, *args, **kwargs)
+        finally:
+            held.unlink()
+
+    monkeypatch.setattr(source, "_git", other_run_holds_the_ref_once)
+    assert ensure_rev(git_dir, "topic") == moved
+
+
+def test_a_branch_fetch_failing_for_another_reason_is_not_run_again(tmp_path, monkeypatch):
+    url, _ = _origin(tmp_path)
+    git_dir = ensure_clone(url, tmp_path / "cache")
+    shutil.rmtree(tmp_path / "origin.git")
+    real, fetches = source._git, []
+
+    def count_fetches(gd, *args, **kwargs):
+        if args[:1] == ("fetch",):
+            fetches.append(args)
+        return real(gd, *args, **kwargs)
+
+    monkeypatch.setattr(source, "_git", count_fetches)
+    with pytest.raises(SourceError, match="git fetch failed"):
+        ensure_rev(git_dir, "topic")
+    assert len(fetches) == 1

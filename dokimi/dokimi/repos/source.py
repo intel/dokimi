@@ -35,6 +35,7 @@ _REV_RE = re.compile(r"^[A-Za-z0-9._][A-Za-z0-9._/^~-]*$")  # "/" for origin/mai
 _SHA_RE = re.compile(r"^[0-9a-f]{7,40}$")
 _REMOTE_PREFIXES = ("https://", "ssh://", "file://", "git@")
 _GIT_TIMEOUT_S = 1800
+_FETCH_TRIES = 3  # a fetch that lost a ref to another run's fetch into the cache is run again
 READ_MANY_LIMIT = 2 * 1024 * 1024  # bytes; larger files are not text guidance or code to search
 
 
@@ -515,8 +516,17 @@ def ensure_rev(git_dir: Path, rev: str) -> str:
 
 
 def _fetch_refs(git_dir: Path) -> None:
-    _git(git_dir, "fetch", "--filter=blob:none", "origin",
-         "+refs/heads/*:refs/heads/*", "+refs/tags/*:refs/tags/*")
+    """Fetch every branch and tag. Another run fetching into the same cache at once can take a ref's lock or move
+    it first; the fetch is run again then, and finds the refs current."""
+    for attempt in range(_FETCH_TRIES):
+        try:
+            _git(git_dir, "fetch", "--filter=blob:none", "origin",
+                 "+refs/heads/*:refs/heads/*", "+refs/tags/*:refs/tags/*")
+            return
+        except SourceError as exc:
+            if "cannot lock ref" not in str(exc) or attempt == _FETCH_TRIES - 1:
+                raise
+        time.sleep(0.5)
 
 
 def _has_location_path(head: str) -> bool:

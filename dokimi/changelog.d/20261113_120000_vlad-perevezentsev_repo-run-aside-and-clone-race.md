@@ -13,4 +13,6 @@
   deleted the first's clone or failed on the rename; each now clones into
   its own directory, and the one that loses the rename uses the other's
   clone. The same holds for the full clone that task bases are checked out
-  from.
+  from. A branch or tag source fetched by two runs at once failed one of
+  them with `cannot lock ref` whenever the origin had moved; that fetch is
+  now run again, and finds the refs current.
