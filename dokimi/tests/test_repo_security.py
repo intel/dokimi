@@ -982,15 +982,23 @@ def test_secret_read_by_a_windows_path(tmp_path, path):
     'rm -rf "$HOME"/*', 'rm -rf "$HOME/"*', 'rm -rf "${HOME:?}"/*', 'rm -rf "/"*',
     "rm -rf ~/../alice",
 ])
-
-def test_destructive_delete_follows_a_dot_dot_out_of_a_cleanup_dir(text):
+def test_destructive_delete_reads_the_path_a_word_names(text):
     assert "destructive-delete" in _rules(sec.command_findings(text, "trace"))
+
 
 @pytest.mark.parametrize("text", [
     'rm -rf "${HOMEBREW_CACHE}"', "rm -rf ${HOME_BACKUP}", 'rm -rf "${HOMEBREW_CACHE}"/*', "rm -rf ${HOME_DIR}/*",
 ])
 def test_a_variable_named_home_and_more_is_not_the_home_directory(text):
     assert "destructive-delete" not in _rules(sec.command_findings(text, "trace"))
+
+
+def test_a_home_operator_with_no_closing_brace_is_matched_in_linear_time():
+    import time
+
+    started = time.monotonic()
+    sec.command_findings("${HOME: " * 12000, "trace")
+    assert time.monotonic() - started < 1.0
 
 
 def test_git_global_options_are_matched_in_linear_time():
