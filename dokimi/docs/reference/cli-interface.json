@@ -4551,6 +4551,97 @@
           "subcommand_required": null,
           "subcommands": {}
         },
+        "graph": {
+          "allow_abbrev": true,
+          "params": [
+            {
+              "action": "_StoreAction",
+              "choices": null,
+              "const": null,
+              "default": null,
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": false,
+              "key": "skill",
+              "kind": "argument",
+              "nargs": null,
+              "position": 0,
+              "required": true,
+              "type": null
+            },
+            {
+              "action": "_StoreAction",
+              "choices": null,
+              "const": null,
+              "default": [
+                "anthropic",
+                "claude-sonnet-5-5"
+              ],
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": false,
+              "key": "--extract-model",
+              "kind": "option",
+              "nargs": null,
+              "position": null,
+              "required": false,
+              "type": "dokimi.commands.repo_hits._judge_ref#f8f456f0565f"
+            },
+            {
+              "action": "_HelpAction",
+              "choices": null,
+              "const": null,
+              "default": "==SUPPRESS==",
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": true,
+              "key": "--help/-h",
+              "kind": "option",
+              "nargs": 0,
+              "position": null,
+              "required": false,
+              "type": null
+            },
+            {
+              "action": "_StoreAction",
+              "choices": null,
+              "const": null,
+              "default": null,
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": false,
+              "key": "--max-usd",
+              "kind": "option",
+              "nargs": null,
+              "position": null,
+              "required": false,
+              "type": "dokimi.commands.novelty_run.usd_amount#af10a4ceaa08"
+            },
+            {
+              "action": "_StoreAction",
+              "choices": null,
+              "const": null,
+              "default": null,
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": false,
+              "key": "--out",
+              "kind": "option",
+              "nargs": null,
+              "position": null,
+              "required": true,
+              "type": null
+            }
+          ],
+          "path": "dokimi eval graph",
+          "subcommand_required": null,
+          "subcommands": {}
+        },
         "headroom": {
           "allow_abbrev": true,
           "params": [

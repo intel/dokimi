@@ -11,7 +11,7 @@ import json
 import sys
 from pathlib import Path
 
-from dokimi.commands import eval_coverage
+from dokimi.commands import eval_coverage, eval_graph
 from dokimi.llm import ANSWER_PROVIDERS
 from dokimi.defaults import (
     DEFAULT_CONCURRENCY,
@@ -459,6 +459,7 @@ def register(sub, positive_int):
     eval_p = sub.add_parser("eval", help="Build and check eval sets, score answers, calibrate judges")
     eval_sub = eval_p.add_subparsers(dest="eval_cmd", required=True)
     eval_coverage.register(eval_sub)
+    eval_graph.register(eval_sub)
 
     score_group = eval_sub.add_parser(
         "score", help="Score answers: pointwise, pairwise, panel, checklist, grounding, ragas, reference")
