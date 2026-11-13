@@ -87,11 +87,13 @@ class TrustVerdict:
 
     @property
     def status(self) -> str:
+        """``FAIL`` / ``WARN`` / ``PASS``, or ``NOT MEASURED`` when no check was measured:
+        every unmeasured check passes, so ``PASS`` would be read off a run that cleared nothing."""
         if self.failures:
             return "❌ FAIL"
         if self.warnings:
             return "⚠️ WARN"
-        return "✅ PASS"
+        return "✅ PASS" if any(c.measured for c in self.checks) else "⚪ NOT MEASURED"
 
 
 def _retrieval_check(every: List[Record], cfg: Dict[str, Any]) -> TrustCheck:

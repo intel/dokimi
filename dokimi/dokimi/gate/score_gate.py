@@ -12,19 +12,19 @@ check raises or exits itself.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, Optional
 
 GateKind = Literal["soft", "hard"]
 
 
 @dataclass
 class GateResult:
-    """Outcome of one score gate. A disabled gate always passes."""
+    """Outcome of one score gate. A disabled gate is not evaluated: ``passed`` is None."""
 
     enabled: bool
     min_score: float
     actual_score: float
-    passed: bool
+    passed: Optional[bool]
 
     @property
     def status(self) -> str:
@@ -48,5 +48,6 @@ def check_gate(summary: dict, spec: dict, kind: GateKind) -> GateResult:
         enabled=enabled,
         min_score=min_score,
         actual_score=actual,
-        passed=actual >= min_score if enabled else True,
+        # A disabled gate was never evaluated: None, so a persisted run does not record a pass.
+        passed=actual >= min_score if enabled else None,
     )

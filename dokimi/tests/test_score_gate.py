@@ -40,11 +40,12 @@ def test_score_exactly_at_threshold_passes(kind):
 
 
 @pytest.mark.parametrize("kind", KINDS)
-def test_disabled_gate_always_passes(kind):
+def test_disabled_gate_is_not_recorded_as_passed(kind):
+    """A disabled gate was never evaluated: its `passed` is None, not a pass."""
     result = check_gate({"score": 0.10}, _spec(kind, enabled=False, min_score=0.95), kind)
 
     assert result.enabled is False
-    assert result.passed is True
+    assert result.passed is None
     assert result.status == "DISABLED"
 
 
@@ -54,7 +55,7 @@ def test_missing_config_is_disabled(kind, spec):
     result = check_gate({"score": 0.50}, spec, kind)
 
     assert result.enabled is False
-    assert result.passed is True
+    assert result.passed is None
 
 
 def test_each_gate_reads_only_its_own_key():

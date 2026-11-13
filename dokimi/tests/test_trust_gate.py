@@ -3,6 +3,8 @@
 
 """Tests for trust gate — 'Can we trust this run?' check."""
 from dokimi.gate.trust_gate import (
+    TrustCheck,
+    TrustVerdict,
     evaluate_trust,
     format_trust_block,
 )
@@ -109,6 +111,12 @@ class TestTrustVerdict:
     def test_status_pass(self):
         v = evaluate_trust(_evals(20, with_score=70, without_score=50))
         assert v.status == "✅ PASS"
+
+    def test_status_is_not_measured_when_no_check_was_measured(self):
+        """Every check passes unmeasured, so PASS would be read off a run that cleared nothing."""
+        unmeasured = TrustCheck(name="retrieval_hit_rate", passed=True, value=None, threshold=0.6,
+                                message="Not measured", severity="warn", measured=False)
+        assert TrustVerdict(checks=[unmeasured]).status == "⚪ NOT MEASURED"
 
     def test_status_warn(self):
         v = evaluate_trust(_evals(15, with_score=20, without_score=15))
