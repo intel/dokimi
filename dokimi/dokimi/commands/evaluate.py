@@ -24,7 +24,7 @@ from dokimi.defaults import (
 from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.eval.judge_validity import DEFAULT_MIN_ACCURACY, NoUsablePairs
 from dokimi.commands._output import write_text_or_exit
-from dokimi.exit_codes import EXIT_USAGE
+from dokimi.exit_codes import EXIT_INCONCLUSIVE, EXIT_USAGE
 from dokimi.utils import InputError, warn_judge_independence, warn_recorded_self_judge
 
 
@@ -344,9 +344,11 @@ def cmd_eval_judge_validity(args: argparse.Namespace) -> None:
                 max_len=args.typed_max_len,
                 threads=args.typed_threads,
             )
-        except (ImportError, ValueError, OSError) as exc:
+        except ImportError as exc:  # a missing optional backend: a dependency, not an input
             print(f"Error: {exc}", file=sys.stderr)
             sys.exit(2)
+        except (ValueError, OSError) as exc:  # a typed spec that cannot be used: an input refusal
+            raise InputError(str(exc)) from exc
         scorer = typed
         # The budget is part of what was measured: one checkpoint at 512 and at
         # 2048 tokens is two arms.
@@ -421,8 +423,8 @@ def cmd_eval_judge_validity(args: argparse.Namespace) -> None:
     summary = report.summary()
     if not summary["passed"]:
         sys.exit(1)
-    # A pass whose interval straddles the gate is not reproducible. Warn by
-    # default so this stays usable as a check; --strict makes it a failure.
+    # A pass whose interval straddles the gate is inconclusive: it warns and exits 3 (§2.6), not 0.
+    # --strict makes it a failure (exit 1).
     if not summary["conclusive"]:
         if summary["inconclusive_variants"]:
             # --sequential ignores --bases, so pointing at it would send the user nowhere.
@@ -438,8 +440,7 @@ def cmd_eval_judge_validity(args: argparse.Namespace) -> None:
                 "(the degradation left every answer unchanged).",
                 file=sys.stderr,
             )
-        if args.strict:
-            sys.exit(1)
+        sys.exit(1 if args.strict else EXIT_INCONCLUSIVE)
 
 
 def _non_negative_int(value: str) -> int:
@@ -578,6 +579,9 @@ def register(sub, positive_int):
 
     redteam.register_eval(eval_sub)  # eval redteam
 
+    from dokimi.commands import skill_coverage
+
+    skill_coverage.register_eval(eval_sub)  # eval skill-coverage
     from dokimi.commands import leak
 
     leak.register_eval(eval_sub)  # eval leak
