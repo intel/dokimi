@@ -10,8 +10,8 @@ import sys
 
 import pytest
 
+from dokimi.novelty import cost as novelty_cost
 from dokimi import cli
-from dokimi.commands import novelty as novelty_cmd
 
 
 def test_extraction_failure_exits_1_not_2(tmp_path, monkeypatch, capsys):
@@ -26,7 +26,7 @@ def test_extraction_failure_exits_1_not_2(tmp_path, monkeypatch, capsys):
     skill.write_text("---\nname: s\ndescription: d\n---\n\n# H\n\nDo not enable the legacy driver.\n",
                      encoding="utf-8")
     monkeypatch.setattr(atoms_mod, "extract_atoms", failing_extract)
-    monkeypatch.setattr(novelty_cmd, "_client", lambda *a, **k: type("C", (), {"model": "m"})())
+    monkeypatch.setattr(novelty_cost, "client", lambda *a, **k: type("C", (), {"model": "m"})())
     monkeypatch.setattr(sys, "argv", ["dokimi", "skill", "novelty", "atoms", "--artifact", f"skill:{skill}",
                                       "--out", str(tmp_path / "atoms.json")])
     with pytest.raises(SystemExit) as exc:

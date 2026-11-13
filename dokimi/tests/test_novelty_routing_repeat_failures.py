@@ -9,6 +9,7 @@ import json
 
 import pytest
 
+from dokimi.novelty import cost as novelty_cost
 from dokimi.cli import build_parser
 from dokimi.novelty.client import LLMClient
 
@@ -33,7 +34,6 @@ def _write_queries(tmp_path, by_skill):
 
 def test_a_repeat_that_fails_after_a_good_one_keeps_the_good_pick_in_model_scoring(
         tmp_path, capsys, monkeypatch):
-    import dokimi.commands.novelty as novelty_cmd
 
     answered = []
 
@@ -43,7 +43,7 @@ def test_a_repeat_that_fails_after_a_good_one_keeps_the_good_pick_in_model_scori
         answered.append(1)
         return '{"pick": 1}', None
 
-    monkeypatch.setattr(novelty_cmd, "_client", lambda model, provider, role, args: LLMClient(
+    monkeypatch.setattr(novelty_cost, "client", lambda model, provider, role, args: LLMClient(
         model=model, provider=provider, role=role, transport=transport))
     root = tmp_path / "catalog"
     _cat(root, {"perf": "profile a slow binary with perf", "db": "tune a slow database query"})
@@ -67,12 +67,11 @@ def test_a_repeat_that_fails_after_a_good_one_keeps_the_good_pick_in_model_scori
 
 def test_every_noise_row_of_an_all_vs_all_names_its_own_query_and_gold(tmp_path, monkeypatch):
     # One skill with two queries and two repeats: each noise row must name its query and its gold.
-    import dokimi.commands.novelty as novelty_cmd
 
     def transport(prompt: str, system: str | None):
         return '{"pick": 1}', None
 
-    monkeypatch.setattr(novelty_cmd, "_client", lambda model, provider, role, args: LLMClient(
+    monkeypatch.setattr(novelty_cost, "client", lambda model, provider, role, args: LLMClient(
         model=model, provider=provider, role=role, transport=transport))
     root = tmp_path / "catalog"
     _cat(root, {"perf": "profile a slow binary with perf", "db": "tune a slow database query"})

@@ -17,6 +17,7 @@ from pathlib import Path
 
 import pytest
 
+from dokimi.novelty import cost as novelty_cost
 from dokimi import cli
 from dokimi.novelty.client import LLMClient
 from tests.skill_repo_shapes import PROBE_QUERIES, SHAPES, build_shape, probe_artifact
@@ -76,13 +77,12 @@ def _run(argv: list[str], capsys) -> tuple[int, str, str]:
 @pytest.fixture
 def fake_selector(monkeypatch):
     """The model arm of routing with a stub model that never answers: no network, no cost."""
-    import dokimi.commands.novelty as novelty_cmd
 
     def client(model, provider, role, args):
         return LLMClient(model=model, provider=provider, role=role,
                          transport=lambda prompt, system: ("", None))
 
-    monkeypatch.setattr(novelty_cmd, "_client", client)
+    monkeypatch.setattr(novelty_cost, "client", client)
 
 
 @pytest.fixture

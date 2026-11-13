@@ -720,7 +720,7 @@ non-zero exit only when a model cannot be verified or differs from the
 baseline. Explicit `--max-context-drop` and `--max-lift-drop` thresholds block
 score regressions, requiring complete matched scores and known matching models
 (AC-J12-001). `eval judge validate --strict` blocks inconclusive checks; without
-it an above-threshold inconclusive check warns and exits 0. Blocking policy remains
+it an above-threshold inconclusive check warns and exits 3. Blocking policy remains
 partial for budget-stopped checks (AC-J12-002). Native `tasks run` rejects any
 missing, unscored or errored planned cell and preserves the artifacts (AC-J12-004).
 

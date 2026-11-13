@@ -890,7 +890,7 @@ python cli.py eval leak skills/candidate questions.json --split split.json \
   id on it blocks the run.
 
 The table goes to stdout. The `leak.v1` artifact goes to `--out` only. Exit 0 is a pass, 1 is
-blocked (a leak, a changed split, a test item given to the proposer) or inconclusive (an item
+blocked (a leak, a changed split, a test item given to the proposer), 3 is inconclusive (an item
 could not be checked, such as an answer shorter than 8 words after the allowlist, or no item
 could), and 2 is an input error (an unreadable skill or question set, a malformed split, lock
 or proposer list, or an unwritable `--out`). `--lock` needs `--split`; a proposer list needs

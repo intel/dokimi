@@ -10,8 +10,8 @@ from dataclasses import replace
 
 import pytest
 
+from dokimi.novelty import cost as novelty_cost
 from dokimi.cli import build_parser
-from dokimi.commands import novelty as novelty_cmd
 from dokimi.metrics.usage import UsageRecord
 from dokimi.novelty.client import LLMClient, SpendCap, SpendCapReached
 from tests.cli_paths import artifact_flag, novelty_argv
@@ -68,14 +68,14 @@ def test_an_uncapped_client_ignores_missing_prices():
 @pytest.mark.outcome("cjm-novelty-spend-cap")
 def test_every_role_shares_one_cap():
     args = _parse("skill", "novelty", "analyze", "--artifact", "skill:x", "--max-usd", "2")
-    caps = {id(client.cap) for client in novelty_cmd._clients(args)}
+    caps = {id(client.cap) for client in novelty_cost.clients(args)}
     assert len(caps) == 1
-    assert novelty_cmd._clients(args)[0].cap.limit_usd == 2.0
+    assert novelty_cost.clients(args)[0].cap.limit_usd == 2.0
 
 
 def test_without_the_flag_there_is_no_cap():
     args = _parse("skill", "novelty", "analyze", "--artifact", "skill:x")
-    assert all(client.cap is None for client in novelty_cmd._clients(args))
+    assert all(client.cap is None for client in novelty_cost.clients(args))
 
 
 @pytest.mark.parametrize("value", ["0", "-1", "nan", "inf"])
@@ -111,8 +111,8 @@ def test_the_cap_gets_through_a_stage_that_absorbs_failed_calls(tmp_path, monkey
                  else json.dumps({"verdict": "supported"}))
         return reply, UsageRecord(cost_usd=1.0)
 
-    real_client = novelty_cmd._client
-    monkeypatch.setattr(novelty_cmd, "_client", lambda model, provider, role, args: replace(
+    real_client = novelty_cost.client
+    monkeypatch.setattr(novelty_cost, "client", lambda model, provider, role, args: replace(
         real_client(model, provider, role, args), transport=transport))
     out = tmp_path / "atoms.json"
     args = _parse("skill", "novelty", "atoms", "--artifact", f"skill:{skill}", "--out", str(out),

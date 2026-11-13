@@ -363,7 +363,7 @@ criteria:
     enforce: true
     capability: novelty
     surfaces: ["skill novelty analyze --max-usd", "skill novelty probe --max-usd", "skill routing --max-usd"]
-    refs: [docs/skill-novelty.md#cost-and-how-it-is-kept-down, dokimi/commands/novelty.py]
+    refs: [docs/skill-novelty.md#cost-and-how-it-is-kept-down, dokimi/commands/novelty.py, dokimi/novelty/cost.py]
     evidence:
       - {id: cjm-novelty-spend-cap, kind: unit, stubs: [model client prices]}
   AC-J14-002:
