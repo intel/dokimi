@@ -10,7 +10,8 @@ import pytest
 
 from dokimi.gate.novelty_gate import evaluate_novelty
 from dokimi.novelty import report
-from dokimi.novelty.bundle import Coverage, check_answer_key, entry_point_only, load_bundle
+from dokimi.novelty.answer_key_check import check_answer_key
+from dokimi.novelty.bundle import Coverage, entry_point_only, load_bundle
 
 WORDS = " ".join(f"w{i}" for i in range(40))
 COUNTS = {"entry_point_words": 100, "resource_words_on_disk": 100, "resource_words_measured": 0}
