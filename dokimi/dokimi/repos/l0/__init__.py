@@ -69,14 +69,15 @@ def scan_repo(tree: RepoTree, manifest: RepoManifest, static: dict[str, Any] | N
     ``python_fence`` claims (§8.2); None leaves the Python fences unchecked.
     """
     files = guidance_files(tree, manifest, also)
-    scan = Scan(tree, frozenset(manifest.build_systems), repo_url=manifest.source_url, guidance=tuple(files))
+    scan = Scan(tree, frozenset(manifest.build_systems), repo_url=manifest.source_url, guidance=tuple(files),
+                guidance_globs=manifest.guidance_globs)
     detected = not manifest.build_systems
     if detected:
         scan.adapters = frozenset(detect(scan))
     adapters = [a for a in ADAPTERS if a in scan.adapters]
     skipped: dict[str, str] = {}
     scan.preload(files, skipped)
-    aliases = _aliases(tree, files)
+    aliases = _aliases(tree, files, manifest.guidance_globs)
     checked = [f for f in files if f not in skipped and f not in aliases]
     for f in checked:
         scan.check_file(f)
@@ -128,8 +129,11 @@ def scan_repo(tree: RepoTree, manifest: RepoManifest, static: dict[str, Any] | N
     }
 
 
-def _aliases(tree: RepoTree, files: list[str]) -> set[str]:
-    """Guidance files that are links to another guidance file: that file is scanned once, as itself."""
+def _aliases(tree: RepoTree, files: list[str], guidance_globs: tuple[str, ...] = ()) -> set[str]:
+    """Guidance files that are links to another guidance file: that file is scanned once, as itself.
+    A rule linking to a file the guidance globs match is not one: Claude Code loads it without its frontmatter."""
+    from dokimi.repos.budget import RULE_GLOB
+
     out = set()
     for f in files:
         try:
@@ -137,6 +141,8 @@ def _aliases(tree: RepoTree, files: list[str]) -> set[str]:
         except SourceError:
             continue
         if target != f and target in files:
+            if RULE_GLOB.match(f) and any(match_glob(g, target) for g in guidance_globs):
+                continue
             out.add(f)
     return out
 

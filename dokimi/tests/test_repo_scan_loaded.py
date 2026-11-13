@@ -170,7 +170,7 @@ def test_a_rule_stays_checked_when_claude_local_md_links_to_the_same_file(tmp_pa
     (root / ".claude/rules/x.md").symlink_to("../../shared.txt")
     payload = _scan(capsys, str(root))
     assert ".claude/rules/x.md" in payload["files"]
-    assert _fails(payload) == {(".claude/rules/x.md", "src/gone_shared.py")}
+    assert _fails(payload) == {(".claude/rules/x.md", "src/gone_shared.py"), ("CLAUDE.local.md", "src/gone_shared.py")}
 
 
 def test_a_default_scan_does_not_check_skills(tmp_path, capsys):
@@ -213,7 +213,7 @@ def test_a_rule_folded_into_a_guidance_alias_of_a_text_file_is_checked(tmp_path,
     (root / ".claude/rules").mkdir(parents=True)
     (root / ".claude/rules/x.md").symlink_to("../../shared.txt")
     payload = _scan(capsys, str(root))
-    assert _fails(payload) == {(".claude/rules/x.md", "src/gone_alias.py")}
+    assert _fails(payload) == {(".claude/rules/x.md", "src/gone_alias.py"), ("CLAUDE.local.md", "src/gone_alias.py")}
 
 
 def test_a_rule_linked_to_a_guidance_file_is_scanned_without_its_frontmatter(tmp_path, capsys):
@@ -226,3 +226,43 @@ def test_a_rule_linked_to_a_guidance_file_is_scanned_without_its_frontmatter(tmp
     (root / ".claude/rules/x.md").symlink_to("../../private/CLAUDE.local.md")
     payload = _scan(capsys, str(root))
     assert _fails(payload) == {("private/CLAUDE.local.md", "src/gone_fm_link.py")}
+
+
+def test_a_rule_linked_to_agents_md_keeps_the_frontmatter_claims_of_agents_md(tmp_path, capsys):
+    # AGENTS.md is read with its frontmatter by Codex and Copilot, so a rule linking to it must not blank it
+    root = _write(tmp_path / "r", {"src/real.py": "x = 1\n", "AGENTS.md": "---\nnote: see `src/gone_f.py`\n---\nhi\n"})
+    (root / ".claude/rules").mkdir(parents=True)
+    (root / ".claude/rules/agents.md").symlink_to("../../AGENTS.md")
+    manifest = root / "m.yaml"
+    manifest.write_text("schema: repo_manifest.v1\nid: t\nguidance:\n  globs: [AGENTS.md]\n", encoding="utf-8")
+    assert _fails(_scan(capsys, str(root), "--manifest-file", str(manifest))) == {("AGENTS.md", "src/gone_f.py")}
+
+
+def test_a_rule_linked_to_claude_md_keeps_the_frontmatter_claims_of_claude_md(tmp_path, capsys):
+    root = _write(tmp_path / "r", {"src/real.py": "x = 1\n",
+                                   "CLAUDE.md": "---\ndescription: see `src/gone_top.py`\n---\nhi\n"})
+    (root / ".claude/rules").mkdir(parents=True)
+    (root / ".claude/rules/x.md").symlink_to("../../CLAUDE.md")
+    assert _fails(_scan(capsys, str(root))) == {("CLAUDE.md", "src/gone_top.py")}
+
+
+def test_a_claude_local_md_linked_to_a_text_file_is_checked(tmp_path, capsys):
+    root = _write(tmp_path / "r", {"src/real.py": "x = 1\n", "CLAUDE.md": "# guidance\n",
+                                   "shared.txt": "See `src/gone_txt.py`.\n"})
+    (root / "CLAUDE.local.md").symlink_to("shared.txt")
+    assert _fails(_scan(capsys, str(root))) == {("CLAUDE.local.md", "src/gone_txt.py")}
+
+
+def test_a_deeply_nested_mcp_json_does_not_stop_the_scan(tmp_path, capsys):
+    root = _write(tmp_path / "r", {"CLAUDE.md": "# guidance\n", ".mcp.json": "[" * 10000 + "0" + "]" * 10000})
+    assert _scan(capsys, str(root))["files"] == ["CLAUDE.md"]
+
+
+def test_a_rule_linked_to_claude_md_is_scanned_without_its_frontmatter(tmp_path, capsys):
+    # the frontmatter fence of CLAUDE.md is read as it is there, but the rule route loads the body without it
+    root = _write(tmp_path / "r", {"src/real.py": "x = 1\n",
+                                   "private/CLAUDE.md": "---\ndescription: |\n  ```text\n---\n"
+                                                        "See `src/gone_fm_link.py`.\n"})
+    (root / ".claude/rules").mkdir(parents=True)
+    (root / ".claude/rules/x.md").symlink_to("../../private/CLAUDE.md")
+    assert (".claude/rules/x.md", "src/gone_fm_link.py") in _fails(_scan(capsys, str(root)))

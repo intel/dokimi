@@ -64,11 +64,11 @@ def _loaded_with_default(tree, manifest) -> tuple[tuple[str, ...], tuple[str, ..
 
     reached = ((e["kind"], _listed(tree, listed, e["path"])) for e in entries
                if e["kind"] in ("rule", "import") or _unmatched_guidance(e))
-    # a rule is checked whatever it links to; an import or a guidance name only when it is Markdown
+    # a rule or a guidance name is checked whatever it links to; an import only when it is Markdown
     # budget folds a rule linked to a guidance name into that name, so the rule path is named here too
     linked = (_listed(tree, listed, f) for f in sorted(listed) if p.reads_claude_rules and RULE_GLOB.match(f))
     loaded = tuple(dict.fromkeys([p for kind, p in reached if p is not None
-                                  and (kind == "rule" or _target(tree, p).endswith(".md"))]
+                                  and (kind != "import" or _target(tree, p).endswith(".md"))]
                                  + [t for t in linked if t is not None]))
     # a file the default globs match is checked anyway, so the note counts only the files they do not match
     new = [p for p in loaded if not any(match_glob(g, p) for g in manifest.guidance_globs)]

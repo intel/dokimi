@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from ..manifest import match_glob
 from ..source import RepoTree, SourceError
 
 
@@ -17,9 +18,11 @@ def loaded_text(path: str, text: str, rule_targets: frozenset[str] = frozenset()
     return blank_frontmatter(text) if RULE_GLOB.match(path) or path in rule_targets else text
 
 
-def rule_link_targets(tree: RepoTree, files: list[str] | set[str] | frozenset[str]) -> frozenset[str]:
+def rule_link_targets(tree: RepoTree, files: list[str] | set[str] | frozenset[str],
+                      guidance_globs: tuple[str, ...] = ()) -> frozenset[str]:
     """The files a ``.claude/rules`` file links to. Claude Code loads each one as a rule, so its frontmatter goes
-    whatever guidance name the file is also listed under (CLAUDE.local.md, or a link to one)."""
+    whatever guidance name the file is also listed under (CLAUDE.local.md, or a link to one). A file the guidance
+    globs match is also loaded as itself, frontmatter and all, so it is not one of them."""
     from dokimi.repos.budget import RULE_GLOB
 
     out: set[str] = set()
@@ -27,7 +30,9 @@ def rule_link_targets(tree: RepoTree, files: list[str] | set[str] | frozenset[st
         if not RULE_GLOB.match(f):
             continue
         try:
-            out.add(tree.resolve(f))
+            target = tree.resolve(f)
         except (SourceError, OSError, ValueError):
             continue
+        if not any(match_glob(g, target) for g in guidance_globs):
+            out.add(target)
     return frozenset(out)

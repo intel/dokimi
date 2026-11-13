@@ -126,6 +126,7 @@ class Scan:
     adapters: frozenset[str]
     repo_url: str | None = None
     guidance: tuple[str, ...] = ()
+    guidance_globs: tuple[str, ...] = ()
     claims: list[Claim] = field(default_factory=list)
 
     def __post_init__(self) -> None:
@@ -139,7 +140,7 @@ class Scan:
         self.by_name: dict[str, list[str]] = {}  # basename -> files and directories
         for x in sorted(self.file_set | (self.dir_set - {"."})):
             self.by_name.setdefault(posixpath.basename(x), []).append(x)
-        self._rule_targets = rule_link_targets(self.tree, self.files)
+        self._rule_targets = rule_link_targets(self.tree, self.files, self.guidance_globs)
         self._texts: dict[str, str] = {}
         self.unread: dict[str, str] = {}  # path -> why it was not read (binary, too big, dangling link)
         self._words: set[str] | None = None
