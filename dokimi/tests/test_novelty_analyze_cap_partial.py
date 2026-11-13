@@ -150,6 +150,35 @@ def test_a_no_price_wording_call_keeps_the_wordings_its_reply_carried(tmp_path, 
     validate_artifact("novelty", record)
 
 
+@pytest.mark.parametrize("marker, kind", [("Reword each question", "paraphrase"),
+                                          ("Rewrite each statement below", "reversal")])
+def test_a_no_price_wording_reply_that_is_not_json_keeps_no_wording_and_still_stops(tmp_path, marker, kind):
+    base = _scripted("informed")
+
+    def transport(prompt, system=None):
+        if marker in prompt:
+            return "Sorry, I cannot do that.", UsageRecord(cost_usd=None)
+        reply, _usage = base(prompt, system)
+        return reply, UsageRecord(cost_usd=0.0)
+
+    cap = SpendCap(limit_usd=1.0)
+    path = _skill(tmp_path)
+    art_kind, name, description, frontmatter, body = load_artifact_text(f"skill:{path}")
+    config = AnalyzeConfig(artifact_ref=f"skill:{path}", artifact_kind=art_kind, name=name,
+                           description=description, frontmatter=frontmatter, concurrency=1)
+    extractor, answerer, judge = (LLMClient(model=f"{role}-m", role=role, transport=transport, cap=cap)
+                                  for role in ("extractor", "answerer", "judge"))
+    record = analyze(body, config, extractor=extractor, answerer=answerer, judge=judge).artifact
+    assert record["partial"]["stage"] == "probes" and record["partial"]["reason"] == "no_price"
+    # The reply carried no array: the stop is still raised, no wording of that kind is kept, and
+    # each atom asked for is tallied as a rejected (empty) wording.
+    assert kind not in {item["kind"] for item in record["probes"]["items"]}
+    tally = record["probes"]["by_kind"][kind]
+    assert tally["kept"] == 0 and tally["generated"] == tally["rejected"] > 0
+    assert tally["reasons"] == {"empty": tally["rejected"]}
+    validate_artifact("novelty", record)
+
+
 def test_a_cap_in_the_paid_classify_stage_keeps_the_complete_measurement(tmp_path):
     result = _run(tmp_path, _after("judge how it functions"))
     partial = result.artifact["partial"]
