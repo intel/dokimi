@@ -3,7 +3,7 @@
 
 """``path-missing``: a code span naming a bundled file the skill does not have.
 
-The cases come from a hand audit of GitSkills corpus hits (scratch x14 part A): a missing
+The cases come from a hand audit of GitSkills corpus hits: a missing
 ``scripts/deploy.sh`` in a span, a ``python scripts/...`` command, ``references/finance.md`` next
 to other references, and the forms that were noise (folders, placeholders, repo-root paths).
 """
