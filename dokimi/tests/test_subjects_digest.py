@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from dokimi.subjects.scorecard import _digest_ref, distribution_digest
+from dokimi.subjects.scorecard import _digest_arm_spec, _digest_ref, _digest_values, distribution_digest
 
 
 def test_distribution_digest_matches_a_well_known_skill_md_entry(tmp_path: Path):
@@ -85,6 +85,40 @@ def test_a_directory_ref_hashes_the_bytes_of_a_file_name_that_is_not_utf8(tmp_pa
     assert after != before and after is not None and after.startswith("sha256:")
     os.rename(os.fsencode(tmp_path) + b"/n\xff.md", os.fsencode(tmp_path) + b"/n\xfe.md")
     assert _digest_ref(str(tmp_path), base=tmp_path) != after
+
+
+def test_a_ref_that_is_no_path_keeps_its_digest(tmp_path: Path):
+    assert _digest_ref("no-such-é", base=tmp_path) == (
+        "sha256:63661dbcb1a932eeb0f6555a4df5f16b59516d27e1d56d1ce19777691bf1b78a")
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="a surrogate-escaped name is a POSIX file-name form")
+def test_a_ref_that_is_no_path_and_holds_a_lone_surrogate_is_digested(tmp_path: Path):
+    digest = _digest_ref("n\udcff", base=tmp_path)
+    assert digest is not None and digest.startswith("sha256:")
+    assert digest != _digest_ref("n\udcfe", base=tmp_path)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="a surrogate-escaped name is a POSIX file-name form")
+def test_a_question_value_with_a_lone_surrogate_is_digested():
+    digest = _digest_values(("q\udcff",))
+    assert digest.startswith("sha256:") and digest != _digest_values(("q\udcfe",))
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="a surrogate-escaped name is a POSIX file-name form")
+def test_an_arm_spec_with_a_lone_surrogate_is_digested(tmp_path: Path):
+    digest = _digest_arm_spec("skill:./n\udcff", base=tmp_path)
+    assert digest.startswith("sha256:") and digest != _digest_arm_spec("skill:./n\udcfe", base=tmp_path)
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="a surrogate-escaped name is a POSIX file-name form")
+def test_each_part_of_a_combined_spec_with_a_lone_surrogate_is_digested(tmp_path: Path):
+    from dokimi.treatments.specs import content_refs
+
+    spec = "skill:./a+skill:./n\udcff"
+    assert [part for part, _ in content_refs(spec)] == ["skill:./a", "skill:./n\udcff"]
+    digest = _digest_arm_spec(spec, base=tmp_path)
+    assert digest.startswith("sha256:") and digest != _digest_arm_spec("skill:./a+skill:./n\udcfe", base=tmp_path)
 
 
 def test_the_scorecard_carries_the_distribution_digest(tmp_path: Path, monkeypatch):
