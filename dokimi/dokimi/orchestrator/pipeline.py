@@ -390,6 +390,7 @@ class EvaluationPipeline:
                   f"({results['steps']['questions_merged']['generated']} generated, "
                   f"{results['steps']['questions_merged']['manual']} manual)")
 
+        self._require_questions(merged_questions)
         # Compute and record question_set_hash for reproducibility
         question_set_hash = compute_question_set_hash(merged_questions)
         results["question_set_hash"] = question_set_hash
@@ -541,6 +542,12 @@ class EvaluationPipeline:
         
         return questions
     
+    def _require_questions(self, questions: List[Dict[str, Any]]) -> None:
+        """An empty question set measures nothing: refuse it before any answer or judge call,
+        rather than end as a success with an empty evaluation."""
+        if not questions:
+            raise ValueError(f"No questions to answer: the question set for {self.product} is empty")
+
     def _read_question_inputs(self) -> Optional[List[Dict[str, Any]]]:
         """Read the question sets this run reuses; return the set that replaces generation.
 
