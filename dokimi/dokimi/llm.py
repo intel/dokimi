@@ -22,14 +22,13 @@ replies" loop, for any ``ask(prompt, draw=, cache_if=) -> str`` callable.
 
 What a caller can rely on:
 
-- **Providers.** :data:`PROVIDERS` (canonical name -> key variable) plus
-  :data:`PROVIDER_ALIASES`. :func:`resolve_model` is this module's model-name map and
-  :func:`credential_env_var` its key-variable map. A provider outside the table is
-  passed to litellm as its own route prefix (``azure/<model>``), reading
-  ``OPENAI_API_KEY``. A provider in :data:`dokimi.llm_cli.BACKENDS` (``claude-cli``)
-  is a logged-in coding-agent CLI, not an API: no key, no tools, no sampling
-  control (:mod:`dokimi.llm_cli`). An explicit ``api_key`` wins over the environment; either
-  may be ``file:<path>``, and an unreadable file raises ``ValueError``.
+- **Providers.** :data:`PROVIDERS` (canonical name -> key variable) plus :data:`PROVIDER_ALIASES`.
+  :func:`resolve_model` is this module's model-name map and :func:`credential_env_var` its
+  key-variable map. A provider outside the table is its own litellm route (``azure/<model>``),
+  sent no key: litellm reads the vendor's variable raw (``file:`` is not read). A provider in
+  :data:`dokimi.llm_cli.BACKENDS` (``claude-cli``) is a logged-in coding-agent CLI, not an API: no
+  key, no tools, no sampling control (:mod:`dokimi.llm_cli`). An explicit ``api_key`` wins over
+  the environment; either may be ``file:<path>``, and an unreadable file raises ``ValueError``.
 - **Bedrock bare names.** A name in :data:`dokimi.defaults.BEDROCK_MODEL_IDS`
   runs under its inference profile (:func:`dokimi.defaults.bedrock_profile`);
   ``openai.*`` models take the Converse route.
@@ -123,9 +122,9 @@ def _canonical(provider: str) -> str:
     return PROVIDER_ALIASES.get(provider, provider)
 
 
-def credential_env_var(provider: str) -> str:
-    """The environment variable holding *provider*'s key (``OPENAI_API_KEY`` off the table)."""
-    return PROVIDERS.get(_canonical(provider), "OPENAI_API_KEY")
+def credential_env_var(provider: str) -> Optional[str]:
+    """The environment variable holding *provider*'s key; ``None`` off the table (litellm reads it)."""
+    return PROVIDERS.get(_canonical(provider))
 
 
 def resolve_api_key(provider: str, api_key: Optional[str] = None) -> Optional[str]:
@@ -136,7 +135,8 @@ def resolve_api_key(provider: str, api_key: Optional[str] = None) -> Optional[st
     Raises:
         ValueError: a ``file:`` key is unreadable.
     """
-    key = "" if llm_cli.backend(provider) else (api_key or os.environ.get(credential_env_var(provider), ""))
+    var = credential_env_var(provider)  # None for a CLI backend too
+    key = "" if llm_cli.backend(provider) else (api_key or (os.environ.get(var, "") if var else ""))
     if key.startswith("file:"):
         path = os.path.expanduser(key[len("file:"):])
         try:

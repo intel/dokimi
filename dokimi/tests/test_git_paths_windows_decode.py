@@ -269,3 +269,56 @@ def test_tracked_modes_keeps_the_mode_of_a_name_with_an_encoded_surrogate(tmp_pa
 def test_a_posix_decoding_still_names_the_file_by_its_own_bytes(repo):
     listed = catalog_git._paths(catalog_git._git(repo, "ls-tree", "-r", "-z", "--name-only", "HEAD~1"))
     assert listed == [os.fsdecode(BAD), "skill/SKILL.md"]
+
+
+GUIDED_BAD = b"l\xffint/AGENTS.md"
+GUIDED_REAL = "l�int/AGENTS.md"
+
+
+@pytest.fixture
+def guided_repo(tmp_path) -> Path:
+    """``l�int/AGENTS.md`` a link to ``README.md`` and ``l\\xffint/AGENTS.md`` a plain file: both decode to one Windows
+    name, and only the real one is a link."""
+    root = tmp_path / "guided"
+    (root / GUIDED_REAL.split("/")[0]).mkdir(parents=True)
+    _git(root, "init", "-q")
+    (root / "README.md").write_text("readme\n", encoding="utf-8")
+    (root / GUIDED_REAL).symlink_to("../README.md")
+    _git(root, "add", "-A")
+    _index_entry(root, "100644", GUIDED_BAD, b"odd\n")
+    _git(root, "commit", "-q", "-m", "base")
+    return root.resolve()
+
+
+def _guidance(root: Path):
+    from types import SimpleNamespace
+
+    from dokimi.repos import workspace
+
+    manifest = SimpleNamespace(run_paths=lambda: (".eval", ".eval/x"), guidance_globs=("**/AGENTS.md",))
+    return workspace._guidance_at(root, manifest, _git(root, "rev-parse", "HEAD").decode().strip())  # type: ignore[arg-type]
+
+
+def test_guidance_snapshot_keeps_the_real_file_when_a_name_collides_after_replacement(guided_repo, windows_decoding):
+    """The real file keeps its own mode and blob: the other name's plain file would hide its link."""
+    assert _guidance(guided_repo) == ([GUIDED_REAL], {GUIDED_REAL: "README.md"}, {GUIDED_REAL: ["README.md"]})
+
+
+def test_guidance_link_to_a_name_windows_cannot_decode_is_refused(tmp_path, windows_decoding):
+    from dokimi.repos.errors import PrepError
+
+    root = tmp_path / "linked"
+    (root / "l�int").mkdir(parents=True)
+    _git(root, "init", "-q")
+    (root / GUIDED_REAL).write_text("real\n", encoding="utf-8")
+    _git(root, "add", "-A")
+    _index_entry(root, "120000", b"AGENTS.md", GUIDED_BAD)
+    _git(root, "commit", "-q", "-m", "base")
+    with pytest.raises(PrepError, match="not UTF-8"):
+        _guidance(root.resolve())
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX keeps the byte; Windows replaces it")
+def test_guidance_snapshot_on_posix_lists_both_names(guided_repo):
+    found, links, _ = _guidance(guided_repo)
+    assert found == sorted([GUIDED_REAL, os.fsdecode(GUIDED_BAD)]) and list(links) == [GUIDED_REAL]

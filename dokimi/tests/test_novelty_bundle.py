@@ -580,9 +580,9 @@ def test_a_basis_this_version_does_not_know_is_not_judged(tmp_path):
 
 def test_as_dict_omits_basis_when_none(tmp_path):
     """Checks without a basis (basis=None) should not serialize a basis key."""
-    from dokimi.gate.novelty_gate import NoveltyCheck
+    from dokimi.gate.verdict import Check
 
-    check = NoveltyCheck(
+    check = Check(
         name="test_check",
         passed=True,
         value=None,

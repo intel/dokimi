@@ -492,7 +492,7 @@ down in the PR.
 
 #### UC-J07-004 State coverage gaps
 
-- **AC-J07-007** An eval set's report lists the capabilities or areas it has no task for. *Partial: `eval coverage` lists the core and rare_critical nodes of a frozen need graph that no eval's `needs` names; building the graph, the user interview and drafting labels are #331.*
+- **AC-J07-007** An eval set's report lists the capabilities or areas it has no task for. *Partial: `eval coverage` lists the core and rare_critical nodes of a frozen need graph that no eval's `needs` names; `eval graph` builds that graph from the skill's name and description and refuses to overwrite it. The user interview and drafting labels are #331.*
 
 ---
 
@@ -720,7 +720,7 @@ non-zero exit only when a model cannot be verified or differs from the
 baseline. Explicit `--max-context-drop` and `--max-lift-drop` thresholds block
 score regressions, requiring complete matched scores and known matching models
 (AC-J12-001). `eval judge validate --strict` blocks inconclusive checks; without
-it an above-threshold inconclusive check warns and exits 0. Blocking policy remains
+it an above-threshold inconclusive check warns and exits 3. Blocking policy remains
 partial for budget-stopped checks (AC-J12-002). Native `tasks run` rejects any
 missing, unscored or errored planned cell and preserves the artifacts (AC-J12-004).
 

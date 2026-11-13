@@ -129,7 +129,7 @@ def test_run_exits_2_on_an_unusable_include_pattern(tmp_path, monkeypatch, capsy
     assert err.startswith("Error: ") and f"include pattern {pattern!r}" in err
 
 
-def test_run_does_not_report_a_metric_error_as_bad_input(tmp_path, monkeypatch):
+def test_run_does_not_report_a_metric_error_as_bad_input(tmp_path, monkeypatch, capsys):
     from dokimi.runner import run
 
     def boom(text):
@@ -142,8 +142,10 @@ def test_run_does_not_report_a_metric_error_as_bad_input(tmp_path, monkeypatch):
     spec.write_text(_SPEC_MIN_DOCS.replace("min_docs: 3", "min_docs: 1"), encoding="utf-8")
     monkeypatch.setattr("sys.argv", ["dokimi", "docs", "check", "--root", str(tmp_path), "--spec", str(spec),
                                      "--out", str(tmp_path / "o.json"), "--out-md", str(tmp_path / "o.md")])
-    with pytest.raises(ValueError, match="a defect, not an input"):
+    with pytest.raises(SystemExit) as exc:  # a crash: exit 5, not the input refusal (exit 2)
         cli.main()
+    assert exc.value.code == 5
+    assert "a defect, not an input" in capsys.readouterr().err
 
 
 @pytest.mark.parametrize("which", ["--base", "--candidate"])
@@ -164,7 +166,7 @@ def test_compare_exits_2_on_a_non_numeric_summary_value(tmp_path, monkeypatch, c
     assert err.startswith("Error: ") and f"Invalid {role} snapshot {bad}" in err and f"`{field}`" in err
 
 
-def test_compare_does_not_report_a_regression_check_error_as_bad_input(tmp_path, monkeypatch):
+def test_compare_does_not_report_a_regression_check_error_as_bad_input(tmp_path, monkeypatch, capsys):
     from dokimi.runner import compare
 
     def boom(diff, spec):
@@ -176,8 +178,10 @@ def test_compare_does_not_report_a_regression_check_error_as_bad_input(tmp_path,
     spec.write_text("thresholds: {}\n", encoding="utf-8")
     monkeypatch.setattr("sys.argv", ["dokimi", "docs", "compare", "--base", good, "--candidate", good, "--spec", str(spec),
                                      "--out", str(tmp_path / "c.json"), "--out-md", str(tmp_path / "c.md")])
-    with pytest.raises(ValueError, match="a defect, not an input"):
+    with pytest.raises(SystemExit) as exc:  # a crash: exit 5, not the input refusal (exit 2)
         cli.main()
+    assert exc.value.code == 5
+    assert "a defect, not an input" in capsys.readouterr().err
 
 
 def _blocked(tmp_path):

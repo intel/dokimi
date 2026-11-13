@@ -224,7 +224,7 @@ class ArmPairwiseReport:
 
     def to_dict(self) -> Dict[str, Any]:
         return {
-            "schema_version": "pairwise.v0",
+            "schema_version": "pairwise.v1",
             "summary": self.summary(),
             "errors": self.errors,
             "verdicts": {

@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -134,7 +135,7 @@ def build_subject_scorecard(
 def _digest_values(values: tuple[str, ...]) -> str:
     h = hashlib.sha256()
     for value in values:
-        h.update(value.encode("utf-8"))
+        h.update(os.fsencode(value))
         h.update(b"\0")
         path = Path(value)
         if path.is_file():
@@ -184,12 +185,12 @@ def _digest_ref(ref: str | None, *, base: Path) -> str | None:
         h.update(path.read_bytes())
     elif path.is_dir():
         for child in sorted(p for p in path.rglob("*") if p.is_file()):
-            h.update(str(child.relative_to(path)).encode("utf-8"))
+            h.update(os.fsencode(str(child.relative_to(path))))
             h.update(b"\0")
             h.update(child.read_bytes())
             h.update(b"\0")
     else:
-        h.update(ref.encode("utf-8"))
+        h.update(os.fsencode(ref))
     return "sha256:" + h.hexdigest()
 
 
@@ -197,10 +198,10 @@ def _digest_arm_spec(spec: str, *, base: Path) -> str:
     from dokimi.treatments.specs import content_refs
 
     h = hashlib.sha256()
-    h.update(spec.encode("utf-8"))
+    h.update(os.fsencode(spec))
     h.update(b"\0")
     for part, content_ref in content_refs(spec):
-        h.update(part.encode("utf-8"))
+        h.update(os.fsencode(part))
         h.update(b"\0")
         digest = _digest_ref(content_ref, base=base)
         h.update((digest or "").encode("utf-8"))

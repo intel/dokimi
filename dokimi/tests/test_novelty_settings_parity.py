@@ -35,8 +35,8 @@ from typing import Any
 
 import pytest
 
+from dokimi.novelty import cost as novelty_cost
 from dokimi.cli import build_parser
-from dokimi.commands import novelty as novelty_cmd
 from dokimi.utils import InputError
 from tests.test_novelty_analyze import SKILL, _scripted
 
@@ -169,7 +169,7 @@ def _capture(name: str, tmp_path: Path) -> list[dict[str, Any]]:
     (work / "big").mkdir()
     (work / "big" / "SKILL.md").write_text(_big_skill(), encoding="utf-8")
     clients: list = []
-    real_client = novelty_cmd._client
+    real_client = novelty_cost.client
 
     def scripted(model, provider, role, args):
         client = real_client(model, provider, role, args)
@@ -179,7 +179,7 @@ def _capture(name: str, tmp_path: Path) -> list[dict[str, Any]]:
 
     steps = []
     cwd = os.getcwd()
-    novelty_cmd._client = scripted
+    novelty_cost.client = scripted
     os.chdir(work)
     try:
         for argv in CASES[name]:
@@ -207,7 +207,7 @@ def _capture(name: str, tmp_path: Path) -> list[dict[str, Any]]:
             })
     finally:
         os.chdir(cwd)
-        novelty_cmd._client = real_client
+        novelty_cost.client = real_client
     return steps
 
 

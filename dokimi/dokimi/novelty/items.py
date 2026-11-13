@@ -268,7 +268,7 @@ _POOLED_AS_ONE = (
 
 def _refuse_partial(raw: str, data: dict) -> None:
     """A partial probe result (``--max-usd`` stopped the measurement) is not a finished one."""
-    if "partial" in data:
+    if "partial" in data or data.get("status") == "partial":
         raise ProbeFileError(f"{raw} is a partial probe result (--max-usd stopped the measurement); "
                              "it is not a finished measurement")
 
