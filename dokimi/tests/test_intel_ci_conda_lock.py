@@ -82,6 +82,22 @@ def test_the_locks_are_for_linux_64_whatever_machine_writes_them(tmp_path: Path,
     assert "# platform: linux-64\n" in (tmp_path / "ci" / "conda-lock" / written[0]).read_text(encoding="utf-8")
 
 
+def test_a_lock_written_on_windows_has_lf_line_ends(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Text mode writes os.linesep; a CRLF lock would reach the Linux runners' conda as is."""
+    lock = _generator(tmp_path, monkeypatch, ["3.12"])
+    real = Path.write_text
+
+    def windows_write_text(self: Path, data: str, encoding: str | None = None, errors: str | None = None,
+                           newline: str | None = None) -> int:
+        """Text mode on Windows: newline=None turns each \\n into \\r\\n."""
+        return real(self, data.replace("\n", "\r\n") if newline is None else data, encoding, errors, newline)
+
+    monkeypatch.setattr(Path, "write_text", windows_write_text)
+    assert lock.main([]) == 0
+    data = (tmp_path / "ci" / "conda-lock" / "linux-64-py3.12.txt").read_bytes()
+    assert data.endswith(b"@EXPLICIT\n") and b"\r" not in data
+
+
 def _stub_rattler(solve, monkeypatch: pytest.MonkeyPatch) -> None:
     rattler = types.ModuleType("rattler")
     for name in ("GenericVirtualPackage", "PackageName", "Version"):

@@ -128,7 +128,8 @@ def main(argv: list[str] | None = None) -> int:
         wanted = specs(version)
         path = hooks.lock_path(version, PLATFORM)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(render(wanted, solve(wanted, args.min_age_days), args.min_age_days), encoding="utf-8")
+        text = render(wanted, solve(wanted, args.min_age_days), args.min_age_days)
+        path.write_text(text, encoding="utf-8", newline="\n")  # LF on a Windows host too: the runners read it
         written.add(path)
         print(f"lock: wrote {path.relative_to(hooks.ROOT)}", flush=True)
     if not args.python:
