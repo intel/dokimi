@@ -376,6 +376,29 @@ def test_only_a_same_repo_refresh_pr_counts_as_open(diff_rc: int, fork: bool, cl
     assert any(c.startswith("gh pr create") for c in calls) is created
 
 
+@pytest.mark.skipif(sys.platform == "win32" or shutil.which("jq") is None, reason="the stub gh applies --jq with jq")
+@pytest.mark.parametrize(("workflow", "job"), [("intel-ci.yml", "report"), ("pip-audit.yml", "report")])
+@pytest.mark.parametrize(("issues", "expected"), [("[]", "gh issue create"), ('[{"number": 9}]', "gh issue comment 9")])
+def test_a_failed_scheduled_run_opens_an_issue_when_none_is_open(workflow: str, job: str, issues: str, expected: str,
+                                                                 tmp_path: Path) -> None:
+    """With no open issue gh's .[0].number is null, which must open an issue rather than comment on null."""
+    steps = yaml.safe_load((_REPO / ".github" / "workflows" / workflow).read_text(encoding="utf-8"))["jobs"][job]["steps"]
+    step = next(s for s in steps if s.get("name") == "Open or update the issue")
+    log, found, bin_dir = tmp_path / "calls.txt", tmp_path / "issues.json", tmp_path / "bin"
+    found.write_text(issues, encoding="utf-8")
+    bin_dir.mkdir()
+    (bin_dir / "gh").write_text(
+        f'#!/bin/sh\necho "gh $*" >> {shlex.quote(str(log))}\n[ "$2" = list ] || exit 0\n'
+        f'while [ $# -gt 0 ]; do [ "$1" = --jq ] && filter=$2; shift; done\n'
+        f'{shlex.quote(str(shutil.which("jq")))} -r "$filter" {shlex.quote(str(found))}\n', encoding="utf-8")
+    (bin_dir / "gh").chmod(0o755)
+    env = {"PATH": f"{bin_dir}:/usr/bin:/bin", "RUN_URL": "https://example.invalid/run/1"}
+    done = subprocess.run(["/bin/bash", "-e", "-c", step["run"]], env=env, capture_output=True, text=True, check=False)
+    calls = log.read_text(encoding="utf-8").splitlines()
+    assert done.returncode == 0, done.stderr
+    assert [c.split(" --")[0] for c in calls if not c.startswith("gh issue list")] == [expected]
+
+
 def test_the_workflow_takes_the_latest_releases_on_a_tag_or_the_schedule_alone(monkeypatch: pytest.MonkeyPatch) -> None:
     """The build's recipe tests, both test jobs' --event and hooks.py's FLOATING agree; a failed schedule reports."""
     hooks = _script("hooks", monkeypatch)
