@@ -188,7 +188,7 @@ def build_need_graph(name: str, description: str, *, client: LLMClient, strict: 
 def graph_from_reply(name: str, description: str, data: dict) -> NeedGraph:
     """The graph a model reply (its parsed JSON object) holds: the usable nodes and the edges between them."""
     graph = NeedGraph(artifact_name=name, description=description)
-    nodes = data.get("nodes", []) or []
+    nodes = data.get("nodes") if isinstance(data.get("nodes"), list) else []
     # Every original id, rejected rows included, is reserved before any repair, so a repaired id
     # never takes a later node's id or the id an edge to a rejected node names.
     reserved = {str(row.get("id") or f"n{index}")
@@ -208,7 +208,7 @@ def graph_from_reply(name: str, description: str, data: dict) -> NeedGraph:
     known = {node.id for node in graph.nodes}
     graph.edges = [
         {"from": str(e.get("from")), "to": str(e.get("to")), "kind": str(e.get("kind", "requires"))}
-        for e in data.get("edges", []) or []
+        for e in (data.get("edges") if isinstance(data.get("edges"), list) else [])
         if isinstance(e, dict) and str(e.get("from")) in known and str(e.get("to")) in known
     ]
     return graph

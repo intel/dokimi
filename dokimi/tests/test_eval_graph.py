@@ -389,3 +389,23 @@ def test_the_default_graph_author_is_recorded_in_provenance(tmp_path, monkeypatc
 
     assert result.returncode == 0, result.stderr
     assert load_artifact("need_graph", out)["provenance"]["model"] == f"{DEFAULT_JUDGE_PROVIDER}/{DEFAULT_JUDGE_MODEL}"
+
+
+def test_a_reply_whose_nodes_or_edges_are_not_lists_is_refused_not_crashed(tmp_path, monkeypatch, capsys):
+    _stub(monkeypatch, {"nodes": 5})
+    out = tmp_path / "g.json"
+
+    result = _run(capsys, str(_skill(tmp_path)), "--out", str(out), "--max-usd", "5")
+
+    assert result.returncode == 1 and "TypeError" not in result.stderr
+    assert "nothing was written" in result.stderr and not out.exists()
+
+
+def test_a_reply_with_non_list_edges_keeps_its_nodes_and_drops_the_edges(tmp_path, monkeypatch, capsys):
+    _stub(monkeypatch, {"nodes": [{"id": "n1", "text": "save the workbook"}], "edges": 5})
+    out = tmp_path / "g.json"
+
+    result = _run(capsys, str(_skill(tmp_path)), "--out", str(out))
+
+    assert result.returncode == 0 and out.exists()
+    assert json.loads(out.read_text(encoding="utf-8"))["edges"] == []
