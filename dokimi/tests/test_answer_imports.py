@@ -19,6 +19,7 @@ Fixtures are hand-written from the upstream shapes the importers cite:
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from unittest import mock
 
@@ -583,6 +584,8 @@ def test_eval_reference_cli_refuses_an_unparseable_answers_file(tmp_path, conten
     if content == "directory":
         a.mkdir()
     elif content == "device":
+        if sys.platform == "win32":
+            pytest.skip("/dev/null is a POSIX device")
         a = Path("/dev/null")
     elif content is not None:
         a.write_bytes(content)
