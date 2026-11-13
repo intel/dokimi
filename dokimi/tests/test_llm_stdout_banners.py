@@ -1,0 +1,56 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+"""litellm's "Provider List" and "Give Feedback" banners stay off stdout, where they break ``--json`` output:
+every path of ``dokimi.llm`` that reaches litellm, with litellm itself failing offline."""
+
+from __future__ import annotations
+
+import socket
+
+import litellm
+import pytest
+
+from dokimi import llm
+
+USER = [{"role": "user", "content": "q"}]
+
+
+@pytest.fixture(autouse=True)
+def banners_on(monkeypatch):
+    """litellm as a fresh process has it: an earlier test's call through ``dokimi.llm`` turned the banners off."""
+    monkeypatch.setattr(litellm, "suppress_debug_info", False)
+    monkeypatch.setattr(llm, "_COST_UNKNOWN_LOGGED", set())  # the run's once-per-model log stays as it was
+    for name in ("https_proxy", "http_proxy", "HTTPS_PROXY", "HTTP_PROXY", "all_proxy", "ALL_PROXY"):
+        monkeypatch.delenv(name, raising=False)
+
+
+def test_a_call_to_a_provider_litellm_does_not_know_prints_nothing_to_stdout(capsys):
+    with pytest.raises(litellm.BadRequestError, match="LLM Provider NOT provided"):
+        llm.LiteLLMAdapter()(llm.Request("m", "nosuchprov", "nosuchprov/m", USER, api_key="k"))
+    assert capsys.readouterr().out == ""
+
+
+def test_a_call_whose_provider_cannot_be_reached_prints_nothing_to_stdout(monkeypatch, capsys):
+    with socket.socket() as s:  # a loopback port nothing listens on: the connection is refused
+        s.bind(("127.0.0.1", 0))
+        port = s.getsockname()[1]
+    monkeypatch.setenv("ANTHROPIC_API_BASE", f"http://127.0.0.1:{port}")
+    with pytest.raises(litellm.InternalServerError, match="Connection refused"):
+        llm.LiteLLMAdapter()(llm.Request("claude-x", "anthropic", "anthropic/claude-x", USER, api_key="k"))
+    assert capsys.readouterr().out == ""
+
+
+def _price() -> None:
+    with pytest.raises(litellm.BadRequestError, match="LLM Provider NOT provided"):
+        llm.cost_per_token(model="nosuchprov/m", prompt_tokens=1, completion_tokens=1)
+
+
+@pytest.mark.parametrize("call", [
+    lambda: llm.unsupported_sampling_params("m", "nosuchprov", temperature=0.0) == [],  # the check cannot run
+    lambda: llm._safe_completion_cost(object(), "m", litellm_model="nosuchprov/m") is None,  # no price
+    lambda: _price() is None,
+], ids=["sampling check", "reply cost", "cost per token"])
+def test_the_checks_and_pricing_of_an_unknown_provider_print_nothing_to_stdout(capsys, call):
+    assert call()
+    assert capsys.readouterr().out == ""
