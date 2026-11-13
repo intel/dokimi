@@ -325,3 +325,34 @@ def test_git_tree_follows_a_link_before_it_goes_up_a_level(tmp_path):
             git_tree.read_text(missing)
     assert not git_tree.is_dir("nope/..")
     assert git_tree.is_dir("sub/..")
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
+def test_git_tree_reads_a_dot_dot_after_a_gitlink_as_a_checkout_does(tmp_path):
+    from dokimi.repos.source import GitTree, SourceArgumentError, SourceError
+
+    tree = tmp_path / "t"
+    (tree / "sub").mkdir(parents=True)
+    (tree / "sub" / "x.txt").write_text("x", encoding="utf-8")
+    commit = "1" * 40
+    git = ["git", "-C", str(tree)]
+    for args in (["init", "-q"], ["add", "-A"],
+                 ["update-index", "--add", "--cacheinfo", f"160000,{commit},sub/mod"],
+                 ["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "commit", "-q", "-m", "g"]):
+        subprocess.run([*git, *args], check=True, capture_output=True)
+    sha = subprocess.run([*git, "rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip()
+    git_tree = GitTree(tree / ".git", sha)
+    assert git_tree.is_file("sub/mod/../x.txt")
+    assert git_tree.read_text("sub/mod/../x.txt") == "x"
+    assert git_tree.resolve("sub/mod/../x.txt") == "sub/x.txt"
+    assert git_tree.is_dir("sub/mod")
+    assert not git_tree.is_file("sub/mod")
+    assert git_tree.files() == ["sub/x.txt"]  # a checkout holds a directory at the gitlink, not a file
+    with pytest.raises(SourceArgumentError, match="^sub/mod is a directory$"):
+        git_tree.read_text("sub/mod")
+    assert git_tree.read_many(["sub/mod"]) == {}
+    # A `..` after a path below the gitlink, or after one the tree lacks, is still no path.
+    for missing in ("sub/mod/y/../x.txt", "sub/nope/../x.txt"):
+        assert not git_tree.is_file(missing)
+        with pytest.raises(SourceError, match=f"^no such path in {sha[:12]}: {missing}$"):
+            git_tree.read_text(missing)

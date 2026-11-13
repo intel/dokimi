@@ -1,0 +1,3 @@
+### Fixed
+
+- **A pinned source reads a `..` after a submodule directory** — in a tree with a gitlink at `sub/mod` and a file `sub/x.txt`, `sub/mod/../x.txt` now reads `sub/x.txt` as a checkout with an uninitialised submodule does, where `read_text` raised `no such path` and `is_file` was false. `is_dir('sub/mod')` is true, `files()` no longer lists the gitlink as a file, and `read_text('sub/mod')` says `sub/mod is a directory`. A `..` after a path the tree does not have is still no path.

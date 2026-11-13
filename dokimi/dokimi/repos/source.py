@@ -204,10 +204,13 @@ class GitTree:
         self._files: list[str] | None = None
         self._dirs: set[str] | None = None
         self._symlinks: set[str] | None = None
+        self._gitlinks: set[str] = set()
 
     def files(self) -> list[str]:
         if self._files is None:
-            self._files = sorted(_git_entries(self.git_dir, "ls-tree", "-r", "-z", "--name-only", self.sha, warn=True))
+            listed = _git_entries(self.git_dir, "ls-tree", "-r", "-z", "--name-only", self.sha, warn=True)
+            self._links()
+            self._files = sorted(p for p in listed if p not in self._gitlinks)  # a checkout holds a directory there
         return self._files
 
     def _dir_set(self) -> set[str]:
@@ -215,7 +218,7 @@ class GitTree:
             dirs: set[str] = set()
             for path in self.files():
                 dirs.update(str(parent) for parent in PurePosixPath(path).parents)
-            self._dirs = dirs
+            self._dirs = dirs | self._gitlinks  # a submodule is an empty directory in a checkout
         return self._dirs
 
     def is_file(self, path: str) -> bool:
@@ -232,8 +235,14 @@ class GitTree:
 
     def _links(self) -> set[str]:
         if self._symlinks is None:
-            self._symlinks = {entry.split("\t", 1)[1] for entry in _git_entries(self.git_dir, "ls-tree", "-r", "-z", self.sha)
-                              if entry.startswith("120000 ")}
+            links: set[str] = set()
+            for entry in _git_entries(self.git_dir, "ls-tree", "-r", "-z", self.sha):
+                meta, _, path = entry.partition("\t")
+                if meta.startswith("120000 "):
+                    links.add(path)
+                elif meta.startswith("160000 "):
+                    self._gitlinks.add(path)
+            self._symlinks = links
         return self._symlinks
 
     def read_text(self, path: str) -> str:
