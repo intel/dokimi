@@ -46,8 +46,9 @@ such as `.git` are left out, and a byte-identical copy under another path counts
 `--competitors` adds or names them one by one. With no real siblings at hand, skip this step and say so; a field of
 competitors made up for the run measures nothing.
 
-Read `recall@1` against the competitors, not alone. Measured on the study corpus, every
-`dpnp-*` skill scored 0.0 against its siblings, and `linux-perf` scored 0.0 recall@1 on
+Read `recall@1` against the competitors, not alone. Sibling skills built from one template
+have identical heading queries, so heading-query recall@1 across such a family measures the
+template, not the descriptions. Measured on the study corpus, `linux-perf` scored 0.0 recall@1 on
 five independently written requests — losing three of them to an `xpu-*` skill phrased the
 way a user phrases the problem. If that is your result, **fix the description before anything
 else**; `skill novelty analyze` holds the frontmatter fixed and will not see this.

@@ -1,0 +1,58 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+"""Heading queries shared by sibling skills: the warning, and a lexical note that claims no finding."""
+
+from __future__ import annotations
+
+from dokimi.commands.novelty_routing_report import warn_query_problems
+from dokimi.novelty.query_overlap import SHARED_QUERY_WARN_SHARE, shared_queries_warning
+from dokimi.novelty.routing import Candidate, headings_as_queries, lexical_routing
+
+TEMPLATE = "## Quick Start\n\n## Implementation Guide\n\n## Gotchas & Limitations\n"
+
+
+def test_sibling_skills_on_one_template_give_identical_heading_queries():
+    queries = headings_as_queries(TEMPLATE)
+    warning = shared_queries_warning({"dpnp-a": queries, "dpnp-b": queries, "dpnp-c": queries})
+    assert warning is not None
+    assert "9 of 9 queries (100%)" in warning
+    assert "same rank" in warning
+
+
+def test_case_and_spacing_do_not_hide_a_shared_query():
+    warning = shared_queries_warning({"a": ["Quick  Start"], "b": ["quick start"]})
+    assert warning is not None
+    assert "2 of 2" in warning
+
+
+def test_the_threshold_is_half_of_the_queries_listed_for_several_skills():
+    assert SHARED_QUERY_WARN_SHARE == 0.5
+    at = {"a": ["shared one", "own a1"], "b": ["shared one", "own b1"]}
+    below = {"a": ["shared one", "own a1", "own a2"], "b": ["shared one", "own b1", "own b2"]}
+    assert shared_queries_warning(at) is not None  # 2 of 4
+    assert shared_queries_warning(below) is None  # 2 of 6
+
+
+def test_queries_written_per_skill_draw_no_warning():
+    assert shared_queries_warning({"a": ["profile a binary"], "b": ["slice an array"]}) is None
+
+
+def test_one_skill_or_no_queries_draw_no_warning():
+    assert shared_queries_warning({"a": ["x y", "x y"]}) is None
+    assert shared_queries_warning({"a": [], "b": []}) is None
+
+
+def test_the_warning_goes_to_stderr_next_to_the_other_query_warnings(capsys):
+    shared = headings_as_queries(TEMPLATE)
+    warn_query_problems({}, {"dpnp-a": shared, "dpnp-b": shared})
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err.startswith("WARNING: 6 of 6 queries (100%)")
+
+
+def test_the_lexical_note_does_not_present_the_family_zero_as_a_finding():
+    result = lexical_routing([Candidate("a", "alpha beta"), Candidate("b", "gamma")],
+                             ["alpha beta"])
+    assert "0.0 for every" not in result["note"]
+    assert "independently" in result["note"]

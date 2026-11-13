@@ -41,7 +41,7 @@ from dokimi.commands.novelty_routing_report import (
     routing_queries,
     save_result,
     stop_if_partial,
-    warn_blind_skills,
+    warn_query_problems,
 )
 from dokimi.defaults import (
     DEFAULT_ANSWER_MODEL,
@@ -350,7 +350,7 @@ def _cmd_routing_all_vs_all(args: argparse.Namespace) -> None:
     if without:
         print(f"WARNING: {len(without)} skill(s) in the field have no queries, so they only "
               f"compete: {', '.join(sorted(without))}", file=sys.stderr)
-    warn_blind_skills(result, queries_by_skill)
+    warn_query_problems(result, queries_by_skill)
 
     model_arm = result.get("model") or {}
     failed = model_arm.get("n_failed", 0)
@@ -587,7 +587,7 @@ def register(sub, positive_int) -> None:
     routing_p.add_argument("--competitors", nargs="+", default=None,
                            help="Other artifacts the selector sees. Selection among one "
                                 "candidate is not routing: the sibling confusion is the "
-                                "failure mode (every `dpnp-*` skill scored 0.0 lexically)")
+                                "failure mode (check it with independently written queries)")
     routing_p.add_argument("--catalog", default=None,
                            help="Directory of skills to take the competitors from: every "
                                 "skill the catalog lists (skills.yaml when present, else every "

@@ -853,8 +853,9 @@ Three properties worth knowing before quoting either:
 
 - **Competitors are mandatory.** The existing `skill-agent:` arm offers one skill, which
   makes selection a binary did-it-load question. The real failure is picking the wrong
-  *sibling*: measured lexically over the 33-skill corpus, every `dpnp-*` skill scored
-  **0.0** recall@1 against its siblings.
+  *sibling*. Siblings built from one template have identical heading queries, so heading-query
+  recall@1 at the family level measures the template; check sibling confusion with queries
+  written independently of the skills.
 - **The queries must come from outside the artifact**, or it defines both the problem scope
   and its own relevance. `--queries-from-headings` exists for triage, warns, and stamps
   `queries_self_derived: true` into the result; corpus-wide those self-derived queries gave
