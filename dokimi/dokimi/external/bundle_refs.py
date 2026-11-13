@@ -49,7 +49,7 @@ NON_REFERENCE_STEMS = frozenset({"changelog", "contributing", "notice"})
 _FOLDER_DEST = re.compile(
     r"\]\([^)\n]*/\)"  # ``[x](scripts/)``
     r"|\]\(\s*<?[^)\s<>]*/>?(?:\s+(?:\"[^\"\n]*\"|'[^'\n]*'|\([^)\n]*\)))?\s*\)"  # with a title, or in <...>
-    r"|^\s{0,3}\[[^\]\n]+\]:\s*<?[^\s<>]*/>?[ \t]*$",  # a reference definition ``[x]: scripts/``
+    r"|^\s{0,3}\[[^\]\n]+\]:\s*<?[^\s<>]*/>?(?:[ \t]+(?:\"[^\"\n]*\"|'[^'\n]*'|\([^)\n]*\)))?[ \t]*$",  # a reference definition ``[x]: scripts/``
     re.MULTILINE,
 )
 SKILL_ROOT_LINK = "${claude_skill_dir}/"  # lowercased: a link through it names a file from the skill root

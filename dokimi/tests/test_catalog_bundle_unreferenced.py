@@ -423,6 +423,7 @@ def test_a_folder_written_with_a_backslash_names_its_files(tmp_path):
         'See [helpers](scripts/ "Helpers").\n',  # a title after the folder
         "See [helpers](<scripts/>).\n",  # angle brackets around the folder
         "See [helpers][h].\n\n[h]: scripts/\n",  # a reference definition for the folder
+        "See [helpers][h].\n\n[h]: scripts/ \"Helpers\"\n",  # a reference definition with a title
     ],
 )
 def test_a_folder_link_with_a_title_or_brackets_names_the_folder_of_its_document(tmp_path, guide):
