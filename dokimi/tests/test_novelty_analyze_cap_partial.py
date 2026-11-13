@@ -12,6 +12,7 @@ every reader of one refuses the partial file.
 from __future__ import annotations
 
 import json
+import os
 import re
 
 import pytest
@@ -224,6 +225,7 @@ def test_the_command_writes_the_partial_file_beside_novelty_json_and_names_it(tm
 
 def test_the_message_says_a_rerun_replays_the_paid_calls_when_the_cache_was_set(tmp_path,
                                                                               monkeypatch):
+    (tmp_path / "cache").mkdir()  # the scripted transport bypasses the cache
     monkeypatch.setenv("DOKIMI_RESPONSE_CACHE", str(tmp_path / "cache"))
     args, _out_dir = _command(tmp_path, monkeypatch, _answers_cost)
     with pytest.raises(SystemExit, match="same DOKIMI_RESPONSE_CACHE: the calls already paid for "
@@ -232,6 +234,7 @@ def test_the_message_says_a_rerun_replays_the_paid_calls_when_the_cache_was_set(
 
 
 def test_a_no_price_stop_does_not_advise_a_higher_cap(tmp_path, monkeypatch):
+    (tmp_path / "cache").mkdir()  # the scripted transport bypasses the cache
     monkeypatch.setenv("DOKIMI_RESPONSE_CACHE", str(tmp_path / "cache"))
     args, _out_dir = _command(tmp_path, monkeypatch, lambda prompt: None)
     with pytest.raises(SystemExit) as stop:
@@ -254,6 +257,34 @@ def test_the_message_does_not_claim_a_replay_when_the_cache_variable_names_a_fil
     assert "DOKIMI_RESPONSE_CACHE was not set on this run" in message
     assert "a rerun pays for these calls again" in message
     assert "already paid for replay" not in message
+
+
+def _replay_hint(monkeypatch, cache):
+    from dokimi.commands.novelty_budget import replay_hint
+
+    monkeypatch.setenv("DOKIMI_RESPONSE_CACHE", str(cache))
+    return replay_hint("spend_cap")
+
+
+def test_no_replay_is_promised_when_the_cache_path_lies_under_a_file(tmp_path, monkeypatch):
+    (tmp_path / "afile").write_text("x", encoding="utf-8")
+    hint = _replay_hint(monkeypatch, tmp_path / "afile" / "cache")
+    assert "already paid for replay" not in hint
+    assert "could not be written, so a rerun pays for these calls again" in hint
+
+
+@pytest.mark.skipif(os.name == "nt" or getattr(os, "geteuid", lambda: 1)() == 0,
+                    reason="a read-only directory is still writable here")
+def test_no_replay_is_promised_when_the_cache_dir_is_read_only(tmp_path, monkeypatch):
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    cache.chmod(0o555)
+    try:
+        hint = _replay_hint(monkeypatch, cache)
+    finally:
+        cache.chmod(0o755)
+    assert "already paid for replay" not in hint
+    assert "a rerun pays for these calls again" in hint
 
 
 def test_a_partial_result_never_replaces_a_finished_novelty_json(tmp_path, monkeypatch):

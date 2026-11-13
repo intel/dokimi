@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -55,16 +56,19 @@ def replay_hint(reason: str = "spend_cap") -> str:
     from dokimi.caching import RESPONSE_CACHE_ENV, response_cache_dir
 
     try:
-        active = response_cache_dir() is not None
+        cache = response_cache_dir()
     except ValueError:  # the variable names a file: no call was cached
-        active = False
+        cache = None
+    # Every paid call has gone through the cache by now: a dir missing or read-only kept none.
+    active = cache is not None and os.access(cache, os.W_OK)
     if active:
         rerun = ("a higher --max-usd" if reason == "spend_cap"
                  else "the model priced, or without --max-usd,")
         return (f". Rerun with {rerun} and the same {RESPONSE_CACHE_ENV}: the calls "
                 "already paid for replay at $0 (a cut-off or unusable reply is asked again)")
-    return (f". {RESPONSE_CACHE_ENV} was not set on this run, so a rerun pays for these calls "
-            "again; set it to a directory before the next run to replay them at $0")
+    return (f". {RESPONSE_CACHE_ENV} was not set on this run or could not be written, so a "
+            "rerun pays for these calls again; set it to a writable directory before the next "
+            "run to replay them at $0")
 
 
 def save_analyze_partial(result, out: Path) -> NoReturn:

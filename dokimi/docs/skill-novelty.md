@@ -1131,10 +1131,10 @@ spent), and `spans_read` / `spans_total` for an extraction stop or `calls_done` 
 wordings and answer keys in `probes.items`, so a stop before the first answer still keeps them) and
 the `runs` (probe answers and judgments) so far; it has no `paired`, `arms`, `k0` or view summaries, and no
 `novelty.md` or annotated view is written. The exit is non-zero (1), the message names the file and
-how to get the paid calls back: with `DOKIMI_RESPONSE_CACHE` set on the capped run, a rerun with a
+how to get the paid calls back: with `DOKIMI_RESPONSE_CACHE` set to a writable directory on the capped run, a rerun with a
 higher `--max-usd` and the same cache replays them at $0 (a reply that was cut off or unusable is
 asked again; after a `no_price` stop the message says to price the model or drop `--max-usd`
-instead, since a higher cap does not help); without it the message says the calls were not cached. `novelty view`, `subjects`
+instead, since a higher cap does not help); without it, or when it could not be written, the message says the calls were not cached. `novelty view`, `subjects`
 (`--novelty-artifact`) and every other reader of a `novelty.json` refuse a partial file by name,
 and `runs list` does not list it (it opens with `status`, not `schema_version`). A record
 with `status: "partial"` but no `partial` block is refused too.
