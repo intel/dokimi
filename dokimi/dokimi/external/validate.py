@@ -53,9 +53,10 @@ an error and does not fail ``--strict``. A link to a file outside the skill dire
 naming such a file is ``path-escapes-skill``. Code spans that name no file are not checked,
 and neither are code fences: those are usually examples or paths in the user's own project.
 
-Descriptions: one with no "when" clause is a ``warn`` (``description-no-when``),
-and so is one whose tokens overlap another skill's at a Jaccard similarity of at least
-:data:`NEAR_DUPLICATE_JACCARD` (``description-near-duplicate``). Skills with
+Descriptions: one with no "when" clause is a ``warn`` (``description-no-when``); the cues are
+English, Spanish, French, German, Portuguese, Russian, Chinese, Japanese and Korean (``when_cues.WHEN_CUES``),
+and a description in a script none covers is not checked: it gets a ``note`` (``description-when-not-checked``). One whose tokens overlap another skill's at a
+Jaccard similarity of at least :data:`NEAR_DUPLICATE_JACCARD` is a ``warn`` too (``description-near-duplicate``). Skills with
 ``disable-model-invocation: true`` are exempt from both, as the model never chooses them.
 
 Mirror drift: two skills in different paths with the same directory name but different
@@ -93,6 +94,7 @@ from .listing import in_field
 from .script_checks import script_findings
 from .paths import _exists, _in_checkout, _inside, _resolved
 from .skill_markdown import link_pieces, outside_fences
+from .when_cues import when_clause_found
 
 NAME_PATTERN = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 NAME_MAX = 64
@@ -124,14 +126,6 @@ CLAUDE_TOOLS = frozenset(
 BODY_MAX_LINES = 500
 BODY_MAX_TOKENS = 5000
 
-# A "when" clause of any subject and verb ("run migrations when deploying"), or a use phrase: the model
-# chooses a skill from its description alone.
-WHEN_RE = re.compile(
-    r"\b(?:when\s+\w|use for\b|use this skill\b|trigger(?:s|ed)?\s*(?:on\b|:)|invoke only\b|activate\b|"
-    r"invoke this\b|use (?:it |this |these )?(?:when|if|before|after|whenever|proactively|anytime)\b|"
-    r"whenever\b)",
-    re.I,
-)
 # Words that say nothing about what a skill is for; left out of the description overlap.
 STOP_WORDS = frozenset(
     """a an the and or of to in on for with by from as at is are be been being this that
@@ -158,6 +152,7 @@ FINDING_CODES = (
     "description-near-duplicate",
     "description-no-when",
     "description-too-long",
+    "description-when-not-checked",
     "duplicate",
     "frontmatter-parse",
     "frontmatter-unknown-key",
@@ -186,7 +181,7 @@ FINDING_CODES = (
 
 @dataclass
 class Finding:
-    """One check that did not pass: ``level`` is ``warn`` or ``error``."""
+    """One check that did not pass: ``level`` is ``note``, ``warn`` or ``error``."""
 
     level: str
     code: str
@@ -496,8 +491,18 @@ def _escapes_link(raw: str) -> Finding:
 
 
 def _description_findings(skill: Skill) -> list[Finding]:
-    """A ``warn`` when the description has no "when" clause."""
-    if not WHEN_RE.search(" ".join(skill.description.split())):
+    """A ``warn`` when the description has no "when" clause. A script with no cue list gets a ``note``
+    instead: the clause is not checked, and that must not read as a pass."""
+    found = when_clause_found(skill.description)
+    if found is None:
+        return [
+            Finding(
+                "note",
+                "description-when-not-checked",
+                "description is in a script with no 'when' cue list, so its 'when' clause is not checked",
+            )
+        ]
+    if found is False:
         return [
             Finding(
                 "warn",
