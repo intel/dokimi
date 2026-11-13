@@ -393,14 +393,16 @@ def _scan(cell: Path, canaries: Sequence[str]) -> tuple[dict[str, Any], list[str
     conversion = _conversion_errors(agent)
     garbled = bool(conversion)
     agent_ran = isinstance(agent, dict) and agent.get("rc") is not None and (not empty or garbled)
-    if agent_ran or result.get("process") is not None:  # a run whose trace is missing or garbled is unmeasured
+    # a trace with a line in it is the agent's, even when no line reads: a garbled one is unmeasured
+    traced = not empty and (cell / "events.jsonl").is_file() and not (cell / "events.jsonl").is_symlink()
+    if agent_ran or result.get("process") is not None or traced:  # a run whose trace is missing or garbled is unmeasured
         # a linked trace is not read (its target may be a host file): _present already made the cell unfinished
         problem = None if (cell / "events.jsonl").is_symlink() else (_trace_problem(cell / "events.jsonl") or (
             ("the runner read no line of the trace" if empty else f"the runner dropped trace lines: {_evidence(conversion[0], canaries, 120)}")
             if garbled else None))
         if problem:
             unreadable.append(problem)
-    started = bool(n_events or found or agent_ran or result.get("process") is not None)
+    started = bool(n_events or found or agent_ran or result.get("process") is not None or traced)
     return {"cell": cell.name, "task": result.get("task"), "arm": result.get("arm"), "model": result.get("model"),
             "started": started, "exec_traced": (cell / "exec.log").is_file(),
             "egress_traced": (cell / "egress.jsonl").is_file(), "findings": [f.as_dict() for f in found]}, unreadable

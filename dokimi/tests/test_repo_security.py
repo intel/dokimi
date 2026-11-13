@@ -932,3 +932,10 @@ def test_a_dropped_trace_error_is_redacted_before_it_is_clipped(tmp_path):
     (cell / "result.json").write_text(json.dumps(record), encoding="utf-8")
     _, unreadable = sec._scan(cell, [canary])
     assert unreadable and not any(canary in reason for reason in unreadable)
+
+
+def test_a_garbled_trace_with_no_agent_record_is_started_and_unfinished(tmp_path):
+    cell = _cell(tmp_path / "b", "t", "skill", 0, events=[])
+    (cell / "events.jsonl").write_text("not json\n", encoding="utf-8")
+    summary, unreadable = sec._scan(cell, [])
+    assert summary["started"] and unreadable
