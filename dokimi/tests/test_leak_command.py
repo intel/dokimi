@@ -88,9 +88,9 @@ def test_a_leak_exits_1_and_the_table_names_the_item(tmp_path, capsys):
     assert "status blocked: 1 items, 1 checked, 1 flagged" in out
 
 
-def test_an_item_that_cannot_be_checked_exits_1_as_inconclusive(tmp_path, capsys):
+def test_an_item_that_cannot_be_checked_exits_3_as_inconclusive(tmp_path, capsys):
     questions = _questions(tmp_path / "q.json", {"1": "42"})
-    assert _exit_code(_args(_skill(tmp_path / "skill", "clean"), questions)) == 1
+    assert _exit_code(_args(_skill(tmp_path / "skill", "clean"), questions)) == 3
     assert "status inconclusive" in capsys.readouterr().out
 
 
