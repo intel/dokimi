@@ -34,6 +34,9 @@ also holds a PR to:
 - No growth: a file over 800 lines (tests 1000) or a function over complexity 10
   fails unless `scripts/growth_baseline.json` holds it, and then it may only
   shrink. Split instead; after shrinking, `python scripts/check_growth.py --update`.
+- No new clones: a block of 40+ AST nodes copied elsewhere in `dokimi/`, `scripts/`
+  or `cli.py` (locals renamed or not) fails `scripts/check_duplicates.py` unless
+  `scripts/duplicates_baseline.json` holds it. Extract the shared code instead.
 - Tests that check behaviour: `tests/test_audit_test_quality.py` fails a test that only
   checks types, echoes its input, only checks a mock was called, asserts nothing or
   repeats another (`python scripts/audit_test_quality.py` lists them).
