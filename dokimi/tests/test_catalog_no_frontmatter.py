@@ -214,6 +214,15 @@ def test_an_indented_code_block_after_the_h1_is_not_the_description():
     assert desc == "What tool does. Use when ..."  # the default: no paragraph, the code block is not prose
 
 
+def test_a_name_from_the_h1_is_at_most_64_characters():
+    assert _block(no_frontmatter_message(["# " + "a" * 70, "", "Builds."], "deck", at_root=True))["name"] == "a" * 64
+
+
+def test_a_name_from_the_directory_is_at_most_64_characters():
+    # Seventy characters is no spec name, so below the root the name is the H1's, or the directory's when there is none.
+    assert _block(no_frontmatter_message(["Builds."], "d" * 70, at_root=False))["name"] == "d" * 64
+
+
 def test_a_root_skill_gets_the_h1_name_not_the_directory_name(tmp_path):
     real = tmp_path / "real"
     real.mkdir()
