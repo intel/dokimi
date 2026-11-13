@@ -37,7 +37,7 @@ from typing import Any
 
 from dokimi.records import Record, arm_answers, arm_names, arm_scores, read
 from dokimi.eval.judge_context import PROTOCOL_MIXED as JUDGE_CONTEXT_MIXED
-from dokimi.eval import sign_flip, stats as arm_stats
+from dokimi.eval import finite_delta, sign_flip, stats as arm_stats
 from dokimi.utils import InputError, read_json_input
 
 try:
@@ -495,7 +495,7 @@ def extract_scores(
             # dropped here would empty the intersection for every other run too.
             # Downstream aggregation filters None per metric.
             paired_delta = (
-                treatment_score - baseline_score
+                finite_delta.checked_delta(treatment_score, baseline_score, InputError)
                 if treatment_score is not None and baseline_score is not None
                 else None
             )
@@ -537,7 +537,7 @@ def extract_scores(
 
             if baseline_score is not None and treatment_score is not None:
                 scores.append(_score_row(answer, baseline_score, treatment_score,
-                                         treatment_score - baseline_score, treatment_arm))
+                                         finite_delta.checked_delta(treatment_score, baseline_score, InputError), treatment_arm))
 
     return scores
 

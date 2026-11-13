@@ -113,6 +113,7 @@ from typing import Any
 from dokimi.context.consistency import Run, run_from_events
 from dokimi.eval.sign_flip import ALPHA, EPS, METHOD, min_sign_flip_p, sign_flip_row, within
 from dokimi.eval.stats import correct_family
+from dokimi.eval.finite_delta import checked_delta, checked_mean
 from dokimi.utils import same_model
 
 from .compare_judged import (check_reported, judge_names, judge_warnings, judged_cells, judged_lines,
@@ -555,7 +556,7 @@ def _pair(task: str, base: dict[str, Any], treat: dict[str, Any], measure: str) 
     bv, tv = base["values"].get(measure), treat["values"].get(measure)
     if bv is None or tv is None:
         return None
-    out = {"task": task, "baseline": bv, "treatment": tv, "delta": tv - bv,
+    out = {"task": task, "baseline": bv, "treatment": tv, "delta": checked_delta(tv, bv, CompareError),
            "n_baseline": base["n"][measure], "n_treatment": treat["n"][measure]}
     if measure.startswith("first_useful"):  # a compared task has one kind: the row shows which
         out["useful_kind"] = base["useful_kind"]
@@ -579,10 +580,13 @@ def sign_flip_summary(pairs: list[dict[str, Any]], measure: str = "gate", seed: 
     Holm's p is known. ``measure`` is not read: every measure gets the same statistics.
     """
     deltas = [p["delta"] for p in pairs]
-    row = sign_flip_row(deltas, seed=seed, exact=exact)
+    mean = checked_mean(deltas, CompareError)
+    try:
+        row = sign_flip_row(deltas, seed=seed, exact=exact)
+        sd = statistics.stdev(deltas) if len(deltas) > 1 else 0.0
+    except OverflowError as exc:  # finite deltas whose sum or spread leaves the float range: no test to run
+        raise CompareError("the deltas of the tasks are too large to test: a sum or a spread of them leaves the float range") from exc
     p, lo, hi = row["p"], row["ci_lo"], row["ci_hi"]
-    mean = sum(deltas) / len(deltas)
-    sd = statistics.stdev(deltas) if len(deltas) > 1 else 0.0
     reachable = min_sign_flip_p(row["n_changed"]) < ALPHA  # else no effect can be detected
     return {
         "n_tasks": len(pairs),

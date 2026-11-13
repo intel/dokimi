@@ -1,0 +1,3 @@
+### Fixed
+
+- **`repo compare` and model compare refuse a delta beyond the float range** — `repo compare` raised no error for finite task values that differ by more than the float maximum (`-1.7e308` against `1.7e308`) and carried an `inf` delta into the sign-flip test and the row mean. It now stops with `Error: ...` and exit 2, as for any other unusable input, also for finite deltas whose magnitudes sum beyond the range, where it ended in a numpy warning or a traceback. The score differences of a model comparison (`extract_scores`, both the evaluations and the answer-record formats) refuse the same way with an `InputError`. Finite results are unchanged.
