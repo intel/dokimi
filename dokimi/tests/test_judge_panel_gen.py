@@ -116,6 +116,35 @@ def test_gen_skips_optional_judges_that_share_no_answer(tmp_path):
     assert "only-p0" in (out / "tables_gen" / "judge_mean_kappa.csv").read_text()
 
 
+def test_gen_lenient_delta_is_on_the_answers_both_judges_grade(tmp_path):
+    # gpt-6-luna grades only probes p2 and p3. The delta must compare the two judges on those
+    # answers, not gpt-5.6-luna's rate over all its rows (0.75 here) against the new judge's.
+    out = tmp_path / "out"
+    _write(out, GEN_JUDGES)
+    sample = [json.loads(line) for line in (out / "sample.jsonl").read_text().splitlines()]
+    for r in sample:
+        if r["probe_id"] == "p0":
+            r["verdict"] = "wrong_other"
+    (out / "sample.jsonl").write_text("".join(json.dumps(r) + "\n" for r in sample))
+    grades = [json.loads(line) for line in (out / "grades.jsonl").read_text().splitlines()]
+    grades = [g for g in grades if not (g["judge"] == "gpt-6-luna" and g["key"][:2] in ("p0", "p1"))]
+    (out / "grades.jsonl").write_text("".join(json.dumps(g) + "\n" for g in grades))
+    lenient = {"correct_complete", "correct_missing_qualifier", "partially_correct"}
+    shared = {g["key"] for g in grades if g["judge"] == "gpt-6-luna"}
+    new_votes = [g["verdict"] for g in grades if g["judge"] == "gpt-6-luna"]
+    old_votes = [r["verdict"] for r in sample
+                 if f"{r['probe_id']}|{r['arm']}|{r['model']}" in shared]
+    expected = round(sum(v in lenient for v in new_votes) / len(new_votes)
+                     - sum(v in lenient for v in old_votes) / len(old_votes), 4)
+
+    r = _gen(out)
+
+    assert r.returncode == 0, r.stderr[-800:]
+    summary = json.loads((out / "gen_summary.json").read_text())
+    pair = next(p for p in summary["pairs"] if p["old"] == "gpt-5.6-luna" and p["new"] == "gpt-6-luna")
+    assert pair["lenient_rate_delta"] == expected
+
+
 def test_analyze_names_a_study_judge_with_no_grades(tmp_path):
     # glm-5 is a study panel judge that these grades lack: name it before any table is written.
     out = tmp_path / "out"

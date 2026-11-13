@@ -49,6 +49,13 @@ def kappa(a, b):
     return (po - pe) / (1 - pe), n
 
 
+def rate_delta(old, new):
+    """Lenient-rate change from old to new on the answers both judges grade (the rows kappa uses)."""
+    keys = [k for k in V if old in V[k] and new in V[k]]
+    rate = {j: sum(V[k][j] in LEN for k in keys) / len(keys) for j in (old, new)}
+    return round(rate[new] - rate[old], 4)
+
+
 def lenient_rate(j):
     vs = [d[j] for d in V.values() if j in d]
     return sum(v in LEN for v in vs) / len(vs), sum(v in STR for v in vs) / len(vs), len(vs)
@@ -94,9 +101,7 @@ for fam, old, new in PAIRS:
     k, n = kappa(old, new)
     row = {"family": fam, "old": old, "new": new,
            "kappa_old_new": None if k is None else round(k, 3), "n": n,
-           "lenient_rate_delta": round(out["per_judge"][new]["lenient_rate"]
-                                       - out["per_judge"][old]["lenient_rate"], 4),
-           "added": {}}
+           "lenient_rate_delta": rate_delta(old, new), "added": {}}
     for mode, good in (("lenient", LEN), ("strict", STR)):
         for m in MODELS:
             ho, hn = headline(jget(old, good), m, good), headline(jget(new, good), m, good)
