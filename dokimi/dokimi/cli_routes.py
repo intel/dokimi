@@ -242,6 +242,9 @@ def _split_routing_argv(rest: list[str]) -> tuple[dict[str, list[str]], list[str
             if name in _RETIRED_VALUE_FLAGS and not eq and i < len(rest) and _is_plain(rest[i]):
                 kept.append(rest[i])
                 i += 1
+            elif name not in _RETIRED_ROUTING_FLAGS and not eq and i < len(rest) and _is_plain(rest[i]):
+                # Not a flag the retired parser knew: argparse refused it with its value as the extra.
+                raise RetiredFlagError(f"unrecognized arguments: {rest[i - 1]} {rest[i]}")
     return values, kept
 
 

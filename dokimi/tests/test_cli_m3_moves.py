@@ -552,3 +552,14 @@ def test_novelty_routing_prints_the_new_command_and_exits_2(capsys):
 def test_novelty_view_still_lives_under_novelty():
     args = build_parser().parse_args(["novelty", "view", "--novelty", "n.json", "--atoms", "a.json"])
     assert args.novelty_cmd == "view"
+
+
+def test_novelty_routing_tombstone_names_an_unknown_flag_and_its_value_in_the_refusal():
+    # `--reps` is not a retired flag, so the retired parser refused `--reps 3` as its two extras: the
+    # refusal names the flag and its value, not the value alone.
+    for old, pattern in [
+        (["novelty", "routing", "--artifact", "skill:a", "--reps", "3"], r"unrecognized arguments: --reps 3$"),
+        (["novelty", "routing", "--artifact", "skill:a", "--against", "R"], r"unrecognized arguments: --against R$"),
+    ]:
+        with pytest.raises(ValueError, match=pattern):
+            moved_argv(old)
