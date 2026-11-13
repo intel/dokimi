@@ -23,6 +23,7 @@ copy, a run repeated within itself) only the first is kept.
 Clone groups that existed when the gate was introduced are recorded in
 ``duplicates_baseline.json`` with their exact count. A count may not grow, and
 when it shrinks the entry must shrink with it (``--update``). A new group fails.
+An entry added or raised against the base branch's baseline needs a "rationale".
 Fix a failure by extracting the shared code; a baseline entry is for a clone
 that cannot be shared, and then the PR says why.
 
@@ -38,6 +39,7 @@ import argparse
 import ast
 import hashlib
 import json
+import subprocess
 import sys
 from collections import defaultdict
 from dataclasses import dataclass
@@ -45,6 +47,8 @@ from pathlib import Path
 
 PROJECT = Path(__file__).resolve().parents[1]
 BASELINE = PROJECT / "scripts" / "duplicates_baseline.json"
+sys.path.insert(0, str(PROJECT / "scripts"))
+from check_growth import RATIONALE_MAX, SEED_RATIONALE, base_ref  # noqa: E402
 
 #: Smallest block, in AST nodes, that is fingerprinted: two dense lines or about
 #: five plain ones. At 40 every group on the tree was a verbatim copy; at 30, 28 groups.
@@ -274,6 +278,36 @@ def violations(groups: dict[str, list[str]], baseline: dict[str, dict]) -> list[
     return found
 
 
+def load_base_baseline(ref: str) -> dict[str, dict] | None:
+    """The baseline at the commit HEAD forked from ``ref``; None when git, the ref or
+    the file there is missing (then raised entries go unchecked)."""
+    try:
+        fork = subprocess.run(["git", "merge-base", "HEAD", ref], cwd=PROJECT,
+                              capture_output=True, text=True, check=False)
+        point = fork.stdout.strip() if fork.returncode == 0 else ref
+        shown = subprocess.run(["git", "show", f"{point}:./scripts/{BASELINE.name}"], cwd=PROJECT,
+                               capture_output=True, text=True, check=False)
+    except OSError:
+        return None
+    return json.loads(shown.stdout)["groups"] if shown.returncode == 0 else None
+
+
+def raised_without_rationale(baseline: dict[str, dict], base: dict[str, dict]) -> list[str]:
+    """Entries added or raised relative to the base branch's baseline with no new
+    "rationale": a tolerated clone says why it cannot be shared."""
+    found = []
+    for fp, entry in sorted(baseline.items()):
+        old = base.get(fp, {})
+        if old and entry["count"] <= old["count"]:
+            continue
+        why = str(entry.get("rationale", "")).strip()
+        if why in ("", SEED_RATIONALE, str(old.get("rationale", "")).strip()):
+            change = "added" if not old else f"raised from {old['count']} to {entry['count']}"
+            found.append(f"{fp}: {change} without a \"rationale\" (at most {RATIONALE_MAX} "
+                         "characters: why the copies cannot share one function)")
+    return found
+
+
 def _files(where: list[str]) -> list[str]:
     """The files of a group, without line numbers: an edit elsewhere does not churn the baseline."""
     return sorted({w.rsplit(":", 1)[0] for w in where})
@@ -302,12 +336,18 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{len(groups)} clone group(s)")
         return 0
     if args.seed or args.update:
-        new = ({fp: {"count": len(w), "where": _files(w)} for fp, w in groups.items()} if args.seed
+        new = ({fp: {"count": len(w), "rationale": SEED_RATIONALE, "where": _files(w)} for fp, w in groups.items()} if args.seed
                else tightened(groups, load_baseline()))
         BASELINE.write_text(dump_baseline(new), encoding="utf-8")
         print(f"wrote {BASELINE.relative_to(PROJECT).as_posix()} ({len(new)} group(s))")
         return 0
-    found = violations(groups, load_baseline())
+    baseline = load_baseline()
+    found = violations(groups, baseline)
+    base = load_base_baseline(base_ref())
+    if base is None:
+        print(f"note: no {BASELINE.name} at {base_ref()}; added entries not checked for a rationale")
+    else:
+        found += raised_without_rationale(baseline, base)
     for v in found:
         print(v)
     if found:

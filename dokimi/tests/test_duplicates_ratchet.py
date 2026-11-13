@@ -3,8 +3,9 @@
 
 """The no-new-clones ratchet (scripts/check_duplicates.py).
 
-The first two tests are the gate on this tree. The rest plant clones in a small
-project in a temporary directory and check what is and is not a clone group.
+The gate on this tree is the "Duplicate code ratchet" step of ci.yml's static job
+(one interpreter, ~8s). These tests plant clones in a temporary project and check
+what is and is not a clone group, and what the ratchet lets through.
 """
 
 from __future__ import annotations
@@ -21,16 +22,7 @@ cd = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(cd)
 
 
-# --- the gate on this tree -------------------------------------------------------------
-
-
-def test_no_new_or_grown_clone_group():
-    found = cd.violations(cd.clone_groups(), cd.load_baseline())
-    assert not found, (
-        "duplicate-code ratchet (scripts/check_duplicates.py):\n  " + "\n  ".join(found)
-        + "\nExtract the shared code. When a clone went away, run "
-        "`python scripts/check_duplicates.py --update`."
-    )
+# --- the baseline file -------------------------------------------------------------------
 
 
 def test_baseline_file_is_in_canonical_form():
@@ -128,3 +120,14 @@ def test_update_lowers_and_drops_but_never_raises():
                 "ccc": {"count": 2, "where": []}}
     assert cd.tightened(groups, baseline) == {
         "aaa": {"count": 2, "where": ["x.py", "y.py"]}, "bbb": {"count": 2, "where": ["x.py", "y.py"]}}
+
+
+def test_an_added_or_raised_entry_needs_a_new_rationale():
+    base = {"kept": {"count": 2, "rationale": "two CLIs, no shared module"},
+            "raised": {"count": 2, "rationale": "old reason"}}
+    baseline = {"kept": {"count": 2, "rationale": "two CLIs, no shared module"},
+                "raised": {"count": 3, "rationale": "old reason"},
+                "seeded": {"count": 2, "rationale": cd.SEED_RATIONALE},
+                "explained": {"count": 2, "rationale": "generated per provider"}}
+    found = cd.raised_without_rationale(baseline, base)
+    assert [f.split(" without")[0] for f in found] == ["raised: raised from 2 to 3", "seeded: added"]
