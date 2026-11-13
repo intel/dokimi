@@ -274,7 +274,7 @@ def main(argv: list[str] | None = None) -> int:
     c.add_argument("--markdown", action="store_true", help="format for a PR comment")
     args = p.parse_args(argv)
     if args.cmd == "dump":
-        text = json.dumps(dump_surface(), indent=2, sort_keys=True) + "\n"
+        text = json.dumps(dump_surface(), indent=1, sort_keys=True) + "\n"
         if args.out:
             args.out.write_text(text, encoding="utf-8")
         else:
