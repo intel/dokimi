@@ -17,6 +17,11 @@ from dokimi.external.bundle_paths import _bundle_path, path_missing
 from tests.test_catalog_validate import _codes, _skill
 
 
+def _path_findings(review):
+    """The path-missing findings only: the skill may have other findings (script-lint, description-no-when)."""
+    return [f for f in review.findings if f.code == "path-missing"]
+
+
 def _review(tmp_path, body, files=()):
     skill_dir = _skill(tmp_path / "skills", "deck", name="deck", description="Use when building decks.", body=body)
     for rel in files:
@@ -49,7 +54,7 @@ def test_a_span_naming_a_bundled_file_that_exists_is_fine(tmp_path):
         "Run `python scripts/init_skill.py` then read `references/metadata.md#keys`.\n",
         files=["scripts/init_skill.py", "references/metadata.md"],
     )
-    assert review.findings == []
+    assert _path_findings(review) == []
 
 
 @pytest.mark.parametrize(
@@ -124,7 +129,7 @@ def test_a_path_that_exists_from_the_catalog_root_says_so(tmp_path):
     (tmp_path / "scripts").mkdir()
     (tmp_path / "scripts" / "ecc.js").write_text("x\n", encoding="utf-8")
     review, _ = _review(tmp_path, "Run `node scripts/ecc.js memory`.\n")
-    [finding] = review.findings
+    [finding] = _path_findings(review)
     assert finding.code == "path-missing"
     assert "exists from the catalog root" in finding.message
 
@@ -135,19 +140,19 @@ def test_a_quoted_argument_with_a_space_is_one_path(tmp_path):
         "Copy it with `cp 'assets/logo.dark mode.svg' /tmp/logo.svg`.\n",
         files=["assets/logo.dark mode.svg"],
     )
-    assert review.findings == []
+    assert _path_findings(review) == []
 
 
 def test_a_missing_quoted_argument_is_named_whole(tmp_path):
     review, _ = _review(tmp_path, "Copy it with `cp 'assets/logo.dark mode.svg' /tmp/logo.svg`.\n")
-    [finding] = review.findings
+    [finding] = _path_findings(review)
     assert finding.code == "path-missing"
     assert finding.message.startswith("'assets/logo.dark mode.svg' (in ")
 
 
 def test_a_standalone_path_with_a_space_that_exists_is_fine(tmp_path):
     review, _ = _review(tmp_path, "Use `assets/logo.dark mode.svg`.\n", files=["assets/logo.dark mode.svg"])
-    assert review.findings == []
+    assert _path_findings(review) == []
 
 
 def test_existing_paths_joined_by_a_separator_are_fine(tmp_path):
@@ -156,24 +161,24 @@ def test_existing_paths_joined_by_a_separator_are_fine(tmp_path):
         "Run `python scripts/a.py,scripts/b.py` and `scripts/a.py;scripts/b.py`.\n",
         files=["scripts/a.py", "scripts/b.py"],
     )
-    assert review.findings == []
+    assert _path_findings(review) == []
 
 
 def test_a_missing_path_in_a_separator_joined_list_is_named_alone(tmp_path):
     review, _ = _review(tmp_path, "Run `python scripts/a.py;scripts/zz.py`.\n", files=["scripts/a.py"])
-    [finding] = review.findings
+    [finding] = _path_findings(review)
     assert finding.message.startswith("'scripts/zz.py' (in ")
 
 
 def test_a_missing_quoted_argument_with_a_comma_is_named_whole(tmp_path):
     review, _ = _review(tmp_path, "Copy it with `cp 'assets/a,b.svg' /tmp/x`.\n")
-    [finding] = review.findings
+    [finding] = _path_findings(review)
     assert finding.message.startswith("'assets/a,b.svg' (in ")
 
 
 def test_a_malformed_quote_falls_back_to_whitespace_words(tmp_path):
     review, _ = _review(tmp_path, "Run `cp 'scripts/a.sh /tmp/x`.\n")
-    [finding] = review.findings
+    [finding] = _path_findings(review)
     assert finding.message.startswith("'scripts/a.sh' (in ")
 
 
@@ -189,7 +194,7 @@ def test_a_link_to_a_dot_slash_path_also_names_the_span_once(tmp_path):
 
 def test_the_message_says_the_skill_directory_not_the_install(tmp_path):
     review, _ = _review(tmp_path, "Run `scripts/deploy.sh`.\n")
-    [finding] = review.findings
+    [finding] = _path_findings(review)
     assert finding.message == "'scripts/deploy.sh' (in 'scripts/deploy.sh') names no file in the skill directory"
 
 
@@ -205,7 +210,7 @@ def test_a_path_in_parentheses_is_checked(tmp_path):
 
 def test_a_missing_escaped_comma_is_named_whole(tmp_path):
     review, _ = _review(tmp_path, r"Copy it with `cp assets/a\,b.svg /tmp/out`." + "\n")
-    [finding] = review.findings
+    [finding] = _path_findings(review)
     assert finding.message.startswith("'assets/a,b.svg' (in ")
 
 
@@ -215,35 +220,35 @@ def test_an_escaped_quote_does_not_end_a_quoted_name(tmp_path):
         r'Copy it with `cp "assets/a\"b,c.svg" /tmp/out`.' + "\n",
         files=['assets/a"b,c.svg'],
     )
-    assert review.findings == []
+    assert _path_findings(review) == []
 
 
 def test_a_missing_name_with_a_comma_and_an_extension_like_tail_is_named_whole(tmp_path):
     review, _ = _review(tmp_path, "Use `assets/logo.v1,2.png`.\n")
-    [finding] = review.findings
+    [finding] = _path_findings(review)
     assert finding.message.startswith("'assets/logo.v1,2.png' (in ")
 
 
 def test_an_existing_name_with_a_comma_and_an_extension_like_tail_is_fine(tmp_path):
     review, _ = _review(tmp_path, "Use `assets/logo.v1,2.png`.\n", files=["assets/logo.v1,2.png"])
-    assert review.findings == []
+    assert _path_findings(review) == []
 
 
 def test_a_list_of_missing_paths_with_no_space_is_read_one_by_one(tmp_path):
     review, _ = _review(tmp_path, "Run `scripts/a.py,scripts/b.py`.\n", files=["scripts/a.py"])
-    [finding] = review.findings
+    [finding] = _path_findings(review)
     assert finding.message.startswith("'scripts/b.py' (in ")
 
 
 def test_a_missing_path_before_a_semicolon_command_separator_is_named(tmp_path):
     review, _ = _review(tmp_path, "Run `python scripts/run.py;echo done`.\n")
-    [finding] = review.findings
+    [finding] = _path_findings(review)
     assert finding.message.startswith("'scripts/run.py' (in ")
 
 
 def test_a_comma_not_followed_by_a_bundle_folder_stays_in_the_name(tmp_path):
     review, _ = _review(tmp_path, "Use `assets/a.svg,b.svg`.\n", files=["assets/a.svg"])
-    [finding] = review.findings
+    [finding] = _path_findings(review)
     assert finding.message.startswith("'assets/a.svg,b.svg' (in ")
 
 
@@ -253,13 +258,13 @@ def test_a_list_of_skill_dir_paths_with_no_space_is_read_one_by_one(tmp_path):
         "Run `${CLAUDE_SKILL_DIR}/scripts/a.py,${CLAUDE_SKILL_DIR}/scripts/b.py`.\n",
         files=["scripts/a.py"],
     )
-    [finding] = review.findings
+    [finding] = _path_findings(review)
     assert finding.message.startswith("'scripts/b.py' (in ")
 
 
 def test_a_missing_path_before_a_semicolon_is_named_when_quotes_do_not_balance(tmp_path):
     review, _ = _review(tmp_path, 'Run `python scripts/run.py;echo "done`.\n')
-    [finding] = review.findings
+    [finding] = _path_findings(review)
     assert finding.message.startswith("'scripts/run.py' (in ")
 
 
@@ -269,16 +274,16 @@ def test_a_list_with_a_comma_and_a_space_is_read_one_by_one(tmp_path):
         "Run `python scripts/a.py, scripts/b.py`.\n",
         files=["scripts/a.py", "scripts/b.py"],
     )
-    assert review.findings == []
+    assert _path_findings(review) == []
 
 
 def test_a_list_with_a_dot_slash_after_the_comma_is_read_one_by_one(tmp_path):
     review, _ = _review(tmp_path, "Run `scripts/a.py,./scripts/b.py`.\n", files=["scripts/a.py"])
-    [finding] = review.findings
+    [finding] = _path_findings(review)
     assert finding.message.startswith("'scripts/b.py' (in ")
 
 
 def test_a_quoted_list_of_bundled_paths_is_read_one_by_one(tmp_path):
     review, _ = _review(tmp_path, 'Run `cp "scripts/a.py;scripts/b.py" /tmp/x`.\n', files=["scripts/a.py"])
-    [finding] = review.findings
+    [finding] = _path_findings(review)
     assert finding.message.startswith("'scripts/b.py' (in ")
