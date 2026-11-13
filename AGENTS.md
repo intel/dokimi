@@ -37,6 +37,10 @@ also holds a PR to:
 - Tests that check behaviour: `tests/test_audit_test_quality.py` fails a test that only
   checks types, echoes its input, only checks a mock was called, asserts nothing or
   repeats another (`python scripts/audit_test_quality.py` lists them).
+- No silent test narrowing (`scripts/check_test_narrowing.py`): removing a test,
+  dropping a check, adding skip/xfail, dropping `match=` or widening
+  `pytest.raises`, loosening a tolerance or cutting `parametrize` cases fails
+  unless a commit message or a comment in the test says `Test-narrowed: <reason>`.
 - Docs that name a command, flag, path or module must match the tree
   (`tests/test_docs_code_refs.py`): rename in code, rename in docs.
 - Tests run offline: a connection off loopback fails the test, so mock LLM and
