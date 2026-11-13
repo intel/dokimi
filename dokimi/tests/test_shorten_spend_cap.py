@@ -36,7 +36,8 @@ def _run(tmp_path, monkeypatch, *flags, prices=1.0):
 
     def transport(prompt, system=None):
         prompts.append(prompt)
-        return _VERDICT, UsageRecord(cost_usd=prices)
+        price = prices.pop(0) if isinstance(prices, list) else prices  # a list: one price per call
+        return _VERDICT, UsageRecord(cost_usd=price)
 
     real_client = novelty_cost.client
     monkeypatch.setattr(novelty_cost, "client", lambda model, provider, role, args: replace(
@@ -91,8 +92,60 @@ def test_a_stop_before_any_verdict_does_not_promise_a_replay(tmp_path, monkeypat
     with pytest.raises(SystemExit) as stop:
         args.func(args)
     assert "spend cap reached: $0.05 of $0.05 after 0 calls" in str(stop.value)
-    assert "no retention verdict had been adjudicated yet" in str(stop.value)
+    assert f"no retention verdict is stored in {tmp_path / 'cache'} from this run: none had been adjudicated yet" \
+        in str(stop.value)
     assert "replay" not in str(stop.value)
+
+
+def test_a_cap_spent_before_any_call_without_a_cache_dir_does_not_claim_lost_verdicts(tmp_path, monkeypatch):
+    _setup(tmp_path)
+    real_client = novelty_cost.client
+
+    def spent(model, provider, role, args):
+        client = real_client(model, provider, role, args)
+        client.cap.spent_usd = client.cap.limit_usd
+        return replace(client, transport=lambda prompt, system=None: pytest.fail("called"))
+
+    monkeypatch.setattr(novelty_cost, "client", spent)
+    args = build_parser().parse_args([
+        "skill", "shorten", "--artifact", f"text:{tmp_path / 'rows.md'}",
+        "--atoms", str(tmp_path / "atoms.json"), "--model", "o", "--max-usd", "0.05"])
+    with pytest.raises(SystemExit) as stop:
+        args.func(args)
+    assert "no retention call had been paid for yet" in str(stop.value)
+    assert "lost" not in str(stop.value)
+
+
+def test_an_unpriced_stop_says_its_paid_verdict_was_not_stored(tmp_path, monkeypatch):
+    _setup(tmp_path)
+    prompts, stop = _run(tmp_path, monkeypatch, "--max-usd", "5", "--cache-dir",
+                         str(tmp_path / "cache"), prices=None)
+    assert len(prompts) == 1
+    assert stop is not None and "no price is known" in stop
+    assert f"no retention verdict is stored in {tmp_path / 'cache'} from this run: the one call made " \
+           "was paid for and its verdict was not stored" in stop
+    assert "no verdict" not in stop and "replay" not in stop
+    assert not list((tmp_path / "cache").glob("*.json"))
+
+
+def test_an_unpriced_stop_without_a_cache_dir_does_not_say_zero_were_lost(tmp_path, monkeypatch):
+    _setup(tmp_path)
+    prompts, stop = _run(tmp_path, monkeypatch, "--max-usd", "5", prices=None)
+    assert len(prompts) == 1
+    assert stop is not None and "the one retention call made was paid for and its verdict was not stored" in stop
+    assert "(0)" not in stop
+
+
+def test_an_unpriced_call_after_priced_ones_counts_only_the_stored_verdicts(tmp_path, monkeypatch):
+    _setup(tmp_path)
+    cache = tmp_path / "cache"
+    prompts, stop = _run(tmp_path, monkeypatch, "--max-usd", "5", "--cache-dir", str(cache),
+                         prices=[0.01, 0.01, None])
+    assert len(prompts) == 3
+    assert stop is not None and f"verdicts adjudicated before the stop (2) are stored in {cache}" in stop
+    assert "rerun with no --max-usd and the same --cache-dir" in stop
+    assert "the call with no price was paid for and its verdict was not stored" in stop
+    assert len(list(cache.glob("*.json"))) == 2
 
 
 def test_a_rerun_with_a_higher_cap_and_the_same_cache_dir_replays_the_paid_verdicts(tmp_path, monkeypatch):

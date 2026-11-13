@@ -137,21 +137,30 @@ def no_candidate_line(candidates: list, scored: list, atoms: list) -> str:
     return f"No safe candidate (none kept every protected span{unsampled})."
 
 
-def _verdicts_hint(oracle, cache_dir, reason: str) -> str:
+def _verdicts_hint(oracle, cache_dir, stop) -> str:
     """What a rerun can reuse after the cap stopped ``shorten``: only what is true for this run.
 
-    A verdict is stored the moment it is adjudicated, so the verdicts paid for are the oracle's
-    escalations less the failed ones and the call the cap refused (or paid for, unpriced, and lost).
+    A verdict is stored the moment it is adjudicated, so the stored ones are the oracle's
+    escalations less the failed ones and the last call. That call was refused by a spent cap, or
+    (``stop.reply`` set, an unpriced model) paid for and its verdict dropped unstored.
     """
-    paid = max(0, oracle.escalations - oracle.errors - 1)
-    rerun = "no --max-usd" if reason == "no_price" else "a higher --max-usd"
-    if cache_dir and paid:
-        return (f"the retention verdicts adjudicated before the stop ({paid}) are stored in "
-                f"{cache_dir}; rerun with {rerun} and the same --cache-dir to replay them at $0")
+    stored = max(0, oracle.escalations - oracle.errors - 1)
+    dropped = stop.reply is not None
+    rerun = "no --max-usd" if stop.reason == "no_price" else "a higher --max-usd"
+    tail = "; the call with no price was paid for and its verdict was not stored" if dropped else ""
+    if cache_dir and stored:
+        return (f"the retention verdicts adjudicated before the stop ({stored}) are stored in "
+                f"{cache_dir}; rerun with {rerun} and the same --cache-dir to replay them at $0{tail}")
     if cache_dir:
-        return f"no retention verdict had been adjudicated yet, so {cache_dir} holds none from this run"
-    return (f"the retention verdicts adjudicated in this run ({paid}) were lost; --cache-dir <dir> "
-            "would keep them for a rerun")
+        return (f"no retention verdict is stored in {cache_dir} from this run"
+                + (": the one call made was paid for and its verdict was not stored" if dropped
+                   else ": none had been adjudicated yet"))
+    if stored:
+        return (f"the retention verdicts adjudicated in this run ({stored}) were lost; "
+                f"--cache-dir <dir> would keep them for a rerun{tail}")
+    if dropped:
+        return "the one retention call made was paid for and its verdict was not stored"
+    return "no retention call had been paid for yet"
 
 
 def score_candidates(args: argparse.Namespace, spans: list, atoms: list, scored: list):
@@ -175,7 +184,7 @@ def score_candidates(args: argparse.Namespace, spans: list, atoms: list, scored:
                                       seed=args.seed, scored_atoms=scored)
     except SpendCapReached as exc:
         raise SystemExit(f"{exc}; nothing was written (no candidate table and no --out file); "
-                         f"{_verdicts_hint(oracle, args.cache_dir, exc.reason)}") from None
+                         f"{_verdicts_hint(oracle, args.cache_dir, exc)}") from None
     return candidates, oracle
 
 

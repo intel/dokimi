@@ -1146,7 +1146,7 @@ is then `none`, and `run_config` holds the settings of the run but not its tier)
 no `--out` file at the cap (a table scored on part of the verdicts would read as a result), but each
 retention verdict is stored in `--cache-dir` the moment it is adjudicated: the exit message names how many were paid for and,
 with `--cache-dir`, that a rerun with a higher `--max-usd` and the same `--cache-dir` replays them at $0; without it, that
-`--cache-dir <dir>` would have kept them. Before its first paid
+`--cache-dir <dir>` would have kept them. After a `no_price` stop (a model with no known price) the call that came back was paid for but its verdict is not stored, and the message says so. Before its first paid
 call `analyze` prints the run's expected cost at list prices to stderr.
 
 The estimate payload has `expected_calls`, the point figure between
