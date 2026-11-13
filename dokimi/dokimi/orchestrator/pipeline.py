@@ -716,7 +716,7 @@ class EvaluationPipeline:
             run = load(self.answers_path, section="answers")
         answers_list = list(run.records)
         # Fresh in-memory answers are this process's method; an artifact says its own, unstamped is legacy.
-        if answers is not None and isinstance(answers, list):
+        if isinstance(answers, list):
             answers_method_version = ANSWERING_METHOD_VERSION
         else:
             answers_method_version = answers_method_version_of(run.meta)
