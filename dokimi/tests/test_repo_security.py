@@ -945,3 +945,8 @@ def test_a_garbled_trace_with_no_agent_record_is_started_and_unfinished(tmp_path
 def test_secret_read_by_a_windows_path(tmp_path, path):
     cell = _cell(tmp_path, "t", "skill", 0, events=[{"kind": "read", "path": path}])
     assert "secret-read" in {f["rule"] for f in sec.scan_cell(cell)["findings"]}
+
+
+@pytest.mark.parametrize("text", ["rm -rf /tmp/..", "rm -rf /tmp/../../etc", "rm -rf ~/.."])
+def test_destructive_delete_follows_a_dot_dot_out_of_a_cleanup_dir(text):
+    assert "destructive-delete" in _rules(sec.command_findings(text, "trace"))

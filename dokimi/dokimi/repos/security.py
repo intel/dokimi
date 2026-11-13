@@ -63,6 +63,8 @@ def _rx(text: str) -> re.Pattern[str]:
     return re.compile(text, re.IGNORECASE)
 
 
+#: A shell word that is an absolute path.
+_ABS_WORD = re.compile(r"(?<![^\s;&|\"'`(])/[^\s;&|\"'`)]*")
 _SYSTEM_DIRS = "etc|usr|var|home|root|opt|bin|sbin|lib|lib64|boot|srv|dev|sys|proc"
 #: A path under a system directory with one of these components is routine cleanup (apt lists, pip
 #: and conda caches, an installed package), not the directory: ``/var/lib/apt/lists/*``, ``/root/.cache/pip``.
@@ -101,7 +103,7 @@ COMMAND_RULES: tuple[Rule, ...] = (
     # $HOME[/][*] or a system directory, bare or with a path under it that is no cache (_CLEANUP_PARTS)
     Rule("destructive-delete", "critical", "rm -rf of /, ~, $HOME or a top-level system directory",
          _rx(r"\brm\s+(?:-\S+\s+)*?(?:-[a-z]*r[a-z]*|--recursive)\s+(?:[^\s;&|]+\s+)*?[\"']?"
-             r"(?:/\*?|(?:~|\$HOME|\$\{HOME\})/?\*?|/(?:" + _SYSTEM_DIRS + r")"
+             r"(?:/\*?|(?:~|\$HOME|\$\{HOME\})(?:/\.\.)*/?\*?|/(?:" + _SYSTEM_DIRS + r")"
              r"(?!(?![^\s;&|\"']*\.\.)[^\s;&|\"']*/(?:" + _CLEANUP_PARTS + r")(?:/|[\s;&|\"')`]|$))(?:/[^\s;&|\"']*)?)"
              r"[\"']?(?=[\s;&|)`]|$)"), drop_redirects=True),
     Rule("container-escape", "critical", "privileged container, host namespaces or host / mounted",
@@ -219,10 +221,15 @@ def parse_exec_log(text: str) -> list[str]:
     return out
 
 
+def _normal_paths(text: str) -> str:
+    """``text`` with each absolute word holding a ``..`` taken to the path it names: ``/tmp/..`` is ``/``."""
+    return _ABS_WORD.sub(lambda m: posixpath.normpath(m.group()) if "/.." in m.group() else m.group(), text)
+
+
 def command_findings(text: str, source: str, canaries: Sequence[str] = ()) -> list[Finding]:
     """The command rules ``text`` matches; backslash-newline continuations are joined first."""
     joined = _CONTINUATION.sub("", text)
-    bare = _REDIRECT.sub(" ", joined)
+    bare = _normal_paths(_REDIRECT.sub(" ", joined))
     return [Finding(r.id, r.severity, source, _evidence(text, canaries)) for r in COMMAND_RULES
             if r.pattern is not None and r.pattern.search(bare if r.drop_redirects else joined)]
 
