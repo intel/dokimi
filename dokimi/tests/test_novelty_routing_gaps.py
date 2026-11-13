@@ -11,7 +11,7 @@ import re
 
 import pytest
 
-import dokimi.commands.novelty as novelty_cmd
+from dokimi.novelty import cost as novelty_cost
 from dokimi.cli import build_parser
 from dokimi.novelty.client import LLMClient
 from dokimi.novelty.routing import catalog_competitors
@@ -53,7 +53,7 @@ def _queries(tmp_path, by_skill):
 
 
 def _no_client(monkeypatch):
-    monkeypatch.setattr(novelty_cmd, "_client",
+    monkeypatch.setattr(novelty_cost, "client",
                         lambda *a, **k: pytest.fail("a run made a model call"))
     monkeypatch.setattr(LLMClient, "text",
                         lambda self, *a, **k: pytest.fail("the estimate made a model call"))
