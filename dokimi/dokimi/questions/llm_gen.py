@@ -309,8 +309,11 @@ class QuestionGenerator:
         # Clean
         return [str(q).strip() for q in questions if q]
     
-    def save_questions(self, questions: List[Dict[str, Any]], output_path: Path):
+    def save_questions(self, questions: List[Dict[str, Any]], output_path: Path,
+                       product: Optional[str] = None):
         """Save questions as a questions.v2 artifact (``text`` is written as ``question``).
+
+        ``product`` is recorded as the set's ``product``, the subject ``runs list --subject`` matches.
 
         Raises ``ArtifactValidationError`` when the set is not a valid artifact; nothing is
         written at ``output_path`` then, and the set is kept at ``<name>.rejected``.
@@ -318,6 +321,7 @@ class QuestionGenerator:
         from dokimi.questions.artifact import save_questions_artifact
 
         save_questions_artifact({
+            **({"product": product} if product else {}),
             "generated_at": self._get_timestamp(),
             "model": self.model,
             "provider": self.provider,
