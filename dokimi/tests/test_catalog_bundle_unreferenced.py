@@ -3,8 +3,7 @@
 
 """``bundle-file-unreferenced``: bundled scripts and documents SKILL.md never names.
 
-In the GitSkills corpus 63% of bundled ``.py``, 45% of ``.sh`` and 47% of ``.md`` files are never
-named in their SKILL.md (scratch X4): the agent finds them only by browsing.
+The agent finds such a file only by browsing, so the check names it.
 """
 
 from __future__ import annotations

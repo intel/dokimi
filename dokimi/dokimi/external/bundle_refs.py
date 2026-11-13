@@ -5,9 +5,7 @@
 
 An agent reads ``SKILL.md`` and opens the files it names; a bundled file it is not pointed at is
 found only by browsing the directory. One ``warn`` per skill in :mod:`dokimi.external.validate`,
-with the count and the first :data:`EXAMPLES_SHOWN` paths. In the GitSkills corpus, of 5.9M files
-bundled next to a ``SKILL.md``, 63% of the ``.py``, 45% of the ``.sh`` and 47% of the ``.md`` files
-are never named in it.
+with the count and the first :data:`EXAMPLES_SHOWN` paths.
 
 Only code and documents count (:data:`COUNTED_SUFFIXES`): data, images and fonts are read by the
 scripts, not by the agent. A file is named when ``SKILL.md`` holds its path relative to the skill,
