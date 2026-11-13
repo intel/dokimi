@@ -14,6 +14,7 @@ import pytest
 from dokimi import artifacts, __version__
 from dokimi.cli import build_parser
 from dokimi.commands.evaluate import _run_ragas_eval
+from dokimi.exit_codes import EXIT_INCONCLUSIVE
 from dokimi.eval import ragas_eval
 from tests.test_eval_output_write_errors import _JUDGE_COMMANDS, _Report, _stub_judge_commands
 from tests.test_judge_validity import _answers
@@ -160,7 +161,9 @@ def test_validity_report_is_saved_with_the_envelope(tmp_path, monkeypatch):
     monkeypatch.setattr(jv, "judge_scorer", lambda judge: lambda lib, q, a: float(len(a)))
     args = build_parser().parse_args(["eval", "judge", "validate", "--answers", str(answers),
                                       "--variants", "truncate_20", "--output", str(out)])
-    args.func(args)
+    with pytest.raises(SystemExit) as exc:  # an inconclusive sample: the report is saved, then the command exits 3 (§2.6)
+        args.func(args)
+    assert exc.value.code == EXIT_INCONCLUSIVE
     saved = json.loads(out.read_text())
     assert saved["schema_version"] == "judge_validity.v1"
     assert saved["run_id"] and saved["dokimi_version"]
