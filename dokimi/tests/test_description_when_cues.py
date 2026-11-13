@@ -172,6 +172,7 @@ NO_WHEN = [
     pytest.param("适用于实时数据处理的工具。", id="zh-shi-shi-realtime-not-when"),
     pytest.param("適用於實時數據處理的工具。", id="zh-trad-shi-shi-realtime-not-when"),
     pytest.param("場合の数を数えるツールです。", id="ja-baai-no-kazu-not-when"),
+    pytest.param("用户请求日志并生成报表的工具。", id="zh-qingqiu-rizhi-not-when"),
 ]
 
 
