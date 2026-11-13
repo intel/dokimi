@@ -22,6 +22,7 @@ NAME_MAX = 64
 SPEC_NAME = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")  # the spec's name pattern (validate.NAME_PATTERN)
 _NON_PRINTABLE = re.compile(r"[^\t\n\r\x20-\x7e\x85\xa0-\ud7ff\ue000-\ufffd\U00010000-\U0010ffff]")  # PyYAML's reader
 DESCRIPTION_HINT_MAX = 300
+SETEXT_UNDERLINE_RE = re.compile(r"=+")  # the underline of a setext H1 (a --- one is a rule or an H2)
 
 
 def no_frontmatter_message(lines: list[str], dir_name: str, at_root: bool = False) -> str:
@@ -41,6 +42,10 @@ def no_frontmatter_message(lines: list[str], dir_name: str, at_root: bool = Fals
         if stripped[:2] in ("# ", "#\t"):  # CommonMark: a space or a tab after the #
             title = stripped[2:].strip()
             start = i + 1
+            break
+        if stripped and i + 1 < len(body) and SETEXT_UNDERLINE_RE.fullmatch(body[i + 1]):  # ``Title`` over ``===``
+            title = stripped
+            start = i + 2
             break
     paragraph = _first_paragraph(body[start:])
     if not at_root and SPEC_NAME.fullmatch(dir_name) and len(dir_name) <= NAME_MAX:

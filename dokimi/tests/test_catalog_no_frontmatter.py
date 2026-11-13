@@ -203,6 +203,12 @@ def test_a_resumed_finding_without_a_code_is_not_plain_markdown():
     assert is_plain_markdown({"findings": [{"level": "warn", "message": "example"}]}) is False
 
 
+def test_a_setext_h1_is_the_title():
+    lines = ["Deck Builder", "===", "", "Builds decks."]
+    assert _block(no_frontmatter_message(lines, "deck", at_root=True)) == {
+        "name": "deck-builder", "description": "Builds decks."}
+
+
 def test_a_root_skill_gets_the_h1_name_not_the_directory_name(tmp_path):
     real = tmp_path / "real"
     real.mkdir()
