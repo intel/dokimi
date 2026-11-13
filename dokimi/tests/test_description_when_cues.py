@@ -169,6 +169,8 @@ NO_WHEN = [
     pytest.param("彼がときには休む。", id="ja-toki-ni-wa-adverb-after-ga"),
     pytest.param("이때 로그를 정리하는 도구입니다.", id="ko-ittae-this-time-not-when"),
     pytest.param("서울 시 공공데이터를 수집하는 도구입니다.", id="ko-seoul-si-place-not-when"),
+    pytest.param("适用于实时数据处理的工具。", id="zh-shi-shi-realtime-not-when"),
+    pytest.param("適用於實時數據處理的工具。", id="zh-trad-shi-shi-realtime-not-when"),
 ]
 
 
