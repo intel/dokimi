@@ -31,13 +31,13 @@ def _setup(tmp_path):
     return artifact
 
 
-def _run(tmp_path, monkeypatch, *flags, prices=1.0):
+def _run(tmp_path, monkeypatch, *flags, prices=1.0, reply=_VERDICT):
     prompts = []
 
     def transport(prompt, system=None):
         prompts.append(prompt)
         price = prices.pop(0) if isinstance(prices, list) else prices  # a list: one price per call
-        return _VERDICT, UsageRecord(cost_usd=price)
+        return reply, UsageRecord(cost_usd=price)
 
     real_client = novelty_cost.client
     monkeypatch.setattr(novelty_cost, "client", lambda model, provider, role, args: replace(
@@ -122,8 +122,8 @@ def test_an_unpriced_stop_says_its_paid_verdict_was_not_stored(tmp_path, monkeyp
                          str(tmp_path / "cache"), prices=None)
     assert len(prompts) == 1
     assert stop is not None and "no price is known" in stop
-    assert f"no retention verdict is stored in {tmp_path / 'cache'} from this run: the one call made " \
-           "was paid for and its verdict was not stored" in stop
+    assert f"no retention verdict is stored in {tmp_path / 'cache'} from this run: the call with no " \
+           "price was paid for and its verdict was not stored" in stop
     assert "no verdict" not in stop and "replay" not in stop
     assert not list((tmp_path / "cache").glob("*.json"))
 
@@ -132,8 +132,36 @@ def test_an_unpriced_stop_without_a_cache_dir_does_not_say_zero_were_lost(tmp_pa
     _setup(tmp_path)
     prompts, stop = _run(tmp_path, monkeypatch, "--max-usd", "5", prices=None)
     assert len(prompts) == 1
-    assert stop is not None and "the one retention call made was paid for and its verdict was not stored" in stop
+    assert stop is not None and "the retention call with no price was paid for and its verdict was not stored" in stop
     assert "(0)" not in stop
+
+
+def test_paid_unparseable_replies_before_the_cap_are_not_called_unpaid(tmp_path, monkeypatch):
+    _setup(tmp_path)
+    prompts, stop = _run(tmp_path, monkeypatch, "--max-usd", "0.05", reply="not json")
+    assert len(prompts) == 1
+    assert stop is not None and "spend cap reached: $1.00 of $0.05 after 1 calls" in stop
+    assert "no paid retention call gave a usable verdict" in stop
+    assert "had been paid for yet" not in stop and "(0)" not in stop
+
+
+def test_a_paid_unparseable_reply_with_a_cache_dir_says_no_verdict_is_stored(tmp_path, monkeypatch):
+    _setup(tmp_path)
+    prompts, stop = _run(tmp_path, monkeypatch, "--max-usd", "0.05", "--cache-dir",
+                         str(tmp_path / "cache"), reply="not json")
+    assert len(prompts) == 1
+    assert stop is not None and f"no retention verdict is stored in {tmp_path / 'cache'} from this run: " \
+                                "no paid call gave a usable verdict" in stop
+    assert "none had been adjudicated yet" not in stop
+
+
+def test_paid_unparseable_replies_then_an_unpriced_call_are_not_the_one_call(tmp_path, monkeypatch):
+    _setup(tmp_path)
+    prompts, stop = _run(tmp_path, monkeypatch, "--max-usd", "5", "--cache-dir", str(tmp_path / "cache"),
+                         prices=[1.0, None], reply="not json")
+    assert len(prompts) == 2
+    assert stop is not None and "the call with no price was paid for and its verdict was not stored" in stop
+    assert "the one call" not in stop
 
 
 def test_an_unpriced_call_after_priced_ones_counts_only_the_stored_verdicts(tmp_path, monkeypatch):

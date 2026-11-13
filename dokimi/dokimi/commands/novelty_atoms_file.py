@@ -151,15 +151,21 @@ def _verdicts_hint(oracle, cache_dir, stop) -> str:
     if cache_dir and stored:
         return (f"the retention verdicts adjudicated before the stop ({stored}) are stored in "
                 f"{cache_dir}; rerun with {rerun} and the same --cache-dir to replay them at $0{tail}")
+    # A call can be paid for and give no usable verdict (an unparseable reply): the client's
+    # usage, not the verdict counts, says whether this run paid for any call.
+    paid = oracle.client is not None and any(not use.replayed for use in oracle.client.usage)
     if cache_dir:
         return (f"no retention verdict is stored in {cache_dir} from this run"
-                + (": the one call made was paid for and its verdict was not stored" if dropped
+                + (": the call with no price was paid for and its verdict was not stored" if dropped
+                   else ": no paid call gave a usable verdict" if paid
                    else ": none had been adjudicated yet"))
     if stored:
         return (f"the retention verdicts adjudicated in this run ({stored}) were lost; "
                 f"--cache-dir <dir> would keep them for a rerun{tail}")
     if dropped:
-        return "the one retention call made was paid for and its verdict was not stored"
+        return "the retention call with no price was paid for and its verdict was not stored"
+    if paid:
+        return "no paid retention call gave a usable verdict"
     return "no retention call had been paid for yet"
 
 
