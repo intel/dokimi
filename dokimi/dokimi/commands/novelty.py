@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING, NoReturn
 
 from dokimi.commands.inputs import placebo_text_for_arms_or_exit
 from dokimi.commands.novelty_run import (add_judge2_args, add_spend_cap, judge2_client,
-                                         stamp, stops_at_cap)
+                                         exit_if_analyze_partial, stamp, stops_at_cap)
 from dokimi.commands.novelty_routing_inputs import (
     checked_out_path,
     load_all_vs_all_field,
@@ -139,10 +139,10 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
         raise InputError(str(exc)) from exc
     except (ExtractionError, ValueError) as exc:  # a model failure under way
         raise SystemExit(str(exc)) from None
-
-    stamp(result.artifact, args, result.measure_result, answerer=answerer, judge=judge, judge2=judge2)
     out_dir = Path(args.out_dir) if args.out_dir else _default_dir(args.artifact)
     out_json = Path(args.out_json) if args.out_json else out_dir / "novelty.json"
+    exit_if_analyze_partial(result, out_json)  # a run the cap stopped keeps what it paid for
+    stamp(result.artifact, args, result.measure_result, answerer=answerer, judge=judge, judge2=judge2)
     save_artifact("novelty", result.artifact, out_json)
     out_md = out_json.with_suffix(".md")
     out_md.write_text(render_novelty_markdown(result.artifact), encoding="utf-8")
