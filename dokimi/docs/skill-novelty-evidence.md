@@ -217,7 +217,7 @@ retention oracle's estimate can be checked against behaviour:
 | performance-patterns | **value-only 0.50** | **0.21** | 0.916 | **0.158** | opus +0.05, luna −0.07, grok +0.16 |
 | mkl-extension-advisor | **value-only 0.50** | 0.50 | 0.844 | **0.625** | haiku +0.06, opus **+0.21**, nano −0.07 |
 | dpnp-quickstart | safety-pinned 0.50 | 0.59 | 0.783 | 1.000 | haiku +0.13, opus +0.05, nano **−0.19** |
-| xpu-system-setup | safety-pinned 0.75 | **0.94** | 0.967 | 1.000 | opus 0.00, haiku **+0.30**, nano +0.06 |
+| xpu-system-setup | safety-pinned 0.75 | **0.94** | 0.967 | 1.000 | opus **+0.30**, haiku 0.00, nano +0.06 |
 
 Before reading the `value`-named rows: §10.10 measures that per-model `V` was defined on only 3–14
 atoms per artifact here, so those candidates were selected by atom coverage per token far more than by
