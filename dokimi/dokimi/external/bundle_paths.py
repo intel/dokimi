@@ -40,14 +40,12 @@ PLACEHOLDER_FOLDERS = PLACEHOLDER_PARTS | {"example", "file", "filename", "name"
 def _bundle_path(word: str) -> Optional[str]:
     """The skill-relative file a code span word names under a bundle folder, or None.
 
-    ``word`` is one word of a code span, an opening ``(``, quotes and a trailing ``,;:.)`` taken away;
-    a shell operator (``|``, ``<``, ``>``, ``&``) ends it and an option's value follows its ``=``.
+    ``word`` is one word of a code span (:func:`_words` has taken the quotes and the shell operators
+    away), with a trailing ``,;:.)`` taken away; an option's value follows its last ``=``.
     None for a word outside :data:`BUNDLE_DIRS`, a folder (a trailing ``/`` or no file extension),
     a placeholder part, or a template variable.
     """
     text = word.lstrip("(").rstrip(",;:.)").strip("'\"").rstrip(",;:.)")
-    # A shell operator ends the word (``run.py|tee``, ``run.py>out``); an option value follows its last ``=``.
-    text = re.split(r"[|<>&]", text, maxsplit=1)[0].rstrip(",;:.)")
     if text.startswith("-") and "=" in text:  # an option's value: --config=scripts/x.yaml
         text = text.rsplit("=", 1)[1].strip("'\"")
     if text.startswith("./"):
@@ -69,9 +67,11 @@ def _bundle_path(word: str) -> Optional[str]:
     return text
 
 
+# The shell operators a tokenizer splits off (``run.py|tee``, ``run.py>out``, ``run.py&``); a quoted one stays in its word.
+_OPERATORS = ";|<>&"
 # A backslash before one of these is a shell escape: the escaped character is a character of the name.
 # It is swapped for a placeholder before the tokenizer, so a comma or ``;`` that is escaped does not split.
-# Any other backslash is a character of the name: a code span is literal (``scripts/a\\b.py``).
+# Any other backslash is a character of the name: a code span is literal (``scripts/a\b.py``).
 _ESCAPED = {",": "\x01", ";": "\x02", '"': "\x03", "'": "\x04", " ": "\x05"}
 _ESCAPE_RE = re.compile(r"\\([,;\"' ])")
 
@@ -86,19 +86,19 @@ def _words(span: str) -> list[str]:
     """The words of a code span as a shell reads them: a quoted argument is one word, and an escaped ``,`` ``;`` quote or space is a character of it.
 
     The shell tokenizer runs first, with quotes (``"a\\"b,c.svg"``) and no backslash escapes of its own
-    (``scripts/a\\b.py`` keeps its backslash), and a ``;`` is a command separator as in the shell (``run.py;echo``).
+    (``scripts/a\\b.py`` keeps its backslash), and a shell operator (``;``, ``|``, ``<``, ``>``, ``&``) is a separator as in the shell (``run.py;echo``), unless quoted.
     Then a word is split where a unescaped ``,`` or ``;`` comes before a bundle folder (``scripts/a.py,scripts/b.py``),
     which also splits a list inside quotes. A span whose quotes do not balance is split on whitespace.
     """
     protected = _ESCAPE_RE.sub(lambda m: _ESCAPED[m.group(1)], span)
     try:
-        lexer = shlex.shlex(protected, posix=True, punctuation_chars=";")
+        lexer = shlex.shlex(protected, posix=True, punctuation_chars=_OPERATORS)
         lexer.whitespace_split = True
         lexer.commenters = ""
         lexer.escape = ""
-        words = list(lexer)
+        words = [word for word in lexer if not set(word) <= set(_OPERATORS)]
     except ValueError:
-        words = protected.replace(";", " ").split()
+        words = re.sub(f"[{re.escape(_OPERATORS)}]", " ", protected).split()
     return [_restore(part) for word in words for part in SEPARATOR_RE.split(word) if part]
 
 

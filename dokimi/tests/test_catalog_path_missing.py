@@ -304,6 +304,7 @@ def test_a_quoted_list_of_bundled_paths_is_read_one_by_one(tmp_path):
     [
         ("Run `python scripts/run.py|tee log`.\n", ["scripts/run.py"]),
         ("Run `python scripts/run.py>out.log`.\n", ["scripts/run.py"]),
+        ("Run `cat <scripts/in.txt`.\n", ["scripts/in.txt"]),
         ("Run `python scripts/run.py --config=scripts/settings.yaml`.\n", ["scripts/run.py", "scripts/settings.yaml"]),
         ("Run `python scripts/run.py --define=KEY=scripts/settings.yaml`.\n", ["scripts/run.py", "scripts/settings.yaml"]),
     ],
@@ -311,6 +312,19 @@ def test_a_quoted_list_of_bundled_paths_is_read_one_by_one(tmp_path):
 def test_a_missing_path_next_to_a_shell_operator_or_an_option_is_named(tmp_path, body, names):
     review, _ = _review(tmp_path, body)
     assert [finding.message.split("'")[1] for finding in _path_findings(review)] == names
+
+
+def test_a_quoted_name_with_an_operator_character_is_one_name(tmp_path):
+    review, _ = _review(
+        tmp_path, "Run `cp 'assets/logo.dark&light.svg' /tmp/x`.\n", files=["assets/logo.dark&light.svg"]
+    )
+    assert _path_findings(review) == []
+
+
+def test_a_missing_quoted_name_with_an_operator_character_is_named_whole(tmp_path):
+    review, _ = _review(tmp_path, "Run `cp 'assets/logo.dark&light.svg' /tmp/x`.\n")
+    [finding] = _path_findings(review)
+    assert finding.message.startswith("'assets/logo.dark&light.svg' (in ")
 
 
 def test_a_backslash_in_a_code_span_is_a_character_of_the_name(tmp_path):
