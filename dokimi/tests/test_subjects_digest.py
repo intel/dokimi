@@ -111,6 +111,16 @@ def test_an_arm_spec_with_a_lone_surrogate_is_digested(tmp_path: Path):
     assert digest.startswith("sha256:") and digest != _digest_arm_spec("skill:./n\udcfe", base=tmp_path)
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="a surrogate-escaped name is a POSIX file-name form")
+def test_each_part_of_a_combined_spec_with_a_lone_surrogate_is_digested(tmp_path: Path):
+    from dokimi.treatments.specs import content_refs
+
+    spec = "skill:./a+skill:./n\udcff"
+    assert [part for part, _ in content_refs(spec)] == ["skill:./a", "skill:./n\udcff"]
+    digest = _digest_arm_spec(spec, base=tmp_path)
+    assert digest.startswith("sha256:") and digest != _digest_arm_spec("skill:./a+skill:./n\udcfe", base=tmp_path)
+
+
 def test_the_scorecard_carries_the_distribution_digest(tmp_path: Path, monkeypatch):
     from dokimi.artifacts import validate_artifact
     from dokimi.subjects import build_subject_scorecard, load_subject
