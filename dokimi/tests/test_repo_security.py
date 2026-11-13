@@ -941,6 +941,11 @@ def test_exec_log_reads_a_multi_call_binary_by_the_tool_its_argv0_names():
     assert "destructive-delete" in {r for c in lines for r in _rules(sec.command_findings(c, "exec"))}
 
 
+def test_exec_log_reads_a_command_once_when_argv0_is_the_path():
+    log = '1 execve("/usr/bin/git", ["/usr/bin/git", "status"], 0x0 /* 1 var */) = 0\n'
+    assert sec.parse_exec_log(log) == ["/usr/bin/git status"]
+
+
 def test_exec_log_decodes_the_path_when_argv_is_empty():
     log = '1 execve("/bin/\\162m", [], 0x0 /* 1 var */) = 0\n'
     assert sec.parse_exec_log(log) == ["/bin/rm"]
@@ -973,6 +978,8 @@ def test_secret_read_by_a_windows_path(tmp_path, path):
 @pytest.mark.parametrize("text", [
     "rm -rf /tmp/../*", "rm -rf /tmp/../../etc", "rm -rf ~/.cache/../*", "rm -rf $HOME/x/../*",
     "rm -rf ~/x/../../root", "rm -rf ${HOME}/.cache/../..",
+    "rm -rf //*", "rm -rf /./etc", "rm -rf //tmp/../*", "rm -rf ~/./*", "rm -rf ~//*",
+    'rm -rf "$HOME"/*', 'rm -rf "$HOME/"*', 'rm -rf "${HOME:?}"/*', 'rm -rf "/"*',
 ])
 def test_destructive_delete_follows_a_dot_dot_out_of_a_cleanup_dir(text):
     assert "destructive-delete" in _rules(sec.command_findings(text, "trace"))

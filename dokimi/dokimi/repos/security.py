@@ -66,8 +66,8 @@ def _rx(text: str) -> re.Pattern[str]:
 #: A shell word that is an absolute path.
 _ABS_WORD = re.compile(r"(?<![^\s;&|\"'`(])/[^\s;&|\"'`)]*")
 #: A shell word that starts at the home directory: ``~``, ``$HOME`` or ``${HOME}``.
-_HOME_WORD = re.compile(r"(?<![^\s;&|\"'`(])(?:~|\$HOME|\$\{HOME\})(?=/|[\s;&|\"'`)]|$)[^\s;&|\"'`)]*")
-_HOME_PREFIX = re.compile(r"^(?:~|\$HOME|\$\{HOME\})")
+_HOME_WORD = re.compile(r"(?<![^\s;&|\"'`(])(?:~|\$HOME|\$\{HOME[^}]*\})(?=/|[\s;&|\"'`)]|$)[^\s;&|\"'`)]*")
+_HOME_PREFIX = re.compile(r"^(?:~|\$HOME|\$\{HOME[^}]*\})")
 _HOME_STAND_IN = "/__home__"  # no real path is named this; it is only the root that home words are taken from
 _SYSTEM_DIRS = "etc|usr|var|home|root|opt|bin|sbin|lib|lib64|boot|srv|dev|sys|proc"
 #: A path under a system directory with one of these components is routine cleanup (apt lists, pip
@@ -107,7 +107,7 @@ COMMAND_RULES: tuple[Rule, ...] = (
     # $HOME[/][*] or a system directory, bare or with a path under it that is no cache (_CLEANUP_PARTS)
     Rule("destructive-delete", "critical", "rm -rf of /, ~, $HOME or a top-level system directory",
          _rx(r"\brm\s+(?:-\S+\s+)*?(?:-[a-z]*r[a-z]*|--recursive)\s+(?:[^\s;&|]+\s+)*?[\"']?"
-             r"(?:/\*?|(?:~|\$HOME|\$\{HOME\})(?:/\.\.)*/?\*?|/(?:" + _SYSTEM_DIRS + r")"
+             r"(?:/\*?|(?:~|\$HOME|\$\{HOME[^}]*\})(?:/\.\.)*/?\*?|/(?:" + _SYSTEM_DIRS + r")"
              r"(?!(?![^\s;&|\"']*\.\.)[^\s;&|\"']*/(?:" + _CLEANUP_PARTS + r")(?:/|[\s;&|\"')`]|$))(?:/[^\s;&|\"']*)?)"
              r"[\"']?(?=[\s;&|)`]|$)"), drop_redirects=True),
     Rule("container-escape", "critical", "privileged container, host namespaces or host / mounted",
@@ -228,31 +228,34 @@ def parse_exec_log(text: str) -> list[str]:
         rest = [_strace_text(a) for a, cut in items[1:] if not cut]
         out.append(" ".join([path, *rest]))
         name, cut = items[0]
-        if not cut and posixpath.basename(path) != _strace_text(name):
+        if not cut and posixpath.basename(path) != posixpath.basename(_strace_text(name)):
             out.append(" ".join([_strace_text(name), *rest]))
     return out
 
 
+def _normal_path(path: str) -> str:
+    """``path`` with its slashes run together and its ``.`` and ``..`` taken: ``//tmp/../*`` is ``/*``."""
+    return posixpath.normpath(re.sub(r"/+", "/", path))
+
+
 def _normal_paths(text: str) -> str:
-    """``text`` with each absolute word, or home word, holding a ``..`` taken to the path it names: ``/tmp/..`` is
-    ``/``, ``~/.cache/../*`` is ``~/*``. A home word is normalised under a stand-in home, so ``..`` can climb out."""
+    """``text`` with each absolute word and home word in its normal form: ``/tmp/..`` is ``/``, ``~/.cache/../*``
+    is ``~/*``, ``/./etc`` is ``/etc``. A home word is normalised under a stand-in home, so ``..`` can climb out."""
     def home(m: re.Match[str]) -> str:
-        word = m.group()
-        if "/.." not in word:
-            return word
-        path = posixpath.normpath(_HOME_STAND_IN + _HOME_PREFIX.sub("", word))
+        path = _normal_path(_HOME_STAND_IN + _HOME_PREFIX.sub("", m.group()))
         if path == _HOME_STAND_IN:
             return "~"
         return "~" + path[len(_HOME_STAND_IN):] if path.startswith(_HOME_STAND_IN + "/") else path
 
-    text = _ABS_WORD.sub(lambda m: posixpath.normpath(m.group()) if "/.." in m.group() else m.group(), text)
+    text = _ABS_WORD.sub(lambda m: _normal_path(m.group()), text)
     return _HOME_WORD.sub(home, text)
 
 
 def command_findings(text: str, source: str, canaries: Sequence[str] = ()) -> list[Finding]:
     """The command rules ``text`` matches; backslash-newline continuations are joined first."""
     joined = _CONTINUATION.sub("", text)
-    bare = _normal_paths(_REDIRECT.sub(" ", joined))
+    # quotes are dropped for the rules that read paths: "$HOME"/* and "/"* are $HOME/* and /*
+    bare = _normal_paths(_REDIRECT.sub(" ", joined.replace('"', "").replace("'", "")))
     return [Finding(r.id, r.severity, source, _evidence(text, canaries)) for r in COMMAND_RULES
             if r.pattern is not None and r.pattern.search(bare if r.drop_redirects else joined)]
 
