@@ -50,8 +50,9 @@ not files. A note is added when the file exists from the catalog root
 instead (a wrong base). Example links such as ``[Title](URL)`` are common, so this is not
 an error and does not fail ``--strict``. A link to a file outside the skill directory is a ``warn``
 (``link-escapes-skill``): it breaks when the skill is installed alone. A ``../`` code span
-naming such a file is ``path-escapes-skill``. Code spans that name no file are not checked,
-and neither are code fences: those are usually examples or paths in the user's own project.
+naming such a file is ``path-escapes-skill``. A code span naming a bundled file the skill does
+not have is ``path-missing`` (see :mod:`dokimi.external.bundle_paths`). Other code spans, and code
+fences, are not checked: those are usually examples or paths in the user's own project.
 
 Descriptions: one with no "when" clause is a ``warn`` (``description-no-when``); the cues are
 English, Spanish, French, German, Portuguese, Russian, Chinese, Japanese and Korean (``when_cues.WHEN_CUES``),
@@ -86,6 +87,7 @@ import yaml
 from dokimi.skills import Skill
 from dokimi.utils import describe_yaml_error, parse_frontmatter_strict
 
+from .bundle_paths import LOCATION_SUFFIX_RE, SKILL_DIR_VAR, path_missing
 from .catalog import SkillCatalogEntry, _within
 from .command_checks import command_findings
 from .allowed_tools import RISKY_COMMAND_CODES, tool_names, grants_unrestricted_bash, unrestricted_bash_message
@@ -140,8 +142,6 @@ _ESCAPE_RE = re.compile(r"\\([!-/:-@\[-`{-~])")
 URI_SCHEME_RE = re.compile(r"[A-Za-z][A-Za-z0-9+\-.]*:")
 # After a file, a line or a symbol (``run.py:42``, ``run.py:10-20``, ``run.py:main``): read as the file's name.
 FILE_SUFFIX_RE = re.compile(r"\d+(?:[-:]\d+)?|[A-Za-z_]\w*")
-LOCATION_SUFFIX_RE = re.compile(r":(?:\d+(?:[-:]\d+)?|[A-Za-z_]\w*)$")
-SKILL_DIR_VAR = "${CLAUDE_SKILL_DIR}/"
 
 # Every code a review can report: ``catalog check --ignore`` accepts these and no others.
 # tests/test_catalog_ignore.py reads the emitted codes from the source and fails on any missing here.
@@ -170,6 +170,7 @@ FINDING_CODES = (
     "not-loaded",
     "package-not-found",
     "path-escapes-skill",
+    "path-missing",
     "unreadable",
     "permission-bypass-flag",
     "pipe-to-shell",
@@ -479,7 +480,11 @@ def _bundle_findings(skill: Skill, source_root: Path) -> list[Finding]:
     targets, spans = link_pieces(outside_fences(skill.body))
     found = [_link_finding(raw, skill_dir, source_root, real_dir) for raw in targets]
     found += [_span_finding(raw, skill_dir, source_root, real_dir) for raw in spans]
-    return [finding for finding in found if finding is not None]
+    linked = frozenset(text.removeprefix("./") for text in (_file_ref(raw, link=True) for raw in targets) if text)
+    return [finding for finding in found if finding is not None] + [
+        Finding("warn", "path-missing", message)
+        for message in path_missing(spans, skill_dir, source_root, real_dir, linked)
+    ]
 
 
 def _escapes_link(raw: str) -> Finding:
