@@ -192,3 +192,43 @@ def test_failed_cache_write_does_not_fail_the_fetch(tmp_path, caplog):
         text = _url_text(URLClient(URL, cache_dir=tmp_path))
     assert len(text) == len(PAGE)
     assert list(tmp_path.iterdir()) == [] and "disk full" in caplog.text
+
+
+# ── eval questions generate ──────────────────────────────────────────────────
+
+def test_generate_does_not_replay_one_doc_source_topics_for_another(tmp_path, monkeypatch):
+    import argparse
+    from dokimi.commands import questions as cmd
+    from dokimi.mcp import factory
+    import dokimi.questions as questions_pkg
+
+    docs = {"context7": "Use `tbb::parallel_for` here.", "local:/docs": "Use `tbb::flow_graph` here."}
+    seen = []
+
+    class _Generator:
+        def __init__(self, **_):
+            pass
+
+        def generate_questions(self, topics, **_):
+            seen.append(topics)
+            return []
+
+        def save_questions(self, *a, **kw):
+            pass
+
+    def _client(source):
+        client = MagicMock()
+        client.get_library_docs.return_value = [{"content": docs[source]}]
+        return client
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(factory, "create_doc_source_client", _client)
+    monkeypatch.setattr(factory, "resolve_library_id_for_product", lambda *a, **kw: LIB)
+    monkeypatch.setattr(questions_pkg, "QuestionGenerator", _Generator)
+    personas = tmp_path / "personas.json"
+    personas.write_text(json.dumps({"personas": [{"id": "dev", "name": "dev", "skill_level": "expert"}]}), encoding="utf-8")
+    for source in docs:
+        cmd.cmd_questions_generate(argparse.Namespace(
+            product="oneTBB", personas=str(personas), topics=None, doc_source=source, context7_id=None,
+            top_k=3, provider="openai", model="m", count=1, validate=False, output=None))
+    assert seen == [["tbb::parallel_for"], ["tbb::flow_graph"]]

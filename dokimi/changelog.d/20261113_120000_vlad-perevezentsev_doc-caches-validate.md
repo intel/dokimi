@@ -10,6 +10,7 @@ SPDX-License-Identifier: Apache-2.0
   at any other limit; it is now cached per limit (pages cached before are fetched once more). A
   Context7 answer under 100 characters (an error stub, an empty answer) is returned but no longer
   cached, and one stored before is fetched again. `eval questions generate` no longer caches an
-  empty topic list or the generic fallback topics. An unreadable cache entry (not UTF-8, cut JSON,
+  empty topic list or the generic fallback topics, and no longer replays the topics extracted from
+  one `--doc-source` for another. An unreadable cache entry (not UTF-8, cut JSON,
   the wrong shape) is a miss with a warning naming the file, not a crash, and is overwritten;
   entries are written whole (tmp file, then rename), and a failed write is a warning.
