@@ -17,7 +17,7 @@ from dokimi.defaults import (
     DEFAULT_JUDGE_MODEL,
     JUDGE_MODEL_FOR_PROVIDER,
 )
-from dokimi.eval.arms_run import ArmsRunConfig, refuse_deferred_self_judge
+from dokimi.eval.arms_run import ArmsRunConfig, cell_config, refuse_deferred_self_judge
 from dokimi.judge_rule import JudgeIsAnswerer, apply_default_judge, default_judge
 
 
@@ -124,6 +124,18 @@ def test_a_matrix_cell_whose_model_is_the_default_judge_is_warned_not_refused():
     cell = replace(config, matrix_cell="gpt", model="gpt-6.1-sol", provider="openai")
     refuse_deferred_self_judge(cell)  # warn-only: no raise
     assert cell.judge_model == "gpt-6.1-sol"
+
+
+def test_a_matrix_claude_cli_cell_keeps_the_matrix_judge_provider():
+    # cell_config copies the config with the cell's provider: a claude-cli cell must not move the shared judge.
+    config = ArmsRunConfig(product="demo", judge=True, model="gpt-6.1-sol", provider="openai")
+    assert config.judge_provider == "anthropic"
+    cell = SimpleNamespace(name="cli", model="sonnet", provider="claude-cli", harness="arms-runner", plugin_specs=())
+    copied = cell_config(config, cell)
+    assert (copied.judge_provider, copied.judge_model) == (config.judge_provider, config.judge_model)
+    # With a judge temperature the CLI judge would be refused, so the cell must keep the API judge too.
+    sampled = cell_config(replace(config, judge_temperature=0.5), cell)
+    assert sampled.judge_provider == "anthropic"
 
 
 def test_a_claude_cli_answerer_judges_on_its_cli_when_no_judge_provider_is_named():

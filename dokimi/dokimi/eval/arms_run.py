@@ -102,7 +102,9 @@ class ArmsRunConfig:
             object.__setattr__(self, "judge_model", model)
             if provider is None:
                 object.__setattr__(self, "judge_provider", picked)
-        elif self.judge and self.judge_provider is JUDGE_PROVIDER_DEFAULT and cli_backend(self.provider):
+        elif (self.judge and self.matrix_cell is None and self.judge_provider is JUDGE_PROVIDER_DEFAULT
+              and cli_backend(self.provider)):
+            # A matrix cell keeps the judge its base config resolved: cell_config's replace() reruns this branch.
             # An explicit judge model with the provider left out judges on a CLI answerer's CLI, as the left-out one does.
             object.__setattr__(self, "judge_provider", self.provider)
 
