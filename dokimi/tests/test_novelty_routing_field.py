@@ -744,3 +744,20 @@ def test_the_skill_under_test_over_the_limit_is_warned_and_saved(tmp_path, capsy
     assert "big" not in field["competitors"]
     assert [(w["skill"], w["length"]) for w in field["spec_warnings"]] == [("big", 1139)]
     assert "the skill under test" in field["spec_warnings"][0]["message"]
+
+
+def test_empty_root_and_empty_against_are_refused_not_read_as_no_catalog(tmp_path):
+    (tmp_path / "alpha.md").write_text("---\nname: alpha\ndescription: Alpha things\n---\n\n# A\n", encoding="utf-8")
+    (tmp_path / "beta.md").write_text("---\nname: beta\ndescription: Beta things\n---\n\n# B\n", encoding="utf-8")
+    competitors = [f"text:{tmp_path / 'alpha.md'}", f"text:{tmp_path / 'beta.md'}"]
+    root = _parse("catalog", "routing", "", "--competitors", *competitors, "--queries-by-skill", "q.json")
+    with pytest.raises(InputError, match="ROOT is not a directory"):
+        routing_field(root, set())
+    root = _parse("catalog", "routing", "", "--competitors", *competitors, "--queries-by-skill", "q.json",
+                  "--keep-copies-under", "skills")
+    with pytest.raises(InputError, match="ROOT is not a directory"):
+        routing_field(root, set())
+    against = _parse("skill", "routing", "skill:a", "--against", "", "--competitors", *competitors,
+                     "--queries", "q.txt", "--keep-copies-under", "skills")
+    with pytest.raises(InputError, match="--against is not a directory"):
+        routing_field(against, set())

@@ -565,6 +565,14 @@ def test_novelty_routing_tombstone_names_an_unknown_flag_and_its_value_in_the_re
             moved_argv(old)
 
 
+def test_novelty_routing_tombstone_refuses_an_empty_separate_value():
+    for old in (["novelty", "routing", "--artifact", "", "--competitors", "a"],
+                ["novelty", "routing", "--artifact", "skill:a", "--competitors", "", "skill:r"],
+                ["novelty", "routing", "--artifact", "skill:a", "--catalog", ""]):
+        with pytest.raises(ValueError, match="expected one argument"):
+            moved_argv(old)
+
+
 def test_novelty_routing_tombstone_refuses_an_empty_value_after_the_equals_sign():
     # `--artifact=` with no value: the retired parser refused it at `if not args.artifact`. The tombstone
     # must not print the empty value as the path `text:`, which the new command then fails on.

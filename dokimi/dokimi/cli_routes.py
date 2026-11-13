@@ -277,6 +277,8 @@ def _take_value_flag(rest: list[str], i: int, name: str, eq: str, value: str,
         values[name].append(value)
         return i + 1
     if i + 1 < len(rest) and _is_plain(rest[i + 1]):
+        if not rest[i + 1]:
+            raise RetiredFlagError(f"argument {name}: expected one argument")
         values[name].append(rest[i + 1])
         return i + 2
     # No value follows: the flag stays in the printed argv, and the new leaf refuses it, since it has
@@ -298,6 +300,8 @@ def _take_competitors(rest: list[str], i: int, eq: str, value: str, kept: list[s
     kept.append(rest[i])
     i += 1
     while i < len(rest) and _is_plain(rest[i]):
+        if not rest[i]:
+            raise RetiredFlagError("argument --competitors: expected one argument")
         kept.append(_legacy_competitor(rest[i]))
         i += 1
     return i
