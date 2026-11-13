@@ -361,3 +361,35 @@ def test_a_missing_file_with_a_real_name_such_as_example_is_named(tmp_path, name
     review, _ = _review(tmp_path, f"Run `python scripts/{name}.py`.\n")
     [finding] = _path_findings(review)
     assert finding.message.startswith(f"'scripts/{name}.py' (in ")
+
+
+def test_a_quoted_name_with_a_hash_is_one_name(tmp_path):
+    review, _ = _review(
+        tmp_path, "Run `cp 'assets/logo.v2#dark.svg' /tmp/x`.\n", files=["assets/logo.v2#dark.svg"]
+    )
+    assert _path_findings(review) == []
+
+
+def test_a_hash_name_that_is_absent_falls_back_to_the_part_before_the_anchor(tmp_path):
+    review, _ = _review(tmp_path, "Run `cp 'assets/logo.v2#dark.svg' /tmp/x`.\n", files=["assets/logo.v2"])
+    assert _path_findings(review) == []  # the part before ``#`` is a file the skill has
+
+
+def test_a_backslash_inside_single_quotes_is_part_of_the_name(tmp_path):
+    review, _ = _review(tmp_path, r"Run `cp 'assets/a\,b.svg' out/`." + "\n", files=["assets/a,b.svg"])
+    [finding] = _path_findings(review)
+    assert finding.message.startswith(r"'assets/a\\,b.svg' (in ")  # repr shows the backslash doubled
+
+
+def test_an_existing_backslash_name_inside_single_quotes_is_not_reported(tmp_path):
+    review, _ = _review(tmp_path, r"Run `cp 'assets/a\,b.svg' out/`." + "\n", files=[r"assets/a\,b.svg"])
+    assert _path_findings(review) == []
+
+
+def test_an_apostrophe_inside_double_quotes_does_not_open_a_single_quote(tmp_path):
+    body = "Run `cp \"assets/a'\\\"b'c.svg\" out/`.\n"
+    review, _ = _review(tmp_path, body, files=["assets/a'\"b'c.svg"])
+    assert _path_findings(review) == []
+    review, _ = _review(tmp_path / "absent", body)
+    [finding] = _path_findings(review)
+    assert finding.message.startswith("'assets/a\\'\"b\\'c.svg' (in ")

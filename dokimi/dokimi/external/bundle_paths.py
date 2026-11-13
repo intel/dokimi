@@ -37,11 +37,12 @@ PLACEHOLDER_PARTS = frozenset({"x", "xx", "xxx", "n/a", "na", "foo", "bar", "you
 PLACEHOLDER_FOLDERS = PLACEHOLDER_PARTS | {"example", "file", "filename", "name"}
 
 
-def _bundle_path(word: str) -> Optional[str]:
+def _bundle_path(word: str, anchor: bool = True) -> Optional[str]:
     """The skill-relative file a code span word names under a bundle folder, or None.
 
     ``word`` is one word of a code span (:func:`_words` has taken the quotes and the shell operators
-    away), with a trailing ``,;:.)`` taken away; an option's value follows its last ``=``.
+    away), with a trailing ``,;:.)`` taken away; an option's value follows its last ``=``. The part
+    after ``#`` is an anchor and is dropped unless ``anchor`` is false (``assets/logo#dark.svg``).
     None for a word outside :data:`BUNDLE_DIRS`, a folder (a trailing ``/`` or no file extension),
     a placeholder part, or a template variable.
     """
@@ -52,7 +53,8 @@ def _bundle_path(word: str) -> Optional[str]:
         text = text[2:]
     if text.startswith(SKILL_DIR_VAR):
         text = text[len(SKILL_DIR_VAR) :]
-    text = text.split("#", 1)[0]
+    if anchor:
+        text = text.split("#", 1)[0]
     text = LOCATION_SUFFIX_RE.sub("", text)
     if not text or text.endswith("/") or any(c in text for c in "${}<>*?[]|=") or "://" in text:
         return None
@@ -72,7 +74,10 @@ _OPERATORS = ";|<>&"
 # A backslash before one of these is a shell escape, swapped for a placeholder before the tokenizer so
 # an escaped ``,`` or ``;`` does not split. Any other backslash is a character of the name (``scripts/a\b.py``).
 _ESCAPED = {",": "\x01", ";": "\x02", '"': "\x03", "'": "\x04", " ": "\x05"}
-_ESCAPE_RE = re.compile(r"\\([,;\"' ])")
+# A single-quoted string is literal (a backslash in it is a character), so only an escape outside one is swapped.
+# A double-quoted string is matched whole too, so an apostrophe in it does not open a single-quoted one.
+_ESCAPE_RE = re.compile(r"""'[^']*'|"(?:\\.|[^"\\])*"|\\([,;"' ])""")
+_INNER_ESCAPE_RE = re.compile(r"""\\([,;"' ])""")
 
 
 def _restore(part: str) -> str:
@@ -89,7 +94,14 @@ def _words(span: str) -> list[str]:
     Then a word is split where a unescaped ``,`` or ``;`` comes before a bundle folder (``scripts/a.py,scripts/b.py``),
     which also splits a list inside quotes. A span whose quotes do not balance is split on whitespace.
     """
-    protected = _ESCAPE_RE.sub(lambda m: _ESCAPED[m.group(1)], span)
+    def swap(m: re.Match) -> str:
+        if m.group(1):
+            return _ESCAPED[m.group(1)]
+        if m.group(0).startswith('"'):
+            return _INNER_ESCAPE_RE.sub(lambda i: _ESCAPED[i.group(1)], m.group(0))
+        return m.group(0)
+
+    protected = _ESCAPE_RE.sub(swap, span)
     try:
         lexer = shlex.shlex(protected, posix=True, punctuation_chars=_OPERATORS)
         lexer.whitespace_split = True
@@ -125,6 +137,10 @@ def path_missing(
             if text is not None and not _missing(skill_dir, text, real_dir):
                 continue  # a path with a space in its name that the skill has, read as one path
         for word in _words(raw):
+            if "#" in word:  # a ``#`` in a quoted name is a character of it: the whole name first, then the anchor cut
+                whole_name = _bundle_path(word, anchor=False)
+                if whole_name is not None and not _missing(skill_dir, whole_name, real_dir):
+                    continue
             text = _bundle_path(word)
             if text is None or text in seen or text in linked:
                 continue
