@@ -278,3 +278,17 @@ def test_a_cue_found_description_gets_no_not_checked_note(tmp_path):
 
 def test_an_english_when_clause_passes_in_a_script_no_cue_list_covers():
     assert when_clause_found("Δημιουργεί αναφορές. Use when needed.") is True
+
+
+def test_a_note_only_row_does_not_read_ok(capsys):
+    # A skill the check did not read (a note, not a pass) must not print the state "ok".
+    from dokimi.commands.catalog_scan import print_skill_row
+
+    row = {
+        "name": "release", "manifest_status": None, "path": "skills/release/SKILL.md", "state": "ok",
+        "error": None, "disable_model_invocation": False, "nested_in": None,
+        "findings": [{"level": "note", "code": "description-when-not-checked", "message": "not checked"}],
+    }
+    print_skill_row(row)
+    first = capsys.readouterr().out.splitlines()[0]
+    assert first.split("\t")[-1] == "note: not checked"
