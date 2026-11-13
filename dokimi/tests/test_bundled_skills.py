@@ -75,7 +75,7 @@ def test_bundled_skill_shell_blocks_run_only_cli_commands(skill_dir):
 
 @pytest.mark.parametrize("skill_dir", BUNDLED, ids=lambda d: d.name)
 def test_bundled_skill_judge_validity_commands_fail_on_an_inconclusive_run(skill_dir):
-    # Without --strict an inconclusive judge-validity run exits 0 (test_judge_validity).
+    # Without --strict an inconclusive judge-validity run exits 3 (test_judge_validity).
     for doc in sorted(skill_dir.rglob("*.md")):
         for command in JUDGE_VALIDITY.findall(doc.read_text(encoding="utf-8")):
             args = build_parser().parse_args(shlex.split(command)[2:])

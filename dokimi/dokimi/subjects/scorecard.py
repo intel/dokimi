@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -184,7 +185,7 @@ def _digest_ref(ref: str | None, *, base: Path) -> str | None:
         h.update(path.read_bytes())
     elif path.is_dir():
         for child in sorted(p for p in path.rglob("*") if p.is_file()):
-            h.update(str(child.relative_to(path)).encode("utf-8"))
+            h.update(os.fsencode(str(child.relative_to(path))))
             h.update(b"\0")
             h.update(child.read_bytes())
             h.update(b"\0")
