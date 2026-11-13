@@ -401,9 +401,14 @@ def _deltas(treatment: Sequence[float], control: Sequence[float]) -> List[float]
     A NaN or inf in the input keeps its meaning in the delta: https://github.com/intel/dokimi/issues/599
     """
     deltas = [t - c for t, c in zip(treatment, control, strict=True)]
-    if not all(math.isfinite(d) for d in deltas) and all(math.isfinite(x) for x in (*treatment, *control)):
-        raise OverflowError("deltas too large: a difference of the paired values leaves the float range")
+    _refuse_overflow(deltas, (*treatment, *control), "a difference of the paired values leaves the float range")
     return deltas
+
+
+def _refuse_overflow(results: Sequence[float], inputs: Sequence[float], what: str) -> None:
+    """Raise ``OverflowError`` when every input is finite and a result is not; a NaN or inf input keeps its meaning."""
+    if not all(math.isfinite(r) for r in results) and all(math.isfinite(x) for x in inputs):
+        raise OverflowError(f"deltas too large: {what}")
 
 
 def paired_vectors(

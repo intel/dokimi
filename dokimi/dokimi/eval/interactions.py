@@ -33,6 +33,7 @@ from dokimi.eval.stats import (
     _apply_correction,
     _describe_deltas,
     _finalize,
+    _refuse_overflow,
 )
 from dokimi.treatments.specs import split_combined_name
 
@@ -89,10 +90,21 @@ def _interaction_contrast(
     if len(rows) < 2:
         return None
 
-    contrasts = [ab - a - b + base for ab, a, b, base in rows]
+    contrasts: List[float] = []
+    diffs_a: List[float] = []
+    diffs_b: List[float] = []
+    diffs_ab: List[float] = []
+    for row in rows:
+        ab, a, b, base = row
+        contrast, d_a, d_b, d_ab = ab - a - b + base, a - base, b - base, ab - base
+        _refuse_overflow([contrast, d_a, d_b, d_ab], row, "a contrast of the four scores leaves the float range")
+        contrasts.append(contrast)
+        diffs_a.append(d_a)
+        diffs_b.append(d_b)
+        diffs_ab.append(d_ab)
     res = _describe_deltas(contrasts, confidence=confidence, seed=seed)
-    delta_a = _arm_delta([a - base for _, a, _, base in rows], confidence, seed)
-    delta_b = _arm_delta([b - base for _, _, b, base in rows], confidence, seed)
+    delta_a = _arm_delta(diffs_a, confidence, seed)
+    delta_b = _arm_delta(diffs_b, confidence, seed)
     res.update(
         {
             "arm_a": arm_a,
@@ -101,7 +113,7 @@ def _interaction_contrast(
             "baseline_arm": baseline_arm,
             "delta_a": delta_a,
             "delta_b": delta_b,
-            "delta_combined": _arm_delta([ab - base for ab, _, _, base in rows], confidence, seed),
+            "delta_combined": _arm_delta(diffs_ab, confidence, seed),
             "interaction": res["delta_mean"],
             # the sum of the two printed deltas, so the row adds up; round() only drops float noise
             "additive_expectation": round(delta_a + delta_b, 12) + 0.0,
