@@ -46,8 +46,12 @@ def _assert_saved_with_envelope(path, version, payload_key):
 @pytest.mark.parametrize("command", list(EXPECTED_VERSION))
 def test_each_judge_reliability_writer_saves_with_the_envelope(command, tmp_path, monkeypatch):
     import dokimi.eval.cross_judge as cross_judge
+    from tests.test_eval_output_write_errors import _Report as StubReport
 
     _stub_judge_commands(monkeypatch)
+    # The report's own payload must reach the file: a writer that drops it still writes the envelope and the
+    # command's judge_temperature, so the check reads a key only the report writes.
+    monkeypatch.setattr(StubReport, "to_dict", lambda self: {"report_marker": command})
     # The stub report scores nothing; the command reads `unscored()` after it has saved.
     monkeypatch.setattr(
         cross_judge, "CrossJudgeReport", type("Report", (_Report,), {"unscored": lambda self: []})
@@ -58,6 +62,7 @@ def test_each_judge_reliability_writer_saves_with_the_envelope(command, tmp_path
     )
     args.func(args)
     _assert_saved_with_envelope(out, EXPECTED_VERSION[command], "judge_temperature")
+    assert json.loads(out.read_text(encoding="utf-8"))["report_marker"] == command
 
 
 def test_grounding_output_saves_with_the_envelope(tmp_path):
@@ -159,3 +164,27 @@ def test_validity_report_is_saved_with_the_envelope(tmp_path, monkeypatch):
     saved = json.loads(out.read_text())
     assert saved["schema_version"] == "judge_validity.v1"
     assert saved["run_id"] and saved["dokimi_version"]
+    # A report saved as only its summary passes the envelope checks, so the rows and the gate's measures are pinned too.
+    assert saved["rows"], "the report's rows are not in the file"
+    assert {"judge", "n_pairs"} <= set(saved["summary"])
+    assert saved["summary"]["n_pairs"] >= 1
+
+
+def test_the_validity_schema_declares_the_rows_a_report_writes():
+    # the closed-key check: `rows` is what ValidityReport.to_dict() writes, so the schema must name it
+    from tests.artifact_fixtures import artifact_fixture
+
+    artifact_fixture("judge_validity", {"summary": {"n_pairs": 1, "judge": "openai/m"}, "rows": []})
+
+
+def test_a_refused_payload_whose_rejected_sibling_cannot_be_written_still_exits_1(tmp_path, capsys):
+    # the documented exit for a refused payload is 1, whether or not the .rejected copy could be kept
+    from dokimi.commands._output import save_artifact_or_exit
+
+    out = tmp_path / "grounding.json"
+    (tmp_path / "grounding.json.rejected").mkdir()
+    with pytest.raises(SystemExit) as exc:
+        save_artifact_or_exit("grounding", {"summary": 5}, out, code=2)
+    assert exc.value.code == 1
+    assert not out.exists()
+    assert "grounding.json" in capsys.readouterr().err
