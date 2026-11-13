@@ -22,8 +22,8 @@ ROOT = Path(__file__).resolve().parents[1]
 CODES = {"BLE001", "S110", "S112"}
 # ruff's extend-exclude in pyproject.toml, plus the virtualenvs a checkout may hold.
 SKIP = ("benchmarks/", "data/", "tests/fixtures/task_formats/", ".venv/", "venv/", "build/")
-_NOQA = re.compile(r"#\s*noqa:\s*(?P<codes>[A-Z]+[0-9]+(?:\s*,\s*[A-Z]+[0-9]+)*)(?P<rest>.*)$")
-_REASON = re.compile(r"^\s*(?:[-—:(]\s*)?(?P<text>.*?)\)?\s*$")
+_NOQA = re.compile(r"#\s*noqa:\s*(?P<codes>[A-Z]+[0-9]+(?:\s*,\s*[A-Z]+[0-9]+)*)(?P<rest>.*)$", re.I)
+_REASON = re.compile(r"^\s*(?:[-—:(]+\s*)?(?P<text>.*?)\)?\s*$")
 
 
 def unexplained(source: str) -> list[int]:
@@ -75,3 +75,7 @@ def test_a_reason_passes_in_each_separator_style() -> None:
 
 def test_other_codes_are_not_checked() -> None:
     assert unexplained("import os  # noqa: F401\n") == []
+
+
+def test_upper_case_and_doubled_dashes_are_still_checked() -> None:
+    assert unexplained("try:\n    x()\nexcept Exception:  # NOQA: BLE001 -- ok\n    pass\n") == [3]
