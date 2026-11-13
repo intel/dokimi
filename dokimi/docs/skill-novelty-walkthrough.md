@@ -104,7 +104,9 @@ What a stopped run leaves behind depends on the step:
 - `analyze` keeps nothing. If the measurement is cut short, it stops before its classify and
   attribution stages, writes no artifact, and reports how many probe answers were not run.
   Raise `--max-usd`, or measure less (a cheaper `--tier` or a lower `--max-atoms`).
-- `shorten` also loses its work at the cap.
+- `shorten` writes no candidate table and no `--out` file. Its retention verdicts are stored in
+  `--cache-dir` as each is adjudicated, and the exit message says how many: rerun with a higher
+  `--max-usd` and the same `--cache-dir` to replay them at $0. Without `--cache-dir` they are lost.
 
 ## 3. Triage: is there anything in here? (~100 calls)
 

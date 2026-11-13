@@ -137,6 +137,48 @@ def no_candidate_line(candidates: list, scored: list, atoms: list) -> str:
     return f"No safe candidate (none kept every protected span{unsampled})."
 
 
+def _verdicts_hint(oracle, cache_dir, reason: str) -> str:
+    """What a rerun can reuse after the cap stopped ``shorten``: only what is true for this run.
+
+    A verdict is stored the moment it is adjudicated, so the verdicts paid for are the oracle's
+    escalations less the failed ones and the call the cap refused (or paid for, unpriced, and lost).
+    """
+    paid = max(0, oracle.escalations - oracle.errors - 1)
+    rerun = "no --max-usd" if reason == "no_price" else "a higher --max-usd"
+    if cache_dir and paid:
+        return (f"the retention verdicts adjudicated before the stop ({paid}) are stored in "
+                f"{cache_dir}; rerun with {rerun} and the same --cache-dir to replay them at $0")
+    if cache_dir:
+        return f"no retention verdict had been adjudicated yet, so {cache_dir} holds none from this run"
+    return (f"the retention verdicts adjudicated in this run ({paid}) were lost; --cache-dir <dir> "
+            "would keep them for a rerun")
+
+
+def score_candidates(args: argparse.Namespace, spans: list, atoms: list, scored: list):
+    """The shortening candidates scored by a retention oracle, and that oracle.
+
+    A stop at ``--max-usd`` exits with a message that says no candidate table and no ``--out``
+    file was written and what a rerun can reuse; a table scored on part of the verdicts is not made.
+    """
+    from pathlib import Path
+
+    from dokimi.novelty import cost
+    from dokimi.novelty.client import SpendCapReached
+    from dokimi.novelty.retention import RetentionOracle
+    from dokimi.novelty.shorten import build_candidates
+
+    client = cost.client(args.extract_model or args.model, args.provider, "oracle", args) \
+        if not args.lexical_only else None
+    oracle = RetentionOracle(client=client, cache_dir=Path(args.cache_dir) if args.cache_dir else None)
+    try:
+        candidates = build_candidates(spans, atoms, oracle=oracle, budgets=tuple(args.budgets),
+                                      seed=args.seed, scored_atoms=scored)
+    except SpendCapReached as exc:
+        raise SystemExit(f"{exc}; nothing was written (no candidate table and no --out file); "
+                         f"{_verdicts_hint(oracle, args.cache_dir, exc.reason)}") from None
+    return candidates, oracle
+
+
 def warn_answer_key(saved: dict, answerer, judge) -> None:
     """Warn when the saved answer key was written by the model under measurement, or by the judge's model or family."""
     from dokimi.novelty.client import _REMEDY_PROBE, warn_extractor_judge

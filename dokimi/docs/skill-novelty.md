@@ -847,7 +847,7 @@ Treat a `partial` file as a prefix of the run, not a measurement of the whole fi
 and queries reached first are over-represented. To finish, raise `--max-usd` and rerun with
 `DOKIMI_RESPONSE_CACHE` set (it must also have been set on the capped run), which replays the
 calls already paid for at no cost. `skill novelty analyze` and `skill shorten` still write nothing
-when the cap stops them; `atoms` and `probe` keep the calls they made as a partial result.
+when the cap stops them (`shorten` keeps its verdicts in `--cache-dir`, below); `atoms` and `probe` keep the calls they made as a partial result.
 
 Three properties worth knowing before quoting either:
 
@@ -1120,7 +1120,11 @@ the summaries computed over the answers the cap left (`paired`, `arms`, `abstent
 confidence blocks, and `judge2`: the second judge shares the cap, so it cannot regrade at all once
 the cap stops the run).
 A partial file is for inspection; rerun to get a finished one.
-`analyze` and `shorten` still lose their work at the cap (a follow-up). Before its first paid
+`analyze` still loses its work at the cap (a follow-up). `shorten` writes no candidate table and
+no `--out` file at the cap (a table scored on part of the verdicts would read as a result), but each
+retention verdict is stored in `--cache-dir` the moment it is adjudicated: the exit message names how many were paid for and,
+with `--cache-dir`, that a rerun with a higher `--max-usd` and the same `--cache-dir` replays them at $0; without it, that
+`--cache-dir <dir>` would have kept them. Before its first paid
 call `analyze` prints the run's expected cost at list prices to stderr.
 
 The estimate payload has `expected_calls`, the point figure between
