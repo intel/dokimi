@@ -6,12 +6,13 @@
 from __future__ import annotations
 
 import hashlib
+import os
 import sys
 from pathlib import Path
 
 import pytest
 
-from dokimi.subjects.scorecard import distribution_digest
+from dokimi.subjects.scorecard import _digest_ref, distribution_digest
 
 
 def test_distribution_digest_matches_a_well_known_skill_md_entry(tmp_path: Path):
@@ -60,6 +61,30 @@ def test_a_ref_with_a_scheme_gets_no_digest_even_when_a_directory_collides(tmp_p
     (colliding / "SKILL.md").write_bytes(b"body")
 
     assert distribution_digest("context7:/org/lib", base=tmp_path) is None
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="the pinned digest hashes the POSIX separator of sub/é.md")
+def test_a_directory_ref_of_utf8_names_keeps_its_digest(tmp_path: Path):
+    (tmp_path / "ok.md").write_bytes(b"ok\n")
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "sub" / "é.md").write_bytes(b"two\n")
+    assert _digest_ref(str(tmp_path), base=tmp_path) == (
+        "sha256:b81d3e4952432273d79f200d2d22373cefe695e569138fe2d6feab66fa962a76")
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="a name that is not UTF-8 cannot be created on Windows")
+def test_a_directory_ref_hashes_the_bytes_of_a_file_name_that_is_not_utf8(tmp_path: Path):
+    (tmp_path / "ok.md").write_bytes(b"ok\n")
+    before = _digest_ref(str(tmp_path), base=tmp_path)
+    try:
+        with open(os.fsencode(tmp_path) + b"/n\xff.md", "wb") as handle:
+            handle.write(b"x")
+    except OSError:
+        pytest.skip("the file system refuses a name that is not UTF-8")
+    after = _digest_ref(str(tmp_path), base=tmp_path)
+    assert after != before and after is not None and after.startswith("sha256:")
+    os.rename(os.fsencode(tmp_path) + b"/n\xff.md", os.fsencode(tmp_path) + b"/n\xfe.md")
+    assert _digest_ref(str(tmp_path), base=tmp_path) != after
 
 
 def test_the_scorecard_carries_the_distribution_digest(tmp_path: Path, monkeypatch):
