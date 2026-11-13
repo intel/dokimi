@@ -382,6 +382,34 @@ jobs:
           use_pypi: true
           version: '11.3.1'
 
+  # Mutates only the package lines a PR changes and runs the tests covering each (scripts/mutate_changed.py).
+  # Warn-only: survivors go to the step summary and as annotations; runtime and survivor counts are in the PR that added it.
+  mutation-diff:
+    name: Mutation of changed lines
+    if: github.event_name == 'pull_request'
+    needs: static
+    runs-on: ${{ github.repository_owner != 'intel' && 'ubuntu-latest' || vars.LINUX_RUNNER_OFF != 'true' && 'dokimi-ec2' || 'intel-ubuntu-latest' }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0  # v7.1.0
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: dokimi/requirements.lock.txt
+      - name: Install deps
+        run: pip install --no-deps --require-hashes -r requirements.lock.txt
+      - name: Mutate changed lines
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          python scripts/mutate_changed.py --base "origin/$BASE_REF" --max-mutants 40 --budget 1200 \
+            --json mutation-diff.json --markdown mutation-diff.md
+          cat mutation-diff.md >> "$GITHUB_STEP_SUMMARY"
+
   # Pins the request a docker-claude arm sends (#354); the golden and what it covers are in
   # tests/fixtures/fidelity/README.md. A diff here means the npm build or the arm changed.
   fidelity:
