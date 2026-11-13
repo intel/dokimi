@@ -11,7 +11,7 @@ import socket
 import litellm
 import pytest
 
-from dokimi import llm
+from dokimi import llm, llm_pricing
 
 USER = [{"role": "user", "content": "q"}]
 
@@ -50,7 +50,8 @@ def _price() -> None:
     lambda: llm.unsupported_sampling_params("m", "nosuchprov", temperature=0.0) == [],  # the check cannot run
     lambda: llm._safe_completion_cost(object(), "m", litellm_model="nosuchprov/m") is None,  # no price
     lambda: _price() is None,
-], ids=["sampling check", "reply cost", "cost per token"])
+    lambda: llm_pricing.list_cost_usd("m", "nosuchprov", 1, 1) is None,  # an --estimate-only line
+], ids=["sampling check", "reply cost", "cost per token", "list price"])
 def test_the_checks_and_pricing_of_an_unknown_provider_print_nothing_to_stdout(capsys, call):
     assert call()
     assert capsys.readouterr().out == ""
