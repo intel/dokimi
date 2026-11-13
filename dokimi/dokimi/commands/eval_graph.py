@@ -111,8 +111,8 @@ def _provider_and_model(args: argparse.Namespace) -> tuple[str, str]:
 def _author(name: str, description: str, args: argparse.Namespace,
             provider: str, model: str) -> tuple[NeedGraph, bool]:
     """Ask the graph author for the graph. Returns (graph, unmetered); exits 1 on a failed call."""
-    from dokimi.commands.novelty_run import spend_cap
     from dokimi.novelty.client import LLMClient, SpendCapReached
+    from dokimi.novelty.cost import spend_cap
     from dokimi.novelty.needs import build_need_graph
 
     client = LLMClient(model=model, provider=provider, role="graph", cap=spend_cap(args))
