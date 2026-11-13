@@ -10,6 +10,8 @@ abspath() { case $1 in /*) printf '%s\n' "$1" ;; *) printf '%s/%s\n' "$PWD" "$1"
 jar=${TLA2TOOLS_JAR:?set TLA2TOOLS_JAR to tla2tools.jar (v1.8.0)}
 jar=$(abspath "$jar")
 java=${JAVA:-java}
+# a bare command name stays a PATH lookup; a path with a slash is the caller's file
+case $java in */*) java=$(abspath "$java") ;; esac
 out=$(abspath "${OUT:-$here/out}")
 workers=${TLC_WORKERS:-4}
 mkdir -p "$out"

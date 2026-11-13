@@ -80,3 +80,34 @@ def test_the_script_runs_with_only_posix_tools_on_path(tmp_path):
                          capture_output=True, text=True, check=False)
     assert res.returncode == 0, res.stdout + res.stderr
     assert "pass" in (tmp_path / "out" / "summary.tsv").read_text(encoding="utf-8")
+
+
+def test_a_relative_java_path_resolves_from_the_callers_directory(tmp_path):
+    # JAVA given relative to the caller is run after run.sh changes into its own directory: it must still be the
+    # caller's executable, as the jar, the cfg and OUT are
+    (tmp_path / "tools").mkdir()
+    java = _fake_java(tmp_path)
+    java.rename(tmp_path / "tools" / "java")
+    (tmp_path / "cfgs").mkdir()
+    shutil.copy(FIXED, tmp_path / "cfgs" / "fixed.cfg")
+    (tmp_path / "tla2tools.jar").write_text("", encoding="utf-8")
+    env = {**os.environ, "TLA2TOOLS_JAR": "tla2tools.jar", "OUT": "out", "JAVA": "tools/java",
+           "FAKE_TLC_LOG": str(tmp_path / "tlc.log")}
+    res = subprocess.run(["bash", str(RUN), "cfgs/fixed.cfg"], cwd=tmp_path, env=env,
+                         capture_output=True, text=True, check=False)
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert "fixed\tpass\tpass\tyes" in (tmp_path / "out" / "summary.tsv").read_text(encoding="utf-8")
+
+
+def test_a_bare_java_name_is_still_looked_up_on_path(tmp_path):
+    # a command name without a slash is not a path: it stays a PATH lookup, not a file in the caller's directory
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    _fake_java(tmp_path).rename(bindir / "fake-java-bare")
+    (tmp_path / "tla2tools.jar").write_text("", encoding="utf-8")
+    env = {**os.environ, "PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}", "TLA2TOOLS_JAR": "tla2tools.jar",
+           "OUT": "out", "JAVA": "fake-java-bare", "FAKE_TLC_LOG": str(tmp_path / "tlc.log")}
+    res = subprocess.run(["bash", str(RUN), str(FIXED)], cwd=tmp_path, env=env,
+                         capture_output=True, text=True, check=False)
+    assert res.returncode == 0, res.stdout + res.stderr
+    assert "pass" in (tmp_path / "out" / "summary.tsv").read_text(encoding="utf-8")
