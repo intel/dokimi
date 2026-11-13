@@ -47,7 +47,10 @@ def split(text: str) -> Pieces:
     out = Pieces()
     fence: Fence | None = None
     marker = ""
-    for n, line in enumerate(text.splitlines(), 1):
+    lines = re.split(r"\r\n?|\n", text)
+    if lines[-1] == "":
+        lines.pop()
+    for n, line in enumerate(lines, 1):
         m = _FENCE_RE.match(line)
         if m and m.group(1)[0] == "`" and "`" in line[m.end(1):]:
             m = None  # CommonMark: a backtick fence's info string has no backticks, so this is inline code
