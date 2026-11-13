@@ -950,10 +950,11 @@ def test_a_dropped_trace_error_is_redacted_before_it_is_clipped(tmp_path):
     canary = "canary-secret-1234567890"
     cell = _cell(tmp_path / "b", "t", "skill", 0, events=[_cmd("pytest")])
     record = json.loads((cell / "result.json").read_text(encoding="utf-8"))
-    record["agent"] = {"rc": 1, "trace_errors": [f"trace line lost: {canary}"]}
+    # the canary runs past the 120-character clip: clipping first would leave its first characters in the report
+    record["agent"] = {"rc": 1, "trace_errors": ["x" * 100 + " " + canary]}
     (cell / "result.json").write_text(json.dumps(record), encoding="utf-8")
     _, unreadable = sec._scan(cell, [canary])
-    assert unreadable and not any(canary in reason for reason in unreadable)
+    assert unreadable and not any(canary[:10] in reason for reason in unreadable)
 
 
 def test_a_garbled_trace_with_no_agent_record_is_started_and_unfinished(tmp_path):
