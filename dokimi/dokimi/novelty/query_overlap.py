@@ -15,13 +15,11 @@ def _key(query: str) -> str:
     return " ".join(query.casefold().split())
 
 
-def shared_queries_warning(queries_by_skill: dict[str, list[str]]) -> str | None:
-    """Warning text when half or more of the queries are shared by several skills, else ``None``.
+def shared_query_counts(queries_by_skill: dict[str, list[str]]) -> tuple[int, int]:
+    """``(shared, total)``: the queries listed for two or more skills, and all the queries.
 
     A query counts as shared when its text (case and spacing aside) is listed for two or more
-    skills. Sibling skills built from one template have identical heading queries, so the same
-    text is the gold of several skills and the result reflects the template, not the descriptions.
-    Queries with no content word are not scored by either arm and are not counted.
+    skills. Queries with no content word are not scored by either arm and are in neither count.
     """
     scored = {name: [q for q in queries if tokenize(q)] for name, queries in queries_by_skill.items()}
     owners: dict[str, set[str]] = {}
@@ -29,10 +27,20 @@ def shared_queries_warning(queries_by_skill: dict[str, list[str]]) -> str | None
         for query in queries:
             owners.setdefault(_key(query), set()).add(name)
     total = sum(len(queries) for queries in scored.values())
-    if len(scored) < 2 or not total:
-        return None
     shared = sum(1 for queries in scored.values() for query in queries
                  if len(owners[_key(query)]) > 1)
+    return shared, total
+
+
+def shared_queries_warning(queries_by_skill: dict[str, list[str]]) -> str | None:
+    """Warning text when half or more of the queries are shared by several skills, else ``None``.
+
+    Sibling skills built from one template have identical heading queries, so the same text is
+    the gold of several skills and the result reflects the template, not the descriptions.
+    """
+    shared, total = shared_query_counts(queries_by_skill)
+    if len(queries_by_skill) < 2 or not total:
+        return None
     share = shared / total
     if share < SHARED_QUERY_WARN_SHARE:
         return None

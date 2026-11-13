@@ -17,6 +17,7 @@ from collections import Counter
 from pathlib import Path
 
 from .client import LLMClient
+from .query_overlap import shared_query_counts
 from .routing import (
     BM25,
     Candidate,
@@ -88,7 +89,9 @@ def all_vs_all(candidates: list[Candidate], queries_by_skill: dict[str, list[str
     attractor, and their queries are no sibling queries of each other.
 
     Returns:
-        ``n_skills``, ``n_queries``, ``tied_groups``, and per arm (``lexical``, ``model``):
+        ``n_skills``, ``n_queries``, ``shared_queries`` (``shared``: how many queries, of the
+        ``total`` that have a content word, are listed for two or more skills; when most are, the
+        result reflects the queries, not the descriptions), ``tied_groups``, and per arm (``lexical``, ``model``):
         ``confusion`` (gold skill to picked skill to count, ``(none)`` and ``(tie)`` included),
         ``own_rate`` per gold skill (``None`` when none of its queries was scored), ``n_scored``
         and ``n_unscored`` per gold skill, and ``attractors`` ordered by ``wrongly_picked``. The
@@ -107,9 +110,11 @@ def all_vs_all(candidates: list[Candidate], queries_by_skill: dict[str, list[str
     """
     names = [c.name for c in candidates]
     _check_all_vs_all_input(names, queries_by_skill)
+    shared, scored = shared_query_counts(queries_by_skill)
     result: dict = {
         "n_skills": len(candidates),
         "n_queries": sum(len(q) for q in queries_by_skill.values()),
+        "shared_queries": {"shared": shared, "total": scored},
         "tied_groups": _tied_groups(candidates),
         "lexical": _attractor_table(*_lexical_picks(candidates, queries_by_skill, names),
                                     names, _tied_groups(candidates)),

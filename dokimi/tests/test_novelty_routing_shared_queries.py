@@ -91,6 +91,18 @@ def _run_all_vs_all(tmp_path, *extra):
     args.func(args)
 
 
+def test_all_vs_all_result_records_the_shared_query_counts():
+    cands = [Candidate("a", "alpha"), Candidate("b", "beta")]
+    queries = {"a": ["alpha one", "the", "own a"], "b": ["Alpha  one", "own b"]}
+    assert all_vs_all(cands, queries)["shared_queries"] == {"shared": 2, "total": 4}
+
+
+def test_a_saved_all_vs_all_file_carries_the_shared_query_counts(tmp_path):
+    _run_all_vs_all(tmp_path)
+    saved = json.loads((tmp_path / "out.json").read_text(encoding="utf-8"))
+    assert saved["result"]["shared_queries"] == {"shared": 2, "total": 2}
+
+
 def test_all_vs_all_warns_of_shared_queries_on_stderr(tmp_path, capsys):
     _run_all_vs_all(tmp_path)
     assert "WARNING: 2 of 2 queries (100%)" in capsys.readouterr().err
