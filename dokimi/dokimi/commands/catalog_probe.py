@@ -13,6 +13,7 @@ import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from dokimi.atomic_write import write_text_atomic
 from dokimi.utils import InputError
 from dokimi.write_probe import can_write
 
@@ -172,9 +173,7 @@ def _labelled_queries(args: argparse.Namespace, names: set) -> list:
 
 
 def _write(path: Path, data: dict) -> None:
-    tmp = path.with_name(path.name + ".tmp")
-    tmp.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-    os.replace(tmp, path)
+    write_text_atomic(path, json.dumps(data, indent=2) + "\n")
 
 
 def register(catalog_sub, positive_int) -> None:

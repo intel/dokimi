@@ -41,6 +41,7 @@ import unicodedata
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Optional, Sequence
 
+from dokimi.atomic_write import write_text_atomic
 from dokimi.eval.reference_checks import check_values
 
 DEFAULT_NGRAM = 8
@@ -222,7 +223,7 @@ def lock_split(assignment: Mapping[str, str], contents: Mapping[str, str], lock_
               "assignment": dict(sorted(assignment.items())), "contents": dict(sorted(contents.items()))}
 
     def write() -> None:
-        path.write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        write_text_atomic(path, json.dumps(record, indent=2, sort_keys=True) + "\n")
 
     if not path.exists():
         write()
