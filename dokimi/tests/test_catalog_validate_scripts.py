@@ -300,6 +300,9 @@ def test_review_skill_dir_checks_the_scripts_of_a_skill_reviewed_alone(tmp_path,
     b'#!/usr/bin/env -S "bash" -eu',
     b"#!/usr/bin/env -S'bash' -eu",
     b"#!/usr/bin/env --split-string=bash -eu",
+    b"#!/usr/bin/env -C /srv bash",
+    b"#!/usr/bin/env --chdir /srv bash",
+    b"#!/usr/bin/env --chdir=/srv bash",
 ])
 def test_env_options_and_assignments_do_not_hide_the_shell(tmp_path, shebang):
     skill = _bundle(tmp_path, {"run.sh": shebang + b"\nif true; then\n"})
@@ -638,6 +641,19 @@ def test_the_suffix_is_matched_in_any_case(tmp_path):
     findings = script_findings(skill, which=_tools("bash"), runner=runner)
 
     assert sorted(message.split(" does not")[0] for _, _, message in findings) == ["RUN.SH", "Tool.PY"]
+
+
+def test_the_suffix_is_matched_in_any_case_for_the_linters(tmp_path):
+    skill = _bundle(tmp_path, {"RUN.SH": b"#!/bin/sh\necho $x\n", "Tool.PY": b"x = 1\n"})
+    runner = _linter_runner(ruff=[{"code": "S602"}], shellcheck=[{"code": 2086}])
+
+    findings = script_findings(skill, which=_tools("ruff", "shellcheck", "bash"), runner=runner)
+
+    ruff_call = next((c for c in runner.calls if c.argv[0].endswith("ruff")), None)
+    shellcheck_call = next((c for c in runner.calls if c.argv[0].endswith("shellcheck")), None)
+    assert ruff_call is not None and [Path(a).name for a in ruff_call.argv if a.endswith(".PY")] == ["Tool.PY"]
+    assert shellcheck_call is not None and [Path(a).name for a in shellcheck_call.argv if a.endswith(".SH")] == ["RUN.SH"]
+    assert [code for _, code, _ in findings] == ["script-lint"]
 
 
 @pytest.mark.parametrize("line", [

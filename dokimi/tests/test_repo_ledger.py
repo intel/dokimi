@@ -422,7 +422,7 @@ def _entry(p: float, changed: int) -> dict:
 def test_holm_leaves_a_rule_that_cannot_reach_alpha_out_of_the_multiplier():
     entries = [_entry(0.03, 8), _entry(0.25, 3)]
     _holm(entries, 0.05)
-    assert entries[0]["p_holm"] == pytest.approx(0.03)  # the issue's repro gave [0.06, 0.25]
+    assert entries[0]["p_holm"] == pytest.approx(0.03)  # #573's repro: https://github.com/intel/dokimi/issues/573
     assert "p_holm" not in entries[1] and entries[1]["p"] == 0.25
 
 

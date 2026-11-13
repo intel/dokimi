@@ -846,8 +846,8 @@ between repeats keeps its picks but is left out of `noise`. The lexical arm is c
 Treat a `partial` file as a prefix of the run, not a measurement of the whole field: the skills
 and queries reached first are over-represented. To finish, raise `--max-usd` and rerun with
 `DOKIMI_RESPONSE_CACHE` set (it must also have been set on the capped run), which replays the
-calls already paid for at no cost. `skill novelty analyze` and `skill shorten` still write nothing
-when the cap stops them (`shorten` keeps its verdicts in `--cache-dir`, below); `atoms` and `probe` keep the calls they made as a partial result.
+calls already paid for at no cost. `skill shorten` still writes nothing when the cap stops it
+(it keeps its verdicts in `--cache-dir`, below); `atoms`, `probe` and `analyze` keep the calls they made as a partial result.
 
 Three properties worth knowing before quoting either:
 
@@ -1110,7 +1110,7 @@ from the network before it falls back to the copy bundled with the package; on a
 with no network that is a pause of a few seconds and a warning. Setting
 `LITELLM_LOCAL_MODEL_COST_MAP=True` skips the fetch and uses the bundled prices.
 
-**Spend cap on `atoms` and `probe`.** `--max-usd` stops these at the limit and keeps the work it
+**Spend cap on `atoms`, `probe` and `analyze`.** `--max-usd` stops these at the limit and keeps the work it
 paid for. `atoms` writes `<stem>.partial.json` beside the `--out` file (`atoms.json` by default;
 the spans read so far, the rest marked unread), and `probe` does the same beside its `--out`
 file (`probes.json` by default; the answers so far). Both exit with a message naming the file. A partial file is never read as a
@@ -1120,7 +1120,29 @@ the summaries computed over the answers the cap left (`paired`, `arms`, `abstent
 confidence blocks, and `judge2`: the second judge shares the cap, so it cannot regrade at all once
 the cap stops the run).
 A partial file is for inspection; rerun to get a finished one.
-`analyze` still loses its work at the cap (a follow-up). `shorten` writes no candidate table and
+`analyze` does the same beside its `novelty.json` (`<out stem>.partial.json`, never over a
+finished file; the `--out` file, `novelty.json` in `--out-dir` by default). Its partial file has
+`"status": "partial"` and a `partial` block: `reason` (`spend_cap`, or `no_price` for a call with
+no known price), `stage` (`extraction`, `verify`, `need_graph`, `probes`, `measurement`, `classify`
+or `attribution`: the stage that was running), `message`, `cause` (the cap's own text, with what was
+spent), and `spans_read` / `spans_total` for an extraction stop or `calls_done` / `calls_planned`
+(probe answers) once the measurement started. It keeps the `extracted_atoms` and `source_spans`
+(the unread spans are in `extraction.unread_span_ids`), the `probes` once built (with the
+wordings and answer keys in `probes.items`, so a stop before the first answer still keeps them) and
+the `runs` (probe answers and judgments) so far; it has no `paired`, `arms`, `k0` or view summaries, and no
+`novelty.md` or annotated view is written. The exit is non-zero (1), the message names the file and
+how to get the paid calls back: with `DOKIMI_RESPONSE_CACHE` set to a writable directory on the capped run, a rerun with a
+higher `--max-usd` and the same cache replays them at $0 (a reply that was cut off or unusable is
+asked again; after a `no_price` stop the message says to price the model or drop `--max-usd`
+instead, since a higher cap does not help); without it, or when it could not be written, the message says the calls were not cached. `novelty view`, `subjects`
+(`--novelty-artifact`) and every other reader of a `novelty.json` refuse a partial file by name,
+and `runs list` does not list it (it opens with `status`, not `schema_version`). A record
+with `status: "partial"` but no `partial` block is refused too, and so is saving one with
+`save_artifact("novelty", ...)`. Its `atoms.n` counts the probed sample once the cap's sample is
+chosen, as a finished record does, and every extracted atom for a stop in extraction (`atoms.sampling`
+is then `none`, and `run_config` holds the settings of the run but not its tier). A library caller of
+`dokimi.novelty.analyze()` checks `result.partial` before it saves `result.artifact`.
+`shorten` writes no candidate table and
 no `--out` file at the cap (a table scored on part of the verdicts would read as a result), but each
 retention verdict is stored in `--cache-dir` the moment it is adjudicated: the exit message names how many were paid for and,
 with `--cache-dir`, that a rerun with a higher `--max-usd` and the same `--cache-dir` replays them at $0; without it, that
