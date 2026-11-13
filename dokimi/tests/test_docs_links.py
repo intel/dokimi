@@ -149,17 +149,28 @@ def test_slugs_keep_underscores_and_skip_code_fences(tmp_path):
     assert _slugs(doc) == {"reach-guidance_reachv1", "limits"}
 
 
-def test_the_index_links_every_doc_in_the_directory():
-    """Top-level docs only; subfolder pages are reached through their README and mkdocs nav."""
-    index = DOCS / "documentation-index.md"
-    linked = {
-        target.split("#", 1)[0] for target in _relative_links(index)
-    }
-    missing = sorted(
-        path.name for path in DOCS.glob("*.md")
-        if path.name not in {"README.md", index.name} and path.name not in linked
+def _unindexed(docs: Path) -> list[str]:
+    """Pages under `docs` at any depth that `documentation-index.md` does not link."""
+    index = docs / "documentation-index.md"
+    linked = {(docs / t.split("#", 1)[0]).resolve() for t in _relative_links(index)}
+    skip = {(docs / "README.md").resolve(), index.resolve()}
+    return sorted(
+        path.relative_to(docs).as_posix() for path in docs.rglob("*.md")
+        if path.resolve() not in skip | linked
     )
-    assert missing == []
+
+
+def test_the_index_links_every_doc_in_the_directory():
+    assert _unindexed(DOCS) == []
+
+
+def test_an_unlinked_subfolder_page_is_reported(tmp_path):
+    (tmp_path / "features").mkdir()
+    for name in ("README.md", "a.md", "features/linked.md", "features/new.md"):
+        (tmp_path / name).write_text("# T\n", encoding="utf-8")
+    (tmp_path / "documentation-index.md").write_text(
+        "# I\n\n[a](a.md) and [l](features/linked.md#t)\n", encoding="utf-8")
+    assert _unindexed(tmp_path) == ["features/new.md"]
 
 
 def _broken_anchors(path: Path) -> list[str]:

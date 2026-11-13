@@ -26,6 +26,15 @@ code.
 
 The [feature tree](features/README.md) links to all 39 cards, grouped by the question they answer. Availability and limitations live in the owning cards.
 
+- [Will the agent use it?](features/discovery.md)
+- [Which parts of a skill matter?](features/skills.md)
+- [Does repository guidance work?](features/repositories.md)
+- [Do the tests cover the work?](features/eval-design.md)
+- [Does the context help?](features/experiments.md)
+- [Can the grades be trusted?](features/judging.md)
+- [What did the agent do?](features/traces.md)
+- [Will it keep working?](features/continuous-evaluation.md)
+
 ## User journeys
 
 - [user-journeys/README.md](user-journeys/README.md) — what users come to
