@@ -494,11 +494,8 @@ def extract_scores(
             # taken over question ids further down — a run whose scores were
             # dropped here would empty the intersection for every other run too.
             # Downstream aggregation filters None per metric.
-            paired_delta = (
-                finite_delta.checked_delta(treatment_score, baseline_score, InputError)
-                if treatment_score is not None and baseline_score is not None
-                else None
-            )
+            paired_delta = (finite_delta.checked_delta(treatment_score, baseline_score, InputError, f"question '{qid}'")
+                            if treatment_score is not None and baseline_score is not None else None)
             scores.append(_score_row(evaluation, baseline_score, treatment_score, paired_delta,
                                      treatment_arm))
 
@@ -536,8 +533,8 @@ def extract_scores(
             treatment_score = answer.score(treatment_arm) if treatment_arm else None
 
             if baseline_score is not None and treatment_score is not None:
-                scores.append(_score_row(answer, baseline_score, treatment_score,
-                                         finite_delta.checked_delta(treatment_score, baseline_score, InputError), treatment_arm))
+                delta = finite_delta.checked_delta(treatment_score, baseline_score, InputError, f"question '{qid}'")
+                scores.append(_score_row(answer, baseline_score, treatment_score, delta, treatment_arm))
 
     return scores
 
@@ -953,7 +950,10 @@ def _adjusted_significance(
                   if s["with_docs"] is not None and s["without_docs"] is not None]
         if paired:
             with_paired, without_paired = zip(*paired, strict=True)
-            sigs[run_id] = significance_test(list(with_paired), list(without_paired), rounded=False)
+            try:
+                sigs[run_id] = significance_test(list(with_paired), list(without_paired), rounded=False)
+            except OverflowError as exc:  # finite deltas whose sum or spread leaves the float range
+                raise InputError(f"run '{run_id}': {exc}") from exc
         else:
             sigs[run_id] = None
 
