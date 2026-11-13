@@ -106,7 +106,7 @@ def cmd_eval_graph(args: argparse.Namespace) -> None:
         graph = build_need_graph(name, description, client=client, strict=True)
     except SpendCapReached as exc:
         reply = exc.reply or ""
-        if exc.reason != "no_price" or not reply.strip():
+        if exc.reason != "no_price" or not reply.strip() or exc.truncated:
             raise
         # The call is paid for and its reply is the graph, as measure.py keeps such a reply.
         print(f"Warning: no price is known for {provider}/{model}, so this call could not be metered; "

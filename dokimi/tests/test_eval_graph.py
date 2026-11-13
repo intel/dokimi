@@ -409,3 +409,17 @@ def test_a_reply_with_non_list_edges_keeps_its_nodes_and_drops_the_edges(tmp_pat
 
     assert result.returncode == 0 and out.exists()
     assert json.loads(out.read_text(encoding="utf-8"))["edges"] == []
+
+
+def test_a_cut_off_unmetered_reply_is_not_published_as_a_graph(tmp_path, monkeypatch, capsys):
+    from dokimi.metrics.usage import UsageRecord
+
+    truncated = UsageRecord(prompt_tokens=11, completion_tokens=3, total_tokens=14, truncated=True)
+    monkeypatch.setattr(LLMClient, "_default_transport",
+                        lambda self, prompt, system, *, accept=None, draw=0:
+                        (json.dumps(REPLY), truncated))
+    out = tmp_path / "g.json"
+
+    result = _run(capsys, str(_skill(tmp_path)), "--out", str(out), "--max-usd", "5")
+
+    assert result.returncode == 1 and "nothing was written" in result.stderr and not out.exists()
