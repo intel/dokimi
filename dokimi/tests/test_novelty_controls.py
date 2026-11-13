@@ -6,6 +6,7 @@
 import importlib
 import json
 
+from dokimi.novelty import cost as novelty_cost
 import pytest
 
 from dokimi.novelty.atoms import Atom
@@ -276,7 +277,6 @@ def test_placebo_gated_does_not_measure_the_placebo_against_itself():
 
 def _skill_with_atoms(tmp_path, monkeypatch, seen):
     from dokimi.cli import build_parser
-    from dokimi.commands import novelty as novelty_cmd
 
     skill = tmp_path / "s" / "SKILL.md"
     skill.parent.mkdir(parents=True)
@@ -292,14 +292,14 @@ def _skill_with_atoms(tmp_path, monkeypatch, seen):
             return json.dumps(rows), None
         return json.dumps({"verdict": RIGHT}), None
 
-    real = novelty_cmd._client
+    real = novelty_cost.client
 
     def client(model, provider, role, args):
         built = real(model, provider, role, args)
         built.transport = transport
         return built
 
-    monkeypatch.setattr(novelty_cmd, "_client", client)
+    monkeypatch.setattr(novelty_cost, "client", client)
     atoms = tmp_path / "atoms.json"
     args = build_parser().parse_args(["skill", "novelty", "atoms", "--artifact", f"skill:{skill}",
                                       "--out", str(atoms)])

@@ -10,6 +10,7 @@ import json
 
 import pytest
 
+from dokimi.novelty import cost as novelty_cost
 from dokimi.utils import InputError
 from dokimi.cli import build_parser
 from dokimi.novelty.client import LLMClient
@@ -174,14 +175,13 @@ def test_all_vs_all_writes_the_matrix_and_prints_the_attractors(tmp_path, capsys
 
 def test_all_vs_all_with_model_names_its_model_calls_on_stderr(tmp_path, capsys, monkeypatch):
     # One selector call per query: 2 + 2 queries, so 4 calls, each over the 3 cards.
-    import dokimi.commands.novelty as novelty_cmd
 
     def transport(prompt: str, system: str | None):
         return json.dumps({"pick": 1}), None
 
     monkeypatch.setattr(
-        novelty_cmd,
-        "_client",
+        novelty_cost,
+        "client",
         lambda model, provider, role, args: LLMClient(
             model=model, provider=provider, role=role, transport=transport
         ),
@@ -408,12 +408,11 @@ def test_a_transport_that_raises_with_no_message_is_still_counted_as_failed():
 
 
 def test_all_vs_all_exits_nonzero_when_every_model_call_fails(tmp_path, capsys, monkeypatch):
-    import dokimi.commands.novelty as novelty_cmd
 
     def transport(prompt: str, system: str | None):
         raise RuntimeError("boom")
 
-    monkeypatch.setattr(novelty_cmd, "_client", lambda model, provider, role, args: LLMClient(
+    monkeypatch.setattr(novelty_cost, "client", lambda model, provider, role, args: LLMClient(
         model=model, provider=provider, role=role, transport=transport))
     root = tmp_path / "catalog"
     _catalog_skill(root, "perf", "profile a slow binary with perf record and report")
@@ -431,7 +430,6 @@ def test_all_vs_all_exits_nonzero_when_every_model_call_fails(tmp_path, capsys, 
 
 
 def test_all_vs_all_stops_at_the_max_usd_cap_the_docs_point_to(tmp_path, monkeypatch):
-    import dokimi.commands.novelty as novelty_cmd
     from dokimi.novelty.client import SpendCap
     from dokimi.metrics.usage import UsageRecord
 
@@ -442,7 +440,7 @@ def test_all_vs_all_stops_at_the_max_usd_cap_the_docs_point_to(tmp_path, monkeyp
         return "none", UsageRecord(cost_usd=0.6)
 
     cap = SpendCap(limit_usd=1.0)
-    monkeypatch.setattr(novelty_cmd, "_client", lambda model, provider, role, args: LLMClient(
+    monkeypatch.setattr(novelty_cost, "client", lambda model, provider, role, args: LLMClient(
         model=model, provider=provider, role=role, transport=transport, cap=cap))
     root = tmp_path / "catalog"
     _catalog_skill(root, "perf", "profile a slow binary with perf record and report")
@@ -506,7 +504,6 @@ def _cat(root, names_descriptions):
 
 def test_a_partial_model_failure_exits_non_zero_and_leaves_failed_queries_out(
         tmp_path, capsys, monkeypatch):
-    import dokimi.commands.novelty as novelty_cmd
 
     answered = []
 
@@ -516,7 +513,7 @@ def test_a_partial_model_failure_exits_non_zero_and_leaves_failed_queries_out(
         answered.append(1)
         return '{"pick": 1}', None
 
-    monkeypatch.setattr(novelty_cmd, "_client", lambda model, provider, role, args: LLMClient(
+    monkeypatch.setattr(novelty_cost, "client", lambda model, provider, role, args: LLMClient(
         model=model, provider=provider, role=role, transport=transport))
     root = tmp_path / "catalog"
     _cat(root, {"perf": "profile a slow binary with perf", "db": "tune a slow database query"})
@@ -599,10 +596,9 @@ def test_all_vs_all_takes_repeats_and_prints_the_noise_and_the_cost(tmp_path, ca
                                                                     monkeypatch):
     # Three repeats of one query: three calls, the same card order each time, so the
     # selector agrees with itself and the noise block says so.
-    import dokimi.commands.novelty as novelty_cmd
 
     calls = []
-    monkeypatch.setattr(novelty_cmd, "_client", lambda model, provider, role, args: LLMClient(
+    monkeypatch.setattr(novelty_cost, "client", lambda model, provider, role, args: LLMClient(
         model=model, provider=provider, role=role,
         transport=lambda prompt, system: calls.append(prompt) or (json.dumps({"pick": 1}), None)))
     root = tmp_path / "catalog"
@@ -788,12 +784,11 @@ def test_a_failed_call_adds_to_the_contentless_queries_of_the_same_skill():
 
 def test_the_failed_call_count_is_over_the_calls_sent_not_every_query(
         tmp_path, monkeypatch, capsys):
-    import dokimi.commands.novelty as novelty_cmd
 
     def transport(prompt: str, system: str | None):
         raise RuntimeError("boom")
 
-    monkeypatch.setattr(novelty_cmd, "_client", lambda model, provider, role, args: LLMClient(
+    monkeypatch.setattr(novelty_cost, "client", lambda model, provider, role, args: LLMClient(
         model=model, provider=provider, role=role, transport=transport))
     root = tmp_path / "catalog"
     _catalog_skill(root, "perf", "profile a slow binary with perf")
@@ -823,9 +818,8 @@ def _word_client(model, provider, role, args, swap=None):
 
 def test_the_seed_on_the_command_line_is_the_seed_the_saved_model_arm_records(
         tmp_path, monkeypatch):
-    import dokimi.commands.novelty as novelty_cmd
 
-    monkeypatch.setattr(novelty_cmd, "_client", _word_client)
+    monkeypatch.setattr(novelty_cost, "client", _word_client)
     root = tmp_path / "catalog"
     _cat(root, {"perf": "profile a slow binary", "db": "tune a slow database query"})
     queries = _write_queries(tmp_path, {"perf": ["profile"], "db": ["database"]})
@@ -843,12 +837,11 @@ def test_console_prints_the_top_five_attractors_of_each_arm_by_count(
     # Lexically, each of six skills takes the gold queries that name its word: alpha one, ...
     # foxtrot six. The selector sends each word to the mirror skill's card instead (alpha's
     # to foxtrot), so the model arm counts the other way round and leaves out foxtrot.
-    import dokimi.commands.novelty as novelty_cmd
 
     words = {"alpha": "anvil", "bravo": "barley", "charlie": "cobalt", "delta": "dune",
              "echo": "ember", "foxtrot": "fjord"}
     mirror = dict(zip(words.values(), reversed(words.values()), strict=True))
-    monkeypatch.setattr(novelty_cmd, "_client", functools.partial(_word_client, swap=mirror))
+    monkeypatch.setattr(novelty_cost, "client", functools.partial(_word_client, swap=mirror))
     root = tmp_path / "catalog"
     _cat(root, {**words, "gold": "something unrelated entirely"})
     queries = _write_queries(tmp_path, {"gold": [word for count, word in
@@ -881,9 +874,8 @@ def test_attractors_tied_on_count_and_golds_tied_in_from_are_in_name_order():
 
 
 def _model_client_for_repeats(monkeypatch):
-    import dokimi.commands.novelty as novelty_cmd
 
-    monkeypatch.setattr(novelty_cmd, "_client", lambda model, provider, role, args: LLMClient(
+    monkeypatch.setattr(novelty_cost, "client", lambda model, provider, role, args: LLMClient(
         model=model, provider=provider, role=role,
         transport=lambda prompt, system: (json.dumps({"pick": 1}), None)))
 
@@ -915,7 +907,6 @@ def test_console_counts_unscored_model_calls_when_repeats_are_set(tmp_path, caps
 
 def test_a_partial_failure_still_prints_the_cost_of_the_calls_that_ran(tmp_path, capsys,
                                                                       monkeypatch):
-    import dokimi.commands.novelty as novelty_cmd
     from dokimi.metrics.usage import UsageRecord
 
     replies = iter([('{"pick": 1}', UsageRecord(cost_usd=0.01))])
@@ -926,7 +917,7 @@ def test_a_partial_failure_still_prints_the_cost_of_the_calls_that_ran(tmp_path,
         except StopIteration:
             raise RuntimeError("boom") from None
 
-    monkeypatch.setattr(novelty_cmd, "_client", lambda model, provider, role, args: LLMClient(
+    monkeypatch.setattr(novelty_cost, "client", lambda model, provider, role, args: LLMClient(
         model=model, provider=provider, role=role, transport=transport))
     root = tmp_path / "catalog"
     _catalog_skill(root, "perf", "profile a slow binary with perf record and report")
@@ -945,13 +936,12 @@ def test_a_partial_failure_still_prints_the_cost_of_the_calls_that_ran(tmp_path,
 
 def test_a_clean_all_vs_all_run_still_prints_its_cost_after_the_summary(tmp_path, capsys,
                                                                        monkeypatch):
-    import dokimi.commands.novelty as novelty_cmd
     from dokimi.metrics.usage import UsageRecord
 
     def transport(prompt: str, system: str | None = None):
         return '{"pick": 1}', UsageRecord(cost_usd=0.01)
 
-    monkeypatch.setattr(novelty_cmd, "_client", lambda model, provider, role, args: LLMClient(
+    monkeypatch.setattr(novelty_cost, "client", lambda model, provider, role, args: LLMClient(
         model=model, provider=provider, role=role, transport=transport))
     root = tmp_path / "catalog"
     _catalog_skill(root, "perf", "profile a slow binary with perf record and report")
