@@ -2,7 +2,7 @@
 
 - **`repo scan` without a manifest also checks `.claude/rules` and `@` imports** — besides the
   default guidance globs, a scan with no `repo-eval.yaml` and no `--manifest-file` checks every
-  Markdown file Claude Code loads with them: the `.claude/rules/**/*.md` files and the files a
+  `.claude/rules/**/*.md` file and every Markdown file Claude Code loads with them: the files a
   CLAUDE.md `@` import chain reaches (what `repo budget` lists as `rule` and `import` for the
   `claude-code` profile), and a committed `CLAUDE.local.md` that nothing imports, which Claude Code loads
   with the project's guidance (a gitignored one is not in the tree). A stale path in a rule or an imported
