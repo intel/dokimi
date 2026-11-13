@@ -56,7 +56,7 @@ def is_plain_markdown(row: dict) -> bool:
     """Whether the row is a ``SKILL.md`` with no frontmatter: plain Markdown, not a broken skill."""
     from dokimi.external.no_frontmatter import NO_FRONTMATTER
 
-    return any(f["code"] == NO_FRONTMATTER for f in row["findings"])
+    return any(f.get("code") == NO_FRONTMATTER for f in row["findings"])
 
 
 def plain_note(plain: int) -> str:

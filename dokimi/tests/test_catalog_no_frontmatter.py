@@ -197,6 +197,12 @@ def test_an_h1_inside_an_html_comment_is_not_the_title():
         "name": "deck-builder", "description": "Builds decks."}
 
 
+def test_a_resumed_finding_without_a_code_is_not_plain_markdown():
+    from dokimi.commands.catalog_scan import is_plain_markdown  # a row resumed from --jsonl may lack the key
+
+    assert is_plain_markdown({"findings": [{"level": "warn", "message": "example"}]}) is False
+
+
 def test_a_root_skill_gets_the_h1_name_not_the_directory_name(tmp_path):
     real = tmp_path / "real"
     real.mkdir()
