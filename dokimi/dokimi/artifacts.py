@@ -89,6 +89,13 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "catalog_eval": "catalog_eval.v1",
     "reach_matrix": "reach_matrix.v1",
     "repo_hits_judged": "repo_hits_judged.v1",
+    "ragas": "ragas.v1",
+    "grounding": "grounding.v1",
+    "checklist": "checklist.v1",
+    "judge_wording": "judge_wording.v1",
+    "cross_judge": "cross_judge.v1",
+    "judge_validity": "judge_validity.v1",
+    "pairwise": "pairwise.v1",
     "personas": "personas.v1",
     "persona_analysis": "persona_analysis.v1",
     "question_panel": "question_panel.v1",
@@ -293,7 +300,11 @@ def save_artifact(kind: str, data: dict, path: Path | str, *, ensure_ascii: bool
         validate_artifact(kind, payload)
     except ArtifactValidationError as exc:
         rejected = path.with_name(path.name + ".rejected")
-        rejected.write_text(text, encoding="utf-8")
+        try:
+            rejected.write_text(text, encoding="utf-8")
+        except OSError as kept:  # still a refusal: the caller exits as for a refused payload, not as an unwritable path
+            raise ArtifactValidationError(f"{exc}\n(not written to {path}; the payload could not be kept at "
+                                          f"{rejected}: {kept})") from exc
         raise ArtifactValidationError(f"{exc}\n(not written to {path}; payload kept at {rejected})") from exc
     target = _write_target(path)
     tmp = target.with_name(f"{target.name}.{os.getpid()}.{threading.get_ident()}.tmp")

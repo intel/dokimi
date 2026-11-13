@@ -23,8 +23,8 @@ from dokimi.defaults import (
 )
 from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.eval.judge_validity import DEFAULT_MIN_ACCURACY, NoUsablePairs
-from dokimi.commands._output import write_text_or_exit
-from dokimi.exit_codes import EXIT_INCONCLUSIVE, EXIT_USAGE
+from dokimi.commands._output import save_artifact_or_exit
+from dokimi.exit_codes import EXIT_INCONCLUSIVE
 from dokimi.utils import InputError, warn_judge_independence, warn_recorded_self_judge
 
 
@@ -36,11 +36,6 @@ def _load_answers(path: str):
     from dokimi.records import load
 
     return load(path, section="answers")
-
-
-def _write_json_or_exit(path: Path, payload: dict, code: int = EXIT_USAGE) -> None:
-    """Write ``payload`` as JSON to ``path``, or exit ``code`` naming ``path`` when it cannot be written."""
-    write_text_or_exit(path, json.dumps(payload, indent=2), code)
 
 
 def _require_ragas() -> None:
@@ -67,7 +62,8 @@ def _run_ragas_eval(answers, output_path, args) -> None:
 
         # Save ragas results alongside answers
         ragas_path = output_path.with_name(output_path.stem + "_ragas.json")
-        _write_json_or_exit(ragas_path, result.to_dict(), code=2)
+        payload = {**result.to_dict(), "ragas_model": f"{ragas_provider}/{ragas_model}"}
+        save_artifact_or_exit("ragas", payload, ragas_path, code=2)
 
         print(result.format_summary())
         print(f"✅ Saved RAGAS results to {ragas_path}")
@@ -262,7 +258,7 @@ def cmd_eval_grounding(args: argparse.Namespace) -> None:
 
     if args.output:
         out = Path(args.output)
-        _write_json_or_exit(out, result, code=2)
+        save_artifact_or_exit("grounding", result, out, code=2)
         print(f"\n✅ Grounding report saved to {out}")
 
 
@@ -411,7 +407,7 @@ def cmd_eval_judge_validity(args: argparse.Namespace) -> None:
         result["summary"]["answers_model"] = run.meta.get("model")
         if typed is not None:
             result["summary"]["typed_arm"] = typed.report_fields()
-        _write_json_or_exit(out, result, code=2)
+        save_artifact_or_exit("judge_validity", result, out, code=2)
 
     print()
     print(report.format_summary())
