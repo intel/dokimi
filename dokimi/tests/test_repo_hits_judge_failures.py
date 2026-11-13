@@ -28,6 +28,7 @@ def test_a_crash_after_the_judge_calls_with_json_prints_an_infra_document_with_t
     code, out, _ = _run(capsys, "judge", str(batch), "--judge", JUDGE, "--json")
     doc = json.loads(out)  # exactly one document, with the crash's infra error and the cost of the calls made before it
     assert code == 5 and (doc["status"], doc["error"]["code"], doc["error"]["retryable"]) == ("failed", "infra", True)
+    assert doc["reason"] == doc["error"]["message"] == "RuntimeError: summary broke"  # the document says why
     assert doc["cost"]["calls"] > 0 and doc["cost"]["priced"] is True and doc["cost"]["spent_usd"] > 0
     assert schema_errors("cli_output.v1", doc) == []
 
@@ -48,6 +49,6 @@ def test_an_input_error_after_the_judge_calls_with_json_prints_an_input_document
     code, out, _ = _run(capsys, "judge", str(batch), "--judge", JUDGE, "--json")
     doc = json.loads(out)
     assert code == 2 and (doc["status"], doc["error"]["code"], doc["error"]["retryable"]) == ("failed", "input", False)
-    assert doc["error"]["message"] == "labels file is not a list"
+    assert doc["reason"] == doc["error"]["message"] == "labels file is not a list"
     assert doc["cost"]["calls"] > 0 and doc["cost"]["priced"] is True
     assert schema_errors("cli_output.v1", doc) == []

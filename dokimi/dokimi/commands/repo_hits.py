@@ -125,7 +125,7 @@ def _failed_after_calls(exc: Exception, done: Any, args: argparse.Namespace, cod
     if code == "infra":
         traceback.print_exc()
     cli_output.emit(cli_output.error_document("repo hits judge", code, message, run_id=cli_output.current_run_id(),
-                                              cost=_cost(done.meter, args.max_usd)))
+                                              reason=message, cost=_cost(done.meter, args.max_usd)))
     sys.exit(cli_output.EXIT_OF_ERROR[code])
 
 
