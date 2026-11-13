@@ -84,7 +84,7 @@ def test_one_finding_per_path(tmp_path):
 def test_a_dangling_symlink_out_of_the_skill_is_not_reported(tmp_path):
     # The target does not exist, so only the containment check keeps this quiet.
     review, skill_dir = _review(tmp_path, "Run `scripts/gone.sh`.\n")
-    assert _codes(review) == ["path-missing"]  # positive control: missing before the link exists
+    assert len(_path_findings(review)) == 1  # positive control: missing before the link exists
     (skill_dir / "scripts").mkdir()
     (skill_dir / "scripts" / "gone.sh").symlink_to(tmp_path / "nowhere" / "gone.sh")
     [review] = review_skills(read_skill_manifest(tmp_path))

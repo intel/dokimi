@@ -241,8 +241,8 @@ under a bundle folder (`scripts/`, `references/`, `assets/`, `templates/`,
 `python scripts/run.py`, is a `warn` (`path-missing`) when the skill does not
 have that file. Folders, flat names, placeholders (`scripts/<name>.py`)
 and repo-root paths such as `src/app.py` are not checked, and
-neither are code fences. A file name with a space is read only when it is quoted
-(`'scripts/my run.py'`). Only `/` separators are read: a backslash path such as `scripts\run.py` is not checked. Paths joined by `,` or `;` with no space are read one by one when the next one is under a bundle folder (`scripts/a.py,scripts/b.py`); other commas stay in the name. Some hits are files the skill tells the agent to
+neither are code fences. A file name with a space is read only when it is quoted or its space is escaped
+(`'scripts/my run.py'`, `scripts/my\ run.py`). Only `/` separators are read: a backslash path such as `scripts\run.py` is not checked. Paths joined by `,` or `;` with no space are read one by one when the next one is under a bundle folder (`scripts/a.py,scripts/b.py`); other commas, and an escaped `\,`, stay in the name. Some hits are files the skill tells the agent to
 create; `--ignore path-missing` leaves the code out. A link, or a `../` code span,
 that reaches a file outside the skill directory is a `warn`
 (`link-escapes-skill`, `path-escapes-skill`), since it breaks when the skill is

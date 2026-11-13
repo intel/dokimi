@@ -40,14 +40,16 @@ PLACEHOLDER_FOLDERS = PLACEHOLDER_PARTS | {"example", "file", "filename", "name"
 def _bundle_path(word: str) -> Optional[str]:
     """The skill-relative file a code span word names under a bundle folder, or None.
 
-    ``word`` is one word of a code span, an opening ``(``, quotes and a trailing ``,;:.)`` taken away.
+    ``word`` is one word of a code span, an opening ``(``, quotes and a trailing ``,;:.)`` taken away;
+    a shell operator (``|``, ``<``, ``>``, ``&``) ends it and an option's value follows its ``=``.
     None for a word outside :data:`BUNDLE_DIRS`, a folder (a trailing ``/`` or no file extension),
     a placeholder part, or a template variable.
     """
     text = word.lstrip("(").rstrip(",;:.)").strip("'\"").rstrip(",;:.)")
     # A shell operator ends the word (``run.py|tee``, ``run.py>out``); an option value follows its last ``=``.
     text = re.split(r"[|<>&]", text, maxsplit=1)[0].rstrip(",;:.)")
-    text = text.rsplit("=", 1)[-1].strip("'\"")
+    if text.startswith("-") and "=" in text:  # an option's value: --config=scripts/x.yaml
+        text = text.split("=", 1)[1].strip("'\"")
     if text.startswith("./"):
         text = text[2:]
     if text.startswith(SKILL_DIR_VAR):
@@ -96,7 +98,7 @@ def _words(span: str) -> list[str]:
         lexer.escape = ""
         words = list(lexer)
     except ValueError:
-        words = span.replace(";", " ").split()
+        words = protected.replace(";", " ").split()
     return [_restore(part) for word in words for part in SEPARATOR_RE.split(word) if part]
 
 
