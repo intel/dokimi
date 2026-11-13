@@ -249,8 +249,8 @@ def parse_json(answer: str, *, contains: bool = False) -> tuple[bool, Any]:
     With ``contains`` the first JSON object or array anywhere in the text counts
     (promptfoo ``contains-json``). The scan gives up after :data:`CONTAINS_JSON_MAX_STARTS`
     brackets, or once the tries that failed have scanned :data:`CONTAINS_JSON_MAX_SCAN`
-    characters in all, and then reads the text as not JSON. The first try is not counted:
-    it is linear in the text.
+    characters in all, and then reads the text as not JSON. The first parse of the whole text is
+    not counted, only the tries that start at a bracket.
     """
     text = answer.strip()
     fenced = _FENCE.match(text)
@@ -272,11 +272,12 @@ def parse_json(answer: str, *, contains: bool = False) -> tuple[bool, Any]:
                 try:
                     return True, decoder.raw_decode(text, i)[0]
                 except json.JSONDecodeError as err:
-                    scanned += max(err.pos - i, 0)
+                    # An unterminated string reports its opening quote, but read to the end.
+                    end = len(text) if err.msg.startswith("Unterminated string") else err.pos
+                    scanned += max(end - i, 0)
                 except (ValueError, RecursionError):
-                    # A RecursionError carries no position: it counts 0 (it stops at the
-                    # decoder's depth limit, which the start cap already bounds).
-                    continue
+                    # No position (an overlong integer, the depth limit): charge the whole tail.
+                    scanned += len(text) - i
     return False, None
 
 
