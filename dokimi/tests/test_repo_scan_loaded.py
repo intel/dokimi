@@ -173,6 +173,20 @@ def test_a_rule_stays_checked_when_claude_local_md_links_to_the_same_file(tmp_pa
     assert _fails(payload) == {(".claude/rules/x.md", "src/gone_shared.py")}
 
 
+def test_a_default_scan_does_not_check_skills(tmp_path, capsys):
+    root = _write(tmp_path / "r", {"src/real.py": "x = 1\n", "CLAUDE.md": "# guidance\n",
+                                   ".claude/skills/s/SKILL.md": "Run `src/gone_skill.py`.\n"})
+    payload = _scan(capsys, str(root))
+    assert payload["files"] == ["CLAUDE.md"]
+    assert _fails(payload) == set()
+
+
+def test_guidance_frontmatter_is_still_scanned(tmp_path, capsys):
+    # only a rule loses its frontmatter: a CLAUDE.md is loaded with it
+    root = _write(tmp_path / "r", {"src/real.py": "x = 1\n", "CLAUDE.md": "---\nnote: see `src/gone_fm.py`\n---\n# g\n"})
+    assert _fails(_scan(capsys, str(root))) == {("CLAUDE.md", "src/gone_fm.py")}
+
+
 def test_the_note_counts_only_the_files_the_default_globs_do_not_match(tmp_path, capsys):
     root = _write(tmp_path / "r", {"src/real.py": "x = 1\n", "CLAUDE.md": "@.github/instructions/a.md\n",
                                    ".github/instructions/a.md": "x\n", ".claude/rules/b.md": "y\n"})
