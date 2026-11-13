@@ -7,6 +7,7 @@ import argparse
 import json
 import subprocess
 
+from dokimi.novelty import cost as novelty_cost
 import pytest
 
 from dokimi.commands.novelty_run import judge2_client, stamp
@@ -218,7 +219,6 @@ def test_the_cli_refuses_a_judge2_that_is_the_first_judge_before_any_call(sub, t
     import sys
 
     from dokimi import cli
-    from dokimi.commands import novelty as novelty_cmd
     from dokimi.defaults import DEFAULT_JUDGE_MODEL
     from tests.cli_paths import novelty_argv
 
@@ -239,7 +239,7 @@ def test_the_cli_refuses_a_judge2_that_is_the_first_judge_before_any_call(sub, t
             "spans": [{"id": "s0001", "kind": "sentence", "text": "Text.", "start": 0, "end": 5}],
         }), encoding="utf-8")
         argv += ["--atoms", str(atoms)]
-    monkeypatch.setattr(novelty_cmd, "_client", lambda model, provider, role, args: LLMClient(
+    monkeypatch.setattr(novelty_cost, "client", lambda model, provider, role, args: LLMClient(
         model=model, provider=provider, role=role, transport=counting))
     monkeypatch.setattr(sys, "argv", argv)
     with pytest.raises(SystemExit) as excinfo:
