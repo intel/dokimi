@@ -160,6 +160,18 @@ def test_a_missing_quoted_argument_is_named_whole(tmp_path):
     assert finding.message.startswith("'assets/logo.dark mode.svg' (in ")
 
 
+def test_an_escaped_space_is_part_of_the_path(tmp_path):
+    review, _ = _review(tmp_path, "Run `scripts/my\\ run.py`.\n", files=["scripts/my run.py"])
+    assert _path_findings(review) == []
+
+
+def test_a_missing_path_with_an_escaped_space_is_named_whole(tmp_path):
+    review, _ = _review(tmp_path, "Run `scripts/my\\ run.py`.\n")
+    [finding] = _path_findings(review)
+    assert finding.code == "path-missing"
+    assert finding.message.startswith("'scripts/my run.py' (in ")
+
+
 def test_a_standalone_path_with_a_space_that_exists_is_fine(tmp_path):
     review, _ = _review(tmp_path, "Use `assets/logo.dark mode.svg`.\n", files=["assets/logo.dark mode.svg"])
     assert _path_findings(review) == []
