@@ -136,8 +136,9 @@ _NO_HARD_LINKS = {errno.EPERM, errno.EOPNOTSUPP, errno.ENOTSUP}
 
 def _check_hard_links(out: Path) -> None:
     """Refuse a filesystem with no hard links before the paid call: the graph is published by one."""
-    probe = Path(tempfile.mkdtemp(prefix=".eval-graph-probe-", dir=out.parent))
+    probe = None
     try:
+        probe = Path(tempfile.mkdtemp(prefix=".eval-graph-probe-", dir=out.parent))
         (probe / "a").write_bytes(b"")
         os.link(probe / "a", probe / "b")
     except OSError as exc:
@@ -148,7 +149,8 @@ def _check_hard_links(out: Path) -> None:
             ) from exc
         raise InputError(f"cannot write {out}: {exc.strerror or exc}") from exc
     finally:
-        shutil.rmtree(probe, ignore_errors=True)
+        if probe is not None:
+            shutil.rmtree(probe, ignore_errors=True)
 
 
 def _graph_from_unmetered(name: str, description: str, reply: str):

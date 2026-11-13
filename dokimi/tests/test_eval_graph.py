@@ -433,3 +433,23 @@ def test_an_unusable_unmetered_reply_writes_nothing_and_no_warning_for_a_graph(t
 
     assert result.returncode == 1 and "nothing was written" in result.stderr
     assert "could not be metered" not in result.stderr and not out.exists()
+
+
+def test_a_full_disk_while_probing_hard_links_is_refused_not_a_traceback(tmp_path, monkeypatch, capsys):
+    import tempfile
+
+    prompts = _stub(monkeypatch, REPLY)
+    real_mkdtemp = tempfile.mkdtemp
+
+    def full_disk(*args, **kwargs):
+        if kwargs.get("prefix") == ".eval-graph-probe-":
+            raise OSError(errno.ENOSPC, "No space left on device")
+        return real_mkdtemp(*args, **kwargs)
+
+    monkeypatch.setattr(tempfile, "mkdtemp", full_disk)
+    out = tmp_path / "g.json"
+
+    result = _run(capsys, str(_skill(tmp_path)), "--out", str(out), "--extract-model", "gemini/x")
+
+    assert result.returncode == 2 and "No space left" in result.stderr
+    assert prompts == [] and not out.exists()
