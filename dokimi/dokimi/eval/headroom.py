@@ -23,6 +23,13 @@ per repetition of the same question set. Each ``Run`` passed here counts as one 
 drop repeated inputs first (the CLI does, by content digest). A question id repeated within one
 run is refused: it would count as two runs. Nothing here draws a confidence interval; the paired
 statistics of a comparison stay in :mod:`dokimi.eval.stats`.
+
+A replayed answer (``replayed: true``: the response cache served it) whose text a scored fresh answer
+of another run has for the same item and arm is a cached repeat, not a sample: its score is left out
+of the reps and the means. The replays of one text that no scored fresh answer has are one rep, scored
+at their mean. ``summary.replayed_repeats`` counts the scores of replays that added no rep: the left-out ones,
+and each of those copies past the first. A replay with no score adds no rep because it has no score,
+and is not counted.
 """
 
 from __future__ import annotations
@@ -30,7 +37,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import ROUND_FLOOR, Context, Decimal
 from fractions import Fraction
-from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
+from typing import Any, Dict, Iterable, List, NamedTuple, Optional, Sequence, Set, Tuple
 
 from dokimi.records import Record, Run
 
@@ -117,7 +124,7 @@ def headroom(
     """
     check_thresholds(ceiling, floor, min_reps)
     control = _no_skill_arm(runs, no_skill_arm)
-    scores, arms_of = _collect(runs)
+    scores, arms_of, replayed_repeats = _collect(runs)
     if scores and not any(control in per_arm for per_arm in scores.values()):
         # Every item would read as "no ceiling, not a floor": unmeasured, not headroom. Refuse it instead.
         raise ValueError(
@@ -150,6 +157,7 @@ def headroom(
         # Not measured is not "no headroom": an item with no no-skill score is counted apart from no_flag.
         "no_flag": sum(1 for i in items if i.flag is None and i.no_skill is not None),
         "unmeasured": sum(1 for i in items if i.no_skill is None),
+        "replayed_repeats": replayed_repeats,
     }
     return {
         "no_skill_arm": control,
@@ -209,10 +217,24 @@ def repeated_ids(run: Run) -> List[str]:
     return repeated
 
 
-def _collect(runs: Sequence[Run]) -> Tuple[Dict[str, Dict[str, List[Fraction]]], Dict[str, Set[str]]]:
-    """Question id -> arm -> the per-run scores (0-1, exact), and question id -> the arms it listed."""
-    scores: Dict[str, Dict[str, List[Fraction]]] = {}
+_Scores = Dict[str, Dict[str, List[Fraction]]]
+
+
+class _Cell(NamedTuple):
+    """One run's score of one item and arm, with the answer it scored."""
+
+    key: str
+    arm: str
+    value: Fraction
+    text: Optional[str]
+    replayed: bool
+
+
+def _collect(runs: Sequence[Run]) -> Tuple[_Scores, Dict[str, Set[str]], int]:
+    """Question id -> arm -> the per-run scores (0-1, exact), question id -> the arms it listed,
+    and the number of scores of replayed answers that added no rep (see :func:`_count`)."""
     arms_of: Dict[str, Set[str]] = {}
+    cells: List[_Cell] = []
     for index, run in enumerate(runs, start=1):
         dupes = repeated_ids(run)
         if dupes:
@@ -223,12 +245,39 @@ def _collect(runs: Sequence[Run]) -> Tuple[Dict[str, Dict[str, List[Fraction]]],
         for rec in run:
             names = _listed_arms(rec) | set(rec.scores)
             arms_of.setdefault(rec.key, set()).update(names | declared)
-            per_arm = scores.setdefault(rec.key, {})
             for arm in names:
                 value = rec.score(arm)
                 if value is not None:
-                    per_arm.setdefault(arm, []).append(Fraction(str(value)) / 100)
-    return scores, arms_of
+                    answer = rec.answer(arm)
+                    cells.append(_Cell(rec.key, arm, Fraction(str(value)) / 100,
+                                       answer.text if answer else None, bool(answer and answer.replayed)))
+    scores, left_out = _count(cells, arms_of)
+    return scores, arms_of, left_out
+
+
+def _count(cells: List[_Cell], items: Iterable[str]) -> Tuple[_Scores, int]:
+    """Question id -> arm -> the scores that count, for each id of ``items``, and how many scores of
+    replayed answers added no rep. A replayed answer whose text a scored fresh one of the same item and
+    arm has is left out; the replays of one text no scored fresh answer has count once, at their mean.
+    Only scored cells come in, so an unscored fresh answer does not hold its replay out."""
+    scores: _Scores = {key: {} for key in items}
+    fresh: Set[Tuple[str, str, Optional[str]]] = set()
+    replays: Dict[Tuple[str, str, Optional[str]], List[Fraction]] = {}
+    for cell in cells:
+        if cell.replayed:
+            replays.setdefault((cell.key, cell.arm, cell.text), []).append(cell.value)
+            continue
+        fresh.add((cell.key, cell.arm, cell.text))
+        scores[cell.key].setdefault(cell.arm, []).append(cell.value)
+    left_out = 0
+    # The mean, not the first file's score: which of the copies counts must not hang on the input order.
+    for (key, arm, text), values in replays.items():
+        if (key, arm, text) in fresh:
+            left_out += len(values)
+            continue
+        left_out += len(values) - 1
+        scores[key].setdefault(arm, []).append(sum(values, Fraction(0)) / len(values))
+    return scores, left_out
 
 
 def _sort_key(qid: str):
@@ -266,6 +315,11 @@ def format_table(result: Dict[str, Any]) -> str:
     if unscored:
         counts = [f"{arm} in {n} item{'' if n == 1 else 's'}" for arm, n in sorted(unscored.items())]
         lines.append("note: no run scored these arms, so the floor test leaves them out: " + "; ".join(counts))
+    if result["summary"]["replayed_repeats"]:
+        n = result["summary"]["replayed_repeats"]
+        lines.append(f"note: {n} score{'' if n == 1 else 's'} of replayed answers (DOKIMI_RESPONSE_CACHE) added no rep: "
+                     "a copy of a scored fresh answer is left out, the copies of an answer no run scored "
+                     "fresh count once, at their mean")
     s = result["summary"]
     th = result["thresholds"]
     lines.append("")
