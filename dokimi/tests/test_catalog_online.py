@@ -980,3 +980,10 @@ def test_resolver_failure_of_a_no_proxy_host_is_a_dns_failure(monkeypatch):
 
     monkeypatch.setattr(socket, "getaddrinfo", no_such_host)
     assert online_checks._link_outcome(online_checks.make_client(), "https://docs.acme.dev/x").status == "dns"
+
+
+def test_a_url_in_a_double_backtick_or_multi_line_code_span_is_not_probed():
+    assert online_checks.extract_urls("Example: ``https://docs.acme.dev/old``\n") == []
+    assert online_checks.extract_urls("Example: `see\nhttps://docs.acme.dev/old`\n") == []
+    # a code span does not run over a blank line, so the URL after the stray backtick is a link
+    assert online_checks.extract_urls("A `stray\n\nhttps://docs.acme.dev/live`\n") == ["https://docs.acme.dev/live"]

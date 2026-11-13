@@ -107,6 +107,9 @@ _RESERVED_SUFFIXES = (".localhost", ".test", ".invalid", ".example")
 _PLACEHOLDER_HOST_RE = re.compile(r"(?:^|[./])your[-_]")  # a host or a path segment that starts with ``your-`` or ``your_``
 _PLACEHOLDER_SEGMENTS = {"OWNER", "REPO", "USER", "USERNAME"}  # a URL path's upper-case placeholder segment, "OWNER/REPO.git"
 _CODE_SPAN_RE = re.compile(r"`([^`\n]*)`")
+# A code span as CommonMark closes it: a run of backticks ends at the next run of the same length; it may run
+# over a line break, but not over a blank line (a paragraph's end).
+_URL_CODE_SPAN_RE = re.compile(r"(?<!`)(`+)(?!`)((?:(?!\n[ \t]*\n).)*?)(?<!`)\1(?!`)", re.DOTALL)
 _COMMAND_START = _PIP | {"npm", "npx", "uv", "sudo", "$"}
 _OPERATOR_RE = re.compile(r"[;|&()]+")  # a shell operator ends the words of a command; ``<`` and ``>`` do not (see below)
 _DESCRIPTOR_RE = re.compile(r"\d*[<>]&(?:\d+|-)")  # a descriptor duplication (2>&1, >&2, 2>&-): not a file, not a split
@@ -464,7 +467,7 @@ def _distinct_urls(body: str) -> tuple[list[str], list[str]]:
     body = "\n".join(outside_fences(body))  # a fenced block is code: its URLs are an example, not a link to follow
     literal = {m.end() for m in _LITERAL_START_RE.finditer(body)}
     body = body.replace("](", "  ")  # a markdown link's text and its target are both URLs; the length is kept
-    code = [m.span() for m in _CODE_SPAN_RE.finditer(body)]  # a URL in a code span is an example, as in a fence
+    code = [m.span() for m in _URL_CODE_SPAN_RE.finditer(body)]  # a URL in a code span is an example, as in a fence
     for m in _URL_RE.finditer(body):
         if _TEMPLATE_RE.search(m.group()) or body[m.end():m.end() + 1] in ("<", "{", "$"):
             continue
