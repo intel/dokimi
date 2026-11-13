@@ -901,3 +901,8 @@ def test_self_review_positives_are_found(text):
 def test_self_review_negatives_are_not_found(text):
     rules = _rules(sec.command_findings(text, "trace"))
     assert not rules & {"pipe-to-shell", "hook-bypass", "secret-read", "container-escape"}
+
+
+@pytest.mark.parametrize("text", ["git reset origin/main --hard", "git -C repo reset HEAD~1 --hard"])
+def test_hard_reset_with_the_ref_before_the_flag_is_found(text):
+    assert "history-rewrite" in _rules(sec.command_findings(text, "trace"))

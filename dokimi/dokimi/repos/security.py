@@ -113,7 +113,7 @@ COMMAND_RULES: tuple[Rule, ...] = (
     # one of several (`-fu`); `+ref` is a force push; `-n` is --no-verify for commit (for push it is a dry run)
     Rule("history-rewrite", "high", "force push or hard reset",
          _rx(r"\bgit\s+(?:-[Cc]\s+\S+\s+|-\S+\s+)*push\b[^;&|\n]*(?:\s-[a-z]*f[a-z]*\b|--force\b(?!-with-lease|-if-includes)"
-             r"|\s\+\S)|\bgit\s+(?:-[Cc]\s+\S+\s+|-\S+\s+)*reset\s+(?:-\S+\s+)*--hard\b")),
+             r"|\s\+\S)|\bgit\s+(?:-[Cc]\s+\S+\s+|-\S+\s+)*reset\b[^;&|\n]*\s--hard(?![\w-])")),
     Rule("hook-bypass", "medium", "git hooks skipped",
          # a short flag cluster may end in `-m` or `-F` (`-nm msg`), so the `n` need not be the last letter
          _rx(r"\bgit\s+(?:-[Cc]\s+\S+\s+|-\S+\s+)*(?:commit\b[^;&|\n]*(?:\s-[aqsv]*n[aqsvn]*(?:[mFC]\S*)?(?=[\s\"';&|)`]|$)"
