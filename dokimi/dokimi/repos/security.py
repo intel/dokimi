@@ -212,8 +212,9 @@ def parse_exec_log(text: str) -> list[str]:
         if not m or re.search(r"\)\s*=\s*-1\b", line):
             continue
         items = _ARGV_ITEM.findall(m.group("argv"))
-        argv = [_strace_text(a) for a, cut in items if not cut]
-        out.append(" ".join(argv) if items else m.group("path"))
+        # the executable is the path; argv[0] is whatever the process chose to call itself
+        argv = [_strace_text(a) for a, cut in items[1:] if not cut]
+        out.append(" ".join([_strace_text(m.group("path")), *argv]) if items else m.group("path"))
     return out
 
 

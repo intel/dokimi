@@ -108,7 +108,7 @@ def test_parse_exec_log_keeps_successful_execs_and_argv():
         '103 execve("/usr/local/bin/sudo", ["sudo", "x"], 0x55 /* 9 vars */) = -1 ENOENT (No such file)\n'
         '104 +++ exited with 0 +++\n'
     )
-    assert sec.parse_exec_log(log) == ["sh -c python fix.py", "sudo chown root f"]
+    assert sec.parse_exec_log(log) == ["/bin/sh -c python fix.py", "/usr/bin/sudo chown root f"]
 
 
 def test_scan_cell_reads_every_source(tmp_path):
@@ -540,7 +540,7 @@ def test_secret_read_under_any_home_directory(text):
 def test_exec_log_decodes_strace_utf8_escapes(tmp_path):
     canary = "token-é-123456789"  # strace prints the UTF-8 bytes of é as octal escapes
     log = r'execve("/bin/echo", ["echo", "token-\303\251-123456789"], 0x0) = 0' + "\n"
-    assert sec.parse_exec_log(log) == ["echo " + canary]
+    assert sec.parse_exec_log(log) == ["/bin/echo " + canary]
     cell = _cell(tmp_path, "t", "skill", 0, events=[_cmd("pytest")], exec_log=log)
     assert "canary-leak" in {f["rule"] for f in sec.scan_cell(cell, [canary])["findings"]}
 
@@ -835,7 +835,7 @@ def test_a_string_strace_cut_at_its_limit_is_no_argument():
     # a rule must not judge it (the apt cleanup path cut to /var/lib/apt/lis is not a delete of /var/lib/apt)
     cut = '101 execve("/usr/bin/bash", ["bash", "-c", "cd /x && rm -rf /var/lib/apt/lis"...], 0x7ff /* 9 vars */) = 0\n'
     (line,) = sec.parse_exec_log(cut)
-    assert line == "bash -c"
+    assert line == "/usr/bin/bash -c"
     assert not sec.command_findings(line, "exec")
     full = cut.replace('lis"...', 'lists/*"')
     assert "destructive-delete" not in _rules(sec.command_findings(sec.parse_exec_log(full)[0], "exec"))
@@ -916,3 +916,9 @@ def test_exec_log_argv_with_a_bracket_and_a_comma_in_a_string_is_read_whole():
     log = '1 execve("/bin/bash", ["bash", "-c", "x=[1], rm -rf /"], 0x1 /* 1 var */) = 0\n'
     found = {r for c in sec.parse_exec_log(log) for r in _rules(sec.command_findings(c, "exec"))}
     assert "destructive-delete" in found
+
+
+def test_exec_log_names_the_executable_path_not_a_chosen_argv0():
+    log = '1 execve("/bin/rm", ["cleanup", "-rf", "/etc"], 0x0 /* 1 var */) = 0\n'
+    assert sec.parse_exec_log(log) == ["/bin/rm -rf /etc"]
+    assert "destructive-delete" in {r for c in sec.parse_exec_log(log) for r in _rules(sec.command_findings(c, "exec"))}
