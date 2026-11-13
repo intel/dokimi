@@ -797,9 +797,11 @@ also keeps `per_query`, one row per query whatever `--repeats` is, in the shape 
 `per_query` plus the `gold` skill: `query`, `gold`, `rank` of the gold card and `picked` (`rank` is `null` and
 a `reason` replaces `picked` for a query with no content word). `picked` follows the confusion matrix, so it is
 `(none)` for a query that shares no word with any card and `(tie)` when two or more other cards tie at the top,
-where a single-artifact run names the first card in the field. A saved run can be rescored from them, for
-corrected gold labels, acceptable alternatives, a dev and test split, or a query-by-query comparison of two
-runs. The model arm's rows are `model.noise.per_query` (`query`, `gold`, `picks`, `n_correct`), also kept
+where a single-artifact run names the first card in the field. `rank` and `picked` hold for the row's `gold`
+only, so each row also keeps `scores` (card name to BM25 score, in the order of the field), which do not depend
+on the gold: `rescore_lexical_row(row, gold)` in `dokimi.novelty.all_vs_all` gives `rank` and `picked` for a
+corrected gold, ties included. A saved run can be rescored from them, for corrected gold labels, acceptable
+alternatives, a dev and test split, or a query-by-query comparison of two runs. The model arm's rows are `model.noise.per_query` (`query`, `gold`, `picks`, `n_correct`), also kept
 with one repeat. A run
 with any failed model call writes the result and exits non-zero. The saved file records the
 field rule under `field` (`include_disabled`, `include_invalid`, `keep_copies_under`, the `competitors` and what was
