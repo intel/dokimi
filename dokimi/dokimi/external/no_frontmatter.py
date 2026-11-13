@@ -35,7 +35,8 @@ def no_frontmatter_message(lines: list[str], dir_name: str, at_root: bool = Fals
     The block is a start: the description still needs a "when" clause.
     """
     # CommonMark fences: a shorter run or another marker does not close one
-    body = _without_comments([line.strip().lstrip("\ufeff") for line in outside_fences("\n".join(lines))])
+    raw = _without_comments([line.lstrip("\ufeff") for line in outside_fences("\n".join(lines))])
+    body = [line.strip() for line in raw]
     title = ""
     start = 0  # the paragraph is the one after the first H1: an intro or a badge above it is not taken
     for i, stripped in enumerate(body):
@@ -47,7 +48,7 @@ def no_frontmatter_message(lines: list[str], dir_name: str, at_root: bool = Fals
             title = stripped
             start = i + 2
             break
-    paragraph = _first_paragraph(body[start:])
+    paragraph = _first_paragraph(raw[start:])
     if not at_root and SPEC_NAME.fullmatch(dir_name) and len(dir_name) <= NAME_MAX:
         name = dir_name  # validate.NAME_PATTERN, as the loader's name-mismatch check reads it
     else:
@@ -72,17 +73,21 @@ def _without_comments(body: list[str]) -> list[str]:
     for stripped in body:
         if in_comment:
             in_comment = "-->" not in stripped
-        elif stripped.startswith("<!--"):
+        elif stripped.lstrip().startswith("<!--"):
             in_comment = "-->" not in stripped
         else:
             kept.append(stripped)
     return kept
 
 
-def _first_paragraph(body: list[str]) -> list[str]:
-    """The lines of the first paragraph of ``body``, skipping blank, heading, table and HTML lines."""
+def _first_paragraph(raw: list[str]) -> list[str]:
+    """The lines of the first paragraph of ``raw`` (unstripped), skipping blank, heading, table and HTML lines,
+    and an indented code block before it (four spaces or a tab)."""
     paragraph: list[str] = []
-    for stripped in body:
+    for line in raw:
+        stripped = line.strip()
+        if not paragraph and line.startswith(("\t", "    ")) and stripped:
+            continue  # an indented code block is not prose
         if not stripped or stripped.startswith(("#", "|", "<", "!", "---")):
             if paragraph:
                 break

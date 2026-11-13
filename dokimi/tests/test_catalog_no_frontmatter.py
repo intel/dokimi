@@ -209,6 +209,11 @@ def test_a_setext_h1_is_the_title():
         "name": "deck-builder", "description": "Builds decks."}
 
 
+def test_an_indented_code_block_after_the_h1_is_not_the_description():
+    desc = _block(no_frontmatter_message(["# Tool", "", "    npm install foo"], "tool", at_root=True))["description"]
+    assert desc == "What tool does. Use when ..."  # the default: no paragraph, the code block is not prose
+
+
 def test_a_root_skill_gets_the_h1_name_not_the_directory_name(tmp_path):
     real = tmp_path / "real"
     real.mkdir()
