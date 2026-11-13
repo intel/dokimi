@@ -394,3 +394,20 @@ def test_a_document_named_by_a_hidden_file_name_is_read(tmp_path):
         {".guide.md": "Run scripts/run.py.\n", "scripts/run.py": "x\n"},
     )
     assert _unreferenced(review) == []
+
+
+def test_a_named_document_over_the_read_cap_names_nothing_it_holds(tmp_path, monkeypatch):
+    # Reading the over-cap document would name run.py and leave other.py unnamed: the claim must be withheld.
+    from dokimi.external import bundle_refs
+
+    monkeypatch.setattr(bundle_refs, "DOC_MAX_BYTES", 32)
+    review = _review_with_texts(
+        tmp_path,
+        "Read big.md.\n",
+        {
+            "big.md": "Run scripts/run.py first, then read the rest of this document.\n",
+            "scripts/run.py": "x\n",
+            "scripts/other.py": "x\n",
+        },
+    )
+    assert _unreferenced(review) == []
