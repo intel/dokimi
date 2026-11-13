@@ -124,6 +124,8 @@ def test_a_missing_input_prints_a_lock_line(tmp_path: Path, monkeypatch: pytest.
     """Without ci/config.yml, ci/lock.py exits 1 with a lock: line, not a traceback."""
     shutil.copytree(_REPO / "ci", tmp_path / "ci", ignore=shutil.ignore_patterns("config.yml", "conda-lock"))
     shutil.copytree(_REPO / "conda-recipe", tmp_path / "conda-recipe")
+    # ci/test.py sets PYTHONSAFEPATH=1, which drops ci/ from sys.path and so the sibling hooks import
+    monkeypatch.delenv("PYTHONSAFEPATH", raising=False)
     result = subprocess.run([sys.executable, str(tmp_path / "ci" / "lock.py"), "--python", "3.12"],
                             capture_output=True, text=True, check=False)
     assert result.returncode == 1
