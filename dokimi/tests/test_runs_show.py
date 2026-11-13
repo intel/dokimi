@@ -143,6 +143,22 @@ def test_an_artifact_that_fails_its_schema_lists_the_errors_and_exits_0(monkeypa
     assert lines[5] == "subject:    onetbb"
 
 
+def test_a_finished_novelty_record_without_its_summaries_is_invalid_but_a_partial_one_is_not(
+        monkeypatch, capsys, root):
+    data = {"schema_version": "novelty.v1", **_fixture("novelty.v1")}  # the version leads the file
+    for name in ("paired", "k0", "spans"):
+        del data[name]
+    (root / "novelty.json").write_text(json.dumps(data, indent=2), encoding="utf-8")
+    partial = {**data, "status": "partial",
+               "partial": {"reason": "spend_cap", "stage": "measurement", "message": "stopped"}}
+    (root / "novelty.partial.json").write_text(json.dumps(partial, indent=2), encoding="utf-8")
+
+    finished = _show(monkeypatch, capsys, "novelty.json").out
+    assert "schema:     invalid, 3 errors" in finished
+    assert "  - <root>: 'paired' is a required property" in finished
+    assert "schema:     valid" in _show(monkeypatch, capsys, "novelty.partial.json").out
+
+
 def test_a_time_the_artifact_does_not_record_is_shown_as_the_files_mtime(monkeypatch, capsys, root):
     stamp = 1_780_000_000
     os.utime(root / "arms" / "plugin_delta.json", (stamp, stamp))
