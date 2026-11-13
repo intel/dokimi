@@ -25,6 +25,7 @@ from types import SimpleNamespace
 from typing import Any
 from unittest import mock
 
+from dokimi import docker_cmd
 from dokimi.harnesses import fidelity
 from dokimi.harnesses.container_agent import ContainerSandbox
 from dokimi.harnesses.docker_solver import DockerSolverHarness
@@ -77,14 +78,27 @@ def _repo_cases(out: dict[str, Any]) -> None:
 
 
 def _example_outcome(lang: str, policy: ExecutionPolicy) -> tuple[Any, list[list[str]], list[float]]:
-    """The outcome, the argv (per-run temp dir masked) and the timeout of one docker-backend run."""
-    runner = FakeRunner(lambda call: reply())
+    """The outcome, the argv (per-run temp dir masked) and the timeout of one docker-backend run.
+
+    A ``:/work:ro`` mount is masked only when its source holds the snippet, checked while the temp dir
+    still exists (the runner is called inside it). A source that does not hold it stays in the argv.
+    """
+    snippet = f"snippet{EXECUTORS[lang][0]}"
+    validated: set[str] = set()
+
+    def check(call) -> Any:
+        for arg in call.argv:
+            if arg.endswith(":/work:ro") and (Path(arg[: -len(":/work:ro")]) / snippet).is_file():
+                validated.add(arg)
+        return reply()
+
+    runner = FakeRunner(check)
 
     def run() -> None:
         run_example(lang, "print(1)", policy, runner)
 
     outcome = _guarded(run)
-    argv = [[_TMP if a.endswith(":/work:ro") else a for a in c.argv] for c in runner.calls]
+    argv = [[_TMP if a in validated else a for a in c.argv] for c in runner.calls]
     return outcome, argv, [c.timeout for c in runner.calls]
 
 
@@ -198,3 +212,19 @@ def test_a_task_container_env_is_pinned_before_the_image(tmp_path):
     for key, argv in env_argvs:
         image_at = argv.index("sleep") - 1
         assert argv.index("TEST_DIR=/tests") < image_at, key
+
+
+def test_a_broken_example_mount_source_stays_visible_in_the_grid(monkeypatch):
+    # The example's temp dir is masked only where the snippet is in it; a mount source that is not
+    # there stays in the argv, so the golden no longer matches.
+    real_run_spec = docker_cmd.run_spec
+
+    def broken(*args, **kwargs):
+        return [("/missing:/work:ro" if arg.endswith(":/work:ro") else arg) for arg in real_run_spec(*args, **kwargs)]
+
+    monkeypatch.setattr(docker_cmd, "run_spec", broken)
+    _outcome, argv, _timeouts = _example_outcome(sorted(EXECUTORS)[0], ExecutionPolicy(backend="docker", timeout=7,
+                                                                                     mem_mb=512))
+    flat = [arg for call in argv for arg in call]
+    assert "/missing:/work:ro" in flat
+    assert _TMP not in flat
