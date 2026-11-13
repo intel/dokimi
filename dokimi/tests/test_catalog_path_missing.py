@@ -81,14 +81,24 @@ def test_one_finding_per_path(tmp_path):
     assert _codes(review) == ["path-missing"]
 
 
-def test_a_symlink_out_of_the_skill_is_not_followed(tmp_path):
+def test_a_dangling_symlink_out_of_the_skill_is_not_reported(tmp_path):
+    # The target does not exist, so only the containment check keeps this quiet.
+    review, skill_dir = _review(tmp_path, "Run `scripts/gone.sh`.\n")
+    assert _codes(review) == ["path-missing"]  # positive control: missing before the link exists
+    (skill_dir / "scripts").mkdir()
+    (skill_dir / "scripts" / "gone.sh").symlink_to(tmp_path / "nowhere" / "gone.sh")
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert _path_findings(review) == []
+
+
+def test_a_symlink_to_an_existing_file_out_of_the_skill_is_not_followed(tmp_path):
     outside = tmp_path / "outside.sh"
     outside.write_text("x\n", encoding="utf-8")
     review, skill_dir = _review(tmp_path, "Run `scripts/link.sh`.\n")
     (skill_dir / "scripts").mkdir()
     (skill_dir / "scripts" / "link.sh").symlink_to(outside)
     [review] = review_skills(read_skill_manifest(tmp_path))
-    assert "path-missing" not in _codes(review)
+    assert _path_findings(review) == []
 
 
 @pytest.mark.parametrize(
