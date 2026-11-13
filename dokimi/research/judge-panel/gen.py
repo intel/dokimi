@@ -44,7 +44,9 @@ def kappa(a, b):
     po = sum(V[k][a] == V[k][b] for k in keys) / n
     pe = sum((sum(V[k][a] == l for k in keys) / n) * (sum(V[k][b] == l for k in keys) / n)
              for l in V6)
-    return ((po - pe) / (1 - pe) if pe < 1 else 1.0), n  # as analyze.py: chance agreement 1 is perfect
+    if pe >= 1:  # both judges give one label to every shared answer: 0/0, no kappa to report
+        return None, n
+    return (po - pe) / (1 - pe), n
 
 
 def lenient_rate(j):
@@ -90,7 +92,8 @@ wcsv("judge_leniency.csv", ["judge", "n", "lenient_rate", "strict_rate"], tab)
 tab, ktab = [], []
 for fam, old, new in PAIRS:
     k, n = kappa(old, new)
-    row = {"family": fam, "old": old, "new": new, "kappa_old_new": round(k, 3), "n": n,
+    row = {"family": fam, "old": old, "new": new,
+           "kappa_old_new": None if k is None else round(k, 3), "n": n,
            "lenient_rate_delta": round(out["per_judge"][new]["lenient_rate"]
                                        - out["per_judge"][old]["lenient_rate"], 4),
            "added": {}}
@@ -102,7 +105,7 @@ for fam, old, new in PAIRS:
             tab.append([fam, old, new, mode, m, round(ho["added"], 3), round(hn["added"], 3),
                         round(d, 3) if d is not None else ""])
     out["pairs"].append(row)
-    ktab.append([fam, old, new, n, round(k, 3), row["lenient_rate_delta"]])
+    ktab.append([fam, old, new, n, "" if k is None else round(k, 3), row["lenient_rate_delta"]])
 wcsv("generation_kappa.csv", ["family", "old_judge", "new_judge", "n", "kappa", "lenient_rate_delta"],
      ktab)
 wcsv("generation_added_share.csv", ["family", "old_judge", "new_judge", "mode", "answer_model",
@@ -116,7 +119,7 @@ def shared(a, b):
 
 tab = []
 for j in ALL:
-    ks = [kappa(j, o)[0] for o in ALL if o != j and shared(j, o)]
+    ks = [k for k in (kappa(j, o)[0] for o in ALL if o != j and shared(j, o)) if k is not None]
     mk = round(sum(ks) / len(ks), 3) if ks else None
     out["per_judge"][j]["mean_kappa_vs_others"] = mk
     tab.append([j, mk])

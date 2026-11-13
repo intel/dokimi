@@ -213,7 +213,10 @@ def run_study():
         po = sum(x == y for x, y in zip(a, b, strict=True)) / n
         ca, cb = Counter(a), Counter(b)
         pe = sum(ca[l] * cb[l] for l in labels) / n / n
-        return (po - pe) / (1 - pe) if pe < 1 else 1.0
+        return None if pe >= 1 else (po - pe) / (1 - pe)  # constant labels: 0/0, no kappa
+
+    def _round(x):
+        return None if x is None else round(x, 3)
 
     kt = []
     kap = {}
@@ -229,9 +232,9 @@ def run_study():
             j1,
             j2,
             len(ks),
-            round(kappa(a6, b6, V6), 3),
-            round(kappa(al, bl, [True, False]), 3),
-            round(kappa(as_, bs, [True, False]), 3),
+            _round(kappa(a6, b6, V6)),
+            _round(kappa(al, bl, [True, False])),
+            _round(kappa(as_, bs, [True, False])),
             round(sum(x == y for x, y in zip(al, bl, strict=True)) / len(ks), 3),
         ]
         kap[(j1, j2)] = kap[(j2, j1)] = r[4]
@@ -242,7 +245,9 @@ def run_study():
         kt,
     )
     summary["mean_kappa_lenient"] = {
-        j: round(float(np.mean([kap[(j, o)] for o in JUDGES if o != j])), 3) for j in JUDGES
+        j: _round(float(np.mean(known))) if (known := [kap[(j, o)] for o in JUDGES
+                                                  if o != j and kap[(j, o)] is not None]) else None
+        for j in JUDGES
     }
 
     # leniency of each judge: overall lenient / strict rate

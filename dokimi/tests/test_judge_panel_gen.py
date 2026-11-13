@@ -80,7 +80,7 @@ def test_gen_runs_when_two_judges_agree_on_every_row(tmp_path):
     assert r.returncode == 0, r.stderr[-800:]
     summary = json.loads((out / "gen_summary.json").read_text())
     pair = next(p for p in summary["pairs"] if p["old"] == "kimi-k2.5")
-    assert pair["kappa_old_new"] == 1.0
+    assert pair["kappa_old_new"] is None  # 0/0: no kappa to report, not a perfect 1.0
 
 
 def test_gen_names_a_judge_with_no_complete_triplet_for_a_model(tmp_path):
