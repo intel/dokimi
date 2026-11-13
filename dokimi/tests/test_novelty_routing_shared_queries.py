@@ -5,7 +5,11 @@
 
 from __future__ import annotations
 
-from dokimi.commands.novelty_routing_report import warn_query_problems
+import json
+
+from dokimi.cli import build_parser
+from dokimi.commands.novelty_routing_report import warn_shared_queries
+from dokimi.novelty.all_vs_all import all_vs_all
 from dokimi.novelty.query_overlap import SHARED_QUERY_WARN_SHARE, shared_queries_warning
 from dokimi.novelty.routing import Candidate, headings_as_queries, lexical_routing
 
@@ -17,7 +21,8 @@ def test_sibling_skills_on_one_template_give_identical_heading_queries():
     warning = shared_queries_warning({"dpnp-a": queries, "dpnp-b": queries, "dpnp-c": queries})
     assert warning is not None
     assert "9 of 9 queries (100%)" in warning
-    assert "same rank" in warning
+    assert "same rank" not in warning
+    assert "independent" in warning
 
 
 def test_case_and_spacing_do_not_hide_a_shared_query():
@@ -43,9 +48,22 @@ def test_one_skill_or_no_queries_draw_no_warning():
     assert shared_queries_warning({"a": [], "b": []}) is None
 
 
-def test_the_warning_goes_to_stderr_next_to_the_other_query_warnings(capsys):
+def test_the_warning_does_not_claim_equal_ranks_the_run_does_not_give():
+    cands = [Candidate("a", "alpha"), Candidate("b", "gamma")]
+    queries = {"a": ["alpha"], "b": ["alpha"]}
+    rates = all_vs_all(cands, queries)["lexical"]["own_rate"]
+    assert rates["a"] != rates["b"]
+    assert "same rank" not in shared_queries_warning(queries)
+
+
+def test_queries_with_no_content_word_are_not_counted():
+    queries = {"a": ["the", "and", "profile a binary"], "b": ["the", "and", "slice an array"]}
+    assert shared_queries_warning(queries) is None
+
+
+def test_the_warning_goes_to_stderr(capsys):
     shared = headings_as_queries(TEMPLATE)
-    warn_query_problems({}, {"dpnp-a": shared, "dpnp-b": shared})
+    warn_shared_queries({"dpnp-a": shared, "dpnp-b": shared})
     captured = capsys.readouterr()
     assert captured.out == ""
     assert captured.err.startswith("WARNING: 6 of 6 queries (100%)")
@@ -56,3 +74,28 @@ def test_the_lexical_note_does_not_present_the_family_zero_as_a_finding():
                              ["alpha beta"])
     assert "0.0 for every" not in result["note"]
     assert "independently" in result["note"]
+
+
+def _run_all_vs_all(tmp_path, *extra):
+    root = tmp_path / "catalog"
+    for name in ("a", "b"):
+        skill_dir = root / "skills" / name
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text(
+            f"---\nname: {name}\ndescription: tune {name} things\n---\n\n# B\n", encoding="utf-8")
+    queries = tmp_path / "q.json"
+    queries.write_text(json.dumps({"a": ["quick start"], "b": ["quick start"]}), encoding="utf-8")
+    args = build_parser().parse_args(
+        ["novelty", "routing", "--all-vs-all", "--catalog", str(root),
+         "--queries-by-skill", str(queries), "--out", str(tmp_path / "out.json"), *extra])
+    args.func(args)
+
+
+def test_all_vs_all_warns_of_shared_queries_on_stderr(tmp_path, capsys):
+    _run_all_vs_all(tmp_path)
+    assert "WARNING: 2 of 2 queries (100%)" in capsys.readouterr().err
+
+
+def test_estimate_only_warns_of_shared_queries_before_returning(tmp_path, capsys):
+    _run_all_vs_all(tmp_path, "--estimate-only")
+    assert "WARNING: 2 of 2 queries (100%)" in capsys.readouterr().err

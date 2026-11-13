@@ -649,11 +649,10 @@ def warn_blind_skills(result: dict, queries_by_skill: dict[str, list[str]]) -> N
               "(no content word in them), so their lexical own_rate is None", file=sys.stderr)
 
 
-def warn_query_problems(result: dict, queries_by_skill: dict[str, list[str]]) -> None:
-    """Warn on stderr of queries the lexical arm cannot score and of queries shared by skills."""
+def warn_shared_queries(queries_by_skill: dict[str, list[str]]) -> None:
+    """Warn on stderr when half or more of the queries are listed for several skills."""
     from dokimi.novelty.query_overlap import shared_queries_warning
 
-    warn_blind_skills(result, queries_by_skill)
     if shared := shared_queries_warning(queries_by_skill):
         print(f"WARNING: {shared}", file=sys.stderr)
 
