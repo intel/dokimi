@@ -23,6 +23,11 @@ checks.
 - A stored record is written or read with keys or a shape other than the
   schema's.
 - Behaviour differs on Windows or with a `None`, empty or missing input.
+- A new `raise`, `sys.exit` or refusal that no doc, contract or issue asks
+  for, or a test of new behaviour that cites no doc line: ask which line it
+  traces to. Code built on a guess at an unclear requirement is a defect too;
+  the question belongs in the PR's "Open questions". `python
+  dokimi/scripts/list_new_error_paths.py --base origin/main` lists the sites.
 
 ## How to raise a finding
 

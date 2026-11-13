@@ -15,6 +15,10 @@
 
 <!-- How was this verified? Commands run, new/updated tests, manual checks. -->
 
+## Open questions
+
+<!-- Requirements the spec leaves unclear, asked here instead of guessed in code. "None" if none. -->
+
 ## Revert
 
 <!-- How to undo this change, and anything a plain revert leaves behind (stored records, schema versions). -->
@@ -25,5 +29,6 @@
 - [ ] `ruff`, `mypy`, and schema checks pass
 - [ ] Docs updated (or N/A) — see the docs-drift checklist in CONTRIBUTING.md
 - [ ] Self-reviewed per "Before opening a PR" in `AGENTS.md`
+- [ ] Each new `raise`/exit and test names the doc, contract or issue it traces to
 - [ ] No ad-hoc run artifacts committed
 - [ ] New files carry the SPDX license header (or are exempt in `.github/.licenserc.yaml`)
