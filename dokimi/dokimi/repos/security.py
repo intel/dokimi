@@ -66,9 +66,9 @@ def _rx(text: str) -> re.Pattern[str]:
 #: A shell word that is an absolute path.
 _ABS_WORD = re.compile(r"(?<![^\s;&|\"'`(])/[^\s;&|\"'`)]*")
 #: A shell word that starts at the home directory: ``~``, ``$HOME`` or ``${HOME}``.
-_HOME_WORD = re.compile(r"(?<![^\s;&|\"'`(])(?:~|\$HOME|\$\{HOME[^}]*\})(?=/|[\s;&|\"'`)]|$)[^\s;&|\"'`)]*")
-_HOME_PREFIX = re.compile(r"^(?:~|\$HOME|\$\{HOME[^}]*\})")
-_HOME_STAND_IN = "/__home__"  # no real path is named this; it is only the root that home words are taken from
+_HOME_WORD = re.compile(r"(?<![^\s;&|\"'`(])(?:~|\$HOME|\$\{HOME(?:[:#%/^,?+=-][^}]*)?\})(?=/|[\s;&|\"'`)]|$)[^\s;&|\"'`)]*")
+_HOME_PREFIX = re.compile(r"^(?:~|\$HOME|\$\{HOME(?:[:#%/^,?+=-][^}]*)?\})")
+_HOME_STAND_IN = "/home/__user__"  # a stand-in home two levels deep: ~/../alice is /home/alice, as on a host
 _SYSTEM_DIRS = "etc|usr|var|home|root|opt|bin|sbin|lib|lib64|boot|srv|dev|sys|proc"
 #: A path under a system directory with one of these components is routine cleanup (apt lists, pip
 #: and conda caches, an installed package), not the directory: ``/var/lib/apt/lists/*``, ``/root/.cache/pip``.
@@ -107,7 +107,7 @@ COMMAND_RULES: tuple[Rule, ...] = (
     # $HOME[/][*] or a system directory, bare or with a path under it that is no cache (_CLEANUP_PARTS)
     Rule("destructive-delete", "critical", "rm -rf of /, ~, $HOME or a top-level system directory",
          _rx(r"\brm\s+(?:-\S+\s+)*?(?:-[a-z]*r[a-z]*|--recursive)\s+(?:[^\s;&|]+\s+)*?[\"']?"
-             r"(?:/\*?|(?:~|\$HOME|\$\{HOME[^}]*\})(?:/\.\.)*/?\*?|/(?:" + _SYSTEM_DIRS + r")"
+             r"(?:/\*?|(?:~|\$HOME|\$\{HOME(?:[:#%/^,?+=-][^}]*)?\})(?:/\.\.)*/?\*?|/(?:" + _SYSTEM_DIRS + r")"
              r"(?!(?![^\s;&|\"']*\.\.)[^\s;&|\"']*/(?:" + _CLEANUP_PARTS + r")(?:/|[\s;&|\"')`]|$))(?:/[^\s;&|\"']*)?)"
              r"[\"']?(?=[\s;&|)`]|$)"), drop_redirects=True),
     Rule("container-escape", "critical", "privileged container, host namespaces or host / mounted",
