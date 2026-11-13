@@ -88,6 +88,8 @@ def solve(wanted: list[str], min_age_days: int) -> list:
         ))
     except Exception as error:
         raise LockError(f"the solve of {wanted} failed: {error}") from error
+    if not records:
+        raise LockError(f"the solve of {wanted} returned no packages")
     return sorted(records, key=lambda record: record.name.normalized)
 
 
@@ -141,6 +143,6 @@ def main(argv: list[str] | None = None) -> int:
 if __name__ == "__main__":
     try:
         sys.exit(main())
-    except (LockError, hooks.HookError, matrix.DeclarationError) as error:
+    except (LockError, hooks.HookError, matrix.DeclarationError, OSError) as error:
         print(f"lock: {error}", file=sys.stderr)
         sys.exit(1)

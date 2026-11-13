@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import argparse
+import datetime
 import importlib.util
 import json
 import os
@@ -35,6 +36,14 @@ def _script(name: str, monkeypatch: pytest.MonkeyPatch) -> types.ModuleType:
     return module
 
 
+def _lock_on(host: str, monkeypatch: pytest.MonkeyPatch) -> types.ModuleType:
+    """ci/lock.py loaded on a host whose subdir is host: hooks is patched before lock.py reads it."""
+    hooks = _script("hooks", monkeypatch)
+    monkeypatch.setattr(hooks, "HOST_SUBDIR", host)
+    monkeypatch.setitem(sys.modules, "hooks", hooks)
+    return _script("lock", monkeypatch)
+
+
 def _versions(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     lock = _script("lock", monkeypatch)
     return [p.version for p in lock.matrix.declared("conda-build", lock.recipe())]
@@ -54,8 +63,7 @@ def test_each_declared_python_has_a_lock_solved_from_todays_specs(monkeypatch: p
 
 def _generator(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, declared: list[str]) -> types.ModuleType:
     """ci/lock.py on a Windows machine, with the declared versions and the solver stubbed, writing under tmp_path."""
-    lock = _script("lock", monkeypatch)
-    monkeypatch.setattr(lock.hooks, "HOST_SUBDIR", "win-64")
+    lock = _lock_on("win-64", monkeypatch)
     monkeypatch.setattr(lock.hooks, "CONDA_LOCKS", tmp_path / "ci" / "conda-lock")
     monkeypatch.setattr(lock.hooks, "ROOT", tmp_path)
     monkeypatch.setattr(lock, "recipe", lambda: tmp_path / "meta.yaml")
@@ -87,18 +95,50 @@ def _stub_rattler(solve, monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_the_solve_targets_linux_64_whatever_machine_runs_it(monkeypatch: pytest.MonkeyPatch) -> None:
-    """py-rattler is asked for linux-64 and noarch records, not the machine's subdir."""
-    platforms: list[list[str]] = []
+    """py-rattler is asked for linux-64 and noarch records, not the machine's subdir, from builds 7 days old."""
+    calls: list[dict] = []
 
-    async def solve(channels: list[str], specs: list[str], **options: list[str]) -> list:
-        platforms.append(options["platforms"])
+    async def solve(channels: list[str], specs: list[str], **options: object) -> list:
+        calls.append(options)
+        return [types.SimpleNamespace(name=types.SimpleNamespace(normalized="python"))]
+
+    _stub_rattler(solve, monkeypatch)
+    lock = _lock_on("osx-64", monkeypatch)
+    assert len(lock.solve(["python 3.12.*"], 7)) == 1
+    assert [call["platforms"] for call in calls] == [["linux-64", "noarch"]]
+    assert calls[0]["exclude_newer"] == datetime.timedelta(days=7)
+
+
+def test_an_empty_solve_is_a_lock_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A lock with no packages would pass the specs check yet install nothing."""
+    async def solve(channels: list[str], specs: list[str], **options: object) -> list:
         return []
 
     _stub_rattler(solve, monkeypatch)
     lock = _script("lock", monkeypatch)
-    monkeypatch.setattr(lock.hooks, "HOST_SUBDIR", "osx-64")
-    assert lock.solve(["python 3.12.*"], 7) == []
-    assert platforms == [["linux-64", "noarch"]]
+    with pytest.raises(lock.LockError, match=r"^the solve of \['python 3\.12\.\*'\] returned no packages$"):
+        lock.solve(["python 3.12.*"], 7)
+
+
+def test_a_missing_input_prints_a_lock_line(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Without ci/config.yml, ci/lock.py exits 1 with a lock: line, not a traceback."""
+    shutil.copytree(_REPO / "ci", tmp_path / "ci", ignore=shutil.ignore_patterns("config.yml", "conda-lock"))
+    shutil.copytree(_REPO / "conda-recipe", tmp_path / "conda-recipe")
+    result = subprocess.run([sys.executable, str(tmp_path / "ci" / "lock.py"), "--python", "3.12"],
+                            capture_output=True, text=True, check=False)
+    assert result.returncode == 1
+    assert result.stderr.startswith("lock: ") and "config.yml" in result.stderr and "Traceback" not in result.stderr
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="runs the step's bash")
+def test_the_refresh_stops_without_conda_lock_token(tmp_path: Path) -> None:
+    """A refresh PR opened with GITHUB_TOKEN gets no Intel CI run, so the step fails rather than open one."""
+    workflow = yaml.safe_load((_REPO / ".github" / "workflows" / "conda-lock.yml").read_text(encoding="utf-8"))
+    step = next(s for s in workflow["jobs"]["refresh"]["steps"] if s.get("name") == "Open or update the refresh PR")
+    assert step["env"]["GH_TOKEN"] == "${{ secrets.CONDA_LOCK_TOKEN }}"
+    done = subprocess.run(["/bin/bash", "-e", "-c", step["run"]], env={"PATH": "/usr/bin:/bin", "GH_TOKEN": ""},
+                          capture_output=True, text=True, check=False)
+    assert done.returncode == 1 and "CONDA_LOCK_TOKEN is not set" in done.stdout
 
 
 def test_a_failed_solve_is_a_lock_error_naming_the_specs(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -263,7 +303,7 @@ def test_current_locks_close_an_open_refresh_pr_and_push_nothing(open_pr: str, t
                                 encoding="utf-8")
     for tool in bin_dir.iterdir():
         tool.chmod(0o755)
-    env = {"PATH": f"{bin_dir}:/usr/bin:/bin", "RUN_URL": "https://example.invalid/run/1"}
+    env = {"PATH": f"{bin_dir}:/usr/bin:/bin", "RUN_URL": "https://example.invalid/run/1", "GH_TOKEN": "token"}
     done = subprocess.run(["/bin/bash", "-e", "-c", step["run"]], env=env, capture_output=True, text=True, check=False)
     calls = log.read_text(encoding="utf-8").splitlines()
     assert done.returncode == 0 and "The locks are current." in done.stdout
@@ -282,7 +322,7 @@ def test_the_refresh_step_takes_a_new_or_changed_lock_for_a_change(change: str, 
     """A lock written for a newly declared Python is untracked; the step's check must still see it."""
     workflow = yaml.safe_load((_REPO / ".github" / "workflows" / "conda-lock.yml").read_text(encoding="utf-8"))
     step = next(s for s in workflow["jobs"]["refresh"]["steps"] if s.get("name") == "Open or update the refresh PR")
-    check = re.search(r"^\s*if (.+); then$", step["run"], re.M)
+    check = re.search(r"^\s*if (.*git status.+); then$", step["run"], re.M)
     assert check, step["run"]
     locks = tmp_path / "ci" / "conda-lock"
     locks.mkdir(parents=True)
@@ -324,7 +364,7 @@ def test_only_a_same_repo_refresh_pr_counts_as_open(diff_rc: int, fork: bool, cl
         f'{shlex.quote(str(jq))} -r "$filter" {shlex.quote(str(prs))}\n', encoding="utf-8")
     for tool in bin_dir.iterdir():
         tool.chmod(0o755)
-    env = {"PATH": f"{bin_dir}:/usr/bin:/bin", "RUN_URL": "https://example.invalid/run/1"}
+    env = {"PATH": f"{bin_dir}:/usr/bin:/bin", "RUN_URL": "https://example.invalid/run/1", "GH_TOKEN": "token"}
     done = subprocess.run(["/bin/bash", "-e", "-c", step["run"]], env=env, capture_output=True, text=True, check=False)
     calls = log.read_text(encoding="utf-8").splitlines()
     assert done.returncode == 0, done.stderr

@@ -43,13 +43,17 @@ jobs:
       - name: Solve the locks
         run: python ci/lock.py
 
-      # A PR opened with GITHUB_TOKEN starts no workflows, so CONDA_LOCK_TOKEN (an app or fine-grained token) is used when set.
+      # A PR opened with GITHUB_TOKEN starts no workflows, so CONDA_LOCK_TOKEN (an app or fine-grained token) is required.
       - name: Open or update the refresh PR
         env:
-          GH_TOKEN: ${{ secrets.CONDA_LOCK_TOKEN || github.token }}
+          GH_TOKEN: ${{ secrets.CONDA_LOCK_TOKEN }}
           GH_REPO: ${{ github.repository }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::CONDA_LOCK_TOKEN is not set: a refresh PR opened with GITHUB_TOKEN would get no Intel CI run."
+            exit 1
+          fi
           branch=ci/conda-lock-refresh
           # --head also matches fork PRs: only the bot's own branch counts.
           open_pr() { gh pr list --head "$branch" --state open --json number,isCrossRepository \
