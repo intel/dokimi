@@ -18,12 +18,16 @@ sandbox, every network mode, cpus and memory spelling), the fidelity capture's c
 
 from __future__ import annotations
 
+import importlib.util
 import io
+import os
 import json
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 from unittest import mock
+
+import pytest
 
 from dokimi import docker_cmd
 from dokimi.harnesses import fidelity
@@ -195,6 +199,9 @@ def capture(root: Path) -> dict[str, Any]:
     return json.loads(json.dumps(out))  # plain JSON values, as the golden stores them
 
 
+# The golden holds POSIX paths, and Path('/h/run') serialises with backslashes on Windows; Windows has no
+# coverage of this grid, and the refresh script refuses there.
+@pytest.mark.skipif(os.name == "nt", reason="the golden holds POSIX paths; the grid runs on POSIX only")
 def test_every_docker_run_argv_is_byte_identical(tmp_path):
     want = json.loads(GOLDEN.read_text(encoding="utf-8"))
     got = capture(tmp_path)
@@ -228,3 +235,16 @@ def test_a_broken_example_mount_source_stays_visible_in_the_grid(monkeypatch):
     flat = [arg for call in argv for arg in call]
     assert "/missing:/work:ro" in flat
     assert _TMP not in flat
+
+
+def test_the_refresh_refuses_to_write_the_golden_on_windows(tmp_path, monkeypatch):
+    # The golden holds POSIX paths; on Windows the same synthetic Path('/h/run') serialises with backslashes,
+    # so a refresh there would write platform-specific arguments into the shared golden.
+    script = Path(__file__).resolve().parents[1] / "scripts" / "refresh_docker_run_golden.py"
+    spec = importlib.util.spec_from_file_location("refresh_docker_run_golden", script)
+    refresh = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(refresh)
+    monkeypatch.setattr(refresh, "IS_WINDOWS", True)
+    out = tmp_path / "golden.json"
+    assert refresh.main(["--out", str(out)]) == 2
+    assert not out.exists()
