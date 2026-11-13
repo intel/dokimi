@@ -69,9 +69,8 @@ def _bundle_path(word: str) -> Optional[str]:
 
 # The shell operators a tokenizer splits off (``run.py|tee``, ``run.py>out``, ``run.py&``); a quoted one stays in its word.
 _OPERATORS = ";|<>&"
-# A backslash before one of these is a shell escape: the escaped character is a character of the name.
-# It is swapped for a placeholder before the tokenizer, so a comma or ``;`` that is escaped does not split.
-# Any other backslash is a character of the name: a code span is literal (``scripts/a\b.py``).
+# A backslash before one of these is a shell escape, swapped for a placeholder before the tokenizer so
+# an escaped ``,`` or ``;`` does not split. Any other backslash is a character of the name (``scripts/a\b.py``).
 _ESCAPED = {",": "\x01", ";": "\x02", '"': "\x03", "'": "\x04", " ": "\x05"}
 _ESCAPE_RE = re.compile(r"\\([,;\"' ])")
 
