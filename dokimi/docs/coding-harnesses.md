@@ -140,7 +140,7 @@ a problem on its report, not an error. A path no format claims is reported as
 `unknown` with its files (or keys) and likely prompt and verifier files; when
 two formats claim a path about equally, the report lists the other as
 `ambiguous` with its evidence. `--json` prints and `--out` writes the report
-as a `task_inspect.v1` artifact (`schemas/task_inspect.v1.json`).
+as a `task_inspect.v1` artifact (`schemas/task_inspect.v1.json`); `--json` prints it under `data` of a `cli_output.v1` envelope.
 
 A dataset file a config in the same tree names is read as that config says:
 an Inspect `@task` file's `json_dataset("x.jsonl", FieldSpec(input="question",

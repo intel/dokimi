@@ -28,7 +28,7 @@
       "type": "string"
     },
     "product": {
-      "description": "Product the set is for (pipeline `questions/<product>.json`).",
+      "description": "Product the set is for (pipeline `questions/<product>.json`, `eval questions generate`).",
       "type": "string"
     },
     "generated_at": {
