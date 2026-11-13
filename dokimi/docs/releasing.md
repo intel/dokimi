@@ -62,10 +62,14 @@ the `Fragment for package changes` step in `ci.yml`'s `static` job asks for it.
 
    Read the collected section as a user would and tidy it. Merge the PR.
 
-2. **Release.** A maintainer creates the GitHub Release, and with it the tag,
-   on the merge commit:
+2. **Release.** A maintainer first runs the release workflow on `main` and
+   waits for it to pass while `main` is still the merge commit: the workflow
+   runs only after the Release is published, so a failure there leaves a Release
+   without files and spends the version. Then the maintainer creates the GitHub
+   Release, and with it the tag, on the merge commit:
 
    ```bash
+   gh workflow run release.yml -R intel/dokimi --ref main  # no tag: it does not exist yet
    python scripts/check_release.py vX.Y.Z --notes > notes.md
    gh release create vX.Y.Z -R intel/dokimi --target <merge-commit-sha> \
      --title "dokimi X.Y.Z" --notes-file notes.md
@@ -74,14 +78,15 @@ the `Fragment for package changes` step in `ci.yml`'s `static` job asks for it.
    Publishing the release runs `.github/workflows/release.yml`. It checks the tag
    against the version, the changelog section and leftover fragments, builds the
    sdist and wheel (the wheel from the sdist), smoke-tests the installed wheel
-   from outside the checkout (`scripts/smoke_installed.py`), signs both files,
+   from outside the checkout (`scripts/smoke_installed.py`), runs the test
+   suite with the newest dependency releases the ranges allow, signs both files,
    attaches them to the release with their signatures and build provenance
    (see [Verifying a release](#verifying-a-release)) and, once enabled, uploads
    them to PyPI. If it fails, fix on
    `main` and release the next patch version: a published version is never
    rebuilt.
 
-`workflow_dispatch` runs the same build and smoke test without uploading
+`workflow_dispatch` runs the same build, smoke test and test suite without uploading
 anything. Given a tag, it checks out that tag (and fails if it does not exist)
 and also runs the readiness check on it; without one it builds the ref it was
 dispatched from.

@@ -92,7 +92,8 @@
       "type": "integer"
     },
     "answers": {
-      "type": "array"
+      "type": "array",
+      "description": "One record per question: answers[].arms.<arm> is that arm's answer. A single-turn answer the model gave carries replayed (boolean): true when the response cache (DOKIMI_RESPONSE_CACHE) served it instead of a model call, a repeat of an earlier run's answer rather than a fresh sample. Error cells (no answer, never cached), session and agentic answers (which never go through the cache) and files written before the flag have no replayed (issue #370)."
     },
     "evaluations": {
       "type": "array"
@@ -218,7 +219,7 @@
                     ]
                   },
                   "p_adjusted": {
-                    "description": "p corrected across the treatment arms in this run (in a record written before the sign-flip test: p_ttest corrected).",
+                    "description": "p corrected across the treatment arms in this run (in a record written before the sign-flip test: p_ttest corrected). Null where there is no p or significant is null because of 2 / 2^n_changed.",
                     "type": [
                       "number",
                       "null"
@@ -246,7 +247,7 @@
                     "type": "integer"
                   },
                   "family_tested": {
-                    "description": "Treatment arms with a p, the effective correction multiplier; one whose significant is null because of 2 / 2^n_changed still counts.",
+                    "description": "Treatment arms whose p can reach 0.05, the effective correction multiplier; one with a p whose significant is null because 2 / 2^n_changed is not below 0.05 does not count (records written before issue 478 counted it).",
                     "type": "integer"
                   }
                 }
@@ -378,7 +379,7 @@
                 ]
               },
               "p_adjusted": {
-                "description": "p corrected across the interaction contrasts in this run — their own family, not pooled with the per-arm comparisons (in a record written before the sign-flip test: p_ttest corrected).",
+                "description": "p corrected across the interaction contrasts in this run — their own family, not pooled with the per-arm comparisons (in a record written before the sign-flip test: p_ttest corrected). Null where there is no p or significant is null because of 2 / 2^n_changed.",
                 "type": [
                   "number",
                   "null"
@@ -405,7 +406,7 @@
                 "type": "integer"
               },
               "family_tested": {
-                "description": "Interaction contrasts with a p, the effective correction multiplier; one whose significant is null because of 2 / 2^n_changed still counts.",
+                "description": "Interaction contrasts whose p can reach 0.05, the effective correction multiplier; one with a p whose significant is null because 2 / 2^n_changed is not below 0.05 does not count (records written before issue 478 counted it).",
                 "type": "integer"
               }
             }

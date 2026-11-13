@@ -13,7 +13,7 @@ from dokimi.defaults import (ANSWERING_METHOD_VERSION, DEFAULT_ANSWER_MODEL, DEF
                              answers_method_version as answers_method_version_of)
 from dokimi.eval.stats import paired_summary
 from dokimi.mcp.factory import create_doc_source_client, resolve_library_id_for_product
-from dokimi.utils import InputError, refuse_device, same_evaluator
+from dokimi.utils import InputError, read_json_input, refuse_device, same_evaluator
 
 logger = logging.getLogger(__name__)
 
@@ -48,20 +48,25 @@ def _canonical(questions: List[Dict[str, Any]]) -> List[str]:
                              default=str) for q in questions)
 
 
-def load_questions_payload(path: Path) -> List[Dict[str, Any]]:
+def load_questions_payload(path: Path, flag: Optional[str] = None) -> List[Dict[str, Any]]:
     """The records of the question set at ``path``, in the questions.v2 shape.
 
     :func:`dokimi.questions.artifact.load_questions` reads it: v1, v2, a bare list, or a legacy
     shape (logged once); a set still invalid after that raises ``ArtifactValidationError`` (a
-    ``ValueError``) naming the record. ``path`` is not written.
+    ``ValueError``) naming the record. ``flag`` is the option ``path`` came from: a file that is
+    not UTF-8 or JSON then raises ``InputError`` ``<flag> <path>: <reason>``. ``path`` is not written.
     """
     from dokimi.questions.artifact import load_questions
 
-    return load_questions(path).questions
+    return load_questions(path, flag=flag).questions
 
 
-def _check_custom_questions(path: Path) -> None:
-    """``--custom-questions`` must be a readable file: missing is ``FileNotFoundError``, a device or directory ``InputError``."""
+def _check_custom_questions(path: Path, parse: bool = True) -> None:
+    """``--custom-questions`` must be a readable file: missing is ``FileNotFoundError``, a device or directory ``InputError``.
+
+    With ``parse`` (the run will read the file) an unparseable file is an ``InputError`` too; a run that reuses a
+    cached or ``--questions-from`` set never reads it, so it is not parsed.
+    """
     if not path.exists():
         raise FileNotFoundError(f"--custom-questions path does not exist: {path}")
     refuse_device(path, "--custom-questions")
@@ -72,6 +77,8 @@ def _check_custom_questions(path: Path) -> None:
             path.open("rb").close()
     except OSError as exc:  # unreadable: refused here, before the output directories exist
         raise InputError(f"--custom-questions {path}: {exc.strerror or exc}") from exc
+    if parse and path.is_file():  # the run reads it again through the same function, with the same flag
+        read_json_input(path, flag="--custom-questions")
 
 
 class EvaluationPipeline:
@@ -181,7 +188,9 @@ class EvaluationPipeline:
         self.golden_pinned = False
         if custom_questions_path:
             _custom_path = Path(custom_questions_path)
-            _check_custom_questions(_custom_path)
+            # The run reads the file only when it builds the question set: not with --questions-from, not from a cache.
+            _cached = (self.output_dir / "questions" / f"{self.product_key}.json").exists() and not force_regen
+            _check_custom_questions(_custom_path, parse=questions_from is None and not _cached)
             self.custom_questions_path: Optional[Path] = _custom_path
         elif questions_from is None and self.questions_root is not None:
             _auto_golden = self.questions_root / f"{self.product_key.lower()}_golden.json"
@@ -234,6 +243,8 @@ class EvaluationPipeline:
                     f"--questions-from: questions file not found: {qf}"
                 )
             refuse_device(qf, "--questions-from")
+            if qf.is_file():
+                read_json_input(qf, flag="--questions-from")
             self.external_questions_path: Optional[Path] = qf
             logger.info(f"Will reuse questions from: {qf}")
         else:
@@ -541,7 +552,7 @@ class EvaluationPipeline:
         """
         self._custom_questions: Optional[List[Dict[str, Any]]] = None
         if self.external_questions_path is not None:
-            return load_questions_payload(self.external_questions_path)
+            return load_questions_payload(self.external_questions_path, "--questions-from")
         if (not self.force_regen) and self.questions_path.exists():
             return load_questions_payload(self.questions_path)
         self._custom_questions = self._load_custom_questions()
@@ -558,7 +569,8 @@ class EvaluationPipeline:
         if not (path and path.exists()):
             return []
         refuse_device(path, "--custom-questions")
-        custom_questions = load_questions_payload(path)
+        flag = None if getattr(self, "golden_pinned", False) else "--custom-questions"  # a golden set's read is lenient
+        custom_questions = load_questions_payload(path, flag)
         output = getattr(self, "questions_path", None)
         own_output = output is not None and Path(path).resolve() == Path(output).resolve()
         for q in custom_questions:  # records read from the file, not the file
