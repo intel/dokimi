@@ -66,8 +66,8 @@ def _rx(text: str) -> re.Pattern[str]:
 #: A shell word that is an absolute path.
 _ABS_WORD = re.compile(r"(?<![^\s;&|\"'`(])/[^\s;&|\"'`)]*")
 #: A shell word that starts at the home directory: ``~``, ``$HOME`` or ``${HOME}``.
-_HOME_WORD = re.compile(r"(?<![^\s;&|\"'`(])(?:~|\$HOME|\$\{HOME(?:[:#%/^,?+=-][^}\s;&|]*)?\})(?=/|[\s;&|\"'`)]|$)[^\s;&|\"'`)]*")
-_HOME_PREFIX = re.compile(r"^(?:~|\$HOME|\$\{HOME(?:[:#%/^,?+=-][^}\s;&|]*)?\})")
+_HOME_WORD = re.compile(r"(?<![^\s;&|\"'`(])(?:~|\$HOME|\$\{HOME(?:[:#%/^,?+=-][^}\s;&|\"'`()]*)?\})(?=/|[\s;&|\"'`)]|$)[^\s;&|\"'`)]*")
+_HOME_PREFIX = re.compile(r"^(?:~|\$HOME|\$\{HOME(?:[:#%/^,?+=-][^}\s;&|\"'`()]*)?\})")
 _HOME_STAND_IN = "/home/__user__"  # a stand-in home two levels deep: ~/../alice is /home/alice, as on a host
 _SYSTEM_DIRS = "etc|usr|var|home|root|opt|bin|sbin|lib|lib64|boot|srv|dev|sys|proc"
 #: A path under a system directory with one of these components is routine cleanup (apt lists, pip
@@ -82,7 +82,7 @@ _PIP_URL_OPTS = r"-i|-f|--index-url|--extra-index-url|--find-links"
 COMMAND_RULES: tuple[Rule, ...] = (
     # the tool may be named by its path (`/usr/bin/sudo`, as an execve log shows it)
     Rule("privilege-escalation", "high", "sudo / su / doas / pkexec",
-         _rx(r"(?:^|[\s;&|(`])(?:\S*/)?(?:sudo|doas|pkexec)\b|(?:^|[\s;&|(`])(?:\S*/)?su\s+(?:-|root\b)")),
+         _rx(r"(?:^|[\s;&|(`])(?:[^\s;&|(`]*/)?(?:sudo|doas|pkexec)\b|(?:^|[\s;&|(`])(?:[^\s;&|(`]*/)?su\s+(?:-|root\b)")),
     Rule("world-writable", "medium", "chmod 777 / a+rwx",
          _rx(r"\bchmod\s+(?:-\S+\s+)*(?:0?777|a\+rwx|ugo\+rwx)\b")),
     Rule("pipe-to-shell", "high", "download piped into a shell",
@@ -107,7 +107,7 @@ COMMAND_RULES: tuple[Rule, ...] = (
     # $HOME[/][*] or a system directory, bare or with a path under it that is no cache (_CLEANUP_PARTS)
     Rule("destructive-delete", "critical", "rm -rf of /, ~, $HOME or a top-level system directory",
          _rx(r"\brm\s+(?:-\S+\s+)*?(?:-[a-z]*r[a-z]*|--recursive)\s+(?:[^\s;&|]+\s+)*?[\"']?"
-             r"(?:/\*?|(?:~|\$HOME|\$\{HOME(?:[:#%/^,?+=-][^}\s;&|]*)?\})(?:/\.\.)*/?\*?|/(?:" + _SYSTEM_DIRS + r")"
+             r"(?:/\*?|(?:~|\$HOME|\$\{HOME(?:[:#%/^,?+=-][^}\s;&|\"'`()]*)?\})(?:/\.\.)*/?\*?|/(?:" + _SYSTEM_DIRS + r")"
              r"(?!(?![^\s;&|\"']*\.\.)[^\s;&|\"']*/(?:" + _CLEANUP_PARTS + r")(?:/|[\s;&|\"')`]|$))(?:/[^\s;&|\"']*)?)"
              r"[\"']?(?=[\s;&|)`]|$)"), drop_redirects=True),
     Rule("container-escape", "critical", "privileged container, host namespaces or host / mounted",

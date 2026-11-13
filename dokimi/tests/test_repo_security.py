@@ -997,7 +997,8 @@ def test_a_home_operator_with_no_closing_brace_is_matched_in_linear_time():
     import time
 
     started = time.monotonic()
-    sec.command_findings("${HOME: " * 12000, "trace")
+    for text in ("${HOME: ", "(${HOME:", "`${HOME:"):
+        sec.command_findings(text * 12000, "trace")
     assert time.monotonic() - started < 1.0
 
 
