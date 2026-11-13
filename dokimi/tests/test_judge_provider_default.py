@@ -149,6 +149,16 @@ def test_a_matrix_claude_cli_cell_keeps_the_matrix_judge_provider():
     assert sampled.judge_provider == "anthropic"
 
 
+def test_a_library_matrix_judge_is_not_moved_by_an_unused_claude_cli_top_level_provider():
+    # A matrix has no answerer at the top level: the explicit judge model stays on the matrix judge provider.
+    config = ArmsRunConfig(product="demo", judge=True, model="sonnet", provider="claude-cli",
+                           judge_model="claude-sonnet-5-5")
+    assert config.judge_provider == "claude-cli"  # a single run follows its answerer's CLI
+    api_cell = SimpleNamespace(name="api", model="gpt-6.1-sol", provider="openai", harness="arms-runner",
+                               plugin_specs=())
+    assert cell_config(config, api_cell).judge_provider == "anthropic"
+
+
 def test_a_claude_cli_answerer_judges_on_its_cli_when_no_judge_provider_is_named():
     # The CLI's argparse default (anthropic) must not stop the rule from taking the answerer's provider.
     args = parse_args([*COMMANDS["arms run"], "--provider", "claude-cli", "--model", "sonnet", "--judge"])
@@ -332,8 +342,21 @@ def test_subjects_run_refuses_a_judge_model_the_cli_judge_it_moves_to_cannot_tak
 
     args = parse_args([*COMMANDS["subjects run"], "--judge", "--provider", "claude-cli", "--model", "sonnet",
                        "--judge-model", "gpt-4o"])
-    with pytest.raises(InputError, match="takes a Claude model"):
+    with pytest.raises(InputError, match="judge follows --provider claude-cli: pass --judge-provider"):
         resolve_judge(args, SimpleNamespace(matrix_cells_explicit=False))
+
+
+def test_a_judge_model_refusal_does_not_name_a_judge_provider_that_was_not_passed(capsys):
+    argv = [*COMMANDS["arms run"], "--provider", "claude-cli", "--model", "sonnet", "--judge",
+            "--judge-model", "gpt-6.1-sol"]
+    with pytest.raises(SystemExit):
+        parse_args(argv)
+    err = capsys.readouterr().err
+    assert "the judge follows --provider claude-cli: pass --judge-provider" in err
+    assert "--judge-provider claude-cli takes" not in err
+    with pytest.raises(SystemExit):
+        parse_args([*argv, "--judge-provider", "claude-cli"])
+    assert "--judge-provider claude-cli takes a Claude model" in capsys.readouterr().err
 
 
 def test_subjects_run_refuses_a_default_judge_that_is_the_implicit_cell_answerer():

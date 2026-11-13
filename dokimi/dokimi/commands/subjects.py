@@ -21,7 +21,7 @@ from dokimi.defaults import (
     JUDGE_MODEL_FOR_PROVIDER,
     JUDGE_MODEL_HELP,
 )
-from dokimi.judge_rule import apply_default_judge, follow_answerer_cli
+from dokimi.judge_rule import apply_default_judge, follow_answerer_cli, refuse_judge_model
 from dokimi.utils import InputError
 
 
@@ -103,8 +103,8 @@ def resolve_judge(args, descriptor) -> None:
     follow_answerer_cli(args, matrix=matrix, named=named)
     provider, model = args.judge_provider, args.judge_model
     if provider in llm_cli.BACKENDS and model is not None and not llm_cli.accepts_model(provider, model):
-        raise InputError(f"--judge-provider {provider} takes a Claude model (sonnet, haiku, opus or a claude-* id), "
-                         f"not {model!r}: pass --judge-model")
+        raise InputError(refuse_judge_model(provider, model, named=named,
+                                            answerer_provider=None if matrix else getattr(args, "provider", None)))
 
 
 def cmd_subjects_run(args: argparse.Namespace) -> None:

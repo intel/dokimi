@@ -21,7 +21,7 @@
   - **An explicit `--judge-model` also moves the judge provider.** With `--provider claude-cli` and
     `--judge --judge-model claude-opus-5-5` and no `--judge-provider`, the judge was the Anthropic API
     model before; it is now the same model on `claude-cli`, the subscription. A `--judge-model` from
-    another family is refused, but the message names `--judge-provider claude-cli` even when that flag
-    was not passed.
+    another family is refused: the message says the judge follows `--provider claude-cli` and asks for
+    `--judge-provider`.
   - **Scores of runs judged on `claude-cli` change.** Their judge is the alias above, so their scores
     are not comparable with earlier runs. Re-baseline them, as with the earlier default changes.

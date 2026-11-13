@@ -42,7 +42,7 @@ from dokimi import __version__, cli_routes, llm_cli, process
 from dokimi.console import tolerate_console_encoding
 from dokimi.defaults import JUDGE_MODEL_FOR_PROVIDER
 from dokimi.exit_codes import EXIT_INFRA
-from dokimi.judge_rule import apply_default_judge, follow_answerer_cli
+from dokimi.judge_rule import apply_default_judge, follow_answerer_cli, refuse_judge_model
 
 
 def _subparsers(parser: argparse.ArgumentParser) -> argparse._SubParsersAction | None:
@@ -192,8 +192,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     if cur_judge_provider in llm_cli.BACKENDS and cur_judge_model is not None \
             and not llm_cli.accepts_model(cur_judge_provider, cur_judge_model):
         # Checked here, before any persona or answer is generated for the run.
-        parser.error(f"--judge-provider {cur_judge_provider} takes a Claude model (sonnet, haiku, opus or a "
-                     f"claude-* id), not {cur_judge_model!r}: pass --judge-model")
+        parser.error(refuse_judge_model(cur_judge_provider, cur_judge_model, named=args.judge_provider_named,
+                                        answerer_provider=getattr(args, "provider", None)))
     provider, model = getattr(args, "provider", None), getattr(args, "model", None)
     # With --matrix-cells every cell sets its own provider and model (checked when applied), so the
     # top-level model is not the one that runs.

@@ -107,6 +107,19 @@ def apply_default_judge(args, *, matrix: bool, named: bool) -> None:
         args.judge_provider = picked
 
 
+def refuse_judge_model(provider: str, model: str, *, named: bool, answerer_provider: str | None) -> str:
+    """The refusal for a judge *model* the CLI judge *provider* cannot take.
+
+    A judge provider that was not named was moved there by the answerer's CLI: say so, and ask for the flag that
+    picks another family, not for a flag the user did not pass.
+    """
+    if not named and provider == answerer_provider:
+        return (f"--judge-model {model!r} is not a Claude model (sonnet, haiku, opus or a claude-* id), and the judge "
+                f"follows --provider {provider}: pass --judge-provider (e.g. openai) for a non-Claude judge")
+    return (f"--judge-provider {provider} takes a Claude model (sonnet, haiku, opus or a claude-* id), "
+            f"not {model!r}: pass --judge-model")
+
+
 def follow_answerer_cli(args, *, matrix: bool, named: bool) -> None:
     """An explicit ``--judge-model`` with ``--judge-provider`` left out judges on a CLI answerer's CLI.
 
