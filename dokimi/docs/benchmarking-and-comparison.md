@@ -564,8 +564,8 @@ FAIL; `--sequential` adds a `mode` line and marks a degradation still undecided
 at the stop `continue`, with the reason under INCONCLUSIVE (cap reached, or the
 answer pool exhausted). An undecided result prints `RESULT: INCONCLUSIVE`
 when it is above the gate and `RESULT: FAIL (INCONCLUSIVE, see above)` when it
-is below, never PASS. Exit policy is unchanged: a below-threshold point estimate exits 1;
-an above-threshold inconclusive result warns and exits 0 by default, or 1 with
+is below, never PASS. Exit policy: a below-threshold point estimate exits 1;
+an above-threshold inconclusive result warns and exits 3 by default, or 1 with
 `--strict`. A settled PASS exits 0. JSON retains `passed` (the point-estimate
 check) and `conclusive`; promotion requires both to be true. A malformed input, such as a record that would be judged with no
 question text, exits 2, so it never reads as a failed gate.
@@ -867,20 +867,20 @@ python cli.py baseline compare \
 
 When the answer or judge model recorded in the baseline differs from the
 current eval's, `compare` prints a warning naming both before the table: the score changes then
-mix the model change with the content change. With `--strict` it exits 1
+mix the model change with the content change. With `--strict` it exits 4
 instead. Two records name one model when they have the same id and snapshot: a Bedrock alias and its
 inference profile, a regional profile, a `-vN:M` revision or the same model behind another route count
 as the same model; two different dated snapshots, or the same name under another organization, are two models.
 A custom dotted name (`alice.model`) is not a vendor prefix, and a `huggingface/` route keeps its organization.
 A dated snapshot and its undated alias are neither, and so is a Claude CLI alias (`sonnet`, `opus[1m]`) and
 any full id of its family (`claude-sonnet-4-5`, `claude-3-5-sonnet-20240620`): the alias does not record which
-snapshot answered, so the role is named on stderr as not verified, and `--strict` exits 1 on it. A baseline saved before a default-model
+snapshot answered, so the role is named on stderr as not verified, and `--strict` exits 4 on it. A baseline saved before a default-model
 change is such a baseline. A panel
 artifact (`eval score panel`) is compared by its judge models: the panels must have the same number of judges
 and the same models, and a judge that matches the other panel's only through such an alias makes the role
 not verified. A role either
 side does not record (an older artifact, or answers with no model) is named on
-stderr as not compared, and `--strict` exits 1 on it as well, since it cannot
+stderr as not compared, and `--strict` exits 4 on it as well, since it cannot
 vouch for that role. A malformed record in either file (no `question_id`) exits 2,
 naming the record on stderr, so it never reads as a failed `--strict` check.
 `baseline compare` also exits 2 on an eval file, saved baseline or `manifest.json`
@@ -905,7 +905,7 @@ unrounded per-question aggregates, not stored rounded deltas or manifest means.
 Thresholds are finite, non-negative score points; equality passes. Either flag
 enables the gate; when both are supplied both must pass. `--min-matched` defaults
 to 1 and needs a threshold flag (alone it exits 2). The gate exits 1 on a
-regression or an unknown or mismatched answer/judge identity. Insufficient
+regression and exits 4 on an unknown or mismatched answer/judge identity. Insufficient
 evidence exits 2, since the input can be fixed: every question in both artifacts
 must match uniquely and have finite scores in both conditions, and at least
 `--min-matched` must match. Unmatched questions, duplicates, errors and partial
