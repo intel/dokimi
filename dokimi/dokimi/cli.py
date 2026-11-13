@@ -183,8 +183,10 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         except ValueError as e:
             parser.error(str(e))
     # An explicit --judge-model on a CLI answerer judges on its CLI too, unless --judge-provider names one.
-    follow_answerer_cli(args, matrix=bool(getattr(args, "matrix_cells", None) or getattr(args, "matrix_cell", None)),
-                        named=args.judge_provider_named)
+    # A command that defers its judge (subjects run) follows its answerer once the descriptor is loaded.
+    if not getattr(args, "defer_judge_default", False):
+        follow_answerer_cli(args, matrix=bool(getattr(args, "matrix_cells", None) or getattr(args, "matrix_cell", None)),
+                            named=args.judge_provider_named)
     cur_judge_provider, cur_judge_model = getattr(args, "judge_provider", None), getattr(args, "judge_model", None)
     if cur_judge_provider in llm_cli.BACKENDS and cur_judge_model is not None \
             and not llm_cli.accepts_model(cur_judge_provider, cur_judge_model):

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import replace
+from types import SimpleNamespace
 
 import pytest
 
@@ -271,3 +272,42 @@ def test_a_named_judge_provider_is_kept_for_an_explicit_judge_model_on_a_claude_
     args = parse_args([*COMMANDS["arms run"], "--provider", "claude-cli", "--model", "sonnet", "--judge",
                        "--judge-model", "haiku", "--judge-provider", "anthropic"])
     assert (args.judge_provider, args.judge_model) == ("anthropic", "haiku")
+
+
+def test_subjects_run_does_not_move_the_judge_to_a_cli_answerer_before_the_descriptor_loads():
+    from dokimi.commands.subjects import resolve_judge
+
+    # parse_args leaves the judge to the descriptor, which picks it once loaded (resolve_judge).
+    # With or without an explicit --judge-model.
+    for extra in ([], ["--judge-model", "haiku"]):
+        args = parse_args([*COMMANDS["subjects run"], "--judge", "--provider", "claude-cli", "--model", "sonnet",
+                           *extra])
+        assert args.judge_provider == "anthropic"
+    # Implicit cells: the top-level CLI answerer is the answerer, so the left-out judge follows it onto its CLI.
+    args = parse_args([*COMMANDS["subjects run"], "--judge", "--provider", "claude-cli", "--model", "sonnet"])
+    resolve_judge(args, SimpleNamespace(matrix_cells_explicit=False))
+    assert (args.judge_provider, args.judge_model) == ("claude-cli", "opus")
+
+
+@pytest.mark.parametrize(("explicit_cells", "expected"), [
+    (False, ("claude-cli", "haiku")),  # implicit cells: an explicit alias follows the CLI answerer onto its CLI
+    (True, ("anthropic", "haiku")),    # explicit cells: the descriptor's cells are the answerers, the judge stays
+])
+def test_subjects_run_resolves_an_explicit_judge_model_once_the_descriptor_is_loaded(explicit_cells, expected):
+    from dokimi.commands.subjects import resolve_judge
+
+    args = parse_args([*COMMANDS["subjects run"], "--judge", "--provider", "claude-cli", "--model", "sonnet",
+                       "--judge-model", "haiku"])
+    resolve_judge(args, SimpleNamespace(matrix_cells_explicit=explicit_cells))
+    assert (args.judge_provider, args.judge_model) == expected
+
+
+def test_subjects_run_refuses_a_judge_model_the_cli_judge_it_moves_to_cannot_take():
+    # parse_args checks the model before the descriptor moves the judge; the move is checked again here
+    from dokimi.commands.subjects import resolve_judge
+    from dokimi.utils import InputError
+
+    args = parse_args([*COMMANDS["subjects run"], "--judge", "--provider", "claude-cli", "--model", "sonnet",
+                       "--judge-model", "gpt-4o"])
+    with pytest.raises(InputError, match="takes a Claude model"):
+        resolve_judge(args, SimpleNamespace(matrix_cells_explicit=False))
