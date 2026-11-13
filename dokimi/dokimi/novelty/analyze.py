@@ -183,6 +183,8 @@ def analyze(
     result then has ``partial`` set and ``artifact`` is the partial record
     (:func:`~dokimi.novelty.analyze_partial.stopped_record`): the extracted atoms, the spans, the
     probe set once built and the probe answers and judgments so far, and no summary over them.
+    A caller must check ``result.partial`` before it saves or reports ``artifact`` as a finished
+    analysis: :func:`~dokimi.artifacts.save_artifact` refuses a partial ``novelty`` record.
 
     Args:
         text: The artifact body (frontmatter already split off into ``config``).
@@ -246,6 +248,7 @@ def _analyze(
     extracted = progress.extracted = atoms_mod.extract_atoms(
         span_list, client=extractor, cap=config.max_atoms, report=extraction
     )
+    progress.run_config = _run_config(config)  # a stop in extraction keeps this much of it
     _raise_if_extraction_stopped(extraction)
     # Spans, attribution and shortening's structure index every atom; the paid stages see the
     # cap's sample: https://github.com/intel/dokimi/issues/371

@@ -55,11 +55,12 @@ def _skill(tmp_path):
     return path
 
 
-def _run(tmp_path, cost_of, limit=1.0):
+def _run(tmp_path, cost_of, limit=1.0, **options):
     path = _skill(tmp_path)
     kind, name, description, frontmatter, body = load_artifact_text(f"skill:{path}")
     config = AnalyzeConfig(artifact_ref=f"skill:{path}", artifact_kind=kind, name=name,
-                           description=description, frontmatter=frontmatter, concurrency=1)
+                           description=description, frontmatter=frontmatter, concurrency=1,
+                           **options)
     extractor, answerer, judge = _clients(cost_of, limit)
     return analyze(body, config, extractor=extractor, answerer=answerer, judge=judge)
 
@@ -113,6 +114,23 @@ def test_a_cap_in_measurement_keeps_the_atoms_and_the_answers_paid_for(tmp_path)
     assert record["run_config"]["prompts_sha256"] and record["atoms"]["sampling"] == "full"
     assert record["atoms"]["faithfulness"]
     validate_artifact("novelty", record)
+
+
+def test_a_capped_run_stopped_in_measurement_counts_the_probed_sample_as_a_finished_one_does(tmp_path):
+    stopped = _run(tmp_path, _answers_cost, max_atoms=1).artifact
+    finished = _run(tmp_path, _free, max_atoms=1).artifact
+    assert stopped["partial"]["stage"] == "measurement"
+    assert len(stopped["extracted_atoms"]) == 2
+    assert stopped["atoms"]["sampling"] == finished["atoms"]["sampling"] == "cap-spread:1"
+    assert stopped["atoms"]["n"] == finished["atoms"]["n"] == 1
+    assert stopped["atoms"]["n_probed"] == 1
+
+
+def test_a_cap_in_the_need_graph_counts_the_sample_not_the_extraction(tmp_path):
+    record = _run(tmp_path, lambda prompt: None if "TASK NAME:" in prompt else 0.0,
+                  max_atoms=1).artifact
+    assert record["partial"]["stage"] == "need_graph"
+    assert (record["atoms"]["n"], len(record["extracted_atoms"])) == (1, 2)
 
 
 def test_a_cap_after_the_wordings_keeps_every_probe_before_the_first_answer(tmp_path):
@@ -206,9 +224,15 @@ def test_a_cap_in_extraction_keeps_the_atoms_read_and_marks_the_rest_unread():
     extractor = LLMClient(model="e", role="extractor", transport=one_atom_per_span, cap=cap)
     idle = LLMClient(model="a", role="answerer", transport=one_atom_per_span, cap=cap)
     judge = LLMClient(model="j", role="judge", transport=one_atom_per_span, cap=cap)
-    config = AnalyzeConfig(artifact_ref="text:rows", artifact_kind="text", concurrency=1)
+    config = AnalyzeConfig(artifact_ref="text:rows", artifact_kind="text", concurrency=1,
+                           seed=7, max_atoms=30)
     record = analyze(ROWS, config, extractor=extractor, answerer=idle, judge=judge).artifact
     assert record["partial"]["stage"] == "extraction"
+    # The settings of the run are kept; the sample is not chosen yet, so `atoms` counts the
+    # extracted atoms and says `none`.
+    assert (record["run_config"]["seed"], record["run_config"]["max_atoms"]) == (7, 30)
+    assert record["run_config"]["prompts_sha256"] and record["run_config"]["arms"]
+    assert (record["atoms"]["n"], record["atoms"]["sampling"]) == (50, "none")
     assert (record["partial"]["spans_read"], record["partial"]["spans_total"]) == (50, 200)
     assert record["partial"]["cause"].startswith("spend cap reached: $1.20 of $1.00")
     assert len(record["extracted_atoms"]) == 50 and "runs" not in record
@@ -432,6 +456,30 @@ def test_a_partial_analyze_file_is_refused_by_the_readers_of_a_finished_one(tmp_
         with pytest.raises(InputError, match="partial novelty artifact") as refused:
             read()
         assert str(partial) in str(refused.value)
+
+
+@pytest.mark.parametrize("marker", ["both", "status", "partial"])
+def test_save_artifact_refuses_a_partial_novelty_record_and_writes_nothing(tmp_path, marker):
+    from dokimi.artifacts import save_artifact
+
+    record = dict(_run(tmp_path, _answers_cost).artifact)
+    if marker == "status":
+        del record["partial"]
+    elif marker == "partial":
+        del record["status"]
+    out = tmp_path / "novelty.json"
+    with pytest.raises(InputError, match="partial novelty record") as refused:
+        save_artifact("novelty", record, out)
+    assert str(out) in str(refused.value)
+    assert not out.exists() and not list(tmp_path.glob("novelty.json.*"))
+
+
+def test_save_artifact_still_saves_a_finished_novelty_record(tmp_path):
+    from dokimi.artifacts import save_artifact
+
+    out = tmp_path / "novelty.json"
+    saved = save_artifact("novelty", _run(tmp_path, _free).artifact, out)
+    assert json.loads(out.read_text(encoding="utf-8"))["schema_version"] == saved["schema_version"]
 
 
 def test_a_partial_analyze_file_is_not_listed_as_a_finished_run(tmp_path, monkeypatch):

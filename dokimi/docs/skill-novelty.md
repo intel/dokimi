@@ -1137,7 +1137,11 @@ asked again; after a `no_price` stop the message says to price the model or drop
 instead, since a higher cap does not help); without it, or when it could not be written, the message says the calls were not cached. `novelty view`, `subjects`
 (`--novelty-artifact`) and every other reader of a `novelty.json` refuse a partial file by name,
 and `runs list` does not list it (it opens with `status`, not `schema_version`). A record
-with `status: "partial"` but no `partial` block is refused too.
+with `status: "partial"` but no `partial` block is refused too, and so is saving one with
+`save_artifact("novelty", ...)`. Its `atoms.n` counts the probed sample once the cap's sample is
+chosen, as a finished record does, and every extracted atom for a stop in extraction (`atoms.sampling`
+is then `none`, and `run_config` holds the settings of the run but not its tier). A library caller of
+`dokimi.novelty.analyze()` checks `result.partial` before it saves `result.artifact`.
 `shorten` still loses its work at the cap (a follow-up). Before its first paid
 call `analyze` prints the run's expected cost at list prices to stderr.
 

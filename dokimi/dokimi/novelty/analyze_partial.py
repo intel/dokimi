@@ -90,7 +90,8 @@ def stopped_record(progress: Progress, stop: SpendCapReached, *, artifact_kind: 
         "provider": provider,
         "judge_model": judge_model,
         "atoms": {
-            "n": len(progress.extracted),
+            # The probed sample once it is chosen, as a finished record counts; before, all extracted.
+            "n": len(progress.extracted if progress.sampling == "none" else progress.atoms),
             "n_probed": len({row.atom_id for row in result.runs}) if result else 0,
             "sampling": progress.sampling,
             "faithfulness": progress.faithfulness or {},

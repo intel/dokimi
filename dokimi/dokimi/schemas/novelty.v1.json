@@ -79,7 +79,7 @@
         },
         "sampling": {
           "type": "string",
-          "description": "How the probed subset was chosen: full, every extracted atom (also a cap the atoms meet or fall under), or cap-spread:<n> (e.g. cap-spread:120), only when the cap left atoms out: n atoms spread over every extracted atom in document order (extraction.sampled). Runs before cap-spread wrote cap-per-artifact:<n>, the first n atoms in document order. Present so a capped run is never read as a full sweep."
+          "description": "How the probed subset was chosen: none, not chosen yet (a partial record of a stop in extraction, whose atoms.n counts every extracted atom); full, every extracted atom (also a cap the atoms meet or fall under), or cap-spread:<n> (e.g. cap-spread:120), only when the cap left atoms out: n atoms spread over every extracted atom in document order (extraction.sampled). Runs before cap-spread wrote cap-per-artifact:<n>, the first n atoms in document order. Present so a capped run is never read as a full sweep."
         },
         "faithfulness": {
           "type": ["object", "null"],
@@ -526,7 +526,7 @@
     "partial": {
       "type": "object",
       "required": ["reason", "stage", "message"],
-      "description": "Why and where the run stopped. reason: spend_cap or no_price. stage: extraction, verify, need_graph, probes, measurement, classify or attribution. extraction adds spans_read and spans_total, measurement calls_done and calls_planned (probe answers, those not graded counted as not done), spend_cap a cause (what was spent). A partial record holds no paired, arms or view summaries: the cut leaves the arms uneven.",
+      "description": "Why and where the run stopped. reason: spend_cap or no_price. stage: extraction, verify, need_graph, probes, measurement, classify or attribution. extraction adds spans_read and spans_total, measurement calls_done and calls_planned (probe answers paid for, the ungraded ones included; the message says how many), spend_cap a cause (what was spent). A partial record holds no paired, arms or view summaries: the cut leaves the arms uneven.",
       "properties": {
         "reason": {"enum": ["spend_cap", "no_price"]},
         "stage": {"enum": ["extraction", "verify", "need_graph", "probes", "measurement", "classify", "attribution"]},

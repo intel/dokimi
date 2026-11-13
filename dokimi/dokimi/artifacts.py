@@ -248,6 +248,9 @@ def save_artifact(kind: str, data: dict, path: Path | str, *, ensure_ascii: bool
       input kind. Values already in ``data`` under these keys are replaced: the file records the
       process that last saved it, so an artifact built from a loaded one takes the new run's id.
       ``data`` itself is not mutated.
+    - A ``novelty`` payload with ``status`` or ``partial`` (what a ``--max-usd`` stop keeps) is
+      refused with :class:`~dokimi.utils.InputError`, as :func:`load_artifact` refuses it: nothing
+      is written, since ``runs`` would list the file as a finished run.
     - The payload is validated first. :class:`ArtifactValidationError` means nothing was
       written at ``path`` (a file already there is untouched); the rejected payload is kept
       at ``<name>.rejected`` so a paid run is not lost to a schema problem. A later valid
@@ -271,6 +274,10 @@ def save_artifact(kind: str, data: dict, path: Path | str, *, ensure_ascii: bool
     """
     if kind not in SCHEMA_VERSIONS:
         raise KeyError(f"Unknown artifact kind: {kind!r}")
+    if _is_partial_novelty(kind, data):  # `runs` would list it as a finished run
+        raise InputError(f"not written to {path}: a partial novelty record (`status` or `partial` "
+                         "set) is not a finished analysis; `skill novelty analyze` keeps it in "
+                         "<out stem>.partial.json")
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     try:
@@ -316,6 +323,12 @@ def _write_target(path: Path) -> Path:
     return target
 
 
+def _is_partial_novelty(kind: str, data: dict) -> bool:
+    """Whether ``data`` is what `skill novelty analyze` keeps when --max-usd stops it: not a finished
+    analysis. Either marker alone is enough: the schema lets a record carry one without the other."""
+    return kind == "novelty" and ("partial" in data or data.get("status") == "partial")
+
+
 def load_artifact(kind: str, path: Path | str, *, validate: bool = True) -> dict:
     """Read and (optionally) validate an artifact of ``kind`` from ``path``.
 
@@ -325,9 +338,7 @@ def load_artifact(kind: str, path: Path | str, *, validate: bool = True) -> dict
     data = read_json_input(path)
     if not isinstance(data, dict):
         raise InputError(f"{path} is not a {kind} artifact: expected a JSON object, got {type(data).__name__}")
-    if kind == "novelty" and ("partial" in data or data.get("status") == "partial"):
-        # What `skill novelty analyze` keeps when --max-usd stops it: not a finished analysis.
-        # Either marker alone is enough: the schema lets a record carry one without the other.
+    if _is_partial_novelty(kind, data):
         block = data.get("partial")
         reason = block.get("reason") if isinstance(block, dict) else None
         raise InputError(f"{path} is a partial novelty artifact: the run was stopped before it "
