@@ -83,11 +83,11 @@ def _outputs(jsonl: Optional[Path]) -> tuple[Path, ...]:
 def print_skill_row(row: dict) -> None:
     if row["error"] is not None:
         state = f"ERROR: {row['error']}"
-    elif row["state"] == "ok" and not any(f["level"] == "note" for f in row["findings"]):
+    elif row["state"] == "ok" and not any(f["code"] == "description-when-not-checked" for f in row["findings"]):
         state = "ok"
     elif row["state"] == "ok":
-        # A note marks a skill the check did not read: that is not a pass, so the state does not say ok.
-        note = next(f for f in row["findings"] if f["level"] == "note")
+        # A "not checked" note: the skill was not read, so it is not a pass and the state does not say ok.
+        note = next(f for f in row["findings"] if f["code"] == "description-when-not-checked")
         state = f"note: {note['message']}"
     else:
         worst = next(f for f in row["findings"] if f["level"] == row["state"])

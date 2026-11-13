@@ -295,6 +295,19 @@ def test_an_english_when_clause_passes_in_a_script_no_cue_list_covers():
     assert when_clause_found("Δημιουργεί αναφορές. Use when needed.") is True
 
 
+def test_a_lint_note_row_still_reads_ok(capsys):
+    # A lint note on a checked skill is no "not checked" note: the row still says ok.
+    from dokimi.commands.catalog_scan import print_skill_row
+
+    row = {
+        "name": "release", "manifest_status": None, "path": "skills/release/SKILL.md", "state": "ok",
+        "error": None, "disable_model_invocation": False, "nested_in": None,
+        "findings": [{"level": "note", "code": "script-lint", "message": "bundled-script lint: shellcheck 1"}],
+    }
+    print_skill_row(row)
+    assert capsys.readouterr().out.splitlines()[0].split("\t")[-1] == "ok"
+
+
 def test_a_note_only_row_does_not_read_ok(capsys):
     # A skill the check did not read (a note, not a pass) must not print the state "ok".
     from dokimi.commands.catalog_scan import print_skill_row
