@@ -2189,8 +2189,8 @@ standard-library one the repository's Python lacks (`import imp` on 3.13; the na
 those the pinned mypy's typeshed lists), and with mypy a submodule of a package the repository interpreter finds as a regular package (`json.nosuch`, `yaml.nosuch`; not a relative import, nor a namespace package such as `google`). A module the environment has without types
 (no `py.typed` or stubs) is `unresolved` too: mypy reads it as `Any`. A real error in the same fence still
 fails it. `pip install
-dokimi` does not install mypy: the tested pin is `requirements-test.txt`
-(`mypy==2.4.0`), and a missing mypy exits 2. basedpyright must be on `PATH` and
+dokimi` does not install mypy: the tested pin is the one in
+`requirements-test.txt`, and a missing mypy exits 2. basedpyright must be on `PATH` and
 is recorded with the version it reports, not pinned by dokimi. The report's
 `typecheck` block names the tool, its version, the interpreter (`null`: unknown) and the counts
 (`fences`, `checked`, `fail`, `unknown`, `syntax`); it is `null` without the
