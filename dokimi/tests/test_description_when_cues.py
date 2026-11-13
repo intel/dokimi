@@ -84,6 +84,7 @@ HAS_WHEN = [
     pytest.param("当仓库中没有时自动创建目录。", id="zh-dang-closing-meiyou"),
     pytest.param("当新版本来临时自动升级。", id="zh-dang-closing-lailin"),
     pytest.param("배포 스크립트입니다. 필요한 때 사용합니다.", id="ko-piryohan-ttae"),
+    pytest.param("いつ使うか：リリース前。", id="ja-itsu-tsukau"),
 ]
 
 # No "when" clause in the language's own words; also the wording a bare cue would wrongly accept.
@@ -196,6 +197,10 @@ NO_WHEN = [
     pytest.param("适用于定时任务的调度工具。", id="zh-shi-dingshi-not-when"),
     pytest.param("适用于时序数据分析的工具。", id="zh-shi-shixu-not-when"),
     pytest.param("适用于时代背景的分析工具。", id="zh-shi-daibei-not-when"),
+    pytest.param("アイデアを思いつくためのブレインストーミング支援ツール。", id="ja-omoitsuku-not-itsu"),
+    pytest.param("最新の仕様に追いつくためのドキュメント要約ツール。", id="ja-oitsuku-not-itsu"),
+    pytest.param("ユーザーが食いつくキャッチコピーを生成する。", id="ja-kuitsuku-not-itsu"),
+    pytest.param("こいつはPDFを結合するツール。", id="ja-koitsu-not-itsu"),
 ]
 
 
