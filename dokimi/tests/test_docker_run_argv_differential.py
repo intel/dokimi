@@ -81,25 +81,30 @@ def _repo_cases(out: dict[str, Any]) -> None:
                 out[f"repo/{label}/{name}"] = _guarded(DockerRunner().argv, spec)
 
 
+_EXAMPLE_CODE = "print(1)"
+
+
 def _example_outcome(lang: str, policy: ExecutionPolicy) -> tuple[Any, list[list[str]], list[float]]:
     """The outcome, the argv (per-run temp dir masked) and the timeout of one docker-backend run.
 
-    A ``:/work:ro`` mount is masked only when its source holds the snippet, checked while the temp dir
-    still exists (the runner is called inside it). A source that does not hold it stays in the argv.
+    A ``:/work:ro`` mount is masked only when its source holds this run's snippet, checked while the temp
+    dir still exists (the runner is called inside it). A source that does not hold it stays in the argv.
     """
     snippet = f"snippet{EXECUTORS[lang][0]}"
     validated: set[str] = set()
 
     def check(call) -> Any:
         for arg in call.argv:
-            if arg.endswith(":/work:ro") and (Path(arg[: -len(":/work:ro")]) / snippet).is_file():
-                validated.add(arg)
+            if arg.endswith(":/work:ro"):
+                src = Path(arg[: -len(":/work:ro")]) / snippet
+                if src.is_file() and src.read_text(encoding="utf-8") == _EXAMPLE_CODE:
+                    validated.add(arg)
         return reply()
 
     runner = FakeRunner(check)
 
     def run() -> None:
-        run_example(lang, "print(1)", policy, runner)
+        run_example(lang, _EXAMPLE_CODE, policy, runner)
 
     outcome = _guarded(run)
     argv = [[_TMP if a in validated else a for a in c.argv] for c in runner.calls]
@@ -234,6 +239,23 @@ def test_a_broken_example_mount_source_stays_visible_in_the_grid(monkeypatch):
                                                                                      mem_mb=512))
     flat = [arg for call in argv for arg in call]
     assert "/missing:/work:ro" in flat
+    assert _TMP not in flat
+
+
+def test_an_example_mount_of_another_snippet_stays_visible_in_the_grid(tmp_path, monkeypatch):
+    # A mount source that exists and holds a snippet file, but not this run's code, is not masked either.
+    lang = sorted(EXECUTORS)[0]
+    (tmp_path / f"snippet{EXECUTORS[lang][0]}").write_text("", encoding="utf-8")
+    other = f"{tmp_path}:/work:ro"
+    real_run_spec = docker_cmd.run_spec
+
+    def redirected(*args, **kwargs):
+        return [(other if arg.endswith(":/work:ro") else arg) for arg in real_run_spec(*args, **kwargs)]
+
+    monkeypatch.setattr(docker_cmd, "run_spec", redirected)
+    _outcome, argv, _timeouts = _example_outcome(lang, ExecutionPolicy(backend="docker", timeout=7, mem_mb=512))
+    flat = [arg for call in argv for arg in call]
+    assert other in flat
     assert _TMP not in flat
 
 
