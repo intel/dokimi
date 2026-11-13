@@ -305,6 +305,7 @@ def test_a_quoted_list_of_bundled_paths_is_read_one_by_one(tmp_path):
         ("Run `python scripts/run.py|tee log`.\n", ["scripts/run.py"]),
         ("Run `python scripts/run.py>out.log`.\n", ["scripts/run.py"]),
         ("Run `python scripts/run.py --config=scripts/settings.yaml`.\n", ["scripts/run.py", "scripts/settings.yaml"]),
+        ("Run `python scripts/run.py --define=KEY=scripts/settings.yaml`.\n", ["scripts/run.py", "scripts/settings.yaml"]),
     ],
 )
 def test_a_missing_path_next_to_a_shell_operator_or_an_option_is_named(tmp_path, body, names):

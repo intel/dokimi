@@ -49,7 +49,7 @@ def _bundle_path(word: str) -> Optional[str]:
     # A shell operator ends the word (``run.py|tee``, ``run.py>out``); an option value follows its last ``=``.
     text = re.split(r"[|<>&]", text, maxsplit=1)[0].rstrip(",;:.)")
     if text.startswith("-") and "=" in text:  # an option's value: --config=scripts/x.yaml
-        text = text.split("=", 1)[1].strip("'\"")
+        text = text.rsplit("=", 1)[1].strip("'\"")
     if text.startswith("./"):
         text = text[2:]
     if text.startswith(SKILL_DIR_VAR):
