@@ -260,16 +260,51 @@ INSTALL_SOURCES = (".github/**/*.yml", ".agent-eval/Dockerfile", "Makefile", "do
                    "*.md", "dokimi/*.md", "dokimi/docs/**/*.md")
 
 
-# pip's requirement-file forms, as scripts/ci_local.py reads them: -r f, -rf, --requirement f, --requirement=f
-_MAIN_LOCK = re.compile(r"(?:^|\s)(?:-r\s*|--requirement[=\s]\s*)(?:\S*/)?requirements\.lock\.txt\b")
+_MAIN_LOCK = "requirements.lock.txt"
+_SEPARATORS = {"&&", "||", ";", "|", "&"}
+# A pip invocation, as scripts/ci_local.py's PIP_INSTALL, with uv's and python -m's forms.
+_PIP_INSTALL = re.compile(r"\b(?:python3? -m |uv )?pip3? install\b")
 
 
-def _installs_of_the_main_lock(text: str) -> list[str]:
-    """Each command in ``text`` that installs ``requirements.lock.txt``; a backslash continuation joins its line
-    and ``&&``, ``||``, ``;`` and ``|`` separate commands, so a flag of one command never covers another."""
-    joined = re.sub(r"\\\r?\n\s*", " ", text)
-    return [part.strip() for line in joined.splitlines() for part in re.split(r"&&|\|\||;|\|", line)
-            if re.search(r"\binstall\b", part) and _MAIN_LOCK.search(part)]
+def _requirement_files(tokens: list[str]) -> list[str]:
+    """The files of pip's requirement options, as scripts/ci_local.py reads them: -r f, -rf, --requirement f|=f."""
+    files, args = [], iter(tokens)
+    for token in args:
+        if token in ("-r", "--requirement"):
+            files.append(next(args, ""))
+        elif token.startswith("--requirement="):
+            files.append(token.partition("=")[2])
+        elif token.startswith("-r") and not token.startswith("--"):
+            files.append(token[2:])
+    return [name.rstrip("`.,:)").rsplit("/", 1)[-1] for name in files]
+
+
+def _installs_of_the_main_lock(text: str) -> list[list[str]]:
+    """The tokens of each command in ``text`` that installs the main lock, read as a POSIX shell reads it:
+    quotes removed, ``#`` comments dropped, a backslash continuation joined, ``&&``/``||``/``;``/``|`` separating."""
+    commands = []
+    for line in re.sub(r"\\\r?\n", " ", text).splitlines():
+        start = _PIP_INSTALL.search(line)
+        if _MAIN_LOCK not in line or start is None:
+            continue
+        span = line[start.start():]
+        if line[:start.start()].count("`") % 2:  # inside a Markdown code span: up to its closing backtick
+            span = span.split("`", 1)[0]
+        lexer = shlex.shlex(span, posix=True, punctuation_chars=True)
+        lexer.whitespace_split = True
+        try:
+            tokens = list(lexer)
+        except ValueError as exc:
+            raise AssertionError(f"cannot read as a shell command: {span.strip()!r} ({exc})") from exc
+        command: list[str] = []
+        for token in [*tokens, ";"]:
+            if token not in _SEPARATORS:
+                command.append(token)
+                continue
+            if "install" in command and _MAIN_LOCK in _requirement_files(command):
+                commands.append(command)
+            command = []
+    return commands
 
 
 @pytest.mark.parametrize(("text", "unguarded"), [
@@ -277,13 +312,18 @@ def _installs_of_the_main_lock(text: str) -> list[str]:
     ("pip install -rrequirements.lock.txt", True),
     ("pip install --requirement requirements.lock.txt", True),
     ("pip install --requirement=dokimi/requirements.lock.txt", True),
+    ('pip install --require-hashes -r "requirements.lock.txt"', True),
+    ("pip install --requirement='requirements.lock.txt'", True),
+    ("pip install --require-hashes -r requirements.lock.txt  # --no-deps", True),
     ("pip install --no-deps wheel && pip install --require-hashes -r requirements.lock.txt", True),
     ("uv pip install --python x \\\n    -r requirements.lock.txt", True),
     ("pip install --no-deps --require-hashes -r requirements.lock.txt -r requirements-ci.lock.txt", False),
-    ("pip install --no-deps --requirement=/opt/req/requirements.lock.txt", False),
+    ("Run `pip install -r requirements.lock.txt` if you don't use make.", True),
+    ("Run `pip install --no-deps -r requirements.lock.txt` if you don't use make.", False),
+    ('pip install --no-deps --requirement="/opt/req/requirements.lock.txt"', False),
     ("uv pip install --python x --no-deps \\\n    -r requirements.lock.txt", False),
-], ids=["short", "joined", "long", "long-equals", "chained", "continued", "guarded", "guarded-long",
-        "guarded-continued"])
+], ids=["short", "joined", "long", "long-equals", "quoted", "single-quoted", "commented-flag", "chained",
+        "continued", "guarded", "prose-span", "prose-span-guarded", "guarded-quoted", "guarded-continued"])
 def test_an_install_of_the_main_lock_without_no_deps_is_found(text: str, unguarded: bool) -> None:
     installs = _installs_of_the_main_lock(text)
     assert len(installs) == 1, installs
@@ -291,7 +331,9 @@ def test_an_install_of_the_main_lock_without_no_deps_is_found(text: str, unguard
 
 
 @pytest.mark.parametrize("text", ["pip install --require-hashes -r requirements-ci.lock.txt",
-                                  "cache-dependency-path: dokimi/requirements.lock.txt"])
+                                  "cache-dependency-path: dokimi/requirements.lock.txt",
+                                  "Dependencies install from `requirements.lock.txt`; the docs build's from",
+                                  "pip install --no-deps-x -r requirements-docs.lock.txt"])
 def test_other_locks_and_mentions_of_the_main_lock_are_not_installs_of_it(text: str) -> None:
     assert _installs_of_the_main_lock(text) == []
 
@@ -301,5 +343,6 @@ def test_every_install_of_the_main_lock_passes_no_deps() -> None:
     found = {path.relative_to(ROOT.parent).as_posix(): _installs_of_the_main_lock(path.read_text(encoding="utf-8"))
              for pattern in INSTALL_SOURCES for path in sorted(ROOT.parent.glob(pattern)) if path.is_file()}
     assert sum(len(installs) for installs in found.values()) >= 10, found
-    missing = [(name, install) for name, installs in found.items() for install in installs if "--no-deps" not in install]
+    missing = [(name, shlex.join(install)) for name, installs in found.items() for install in installs
+               if "--no-deps" not in install]
     assert missing == []
