@@ -27,10 +27,10 @@ def checked_delta(treatment: float, baseline: float, error: type[Exception] = Ov
 
     ``where`` names what the pair belongs to (a question) and leads the message.
     """
-    delta = treatment - baseline
     try:
+        delta = treatment - baseline
         refused = not math.isfinite(delta) and math.isfinite(treatment) and math.isfinite(baseline)
-    except OverflowError:  # an integer too large for a float: ``isfinite`` cannot read it
+    except OverflowError:  # an integer too large for a float: the subtraction or ``isfinite`` cannot read it
         refused = True
     if refused:
         raise error(f"{where}{': ' if where else ''}the difference of {_shown(treatment)} and {_shown(baseline)} leaves the float range")
@@ -43,7 +43,11 @@ def check_sum_range(values: Sequence[float], error: type[Exception] = OverflowEr
     Such values can sum to ``inf`` at one point and back to a finite total at another, so no order of
     addition is safe for the sign patterns of a sign-flip test: they are refused.
     """
-    if not math.isfinite(sum(abs(v) for v in values)) and all(math.isfinite(v) for v in values):
+    try:
+        refused = not math.isfinite(sum(abs(v) for v in values)) and all(math.isfinite(v) for v in values)
+    except OverflowError:  # an integer sum too large for a float: ``isfinite`` cannot read it
+        refused = True
+    if refused:
         raise error("the sum of the magnitudes of the values leaves the float range")
 
 
