@@ -693,7 +693,7 @@ class EvaluationPipeline:
         
         return answers
     
-    def _evaluate_answers(self, answers: List[Dict[str, Any]] | Dict[str, Any],
+    def _evaluate_answers(self, answers: Optional[List[Dict[str, Any]] | Dict[str, Any]],
                           concurrency: int = 5,
                           question_set_hash: Optional[str] = None) -> List[Dict[str, Any]]:
         """Evaluate answers using LLM-as-judge."""
@@ -701,15 +701,15 @@ class EvaluationPipeline:
         
         from dokimi.records import load, read
 
-        # Use in-memory answers from the previous step (avoid stale disk read);
-        # fall back to the answers file when none were passed.
-        if answers:
+        # Use in-memory answers from the previous step; an empty list is this run's
+        # answers (none), so the answers file on disk is read only when none were passed.
+        if answers is not None:
             run = read(answers, source="answers", section="answers")
         else:
             run = load(self.answers_path, section="answers")
         answers_list = list(run.records)
         # Fresh in-memory answers are this process's method; an artifact says its own, unstamped is legacy.
-        if answers and isinstance(answers, list):
+        if answers is not None and isinstance(answers, list):
             answers_method_version = ANSWERING_METHOD_VERSION
         else:
             answers_method_version = answers_method_version_of(run.meta)
