@@ -439,12 +439,18 @@ def run_batch(ctx: EvalContext, tasks: list[Task], arms: list[str], options: lis
 
 
 def _refuse_shared_cells(cells: list[tuple[Task, str, AgentOptions, int]]) -> None:
-    """Refuse a plan naming one cell directory twice: with --jobs 2 both would run in it and mix their files."""
+    """Refuse a plan naming one cell directory twice, or two names one case-insensitive volume maps to one
+    directory: with --jobs 2 both would run in it and mix their files (or one would delete the other's)."""
     names = Counter(cell_name(t.id, a, o.model, r) for t, a, o, r in cells)
-    shared = sorted(name for name, n in names.items() if n > 1)
-    if shared:
-        raise ValueError(f"cell {shared[0]} is planned {names[shared[0]]} times (a repeated --task or --model, or "
-                         "two --model strings with one name on disk); give each once")
+    problems = [f"cell {name} is planned {names[name]} times" for name in sorted(names) if names[name] > 1]
+    by_fold: dict[str, list[str]] = {}
+    for name in names:
+        by_fold.setdefault(name.casefold(), []).append(name)
+    problems += [f"cells {' and '.join(sorted(group))} are one directory on a case-insensitive volume"
+                 for group in by_fold.values() if len(group) > 1]
+    if problems:
+        raise ValueError("; ".join(problems) + " (a repeated --task or --model, two --model strings with one name "
+                         "on disk, or names that differ only in case); give each once")
 
 
 UNSUPPORTED_FILE = "unsupported.json"

@@ -63,6 +63,27 @@ def test_a_plan_naming_one_cell_twice_is_refused_before_any_agent(setup, capsys,
     assert not list((setup["out"] / "b1").glob("*/result.json"))
 
 
+def test_every_repeated_cell_is_named_in_the_refusal(setup, capsys):
+    # two repeated --task values plan two cells twice: the refusal names both, not only the first
+    with pytest.raises(SystemExit) as exc:
+        _run(setup, "--task", "fix_add", "--task", "fix_add", "--reps", "2", "--jobs", "2")
+    assert exc.value.code == 1
+    err = capsys.readouterr().err
+    assert "cell fix_add__guidance-raw__m-1__r1 is planned 2 times" in err
+    assert "cell fix_add__guidance-raw__m-1__r2 is planned 2 times" in err
+    assert not _agents(setup)
+
+
+def test_names_that_differ_only_in_case_are_refused_before_any_agent(setup, capsys):
+    # on a case-insensitive volume (default macOS APFS) ...__m-1__r1 and ...__M-1__r1 are one directory: the
+    # run of one would rmtree the other's while it works in it
+    with pytest.raises(SystemExit) as exc:
+        _run(setup, "--task", "fix_add", "--jobs", "2", models=("m-1", "M-1"))
+    assert exc.value.code == 1
+    assert "case-insensitive volume" in capsys.readouterr().err
+    assert not _agents(setup)
+
+
 def test_ctrl_c_starts_no_queued_cell(setup, monkeypatch):
     # CancelContract of cfg/fixed.cfg (cfg/mut_no_cancel_guard.cfg breaks it): SIGINT wakes the main thread and
     # pool.map cancels the queued cells; _thread.interrupt_main() sends no signal and would let them start.
