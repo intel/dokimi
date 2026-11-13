@@ -214,7 +214,7 @@ jobs:
         run: |
           title="Intel CI: the latest conda-forge or PyPI releases fail the weekly run"
           body="The scheduled Intel CI run failed: $RUN_URL. It resolves the latest releases; PRs and main pushes install ci/conda-lock/ and dokimi/requirements.lock.txt, so they are not affected. Merge a lock refresh (conda-lock.yml) only once this is understood."
-          num=$(gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[0].number')
+          num=$(gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[0].number // empty')
           if [ -n "$num" ]; then
             gh issue comment "$num" --body "Still failing: $RUN_URL"
           else

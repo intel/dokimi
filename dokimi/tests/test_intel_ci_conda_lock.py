@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import json
 import os
 import re
 import shlex
@@ -73,14 +74,7 @@ def test_the_locks_are_for_linux_64_whatever_machine_writes_them(tmp_path: Path,
     assert "# platform: linux-64\n" in (tmp_path / "ci" / "conda-lock" / written[0]).read_text(encoding="utf-8")
 
 
-def test_the_solve_targets_linux_64_whatever_machine_runs_it(monkeypatch: pytest.MonkeyPatch) -> None:
-    """py-rattler is asked for linux-64 and noarch records, not the machine's subdir."""
-    platforms: list[list[str]] = []
-
-    async def solve(channels: list[str], specs: list[str], **options: list[str]) -> list:
-        platforms.append(options["platforms"])
-        return []
-
+def _stub_rattler(solve, monkeypatch: pytest.MonkeyPatch) -> None:
     rattler = types.ModuleType("rattler")
     for name in ("GenericVirtualPackage", "PackageName", "Version"):
         setattr(rattler, name, lambda *args: args)
@@ -90,10 +84,32 @@ def test_the_solve_targets_linux_64_whatever_machine_runs_it(monkeypatch: pytest
     for name, module in (("rattler", rattler), ("rattler.package", types.ModuleType("rattler.package")),
                          ("rattler.package.build_string", build_string)):
         monkeypatch.setitem(sys.modules, name, module)
+
+
+def test_the_solve_targets_linux_64_whatever_machine_runs_it(monkeypatch: pytest.MonkeyPatch) -> None:
+    """py-rattler is asked for linux-64 and noarch records, not the machine's subdir."""
+    platforms: list[list[str]] = []
+
+    async def solve(channels: list[str], specs: list[str], **options: list[str]) -> list:
+        platforms.append(options["platforms"])
+        return []
+
+    _stub_rattler(solve, monkeypatch)
     lock = _script("lock", monkeypatch)
     monkeypatch.setattr(lock.hooks, "HOST_SUBDIR", "osx-64")
     assert lock.solve(["python 3.12.*"], 7) == []
     assert platforms == [["linux-64", "noarch"]]
+
+
+def test_a_failed_solve_is_a_lock_error_naming_the_specs(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The __main__ block prints a LockError as one line; a solver exception would be a traceback."""
+    async def solve(channels: list[str], specs: list[str], **options: list[str]) -> list:
+        raise RuntimeError("cannot solve")
+
+    _stub_rattler(solve, monkeypatch)
+    lock = _script("lock", monkeypatch)
+    with pytest.raises(lock.LockError, match=r"^the solve of \['python 3\.12\.\*'\] failed: cannot solve$"):
+        lock.solve(["python 3.12.*"], 7)
 
 
 def test_a_full_run_removes_the_locks_of_versions_no_longer_declared(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -183,6 +199,34 @@ def test_a_lock_that_misses_a_dependency_of_the_artifact_stops_before_the_tests(
     assert str(error.value) == ("ci/conda-lock/linux-64-py3.12.txt does not satisfy "
                                 "dokimi-0.2.0-pyh01cfe5d_0.conda needs regex >=2024, has none: run python ci/lock.py")
     assert [call[0] for call in calls] == ["create", "install"]
+
+
+def test_unmet_depends_reports_each_dependency_the_env_does_not_match(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The artifact's depends go to the conda check; what it finds unmet comes back as needs/has lines."""
+    hooks = _script("hooks", monkeypatch)
+    package = tmp_path / "dokimi-0.2.0-pyh01cfe5d_0.conda"
+    monkeypatch.setattr(hooks, "package_record", lambda path: ("noarch", {"depends": ["python >=3.11", "regex >=2024"]}))
+    checked: list[list[str]] = []
+
+    def run(command: list[str], **options: object) -> subprocess.CompletedProcess:
+        checked.append(json.loads(command[-1]))
+        return subprocess.CompletedProcess(command, 0, json.dumps([["regex >=2024", "none"]]), "")
+
+    monkeypatch.setattr(hooks.subprocess, "run", run)
+    assert hooks.unmet_depends(tmp_path, [package]) == [
+        "dokimi-0.2.0-pyh01cfe5d_0.conda needs regex >=2024, has none"]
+    assert checked == [["python >=3.11", "regex >=2024"]]
+
+
+def test_a_host_other_than_linux_64_cannot_install_the_locks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The locks are linux-64 explicit lists, so another host stops before any conda command."""
+    hooks = _script("hooks", monkeypatch)
+    calls = _record_conda(hooks, monkeypatch)
+    monkeypatch.setattr(hooks, "HOST_SUBDIR", "win-64")
+    with pytest.raises(hooks.HookError, match=r"^the conda locks are linux-64 only; win-64 cannot install them$"):
+        hooks.install_locked(tmp_path / "env", [], "3.12")
+    assert calls == []
 
 
 def test_a_missing_lock_names_the_command_that_writes_it(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

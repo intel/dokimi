@@ -76,20 +76,23 @@ def solve(wanted: list[str], min_age_days: int) -> list:
         rattler.GenericVirtualPackage(rattler.PackageName(name), rattler.Version(version), BuildString(build))
         for name, version, build in VIRTUAL_PACKAGES
     ]
-    records = asyncio.run(rattler.solve(
-        [CHANNEL],
-        wanted,
-        platforms=[PLATFORM, "noarch"],
-        virtual_packages=virtual,
-        exclude_newer=datetime.timedelta(days=min_age_days),
-        # conda-forge has timestamped every build for years; one without is old
-        timestamp_policy="allow-missing",
-    ))
+    try:
+        records = asyncio.run(rattler.solve(
+            [CHANNEL],
+            wanted,
+            platforms=[PLATFORM, "noarch"],
+            virtual_packages=virtual,
+            exclude_newer=datetime.timedelta(days=min_age_days),
+            # conda-forge has timestamped every build for years; one without is old
+            timestamp_policy="allow-missing",
+        ))
+    except Exception as error:
+        raise LockError(f"the solve of {wanted} failed: {error}") from error
     return sorted(records, key=lambda record: record.name.normalized)
 
 
 def render(wanted: list[str], records: list, min_age_days: int) -> str:
-    """The lock file: a header naming its specs, then one URL#sha256 per record in install order."""
+    """The lock file: a header naming its specs, then one URL#sha256 per record, sorted by package name."""
     lines = [
         "# Copyright (C) 2026 Intel Corporation",
         "# SPDX-License-Identifier: Apache-2.0",

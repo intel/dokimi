@@ -369,7 +369,10 @@ def install_wheel(pip: list[str], packages: list[Path], specs: list[str], latest
 
 def install_locked(env_dir: Path, packages: list[Path], version: str) -> None:
     """Creates the environment from the version's lock, adds the packages and runs the recipe's tests."""
-    lock = lock_path(version)
+    # The locks are linux-64 solves: their explicit lists install nowhere else
+    if HOST_SUBDIR != "linux-64":
+        raise HookError(f"the conda locks are linux-64 only; {HOST_SUBDIR} cannot install them")
+    lock = lock_path(version, "linux-64")
     if not lock.is_file():
         raise HookError(f"{lock.relative_to(ROOT)} is missing: run python ci/lock.py")
     conda("create", "-y", "-q", "-p", str(env_dir), "--file", str(lock))
