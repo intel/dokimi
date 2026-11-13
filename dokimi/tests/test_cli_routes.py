@@ -137,6 +137,7 @@ PAID_PATHS = {
     ("eval", "judge", "wording"),
     ("eval", "judge", "agreement"),
     ("eval", "redteam"),
+    ("eval", "skill-coverage"),
     ("tools", "preference"),
 }
 

@@ -12,7 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Union
 
-from dokimi.records import BASELINE, CONTEXT, RecordError, records
+from dokimi.records import BASELINE, CONTEXT, RecordError, read
 
 logger = logging.getLogger(__name__)
 
@@ -130,16 +130,12 @@ class ResultsAggregator:
             logger.warning(f"Invalid snapshot format in {path}: expected JSON object")
             return None
 
-        evaluations = data.get("evaluations", [])
-        if not isinstance(evaluations, list):
-            logger.warning(f"Invalid evaluations format in {path}: expected list")
-            return None
-        if not evaluations:
-            return None
         try:
-            recs = records(evaluations, source=str(path), kind="evaluations")
+            recs = read(data, source=str(path), section="evaluations", required=False).records
         except RecordError as e:
-            logger.warning(f"Invalid evaluation record in {path}: {e}")
+            logger.warning(f"Invalid eval file, skipped: {e}")
+            return None
+        if not recs:
             return None
 
         # Infer product name: prefer explicit field, fall back to filename stem
