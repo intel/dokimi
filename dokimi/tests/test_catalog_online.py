@@ -967,3 +967,16 @@ def _scan_capture(root, capsys, *extra: str) -> tuple[int, dict]:
 def test_pip3_and_npm_add_name_their_packages():
     assert online_checks.extract_packages("pip3 install nosuch-pkg-xyz\n") == [("pypi", "nosuch-pkg-xyz")]
     assert online_checks.extract_packages("npm add nosuch-pkg-xyz\n") == [("npm", "nosuch-pkg-xyz")]
+
+
+def test_resolver_failure_of_a_no_proxy_host_is_a_dns_failure(monkeypatch):
+    # NO_PROXY sends docs.acme.dev direct, so its resolver failure is the link's own, not the proxy's.
+    monkeypatch.setenv("HTTPS_PROXY", "http://missing-proxy.invalid:8080")
+    for name in ("NO_PROXY", "no_proxy"):
+        monkeypatch.setenv(name, "docs.acme.dev")
+
+    def no_such_host(*args, **kwargs):
+        raise socket.gaierror(socket.EAI_NONAME, "Name or service not known")
+
+    monkeypatch.setattr(socket, "getaddrinfo", no_such_host)
+    assert online_checks._link_outcome(online_checks.make_client(), "https://docs.acme.dev/x").status == "dns"
