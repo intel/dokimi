@@ -212,12 +212,19 @@ def schema_errors(schema: str | Path, instance: Any) -> list[str]:
     ]
 
 
+def summary_errors(kind: str, data: dict) -> list[str]:
+    """What the schema file of ``kind`` leaves unchecked: a finished ``novelty`` record (one without
+    ``status``) needs its ``paired``, ``k0`` and ``spans`` summaries, which only a partial record lacks."""
+    if kind != "novelty" or "status" in data:
+        return []
+    return [f"<root>: {name!r} is a required property"
+            for name in ("paired", "k0", "spans") if name not in data]
+
+
 def validate_artifact(kind: str, data: dict) -> None:
     """Validate ``data`` against the schema for ``kind`` (raises on failure)."""
     errors = schema_errors(_schema_path(kind, schema_version_for(kind, data)), data)
-    if kind == "novelty" and "status" not in data:  # only a partial record lacks these
-        errors += [f"<root>: {name!r} is a required property"
-                   for name in ("paired", "k0", "spans") if name not in data]
+    errors += summary_errors(kind, data)
     if errors:
         details = "\n".join(f"  - {e}" for e in errors)
         raise ArtifactValidationError(f"{kind} artifact validation failed:\n{details}")
