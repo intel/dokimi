@@ -162,6 +162,17 @@ def test_a_rule_linked_to_a_non_markdown_file_is_checked(tmp_path, capsys):
     assert _fails(_scan(capsys, str(root))) == {(".claude/rules/x.md", "src/gone_txt.py")}
 
 
+def test_a_rule_stays_checked_when_claude_local_md_links_to_the_same_file(tmp_path, capsys):
+    root = _write(tmp_path / "r", {"src/real.py": "x = 1\n", "CLAUDE.md": "# guidance\n",
+                                   "shared.txt": "See `src/gone_shared.py`.\n"})
+    (root / "CLAUDE.local.md").symlink_to("shared.txt")
+    (root / ".claude/rules").mkdir(parents=True)
+    (root / ".claude/rules/x.md").symlink_to("../../shared.txt")
+    payload = _scan(capsys, str(root))
+    assert ".claude/rules/x.md" in payload["files"]
+    assert _fails(payload) == {(".claude/rules/x.md", "src/gone_shared.py")}
+
+
 def test_the_note_counts_only_the_files_the_default_globs_do_not_match(tmp_path, capsys):
     root = _write(tmp_path / "r", {"src/real.py": "x = 1\n", "CLAUDE.md": "@.github/instructions/a.md\n",
                                    ".github/instructions/a.md": "x\n", ".claude/rules/b.md": "y\n"})

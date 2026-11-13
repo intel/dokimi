@@ -43,7 +43,7 @@ def _loaded_with_default(tree, manifest) -> tuple[tuple[str, ...], tuple[str, ..
     """
     if manifest.path != "<default>":
         return (), ()
-    from dokimi.repos.budget import budget
+    from dokimi.repos.budget import RULE_GLOB, budget
     from dokimi.repos.harness_profile import load_profile
 
     p = load_profile("claude-code")
@@ -68,6 +68,8 @@ def _loaded_with_default(tree, manifest) -> tuple[tuple[str, ...], tuple[str, ..
     # guidance name only when it is Markdown
     loaded = tuple(dict.fromkeys(p for kind, p in reached if p is not None
                                  and (kind == "rule" or _target(tree, p).endswith(".md"))))
+    # budget folds a rule into the guidance entry of the file it links to, which may not be Markdown: list rules here
+    loaded = tuple(dict.fromkeys([*loaded, *sorted(f for f in listed if RULE_GLOB.match(f))]))
     # a file the default globs match is checked anyway, so the note counts only the files they do not match
     new = [p for p in loaded if not any(match_glob(g, p) for g in manifest.guidance_globs)]
     if new:
