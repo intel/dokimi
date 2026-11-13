@@ -254,3 +254,29 @@ def test_renovate_finds_a_mixed_case_exact_pin_under_its_canonical_name() -> Non
     found, exact = _renovate_and_exact_pins(
         'test:\n  requires:\n    - "pytest >=9"\n    - "PyYAML ==6.0.1"\n    - "Foo_Bar ==1.2"\n')
     assert found == exact == {"pyyaml": "6.0.1", "foo-bar": "1.2"}
+
+
+def _renovate_patterns(file_pattern: str) -> list[re.Pattern[str]]:
+    """The matchStrings of every renovate regex manager whose managerFilePatterns is file_pattern."""
+    text = (_REPO / ".github" / "renovate.json5").read_text(encoding="utf-8")
+    patterns = []
+    for block in text.split(f'managerFilePatterns: ["{file_pattern}"]')[1:]:
+        literal = re.search(r"matchStrings: \[(\".*\")\]", block)
+        assert literal is not None
+        patterns.append(re.compile(json.loads(literal.group(1)).replace("(?<", "(?P<")))
+    return patterns
+
+
+def test_renovate_bumps_every_miniforge_and_conda_build_pin_of_intel_ci() -> None:
+    """Each setup-miniconda step and the conda-build install carry one pin, and renovate's regexes find them all."""
+    path = _WORKFLOWS / "intel-ci.yml"
+    text = path.read_text(encoding="utf-8")
+    steps = [step for job in _workflow("intel-ci.yml")["jobs"].values() for step in job["steps"]]
+    miniforge = [str(step["with"]["miniforge-version"]) for step in steps
+                 if str(step.get("uses", "")).startswith("conda-incubator/setup-miniconda@")]
+    conda_build = re.findall(r'"conda-build ==([^"]+)"', text)
+    found = [m["currentValue"] for pattern in _renovate_patterns(r"/^\\.github/workflows/intel-ci\\.yml$/")
+             for m in pattern.finditer(text)]
+    assert len(miniforge) == 3 and len(set(miniforge)) == 1 and len(conda_build) == 1
+    assert sorted(found) == sorted([*miniforge, *conda_build])
+    assert "conda-build ==" in next(step["run"] for step in steps if step.get("name") == "Install conda-build")
