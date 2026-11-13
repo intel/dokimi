@@ -11,6 +11,7 @@ import sys
 
 import pytest
 
+from dokimi.novelty import cost as novelty_cost
 from dokimi.cli import build_parser
 from dokimi.novelty.client import LLMClient
 from dokimi.utils import InputError
@@ -216,9 +217,8 @@ def _two_skill_field(tmp_path):
 
 
 def test_routing_refuses_an_out_directory_before_it_calls_the_model(tmp_path, monkeypatch):
-    import dokimi.commands.novelty as novelty_cmd
 
-    monkeypatch.setattr(novelty_cmd, "_client",
+    monkeypatch.setattr(novelty_cost, "client",
                         lambda *a, **k: pytest.fail("a model call was made before --out was checked"))
     artifact, competitor = _two_skill_field(tmp_path)
     queries = tmp_path / "queries.txt"
@@ -337,9 +337,8 @@ def test_a_valid_out_file_is_returned_as_a_path(tmp_path):
 
 
 def test_all_vs_all_refuses_an_out_directory_before_it_calls_the_model(tmp_path, monkeypatch):
-    import dokimi.commands.novelty as novelty_cmd
 
-    monkeypatch.setattr(novelty_cmd, "_client",
+    monkeypatch.setattr(novelty_cost, "client",
                         lambda *a, **k: pytest.fail("a model call was made before --out was checked"))
     root = tmp_path / "catalog"
     for name, text in {"perf": "profile a slow binary", "db": "tune a slow database query"}.items():
@@ -370,9 +369,8 @@ def test_the_estimate_prices_the_reply_the_model_sends_not_one_json_pick():
 
 def test_all_vs_all_with_one_repeat_keeps_the_noise_block_and_prints_no_noise_line(
         tmp_path, capsys, monkeypatch):
-    import dokimi.commands.novelty as novelty_cmd
 
-    monkeypatch.setattr(novelty_cmd, "_client", lambda model, provider, role, args: LLMClient(
+    monkeypatch.setattr(novelty_cost, "client", lambda model, provider, role, args: LLMClient(
         model=model, provider=provider, role=role,
         transport=lambda prompt, system: (json.dumps({"pick": 1}), None)))
     root = tmp_path / "catalog"
