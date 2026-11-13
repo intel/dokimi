@@ -182,7 +182,8 @@ def test_indented_or_late_frontmatter_is_a_broken_skill_not_plain_markdown(tmp_p
 
 
 @pytest.mark.parametrize("text", ["---\n\n# Deck Builder\n\nBuilds decks from text.\n",
-                                   "---\n\n# Deck Builder\n\nBuilds decks from text.\n---\n"])
+                                   "---\n\n# Deck Builder\n\nBuilds decks from text.\n---\n",
+                                   "---\n\n# Deck Builder\n\nBuilds decks from text.\n\nUsage: run deck.\n"])
 def test_a_rule_then_prose_is_plain_markdown(tmp_path, text):
     # A first line of --- with no name: or description: after it is a rule, not a broken frontmatter.
     _plain(tmp_path, "deck", text)
@@ -198,6 +199,7 @@ def test_a_rule_then_prose_is_plain_markdown(tmp_path, text):
         "---\ntitle: Deck: Builder\n---\n# Deck Builder\n\nBuilds decks.\n",  # broken YAML, no name or description
         "---\n  name: deck\n  description: Use when decks.\n---\n# Deck\n",  # indented keys
         "---\n- name: deck\n---\n# Deck\n",  # a list, not a mapping
+        "---\nname: deck\ndescription: Use when decks.\n\n# Deck\n",  # no closing ---
         "---\n---\nname: deck\ndescription: Use when decks.\n---\n# Deck\n",  # an empty block first
     ],
 )
