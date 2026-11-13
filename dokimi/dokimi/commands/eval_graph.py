@@ -102,15 +102,16 @@ def cmd_eval_graph(args: argparse.Namespace) -> None:
     provider, model = args.extract_model
     provider = PROVIDER_ALIASES.get(provider, provider)  # provenance records gemini/x as google-vertex/x
     client = LLMClient(model=model, provider=provider, role="graph", cap=spend_cap(args))
+    unmetered = False
     try:
         graph = build_need_graph(name, description, client=client, strict=True)
     except SpendCapReached as exc:
         reply = exc.reply or ""
+        # A reply cut at the output ceiling is no graph, priced or not (as LLMClient.text refuses it).
         if exc.reason != "no_price" or not reply.strip() or exc.truncated:
             raise
         # The call is paid for and its reply is the graph, as measure.py keeps such a reply.
-        print(f"Warning: no price is known for {provider}/{model}, so this call could not be metered; "
-              "its reply is the graph", file=sys.stderr)
+        unmetered = True
         graph = _graph_from_unmetered(name, description, reply)
     except Exception as exc:  # an unreachable or unauthenticated model: not "an empty graph"
         print(f"Error: the graph-author call failed: {exc}; nothing was written", file=sys.stderr)
@@ -119,6 +120,9 @@ def cmd_eval_graph(args: argparse.Namespace) -> None:
         print(f"Error: the model returned no usable need node for {name}; nothing was written",
               file=sys.stderr)
         sys.exit(EXIT_FAILURE)
+    if unmetered:  # said only once the reply is a graph: a refusal names no graph
+        print(f"Warning: no price is known for {provider}/{model}, so this call could not be metered; "
+              "its reply is the graph", file=sys.stderr)
     graph.provenance = {"model": f"{provider}/{model}", "prompt_version": PROMPT_VERSION, "draws": 1}
     _publish(graph.as_dict(), out)
     counts = graph.summary()["by_path_class"]

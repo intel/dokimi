@@ -423,3 +423,13 @@ def test_a_cut_off_unmetered_reply_is_not_published_as_a_graph(tmp_path, monkeyp
     result = _run(capsys, str(_skill(tmp_path)), "--out", str(out), "--max-usd", "5")
 
     assert result.returncode == 1 and "nothing was written" in result.stderr and not out.exists()
+
+
+def test_an_unusable_unmetered_reply_writes_nothing_and_no_warning_for_a_graph(tmp_path, monkeypatch, capsys):
+    _stub(monkeypatch, {"nodes": []})
+    out = tmp_path / "g.json"
+
+    result = _run(capsys, str(_skill(tmp_path)), "--out", str(out), "--max-usd", "5")
+
+    assert result.returncode == 1 and "nothing was written" in result.stderr
+    assert "could not be metered" not in result.stderr and not out.exists()
