@@ -64,10 +64,8 @@ def _loaded_with_default(tree, manifest) -> tuple[tuple[str, ...], tuple[str, ..
 
     reached = ((e["kind"], _listed(tree, listed, e["path"])) for e in entries
                if e["kind"] in ("rule", "import") or _unmatched_guidance(e))
-    # a rule is checked whatever its link points to (the contract: every rule file is checked); an import or a
-    # guidance name only when it is Markdown
-    # budget counts a rule that links to a guidance name or another rule under that file's name, and no rule entry
-    # of its own: the rule path is named here as well, so every listed rule is checked whatever it links to
+    # a rule is checked whatever it links to; an import or a guidance name only when it is Markdown
+    # budget folds a rule linked to a guidance name into that name, so the rule path is named here too
     linked = (_listed(tree, listed, f) for f in sorted(listed) if p.reads_claude_rules and RULE_GLOB.match(f))
     loaded = tuple(dict.fromkeys([p for kind, p in reached if p is not None
                                   and (kind == "rule" or _target(tree, p).endswith(".md"))]
