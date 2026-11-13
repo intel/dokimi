@@ -248,7 +248,8 @@ def test_unmet_depends_reports_each_dependency_the_env_does_not_match(
     """The artifact's depends go to the conda check; what it finds unmet comes back as needs/has lines."""
     hooks = _script("hooks", monkeypatch)
     package = tmp_path / "dokimi-0.2.0-pyh01cfe5d_0.conda"
-    monkeypatch.setattr(hooks, "package_record", lambda path: ("noarch", {"depends": ["python >=3.11", "regex >=2024"]}))
+    monkeypatch.setattr(hooks, "package_record", lambda path: (
+        "noarch", {"depends": ["python >=3.11", "__glibc >=2.17", "regex >=2024", "__unix"]}))
     checked: list[list[str]] = []
 
     def run(command: list[str], **options: object) -> subprocess.CompletedProcess:
@@ -259,6 +260,16 @@ def test_unmet_depends_reports_each_dependency_the_env_does_not_match(
     assert hooks.unmet_depends(tmp_path, [package]) == [
         "dokimi-0.2.0-pyh01cfe5d_0.conda needs regex >=2024, has none"]
     assert checked == [["python >=3.11", "regex >=2024"]]
+
+
+def test_the_recipe_tests_refuse_a_rattler_build_recipe(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A recipe.yaml has no `test:` key to read, so running nothing would pass a pull request untested."""
+    hooks = _script("hooks", monkeypatch)
+    (tmp_path / "recipe.yaml").write_text("tests: []\n", encoding="utf-8")
+    monkeypatch.setattr(hooks, "ROOT", tmp_path)
+    monkeypatch.setattr(hooks, "run", lambda command, **options: pytest.fail("ran a test command"))
+    with pytest.raises(hooks.HookError, match=r"^the recipe tests of a rattler-build recipe are not run: only conda-build is supported$"):
+        hooks.run_recipe_tests(tmp_path / "env")
 
 
 def test_a_host_other_than_linux_64_cannot_install_the_locks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

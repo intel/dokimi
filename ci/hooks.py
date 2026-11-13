@@ -391,9 +391,11 @@ def unmet_depends(env_dir: Path, packages: list[Path]) -> list[str]:
     unmet = []
     for package in packages:
         _, record = package_record(package)
+        # A virtual package (__glibc, __unix) has no record in the prefix; the lock was solved with them provided
+        depends = [depend for depend in record.get("depends") or [] if not depend.startswith("__")]
         # Isolated: conda loads conda-pypi, which would import ci/build.py, next to this file, as pypa's build
         found = subprocess.run(
-            [sys.executable, "-I", "-c", UNMET, str(env_dir), json.dumps(record.get("depends") or [])],
+            [sys.executable, "-I", "-c", UNMET, str(env_dir), json.dumps(depends)],
             capture_output=True, text=True, check=True, cwd=env_dir,
         ).stdout
         unmet += [f"{package.name} needs {depend}, has {have}" for depend, have in json.loads(found)]
@@ -402,7 +404,9 @@ def unmet_depends(env_dir: Path, packages: list[Path]) -> list[str]:
 
 def run_recipe_tests(env_dir: Path) -> None:
     """The recipe's test imports and commands, which the build skips on a locked event."""
-    _, selector = matrix.detect(ROOT, "")
+    system, selector = matrix.detect(ROOT, "")
+    if system != "conda-build":  # a rattler-build recipe.yaml keeps its tests elsewhere, and its build skips them too
+        raise HookError(f"the recipe tests of a {system} recipe are not run: only conda-build is supported")
     meta = read_yaml(selector)
     test = (meta if isinstance(meta, dict) else {}).get("test") or {}
     env = {key: value for key, value in os.environ.items() if key in KEEP}  # no runner tokens, as test_env
