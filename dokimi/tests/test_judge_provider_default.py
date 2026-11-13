@@ -133,7 +133,7 @@ def test_a_matrix_claude_cli_cell_keeps_the_matrix_judge_provider():
     cell = SimpleNamespace(name="cli", model="sonnet", provider="claude-cli", harness="arms-runner", plugin_specs=())
     copied = cell_config(config, cell)
     assert (copied.judge_provider, copied.judge_model) == (config.judge_provider, config.judge_model)
-    # With a judge temperature the CLI judge would be refused, so the cell must keep the API judge too.
+    # A sampled matrix still has one API judge: a CLI judge would refuse the temperature.
     sampled = cell_config(replace(config, judge_temperature=0.5), cell)
     assert sampled.judge_provider == "anthropic"
 
