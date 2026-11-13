@@ -792,7 +792,13 @@ the skills whose queries it took (`from`). Skills whose descriptions have the sa
 (`tied_groups`, named once on the console): a pick between them is in the confusion matrix but
 is no attractor, and a tied skill's own rate is lower by the picks inside its group. Every rate is over the queries that were scored:
 `n_scored` and `n_unscored` per skill say how many, a query with no content word or a failed
-model call is unscored, and a skill with none scored has an own rate of `null`, not 0.0. A run
+model call is unscored, and a skill with none scored has an own rate of `null`, not 0.0. The lexical arm
+also keeps `per_query`, one row per query whatever `--repeats` is, in the shape of a single-artifact run's
+`per_query` plus the `gold` skill: `query`, `gold`, `rank` of the gold card and `picked` (`rank` is `null` and
+a `reason` replaces `picked` for a query with no content word). A saved run can be rescored from them, for
+corrected gold labels, acceptable alternatives, a dev and test split, or a query-by-query comparison of two
+runs. The model arm's rows are `model.noise.per_query` (`query`, `gold`, `picks`, `n_correct`), also kept
+with one repeat. A run
 with any failed model call writes the result and exits non-zero. The saved file records the
 field rule under `field` (`include_disabled`, `include_invalid`, `keep_copies_under`, the `competitors` and what was
 `left_out`, which also names each skill left out for a conflicting name or a spec error, and `spec_warnings`, one
