@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn
 
 from dokimi.commands.inputs import placebo_text_for_arms_or_exit
-from dokimi.commands.novelty_run import (add_judge2_args, add_spend_cap, judge2_client, spend_cap,
+from dokimi.commands.novelty_run import (add_judge2_args, add_spend_cap, judge2_client,
                                          stamp, stops_at_cap)
 from dokimi.commands.novelty_routing_inputs import (
     checked_out_path,
@@ -60,6 +60,7 @@ if TYPE_CHECKING:
 
 def cmd_novelty_analyze(args: argparse.Namespace) -> None:
     """Run the full pipeline over one artifact and write the novelty artifact + views."""
+    from dokimi.novelty import cost
     from dokimi.artifacts import save_artifact
     # Import the symbols, not the module: the package re-exports `analyze` as the
     # function, which shadows the submodule of the same name.
@@ -87,7 +88,7 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
             print(f"  overridden by flags: {sorted(record['overrides'])}", file=sys.stderr)
 
     if args.estimate_only:
-        estimate, n_tokens = run_estimate(args, settings, artifact_bundle.text, _estimate_usd)
+        estimate, n_tokens = run_estimate(args, settings, artifact_bundle.text, cost.estimate_usd)
         # Every arm but the baseline is priced as carrying the artifact; a placebo of another
         # length is not read.
         if n_tokens > FITTED_TOKENS_MAX:
@@ -108,11 +109,11 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
                 file=sys.stderr,
             )
         return
-    print_run_estimate(args, settings, artifact_bundle.text, _estimate_usd)
+    print_run_estimate(args, settings, artifact_bundle.text, cost.estimate_usd)
 
     placebo_text = placebo_text_for_arms_or_exit(args.placebo_text, _arms(args.arms))
-    extractor, answerer, judge = _clients(args)
-    judge2 = judge2_client(args, answerer, judge, _client)
+    extractor, answerer, judge = cost.clients(args)
+    judge2 = judge2_client(args, answerer, judge, cost.client)
     config = AnalyzeConfig(
         artifact_ref=args.artifact,
         artifact_kind=artifact_bundle.kind,
@@ -159,6 +160,7 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
 
 def cmd_novelty_atoms(args: argparse.Namespace) -> None:
     """Extract atoms and spans only — the expensive stage, cached for reuse."""
+    from dokimi.novelty import cost
     from dokimi.commands.novelty_budget import save_atoms_run, verify_or_partial
     from dokimi.novelty.atoms import ExtractionError, ExtractionReport, extract_atoms, sample_atoms
     from dokimi.novelty.report import cap_warning
@@ -166,7 +168,7 @@ def cmd_novelty_atoms(args: argparse.Namespace) -> None:
 
     artifact_bundle = _bundle_from_args(args)
     settings = _settings(args)
-    extractor = _client(args.extract_model or args.model, args.provider, "extractor", args)
+    extractor = cost.client(args.extract_model or args.model, args.provider, "extractor", args)
     spans = segment(artifact_bundle.text)
     cap = settings.values["max_atoms"]
     extraction = ExtractionReport()
@@ -193,6 +195,7 @@ def cmd_novelty_atoms(args: argparse.Namespace) -> None:
 
 def cmd_novelty_probe(args: argparse.Namespace) -> None:
     """Run the paired probes against a saved atom set and print the 2×2."""
+    from dokimi.novelty import cost
     from dokimi.commands.novelty_atoms_file import (measured_atoms, sampling_record,
                                                     warn_answer_key, warn_unread)
     from dokimi.novelty.atoms import load_atoms_record
@@ -212,11 +215,11 @@ def cmd_novelty_probe(args: argparse.Namespace) -> None:
         print(note, file=sys.stderr)
     settings = _settings(args)
     placebo_text = placebo_text_for_arms_or_exit(args.placebo_text, _arms(args.arms))
-    extractor, answerer, judge = _clients(args)
+    extractor, answerer, judge = cost.clients(args)
     warn_answer_key(saved, answerer, judge)
     try:  # before the paraphrase calls below, which are paid
         check_self_judge(judge, answerer, args.allow_self_judge)
-        judge2 = judge2_client(args, answerer, judge, _client)
+        judge2 = judge2_client(args, answerer, judge, cost.client)
     except SelfJudgeError as exc:
         raise InputError(str(exc)) from exc
     paraphrases, reversals = settings.values["paraphrases"], settings.values["reversals"]
@@ -310,6 +313,7 @@ def cmd_novelty_items(args: argparse.Namespace) -> None:
 
 def _cmd_routing_all_vs_all(args: argparse.Namespace) -> None:
     """Every skill in the field is the gold in turn: confusion matrix and attractors."""
+    from dokimi.novelty import cost
     from dokimi.novelty.all_vs_all import all_vs_all, load_queries_by_skill
     from dokimi.novelty.client import roll_up_cost
     from dokimi.novelty.routing import tokenize
@@ -330,7 +334,7 @@ def _cmd_routing_all_vs_all(args: argparse.Namespace) -> None:
     if args.estimate_only:
         print_all_vs_all_estimate(args, field, queries_by_skill)
         return
-    selector = _client(args.model, args.provider, "selector", args) if args.model else None
+    selector = cost.client(args.model, args.provider, "selector", args) if args.model else None
     if selector is not None:
         # One call per query with a content word and per repeat, each sending every card.
         calls = sum(bool(tokenize(q)) for qs in queries_by_skill.values() for q in qs)
@@ -374,6 +378,7 @@ def _cmd_routing_all_vs_all(args: argparse.Namespace) -> None:
 
 def cmd_novelty_routing(args: argparse.Namespace) -> None:
     """Can this artifact be selected against its competitors? Lexical floor, model on top."""
+    from dokimi.novelty import cost
     if args.repeats > 1 and not args.model:
         raise InputError("--repeats needs --model: the lexical floor is deterministic, so repeating it measures nothing")
     from dokimi.novelty.routing import (
@@ -417,7 +422,7 @@ def cmd_novelty_routing(args: argparse.Namespace) -> None:
     if args.model:
         from dokimi.novelty.client import roll_up_cost
 
-        selector = _client(args.model, args.provider, "selector", args)
+        selector = cost.client(args.model, args.provider, "selector", args)
         payload["model"] = dict(
             model_routing(candidates, queries, client=selector, gold=0, seed=args.seed,
                           repeats=args.repeats),
@@ -450,6 +455,7 @@ def _refuse_no_queries(args: argparse.Namespace, queries: list[str], self_derive
 
 def cmd_novelty_shorten(args: argparse.Namespace) -> None:
     """Score shortening candidates on the five axes and optionally write the best one."""
+    from dokimi.novelty import cost
     from dokimi.commands.novelty_atoms_file import measured_atoms, no_candidate_line, warn_unread
     from dokimi.novelty.artifact import load_artifact_ref
     from dokimi.novelty.atoms import load_atoms_record
@@ -467,7 +473,7 @@ def cmd_novelty_shorten(args: argparse.Namespace) -> None:
         print(note, file=sys.stderr)
     warn_unread(spans, "every candidate keeps them, since what they carry is unknown")
     scored = measured_atoms(args, atoms, saved, "shorten")
-    client = _client(args.extract_model or args.model, args.provider, "oracle", args) \
+    client = cost.client(args.extract_model or args.model, args.provider, "oracle", args) \
         if not args.lexical_only else None
     oracle = RetentionOracle(
         client=client, cache_dir=Path(args.cache_dir) if args.cache_dir else None
@@ -733,79 +739,6 @@ def _add_model_args(parser: argparse.ArgumentParser, positive_int) -> None:
     parser.add_argument("--no-paraphrase", action="store_true", dest="no_paraphrase")
     parser.add_argument("--no-reversal", action="store_true", dest="no_reversal")
     add_spend_cap(parser)
-
-
-def _role_models(args: argparse.Namespace) -> dict[str, tuple[str, str]]:
-    """The (model, provider) of each role, defaulting so roles never silently collapse."""
-    from dokimi.novelty.client import default_judge
-
-    if args.judge_model:
-        judge_model, judge_provider = args.judge_model, args.judge_provider or args.provider
-    else:
-        # a CLI answerer with no judge provider judges on the same CLI, another family
-        judge_model, judge_provider = default_judge(args.model, args.judge_provider, args.provider)
-    extract_model = args.extract_model or judge_model
-    extract_provider = args.extract_provider or judge_provider
-    return {
-        "extractor": (extract_model, extract_provider),
-        "answerer": (args.model, args.provider),
-        "judge": (judge_model, judge_provider),
-    }
-
-
-def _estimate_usd(
-    args: argparse.Namespace, n_tokens: int, by_role: dict[str, int], tier: str | None,
-    context_share: float = 0.5,
-) -> float | None:
-    """The estimate's dollar figure; ``None`` when a role's model cannot be resolved or priced.
-
-    The reason goes to stderr: a role whose model does not resolve, or a role with no list
-    price, makes the figure unavailable, and the note names it.
-    """
-    from dokimi.llm_pricing import list_cost_usd
-    from dokimi.novelty.tiers import estimate_usd
-
-    try:
-        models = _role_models(args)
-    except ValueError as exc:
-        print(f"The USD estimate is unavailable: {exc}", file=sys.stderr)
-        return None
-    usd = estimate_usd(by_role, n_tokens, models, tier, context_share)
-    if usd is None:
-        unpriced = sorted(
-            f"{role} ({model})"
-            for role, (model, provider) in models.items()
-            if list_cost_usd(model, provider, 1, 1) is None
-        )
-        print(
-            "The USD estimate is unavailable: no list price in the litellm price map for "
-            + ", ".join(unpriced),
-            file=sys.stderr,
-        )
-    return usd
-
-
-def _clients(args: argparse.Namespace):
-    """Build the three role clients, defaulting so roles never silently collapse."""
-    try:
-        models = _role_models(args)
-    except ValueError as exc:
-        raise InputError(str(exc)) from exc
-    return (
-        _client(*models["extractor"], "extractor", args),
-        _client(*models["answerer"], "answerer", args),
-        _client(*models["judge"], "judge", args),
-    )
-
-
-def _client(model: str, provider: str, role: str, args: argparse.Namespace):
-    from dokimi.novelty.client import LLMClient
-
-    return LLMClient(
-        model=model, provider=provider, role=role,
-        max_tokens=getattr(args, "max_tokens", None),
-        cap=spend_cap(args),
-    )
 
 
 def _settings(args: argparse.Namespace) -> RunSettings:

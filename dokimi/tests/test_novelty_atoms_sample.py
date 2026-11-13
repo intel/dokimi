@@ -161,8 +161,8 @@ def test_sample_atoms_refuses_a_cap_below_one(cap):
 
 
 def _cli(monkeypatch, *argv):
-    real_client = novelty_cli.novelty_cmd._client
-    monkeypatch.setattr(novelty_cli.novelty_cmd, "_client",
+    real_client = novelty_cli.novelty_cost.client
+    monkeypatch.setattr(novelty_cli.novelty_cost, "client",
                         lambda model, provider, role, args: novelty_cli._with_transport(
                             real_client(model, provider, role, args), _one_atom_per_span))
     args = novelty_cli._parse(*novelty_argv(argv[0]), *argv[1:])
