@@ -9,12 +9,15 @@ PR base. It is narrowed when the PR removes it (or its file), lowers its count o
 checks (``assert`` statements, ``assert*`` calls, ``pytest.raises``/``warns``), adds a
 skip or xfail, drops a ``match=`` from ``pytest.raises``, widens one to ``Exception``
 or ``BaseException``, raises a tolerance (``rel``, ``abs``, ``rtol``, ``atol``,
-``rel_tol``, ``abs_tol``), or cuts ``parametrize`` cases. New tests are not read.
+``rel_tol``, ``abs_tol``), or cuts ``parametrize`` cases. New tests are not read, and
+a test whose body (decorators included) reappears in a changed test file was
+renamed or moved, not removed. A speed bump, not a proof: ``assert x == y`` turned
+into ``assert x`` keeps the count.
 
-A narrowing passes when the PR says why: a ``Test-narrowed: <reason>`` line in any
-commit message of ``base..head`` waives every finding, and a
-``# Test-narrowed: <reason>`` comment inside a test function (decorators included)
-waives that function's. A test file is ``test_*.py`` or ``*_test.py`` under a
+A narrowing passes when the PR says why: a ``Test-narrowed: <reason>`` line in a
+commit message of ``base..head`` waives the findings in the files that commit
+touches, and a ``# Test-narrowed: <reason>`` comment the PR adds inside a test
+function (decorators included) waives that function's. A test file is ``test_*.py`` or ``*_test.py`` under a
 ``tests/`` directory, outside ``fixtures/``.
 
     python scripts/check_test_narrowing.py --base origin/main --head HEAD
@@ -73,6 +76,7 @@ class Shape:
     broad: int = 0
     tolerances: list[float] = field(default_factory=list)
     cases: int | None = None
+    body: str = ""
 
 
 def _name(func: ast.expr) -> str:
@@ -119,7 +123,8 @@ def _cases(decorator: ast.expr) -> int | None:
 def shape_of(node: ast.FunctionDef | ast.AsyncFunctionDef) -> Shape:
     """The checks, skips, tolerances and parametrize cases of one test function."""
     first = min([node.lineno, *(d.lineno for d in node.decorator_list)])
-    shape = Shape(line=first, end=node.end_lineno or node.lineno)
+    shape = Shape(line=first, end=node.end_lineno or node.lineno,
+                  body="|".join(ast.dump(n) for n in [*node.decorator_list, *node.body]))
     for decorator in node.decorator_list:
         cases = _cases(decorator)
         if cases is not None:
@@ -179,18 +184,23 @@ def narrowing(base: Shape, head: Shape) -> list[str]:
     return found
 
 
-def _waived_inline(text: str, shape: Shape) -> bool:
+def _waived_inline(text: str, shape: Shape, base_text: str) -> bool:
     lines = text.split("\n")
     end = shape.end
     # The AST ends a function at its last statement, so take the indented comments after it.
     while end < len(lines) and lines[end][:1].isspace() and lines[end].lstrip().startswith("#"):
         end += 1
     lines = lines[shape.line - 1:end]
-    return any("#" in line and WAIVER.search(line[line.index("#"):]) for line in lines)
+    old = set(base_text.split("\n"))
+    return any("#" in line and line not in old and WAIVER.search(line[line.index("#"):])
+               for line in lines)
 
 
-def compare(base_text: str, head_text: str | None) -> list[tuple[str, int, str]]:
-    """(test, head line, what narrowed) for each test of ``base_text`` that ``head_text`` narrows."""
+def compare(base_text: str, head_text: str | None,
+            moved: frozenset[str] = frozenset()) -> list[tuple[str, int, str]]:
+    """(test, head line, what narrowed) for each test of ``base_text`` that ``head_text`` narrows.
+
+    A test gone from ``head_text`` whose body is in ``moved`` was renamed or moved, not removed."""
     before = tests_in(base_text) or {}
     after = tests_in(head_text) if head_text is not None else {}
     if after is None:
@@ -199,19 +209,20 @@ def compare(base_text: str, head_text: str | None) -> list[tuple[str, int, str]]
     for name, shape in before.items():
         now = after.get(name)
         if now is None:
-            found.append((name, 0, "removed"))
+            if shape.body not in moved:
+                found.append((name, 0, "removed"))
             continue
         reasons = narrowing(shape, now)
-        if reasons and not _waived_inline(head_text or "", now):
+        if reasons and not _waived_inline(head_text or "", now, base_text):
             found.append((name, now.line, "; ".join(reasons)))
     return found
 
 
-def changed_tests(base: str, head: str) -> list[tuple[str, str, str | None]]:
-    """(path shown, path at base, path at head or None if deleted) of each changed test file."""
-    fields = _checked_git("diff", "-z", "-M", "--name-status", "--diff-filter=MRD",
+def changed_tests(base: str, head: str) -> list[tuple[str, str | None, str | None]]:
+    """(path shown, path at base or None if added, path at head or None if deleted) per test file."""
+    fields = _checked_git("diff", "-z", "-M", "--name-status", "--diff-filter=AMRD",
                           f"{base}...{head}").split("\0")[:-1]
-    out: list[tuple[str, str, str | None]] = []
+    out: list[tuple[str, str | None, str | None]] = []
     i = 0
     while i < len(fields):
         status, new = fields[i], None
@@ -222,24 +233,36 @@ def changed_tests(base: str, head: str) -> list[tuple[str, str, str | None]]:
             old = fields[i + 1]
             new = None if status == "D" else old
             i += 2
-        if is_test_file(old):
-            out.append((new or old, old, new))
+        if is_test_file(old) or is_test_file(new or ""):
+            out.append((new or old, None if status == "A" else old, new))
     return out
 
 
-def waivers(base: str, head: str) -> list[str]:
-    """The reasons of the ``Test-narrowed:`` lines in the commit messages of ``base..head``."""
-    return [m.group(1).strip() for m in WAIVER.finditer(_checked_git("log", "--format=%B", f"{base}..{head}"))]
+def waivers(base: str, head: str) -> dict[str, str]:
+    """Path to reason for each file a commit of ``base..head`` touches whose message has a
+    ``Test-narrowed:`` line: the line waives findings in those files only."""
+    waived: dict[str, str] = {}
+    for sha in _checked_git("rev-list", f"{base}..{head}").split():
+        reasons = [m.group(1).strip() for m in WAIVER.finditer(_checked_git("log", "-1", "--format=%B", sha))]
+        if reasons:
+            names = _checked_git("diff-tree", "--no-commit-id", "--name-only", "-r", "--root", sha)
+            waived.update(dict.fromkeys(names.split("\n"), "; ".join(reasons)))
+    waived.pop("", None)
+    return waived
 
 
 def findings(base: str, head: str) -> list[tuple[str, str, int, str]]:
     """(path, test, line, what narrowed) of every test the PR narrows without an inline waiver."""
     merge_base = _checked_git("merge-base", base, head).strip()
+    files = changed_tests(base, head)
+    heads = {new: _checked_git("show", f"{head}:{new}") for _, _, new in files if new}
+    moved = frozenset(shape.body for text in heads.values() for shape in (tests_in(text) or {}).values())
     found = []
-    for shown, old, new in changed_tests(base, head):
+    for shown, old, new in files:
+        if old is None or not is_test_file(old):
+            continue
         base_text = _checked_git("show", f"{merge_base}:{old}")
-        head_text = _checked_git("show", f"{head}:{new}") if new else None
-        found += [(shown, *item) for item in compare(base_text, head_text)]
+        found += [(shown, *item) for item in compare(base_text, heads.get(new or ""), moved)]
     return found
 
 
@@ -250,13 +273,14 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         found = findings(args.base, args.head)
-        reasons = waivers(args.base, args.head) if found else []
+        waived = waivers(args.base, args.head) if found else {}
     except subprocess.CalledProcessError as exc:
         print(f"cannot diff {args.base}...{args.head}: {exc.stderr.strip()}", file=sys.stderr)
         return 2
-    if found and reasons:
-        print(f"{len(found)} narrowed test(s) waived by commit messages: " + " | ".join(reasons))
-        return 0
+    for path, test, _, _ in found:
+        if path in waived:
+            print(f"{path}::{test} narrowed, waived by a commit: {waived[path]}")
+    found = [item for item in found if item[0] not in waived]
     for path, test, line, what in found:
         where = f",line={line}" if line else ""
         print(f"::error file={path}{where},title=Test narrowed::{test}: {what}; say why with a "

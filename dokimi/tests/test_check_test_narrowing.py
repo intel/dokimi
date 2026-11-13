@@ -81,6 +81,18 @@ def test_an_inline_waiver_inside_the_test_waives_only_that_test():
     assert [name for name, _, _ in ctn.compare(BASE, head)] == ["test_close"]
 
 
+def test_an_inline_waiver_already_at_base_does_not_waive_a_new_narrowing():
+    base = BASE.replace("rel=1e-9)\n", "rel=1e-9)\n    # Test-narrowed: one case is enough\n")
+    assert [name for name, _, _ in ctn.compare(base, base.replace("rel=1e-9", "rel=1e-3"))] == ["test_close"]
+
+
+def test_a_renamed_or_moved_test_is_not_removed():
+    shape = ctn.tests_in(BASE)["test_close"]
+    head = BASE.replace("def test_close", "def test_sum_is_close")
+    assert ctn.compare(BASE, head, frozenset({shape.body})) == []
+    assert ctn.compare(BASE, head) == [("test_close", 0, "removed")]
+
+
 def test_a_head_that_does_not_parse_is_left_to_the_test_run():
     assert ctn.compare(BASE, "def test_values(:\n") == []
 
@@ -96,6 +108,9 @@ def test_which_files_are_read(path, read):
     assert ctn.is_test_file(path) is read
 
 
+OTHER = "def test_close():\n    assert round(0.1 + 0.2, 9) == 0.3\n"
+
+
 def _git(path: Path, *args: str) -> None:
     subprocess.run(["git", *args], cwd=path, check=True, capture_output=True)
 
@@ -106,7 +121,7 @@ def _repo(path: Path) -> None:
         _git(path, *args)
     (path / "tests").mkdir()
     (path / "tests" / "test_a.py").write_text(BASE, encoding="utf-8")
-    (path / "tests" / "test_b.py").write_text(BASE, encoding="utf-8")
+    (path / "tests" / "test_b.py").write_text(OTHER, encoding="utf-8")
     _git(path, "add", "-A")
     _git(path, "commit", "-q", "-m", "base")
     _git(path, "tag", "base")
@@ -135,6 +150,32 @@ def test_main_passes_with_a_commit_waiver_and_prints_its_reason(tmp_path, monkey
     monkeypatch.setattr(ctn, "REPO", tmp_path)
     assert ctn.main(["--base", "base", "--head", "HEAD"]) == 0
     assert "test_b duplicated test_a" in capsys.readouterr().out
+
+
+def test_a_commit_waiver_covers_only_the_files_that_commit_touches(tmp_path, monkeypatch, capsys):
+    _repo(tmp_path)
+    (tmp_path / "tests" / "test_b.py").unlink()
+    _git(tmp_path, "add", "-A")
+    _git(tmp_path, "commit", "-q", "-m", "drop b\n\nTest-narrowed: test_b duplicated test_a")
+    (tmp_path / "tests" / "test_a.py").write_text(BASE.replace("    assert x < 10\n", ""), encoding="utf-8")
+    _git(tmp_path, "commit", "-q", "-am", "trim a")
+    monkeypatch.setattr(ctn, "REPO", tmp_path)
+    assert ctn.main(["--base", "base", "--head", "HEAD"]) == 1
+    out = capsys.readouterr().out
+    assert "tests/test_b.py::test_close narrowed, waived by a commit: test_b duplicated test_a" in out
+    assert "::error file=tests/test_a.py,line=5," in out
+    assert "::error file=tests/test_b.py" not in out
+
+
+def test_main_passes_a_test_moved_to_a_new_file(tmp_path, monkeypatch):
+    _repo(tmp_path)
+    (tmp_path / "tests" / "test_b.py").rename(tmp_path / "tests" / "test_moved.py")
+    (tmp_path / "tests" / "test_moved.py").write_text(OTHER + "\n\ndef test_extra():\n    assert 1\n" * 30,
+                                                     encoding="utf-8")
+    _git(tmp_path, "add", "-A")
+    _git(tmp_path, "commit", "-q", "-m", "move")
+    monkeypatch.setattr(ctn, "REPO", tmp_path)
+    assert ctn.findings("base", "HEAD") == []
 
 
 def test_main_passes_a_rename_and_exits_2_for_a_bad_base(tmp_path, monkeypatch, capsys):
