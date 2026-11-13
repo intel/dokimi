@@ -158,20 +158,22 @@ def test_a_crash_without_json_is_not_wrapped(monkeypatch, capsys):
         raise RuntimeError("probe fell over")
 
     monkeypatch.setattr(backends, "cmd_backends", crash)
-    with pytest.raises(RuntimeError):
+    with pytest.raises(SystemExit) as exc:
         _run_main(monkeypatch, ["backends"])
+    assert exc.value.code == 5  # a crash is exit 5 (§2.6); no document without --json
     assert capsys.readouterr().out == ""
 
 
-def test_a_json_leaf_outside_the_opt_in_that_crashes_re_raises_and_prints_no_envelope(monkeypatch, capsys):
+def test_a_json_leaf_outside_the_opt_in_that_crashes_exits_5_and_prints_no_envelope(monkeypatch, capsys):
     from dokimi.commands import repo
 
     def crash(args):
         raise RuntimeError("repo fell over")
 
     monkeypatch.setattr(repo, "cmd_repo_validate", crash)
-    with pytest.raises(RuntimeError):
+    with pytest.raises(SystemExit) as exc:
         _run_main(monkeypatch, ["repo", "validate", "x", "--json"])
+    assert exc.value.code == 5
     assert capsys.readouterr().out == ""
 
 

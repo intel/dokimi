@@ -380,11 +380,11 @@ def test_command_exits_1_when_the_run_is_blocked(tmp_path, monkeypatch):
     assert exc.code == 1
 
 
-def test_command_exits_1_when_nothing_was_graded(tmp_path, monkeypatch):
+def test_command_exits_3_when_nothing_was_graded(tmp_path, monkeypatch):
     _patch_questions(monkeypatch, [{"id": "1", "question": "Capital of France?"}])
     with refusal() as exc:
         cmd_eval_redteam(_args(tmp_path / "questions.json"))
-    assert exc.code == 1
+    assert exc.code == 3  # inconclusive (§2.6)
 
 
 def test_command_exits_2_when_the_artifact_cannot_be_written(tmp_path, monkeypatch, capsys):
@@ -741,7 +741,7 @@ def test_without_the_judge_flag_no_judge_is_built_and_judge_checks_stay_unscored
     out = tmp_path / "plain.json"
     with refusal() as exc:
         cmd_eval_redteam(_args(tmp_path / "questions.json", out=out))
-    assert exc.code == 1
+    assert exc.code == 3  # nothing graded: inconclusive (§2.6)
     assert json.loads(out.read_text(encoding="utf-8"))["summary"]["unscored"] == 3
 
 
@@ -771,11 +771,11 @@ def test_command_exits_2_with_the_problem_when_a_grading_block_cannot_be_graded(
     assert not out.exists()
 
 
-def test_command_exits_1_on_an_empty_question_set(tmp_path, monkeypatch):
+def test_command_exits_3_on_an_empty_question_set(tmp_path, monkeypatch):
     _patch_questions(monkeypatch, [])
     with refusal() as exc:
         cmd_eval_redteam(_args(tmp_path / "questions.json"))
-    assert exc.code == 1
+    assert exc.code == 3  # nothing graded: inconclusive (§2.6)
 
 
 def test_a_blocked_run_still_writes_the_artifact(tmp_path, monkeypatch):
@@ -792,7 +792,7 @@ def test_an_inconclusive_run_still_writes_the_artifact(tmp_path, monkeypatch):
     out = tmp_path / "inconclusive.json"
     with refusal() as exc:
         cmd_eval_redteam(_args(tmp_path / "questions.json", out=out))
-    assert exc.code == 1
+    assert exc.code == 3  # nothing graded: inconclusive (§2.6)
     assert json.loads(out.read_text(encoding="utf-8"))["status"] == "inconclusive"
 
 
