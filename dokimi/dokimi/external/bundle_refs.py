@@ -76,7 +76,7 @@ def _walk(skill_dir: Path, *, counted: bool) -> list[str]:
                 continue
             stem, suffix = os.path.splitext(name)
             if (
-                name.startswith(".")  # hidden
+                (counted and name.startswith("."))  # a hidden file is no counted file; a document may be one
                 or suffix.lower() not in COUNTED_SUFFIXES
                 or (here == skill_dir and name == "SKILL.md")
                 or (counted and (

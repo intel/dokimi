@@ -385,3 +385,12 @@ def test_a_bundle_with_many_files_and_large_documents_is_judged_quickly(tmp_path
     assert message is not None
     assert "300 of 360" in message  # 30 documents, 30 scripts they name, and 300 they do not
     assert elapsed < 30
+
+
+def test_a_document_named_by_a_hidden_file_name_is_read(tmp_path):
+    review = _review_with_texts(
+        tmp_path,
+        "Read [guide](.guide.md).\n",
+        {".guide.md": "Run scripts/run.py.\n", "scripts/run.py": "x\n"},
+    )
+    assert _unreferenced(review) == []
