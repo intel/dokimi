@@ -444,4 +444,4 @@ prefer a panel, which turns a 0.15 single-judge shift into ≤0.07 lenient.
   separate "lenient on qualifiers" from "lenient on wrong answers".
 - No deterministic ground truth covers these skills. The grounded-grader pilot covers other
   skills, so there is no "true" label here: agreement is with the panel consensus, not with
-  the truth. See `grading-tiers.md` when it lands.
+  the truth.
