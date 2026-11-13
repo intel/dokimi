@@ -33,13 +33,10 @@ BUNDLE_DIRS = ("scripts", "references", "assets", "templates", "examples", "reso
 SEPARATOR_RE = re.compile(
     r"[,;](?=(?:\./|" + re.escape(SKILL_DIR_VAR) + r")?(?:" + "|".join(BUNDLE_DIRS) + r")/)"
 )
-# A path part that stands for a name the reader fills in, not a file (``scripts/x.py``, ``assets/xxx.png``).
-PLACEHOLDER_PARTS = frozenset(
-    {
-        "x", "xx", "xxx", "n/a", "na", "foo", "bar", "example", "name",
-        "file", "filename", "your-file", "...", "…",
-    }
-)
+# A part that stands for a name the reader fills in, not a file (``scripts/x.py``, ``assets/xxx.png``).
+PLACEHOLDER_PARTS = frozenset({"x", "xx", "xxx", "n/a", "na", "foo", "bar", "your-file", "...", "…"})
+# A folder a template fills in (``assets/example/``). A file named ``example.py`` is a real name, so these are not stems.
+PLACEHOLDER_FOLDERS = PLACEHOLDER_PARTS | {"example", "file", "filename", "name"}
 
 
 def _bundle_path(word: str) -> Optional[str]:
@@ -66,7 +63,7 @@ def _bundle_path(word: str) -> Optional[str]:
     stem, dot, ext = parts[-1].rpartition(".")
     if not dot or not stem or not ext.isalnum():
         return None  # no file extension: read as a folder or a command name
-    if any(p.lower() in PLACEHOLDER_PARTS for p in parts[1:-1]) or stem.lower() in PLACEHOLDER_PARTS:
+    if any(p.lower() in PLACEHOLDER_FOLDERS for p in parts[1:-1]) or stem.lower() in PLACEHOLDER_PARTS:
         return None
     return text
 

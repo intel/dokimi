@@ -327,3 +327,10 @@ def test_an_escaped_comma_before_a_bundle_folder_stays_in_the_name(tmp_path):
     review, _ = _review(tmp_path, r"Copy it with `cp scripts/a\,scripts/b.py /tmp/x`." + "\n")
     [finding] = _path_findings(review)
     assert finding.message.startswith("'scripts/a,scripts/b.py' (in ")
+
+
+@pytest.mark.parametrize("name", ["example", "file", "filename", "name"])
+def test_a_missing_file_with_a_real_name_such_as_example_is_named(tmp_path, name):
+    review, _ = _review(tmp_path, f"Run `python scripts/{name}.py`.\n")
+    [finding] = _path_findings(review)
+    assert finding.message.startswith(f"'scripts/{name}.py' (in ")
