@@ -283,7 +283,11 @@ def save_artifact(kind: str, data: dict, path: Path | str, *, ensure_ascii: bool
         validate_artifact(kind, payload)
     except ArtifactValidationError as exc:
         rejected = path.with_name(path.name + ".rejected")
-        rejected.write_text(text, encoding="utf-8")
+        try:
+            rejected.write_text(text, encoding="utf-8")
+        except OSError as kept:  # still a refusal: the caller exits as for a refused payload, not as an unwritable path
+            raise ArtifactValidationError(f"{exc}\n(not written to {path}; the payload could not be kept at "
+                                          f"{rejected}: {kept})") from exc
         raise ArtifactValidationError(f"{exc}\n(not written to {path}; payload kept at {rejected})") from exc
     target = _write_target(path)
     tmp = target.with_name(f"{target.name}.{os.getpid()}.{threading.get_ident()}.tmp")
