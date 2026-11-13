@@ -177,3 +177,16 @@ def test_a_named_file_that_matches_no_glob_adds_no_coverage_warning(tmp_path, ca
                                    ".claude/rules/build.md": "Build with `src/real.py`.\n"})
     payload = _scan(capsys, str(root))
     assert not [w for w in payload["warnings"] if "docs/agent.md" in w or "build.md" in w]
+
+
+def test_a_rule_folded_into_a_guidance_alias_of_a_text_file_is_checked(tmp_path, capsys):
+    # CLAUDE.local.md and a rule both link to one .txt file: budget counts it once, as the guidance name, and the
+    # guidance entry was dropped for not being Markdown, so neither alias was scanned and no warning was printed
+    root = _write(tmp_path / "r", {"src/real.py": "x = 1\n", "CLAUDE.md": "Run `src/real.py`.\n",
+                                   "shared.txt": "See `src/gone_alias.py`.\n"})
+    (root / "CLAUDE.local.md").symlink_to("shared.txt")
+    (root / ".claude/rules").mkdir(parents=True)
+    (root / ".claude/rules/x.md").symlink_to("../../shared.txt")
+    payload = _scan(capsys, str(root))
+    assert _fails(payload) == {(".claude/rules/x.md", "src/gone_alias.py")}
+
