@@ -311,8 +311,8 @@ def _list_end(tokens: list[str], start: int, end: int) -> int:
     for j in range(start, end):
         if tokens[j].lower() == "then":
             return j
-        if tokens[j].endswith(":"):
-            return j + 1
+        if tokens[j].endswith(":") and not (j > start and tokens[j - 1] in _PIP_VALUE_OPTIONS | _NPM_VALUE_OPTIONS):
+            return j + 1  # "--only-binary :all:" is an option and its value, not prose
     return end
 
 
@@ -388,7 +388,7 @@ def _decode(match: re.Match[str]) -> str:
     return html.unescape(text) if text[1] == "#" or text[1:] in html5 else text
 
 
-def _clean_url(raw: str, literal: bool = False, decode: bool = False) -> Optional[str]:
+def _clean_url(raw: str, literal: bool = False, decode: bool = False, delimited: bool = False) -> Optional[str]:
     """``raw`` without what a sentence, a table cell, emphasis or a markdown link puts after it: the URL ends before
     the first ``)`` or ``]`` that closes no ``(`` or ``[`` of the URL, and before a ``|``; then trailing punctuation
     and ``*`` emphasis go. A balanced bracket stays ("f[0]=1", "[2001:db8::1]"). None for an empty result.
@@ -397,7 +397,8 @@ def _clean_url(raw: str, literal: bool = False, decode: bool = False) -> Optiona
     URL. ``decode`` (a destination or a reference definition, not an autolink, where CommonMark has no escapes) also
     decodes its backslash escapes (``guide\\_notes`` is ``guide_notes``) and its character references (``a&amp;b``
     is ``a&b``), and an escaped character never ends it
-    (``a\\)b`` is ``a)b``).
+    (``a\\)b`` is ``a)b``). ``delimited`` is a destination or autolink in ``<...>``: it ends at ``>``, so an
+    unmatched ``)`` or ``]`` is part of it.
     """
     parens = brackets = 0
     end = len(raw)
@@ -406,7 +407,7 @@ def _clean_url(raw: str, literal: bool = False, decode: bool = False) -> Optiona
             parens += 1
         elif ch == "[":
             brackets += 1
-        elif (ch == ")" and parens == 0) or (ch == "]" and brackets == 0) or ch == "|":
+        elif ch == "|" or (not delimited and ((ch == ")" and parens == 0) or (ch == "]" and brackets == 0))):
             end = i
             break
         elif ch == ")":
@@ -466,6 +467,17 @@ def extract_urls(body: str) -> list[str]:
     return _distinct_urls(body)[0]
 
 
+def _starts_destination(body: str, start: int, literal: set[int]) -> bool:
+    """Whether the URL at ``start`` is a destination: only blanks and an optional ``<`` lie between it and where a
+    ``](`` or a ``[id]:`` ended ("](  <url>)")."""
+    end = start
+    while start not in literal:
+        if start == 0 or body[start - 1] not in " \t\n<":
+            return False
+        start -= 1
+    return not re.search(r"\n[ \t]*\n", body[start:end])  # a blank line ends the definition: the URL is prose
+
+
 def _distinct_urls(body: str) -> tuple[list[str], list[str]]:
     """The URLs :func:`extract_urls` keeps, and the distinct ones past :data:`MAX_URLS_PER_SKILL` that it drops."""
     urls: dict[str, None] = {}
@@ -478,9 +490,9 @@ def _distinct_urls(body: str) -> tuple[list[str], list[str]]:
             continue
         if any(start <= m.start() < end for start, end in code):
             continue
-        destination = m.start() in literal or m.start() - 1 in literal  # also "](<url>)", which starts after "<"
+        destination = _starts_destination(body, m.start(), literal)
         autolink = m.start() > 0 and body[m.start() - 1] == "<" and body[m.end():m.end() + 1] == ">"
-        url = _clean_url(m.group(), literal=destination or autolink, decode=destination)
+        url = _clean_url(m.group(), literal=destination or autolink, decode=destination, delimited=autolink)
         if url is not None:
             url = url.partition("#")[0]  # the fragment is never sent: anchors of one page are one request
         if url is not None and not _placeholder_url(url):

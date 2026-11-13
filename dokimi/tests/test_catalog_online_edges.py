@@ -20,6 +20,27 @@ def test_pip3_and_npm_add_name_their_packages():
     assert online_checks.extract_packages("npm add nosuch-pkg-xyz\n") == [("npm", "nosuch-pkg-xyz")]
 
 
+def test_a_value_option_ending_in_a_colon_does_not_end_the_package_list():
+    for option in ("--only-binary", "--no-binary"):
+        assert online_checks.extract_packages(f"pip install {option} :all: nosuch-pkg-xyz\n") == [("pypi", "nosuch-pkg-xyz")]
+
+
+def test_a_destination_after_blanks_is_decoded():
+    assert online_checks.extract_urls("[docs](  https://docs.acme.dev/a&amp;b)") == ["https://docs.acme.dev/a&b"]
+    assert online_checks.extract_urls("[docs](  <https://docs.acme.dev/a&amp;b>)") == ["https://docs.acme.dev/a&b"]
+
+
+def test_a_url_after_a_blank_line_is_not_a_destination():
+    assert online_checks.extract_urls("[docs]:\n\nhttps://docs.acme.dev/guide.") == ["https://docs.acme.dev/guide"]
+    assert online_checks.extract_urls("[docs]:\nhttps://docs.acme.dev/guide") == ["https://docs.acme.dev/guide"]
+
+
+def test_an_angle_delimited_url_keeps_an_unmatched_bracket():
+    assert online_checks.extract_urls("<https://docs.acme.dev/a)b>") == ["https://docs.acme.dev/a)b"]
+    assert online_checks.extract_urls("[x](<https://docs.acme.dev/a)b>)") == ["https://docs.acme.dev/a)b"]
+    assert online_checks.extract_urls("<https://docs.acme.dev/a]b>") == ["https://docs.acme.dev/a]b"]
+
+
 def test_resolver_failure_of_a_no_proxy_host_is_a_dns_failure(monkeypatch):
     # NO_PROXY sends docs.acme.dev direct, so its resolver failure is the link's own, not the proxy's.
     monkeypatch.setenv("HTTPS_PROXY", "http://missing-proxy.invalid:8080")
