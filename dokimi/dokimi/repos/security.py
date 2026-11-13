@@ -396,7 +396,7 @@ def _scan(cell: Path, canaries: Sequence[str]) -> tuple[dict[str, Any], list[str
     if agent_ran or result.get("process") is not None:  # a run whose trace is missing or garbled is unmeasured
         # a linked trace is not read (its target may be a host file): _present already made the cell unfinished
         problem = None if (cell / "events.jsonl").is_symlink() else (_trace_problem(cell / "events.jsonl") or (
-            ("the runner read no line of the trace" if empty else f"the runner dropped trace lines: {conversion[0][:120]}")
+            ("the runner read no line of the trace" if empty else f"the runner dropped trace lines: {_evidence(conversion[0], canaries, 120)}")
             if garbled else None))
         if problem:
             unreadable.append(problem)

@@ -922,3 +922,13 @@ def test_exec_log_names_the_executable_path_not_a_chosen_argv0():
     log = '1 execve("/bin/rm", ["cleanup", "-rf", "/etc"], 0x0 /* 1 var */) = 0\n'
     assert sec.parse_exec_log(log) == ["/bin/rm -rf /etc"]
     assert "destructive-delete" in {r for c in sec.parse_exec_log(log) for r in _rules(sec.command_findings(c, "exec"))}
+
+
+def test_a_dropped_trace_error_is_redacted_before_it_is_clipped(tmp_path):
+    canary = "canary-secret-1234567890"
+    cell = _cell(tmp_path / "b", "t", "skill", 0, events=[_cmd("pytest")])
+    record = json.loads((cell / "result.json").read_text(encoding="utf-8"))
+    record["agent"] = {"rc": 1, "trace_errors": [f"trace line lost: {canary}"]}
+    (cell / "result.json").write_text(json.dumps(record), encoding="utf-8")
+    _, unreadable = sec._scan(cell, [canary])
+    assert unreadable and not any(canary in reason for reason in unreadable)
