@@ -75,6 +75,8 @@ HAS_WHEN = [
     pytest.param("판매 시 재고를 갱신합니다.", id="ko-noun-si-sale"),
     pytest.param("需要生成报告时，请使用本技能。", id="zh-shi-comma-qing-shiyong"),
     pytest.param("在用户提交代码时运行检查。", id="zh-shi-yunxing"),
+    pytest.param("当条件合适时调用此工具。", id="zh-dang-closing-heshi"),
+    pytest.param("当新版本来临时自动升级。", id="zh-dang-closing-lailin"),
     pytest.param("배포 스크립트입니다. 필요한 때 사용합니다.", id="ko-piryohan-ttae"),
 ]
 
