@@ -918,6 +918,16 @@ def test_exec_log_argv_with_a_bracket_and_a_comma_in_a_string_is_read_whole():
     assert "destructive-delete" in found
 
 
+def test_an_execve_with_cut_strings_is_matched_in_linear_time():
+    import time
+
+    # each cut string's dots could be read as the marker or as three single-character steps: exponential
+    line = '1 execve("/bin/x", [' + ", ".join(['"a"...'] * 22) + " <unfinished ...>\n"
+    started = time.monotonic()
+    sec.parse_exec_log(line)
+    assert time.monotonic() - started < 1.0
+
+
 def test_exec_log_names_the_executable_path_not_a_chosen_argv0():
     log = '1 execve("/bin/rm", ["cleanup", "-rf", "/etc"], 0x0 /* 1 var */) = 0\n'
     assert sec.parse_exec_log(log) == ["/bin/rm -rf /etc"]
