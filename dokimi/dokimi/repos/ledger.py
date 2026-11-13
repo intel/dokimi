@@ -7,7 +7,8 @@ A ledger (``repo_ledger.v1``, dokimi/docs/rule-ledger.md) gives each rule its hy
 carries it, the task ids of the cases standing for the failures it prevents, and the date it was last
 reviewed. Each rule is compared with its baseline by :func:`.compare.compare` over its own cases, so the
 pairing, headroom and provenance warnings are those of ``repo compare``. The rules' p values are
-Holm-corrected together here, not in the comparison's own family.
+Holm-corrected together here, not in the comparison's own family; a rule whose changed cases cannot
+reach p < alpha stays out of that family.
 
 Verdicts are computed, cutting is not: ``keep`` (the arm beats its baseline on the linked cases at
 Holm-adjusted p below alpha), ``review`` (the baseline beats it at that level), ``insufficient-evidence``
@@ -124,11 +125,11 @@ def evaluate(ledger: Ledger, batch_dirs: list[Path], baseline: str, models: list
             if stale:  # a new list: error entries of one rule share their head's warnings list
                 entry["warnings"] = [*entry["warnings"], note]
         entries += rule_entries
-    _holm(entries)
+    _holm(entries, ledger.alpha)
     for entry in entries:
         entry["verdict"], entry["reason"] = _verdict(entry, ledger.alpha)
     return {"ledger": ledger_name, "alpha": ledger.alpha, "review_within_days": ledger.review_within_days,
-            "today": today.isoformat(), "family": sum(_in_family(e) for e in entries),
+            "today": today.isoformat(), "family": sum(_in_family(e, ledger.alpha) for e in entries),
             "rules": entries, "warnings": list(dict.fromkeys(warnings))}
 
 
@@ -232,14 +233,16 @@ def _entry(head: dict[str, Any], row: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-def _in_family(entry: dict[str, Any]) -> bool:
-    """A result has a p, is not mixed (a gate-and-score rule has no single test) and every pair was measured."""
-    return entry["p"] is not None and not entry["mixed"] and not entry["unmeasured"]
+def _in_family(entry: dict[str, Any], alpha: float) -> bool:
+    """A result has a p, is not mixed (a gate-and-score rule has no single test), every pair was measured,
+    and its changed cases can reach p < alpha: one that cannot only raises the others' multiplier."""
+    return (entry["p"] is not None and not entry["mixed"] and not entry["unmeasured"]
+            and min_sign_flip_p(entry["changed"]) < alpha)
 
 
-def _holm(entries: list[dict[str, Any]]) -> None:
+def _holm(entries: list[dict[str, Any]], alpha: float) -> None:
     """``p_holm`` over every result in the family (the exact adjusted value); the others get none."""
-    scored = [e for e in entries if _in_family(e)]
+    scored = [e for e in entries if _in_family(e, alpha)]
     for entry, adjusted in zip(scored, adjust_pvalues([e["p"] for e in scored], rounded=False), strict=True):
         entry["p_holm"] = adjusted
 
@@ -254,18 +257,19 @@ def _verdict(entry: dict[str, Any], alpha: float) -> tuple[str, str]:
     if entry["mixed"]:
         return INSUFFICIENT, ("the linked cases mix gate and score tasks: link one kind of task per rule "
                               "(not in the Holm family)")
-    if entry["p_holm"] is None:
+    if entry["p"] is None:
         return INSUFFICIENT, "every linked case ties: there is no difference to test"
+    if entry["p_holm"] is None:  # its changed cases cannot reach alpha: kept out of the family, raw p shown
+        return INSUFFICIENT, (f"no significant difference from {entry['baseline']} (p {entry['p']:.4f}, alpha "
+                              f"{alpha}); with {entry['changed']} changed case(s) no outcome reaches "
+                              f"p < {alpha}: link more cases (not in the Holm family)")
     p, mean = entry["p_holm"], entry["delta"]["mean"]
     if p < alpha and abs(mean) > EPS:
         if mean > 0:
             return KEEP, f"beats {entry['baseline']} on its linked cases (p_holm {p:.4f} < {alpha})"
         return REVIEW, (f"{entry['baseline']} beats it on its linked cases (p_holm {p:.4f} < {alpha}): "
                         "a person decides whether to fix or cut the rule")
-    reason = f"no significant difference from {entry['baseline']} (p_holm {p:.4f}, alpha {alpha})"
-    if min_sign_flip_p(entry["changed"]) >= alpha:
-        reason += f"; with {entry['changed']} changed case(s) no outcome reaches p < {alpha}: link more cases"
-    return INSUFFICIENT, reason
+    return INSUFFICIENT, f"no significant difference from {entry['baseline']} (p_holm {p:.4f}, alpha {alpha})"
 
 
 def format_ledger(result: dict[str, Any]) -> str:
