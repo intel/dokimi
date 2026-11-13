@@ -239,6 +239,15 @@ def test_a_diff_without_a_score_reads_as_no_change():
     assert (_score(result).value, _score(result).level) == (0.0, "OK")
 
 
+def test_a_diff_without_a_score_is_not_measured():
+    """The score check was not in the artifact: it is listed as not measured, never read as a pass."""
+    result = detect_regressions({"coverage": 0.01}, {})
+
+    assert _score(result).measured is False
+    assert "score" in result.not_measured
+    assert detect_regressions({}, {}).status == "NOT MEASURED"
+
+
 def test_no_change_is_ok_even_with_zero_tolerance():
     """With every threshold at 0, any drop is CRITICAL, but no change is not a drop."""
     zero = {"thresholds": {"regressions": dict.fromkeys(

@@ -30,9 +30,12 @@ def _classify_regression(
     return "OK"
 
 
-def _regression_check(name: str, delta: float, warn: float, critical: float) -> Check:
+def _regression_check(
+    name: str, delta: float, warn: float, critical: float, *, measured: bool = True
+) -> Check:
     """One metric as a graded check: ``level`` is its OK/WARN/CRITICAL grade, ``threshold`` the
-    ``(warn, critical)`` drops it is graded against. Regressions report; none is a fail-severity check."""
+    ``(warn, critical)`` drops it is graded against. Regressions report; none is a fail-severity check.
+    ``measured`` is False when the diff did not carry the metric."""
     level = _classify_regression(delta, warn, critical)
     return Check(
         name=name,
@@ -43,6 +46,7 @@ def _regression_check(name: str, delta: float, warn: float, critical: float) -> 
         # CRITICAL is a fail-severity check, so the verdict's status and flags read it as FAIL
         severity="fail" if level == "CRITICAL" else "warn",
         level=level,
+        measured=measured,
     )
 
 
@@ -57,7 +61,8 @@ def detect_regressions(diff: dict, spec: dict) -> Verdict:
     metric_warn = float(thresholds.get("metric_drop_warn", 0.05))
     metric_crit = float(thresholds.get("metric_drop_critical", 0.12))
 
-    checks = [_regression_check("score", float(diff.get("score", 0.0)), score_warn, score_crit)]
+    checks = [_regression_check("score", float(diff.get("score", 0.0)), score_warn, score_crit,
+                                measured="score" in diff)]
 
     metric_names = ["coverage", "freshness_lite", "readability", "example_pass_rate"]
     for name in metric_names:
