@@ -24,14 +24,14 @@ def _manifest():
     })
 
 
-def _tree_with_lone_gitlink(root, agents: str) -> GitTree:
+def _tree_with_lone_gitlink(root, agents: str, gitlink: bool = True) -> GitTree:
     files = {"AGENTS.md": agents, "ev/tasks/t/task.json": "{}", ".gitmodules": _GITMODULES}
     for rel, text in files.items():
         (root / rel).parent.mkdir(parents=True, exist_ok=True)
         (root / rel).write_text(text, encoding="utf-8")
     git = ["git", "-C", str(root)]
-    for args in (["init", "-q"], ["add", "-A"],
-                 ["update-index", "--add", "--cacheinfo", f"160000,{'1' * 40},third_party/mod"],
+    link = [["update-index", "--add", "--cacheinfo", f"160000,{'1' * 40},third_party/mod"]] if gitlink else []
+    for args in (["init", "-q"], ["add", "-A"], *link,
                  ["-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", "commit", "-q", "-m", "g"]):
         subprocess.run([*git, *args], check=True, capture_output=True)
     sha = subprocess.run([*git, "rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip()
@@ -44,3 +44,12 @@ def test_a_directory_holding_only_a_submodule_is_a_directory_to_l0(tmp_path):
     payload = scan_repo(tree, _manifest())
     claims = {c["claim"]: c["status"] for c in payload["claims"] if c["claim"].startswith("third_party")}
     assert claims == {"third_party/": "ok", "third_party/mod/": "unresolved"}  # the submodule's content is not held
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
+def test_a_stale_gitmodules_entry_does_not_invent_a_directory(tmp_path):
+    tree = _tree_with_lone_gitlink(tmp_path, "See `third_party/` and `third_party/other.txt`.\n", gitlink=False)
+    assert not tree.is_dir("third_party")
+    payload = scan_repo(tree, _manifest())
+    claims = {c["claim"]: c["status"] for c in payload["claims"] if c["claim"].startswith("third_party")}
+    assert claims == {"third_party/": "unresolved", "third_party/other.txt": "unresolved"}  # no gitlink: no directory

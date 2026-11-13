@@ -133,8 +133,10 @@ class Scan:
         self._texts: dict[str, str] = {}
         self.unread: dict[str, str] = {}  # path -> why it was not read (binary, too big, dangling link)
         self.submodules = self._submodules()
-        # a submodule is a directory in a checkout, though the file list holds nothing under it
-        self.dir_set = {"."} | {posixpath.dirname(f) or "." for f in self.files} | set(self.submodules)
+        # a gitlink is a directory in a checkout, though the file list holds nothing under it; a
+        # `.gitmodules` entry the snapshot has no gitlink for (a stale one) is not
+        held = {m for m in self.submodules if self.tree.is_dir(m)}
+        self.dir_set = {"."} | {posixpath.dirname(f) or "." for f in self.files} | held
         for d in list(self.dir_set):
             while d not in (".", ""):
                 d = posixpath.dirname(d) or "."
