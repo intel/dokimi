@@ -191,6 +191,21 @@ def test_a_rule_then_prose_is_plain_markdown(tmp_path, text):
     assert (finding.level, finding.code) == ("error", "not-a-skill-no-frontmatter")
 
 
+@pytest.mark.parametrize(
+    "text",
+    [
+        "---\ntitle: Deck Builder\ntags: [cards]\n---\n# Deck Builder\n\nBuilds decks.\n",  # YAML without name or description
+        "---\ntitle: Deck: Builder\n---\n# Deck Builder\n\nBuilds decks.\n",  # broken YAML, no name or description
+        "---\n  name: deck\n  description: Use when decks.\n---\n# Deck\n",  # indented keys
+    ],
+)
+def test_a_frontmatter_block_without_name_or_description_is_a_broken_skill_not_plain_markdown(tmp_path, text):
+    # The block is frontmatter, so the loader's error stands and no plain-Markdown hint is given.
+    _plain(tmp_path, "deck", text)
+    codes = [f.code for r in review_skills(read_skill_manifest(tmp_path)) if r for f in r.findings]
+    assert "not-a-skill-no-frontmatter" not in codes
+
+
 def test_an_h1_inside_an_html_comment_is_not_the_title():
     lines = ["<!--", "# TODO: remove", "-->", "", "# Deck Builder", "", "Builds decks."]
     assert _block(no_frontmatter_message(lines, "deck", at_root=True)) == {

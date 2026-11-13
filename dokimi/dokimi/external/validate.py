@@ -370,14 +370,18 @@ def _has_late_frontmatter(lines: list[str]) -> bool:
     )
 
 
+# A YAML mapping key at the start of a line, indented or not: ``title: x``, ``  name: x``.
+YAML_KEY_RE = re.compile(r"\s*[A-Za-z_][\w-]*\s*:")
+
+
 def _opens_frontmatter(lines: list[str]) -> bool:
-    """Whether the lines open with a ``---`` block that holds a ``name:`` or ``description:`` line before its closing ``---``."""
+    """Whether the lines open with a ``---`` block that holds a YAML key (``title:``, ``name:``) before its closing ``---``."""
     block = []
     for line in lines[1:]:
         if line.rstrip() == "---":
             break
         block.append(line)
-    return any(line.startswith(("name:", "description:")) for line in block)
+    return any(YAML_KEY_RE.match(line) for line in block)
 
 
 def _unloaded_review(entry: SkillCatalogEntry) -> Optional[SkillReview]:
