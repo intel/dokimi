@@ -402,13 +402,18 @@ jobs:
           cache-dependency-path: dokimi/requirements.lock.txt
       - name: Install deps
         run: pip install --no-deps --require-hashes -r requirements.lock.txt
+      # No new mutant after 900 s, each at most 120 s: the step ends well inside its 22 minutes.
       - name: Mutate changed lines
+        timeout-minutes: 22
         env:
           BASE_REF: ${{ github.event.pull_request.base.ref }}
         run: |
-          python scripts/mutate_changed.py --base "origin/$BASE_REF" --max-mutants 40 --budget 1200 \
-            --json mutation-diff.json --markdown mutation-diff.md
-          cat mutation-diff.md >> "$GITHUB_STEP_SUMMARY"
+          python scripts/mutate_changed.py --base "origin/$BASE_REF" --max-mutants 40 --budget 900 \
+            --mutant-timeout 120 --json mutation-diff.json --markdown mutation-diff.md
+      - name: Mutation summary
+        if: ${{ !cancelled() }}
+        run: |
+          if [ -f mutation-diff.md ]; then cat mutation-diff.md; else echo "No report: see the Mutate changed lines log."; fi >> "$GITHUB_STEP_SUMMARY"
 
   # Pins the request a docker-claude arm sends (#354); the golden and what it covers are in
   # tests/fixtures/fidelity/README.md. A diff here means the npm build or the arm changed.
