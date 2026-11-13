@@ -9,9 +9,7 @@ a command (``python scripts/run.py``), is a ``warn`` in :mod:`dokimi.external.va
 file is not in the skill directory. Only a path with a folder and a file name is read: a folder
 (``assets/``), a flat name (``run.py``), a placeholder part (``scripts/<name>.py``, ``scripts/x.py``)
 and a ``#anchor`` are not files to check. A repo-root path such as ``src/app.py`` names no bundled
-file and is not read: in the GitSkills corpus 72.6% of those look missing, mostly files to create
-or files in the user's project. Backticked bundle paths there miss 23% of the time, against 8% for
-Markdown links (``link-missing``); a hand audit put the precision of a hit at 53-80%, hence a warn.
+file and is not read.
 """
 
 from __future__ import annotations
@@ -42,8 +40,9 @@ PLACEHOLDER_FOLDERS = PLACEHOLDER_PARTS | {"example", "file", "filename", "name"
 def _bundle_path(word: str) -> Optional[str]:
     """The skill-relative file a code span word names under a bundle folder, or None.
 
-    ``word`` is one word of a code span, an opening ``(``, quotes and a trailing ``,;:.)`` taken away. None for a word outside :data:`BUNDLE_DIRS`, a folder (a trailing ``/`` or no
-    file extension), a placeholder part, or a template variable.
+    ``word`` is one word of a code span, an opening ``(``, quotes and a trailing ``,;:.)`` taken away.
+    None for a word outside :data:`BUNDLE_DIRS`, a folder (a trailing ``/`` or no file extension),
+    a placeholder part, or a template variable.
     """
     text = word.lstrip("(").rstrip(",;:.)").strip("'\"").rstrip(",;:.)")
     # A shell operator ends the word (``run.py|tee``, ``run.py>out``); an option value follows its last ``=``.
