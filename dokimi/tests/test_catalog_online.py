@@ -987,3 +987,16 @@ def test_a_url_in_a_double_backtick_or_multi_line_code_span_is_not_probed():
     assert online_checks.extract_urls("Example: `see\nhttps://docs.acme.dev/old`\n") == []
     # a code span does not run over a blank line, so the URL after the stray backtick is a link
     assert online_checks.extract_urls("A `stray\n\nhttps://docs.acme.dev/live`\n") == ["https://docs.acme.dev/live"]
+
+
+def test_a_socks_proxy_without_socksio_is_an_input_error_not_a_traceback(monkeypatch):
+    from dokimi.utils import InputError
+
+    monkeypatch.setenv("ALL_PROXY", "socks5://127.0.0.1:1080")
+
+    def no_socksio(*args, **kwargs):
+        raise ImportError("Using SOCKS proxy, but the 'socksio' package is not installed.")
+
+    monkeypatch.setattr(online_checks.httpx, "Client", no_socksio)
+    with pytest.raises(InputError, match="socksio"):
+        online_checks.make_client()

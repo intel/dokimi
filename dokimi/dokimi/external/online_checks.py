@@ -32,6 +32,7 @@ import httpx
 
 from dokimi.external.skill_markdown import outside_fences
 from dokimi.external.validate import Finding, SkillReview
+from dokimi.utils import InputError
 
 if TYPE_CHECKING:
     from dokimi.skills import Skill
@@ -122,8 +123,11 @@ _PLACEHOLDER_WORD_RE = re.compile(r"<[^<>]*>")  # a template in a word: "eslint-
 
 def make_client() -> httpx.Client:
     """The HTTP client of a run: :data:`TIMEOUT_SECONDS` per request, redirects followed by :func:`_final_status`."""
-    return httpx.Client(follow_redirects=False, timeout=TIMEOUT_SECONDS,
-                        headers={"User-Agent": "dokimi-catalog-check"})
+    try:
+        return httpx.Client(follow_redirects=False, timeout=TIMEOUT_SECONDS,
+                            headers={"User-Agent": "dokimi-catalog-check"})
+    except ImportError as exc:  # a socks:// proxy in the environment needs the socksio package
+        raise InputError(f"{exc} Unset the SOCKS proxy variable, or install httpx[socks], to run --online.") from exc
 
 
 def _code_span(match: re.Match[str]) -> str:
