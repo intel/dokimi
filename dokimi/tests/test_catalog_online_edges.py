@@ -49,3 +49,10 @@ def test_a_socks_proxy_without_socksio_is_an_input_error_not_a_traceback(monkeyp
     monkeypatch.setattr(online_checks.httpx, "Client", no_socksio)
     with pytest.raises(InputError, match="socksio"):
         online_checks.make_client()
+
+
+@pytest.mark.parametrize("start", ["- ", "1. ", "# ", "| ", "> "])
+def test_a_code_span_stops_at_the_next_block_so_a_stray_backtick_does_not_hide_its_url(start):
+    # a lone backtick does not open a span that runs into a list item, heading, table row or quote below it
+    assert online_checks.extract_urls(f"A `stray\n{start}https://docs.acme.dev/live`\n") == [
+        "https://docs.acme.dev/live"]

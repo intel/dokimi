@@ -108,9 +108,10 @@ _RESERVED_SUFFIXES = (".localhost", ".test", ".invalid", ".example")
 _PLACEHOLDER_HOST_RE = re.compile(r"(?:^|[./])your[-_]")  # a host or a path segment that starts with ``your-`` or ``your_``
 _PLACEHOLDER_SEGMENTS = {"OWNER", "REPO", "USER", "USERNAME"}  # a URL path's upper-case placeholder segment, "OWNER/REPO.git"
 _CODE_SPAN_RE = re.compile(r"`([^`\n]*)`")
-# A code span as CommonMark closes it: a run of backticks ends at the next run of the same length; it may run
-# over a line break, but not over a blank line (a paragraph's end).
-_URL_CODE_SPAN_RE = re.compile(r"(?<!`)(`+)(?!`)((?:(?!\n[ \t]*\n).)*?)(?<!`)\1(?!`)", re.DOTALL)
+# A code span as CommonMark closes it: a run of backticks ends at the next run of the same length. It may run over
+# a line break, but not into the next block: a blank line, a list item, a heading, a table row, a quote or a rule.
+_BLOCK_START = r"\n[ \t]*(?:\n|[-*+][ \t]|\d{1,9}[.)][ \t]|#{1,6}(?:[ \t]|$)|[|><]|(?:[-*_][ \t]*){3,}(?=\n|$))"
+_URL_CODE_SPAN_RE = re.compile(r"(?<!`)(`+)(?!`)((?:(?!" + _BLOCK_START + r").)*?)(?<!`)\1(?!`)", re.DOTALL)
 _COMMAND_START = _PIP | {"npm", "npx", "uv", "sudo", "$"}
 _OPERATOR_RE = re.compile(r"[;|&()]+")  # a shell operator ends the words of a command; ``<`` and ``>`` do not (see below)
 _DESCRIPTOR_RE = re.compile(r"\d*[<>]&(?:\d+|-)")  # a descriptor duplication (2>&1, >&2, 2>&-): not a file, not a split
