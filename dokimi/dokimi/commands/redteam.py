@@ -4,8 +4,8 @@
 """``eval redteam``: check that a question set's grading rejects the answers it should.
 
 Reads a questions set (with ``grading`` blocks), grades synthetic attacks against it and prints
-the pass rates. Exits 1 when any attack is accepted, a canary is rejected, a graded question was not
-measured, or nothing was graded (``inconclusive``); exits 2 on an unreadable input, a malformed
+the pass rates. Exits 1 when any attack is accepted or a canary is rejected; exits 3 (``inconclusive``) when a graded
+question was not measured or nothing was graded; exits 2 on an unreadable input, a malformed
 ``--judge`` or an unwritable ``--out``. Judge checks are not scored unless ``--judge PROVIDER/MODEL``
 is given, so the default run makes no model call.
 """
@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from dokimi.exit_codes import EXIT_INCONCLUSIVE
 from dokimi.utils import InputError
 
 
@@ -56,6 +57,8 @@ def cmd_eval_redteam(args: argparse.Namespace) -> None:
         except (OSError, ValueError) as e:
             raise InputError(str(e)) from e
         print(f"Wrote redteam artifact to {args.out}")
+    if result["status"] == "inconclusive":
+        sys.exit(EXIT_INCONCLUSIVE)
     if result["status"] != "pass":
         sys.exit(1)
 
