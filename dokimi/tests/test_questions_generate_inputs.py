@@ -4,6 +4,7 @@
 """questions generate: an unreadable --personas or --topics file is a clean exit, not a traceback."""
 
 import json
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -73,7 +74,7 @@ class _FakeGenerator:
     def generate_questions(self, **_):
         return [{"question": "q?"}]
 
-    def save_questions(self, questions, output_path):
+    def save_questions(self, questions, output_path, product=None):
         output_path.parent.mkdir(parents=True, exist_ok=True)
         output_path.write_text("[]", encoding="utf-8")
 
@@ -128,9 +129,9 @@ class _BogusGenerator(_FakeGenerator):
     def generate_questions(self, **_):
         return [{"bogus": 1}]
 
-    def save_questions(self, questions, output_path):
+    def save_questions(self, questions, output_path, product=None):
         from dokimi.questions.llm_gen import QuestionGenerator
-        QuestionGenerator.save_questions(self, questions, output_path)
+        QuestionGenerator.save_questions(self, questions, output_path, product)
 
 
 def test_generate_exits_1_when_the_generated_set_fails_validation(tmp_path, monkeypatch, capsys):
@@ -146,3 +147,29 @@ def test_generate_exits_1_when_the_generated_set_fails_validation(tmp_path, monk
     err = capsys.readouterr().err
     assert err.startswith("Error: ") and "Traceback" not in err
     assert not out.exists()
+
+
+def test_generate_records_the_product_so_runs_list_finds_the_set(tmp_path, monkeypatch, capsys):
+    def runs_list(subject):
+        monkeypatch.setattr("sys.argv", ["dokimi", "runs", "list", "--subject", subject, "--json"])
+        cli.main()
+        return json.loads(capsys.readouterr().out)["data"]["artifacts"]
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("DOKIMI_RUNS_DIR", raising=False)
+    monkeypatch.setattr("dokimi.commands.answers._load_runtime_config", dict)
+    (tmp_path / "personas.json").write_text(json.dumps(GOOD_PERSONAS), encoding="utf-8")
+    (tmp_path / "topics.json").write_text('["parallel_for"]', encoding="utf-8")
+    llm = Mock(invoke=Mock(return_value=Mock(content='["How does parallel_for split a range?"]')))
+    monkeypatch.setattr("sys.argv", [
+        "dokimi", "eval", "questions", "generate", "--product", "oneTBB", "--personas", "personas.json",
+        "--topics", "topics.json", "--model", "gen-m", "--output", "results/r1/questions/oneTBB.json"])
+    with patch("dokimi.questions.llm_gen.Invoker", Mock(return_value=llm)):
+        cli.main()
+    capsys.readouterr()
+
+    assert json.loads((tmp_path / "results/r1/questions/oneTBB.json").read_text())["product"] == "oneTBB"
+    (found,) = runs_list("oneTBB")
+    assert (found["kind"], found["subject"], found["model"], found["path"]) == (
+        "questions", "oneTBB", "gen-m", "r1/questions/oneTBB.json")
+    assert runs_list("oneDAL") == []
