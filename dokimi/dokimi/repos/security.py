@@ -219,7 +219,7 @@ def parse_exec_log(text: str) -> list[str]:
 
 def command_findings(text: str, source: str, canaries: Sequence[str] = ()) -> list[Finding]:
     """The command rules ``text`` matches; backslash-newline continuations are joined first."""
-    joined = _CONTINUATION.sub(" ", text)
+    joined = _CONTINUATION.sub("", text)
     bare = _REDIRECT.sub(" ", joined)
     return [Finding(r.id, r.severity, source, _evidence(text, canaries)) for r in COMMAND_RULES
             if r.pattern is not None and r.pattern.search(bare if r.drop_redirects else joined)]
