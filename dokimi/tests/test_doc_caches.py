@@ -160,6 +160,16 @@ def test_topics_empty_llm_answer_is_not_stored(tmp_path):
     assert list(tmp_path.iterdir()) == []
 
 
+def test_topics_blank_llm_entry_is_dropped_and_the_rest_is_stored(tmp_path):
+    llm = MagicMock()
+    llm.invoke.return_value = MagicMock(content='["parallel_for", " ", "task_arena"]')
+    extractor = _extractor(tmp_path)
+    extractor.llm = llm
+    assert extractor.extract_topics(LIB, "oneTBB") == ["parallel_for", "task_arena"]
+    assert extractor.extract_topics(LIB, "oneTBB") == ["parallel_for", "task_arena"]
+    assert llm.invoke.call_count == 1
+
+
 # ── the shared write ─────────────────────────────────────────────────────────
 
 def test_failed_cache_write_keeps_the_old_entry_and_leaves_no_tmp(tmp_path, caplog):
