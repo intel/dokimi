@@ -181,6 +181,16 @@ def test_indented_or_late_frontmatter_is_a_broken_skill_not_plain_markdown(tmp_p
     assert main(["catalog", "check", "--root", str(tmp_path), "--kind", "skills"]) == 1
 
 
+@pytest.mark.parametrize("text", ["---\n\n# Deck Builder\n\nBuilds decks from text.\n",
+                                   "---\n\n# Deck Builder\n\nBuilds decks from text.\n---\n"])
+def test_a_rule_then_prose_is_plain_markdown(tmp_path, text):
+    # A first line of --- with no name: or description: after it is a rule, not a broken frontmatter.
+    _plain(tmp_path, "deck", text)
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    [finding] = review.findings
+    assert (finding.level, finding.code) == ("error", "not-a-skill-no-frontmatter")
+
+
 def test_a_root_skill_gets_the_h1_name_not_the_directory_name(tmp_path):
     real = tmp_path / "real"
     real.mkdir()

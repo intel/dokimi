@@ -370,6 +370,16 @@ def _has_late_frontmatter(lines: list[str]) -> bool:
     )
 
 
+def _opens_frontmatter(lines: list[str]) -> bool:
+    """Whether the lines open with a ``---`` block that holds a ``name:`` or ``description:`` line before its closing ``---``."""
+    block = []
+    for line in lines[1:]:
+        if line.rstrip() == "---":
+            break
+        block.append(line)
+    return any(line.startswith(("name:", "description:")) for line in block)
+
+
 def _unloaded_review(entry: SkillCatalogEntry) -> Optional[SkillReview]:
     """A review for an entry that did not load, only when its ``SKILL.md`` is plain Markdown (no frontmatter) or
     has broken YAML; else None.
@@ -395,7 +405,7 @@ def _unloaded_review(entry: SkillCatalogEntry) -> Optional[SkillReview]:
     unquoted = "\n".join("" if QUOTE_MARK_RE.match(line) else line for line in lines)  # a quoted example is prose too
     if (first.strip() == "---" and lines[0].rstrip() != "---") or (first.strip() != "---" and _has_late_frontmatter(outside_fences(unquoted))):
         return None  # frontmatter after blank lines, an indent or another line: a broken skill, not prose; the loader's error stands
-    if first.strip() != "---":
+    if first.strip() != "---" or not _opens_frontmatter(lines):  # a rule or prose, not a broken block
         at_root = candidate.parent.resolve() == entry.source_root.resolve()  # as _frontmatter_findings reads it
         hint = no_frontmatter_message(lines, _dir_name_of(candidate.parent), at_root=at_root)
         return SkillReview(findings=[Finding("error", NO_FRONTMATTER, hint)])
