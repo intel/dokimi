@@ -182,7 +182,8 @@ def test_indented_or_late_frontmatter_is_a_broken_skill_not_plain_markdown(tmp_p
 
 
 @pytest.mark.parametrize("text", ["---\n\n# Deck Builder\n\nBuilds decks from text.\n",
-                                   "---\n\n# Deck Builder\n\nBuilds decks from text.\n---\n"])
+                                   "---\n\n# Deck Builder\n\nBuilds decks from text.\n---\n",
+                                   "---\n\n# Deck Builder\n\nBuilds decks from text.\n\nUsage: run deck.\n"])
 def test_a_rule_then_prose_is_plain_markdown(tmp_path, text):
     # A first line of --- with no name: or description: after it is a rule, not a broken frontmatter.
     _plain(tmp_path, "deck", text)
@@ -197,6 +198,9 @@ def test_a_rule_then_prose_is_plain_markdown(tmp_path, text):
         "---\ntitle: Deck Builder\ntags: [cards]\n---\n# Deck Builder\n\nBuilds decks.\n",  # YAML without name or description
         "---\ntitle: Deck: Builder\n---\n# Deck Builder\n\nBuilds decks.\n",  # broken YAML, no name or description
         "---\n  name: deck\n  description: Use when decks.\n---\n# Deck\n",  # indented keys
+        "---\n- name: deck\n---\n# Deck\n",  # a list, not a mapping
+        "---\nname: deck\ndescription: Use when decks.\n\n# Deck\n",  # no closing ---
+        "---\n---\nname: deck\ndescription: Use when decks.\n---\n# Deck\n",  # an empty block first
     ],
 )
 def test_a_frontmatter_block_without_name_or_description_is_a_broken_skill_not_plain_markdown(tmp_path, text):
@@ -204,6 +208,14 @@ def test_a_frontmatter_block_without_name_or_description_is_a_broken_skill_not_p
     _plain(tmp_path, "deck", text)
     codes = [f.code for r in review_skills(read_skill_manifest(tmp_path)) if r for f in r.findings]
     assert "not-a-skill-no-frontmatter" not in codes
+
+
+@pytest.mark.parametrize("text", ['---\n"name": "deck"\n"description": [Use when decks\n---\n# Deck\n',
+                                   "---\n{name: deck, description: [Use when\n---\n# Deck\n"])
+def test_broken_yaml_with_quoted_or_flow_keys_keeps_frontmatter_parse(tmp_path, text):
+    _plain(tmp_path, "deck", text)
+    codes = [f.code for r in review_skills(read_skill_manifest(tmp_path)) if r for f in r.findings]
+    assert codes == ["frontmatter-parse"]
 
 
 def test_an_h1_inside_an_html_comment_is_not_the_title():
