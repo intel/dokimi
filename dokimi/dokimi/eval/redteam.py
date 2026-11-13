@@ -13,8 +13,8 @@ Each question with a ``grading`` block is graded against four synthetic answers:
 
 An answer the grader accepts when it should reject it (or rejects a canary) is a violation, and
 any violation blocks the run. A run with a question whose correctness no probe measured (a judge check without a judge, a block of
-only negated checks) is ``inconclusive``, and so is one with nothing graded: it is not a pass, and it exits 1
-like a blocked run. Only a run that measured every graded question and found no violation is ``pass``.
+only negated checks) is ``inconclusive``, and so is one with nothing graded: it is not a pass, and it exits 3
+(a blocked run exits 1). Only a run that measured every graded question and found no violation is ``pass``.
 A probe the grader cannot score (a judge check with no judge model, a regex past its timeout) is
 reported as unscored. The canary is only built for a question whose grading is one literal check;
 other questions get the other attacks alone.
