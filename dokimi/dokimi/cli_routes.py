@@ -261,6 +261,8 @@ def _take_value_flag(rest: list[str], i: int, name: str, eq: str, value: str,
                      values: dict[str, list[str]], kept: list[str]) -> int:
     """Take one --artifact or --catalog and its value; returns the next index."""
     if eq:
+        if not value:
+            raise RetiredFlagError(f"argument {name}: expected one argument")
         values[name].append(value)
         return i + 1
     if i + 1 < len(rest) and _is_plain(rest[i + 1]):
@@ -278,6 +280,8 @@ def _take_competitors(rest: list[str], i: int, eq: str, value: str, kept: list[s
     The `=` form takes one value only; a plain token after it is refused by the caller, as argparse refused it.
     """
     if eq:
+        if not value:
+            raise RetiredFlagError("argument --competitors: expected one argument")
         kept.append(f"--competitors={_legacy_competitor(value)}")
         return i + 1
     kept.append(rest[i])
