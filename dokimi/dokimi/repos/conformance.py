@@ -115,8 +115,8 @@ def fixtures_digest(fixtures: Path) -> str:
     for p in sorted(fixtures.rglob("*"), key=lambda p: p.relative_to(fixtures).as_posix()):
         if not (p.is_symlink() or p.is_file()):
             continue
-        data = b"L" + os.readlink(p).encode() if p.is_symlink() else b"F" + p.read_bytes()
-        for part in (p.relative_to(fixtures).as_posix().encode(), data):
+        data = b"L" + os.fsencode(os.readlink(p)) if p.is_symlink() else b"F" + p.read_bytes()
+        for part in (os.fsencode(p.relative_to(fixtures).as_posix()), data):
             h.update(len(part).to_bytes(8, "big") + part)
     return h.hexdigest()
 
