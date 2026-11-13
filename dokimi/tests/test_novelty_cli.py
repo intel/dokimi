@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pytest
 
+from dokimi.novelty import cost as novelty_cost
 from dokimi.cli import build_parser
 from dokimi.commands import novelty as novelty_cmd
 from dokimi.defaults import (
@@ -50,7 +51,7 @@ def test_every_subcommand_is_registered():
 
 def test_the_judge_defaults_to_a_different_model_than_the_answerer():
     args = _parse("skill", "novelty", "analyze", "--artifact", "skill:x")
-    extractor, answerer, judge = novelty_cmd._clients(args)
+    extractor, answerer, judge = novelty_cost.clients(args)
     assert answerer.model == DEFAULT_ANSWER_MODEL
     assert (judge.model, judge.provider) == (DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER)
     assert extractor.role == "extractor" and judge.role == "judge"
@@ -60,14 +61,14 @@ def test_the_judge_defaults_to_a_different_model_than_the_answerer():
 def test_measuring_the_default_judge_moves_the_judge_to_the_other_family(model):
     args = _parse("skill", "novelty", "analyze", "--artifact", "skill:x", "--model", model,
                   "--provider", "amazon-bedrock")
-    _extractor, answerer, judge = novelty_cmd._clients(args)
+    _extractor, answerer, judge = novelty_cost.clients(args)
     assert answerer.model == model
     assert (judge.model, judge.provider) == (DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER)
 
 
 def test_a_judge_provider_alone_picks_the_default_judge_that_runs_there():
     args = _parse("skill", "novelty", "analyze", "--artifact", "skill:x", "--judge-provider", "amazon-bedrock")
-    extractor, _answerer, judge = novelty_cmd._clients(args)
+    extractor, _answerer, judge = novelty_cost.clients(args)
     assert (judge.model, judge.provider) == (DEFAULT_JUDGE_MODEL, "amazon-bedrock")
     assert (extractor.model, extractor.provider) == (DEFAULT_JUDGE_MODEL, "amazon-bedrock")
 
@@ -75,7 +76,7 @@ def test_a_judge_provider_alone_picks_the_default_judge_that_runs_there():
 def test_a_judge_provider_alone_takes_the_generator_when_the_judge_is_measured():
     args = _parse("skill", "novelty", "analyze", "--artifact", "skill:x", "--model", DEFAULT_JUDGE_MODEL,
                   "--provider", "anthropic", "--judge-provider", DEFAULT_GENERATOR_PROVIDER)
-    _extractor, _answerer, judge = novelty_cmd._clients(args)
+    _extractor, _answerer, judge = novelty_cost.clients(args)
     assert (judge.model, judge.provider) == (DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER)
 
 
@@ -94,7 +95,7 @@ def test_a_judge_provider_alone_takes_the_generator_when_the_judge_is_measured()
 def test_a_judge_provider_with_no_default_judge_there_exits(argv):
     args = _parse("skill", "novelty", "analyze", "--artifact", "skill:x", *argv)
     with pytest.raises(InputError, match="--judge-model"):
-        novelty_cmd._clients(args)
+        novelty_cost.clients(args)
 
 
 @pytest.mark.parametrize("model", ["sonnet", "opus", "haiku", "claude-opus-5-5"])
@@ -103,7 +104,7 @@ def test_a_cli_answerer_with_no_judge_flags_is_judged_on_the_cli_by_another_fami
 
     args = _parse("skill", "novelty", "analyze", "--artifact", "skill:x", "--model", model,
                   "--provider", "claude-cli")
-    _extractor, _answerer, judge = novelty_cmd._clients(args)
+    _extractor, _answerer, judge = novelty_cost.clients(args)
     assert judge.provider == "claude-cli"
     assert not same_model(judge.model, model)
 
@@ -111,7 +112,7 @@ def test_a_cli_answerer_with_no_judge_flags_is_judged_on_the_cli_by_another_fami
 def test_a_named_judge_without_a_provider_runs_on_the_answer_provider():
     args = _parse("skill", "novelty", "analyze", "--artifact", "skill:x", "--provider", "openrouter",
                   "--judge-model", "j")
-    _extractor, _answerer, judge = novelty_cmd._clients(args)
+    _extractor, _answerer, judge = novelty_cost.clients(args)
     assert (judge.model, judge.provider) == ("j", "openrouter")
 
 
@@ -121,7 +122,7 @@ def test_the_extractor_follows_the_judge_not_the_answerer():
         "skill", "novelty", "analyze", "--artifact", "skill:x",
         "--model", "model-a", "--judge-model", "model-b",
     )
-    extractor, answerer, _judge = novelty_cmd._clients(args)
+    extractor, answerer, _judge = novelty_cost.clients(args)
     assert extractor.model == "model-b"
     assert answerer.model == "model-a"
 
@@ -188,7 +189,7 @@ def test_placebo_text_is_read_before_a_model_client_is_built(tmp_path, monkeypat
     def built(*_args, **_kwargs):
         raise AssertionError("a model client was built before --placebo-text was read")
 
-    monkeypatch.setattr("dokimi.commands.novelty._clients", built)
+    monkeypatch.setattr("dokimi.novelty.cost.clients", built)
     args = _parse(*argv)
     with pytest.raises(InputError, match="^cannot read --placebo-text"):
         args.func(args)
@@ -214,7 +215,7 @@ def test_analyze_exits_with_the_message_when_the_arms_cannot_run(
     def built(*_args, **_kwargs):
         raise AssertionError("a model client was built for arms that cannot run")
 
-    monkeypatch.setattr("dokimi.commands.novelty._clients", built)
+    monkeypatch.setattr("dokimi.novelty.cost.clients", built)
     args = _parse(*argv)
     with pytest.raises(InputError, match=message):
         args.func(args)
@@ -240,9 +241,9 @@ def test_coverage_note_printed_to_stderr_for_atoms(tmp_path, monkeypatch, capsys
             return json.dumps(rows), None
         return json.dumps({"verdict": "supported"}), None
 
-    real_client = novelty_cmd._client
+    real_client = novelty_cost.client
     monkeypatch.setattr(
-        novelty_cmd, "_client",
+        novelty_cost, "client",
         lambda model, provider, role, args: _with_transport(
             real_client(model, provider, role, args), transport
         ),
@@ -277,9 +278,9 @@ def test_answer_key_notes_printed_to_stderr_for_probe(tmp_path, monkeypatch, cap
             return json.dumps(rows), None
         return json.dumps({"verdict": "supported"}), None
 
-    real_client = novelty_cmd._client
+    real_client = novelty_cost.client
     monkeypatch.setattr(
-        novelty_cmd, "_client",
+        novelty_cost, "client",
         lambda model, provider, role, args: _with_transport(
             real_client(model, provider, role, args), transport
         ),
@@ -327,9 +328,9 @@ def test_atoms_subcommand_writes_atoms_and_span_stats(tmp_path, monkeypatch, cap
             return json.dumps(rows), None
         return json.dumps({"verdict": "supported"}), None
 
-    real_client = novelty_cmd._client
+    real_client = novelty_cost.client
     monkeypatch.setattr(
-        novelty_cmd, "_client",
+        novelty_cost, "client",
         lambda model, provider, role, args: _with_transport(
             real_client(model, provider, role, args), transport
         ),
@@ -374,8 +375,8 @@ def test_probe_result_describes_the_text_probed(tmp_path, monkeypatch):
             return json.dumps(rows), None
         return json.dumps({"verdict": "supported"}), None
 
-    real_client = novelty_cmd._client
-    monkeypatch.setattr(novelty_cmd, "_client", lambda model, provider, role, args:
+    real_client = novelty_cost.client
+    monkeypatch.setattr(novelty_cost, "client", lambda model, provider, role, args:
                         _with_transport(real_client(model, provider, role, args), transport))
     atoms = tmp_path / "atoms.json"
     args = _parse("skill", "novelty", "atoms", "--artifact", f"skill:{skill}", "--out", str(atoms))
@@ -713,8 +714,8 @@ def test_unread_spans_travel_from_novelty_atoms_to_shorten(tmp_path, monkeypatch
     skill = tmp_path / "s" / "SKILL.md"
     skill.parent.mkdir(parents=True)
     skill.write_text(_UNREAD_SKILL, encoding="utf-8")
-    real_client = novelty_cmd._client
-    monkeypatch.setattr(novelty_cmd, "_client", lambda model, provider, role, args:
+    real_client = novelty_cost.client
+    monkeypatch.setattr(novelty_cost, "client", lambda model, provider, role, args:
                         _with_transport(real_client(model, provider, role, args),
                                         _unread_transport))
     atoms = tmp_path / "atoms.json"
