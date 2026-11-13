@@ -9,7 +9,33 @@ import json
 from pathlib import Path
 from typing import List, Dict, Optional
 
+from dokimi.mcp.utils import read_cache_text, write_cache_text
+
 logger = logging.getLogger(__name__)
+
+
+def _storable(topics: object) -> bool:
+    """Whether *topics* may be stored, or a stored entry replayed: a non-empty list of topic
+    strings, other than the generic fallback (replaying it would skip the docs on every run)."""
+    return (isinstance(topics, list) and bool(topics)
+            and all(isinstance(t, str) and t.strip() for t in topics)
+            and topics != RagasSeedExtractor._fallback_topics(""))
+
+
+def _load_topics(cache_file: Path) -> Optional[List[str]]:
+    """The topics stored at *cache_file*, or ``None`` for a miss (a bad entry is warned about)."""
+    text = read_cache_text(cache_file)
+    if text is None:
+        return None
+    try:
+        topics = json.loads(text)
+    except ValueError:
+        topics = None
+    if not _storable(topics):
+        logger.warning("Ignoring topics cache entry %s: not a list of extracted topics; "
+                       "extracting again", cache_file)
+        return None
+    return topics
 
 
 class RagasSeedExtractor:
@@ -72,9 +98,10 @@ class RagasSeedExtractor:
         # Cache hit?
         if self.cache_dir:
             cache_file = self.cache_dir / f"topics_{cache_key}.json"
-            if cache_file.exists():
+            cached = _load_topics(cache_file)
+            if cached is not None:
                 logger.info("Topics cache hit for %s", library_id)
-                return json.loads(cache_file.read_text(encoding="utf-8"))
+                return cached
 
         # 1. Fetch raw docs
         docs = self._fetch_docs(library_id, library_name, max_tokens)
@@ -85,9 +112,8 @@ class RagasSeedExtractor:
         # 2. Extract topics via LLM (or simple heuristics if no LLM)
         topics = self._extract_via_llm(docs, library_name, max_topics)
 
-        # 3. Cache
-        if self.cache_dir:
-            cache_file.write_text(json.dumps(topics), encoding="utf-8")
+        # 3. Cache what extraction found; the generic fallback says it found nothing
+        if self.cache_dir and _storable(topics) and write_cache_text(cache_file, json.dumps(topics)):
             logger.info("Cached %d topics to %s", len(topics), cache_file)
 
         return topics
