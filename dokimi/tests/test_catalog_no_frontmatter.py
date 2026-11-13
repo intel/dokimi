@@ -191,6 +191,12 @@ def test_a_rule_then_prose_is_plain_markdown(tmp_path, text):
     assert (finding.level, finding.code) == ("error", "not-a-skill-no-frontmatter")
 
 
+def test_an_h1_inside_an_html_comment_is_not_the_title():
+    lines = ["<!--", "# TODO: remove", "-->", "", "# Deck Builder", "", "Builds decks."]
+    assert _block(no_frontmatter_message(lines, "deck", at_root=True)) == {
+        "name": "deck-builder", "description": "Builds decks."}
+
+
 def test_a_root_skill_gets_the_h1_name_not_the_directory_name(tmp_path):
     real = tmp_path / "real"
     real.mkdir()

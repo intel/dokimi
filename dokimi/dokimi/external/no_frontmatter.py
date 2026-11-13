@@ -34,7 +34,7 @@ def no_frontmatter_message(lines: list[str], dir_name: str, at_root: bool = Fals
     The block is a start: the description still needs a "when" clause.
     """
     # CommonMark fences: a shorter run or another marker does not close one
-    body = [line.strip().lstrip("\ufeff") for line in outside_fences("\n".join(lines))]
+    body = _without_comments([line.strip().lstrip("\ufeff") for line in outside_fences("\n".join(lines))])
     title = ""
     start = 0  # the paragraph is the one after the first H1: an intro or a badge above it is not taken
     for i, stripped in enumerate(body):
@@ -60,16 +60,24 @@ def no_frontmatter_message(lines: list[str], dir_name: str, at_root: bool = Fals
     )
 
 
-def _first_paragraph(body: list[str]) -> list[str]:
-    """The lines of the first paragraph of ``body``, skipping blank, heading, table, HTML and comment lines."""
-    paragraph: list[str] = []
-    in_comment = False  # inside a multi-line HTML comment, up to the line holding -->
+def _without_comments(body: list[str]) -> list[str]:
+    """``body`` with its HTML comment lines taken out, a multi-line comment up to the line holding ``-->``."""
+    kept: list[str] = []
+    in_comment = False
     for stripped in body:
         if in_comment:
             in_comment = "-->" not in stripped
-            continue
-        if stripped.startswith("<!--") and "-->" not in stripped:
-            in_comment = True
+        elif stripped.startswith("<!--"):
+            in_comment = "-->" not in stripped
+        else:
+            kept.append(stripped)
+    return kept
+
+
+def _first_paragraph(body: list[str]) -> list[str]:
+    """The lines of the first paragraph of ``body``, skipping blank, heading, table and HTML lines."""
+    paragraph: list[str] = []
+    for stripped in body:
         if not stripped or stripped.startswith(("#", "|", "<", "!", "---")):
             if paragraph:
                 break
