@@ -32,7 +32,7 @@ different as another vendor: κ 0.61–0.72, and up to 0.15 on one added share.
 |---|---|
 | Answers | 2,664 existing answers: 444 (probe, answer model) cells × 6 arms (`no_skill`, `root`, `routed`, `full`, `placebo`, `shuffled`). Plus 268 fresh repeats of `no_skill` for the noise floor. |
 | Answer models | claude-opus-5, gpt-5.6-luna, grok-4.6 (88 cells each); claude-haiku-4-5, nemotron-nano-12b (90 each). |
-| Sampling | Per model, cells drawn from those with all six arms, stratified by skill × reversal (adversarial) probe, proportional to stratum size. Seed 20261108. |
+| Sampling | Per model, cells drawn from those with all six arms, stratified by skill × reversal (adversarial) probe. Each stratum gets a minimum of one cell, so the sample is proportional to stratum size only where that share is at least one cell. Each stratum's share is rounded to the nearest cell, so a model's total can land above or below the per-model target of 90: 88 cells for three models, 90 for two. Seed 20261108. |
 | Judges | gpt-5.6-luna (original grades, as recorded), claude-sonnet-5, gpt-6-luna, grok-4.6, kimi-k3, deepseek-v3.2, glm-5, qwen3-vl-235b. |
 | Prompt | The study's grading prompt unchanged: 6 verdicts, answer truncated to 6,000 characters, max 1,200 output tokens, JSON repair by claude-haiku-4-5. |
 | Temperature | 0, except gpt-6-luna and kimi-k3, which reject it and run at their default. |
