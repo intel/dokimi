@@ -13,13 +13,17 @@ from dokimi.mcp.utils import read_cache_text, write_cache_text
 
 logger = logging.getLogger(__name__)
 
+#: What :meth:`RagasSeedExtractor._fallback_topics` returns: never stored, never replayed.
+FALLBACK_TOPICS = ("installation", "getting started", "API overview",
+                   "performance tuning", "troubleshooting", "examples")
+
 
 def _storable(topics: object) -> bool:
     """Whether *topics* may be stored, or a stored entry replayed: a non-empty list of topic
     strings, other than the generic fallback (replaying it would skip the docs on every run)."""
     return (isinstance(topics, list) and bool(topics)
             and all(isinstance(t, str) and t.strip() for t in topics)
-            and topics != RagasSeedExtractor._fallback_topics(""))
+            and topics != list(FALLBACK_TOPICS))
 
 
 def _load_topics(cache_file: Path) -> Optional[List[str]]:
@@ -214,5 +218,4 @@ class RagasSeedExtractor:
         ``eval questions generate --topics <file>`` instead of hard-coding them
         here, so the fallback is the same for every library.
         """
-        return ["installation", "getting started", "API overview",
-                "performance tuning", "troubleshooting", "examples"]
+        return list(FALLBACK_TOPICS)
