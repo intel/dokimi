@@ -725,11 +725,14 @@ others are named on stderr.
 
 `--estimate-only` prints, as JSON, the calls, input and output tokens and the list-price `expected_usd` the
 `--model` arm would make, and makes no model call. Without `--model` the run is lexical and the bill
-is zero. Input is the selection prompt sized at chars / 4, so it is a projection, not a count.
-Output is `output_tokens_per_call` (65) times the calls: the average a measured routing run billed per
-selection call (360 calls drew 23.3k output tokens). The prompt asks for one `{"pick": N}` object, about
-10 tokens, which underestimated that run 6.5 times, so the estimate does not use it. Another model, or a
-reasoning model, can bill more or less.
+is zero. Input is the selection prompt sized at `chars_per_input_token` (2.6) characters per token, counted
+locally with no tokenizer, so it is a projection, not a count. Output is `output_tokens_per_call` (150) times
+the calls: one flat allowance, inside the 114 to 193 tokens a call that Sonnet 5.5 and Haiku 5.5 billed.
+The prompt asks for one `{"pick": N}` object, about 10 tokens, which underestimated a measured run 6.5
+times, so the estimate does not use it. Both allowances come from one measured catalog (35 skills, 90
+queries, Bedrock): with chars / 4 and 65 tokens the estimate was about 1.55x below the bills there. Another
+model, a catalog of other text, or a reasoning model can bill more or less, so read the figure as an
+estimate, not a bound. The command prints both allowances.
 
 Two numbers, reported side by side and never merged:
 
@@ -819,6 +822,8 @@ more per call as well as in calls. Before the first call the run prints that cou
 so count the queries first, or pass `--max-usd` to stop the run at a spend limit. A lexical-only run (no `--model`) makes no model calls.
 A stored response in `DOKIMI_RESPONSE_CACHE` is replayed without a call, so a rerun can make
 fewer calls than the printed count.
+
+**A permanent provider error stops a routing run the way the cap does.** An authentication or permission error, an unknown model ID or missing credentials (`dokimi.llm.is_retryable` is false) would fail every later call alike, so the run stops at that call, keeps the rows made before it and writes the partial result below, with the error text and the call it stopped at as the message (`reason` stays `"spend_cap"` in the record). A failure of one query (a refusal, an unparseable reply, a transient error that ran out of retries) is still one failed row, and the run goes on.
 
 **A routing run stopped by `--max-usd` keeps what it paid for.** `novelty routing --model`, single
 artifact or `--all-vs-all`, writes the result of the calls made before the cap (or a call with no

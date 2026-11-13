@@ -389,7 +389,7 @@ def test_the_model_arm_follows_each_call_not_one_fixed_card():
 
 def test_a_transport_that_raises_is_counted_not_reported_as_a_clean_zero():
     def transport(prompt: str, system: str | None):
-        raise RuntimeError("boom")
+        raise RuntimeError("connection boom")
 
     client = LLMClient(model="m", role="selector", transport=transport)
     model = all_vs_all(ALL_FIELD, ALL_QUERIES, client=client)["model"]
@@ -398,8 +398,11 @@ def test_a_transport_that_raises_is_counted_not_reported_as_a_clean_zero():
 
 
 def test_a_transport_that_raises_with_no_message_is_still_counted_as_failed():
+    class Timeout(Exception):  # litellm's transient class, which is_retryable reads by name
+        pass
+
     def transport(prompt: str, system: str | None):
-        raise RuntimeError()
+        raise Timeout()
 
     client = LLMClient(model="m", role="selector", transport=transport)
     model = all_vs_all(ALL_FIELD, ALL_QUERIES, client=client)["model"]
@@ -410,7 +413,7 @@ def test_a_transport_that_raises_with_no_message_is_still_counted_as_failed():
 def test_all_vs_all_exits_nonzero_when_every_model_call_fails(tmp_path, capsys, monkeypatch):
 
     def transport(prompt: str, system: str | None):
-        raise RuntimeError("boom")
+        raise RuntimeError("connection boom")
 
     monkeypatch.setattr(novelty_cost, "client", lambda model, provider, role, args: LLMClient(
         model=model, provider=provider, role=role, transport=transport))
@@ -772,7 +775,7 @@ def test_the_model_arm_does_not_send_a_query_with_no_content_word():
 
 def test_a_failed_call_adds_to_the_contentless_queries_of_the_same_skill():
     def transport(prompt: str, system: str | None):
-        raise RuntimeError("boom")
+        raise RuntimeError("connection boom")
 
     field = [Candidate("alpha", "convert a json file to yaml"),
              Candidate("beta", "tune a slow database query")]
@@ -786,7 +789,7 @@ def test_the_failed_call_count_is_over_the_calls_sent_not_every_query(
         tmp_path, monkeypatch, capsys):
 
     def transport(prompt: str, system: str | None):
-        raise RuntimeError("boom")
+        raise RuntimeError("connection boom")
 
     monkeypatch.setattr(novelty_cost, "client", lambda model, provider, role, args: LLMClient(
         model=model, provider=provider, role=role, transport=transport))
@@ -915,7 +918,7 @@ def test_a_partial_failure_still_prints_the_cost_of_the_calls_that_ran(tmp_path,
         try:
             return next(replies)
         except StopIteration:
-            raise RuntimeError("boom") from None
+            raise RuntimeError("connection boom") from None
 
     monkeypatch.setattr(novelty_cost, "client", lambda model, provider, role, args: LLMClient(
         model=model, provider=provider, role=role, transport=transport))

@@ -119,7 +119,8 @@ def test_estimate_only_without_a_model_is_lexical_and_free(tmp_path, capsys):
 
 
 def test_a_zero_repeat_estimate_sends_no_queries():
-    from dokimi.novelty.routing import Candidate, selection_estimate
+    from dokimi.novelty.routing import Candidate
+    from dokimi.novelty.routing_estimate import selection_estimate
 
     field = [Candidate("perf", "profile a slow binary"), Candidate("db", "tune a database")]
     estimate = selection_estimate(field, ["profile my binary", "index a table"], repeats=0)
@@ -192,7 +193,8 @@ def test_estimate_only_refuses_the_run_the_real_run_refuses(tmp_path, capsys, qu
 def test_the_estimate_counts_the_prompts_the_run_sends():
     # The estimate and the run each build the selection prompt. Every prompt the run sends must
     # have the length the estimate counts for it, so a drift between the two shows here.
-    from dokimi.novelty.routing import Candidate, model_routing, selection_prompt_tokens
+    from dokimi.novelty.routing import Candidate, model_routing
+    from dokimi.novelty.routing_estimate import selection_prompt_tokens
 
     field = [Candidate("perf", "profile a slow binary with perf"),
              Candidate("db", "tune a database index"),
@@ -208,7 +210,7 @@ def test_the_estimate_counts_the_prompts_the_run_sends():
             return '{"pick": 1}'
 
     model_routing(field, queries, client=Recorder(), gold=0, repeats=1)
-    assert [len(prompt) // 4 for prompt in sent] == selection_prompt_tokens(field, queries)
+    assert [round(len(prompt) / 2.6) for prompt in sent] == selection_prompt_tokens(field, queries)
 
 
 def _two_skill_field(tmp_path):
@@ -354,16 +356,16 @@ def test_all_vs_all_refuses_an_out_directory_before_it_calls_the_model(tmp_path,
 
 
 def test_the_estimate_prices_the_reply_the_model_sends_not_one_json_pick():
-    from dokimi.novelty.routing import Candidate, selection_estimate
+    from dokimi.novelty.routing import Candidate
+    from dokimi.novelty.routing_estimate import selection_estimate
 
     field = [Candidate(name="a", description="profile a slow binary"),
              Candidate(name="b", description="tune a slow database")]
-    # 360 calls: the measured run drew 23.3k output tokens for them, where one pick per call
-    # (about 10 tokens) would have estimated 3.6k.
+    # Measured replies were 114 to 193 tokens a call; one pick per call (about 10) would not do.
     estimate = selection_estimate(field, ["profile my slow binary"] * 360, repeats=1)
     assert estimate["n_calls"] == 360
     assert estimate["output_tokens"] == 360 * estimate["output_tokens_per_call"]
-    assert estimate["output_tokens"] == pytest.approx(23_300, rel=0.05)
+    assert 114 <= estimate["output_tokens_per_call"] <= 193
 
 
 

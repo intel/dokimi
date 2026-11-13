@@ -159,7 +159,7 @@ def test_one_failed_query_does_not_lose_the_others():
     def transport(prompt: str, system: str | None):
         calls["n"] += 1
         if calls["n"] == 1:
-            raise RuntimeError("provider refused")
+            raise RuntimeError("connection: provider refused")
         return json.dumps({"pick": 1}), None
 
     client = LLMClient(model="m", role="selector", transport=transport)
@@ -434,7 +434,7 @@ def test_an_unusable_reply_is_a_miss_not_a_dropped_query(reply):
 
 def test_a_transport_error_is_still_excluded_from_the_rate():
     def transport(prompt: str, system: str | None):
-        raise RuntimeError("provider down")
+        raise RuntimeError("connection: provider down")
 
     client = LLMClient(model="m", role="selector", transport=transport)
     result = model_routing([PERF, TBB], ["q1"], client=client)
@@ -611,7 +611,7 @@ def test_noise_reports_each_query_s_agreement_and_the_spread_between_repeats():
 
 def test_a_query_that_failed_on_every_repeat_has_no_agreement_to_report():
     def transport(prompt: str, system: str | None):
-        raise RuntimeError("provider down")
+        raise RuntimeError("connection: provider down")
 
     client = LLMClient(model="m", role="selector", transport=transport)
     noise = model_routing([PERF, TBB], ["q1"], client=client, repeats=2)["noise"]
@@ -742,7 +742,7 @@ def _scripted(script):
     def transport(prompt: str, system: str | None):
         step = next(calls)
         if step == "!":
-            raise _Boom("provider down")
+            raise _Boom("connection: provider down")
         if step == "-":
             return json.dumps({"pick": 0}), None
         return _answer_as(step)(prompt), None
