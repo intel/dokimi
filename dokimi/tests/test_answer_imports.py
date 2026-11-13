@@ -572,8 +572,8 @@ def test_eval_reference_cli_without_judge_on_an_arms_run(tmp_path):
     assert data["evaluations"][0]["scores"]["baseline"]["passed"] is True
 
 
-@pytest.mark.parametrize("content", [b"", b"not json", bytes.fromhex("fffe007b"), None, "directory"],
-                         ids=["empty", "not-json", "not-utf8", "missing", "directory"])
+@pytest.mark.parametrize("content", [b"", b"not json", bytes.fromhex("fffe007b"), None, "directory", "device"],
+                         ids=["empty", "not-json", "not-utf8", "missing", "directory", "device"])
 def test_eval_reference_cli_refuses_an_unparseable_answers_file(tmp_path, content):
     from tests.cli_refusal import refusal
 
@@ -582,6 +582,8 @@ def test_eval_reference_cli_refuses_an_unparseable_answers_file(tmp_path, conten
     a = tmp_path / "a.json"
     if content == "directory":
         a.mkdir()
+    elif content == "device":
+        a = Path("/dev/null")
     elif content is not None:
         a.write_bytes(content)
     out = tmp_path / "e.json"
@@ -592,6 +594,8 @@ def test_eval_reference_cli_refuses_an_unparseable_answers_file(tmp_path, conten
     assert outcome.code == 2
     assert f"Error: --answers {a}:" in outcome.err
     assert "Traceback" not in outcome.err
+    if content == "device":
+        assert "not a file" in outcome.err
     assert not out.exists()
 
 
