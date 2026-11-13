@@ -130,7 +130,11 @@ class Scan:
     def __post_init__(self) -> None:
         self.files = self.tree.files()
         self.file_set = set(self.files)
-        self.dir_set = {"."} | {posixpath.dirname(f) or "." for f in self.files}
+        self._texts: dict[str, str] = {}
+        self.unread: dict[str, str] = {}  # path -> why it was not read (binary, too big, dangling link)
+        self.submodules = self._submodules()
+        # a submodule is a directory in a checkout, though the file list holds nothing under it
+        self.dir_set = {"."} | {posixpath.dirname(f) or "." for f in self.files} | set(self.submodules)
         for d in list(self.dir_set):
             while d not in (".", ""):
                 d = posixpath.dirname(d) or "."
@@ -138,11 +142,8 @@ class Scan:
         self.by_name: dict[str, list[str]] = {}  # basename -> files and directories
         for x in sorted(self.file_set | (self.dir_set - {"."})):
             self.by_name.setdefault(posixpath.basename(x), []).append(x)
-        self._texts: dict[str, str] = {}
-        self.unread: dict[str, str] = {}  # path -> why it was not read (binary, too big, dangling link)
         self._words: set[str] | None = None
         self._cache: dict[str, Any] = {}  # adapter facts
-        self.submodules = self._submodules()
         url = (self.repo_url or "").removesuffix(".git").rstrip("/")
         self._own_link = re.compile(re.escape(url) + r"/(blob|tree)/(.+)") if url else None
         self._cd: list[str] | None = None  # directories a shell fence has `cd`-ed to; [] when not in the tree
