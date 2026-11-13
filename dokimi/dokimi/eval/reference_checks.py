@@ -236,6 +236,10 @@ def chosen_letters(answer: str) -> Optional[frozenset[str]]:
 #: each try on deeply nested text parses to the decoder's depth limit.
 CONTAINS_JSON_MAX_STARTS = 1000
 
+#: ...and the tries that fail may scan at most this many characters in all (each from its start to
+#: where it failed): a text of many brackets and a long tail would otherwise cost starts x length.
+CONTAINS_JSON_MAX_SCAN = 1_000_000
+
 _FENCE = re.compile(r"^\s*```(?:json)?\s*\n(.*?)\n\s*```\s*$", re.S)
 
 
@@ -244,7 +248,9 @@ def parse_json(answer: str, *, contains: bool = False) -> tuple[bool, Any]:
 
     With ``contains`` the first JSON object or array anywhere in the text counts
     (promptfoo ``contains-json``). The scan gives up after :data:`CONTAINS_JSON_MAX_STARTS`
-    brackets, and then reads the text as not JSON.
+    brackets, or once the tries that failed have scanned :data:`CONTAINS_JSON_MAX_SCAN`
+    characters in all, and then reads the text as not JSON. The first try is not counted:
+    it is linear in the text.
     """
     text = answer.strip()
     fenced = _FENCE.match(text)
@@ -257,14 +263,19 @@ def parse_json(answer: str, *, contains: bool = False) -> tuple[bool, Any]:
     if contains:
         decoder = json.JSONDecoder()
         tried = 0
+        scanned = 0
         for i, ch in enumerate(text):
             if ch in "{[":
-                if tried == CONTAINS_JSON_MAX_STARTS:
+                if tried == CONTAINS_JSON_MAX_STARTS or scanned > CONTAINS_JSON_MAX_SCAN:
                     break
                 tried += 1
                 try:
                     return True, decoder.raw_decode(text, i)[0]
+                except json.JSONDecodeError as err:
+                    scanned += max(err.pos - i, 0)
                 except (ValueError, RecursionError):
+                    # A RecursionError carries no position: it counts 0 (it stops at the
+                    # decoder's depth limit, which the start cap already bounds).
                     continue
     return False, None
 

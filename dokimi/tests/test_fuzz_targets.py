@@ -165,6 +165,31 @@ def test_parse_json_contains_finds_a_value_after_a_start_too_deep_to_decode() ->
     assert parse_json('[ {"a": 1}, ' + "[1," * 10000, contains=True) == (True, {"a": 1})
 
 
+def test_parse_json_contains_bounds_the_characters_failed_tries_scan(monkeypatch: pytest.MonkeyPatch) -> None:
+    import json
+
+    from dokimi.eval import reference_checks
+    from dokimi.eval.reference_checks import CONTAINS_JSON_MAX_SCAN, parse_json
+
+    calls: list[int] = []
+    real = json.JSONDecoder.raw_decode
+
+    def spy(self: json.JSONDecoder, s: str, idx: int = 0) -> tuple[object, int]:
+        calls.append(idx)
+        return real(self, s, idx)
+
+    monkeypatch.setattr(reference_checks.json.JSONDecoder, "raw_decode", spy)
+    # 900 brackets, then a tail every try parses to its end before it fails.
+    assert parse_json("[" * 900 + "1," * 100000, contains=True) == (False, None)
+    # Each failed try scans the 200000-character tail: the budget allows 1 + CONTAINS_JSON_MAX_SCAN // 200000 + 1 of them.
+    assert len(calls) <= 1 + CONTAINS_JSON_MAX_SCAN // 200000 + 1
+    calls.clear()
+    # A value after a start that failed late, within the budget, is still found.
+    text = "[ " + "1," * 1000 + ' {"a": 1} ' + "[1,"
+    assert parse_json("[ " * 3 + '{"a": [1, 2]}' + " [1," * 100, contains=True) == (True, {"a": [1, 2]})
+    assert parse_json(text, contains=True) == (True, {"a": 1})
+
+
 def test_names_pin_the_byte_to_target_order() -> None:
     # A seed stores its target's index in byte 0: this order is append-only, so a new
     # target goes at the end and the seeds already saved keep their target.
