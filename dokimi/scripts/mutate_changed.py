@@ -91,7 +91,7 @@ def changed_lines(base: str) -> dict[str, set[int]]:
     if mb.returncode:
         raise SystemExit(f"git merge-base {base} HEAD failed: {mb.stderr.strip()}")
     out = subprocess.run(
-        ["git", "diff", "-U0", "--no-color", "--diff-filter=AMR", mb.stdout.strip(), "--", f"{PKG}*.py"],
+        ["git", "-c", "core.quotePath=false", "diff", "-U0", "--no-color", "--diff-filter=AMR", mb.stdout.strip(), "--", f"{PKG}*.py"],
         cwd=REPO, capture_output=True, text=True, encoding="utf-8",
     )
     if out.returncode:
@@ -255,7 +255,8 @@ def _pytest(
 ) -> tuple[int, str]:
     cmd = [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "-o", "console_output_style=classic", *args]
     # process.run kills the whole process tree on exit or timeout: no test's child outlives its mutant.
-    done = process.run(cmd, timeout=timeout, env=process.Env.inherit(env), cwd=cwd)
+    # capture_limit=None: the coverage pass parses every FAILED/PASSED line, a truncated summary would lose some.
+    done = process.run(cmd, timeout=timeout, env=process.Env.inherit(env), cwd=cwd, capture_limit=None)
     if done.timed_out:
         return -1, "timeout"
     return done.returncode, done.stdout + done.stderr
@@ -264,15 +265,22 @@ def _pytest(
 def _failed(log: str, ids: set[str]) -> tuple[set[str], list[str]]:
     """The ids in ``ids`` that pytest's summary names as failed, and the summary's other names.
 
-    A summary line is ``FAILED <node id> - <message>``, and a node id can hold `` - `` (a parameter), so the
-    known ids are matched whole; only a name that matches none is cut at the first `` - ``.
+    A summary line is ``FAILED <node id> - <message>``, and a node id can hold `` - `` (a parameter), so a line is
+    attributed to the longest known id it starts with (``f[a]`` is a prefix of the line of ``f[a] - b]``), among
+    the ids with no ``PASSED`` line of their own when there are any (a message can complete a longer id: ``f[a] - Failed: b]``);
+    only a name that matches none is cut at the first `` - ``.
     """
-    def names(line: str) -> bool:
-        return any(line == i or line.startswith(i + " - ") for i in ids)
-
-    lines = re.findall(r"^(?:FAILED|ERROR) (.+)$", log, re.MULTILINE)
-    named = {i for i in ids if any(line == i or line.startswith(i + " - ") for line in lines)}
-    return named, [line.split(" - ", 1)[0] for line in lines if not names(line)]
+    named: set[str] = set()
+    unmatched: list[str] = []
+    passed = set(re.findall(r"^PASSED (.+)$", log, re.MULTILINE))
+    for line in re.findall(r"^(?:FAILED|ERROR) (.+)$", log, re.MULTILINE):
+        found = [i for i in ids if line == i or line.startswith(i + " - ")]
+        match = max([i for i in found if i not in passed] or found, key=len, default=None)
+        if match is None:
+            unmatched.append(line.split(" - ", 1)[0])
+        else:
+            named.add(match)
+    return named, unmatched
 
 
 _PASSED = re.compile(r"\b[1-9]\d* passed\b")  # the final pytest line of a run in which a test ran

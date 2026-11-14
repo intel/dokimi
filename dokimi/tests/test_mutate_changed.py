@@ -471,3 +471,98 @@ def test_a_passing_test_that_errors_in_teardown_is_not_credited_to_an_import_tim
     _stub_covering(monkeypatch, tmp_path, contexts, 1, log)
     by_file, _, _ = mc.covering_tests(tmp_path, ["tests/test_zz.py"], ["dokimi/dokimi/zz.py"], 60)
     assert by_file["dokimi/dokimi/zz.py"][1] == ["tests/test_zz.py::test_fn"]
+
+
+def test_a_passing_id_that_prefixes_a_failing_id_is_not_failed() -> None:
+    passing, failing = "tests/test_zz.py::test_f[a]", "tests/test_zz.py::test_f[a] - b]"
+    bad, unmatched = mc._failed(f"FAILED {failing} - AssertionError\n", {passing, failing})
+    assert (bad, unmatched) == ({failing}, [])
+    bad, _ = mc._failed(f"FAILED {passing} - AssertionError\n", {passing, failing})
+    assert bad == {passing}
+
+
+def test_changed_lines_diffs_against_the_merge_base_not_the_base_tip(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    pkg = tmp_path / "dokimi" / "dokimi"
+    pkg.mkdir(parents=True)
+    _git(tmp_path, "init", "-q", "-b", "main")
+    _git(tmp_path, "config", "user.email", "t@example.com")
+    _git(tmp_path, "config", "user.name", "t")
+    (pkg / "m.py").write_text("a = 1\nb = 2\nc = 3\n", encoding="utf-8")
+    _git(tmp_path, "add", ".")
+    _git(tmp_path, "commit", "-qm", "base")
+    _git(tmp_path, "checkout", "-q", "-b", "feature")
+    (pkg / "m.py").write_text("a = 1\nb = 2\nc = 30\n", encoding="utf-8")
+    _git(tmp_path, "commit", "-qam", "feature")
+    _git(tmp_path, "checkout", "-q", "main")
+    (pkg / "m.py").write_text("a = 10\nb = 2\nc = 3\n", encoding="utf-8")
+    _git(tmp_path, "commit", "-qam", "main moves on")
+    _git(tmp_path, "checkout", "-q", "feature")
+    monkeypatch.setattr(mc, "REPO", tmp_path)
+    assert mc.changed_lines("main") == {"dokimi/dokimi/m.py": {3}}
+
+
+def test_changed_lines_reads_a_non_ascii_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    pkg = tmp_path / "dokimi" / "dokimi"
+    pkg.mkdir(parents=True)
+    _git(tmp_path, "init", "-q")
+    _git(tmp_path, "config", "user.email", "t@example.com")
+    _git(tmp_path, "config", "user.name", "t")
+    _git(tmp_path, "config", "core.quotePath", "true")
+    (tmp_path / "other.py").write_text("x = 1\n", encoding="utf-8")
+    _git(tmp_path, "add", ".")
+    _git(tmp_path, "commit", "-qm", "base")
+    (pkg / "café.py").write_text("FLAG = True\n", encoding="utf-8")
+    _git(tmp_path, "add", ".")
+    _git(tmp_path, "commit", "-qm", "head")
+    monkeypatch.setattr(mc, "REPO", tmp_path)
+    assert mc.changed_lines("HEAD~1") == {"dokimi/dokimi/café.py": {1}}
+
+
+@pytest.mark.parametrize("rc, log, status", [
+    (0, "", "survived"),
+    (-1, "timeout", "timeout"),
+    (1, "", "killed"),
+    (2, "ERROR collecting x", "killed"),
+    (4, "ERROR collecting x", "killed"),
+    (3, "ERROR collecting x", "error"),
+    (2, "", "error"),
+    (4, "", "error"),
+    (5, "", "error"),
+])
+def test_mutant_status_by_exit_code(rc: int, log: str, status: str) -> None:
+    assert mc._mutant_status(rc, log) == status
+
+
+def test_the_coverage_pass_asks_for_passed_ids(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    pytest.importorskip("pytest_cov")
+    monkeypatch.delenv("PYTHONSAFEPATH", raising=False)
+    pkg = tmp_path / "dokimi" / "dokimi"
+    pkg.mkdir(parents=True)
+    (pkg / "__init__.py").write_text("", encoding="utf-8")
+    (pkg / "zz.py").write_text("FLAG = True\n\n\ndef f():\n    return FLAG\n", encoding="utf-8")
+    (tmp_path / "dokimi" / "tests").mkdir()
+    (tmp_path / "dokimi" / "tests" / "test_zz.py").write_text(
+        "from dokimi.zz import FLAG\n\n\ndef test_flag():\n    assert FLAG\n\n\ndef test_bad():\n    assert False\n",
+        encoding="utf-8")
+    by_file, failing, _ = mc.covering_tests(tmp_path, ["tests/test_zz.py"], ["dokimi/dokimi/zz.py"], 120)
+    assert failing == ["tests/test_zz.py::test_bad"]
+    assert by_file["dokimi/dokimi/zz.py"][1] == ["tests/test_zz.py::test_flag"]
+
+
+def test_pytest_output_is_not_truncated(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: dict[str, object] = {}
+
+    def run(argv: object, **kw: object) -> object:
+        seen.update(kw)
+        return types.SimpleNamespace(timed_out=False, returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(mc.process, "run", run)
+    mc._pytest(tmp_path, [], 5)
+    assert seen["capture_limit"] is None
+
+
+def test_a_failure_message_that_completes_a_longer_passing_id_is_not_read_as_its_failure() -> None:
+    failing, passing = "tests/test_x.py::test_f[a]", "tests/test_x.py::test_f[a] - Failed: b]"
+    log = f"PASSED {passing}\nFAILED {failing} - Failed: b]\n"
+    bad, unmatched = mc._failed(log, {failing, passing})
+    assert (bad, unmatched) == ({failing}, [])
