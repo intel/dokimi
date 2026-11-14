@@ -15,7 +15,6 @@ PERMANENT_REASON = "permanent_error"
 # call sends. Any other error (a context-length rejection, a refusal, an odd reply) may be one query's.
 _RUN_WIDE_ERRORS = frozenset({"authenticationerror", "permissiondeniederror", "notfounderror",
                               "unsupportedparamserror"})
-_NO_CREDENTIALS = (*_NON_RETRYABLE_MESSAGES, "unable to locate credentials")
 
 
 def is_run_wide(exc: Exception) -> bool:
@@ -25,7 +24,7 @@ def is_run_wide(exc: Exception) -> bool:
     if isinstance(run_wide := getattr(exc, "run_wide", None), bool):  # set by an error that knows (CliCallError)
         return run_wide
     return type(exc).__name__.lower() in _RUN_WIDE_ERRORS or any(
-        marker in str(exc).lower() for marker in _NO_CREDENTIALS)
+        marker in str(exc).lower() for marker in _NON_RETRYABLE_MESSAGES)
 
 
 def permanent_stop(exc: Exception) -> SpendCapReached:
