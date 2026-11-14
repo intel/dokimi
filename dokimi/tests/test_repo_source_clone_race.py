@@ -176,3 +176,95 @@ def test_a_branch_fetch_failing_for_another_reason_is_not_run_again(tmp_path, mo
     with pytest.raises(SourceError, match="git fetch failed"):
         ensure_rev(git_dir, "topic")
     assert len(fetches) == 1
+
+
+def _publish_first_while_cloning(git_dir: Path, monkeypatch, *, stuck: list[Path] | None = None, publish=True) -> None:
+    """The clone writes a partial directory and returns; when ``publish``, another process has made ``git_dir``
+    by then, so the rename fails. ``stuck``: the partial's ``objects/pack`` cannot be deleted, as Git's read-only
+    object files on Windows; it is added to the list so the test can make it writable again."""
+    real = source._git
+
+    def clone(gd, *args, **kwargs):
+        if args[:1] != ("clone",):
+            return real(gd, *args, **kwargs)
+        tmp = Path(args[-1])
+        (tmp / "objects" / "pack").mkdir(parents=True)
+        (tmp / "objects" / "pack" / "pack-1.pack").write_text("x", encoding="utf-8")
+        (tmp / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+        if publish:
+            git_dir.mkdir(parents=True)
+            (git_dir / "HEAD").write_text("ref: refs/heads/main\n", encoding="utf-8")
+        else:
+            git_dir.mkdir(parents=True)  # a directory with no HEAD: the rename onto it fails
+            (git_dir / "x").write_text("", encoding="utf-8")
+        if stuck is not None:
+            (tmp / "objects" / "pack" / "pack-1.pack").chmod(0o444)
+            (tmp / "objects" / "pack").chmod(0o555)
+            stuck.append(tmp / "objects" / "pack")
+
+    monkeypatch.setattr(source, "_git", clone)
+
+
+def test_a_losing_partial_clone_with_read_only_entries_is_removed(tmp_path, monkeypatch):
+    url, cache, stuck = "file:///nonexistent/origin.git", tmp_path / "cache", []
+    git_dir = cache_path(url, cache)
+    _publish_first_while_cloning(git_dir, monkeypatch, stuck=stuck)
+    real_rmtree = shutil.rmtree
+
+    def rmtree_like_windows(path, *args, **kwargs):
+        """A read-only file cannot be deleted, as on Windows; Linux only checks the directory's mode."""
+        for root, _, files in os.walk(path):
+            for name in files:
+                if not os.stat(os.path.join(root, name)).st_mode & 0o200:
+                    raise PermissionError(13, "denied", os.path.join(root, name))
+        return real_rmtree(path, *args, **kwargs)
+
+    monkeypatch.setattr(source.shutil, "rmtree", rmtree_like_windows)
+    try:
+        assert ensure_clone(url, cache) == git_dir
+        assert [p.name for p in cache.iterdir()] == [git_dir.name]
+    finally:
+        for d in stuck:
+            if d.exists():
+                d.chmod(0o755)
+
+
+def test_a_partial_clone_that_cannot_be_removed_raises(tmp_path, monkeypatch):
+    url, cache = "file:///nonexistent/origin.git", tmp_path / "cache"
+    git_dir = cache_path(url, cache)
+    _publish_first_while_cloning(git_dir, monkeypatch)
+
+    def refuse(path, *args, **kwargs):
+        raise PermissionError(13, "denied", str(path))
+
+    monkeypatch.setattr(source.shutil, "rmtree", refuse)
+    with pytest.raises(PermissionError):
+        ensure_clone(url, cache)
+
+
+def test_a_failed_rename_onto_a_directory_with_no_head_raises(tmp_path, monkeypatch):
+    url, cache = "file:///nonexistent/origin.git", tmp_path / "cache"
+    _publish_first_while_cloning(cache_path(url, cache), monkeypatch, publish=False)
+    with pytest.raises(OSError):
+        ensure_clone(url, cache)
+
+
+def test_a_branch_fetch_that_keeps_losing_its_ref_raises_after_the_last_try(tmp_path, monkeypatch):
+    url, _ = _origin(tmp_path)
+    git_dir = ensure_clone(url, tmp_path / "cache")
+    _push_topic(tmp_path)
+    real, fetches = source._git, []
+    held = git_dir / "refs" / "heads" / "topic.lock"
+    held.parent.mkdir(parents=True, exist_ok=True)
+    held.write_text("", encoding="utf-8")  # another run holds the ref through every try
+
+    def count_fetches(gd, *args, **kwargs):
+        if args[:1] == ("fetch",):
+            fetches.append(args)
+        return real(gd, *args, **kwargs)
+
+    monkeypatch.setattr(source, "_git", count_fetches)
+    monkeypatch.setattr(source.time, "sleep", lambda s: None)
+    with pytest.raises(SourceError, match="cannot lock ref"):
+        ensure_rev(git_dir, "topic")
+    assert len(fetches) == source._FETCH_TRIES

@@ -478,8 +478,8 @@ def clone_once(git_dir: Path, clone: Callable[[Path], object], timeout_s: float)
     for old in git_dir.parent.glob(f"{git_dir.name}.*partial"):
         try:
             if time.time() - old.stat().st_mtime > timeout_s:
-                shutil.rmtree(old, ignore_errors=True)
-        except OSError:  # another process removed it first
+                _remove_tree(old)
+        except FileNotFoundError:  # another process removed it first
             pass
     tmp = git_dir.with_name(f"{git_dir.name}.{os.getpid()}-{os.urandom(3).hex()}.partial")
     try:
@@ -490,8 +490,25 @@ def clone_once(git_dir: Path, clone: Callable[[Path], object], timeout_s: float)
             if not (git_dir / "HEAD").is_file():
                 raise
     finally:
-        shutil.rmtree(tmp, ignore_errors=True)
+        _remove_tree(tmp)
     return git_dir
+
+
+def _remove_tree(path: Path) -> None:
+    """Delete ``path``, also when it holds read-only entries (Git's object files on Windows); raise when it is
+    still there: a partial clone left in the cache would stay for good."""
+    if not path.exists():
+        return
+    try:
+        shutil.rmtree(path)
+    except OSError:
+        for root, dirs, files in os.walk(path):
+            for name in [root, *(os.path.join(root, n) for n in (*dirs, *files))]:
+                try:
+                    os.chmod(name, 0o700)
+                except OSError:
+                    pass
+        shutil.rmtree(path)
 
 
 def ensure_rev(git_dir: Path, rev: str) -> str:
