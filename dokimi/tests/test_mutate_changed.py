@@ -13,6 +13,7 @@ import signal
 import subprocess
 import sys
 import time
+import types
 from pathlib import Path
 
 import pytest
@@ -127,8 +128,14 @@ def test_markdown_lists_survivors_and_uncovered() -> None:
     assert "`dokimi/dokimi/x.py`: 7" in text
 
 
-def _mutation_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, src: str, tests: str, *flags: str) -> tuple[int, dict]:
-    """Run the script on a repo whose head adds ``dokimi/zz.py`` and its tests; returns (exit code, JSON report)."""
+def _mutation_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, src: str, tests: str, cover: dict[int, list[str]], *flags: str
+) -> tuple[int, dict]:
+    """Run the script on a repo whose head adds ``dokimi/zz.py`` and its tests; returns (exit code, JSON report).
+
+    ``cover`` (zz.py line -> covering test ids) stands in for the coverage pass: the suite's
+    test environments have no coverage package, and covering_tests has its own test below.
+    """
     if not (tmp_path / ".git").exists():
         pkg = tmp_path / "dokimi" / "dokimi"
         pkg.mkdir(parents=True)
@@ -146,6 +153,14 @@ def _mutation_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, src: str, tes
     monkeypatch.setattr(mc, "REPO", tmp_path)
     monkeypatch.setattr(mc, "PROJECT", tmp_path / "dokimi")
     monkeypatch.delenv("PYTHONDONTWRITEBYTECODE", raising=False)
+    # ci/test.py sets PYTHONSAFEPATH=1: pytest in the copy would then import the installed dokimi, not its zz.py.
+    monkeypatch.delenv("PYTHONSAFEPATH", raising=False)
+
+    def covering(work: Path, files: list[str], paths: list[str], budget: float) -> tuple[dict, list[str], list[str]]:
+        mc._pytest(work / "dokimi", files, budget)  # imports the unmutated zz.py first, as the coverage pass does
+        return {"dokimi/dokimi/zz.py": cover}, [], []
+
+    monkeypatch.setattr(mc, "covering_tests", covering)
     out = tmp_path / "report.json"
     rc = mc.main(["--base", "HEAD~1", "--budget", "100", "--mutant-timeout", "30", "--json", str(out), *flags])
     return rc, json.loads(out.read_text(encoding="utf-8"))
@@ -165,7 +180,7 @@ def test_a_same_size_mutant_in_the_same_second_runs_its_own_source(tmp_path: Pat
     monkeypatch.setattr(mc, "_pytest", same_second)
     src = "def a(x):\n    return x == 1\n"
     tests = "from dokimi.zz import a\n\n\ndef test_a():\n    assert a(1) is True\n    assert a(2) is False\n"
-    _, report = _mutation_run(tmp_path, monkeypatch, src, tests)
+    _, report = _mutation_run(tmp_path, monkeypatch, src, tests, {2: ["tests/test_zz.py::test_a"]})
     assert _statuses(report) == {(2, "x != 1"): "killed", (2, "2"): "killed", (2, "None"): "killed"}
 
 
@@ -176,27 +191,61 @@ def test_a_mutant_only_the_last_of_many_covering_tests_catches_is_killed(tmp_pat
         "@pytest.mark.parametrize('n', range(30))\ndef test_a_weak(n):\n    assert a(10 + n)\n\n\n"
         "def test_z_strict():\n    assert a(4) and not a(3)\n"
     )
-    _, report = _mutation_run(tmp_path, monkeypatch, src, tests)
+    weak = [f"tests/test_zz.py::test_a_weak[{n}]" for n in range(30)]
+    _, report = _mutation_run(tmp_path, monkeypatch, src, tests, {2: sorted([*weak, "tests/test_zz.py::test_z_strict"])})
     assert _statuses(report) == {(2, "x <= 3"): "killed", (2, "4"): "killed", (2, "None"): "killed"}
     assert {len(m["tests"]) for m in report["mutants"]} == {31}
 
 
-def test_survivors_kills_and_tests_failing_unmutated(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_survivors_kills_and_the_fail_on_survivor_exit_code(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     src = "def a(x):\n    return x == 1\n\n\ndef b(x):\n    return x == 2\n"
     tests = (
         "from dokimi.zz import a, b\n\n\n"
         "def test_a():\n    assert a(1) is True\n    assert a(2) is False\n\n\n"
-        "def test_b_is_only_called():\n    b(2)\n\n\n"
-        "def test_broken():\n    b(2)\n    assert False\n"
+        "def test_b_is_only_called():\n    b(2)\n"
     )
-    rc, report = _mutation_run(tmp_path, monkeypatch, src, tests, "--fail-on-survivor")
+    cover = {2: ["tests/test_zz.py::test_a"], 6: ["tests/test_zz.py::test_b_is_only_called"]}
+    rc, report = _mutation_run(tmp_path, monkeypatch, src, tests, cover, "--fail-on-survivor")
     assert _statuses(report) == {
         (2, "x != 1"): "killed", (2, "2"): "killed", (2, "None"): "killed",
         (6, "x != 2"): "survived", (6, "3"): "survived", (6, "None"): "survived",
     }
-    assert report["failing_unmutated"] == ["tests/test_zz.py::test_broken"]
     assert rc == 1
-    assert _mutation_run(tmp_path, monkeypatch, src, tests)[0] == 0
+    assert _mutation_run(tmp_path, monkeypatch, src, tests, cover)[0] == 0
+
+
+def test_covering_tests_leaves_out_a_test_that_fails_unmutated(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    zz = tmp_path / "dokimi" / "dokimi" / "zz.py"
+    zz.parent.mkdir(parents=True)
+    contexts = {2: {"tests/test_zz.py::test_a|run"},
+                6: {"tests/test_zz.py::test_b|run", "tests/test_zz.py::test_broken|run"}}
+
+    class Data:
+        def __init__(self, basename: str) -> None:
+            assert basename == str(tmp_path / "dokimi" / ".coverage")
+
+        def read(self) -> None:
+            pass
+
+        def measured_files(self) -> list[str]:
+            return [str(zz)]
+
+        def contexts_by_lineno(self, f: str) -> dict[int, set[str]]:
+            return contexts
+
+    def pytest_run(cwd: Path, args: list[str], timeout: float, env: dict[str, str] | None = None) -> tuple[int, str]:
+        (cwd / ".coverage").write_text("", encoding="utf-8")
+        log = "FAILED tests/test_zz.py::test_broken - assert False\n"
+        return (1, log) if args[-1] == "tests/test_zz.py" else (2, "ERROR collecting")
+
+    monkeypatch.setitem(sys.modules, "coverage", types.SimpleNamespace(CoverageData=Data))
+    monkeypatch.setattr(mc, "_pytest", pytest_run)
+    by_file, failing, not_run = mc.covering_tests(
+        tmp_path, ["tests/test_zz.py", "tests/test_bad.py"], ["dokimi/dokimi/zz.py"], 60
+    )
+    assert by_file == {"dokimi/dokimi/zz.py": {2: ["tests/test_zz.py::test_a"], 6: ["tests/test_zz.py::test_b"]}}
+    assert failing == ["tests/test_zz.py::test_broken", "tests/test_bad.py"]
+    assert not_run == []
 
 
 def _alive(pid: int) -> bool:
@@ -218,7 +267,7 @@ def test_a_mutant_that_times_out_leaves_no_process_of_its_tests_behind(tmp_path:
         "        with open(os.environ['ZZ_PID_FILE'], 'w') as f:\n            f.write(str(child.pid))\n"
         "        time.sleep(120)\n"
     )
-    _, report = _mutation_run(tmp_path, monkeypatch, src, tests, "--max-mutants", "1", "--mutant-timeout", "5")
+    _, report = _mutation_run(tmp_path, monkeypatch, src, tests, {2: ["tests/test_zz.py::test_a"]}, "--max-mutants", "1", "--mutant-timeout", "5")
     pid = int(pid_file.read_text(encoding="utf-8"))
     try:
         assert [m["status"] for m in report["mutants"]] == ["timeout"]
