@@ -721,3 +721,15 @@ def test_a_negation_does_not_reach_the_command_after_a_but_or_a_while(answer):
 def test_a_negation_still_reaches_the_command_after_a_word_that_ends_no_clause(answer):
     # the control of the test above: "or" and "when" are no clause end, so the same claim is negated
     assert grade_check(_veto(), "q", answer, None).passed is True
+
+
+@pytest.mark.parametrize("negated, claimed", [
+    ("Avoid perf report --stdin.", "Try perf report --stdin."),
+    ("Avoiding perf report --stdin is wise.", "Using perf report --stdin is wise."),
+    ("Profile it without perf report --stdin.", "Profile it with perf report --stdin."),
+])
+def test_avoid_avoiding_and_without_negate_the_command_right_after_them(negated, claimed):
+    # the word alone makes the mention no claim: the same sentence with a neutral word is vetoed
+    assert grade_check(_veto(), "q", negated, None).passed is True
+    result = grade_check(_veto(), "q", claimed, None)
+    assert result.passed is False and "--stdin" in result.detail
