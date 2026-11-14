@@ -46,9 +46,6 @@ from dokimi.container_policy import ContainerPolicy
 from dokimi.docker_cmd import (  # noqa: F401  (re-exported: the names callers have always imported from here)
     BUILD_TIMEOUT_S,
     INFRA_EXIT,
-    PIDS_LIMIT,
-    PROXY_BUILD_ARGS,
-    STOP_GRACE_S,
 )
 from dokimi.docker_cmd import CALL_TIMEOUT_S as DOCKER_CALL_TIMEOUT_S  # noqa: F401
 
@@ -128,7 +125,7 @@ class DockerRunner:
         if spec.network not in NETWORKS:
             raise ContainerError(f"unknown network {spec.network!r} (known: {', '.join(NETWORKS)})")
         flags = ContainerPolicy(network=spec.network, init=True, no_new_privileges=True, cap_drop_all=True,
-                                pids_limit=PIDS_LIMIT)
+                                pids_limit=docker_cmd.PIDS_LIMIT)
         out = [self.docker, "run", "--rm", *flags.init_argv(), *flags.hardening_argv(), *flags.pids_argv(),
                *flags.network_argv(), "-w", spec.workdir]
         if spec.name:
@@ -189,13 +186,13 @@ def run_process(argv: list[str], *, env: process.Env | dict[str, str], stdout: P
                 timeout_s: float, cwd: Path | None = None, on_timeout: Callable[[], None] | None = None,
                 runner: process.Runner = process.run) -> ContainerResult:
     """Run ``argv`` with its output in the files ``stdout`` and ``stderr``. On a timeout or an
-    interrupt its process group gets SIGTERM, then SIGKILL after :data:`STOP_GRACE_S`; after a
+    interrupt its process group gets SIGTERM, then SIGKILL after :data:`dokimi.docker_cmd.STOP_GRACE_S`; after a
     timeout ``on_timeout`` runs. A ``dict`` ``env`` is exactly the child's environment.
 
     When the command exits, whatever it left running in its group is killed."""
     policy = env if isinstance(env, process.Env) else process.Env.only((), env)
     done = runner(argv, env=policy, cwd=cwd, timeout=timeout_s, stdout_to=stdout, stderr_to=stderr,
-                  term_grace=STOP_GRACE_S)
+                  term_grace=docker_cmd.STOP_GRACE_S)
     if done.timed_out and on_timeout is not None:
         on_timeout()
     return ContainerResult(returncode=None if done.timed_out else done.returncode, timed_out=done.timed_out,

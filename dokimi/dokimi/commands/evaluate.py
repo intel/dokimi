@@ -11,7 +11,7 @@ import json
 import sys
 from pathlib import Path
 
-from dokimi.commands import eval_coverage
+from dokimi.commands import eval_coverage, eval_graph
 from dokimi.llm import ANSWER_PROVIDERS
 from dokimi.defaults import (
     DEFAULT_CONCURRENCY,
@@ -23,8 +23,8 @@ from dokimi.defaults import (
 )
 from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.eval.judge_validity import DEFAULT_MIN_ACCURACY, NoUsablePairs
-from dokimi.commands._output import write_text_or_exit
-from dokimi.exit_codes import EXIT_USAGE
+from dokimi.commands._output import save_artifact_or_exit
+from dokimi.exit_codes import EXIT_INCONCLUSIVE
 from dokimi.utils import InputError, warn_judge_independence, warn_recorded_self_judge
 
 
@@ -36,11 +36,6 @@ def _load_answers(path: str):
     from dokimi.records import load
 
     return load(path, section="answers")
-
-
-def _write_json_or_exit(path: Path, payload: dict, code: int = EXIT_USAGE) -> None:
-    """Write ``payload`` as JSON to ``path``, or exit ``code`` naming ``path`` when it cannot be written."""
-    write_text_or_exit(path, json.dumps(payload, indent=2), code)
 
 
 def _require_ragas() -> None:
@@ -67,7 +62,8 @@ def _run_ragas_eval(answers, output_path, args) -> None:
 
         # Save ragas results alongside answers
         ragas_path = output_path.with_name(output_path.stem + "_ragas.json")
-        _write_json_or_exit(ragas_path, result.to_dict(), code=2)
+        payload = {**result.to_dict(), "ragas_model": f"{ragas_provider}/{ragas_model}"}
+        save_artifact_or_exit("ragas", payload, ragas_path, code=2)
 
         print(result.format_summary())
         print(f"✅ Saved RAGAS results to {ragas_path}")
@@ -262,7 +258,7 @@ def cmd_eval_grounding(args: argparse.Namespace) -> None:
 
     if args.output:
         out = Path(args.output)
-        _write_json_or_exit(out, result, code=2)
+        save_artifact_or_exit("grounding", result, out, code=2)
         print(f"\n✅ Grounding report saved to {out}")
 
 
@@ -344,9 +340,11 @@ def cmd_eval_judge_validity(args: argparse.Namespace) -> None:
                 max_len=args.typed_max_len,
                 threads=args.typed_threads,
             )
-        except (ImportError, ValueError, OSError) as exc:
+        except ImportError as exc:  # a missing optional backend: a dependency, not an input
             print(f"Error: {exc}", file=sys.stderr)
             sys.exit(2)
+        except (ValueError, OSError) as exc:  # a typed spec that cannot be used: an input refusal
+            raise InputError(str(exc)) from exc
         scorer = typed
         # The budget is part of what was measured: one checkpoint at 512 and at
         # 2048 tokens is two arms.
@@ -409,7 +407,7 @@ def cmd_eval_judge_validity(args: argparse.Namespace) -> None:
         result["summary"]["answers_model"] = run.meta.get("model")
         if typed is not None:
             result["summary"]["typed_arm"] = typed.report_fields()
-        _write_json_or_exit(out, result, code=2)
+        save_artifact_or_exit("judge_validity", result, out, code=2)
 
     print()
     print(report.format_summary())
@@ -421,8 +419,8 @@ def cmd_eval_judge_validity(args: argparse.Namespace) -> None:
     summary = report.summary()
     if not summary["passed"]:
         sys.exit(1)
-    # A pass whose interval straddles the gate is not reproducible. Warn by
-    # default so this stays usable as a check; --strict makes it a failure.
+    # A pass whose interval straddles the gate is inconclusive: it warns and exits 3 (§2.6), not 0.
+    # --strict makes it a failure (exit 1).
     if not summary["conclusive"]:
         if summary["inconclusive_variants"]:
             # --sequential ignores --bases, so pointing at it would send the user nowhere.
@@ -438,8 +436,7 @@ def cmd_eval_judge_validity(args: argparse.Namespace) -> None:
                 "(the degradation left every answer unchanged).",
                 file=sys.stderr,
             )
-        if args.strict:
-            sys.exit(1)
+        sys.exit(1 if args.strict else EXIT_INCONCLUSIVE)
 
 
 def _non_negative_int(value: str) -> int:
@@ -462,6 +459,7 @@ def register(sub, positive_int):
     eval_p = sub.add_parser("eval", help="Build and check eval sets, score answers, calibrate judges")
     eval_sub = eval_p.add_subparsers(dest="eval_cmd", required=True)
     eval_coverage.register(eval_sub)
+    eval_graph.register(eval_sub)
 
     score_group = eval_sub.add_parser(
         "score", help="Score answers: pointwise, pairwise, panel, checklist, grounding, ragas, reference")
@@ -578,6 +576,9 @@ def register(sub, positive_int):
 
     redteam.register_eval(eval_sub)  # eval redteam
 
+    from dokimi.commands import skill_coverage
+
+    skill_coverage.register_eval(eval_sub)  # eval skill-coverage
     from dokimi.commands import leak
 
     leak.register_eval(eval_sub)  # eval leak

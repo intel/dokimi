@@ -31,9 +31,9 @@ def skill_row(skill, review, nested_in: Optional[str] = None, outputs: Iterable[
     ``outputs`` are the scan's own files, left out of ``skill_sha256``. ``ignore`` drops the
     findings with those codes before the state is taken; ``ignored`` records the codes in effect."""
     from dokimi.external.catalog_review import entry_relpath
-    from dokimi.external.validate import state_of
+    from dokimi.external.validate import name_risky_commands, state_of
 
-    kept = [f for f in review.findings if f.code not in ignore] if review else []
+    kept = name_risky_commands([f for f in review.findings if f.code not in ignore]) if review else []
     state = "error" if not skill.loaded else state_of(kept)
     return {
         "name": skill.name,
@@ -80,11 +80,25 @@ def _outputs(jsonl: Optional[Path]) -> tuple[Path, ...]:
     return (out, out.with_name(out.name + ".part"))
 
 
+def not_checked(row: dict) -> bool:
+    """Whether an ``ok`` row is only ok because the check did not read it (a ``description-when-not-checked`` note)."""
+    return row["state"] == "ok" and any(f["code"] == "description-when-not-checked" for f in row["findings"])
+
+
+def ok_text(ok: int, unchecked: int) -> str:
+    """``N ok`` for the counts line, with ``(M not checked)`` when some of them were not read, so they do not read as a pass."""
+    return f"{ok} ok ({unchecked} not checked)" if unchecked else f"{ok} ok"
+
+
 def print_skill_row(row: dict) -> None:
     if row["error"] is not None:
         state = f"ERROR: {row['error']}"
-    elif row["state"] == "ok":
+    elif row["state"] == "ok" and not not_checked(row):
         state = "ok"
+    elif row["state"] == "ok":
+        # A "not checked" note: the skill was not read, so it is not a pass and the state does not say ok.
+        note = next(f for f in row["findings"] if f["code"] == "description-when-not-checked")
+        state = f"note: {note['message']}"
     else:
         worst = next(f for f in row["findings"] if f["level"] == row["state"])
         state = f"{'ERROR' if row['state'] == 'error' else 'warn'}: {worst['message']}"
@@ -149,21 +163,51 @@ def _review_rows(pairs: list, jobs: int, review: Callable = _review_row) -> Iter
         pool.shutdown(wait=False, cancel_futures=True)
 
 
+def unrestricted_and_risky(row: dict) -> bool:
+    """Whether the row has ``allowed-tools-unrestricted-bash`` and a risky-command finding: a warn that fails ``--strict``."""
+    from dokimi.external.allowed_tools import RISKY_COMMAND_CODES
+
+    codes = {f["code"] for f in row["findings"]}
+    return "allowed-tools-unrestricted-bash" in codes and bool(codes & set(RISKY_COMMAND_CODES))
+
+
+def strict_reason(row: dict) -> Optional[str]:
+    """``strict: <skill> ...``, the line that says why ``--strict`` fails a row that is otherwise only a warning
+    (unrestricted Bash with a risky command), or None when the row is not such a failure."""
+    from dokimi.external.allowed_tools import RISKY_COMMAND_CODES
+
+    if row["error"] is not None or row["state"] == "error" or not unrestricted_and_risky(row):
+        return None
+    codes = sorted({f["code"] for f in row["findings"]} & set(RISKY_COMMAND_CODES))
+    return f"strict: {row['name']} grants unrestricted Bash and has {', '.join(codes)}"
+
+
 class _Tally:
-    """Counts of the rows by state, and whether the scan must exit 1 (a load error, or a spec error under --strict)."""
+    """Counts of the rows by state, and whether the scan must exit 1.
+
+    It must on a load error; under ``--strict`` also on a spec error, and on a skill that grants
+    unrestricted Bash and also has a risky command (:func:`unrestricted_and_risky`). ``reasons`` holds
+    the :func:`strict_reason` line of each row that fails that last way.
+    """
 
     def __init__(self, strict: bool) -> None:
         self.strict = strict
         self.counts = {"ok": 0, "warn": 0, "error": 0}
+        self.not_checked = 0
         self.failed = False
+        self.reasons: list[str] = []
 
     def add(self, row: dict) -> None:
         self.counts[row["state"]] += 1
+        self.not_checked += not_checked(row)
         # A SKILL.md the OS will not read after it loaded has no row error, only its unreadable finding: it fails
         # the scan as a load error does, as the whole-catalog path decides it (catalog.py).
         unreadable = any(f.get("code") == "unreadable" for f in row["findings"])
-        if row["error"] is not None or unreadable or (self.strict and row["state"] == "error"):
+        if row["error"] is not None or unreadable or (self.strict and (row["state"] == "error" or unrestricted_and_risky(row))):
             self.failed = True
+        reason = strict_reason(row) if self.strict else None
+        if reason is not None:
+            self.reasons.append(reason)
 
 
 _ROW_STATES = ("ok", "warn", "error")
@@ -270,7 +314,7 @@ def _print_text(root: Path, declared: int, tally: _Tally, resumed: int,
                 jsonl: Optional[Path], rows: Iterable[dict]) -> None:
     counts = tally.counts
     where = f"; {resumed} resumed from {jsonl}" if jsonl is not None and resumed else ""
-    print(f"# skills ({declared} declared under {root}; {counts['ok']} ok, {counts['warn']} warn, "
+    print(f"# skills ({declared} declared under {root}; {ok_text(counts['ok'], tally.not_checked)}, {counts['warn']} warn, "
           f"{counts['error']} error{where})")
     if jsonl is not None:
         print(f"rows written to {jsonl}")
@@ -320,4 +364,6 @@ def scan_per_skill(args, root: Path, report: dict, as_json: bool, pairs: list) -
             sink.close()
     if not as_json:
         _print_text(root, declared, tally, len(prior), jsonl, report["skills"])
+        for line in tally.reasons:
+            print(line)
     return tally.failed, declared

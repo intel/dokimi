@@ -140,7 +140,7 @@ a problem on its report, not an error. A path no format claims is reported as
 `unknown` with its files (or keys) and likely prompt and verifier files; when
 two formats claim a path about equally, the report lists the other as
 `ambiguous` with its evidence. `--json` prints and `--out` writes the report
-as a `task_inspect.v1` artifact (`schemas/task_inspect.v1.json`).
+as a `task_inspect.v1` artifact (`schemas/task_inspect.v1.json`); `--json` prints it under `data` of a `cli_output.v1` envelope.
 
 A dataset file a config in the same tree names is read as that config says:
 an Inspect `@task` file's `json_dataset("x.jsonl", FieldSpec(input="question",
@@ -458,7 +458,7 @@ every run's `metrics.isolation`. What they do:
 
 `env` is open on the host because the agent runs as the operator's uid: it can
 read the harness's `/proc/<pid>/environ` (every variable the allowlist
-dropped) and its command line and cwd (`--tasks-root`, `--output-dir`, the
+dropped) and its command line and cwd (`--tasks-root`, `--out-dir`, the
 skill arm's path). Yama `ptrace_scope=1` does not stop this; it only gates
 attach.
 
@@ -828,7 +828,7 @@ python cli.py tasks run \
   --harnesses claude-code,codex \
   --baseline-harness claude-code \
   --model anthropic/claude-opus-4-6 \
-  --out-json results/task-runs/onetbb-reduce.json
+  --out results/task-runs/onetbb-reduce.json
 ```
 
 If `--baseline-harness` is not listed in `--harnesses`, the CLI adds it to the
@@ -847,7 +847,7 @@ python cli.py tasks run \
 
 The command runs from the directory above the tasks root, so `{output_dir}`
 and the `DOKIMI_OUTPUT_DIR` / `DOKIMI_OPERATIONS_FILE` environment variables
-are absolute paths even when `--output-dir` is relative. A `reward.txt` the
+are absolute paths even when `--out-dir` is relative. A `reward.txt` the
 command writes under that directory is the cell's reward; without one, the
 cell falls back to the exit code. The directory is emptied before each run; if
 a previous run's files there cannot be deleted, the cell is not run and is
@@ -915,7 +915,7 @@ python cli.py tasks run \
   --baseline-harness docker-claude \
   --model us.anthropic.claude-haiku-4-5-20251001-v1:0 \
   --repeats 3 \
-  --out-json results/skill-task-arms.json
+  --out results/skill-task-arms.json
 ```
 
 - `--repeats 3` runs every `(task, harness)` cell three times so the pass-rate
@@ -1016,7 +1016,7 @@ python cli.py tasks run --tasks-root <content-checkout>/evaluation/harbor/tasks 
   --tasks onetbb-transpose \
   --harnesses docker-claude,docker-claude-skill:<skill>,docker-claude-skill-discover:<skill> \
   --baseline-harness docker-claude --model <model> --repeats 3 \
-  --out-json results/onetbb-discover.json
+  --out results/onetbb-discover.json
 ```
 
 - **Which arm a row is.** Rows of both skill arms carry `metrics.skill_notice`
@@ -1046,7 +1046,7 @@ python cli.py tasks run --tasks-root <content-checkout>/evaluation/harbor/tasks 
 
 ### Report and raw data
 
-`tasks run` writes a Markdown report next to `--out-json` (override with
+`tasks run` writes a Markdown report next to `--out` (override with
 `--out-md`), rendered by `dokimi/report/task_runs_report.py` — the same
 package the Q&A `arms`/`eval` reports live in. Sections: headline, difficulty
 rollup, per-harness comparison, per-task pass/cost, and a per-cell answer detail
@@ -1085,7 +1085,7 @@ still writes the artifact:
 ```bash
 python cli.py tasks run --tasks <task-name> \
   --tasks-root <checkout>/evaluation/harbor/tasks \
-  --harnesses docker-oracle --out-json results/oracle-check.json
+  --harnesses docker-oracle --out results/oracle-check.json
 ```
 
 ## Output Artifact

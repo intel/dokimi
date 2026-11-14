@@ -112,11 +112,12 @@ PAID_PATHS = {
     ("tasks", "run"),
     ("explore", "run"),
     ("catalog", "trigger-probe"),
+    ("catalog", "routing"),
     ("skill", "novelty", "analyze"),
     ("skill", "novelty", "atoms"),
     ("skill", "novelty", "probe"),
     ("skill", "shorten"),
-    ("novelty", "routing"),
+    ("skill", "routing"),
     ("repo", "reach"),
     ("repo", "skill-reach"),
     ("repo", "run"),
@@ -135,8 +136,10 @@ PAID_PATHS = {
     ("eval", "score", "reference"),
     ("eval", "judge", "validate"),
     ("eval", "judge", "wording"),
+    ("eval", "graph"),
     ("eval", "judge", "agreement"),
     ("eval", "redteam"),
+    ("eval", "skill-coverage"),
     ("tools", "preference"),
 }
 
@@ -362,5 +365,5 @@ def test_only_the_top_level_parser_lists_its_commands_by_section():
     sub = _subparsers(top)
     assert sub is not None
     for name, child in sub.choices.items():
-        assert type(child) is argparse.ArgumentParser, name
+        assert isinstance(child, argparse.ArgumentParser), name  # _LeafParser: its usage errors print the document
         assert "The loop:" not in child.format_help(), name

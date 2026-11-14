@@ -6,9 +6,11 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
+from dokimi import cli_flags
 from dokimi.utils import InputError
 
 _TASKS_ROOT_HELP = (
@@ -73,8 +75,6 @@ def _print_inspect(reports: list[dict]) -> None:
 
 def cmd_tasks_inspect(args: argparse.Namespace) -> None:
     """Detect the eval-task format of a path (or of everything under it) and report its structure."""
-    import json
-
     from dokimi.artifacts import save_artifact, stamp
     from dokimi.task_formats import inspect_path
 
@@ -89,7 +89,11 @@ def cmd_tasks_inspect(args: argparse.Namespace) -> None:
         except OSError as exc:
             raise InputError(f"cannot write {args.out}: {exc}") from exc
     if args.json:
-        print(json.dumps(stamp("task_inspect", dict(payload)), indent=2, default=str))
+        from dokimi import cli_output
+
+        # a value JSON cannot hold prints as its str(), as this leaf always did; emit itself is strict
+        data = json.loads(json.dumps(stamp("task_inspect", dict(payload)), default=str))
+        cli_output.emit_leaf("eval inspect", data)
     else:
         _print_inspect(reports)
 
@@ -318,9 +322,9 @@ def register(sub, positive_int, eval_sub) -> None:
         help="Detect the eval-task format of a file or directory tree and report its structure (no run)",
     )
     inspect_p.add_argument("path", help="A task directory, a dataset file, or a tree holding either")
-    inspect_p.add_argument("--json", action="store_true", help="Print the task_inspect.v1 report as JSON")
+    inspect_p.add_argument("--json", action="store_true", help="Print cli_output.v1 on stdout (the task_inspect.v1 report under data)")
     inspect_p.add_argument("--out", default=None, help="Write the task_inspect.v1 report to this file")
-    inspect_p.set_defaults(func=cmd_tasks_inspect)
+    inspect_p.set_defaults(func=cmd_tasks_inspect, emits_cli_output=True, cli_kind="eval inspect")
 
     harnesses_p = tasks_sub.add_parser("harnesses", help="List known coding harness aliases")
     harnesses_p.set_defaults(func=cmd_tasks_harnesses)
@@ -342,10 +346,10 @@ def register(sub, positive_int, eval_sub) -> None:
         help=("A SWE-bench dataset (.jsonl or .json rows); --tasks names instance ids. "
               "Each row runs in its prebuilt swebench/sweb.eval.* image (docker-* harnesses)."),
     )
-    run_p.add_argument("--output-dir", default="results/task-runs", dest="output_dir")
-    run_p.add_argument("--out-json", default=None, dest="out_json")
+    cli_flags.add(run_p, "output", "--out-dir", default="results/task-runs", dest="output_dir")
+    cli_flags.add(run_p, "output", "--out", default=None, dest="out_json")
     run_p.add_argument("--out-md", default=None, dest="out_md",
-                       help="Markdown report path (default: alongside --out-json)")
+                       help="Markdown report path (default: alongside --out)")
     run_p.add_argument(
         "--repeats", type=positive_int, default=1,
         help="Run each (task, harness) cell N times for pass-rate/cost variance (default: 1)",

@@ -10,12 +10,13 @@ import json
 
 import pytest
 
-from dokimi.commands.novelty_run import judge_refs as _judge_refs, role_models as _role_models
+from dokimi.commands.novelty_run import judge_refs as _judge_refs
 from dokimi.novelty.atoms import Atom
 from dokimi.novelty.client import LLMClient
+from dokimi.novelty.cost import role_models as _role_models
 from dokimi.novelty.measure import BASELINE_ARM, SelfJudgeError, run_measurement
-from dokimi.novelty.measure import panel_record
 from dokimi.novelty.panel import aggregate, panel_warnings, shared_vendors
+from dokimi.novelty.panel_record import panel_record
 from dokimi.novelty.probes import Probe
 
 CC, CMQ, PC = "correct_complete", "correct_missing_qualifier", "partially_correct"

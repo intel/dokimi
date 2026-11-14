@@ -40,7 +40,9 @@ from dokimi.commands import (
 )
 from dokimi import __version__, cli_routes, llm_cli, process
 from dokimi.console import tolerate_console_encoding
-from dokimi.defaults import JUDGE_MODEL_FOR_PROVIDER, default_judge_model
+from dokimi.defaults import JUDGE_MODEL_FOR_PROVIDER
+from dokimi.exit_codes import EXIT_INFRA
+from dokimi.judge_rule import apply_default_judge, follow_answerer_cli, refuse_judge_model
 
 
 def _subparsers(parser: argparse.ArgumentParser) -> argparse._SubParsersAction | None:
@@ -77,6 +79,13 @@ def _label_routes(parser: argparse.ArgumentParser, prefix: tuple[str, ...] = ())
 class _RoutedParser(argparse.ArgumentParser):
     """The top-level parser. Its ``--help`` lists the roots by section (``dokimi.cli_routes``)."""
 
+    def parse_known_args(self, args=None, namespace=None):
+        ns, extras = super().parse_known_args(args, namespace)
+        # An option before the leaf name ends up here: the parsed leaf's namespace has its kind and --json.
+        if extras and _emits_cli_output(ns):
+            _usage_document(getattr(ns, "cli_kind", ns.cmd), f"unrecognized arguments: {' '.join(extras)}")
+        return ns, extras
+
     def format_help(self) -> str:
         sub = _subparsers(self)
         listed = {action.dest: action for action in sub._choices_actions} if sub else {}
@@ -103,6 +112,84 @@ class _RoutedParser(argparse.ArgumentParser):
         return fmt.format_help()
 
 
+def _usage_document(kind: str, message: str) -> None:
+    """A --json leaf's usage error (a bad value, a missing or unknown argument) prints its failed document first;
+    argparse then prints its usage on stderr and exits 2. One document per run: a leaf that already printed
+    its own (its extras, reported again by the root) keeps it."""
+    from dokimi import cli_output
+
+    if cli_output.printed():
+        return
+    cli_output.emit(cli_output.error_document(kind, "input", message, run_id=cli_output.current_run_id(),
+                                              reason=message))
+
+
+def _leaf_kind(parser: argparse.ArgumentParser) -> str:
+    """The kind a leaf's document names: its cli_kind, else its name ("backends", not "dokimi backends")."""
+    return parser._defaults.get("cli_kind") or parser.prog.removeprefix("dokimi ")
+
+
+def _leaf_at(parser: argparse.ArgumentParser, tokens: Sequence[str]) -> argparse.ArgumentParser | None:
+    """The leaf parser that ``tokens`` name, walking the subcommands from the root; None when they name no leaf."""
+    node = parser
+    for token in tokens:
+        sub = _subparsers(node)
+        if sub is None or token not in sub.choices:
+            break
+        node = sub.choices[token]
+    return node if node is not parser and _subparsers(node) is None else None
+
+
+def _moved_exit(parser: argparse.ArgumentParser, argv: list[str], text: str) -> NoReturn:
+    """A moved command or spelling exits 2 with its hint on stderr. Under --json the new leaf's failed document
+    (error code ``moved``) comes first, so every --json exit of a leaf has its document."""
+    from dokimi import cli_output
+
+    leaf = _leaf_at(parser, argv)
+    if leaf is not None and leaf._defaults.get("emits_cli_output") and _json_requested(leaf, argv):
+        cli_output.emit(cli_output.error_document(_leaf_kind(leaf), "moved", text, reason=text,
+                                                  run_id=cli_output.current_run_id()))
+    parser.exit(2, text + "\n")
+
+
+def _json_requested(parser: argparse.ArgumentParser, tokens: Sequence[str]) -> bool:
+    """True when argparse reads ``--json`` as this parser's option in ``tokens``: the exact token, a prefix
+    argparse accepts (``--jso``), or ``--json=<value>``. Tokens after a bare ``--`` are positional."""
+    for token in tokens:
+        if token == "--":
+            return False
+        name = token.partition("=")[0]
+        if len(name) < 3 or not name.startswith("--") or not "--json".startswith(name):
+            continue
+        if name == "--json":
+            return True
+        if parser.allow_abbrev and [o for o in parser._option_string_actions if o.startswith(name)] == ["--json"]:
+            return True
+    return False
+
+
+class _LeafParser(argparse.ArgumentParser):
+    """A subcommand's parser: under --json, a usage error of an opted-in leaf prints its document too."""
+
+    _json_argv = False  # set per parse: whether this leaf's own tokens ask for --json
+
+    def _document_kind(self) -> str:
+        return _leaf_kind(self)  # the kind _document_on_exit writes too
+
+    def error(self, message: str) -> NoReturn:
+        if self._defaults.get("emits_cli_output") and self._json_argv:
+            _usage_document(self._document_kind(), message)
+        super().error(message)
+
+    def parse_known_args(self, args=None, namespace=None):
+        self._json_argv = _json_requested(self, sys.argv[1:] if args is None else args)
+        ns, extras = super().parse_known_args(args, namespace)
+        # argparse reports these on the root parser, which knows no leaf: the document comes from here.
+        if extras and self._defaults.get("emits_cli_output") and self._json_argv:
+            _usage_document(self._document_kind(), f"unrecognized arguments: {' '.join(extras)}")
+        return ns, extras
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build CLI argument parser."""
 
@@ -118,7 +205,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = _RoutedParser(prog="dokimi")
     p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
-    sub = p.add_subparsers(dest="cmd", required=True, parser_class=argparse.ArgumentParser)
+    sub = p.add_subparsers(dest="cmd", required=True, parser_class=_LeafParser)
 
     # Order preserved to keep --help output stable.
     run.register(sub, positive_int)             # docs: check, compare (#94 M3)
@@ -137,7 +224,7 @@ def build_parser() -> argparse.ArgumentParser:
     catalog.register(sub, positive_int, eval_sub)  # catalog; eval triggers generate; catalog intents
     explore.register(sub, positive_int)         # explore (ExploreBench)
     skill.register(sub, positive_int)           # skill: novelty, shorten (#94 M2)
-    novelty.register(sub, positive_int)         # novelty (routing, view: not yet moved)
+    novelty.register(sub, positive_int)         # novelty (view: not yet moved)
     repo.register(sub, positive_int, eval_sub)  # repo; eval check
     tools.register(sub, positive_int)           # tools (tool-choice probes)
     context.register(sub, positive_int)         # trace: inspect, consistency, prefilter (#94 M2)
@@ -149,6 +236,12 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
+def _names_judge_provider(token: str) -> bool:
+    """True for ``--judge-provider`` (``=value`` too) or an argparse abbreviation of it (``--judge-p``)."""
+    flag = token.split("=", 1)[0]
+    return flag.startswith("--judge-p") and "--judge-provider".startswith(flag)
+
+
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     """Parse ``argv`` (default ``sys.argv[1:]``), then fill in defaults that hang on another flag.
 
@@ -157,22 +250,38 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     """
     parser = build_parser()
     raw = list(sys.argv[1:] if argv is None else argv)
-    moved = cli_routes.moved_argv(raw)
+    try:
+        moved = cli_routes.moved_argv(raw)
+    except cli_routes.RetiredFlagError as exc:
+        parser.error(str(exc))
     if moved is not None:  # a tombstone: say where the command went, do not run anything
-        parser.exit(2, cli_routes.moved_text(moved) + "\n")
+        moved = cli_routes.moved_flags_argv(moved) or moved  # the moved flag too, in one step
+        _moved_exit(parser, moved, cli_routes.moved_text(moved))
+    moved_flags = cli_routes.moved_flags_argv(raw)
+    if moved_flags is not None:  # a moved flag spelling: print the argv with the new one
+        _moved_exit(parser, moved_flags, cli_routes.moved_text(moved_flags))
     args = parser.parse_args(raw)
-    if getattr(args, "judge_model", None) is JUDGE_MODEL_FOR_PROVIDER:
-        model = default_judge_model(args.judge_provider)
-        if model is None:
-            parser.error(f"--judge-provider {args.judge_provider} has no default judge model; "
-                         f"pass --judge-model")
-        args.judge_model = model
-    judge_provider, judge_model = getattr(args, "judge_provider", None), getattr(args, "judge_model", None)
-    if judge_provider in llm_cli.BACKENDS and judge_model is not None \
-            and not llm_cli.accepts_model(judge_provider, judge_model):
+    # argparse fills --judge-provider with its default (anthropic), so the rule needs to know whether one was named.
+    args.judge_provider_named = any(_names_judge_provider(t) for t in raw)
+    # A command that reads its answerer from a descriptor (subjects run) resolves the judge itself, once it is loaded.
+    if getattr(args, "judge_model", None) is JUDGE_MODEL_FOR_PROVIDER and not getattr(args, "defer_judge_default", False):
+        # With --matrix-cells / --matrix-cell every cell sets its own model, so the top-level one is no answerer.
+        matrix = getattr(args, "matrix_cells", None) or getattr(args, "matrix_cell", None)
+        try:
+            apply_default_judge(args, matrix=bool(matrix), named=args.judge_provider_named)
+        except ValueError as e:
+            parser.error(str(e))
+    # An explicit --judge-model on a CLI answerer judges on its CLI too, unless --judge-provider names one.
+    # A command that defers its judge (subjects run) follows its answerer once the descriptor is loaded.
+    if not getattr(args, "defer_judge_default", False):
+        follow_answerer_cli(args, matrix=bool(getattr(args, "matrix_cells", None) or getattr(args, "matrix_cell", None)),
+                            named=args.judge_provider_named)
+    cur_judge_provider, cur_judge_model = getattr(args, "judge_provider", None), getattr(args, "judge_model", None)
+    if cur_judge_provider in llm_cli.BACKENDS and cur_judge_model is not None \
+            and not llm_cli.accepts_model(cur_judge_provider, cur_judge_model):
         # Checked here, before any persona or answer is generated for the run.
-        parser.error(f"--judge-provider {judge_provider} takes a Claude model (sonnet, haiku, opus or a "
-                     f"claude-* id), not {judge_model!r}: pass --judge-model")
+        parser.error(refuse_judge_model(cur_judge_provider, cur_judge_model, named=args.judge_provider_named,
+                                        answerer_provider=getattr(args, "provider", None)))
     provider, model = getattr(args, "provider", None), getattr(args, "model", None)
     # With --matrix-cells every cell sets its own provider and model (checked when applied), so the
     # top-level model is not the one that runs.
@@ -193,8 +302,27 @@ def _exit_with_document(args: argparse.Namespace, code: str, message: str) -> No
     """Print the cli_output.v1 error document on stdout and exit with the code §2.6 gives it."""
     from dokimi import cli_output
 
-    cli_output.emit(cli_output.error_document(args.cmd, code, message, run_id=cli_output.current_run_id()))
+    kind = getattr(args, "cli_kind", args.cmd)  # a group leaf names itself, e.g. "runs list"
+    cli_output.emit(cli_output.error_document(kind, code, message, run_id=cli_output.current_run_id(),
+                                              reason=message))
     sys.exit(cli_output.EXIT_OF_ERROR[code])
+
+
+def _document_on_exit(args: argparse.Namespace, code: int) -> None:
+    """A --json leaf that exits non-zero without its document (a ``✗`` line, a helper's exit): print the
+    document that says so, with the same exit code: 2 is input, 5 infra, 1 a failed run."""
+    from dokimi import cli_output
+
+    if cli_output.printed():
+        return
+    kind = getattr(args, "cli_kind", args.cmd)  # a group leaf names itself, e.g. "runs list"
+    reason = f"exit {code}: see stderr"
+    if code in (2, 5):
+        doc = cli_output.error_document(kind, "input" if code == 2 else "infra", "see stderr",
+                                        run_id=cli_output.current_run_id(), reason=reason)
+    else:
+        doc = cli_output.envelope(kind, run_id=cli_output.current_run_id(), status="failed", reason=reason)
+    cli_output.emit(doc)
 
 
 def main() -> None:
@@ -202,9 +330,12 @@ def main() -> None:
     if threading.current_thread() is threading.main_thread():  # signal.signal works only there
         process.install_signal_handlers()  # SIGTERM/SIGHUP: kill the process groups we started, then exit
     tolerate_console_encoding()
-    args = parse_args()
+    from dokimi import cli_output
     from dokimi.artifacts import run_id
     from dokimi.utils import InputError
+
+    cli_output.reset()  # before the parse: a usage error prints its document from there
+    args = parse_args()
 
     try:
         run_id()  # a malformed DOKIMI_RUN_ID stops here, not at the first save after paid calls
@@ -217,11 +348,15 @@ def main() -> None:
         # --strict gates, and a malformed file must not read as a failed gate.
         sys.exit(2)
     except Exception as exc:
-        if not _emits_cli_output(args):
-            raise
-        # A --json leaf still prints its one document on a crash, and the crash exits 5 (§2.6).
+        # A crash is an infra failure, exit 5 for every command (§2.6): it never reads as a failed verdict.
         traceback.print_exc()
-        _exit_with_document(args, "infra", f"{type(exc).__name__}: {exc}")
+        if _emits_cli_output(args):  # a --json leaf still prints its one document on a crash
+            _exit_with_document(args, "infra", f"{type(exc).__name__}: {exc}")
+        sys.exit(EXIT_INFRA)
+    except SystemExit as exc:  # every exit code of a --json leaf carries its document (§2.7)
+        if _emits_cli_output(args) and isinstance(exc.code, int) and exc.code:
+            _document_on_exit(args, exc.code)
+        raise
 
 
 if __name__ == "__main__":

@@ -103,7 +103,7 @@ Optional static documentation gate for Markdown/code example quality:
 python cli.py docs check \
   --root . \
   --spec benchmarks/spec.v1.yaml \
-  --out-json baselines/current.json \
+  --out baselines/current.json \
   --out-md reports/current.md
 ```
 
@@ -202,7 +202,7 @@ The default static benchmark is configured in `benchmarks/spec.v1.yaml` and curr
 | `readability` | Estimates text readability with a Flesch-Kincaid-style score. |
 | `example_pass_rate` | Executes supported fenced code examples in isolation. |
 
-Weights are normalized across enabled metrics. The benchmark also supports soft gates, hard gates, critical bands, and regression thresholds. Hard gates and critical bands are enforced only when `--strict` is passed. With `--strict`, a spec without a `golden_manifest` also exits 1 when no document was measured. A spec with one, as `spec.v1.yaml` has, exits 2 with or without `--strict` when fewer documents than its `min_docs` match, none included. An empty or absolute `include` pattern exits 2 as well. With `--strict`, a critical band the gate cannot read (an unknown condition, or a `None` metric) exits 2 too. Exit 1 is not only the `--strict` verdict: a document that cannot be read, or an `--out-json` or `--out-md` path that cannot be written, also exits 1, with an `Error:` or `❌` line on stderr saying which.
+Weights are normalized across enabled metrics. The benchmark also supports soft gates, hard gates, critical bands, and regression thresholds. Hard gates and critical bands are enforced only when `--strict` is passed. With `--strict`, a spec without a `golden_manifest` also exits 1 when no document was measured. A spec with one, as `spec.v1.yaml` has, exits 2 with or without `--strict` when fewer documents than its `min_docs` match, none included. An empty or absolute `include` pattern exits 2 as well. With `--strict`, a critical band the gate cannot read (an unknown condition, or a `None` metric) exits 2 too. Exit 1 is not only the `--strict` verdict: a document that cannot be read, or an `--out` or `--out-md` path that cannot be written, also exits 1, with an `Error:` or `❌` line on stderr saying which.
 
 ## LLM and treatment evaluation workflow
 
@@ -220,7 +220,7 @@ The pipeline reads a golden set under `--questions-root` or a set from `--questi
 For fair multi-model comparisons, generate one question set and reuse it:
 
 ```bash
-python cli.py benchmark run --target onedal --output-dir results/onedal_seed
+python cli.py benchmark run --target onedal --out-dir results/onedal_seed
 python cli.py benchmark run --target onedal --questions-from results/onedal_seed --model gpt-6-astra
 python cli.py benchmark run --target onedal --questions-from results/onedal_seed --model claude-opus-5-5 --provider anthropic
 ```
@@ -237,7 +237,7 @@ The task definitions are evaluation content and live in a separate content repos
 
 ```bash
 python cli.py tasks run --tasks-root <checkout>/evaluation/harbor/tasks \
-  --tasks <task-name> --harnesses docker-oracle --out-json results/runs.json
+  --tasks <task-name> --harnesses docker-oracle --out results/runs.json
 ```
 
 The directory layout and `task.toml` fields a task must provide are specified in [docs/contributing-terminal-bench-task.md](https://github.com/intel/dokimi/blob/main/dokimi/docs/contributing-terminal-bench-task.md). CI runs a real external catalog through the same harness (see [CI](#ci) below) with network disabled at solve and verify time.

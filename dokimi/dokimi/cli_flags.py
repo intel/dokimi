@@ -3,9 +3,9 @@
 
 """One flag vocabulary: each concept, its canonical spellings, types and banned synonyms.
 
-This is the registry of issue #94 §2.4 (stage F1a). It is data only: no leaf reads it yet.
-F1b moves the leaves of one concept at a time onto it, and tombstones the old spellings.
-Until then the contract test in ``tests/test_cli_flags.py`` runs in ratchet mode: a
+This is the registry of issue #94 §2.4 (stage F1a). A leaf adds a registry flag with ``add``;
+``FLAG_MOVES`` tombstones the old spellings of a concept that moved (F1b, one concept per PR).
+The contract test in ``tests/test_cli_flags.py`` runs in ratchet mode: a
 spelling that is neither canonical here nor on ``tests/data/cli_flags_allowlist.txt``
 fails the build, and so does a banned synonym whose concept has a canonical spelling,
 unless that spelling is on the allowlist. The check looks at spellings only: an option's
@@ -19,14 +19,18 @@ yet.
 
 from __future__ import annotations
 
+import argparse
 from collections.abc import Iterable
 from dataclasses import dataclass
 
 __all__ = [
     "CONCEPTS",
+    "FLAG_MOVES",
     "OWNED_STEMS",
     "Concept",
     "Flag",
+    "FlagMove",
+    "add",
     "registry_problems",
 ]
 
@@ -146,6 +150,12 @@ CONCEPTS: tuple[Concept, ...] = (
         banned=("--repeats", "--work-repeats", "--multi-run", "--trials"),
     ),
     Concept(
+        name="against",
+        help="the root of the skills a skill is measured against",
+        canonical=(Flag("--against", "ROOT", "path"),),
+        banned=(),
+    ),
+    Concept(
         name="concurrency",
         help="how much runs at once",
         canonical=(
@@ -216,6 +226,12 @@ CONCEPTS: tuple[Concept, ...] = (
         help="network policy, per phase",
         canonical=(Flag("--network", "[PHASE=]MODE[:hosts]", "text"),),
         banned=("--agent-network", "--build-network"),
+    ),
+    Concept(
+        name="online",
+        help="network checks of a catalog's skills, opt in",
+        canonical=(Flag("--online", kind="flag", meaning="also check packages and links over the network"),),
+        banned=(),
     ),
     Concept(
         name="timeout",
@@ -326,3 +342,40 @@ def registry_problems(concepts: Iterable[Concept] = CONCEPTS) -> list[str]:
                 problems.append(f"`{spelling}` is banned in both {banned_owner[spelling]} and "
                                 f"{concept.name}")
     return problems
+
+
+def add(parser: argparse.ArgumentParser, concept: str, *args: str, **kwargs: object) -> argparse.Action:
+    """Add a flag of ``concept`` to ``parser``. Every option string must be a canonical spelling of it."""
+    spellings = {flag.spelling for c in CONCEPTS if c.name == concept for flag in c.canonical}
+    if not spellings:
+        raise KeyError(f"no concept named {concept!r} in the flag registry")
+    for option in args:
+        if option.startswith("-") and option not in spellings:
+            raise ValueError(f"`{option}` is not a canonical spelling of `{concept}`")
+    return parser.add_argument(*args, **kwargs)  # type: ignore[arg-type]
+
+
+@dataclass(frozen=True)
+class FlagMove:
+    """An old spelling that moved: argv that uses it is tombstoned (exit 2, prints the new argv).
+
+    ``leaves`` limits the move to those leaves (their argv paths), for a spelling that keeps
+    another meaning on other leaves. The empty tuple means every leaf.
+    """
+
+    old: str
+    new: str
+    leaves: tuple[tuple[str, ...], ...] = ()
+
+
+FLAG_MOVES: tuple[FlagMove, ...] = (
+    # Output concept (F1b): every directory is `--out-dir`, every JSON artifact is `--out`.
+    FlagMove("--output-dir", "--out-dir"),
+    FlagMove("--out-json", "--out"),
+    # `--out` names a file everywhere else, so the directory leaves move on their own.
+    FlagMove("--out", "--out-dir", leaves=(
+        ("repo", "run"), ("repo", "reach"), ("repo", "skill-reach"),
+        ("eval", "check"), ("eval", "tasks", "generate"),
+    )),
+)
+

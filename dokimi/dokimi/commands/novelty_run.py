@@ -1,8 +1,9 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""Run-wide pieces of `novelty analyze` and `novelty probe`: the spend cap, the second judge,
-and the provenance stamp on the written JSON."""
+"""Run-wide pieces of `novelty analyze` and `novelty probe`: the `--max-usd` flag and the clean
+stop at the cap (the cap object is `dokimi.novelty.cost.spend_cap`), the second judge, and the
+provenance stamp on the written JSON."""
 
 from __future__ import annotations
 
@@ -10,18 +11,6 @@ import argparse
 import functools
 import math
 import sys
-
-
-def spend_cap(args: argparse.Namespace):
-    """The invocation's one ``--max-usd`` cap, shared by every role client."""
-    from dokimi.novelty.client import SpendCap
-
-    limit = getattr(args, "max_usd", None)
-    if limit is None:
-        return None
-    if getattr(args, "_spend_cap", None) is None:
-        args._spend_cap = SpendCap(limit_usd=limit)
-    return args._spend_cap
 
 
 def stops_at_cap(command):
@@ -33,10 +22,18 @@ def stops_at_cap(command):
         try:
             command(args)
         except SpendCapReached as exc:
-            # A command that keeps its partial result catches the cap itself and never gets here.
+            # A command that keeps its partial result (atoms, probe, analyze) saves it itself.
             raise SystemExit(f"{exc}; nothing was written") from None
 
     return run
+
+
+def exit_if_analyze_partial(result, out) -> None:
+    """Save and exit when the cap stopped ``analyze`` (``result.partial``); a finished run returns."""
+    from dokimi.commands.novelty_budget import save_analyze_partial
+
+    if result.partial:
+        save_analyze_partial(result, out)
 
 
 def usd_amount(text: str) -> float:
@@ -72,14 +69,14 @@ def add_judge2_args(parser: argparse.ArgumentParser, providers) -> None:
                         help="Provider for --judge2 (default: the judge's provider)")
 
 
-def judge2_client(args: argparse.Namespace, answerer, judge, make_client):
-    """The ``--judge2`` client, checked against the answerer before any paid call; ``None`` without it."""
+def judge2_client(args: argparse.Namespace, answerer, judge, make_client, panel=()):
+    """The ``--judge2`` client, checked against the answerer and every panel judge before any paid call; ``None`` without it."""
     from dokimi.novelty.judge2 import check_judge2
 
     if not getattr(args, "judge2", None):
         return None
     client = make_client(args.judge2, args.judge2_provider or judge.provider, "judge2", args)
-    check_judge2(client, answerer, args.judge2_frac, args.allow_self_judge, judge)
+    check_judge2(client, answerer, args.judge2_frac, args.allow_self_judge, judge, panel)
     return client
 
 
@@ -130,6 +127,7 @@ def add_panel_args(parser: argparse.ArgumentParser) -> None:
 def judge_refs(args: argparse.Namespace) -> list[tuple[str, str]]:
     """The ``--judge PROVIDER/MODEL`` list as (model, provider) pairs; empty without the flag."""
     from dokimi.llm import ANSWER_PROVIDERS as PROVIDERS
+    from dokimi.utils import same_model
 
     refs = getattr(args, "judges", None) or []
     if refs and (getattr(args, "judge_model", None) or getattr(args, "judge_provider", None)):
@@ -140,8 +138,8 @@ def judge_refs(args: argparse.Namespace) -> list[tuple[str, str]]:
         if not sep or not model or provider not in PROVIDERS:
             raise ValueError(f"--judge {ref!r} is not PROVIDER/MODEL with PROVIDER one of "
                              f"{', '.join(PROVIDERS)}")
-        if any(m == model for m, _ in out):
-            # the panel keys each judge's verdicts by model name
+        if any(same_model(m, model) for m, _ in out):
+            # one model would vote twice, and the panel keys each judge's verdicts by model name
             raise ValueError(f"--judge {ref!r}: model {model!r} is given twice")
         out.append((model, provider))
     return out
@@ -175,7 +173,7 @@ def add_panel_usd(args: argparse.Namespace, usd, by_role, n_tokens, tier, contex
 
 def attach_panel(payload: dict, result, aggregate: str) -> None:
     """Add the ``judge_panel`` block to a written record and print its warnings."""
-    from dokimi.novelty.measure import panel_record
+    from dokimi.novelty.panel_record import panel_record
     from dokimi.novelty.panel import panel_warnings
 
     judge_panel = panel_record(result, aggregate)
@@ -183,24 +181,3 @@ def attach_panel(payload: dict, result, aggregate: str) -> None:
         payload["judge_panel"] = judge_panel
         for note in panel_warnings(judge_panel):
             print(f"WARNING: {note}", file=sys.stderr)
-
-
-def role_models(args: argparse.Namespace) -> dict[str, tuple[str, str]]:
-    """The (model, provider) of each role, defaulting so roles never silently collapse."""
-    from dokimi.novelty.client import default_judge
-
-    panel = judge_refs(args)
-    if panel:
-        judge_model, judge_provider = panel[0]
-    elif args.judge_model:
-        judge_model, judge_provider = args.judge_model, args.judge_provider or args.provider
-    else:
-        # a CLI answerer with no judge provider judges on the same CLI, another family
-        judge_model, judge_provider = default_judge(args.model, args.judge_provider, args.provider)
-    extract_model = args.extract_model or judge_model
-    extract_provider = args.extract_provider or judge_provider
-    return {
-        "extractor": (extract_model, extract_provider),
-        "answerer": (args.model, args.provider),
-        "judge": (judge_model, judge_provider),
-    }

@@ -130,8 +130,8 @@ labelled deprecated is not listed. Some listed IDs are short names (`o1`, `o3-mi
 `gpt-4`, `dall-e-2`) that can also appear in prose about a model; a finding there is a
 prompt to reword it; a code span does not silence the warning, and there is no suppression yet. A few rows
 name no replacement (`sora-2`, `gpt-5.4-cyber`), and the finding then points at the vendor page.
-The list includes Imagen and Veo IDs, so it reaches past the text models. Warnings do not fail
-`--strict`, which gates on `error` rows only.
+The list includes Imagen and Veo IDs, so it reaches past the text models. This warning does not
+fail `--strict`. Of the warnings, only the unrestricted-Bash pair does (`allowed-tools-unrestricted-bash` below).
 
 ## The layout the readers expect
 
@@ -226,7 +226,7 @@ error and still exits 0. A `name` missing from the frontmatter, or a `SKILL.md` 
 another skill's, is a `warn`. So is a skill whose `name` another skill shares with different content
 (`name-conflict`), when both are listed: neither is `disable-model-invocation` or has a spec error
 (a description over 1024 characters, as the only error, does not unlist a skill for routing).
-The finding names the other path, and `dokimi novelty routing --catalog` skips that name rather than
+The finding names the other path, and `dokimi skill routing --against` (or `catalog routing ROOT`) skips that name rather than
 the whole catalog. Of identical copies, the one nearest the root (fewest path parts, ties to path
 order) is the original, the copy the `skill-catalog:` arm offers; each other copy is the `warn` and
 names it. Warnings never change the exit code. `disable-model-invocation: true` is printed as a
@@ -235,15 +235,47 @@ names it. Warnings never change the exit code. `disable-model-invocation: true` 
 The scan also checks the bundle and the description. A relative Markdown link
 to a file the skill does not have is a `warn` (`link-missing`), and says when the
 file exists from the catalog root instead. Example links such as `[Title](URL)`
-are common, so `--strict` does not fail on them. A link, or a `../` code span,
+are common, so `--strict` does not fail on them. A code span that names a file
+under a bundle folder (`scripts/`, `references/`, `assets/`, `templates/`,
+`examples/`, `resources/`), alone or inside a command such as
+`python scripts/run.py`, is a `warn` (`path-missing`) when the skill does not
+have that file. Folders, flat names, placeholders (`scripts/<name>.py`)
+and repo-root paths such as `src/app.py` are not checked, and
+neither are code fences. A file name with a space is read only when it is quoted or its space is escaped
+(`'scripts/my run.py'`, `scripts/my\ run.py`). Only `/` separators are read: a backslash path such as `scripts\run.py` is not checked. Paths joined by `,` or `;` with no space are read one by one when the next one is under a bundle folder (`scripts/a.py,scripts/b.py`); other commas, and an escaped `\,`, stay in the name. Some hits are files the skill tells the agent to
+create; `--ignore path-missing` leaves the code out. A link, or a `../` code span,
 that reaches a file outside the skill directory is a `warn`
 (`link-escapes-skill`, `path-escapes-skill`), since it breaks when the skill is
-installed alone. A description with no "when" clause (`use when ...`, `when deploying ...`) is a `warn`
+installed alone. An `allowed-tools` that grants `Bash` for every command (`Bash`
+with no pattern, or `Bash(*)`) is a `warn` (`allowed-tools-unrestricted-bash`);
+its message names a `pipe-to-shell` or `permission-bypass-flag` hit in the same
+skill, since those commands then run with no prompt, and that pair fails `--strict`. A description with no "when" clause (`use when ...`, `when deploying ...`) is a `warn`
 (`description-no-when`), and so is one that overlaps another skill's by at least
-half and shares three words (`description-near-duplicate`). Two skills in different paths with the same
+half and shares three words (`description-near-duplicate`). The `description-no-when` cue is read in English,
+Spanish, French, German, Portuguese, Russian, Chinese, Japanese and Korean, and a description in a script none
+of them covers (Arabic, Thai, Hebrew, …) is not checked: it gets a `note` (`description-when-not-checked`), so not checked does not read as a pass: its row says `note:` instead of `ok`, and the counts line `1 ok (1 not checked)`. A Latin-script language without a list of its own
+(Polish, Dutch, Turkish, Vietnamese) is checked against these cues. Two skills in different paths with the same
 directory name and description but different `SKILL.md` text are a `warn` on both
 (`mirror-drift`), naming the other copies. Skills with
 `disable-model-invocation: true` are exempt from the description checks.
+
+The scan also reads the scripts a skill bundles: each `.sh`, `.bash` and `.py` file, and each file that
+starts with `#!`, under the skill directory (a file over 1 MB, and a link out of the directory, is not read).
+At most 200 files of a bundle are walked: every file counts, `SKILL.md` and non-script files included, in walk
+order (a directory's files sorted by name, then its subdirectories). Files past the cap are not checked and give
+no finding; a subdirectory with its own `SKILL.md` is another skill and is skipped.
+A file with a `#!` line and no `.sh`, `.bash` or `.py` suffix is read for CRLF only.
+Nothing is run or imported. A CRLF line ending in a shell script or a `#!` file is a `warn` (`script-crlf`): bash and a
+shebang interpreter fail on the carriage return on Linux. A Python file that the running Python's
+`ast.parse` rejects is a `warn` (`script-syntax`). So is a shell script that `bash -n` rejects: the text
+goes to bash on stdin with no environment, and only when bash is on PATH; a script whose shebang names
+a shell other than bash, sh, dash or ksh is not checked that way, and a `.sh` with no shebang is taken as bash. The shebang's `env` options and `NAME=value` words are looked through, and `-O extglob` is given to `bash -n` when the shebang asks for it, when the shebang names ksh (which always has the extended patterns on), or when a `shopt -s` command of the script turns extglob on (`bash -n` runs no `shopt -s extglob`). A `shopt -s extglob` counts wherever it is: in a function, a `( )`, an `if` branch, or later in the file than the pattern it would parse. The option is then given for the whole script, which is the rule on purpose: it reads a script right whose top-level `if` branch sets extglob and is followed by extglob patterns. The cost is a missed error: a pattern that is an error without a shopt, but is accepted because a shopt sits elsewhere (in a function, a subshell, an untaken branch, or later in the file), is not flagged. A shebang argument that changes parsing and is not one of these leaves the script unchecked. When `ruff` or `shellcheck` is on
+PATH, its `.py` files are linted with `ruff check --select S,E9,F63,F7,F82` and its `.sh` and `.bash`
+files with `shellcheck -f json`, and one `note` (`script-lint`) gives the count and the top three rules of each tool. Both run with their config
+ignored (`--isolated`, `--norc`), so a skill's own config files do not change the result. A missing tool
+adds nothing, and so does a tool that cannot start. The vendored and scaffold trees are left out
+(`.git`, `node_modules`, `site-packages`, `.venv`, `templates` and the rest the loader skips). A skill
+at the root of the checkout has no script bundle: its bundle would be the whole checkout, tests included.
 
 The scan also reads the shell commands in `SKILL.md` and its bundled text files; nothing is run. A `curl`
 or `wget` piped into a shell or an interpreter (`| sh`, `| sudo bash`, `| python3`) is a `warn`
@@ -303,6 +335,47 @@ names a planned, paid follow-up command (a model run over the candidates), which
 yet available; its flags may change before it lands. The thresholds are conservative and
 the section is a shortlist, not a judgement.
 
+### Network checks (`--online`, opt in)
+
+`catalog check` opens no connection by default. `--online` adds two checks that
+do, and only these two; each finding is a `warn`, so the exit code does not change:
+
+- `package-not-found`: a `pip install` (or `pip3`), `npm install` or `npx` name in
+  a skill that PyPI (`https://pypi.org/simple/<name>/`) or the npm registry answers
+  404 for. Flags, local paths, `git+`, URL and `file:` specs, and placeholders such as
+  `<package>` or `your-package` are not names.
+- `link-dead`: an `http(s)` URL in `SKILL.md` that answers 404 or 410, or whose host
+  does not resolve while another request in the run got an HTTP answer (with none, the
+  link is not checked: the resolver is not shown to work). A HEAD request is tried first and a GET only when HEAD is not 2xx or 3xx.
+  Placeholder hosts (`example.com`/`.org`/`.net`, `localhost`, `.test`, `.invalid`,
+  a host or a path segment starting `your-*`, as in `github.com/your-username/your-repo`,
+  a path segment `OWNER`, `REPO`, `USER` or `USERNAME`), hosts of the operator's network
+  (loopback, private, link-local, CGNAT, reserved and multicast addresses, a name with no
+  dot such as `my-api:8000`, `.local` and `.internal` names) and template URLs (`<id>`,
+  `{id}`, `${VAR}`) are not requested. The host is read as written, not resolved: a public
+  name that points at a private address is still requested. A URL in a code span or a
+  fenced block is an example, not a link, and is not requested either; a `#fragment` is not
+  part of the request, so anchors of one page are one request. At most 20 URLs per skill are
+  checked.
+
+A 403, 429 or 5xx, a timeout, a refused connection or any other network error is not a
+finding: the registry or site may refuse or be unreachable, not be gone. A target not checked
+(a network error, a DNS failure with no answer in the run, a redirect into a non-public host,
+or a URL past the 20-per-skill cap) gets no finding: it is counted in one summary line,
+`# online: N checked, M not checked (network error: a, ...)`, and under `online` in the JSON
+report. Each distinct
+package or URL is requested once per run, with at most 8 requests in flight and a 5-second
+timeout per request. `--online` does not combine with `--per-skill` (its workers would
+each hold their own cache, and `--resume` would keep rows no network check made), and
+it applies to skills only.
+The package scan reads one line at a time: a requirement in quotes or on a `\` continuation
+line is not checked, and a word after an install command on the same line is read as a package name unless it is
+a common English word that ends the list (such as `in`, `for` or `to`).
+
+```console
+$ python cli.py catalog check --root C:/Users/Public/content-repo --online
+```
+
 Restrict the scan with `--kind`:
 
 ```console
@@ -330,7 +403,7 @@ A large catalog is easier to scan one skill at a time:
 - `--ignore CODE` (repeatable) leaves the findings with that code out of the scan:
   they are not printed, and they do not set the state or the `--strict` exit. The
   codes are the `code` of each finding in the JSON output (`name-mismatch`,
-  `description-no-when`, ...); an unknown code is a usage error. `frontmatter-parse`
+  `description-no-when`, `description-when-not-checked`, ...); an unknown code is a usage error. `frontmatter-parse`
   is refused (a skill that does not load always fails), and so is `unreadable` (a
   `SKILL.md` the OS will not read fails the scan too), and `--kind tasks`.
 - `--jsonl PATH` writes one JSON row per skill as it is reviewed and prints only
@@ -449,7 +522,7 @@ $ python cli.py tasks run --tasks demo-widget \
     --harnesses docker-oracle,docker-claude-skill:C:/Users/Public/content-repo/skills/demo-skill \
     --baseline-harness docker-oracle \
     --model us.anthropic.claude-haiku-4-5-20251001-v1:0 \
-    --dry-run --out-json results/demo-widget.json
+    --dry-run --out results/demo-widget.json
 Saved task run artifact: results\demo-widget.json
 Saved task run report:   results\demo-widget.md
 docker-oracle: 0/1 pass (0.00%), ops=1, elapsed=0.00s
@@ -477,7 +550,7 @@ demo-locate-widget      demo    1 ref(s)        Where is the widget width clampe
 $ python cli.py explore run --all \
     --tasks-root C:/Users/Public/content-repo/explore_tasks \
     --repo-root C:/Users/Public/content-repo/product-checkout \
-    --arms oracle,empty --baseline-arm empty --out-json results/explore.json
+    --arms oracle,empty --baseline-arm empty --out results/explore.json
 Saved explore run artifact: results\explore.json
 oracle: n=1 file_f1=1.000 line_f1=n/a validity=1.000
 empty: n=1 file_f1=0.000 line_f1=n/a validity=1.000

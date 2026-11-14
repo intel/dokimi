@@ -15,7 +15,6 @@
 --agent-network
 --all
 --all-atoms
---all-vs-all  # novelty routing (#172) adds it: no registry concept yet; a F1b migration names it
 --allow-self-judge
 --allow-unsafe
 --allow-unsupported
@@ -144,11 +143,9 @@
 --novelty
 --novelty-artifact
 --only
---out-json
 --out-md
 --outcomes  # trace consistency (#155) adds it: no registry concept yet; a F1b migration names it
 --output
---output-dir
 --pairwise
 --pass-k  # repo compare (#155) adds it: no registry concept yet; a F1b migration names it
 --path-stability  # repo compare (#155) adds it: no registry concept yet; a F1b migration names it
@@ -263,3 +260,5 @@
 --relock  # eval leak (#220 A3) adds it: no registry concept yet; a F1b migration names it
 --verbatim-words  # eval leak (#220 A3) adds it: no registry concept yet; a F1b migration names it
 --proposer  # eval leak (#220 A3) adds it: no registry concept yet; a F1b migration names it
+--tool  # skill novelty ground (#472): the command whose --help is the source; no registry concept yet
+--tool-version  # skill novelty ground (#472): recorded with the help snapshot; no registry concept yet

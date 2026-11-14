@@ -66,18 +66,45 @@ def envelope(kind: str, *, run_id: str | None = None, status: str = "complete", 
     }
 
 
-def error_document(kind: str, code: str, message: str, *, field: str | None = None,
-                   run_id: str | None = None) -> dict[str, Any]:
-    """The document of a run that stopped on ``code`` (one of :data:`ERROR_CODES`)."""
+def error_object(code: str, message: str, *, field: str | None = None) -> dict[str, Any]:
+    """The ``error`` of a document: ``code`` (one of :data:`ERROR_CODES`); only ``infra`` is retryable."""
     if code not in ERROR_CODES:
         raise ValueError(f"unknown cli_output error code {code!r}")
-    return envelope(kind, run_id=run_id, status="failed", error={"code": code, "message": message,
-                                                  "retryable": code == "infra", "field": field})
+    return {"code": code, "message": message, "retryable": code == "infra", "field": field}
+
+
+def error_document(kind: str, code: str, message: str, *, field: str | None = None, run_id: str | None = None,
+                   reason: str | None = None, cost: dict[str, Any] | None = None) -> dict[str, Any]:
+    """The document of a run that stopped on ``code``: status ``failed``, ``reason`` says why."""
+    return envelope(kind, run_id=run_id, status="failed", reason=reason, cost=cost,
+                    error=error_object(code, message, field=field))
+
+
+_printed = False
 
 
 def emit(doc: dict[str, Any]) -> None:
     """Print the one document on stdout."""
-    print(json.dumps(doc, indent=2))
+    global _printed
+    text = json.dumps(doc, indent=2)  # strict: a value JSON cannot hold raises, as save_artifact refuses it
+    _printed = True  # only once serialized: a raise leaves the fallback document to print
+    print(text)
+
+
+def printed() -> bool:
+    """True once this process has printed its document (cli.py checks it before a fallback document)."""
+    return _printed
+
+
+def reset() -> None:
+    """Forget the document of an earlier run in this process (cli.main calls it once per run)."""
+    global _printed
+    _printed = False
+
+
+def emit_leaf(kind: str, data: Any, **fields: Any) -> None:
+    """Print a leaf's success document: its payload under ``data``, this process's run id."""
+    emit(envelope(kind, run_id=current_run_id(), data=data, **fields))
 
 
 def schema_document() -> dict[str, Any]:

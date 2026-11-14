@@ -25,8 +25,10 @@ from . import attribute, bundle as bundle_mod
 from . import classify, items as items_mod
 from . import measure, needs, probes, provenance, report, retention, shorten, spans
 from . import panel as panel_mod
+from . import panel_record as panel_record_mod
 from .artifact import load_artifact_text  # noqa: F401  (public path: novelty.analyze)
-from .client import LLMClient, roll_up_cost, warn_extractor_judge
+from .analyze_partial import Progress, stopped_record
+from .client import LLMClient, SpendCapReached, roll_up_cost, warn_extractor_judge
 from .retention import RetentionOracle
 from .tiers import DEFAULT_SETTINGS, RunSettings
 
@@ -109,6 +111,9 @@ class AnalyzeResult:
     spans: list = field(default_factory=list)
     measure_result: object | None = None
     extracted_atoms: list = field(default_factory=list)
+    #: Set when ``--max-usd`` (or a call with no price) stopped the run: ``artifact`` is then the
+    #: partial record (:mod:`.analyze_partial`) and this is its ``partial`` block.
+    partial: dict | None = None
 
 
 def kind_agreement_warnings(rows: dict[str, dict]) -> list[str]:
@@ -135,6 +140,34 @@ def kind_agreement_warnings(rows: dict[str, dict]) -> list[str]:
     return out
 
 
+def _refuse_cut_short(measure_result: measure.MeasureResult) -> None:
+    """A measurement the cap cut short is not a finished report: stop before the paid classify
+    and attribution stages. ``analyze`` keeps what was paid for as a partial record."""
+    if measure_result.not_run or measure_result.ungraded:
+        # An answer the judge never graded counts as not finished, like one never asked.
+        not_run = measure_result.not_run + measure_result.ungraded
+        reason, cause = measure_result.stop or ("spend_cap", "")
+        if reason == "spend_cap":
+            # The cap's own message (the cause) names the spend and the advice: say it once.
+            detail = cause or ("spend cap reached. Raise --max-usd, or measure less (a cheaper "
+                               "--tier, a lower --max-atoms)")
+            raise SpendCapReached(
+                f"the measurement stopped: {not_run} probe answers were not run or graded; {detail}"
+            )
+        # A call with no known price: raising --max-usd would not help, so the cause is named.
+        raise SpendCapReached(
+            f"the measurement stopped with {not_run} probe answers not run or graded: {cause}",
+            reason=reason,
+        )
+
+
+def _raise_if_extraction_stopped(extraction: atoms_mod.ExtractionReport) -> None:
+    """A cap that stopped extraction left a ``partial`` record on the report: stop here."""
+    stopped = extraction.partial
+    if stopped:
+        raise SpendCapReached(stopped["message"], reason=stopped["reason"])
+
+
 def analyze(
     text: str,
     config: AnalyzeConfig,
@@ -149,6 +182,13 @@ def analyze(
     aggregate: str = "median",
 ) -> AnalyzeResult:
     """Run the full pipeline over one artifact's text.
+
+    A spend cap (or a call with no price) that stops it does not lose what it paid for: the
+    result then has ``partial`` set and ``artifact`` is the partial record
+    (:func:`~dokimi.novelty.analyze_partial.stopped_record`): the extracted atoms, the spans, the
+    probe set once built and the probe answers and judgments so far, and no summary over them.
+    A caller must check ``result.partial`` before it saves or reports ``artifact`` as a finished
+    analysis: :func:`~dokimi.artifacts.save_artifact` refuses a partial ``novelty`` record.
 
     Args:
         text: The artifact body (frontmatter already split off into ``config``).
@@ -170,17 +210,57 @@ def analyze(
         panel: More judges besides ``judge`` (see :func:`measure.run_measurement`).
         aggregate: The panel's rule for one verdict per answer.
     """
-    measure.check_judges(judge, panel, answerer, config.allow_self_judge)
+    progress = Progress()
+    try:
+        return _analyze(text, config, extractor=extractor, answerer=answerer, judge=judge,
+                        ref_digest=ref_digest, artifact_bundle=artifact_bundle, tier=tier,
+                        progress=progress, panel=panel, aggregate=aggregate)
+    except SpendCapReached as stop:
+        if ref_digest is None and artifact_bundle is not None:
+            ref_digest = artifact_bundle.measured_digest()
+        record = stopped_record(
+            progress, stop, artifact_kind=config.artifact_kind, artifact_ref=config.artifact_ref,
+            ref_digest=ref_digest, model=answerer.model, provider=answerer.provider,
+            judge_model=judge.model, clients=[extractor, answerer, judge, *panel],
+            provenance=provenance.provenance(
+                artifact_digest=ref_digest, answerer_model=answerer.model,
+                judge_model=judge.model, context_framing=config.context_framing),
+            bundle=artifact_bundle.summary() if artifact_bundle is not None else {})
+        return AnalyzeResult(
+            artifact=record, atoms=progress.atoms, spans=progress.spans,
+            measure_result=progress.measure_result, extracted_atoms=progress.extracted,
+            partial=record["partial"])
+
+
+def _analyze(
+    text: str,
+    config: AnalyzeConfig,
+    *,
+    extractor: LLMClient,
+    answerer: LLMClient,
+    judge: LLMClient,
+    ref_digest: str | None,
+    artifact_bundle: "bundle_mod.Bundle | None",
+    tier: dict | None,
+    progress: Progress,
+    panel: tuple[LLMClient, ...],
+    aggregate: str,
+) -> AnalyzeResult:
+    """The pipeline of :func:`analyze`; ``progress`` records each stage as it starts and what it
+    produced, so a spend stop anywhere can be saved."""
+    measure.check_judges(judge, panel, answerer, config.allow_self_judge, aggregate)
     relation = warn_extractor_judge(extractor.model, judge, extractor.provider)
-    warnings: list[str] = []
-    span_list = spans.segment(text)
-    extraction = atoms_mod.ExtractionReport()
-    extracted = atoms_mod.extract_atoms(
+    warnings: list[str] = progress.warnings
+    span_list = progress.spans = spans.segment(text)
+    extraction = progress.extraction = atoms_mod.ExtractionReport()
+    extracted = progress.extracted = atoms_mod.extract_atoms(
         span_list, client=extractor, cap=config.max_atoms, report=extraction
     )
+    progress.run_config = _run_config(config)  # a stop in extraction keeps this much of it
+    _raise_if_extraction_stopped(extraction)
     # Spans, attribution and shortening's structure index every atom; the paid stages see the
     # cap's sample: https://github.com/intel/dokimi/issues/371
-    atom_list = atoms_mod.sample_atoms(extracted, span_list, config.max_atoms)
+    atom_list = progress.atoms = atoms_mod.sample_atoms(extracted, span_list, config.max_atoms)
     warnings.extend(extraction.warnings(len(span_list)))
     settings = RunSettings.of(config)
     if tier:
@@ -192,7 +272,9 @@ def analyze(
     warnings.extend(settings.warnings(sampled=capped))
     # A label for a sample only when the cap left atoms out; a cap the atoms meet is a full run.
     # Older runs recorded `cap-per-artifact:<n>`, the first n atoms in document order (#293).
-    sampling = f"cap-spread:{config.max_atoms}" if capped else "full"
+    sampling = progress.sampling = f"cap-spread:{config.max_atoms}" if capped else "full"
+    progress.run_config = {**_run_config(config), "tier": settings.tier_record(sampled=capped),
+                           "extractor_judge": relation}
     if extraction.sampled:  # set only when the cap left atoms out
         warnings.append(report.cap_warning(extraction.as_dict()))
     if not atom_list:
@@ -205,8 +287,10 @@ def analyze(
             "`faithfulness` is empty, so distortion by the extractor is unbounded for "
             "this run"
         )
+    progress.stage = "verify"
     if config.verify_faithfulness and atom_list:
-        faithfulness = atoms_mod.verify_atoms(atom_list, span_list, client=extractor)
+        faithfulness = progress.faithfulness = atoms_mod.verify_atoms(
+            atom_list, span_list, client=extractor)
         distorted = faithfulness.get("distorted", 0) + faithfulness.get("unsupported", 0)
         if distorted:
             warnings.append(
@@ -214,6 +298,7 @@ def analyze(
                 "stay in the set and are visible in atoms.faithfulness"
             )
 
+    progress.stage = "need_graph"
     graph = needs.build_need_graph(
         config.name or config.artifact_ref, config.description, client=extractor
     )
@@ -224,9 +309,12 @@ def analyze(
         )
     relevance = needs.match_atoms(atom_list, graph)
 
+    progress.stage = "probes"
+    progress.probe_set = probes.ProbeSet(probes=[])
     probe_set = probes.build_probe_set(
         atom_list, client=extractor,
         paraphrases=config.paraphrases, reversals=config.reversals,
+        into=progress.probe_set,
     )
     probe_list = probe_set.probes
     # A generated wording that lost the version bound, or a "reversal" that never
@@ -241,15 +329,18 @@ def analyze(
                 f"({', '.join(sorted(row['reasons']))}); {kind} probes cover "
                 f"{row['kept']} of {len(atom_list)} atoms"
             )
-    measure_result = measure.run_measurement(
+    progress.stage = "measurement"
+    measure_result = progress.measure_result = measure.run_measurement(
         atom_list, probe_list, text,
         answerer=answerer, judge=judge, arms=config.arms,
         concurrency=config.concurrency, allow_self_judge=config.allow_self_judge,
         placebo_text=config.placebo_text, seed=config.seed, framing=config.context_framing,
         panel=panel, aggregate=aggregate,
     )
-    judge_panel = measure.panel_record(measure_result, aggregate)
+    _refuse_cut_short(measure_result)
+    judge_panel = panel_record_mod.panel_record(measure_result, aggregate)
     warnings.extend(panel_mod.panel_warnings(judge_panel))
+    progress.stage = "classify"
     if config.allow_self_judge and panel_mod.same_as_answerer((judge, *panel), answerer):
         warnings.append(
             "judge and answerer are the same model (--allow-self-judge): scores are inflated"
@@ -290,6 +381,7 @@ def analyze(
     elif not config.classify_content:
         warnings.append("content categories were not judged (--no-classify)")
 
+    progress.stage = "attribution"
     attributions = attribute.attribute_spans(
         span_list, extracted, outcomes=outcomes, categories=categories
     )

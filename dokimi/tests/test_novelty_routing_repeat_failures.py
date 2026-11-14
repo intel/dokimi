@@ -9,6 +9,7 @@ import json
 
 import pytest
 
+from dokimi.novelty import cost as novelty_cost
 from dokimi.cli import build_parser
 from dokimi.novelty.client import LLMClient
 
@@ -33,7 +34,6 @@ def _write_queries(tmp_path, by_skill):
 
 def test_a_repeat_that_fails_after_a_good_one_keeps_the_good_pick_in_model_scoring(
         tmp_path, capsys, monkeypatch):
-    import dokimi.commands.novelty as novelty_cmd
 
     answered = []
 
@@ -43,15 +43,14 @@ def test_a_repeat_that_fails_after_a_good_one_keeps_the_good_pick_in_model_scori
         answered.append(1)
         return '{"pick": 1}', None
 
-    monkeypatch.setattr(novelty_cmd, "_client", lambda model, provider, role, args: LLMClient(
+    monkeypatch.setattr(novelty_cost, "client", lambda model, provider, role, args: LLMClient(
         model=model, provider=provider, role=role, transport=transport))
     root = tmp_path / "catalog"
     _cat(root, {"perf": "profile a slow binary with perf", "db": "tune a slow database query"})
     queries = _write_queries(tmp_path, {"perf": ["profile it"]})
     out = tmp_path / "o.json"
-    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
-                  "--queries-by-skill", str(queries), "--out", str(out), "--model", "m",
-                  "--repeats", "2")
+    args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries),
+                  "--out", str(out), "--model", "m", "--reps", "2")
     with pytest.raises(SystemExit) as exc:
         args.func(args)
     assert "1 of 2 model call" in str(exc.value.code)
@@ -68,21 +67,19 @@ def test_a_repeat_that_fails_after_a_good_one_keeps_the_good_pick_in_model_scori
 
 def test_every_noise_row_of_an_all_vs_all_names_its_own_query_and_gold(tmp_path, monkeypatch):
     # One skill with two queries and two repeats: each noise row must name its query and its gold.
-    import dokimi.commands.novelty as novelty_cmd
 
     def transport(prompt: str, system: str | None):
         return '{"pick": 1}', None
 
-    monkeypatch.setattr(novelty_cmd, "_client", lambda model, provider, role, args: LLMClient(
+    monkeypatch.setattr(novelty_cost, "client", lambda model, provider, role, args: LLMClient(
         model=model, provider=provider, role=role, transport=transport))
     root = tmp_path / "catalog"
     _cat(root, {"perf": "profile a slow binary with perf", "db": "tune a slow database query"})
     queries = ["profile it", "profile my binary"]
     queries_file = _write_queries(tmp_path, {"perf": queries})
     out = tmp_path / "o.json"
-    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
-                  "--queries-by-skill", str(queries_file), "--out", str(out), "--model", "m",
-                  "--repeats", "2")
+    args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries_file),
+                  "--out", str(out), "--model", "m", "--reps", "2")
     args.func(args)
     per_query = json.loads(out.read_text(encoding="utf-8"))["result"]["model"]["noise"]["per_query"]
     assert sorted((row["query"], row["gold"]) for row in per_query) == [

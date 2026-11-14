@@ -11,6 +11,7 @@ import sys
 from pathlib import Path
 from typing import Any, Callable, List, cast
 
+from dokimi import cli_flags
 from dokimi.llm import CALLER_CHOICES, credential_env_var, resolve_api_key
 from dokimi.utils import warn_judge_independence as _warn_judge_independence
 from dokimi.eval.judge import JUDGE_PROVIDERS
@@ -93,6 +94,8 @@ def _run_single_library(entry, output_dir: str, model: str, provider: str, judge
 def _key_error(provider: str) -> str | None:
     """Why *provider* has no key to send, or ``None``: the key is read as the run reads it."""
     var = credential_env_var(provider)
+    if var is None:  # off the table: litellm reads the vendor's own variable, unknown here
+        return None
     try:
         if resolve_api_key(provider):
             return None
@@ -475,7 +478,7 @@ def register(sub, positive_int) -> None:
     bench_run_p.add_argument("--library", "--target", required=True, dest="library", help="Target key from registry (e.g., onetbb). --library kept as compatibility alias")
     bench_run_p.add_argument("--doc-source", default=None, dest="doc_source",
                              help="Override doc/context source (default: first in registry entry)")
-    bench_run_p.add_argument("--output-dir", default=None, dest="output_dir",
+    cli_flags.add(bench_run_p, "output", "--out-dir", default=None, dest="output_dir",
                              help="Output directory (default: results/{target}_final)")
     bench_run_p.add_argument("--model", default=DEFAULT_ANSWER_MODEL)
     bench_run_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=CALLER_CHOICES)
@@ -516,12 +519,14 @@ def register(sub, positive_int) -> None:
     bench_pre_p = benchmark_sub.add_parser("preflight", help="Validate resolved benchmark plan without running LLM calls")
     bench_pre_p.add_argument("--library", "--target", required=True, dest="library", help="Target key from registry (e.g., onetbb)")
     bench_pre_p.add_argument("--doc-source", default=None, dest="doc_source", help="Override doc/context source")
-    bench_pre_p.add_argument("--output-dir", default=None, dest="output_dir", help="Output directory (default: results/{target}_final)")
+    cli_flags.add(bench_pre_p, "output", "--out-dir", default=None, dest="output_dir", help="Output directory (default: results/{target}_final)")
     bench_pre_p.add_argument("--model", default=DEFAULT_ANSWER_MODEL)
     bench_pre_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=CALLER_CHOICES)
     bench_pre_p.add_argument("--judge-model", default=JUDGE_MODEL_FOR_PROVIDER, dest="judge_model",
                              help=JUDGE_MODEL_HELP)
     bench_pre_p.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, dest="judge_provider", choices=JUDGE_PROVIDERS)
+    # Preflight makes no LLM call, but it plans the run that `benchmark run` makes, so it refuses the judge that run refuses.
+    bench_pre_p.set_defaults(judge=True)
     bench_pre_p.add_argument("--registry", default=None, help="Path to custom products.yaml")
     bench_pre_p.add_argument("--max-tokens", type=positive_int, default=DEFAULT_MAX_TOKENS_PER_QUESTION, dest="max_tokens")
     bench_pre_p.add_argument("--concurrency", type=positive_int, default=DEFAULT_CONCURRENCY, dest="concurrency")
@@ -538,7 +543,7 @@ def register(sub, positive_int) -> None:
                                     "Omit or use --all for all registered libraries.")
     bench_batch_p.add_argument("--all", action="store_true", dest="all_libraries",
                                help="Run for all libraries in registry")
-    bench_batch_p.add_argument("--output-dir", default="results", dest="output_dir")
+    cli_flags.add(bench_batch_p, "output", "--out-dir", default="results", dest="output_dir")
     bench_batch_p.add_argument("--model", default=DEFAULT_ANSWER_MODEL)
     bench_batch_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER, choices=CALLER_CHOICES)
     bench_batch_p.add_argument("--judge-model", default=JUDGE_MODEL_FOR_PROVIDER, dest="judge_model",

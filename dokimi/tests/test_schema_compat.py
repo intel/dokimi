@@ -171,17 +171,19 @@ def test_main_against_a_base(monkeypatch, tmp_path, capsys):
     fixtures = {"b.v1.json": {"a": 1}}
 
     def fake_git(*args):
+        if args[0] == "cat-file":  # the object id is the schema's name here
+            return json.dumps(base[args[2]])
         rel = args[1].split(":./", 1)[1]
         if rel.startswith(sc.FIXTURE_DIR + "/"):
             name = rel.rsplit("/", 1)[1]
             if name not in fixtures:
                 raise sc.GitPathMissing("no such path")
             return json.dumps(fixtures[name])
-        return json.dumps(base[rel])
+        raise AssertionError(f"unexpected git {args}")
 
     monkeypatch.setattr(sc, "SCHEMA_DIR", tmp_path)
     monkeypatch.setattr(sc, "_git", fake_git)
-    monkeypatch.setattr(sc, "_ls_tree_names", lambda *args: [*base, "README.md"])
+    monkeypatch.setattr(sc, "_ls_tree_blobs", lambda *args: [(n, n) for n in [*base, "README.md"]])
     assert sc.main(["--base", "X"]) == 1
     out = capsys.readouterr()
     assert "BREAKING b.v1.json <root>: 'a' is now required" in out.out
@@ -431,7 +433,7 @@ def test_main_warns_when_the_base_has_no_schemas_to_compare(monkeypatch, tmp_pat
 
     (tmp_path / "a.v1.json").write_text(json.dumps(OBJ), encoding="utf-8")
     monkeypatch.setattr(sc, "SCHEMA_DIR", tmp_path)
-    monkeypatch.setattr(sc, "_ls_tree_names", lambda *args: [])
+    monkeypatch.setattr(sc, "_ls_tree_blobs", lambda *args: [])
     monkeypatch.setattr(sc, "_renamed_from", lambda base, rel: None)
     assert sc.main(["--base", "X"]) == 0
     assert "WARNING  - no schemas found at X to compare against" in capsys.readouterr().out
@@ -632,3 +634,130 @@ def test_main_reports_a_breaking_edit_to_a_schema_whose_name_is_not_utf8(
     monkeypatch.setattr(sc, "SCHEMA_DIR", tmp_path)
     assert sc.main(["--base", "HEAD"]) == 1
     assert "BREAKING r?.v1.json <root>: 'a' is now required" in capsys.readouterr().out
+
+
+def test_a_git_path_that_is_not_utf8_does_not_raise_on_windows(monkeypatch):
+    """Windows os.fsdecode is strict UTF-8 and raised UnicodeDecodeError on a tree made on Linux."""
+    import dokimi.schema_compat as sc
+    from dokimi import process_io
+
+    def windows_fsdecode(raw):
+        return raw.decode("utf-8", "surrogatepass") if isinstance(raw, bytes) else raw
+
+    class Proc:
+        stdout_bytes = b"100644 blob " + b"a" * 40 + b"\tschemas/l\xffint.txt\0"
+
+    monkeypatch.setattr(process_io, "_POSIX", False)
+    monkeypatch.setattr(process_io.os, "fsdecode", windows_fsdecode)
+    monkeypatch.setattr(sc, "_git_proc", lambda *args: Proc())
+    assert sc._ls_tree_blobs("HEAD", "./") == [("schemas/l\ufffdint.txt", "a" * 40)]
+
+
+@_BYTE_NAMES
+def test_main_exits_2_for_a_base_schema_whose_name_is_not_utf8_on_windows(
+        monkeypatch, tmp_path, capsys):
+    """Windows reads l<FF>int.v1.json as l<U+FFFD>int.v1.json, which it cannot match to a work-tree file:
+    a removal of it passed when the branch added a Windows-valid l<U+FFFD>int.v1.json. The check stops
+    with exit 2, naming the raw bytes."""
+    import dokimi.schema_compat as sc
+    from dokimi import process_io
+
+    (tmp_path / os.fsdecode(b"l\xffint.v1.json")).write_text(json.dumps(OBJ), encoding="utf-8")
+    (tmp_path / "ok.v1.json").write_text(json.dumps(OBJ), encoding="utf-8")
+    _commit_all(tmp_path)
+    (tmp_path / os.fsdecode(b"l\xffint.v1.json")).unlink()
+    (tmp_path / "l�int.v1.json").write_text(json.dumps(OBJ), encoding="utf-8")
+    monkeypatch.setattr(process_io, "_POSIX", False)
+    monkeypatch.setattr(sc, "SCHEMA_DIR", tmp_path)
+    assert sc.main(["--base", "HEAD"]) == 2
+    err = capsys.readouterr().err
+    assert "cannot diff against HEAD" in err
+    assert "b'l\\xffint.v1.json'" in err
+
+
+@_BYTE_NAMES
+def test_main_exits_2_for_a_base_schema_named_with_an_encoded_surrogate_on_windows(
+        monkeypatch, tmp_path, capsys):
+    """Windows decodes l<ED A0 80>int.v1.json as a lone surrogate, but the lossy reading used as the key is
+    three U+FFFD: a removal of it passed when the branch added l<U+FFFD x3>int.v1.json."""
+    import dokimi.schema_compat as sc
+    from dokimi import process_io
+
+    (tmp_path / os.fsdecode(b"l\xed\xa0\x80int.v1.json")).write_text(json.dumps(OBJ), encoding="utf-8")
+    _commit_all(tmp_path)
+    (tmp_path / os.fsdecode(b"l\xed\xa0\x80int.v1.json")).unlink()
+    (tmp_path / "l���int.v1.json").write_text(json.dumps(OBJ), encoding="utf-8")
+    monkeypatch.setattr(process_io, "_POSIX", False)
+    monkeypatch.setattr(sc, "SCHEMA_DIR", tmp_path)
+    assert sc.main(["--base", "HEAD"]) == 2
+    assert "b'l\\xed\\xa0\\x80int.v1.json'" in capsys.readouterr().err
+
+
+@_BYTE_NAMES
+def test_main_ignores_a_base_file_that_is_not_a_schema_and_not_utf8_on_windows(
+        monkeypatch, tmp_path, capsys):
+    import dokimi.schema_compat as sc
+    from dokimi import process_io
+
+    (tmp_path / os.fsdecode(b"notes\xff.txt")).write_text("x", encoding="utf-8")
+    (tmp_path / "ok.v1.json").write_text(json.dumps(OBJ), encoding="utf-8")
+    _commit_all(tmp_path)
+    monkeypatch.setattr(process_io, "_POSIX", False)
+    monkeypatch.setattr(sc, "SCHEMA_DIR", tmp_path)
+    assert sc.main(["--base", "HEAD"]) == 0
+    assert "OK" in capsys.readouterr().out
+
+
+@_BYTE_NAMES
+def test_a_git_path_that_is_not_utf8_stays_its_bytes_on_posix(monkeypatch):
+    import dokimi.schema_compat as sc
+
+    class Proc:
+        stdout_bytes = b"100644 blob " + b"b" * 40 + b"\tschemas/l\xffint.json\0"
+
+    monkeypatch.setattr(sc, "_git_proc", lambda *args: Proc())
+    assert sc._ls_tree_blobs("HEAD", "./") == [(os.fsdecode(b"schemas/l\xffint.json"), "b" * 40)]
+
+
+# ── exit codes: 0 compatible, 1 a breaking edit, 2 a base git cannot read ──
+
+def test_main_exits_2_and_names_the_cause_when_git_cannot_read_the_base(
+        monkeypatch, tmp_path, capsys):
+    import dokimi.schema_compat as sc
+
+    (tmp_path / "a.v1.json").write_text(json.dumps(OBJ), encoding="utf-8")
+    _commit_all(tmp_path)
+    monkeypatch.setattr(sc, "SCHEMA_DIR", tmp_path)
+    monkeypatch.chdir(tmp_path)
+    assert sc.main(["--base", "no-such-ref"]) == 2
+    captured = capsys.readouterr()
+    assert captured.err.startswith("cannot diff against no-such-ref: ")
+    assert "no-such-ref" in captured.err.splitlines()[0]
+    assert "OK" not in captured.out
+
+
+def test_main_exits_2_when_only_the_second_read_of_the_base_fails(monkeypatch, tmp_path, capsys):
+    import dokimi.schema_compat as sc
+
+    (tmp_path / "a.v1.json").write_text(json.dumps(OBJ), encoding="utf-8")
+    monkeypatch.setattr(sc, "SCHEMA_DIR", tmp_path)
+    monkeypatch.setattr(sc, "compare_against", lambda base: {})
+
+    def unreadable(base):
+        raise sc.GitError("base is gone")
+
+    monkeypatch.setattr(sc, "_base_has_schemas", unreadable)
+    assert sc.main(["--base", "X"]) == 2
+    assert capsys.readouterr().err == "cannot diff against X: base is gone\n"
+
+
+def test_main_still_exits_1_for_a_breaking_edit_to_a_readable_base(monkeypatch, tmp_path, capsys):
+    import dokimi.schema_compat as sc
+
+    (tmp_path / "a.v1.json").write_text(json.dumps(_with(required=[])), encoding="utf-8")
+    _commit_all(tmp_path)
+    (tmp_path / "a.v1.json").write_text(json.dumps(OBJ), encoding="utf-8")
+    monkeypatch.setattr(sc, "SCHEMA_DIR", tmp_path)
+    monkeypatch.chdir(tmp_path)
+    assert sc.main(["--base", "HEAD"]) == 1
+    assert "BREAKING a.v1.json <root>: 'a' is now required" in capsys.readouterr().out

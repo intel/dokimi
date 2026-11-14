@@ -12,6 +12,7 @@ from typing import Any
 
 from dokimi import process
 from dokimi.harnesses.tasks import read_task_config
+from dokimi.process_io import disk_path_text, exact_path_text, path_text
 
 from .catalog_eval_inputs import task_dir
 
@@ -28,21 +29,24 @@ def _git(root: Path, *args: str) -> process.Completed:
     )
 
 
-def _paths(done: process.Completed) -> list[str]:
+def _paths(done: process.Completed, *, from_disk: bool = False) -> list[str]:
     if done.returncode:
         raise ValueError(f"cannot read changed paths: {process.git_failure(done)}")
-    # Git's bytes are filesystem names, not shell commands or line-delimited text.
-    return [os.fsdecode(path) for path in done.stdout_bytes.split(b"\0") if path]
+    # Git's bytes are filesystem names, not shell commands or line-delimited text. A listing of the disk
+    # names files as the file system does, so a lone-surrogate name on Windows stays its own file's name.
+    decode = disk_path_text if from_disk else path_text
+    return [decode(path) for path in done.stdout_bytes.split(b"\0") if path]
 
 
 def _others(root: Path) -> list[str]:
     """Untracked files, ignored ones included; the caller keeps those a bundle hashes."""
-    return _paths(_git(root, "ls-files", "--others", "-z", "--", "."))
+    return _paths(_git(root, "ls-files", "--others", "-z", "--", "."), from_disk=True)
 
 
 def ignored_paths(root: Path) -> frozenset[str]:
     """The untracked files git ignores (``.gitignore`` and ``info/exclude``), one path each."""
-    return frozenset(_paths(_git(root, "ls-files", "--others", "--ignored", "--exclude-standard", "-z", "--", ".")))
+    listed = _git(root, "ls-files", "--others", "--ignored", "--exclude-standard", "-z", "--", ".")
+    return frozenset(_paths(listed, from_disk=True))
 
 
 def _base_owners(root: Path, base: str, paths: list[str]) -> dict[str, str] | None:
@@ -136,6 +140,10 @@ def source_and_changes(root: Path, base: str | None, out: Path) -> tuple[
     if tracked.returncode and _git(root, "config", "--get-regexp", r"^remote\..*\.(promisor|partialclonefilter)$").returncode == 0:
         return source, None, untracked, {}, partial
     paths = sorted(path for path in set(_paths(tracked)) if not (root / path).is_relative_to(out))
+    if any(exact_path_text(raw) != path_text(raw) for raw in tracked.stdout_bytes.split(b"\0") if raw):
+        # the replaced name is another path's: it would read that path's owner at the base and leave the real one unselected
+        return source, None, untracked, {}, (
+            f"A path changed since {base!r} is not valid UTF-8 and cannot be matched to its skill; conservatively checking every skill.")
     owners = _base_owners(root, resolved.stdout.strip(), paths)
     if owners is None:
         return source, None, untracked, {}, partial

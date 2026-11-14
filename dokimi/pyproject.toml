@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "dokimi"
-version = "0.1.0"
+version = "0.2.0"
 description = "Measures whether a skill, MCP doc source, documentation set or agent profile actually improves AI-agent answers and task outcomes"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -190,8 +190,6 @@ extend-exclude = ["benchmarks", "data", "tests/fixtures/task_formats"]
 # files above for 3.11:
 #   UP (pyupgrade) 1399, of which PEP 585/604 annotations 1185, imports 162
 #   I (isort) 156
-#   RUF100 (unused noqa) 22: most name rules not selected (BLE001, E402), so
-#   select those or list them in lint.external first
 # Hand fixes deferred because an open PR rewrites the same lines (#29, one
 # process runner for the spawn sites):
 #   PLW1509 (preexec_fn with threads) 1, PLW1510 (subprocess.run without
@@ -228,8 +226,10 @@ select = [
   "RUF006", "RUF008", "RUF009", "RUF013", "RUF016", "RUF017", "RUF018",
   "RUF020", "RUF024", "RUF026", "RUF028", "RUF030", "RUF032", "RUF033", "RUF034",
   "RUF040", "RUF048", "RUF049", "RUF053", "RUF060", "RUF061", "RUF063", "RUF064",
-  "RUF068", "RUF071", "RUF101", "RUF102", "RUF103", "RUF104", "RUF200",
+  "RUF068", "RUF071", "RUF100", "RUF101", "RUF102", "RUF103", "RUF104", "RUF200",
 ]
+# noqa codes of rules not selected here; RUF100 leaves them alone.
+external = ["ARG001", "BLE001", "E402", "E731", "N802", "N818", "S310"]
 ignore = [
   "A002",     # argument named like a builtin: keyword APIs mirror subprocess's input=
   "G004",     # f-string in a logging call: style, 108 sites
@@ -276,10 +276,9 @@ timeout = 60
 # the reason; ours are fixed where they are raised.
 filterwarnings = [
   "error",
-  # litellm's __init__ ignores this pydantic notice with a process-wide filter,
-  # which pytest resets per test; a litellm response model first built in a later
-  # test then warns, once per model (ReadOnly TypedDict items are not enforced).
-  "ignore:Item 'summary' on TypedDict class 'ChatCompletionReasoningItem' is using the `ReadOnly` qualifier:UserWarning:pydantic._internal._generate_schema",
+  # pydantic notes it does not enforce ReadOnly on any TypedDict; litellm ignores it process-wide,
+  # but pytest resets filters per test and litellm adds ReadOnly items each release.
+  "ignore:(Items? .*|Extra items) on TypedDict class .* (is|are) using the `ReadOnly` qualifier:UserWarning:pydantic._internal._generate_schema",
 ]
 # Test order is shuffled and `random` reseeded per test (pytest-randomly), so a
 # test that leans on another's leftovers fails. The header prints the seed;

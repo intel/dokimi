@@ -122,7 +122,7 @@ criteria:
     evidence:
       - id: cjm-repo-reach
         kind: cli_scenario
-        invokes: ["repo reach --dry-run", "repo reach --scenarios --out", "repo reach --budget"]
+        invokes: ["repo reach --dry-run", "repo reach --scenarios --out-dir", "repo reach --budget"]
         stubs: [harness (fake executable behind a harness profile), model]
     scope: the fake harness reads files by rule; this shows the measurement and artifact, not any real harness's loading behaviour
   AC-J04-004:
@@ -265,7 +265,7 @@ criteria:
     evidence:
       - id: cjm-tasks-check-graders
         kind: cli_scenario
-        invokes: ["eval check --manifest --out", "eval check --warm"]
+        invokes: ["eval check --manifest --out-dir", "eval check --warm"]
         stubs: [Docker (FakeRunner runs the task scripts on the host)]
     scope: verifier sanity on null and oracle; says nothing about task relevance or coverage (AC-J07-004)
   AC-J07-002:
@@ -275,7 +275,7 @@ criteria:
     evidence:
       - id: cjm-tasks-check-graders
         kind: cli_scenario
-        invokes: ["eval check --manifest --out"]
+        invokes: ["eval check --manifest --out-dir"]
         stubs: [Docker (FakeRunner runs the task scripts on the host)]
   AC-J07-003:
     delivery: available
@@ -316,11 +316,12 @@ criteria:
     delivery: partial
     enforce: true
     capability: eval-coverage
-    surfaces: ["eval coverage --graph"]
+    surfaces: ["eval coverage --graph", "eval graph --out"]
     evidence:
       - {id: cjm-eval-coverage-gaps, kind: unit, stubs: []}
+      - {id: cjm-eval-graph-build, kind: unit, stubs: [the graph-author model call]}
     gaps:
-      - "the need graph is built by a model and read as given: building, interviewing and drafting labels are not commands yet (#331)"
+      - "the built graph is one model draw read as given: interviewing the user and drafting labels are not commands yet (#331)"
 
   # ---------------------------------------------------------------- J11
   AC-J11-001:
@@ -362,8 +363,8 @@ criteria:
     delivery: available
     enforce: true
     capability: novelty
-    surfaces: ["skill novelty analyze --max-usd", "skill novelty probe --max-usd", "novelty routing --max-usd"]
-    refs: [docs/skill-novelty.md#cost-and-how-it-is-kept-down, dokimi/commands/novelty.py]
+    surfaces: ["skill novelty analyze --max-usd", "skill novelty probe --max-usd", "skill routing --max-usd"]
+    refs: [docs/skill-novelty.md#cost-and-how-it-is-kept-down, dokimi/commands/novelty.py, dokimi/novelty/cost.py]
     evidence:
       - {id: cjm-novelty-spend-cap, kind: unit, stubs: [model client prices]}
   AC-J14-002:
@@ -383,7 +384,7 @@ criteria:
       - id: cjm-novelty-authoring-path
         kind: cli_scenario
         invokes:
-          - "novelty routing --artifact --competitors --queries"
+          - "skill routing --competitors --queries"
           - "skill novelty analyze --estimate-only"
           - "skill novelty atoms --extract-model --out"
           - "skill novelty probe --atoms --model --judge-model"

@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 import pytest
 
+from dokimi.gate.verdict import Check, Verdict
 from dokimi.runner.run import _weighted_score, _load_spec, run_benchmark, save_snapshot
 from tests.cli_refusal import refusal
 
@@ -66,7 +67,7 @@ def test_run_benchmark_basic(tmp_path):
          patch("dokimi.runner.run.freshness_lite.score", return_value=0.9), \
          patch("dokimi.runner.run.readability.score", return_value=0.7), \
          patch("dokimi.runner.run.check_gate") as gate:
-        gate.return_value = type("G", (), {"enabled": True, "passed": True, "min_score": 0.6})()
+        gate.return_value = Verdict(checks=[Check(name="score", passed=True, value=0.7, threshold=0.6, severity="fail")])
         out = run_benchmark(root, spec)
 
     assert out["summary"]["docs"] == 1
@@ -94,7 +95,7 @@ def test_run_benchmark_with_examples(tmp_path):
          patch("dokimi.runner.run.readability.score", return_value=0.7), \
          patch("dokimi.runner.run.score_examples", return_value=(1.0, [ex_result()])), \
          patch("dokimi.runner.run.check_gate") as gate:
-        gate.return_value = type("G", (), {"enabled": True, "passed": True, "min_score": 0.6})()
+        gate.return_value = Verdict(checks=[Check(name="score", passed=True, value=0.7, threshold=0.6, severity="fail")])
         out = run_benchmark(root, spec)
 
     assert "example_pass_rate" in out["summary"]
@@ -139,7 +140,7 @@ def test_run_command_exits_2_without_a_traceback_when_a_doc_does_not_load(tmp_pa
 
     found = [tmp_path / "docs/a.md"]
     args = build_parser().parse_args(["docs", "check", "--root", str(tmp_path), "--spec", str(_spec(tmp_path)),
-                                      "--out-json", str(tmp_path / "o.json"), "--out-md", str(tmp_path / "o.md")])
+                                      "--out", str(tmp_path / "o.json"), "--out-md", str(tmp_path / "o.md")])
     with patch("dokimi.runner.run.discover_markdown", return_value=found), \
          patch("dokimi.runner.run.load_docs", return_value={}):
         with refusal() as exc:

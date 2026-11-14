@@ -34,7 +34,7 @@ get structurally better or worse?"
 python cli.py docs check \
   --root . \
   --spec benchmarks/spec.v1.yaml \
-  --out-json baselines/current.json \
+  --out baselines/current.json \
   --out-md reports/current.md
 ```
 
@@ -53,7 +53,7 @@ python cli.py docs compare \
   --base baselines/baseline.json \
   --candidate baselines/current.json \
   --spec benchmarks/spec.v1.yaml \
-  --out-json reports/compare.json \
+  --out reports/compare.json \
   --out-md reports/compare.md
 ```
 
@@ -89,8 +89,8 @@ Every command takes its models from `dokimi/defaults.py`, and every surface
 
 The judge is a different family from the answerer, so the judge-independence
 warning stays quiet on default flags; answering with `claude-sonnet-5-5` moves the
-novelty judge to `openai/gpt-6.1-sol` and makes `benchmark`, `eval score pointwise`,
-`eval score panel`, `evaluate`, `arms run` and `subjects run` warn. Escalation
+novelty judge to `openai/gpt-6.1-sol`, and a judging run that answers with it on the
+default judge's provider is refused (see below). Escalation
 judges (`--escalate-model`) have no default; `claude-opus-5-5` ($4 / $20) is the
 natural tie-break above the Sonnet judge. On `--provider amazon-bedrock` the bare
 names `claude-sonnet-5-5`, `claude-opus-5-5` and `claude-haiku-5-5` resolve to the
@@ -101,13 +101,16 @@ A variable naming another model is ignored for these names. The `novelty` judge 
 longer follows `--provider`: with no judge flags it runs on `anthropic`, so a
 Bedrock-only run passes `--judge-provider amazon-bedrock` (and `atoms`/`shorten`
 `--provider amazon-bedrock`). `--judge-provider` alone takes the default judge that
-runs there; when none does (measuring `claude-sonnet-5-5` on Bedrock) the run exits
-and asks for `--judge-model`. The other commands with a judge (`benchmark`, `eval`,
-`evaluate`, `arms` and `subjects`) do the same with `--judge-provider` alone:
-`claude-sonnet-5-5` on `anthropic` and `amazon-bedrock`, `gpt-6.1-sol` on `openai`
-(the default answer model, so the judge-independence warning fires where it is
-checked), and on any other provider they exit before the first call and ask for
-`--judge-model`.
+runs on that provider, the same on every surface: `claude-sonnet-5-5` on `anthropic`
+and `amazon-bedrock`, `opus` on `claude-cli` (`sonnet` when the answerer is `opus`),
+`gpt-6.1-sol` on `openai`. When that judge is the model under measurement (`gpt-6.1-sol`
+on `openai`, the default answer model) a judging run exits before its first answer
+and asks for `--judge-model`; so does `--model claude-sonnet-5-5` with the default
+`--judge-provider anthropic`. `eval score` and `eval judge` have no answerer and judge
+with `gpt-6.1-sol` on `openai`. On any other provider (`google`, `google-vertex`,
+`openrouter`) the run exits before the first call and asks for `--judge-model`. A
+matrix (`arms matrix-run --matrix-cells`) has one judge for all its cells; a cell
+whose model is that judge is warned about, not refused.
 
 **Defaults changed on 2026-10-13: results are not comparable with older baselines;
 re-baseline.** Before, `benchmark`/`answers`/`eval` answered with `gpt-5.5` and
@@ -128,7 +131,7 @@ python cli.py benchmark run \
   --provider openai \
   --judge-model claude-sonnet-5-5 \
   --judge-provider anthropic \
-  --output-dir results/onetbb_sol
+  --out-dir results/onetbb_sol
 ```
 
 The run writes:
@@ -158,7 +161,7 @@ python cli.py benchmark run \
   --judge-model claude-sonnet-5-5 \
   --judge-provider anthropic \
   --multi-run 3 \
-  --output-dir results/onetbb_sol
+  --out-dir results/onetbb_sol
 ```
 
 Multi-run mode creates numbered run directories and prints the mean and
@@ -175,7 +178,7 @@ python cli.py benchmark run \
   --model gpt-6.1-sol \
   --judge-model claude-sonnet-5-5 \
   --judge-provider anthropic \
-  --output-dir results/onedal_seed
+  --out-dir results/onedal_seed
 ```
 
 Then reuse that question set for each model:
@@ -188,7 +191,7 @@ python cli.py benchmark run \
   --provider openai \
   --judge-model claude-sonnet-5-5 \
   --judge-provider anthropic \
-  --output-dir results/onedal_astra
+  --out-dir results/onedal_astra
 
 python cli.py benchmark run \
   --library onedal \
@@ -197,7 +200,7 @@ python cli.py benchmark run \
   --provider anthropic \
   --judge-model claude-sonnet-5-5 \
   --judge-provider anthropic \
-  --output-dir results/onedal_opus55
+  --out-dir results/onedal_opus55
 ```
 
 Interpret model comparisons using two separate signals:
@@ -213,7 +216,7 @@ Generate a cross-run dashboard when you have multiple eval files:
 ```bash
 python cli.py dashboard generate \
   --results-dir results \
-  --output-dir reports
+  --out-dir reports
 ```
 
 The dashboard reads evaluation artifacts and writes `reports/DASHBOARD.md` and
@@ -267,7 +270,7 @@ python cli.py arms run \
   --questions <content-checkout>/questions/onetbb_golden.json \
   --arms "baseline,docs,skill:<content-checkout>/skills/onetbb-quickstart" \
   --judge \
-  --out-json results/arms/onetbb_skill.json \
+  --out results/arms/onetbb_skill.json \
   --out-md results/arms/onetbb_skill.md
 ```
 
@@ -359,15 +362,24 @@ python cli.py arms run ... --stats-correction bh
 
 Arm contrasts and factorial-interaction contrasts are corrected as **separate
 families** — pooling them would inflate the multiplier on both — and each row
-records its `correction_family`, `family_size`, and `family_tested`.
+records its `correction_family`, `family_size` (every member), and `family_tested`
+(the members whose p can reach 0.05: the multiplier).
 
 Each row's `p` is one two-sided sign-flip test on the per-question deltas: under
 the null each delta's sign is a fair coin, and p is the share of sign patterns
 whose |sum| reaches the observed one (exact up to 16 changed pairs, Monte Carlo
 with a fixed seed above). A delta within 1e-9 of 0 is a tie and carries no sign,
 so over k changed pairs (`n_changed`) p cannot go below 2/2^k: at 5 or fewer no
-data whatsoever reaches 0.05. The test runs from 2 pairs and its p is printed,
-and an arm under that floor stays in the correction family, as in `repo compare`.
+data whatsoever reaches 0.05. The test runs from 2 pairs and its p is printed.
+An arm under that floor can never be significant, so it stays out of the
+multiplier, as a `repo compare` row does: it counts in `family_size` but not in
+`family_tested`, and its `p_adjusted` is null. The other arms are corrected as if
+it were not there, so a verdict near 0.05 can move toward significant where a
+floor-bound arm shares the family. The 5% family-wise rate holds when whether an
+arm can reach 0.05 follows from the magnitudes of the deltas alone (which are
+ties), as under the sign-flip null, where the signs are fair coins given the
+magnitudes. It can be exceeded if one arm's ties are set by another arm's signs:
+in a constructed case, 6.9% against 4.6% with the arm kept in the family.
 
 The **Sig.** column follows the *adjusted* p-value, not the raw one. Three
 values are possible:
@@ -441,7 +453,7 @@ any answer is generated, so on these models leave
 `--temperature` and `--judge-temperature` unset. Their sampling cannot be
 pinned, only measured: run the same configuration several times
 (`benchmark run --multi-run N`; for `arms run`, repeat the run into separate
-`--out-json` files) and quote the spread.
+`--out` files) and quote the spread.
 
 - `--temperature`, `--seed`: sampling for answer generation, recorded in
   `run_config`. Omitted from the request when unset.
@@ -552,8 +564,8 @@ FAIL; `--sequential` adds a `mode` line and marks a degradation still undecided
 at the stop `continue`, with the reason under INCONCLUSIVE (cap reached, or the
 answer pool exhausted). An undecided result prints `RESULT: INCONCLUSIVE`
 when it is above the gate and `RESULT: FAIL (INCONCLUSIVE, see above)` when it
-is below, never PASS. Exit policy is unchanged: a below-threshold point estimate exits 1;
-an above-threshold inconclusive result warns and exits 0 by default, or 1 with
+is below, never PASS. Exit policy: a below-threshold point estimate exits 1;
+an above-threshold inconclusive result warns and exits 3 by default, or 1 with
 `--strict`. A settled PASS exits 0. JSON retains `passed` (the point-estimate
 check) and `conclusive`; promotion requires both to be true. A malformed input, such as a record that would be judged with no
 question text, exits 2, so it never reads as a failed gate.
@@ -855,20 +867,20 @@ python cli.py baseline compare \
 
 When the answer or judge model recorded in the baseline differs from the
 current eval's, `compare` prints a warning naming both before the table: the score changes then
-mix the model change with the content change. With `--strict` it exits 1
+mix the model change with the content change. With `--strict` it exits 4
 instead. Two records name one model when they have the same id and snapshot: a Bedrock alias and its
 inference profile, a regional profile, a `-vN:M` revision or the same model behind another route count
 as the same model; two different dated snapshots, or the same name under another organization, are two models.
 A custom dotted name (`alice.model`) is not a vendor prefix, and a `huggingface/` route keeps its organization.
 A dated snapshot and its undated alias are neither, and so is a Claude CLI alias (`sonnet`, `opus[1m]`) and
 any full id of its family (`claude-sonnet-4-5`, `claude-3-5-sonnet-20240620`): the alias does not record which
-snapshot answered, so the role is named on stderr as not verified, and `--strict` exits 1 on it. A baseline saved before a default-model
+snapshot answered, so the role is named on stderr as not verified, and `--strict` exits 4 on it. A baseline saved before a default-model
 change is such a baseline. A panel
 artifact (`eval score panel`) is compared by its judge models: the panels must have the same number of judges
 and the same models, and a judge that matches the other panel's only through such an alias makes the role
 not verified. A role either
 side does not record (an older artifact, or answers with no model) is named on
-stderr as not compared, and `--strict` exits 1 on it as well, since it cannot
+stderr as not compared, and `--strict` exits 4 on it as well, since it cannot
 vouch for that role. A malformed record in either file (no `question_id`) exits 2,
 naming the record on stderr, so it never reads as a failed `--strict` check.
 `baseline compare` also exits 2 on an eval file, saved baseline or `manifest.json`
@@ -893,7 +905,7 @@ unrounded per-question aggregates, not stored rounded deltas or manifest means.
 Thresholds are finite, non-negative score points; equality passes. Either flag
 enables the gate; when both are supplied both must pass. `--min-matched` defaults
 to 1 and needs a threshold flag (alone it exits 2). The gate exits 1 on a
-regression or an unknown or mismatched answer/judge identity. Insufficient
+regression and exits 4 on an unknown or mismatched answer/judge identity. Insufficient
 evidence exits 2, since the input can be fixed: every question in both artifacts
 must match uniquely and have finite scores in both conditions, and at least
 `--min-matched` must match. Unmatched questions, duplicates, errors and partial
@@ -973,5 +985,5 @@ An artifact of a registered run kind carries the run's envelope right after its
 - A file saved before the envelope has neither key and stays valid; so do the superseded
   versions (`questions.v1`, `subject_scorecard.v1`), which declare no envelope.
 - The `--json` output of `repo scan`, `repo inspect`, `repo budget` and `eval inspect` is the
-  document their `--out` writes, envelope and key order included.
-- The run's cost is not in the envelope yet.
+  `cli_output.v1` envelope with the document their `--out` writes under `data`.
+- Only `repo hits judge` fills the envelope's `cost`; the other leaves report zero.

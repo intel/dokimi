@@ -11,6 +11,7 @@ import math
 import sys
 from pathlib import Path
 
+from dokimi import cli_flags
 from dokimi.exit_codes import EXIT_USAGE
 from dokimi.metrics.example_runner import ExecutionRefused
 from dokimi.report.json_report import write_json
@@ -74,6 +75,7 @@ def cmd_run(args: argparse.Namespace) -> None:
         from dokimi.gate.critical_bands import check_critical_bands
 
         hard_gate = check_gate(result["summary"], spec, "hard")
+        hard_score = hard_gate.require("score")
         try:
             bands = check_critical_bands(result["summary"], spec)
         except ValueError as exc:  # a band the gate cannot read: a bad spec, named, not a traceback
@@ -81,15 +83,14 @@ def cmd_run(args: argparse.Namespace) -> None:
 
         # Exit 1 if hard gate fails
         if hard_gate.enabled and not hard_gate.passed:
-            print(f"\n❌ HARD GATE FAILED: score {hard_gate.actual_score:.4f} < {hard_gate.min_score:.4f}", file=sys.stderr)
+            print(f"\n❌ HARD GATE FAILED: score {hard_score.value:.4f} < {hard_score.threshold:.4f}", file=sys.stderr)
             sys.exit(1)
 
         # Exit 1 if any critical band violated
-        if bands.has_violations:
+        if bands.blocking:
             print("\n❌ CRITICAL BAND VIOLATIONS:", file=sys.stderr)
-            for v in bands.violations:
-                if v.violated:
-                    print(f"  - {v.condition}: {v.actual:.4f} < {v.threshold:.4f}", file=sys.stderr)
+            for c in bands.failures:
+                print(f"  - {c.name}: {c.value:.4f} < {c.threshold:.4f}", file=sys.stderr)
             sys.exit(1)
 
         # A score over no document passes any gate set at 0 or switched off.
@@ -155,7 +156,7 @@ def register(sub, positive_int) -> None:
     check_p = docs_sub.add_parser("check", help="Run the static benchmark spec and save a snapshot")
     check_p.add_argument("--root", default=".")
     check_p.add_argument("--spec", default="benchmarks/spec.v1.yaml")
-    check_p.add_argument("--out-json", default="baselines/current.json")
+    cli_flags.add(check_p, "output", "--out", dest="out_json", default="baselines/current.json")
     check_p.add_argument("--out-md", default="reports/current.md")
     check_p.add_argument("--strict", action="store_true", help="Enable hard gate and critical bands (exit 1 on failure)")
     check_p.set_defaults(func=cmd_run)
@@ -168,6 +169,6 @@ def register_compare(sub, positive_int) -> None:
     cmp_p.add_argument("--base", required=True)
     cmp_p.add_argument("--candidate", required=True)
     cmp_p.add_argument("--spec", default=None, help="Spec file for regression thresholds")
-    cmp_p.add_argument("--out-json", default="reports/compare.json")
+    cli_flags.add(cmp_p, "output", "--out", dest="out_json", default="reports/compare.json")
     cmp_p.add_argument("--out-md", default="reports/compare.md")
     cmp_p.set_defaults(func=cmd_compare)

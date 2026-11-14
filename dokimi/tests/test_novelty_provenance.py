@@ -7,6 +7,7 @@ import argparse
 import json
 import subprocess
 
+from dokimi.novelty import cost as novelty_cost
 import pytest
 
 from dokimi.commands.novelty_run import judge2_client, stamp
@@ -108,6 +109,18 @@ def test_regrade_samples_the_fraction_and_compares_with_the_second_judge():
     assert (again["n_compared"], again["n_errored"], again["exact_agreement"]) == (0, 3, None)
 
 
+def test_regrade_compares_with_the_first_judge_not_with_a_veto_that_overruled_it():
+    # A failed veto makes the run wrong_other; the first judge said correct, and that is what the
+    # second judge is compared with. A run whose first judge failed is left out, though vetoed.
+    measured = _measured(2)
+    for run in measured.runs:
+        run.judge_verdict, run.verdict, run.verdict_source = RIGHT, WRONG, "check"
+    measured.runs[1].judge_verdict = ERRORED
+    judge2 = LLMClient(model="gpt-6", transport=lambda p, s: (json.dumps({"verdict": RIGHT}), None))
+    out = regrade(measured, judge2, frac=1.0, concurrency=1)
+    assert (out["n_sampled"], out["n_compared"], out["lenient_agreement"]) == (1, 1, 1.0)
+
+
 def _args(**kw):
     base = dict(judge2="m-answer", judge2_provider=None, judge2_frac=0.15, allow_self_judge=False,
                 context_framing="reference", seed=0, concurrency=1)
@@ -206,7 +219,6 @@ def test_the_cli_refuses_a_judge2_that_is_the_first_judge_before_any_call(sub, t
     import sys
 
     from dokimi import cli
-    from dokimi.commands import novelty as novelty_cmd
     from dokimi.defaults import DEFAULT_JUDGE_MODEL
     from tests.cli_paths import novelty_argv
 
@@ -227,7 +239,7 @@ def test_the_cli_refuses_a_judge2_that_is_the_first_judge_before_any_call(sub, t
             "spans": [{"id": "s0001", "kind": "sentence", "text": "Text.", "start": 0, "end": 5}],
         }), encoding="utf-8")
         argv += ["--atoms", str(atoms)]
-    monkeypatch.setattr(novelty_cmd, "_client", lambda model, provider, role, args: LLMClient(
+    monkeypatch.setattr(novelty_cost, "client", lambda model, provider, role, args: LLMClient(
         model=model, provider=provider, role=role, transport=counting))
     monkeypatch.setattr(sys, "argv", argv)
     with pytest.raises(SystemExit) as excinfo:

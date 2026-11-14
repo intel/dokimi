@@ -24,7 +24,7 @@ from tests.cli_refusal import refusal
 ARMS_RUN = ["arms", "run", "--product", "demo", "--questions", "q.json", "--arms", "baseline"]
 
 
-@pytest.mark.parametrize("judge_provider", [[], ["--judge-provider", "openai"]])
+@pytest.mark.parametrize("judge_provider", [[], ["--judge-provider", "openai"], ["--judge-provider", "claude-cli"]])
 def test_the_config_defaults_are_what_arms_run_runs_without_a_flag(judge_provider):
     # A command without a flag (subjects run has no --temperature) and a caller building the
     # config both run these defaults, so they must not drift from the flags'; see #270.
@@ -40,7 +40,7 @@ def test_a_judge_provider_with_no_default_judge_needs_a_judge_model(capsys):
     assert exc.code == 2
     assert "--judge-provider openrouter has no default judge model" in capsys.readouterr().err
 
-    with pytest.raises(ValueError, match="'openrouter' has no default judge model"):
+    with pytest.raises(ValueError, match="openrouter has no default judge model"):
         ArmsRunConfig(product="demo", judge_provider="openrouter")
     assert ArmsRunConfig(product="demo", judge_provider="openrouter",
                          judge_model="m").judge_model == "m"
@@ -69,7 +69,7 @@ def unresolvable(tmp_path: Path, monkeypatch) -> dict[str, Path]:
 
 
 @pytest.mark.parametrize("command", [
-    ["arms", "run", "--out-json", "{out}/a.json", "--out-md", "{out}/a.md"],
+    ["arms", "run", "--out", "{out}/a.json", "--out-md", "{out}/a.md"],
     ["arms", "matrix-run", "--matrix-cells", "{cells}", "--out-dir", "{out}"],
 ])
 def test_a_doc_arm_without_a_library_id_stops_the_run_before_any_answer(command, unresolvable,

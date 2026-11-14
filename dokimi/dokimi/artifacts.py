@@ -16,9 +16,11 @@ repository offers an agent), ``plan`` (the cells a run promises to measure),
 into an agent's context), ``effective_instructions`` (the effective-instructions/v0
 receipt of a reach probe), ``need_graph`` and ``eval_coverage`` (a frozen need graph and an
 eval set's coverage of it), ``task_inspect`` (which eval-task format each
-path under a tree is), ``repo_hits_judged`` (a judge's labels of one replay cell's credited pairs)
-and ``dokimi_config`` (a repository's subjects and where their evals are) and ``reach_matrix`` (the reach
-conformance matrix). This module stamps each with a ``schema_version`` and validates it against the JSON Schema in
+path under a tree is), ``repo_hits_judged`` (a judge's labels of one replay cell's credited pairs),
+``dokimi_config`` (a repository's subjects and where their evals are), ``reach_matrix`` (the reach
+conformance matrix), ``personas`` and ``persona_analysis`` (proposed user personas and the GitHub
+signals behind them), ``question_panel`` and ``question_quality`` (reviews of a question set) and
+``report_qa`` (the Q&A sidecar of ``report eval``). This module stamps each with a ``schema_version`` and validates it against the JSON Schema in
 ``dokimi/schemas/`` on save and load, so fixtures and baselines stay
 forward-compatible and self-describing.
 
@@ -83,9 +85,22 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "dokimi_config": "dokimi_config.v1",
     "need_graph": "need_graph.v1",
     "eval_coverage": "eval_coverage.v1",
+    "skill_coverage": "skill_coverage.v1",
     "catalog_eval": "catalog_eval.v1",
     "reach_matrix": "reach_matrix.v1",
     "repo_hits_judged": "repo_hits_judged.v1",
+    "ragas": "ragas.v1",
+    "grounding": "grounding.v1",
+    "checklist": "checklist.v1",
+    "judge_wording": "judge_wording.v1",
+    "cross_judge": "cross_judge.v1",
+    "judge_validity": "judge_validity.v1",
+    "pairwise": "pairwise.v1",
+    "personas": "personas.v1",
+    "persona_analysis": "persona_analysis.v1",
+    "question_panel": "question_panel.v1",
+    "question_quality": "question_quality.v1",
+    "report_qa": "report_qa.v1",
 }
 
 # kind -> superseded versions still accepted on *load*, newest first. An artifact written under an
@@ -204,9 +219,19 @@ def schema_errors(schema: str | Path, instance: Any) -> list[str]:
     ]
 
 
+def summary_errors(kind: str, data: dict) -> list[str]:
+    """What the schema file of ``kind`` leaves unchecked: a finished ``novelty`` record (one without
+    ``status``) needs its ``paired``, ``k0`` and ``spans`` summaries, which only a partial record lacks."""
+    if kind != "novelty" or "status" in data:
+        return []
+    return [f"<root>: {name!r} is a required property"
+            for name in ("paired", "k0", "spans") if name not in data]
+
+
 def validate_artifact(kind: str, data: dict) -> None:
     """Validate ``data`` against the schema for ``kind`` (raises on failure)."""
     errors = schema_errors(_schema_path(kind, schema_version_for(kind, data)), data)
+    errors += summary_errors(kind, data)
     if errors:
         details = "\n".join(f"  - {e}" for e in errors)
         raise ArtifactValidationError(f"{kind} artifact validation failed:\n{details}")
@@ -222,7 +247,7 @@ def stamp(kind: str, data: dict) -> dict:
     return {**head, **{k: v for k, v in data.items() if k not in head}}
 
 
-def save_artifact(kind: str, data: dict, path: Path | str) -> dict:
+def save_artifact(kind: str, data: dict, path: Path | str, *, ensure_ascii: bool = True) -> dict:
     """Write ``data`` to ``path`` as a ``kind`` artifact; return exactly what was written.
 
     - ``schema_version`` is set to the current version for ``kind`` and leads the document,
@@ -230,6 +255,9 @@ def save_artifact(kind: str, data: dict, path: Path | str) -> dict:
       input kind. Values already in ``data`` under these keys are replaced: the file records the
       process that last saved it, so an artifact built from a loaded one takes the new run's id.
       ``data`` itself is not mutated.
+    - A ``novelty`` payload with ``status`` or ``partial`` (what a ``--max-usd`` stop keeps) is
+      refused with :class:`~dokimi.utils.InputError`, as :func:`load_artifact` refuses it: nothing
+      is written, since ``runs`` would list the file as a finished run.
     - The payload is validated first. :class:`ArtifactValidationError` means nothing was
       written at ``path`` (a file already there is untouched); the rejected payload is kept
       at ``<name>.rejected`` so a paid run is not lost to a schema problem. A later valid
@@ -248,25 +276,35 @@ def save_artifact(kind: str, data: dict, path: Path | str) -> dict:
       its target when the target's directory exists; otherwise ``FileNotFoundError`` is raised
       and nothing is written (the target's directories are *not* created). A link loop raises
       ``OSError``. ``<name>.rejected`` stays beside ``path``, not the target.
-    - JSON with ``indent=2``, ASCII-escaped, UTF-8.
+    - JSON with ``indent=2``, UTF-8, ASCII-escaped unless ``ensure_ascii`` is false (a file
+      people read, such as the ``report_qa`` sidecar); either way it parses to the same payload.
     """
     if kind not in SCHEMA_VERSIONS:
         raise KeyError(f"Unknown artifact kind: {kind!r}")
+    if _is_partial_novelty(kind, data):  # `runs` would list it as a finished run
+        raise InputError(f"not written to {path}: a partial novelty record (`status` or `partial` "
+                         "set) is not a finished analysis; `skill novelty analyze` keeps it in "
+                         "<out stem>.partial.json")
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     try:
         head = {"schema_version": SCHEMA_VERSIONS[kind], **envelope(kind)}
     except InputError as exc:  # a malformed DOKIMI_RUN_ID in library use: keep the paid payload
         rejected = path.with_name(path.name + ".rejected")
-        rejected.write_text(json.dumps({"schema_version": SCHEMA_VERSIONS[kind], **data}, indent=2), encoding="utf-8")
+        rejected.write_text(json.dumps({"schema_version": SCHEMA_VERSIONS[kind], **data}, indent=2,
+                                       ensure_ascii=ensure_ascii), encoding="utf-8")
         raise InputError(f"{exc}\n(not written to {path}; payload kept at {rejected})") from exc
     payload = {**head, **{k: v for k, v in data.items() if k not in head}}
-    text = json.dumps(payload, indent=2)
+    text = json.dumps(payload, indent=2, ensure_ascii=ensure_ascii)
     try:
         validate_artifact(kind, payload)
     except ArtifactValidationError as exc:
         rejected = path.with_name(path.name + ".rejected")
-        rejected.write_text(text, encoding="utf-8")
+        try:
+            rejected.write_text(text, encoding="utf-8")
+        except OSError as kept:  # still a refusal: the caller exits as for a refused payload, not as an unwritable path
+            raise ArtifactValidationError(f"{exc}\n(not written to {path}; the payload could not be kept at "
+                                          f"{rejected}: {kept})") from exc
         raise ArtifactValidationError(f"{exc}\n(not written to {path}; payload kept at {rejected})") from exc
     target = _write_target(path)
     tmp = target.with_name(f"{target.name}.{os.getpid()}.{threading.get_ident()}.tmp")
@@ -296,6 +334,12 @@ def _write_target(path: Path) -> Path:
     return target
 
 
+def _is_partial_novelty(kind: str, data: dict) -> bool:
+    """Whether ``data`` is what `skill novelty analyze` keeps when --max-usd stops it: not a finished
+    analysis. Either marker alone is enough: the schema lets a record carry one without the other."""
+    return kind == "novelty" and ("partial" in data or data.get("status") == "partial")
+
+
 def load_artifact(kind: str, path: Path | str, *, validate: bool = True) -> dict:
     """Read and (optionally) validate an artifact of ``kind`` from ``path``.
 
@@ -305,6 +349,13 @@ def load_artifact(kind: str, path: Path | str, *, validate: bool = True) -> dict
     data = read_json_input(path)
     if not isinstance(data, dict):
         raise InputError(f"{path} is not a {kind} artifact: expected a JSON object, got {type(data).__name__}")
+    if _is_partial_novelty(kind, data):
+        block = data.get("partial")
+        reason = block.get("reason") if isinstance(block, dict) else None
+        raise InputError(f"{path} is a partial novelty artifact: the run was stopped before it "
+                         "finished, so it is not a finished analysis. " + (
+                             "Drop --max-usd to run unmetered" if reason == "no_price" else
+                             "Rerun with a higher --max-usd, or without the cap"))
     if validate:
         try:
             validate_artifact(kind, data)

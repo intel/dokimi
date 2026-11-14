@@ -356,6 +356,10 @@ code.
 - [judge-panel-study.md](judge-panel-study.md) — how much the judge moves
   the results: per-judge numbers, agreement and self-preference, and the
   judge panels Dokimi has today against the proposal.
+- [grading-tiers.md](grading-tiers.md) — design note (partly implemented):
+  grading probes with verifiable and grounded checks before the LLM judge, keeping the
+  judge's verdict beside them so its accuracy against ground truth can be measured, with
+  prototype numbers from stored probe results.
 
 ## Repository evaluation
 

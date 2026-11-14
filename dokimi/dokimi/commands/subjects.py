@@ -10,6 +10,7 @@ import json
 import sys
 from pathlib import Path
 
+from dokimi import cli_flags, llm_cli
 from dokimi.llm import ANSWER_PROVIDERS
 from dokimi.commands._output import exit_on_unwritable
 from dokimi.eval.judge import JUDGE_PROVIDERS
@@ -20,6 +21,7 @@ from dokimi.defaults import (
     JUDGE_MODEL_FOR_PROVIDER,
     JUDGE_MODEL_HELP,
 )
+from dokimi.judge_rule import apply_default_judge, follow_answerer_cli, refuse_judge_model
 from dokimi.utils import InputError
 
 
@@ -84,6 +86,27 @@ def cmd_subjects_show(args: argparse.Namespace) -> None:
     }, indent=2))
 
 
+def resolve_judge(args, descriptor) -> None:
+    """Settle the judge of a ``subjects run`` once its descriptor is loaded (parse_args leaves it to this).
+
+    The answerer is the descriptor's cells when it has explicit ones; the top-level --model is only the implicit
+    cell, so a CLI --provider is not an answerer then. A judge model the chosen judge provider cannot take is refused
+    here, before any cell runs (parse_args checked it before the follow moved the judge).
+    """
+    matrix = descriptor.matrix_cells_explicit
+    named = getattr(args, "judge_provider_named", False)
+    if getattr(args, "judge_model", None) is JUDGE_MODEL_FOR_PROVIDER:
+        try:
+            apply_default_judge(args, matrix=matrix, named=named)
+        except ValueError as exc:
+            raise InputError(str(exc)) from exc
+    follow_answerer_cli(args, matrix=matrix, named=named)
+    provider, model = args.judge_provider, args.judge_model
+    if provider in llm_cli.BACKENDS and model is not None and not llm_cli.accepts_model(provider, model):
+        raise InputError(refuse_judge_model(provider, model, named=named,
+                                            answerer_provider=None if matrix else getattr(args, "provider", None)))
+
+
 def cmd_subjects_run(args: argparse.Namespace) -> None:
     """Run awareness matrix cells for one subject and write a scorecard."""
     from dokimi.artifacts import load_artifact, save_artifact
@@ -99,6 +122,7 @@ def cmd_subjects_run(args: argparse.Namespace) -> None:
         raise InputError(f"cannot load subject: {exc}") from exc
     if descriptor.subject.kind == "repo":
         raise InputError("repo subjects are not run by `subjects run` yet; check them with `repo validate`")
+    resolve_judge(args, descriptor)
     # Attached, not produced: `skill novelty analyze` makes it, so a bad path fails here,
     # before any cell runs.
     try:
@@ -222,7 +246,7 @@ def register(sub, positive_int) -> None:
     run_p = subjects_sub.add_parser("run", help="Run subject awareness matrix and write scorecard")
     run_p.add_argument("subject", help="Subject descriptor path (.toml or .json)")
     run_p.add_argument("--out-dir", default=None, dest="out_dir")
-    run_p.add_argument("--out-json", default=None, dest="out_json")
+    cli_flags.add(run_p, "output", "--out", default=None, dest="out_json")
     run_p.add_argument("--out-md", default=None, dest="out_md")
     run_p.add_argument("--model", default=DEFAULT_ANSWER_MODEL, help=argparse.SUPPRESS)
     run_p.add_argument("--provider", default=DEFAULT_ANSWER_PROVIDER,
@@ -290,7 +314,7 @@ def register(sub, positive_int) -> None:
         dest="skip_work",
         help="Skip suite.tasks even when the subject descriptor declares them.",
     )
-    run_p.set_defaults(func=cmd_subjects_run)
+    run_p.set_defaults(func=cmd_subjects_run, defer_judge_default=True)
 
     evidence_p = subjects_sub.add_parser(
         "evidence",

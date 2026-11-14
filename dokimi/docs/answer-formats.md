@@ -57,9 +57,15 @@ question is `<testIdx>` when the config has one prompt and
 | `fuzzy` | Normalised containment, in either direction | OpenAI `FuzzyMatch` |
 | `regex` | `regex.search`, with a 1 s limit per check; a check that runs past it is unscored, not failed | promptfoo `regex` |
 | `choice` | The letters of the last `ANSWER: ...` line, parsed the way Inspect parses them | Inspect `choice` with `multiple_choice()` |
-| `json` | Parses as JSON. With `values`, it must equal one of them. With `contains`, the answer may be any JSON value, or else it is the first JSON object or array anywhere in the answer. | OpenAI `JsonMatch`; promptfoo `is-json`, `contains-json`, `equals` with an object value |
+| `json` | Parses as JSON. With `values`, it must equal one of them. With `contains`, the answer may be any JSON value, or else it is the first JSON object or array anywhere in the answer; the scan tries the first 1000 `{` or `[`, so a value that starts after more brackets than that reads as not JSON. | OpenAI `JsonMatch`; promptfoo `is-json`, `contains-json`, `equals` with an object value |
 | `judge` | One required point (`criterion`, `reference` or both), asked of the [checklist](benchmarking-and-comparison.md) judge in both polarities. 1 when the two agree that it is covered, 0 when they agree that it is not, 0.5 when they split. | Inspect `model_graded_qa`/`model_graded_fact`; a custom Inspect `@scorer`, on its docstring's first paragraph; OpenAI `ModelBasedClassify` specs; promptfoo `llm-rubric`, `g-eval`, `factuality`, `model-graded-closedqa`; every skill-creator expectation |
 | `unsupported` | Listed with the native name and never counted | promptfoo `javascript`, `python`, `similar`, `cost`, `latency`, negated judge asserts (`not-llm-rubric`) and other asserts; Inspect `pattern` (it compares an extracted group with the target) and Inspect scorers that are neither built in nor a `@scorer` of the file with a docstring; a row whose `ideal` or `target` is blank or missing |
+| `identifiers` | Every long option the answer names (`--x`, or the `pattern`, inside `within`) is in `known`. An answer that names no option passes, since the check only rules names out. Not `sufficient`: a `sufficient` identifiers check is refused. | None: built from a tool's `--help` by `skill novelty ground`, for novelty probes |
+
+`role` (`veto`, `sufficient`, `evidence`) and `tier` are read by novelty probes only, as
+[grading-tiers](grading-tiers.md) describes. `eval score reference` does not use `role` to score,
+so a `veto` there passes an answer like any other check. It does refuse a `sufficient`
+identifiers check, as a problem of the grading block.
 
 A blank value is not a check. A `match` value that is blank once the check has
 normalised it (stripped, and with `ignore_punctuation` on, `...` too), or an
@@ -113,7 +119,7 @@ the run's pass rates and mean scores are under `run_metadata.summary` (or
 An attack the grader accepts, or a canary it rejects, is a violation, and any
 violation makes the run `blocked`: the command prints the pass rates and the
 violations and exits 1 (`--out FILE` writes `redteam.v1`). A run in which a graded
-question was not measured is `inconclusive` and also exits 1: a question whose
+question was not measured is `inconclusive` and exits 3: a question whose
 `judge` checks have no verdict without `--judge` (no probe scored), or a block
 of only negated checks. A `negate` check passes an answer that lacks its value,
 so a block of only negated checks gets none of `wrong`, `empty` and `hedge`: it

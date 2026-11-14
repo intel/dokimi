@@ -45,6 +45,7 @@ CONTENTS = {
     "repo_ledger.v1": {"rules": 2},
     "headroom.v1": {"items": 2, "inputs": 1},
     "redteam.v1": {"violations": 2, "questions": 2},
+    "skill_coverage.v1": {"requirements": 3, "candidate_checks": 1},
     "leak.v1": {"violations": 1, "items": 2},
     "eval_coverage.v1": {"gaps": 1, "evals": 2, "problems": 0},
     "catalog_eval.v1": {"skills": 1, "problems": 0},
@@ -53,6 +54,18 @@ CONTENTS = {
     "dokimi_config.v1": {"subjects": 2, "shared": 1},
     "task_runs.v1": {"tasks": 6, "harnesses": 2, "results": 24},
     "tool_preference.v1": {"items": 16, "results": 16},
+    "ragas.v1": {},
+    "grounding.v1": {"per_question": 1},
+    "checklist.v1": {"questions": 1},
+    "judge_wording.v1": {},
+    "cross_judge.v1": {"unscored": 0},
+    "judge_validity.v1": {},
+    "pairwise.v1": {"errors": 0},
+    "personas.v1": {"personas": 2},
+    "persona_analysis.v1": {"use_cases": 1, "api_patterns": 2, "topics": 1},
+    "question_panel.v1": {"questions": 2},
+    "question_quality.v1": {"questions": 2, "trivial_questions": 1, "recommendations": 1},
+    "report_qa.v1": {"records": 1},
 }
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "artifacts"
@@ -137,6 +150,22 @@ def test_an_artifact_that_fails_its_schema_lists_the_errors_and_exits_0(monkeypa
     assert lines[5] == "subject:    onetbb"
 
 
+def test_a_finished_novelty_record_without_its_summaries_is_invalid_but_a_partial_one_is_not(
+        monkeypatch, capsys, root):
+    data = {"schema_version": "novelty.v1", **_fixture("novelty.v1")}  # the version leads the file
+    for name in ("paired", "k0", "spans"):
+        del data[name]
+    (root / "novelty.json").write_text(json.dumps(data, indent=2), encoding="utf-8")
+    partial = {**data, "status": "partial",
+               "partial": {"reason": "spend_cap", "stage": "measurement", "message": "stopped"}}
+    (root / "novelty.partial.json").write_text(json.dumps(partial, indent=2), encoding="utf-8")
+
+    finished = _show(monkeypatch, capsys, "novelty.json").out
+    assert "schema:     invalid, 3 errors" in finished
+    assert "  - <root>: 'paired' is a required property" in finished
+    assert "schema:     valid" in _show(monkeypatch, capsys, "novelty.partial.json").out
+
+
 def test_a_time_the_artifact_does_not_record_is_shown_as_the_files_mtime(monkeypatch, capsys, root):
     stamp = 1_780_000_000
     os.utime(root / "arms" / "plugin_delta.json", (stamp, stamp))
@@ -184,8 +213,10 @@ def test_show_without_a_root_exits_2(tmp_path, monkeypatch, capsys):
 
 
 def test_json_has_the_list_fields_the_schema_check_and_the_neighbours(monkeypatch, capsys, root):
-    data = json.loads(_show(monkeypatch, capsys, "arms/onetbb.json", "--json").out)
+    doc = json.loads(_show(monkeypatch, capsys, "arms/onetbb.json", "--json").out)
+    data = doc["data"]
 
+    assert doc["summary"]["schema_valid"] is True
     assert data == {
         "schema_version": "arms.v1", "kind": "arms", "run_id": run_id(), "subject": "onetbb",
         "model": "m", "generated_at": "2026-10-29T14:02:00Z", "path": "arms/onetbb.json",
@@ -203,8 +234,10 @@ def test_json_of_an_invalid_artifact_carries_its_errors(monkeypatch, capsys, roo
     (root / "arms" / "bad.json").write_text(json.dumps({"schema_version": "arms.v1"}),
                                             encoding="utf-8")
 
-    data = json.loads(_show(monkeypatch, capsys, "arms/bad.json", "--json").out)
+    doc = json.loads(_show(monkeypatch, capsys, "arms/bad.json", "--json").out)
+    data = doc["data"]
 
+    assert doc["summary"]["schema_valid"] is False
     assert data["schema_valid"] is False
     assert sorted(data["schema_errors"]) == ["<root>: 'answers' is a required property",
                                              "<root>: 'arms' is a required property"]
@@ -215,7 +248,7 @@ def test_a_crowded_directory_names_the_first_neighbours_and_counts_the_rest(monk
     for i in range(MAX_SIBLINGS + 5):
         (root / "arms" / f"z{i:02}.log").write_text("", encoding="utf-8")
 
-    data = json.loads(_show(monkeypatch, capsys, "arms/onetbb.json", "--json").out)
+    data = json.loads(_show(monkeypatch, capsys, "arms/onetbb.json", "--json").out)["data"]
     text = _show(monkeypatch, capsys, "arms/onetbb.json").out
 
     assert len(data["siblings"]) == MAX_SIBLINGS and data["siblings_total"] == MAX_SIBLINGS + 8
@@ -227,7 +260,7 @@ def test_a_superseded_version_is_checked_against_its_own_schema(monkeypatch, cap
            **{k: v for k, v in _fixture("questions.v1").items() if k != "schema_version"}}
     (root / "q.json").write_text(json.dumps(old, indent=2), encoding="utf-8")
 
-    data = json.loads(_show(monkeypatch, capsys, "q.json", "--json").out)
+    data = json.loads(_show(monkeypatch, capsys, "q.json", "--json").out)["data"]
 
     assert (data["schema"], data["schema_valid"], data["kind"]) == ("questions.v1", True,
                                                                     "questions")
@@ -244,7 +277,7 @@ def test_the_count_is_kept_for_every_list_of_every_kind(tmp_path):
 def test_a_fifo_is_named_as_a_neighbour_and_refused_as_an_address(monkeypatch, capsys, root):
     os.mkfifo(root / "arms" / "pipe.json")  # opening it would block
 
-    data = json.loads(_show(monkeypatch, capsys, "arms/onetbb.json", "--json").out)
+    data = json.loads(_show(monkeypatch, capsys, "arms/onetbb.json", "--json").out)["data"]
     assert {"name": "pipe.json", "schema_version": None} in data["siblings"]
     assert _fails(monkeypatch, capsys, "arms/pipe.json") == "Error: arms/pipe.json is not a regular file\n"
 
@@ -253,7 +286,7 @@ def test_a_fifo_is_named_as_a_neighbour_and_refused_as_an_address(monkeypatch, c
 def test_a_neighbour_that_cannot_be_stated_is_named_not_a_crash(monkeypatch, capsys, root):
     (root / "arms" / "loop").symlink_to(root / "arms" / "loop")
 
-    data = json.loads(_show(monkeypatch, capsys, "arms/onetbb.json", "--json").out)
+    data = json.loads(_show(monkeypatch, capsys, "arms/onetbb.json", "--json").out)["data"]
 
     assert {"name": "loop", "schema_version": None} in data["siblings"]
 
@@ -263,7 +296,7 @@ def test_a_neighbour_that_cannot_be_stated_is_named_not_a_crash(monkeypatch, cap
 def test_a_directory_that_cannot_be_listed_still_shows_its_artifact(monkeypatch, capsys, root):
     (root / "arms").chmod(0o311)  # files can be opened by name, the directory cannot be listed
     try:
-        data = json.loads(_show(monkeypatch, capsys, "arms/onetbb.json", "--json").out)
+        data = json.loads(_show(monkeypatch, capsys, "arms/onetbb.json", "--json").out)["data"]
         text = _show(monkeypatch, capsys, "arms/onetbb.json").out
     finally:
         (root / "arms").chmod(0o755)
@@ -332,7 +365,7 @@ def test_a_symlink_that_leads_outside_the_root_is_not_read(monkeypatch, capsys, 
 def test_a_symlink_inside_the_root_is_shown_by_its_own_name(monkeypatch, capsys, root):
     (root / "latest.json").symlink_to(root / "arms" / "onetbb.json")
 
-    data = json.loads(_show(monkeypatch, capsys, "latest.json", "--json").out)
+    data = json.loads(_show(monkeypatch, capsys, "latest.json", "--json").out)["data"]
 
     assert (data["path"], data["kind"]) == ("latest.json", "arms")
 
@@ -344,7 +377,7 @@ def test_the_real_path_of_a_symlinked_root_is_inside_it(monkeypatch, capsys, tmp
     save_artifact("eval", _fixture("eval.v1"), tmp_path / "store" / "e.json")
     (tmp_path / "results").symlink_to(tmp_path / "store", target_is_directory=True)
 
-    data = json.loads(_show(monkeypatch, capsys, str(tmp_path / "store" / "e.json"), "--json").out)
+    data = json.loads(_show(monkeypatch, capsys, str(tmp_path / "store" / "e.json"), "--json").out)["data"]
 
     assert data["path"] == "e.json"
 
@@ -355,7 +388,7 @@ def test_a_neighbour_that_links_outside_the_root_is_named_not_read(monkeypatch, 
     (root / "arms" / "ext.json").symlink_to(root.parent / "ext" / "eval.json")
     (root / "arms" / "in.json").symlink_to(root / "arms" / "plugin_delta.json")
 
-    data = json.loads(_show(monkeypatch, capsys, "arms/onetbb.json", "--json").out)
+    data = json.loads(_show(monkeypatch, capsys, "arms/onetbb.json", "--json").out)["data"]
 
     assert {"name": "ext.json", "schema_version": None} in data["siblings"]
     assert {"name": "in.json", "schema_version": "plugin_delta.v1"} in data["siblings"]
@@ -387,7 +420,7 @@ def test_dot_dot_after_a_symlink_is_the_file_the_filesystem_opens(monkeypatch, c
     (root / "nested" / "deep").mkdir()
     (root / "link").symlink_to(root / "nested" / "deep", target_is_directory=True)
 
-    data = json.loads(_show(monkeypatch, capsys, "link/../eval.json", "--json").out)
+    data = json.loads(_show(monkeypatch, capsys, "link/../eval.json", "--json").out)["data"]
 
     assert (data["kind"], data["path"]) == ("eval", "nested/eval.json")
 
@@ -398,7 +431,7 @@ def test_neighbours_are_never_listed_from_outside_the_root(monkeypatch, capsys, 
     (root / "linked").symlink_to(root.parent / "ext", target_is_directory=True)
     (root.parent / "ext" / "return.json").symlink_to(root / "arms" / "onetbb.json")
 
-    data = json.loads(_show(monkeypatch, capsys, "linked/return.json", "--json").out)
+    data = json.loads(_show(monkeypatch, capsys, "linked/return.json", "--json").out)["data"]
 
     assert data["kind"] == "arms"
     assert [s["name"] for s in data["siblings"]] == ["onetbb-matrix/", "onetbb.md",
@@ -412,8 +445,8 @@ def test_an_absolute_address_under_a_root_named_with_dot_dot(tmp_path, monkeypat
     monkeypatch.setenv("DOKIMI_RUNS_DIR", os.path.join("..", "results"))
 
     by_path = json.loads(_show(monkeypatch, capsys, str(tmp_path / "results" / "e.json"),
-                               "--json").out)
-    by_name = json.loads(_show(monkeypatch, capsys, "e.json", "--json").out)
+                               "--json").out)["data"]
+    by_name = json.loads(_show(monkeypatch, capsys, "e.json", "--json").out)["data"]
 
     assert (by_path["path"], by_path["kind"]) == (by_name["path"], by_name["kind"]) == ("e.json",
                                                                                        "eval")
@@ -451,15 +484,17 @@ def test_a_run_with_an_untimed_artifact_explains_the_star(monkeypatch, capsys, r
 
 
 def test_json_of_a_run_has_its_artifacts_as_runs_list_rows(monkeypatch, capsys, runs):
-    data = json.loads(_show(monkeypatch, capsys, "nightly-2", "--json").out)
+    doc = json.loads(_show(monkeypatch, capsys, "nightly-2", "--json").out)
+    data = doc["data"]
 
+    assert doc["kind"] == "runs show" and doc["status"] == "complete"
     assert (data["root"], data["run_id"], data["unreadable"]) == ("results", "nightly-2", [])
     (row,) = data["artifacts"]
     assert (row["path"], row["kind"], row["run_id"]) == ("e2.json", "eval", "nightly-2")
 
 
 def test_json_of_a_run_lists_every_artifact_newest_first(monkeypatch, capsys, runs):
-    data = json.loads(_show(monkeypatch, capsys, "nightly-1", "--json").out)
+    data = json.loads(_show(monkeypatch, capsys, "nightly-1", "--json").out)["data"]
 
     assert [row["path"] for row in data["artifacts"]] == ["arms/onetbb.json", "e1.json"]
 
@@ -469,7 +504,7 @@ def test_a_run_id_is_matched_whole_not_as_a_prefix_of_another(monkeypatch, capsy
         monkeypatch.setenv("DOKIMI_RUN_ID", run)
         save_artifact("eval", _fixture("eval.v1"), runs / path)
 
-    data = json.loads(_show(monkeypatch, capsys, "r1", "--json").out)
+    data = json.loads(_show(monkeypatch, capsys, "r1", "--json").out)["data"]
 
     assert [row["path"] for row in data["artifacts"]] == ["r1.json"]
 
@@ -548,7 +583,7 @@ def test_an_input_kinds_stray_run_id_does_not_make_it_part_of_the_run(monkeypatc
     (runs / "q.json").write_text(json.dumps({"schema_version": "questions.v2", **stray}),
                                  encoding="utf-8")
 
-    data = json.loads(_show(monkeypatch, capsys, "nightly-2", "--json").out)
+    data = json.loads(_show(monkeypatch, capsys, "nightly-2", "--json").out)["data"]
 
     assert [row["path"] for row in data["artifacts"]] == ["e2.json"]
 
@@ -585,7 +620,9 @@ def test_a_run_names_the_first_unreadable_file_escaped_and_json_lists_them_all(
     assert lines[2].startswith("unreadable: 2 entries under the root, which may belong to it "
                                "(first: a\\nbad.json: not valid JSON")
 
-    data = json.loads(_show(monkeypatch, capsys, "nightly-2", "--json").out)
+    doc = json.loads(_show(monkeypatch, capsys, "nightly-2", "--json").out)
+    data = doc["data"]
+    assert doc["status"] == "partial" and doc["reason"] == "2 entries under the root could not be read"
     assert [u["path"] for u in data["unreadable"]] == ["a\nbad.json", "b-bad.json"]
     assert data["unreadable"][0]["schema_version"] == "eval.v1"
 

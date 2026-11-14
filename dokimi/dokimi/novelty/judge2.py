@@ -22,8 +22,8 @@ DEFAULT_FRAC = 0.15
 
 
 def check_judge2(judge2: LLMClient, answerer: LLMClient, frac: float, allow_self_judge: bool,
-                 judge: LLMClient | None = None) -> None:
-    """Refuse a second judge that is the answering model or the first judge, or a fraction outside (0, 1].
+                 judge: LLMClient | None = None, panel: tuple[LLMClient, ...] = ()) -> None:
+    """Refuse a second judge that is the answering model, the first judge or a panel judge, or a fraction outside (0, 1].
 
     The model test is the repo's model-identity rule (``same_client``, which reads
     ``same_model``): an alias, an equivalent API id and a Bedrock id of one model are one model.
@@ -43,11 +43,12 @@ def check_judge2(judge2: LLMClient, answerer: LLMClient, frac: float, allow_self
             f"--judge2 {judge2.model!r} is the answering model; grading a response with the "
             "model that produced it inflates the score. Pass another --judge2, or "
             "--allow-self-judge to do it deliberately.")
-    if judge is not None and same_client(judge2, judge):
-        raise InputError(
-            f"--judge2 {judge2.model!r} is the same model as the first judge {judge.model!r}; "
-            "its agreement with that judge is not an independent second opinion. Pass another "
-            "--judge2, or --allow-self-judge to do it deliberately.")
+    for role, member in (("first judge", judge), *(("panel judge", m) for m in panel)):
+        if member is not None and same_client(judge2, member):
+            raise InputError(
+                f"--judge2 {judge2.model!r} is the same model as the {role} {member.model!r}; "
+                "its agreement with that judge is not an independent second opinion. Pass another "
+                "--judge2, or --allow-self-judge to do it deliberately.")
 
 
 def cohen_kappa(a: list[bool], b: list[bool]) -> float | None:
@@ -61,15 +62,21 @@ def cohen_kappa(a: list[bool], b: list[bool]) -> float | None:
     return None if chance >= 1 else round((observed - chance) / (1 - chance), 4)
 
 
+def first_verdict(run) -> str:
+    """The first judge's verdict. A check's veto may overrule it in ``run.verdict``, not here."""
+    return run.judge_verdict if run.judge_verdict is not None else run.verdict
+
+
 def regrade(result: MeasureResult, judge2: LLMClient, *, frac: float = DEFAULT_FRAC,
             seed: int = 0, concurrency: int = 5) -> dict:
     """Regrade ``frac`` of the graded runs (seeded) with ``judge2`` and compare the verdicts.
 
-    A run either judge failed to grade is left out of the agreement figures and counted.
+    A run either judge failed to grade is left out of the agreement figures and counted. The
+    comparison is with the first judge's verdict, so a veto that overruled it is not compared.
     """
     by_key = {(p.atom_id, p.kind, p.question): p for p in result.probes}
     graded = [r for r in result.runs
-              if not r.errored and (r.atom_id, r.probe_kind, r.question) in by_key]
+              if first_verdict(r) != ERRORED and (r.atom_id, r.probe_kind, r.question) in by_key]
     k = min(len(graded), max(1, round(frac * len(graded)))) if graded else 0
     picked = random.Random(f"novelty-judge2-{seed}").sample(graded, k)
 
@@ -78,7 +85,7 @@ def regrade(result: MeasureResult, judge2: LLMClient, *, frac: float = DEFAULT_F
 
     with ThreadPoolExecutor(max_workers=max(1, concurrency)) as pool:
         second = list(pool.map(one, picked))
-    pairs = [(r.verdict, v) for r, v in zip(picked, second, strict=True) if v != ERRORED]
+    pairs = [(first_verdict(r), v) for r, v in zip(picked, second, strict=True) if v != ERRORED]
     return {
         "model": judge2.model,
         "vendor": vendor_of(judge2.model),

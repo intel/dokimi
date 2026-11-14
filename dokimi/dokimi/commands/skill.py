@@ -4,12 +4,13 @@
 """skill subcommand group: measure one skill (#94 M2, M3).
 
 ``skill novelty`` (analyze, atoms, probe, items) and ``skill shorten`` are the moved leaves;
-``skill check SKILL`` is the catalog check scoped to one skill (#94 M3). ``skill routing`` follows
-with the routing moves of #94 §4.
+``skill check SKILL`` is the catalog check scoped to one skill (#94 M3), and ``skill routing SKILL``
+is the one-skill routing that ``novelty routing`` used to be (#94 M3).
 """
 
 from __future__ import annotations
 
+from dokimi import cli_flags
 import argparse
 
 
@@ -22,6 +23,9 @@ def register(sub, positive_int) -> None:
     skill_sub = skill_p.add_subparsers(dest="skill_cmd", required=True)
     register_skill(skill_sub, positive_int)
     register_check(skill_sub)
+    from dokimi.commands.routing_parser import add_skill_routing
+
+    add_skill_routing(skill_sub, positive_int)
 
 
 def cmd_skill_check(args: argparse.Namespace) -> None:
@@ -31,7 +35,7 @@ def cmd_skill_check(args: argparse.Namespace) -> None:
     cmd_catalog_scan(argparse.Namespace(
         root=args.root, kind="skills", strict=args.strict, format=args.format,
         tasks_subdir="evaluation/harbor/tasks", per_skill=False, skip_nested=False,
-        jsonl=None, jobs=None, resume=False, ignore=None, only=args.skill))
+        jsonl=None, jobs=None, resume=False, online=False, ignore=None, only=args.skill))
 
 
 def register_check(skill_sub) -> None:
@@ -44,7 +48,9 @@ def register_check(skill_sub) -> None:
                               "A skill that fails to load may be named differently")
     check_p.add_argument("--root", required=True, help="Local checkout the skill is under")
     check_p.add_argument("--strict", action="store_true",
-                         help="Exit 1 on a spec error of the skill as well as on one that does not load")
+                         help="Exit 1 on a spec error of the skill as well as on one that does not load, "
+                              "and on a skill that grants unrestricted Bash and has a pipe-to-shell or "
+                              "permission-bypass-flag finding")
     check_p.add_argument("--format", choices=["text", "json"], default="text",
                          help="text: one line for the skill; json: the catalog check's row for it")
     check_p.set_defaults(func=cmd_skill_check)
@@ -79,7 +85,7 @@ def register_skill(skill_sub, positive_int) -> None:
     _add_common(analyze_p, positive_int)
     _add_model_args(analyze_p, positive_int)
     analyze_p.add_argument("--out-dir", default=None, dest="out_dir")
-    analyze_p.add_argument("--out-json", default=None, dest="out_json")
+    cli_flags.add(analyze_p, "output", "--out", default=None, dest="out_json")
     analyze_p.add_argument("--view-format", default="html", choices=["html", "md"],
                            dest="view_format")
     analyze_p.add_argument("--no-classify", action="store_true", dest="no_classify",
@@ -128,6 +134,21 @@ def register_skill(skill_sub, positive_int) -> None:
     probe_p.add_argument("--atoms", required=True, help="atoms.json from `skill novelty atoms`")
     probe_p.add_argument("--out", default=None)
     probe_p.set_defaults(func=stops_at_cap(cmd_novelty_probe))
+
+    ground_p = novelty_sub.add_parser(
+        "ground", help="Add identifier vetoes from a tool's own --help to an atoms file"
+    )
+    ground_p.add_argument("--atoms", required=True, help="atoms.json from `skill novelty atoms`")
+    ground_p.add_argument("--tool", action="append", required=True,
+                          help="Command whose --help lists the valid options, e.g. "
+                               "'perf report'. Repeatable; an atom gets the check of each "
+                               "tool it names")
+    ground_p.add_argument("--tool-version", default=None, dest="tool_version",
+                          help="Version recorded with the help snapshot")
+    ground_p.add_argument("--out", default=None, help="Default: rewrite --atoms in place")
+    from dokimi.commands.novelty_ground import cmd_novelty_ground
+
+    ground_p.set_defaults(func=cmd_novelty_ground)
 
     items_p = novelty_sub.add_parser(
         "items", help="Item analysis across saved probe runs: which atoms separate the models"

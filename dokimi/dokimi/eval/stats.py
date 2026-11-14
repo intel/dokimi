@@ -15,6 +15,10 @@ Public API
 ----------
 bootstrap_ci(values, ...)
     Percentile bootstrap CI for the mean.
+bootstrap_statistics(n, statistic, ...)
+    Sorted statistics of the bootstrap resamples of ``range(n)``: the one resampler (integer seed).
+percentile_bounds(sorted_stats, confidence)
+    The lower and upper percentile values of those statistics, symmetric order statistics.
 effect_label(d)
     Cohen's-d band name ("negligible" … "large").
 adjust_pvalues(pvals, method)
@@ -56,11 +60,11 @@ from __future__ import annotations
 import importlib.util
 import math
 import random
+import statistics
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
-from dokimi.eval.sign_flip import (ALPHA, EPS, METHOD, _rounded, min_sign_flip_p, round_mean, sign_flip_interval,
-                                   sign_flip_p, within)
+from dokimi.eval.sign_flip import ALPHA, EPS, METHOD, min_sign_flip_p, round_mean, sign_flip_row, within
 from dokimi.records import BASELINE, CONTEXT, RecordLike, records
 
 #: Checked without importing scipy, whose OpenBLAS starts a thread per core
@@ -92,6 +96,36 @@ def _rnd(x: float, ndigits: Optional[int]) -> float:
     return x if ndigits is None else round(x, ndigits)
 
 
+def bootstrap_statistics(
+    n: int, statistic: Callable[[List[int]], float], *, n_resamples: int, seed: int
+) -> List[float]:
+    """``statistic`` of each of ``n_resamples`` bootstrap resamples of ``range(n)``, sorted ascending.
+
+    A resample is ``n`` draws ``randrange(n)`` with replacement from ``random.Random(seed)``, in order, and
+    ``statistic`` receives its indices. This is the one resampler of the eval side: :func:`bootstrap_ci` and
+    novelty's atom-clustered ``clustered_ci`` both call it with an integer seed. ``--seed`` on the CLI reaches
+    ``bootstrap_ci``; novelty's CI callers pass no seed, so they use seed 0.
+    """
+    rng = random.Random(seed)
+    out = [statistic([rng.randrange(n) for _ in range(n)]) for _ in range(n_resamples)]
+    out.sort()
+    return out
+
+
+def percentile_bounds(sorted_stats: Sequence[float], confidence: float) -> Tuple[float, float]:
+    """The two-sided percentile bounds of ``sorted_stats`` (ascending resample statistics) at ``confidence``.
+
+    Symmetric order statistics: the naive lo=int(a*B), hi=int((1-a)*B) pair leaves a different number of
+    resamples outside each tail, so the low end is index ``round(a * (B - 1))`` and the high end is
+    ``round((1 - a) * (B - 1))``, both counted from their own end.
+    """
+    b = len(sorted_stats)
+    alpha = (1.0 - confidence) / 2.0
+    lo_idx = max(0, int(round(alpha * (b - 1))))
+    hi_idx = min(b - 1, int(round((1.0 - alpha) * (b - 1))))
+    return sorted_stats[lo_idx], sorted_stats[hi_idx]
+
+
 def bootstrap_ci(
     values, confidence: float = 0.95, n_resamples: int = 10_000, seed: int = 0,
     ndigits: Optional[int] = 4,
@@ -101,12 +135,11 @@ def bootstrap_ci(
     Returns ``{"mean", "lo", "hi", "n"}``. Deterministic for a given ``seed``,
     so it is safe to use in tests and reproducible runs.
 
-    This is the eval-side bootstrap. Its seed is an integer fed to
-    ``random.Random(seed)``, the scheme the McNemar and grounding intervals
-    already used, and the one ``--seed`` means on the CLI. Novelty's atom-clustered ``clustered_ci``
-    (``novelty/controls.py``) is a separate resampler with its own string seed;
-    this module does not change it. Callers pass ``n_resamples`` when they need
-    a count other than the default.
+    This is the eval-side bootstrap, built on :func:`bootstrap_statistics`: its
+    seed is an integer fed to ``random.Random(seed)``, the scheme the McNemar and
+    grounding intervals already used, and the one ``--seed`` means on the CLI.
+    Novelty's ``clustered_ci`` resamples atoms through the same function. Callers
+    pass ``n_resamples`` when they need a count other than the default.
 
     Prefer :func:`mean_ci` on continuous data: the percentile bootstrap
     under-covers badly at the sample sizes this module targets (measured ~87.5%
@@ -126,22 +159,19 @@ def bootstrap_ci(
     if n == 1:
         return {"mean": _rnd(vals[0], ndigits), "lo": _rnd(vals[0], ndigits), "hi": _rnd(vals[0], ndigits), "n": 1}
 
-    rng = random.Random(seed)
-    means = []
-    for _ in range(n_resamples):
-        sample_sum = sum(vals[rng.randrange(n)] for _ in range(n))
-        means.append(sample_sum / n)
-    means.sort()
+    finite = all(math.isfinite(v) for v in vals)
 
-    # Symmetric order statistics: the naive lo=int(a*B), hi=int((1-a)*B) pair
-    # leaves a different number of resamples outside each tail.
-    alpha = (1.0 - confidence) / 2.0
-    lo_idx = max(0, int(round(alpha * (n_resamples - 1))))
-    hi_idx = min(n_resamples - 1, int(round((1.0 - alpha) * (n_resamples - 1))))
+    def resample_mean(picked: List[int]) -> float:
+        mean = sum(vals[i] for i in picked) / n
+        # A sum that leaves the float range is not a mean that does: https://github.com/intel/dokimi/issues/598
+        return _mean([vals[i] for i in picked]) if finite and not math.isfinite(mean) else mean
+
+    means = bootstrap_statistics(n, resample_mean, n_resamples=n_resamples, seed=seed)
+    lo, hi = percentile_bounds(means, confidence)
     return {
-        "mean": _rnd(sum(vals) / n, ndigits),
-        "lo": _rnd(means[lo_idx], ndigits),
-        "hi": _rnd(means[hi_idx], ndigits),
+        "mean": _rnd(_mean(vals), ndigits),
+        "lo": _rnd(lo, ndigits),
+        "hi": _rnd(hi, ndigits),
         "n": n,
         "method": "percentile_bootstrap",
     }
@@ -284,6 +314,21 @@ def correct_family(
     ]
 
 
+def reachable_pvals(
+    pvals: Sequence[Optional[float]], n_changed: Sequence[int]
+) -> List[Optional[float]]:
+    """``pvals`` with ``None`` where the floor rule bars the result: its p cannot go below :data:`ALPHA`.
+
+    Such a result can never reject, so it stays out of the multiplier (Tarone's
+    argument); the others are corrected as if it were not there
+    (https://github.com/intel/dokimi/issues/478).
+    """
+    return [
+        None if p is not None and min_sign_flip_p(k) >= ALPHA else p
+        for p, k in zip(pvals, n_changed, strict=True)
+    ]
+
+
 # ---------------------------------------------------------------------------
 # Paired comparison
 # ---------------------------------------------------------------------------
@@ -304,13 +349,17 @@ def _round_p(p: Optional[float]) -> Optional[float]:
     return float(f"{p:.3g}")
 
 
-def _mean(vals: Sequence[float]) -> float:
-    return sum(vals) / len(vals)
-
-
 def _pow2_scale(vals: Sequence[float]) -> float:
     """The power of two at or below ``max(abs(vals))``: dividing by it is exact and leaves each value under 2."""
     return math.ldexp(1.0, math.frexp(max(abs(v) for v in vals))[1] - 1)
+
+
+def _mean(vals: Sequence[float]) -> float:
+    mu = sum(vals) / len(vals)
+    if math.isfinite(mu) or not all(math.isfinite(v) for v in vals):
+        return mu
+    # The sum left the float range though every value is finite: average exactly (dividing by a scale would underflow a small term before the large ones cancel).
+    return statistics.mean(vals)
 
 
 def _sample_sd(vals: Sequence[float]) -> float:
@@ -318,6 +367,10 @@ def _sample_sd(vals: Sequence[float]) -> float:
         return 0.0
     mu = _mean(vals)
     devs = [x - mu for x in vals]
+    if all(math.isfinite(v) for v in vals) and not all(math.isfinite(d) for d in devs):
+        # A deviation left the float range (values near +-1e308 of both signs): work on scaled values.
+        scale = _pow2_scale(vals)
+        return scale * _sample_sd([v / scale for v in vals])
     # Scaled so that squaring a deviation of 1e200 cannot overflow: https://github.com/intel/dokimi/issues/475
     scale = _pow2_scale(devs)
     return scale * math.sqrt(sum((d / scale) ** 2 for d in devs) / (len(vals) - 1))
@@ -340,6 +393,17 @@ def _wilson(p: float, n: int, z: float = _Z95) -> Tuple[float, float]:
     # Clamped to contain p: at p = 1.0, centre + half is 0.9999999999999999 for
     # some n, so 10/10 cleared a 1.0 gate while 20/20 straddled it.
     return (max(0.0, min(p, centre - half)), min(1.0, max(p, centre + half)))
+
+
+def _deltas(treatment: Sequence[float], control: Sequence[float]) -> List[float]:
+    """``treatment - control`` pair by pair; finite inputs whose difference leaves the float range raise.
+
+    A NaN or inf in the input keeps its meaning in the delta: https://github.com/intel/dokimi/issues/599
+    """
+    deltas = [t - c for t, c in zip(treatment, control, strict=True)]
+    if not all(math.isfinite(d) for d in deltas) and all(math.isfinite(x) for x in (*treatment, *control)):
+        raise OverflowError("deltas too large: a difference of the paired values leaves the float range")
+    return deltas
 
 
 def paired_vectors(
@@ -368,7 +432,7 @@ def paired_delta(evaluations: Iterable[Any], baseline_arm: str, arm_name: str) -
     difference of two unpaired means would compare different questions.
     """
     arm_vals, base_vals = paired_vectors(evaluations, arm_name, baseline_arm)
-    diffs = [a - b for a, b in zip(arm_vals, base_vals, strict=True)]
+    diffs = _deltas(arm_vals, base_vals)
     return round(sum(diffs) / len(diffs), 1) if diffs else None
 
 
@@ -409,7 +473,7 @@ def paired_summary(evaluations: Iterable[RecordLike]) -> PairedSummary:
     """
     recs = records(evaluations, source="evaluations", kind="evaluations")
     with_s, without_s = paired_vectors(recs, CONTEXT, BASELINE)
-    deltas = [w - wo for w, wo in zip(with_s, without_s, strict=True)]
+    deltas = _deltas(with_s, without_s)
     paired = len(deltas)
     return PairedSummary(
         total=len(recs),
@@ -446,7 +510,8 @@ def point_biserial(flags: Sequence[bool], totals: Sequence[float]) -> Dict[str, 
     Returns:
         ``{"r": float | None, "n": int, "n_pass": int, "reason": str | None}``. ``r`` is
         ``None`` when it is undefined: fewer than three respondents, no variance in the
-        totals, or an item every respondent passed or failed. ``reason`` names which.
+        totals, a total that is not finite, or an item every respondent passed or failed.
+        ``reason`` names which.
     """
     if len(flags) != len(totals):
         raise ValueError(
@@ -461,6 +526,13 @@ def point_biserial(flags: Sequence[bool], totals: Sequence[float]) -> Dict[str, 
     if n_pass in (0, n):
         return {"r": None, "n": n, "n_pass": n_pass,
                 "reason": "no variance in the item: every respondent scored it the same"}
+    if not all(math.isfinite(t) for _, t in pairs):
+        return {"r": None, "n": n, "n_pass": n_pass, "reason": "a total is not finite"}
+    top = max(abs(t) for _, t in pairs)
+    # r does not depend on the scale. Large totals would overflow a sum (#553); small ones fall under the floor of 1.0
+    # in _is_degenerate and read as no variance (#601). Dividing by a power of two is exact.
+    scale = _pow2_scale([top]) if top > 0 else 1.0
+    pairs = [(flag, t / scale) for flag, t in pairs]
     all_totals = [t for _, t in pairs]
     sd = _sample_sd(all_totals)
     if _is_degenerate(_mean(all_totals), sd):
@@ -524,11 +596,10 @@ def _describe_deltas(
         if not (math.isfinite(d_sd) and math.isfinite(sum(abs(x) for x in d))):
             # The sign-flip sums would overflow and read as a measured zero effect.
             raise OverflowError("deltas too large: their spread or sum leaves the float range")
-        p = sign_flip_p(d, seed=seed, exact=True)
-        lo, hi = sign_flip_interval(d, p, seed=seed, rounded=False)
+        row = sign_flip_row(d, seed=seed, exact=True)
+        p, lo, hi, shown_lo, shown_hi = row["p"], row["lo"], row["hi"], row["ci_lo"], row["ci_hi"]
     else:  # a NaN delta is no evidence either way: no p, no verdict, open ends
-        p, lo, hi = None, None, None
-    shown_lo, shown_hi = _rounded(lo), _rounded(hi)
+        p, lo, hi, shown_lo, shown_hi = None, None, None, None, None
     n_changed = sum(1 for x in d if abs(x) > EPS)
 
     return {
@@ -580,7 +651,7 @@ def paired_test(
     """
     if len(treatment) != len(control) or len(treatment) < 2:
         return None
-    deltas = [t - c for t, c in zip(treatment, control, strict=True)]
+    deltas = _deltas(treatment, control)
     result = _describe_deltas(deltas, confidence=confidence, seed=seed)
     return _finalize(result) if rounded else result
 
@@ -620,7 +691,7 @@ def arm_significance(
         # raw p-values, and paired_test rounds on the way out.
         if len(treat) == len(base) and len(treat) >= 2:
             out[arm] = _describe_deltas(
-                [t - c for t, c in zip(treat, base, strict=True)],
+                _deltas(treat, base),
                 confidence=confidence,
                 seed=seed,
             )
@@ -635,8 +706,9 @@ def arm_significance(
 
 
 def set_exact_p_adjusted(results: Sequence[Dict[str, Any]], *, method: str) -> None:
-    """Set ``exact.p_adjusted`` to the family correction of ``p`` before rounding."""
-    exact = adjust_pvalues([r["p"] for r in results], method=method, rounded=False)
+    """Set ``exact.p_adjusted`` to the family correction of ``p`` before rounding (``None`` for a floor-bound result)."""
+    ps = reachable_pvals([r["p"] for r in results], [r["n_changed"] for r in results])
+    exact = adjust_pvalues(ps, method=method, rounded=False)
     for res, p in zip(results, exact, strict=True):
         if "exact" in res:
             res["exact"]["p_adjusted"] = p
@@ -650,14 +722,17 @@ def _apply_correction(
     ``results`` must still hold unrounded p-values. ``label`` names the family
     so a reader can tell which hypotheses were corrected together — arms and
     interaction contrasts are separate families, and pooling them would inflate
-    the multiplier on both. Every result with a p is in the family, one under
-    the floor rule included (as in ``repo compare``), and ``family_tested``
-    counts them. ``significant_adjusted`` is ``None`` wherever ``significant``
-    is (no p, or the floor rule), else the corrected verdict.
+    the multiplier on both. A result under the floor rule (its ``n_changed``
+    cannot give p < :data:`ALPHA`) stays out of the multiplier: its
+    ``p_adjusted`` and ``significant_adjusted`` are ``None``, it still counts
+    in ``family_size``, and ``family_tested`` counts only the results that can
+    reach :data:`ALPHA`. ``significant_adjusted`` is ``None`` wherever
+    ``significant`` is, else the corrected verdict.
     """
-    decided = correct_family([r["p"] for r in results], method=correction)
+    ps = reachable_pvals([r["p"] for r in results], [r["n_changed"] for r in results])
+    decided = correct_family(ps, method=correction)
     set_exact_p_adjusted(results, method=correction)
-    tested = sum(1 for r in results if r["p"] is not None)
+    tested = sum(1 for p in ps if p is not None)
     for res, (adj, adj_significant) in zip(results, decided, strict=True):
         res["p_adjusted"] = adj
         res["correction"] = correction

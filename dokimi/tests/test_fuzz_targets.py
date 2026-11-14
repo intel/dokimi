@@ -116,10 +116,53 @@ def test_a_malformed_tagged_scalar_is_invalid_frontmatter(text: str) -> None:
 
 @pytest.mark.parametrize("contains", [False, True])
 def test_parse_json_reads_deep_nesting_as_not_json(contains: bool) -> None:
-    # A reply nested past the recursion limit is "not JSON", not a crash of the judge.
+    # A deeply nested reply is "not JSON", not a crash of the judge. The contains scan is bounded
+    # (see test_parse_json_contains_tries_a_bounded_number_of_starts), so both modes take 20000.
     from dokimi.eval.reference_checks import parse_json
 
     assert parse_json("[" * 20000, contains=contains) == (False, None)
+
+
+def test_parse_json_contains_tries_a_bounded_number_of_starts(monkeypatch: pytest.MonkeyPatch) -> None:
+    import json
+
+    from dokimi.eval import reference_checks
+    from dokimi.eval.reference_checks import CONTAINS_JSON_MAX_STARTS, parse_json
+
+    calls: list[int] = []
+    real = json.JSONDecoder.raw_decode
+
+    def spy(self: json.JSONDecoder, s: str, idx: int = 0) -> tuple[object, int]:
+        calls.append(idx)
+        return real(self, s, idx)
+
+    monkeypatch.setattr(reference_checks.json.JSONDecoder, "raw_decode", spy)
+    assert parse_json("[" * 20000, contains=True) == (False, None)
+    assert 0 < len(calls) <= CONTAINS_JSON_MAX_STARTS + 1  # + the json.loads of the whole text
+    calls.clear()
+    # A decoder that reports a JSONDecodeError at the depth limit (Python 3.14) never raises
+    # RecursionError: only the cap bounds the scan there, whatever this Python does.
+    def reject(self: json.JSONDecoder, s: str, idx: int = 0) -> tuple[object, int]:
+        calls.append(idx)
+        raise json.JSONDecodeError("too deep", s, idx)
+
+    monkeypatch.setattr(reference_checks.json.JSONDecoder, "raw_decode", reject)
+    assert parse_json("[" * 20000, contains=True) == (False, None)
+    assert len(calls) == 1 + CONTAINS_JSON_MAX_STARTS
+    monkeypatch.setattr(reference_checks.json.JSONDecoder, "raw_decode", spy)
+    calls.clear()
+    # A value after fewer stray brackets than the cap, in prose, is still found.
+    assert parse_json("{ [ " * 10 + 'then {"a": [1]} done', contains=True) == (True, {"a": [1]})
+    assert len(calls) == 1 + 21  # json.loads of the whole text, then one try per bracket up to the value
+    # Past the cap the scan gives up.
+    assert parse_json("[ " * (CONTAINS_JSON_MAX_STARTS + 5) + '{"a": 1}', contains=True) == (False, None)
+
+
+def test_parse_json_contains_finds_a_value_after_a_start_too_deep_to_decode() -> None:
+    from dokimi.eval.reference_checks import parse_json
+
+    # The first "[" runs into the decoder's depth limit; the object after it is still the first JSON found.
+    assert parse_json('[ {"a": 1}, ' + "[1," * 10000, contains=True) == (True, {"a": 1})
 
 
 def test_names_pin_the_byte_to_target_order() -> None:

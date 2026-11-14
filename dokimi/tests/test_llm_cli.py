@@ -463,9 +463,11 @@ def test_an_unanswered_login_check_is_a_warning_not_a_pass(monkeypatch):
 
 
 def test_the_default_judge_runs_on_the_cli():
-    from dokimi.defaults import DEFAULT_JUDGE_MODEL, default_judge_model
+    from dokimi.defaults import DEFAULT_GENERATOR_MODEL
+    from dokimi.judge_rule import default_judge
 
-    assert default_judge_model("claude-cli") == DEFAULT_JUDGE_MODEL
+    # The shared rule: the first Claude alias not of the answerer's family (a gpt answerer: opus).
+    assert default_judge(DEFAULT_GENERATOR_MODEL, "claude-cli") == ("opus", "claude-cli")
 
 
 def test_a_cli_provider_needs_a_claude_model_on_the_command_line():
@@ -614,17 +616,18 @@ def test_the_prompt_is_the_user_turn_even_when_a_system_message_follows_it(runne
 
 def test_an_agentic_arm_or_a_session_is_refused_on_the_cli_before_any_answer():
     from dokimi.eval import arms_refusals
+    from dokimi.eval.arms_run import ArmsRunConfig
     from dokimi.treatments import create_treatments
 
     plain = create_treatments(["baseline", "docs"], top_k=3, rerank_threshold=0.3)
     agentic = create_treatments(["baseline", "agent"], top_k=3, rerank_threshold=0.3)
-    cli = argparse.Namespace(provider="claude-cli", session_turns=None)
+    cli = ArmsRunConfig(product="p", provider="claude-cli")
     arms_refusals.refuse_cli_arms(cli, plain)
     with pytest.raises(InputError, match="agentic arm"):
         arms_refusals.refuse_cli_arms(cli, agentic)
     with pytest.raises(InputError, match="--session-turns"):
-        arms_refusals.refuse_cli_arms(argparse.Namespace(provider="claude-cli", session_turns=3), plain)
-    arms_refusals.refuse_cli_arms(argparse.Namespace(provider="openai", session_turns=3), agentic)
+        arms_refusals.refuse_cli_arms(ArmsRunConfig(product="p", provider="claude-cli", session_turns=3), plain)
+    arms_refusals.refuse_cli_arms(ArmsRunConfig(product="p", provider="openai", session_turns=3), agentic)
 
 
 def test_a_cli_judge_given_a_temperature_stops_the_full_pipeline_before_any_work(monkeypatch, capsys):
@@ -666,6 +669,7 @@ def test_every_agentic_arm_kind_is_refused_on_the_cli_including_wrapped_and_comb
     from dokimi.skills import load_skill
 
     from dokimi.eval import arms_refusals
+    from dokimi.eval.arms_run import ArmsRunConfig
     from dokimi.plugins import PluginWrappedTreatment
     from dokimi.treatments.arms import (
         BaselineTreatment,
@@ -675,7 +679,7 @@ def test_every_agentic_arm_kind_is_refused_on_the_cli_including_wrapped_and_comb
         SkillCatalogTreatment,
     )
 
-    cli = argparse.Namespace(provider="claude-cli", session_turns=None)
+    cli = ArmsRunConfig(product="p", provider="claude-cli")
     skill = load_skill(demo_skill)
     base = BaselineTreatment()
     agentic = {
@@ -970,7 +974,7 @@ def test_benchmark_preflight_exit_status_follows_the_cli_login(monkeypatch, tmp_
         "benchmark", "preflight", "--library", "onetbb", "--doc-source", "local:docs",
         "--provider", answer, "--model", "sonnet" if answer == "claude-cli" else "gpt-4o",
         "--judge-provider", "claude-cli", "--judge-model", "opus",
-        "--output-dir", str(tmp_path / "out"),
+        "--out-dir", str(tmp_path / "out"),
     ])
     if exits:
         with refusal() as out:

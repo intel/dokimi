@@ -16,7 +16,8 @@ from __future__ import annotations
 
 from collections import Counter
 
-from .client import same_client, vendor_of
+from .client import same_client
+from .provenance import UNKNOWN_VENDOR, vendor_of
 
 # The order the median walks: best first. The three wrong verdicts score 0 and tie.
 _SCORE = {
@@ -79,7 +80,7 @@ def shared_vendors(models: list[str]) -> dict[str, list[str]]:
     by_vendor: dict[str, list[str]] = {}
     for model in models:
         vendor = vendor_of(model)
-        if vendor:
+        if vendor != UNKNOWN_VENDOR:
             by_vendor.setdefault(vendor, []).append(model)
     return {v: ms for v, ms in by_vendor.items() if len(ms) > 1}
 

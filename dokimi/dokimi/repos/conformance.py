@@ -115,8 +115,8 @@ def fixtures_digest(fixtures: Path) -> str:
     for p in sorted(fixtures.rglob("*"), key=lambda p: p.relative_to(fixtures).as_posix()):
         if not (p.is_symlink() or p.is_file()):
             continue
-        data = b"L" + os.readlink(p).encode() if p.is_symlink() else b"F" + p.read_bytes()
-        for part in (p.relative_to(fixtures).as_posix().encode(), data):
+        data = b"L" + os.fsencode(os.readlink(p)) if p.is_symlink() else b"F" + p.read_bytes()
+        for part in (os.fsencode(p.relative_to(fixtures).as_posix()), data):
             h.update(len(part).to_bytes(8, "big") + part)
     return h.hexdigest()
 
@@ -259,7 +259,7 @@ def run_case(harness: Harness, model: str, fixture: Path, guidance: Path, out: P
     except OSError as exc:  # a receipt that stays would be read as this run's: fail the run instead
         return run_record(harness.name, case, "failed", f"cannot clear {out}: {exc}", UNKNOWN, model, 0), []
     argv = [sys.executable, "-m", "dokimi", "repo", "reach", str(fixture), "--manifest-file", str(guidance),
-            "--harness", harness.profile_ref, "--model", model, "--out", str(out), "--format", "receipt",
+            "--harness", harness.profile_ref, "--model", model, "--out-dir", str(out), "--format", "receipt",
             "--timeout", str(timeout), "--budget", f"{budget:g}"]
     proc = process.run(argv, timeout=timeout * 16 + 300, env=process.Env.only((), env))
     receipt_path = out / RECEIPT_NAME

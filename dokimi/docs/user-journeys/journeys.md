@@ -70,7 +70,7 @@ decline.
 handed to another journey with its own scope.
 
 **Today.** The pieces exist per subject type: `python cli.py repo scan` for a
-repository, `python cli.py novelty routing` and
+repository, `python cli.py skill routing` and
 `python cli.py skill novelty analyze --estimate-only` for a skill. A single entry
 that picks among them, and the costed plan, are **proposed**.
 
@@ -100,7 +100,7 @@ use; the budget.
 **Flow.**
 
 1. Check the skill can be selected at all: does the agent route to it for the
-   queries it is for (`python cli.py novelty routing`)?
+   queries it is for (`python cli.py skill routing`)?
 2. Estimate what the diagnosis costs before running it
    (`python cli.py skill novelty analyze --estimate-only`).
 3. Diagnose: which parts of the skill add knowledge the model lacks, which
@@ -492,7 +492,7 @@ down in the PR.
 
 #### UC-J07-004 State coverage gaps
 
-- **AC-J07-007** An eval set's report lists the capabilities or areas it has no task for. *Partial: `eval coverage` lists the core and rare_critical nodes of a frozen need graph that no eval's `needs` names; building the graph, the user interview and drafting labels are #331.*
+- **AC-J07-007** An eval set's report lists the capabilities or areas it has no task for. *Partial: `eval coverage` lists the core and rare_critical nodes of a frozen need graph that no eval's `needs` names; `eval graph` builds that graph from the skill's name and description and refuses to overwrite it. The user interview and drafting labels are #331.*
 
 ---
 
@@ -720,7 +720,7 @@ non-zero exit only when a model cannot be verified or differs from the
 baseline. Explicit `--max-context-drop` and `--max-lift-drop` thresholds block
 score regressions, requiring complete matched scores and known matching models
 (AC-J12-001). `eval judge validate --strict` blocks inconclusive checks; without
-it an above-threshold inconclusive check warns and exits 0. Blocking policy remains
+it an above-threshold inconclusive check warns and exits 3. Blocking policy remains
 partial for budget-stopped checks (AC-J12-002). Native `tasks run` rejects any
 missing, unscored or errored planned cell and preserves the artifacts (AC-J12-004).
 
@@ -791,7 +791,7 @@ the settings that produced it, the spend, and the stated limits.
 |---|---|---|
 | Content novelty of a skill | `python cli.py skill novelty analyze` | Estimate with `--estimate-only`; cap with `--max-usd`; output `novelty.json` |
 | Re-render saved novelty | `python cli.py novelty view` | No model calls |
-| Skill routing | `python cli.py novelty routing` | Free without `--model` |
+| Skill routing | `python cli.py skill routing` | Free without `--model` |
 | Guidance reach | `python cli.py repo reach` | Plan with `--dry-run`; cap with `--budget` |
 | Context window of a run | `python cli.py trace inspect` | Reads an existing trace |
 | Judge calibration | `python cli.py eval judge validate` | Sequential stopping with `--sequential` |
@@ -862,7 +862,7 @@ for; which other problems of the same kind it should help with; the budget.
    already knows is a reason to shorten, and a skill that adds nothing is a
    reason to stop.
 4. Check the skill is selected for the requests it is for
-   (`python cli.py novelty routing`).
+   (`python cli.py skill routing`).
 5. Run three arms on the same tasks, model and repetitions: no skill
    (`benchflow:<agent>`), the user's skill (`benchflow-skill:<agent>:<path>`),
    and a skill the named skill-creator generates

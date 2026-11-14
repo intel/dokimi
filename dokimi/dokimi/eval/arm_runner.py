@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
 from dokimi.caching import is_empty_reply
-from dokimi.utils import question_id  # noqa: F401  (re-exported: callers import it from here)
+from dokimi.utils import question_id  # re-exported: callers import it from here
 from dokimi.artifacts import save_artifact
 from dokimi.llm import llm_call_with_usage
 from dokimi.defaults import DEFAULT_ANSWER_MODEL, DEFAULT_ANSWER_PROVIDER
@@ -406,6 +406,7 @@ class ArmRunner:
             "plugin_set": self.plugin_set["plugin_set"],
             "plugin_set_id": self.plugin_set["plugin_set_id"],
             "used_system_prompt": bool(cfg.system_prompt),
+            "replayed": rec.replayed,  # served from the response cache: not a fresh sample (#370)
             "context_chunks": [
                 {
                     "source": c.get("source", "unknown"),
