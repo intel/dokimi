@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""All-vs-all routing keeps one row per query for the lexical arm, whatever ``--repeats`` is."""
+"""All-vs-all routing keeps one row per query for the lexical arm, whatever ``--reps`` is."""
 
 from __future__ import annotations
 
@@ -92,7 +92,7 @@ def test_the_rows_are_there_without_repeats_and_with_a_model(tmp_path):
     queries.write_text(json.dumps(QUERIES), encoding="utf-8")
     out = tmp_path / "o.json"
     args = build_parser().parse_args([
-        "novelty", "routing", "--all-vs-all", "--catalog", str(catalog),
+        "catalog", "routing", str(catalog),
         "--queries-by-skill", str(queries), "--out", str(out)])
     args.func(args)
     result = json.loads(out.read_text(encoding="utf-8"))["result"]

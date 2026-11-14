@@ -797,7 +797,7 @@ the skills whose queries it took (`from`). Skills whose descriptions have the sa
 is no attractor, and a tied skill's own rate is lower by the picks inside its group. Every rate is over the queries that were scored:
 `n_scored` and `n_unscored` per skill say how many, a query with no content word or a failed
 model call is unscored, and a skill with none scored has an own rate of `null`, not 0.0. The lexical arm
-also keeps `per_query`, one row per query whatever `--repeats` is, in the shape of a single-artifact run's
+also keeps `per_query`, one row per query whatever `--reps` is, in the shape of a single-artifact run's
 `per_query` plus the `gold` skill: `query`, `gold`, `rank` of the gold card and `picked` (`rank` is `null` and
 a `reason` replaces `picked` for a query with no content word). `picked` follows the confusion matrix, so it is
 `(none)` for a query that shares no word with any card and `(tie)` when two or more other cards tie at the top,
