@@ -418,7 +418,9 @@ for s in range(1, len(NEW) + 1):
         ks = [k for k in allkeys if g(k) is not None and ref(k) is not None]
         accs.append(np.mean([g(k) == ref(k) for k in ks]))
         for m in MODELS:
-            spreads[m].append(headline(g, m, None)["gated"])
+            share = headline(g, m, None)["gated"]
+            if share is not None:
+                spreads[m].append(share)
     sd = np.mean([np.std(v) for v in spreads.values()])
     rg = np.mean([max(v) - min(v) for v in spreads.values()])
     sz.append(
