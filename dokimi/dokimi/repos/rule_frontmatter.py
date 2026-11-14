@@ -21,6 +21,18 @@ def _without_frontmatter(text: str) -> str:
     return text[m.end():] if m else text
 
 
+def blank_frontmatter(text: str) -> str:
+    """``text`` with the frontmatter's lines emptied and their line breaks kept, as Claude Code removes it before it
+    loads a rule. The body keeps its line numbers, and no frontmatter line (a code fence in a ``description``, say)
+    can open or close a block of the body. Breaks are those ``splitlines`` sees, so U+2028 counts as one."""
+    body = text.removeprefix("\ufeff")
+    m = _FRONTMATTER.match(body)
+    if not m:
+        return text
+    emptied = "".join(line[len(line.splitlines()[0]):] for line in m.group(0).splitlines(keepends=True))
+    return emptied + body[m.end():]
+
+
 def _has_paths(frontmatter: str) -> bool:
     """True if ``paths`` names at least one pattern: a string, or a list item that is a string, not blank.
 

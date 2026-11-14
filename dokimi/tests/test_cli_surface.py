@@ -599,3 +599,17 @@ def test_a_set_default_is_dumped_in_the_same_order_under_any_hash_seed():
         for seed in ("1", "2", "3", "4")
     }
     assert len(outs) == 1, outs
+
+
+def test_render_json_round_trips_and_keeps_each_parameter_on_one_line():
+    surface = cs.dump_surface()
+    text = cs.render_json(surface)
+    assert json.loads(text) == surface
+    params = [line for line in text.splitlines() if '"key": ' in line]
+    assert params and all(line.strip().startswith("{") and line.rstrip(",").endswith("}") for line in params)
+
+
+def test_main_dump_writes_the_rendered_layout(tmp_path):
+    out = tmp_path / "s.json"
+    assert cs.main(["dump", str(out)]) == 0
+    assert out.read_text(encoding="utf-8") == cs.render_json(cs.dump_surface()) + "\n"

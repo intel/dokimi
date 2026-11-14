@@ -263,6 +263,31 @@ def render(lines: list[str], *, markdown: bool) -> str:
     return f"CLI interface change detected:\n{body}\n"
 
 
+def render_json(node: dict[str, Any], indent: str = "") -> str:
+    """The dump as committed: the command tree indented, each parameter on one line.
+
+    A parameter has a dozen fields; one line each made the snapshot 2x larger than its
+    content (over the 500 KB pre-commit limit at 120 commands) and spread a changed
+    option over many diff hunks. One line per parameter keeps a change to it to one line.
+    """
+    inner = indent + "  "
+    keys = sorted(node)
+    rows = []
+    for k in keys:
+        v = node[k]
+        if k == "params":
+            body = ",\n".join(inner + "  " + json.dumps({"key": p["key"], **dict(sorted(p.items()))}) for p in v)
+            text = f"[\n{body}\n{inner}]" if v else "[]"
+        elif k == "subcommands":
+            body = ",\n".join(f"{inner}  {json.dumps(name)}: {render_json(sub, inner + '  ')}"
+                               for name, sub in sorted(v.items()))
+            text = f"{{\n{body}\n{inner}}}" if v else "{}"
+        else:
+            text = json.dumps(v, sort_keys=True)
+        rows.append(f"{inner}{json.dumps(k)}: {text}")
+    return "{\n" + ",\n".join(rows) + f"\n{indent}}}"
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -274,7 +299,7 @@ def main(argv: list[str] | None = None) -> int:
     c.add_argument("--markdown", action="store_true", help="format for a PR comment")
     args = p.parse_args(argv)
     if args.cmd == "dump":
-        text = json.dumps(dump_surface(), indent=2, sort_keys=True) + "\n"
+        text = render_json(dump_surface()) + "\n"
         if args.out:
             args.out.write_text(text, encoding="utf-8")
         else:

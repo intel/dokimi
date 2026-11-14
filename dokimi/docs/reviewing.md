@@ -42,9 +42,12 @@ litellm has no price for such a model, so cost is reported as unknown and
 `novelty --max-usd` stops the run after its first call.
 
 The judge must be a different model from the one under measurement, because a
-model that grades its own answers inflates the scores. `novelty` refuses a
-self-judge; `arms run` and `subjects run` warn on stderr and do not refuse, so name
+model that grades its own answers inflates the scores. `novelty`, `arms run` and
+`subjects run` refuse a judged run whose default judge is the model under measurement:
+the command exits 2 with `pass --judge-model as well`, so name
 `--judge --judge-model <other> --judge-provider <judge-provider>` yourself.
+For `arms run` and `subjects run`, an explicit `--judge-model` equal to the answerer only warns on stderr.
+`novelty` does not: it refuses that judge unless you also pass `--allow-self-judge`.
 
 ## A skill
 
@@ -112,7 +115,8 @@ The full path with reading notes: [skill-novelty-walkthrough.md](skill-novelty-w
 With no `repo-eval.yaml` in the repository, steps 1 and 2 check the default
 guidance globs (`<repo>/**/AGENTS.md`, `<repo>/**/CLAUDE.md`,
 `<repo>/.github/copilot-instructions.md`, `<repo>/.github/instructions/*.md`)
-and say so.
+and say so; step 1 also checks the `.claude/rules` files, `@` imports and `CLAUDE.local.md`
+that Claude Code loads with them.
 To choose the files for `scan`, write a guidance-only manifest outside the tree and pass
 it with `--manifest-file`:
 
