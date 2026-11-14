@@ -413,6 +413,19 @@ def tightened(groups: dict[str, list[str]], baseline: dict[str, dict]) -> dict[s
     return out
 
 
+def seeded(groups: dict[str, list[str]], baseline: dict[str, dict]) -> dict[str, dict]:
+    """Every current group at its count. An entry the code did not outgrow keeps its
+    text; one raised or added gets ``SEED_RATIONALE``."""
+    out = {}
+    for fp, where in groups.items():
+        old = baseline.get(fp)
+        if old and len(where) <= old["count"]:
+            out[fp] = {**old, "count": len(where), "where": _files(where)}
+        else:
+            out[fp] = {"count": len(where), "rationale": SEED_RATIONALE, "where": _files(where)}
+    return out
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     mode = ap.add_mutually_exclusive_group()
@@ -427,8 +440,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{len(groups)} clone group(s)")
         return 0
     if args.seed or args.update:
-        new = ({fp: {"count": len(w), "rationale": SEED_RATIONALE, "where": _files(w)} for fp, w in groups.items()} if args.seed
-               else tightened(groups, load_baseline()))
+        stored = load_baseline() if BASELINE.is_file() else {}
+        new = seeded(groups, stored) if args.seed else tightened(groups, stored)
         BASELINE.write_text(dump_baseline(new), encoding="utf-8")
         print(f"wrote {BASELINE.relative_to(PROJECT).as_posix()} ({len(new)} group(s))")
         return 0

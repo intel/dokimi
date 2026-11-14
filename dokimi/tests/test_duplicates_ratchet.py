@@ -189,6 +189,26 @@ def test_update_lowers_and_drops_but_never_raises():
         "aaa": {"count": 2, "where": ["x.py", "y.py"]}, "bbb": {"count": 2, "where": ["x.py", "y.py"]}}
 
 
+def test_seed_keeps_a_reviewed_rationale_and_marks_only_new_or_raised_groups(tmp_path, monkeypatch):
+    # Property: --seed never overwrites the stored rationale of a group the code did not outgrow.
+    monkeypatch.setattr(cd, "PROJECT", tmp_path)
+    monkeypatch.setattr(cd, "BASELINE", tmp_path / "duplicates_baseline.json")
+    groups = {"kept": ["x.py:1-9", "y.py:1-9"], "raised": ["x.py:20-29", "y.py:20-29", "z.py:1-9"],
+              "new": ["p.py:1-9", "q.py:1-9"]}
+    monkeypatch.setattr(cd, "clone_groups", lambda project=None: groups)
+    assert cd.main(["--seed"]) == 0   # no baseline file yet: every group is new
+    assert {e["rationale"] for e in cd.load_baseline().values()} == {cd.SEED_RATIONALE}
+    cd.BASELINE.write_text(cd.dump_baseline({
+        "kept": {"count": 3, "rationale": "two CLIs, no shared module", "where": []},
+        "raised": {"count": 2, "rationale": "old reason", "where": []},
+        "gone": {"count": 2, "rationale": "removed since", "where": []}}), encoding="utf-8")
+    assert cd.main(["--seed"]) == 0
+    assert cd.load_baseline() == {
+        "kept": {"count": 2, "rationale": "two CLIs, no shared module", "where": ["x.py", "y.py"]},
+        "raised": {"count": 3, "rationale": cd.SEED_RATIONALE, "where": ["x.py", "y.py", "z.py"]},
+        "new": {"count": 2, "rationale": cd.SEED_RATIONALE, "where": ["p.py", "q.py"]}}
+
+
 def test_an_added_or_raised_entry_needs_a_new_rationale():
     base = {"kept": {"count": 2, "rationale": "two CLIs, no shared module"},
             "raised": {"count": 2, "rationale": "old reason"}}
