@@ -49,9 +49,14 @@ def test_a_deleted_file_lists_nothing():
     assert lnep.added_sites(diff) == []
 
 
-def test_main_lists_the_sites_of_a_real_diff(capsys):
-    assert lnep.main(["--base", "HEAD", "--head", "HEAD"]) == 0
-    assert capsys.readouterr().out.startswith("0 new error path(s)")
+def test_main_lists_the_sites_of_a_real_diff(monkeypatch, capsys):
+    result = lnep.subprocess.CompletedProcess(args=[], returncode=0, stdout=DIFF, stderr="")
+    monkeypatch.setattr(lnep.subprocess, "run", lambda *args, **kwargs: result)
+    assert lnep.main(["--base", "HEAD~1", "--head", "HEAD"]) == 0
+    out = capsys.readouterr().out
+    assert "4 new error path(s)" in out
+    assert 'dokimi/dokimi/x.py:12: raise: raise ValueError("bad")' in out
+    assert "dokimi/dokimi/x.py:45: test: def test_bad_input_fails():" in out
 
 
 def test_main_returns_2_when_git_cannot_diff(capsys):
@@ -61,3 +66,35 @@ def test_main_returns_2_when_git_cannot_diff(capsys):
 def test_an_added_line_starting_with_two_pluses_is_not_a_file_header():
     diff = "--- a/x.py\n+++ b/x.py\n@@ -0,0 +1,2 @@\n+++ y\n+if bad: raise Z\n"
     assert lnep.added_sites(diff) == [("x.py", 2, "raise", "if bad: raise Z")]
+
+
+def test_a_removed_and_added_line_that_look_like_file_headers_do_not_hide_later_sites():
+    diff = "--- a/x.py\n+++ b/x.py\n@@ -3 +3 @@\n--- old\n+++ new\n@@ -9,0 +10 @@\n+    raise Z\n"
+    assert lnep.added_sites(diff) == [("x.py", 10, "raise", "raise Z")]
+
+
+def test_a_path_with_spaces_keeps_its_sites():
+    diff = "--- a/my x.py\t\n+++ b/my x.py\t\n@@ -0,0 +1 @@\n+raise Z\n"
+    assert lnep.added_sites(diff) == [("my x.py", 1, "raise", "raise Z")]
+
+
+def test_a_context_row_inside_a_fused_hunk_is_counted():
+    diff = "--- a/x.py\n+++ b/x.py\n@@ -1,3 +1,3 @@\n-raise OldA\n+raise NewA\n unchanged()\n-raise OldB\n+raise NewB\n"
+    assert lnep.added_sites(diff) == [("x.py", 1, "raise", "raise NewA"), ("x.py", 3, "raise", "raise NewB")]
+
+
+def test_an_exit_call_with_a_space_before_the_paren_is_listed():
+    diff = "--- a/x.py\n+++ b/x.py\n@@ -0,0 +1,2 @@\n+sys.exit (2)\n+SystemExit (2)\n"
+    assert [s[2] for s in lnep.added_sites(diff)] == ["exit", "exit"]
+
+
+def test_main_passes_explicit_prefixes_and_no_fused_hunks(monkeypatch):
+    seen = []
+
+    def fake_run(cmd, **kwargs):
+        seen.append(cmd)
+        return lnep.subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(lnep.subprocess, "run", fake_run)
+    assert lnep.main([]) == 0
+    assert {"--src-prefix=a/", "--dst-prefix=b/", "--inter-hunk-context=0"} <= set(seen[0])
