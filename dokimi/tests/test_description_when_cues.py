@@ -84,6 +84,10 @@ HAS_WHEN = [
     pytest.param("当仓库中没有时自动创建目录。", id="zh-dang-closing-meiyou"),
     pytest.param("当新版本来临时自动升级。", id="zh-dang-closing-lailin"),
     pytest.param("배포 스크립트입니다. 필요한 때 사용합니다.", id="ko-piryohan-ttae"),
+    pytest.param("いつ使うか：リリース前。", id="ja-itsu-tsukau"),
+    pytest.param("当请求超时，自动重试并记录日志。", id="zh-dang-chaoshi"),
+    pytest.param("当事件到达时，发送通知。", id="zh-dang-shijian"),
+    pytest.param("Beim Erstellen eines Release verwenden.", id="de-beim-verwenden"),
 ]
 
 # No "when" clause in the language's own words; also the wording a bare cue would wrongly accept.
@@ -196,6 +200,16 @@ NO_WHEN = [
     pytest.param("适用于定时任务的调度工具。", id="zh-shi-dingshi-not-when"),
     pytest.param("适用于时序数据分析的工具。", id="zh-shi-shixu-not-when"),
     pytest.param("适用于时代背景的分析工具。", id="zh-shi-daibei-not-when"),
+    pytest.param("アイデアを思いつくためのブレインストーミング支援ツール。", id="ja-omoitsuku-not-itsu"),
+    pytest.param("最新の仕様に追いつくためのドキュメント要約ツール。", id="ja-oitsuku-not-itsu"),
+    pytest.param("ユーザーが食いつくキャッチコピーを生成する。", id="ja-kuitsuku-not-itsu"),
+    pytest.param("こいつはPDFを結合するツール。", id="ja-koitsu-not-itsu"),
+    pytest.param("分析耗时调用链路并生成报告。", id="zh-haoshi-not-when"),
+    pytest.param("监控超时调用并发出告警。", id="zh-chaoshi-not-when"),
+    pytest.param("支持延时执行的任务队列管理工具。", id="zh-yanshi-not-when"),
+    pytest.param("整理当事人信息，统计查询耗时。", id="zh-dangshiren-not-when"),
+    pytest.param("Hilft beim Schreiben von Commit-Nachrichten.", id="de-hilft-beim-not-when"),
+    pytest.param("Unterstützt Sie beim Erstellen von Berichten.", id="de-unterstuetzt-beim-not-when"),
 ]
 
 

@@ -254,7 +254,9 @@ skill, since those commands then run with no prompt, and that pair fails `--stri
 half and shares three words (`description-near-duplicate`). The `description-no-when` cue is read in English,
 Spanish, French, German, Portuguese, Russian, Chinese, Japanese and Korean, and a description in a script none
 of them covers (Arabic, Thai, Hebrew, …) is not checked: it gets a `note` (`description-when-not-checked`), so not checked does not read as a pass: its row says `note:` instead of `ok`, and the counts line `1 ok (1 not checked)`. A Latin-script language without a list of its own
-(Polish, Dutch, Turkish, Vietnamese) is checked against these cues. Two skills in different paths with the same
+(Polish, Dutch, Turkish, Vietnamese) is checked against these cues. A word that only states a capability is not a cue:
+Japanese いつ counts only before a use verb, Chinese 耗时, 超时 and 延时 are not 时 + verb, and German `beim`
+counts only next to a use verb (verwenden, nutzen, ...). Two skills in different paths with the same
 directory name and description but different `SKILL.md` text are a `warn` on both
 (`mirror-drift`), naming the other copies. Skills with
 `disable-model-invocation: true` are exempt from the description checks.
