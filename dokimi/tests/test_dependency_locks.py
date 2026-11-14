@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import re
 import shlex
+import sys
 import tomllib
 from pathlib import Path
 
@@ -284,3 +285,167 @@ def test_a_replacement_update_is_exempt_from_the_release_age_wait() -> None:
     assert len(exempt) == 1, exempt
     assert 'matchManagers: ["github-actions"]' in exempt[0]
     assert 'matchUpdateTypes: ["replacement"]' in exempt[0]
+
+
+_MAIN_LOCK = "requirements.lock.txt"
+_QUOTED = str.maketrans(";&|<>()", "\ue000\ue001\ue002\ue003\ue004\ue005\ue006")
+_UNQUOTED = {letter: operator for operator, letter in _QUOTED.items()}
+
+
+def _requirement_files(tokens: list[str]) -> list[str]:
+    """The files of pip's requirement options, as scripts/ci_local.py reads them: -r f, -rf, --requirement f|=f."""
+    files, args = [], iter(tokens)
+    for token in args:
+        if token in ("-r", "--requirement"):
+            files.append(next(args, ""))
+        elif token.startswith("--requirement="):
+            files.append(token.partition("=")[2])
+        elif token.startswith("-r") and not token.startswith("--"):
+            files.append(token[2:])
+    return [re.split(r"[/\\]", name)[-1] for name in files]
+
+
+def _commands(script: str) -> list[list[str]]:
+    """The commands of a shell ``script`` as word lists: POSIX quoting (a quoted word may span lines), ``#``
+    comments, a backslash continuation joined, ``;``/``&``/``|``/newline separating commands, ``(`` and ``)``
+    dropped from the words, the word after a redirection (``>``, ``<``) left out; a quoted operator is a letter."""
+    commands: list[list[str]] = []
+    command: list[str] = []
+    script = script.replace('\\"', "\0")  # an escaped quote is a letter, not a quote
+    script = re.sub(r"""('[^']*'|"[^"]*")|(?<![^\s;&|()])#[^\n]*""",
+                    lambda m: (m.group(1) or "").translate(_QUOTED), script)
+    script = re.sub(r"\\\r?\n", " ", script)  # after the comments: a comment's backslash continues nothing
+    lexer = shlex.shlex(script, posix=True, punctuation_chars=";&|<>\n")
+    lexer.whitespace, lexer.whitespace_split, lexer.escape, lexer.commenters = " \t\r", True, "", ""
+    redirected = False
+    while True:
+        token = lexer.get_token()
+        if token is None:
+            break
+        if not token.strip(";&|\n"):
+            commands.append(command)
+            command = []
+        elif token.strip("<>&") != token and not token.strip("<>&"):
+            redirected = True
+        elif redirected:
+            redirected = False
+        elif token.strip("()"):
+            command.append(token.strip("()").translate(_UNQUOTED).replace("\0", '"'))
+    return [*commands, command]
+
+
+def _installs_of_the_main_lock(script: str) -> list[list[str]]:
+    """The words of each pip command in a shell ``script`` that installs the main lock: ``pip``, ``pip3.11``,
+    ``python -m pip``, ``uv pip``, with global options before ``install`` and a Makefile ``@``/``-``/``+`` prefix."""
+    if _MAIN_LOCK not in script:
+        return []
+    return [
+        command for command in _commands(script)
+        if any(re.fullmatch(r"pip[\d.]*", word.lstrip("@+-").rsplit("/", 1)[-1]) and "install" in command[i + 1:]
+               for i, word in enumerate(command))
+        and _MAIN_LOCK in _requirement_files(command)
+    ]
+
+
+def _install_scripts() -> dict[str, str]:
+    """The scripts that run: each workflow and action ``run:`` step (YAML-decoded), the eval image's Dockerfile
+    and the Makefiles. Markdown examples are prose for a reader, not run, so they are not here."""
+    scripts = {}
+    paths = [path for ext in ("yml", "yaml") for path in sorted((ROOT.parent / ".github").glob(f"**/*.{ext}"))]
+    paths += [path for ext in ("yml", "yaml") for path in sorted((ROOT.parent / "actions").glob(f"**/action.{ext}"))]
+    for path in paths:
+        doc = yaml.safe_load(path.read_text(encoding="utf-8"))
+        if not isinstance(doc, dict):
+            continue
+        steps = list((doc.get("runs") or {}).get("steps", []))  # a composite action
+        for job in (doc.get("jobs") or {}).values():
+            steps += job.get("steps", [])
+        for i, step in enumerate(steps):
+            if isinstance(step.get("run"), str):
+                scripts[f"{path.relative_to(ROOT.parent).as_posix()} step {i}"] = step["run"]
+    for name in (".agent-eval/Dockerfile", "Makefile", "dokimi/Makefile"):
+        scripts[name] = (ROOT.parent / name).read_text(encoding="utf-8")
+    return scripts
+
+
+@pytest.mark.parametrize(("script", "unguarded"), [
+    ("pip install -r requirements.lock.txt", True),
+    ("pip install -rrequirements.lock.txt", True),
+    ("pip install --requirement requirements.lock.txt", True),
+    ("pip install --requirement=dokimi/requirements.lock.txt", True),
+    ('pip install --require-hashes -r "requirements.lock.txt"', True),
+    ("pip install --requirement='requirements.lock.txt'", True),
+    ("pip install --require-hashes -r requirements.lock.txt  # --no-deps", True),
+    ("pip  install\t--require-hashes -r requirements.lock.txt", True),
+    ("pip install --no-deps wheel && pip install --require-hashes -r requirements.lock.txt", True),
+    ("(pip install -r requirements.lock.txt); pip install --no-deps wheel", True),
+    ("uv pip install --python x \\\n    -r requirements.lock.txt", True),
+    ("pip --disable-pip-version-check install -r requirements.lock.txt", True),
+    ("python -m pip -q install -r requirements.lock.txt", True),
+    ("pip3.11 install -r requirements.lock.txt", True),
+    ("all:\n\t@pip install -r requirements.lock.txt", True),
+    ("pip install -r requirements.lock.txt > --no-deps", True),
+    ("pip install -r dokimi\\requirements.lock.txt", True),
+    ("pip install -r requirements.lock.txt # --no-deps\npip install --no-deps wheel", True),
+    ('pip install --log ";" -r requirements.lock.txt', True),
+    ("# note \\\npip install --require-hashes -r requirements.lock.txt", True),
+    ('pip install -r requirements.lock.txt --log "(--no-deps)"', True),
+    ("pip install --no-deps --require-hashes -r requirements.lock.txt -r requirements-ci.lock.txt", False),
+    ('python -m pip install --no-deps --requirement="/opt/req/requirements.lock.txt"', False),
+    ("uv pip install --python $(VPY) --no-deps \\\n    -r requirements.lock.txt", False),
+    ("(pip install -r requirements.lock.txt --no-deps)", False),
+    ('pip install --no-deps -r requirements.lock.txt --log "install\nlog.txt"', False),
+    ('pip install --no-deps -r requirements.lock.txt --log "build\\"log.txt"', False),
+    ("pip install --log '>' --no-deps -r requirements.lock.txt", False),
+], ids=["short", "joined", "long", "long-equals", "quoted", "single-quoted", "commented-flag", "spacing", "chained",
+        "subshell", "continued", "global-option", "python-m-pip", "versioned", "recipe-prefix", "redirected",
+        "backslash-path", "comment-line", "quoted-separator", "comment-backslash", "quoted-parentheses", "guarded", "guarded-quoted",
+        "guarded-continued", "guarded-subshell", "guarded-multiline", "guarded-escaped-quote",
+        "guarded-quoted-redirection"])
+def test_an_install_of_the_main_lock_without_no_deps_is_found(script: str, unguarded: bool) -> None:
+    installs = _installs_of_the_main_lock(script)
+    assert len(installs) == 1, installs
+    assert ("--no-deps" not in installs[0]) is unguarded
+
+
+@pytest.mark.parametrize("script", ["pip install --require-hashes -r requirements-ci.lock.txt",
+                                    "COPY dokimi/requirements.lock.txt /opt/dokimi-req/",
+                                    "pip install --no-deps-x -r requirements-docs.lock.txt"])
+def test_other_locks_and_mentions_of_the_main_lock_are_not_installs_of_it(script: str) -> None:
+    assert _installs_of_the_main_lock(script) == []
+
+
+def test_a_quoted_run_value_is_read_as_the_command_it_decodes_to() -> None:
+    """A workflow may quote its run: value; YAML decodes it before the shell sees it."""
+    step = yaml.safe_load('run: "pip install --no-deps -r requirements.lock.txt"')["run"]
+    assert _installs_of_the_main_lock(step) == [["pip", "install", "--no-deps", "-r", "requirements.lock.txt"]]
+
+
+@pytest.mark.parametrize(("workflow", "action"), [("example.yaml", "action.yml"), ("example.yml", "action.yaml")])
+def test_yaml_and_yml_workflows_and_actions_are_scanned(tmp_path: Path, monkeypatch, workflow: str, action: str) -> None:
+    step = "run: pip install --require-hashes -r requirements.lock.txt"
+    (tmp_path / "dokimi").mkdir()
+    for name in (".agent-eval/Dockerfile", "Makefile", "dokimi/Makefile"):
+        (tmp_path / name).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / name).write_text("all:\n\ttrue\n", encoding="utf-8")
+    (tmp_path / ".github" / "workflows").mkdir(parents=True)
+    (tmp_path / ".github" / "workflows" / workflow).write_text(
+        f"jobs:\n  j:\n    steps:\n      - {step}\n", encoding="utf-8")
+    (tmp_path / "actions" / "setup").mkdir(parents=True)
+    (tmp_path / "actions" / "setup" / action).write_text(
+        f"runs:\n  using: composite\n  steps:\n    - {step}\n      shell: bash\n", encoding="utf-8")
+    monkeypatch.setattr(sys.modules[__name__], "ROOT", tmp_path / "dokimi")
+    scripts = _install_scripts()
+    assert f".github/workflows/{workflow} step 0" in scripts and f"actions/setup/{action} step 0" in scripts, scripts
+
+
+def test_every_install_of_the_main_lock_passes_no_deps() -> None:
+    """SECURITY.md: the main lock overrides litellm's filelock cap, so an install without --no-deps cannot resolve.
+    Not covered: a command built at run time (a variable holding the file name, eval) and Markdown examples."""
+    found = {name: _installs_of_the_main_lock(script) for name, script in _install_scripts().items()}
+    sources = {name.split(" step ")[0] for name, installs in found.items() if installs}
+    assert {".github/workflows/reach-matrix.yml", "actions/setup/action.yml", ".agent-eval/Dockerfile",
+            "dokimi/Makefile"} <= sources, sources
+    missing = [(name, shlex.join(install)) for name, installs in found.items() for install in installs
+               if "--no-deps" not in install]
+    assert missing == []
