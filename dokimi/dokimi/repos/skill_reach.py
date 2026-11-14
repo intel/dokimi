@@ -233,7 +233,12 @@ def resolve_at(case: Case, dirs: dict[str, str]) -> tuple[str, str] | None:
 
 
 def token(salt: str, case_id: str, position: str) -> str:
-    digest = hashlib.sha256(f"{salt}\0{case_id}\0{position}".encode("utf-8", "surrogateescape")).hexdigest()
+    text = f"{salt}\0{case_id}\0{position}"
+    try:
+        raw = text.encode("utf-8", "surrogateescape")
+    except UnicodeEncodeError:  # a JSON `\ud800` escape is a surrogate `surrogateescape` does not map
+        raw = text.encode("utf-8", "surrogatepass")
+    digest = hashlib.sha256(raw).hexdigest()
     return ("SK" if position == "description" else "SB") + digest[:6].upper()
 
 

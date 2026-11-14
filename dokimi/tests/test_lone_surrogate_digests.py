@@ -73,6 +73,15 @@ def test_skill_reach_token_of_a_case_id_with_a_non_utf8_byte_is_a_token():
     assert token("s", "n\udcfe", "p") == "SB18DC10"
 
 
+def test_skill_reach_token_of_a_json_escaped_high_surrogate_case_id():
+    import json
+
+    from dokimi.repos.skill_reach import token
+
+    assert token("s", json.loads('"n\\ud800"'), "p").startswith("SB")
+    assert token("s", json.loads('"n\\ud800"'), "p") != token("s", json.loads('"n\\ud801"'), "p")
+
+
 def test_skill_reach_token_of_a_utf8_case_id_is_unchanged():
     from dokimi.repos.skill_reach import token
 
