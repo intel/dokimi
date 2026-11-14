@@ -26,11 +26,13 @@ interaction_significance(evaluations, arms, baseline_arm, ...)
 
 from __future__ import annotations
 
+import math
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from dokimi.records import RecordLike, records
 from dokimi.eval.stats import (
     _apply_correction,
+    _deltas,
     _describe_deltas,
     _finalize,
 )
@@ -89,10 +91,24 @@ def _interaction_contrast(
     if len(rows) < 2:
         return None
 
-    contrasts = [ab - a - b + base for ab, a, b, base in rows]
+    bases = [base for _, _, _, base in rows]
+    diffs_a = _deltas([a for _, a, _, _ in rows], bases)
+    diffs_b = _deltas([b for _, _, b, _ in rows], bases)
+    diffs_ab = _deltas([ab for ab, _, _, _ in rows], bases)
+    contrasts: List[float] = []
+    for row in rows:
+        ab, a, b, base = row
+        contrast = ab - a - b + base
+        if not math.isfinite(contrast):
+            # a step of the sum may overflow while the contrast fits: sum the quarters (exact powers of two) without
+            # intermediate rounding, so a representable contrast is not lost to the rounding of a partial sum
+            contrast = 4 * math.fsum((ab / 4, -a / 4, -b / 4, base / 4))
+        if not math.isfinite(contrast) and all(math.isfinite(x) for x in row):
+            raise OverflowError("deltas too large: a contrast of the four scores leaves the float range")
+        contrasts.append(contrast)
     res = _describe_deltas(contrasts, confidence=confidence, seed=seed)
-    delta_a = _arm_delta([a - base for _, a, _, base in rows], confidence, seed)
-    delta_b = _arm_delta([b - base for _, _, b, base in rows], confidence, seed)
+    delta_a = _arm_delta(diffs_a, confidence, seed)
+    delta_b = _arm_delta(diffs_b, confidence, seed)
     res.update(
         {
             "arm_a": arm_a,
@@ -101,7 +117,7 @@ def _interaction_contrast(
             "baseline_arm": baseline_arm,
             "delta_a": delta_a,
             "delta_b": delta_b,
-            "delta_combined": _arm_delta([ab - base for ab, _, _, base in rows], confidence, seed),
+            "delta_combined": _arm_delta(diffs_ab, confidence, seed),
             "interaction": res["delta_mean"],
             # the sum of the two printed deltas, so the row adds up; round() only drops float noise
             "additive_expectation": round(delta_a + delta_b, 12) + 0.0,
