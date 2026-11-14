@@ -18,7 +18,7 @@ receipt of a reach probe), ``need_graph`` and ``eval_coverage`` (a frozen need g
 eval set's coverage of it), ``task_inspect`` (which eval-task format each
 path under a tree is), ``repo_hits_judged`` (a judge's labels of one replay cell's credited pairs),
 ``dokimi_config`` (a repository's subjects and where their evals are), ``reach_matrix`` (the reach
-conformance matrix), ``personas`` and ``persona_analysis`` (proposed user personas and the GitHub
+conformance matrix), ``security_report`` (unsafe agent behaviour per arm of a run batch), ``personas`` and ``persona_analysis`` (proposed user personas and the GitHub
 signals behind them), ``question_panel`` and ``question_quality`` (reviews of a question set) and
 ``report_qa`` (the Q&A sidecar of ``report eval``). This module stamps each with a ``schema_version`` and validates it against the JSON Schema in
 ``dokimi/schemas/`` on save and load, so fixtures and baselines stay
@@ -89,6 +89,7 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "catalog_eval": "catalog_eval.v1",
     "reach_matrix": "reach_matrix.v1",
     "repo_hits_judged": "repo_hits_judged.v1",
+    "security_report": "security_report.v1",
     "ragas": "ragas.v1",
     "grounding": "grounding.v1",
     "checklist": "checklist.v1",
