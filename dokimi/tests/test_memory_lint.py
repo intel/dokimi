@@ -119,6 +119,17 @@ def test_index_limit_and_stray_separator(mem):
     assert ("index-near-limit", "warn", "MEMORY.md") in _rules(mem, max_lines=14)
 
 
+def test_load_limit_edges_anchors_mailto_and_code_span_dates(mem):
+    (mem / "MEMORY.md").write_text("- [A](a.md#why) [B](b.md) [M](mailto:x@example.com)\n" + "x\n" * 199)
+    assert [r[0] for r in _rules(mem)] == ["index-near-limit"]  # 200 lines load
+    (mem / "MEMORY.md").write_text("- [A](a.md#why) [B](b.md)\n" + "x\n" * 200)
+    assert [r[0] for r in _rules(mem)] == ["index-over-limit"]
+    (mem / "MEMORY.md").write_text("- [A](a.md) [B](b.md)\n" + "x" * 900 + "\n")
+    assert [r[0] for r in _rules(mem, max_bytes=1000)] == ["index-near-limit"]
+    (mem / "a.md").write_text(_entry("a", body="Run `make today` first."))
+    assert _rules(mem) == []
+
+
 def test_missing_index_warns(tmp_path):
     (tmp_path / "a.md").write_text(_entry("a"))
     assert _rules(tmp_path) == [("index-missing", "warn", "MEMORY.md")]
