@@ -697,7 +697,9 @@ def test_eval_reference_cli_refuses_an_unreadable_questions_file_with_exit_2(tmp
         cli.main()
     assert exc.value.code == 2
     err = capsys.readouterr().err
-    assert err.startswith("Error: ") and str(q) in err and "Traceback" not in err
+    # a read failure names the flag; a wrong shape names the record and the file
+    named = f"Error: --questions {q}:" if content not in (b"{}", b'{"questions": {}}') else "Error: "
+    assert err.startswith(named) and str(q) in err and "Traceback" not in err
     assert not out.exists()
 
 
