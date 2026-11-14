@@ -22,3 +22,8 @@ def test_a_later_rule_line_is_not_frontmatter():
 def test_a_bom_or_an_empty_block_is_frontmatter_too():
     assert [c.text for c in claims_from_guidance("\ufeff---\nname: x\n---\nAlways run `ls` here.\n")] == ["Always run `ls` here."]
     assert [c.text for c in claims_from_guidance("---\n---\nAlways run `ls` here.\n")] == ["Always run `ls` here."]
+
+
+def test_an_empty_block_ends_at_its_own_closing_line():
+    claims = claims_from_guidance("---\n---\nAlways run `ls` here.\n\nNever do X.\n\n---\nNever run `rm` here.\n")
+    assert claims[0].text == "Always run `ls` here." and "Never run `rm` here." in claims[-1].text
