@@ -183,7 +183,8 @@ def test_baseline_compare_verifies_a_cli_alias_against_its_full_id_as_unverified
 
 
 def test_default_judge_keeps_the_organization_of_the_model_it_measures():
-    from dokimi.novelty.client import DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER, default_judge
+    from dokimi.defaults import DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER
+    from dokimi.judge_rule import default_judge
 
     # the org-named sonnet is not the CLI's sonnet, so the CLI judge is opus, and the API default is not it either
     assert default_judge("myorg/sonnet", "claude-cli") == ("opus", "claude-cli")
@@ -194,7 +195,8 @@ def test_default_judge_keeps_the_organization_of_the_model_it_measures():
 
 
 def test_default_judge_skips_a_snapshot_and_a_context_form_of_the_answerers_family():
-    from dokimi.novelty.client import DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER, default_judge
+    from dokimi.defaults import DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER
+    from dokimi.judge_rule import default_judge
 
     # the judge of an Anthropic answerer is the default generator, the other family
     assert default_judge("claude-sonnet-5-5-20260101") == (DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER)
@@ -202,7 +204,7 @@ def test_default_judge_skips_a_snapshot_and_a_context_form_of_the_answerers_fami
 
 
 def test_an_explicit_anthropic_judge_for_an_anthropic_answerer_has_no_judge_and_raises():
-    from dokimi.novelty.client import default_judge
+    from dokimi.judge_rule import default_judge
 
-    with pytest.raises(ValueError, match="no default judge runs there"):
+    with pytest.raises(ValueError, match="the default judge there is the model under measurement"):
         default_judge("claude-sonnet-5-5-20260101", "anthropic")
