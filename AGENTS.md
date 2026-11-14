@@ -66,7 +66,7 @@ also holds a PR to:
   `dokimi/docs/contributing-terminal-bench-task.md`. Tasks live in a
   content repository; the framework reads a checkout via `--tasks-root`.
 - Anything else: the index, `dokimi/docs/documentation-index.md`. A new page
-  directly under `dokimi/docs/` goes in that index
+  at any depth under `dokimi/docs/` goes in that index
   (`dokimi/tests/test_docs_links.py` checks it) and in the `nav:` of
   `dokimi/mkdocs.yml`, the published site.
 
