@@ -177,3 +177,21 @@ def test_a_mutant_only_the_last_of_many_covering_tests_catches_is_killed(tmp_pat
     _, report = _mutation_run(tmp_path, monkeypatch, src, tests)
     assert _statuses(report) == {(2, "x <= 3"): "killed", (2, "4"): "killed", (2, "None"): "killed"}
     assert {len(m["tests"]) for m in report["mutants"]} == {31}
+
+
+def test_survivors_kills_and_tests_failing_unmutated(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    src = "def a(x):\n    return x == 1\n\n\ndef b(x):\n    return x == 2\n"
+    tests = (
+        "from dokimi.zz import a, b\n\n\n"
+        "def test_a():\n    assert a(1) is True\n    assert a(2) is False\n\n\n"
+        "def test_b_is_only_called():\n    b(2)\n\n\n"
+        "def test_broken():\n    b(2)\n    assert False\n"
+    )
+    rc, report = _mutation_run(tmp_path, monkeypatch, src, tests, "--fail-on-survivor")
+    assert _statuses(report) == {
+        (2, "x != 1"): "killed", (2, "2"): "killed", (2, "None"): "killed",
+        (6, "x != 2"): "survived", (6, "3"): "survived", (6, "None"): "survived",
+    }
+    assert report["failing_unmutated"] == ["tests/test_zz.py::test_broken"]
+    assert rc == 1
+    assert _mutation_run(tmp_path, monkeypatch, src, tests)[0] == 0
