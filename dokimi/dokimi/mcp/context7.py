@@ -11,8 +11,26 @@ import hashlib
 import logging
 
 from . import MCPClient, MCPConnectionError, MCPLibraryNotFoundError
+from .utils import read_cache_text, write_cache_text
 
 logger = logging.getLogger(__name__)
+
+#: An answer shorter than this (stripped) is an error stub or an empty answer, never stored or replayed.
+MIN_DOC_CHARS = 100
+
+
+def _is_stub(content: str) -> bool:
+    return len(content.strip()) < MIN_DOC_CHARS
+
+
+def _read_cached(cache_file: Path) -> Optional[str]:
+    """The answer stored at *cache_file*, or ``None`` for a miss; a stored stub is warned about."""
+    content = read_cache_text(cache_file)
+    if content is not None and _is_stub(content):
+        logger.warning(f"Ignoring cache entry {cache_file}: {len(content)} chars, an error stub "
+                       "or an empty answer; fetching again")
+        return None
+    return content
 
 
 class Context7Client(MCPClient):
@@ -119,10 +137,9 @@ class Context7Client(MCPClient):
                 f"{library_id}:{query}:{max_tokens}".encode()
             ).hexdigest()
             cache_file = self.cache_dir / f"{cache_key}.txt"
-            
-            if cache_file.exists():
+            content = _read_cached(cache_file)
+            if content is not None:
                 logger.info(f"Cache hit for {library_id} query: {query[:50]}...")
-                content = cache_file.read_text(encoding="utf-8")
                 return [{
                     "content": content,
                     "source": "context7_cache",
@@ -166,12 +183,10 @@ class Context7Client(MCPClient):
                     f"Context7 returned HTML (library not found?): {library_id}"
                 )
             
-            if len(content) < 100:
-                logger.warning(f"Context7 returned suspiciously short response: {len(content)} bytes")
-            
-            # Cache successful response
-            if self.cache_dir:
-                cache_file.write_text(content, encoding="utf-8")
+            if _is_stub(content):
+                logger.warning(f"Context7 returned suspiciously short response: {len(content)} chars, "
+                               "not cached")
+            elif self.cache_dir and write_cache_text(cache_file, content):
                 logger.info(f"Cached response to {cache_file}")
             
             return [{
