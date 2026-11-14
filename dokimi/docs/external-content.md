@@ -226,7 +226,7 @@ error and still exits 0. A `name` missing from the frontmatter, or a `SKILL.md` 
 another skill's, is a `warn`. So is a skill whose `name` another skill shares with different content
 (`name-conflict`), when both are listed: neither is `disable-model-invocation` or has a spec error
 (a description over 1024 characters, as the only error, does not unlist a skill for routing).
-The finding names the other path, and `dokimi novelty routing --catalog` skips that name rather than
+The finding names the other path, and `dokimi skill routing --against` (or `catalog routing ROOT`) skips that name rather than
 the whole catalog. Of identical copies, the one nearest the root (fewest path parts, ties to path
 order) is the original, the copy the `skill-catalog:` arm offers; each other copy is the `warn` and
 names it. Warnings never change the exit code. `disable-model-invocation: true` is printed as a
