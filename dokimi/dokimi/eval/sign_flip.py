@@ -71,12 +71,16 @@ def sign_flip_p(deltas: list[float], seed: int = 0, n_resamples: int = N_RESAMPL
     """Two-sided p of ``|sum(deltas)|`` when each delta's sign is a fair coin under the null.
 
     ``None`` when every delta is a tie: there is no evidence either way, and 1.0 would read as a measured null.
-    Rounded to 6 places as printed, unless ``exact``.
+    Rounded to 6 places as printed, unless ``exact``. Deltas whose largest magnitude is above ``max float / (8 * n)``
+    are divided by a power of two (exact) first, as in :func:`sign_flip_interval`, so no sum leaves the float range.
     """
     d = [x for x in deltas if abs(x) > EPS]
     if not d:
         return None
-    observed = abs(sum(d)) - EPS
+    eps, k = EPS, _scale_exponent(d)
+    if k:  # near the float maximum the sums go to inf/nan: the same p on the deltas divided by a power of two
+        d, eps = [math.ldexp(x, -k) for x in d], math.ldexp(EPS, -k)
+    observed = abs(sum(d)) - eps
     if len(d) <= EXACT_MAX:
         hits = sum(abs(sum(s * x for s, x in zip(signs, d, strict=True))) >= observed
                    for signs in itertools.product((1, -1), repeat=len(d)))

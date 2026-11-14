@@ -67,3 +67,21 @@ def test_an_end_beyond_the_float_range_is_open(row):
             ends = sign_flip_interval(row, sign_flip_p(row), rounded=rounded)
             assert (ends[1] if row[0] > 0 else ends[0]) is None
             assert all(end is None or math.isfinite(end) for end in ends)
+
+
+@pytest.mark.parametrize("row", [[1.7e308] * 3 + [1.5e308] * 3, [BIG, 1.0, 1.0, 1.0, 1.0, 1.0],
+                                 [math.ldexp(x, SHIFT) for x in MC_BASE]], ids=["six", "max and ones", "monte-carlo"])
+def test_the_p_and_ends_of_a_row_near_the_maximum_are_those_of_the_row_scaled(row):
+    small = [math.ldexp(x, -4) for x in row]
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        big_row, small_row = sign_flip_row(row, exact=False), sign_flip_row(small, exact=False)
+    assert big_row["p"] == small_row["p"]
+    for end in ("lo", "hi"):
+        try:
+            want = None if small_row[end] is None else math.ldexp(small_row[end], 4)
+        except OverflowError:
+            want = None  # the scaled end is past the float range: open
+        assert (big_row[end] is None) == (want is None)
+        if want is not None:
+            assert big_row[end] == pytest.approx(want, rel=1e-12)
