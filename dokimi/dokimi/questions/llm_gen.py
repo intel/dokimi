@@ -321,7 +321,7 @@ class QuestionGenerator:
         from dokimi.questions.artifact import save_questions_artifact
 
         save_questions_artifact({
-            **({"product": product} if product else {}),
+            **({"product": product} if product is not None else {}),
             "generated_at": self._get_timestamp(),
             "model": self.model,
             "provider": self.provider,

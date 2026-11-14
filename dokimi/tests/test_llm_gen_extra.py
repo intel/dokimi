@@ -10,6 +10,8 @@ from unittest.mock import MagicMock, patch
 
 import sys
 
+import pytest
+
 from dokimi.questions.llm_gen import QuestionGenerator
 
 
@@ -136,6 +138,14 @@ def test_save_questions_creates_file(tmp_path):
     out = tmp_path / "questions.json"
     gen.save_questions(questions, out)
     assert out.exists()
+
+
+@pytest.mark.parametrize("product", ["oneTBB", ""])
+def test_save_questions_records_the_product_it_is_given(tmp_path, product):
+    """An empty --product is still recorded, so runs list does not show the set's subject as "-"."""
+    out = tmp_path / "questions.json"
+    _make_generator().save_questions([{"id": "q1", "question": "Q?"}], out, product=product)
+    assert json.loads(out.read_text(encoding="utf-8"))["product"] == product
 
 
 def test_save_questions_correct_structure(tmp_path):
