@@ -67,6 +67,7 @@
     "not_started": [],
     "unfinished": [],
     "exec_traced": 0,
+    "exec_cut": 0,
     "egress_traced": 0,
     "canaries": 1
   },
@@ -78,6 +79,7 @@
       "model": "m",
       "started": true,
       "exec_traced": false,
+      "exec_cut": 0,
       "egress_traced": false,
       "findings": []
     },
@@ -88,6 +90,7 @@
       "model": "m",
       "started": true,
       "exec_traced": false,
+      "exec_cut": 0,
       "egress_traced": false,
       "findings": []
     },
@@ -98,6 +101,7 @@
       "model": "m",
       "started": true,
       "exec_traced": false,
+      "exec_cut": 0,
       "egress_traced": false,
       "findings": [
         {
@@ -121,6 +125,7 @@
       "model": "m",
       "started": true,
       "exec_traced": false,
+      "exec_cut": 0,
       "egress_traced": false,
       "findings": [
         {

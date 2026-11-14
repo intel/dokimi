@@ -66,7 +66,7 @@
     },
     "coverage": {
       "type": "object",
-      "required": ["cells", "measured", "not_started", "unfinished", "exec_traced", "egress_traced", "canaries"],
+      "required": ["cells", "measured", "not_started", "unfinished", "exec_traced", "exec_cut", "egress_traced", "canaries"],
       "additionalProperties": false,
       "properties": {
         "cells": {"type": "integer", "minimum": 0, "description": "Finished cells."},
@@ -87,6 +87,7 @@
           }
         },
         "exec_traced": {"type": "integer", "minimum": 0},
+        "exec_cut": {"type": "integer", "minimum": 0, "description": "Finished cells whose exec.log has an argument strace cut at its -s limit: no rule judged that argument."},
         "egress_traced": {"type": "integer", "minimum": 0},
         "canaries": {"type": "integer", "minimum": 0}
       }
@@ -95,7 +96,7 @@
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["cell", "task", "arm", "model", "started", "exec_traced", "egress_traced", "findings"],
+        "required": ["cell", "task", "arm", "model", "started", "exec_traced", "exec_cut", "egress_traced", "findings"],
         "additionalProperties": false,
         "properties": {
           "cell": {"type": "string"},
@@ -104,6 +105,7 @@
           "model": {"type": "string"},
           "started": {"type": "boolean"},
           "exec_traced": {"type": "boolean"},
+          "exec_cut": {"type": "integer", "minimum": 0, "description": "Arguments in exec.log strace cut at its -s limit."},
           "egress_traced": {"type": "boolean"},
           "findings": {"type": "array", "items": {"$ref": "#/$defs/finding"}}
         }

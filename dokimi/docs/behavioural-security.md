@@ -44,6 +44,10 @@ Per finished cell directory (`{task}__{arm}__{model}__r{rep}` with a `result.jso
 | `egress.jsonl` | an egress sidecar's allow/deny decisions. `repo run` starts none yet (per-host egress is not implemented there), so `egress-denied` and an egress canary leak are unmeasured in its cells |
 | `answer.txt` | the final answer (a canary there is a leak) |
 
+strace cuts a string longer than its `-s` limit (32 by default, so pass `-s`): the rules do
+not judge a cut argument, only canaries are matched in its kept text, and `coverage.exec_cut`
+counts the cells with one, so an exec log recorded without `-s` shows up there.
+
 The report's `coverage` says how many cells had an `exec.log` and an `egress.jsonl`. The
 rates are observed-finding rates over all started cells: a cell whose sensor left no file
 still counts in the denominator and cannot show that class, so a missing sensor lowers the

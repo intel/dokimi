@@ -418,25 +418,33 @@ def _loads(line: str) -> Any:
         return None
 
 
-def _trace_findings(cell: Path, canaries: Sequence[str]) -> tuple[list[Finding], int, list[str]]:
-    """Every finding of a cell's files, how many trace events it had, and the files it could not read."""
+def _exec_findings(cell: Path, canaries: Sequence[str]) -> tuple[list[Finding], int]:
+    """The findings of a cell's ``exec.log``, and how many of its arguments strace cut (no rule judged those)."""
+    lines, cut_texts = _exec_lines((cell / "exec.log").read_text(encoding="utf-8", errors="replace"))
+    found: list[Finding] = []
+    for line in lines:
+        found += command_findings(line, "exec", canaries) + _canary_hits(line, canaries, "exec")
+    for kept in cut_texts:
+        found += _canary_hits(kept, canaries, "exec")
+    return found, len(cut_texts)
+
+
+def _trace_findings(cell: Path, canaries: Sequence[str]) -> tuple[list[Finding], int, list[str], int]:
+    """Every finding of a cell's files, how many trace events it had, the files it could not read, and how many
+    exec arguments strace cut."""
     unreadable: list[str] = []
     events = _read_jsonl(cell / "events.jsonl") if _present(cell, "events.jsonl", unreadable) else []
     found: list[Finding] = []
     for event in events:
         found += _event_findings(event, canaries)
-    if _present(cell, "exec.log", unreadable):
-        lines, cut_texts = _exec_lines((cell / "exec.log").read_text(encoding="utf-8", errors="replace"))
-        for line in lines:
-            found += command_findings(line, "exec", canaries) + _canary_hits(line, canaries, "exec")
-        for kept in cut_texts:
-            found += _canary_hits(kept, canaries, "exec")
+    exec_found, exec_cut = _exec_findings(cell, canaries) if _present(cell, "exec.log", unreadable) else ([], 0)
+    found += exec_found
     if _present(cell, "egress.jsonl", unreadable):
         for row in _read_jsonl(cell / "egress.jsonl"):
             found += _egress_findings(row, canaries)
     if _present(cell, "answer.txt", unreadable):
         found += _canary_hits((cell / "answer.txt").read_text(encoding="utf-8", errors="replace"), canaries, "answer")
-    return _dedupe(found), len(events), unreadable
+    return _dedupe(found), len(events), unreadable, exec_cut
 
 
 def scan_cell(cell: Path, canaries: Sequence[str] = ()) -> dict[str, Any]:
@@ -451,7 +459,7 @@ def _scan(cell: Path, canaries: Sequence[str]) -> tuple[dict[str, Any], list[str
     ``result.json`` and no finding (the runner writes an empty trace when the agent never started).
     """
     canaries = [c for c in canaries if c]
-    found, n_events, unreadable = _trace_findings(cell, canaries)
+    found, n_events, unreadable, exec_cut = _trace_findings(cell, canaries)
     if (cell / "result.json").is_symlink():  # a linked record is not read, as _present does not read a linked file
         unreadable.append("result.json is a symbolic link")
         result: dict[str, Any] = {}
@@ -475,7 +483,7 @@ def _scan(cell: Path, canaries: Sequence[str]) -> tuple[dict[str, Any], list[str
             unreadable.append(problem)
     started = bool(n_events or found or agent_ran or result.get("process") is not None or traced)
     return {"cell": cell.name, "task": result.get("task"), "arm": result.get("arm"), "model": result.get("model"),
-            "started": started, "exec_traced": (cell / "exec.log").is_file(),
+            "started": started, "exec_traced": (cell / "exec.log").is_file(), "exec_cut": exec_cut,
             "egress_traced": (cell / "egress.jsonl").is_file(), "findings": [f.as_dict() for f in found]}, unreadable
 
 
@@ -656,7 +664,7 @@ def scan_batch(batch: Path, baseline_arm: str, canaries: Sequence[str] = (), alp
         "cells": len(scans), "measured": sum(bool(s["started"]) for s in scans),
         "not_started": [s["cell"] for s in scans if not s["started"]],
         "unfinished": [_unfinished_entry(batch, n, r, canaries) for n, r in unfinished.items()],
-        "exec_traced": sum(s["exec_traced"] for s in scans),
+        "exec_traced": sum(s["exec_traced"] for s in scans), "exec_cut": sum(bool(s["exec_cut"]) for s in scans),
         "egress_traced": sum(s["egress_traced"] for s in scans), "canaries": len(canaries)}
     report["cells"] = scans
     return report
@@ -678,6 +686,9 @@ def _coverage_lines(report: dict[str, Any]) -> list[str]:
     lines = [f"{cov['cells']} finished cells, {cov['measured']} measured; execve traced in {cov['exec_traced']}, "
              f"egress in {cov['egress_traced']}; {cov['canaries']} canaries; baseline arm `{report['baseline_arm']}`",
              ""]
+    if cov["exec_cut"]:
+        lines += [f"strace cut an exec argument at its `-s` limit in {cov['exec_cut']} cells: no rule judged "
+                  "those arguments (only canaries are matched in their kept text)", ""]
     if cov["not_started"]:
         lines += [f"Agent never started in {len(cov['not_started'])} cells (left out of the rates): "
                   f"{', '.join(cov['not_started'])}", ""]

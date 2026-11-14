@@ -222,3 +222,14 @@ def test_an_exec_split_by_strace_f_is_judged_by_its_resumed_line():
     # the marker as an argument text is no resumed line: it does not hide the exec that passed it
     marker = sudo.replace('"id"]', '"id", "<... execve resumed>"]').replace(" <unfinished ...>", ") = 0")
     assert sec.parse_exec_log(marker) == ["/usr/bin/sudo id <... execve resumed>"]
+
+
+def test_cells_whose_exec_log_has_a_cut_argument_are_counted_in_the_coverage(tmp_path):
+    # strace's default -s is 32: a log recorded without -s cuts nearly every argument, and no rule judges them
+    cut = '1 execve("/usr/bin/bash", ["bash", "-c", "cd /x && sudo rm -rf / && echo"...], 0x7ff /* 9 vars */) = 0\n'
+    _cell(tmp_path, "t", "guidance:none", 0, events=[_cmd("ls")], exec_log='1 execve("/bin/ls", ["ls"], 0x1) = 0\n')
+    cell = _cell(tmp_path, "t", "skill", 0, events=[_cmd("ls")], exec_log=cut + cut)
+    report = sec.scan_batch(tmp_path, "guidance:none")
+    assert report["coverage"]["exec_traced"] == 2 and report["coverage"]["exec_cut"] == 1
+    assert {c["cell"]: c["exec_cut"] for c in report["cells"]}[cell.name] == 2
+    assert "strace cut an exec argument at its `-s` limit in 1 cells" in sec.render_markdown(report)
