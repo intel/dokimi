@@ -26,7 +26,7 @@ def skill_row(skill, review, nested_in: Optional[str] = None, outputs: Iterable[
               ignore: frozenset = frozenset()) -> dict:
     """One skill of the scan report. ``state`` is ``error`` for a load error or an error finding,
     ``warn`` for a warning finding only, else ``ok``. A skill that did not load has a review only
-    when its frontmatter is broken YAML, and that review's finding is its only finding.
+    when its SKILL.md is plain Markdown or its frontmatter is broken YAML, and that review's finding is its only finding.
     ``nested_in`` is the skill whose directory holds this one (None when it is not nested).
     ``outputs`` are the scan's own files, left out of ``skill_sha256``. ``ignore`` drops the
     findings with those codes before the state is taken; ``ignored`` records the codes in effect."""
@@ -50,6 +50,18 @@ def skill_row(skill, review, nested_in: Optional[str] = None, outputs: Iterable[
         "ignored": sorted(ignore),
         "findings": [{"level": f.level, "code": f.code, "message": f.message} for f in kept],
     }
+
+
+def is_plain_markdown(row: dict) -> bool:
+    """Whether the row is a ``SKILL.md`` with no frontmatter: plain Markdown, not a broken skill."""
+    from dokimi.external.no_frontmatter import NO_FRONTMATTER
+
+    return any(f.get("code") == NO_FRONTMATTER for f in row["findings"])
+
+
+def plain_note(plain: int) -> str:
+    """The summary's note on the errors that are plain Markdown with no frontmatter; empty for none."""
+    return f", of them {plain} plain Markdown with no frontmatter" if plain else ""
 
 
 def skill_dir_digest(entry, outputs: Iterable[Path] = ()) -> Optional[str]:
@@ -80,6 +92,11 @@ def _outputs(jsonl: Optional[Path]) -> tuple[Path, ...]:
     return (out, out.with_name(out.name + ".part"))
 
 
+def _continued(message: str) -> str:
+    """``message`` with its continuation lines indented under the row, so a multi-line message stays in it."""
+    return message.replace("\n", "\n    ")
+
+
 def not_checked(row: dict) -> bool:
     """Whether an ``ok`` row is only ok because the check did not read it (a ``description-when-not-checked`` note)."""
     return row["state"] == "ok" and any(f["code"] == "description-when-not-checked" for f in row["findings"])
@@ -92,7 +109,7 @@ def ok_text(ok: int, unchecked: int) -> str:
 
 def print_skill_row(row: dict) -> None:
     if row["error"] is not None:
-        state = f"ERROR: {row['error']}"
+        state = f"ERROR: {_continued(row['error'])}"
     elif row["state"] == "ok" and not not_checked(row):
         state = "ok"
     elif row["state"] == "ok":
@@ -101,10 +118,10 @@ def print_skill_row(row: dict) -> None:
         state = f"note: {note['message']}"
     else:
         worst = next(f for f in row["findings"] if f["level"] == row["state"])
-        state = f"{'ERROR' if row['state'] == 'error' else 'warn'}: {worst['message']}"
+        state = f"{'ERROR' if row['state'] == 'error' else 'warn'}: {_continued(worst['message'])}"
     print(f"{row['name']}\t{row['manifest_status'] or '-'}\t{row['path'] or '-'}\t{state}")
     for f in row["findings"]:
-        print(f"  {f['level']} {f['code']}: {f['message']}")
+        print(f"  {f['level']} {f['code']}: {_continued(f['message'])}")
     if row["disable_model_invocation"]:
         print("  note disable-model-invocation: true (the model is never offered this skill)")
     if row["nested_in"] is not None:
@@ -193,12 +210,14 @@ class _Tally:
     def __init__(self, strict: bool) -> None:
         self.strict = strict
         self.counts = {"ok": 0, "warn": 0, "error": 0}
+        self.plain = 0  # error rows that are plain Markdown with no frontmatter (is_plain_markdown)
         self.not_checked = 0
         self.failed = False
         self.reasons: list[str] = []
 
     def add(self, row: dict) -> None:
         self.counts[row["state"]] += 1
+        self.plain += is_plain_markdown(row)
         self.not_checked += not_checked(row)
         # A SKILL.md the OS will not read after it loaded has no row error, only its unreadable finding: it fails
         # the scan as a load error does, as the whole-catalog path decides it (catalog.py).
@@ -315,7 +334,7 @@ def _print_text(root: Path, declared: int, tally: _Tally, resumed: int,
     counts = tally.counts
     where = f"; {resumed} resumed from {jsonl}" if jsonl is not None and resumed else ""
     print(f"# skills ({declared} declared under {root}; {ok_text(counts['ok'], tally.not_checked)}, {counts['warn']} warn, "
-          f"{counts['error']} error{where})")
+          f"{counts['error']} error{plain_note(tally.plain)}{where})")
     if jsonl is not None:
         print(f"rows written to {jsonl}")
     else:

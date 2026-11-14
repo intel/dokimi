@@ -24,7 +24,8 @@ follow the Agent Skills spec:
   ``permission-bypass-flag`` hit in the same skill. A body over 500 lines or about
   5000 tokens (characters / 4) is a ``warn`` (``body-too-large``).
 - A file with no frontmatter at all does not load, and its load error says "no frontmatter"
-  rather than "missing a description" (a load error, so no finding; see the loader).
+  rather than "missing a description" (see the loader). Its one finding is
+  ``not-a-skill-no-frontmatter`` (``error``, see :mod:`dokimi.external.no_frontmatter`).
 
 Identical copies: of the skills whose ``SKILL.md`` bytes are the same, the one
 nearest the root (fewest path parts, ties to path order) is the original, the
@@ -93,9 +94,10 @@ from .command_checks import command_findings
 from .allowed_tools import RISKY_COMMAND_CODES, tool_names, grants_unrestricted_bash, unrestricted_bash_message
 from .content_checks import content_findings
 from .listing import in_field
+from .no_frontmatter import NO_FRONTMATTER, no_frontmatter_message
 from .script_checks import script_findings
 from .paths import _exists, _in_checkout, _inside, _resolved
-from .skill_markdown import link_pieces, outside_fences
+from .skill_markdown import QUOTE_MARK_RE, link_pieces, outside_fences
 from .when_cues import when_clause_found
 
 NAME_PATTERN = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
@@ -167,6 +169,7 @@ FINDING_CODES = (
     "name-format",
     "name-mismatch",
     "name-missing",
+    "not-a-skill-no-frontmatter",
     "not-loaded",
     "package-not-found",
     "path-escapes-skill",
@@ -357,8 +360,32 @@ def _skill_digest(skill: Skill) -> str:
     return hashlib.sha256(skill.path.read_bytes()).hexdigest()
 
 
+def _has_late_frontmatter(lines: list[str]) -> bool:
+    """Whether a line that is exactly ``---`` is followed by a ``name:`` or ``description:`` line in the first 20 lines."""
+    return any(
+        lines[i].rstrip() == "---" and lines[i + 1].startswith(("name:", "description:"))
+        for i in range(min(len(lines) - 1, 20))
+    )
+
+
+# A YAML key at the start of a line: ``title: x``, ``  name: x``, ``"name": x``, ``{name: x``, ``- name: x``.
+YAML_KEY_RE = re.compile(r"""\s*(?:-\s+)?[{\[]?\s*["']?[A-Za-z_][\w.-]*["']?\s*:""")
+
+
+def _opens_frontmatter(lines: list[str]) -> bool:
+    """Whether the lines open with a ``---`` block that is empty or holds a YAML key (``title:``, ``name:``) before its closing ``---``."""
+    block: list[str] = []
+    for line in lines[1:]:
+        if line.rstrip() == "---":
+            return not block or any(YAML_KEY_RE.match(line) for line in block)
+        block.append(line)
+    first = next((line for line in block if line.strip()), "")
+    return bool(YAML_KEY_RE.match(first))  # unclosed: a later ``Usage:`` line is prose, not a key
+
+
 def _unloaded_review(entry: SkillCatalogEntry) -> Optional[SkillReview]:
-    """A review for an entry that did not load, only when its ``SKILL.md`` has broken YAML; else None.
+    """A review for an entry that did not load, only when its ``SKILL.md`` is plain Markdown (no frontmatter) or
+    has broken YAML; else None.
 
     A ``SKILL.md`` that resolves outside the scanned root is not read: the YAML message quotes
     the offending line, and the catalog must not get a file outside it into the report.
@@ -374,6 +401,17 @@ def _unloaded_review(entry: SkillCatalogEntry) -> Optional[SkillReview]:
         text = candidate.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError):
         return None  # the loader already reported why the skill did not load
+    if not text.lstrip("\ufeff").strip():
+        return None  # an empty file is not prose: the loader's error stands
+    lines = text.lstrip("\ufeff").splitlines()
+    first = next((line.rstrip() for line in lines if line.strip()), "")
+    unquoted = "\n".join("" if QUOTE_MARK_RE.match(line) else line for line in lines)  # a quoted example is prose too
+    if (first.strip() == "---" and lines[0].rstrip() != "---") or (first.strip() != "---" and _has_late_frontmatter(outside_fences(unquoted))):
+        return None  # frontmatter after blank lines, an indent or another line: a broken skill, not prose; the loader's error stands
+    if first.strip() != "---" or not _opens_frontmatter(lines):  # a rule or prose, not a broken block
+        at_root = candidate.parent.resolve() == entry.source_root.resolve()  # as _frontmatter_findings reads it
+        hint = no_frontmatter_message(lines, _dir_name_of(candidate.parent), at_root=at_root)
+        return SkillReview(findings=[Finding("error", NO_FRONTMATTER, hint)])
     _, parse_error = _strict_meta(text)
     return None if parse_error is None else SkillReview(findings=[parse_error])
 
@@ -645,8 +683,9 @@ def review_skills(
 ) -> list[Optional[SkillReview]]:
     """One :class:`SkillReview` per entry, in order.
 
-    None for an entry that did not load, unless its frontmatter is broken YAML: then its
-    review carries the ``frontmatter-parse`` error. A loaded skill whose ``SKILL.md`` cannot
+    None for an entry that did not load, unless its ``SKILL.md`` is plain Markdown (then its review
+    carries the ``not-a-skill-no-frontmatter`` error) or its frontmatter is broken YAML (then the
+    ``frontmatter-parse`` error). A loaded skill whose ``SKILL.md`` cannot
     be read during review gets a review with one ``unreadable`` error and no digest. Of each
     identical ``SKILL.md``, the copy nearest the root is the original; every other copy names
     it in ``duplicate_of``.
