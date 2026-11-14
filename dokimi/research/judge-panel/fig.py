@@ -25,6 +25,7 @@ pj = [r for r in csv.DictReader((T / "per_judge_headline.csv").open()) if r["mod
 ag = {
     (r["rule"], r["answer_model"]): float(r["gated"])
     for r in csv.DictReader((T / "aggregation_rules.csv").open())
+    if r["gated"] != ""
 }
 W, H, L, R, TOP, ROW = 760, 70 + 46 * len(MODELS) + 60, 170, 30, 40, 46
 x0, x1 = 0.0, 0.6
@@ -50,7 +51,9 @@ for t in range(7):
 for i, m in enumerate(MODELS):
     y = TOP + ROW * i + ROW / 2
     s.append(f'<text x="{L - 10}" y="{y + 4}" text-anchor="end">{m}</text>')
-    vals = [(r["judge"], float(r["gated"])) for r in pj if r["answer_model"] == m]
+    vals = [(r["judge"], float(r["gated"])) for r in pj if r["answer_model"] == m and r["gated"] != ""]
+    if not vals:
+        continue
     lo, hi = min(v for _, v in vals), max(v for _, v in vals)
     s.append(
         f'<line x1="{X(lo)}" y1="{y}" x2="{X(hi)}" y2="{y}" stroke="#bbb" stroke-width="6" stroke-linecap="round"/>'
@@ -63,7 +66,7 @@ for i, m in enumerate(MODELS):
             else f'<circle cx="{X(v)}" cy="{y + dy}" r="5" fill="{COL[j]}" fill-opacity="0.85"/>'
         )
         s.append(shape)
-    if mode == "lenient":
+    if mode == "lenient" and ("majority", m) in ag:
         v = ag[("majority", m)]
         s.append(f'<path d="M{X(v)} {y - 14} l-6 -9 h12 z" fill="black"/>')
 ly = TOP + ROW * len(MODELS) + 32
