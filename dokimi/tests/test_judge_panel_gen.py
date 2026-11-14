@@ -145,6 +145,35 @@ def test_gen_lenient_delta_is_on_the_answers_both_judges_grade(tmp_path):
     assert pair["lenient_rate_delta"] == expected
 
 
+def test_gen_lenient_delta_ignores_rows_only_the_new_judge_grades(tmp_path):
+    # As in the study, gpt-6-luna also grades no_skill repeats that gpt-5.6-luna never saw.
+    # The judges agree on every shared answer, so those extra rows must not move the delta.
+    out = tmp_path / "out"
+    _write(out, GEN_JUDGES)
+    sample = [json.loads(line) for line in (out / "sample.jsonl").read_text().splitlines()]
+    for r in sample:
+        if r["probe_id"] == "p0":
+            r["verdict"] = "wrong_other"
+    (out / "sample.jsonl").write_text("".join(json.dumps(r) + "\n" for r in sample))
+    verdict = {f"{r['probe_id']}|{r['arm']}|{r['model']}": r["verdict"] for r in sample}
+    grades = [json.loads(line) for line in (out / "grades.jsonl").read_text().splitlines()]
+    for g in grades:
+        if g["judge"] == "gpt-6-luna":
+            g["verdict"] = verdict[g["key"]]
+    repeats = [dict(r, arm="no_skill_repeat", verdict=None) for r in sample if r["arm"] == "no_skill"]
+    (out / "repeats.jsonl").write_text("".join(json.dumps(r) + "\n" for r in repeats))
+    grades += [{"key": f"{r['probe_id']}|{r['arm']}|{r['model']}", "judge": "gpt-6-luna",
+                "verdict": "correct_complete"} for r in repeats]
+    (out / "grades.jsonl").write_text("".join(json.dumps(g) + "\n" for g in grades))
+
+    r = _gen(out)
+
+    assert r.returncode == 0, r.stderr[-800:]
+    summary = json.loads((out / "gen_summary.json").read_text())
+    pair = next(p for p in summary["pairs"] if p["old"] == "gpt-5.6-luna" and p["new"] == "gpt-6-luna")
+    assert pair["lenient_rate_delta"] == 0.0
+
+
 def test_analyze_names_a_study_judge_with_no_grades(tmp_path):
     # glm-5 is a study panel judge that these grades lack: name it before any table is written.
     out = tmp_path / "out"
