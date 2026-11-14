@@ -170,6 +170,15 @@ def test_topics_blank_llm_entry_is_dropped_and_the_rest_is_stored(tmp_path):
     assert llm.invoke.call_count == 1
 
 
+def test_topics_non_string_llm_entries_are_dropped_not_stored_as_text(tmp_path):
+    llm = MagicMock()
+    llm.invoke.return_value = MagicMock(content='[null, false, 0, "parallel_for"]')
+    extractor = _extractor(tmp_path)
+    extractor.llm = llm
+    assert extractor.extract_topics(LIB, "oneTBB") == ["parallel_for"]
+    assert json.loads(_only_entry(tmp_path).read_text(encoding="utf-8")) == ["parallel_for"]
+
+
 # ── the shared write ─────────────────────────────────────────────────────────
 
 def test_failed_cache_write_keeps_the_old_entry_and_leaves_no_tmp(tmp_path, caplog):

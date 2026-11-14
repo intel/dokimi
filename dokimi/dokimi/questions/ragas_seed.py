@@ -168,8 +168,8 @@ class RagasSeedExtractor:
             raw = response.content if hasattr(response, "content") else str(response)
             from dokimi.llm import extract_json_array
             topics = extract_json_array(raw)
-            # Clean, drop blank entries and deduplicate
-            topics = list(dict.fromkeys(s for s in (str(t).strip() for t in topics) if s))
+            # Clean, drop blank and non-string entries (a null is not the topic "None"), deduplicate
+            topics = list(dict.fromkeys(t.strip() for t in topics if isinstance(t, str) and t.strip()))
             return topics[:max_topics]
         except Exception as e:
             logger.error("LLM topic extraction failed: %s — falling back to heuristic", e)
