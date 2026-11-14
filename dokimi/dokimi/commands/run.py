@@ -75,6 +75,7 @@ def cmd_run(args: argparse.Namespace) -> None:
         from dokimi.gate.critical_bands import check_critical_bands
 
         hard_gate = check_gate(result["summary"], spec, "hard")
+        hard_score = hard_gate.require("score")
         try:
             bands = check_critical_bands(result["summary"], spec)
         except ValueError as exc:  # a band the gate cannot read: a bad spec, named, not a traceback
@@ -82,15 +83,14 @@ def cmd_run(args: argparse.Namespace) -> None:
 
         # Exit 1 if hard gate fails
         if hard_gate.enabled and not hard_gate.passed:
-            print(f"\n❌ HARD GATE FAILED: score {hard_gate.actual_score:.4f} < {hard_gate.min_score:.4f}", file=sys.stderr)
+            print(f"\n❌ HARD GATE FAILED: score {hard_score.value:.4f} < {hard_score.threshold:.4f}", file=sys.stderr)
             sys.exit(1)
 
         # Exit 1 if any critical band violated
-        if bands.has_violations:
+        if bands.blocking:
             print("\n❌ CRITICAL BAND VIOLATIONS:", file=sys.stderr)
-            for v in bands.violations:
-                if v.violated:
-                    print(f"  - {v.condition}: {v.actual:.4f} < {v.threshold:.4f}", file=sys.stderr)
+            for c in bands.failures:
+                print(f"  - {c.name}: {c.value:.4f} < {c.threshold:.4f}", file=sys.stderr)
             sys.exit(1)
 
         # A score over no document passes any gate set at 0 or switched off.

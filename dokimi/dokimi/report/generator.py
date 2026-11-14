@@ -8,7 +8,7 @@ import logging
 from typing import List, Dict, Any, Optional, Sequence
 from collections import defaultdict
 
-from dokimi.gate.trust_gate import evaluate_trust, format_trust_block
+from dokimi.gate.trust_gate import evaluate_trust, format_trust_block, trust_label
 from dokimi.eval.diagnoser import (
     summarise_diagnoses,
     DIAGNOSIS_LABELS,
@@ -116,7 +116,7 @@ class ReportGenerator:
                 "sources_summary": sources_summary,
                 "failure_analysis": failure_summary,
                 "trust": {
-                    "verdict": trust_verdict.status,
+                    "verdict": trust_label(trust_verdict),
                     "trusted": trust_verdict.is_trusted,
                     # Read with "verdict": a PASS with entries here passed without
                     # running those checks (the novelty gate's as_dict carries the same).

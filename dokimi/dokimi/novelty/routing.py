@@ -48,6 +48,7 @@ from dokimi.utils import InputError, parse_frontmatter
 from .catalog_keep import check_keep_copies_under, keep_past_broken_copies, resolve_kept_copies
 from .client import LLMClient, OutputTruncated, SpendCapReached, parse_json_object
 from .noise import partial_record, repeat_noise
+from .routing_stop import PERMANENT_STOP, is_run_wide
 
 if TYPE_CHECKING:
     from dokimi.external.validate import SkillReview
@@ -265,11 +266,13 @@ def _pick_row(base: dict, reply: str, order: list[int], candidates: list[Candida
             "order": [candidates[i].name for i in order]}
 
 
+
 def _ask_once(client, prompt: str, base: dict, order: list[int], candidates: list[Candidate],
               gold: int) -> tuple[dict | None, str | None]:
-    """One call of the routing loop: its row, and the cap's message when the cap stops the run.
+    """One call of the routing loop: its row, and the message when the cap or a permanent error stops the run.
 
     A call the cap refused has no row; one with no price was paid for, so its reply is scored (a cut one as a decline) and the caller stops.
+    A run-wide provider error (:func:`dokimi.novelty.routing_stop.is_run_wide`) has no row either and stops the run.
     """
     try:
         reply = client.text(prompt, accept=partial(_is_pick_reply, n_cards=len(order)),
@@ -282,6 +285,9 @@ def _ask_once(client, prompt: str, base: dict, order: list[int], candidates: lis
             return {**base, "picked": None, "abstained": True, "raw_reply": exc.reply[:_RAW_REPLY_CHARS]}, stop
         return _pick_row(base, exc.reply, order, candidates, gold), stop
     except Exception as exc:  # noqa: BLE001 - one failed query must not lose the rest
+        if is_run_wide(exc):
+            # No credential, wrong model ID or missing permission fails every later call alike (#677).
+            return None, PERMANENT_STOP +(str(exc)[:200] or type(exc).__name__)
         return {**base, "picked": None, "error": str(exc)[:200] or type(exc).__name__}, None
     return _pick_row(base, reply, order, candidates, gold), None
 
@@ -339,7 +345,10 @@ def model_routing(
 
         When the client's ``--max-usd`` cap refuses a call, or a call comes back unpriced, the
         loop stops and the result holds the calls made so far, with ``cap_stop`` (the cap's
-        message). A ``partial`` block (:func:`partial_record`) is added only when planned calls
+        message). A run-wide provider error (:func:`~dokimi.novelty.routing_stop.is_run_wide`)
+        stops it the same way, with the error in ``cap_stop`` and ``stop_reason``
+        ``"permanent_error"`` (else ``"spend_cap"``); any other error is a row of its query. A
+        ``partial`` block (:func:`partial_record`) is added only when planned calls
         were left unmade (``n_calls`` below queries x repeats). A query stopped between repeats
         keeps its rows but is left out of ``noise``. Without a cap that trips, there is no
         ``cap_stop`` key.
@@ -393,8 +402,10 @@ def model_routing(
         # The stop is kept apart from ``partial``: a stop on the run's last planned call leaves
         # nothing unmade, but a caller (all-vs-all) still must not ask a later skill unmetered.
         result["cap_stop"] = capped
+        reason = "permanent_error" if capped.startswith(PERMANENT_STOP) else "spend_cap"
+        result["stop_reason"] = reason
         if len(picks) < len(queries) * repeats:
-            result["partial"] = partial_record(capped, len(picks), len(queries) * repeats)
+            result["partial"] = partial_record(capped, len(picks), len(queries) * repeats, reason)
     return result
 
 
@@ -432,43 +443,6 @@ def headings_as_queries(body: str, *, limit: int = 40) -> list[str]:
     """
     headings = [h.strip() for h in re.findall(r"^#{2,3}[ \t]+(.+)$", _outside_fences(body), re.M)]
     return [h for h in headings if len(tokenize(h)) >= 2][:limit]
-
-
-# Output tokens per selection call, measured on one run (360 calls drew 23.3k tokens).
-SELECTION_REPLY_TOKENS = 65
-
-
-def selection_prompt_tokens(candidates: list[Candidate], queries: list[str]) -> list[int]:
-    """The prompt tokens (chars / 4) of each call one repeat of :func:`model_routing` makes.
-
-    One entry per sent query, in query order. :func:`model_routing` sends every query, contentless
-    ones too, unless none has a content word: then the run refuses before any call, and the list
-    is empty. Each call carries the whole field's cards in the selection prompt.
-    """
-    cards = "\n".join(f"{position}. {candidate.card}"
-                       for position, candidate in enumerate(candidates, 1))
-    sent = list(queries) if any(tokenize(query) for query in queries) else []
-    return [len(_SELECT_PROMPT.format(query=query, cards=cards)) // 4 for query in sent]
-
-
-def selection_estimate(candidates: list[Candidate], queries: list[str], *,
-                       repeats: int = 1) -> dict:
-    """The calls and tokens :func:`model_routing` would make, counted without making them.
-
-    Every repeat sends the same prompts (see :func:`selection_prompt_tokens`). Each reply is
-    billed at :data:`SELECTION_REPLY_TOKENS` output tokens, the measured figure, and
-    ``output_tokens_per_call`` says which. Zero repeats send nothing, so no query is sent.
-    """
-    prompts = selection_prompt_tokens(candidates, queries) if repeats else []
-    calls = len(prompts) * repeats
-    return {
-        "n_queries": len(queries),
-        "n_queries_sent": len(prompts),
-        "n_calls": calls,
-        "input_tokens": sum(prompts) * repeats,
-        "output_tokens_per_call": SELECTION_REPLY_TOKENS,
-        "output_tokens": calls * SELECTION_REPLY_TOKENS,
-    }
 
 
 def non_skill_reason(ref: str) -> str | None:
@@ -628,7 +602,7 @@ def catalog_competitors(root: str, exclude: set[str],
             manifest every ``SKILL.md`` is read, and a broken one is skipped with a note).
     """
     if not Path(root).is_dir():
-        raise ValueError(f"--catalog is not a directory: {root}")
+        raise ValueError(f"the catalog is not a directory: {root}")
     if keep_copies_under is not None:
         check_keep_copies_under(root, keep_copies_under)
     eligible = _eligible_catalog_skills(root, exclude, notes, include_disabled, include_invalid,
@@ -777,13 +751,13 @@ def check_field(gold: Candidate, competitors: list[Candidate]) -> None:
     """
     if not competitors:
         raise RoutingInputError(
-            "routing needs competitors (--competitors, or --catalog for a skill's siblings): "
+            "routing needs competitors (--competitors, or --against for a skill's siblings): "
             "selecting from one candidate measures whether the model will use a tool at all, "
             "not whether this artifact wins"
         )
     if any(c.name == gold.name for c in competitors):
         raise RoutingInputError(
-            f"`{gold.name}` appears in --competitors as well as --artifact; selection "
+            f"`{gold.name}` appears in --competitors as well as the skill under test; selection "
             "against itself is not a measurement. Drop it from the competitor list."
         )
     names = [c.name for c in competitors]
