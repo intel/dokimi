@@ -20,9 +20,10 @@ import yaml
 INDEX_NAME = "MEMORY.md"
 ARCHIVE_DIR = "archive"
 _FRONTMATTER = re.compile(r"\A---[ \t]*\r?\n(?:(.*?)\r?\n)??---[ \t]*(?:\r?\n|\Z)", re.S)
-_MD_LINK = re.compile(r"\]\(\s*(<[^>\n]+>|(?:\\.|[^()\s\\]|\([^()\s]*\))+)(?:\s+(?:\"[^\"]*\"|'[^']*'))?\s*\)")
-_MD_REF_DEF = re.compile(r"^ {0,3}\[(?!\^)([^\]\n]+)\]:[ \t]*(<[^>\n]+>|\S+)")
-_MD_LABEL = re.compile(r"\[([^\[\]\n]+)\](?!\()")
+_MD_LINK = re.compile(r"\]\(\s*(<[^>\n]+>|(?:\\\S|[^()\s\\]|\([^()\s]*\))+)(?:\s+(?:\"[^\"]*\"|'[^']*'))?\s*\)")
+_MD_REF_DEF = re.compile(  # a definition is the whole line: destination, then an optional title and nothing else
+    r"^ {0,3}\[(?!\^)([^\]\n]+)\]:[ \t]*(<[^>\n]+>|\S+)(?:[ \t]+(?:\"[^\"]*\"|'[^']*'|\([^()]*\)))?\s*$")
+_MD_LABEL = re.compile(r"\[([^\[\]\n]+)\]")
 _MD_ESCAPE = re.compile(r"\\([!-/:-@\[-`{-~])")
 _WIKILINK = re.compile(r"\[\[([^\]\n]+)\]\]")
 _CODE_SPAN = re.compile(r"`[^`\n]*`")
@@ -91,7 +92,9 @@ class MemoryStore:
         used: set[str] = set()  # a label is used by any [label] but the one that opens a definition
         for line in lines:
             d = _MD_REF_DEF.match(line)
-            used.update(_label(m.group(1)) for m in _MD_LABEL.finditer(line, d.end() if d else 0))
+            for m in _MD_LABEL.finditer(line, d.end() if d else 0):
+                if not _inline_link_at(line, m.end()):  # [t](...) with no valid destination is still [t]
+                    used.add(_label(m.group(1)))
         out = []
         for n, line in enumerate(lines, 1):
             found = [m.group(1) for m in _MD_LINK.finditer(line)]
@@ -125,6 +128,11 @@ def prose_lines(text: str) -> list[str]:
 def _label(text: str) -> str:
     """A reference label as Markdown matches it: whitespace folded, case ignored."""
     return re.sub(r"\s+", " ", text).strip().casefold()
+
+
+def _inline_link_at(line: str, end: int) -> bool:
+    """Whether the ``[label]`` ending at ``end`` is followed by a valid inline destination ``(...)``."""
+    return line.startswith("(", end) and _MD_LINK.match(line, end - 1) is not None
 
 
 def slug(name: str) -> str:
