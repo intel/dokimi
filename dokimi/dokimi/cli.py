@@ -224,7 +224,7 @@ def build_parser() -> argparse.ArgumentParser:
     catalog.register(sub, positive_int, eval_sub)  # catalog; eval triggers generate; catalog intents
     explore.register(sub, positive_int)         # explore (ExploreBench)
     skill.register(sub, positive_int)           # skill: novelty, shorten (#94 M2)
-    novelty.register(sub, positive_int)         # novelty (routing, view: not yet moved)
+    novelty.register(sub, positive_int)         # novelty (view: not yet moved)
     repo.register(sub, positive_int, eval_sub)  # repo; eval check
     tools.register(sub, positive_int)           # tools (tool-choice probes)
     context.register(sub, positive_int)         # trace: inspect, consistency, prefilter (#94 M2)
@@ -250,7 +250,10 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     """
     parser = build_parser()
     raw = list(sys.argv[1:] if argv is None else argv)
-    moved = cli_routes.moved_argv(raw)
+    try:
+        moved = cli_routes.moved_argv(raw)
+    except cli_routes.RetiredFlagError as exc:
+        parser.error(str(exc))
     if moved is not None:  # a tombstone: say where the command went, do not run anything
         moved = cli_routes.moved_flags_argv(moved) or moved  # the moved flag too, in one step
         _moved_exit(parser, moved, cli_routes.moved_text(moved))
