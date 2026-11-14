@@ -37,19 +37,27 @@ def failing_rename(monkeypatch):
     monkeypatch.setattr(os, "replace", boom)
 
 
-def _assert_failed_write_keeps(path: Path, old, call, also: dict[Path, str] | None = None) -> None:
+def _fail_rename_of(monkeypatch, name: str) -> None:
+    real = os.replace
+
+    def replace(src, dst, *args, **kwargs):
+        if Path(dst).name == name:
+            raise OSError("injected rename failure")
+        return real(src, dst, *args, **kwargs)
+    monkeypatch.setattr(os, "replace", replace)
+
+
+def _assert_failed_write_keeps(path: Path, old, call) -> None:
     with pytest.raises(OSError, match="injected rename failure"):
         call()
-    _assert_kept(path, old, also)
+    _assert_kept(path, old)
 
 
-def _assert_kept(path: Path, old, also: dict[Path, str] | None = None) -> None:
+def _assert_kept(path: Path, old) -> None:
     if old is None:
         assert not path.exists()
     else:
         assert path.read_text(encoding="utf-8") == old
-    for other, text in (also or {}).items():
-        assert other.read_text(encoding="utf-8") == text
     assert not [p for p in path.parent.iterdir() if p.name.endswith(".tmp")]
 
 
@@ -101,28 +109,27 @@ def test_catalog_probe_report_keeps_the_old_file(tmp_path, failing_rename):
     _assert_failed_write_keeps(path, "OLD\n", lambda: write_probe(path, {"a": 1}))
 
 
-def test_task_json_from_graph_tasks_keeps_the_old_file(tmp_path, monkeypatch, failing_rename):
+@pytest.mark.parametrize("name", [graph_tasks.GOLD, "task.json"])
+def test_task_files_from_graph_tasks_keep_the_old_file(tmp_path, monkeypatch, name):
     monkeypatch.setattr(graph_tasks, "_task", lambda c, g, opts, idx: ({"id": "t1"}, []))
     plan = SimpleNamespace(granularity="files",
                            outcomes=[SimpleNamespace(status="written", candidate=None, task="t1")])
     dest = tmp_path / "t1"
     dest.mkdir()
-    path = dest / "task.json"
-    path.write_text("OLD\n", encoding="utf-8")
-    (dest / "gold.json").write_text("OLD GOLD\n", encoding="utf-8")
-    _assert_failed_write_keeps(path, "OLD\n",
-                               lambda: graph_tasks.write(plan, SimpleNamespace(out=tmp_path), {}),
-                               also={dest / "gold.json": "OLD GOLD\n"})
+    for old in (graph_tasks.GOLD, "task.json"):
+        (dest / old).write_text("OLD\n", encoding="utf-8")
+    _fail_rename_of(monkeypatch, name)
+    _assert_failed_write_keeps(dest / name, "OLD\n",
+                               lambda: graph_tasks.write(plan, SimpleNamespace(out=tmp_path), {}))
 
 
-def test_task_json_from_replay_build_keeps_the_old_file(tmp_path, failing_rename):
-    path = tmp_path / "task.json"
-    path.write_text("OLD\n", encoding="utf-8")
-    (tmp_path / build.GOLD).write_text("OLD GOLD\n", encoding="utf-8")
-    (tmp_path / build.PATCH).write_text("OLD PATCH\n", encoding="utf-8")
-    _assert_failed_write_keeps(path, "OLD\n",
-                               lambda: build._write(tmp_path, {"id": "t1"}, [], b"NEW PATCH\n"),
-                               also={tmp_path / build.GOLD: "OLD GOLD\n", tmp_path / build.PATCH: "OLD PATCH\n"})
+@pytest.mark.parametrize("name", [build.PATCH, build.GOLD, "task.json"])
+def test_task_files_from_replay_build_keep_the_old_file(tmp_path, monkeypatch, name):
+    for old in (build.PATCH, build.GOLD, "task.json"):
+        (tmp_path / old).write_text("OLD\n", encoding="utf-8")
+    _fail_rename_of(monkeypatch, name)
+    _assert_failed_write_keeps(tmp_path / name, "OLD\n",
+                               lambda: build._write(tmp_path, {"id": "t1"}, [], b"NEW\n"))
 
 
 def test_bytes_are_published_as_they_are(tmp_path):
