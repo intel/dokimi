@@ -133,6 +133,17 @@ def test_json_checks_parse_compare_and_contain():
     assert _one({"type": "json", "values": [], "contains": True}, 'Here: {"ok": true} done').passed is True
 
 
+def test_a_contains_json_scan_that_gives_up_is_failed_not_unscored():
+    # Failed tries scan past CONTAINS_JSON_MAX_SCAN before the object: the check fails as "not JSON"
+    # (the same as at the start cap, and as a deeply nested answer), where a regex past its limit is unscored.
+    answer = "[" * 6 + "1," * 100000 + ' {"a": 1}'
+    g = _one({"type": "json", "contains": True}, answer)
+    assert g.checks[0].as_dict() == {"type": "json", "passed": False, "score": 0.0, "detail": "not JSON"}
+    assert _one({"type": "json", "contains": True}, "[" * 20000).checks[0].detail == "not JSON"
+    # Within the budget the same shape is found.
+    assert _one({"type": "json", "contains": True}, "[" * 6 + "1," * 1000 + ' {"a": 1}').passed is True
+
+
 # --- judge, unsupported, weights -----------------------------------------------------------------
 
 
