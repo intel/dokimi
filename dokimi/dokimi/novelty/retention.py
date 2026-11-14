@@ -103,7 +103,8 @@ class RetentionOracle:
     def verdict(self, atom: Atom, text: str) -> RetentionVerdict:
         """Decide whether ``atom`` survives in ``text``."""
         key = _key(atom, text)
-        cached = self._memo.get(key) or self._load(key)
+        # A lexical oracle skips the disk cache: it would replay an adjudicated verdict.
+        cached = self._memo.get(key) or (self._load(key) if self.client is not None else None)
         if cached is not None:
             self.decisions += 1
             return cached

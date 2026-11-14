@@ -28,7 +28,7 @@ from dokimi.novelty.classify import (
     judge_value,
 )
 from dokimi.novelty.client import LLMClient
-from dokimi.novelty.retention import ABSENT, RETAINED, RetentionOracle, _key
+from dokimi.novelty.retention import ABSENT, CONTRADICTED, RETAINED, RetentionOracle, _key
 
 
 def _atoms(n: int) -> list[Atom]:
@@ -377,6 +377,20 @@ def test_a_lexical_only_run_does_not_store_a_placeholder_for_a_later_llm_run(tmp
     result = llm.verdict(atom, text)
     assert (result.verdict, result.method) == (RETAINED, "llm")
     assert len(calls) == 1
+
+
+def test_a_lexical_only_run_does_not_replay_a_verdict_an_llm_run_stored(tmp_path):
+    atom, text = _AMBIGUOUS
+    llm = RetentionOracle(
+        client=LLMClient(model="x", transport=lambda p, s: ('{"verdict": "contradicted"}', None)),
+        cache_dir=tmp_path,
+    )
+    assert llm.verdict(atom, text).verdict == CONTRADICTED
+    result = RetentionOracle(client=None, cache_dir=tmp_path).verdict(atom, text)
+    assert (result.verdict, result.method) == (ABSENT, "lexical")
+    unused = LLMClient(model="x", transport=lambda p, s: (_ for _ in ()).throw(AssertionError))
+    replay = RetentionOracle(client=unused, cache_dir=tmp_path).verdict(atom, text)
+    assert (replay.verdict, replay.method) == (CONTRADICTED, "cache")
 
 
 @pytest.mark.parametrize("stored", ['{"verdict": "maybe", "score": 0.5}', "{not json",
