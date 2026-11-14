@@ -21,9 +21,10 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..project_markers import MAKEFILE_NAMES, PYTHON_MANIFESTS
-from ..source import GitTree, RepoTree, SourceArgumentError, SourceError
+from ..source import GitTree, RepoTree, SourceError
 from . import branches, workflows
 from .gitignore import GitIgnore, Rule
+from .held import held_dirs
 from .markdown import PYTHON_LANGS, SHELL_LANGS, STARLARK_LANGS, Fence, split
 from .rule_links import loaded_text, rule_link_targets
 
@@ -138,15 +139,7 @@ class Scan:
         self.unread: dict[str, str] = {}  # path -> why it was not read (binary, too big, dangling link)
         # a gitlink is a submodule whether or not `.gitmodules` declares it: its content is not held
         self.submodules = self._submodules() + (sorted(self.tree.gitlinks()) if isinstance(self.tree, GitTree) else [])
-        # a gitlink is a directory in a checkout; a declared path with no gitlink (stale, or leaving the tree) is not
-        held: set[str] = set()
-        for m in self.submodules:
-            try:
-                if self.tree.is_dir(m):
-                    held.add(m)
-            except (SourceArgumentError, OSError, RuntimeError):  # RuntimeError: a symlink loop before 3.13
-                pass
-        self.dir_set = {"."} | {posixpath.dirname(f) or "." for f in self.files} | held
+        self.dir_set = {"."} | {posixpath.dirname(f) or "." for f in self.files} | held_dirs(self.tree, self.submodules)
         for d in list(self.dir_set):
             while d not in (".", ""):
                 d = posixpath.dirname(d) or "."
