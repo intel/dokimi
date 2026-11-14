@@ -43,9 +43,15 @@ def usable_cache_dir(raw: str | None) -> Path | None:
         return None
     path = Path(raw)
     probe = path
-    while not probe.exists() and not probe.is_symlink() and probe != probe.parent:
-        probe = probe.parent
-    if not probe.is_dir():
+    try:
+        while not probe.exists() and not probe.is_symlink() and probe != probe.parent:
+            probe = probe.parent
+        is_dir = probe.is_dir()
+    except OSError as exc:
+        # An ancestor without search permission: exists()/is_dir() raise PermissionError (Python < 3.14).
+        raise InputError(f"--cache-dir {path}: cannot inspect {probe} ({exc.strerror or type(exc).__name__}); "
+                         "pass a directory the retention verdicts can be stored in") from exc
+    if not is_dir:
         where = "is not a directory" if probe == path else f"has {probe} above it, which is not a directory"
         raise InputError(f"--cache-dir {path} {where}; pass a directory the retention verdicts can be stored in")
     if not os.access(probe, os.W_OK | os.X_OK):
