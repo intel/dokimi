@@ -22,6 +22,10 @@ type       passes when                                   native names it maps
            the target letters                            ``multiple_choice``)
 ``json``   the answer parses as JSON (equal to a value,  OpenAI ``JsonMatch``, promptfoo
            when values are given)                        ``is-json``/``contains-json``
+``identifiers`` every identifier the answer names    the grading ladder's veto
+           (``pattern``, long flags by default, inside   (:doc:`grading-tiers`)
+           ``within`` matches) is in ``known``, a list
+           taken from a pinned source (``--help``)
 ``judge``  the judge says the answer meets ``criterion``  Inspect ``model_graded_*``, OpenAI
            (or agrees with ``reference``)                ``ModelBasedClassify``, promptfoo
                                                          ``llm-rubric``/``factuality``,
@@ -57,7 +61,13 @@ from dokimi.measure import as_float
 REGEX_TIMEOUT = 1.0
 
 #: Check types this module grades without a model.
-DETERMINISTIC = frozenset({"match", "exact", "fuzzy", "regex", "choice", "json"})
+DETERMINISTIC = frozenset({"match", "exact", "fuzzy", "regex", "choice", "json", "identifiers"})
+#: What a check may do to a verdict that another grader (the novelty judge) gave: see :func:`check_role`.
+ROLES = ("evidence", "veto", "sufficient")
+#: How objective a check is: decided by a program, by a pinned external source, or by a model.
+TIERS = ("verifiable", "grounded", "judge")
+#: The identifiers check's default: long command-line options (``--stdio``).
+LONG_FLAG = r"(?<![\w-])(--[A-Za-z][\w-]*)"
 JUDGED = frozenset({"judge"})
 UNSUPPORTED = "unsupported"
 KNOWN = DETERMINISTIC | JUDGED | {UNSUPPORTED}
@@ -344,7 +354,136 @@ def _deterministic(check: Mapping[str, Any], answer: str) -> tuple[Optional[bool
         if not ok:
             return False, "not JSON"
         return (not values or any(parsed == v for v in values)), ""
+    if kind == "identifiers":
+        return _identifiers(check, answer)
     raise CheckError(f"unknown check type {kind!r}")
+
+
+def _identifiers(check: Mapping[str, Any], answer: str) -> tuple[Optional[bool], str]:
+    """Every identifier the answer names (inside ``within``) is one the source lists in ``known``.
+
+    The tier-1/2 veto of the grading ladder: an answer that names a ``perf report --stdin`` flag
+    the tool's own ``--help`` does not list is wrong whatever a judge reads into it. An answer
+    that names none passes: the check only rules names out, it never asks for one.
+    """
+    unknown, scoped = identifier_names(check, answer)
+    if unknown is None:
+        return None, f"not scored: identifiers ran past {REGEX_TIMEOUT:g}s"
+    if unknown:  # the detail names ten at most; identifier_names has them all
+        return False, "not in source: " + ", ".join(unknown[:10])
+    return True, "" if scoped else "nothing to check"
+
+
+def identifier_names(check: Mapping[str, Any], answer: str) -> tuple[Optional[list[str]], bool]:
+    """Every identifier the answer names that ``known`` does not list, in order, and whether any was read.
+
+    ``None`` when a scan ran past its time bound (the check is then not scored). The second value
+    is False when the answer names no scope to read (a ``within`` that matches nothing).
+    """
+    known = {str(k) for k in check.get("known") or ()}
+    pattern = str(check.get("pattern") or LONG_FLAG)
+    within = check.get("within")
+    # Both scans share one deadline, as the regex check does: a pathological pattern is unscored.
+    deadline = time.monotonic() + REGEX_TIMEOUT
+    try:
+        scopes = scope_pairs(str(within), answer, timeout=_left(deadline)) if within else [(answer, "")]
+        unknown: list[str] = []
+        for scope, rest in scopes:
+            for name in scope_options(pattern, scope, timeout=_left(deadline), negated=bool(within), rest=rest):
+                if name in known or (check.get("negations", False) and name.startswith("--no-")
+                                     and "--" + name[5:] in known):
+                    continue
+                if name not in unknown:
+                    unknown.append(name)
+    except TimeoutError:
+        return None, False
+    except regex.error as exc:
+        raise CheckError(f"identifiers pattern does not compile: {exc}") from exc
+    return unknown, bool(scopes)
+
+
+def scope_pairs(within: str, answer: str, *, timeout: float) -> list[tuple[str, str]]:
+    """The ``within`` scopes of ``answer`` that no negation before them makes no claim, each with the answer's text after it.
+
+    A mention the answer negates or warns against (``do not use --x``) is no claim to veto. The text
+    after a scope is kept too: a denial may follow a code span that ends the scope ("`--x` does not exist").
+    """
+    return [(m.group(0), answer[m.end():]) for m in regex.finditer(within, answer, timeout=timeout)
+            if not _negated_before(answer, m.start())]
+
+
+_NEGATED = re.compile(r"(?i)\bnot\b|n['’]t\b|\bnever\b|\bno\b|\bavoid\w*|\bwithout\b|\binstead of\b|\brather than\b")
+#: An existence denial right after a flag, in its code span or not, denies it: only these two phrases, on one
+#: line; other words after a flag leave its claim standing.
+_DENIED_AFTER = re.compile(
+    r"""[ \t`'"*)]*(?:does(?:[ \t]+not|n['’]t)[ \t]+exist|(?:is[ \t]+not|isn['’]t)[ \t]+an[ \t]+option)(?![\w-])""",
+    re.IGNORECASE)
+#: An option with an assigned value (``--input=--stdin``): the value is a file name, not an option.
+_ASSIGNED = re.compile(r"""(?<![\w-])(--[A-Za-z][\w-]*)=(?:"[^"\n]*"|'[^'\n]*'|[^\s,;|&]+)""")
+#: A standalone ``--`` ends the options of a command: the words after it, up to the end of the
+#: clause, are operands (``perf report --stdio -- --foo`` names no option of ``perf report``).
+_OPERANDS = re.compile(r"(?<!\S)--(?!\S)(?:(?![.,](?:\s|$))[^\n;!?`#])*")
+#: A word a flag takes after a space (``--sort no``) is its value: it negates no clause and, with the
+#: default pattern, names no option (``--input "no --stdin"``; a quoted ``--x`` still does).
+_VALUE_WORD = re.compile(
+    r"((?<![\w-])--[A-Za-z][\w-]*\s+)"
+    r"(?!(?:not|never|without|rather|instead|avoid\w*|and|but|then|while)\b|[\w.-]*n['’]t\b)"
+    r"(?:\"(?!-)[^\"\n]*\"(?!\w)|'(?!-)[^'\n]*'(?!\w)|[\w./][\w./-]*)",
+    re.IGNORECASE)
+
+
+def _negated_before(answer: str, start: int) -> bool:
+    """Whether the clause just before ``start`` negates or warns against what follows it."""
+    clause = re.split(r"[.;!?,\n]|\b(?:and|but|then|while)\b", answer[:start], flags=re.I)[-1]
+    # "not only" and "no problem" affirm: they are no negation of what follows.
+    clause = re.sub(r"(?i)\bnot\s+only\b|\bno\s+problem\b", " ", clause)
+    clause = re.sub(r"(?<![\w-])--?[A-Za-z][\w-]*", " ", clause)  # flags are no words
+    return _NEGATED.search(clause) is not None
+
+
+def scope_options(pattern: str, scope: str, *, timeout: float, negated: bool, rest: str = "") -> list[str]:
+    """The option names ``pattern`` finds in ``scope``, in order.
+
+    With the default pattern, an assigned value names no option (``--input=--stdin`` names
+    ``--input`` only), and so does the value a flag takes (``--input "no --stdin"`` names ``--input``);
+    a custom pattern reads the text as written, its groups may take a value. With
+    ``negated``, a mention that the clause before it negates names none (``run --stdio, not
+    --stdin``), and so does one that ``does not exist`` or ``is not an option`` denies right after it:
+    a command's scope is judged mention by mention, not only by the words before it.
+    Both the veto and the key verification read a claim through this one scan.
+    """
+    def blank(m: regex.Match) -> str:  # keeps group 1, blanks the rest: same length as the scope
+        return m.group(1) + " " * (m.end() - m.start() - len(m.group(1)))
+
+    text = scope
+    if pattern == LONG_FLAG:  # operands after "--" name no option; the same length, so offsets hold
+        text = _OPERANDS.sub(lambda m: " " * len(m.group()), scope)
+    if pattern == LONG_FLAG:  # the value of --input=--stdin is a file name, not an option
+        text = _ASSIGNED.sub(blank, text)
+    # The clause of a mention is read past the value a flag takes (``--sort no --stdin``).
+    clause = _VALUE_WORD.sub(blank, text)
+    if pattern == LONG_FLAG:  # a flag's value (a file name, quoted or not) names no option either
+        text = clause
+    names = []
+    for m in regex.finditer(pattern, text, timeout=timeout):
+        # The denial is read in the text as written (the clause above blanks the words after a flag), and past
+        # the scope when a code span ends it: ``rest`` is the answer after the scope.
+        if negated and (_negated_before(clause, m.start()) or _DENIED_AFTER.match(scope + rest, m.end())):
+            continue
+        # The first group is unset when another alternative of the pattern matched.
+        name = (m.group(1) if m.groups() and m.group(1) is not None else m.group(0))
+        names.append(name)
+    return names
+
+
+def _left(deadline: float) -> float:
+    """Seconds left before ``deadline``, never zero (a scan with no time left still times out)."""
+    return max(deadline - time.monotonic(), 0.001)
+
+
+def check_role(check: Mapping[str, Any]) -> str:
+    """``role`` of a check, ``evidence`` when it sets none."""
+    return str(check.get("role") or "evidence")
 
 
 def judge_point(check: Mapping[str, Any]) -> str:
@@ -421,18 +560,51 @@ def blank_value(kind: str, c: Mapping[str, Any], value: Any) -> bool:
     return not text.strip()
 
 
+def _ladder_problems(c: Mapping[str, Any]) -> list[str]:
+    """A ``role`` or ``tier`` outside its vocabulary."""
+    out = []
+    for key, allowed in (("role", ROLES), ("tier", TIERS)):
+        if c.get(key) is not None and c.get(key) not in allowed:
+            out.append(f"{key} must be one of {', '.join(allowed)}, not {c.get(key)!r}")
+    return out
+
+
+def _identifiers_problems(c: Mapping[str, Any]) -> list[str]:
+    """An ``identifiers`` check without names, a ``sufficient`` role, or a pattern that does not compile."""
+    known = c.get("known")
+    names_ok = isinstance(known, list) and known and all(isinstance(k, str) and k for k in known)
+    out = [] if names_ok else ["identifiers needs `known`: a non-empty list of names"]
+    # It only rules names out: an answer that names none passes, so it cannot decide a verdict.
+    if check_role(c) == "sufficient":
+        out.append("identifiers cannot be sufficient: it only rules names out, and an answer naming none passes")
+    for key in ("pattern", "within"):  # the scan runs them with the regex module, not re
+        if c.get(key) is not None:
+            try:
+                regex.compile(str(c[key]))
+            except regex.error as exc:
+                out.append(f"identifiers {key} {c[key]!r} does not compile: {exc}")
+    return out
+
+
+def _values_problems(kind: str, c: Mapping[str, Any]) -> list[str]:
+    """A value check with no values, or a blank one."""
+    values = check_values(c)
+    if not values:
+        return [f"{kind} has no values"]
+    # A blank value is found in every answer (match, regex), so it would pass everything.
+    return [f"{kind} has a blank value"] if any(blank_value(kind, c, v) for v in values) else []
+
+
 def _check_problems(kind: str, c: Mapping[str, Any]) -> list[str]:
     # An absent weight is 1.0; an explicit null is not a number, and grade_check would raise on it.
     weight = c.get("weight", 1.0)
     out = ["weight is not a number"] if as_float(weight) is None else (
         ["weight must not be negative"] if weight < 0 else [])
-    if kind in DETERMINISTIC and kind != "json":
-        values = check_values(c)
-        if not values:
-            out.append(f"{kind} has no values")
-        elif any(blank_value(kind, c, v) for v in values):
-            # A blank value is found in every answer (match, regex), so it would pass everything.
-            out.append(f"{kind} has a blank value")
+    out += _ladder_problems(c)
+    if kind == "identifiers":
+        out += _identifiers_problems(c)
+    if kind in DETERMINISTIC and kind not in ("json", "identifiers"):
+        out += _values_problems(kind, c)
     if kind in DETERMINISTIC and str(c.get("mode", "any")) not in ("any", "all"):
         out.append(f"mode must be 'any' or 'all', not {c.get('mode')!r}")
     if kind == "match" and str(c.get("location", "end")) not in _LOCATIONS:

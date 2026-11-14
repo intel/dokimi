@@ -40,9 +40,10 @@ python cli.py eval score pointwise --product oneTBB --answers answers/oneTBB.jso
 ```
 
 `--model` takes what `claude --model` takes: an alias (`haiku`, `sonnet`,
-`opus`) or a full id (`claude-sonnet-5-5`). The default judge model works on
-`claude-cli` as it does on `anthropic`. When the answerer and the judge are the
-same model, the judge grades its own answers. With `--provider claude-cli`, a
+`opus`) or a full id (`claude-sonnet-5-5`). With no `--judge-model`, the judge on
+`claude-cli` is the first of `opus`, `sonnet`, `haiku` not of the answerer's family.
+When the answerer would be the judge, a judging run exits before any answer and
+asks for `--judge-model`. With `--provider claude-cli`, a
 model that is not a Claude alias or id is refused at parse time.
 
 ## How it differs from an API provider
