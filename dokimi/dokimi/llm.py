@@ -274,11 +274,11 @@ _NON_RETRYABLE_EXC_NAMES = frozenset({
     "unsupportedparamserror",
     "contentpolicyviolationerror",
 })
-# So are these messages, which litellm raises under its catch-alls: no key, project or SDK.
-_NON_RETRYABLE_MESSAGES = ("missing credentials", "api_key client option must be set",
-                           "missing gemini api key", "could not resolve credentials",
-                           "could not resolve project_id", "default credentials were not found",
-                           "google cloud sdk not found")
+# So are these messages, which litellm raises under its catch-alls: no key, project, SDK or AWS credentials.
+_NON_RETRYABLE_MESSAGES = ("missing credentials", "api_key client option must be set", "missing gemini api key",
+    "could not resolve credentials", "could not resolve project_id", "google cloud sdk not found",
+    "default credentials were not found", "unable to locate credentials", "partial credentials found in",
+    "unable to locate authorization token", "the config profile (", "sso session associated with this profile")
 
 
 def is_retryable(exc: BaseException) -> bool:
