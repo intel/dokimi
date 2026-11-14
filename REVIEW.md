@@ -27,7 +27,9 @@ checks.
 ## Patterns that hide a defect
 
 Flag these in code the PR adds or changes. Each is must-fix when it changes
-a number, verdict or exit code, otherwise a nit.
+a number, verdict or exit code, or when it matches a defect listed above.
+Otherwise it is a nit, except the last two bullets, which are style points
+raised only when they change a number, verdict or exit code.
 
 - Lost data or failure: a slice, clamp, fallback chain, `or` default, retry
   or lenient parse that drops input or hides which path ran, with no warning,
@@ -50,7 +52,7 @@ a number, verdict or exit code, otherwise a nit.
   stub or placeholder return, scaffolding left half-done.
 - A loop that `pathlib`, `itertools`, `collections`, `json` or `shlex`
   already does.
-- A docstring that restates the function name, or a comment that narrates
+- A docstring that repeats the function name, or a comment that narrates
   the next line ("Now we...", "Step 1:").
 
 ## How to raise a finding
