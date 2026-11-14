@@ -282,7 +282,7 @@ Anthropic's).
 model that wrote the saved answer key (the atoms file's `extractor`) against the judge. The same model,
 or two models of one vendor family (the vendor is read off the model id: `claude`, `sonnet`,
 `haiku`, `opus` and `anthropic` are one family; `gpt` and `openai` another; `gemini` and
-`mistral` likewise), prints a `WARNING` on stderr. The vendor is read off the name, so a model
+`mistral` likewise; `grok` and `xai` another), prints a `WARNING` on stderr. The vendor is read off the name, so a model
 served locally under a vendor's name (`gpt-oss-120b` is OpenAI's) counts as that vendor; ids that
 name no known vendor never match. `analyze` records the result in the artifact's
 `run_config.extractor_judge` (`extractor`, `judge`, `same_model`, `same_vendor`); `probe`
