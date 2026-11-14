@@ -9,6 +9,7 @@ Follow-up of #599 (https://github.com/intel/dokimi/issues/599) for eval/interact
 from __future__ import annotations
 
 import math
+import sys
 
 import pytest
 
@@ -57,6 +58,16 @@ def test_a_contrast_that_fits_is_returned_when_a_step_of_the_sum_overflows():
     assert res is not None
     assert res["interaction"] == BIG / 2
     assert math.isfinite(res["delta_std"])
+
+
+@pytest.mark.filterwarnings("ignore:invalid value encountered in matmul")
+def test_a_contrast_equal_to_the_float_maximum_is_not_lost_to_the_rounding_of_a_partial_sum():
+    # ab/4 - a/4 rounds up in a plain sum of quarters and the result overflows; the exact contrast is float max
+    half_range = math.ldexp(1.0, 1022)
+    evaluations = [_ev("q1", sys.float_info.max, -half_range, half_range, 0.0), _ev("q2", 0.0, 0.0, 0.0, 0.0)]
+    res = _test(evaluations)
+    assert res is not None
+    assert res["interaction"] == sys.float_info.max / 2
 
 
 def test_a_near_range_contrast_that_stays_finite_returns_finite_numbers():

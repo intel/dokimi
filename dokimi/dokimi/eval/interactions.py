@@ -100,8 +100,9 @@ def _interaction_contrast(
         ab, a, b, base = row
         contrast = ab - a - b + base
         if not math.isfinite(contrast):
-            # a step of the sum may overflow while the contrast fits: redo it on quarters (exact powers of two)
-            contrast = 4 * (ab / 4 - a / 4 - b / 4 + base / 4)
+            # a step of the sum may overflow while the contrast fits: sum the quarters (exact powers of two) without
+            # intermediate rounding, so a representable contrast is not lost to the rounding of a partial sum
+            contrast = 4 * math.fsum((ab / 4, -a / 4, -b / 4, base / 4))
         if not math.isfinite(contrast) and all(math.isfinite(x) for x in row):
             raise OverflowError("deltas too large: a contrast of the four scores leaves the float range")
         contrasts.append(contrast)
