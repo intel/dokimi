@@ -21,10 +21,11 @@ INDEX_NAME = "MEMORY.md"
 ARCHIVE_DIR = "archive"
 _FRONTMATTER = re.compile(r"\A---[ \t]*\r?\n(?:(.*?)\r?\n)??---[ \t]*(?:\r?\n|\Z)", re.S)
 _MD_LINK = re.compile(r"\]\(\s*(<[^>\n]+>|(?:\\\S|[^()\s\\]|\([^()\s]*\))+)(?:\s+(?:\"[^\"]*\"|'[^']*'))?\s*\)")
-_MD_REF_DEF = re.compile(  # a definition is the whole line: destination, then an optional title and nothing else
+_MD_REF_DEF = re.compile(  # a definition: label, destination, then nothing or a title (which may run on to the next line)
     r"^ {0,3}\[(?!\^)([^\]\n]+)\]:[ \t]*(<[^>\n]+>|\S+)"
-    r"(?:[ \t]+(?:\"(?:\\\S|[^\"\\])*\"|'(?:\\\S|[^'\\])*'|\((?:\\\S|[^()\\])*\)))?\s*$")
+    r"(?:[ \t]+[\"'(](?:\\.|\\$|[^\\])*)?\s*$")
 _MD_LABEL = re.compile(r"\[([^\[\]\n]+)\]")
+_LABEL_ACROSS_LINES = re.compile(r"\[([^\[\]]+)\]")  # used on two joined lines: a label may wrap a line break
 _EMPTY_LINK = re.compile(r"\]\(\s*(?:<>)?\s*\)")  # [t]() is an inline link with an empty destination
 _MD_ESCAPE = re.compile(r"\\([!-/:-@\[-`{-~])")
 _WIKILINK = re.compile(r"\[\[([^\]\n]+)\]\]")
@@ -86,8 +87,11 @@ class MemoryStore:
                     out.setdefault(slug(key), entry)
         return out
 
-    def index_links(self) -> list[tuple[int, str]]:
-        """``(line, target)`` of every relative markdown link in the index (URLs and anchors left out)."""
+    def index_targets(self) -> list[tuple[int, str, bool]]:
+        """``(line, target, checked)`` of every relative link in the index (URLs and anchors left out).
+
+        ``checked`` is False for a definition no link uses: it names its file, but is not rendered as a link.
+        """
         if self.index is None:
             return []
         lines = prose_lines(self.index.text)
@@ -99,38 +103,53 @@ class MemoryStore:
                 inside = any(start <= m.start() < end for start, end in spans)
                 if not inside and not _inline_link_at(line, m.end()):  # [t](...) with no valid destination is [t]
                     used.add(_label(m.group(1)))
-        out = []
+        for a, b in zip(lines, lines[1:], strict=False):  # a label may wrap onto the next line of a paragraph
+            pair = f"{a}\n{b}"
+            for m in _LABEL_ACROSS_LINES.finditer(pair):
+                if "\n" in m.group(1) and not _inline_link_at(pair, m.end()):
+                    used.add(_label(m.group(1)))
+        out: list[tuple[int, str, bool]] = []
         defined: set[str] = set()
         for n, line in enumerate(lines, 1):
-            found = [m.group(1) for m in _MD_LINK.finditer(line)]
+            found = [(m.group(1), True) for m in _MD_LINK.finditer(line)]
             for m in _MD_REF_DEF.finditer(line):  # the first definition of a label is the one Markdown uses
                 label = _label(m.group(1))
-                if label not in defined and label in used:
-                    found.append(m.group(2))
+                if label not in defined:
+                    found.append((m.group(2), label in used))
                 defined.add(label)
-            for raw in found:  # a definition nothing refers to renders no link, so it is not checked
+            for raw, checked in found:
                 target = unquote(_MD_ESCAPE.sub(r"\1", raw.strip("<>")).split("#", 1)[0])
                 if target and "://" not in target and not target.startswith("mailto:"):
-                    out.append((n, target))
+                    out.append((n, target, checked))
         return out
+
+    def index_links(self) -> list[tuple[int, str]]:
+        """``(line, target)`` of every index link that is rendered, i.e. checked: unused definitions are left out."""
+        return [(n, target) for n, target, checked in self.index_targets() if checked]
 
 
 def prose_lines(text: str) -> list[str]:
-    """The lines of ``text`` with HTML comments, fenced blocks and code spans blanked: no link lives there."""
+    """The lines of ``text`` with fenced blocks, HTML comments and code spans blanked: no link lives there."""
+    lines = text.split("\n")
+    fenced = _fenced(lines)  # fences first: a comment opener inside a fence is not a comment
+    text = "\n".join("" if i in fenced else line for i, line in enumerate(lines))
     text = _HTML_COMMENT.sub(lambda m: re.sub(r"[^\n]", " ", m.group(0)), text)
-    out: list[str] = []
+    return [_CODE_SPAN.sub(lambda c: " " * len(c.group(0)), line) for line in text.split("\n")]
+
+
+def _fenced(lines: list[str]) -> set[int]:
+    """The indexes of the lines that are a fence, or inside one."""
+    out: set[int] = set()
     fence = ""
-    for line in text.split("\n"):
+    for i, line in enumerate(lines):
         m = _FENCE.match(line)
         if fence:
+            out.add(i)
             if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence) and not line[m.end():].strip():
                 fence = ""
-            out.append("")
         elif m and not (m.group(1)[0] == "`" and "`" in line[m.end():]):  # an info string holds no backtick
             fence = m.group(1)
-            out.append("")
-        else:
-            out.append(_CODE_SPAN.sub(lambda c: " " * len(c.group(0)), line))
+            out.add(i)
     return out
 
 

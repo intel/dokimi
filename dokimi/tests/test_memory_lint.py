@@ -323,3 +323,26 @@ def test_fence_opener_with_a_backtick_in_its_info_is_a_code_span(mem):
 def test_definition_title_may_hold_an_escaped_quote(mem):
     (mem / "MEMORY.md").write_text("- [B](b.md) [T][t]\n\n[t]: gone.md \"a \\\" b\"\n")
     assert [f.line for f in lint(read_claude_memory(mem)) if f.rule == "index-dead-link"] == [3]
+def test_definition_title_may_run_onto_the_next_line(mem):
+    (mem / "MEMORY.md").write_text('- [A](a.md) [B](b.md) [T][t]\n\n[t]: gone.md "a long\ntitle"\n')
+    assert [f.line for f in lint(read_claude_memory(mem)) if f.rule == "index-dead-link"] == [3]
+
+
+def test_backslash_space_inside_a_definition_title(mem):
+    (mem / "MEMORY.md").write_text('- [A](a.md) [B](b.md) [T][t]\n\n[t]: gone.md "C:\\ dir"\n')
+    assert [f.line for f in lint(read_claude_memory(mem)) if f.rule == "index-dead-link"] == [3]
+
+
+def test_label_wrapped_across_a_line_break_is_a_use(mem):
+    (mem / "MEMORY.md").write_text("- see [some\nlabel] [A](a.md) [B](b.md)\n\n[some label]: gone.md\n")
+    assert [f.line for f in lint(read_claude_memory(mem)) if f.rule == "index-dead-link"] == [4]
+
+
+def test_definitions_only_index_links_its_targets(mem):
+    (mem / "MEMORY.md").write_text("[a]: a.md\n[b]: b.md\n")
+    assert [r for r in _rules(mem) if r[0] == "index-orphan"] == []
+
+
+def test_comment_text_inside_a_fence_is_not_a_comment(mem):
+    (mem / "a.md").write_text(_entry("a", body="```html\n<!-- start\n```\nShip it tomorrow.\nend -->\n"))
+    assert [f.line for f in lint(read_claude_memory(mem)) if f.rule == "relative-date"] == [10]
