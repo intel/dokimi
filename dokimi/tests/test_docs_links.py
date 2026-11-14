@@ -211,3 +211,13 @@ def test_link_whose_text_is_inline_code_is_checked(tmp_path):
                    "`[not](a-link.md)`\n", encoding="utf-8")
     assert _relative_links(doc) == ["missing.md", "d.md#nope"]
     assert _broken_anchors(doc) == ["d.md#nope"]
+
+
+def test_skills_card_says_novelty_view_has_no_outcome_colours():
+    """`novelty view` rebuilds from aggregates, so its card must not promise outcome colours."""
+    card = (DOCS / "features" / "skills.md").read_text(encoding="utf-8")
+    para = next(p for p in card.split("\n\n") if "novelty view" in p)
+    assert "span structure only" in para
+    assert "category colouring" in para
+    assert "span and category only" not in para
+    assert "skill novelty analyze" in para
