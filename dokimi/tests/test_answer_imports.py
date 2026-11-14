@@ -677,6 +677,32 @@ def test_each_native_grader_maps_to_its_exact_check(tmp_path):
     ]
 
 
+@pytest.mark.parametrize("content", [b"", b"not json", bytes.fromhex("fffe007b"), None, "dir", b"{}", b'{"questions": {}}'],
+                         ids=["empty", "not-json", "not-utf8", "missing", "directory", "empty-object",
+                              "questions-not-a-list"])
+def test_eval_reference_cli_refuses_an_unreadable_questions_file_with_exit_2(tmp_path, monkeypatch, capsys, content):
+    from dokimi import cli
+
+    q = tmp_path / "q.json"
+    if content == "dir":
+        q.mkdir()
+    elif content is not None:
+        q.write_bytes(content)
+    a = tmp_path / "a.json"
+    a.write_text(json.dumps({"answers": [{"question_id": "1", "question_text": "Q", "without_docs": {"answer": "yes"}}]}))
+    out = tmp_path / "e.json"
+    monkeypatch.setattr("sys.argv", ["dokimi", "eval", "score", "reference", "--answers", str(a),
+                                     "--questions", str(q), "-o", str(out), "--no-judge"])
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 2
+    err = capsys.readouterr().err
+    # a read failure names the flag; a wrong shape names the record and the file
+    named = f"Error: --questions {q}:" if content not in (b"{}", b'{"questions": {}}') else "Error: "
+    assert err.startswith(named) and str(q) in err and "Traceback" not in err
+    assert not out.exists()
+
+
 def test_importable_formats_match_the_adapters_and_show_as_consumer(tmp_path):
     from dokimi.task_formats import detect
     from dokimi.task_formats.model import IMPORTABLE
