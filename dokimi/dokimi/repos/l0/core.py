@@ -20,6 +20,7 @@ from urllib.parse import unquote
 from dataclasses import dataclass, field
 from typing import Any
 
+from ..project_markers import MAKEFILE_NAMES, PYTHON_MANIFESTS
 from ..source import RepoTree, SourceError
 from . import branches, workflows
 from .gitignore import GitIgnore, Rule
@@ -30,8 +31,8 @@ from .rule_links import loaded_text, rule_link_targets
 # Build inputs that happen to end in .txt are code.
 DOC_SUFFIXES = (".md", ".rst", ".txt", ".adoc")
 ROOT_FILES = frozenset({
-    "Makefile", "makefile", "GNUmakefile", "CMakeLists.txt", "MODULE.bazel", "WORKSPACE", "WORKSPACE.bazel",
-    "BUILD", "BUILD.bazel", ".bazelrc", ".bazelversion", "pyproject.toml", "setup.py", "setup.cfg",
+    *MAKEFILE_NAMES, "CMakeLists.txt", "MODULE.bazel", "WORKSPACE", "WORKSPACE.bazel",
+    "BUILD", "BUILD.bazel", ".bazelrc", ".bazelversion", *PYTHON_MANIFESTS,
     "conftest.py", "pytest.ini", "tox.ini", "requirements.txt", ".pre-commit-config.yaml", ".clang-format",
     ".editorconfig", ".gitignore", "Dockerfile",
 })

@@ -1,14 +1,15 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""`repo scan` helpers kept out of commands/repo.py, which is at its size cap: the `--typecheck` check and the text report."""
+"""`repo scan` helpers kept out of commands/repo.py, which is at its size cap: the `--typecheck` check, the text
+report, and the reason and gate of a failed --json or --fail-on-fail run."""
 
 from __future__ import annotations
 
 import argparse
 import os
-import shutil
 import sys
+import shutil
 
 from dokimi.utils import InputError
 
@@ -128,3 +129,27 @@ def _print_scan_text(manifest, payload: dict, out: str | None) -> None:
                   f"{str(claim.get('claim'))[:90]} -- {claim.get('why')}")
     if out:
         print(f"wrote {out}")
+
+
+def _scan_reason(payload: dict, static_errors: list, fail_on_fail: bool) -> str:
+    """Why a --json scan failed: every cause the gate tripped on, joined by ``; `` (a scan can fail on more than
+    one). The --static problems always fail the run; the failed claims and the incomplete scan only under
+    --fail-on-fail."""
+    parts = []
+    if static_errors:
+        parts.append(f"{len(static_errors)} --static problem(s) not merged")
+    if fail_on_fail and payload["counts"]["fail"]:
+        parts.append(f"{payload['counts']['fail']} claim(s) failed")
+    if fail_on_fail and payload["incomplete"]:
+        reasons = "; ".join(payload.get("incomplete_reasons") or [])
+        parts.append(f"scan incomplete: {reasons}" if reasons else "scan incomplete")
+    return "; ".join(parts)
+
+
+def _scan_gate(payload: dict, fail_on_fail: bool) -> None:
+    """--fail-on-fail: exit 1 on a failed claim or an incomplete scan, saying on stderr what the scan missed."""
+    if not fail_on_fail or not (payload["counts"]["fail"] or payload["incomplete"]):
+        return
+    if payload["incomplete"]:
+        print(f"✗ scan incomplete: {'; '.join(payload['incomplete_reasons'])}", file=sys.stderr)
+    sys.exit(1)

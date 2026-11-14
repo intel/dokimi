@@ -6,6 +6,7 @@ the matrix and its markdown page, and the fixtures against their expectations. H
 
 from __future__ import annotations
 
+import hashlib
 import importlib.resources
 import importlib.util
 import json
@@ -385,6 +386,30 @@ def test_fixtures_digest_does_not_depend_on_the_walk_order(tmp_path, monkeypatch
     walk = type(tree).rglob
     monkeypatch.setattr(type(tree), "rglob", lambda self, pattern: reversed(list(walk(self, pattern))))
     assert cf.fixtures_digest(tree) == ordinary  # the same tree, walked in the other order: one digest
+
+
+def test_fixtures_digest_of_a_utf8_tree_is_pinned(tmp_path):
+    tree = tmp_path / "t"
+    (tree / "a").mkdir(parents=True)
+    (tree / "a" / "AGENTS.md").write_bytes(b"x\n")
+    (tree / "café.md").write_bytes(b"y\n")
+    os.symlink("café.md", tree / "LINK.md")
+    assert cf.fixtures_digest(tree) == "ecd772f493d33197ae32630940a50ff007b06d673cf30d75e1bc7fdbf42773dc"
+
+
+def test_fixtures_digest_keeps_the_bytes_of_a_name_and_a_link_target_that_are_not_utf8(tmp_path):
+    """A surrogate-escaped name raised UnicodeEncodeError under str.encode()."""
+    tree = tmp_path / "t"
+    tree.mkdir()
+    (tree / "ok.md").write_bytes(b"ok")
+    try:
+        (tree / os.fsdecode(b"n\xff.md")).write_bytes(b"bytes")
+        os.symlink(os.fsdecode(b"t\xfe"), tree / "L")
+    except (OSError, UnicodeError):
+        pytest.skip("a file system that rejects a name that is not UTF-8")
+    parts = (b"L", b"Lt\xfe", b"n\xff.md", b"Fbytes", b"ok.md", b"Fok")  # path then data, by relative path
+    expected = hashlib.sha256(b"".join(len(part).to_bytes(8, "big") + part for part in parts)).hexdigest()
+    assert cf.fixtures_digest(tree) == expected
 
 
 def test_expectations_digest_follows_the_content_not_the_key_order():

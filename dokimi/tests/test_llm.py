@@ -97,7 +97,7 @@ def test_a_known_bare_bedrock_name_runs_under_the_defaults_profile(monkeypatch, 
     ("openai", "OPENAI_API_KEY"), ("openai-codex", "OPENAI_API_KEY"),
     ("anthropic", "ANTHROPIC_API_KEY"), ("openrouter", "OPENROUTER_API_KEY"),
     ("amazon-bedrock", "AWS_BEARER_TOKEN_BEDROCK"), ("google-vertex", "GEMINI_API_KEY"),
-    ("google", "GEMINI_API_KEY"), ("gemini", "GEMINI_API_KEY"), ("azure", "OPENAI_API_KEY"),
+    ("google", "GEMINI_API_KEY"), ("gemini", "GEMINI_API_KEY"),
 ])
 def test_each_provider_reads_its_own_key(provider, env, monkeypatch, fake_llm, no_cache):
     for var in set(PROVIDERS.values()):
@@ -108,6 +108,17 @@ def test_each_provider_reads_its_own_key(provider, env, monkeypatch, fake_llm, n
     LLM("m.x", provider).complete("p")
     LLM("m.x", provider, api_key="explicit").complete("p")
     assert [r.api_key for r in fake_llm.requests] == ["from-env", "explicit"]
+
+
+@pytest.mark.parametrize("provider", ["azure", "mistral"])
+def test_a_provider_off_the_table_is_not_sent_the_openai_key(provider, monkeypatch, fake_llm, no_cache):
+    # litellm reads the vendor's own variable (AZURE_API_KEY, MISTRAL_API_KEY) when no key is passed.
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-openai")
+    fake_llm.push("a", "b")
+    LLM("m", provider).complete("p")
+    LLM("m", provider, api_key="explicit").complete("p")
+    assert [r.api_key for r in fake_llm.requests] == [None, "explicit"]
+    assert credential_env_var(provider) is None
 
 
 def test_no_key_is_sent_as_none(monkeypatch):

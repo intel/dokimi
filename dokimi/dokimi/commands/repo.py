@@ -15,10 +15,11 @@ from typing import TYPE_CHECKING, Any, NoReturn
 if TYPE_CHECKING:
     from dokimi.repos import RepoSource
 
-from dokimi import cli_flags
+from dokimi import cli_flags, cli_output
 from dokimi.commands.repo_skill_reach import add_skill_reach_parser
 from dokimi.exit_codes import EXIT_USAGE
-from dokimi.commands.repo_scan import _loaded_with_default, _print_scan_text, _typecheck_or_exit
+from dokimi.commands.repo_scan import (_loaded_with_default, _print_scan_text, _scan_gate, _scan_reason,
+                                         _typecheck_or_exit)
 from dokimi.utils import InputError
 
 
@@ -102,8 +103,12 @@ def cmd_repo_validate(args: argparse.Namespace) -> None:
 
     if args.out:
         _write_json(args.out, report.to_dict())
+    failed = not report.ok or bool(args.fail_on_warning and report.warnings)
     if args.json:
-        print(json.dumps(report.to_dict(), indent=2))
+        reason = None if not failed else (f"{len(report.errors)} error(s)" if not report.ok
+                                          else f"{len(report.warnings)} warning(s) under --fail-on-warning")
+        cli_output.emit_leaf("repo validate", report.to_dict(), status="failed" if failed else "complete",
+                             reason=reason)
     else:
         mark = "✓" if report.ok else "✗"
         families = ", ".join(f"{k} {v}" for k, v in report.to_dict()["tasks"]["by_family"].items())
@@ -123,7 +128,7 @@ def cmd_repo_validate(args: argparse.Namespace) -> None:
             print(f"  note: {note}")
         for error in report.errors:
             print(f"  error: {error}", file=sys.stderr)
-    if not report.ok or (args.fail_on_warning and report.warnings):
+    if failed:
         sys.exit(1)
 
 
@@ -161,21 +166,15 @@ def cmd_repo_scan(args: argparse.Namespace) -> None:
     for problem in static_errors:  # on stderr in --json mode too
         print(f"✗ --static output not merged: {problem}", file=sys.stderr)
     if args.json:
-        print(json.dumps(stamp("repo_readiness", dict(payload)), indent=2))
+        failed = bool(args.fail_on_fail and (payload["counts"]["fail"] or payload["incomplete"]) or static_errors)
+        cli_output.emit_leaf("repo scan", stamp("repo_readiness", dict(payload)),
+                             status="failed" if failed else "complete",
+                             reason=_scan_reason(payload, static_errors, args.fail_on_fail) if failed else None)
     else:
         _print_scan_text(manifest, payload, args.out)
     _scan_gate(payload, args.fail_on_fail)  # runs first: an invalid --static still gets the incomplete reason
     if static_errors:
         sys.exit(1)
-
-
-def _scan_gate(payload: dict, fail_on_fail: bool) -> None:
-    """--fail-on-fail: exit 1 on a failed claim or an incomplete scan, saying on stderr what the scan missed."""
-    if not fail_on_fail or not (payload["counts"]["fail"] or payload["incomplete"]):
-        return
-    if payload["incomplete"]:
-        print(f"✗ scan incomplete: {'; '.join(payload['incomplete_reasons'])}", file=sys.stderr)
-    sys.exit(1)
 
 
 def _code_index(path: str | None) -> Any:
@@ -221,8 +220,11 @@ def cmd_repo_inspect(args: argparse.Namespace) -> None:
         except OSError as exc:
             print(f"✗ cannot write {args.out}: {exc}", file=sys.stderr)
             sys.exit(EXIT_USAGE)
+    failed = bool(args.fail_on_error and payload["counts"]["error"])
     if args.json:
-        print(json.dumps(stamp("repo_environment", dict(payload)), indent=2))
+        cli_output.emit_leaf("repo inspect", stamp("repo_environment", dict(payload)),
+                             status="failed" if failed else "complete",
+                             reason=f"{payload['counts']['error']} error(s) under --fail-on-error" if failed else None)
     else:
         c = payload["counts"]
         roots = sum(i["scope"] == "root" for i in payload["instructions"])
@@ -241,7 +243,7 @@ def cmd_repo_inspect(args: argparse.Namespace) -> None:
         _print_structure(payload.get("structure"))
         if args.out:
             print(f"wrote {args.out}")
-    if args.fail_on_error and payload["counts"]["error"]:
+    if failed:
         sys.exit(1)
 
 
@@ -265,7 +267,7 @@ def cmd_repo_fetch(args: argparse.Namespace) -> None:
         sys.exit(1)
     assert isinstance(tree, GitTree)
     if args.json:
-        print(json.dumps({"sha": tree.sha, "git_dir": str(tree.git_dir)}, indent=2))
+        cli_output.emit_leaf("repo fetch", {"sha": tree.sha, "git_dir": str(tree.git_dir)})
     else:
         print(f"{tree.sha}\t{tree.git_dir}")
 
@@ -548,8 +550,11 @@ def cmd_repo_budget(args: argparse.Namespace) -> None:
         except OSError as exc:
             print(f"✗ cannot write {args.out}: {exc}", file=sys.stderr)
             sys.exit(EXIT_USAGE)
+    failed = bool(args.fail_on_warning and payload["warnings"])
     if args.json:
-        print(json.dumps(stamp("repo_budget", dict(payload)), indent=2))
+        cli_output.emit_leaf("repo budget", stamp("repo_budget", dict(payload)),
+                             status="failed" if failed else "complete",
+                             reason=f"{len(payload['warnings'])} warning(s) under --fail-on-warning" if failed else None)
     else:
         t = payload["totals"]
         print(f"{payload['tree']}: start {t['start']:,} chars, lazy {t['lazy']:,}, "
@@ -564,7 +569,7 @@ def cmd_repo_budget(args: argparse.Namespace) -> None:
                   "(their tools are listed by the server at start-up, not counted here)")
         for warning in payload["warnings"]:
             print(f"warning: {warning}")
-    if args.fail_on_warning and payload["warnings"]:
+    if failed:
         sys.exit(1)
 
 
@@ -648,10 +653,10 @@ def register(sub, positive_int, eval_sub) -> None:
                             "at --manifest (for a repository that has not added it yet)")
     validate_p.add_argument("--cache-dir", default=None, dest="cache_dir", help=cache_help)
     validate_p.add_argument("--out", default=None, help="Write the full report as JSON to this file")
-    validate_p.add_argument("--json", action="store_true", help="Print the full report as JSON")
+    validate_p.add_argument("--json", action="store_true", help="Print cli_output.v1 on stdout (the full report under data)")
     validate_p.add_argument("--fail-on-warning", action="store_true", dest="fail_on_warning",
                             help="Exit 1 when the report has any warning (for a CI gate)")
-    validate_p.set_defaults(func=cmd_repo_validate)
+    validate_p.set_defaults(func=cmd_repo_validate, emits_cli_output=True, cli_kind="repo validate")
 
     scan_p = repo_sub.add_parser(
         "scan",
@@ -684,12 +689,12 @@ def register(sub, positive_int, eval_sub) -> None:
                         help="The repository's interpreter (a venv with its pinned dependencies installed); the fences "
                         "are checked against its site-packages. Needs --typecheck")
     scan_p.add_argument("--out", default=None, help="Write the repo_readiness.v1 report to this file")
-    scan_p.add_argument("--json", action="store_true", help="Print the full report as JSON")
+    scan_p.add_argument("--json", action="store_true", help="Print cli_output.v1 on stdout (the full report under data)")
     scan_p.add_argument("--fail-on-fail", action="store_true", dest="fail_on_fail",
                         help="Exit 1 when any claim fails, an also_scan file is missing, a guidance file "
                         "or Bazel build input cannot be read, or no guidance file matched (for a CI gate)")
     scan_p.add_argument("--cache-dir", default=None, dest="cache_dir", help=cache_help)
-    scan_p.set_defaults(func=cmd_repo_scan)
+    scan_p.set_defaults(func=cmd_repo_scan, emits_cli_output=True, cli_kind="repo scan")
 
     inspect_p = repo_sub.add_parser(
         "inspect",
@@ -705,17 +710,17 @@ def register(sub, positive_int, eval_sub) -> None:
                            "structure section (modules, reference fan-in, cross-tree bridges, name ambiguity). Read besides "
                            "the tree; exit 2 when it cannot be read or none of its documents is a file of the tree")
     inspect_p.add_argument("--out", default=None, help="Write the repo_environment.v1 report to this file")
-    inspect_p.add_argument("--json", action="store_true", help="Print the full report as JSON")
+    inspect_p.add_argument("--json", action="store_true", help="Print cli_output.v1 on stdout (the full report under data)")
     inspect_p.add_argument("--fail-on-error", action="store_true", dest="fail_on_error",
                            help="Exit 1 when any finding has severity error (for a CI gate)")
     inspect_p.add_argument("--cache-dir", default=None, dest="cache_dir", help=cache_help)
-    inspect_p.set_defaults(func=cmd_repo_inspect)
+    inspect_p.set_defaults(func=cmd_repo_inspect, emits_cli_output=True, cli_kind="repo inspect")
 
     fetch_p = repo_sub.add_parser("fetch", help="Clone/fetch a pinned source and print its commit SHA")
     fetch_p.add_argument("source", help=source_help)
-    fetch_p.add_argument("--json", action="store_true", help="Print {sha, git_dir} as JSON instead of tab-separated")
+    fetch_p.add_argument("--json", action="store_true", help="Print cli_output.v1 on stdout ({sha, git_dir} under data)")
     fetch_p.add_argument("--cache-dir", default=None, dest="cache_dir", help=cache_help)
-    fetch_p.set_defaults(func=cmd_repo_fetch)
+    fetch_p.set_defaults(func=cmd_repo_fetch, emits_cli_output=True, cli_kind="repo fetch")
 
     reach_p = repo_sub.add_parser(
         "reach",
@@ -783,11 +788,11 @@ def register(sub, positive_int, eval_sub) -> None:
                           "and guidance.claude_displaces_agents the off rules; root vs nested is Claude Code's "
                           "(default: claude-code)")
     budget_p.add_argument("--out", default=None, help="Write the repo_budget.v1 inventory to this file")
-    budget_p.add_argument("--json", action="store_true", help="Print the repo_budget.v1 inventory as JSON")
+    budget_p.add_argument("--json", action="store_true", help="Print cli_output.v1 on stdout (the repo_budget.v1 inventory under data)")
     budget_p.add_argument("--fail-on-warning", action="store_true", dest="fail_on_warning",
                           help="Exit 1 when any warning is printed (for a CI gate)")
     budget_p.add_argument("--cache-dir", default=None, dest="cache_dir", help=cache_help)
-    budget_p.set_defaults(func=cmd_repo_budget)
+    budget_p.set_defaults(func=cmd_repo_budget, emits_cli_output=True, cli_kind="repo budget")
 
     from . import repo_run
 
