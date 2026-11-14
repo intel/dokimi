@@ -137,7 +137,8 @@ def _blank_blocks(lines: list[str]) -> list[str]:
     out: list[str] = []
     fence = ""
     comment = False
-    for line in lines:
+    last_close = max((i for i, text in enumerate(lines) if "-->" in text), default=-1)
+    for i, line in enumerate(lines):
         if comment:  # inside a comment: blank through its end; the text after it is prose again
             end = line.find("-->")
             if end < 0:
@@ -158,9 +159,10 @@ def _blank_blocks(lines: list[str]) -> list[str]:
         start = line.find("<!--")
         while start >= 0:
             end = line.find("-->", start + len("<!--"))
-            if end < 0:
-                line = line[:start] + " " * (len(line) - start)
-                comment = True
+            if end < 0:  # an opener with no close after it is plain text, as Markdown reads it
+                if i < last_close:
+                    line = line[:start] + " " * (len(line) - start)
+                    comment = True
                 break
             line = line[:start] + " " * (end + 3 - start) + line[end + 3:]
             start = line.find("<!--")

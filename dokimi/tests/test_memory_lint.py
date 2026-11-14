@@ -354,6 +354,12 @@ def test_a_fence_inside_a_comment_does_not_hide_the_rest_of_the_index(mem):
     assert [f.line for f in lint(read_claude_memory(mem)) if f.rule == "index-dead-link"] == [5]
 
 
+def test_a_comment_that_never_closes_hides_nothing(mem):
+    (mem / "MEMORY.md").write_text("- [A](a.md) <!-- aside\n- [G](gone.md)\n")
+    (mem / "a.md").write_text(_entry("a"))
+    assert [f.line for f in lint(read_claude_memory(mem)) if f.rule == "index-dead-link"] == [2]
+
+
 def test_a_fence_inside_a_comment_does_not_hide_the_rest_of_a_topic(mem):
     (mem / "a.md").write_text(_entry("a", body="<!-- notes\n```bash\nx\n```-->\nShip it tomorrow.\n"))
     assert [f.line for f in lint(read_claude_memory(mem)) if f.rule == "relative-date"] == [11]
