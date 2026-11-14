@@ -17,10 +17,10 @@ def test_unicode_separators_do_not_shift_markdown_claims(separator):
     assert [(f.line, f.lang, f.lines) for f in pieces.fences] == [(3, "bash", [(4, "make missing")])]
 
 
-def test_unicode_separator_does_not_create_a_fence_boundary():
+def test_unicode_separator_preserves_fence_matching_with_physical_locations():
     pieces = split("prose\u2028```bash\n[link](missing.md)\n")
-    assert pieces.fences == []
-    assert [(n, target) for n, target, _ in pieces.links] == [(2, "missing.md")]
+    assert [(f.line, f.lang, f.lines) for f in pieces.fences] == [(1, "bash", [(2, "[link](missing.md)")])]
+    assert pieces.links == []
 
 
 @pytest.mark.parametrize("newline", ["\n", "\r\n", "\r"])
@@ -42,3 +42,24 @@ def test_scan_keeps_physical_line_numbers_after_unicode_separator(tmp_path, newl
 def test_fences_keep_physical_newlines_and_trailing_blank_line(newline):
     pieces = split(newline.join(["intro", "```bash", "make all", "", ""]))
     assert [(f.line, f.lang, f.lines) for f in pieces.fences] == [(2, "bash", [(3, "make all"), (4, "")])]
+
+
+@pytest.mark.parametrize("separator", ["\u2028", "\u2029", "\x85", "\v", "\f", "\x1c", "\x1d", "\x1e"])
+def test_unicode_separator_preserves_closing_fences_and_reference_definitions(separator):
+    pieces = split(f"```bash\nmake all\n```{separator}Then run this\nSee [docs](missing.md).\n"
+                   f"[x]: other.md{separator}more text\n")
+    assert [(f.line, f.lang, f.lines) for f in pieces.fences] == [(1, "bash", [(2, "make all")])]
+    assert [(n, target) for n, target, _ in pieces.links] == [(4, "missing.md"), (5, "other.md")]
+
+
+def test_unicode_separator_preserves_span_and_info_string_matching():
+    pieces = split("`src/keep.py\u2028and src/missing.py`\n```\u2028bash\nmake all\n```\n")
+    assert pieces.spans == []
+    assert [(f.line, f.lang, f.lines) for f in pieces.fences] == [(2, "", [(2, "bash"), (3, "make all")])]
+
+
+@pytest.mark.parametrize("separator", ["\u2028", "\u2029", "\x85", "\v", "\f", "\x1c", "\x1d", "\x1e"])
+@pytest.mark.parametrize("newline", ["\n", "\r\n", "\r"])
+def test_unicode_separator_preserves_blank_fenced_segments(separator, newline):
+    pieces = split(newline.join(["```bash", f"make all{separator}", "```", ""]))
+    assert [(f.line, f.lang, f.lines) for f in pieces.fences] == [(1, "bash", [(2, "make all"), (2, "")])]

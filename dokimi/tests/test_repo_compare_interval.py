@@ -146,6 +146,7 @@ def test_the_callers_p_places_zero_when_the_backend_disagrees(monkeypatch, p_zer
     monkeypatch.setattr(ShiftTest, "p", lambda self, theta: 0.5 if backend_boundary <= theta <= 1.5 else 0.01)
     lo, hi = sign_flip_interval([1.0] * 6, p_zero)
     assert (lo <= 0 <= hi) == (p_zero is None or p_zero >= 0.05)
+    assert lo == (1e-4 if p_zero is not None and p_zero < 0.05 else 0.0)
     assert hi == pytest.approx(1.5, abs=sign_flip.TOL)
 
 
