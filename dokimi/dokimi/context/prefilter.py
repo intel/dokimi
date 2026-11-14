@@ -71,7 +71,7 @@ _HERE_STRING = re.compile(r"(?m)(?P<quoted>\\[\s\S]|'[^']*'|\"(?:\\[\s\S]|[^\"\\
                           r"|(?P<comment>(?:^|(?<=[\s;&|()]))#.*$)"  # a comment's apostrophes open no quote
                           r"|<<<\s*(?:\\[\s\S]|'[^']*'|\"(?:\\[\s\S]|[^\"\\])*\"|[^\s;&|<>()'\"\\])+")
 _SEGMENT = re.compile(r"&&|\|\||(?<![<>])[|]|(?<![<>])&(?!>)|[;()\n]")  # ``>|``, ``>&``, ``<&``, ``&>`` are not splits
-_FRONTMATTER = re.compile(r"\A---[ \t]*\r?\n.*?\r?\n---[ \t]*(?=\r?\n|\Z)", re.S)
+_FRONTMATTER = re.compile(r"\A\ufeff?---[ \t]*\r?\n(?:.*?\r?\n)?---[ \t]*(?=\r?\n|\Z)", re.S)
 _CUE = re.compile(r"\b(no|not|don't|do not|stop|instead|wrong|forgot|should have|revert|undo|why did you)\b", re.I)
 _STOP = frozenset("""
 able about above after again against all also always and any are because been before being below
