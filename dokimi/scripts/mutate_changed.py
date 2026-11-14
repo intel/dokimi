@@ -39,7 +39,6 @@ from __future__ import annotations
 import argparse
 import ast
 import json
-import os
 import re
 import shutil
 import subprocess
@@ -52,6 +51,10 @@ from pathlib import Path
 
 PROJECT = Path(__file__).resolve().parents[1]
 REPO = PROJECT.parent
+if str(PROJECT) not in sys.path:  # run as a script from CI, not installed
+    sys.path.insert(0, str(PROJECT))
+
+from dokimi import process  # noqa: E402
 PKG = "dokimi/dokimi/"
 HUNK = re.compile(r"^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@")
 
@@ -234,14 +237,11 @@ def _pytest(
     cwd: Path, args: list[str], timeout: float, env: dict[str, str] | None = None
 ) -> tuple[int, str]:
     cmd = [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "-o", "console_output_style=classic", *args]
-    try:
-        proc = subprocess.run(
-            cmd, cwd=cwd, capture_output=True, text=True, encoding="utf-8", errors="replace",
-            timeout=timeout, env={**os.environ, **(env or {})},
-        )
-    except subprocess.TimeoutExpired:
+    # process.run kills the whole process tree on exit or timeout: no test's child outlives its mutant.
+    done = process.run(cmd, timeout=timeout, env=process.Env.inherit(env), cwd=cwd)
+    if done.timed_out:
         return -1, "timeout"
-    return proc.returncode, proc.stdout + proc.stderr
+    return done.returncode, done.stdout + done.stderr
 
 
 _SUMMARY = re.compile(r"^(?:FAILED|ERROR) (.+?)(?: - .*)?$", re.MULTILINE)
@@ -414,4 +414,5 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
+    process.install_signal_handlers()
     sys.exit(main())

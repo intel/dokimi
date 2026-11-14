@@ -9,8 +9,10 @@ import ast
 import importlib.util
 import json
 import os
+import signal
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -195,3 +197,35 @@ def test_survivors_kills_and_tests_failing_unmutated(tmp_path: Path, monkeypatch
     assert report["failing_unmutated"] == ["tests/test_zz.py::test_broken"]
     assert rc == 1
     assert _mutation_run(tmp_path, monkeypatch, src, tests)[0] == 0
+
+
+def _alive(pid: int) -> bool:
+    try:
+        return Path(f"/proc/{pid}/stat").read_text(encoding="utf-8").rsplit(")", 1)[1].split()[0] != "Z"
+    except FileNotFoundError:
+        return False
+
+
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="reads /proc")
+def test_a_mutant_that_times_out_leaves_no_process_of_its_tests_behind(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    pid_file = tmp_path / "grandchild.pid"
+    monkeypatch.setenv("ZZ_PID_FILE", str(pid_file))
+    src = "def a(x):\n    return x == 1\n"
+    tests = (
+        "import os\nimport subprocess\nimport sys\nimport time\n\nfrom dokimi.zz import a\n\n\n"
+        "def test_a():\n    if a(1) is not True:\n"
+        "        child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)'])\n"
+        "        with open(os.environ['ZZ_PID_FILE'], 'w') as f:\n            f.write(str(child.pid))\n"
+        "        time.sleep(120)\n"
+    )
+    _, report = _mutation_run(tmp_path, monkeypatch, src, tests, "--max-mutants", "1", "--mutant-timeout", "5")
+    pid = int(pid_file.read_text(encoding="utf-8"))
+    try:
+        assert [m["status"] for m in report["mutants"]] == ["timeout"]
+        deadline = time.monotonic() + 5
+        while _alive(pid) and time.monotonic() < deadline:
+            time.sleep(0.1)
+        assert not _alive(pid)
+    finally:
+        if _alive(pid):
+            os.kill(pid, signal.SIGKILL)
