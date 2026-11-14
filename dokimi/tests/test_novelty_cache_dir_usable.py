@@ -69,6 +69,19 @@ def test_usable_cache_dir_refuses_an_unwritable_directory_and_a_child_of_one(tmp
         locked.chmod(0o700)
 
 
+@pytest.mark.skipif(not hasattr(os, "geteuid") or os.geteuid() == 0, reason="root writes anywhere")
+def test_usable_cache_dir_refuses_a_writable_directory_without_search_permission(tmp_path):
+    closed = tmp_path / "closed"
+    closed.mkdir()
+    closed.chmod(0o600)
+    try:
+        with pytest.raises(InputError) as err:
+            usable_cache_dir(str(closed))
+        assert str(closed) in str(err.value) and "is not writable" in str(err.value)
+    finally:
+        closed.chmod(0o700)
+
+
 @pytest.mark.skipif(not hasattr(os, "geteuid") or os.geteuid() == 0, reason="root searches anywhere")
 def test_usable_cache_dir_refuses_a_path_below_a_directory_it_cannot_search(tmp_path):
     closed = tmp_path / "closed"
