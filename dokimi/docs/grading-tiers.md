@@ -314,5 +314,6 @@ false pass, and a narrow rule for `without`, `no` and `if you can't` forms is tr
 ## Reproducing
 
 The three prototype scripts and their outputs are not in the repository. They read the
-study's atoms, probes and probe results and need perf, gcc, binutils, cmake and outbound HTTPS. Round 3's perf check is now
-`skill novelty ground`; the router of round 2 and the `source` check are not in the repo.
+study's atoms, probes and probe results and need perf, gcc, binutils, cmake and outbound
+HTTPS. Round 3's perf check is now `skill novelty ground`; the router of round 2 and the
+`source` check are not in the repo.
