@@ -71,7 +71,7 @@ from .agent_sandbox import (
     solver_cli_flags,
 )
 from .claude_json import _last_json_object, _parse_claude_json  # noqa: F401
-from .command import _parse_reward_text
+from .command import _check_reward_copy, _exit_code_verdict, _reward_file_verdict
 from .container_agent import (AGENT_BIN, DOCKER_STEP_TIMEOUT, FILES_DIR, TASK_CONTAINER_HARDENING,
                               ContainerSandbox, Docker)
 from .models import HarnessResult, OperationRecord
@@ -645,20 +645,16 @@ class DockerSolverHarness:
             ["cp", f"{container}:/logs/verifier/reward.txt", str(reward_file)],
             log, check=False,
         )
-        if pulled.timed_out:  # not "no reward file": the exit code would pass a failing verifier
-            raise subprocess.TimeoutExpired(pulled.argv, DOCKER_STEP_TIMEOUT)
         if pulled.returncode == 0 and reward_file.is_file():
-            return _parse_reward_text(
-                reward_file.read_text(encoding="utf-8", errors="replace"), reward_file=True
-            )
+            return _reward_file_verdict(reward_file.read_text(encoding="utf-8", errors="replace"))
         if proc.returncode != 0:  # no verdict at all if the container is gone, not a 0
             running = self._docker(["inspect", "-f", "{{.State.Running}}", container], log, check=False)
             if running.timed_out:  # no answer is not "stopped": say so, the cell is errored either way
                 raise RuntimeError(f"task container {container} state inspect timed out at verify time; see run.log")
             if (getattr(running, "stdout", "") or "").strip() != "true":
                 raise RuntimeError(f"task container {container} is not running at verify time; see run.log")
-        # No reward file written: fall back to verifier exit code.
-        return 1.0 if proc.returncode == 0 else 0.0
+        _check_reward_copy(pulled)  # a failed or hung copy errors the cell: it is not "no reward file"
+        return _exit_code_verdict(proc.returncode)
 
     def _plan(self, task: TaskSpec, record: Optional[Path] = None) -> NetworkPlan:
         return resolve_recorded(task, self.network, agent=self.mode != "oracle", record=record)
