@@ -35,9 +35,16 @@ def test_a_contrast_beyond_the_float_range_raises_instead_of_an_inf_delta():
         interaction_significance(evaluations, ARMS, "baseline")
 
 
-def test_an_arm_delta_beyond_the_float_range_raises_while_the_contrast_is_finite():
-    # the contrast is 0 and only ab - base (3.4e308) leaves the range
-    evaluations = [_ev("q1", BIG, 0.0, 0.0, -BIG), _ev("q2", 0.0, 0.0, 0.0, 0.0)]
+@pytest.mark.parametrize(
+    ("ab", "a", "b", "base"),
+    [
+        (BIG, 0.0, 0.0, -BIG),  # the contrast is 0; only ab - base leaves the range
+        (0.0, BIG, -BIG, -BIG),  # the contrast is -BIG; only a - base leaves the range
+        (0.0, -BIG, BIG, -BIG),  # the contrast is -BIG; only b - base leaves the range
+    ],
+)
+def test_an_arm_delta_beyond_the_float_range_raises_while_the_contrast_is_finite(ab, a, b, base):
+    evaluations = [_ev("q1", ab, a, b, base), _ev("q2", 0.0, 0.0, 0.0, 0.0)]
     with pytest.raises(OverflowError, match="a difference of the paired values leaves the float range"):
         _test(evaluations)
 
