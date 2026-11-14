@@ -22,7 +22,7 @@ No model call. Each finding has a rule, a severity, a file and a line:
 
 | rule | severity | what |
 |---|---|---|
-| `index-dead-link` | fail | the index links a file that does not exist, a directory, or a path outside the memory directory (code spans, fenced blocks and HTML comments hold no link) |
+| `index-dead-link` | fail | the index links a file that does not exist, a directory, or a path outside the memory directory (code spans, fenced blocks and HTML comments hold no link; a reference definition that no link uses is not checked) |
 | `index-over-limit` | fail | the index is past the load limit (200 lines or 25KB, as Claude Code loads it) |
 | `index-near-limit` | warn | over 80% of the limit |
 | `index-missing` | warn | no `MEMORY.md` |
@@ -30,7 +30,7 @@ No model call. Each finding has a rule, a severity, a file and a line:
 | `frontmatter-missing`, `frontmatter-invalid`, `frontmatter-field` | warn | no frontmatter, not YAML, no `name`/`description`/`type` |
 | `type-unknown` | warn | a type other than the four |
 | `name-duplicate` | warn | two files share a `name` |
-| `relative-date` | warn | "today", "next week", "вчера" on a line with no `YYYY-MM-DD` date (code spans skipped) |
+| `relative-date` | warn | "today", "next week", "вчера" on a line with no `YYYY-MM-DD` date (code spans, fenced blocks and HTML comments skipped) |
 | `wikilink-dangling` | note | `[[x]]` matches no file stem or name (`-` and `_` fold) |
 | `index-stray-separator` | note | `:,`, `,,` or a trailing `,` in an index line |
 

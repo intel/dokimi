@@ -93,8 +93,10 @@ def test_containment_is_judged_after_resolving(tmp_path):
     (mem / "loop2.md").symlink_to(mem / "loop1.md")
     (mem / "MEMORY.md").write_text(f"- [A]({mem / 'a.md'})\n- [E](esc.md)\n- [U](up/outside.md)\n"
                                    f"- [O]({tmp_path / 'outside.md'})\n- [L](loop1.md)\n")
-    found = [(f.rule, f.file, f.line) for f in lint(read_claude_memory(mem)) if f.rule.startswith("index")]
-    assert found == [("index-dead-link", "MEMORY.md", n) for n in (2, 3, 4, 5)] + [("index-orphan", "esc.md", None)]
+    found = [(f.rule, f.severity, f.file, f.line) for f in lint(read_claude_memory(mem))
+             if f.rule.startswith("index")]
+    assert found == [("index-dead-link", "fail", "MEMORY.md", n) for n in (2, 3, 4, 5)] + [
+        ("index-orphan", "warn", "esc.md", None)]
 
 
 def test_wikilink_folds_dash_and_underscore(mem):
@@ -222,3 +224,41 @@ def test_empty_frontmatter_stops_at_its_own_closing_line(mem):
     (mem / "a.md").write_text("---\n---\nSaw it today.\n\n---\nname: later\n---\n")
     found = [(f.rule, f.line) for f in lint(read_claude_memory(mem)) if f.file == "a.md"]
     assert ("relative-date", 3) in found and ("frontmatter-invalid", 1) not in found
+
+
+def test_external_links_are_not_checked(mem):
+    (mem / "MEMORY.md").write_text("- [A](a.md) [B](b.md) [D](https://example.com/gone.md)\n")
+    assert _rules(mem) == []
+
+
+def test_index_byte_limit_edge_with_default_limits(mem):
+    line = "- [A](a.md) [B](b.md) "
+    (mem / "MEMORY.md").write_text(line + "x" * (25600 - len(line) - 1) + "\n")  # exactly 25600 bytes loads
+    assert [r[0] for r in _rules(mem)] == ["index-near-limit"]
+    (mem / "MEMORY.md").write_text(line + "x" * (25601 - len(line) - 1) + "\n")
+    assert [r[0] for r in _rules(mem)] == ["index-over-limit"]
+
+
+def test_escaped_destination_characters_are_decoded(mem):
+    (mem / "topic(v2).md").write_text(_entry("t"))
+    (mem / "MEMORY.md").write_text("- [A](a.md) [B](b.md) [T](topic\\(v2\\).md)\n")
+    assert _rules(mem) == []
+
+
+def test_unused_reference_definition_is_not_a_link(mem):
+    (mem / "MEMORY.md").write_text("- [A](a.md) [B](b.md)\n[old]: deleted.md\n")
+    assert _rules(mem) == []
+    (mem / "MEMORY.md").write_text("- [A][t] [B](b.md)\n\n[t]: gone.md\n[u]: deleted.md\n")
+    assert [(f.rule, f.line) for f in lint(read_claude_memory(mem)) if f.rule == "index-dead-link"] == [
+        ("index-dead-link", 3)]
+
+
+def test_nul_in_a_link_is_a_dead_link_not_a_crash(mem):
+    (mem / "MEMORY.md").write_text("- [A](a.md) [B](b.md) [N](x%00.md)\n")
+    assert [(f.rule, f.line) for f in lint(read_claude_memory(mem)) if f.rule == "index-dead-link"] == [
+        ("index-dead-link", 1)]
+
+
+def test_relative_date_in_fence_or_comment_is_not_flagged(mem):
+    (mem / "a.md").write_text(_entry("a", body="```\nrun it tomorrow\n```\n<!--\nsee today\n-->\nDone."))
+    assert [f for f in lint(read_claude_memory(mem)) if f.rule == "relative-date"] == []

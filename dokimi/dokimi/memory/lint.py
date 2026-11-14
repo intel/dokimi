@@ -16,7 +16,7 @@ from collections.abc import Callable, Iterable
 from dataclasses import asdict, dataclass
 import posixpath
 
-from dokimi.memory.store import ARCHIVE_DIR, INDEX_NAME, MemoryEntry, MemoryStore, slug
+from dokimi.memory.store import ARCHIVE_DIR, INDEX_NAME, MemoryEntry, MemoryStore, prose_lines, slug
 
 #: The four kinds Claude Code writes (https://code.claude.com/docs/en/memory).
 MEMORY_TYPES = ("user", "feedback", "project", "reference")
@@ -29,7 +29,6 @@ _RELATIVE = re.compile(
     r"\b(today|yesterday|tomorrow|tonight|this (?:week|morning|afternoon)|next week|last week)\b"
     r"|(?<!\w)(сегодня|вчера|завтра)(?!\w)", re.I)
 _DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
-_CODE = re.compile(r"`[^`\n]*`")
 _NOT_A_WORD_USE = re.compile(r"\.md|\(")
 _STRAY_SEPARATOR = re.compile(r":\s*,|,\s*,|,\s*$")
 
@@ -82,11 +81,14 @@ def _link_findings(store: MemoryStore) -> Iterable[Finding]:
     for n, target in store.index_links():
         try:  # resolved, so a symlink or an absolute path is judged by where it lands
             full = (store.root / target).resolve()
-        except (OSError, RuntimeError):
-            full = root.parent
-        if not full.is_relative_to(root):
+            inside = full.is_relative_to(root)
+            is_file = inside and full.is_file()
+        except (OSError, RuntimeError, ValueError):  # a NUL byte or a loop: not a file in the store
+            yield Finding("index-dead-link", "fail", INDEX_NAME, n, f"links {target}, which is not a file")
+            continue
+        if not inside:
             yield Finding("index-dead-link", "fail", INDEX_NAME, n, f"links {target}, outside the memory directory")
-        elif full.is_file():
+        elif is_file:
             linked.update({posixpath.normpath(target), full.relative_to(root).as_posix()})
         else:
             yield Finding("index-dead-link", "fail", INDEX_NAME, n, f"links {target}, which is not a file")
@@ -135,10 +137,10 @@ def _entry_findings(store: MemoryStore) -> Iterable[Finding]:
 
 def _date_findings(entry: MemoryEntry) -> Iterable[Finding]:
     offset = entry.text.count("\n", 0, len(entry.text) - len(entry.body))
-    for n, line in enumerate(entry.body.split("\n"), offset + 1):
-        if _DATE.search(line):  # a dated line says when "today" was
+    source = entry.body.split("\n")
+    for n, (raw, line) in enumerate(zip(source, prose_lines(entry.body), strict=True), offset + 1):
+        if _DATE.search(raw):  # a dated line says when "today" was
             continue
-        line = _CODE.sub(lambda c: " " * len(c.group(0)), line)
         for m in _RELATIVE.finditer(line):
             if not _NOT_A_WORD_USE.match(line, m.end()):
                 yield Finding("relative-date", "warn", entry.path, n,

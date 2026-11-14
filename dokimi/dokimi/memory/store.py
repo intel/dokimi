@@ -21,7 +21,9 @@ INDEX_NAME = "MEMORY.md"
 ARCHIVE_DIR = "archive"
 _FRONTMATTER = re.compile(r"\A---[ \t]*\r?\n(?:(.*?)\r?\n)??---[ \t]*(?:\r?\n|\Z)", re.S)
 _MD_LINK = re.compile(r"\]\(\s*(<[^>\n]+>|(?:[^()\s]|\([^()\s]*\))+)(?:\s+(?:\"[^\"]*\"|'[^']*'))?\s*\)")
-_MD_REF_DEF = re.compile(r"^ {0,3}\[(?!\^)[^\]\n]+\]:[ \t]*(<[^>\n]+>|\S+)")
+_MD_REF_DEF = re.compile(r"^ {0,3}\[(?!\^)([^\]\n]+)\]:[ \t]*(<[^>\n]+>|\S+)")
+_MD_LABEL = re.compile(r"\[([^\[\]\n]+)\](?![:(])")
+_MD_ESCAPE = re.compile(r"\\([!-/:-@\[-`{-~])")
 _WIKILINK = re.compile(r"\[\[([^\]\n]+)\]\]")
 _CODE_SPAN = re.compile(r"`[^`\n]*`")
 _HTML_COMMENT = re.compile(r"<!--.*?-->", re.S)
@@ -85,10 +87,14 @@ class MemoryStore:
         """``(line, target)`` of every relative markdown link in the index (URLs and anchors left out)."""
         if self.index is None:
             return []
+        lines = prose_lines(self.index.text)
+        used = {_label(m.group(1)) for line in lines for m in _MD_LABEL.finditer(line)}
         out = []
-        for n, line in enumerate(prose_lines(self.index.text), 1):
-            for m in [*_MD_LINK.finditer(line), *_MD_REF_DEF.finditer(line)]:
-                target = unquote(m.group(1).strip("<>").split("#", 1)[0])
+        for n, line in enumerate(lines, 1):
+            found = [m.group(1) for m in _MD_LINK.finditer(line)]
+            found += [m.group(2) for m in _MD_REF_DEF.finditer(line) if _label(m.group(1)) in used]
+            for raw in found:  # a definition nothing refers to renders no link, so it is not checked
+                target = unquote(_MD_ESCAPE.sub(r"\1", raw.strip("<>").split("#", 1)[0]))
                 if target and "://" not in target and not target.startswith("mailto:"):
                     out.append((n, target))
         return out
@@ -111,6 +117,11 @@ def prose_lines(text: str) -> list[str]:
         else:
             out.append(_CODE_SPAN.sub(lambda c: " " * len(c.group(0)), line))
     return out
+
+
+def _label(text: str) -> str:
+    """A reference label as Markdown matches it: whitespace folded, case ignored."""
+    return re.sub(r"\s+", " ", text).strip().lower()
 
 
 def slug(name: str) -> str:
