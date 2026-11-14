@@ -82,6 +82,21 @@ def test_parenthesised_targets_and_reference_definitions_are_links(mem):
     assert dead == [("index-dead-link", 4)]
 
 
+def test_containment_is_judged_after_resolving(tmp_path):
+    mem = tmp_path / "m"
+    mem.mkdir()
+    (tmp_path / "outside.md").write_text(_entry("o"))
+    (mem / "a.md").write_text(_entry("a"))
+    (mem / "esc.md").symlink_to(tmp_path / "outside.md")
+    (mem / "up").symlink_to(tmp_path, target_is_directory=True)
+    (mem / "loop1.md").symlink_to(mem / "loop2.md")
+    (mem / "loop2.md").symlink_to(mem / "loop1.md")
+    (mem / "MEMORY.md").write_text(f"- [A]({mem / 'a.md'})\n- [E](esc.md)\n- [U](up/outside.md)\n"
+                                   f"- [O]({tmp_path / 'outside.md'})\n- [L](loop1.md)\n")
+    found = [(f.rule, f.file, f.line) for f in lint(read_claude_memory(mem)) if f.rule.startswith("index")]
+    assert found == [("index-dead-link", "MEMORY.md", n) for n in (2, 3, 4, 5)] + [("index-orphan", "esc.md", None)]
+
+
 def test_wikilink_folds_dash_and_underscore(mem):
     (mem / "a.md").write_text(_entry("a", body="[[B]] [[project-a]] [[nobody]]"))
     (mem / "project_a.md").write_text(_entry("pa"))

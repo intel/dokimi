@@ -78,12 +78,16 @@ def _index_bytes(store: MemoryStore) -> int:
 
 def _link_findings(store: MemoryStore) -> Iterable[Finding]:
     linked: set[str] = set()
+    root = store.root.resolve()
     for n, target in store.index_links():
-        path = posixpath.normpath(target)
-        if path.startswith(("../", "/")) or path == "..":
+        try:  # resolved, so a symlink or an absolute path is judged by where it lands
+            full = (store.root / target).resolve()
+        except (OSError, RuntimeError):
+            full = root.parent
+        if not full.is_relative_to(root):
             yield Finding("index-dead-link", "fail", INDEX_NAME, n, f"links {target}, outside the memory directory")
-        elif (store.root / path).is_file():
-            linked.add(path)
+        elif full.is_file():
+            linked.update({posixpath.normpath(target), full.relative_to(root).as_posix()})
         else:
             yield Finding("index-dead-link", "fail", INDEX_NAME, n, f"links {target}, which is not a file")
     if store.index is None:
