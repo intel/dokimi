@@ -320,8 +320,7 @@ def _unread_at_cap(stop: SpendCapReached, batch: list[Span], parse: Callable[[st
 
 def _stop_at_cap(spans: list[Span], batch: list[Span], pending: list, report: ExtractionReport,
                  stop: SpendCapReached) -> None:
-    """The cap ends extraction: ``batch`` and the batches queued behind it go unread, and the
-    atoms read so far stand (the caller saves them as a partial result)."""
+    """The cap ends extraction: ``batch`` and those queued go unread; the atoms read stand."""
     report.pre_cap = (len(report.unread_span_ids), report.unread_tokens)
     for rest in [batch, *(queued for queued, _is_half in pending)]:
         _mark_unread(rest, report)
@@ -331,7 +330,8 @@ def _stop_at_cap(spans: list[Span], batch: list[Span], pending: list, report: Ex
                if stop.reason == "spend_cap" else
                f"extraction stopped with {read} of {len(spans)} spans read: {stop}")
     report.partial = {"reason": stop.reason, "stage": "extraction", "spans_read": read,
-                      "spans_total": len(spans), "message": message}
+                      "spans_total": len(spans), "message": message,
+                      **({"cause": str(stop)} if stop.reason == "spend_cap" else {})}
 
 
 def _keep_atoms(rows: list, valid_ids: set[str], seen: set[str], atoms: list[Atom]) -> None:

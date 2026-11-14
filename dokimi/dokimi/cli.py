@@ -79,6 +79,13 @@ def _label_routes(parser: argparse.ArgumentParser, prefix: tuple[str, ...] = ())
 class _RoutedParser(argparse.ArgumentParser):
     """The top-level parser. Its ``--help`` lists the roots by section (``dokimi.cli_routes``)."""
 
+    def parse_known_args(self, args=None, namespace=None):
+        ns, extras = super().parse_known_args(args, namespace)
+        # An option before the leaf name ends up here: the parsed leaf's namespace has its kind and --json.
+        if extras and _emits_cli_output(ns):
+            _usage_document(getattr(ns, "cli_kind", ns.cmd), f"unrecognized arguments: {' '.join(extras)}")
+        return ns, extras
+
     def format_help(self) -> str:
         sub = _subparsers(self)
         listed = {action.dest: action for action in sub._choices_actions} if sub else {}
@@ -105,6 +112,84 @@ class _RoutedParser(argparse.ArgumentParser):
         return fmt.format_help()
 
 
+def _usage_document(kind: str, message: str) -> None:
+    """A --json leaf's usage error (a bad value, a missing or unknown argument) prints its failed document first;
+    argparse then prints its usage on stderr and exits 2. One document per run: a leaf that already printed
+    its own (its extras, reported again by the root) keeps it."""
+    from dokimi import cli_output
+
+    if cli_output.printed():
+        return
+    cli_output.emit(cli_output.error_document(kind, "input", message, run_id=cli_output.current_run_id(),
+                                              reason=message))
+
+
+def _leaf_kind(parser: argparse.ArgumentParser) -> str:
+    """The kind a leaf's document names: its cli_kind, else its name ("backends", not "dokimi backends")."""
+    return parser._defaults.get("cli_kind") or parser.prog.removeprefix("dokimi ")
+
+
+def _leaf_at(parser: argparse.ArgumentParser, tokens: Sequence[str]) -> argparse.ArgumentParser | None:
+    """The leaf parser that ``tokens`` name, walking the subcommands from the root; None when they name no leaf."""
+    node = parser
+    for token in tokens:
+        sub = _subparsers(node)
+        if sub is None or token not in sub.choices:
+            break
+        node = sub.choices[token]
+    return node if node is not parser and _subparsers(node) is None else None
+
+
+def _moved_exit(parser: argparse.ArgumentParser, argv: list[str], text: str) -> NoReturn:
+    """A moved command or spelling exits 2 with its hint on stderr. Under --json the new leaf's failed document
+    (error code ``moved``) comes first, so every --json exit of a leaf has its document."""
+    from dokimi import cli_output
+
+    leaf = _leaf_at(parser, argv)
+    if leaf is not None and leaf._defaults.get("emits_cli_output") and _json_requested(leaf, argv):
+        cli_output.emit(cli_output.error_document(_leaf_kind(leaf), "moved", text, reason=text,
+                                                  run_id=cli_output.current_run_id()))
+    parser.exit(2, text + "\n")
+
+
+def _json_requested(parser: argparse.ArgumentParser, tokens: Sequence[str]) -> bool:
+    """True when argparse reads ``--json`` as this parser's option in ``tokens``: the exact token, a prefix
+    argparse accepts (``--jso``), or ``--json=<value>``. Tokens after a bare ``--`` are positional."""
+    for token in tokens:
+        if token == "--":
+            return False
+        name = token.partition("=")[0]
+        if len(name) < 3 or not name.startswith("--") or not "--json".startswith(name):
+            continue
+        if name == "--json":
+            return True
+        if parser.allow_abbrev and [o for o in parser._option_string_actions if o.startswith(name)] == ["--json"]:
+            return True
+    return False
+
+
+class _LeafParser(argparse.ArgumentParser):
+    """A subcommand's parser: under --json, a usage error of an opted-in leaf prints its document too."""
+
+    _json_argv = False  # set per parse: whether this leaf's own tokens ask for --json
+
+    def _document_kind(self) -> str:
+        return _leaf_kind(self)  # the kind _document_on_exit writes too
+
+    def error(self, message: str) -> NoReturn:
+        if self._defaults.get("emits_cli_output") and self._json_argv:
+            _usage_document(self._document_kind(), message)
+        super().error(message)
+
+    def parse_known_args(self, args=None, namespace=None):
+        self._json_argv = _json_requested(self, sys.argv[1:] if args is None else args)
+        ns, extras = super().parse_known_args(args, namespace)
+        # argparse reports these on the root parser, which knows no leaf: the document comes from here.
+        if extras and self._defaults.get("emits_cli_output") and self._json_argv:
+            _usage_document(self._document_kind(), f"unrecognized arguments: {' '.join(extras)}")
+        return ns, extras
+
+
 def build_parser() -> argparse.ArgumentParser:
     """Build CLI argument parser."""
 
@@ -120,7 +205,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = _RoutedParser(prog="dokimi")
     p.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
-    sub = p.add_subparsers(dest="cmd", required=True, parser_class=argparse.ArgumentParser)
+    sub = p.add_subparsers(dest="cmd", required=True, parser_class=_LeafParser)
 
     # Order preserved to keep --help output stable.
     run.register(sub, positive_int)             # docs: check, compare (#94 M3)
@@ -168,10 +253,10 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     moved = cli_routes.moved_argv(raw)
     if moved is not None:  # a tombstone: say where the command went, do not run anything
         moved = cli_routes.moved_flags_argv(moved) or moved  # the moved flag too, in one step
-        parser.exit(2, cli_routes.moved_text(moved) + "\n")
+        _moved_exit(parser, moved, cli_routes.moved_text(moved))
     moved_flags = cli_routes.moved_flags_argv(raw)
     if moved_flags is not None:  # a moved flag spelling: print the argv with the new one
-        parser.exit(2, cli_routes.moved_text(moved_flags) + "\n")
+        _moved_exit(parser, moved_flags, cli_routes.moved_text(moved_flags))
     args = parser.parse_args(raw)
     # argparse fills --judge-provider with its default (anthropic), so the rule needs to know whether one was named.
     args.judge_provider_named = any(_names_judge_provider(t) for t in raw)
@@ -215,8 +300,26 @@ def _exit_with_document(args: argparse.Namespace, code: str, message: str) -> No
     from dokimi import cli_output
 
     kind = getattr(args, "cli_kind", args.cmd)  # a group leaf names itself, e.g. "runs list"
-    cli_output.emit(cli_output.error_document(kind, code, message, run_id=cli_output.current_run_id()))
+    cli_output.emit(cli_output.error_document(kind, code, message, run_id=cli_output.current_run_id(),
+                                              reason=message))
     sys.exit(cli_output.EXIT_OF_ERROR[code])
+
+
+def _document_on_exit(args: argparse.Namespace, code: int) -> None:
+    """A --json leaf that exits non-zero without its document (a ``✗`` line, a helper's exit): print the
+    document that says so, with the same exit code: 2 is input, 5 infra, 1 a failed run."""
+    from dokimi import cli_output
+
+    if cli_output.printed():
+        return
+    kind = getattr(args, "cli_kind", args.cmd)  # a group leaf names itself, e.g. "runs list"
+    reason = f"exit {code}: see stderr"
+    if code in (2, 5):
+        doc = cli_output.error_document(kind, "input" if code == 2 else "infra", "see stderr",
+                                        run_id=cli_output.current_run_id(), reason=reason)
+    else:
+        doc = cli_output.envelope(kind, run_id=cli_output.current_run_id(), status="failed", reason=reason)
+    cli_output.emit(doc)
 
 
 def main() -> None:
@@ -224,9 +327,12 @@ def main() -> None:
     if threading.current_thread() is threading.main_thread():  # signal.signal works only there
         process.install_signal_handlers()  # SIGTERM/SIGHUP: kill the process groups we started, then exit
     tolerate_console_encoding()
-    args = parse_args()
+    from dokimi import cli_output
     from dokimi.artifacts import run_id
     from dokimi.utils import InputError
+
+    cli_output.reset()  # before the parse: a usage error prints its document from there
+    args = parse_args()
 
     try:
         run_id()  # a malformed DOKIMI_RUN_ID stops here, not at the first save after paid calls
@@ -244,6 +350,10 @@ def main() -> None:
         if _emits_cli_output(args):  # a --json leaf still prints its one document on a crash
             _exit_with_document(args, "infra", f"{type(exc).__name__}: {exc}")
         sys.exit(EXIT_INFRA)
+    except SystemExit as exc:  # every exit code of a --json leaf carries its document (§2.7)
+        if _emits_cli_output(args) and isinstance(exc.code, int) and exc.code:
+            _document_on_exit(args, exc.code)
+        raise
 
 
 if __name__ == "__main__":

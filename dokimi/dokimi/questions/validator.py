@@ -123,7 +123,7 @@ class QuestionValidator:
         self.api_key = api_key
 
         # An explicit api_key wins; without one LLM reads the provider's own variable
-        # (llm.PROVIDERS, OPENAI_API_KEY off the table, see llm.credential_env_var).
+        # (llm.PROVIDERS; off the table litellm reads the vendor's own, see llm.credential_env_var).
         self.llm: Optional[ChatModel] = (
             Invoker(LLM(llm_model, llm_provider, api_key)) if LANGCHAIN_AVAILABLE else None
         )

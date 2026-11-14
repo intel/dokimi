@@ -94,6 +94,8 @@ def _run_single_library(entry, output_dir: str, model: str, provider: str, judge
 def _key_error(provider: str) -> str | None:
     """Why *provider* has no key to send, or ``None``: the key is read as the run reads it."""
     var = credential_env_var(provider)
+    if var is None:  # off the table: litellm reads the vendor's own variable, unknown here
+        return None
     try:
         if resolve_api_key(provider):
             return None
