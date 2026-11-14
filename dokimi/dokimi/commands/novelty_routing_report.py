@@ -62,7 +62,7 @@ def estimate_routing_usd(model: str, provider: str, prompts: list[int],
     priced on their own, then summed and multiplied by the repeats. ``None`` when a call has no list price.
     """
     from dokimi.llm_pricing import list_cost_usd
-    from dokimi.novelty.routing import SELECTION_REPLY_TOKENS
+    from dokimi.novelty.routing_estimate import SELECTION_REPLY_TOKENS
 
     total = 0.0
     for prompt in prompts:
@@ -315,7 +315,11 @@ def drop_queries_left_out(queries_by_skill: dict[str, list[str]], field: list[Ca
 def _print_estimate(args: argparse.Namespace, candidates: list, sent: list[str],
                     estimate: dict) -> None:
     """The estimate as JSON, with the list-price USD of the calls ``sent`` makes; nothing is sent."""
-    from dokimi.novelty.routing import SELECTION_REPLY_TOKENS, selection_prompt_tokens
+    from dokimi.novelty.routing_estimate import (
+        SELECTION_CHARS_PER_TOKEN,
+        SELECTION_REPLY_TOKENS,
+        selection_prompt_tokens,
+    )
 
     usd: float | None = 0.0
     if args.model and estimate["n_calls"]:
@@ -325,9 +329,11 @@ def _print_estimate(args: argparse.Namespace, candidates: list, sent: list[str],
                       "provider": args.provider if args.model else None,
                       "n_candidates": len(candidates), **estimate,
                       "expected_usd": usd}, indent=2))
-    print("Estimate only, nothing was measured. Input is the selection prompt at chars / 4 per "
-          f"call; output is {SELECTION_REPLY_TOKENS} tokens a call, the measured average of a "
-          "routing run (output_tokens_per_call). Another model, or a reasoning model, can differ.",
+    print("Estimate only, nothing was measured. Input is the selection prompt at "
+          f"{SELECTION_CHARS_PER_TOKEN} characters per token (chars_per_input_token); output is "
+          f"{SELECTION_REPLY_TOKENS} tokens a call (output_tokens_per_call), inside the 114 to 193 "
+          "that two models billed. With chars / 4 and 65 the estimate was about 1.55x below the "
+          "bills. Another model, a tokenizer or a reasoning model can differ.",
           file=sys.stderr)
     if args.model and estimate["n_calls"] and usd is None:
         print(f"expected_usd is null: {args.model} has no list price in the litellm price map",
@@ -339,7 +345,7 @@ def print_routing_estimate(args: argparse.Namespace, candidates: list, queries: 
 
     No client is built. Without ``--model`` the run is lexical only, so the bill is zero.
     """
-    from dokimi.novelty.routing import selection_estimate
+    from dokimi.novelty.routing_estimate import selection_estimate
 
     # Without --model there is no selector, so no call is made, whatever --reps says.
     estimate = selection_estimate(candidates, queries,
@@ -354,7 +360,8 @@ def print_all_vs_all_estimate(args: argparse.Namespace, field: list[Candidate],
     The model arm sends each query with a content word, every skill's queries with the whole field
     on each call, so those are what is counted. ``n_queries`` is every query the run would route.
     """
-    from dokimi.novelty.routing import selection_estimate, tokenize
+    from dokimi.novelty.routing import tokenize
+    from dokimi.novelty.routing_estimate import selection_estimate
 
     sent = [query for queries in queries_by_skill.values() for query in queries if tokenize(query)]
     estimate = selection_estimate(field, sent, repeats=args.repeats if args.model else 0)
