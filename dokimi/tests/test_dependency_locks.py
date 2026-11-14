@@ -280,9 +280,10 @@ def _commands(script: str) -> list[list[str]]:
     dropped from the words, the word after a redirection (``>``, ``<``) left out; a quoted operator is a letter."""
     commands: list[list[str]] = []
     command: list[str] = []
-    script = re.sub(r"\\\r?\n", " ", script).replace('\\"', "\0")  # an escaped quote is a letter, not a quote
+    script = script.replace('\\"', "\0")  # an escaped quote is a letter, not a quote
     script = re.sub(r"""('[^']*'|"[^"]*")|(?<![^\s;&|()])#[^\n]*""",
                     lambda m: (m.group(1) or "").translate(_QUOTED), script)
+    script = re.sub(r"\\\r?\n", " ", script)  # after the comments: a comment's backslash continues nothing
     lexer = shlex.shlex(script, posix=True, punctuation_chars=";&|<>\n")
     lexer.whitespace, lexer.whitespace_split, lexer.escape, lexer.commenters = " \t\r", True, "", ""
     redirected = False
@@ -356,6 +357,7 @@ def _install_scripts() -> dict[str, str]:
     ("pip install -r dokimi\\requirements.lock.txt", True),
     ("pip install -r requirements.lock.txt # --no-deps\npip install --no-deps wheel", True),
     ('pip install --log ";" -r requirements.lock.txt', True),
+    ("# note \\\npip install --require-hashes -r requirements.lock.txt", True),
     ('pip install -r requirements.lock.txt --log "(--no-deps)"', True),
     ("pip install --no-deps --require-hashes -r requirements.lock.txt -r requirements-ci.lock.txt", False),
     ('python -m pip install --no-deps --requirement="/opt/req/requirements.lock.txt"', False),
@@ -366,7 +368,7 @@ def _install_scripts() -> dict[str, str]:
     ("pip install --log '>' --no-deps -r requirements.lock.txt", False),
 ], ids=["short", "joined", "long", "long-equals", "quoted", "single-quoted", "commented-flag", "spacing", "chained",
         "subshell", "continued", "global-option", "python-m-pip", "versioned", "recipe-prefix", "redirected",
-        "backslash-path", "comment-line", "quoted-separator", "quoted-parentheses", "guarded", "guarded-quoted",
+        "backslash-path", "comment-line", "quoted-separator", "comment-backslash", "quoted-parentheses", "guarded", "guarded-quoted",
         "guarded-continued", "guarded-subshell", "guarded-multiline", "guarded-escaped-quote",
         "guarded-quoted-redirection"])
 def test_an_install_of_the_main_lock_without_no_deps_is_found(script: str, unguarded: bool) -> None:
