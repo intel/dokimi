@@ -492,7 +492,7 @@ def _generate(client: LLMClient, template: str, lines: list[str]) -> list[str]:
     key = "questions" if "{questions}" in template else "statements"
     try:
         rows = client.json_array(template.format(**{key: numbered}))
-    except Exception:
+    except Exception:  # noqa: BLE001 - a failed rewording call leaves the lines unworded
         rows = []
     return _aligned(rows, len(lines))
 

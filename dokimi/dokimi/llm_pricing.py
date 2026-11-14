@@ -26,7 +26,7 @@ def list_cost_usd(model: str, provider: str, prompt_tokens: int,
         try:
             prompt, completion = cost_per_token(model=litellm_model, prompt_tokens=prompt_tokens,
                                                 completion_tokens=completion_tokens)
-        except Exception:
+        except Exception:  # noqa: BLE001 - litellm raises many types for an unpriced model; None = unknown
             return None
         if prompt + completion == 0.0 and not _has_price_entry(litellm_model, model):
             return None

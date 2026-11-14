@@ -125,7 +125,7 @@ class URLClient(MCPClient):
         try:
             resp = httpx.head(self.url, timeout=self.timeout, follow_redirects=True)
             return 200 <= resp.status_code < 300
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - logged; a connection check answers False
             logger.debug(f"URLClient.check_connection failed: {exc}")
             return False
 

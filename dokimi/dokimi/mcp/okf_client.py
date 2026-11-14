@@ -143,7 +143,7 @@ class OKFClient(MCPClient):
         for fp in files:
             try:
                 raw = fp.read_text(encoding=self.encoding)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 - logged; one unreadable file is skipped
                 logger.debug("OKFClient: skipping %s: %s", fp, exc)
                 continue
 

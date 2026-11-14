@@ -111,7 +111,7 @@ class Answerer:
             try:
                 self.reranker = SentenceTransformerReranker(threshold=rerank_threshold)
                 logger.info(f"Semantic reranker initialized with threshold={rerank_threshold:.2f}")
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - logged; the lexical reranker is the documented fallback
                 logger.warning(f"Semantic reranker failed ({e}); fallback to lexical reranker")
                 self.reranker = SimpleReranker(threshold=rerank_threshold)
         else:
@@ -164,7 +164,7 @@ class Answerer:
                     question=q,
                     max_tokens=max_tokens_per_question
                 )
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - the failure is stored on the pair and reported
                 failure = e
                 pair = {
                     "question_id": q_id,

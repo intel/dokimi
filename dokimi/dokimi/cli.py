@@ -347,7 +347,7 @@ def main() -> None:
         # 2 is the one code for bad input: 1 is the verdict of `eval judge validate` and of the
         # --strict gates, and a malformed file must not read as a failed gate.
         sys.exit(2)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - printed with its traceback, exit 5
         # A crash is an infra failure, exit 5 for every command (§2.6): it never reads as a failed verdict.
         traceback.print_exc()
         if _emits_cli_output(args):  # a --json leaf still prints its one document on a crash

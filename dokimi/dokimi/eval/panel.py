@@ -360,7 +360,7 @@ class JudgePanel:
                 caps=capped.get("caps"), unread_claims=capped.get("unread_claims"),
                 numeric_claims=claims if isinstance(claims := data.get("numeric_claims"), list) else None,
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - logged; the vote carries the error and drops out
             logger.warning(f"Judge '{config.role}' ({config.model}) failed: {exc}")
             return JudgeVote(
                 role=config.role, model=config.model, provider=config.provider,

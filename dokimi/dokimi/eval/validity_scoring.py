@@ -137,7 +137,7 @@ def _score_pairs(
         for _ in range(INTACT_ATTEMPTS):
             try:
                 return key, _call(scorer, pair, pair["intact"])
-            except Exception as exc:  # one bad pair must not lose the whole run
+            except Exception as exc:  # noqa: BLE001 - one bad pair must not lose the whole run
                 failure = exc
         return key, failure
 
@@ -152,7 +152,7 @@ def _score_pairs(
         if pair_scorer is not None:
             try:
                 row.intact_score, row.degraded_score = pair_scorer(pair)
-            except Exception as exc:  # one bad pair must not lose the whole run
+            except Exception as exc:  # noqa: BLE001 - one bad pair must not lose the whole run
                 row.error = f"{type(exc).__name__}: {exc}"[:200]
             return row
         base = intact_cache[(pair["base_id"], pair.get("arm", ""))]
@@ -161,7 +161,7 @@ def _score_pairs(
                 raise base
             row.intact_score = base
             row.degraded_score = _call(scorer, pair, pair["degraded"])
-        except Exception as exc:  # one bad pair must not lose the whole run
+        except Exception as exc:  # noqa: BLE001 - one bad pair must not lose the whole run
             row.error = f"{type(exc).__name__}: {exc}"[:200]
         return row
 

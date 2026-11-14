@@ -81,6 +81,7 @@ class MCPProtocolClient(MCPClient):
             tools = self._list_tool_names()
             resolve = self._pick_tool(tools, self.resolve_tool, _RESOLVE_TOOL_HINTS)
         except Exception:
+            logger.exception("listing MCP tools failed; resolving by name")
             resolve = None
         if not resolve:
             return library_name
@@ -127,7 +128,7 @@ class MCPProtocolClient(MCPClient):
         try:
             self._list_tool_names()
             return True
-        except Exception:
+        except Exception:  # noqa: BLE001 - a connection check answers False on any failure
             return False
 
     # ── MCP session plumbing ────────────────────────────────────────────

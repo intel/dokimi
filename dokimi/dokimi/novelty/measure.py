@@ -377,7 +377,7 @@ def run_measurement(
             )
         except SpendCapReached as exc:  # a call with no price: its paid reply is kept, ungraded
             return _unpriced_answer_run(probe, arm, exc, stops, ungraded)
-        except Exception as exc:  # a provider failure is a missing datum, not a wrong answer
+        except Exception as exc:  # noqa: BLE001 - a provider failure is a missing datum, not a wrong answer
             response, confidence = f"<error: {exc}>", None
             verdict = ERRORED
             answered = False
@@ -530,7 +530,7 @@ def _grade(probe: Probe, response: str, judge: LLMClient) -> str:
     )
     try:
         raw = judge.json_object(prompt, usable=_names_a_verdict).get("verdict")
-    except Exception:
+    except Exception:  # noqa: BLE001 - a failed judge call is the ERRORED verdict, not a wrong one
         return ERRORED
     verdict = raw.strip() if isinstance(raw, str) else ""
     if not verdict:
@@ -548,7 +548,7 @@ def _reply_verdict(reply: str | None) -> str | None:
         return None
     try:
         value = parse_json_object(reply)
-    except Exception:
+    except ValueError:  # an unparseable reply names no verdict
         return None
     return value["verdict"] if _names_a_verdict(value) else None
 

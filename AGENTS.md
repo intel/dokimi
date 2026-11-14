@@ -45,6 +45,10 @@ also holds a PR to:
   constraint or the reason, and end with an issue or PR URL when a reader needs
   the backstory. A block of three or more `#` lines fails once the PR adds or
   edits a line in it, so shorten an old block when you touch it.
+- No silent `except` (ruff BLE001, S110, S112): catch the exception you expect, or
+  log it with its traceback, or re-raise. A site that must catch everything says
+  what happens to the failure in `# noqa: BLE001 - <reason>`
+  (`tests/test_noqa_reasons.py` fails a bare code).
 - User outcomes (`tests/outcomes/*.json`, checked by `pytest --outcomes`): a
   test marked `@pytest.mark.outcome(...)` is evidence for a promise in the docs;
   weaken or drop it only together with the doc and the contract. The same

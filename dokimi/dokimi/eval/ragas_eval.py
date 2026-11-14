@@ -255,7 +255,7 @@ class RagasEvaluator:
             }
             summary = {n: round(sum(vals) / len(vals), 4)
                        for n in names if (vals := df[n].dropna().tolist())}
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - logged; RAGAS is optional, the run keeps its own scores
             logger.error("RAGAS %s evaluation failed: %s", arm, exc)
             return {}, {}
         return scores, summary

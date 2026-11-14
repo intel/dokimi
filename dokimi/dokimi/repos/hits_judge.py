@@ -381,7 +381,7 @@ def judge_pair(ask: Ask, pair: Pair) -> dict[str, Any]:
         return {**out, "error": f"no reply parsed: {exc}"}
     except BudgetSpent:
         raise
-    except Exception as exc:  # a 5xx or 429 past the retries, an auth error: this pair is unjudged, the run goes on
+    except Exception as exc:  # noqa: BLE001 - a 5xx or 429 past the retries, an auth error: this pair is unjudged, the run goes on
         return {**out, "error": f"{CALL_FAILED}: {type(exc).__name__}: {exc}"}
     return {**out, "label": label, "reason": reason}
 

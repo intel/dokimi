@@ -206,6 +206,7 @@ select = [
   "E711", "E712", "E713", "E714", "E721", "E722",  # None/bool/type compares, bare except
   "A",      # shadowed builtins and stdlib modules
   "ASYNC",  # blocking calls in async code
+  "BLE001", "S110", "S112",  # blind except, except-pass/continue: each kept site says why in its noqa
   "DTZ",    # naive datetimes
   "EXE",    # shebang vs executable bit
   "G",      # logging call arguments

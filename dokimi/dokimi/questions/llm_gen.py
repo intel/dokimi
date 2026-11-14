@@ -271,7 +271,7 @@ class QuestionGenerator:
                         }
                     })
                     
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 - logged; one failed persona x topic does not lose the rest
                 logger.error(
                     f"Failed to generate questions for {persona['name']} × {topic}: {e}"
                 )

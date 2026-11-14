@@ -311,7 +311,7 @@ def _unread_at_cap(stop: SpendCapReached, batch: list[Span], parse: Callable[[st
     kept: list[Atom] = []
     try:  # all or nothing: a reply that fails part-way keeps no atoms, and its batch is unread
         _keep_atoms(parse(stop.reply), valid_ids, set(seen), kept)
-    except Exception:  # not usable, as after any failed call
+    except Exception:  # noqa: BLE001 - not usable, as after any failed call
         return batch
     atoms.extend(kept)
     seen.update(atom.id for atom in kept)
@@ -435,7 +435,7 @@ def extract_atoms(
             _stop_at_cap(spans, _unread_at_cap(exc, batch, parse, valid_ids, seen, atoms),
                          pending, report, exc)
             break
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - re-asked in halves or recorded as the batch's error
             cut = isinstance(exc, OutputTruncated)
             if (unparseable or cut) and len(batch) > 1:
                 # Unparseable, most often truncated: re-ask the two halves, in place,
@@ -575,7 +575,7 @@ def verify_atoms(
                 _VERIFY_PROMPT.format(statement=atom.statement, source=source),
                 usable=_names_a_faithfulness_verdict,
             ).get("verdict", "")).strip()
-        except Exception:
+        except Exception:  # noqa: BLE001 - an unverified atom is counted as unchecked
             verdict = ""
         atom.faithfulness = verdict if verdict in tally and verdict != "unchecked" else "unchecked"
         tally[atom.faithfulness] += 1
