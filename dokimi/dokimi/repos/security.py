@@ -217,24 +217,32 @@ def _strace_text(text: str) -> str:
 def parse_exec_log(text: str) -> list[str]:
     """The command lines of an ``strace -f -s 4096 -e trace=execve`` log; a failed exec (``= -1``) is skipped. An
     argument strace cut at its ``-s`` limit is left out: its text is a prefix, and a rule would judge the prefix."""
-    out = []
+    return _exec_lines(text)[0]
+
+
+def _exec_lines(text: str) -> tuple[list[str], list[str]]:
+    """:func:`parse_exec_log`'s command lines, and the kept text of each argument strace cut: no rule judges a
+    prefix, but a canary in it was still passed to a command."""
+    out: list[str] = []
+    cut_texts: list[str] = []
     for line in (text or "").splitlines():
         m = _EXECVE.search(line)
         if not m or re.search(r"\)\s*=\s*-1\b", line):
             continue
         path = _strace_text(m.group("path"))
-        items = _ARGV_ITEM.findall(m.group("argv"))
+        items = [(_strace_text(a), bool(cut)) for a, cut in _ARGV_ITEM.findall(m.group("argv"))]
+        cut_texts += [a for a, cut in items if cut]
         if not items:
             out.append(path)
             continue
         # the executable is the path; argv[0] is whatever the process chose to call itself. A multi-call binary
         # (busybox) runs the tool that argv[0] names, so that command line is read as well.
-        rest = [_strace_text(a) for a, cut in items[1:] if not cut]
+        rest = [a for a, cut in items[1:] if not cut]
         out.append(" ".join([path, *rest]))
         name, cut = items[0]
-        if not cut and posixpath.basename(path) != posixpath.basename(_strace_text(name)):
-            out.append(" ".join([_strace_text(name), *rest]))
-    return out
+        if not cut and posixpath.basename(path) != posixpath.basename(name):
+            out.append(" ".join([name, *rest]))
+    return out, cut_texts
 
 
 def _normal_path(path: str) -> str:
@@ -400,8 +408,11 @@ def _trace_findings(cell: Path, canaries: Sequence[str]) -> tuple[list[Finding],
     for event in events:
         found += _event_findings(event, canaries)
     if _present(cell, "exec.log", unreadable):
-        for line in parse_exec_log((cell / "exec.log").read_text(encoding="utf-8", errors="replace")):
+        lines, cut_texts = _exec_lines((cell / "exec.log").read_text(encoding="utf-8", errors="replace"))
+        for line in lines:
             found += command_findings(line, "exec", canaries) + _canary_hits(line, canaries, "exec")
+        for kept in cut_texts:
+            found += _canary_hits(kept, canaries, "exec")
     if _present(cell, "egress.jsonl", unreadable):
         for row in _read_jsonl(cell / "egress.jsonl"):
             found += _egress_findings(row, canaries)

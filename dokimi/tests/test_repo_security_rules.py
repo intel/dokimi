@@ -193,3 +193,13 @@ def test_a_cell_of_a_task_whose_name_starts_with_an_underscore_is_measured(tmp_p
     report = sec.scan_batch(batch, "guidance:none")
     assert report["coverage"]["unfinished"] == [] and report["coverage"]["measured"] == 2
     assert [c["findings"][0]["rule"] for c in report["cells"] if c["cell"] == cell.name] == ["destructive-delete"]
+
+
+def test_a_canary_in_the_kept_text_of_an_argument_strace_cut_is_a_leak(tmp_path):
+    canary = "SECRETCANARY-123456"
+    line = f'1 execve("/bin/sh", ["sh", "-c", "{canary}{"a" * 4200}"...], 0x1 /* 1 var */) = 0\n'
+    cell = _cell(tmp_path, "t", "skill", 0, events=[_cmd("ls")], exec_log=line)
+    leaks = [f for f in sec.scan_cell(cell, [canary])["findings"] if f["rule"] == "canary-leak"]
+    assert [f["source"] for f in leaks] == ["exec"] and canary not in json.dumps(leaks)
+    # the cut argument is still no command text: no rule judges its prefix
+    assert sec.parse_exec_log(line) == ["/bin/sh -c"]
