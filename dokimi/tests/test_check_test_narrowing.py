@@ -8,7 +8,6 @@ from __future__ import annotations
 import importlib.util
 import subprocess
 import sys
-from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -220,6 +219,30 @@ def test_a_waiver_comment_also_present_in_another_base_test_still_waives():
     assert ctn.compare(base, head) == []
 
 
+MARKED = ("import pytest\n\nMARK = pytest.mark.skipif(False, reason='x')\n\n\ndef helper():\n    pass\n\n\n"
+          "@MARK\ndef test_a():\n    assert 1\n    assert 2\n")
+
+
+def test_a_comment_above_the_mark_constant_does_not_waive_the_test_that_uses_it():
+    head = MARKED.replace("def helper", "# Test-narrowed: helper cleanup\ndef helper").replace("    assert 2\n", "")
+    assert ctn.compare(MARKED, head) == [("test_a", 11, "fewer checks (2 -> 1)")]
+
+
+def test_a_dropped_single_case_parametrize_is_not_a_cut():
+    base = BASE.replace('"x", [1, 2, 3]', '"x", [1]')
+    head = base.replace('@pytest.mark.parametrize("x", [1])\ndef test_values(x):', "def test_values(x=1):")
+    assert ctn.compare(base, head) == []
+    dropped = BASE.replace('@pytest.mark.parametrize("x", [1, 2, 3])\ndef test_values(x):', "def test_values(x=1):")
+    assert ctn.compare(BASE, dropped)[0][2] == "cuts parametrize cases (3 -> 1)"
+
+
+def test_a_test_moved_into_a_skipped_module_is_named():
+    skipped = ctn.tests_in(BASE.replace("import pytest\n", "import pytest\npytestmark = pytest.mark.skip\n"))
+    head = BASE.replace("def test_close", "def helper_close")
+    found = ctn.compare(BASE, head, {skipped["test_close"].body: [skipped["test_close"]]})
+    assert found == [("test_close", 0, "moved, and adds a skip or xfail")]
+
+
 def test_a_removed_test_is_not_moved_by_a_surviving_twin():
     base = "def test_a(x='ok'):\n    assert x\n\n\ndef test_b(x='ok'):\n    assert x\n"
     head = "def test_b(x='ok'):\n    assert x\n"
@@ -257,7 +280,7 @@ def test_an_inline_waiver_already_at_base_does_not_waive_a_new_narrowing():
 def test_a_renamed_or_moved_test_is_not_removed():
     shape = ctn.tests_in(BASE)["test_close"]
     head = BASE.replace("def test_close", "def test_sum_is_close")
-    assert ctn.compare(BASE, head, Counter({shape.body: 1})) == []
+    assert ctn.compare(BASE, head, {shape.body: [shape]}) == []
     assert ctn.compare(BASE, head) == [("test_close", 0, "removed")]
 
 
@@ -370,6 +393,17 @@ def test_main_passes_a_test_moved_to_a_new_file(tmp_path, monkeypatch):
     _git(tmp_path, "commit", "-q", "-m", "move")
     monkeypatch.setattr(ctn, "REPO", tmp_path)
     assert ctn.findings("base", "HEAD") == []
+
+
+def test_main_names_a_test_moved_into_a_skipped_file(tmp_path, monkeypatch):
+    _repo(tmp_path)
+    (tmp_path / "tests" / "test_b.py").write_text("def test_keep():\n    assert 2\n", encoding="utf-8")
+    (tmp_path / "tests" / "test_moved.py").write_text("import pytest\npytestmark = pytest.mark.skip\n" + OTHER,
+                                                     encoding="utf-8")
+    _git(tmp_path, "add", "-A")
+    _git(tmp_path, "commit", "-q", "-m", "move")
+    monkeypatch.setattr(ctn, "REPO", tmp_path)
+    assert ctn.findings("base", "HEAD") == [("tests/test_b.py", "test_close", 0, "moved, and adds a skip or xfail")]
 
 
 def test_main_names_a_collection_ignore_added_to_a_conftest(tmp_path, monkeypatch):

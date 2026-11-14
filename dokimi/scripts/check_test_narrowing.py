@@ -17,7 +17,8 @@ runner no longer collects counts as deleted, and a ``conftest.py`` statement the
 or changes that names ``collect_ignore``, ``collect_ignore_glob`` or ``pytest_ignore_collect``
 is a finding of its own. New tests are not read, and
 a removed test whose body (signature and decorators included) reappears as a test that
-the PR adds to a test file was renamed or moved, not removed, once per added test. A speed bump, not a proof: ``assert x == y`` turned
+the PR adds to a test file was renamed or moved, not removed, once per added test; the
+test it became is then compared with it. A speed bump, not a proof: ``assert x == y`` turned
 into ``assert x`` keeps the count.
 
 A narrowing passes when the PR says why: a ``Test-narrowed: <reason>`` line in a
@@ -43,7 +44,6 @@ import re
 import subprocess
 import sys
 import tokenize
-from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TypeGuard
@@ -250,7 +250,7 @@ def _inline_constants(tree: ast.Module) -> ast.Module:
 
     A name assigned more than once, read in its own value or bound to a call that skips
     (``pytest.importorskip``), is left alone, and so is a name a function binds itself
-    (parameter or local)."""
+    (parameter or local). The copy takes the line of the read it replaces."""
     targets = [t.id for node in tree.body for t in _targets(node) if isinstance(t, ast.Name)]
     consts = {node.targets[0].id: node.value for node in tree.body
               if isinstance(node, ast.Assign) and len(node.targets) == 1
@@ -265,7 +265,10 @@ def _inline_constants(tree: ast.Module) -> ast.Module:
 
         def visit_Name(self, node: ast.Name) -> ast.AST:
             if isinstance(node.ctx, ast.Load) and node.id in consts and node.id not in self.shadowed:
-                return copy.deepcopy(consts[node.id])
+                value = copy.deepcopy(consts[node.id])
+                for sub in ast.walk(value):
+                    ast.copy_location(sub, node)
+                return value
             return node
 
         def _function(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> ast.AST:
@@ -351,9 +354,9 @@ def narrowing(base: Shape, head: Shape) -> list[str]:
         found.append("widens pytest.raises to Exception/BaseException")
     if _tolerance_loosened(base, head):
         found.append("loosens a tolerance")
-    if (base.cases is not None and base.cases_known and head.cases_known
-            and (head.cases or 0) < base.cases):
-        found.append(f"cuts parametrize cases ({base.cases} -> {head.cases or 0})")
+    cases = 1 if head.cases is None else head.cases
+    if base.cases is not None and base.cases_known and head.cases_known and cases < base.cases:
+        found.append(f"cuts parametrize cases ({base.cases} -> {cases})")
     return found
 
 
@@ -377,12 +380,12 @@ def _waived_inline(text: str, shape: Shape, base_text: str, base_shape: Shape) -
 
 
 def compare(base_text: str, head_text: str | None,
-            moved: Counter[str] | None = None) -> list[tuple[str, int, str]]:
+            moved: dict[str, list[Shape]] | None = None) -> list[tuple[str, int, str]]:
     """(test, head line, what narrowed) for each test of ``base_text`` that ``head_text`` narrows.
 
-    A test gone from ``head_text`` whose body is in ``moved`` was renamed or moved, not removed;
-    each entry of ``moved`` accounts for one removed test."""
-    moved = Counter() if moved is None else moved
+    A test gone from ``head_text`` whose body is a key of ``moved`` was renamed or moved, not
+    removed: it takes one shape of that key's list and is compared with it."""
+    moved = {} if moved is None else moved
     before = tests_in(base_text) or {}
     after = tests_in(head_text) if head_text is not None else {}
     if after is None:
@@ -391,10 +394,11 @@ def compare(base_text: str, head_text: str | None,
     for name, shape in before.items():
         now = after.get(name)
         if now is None:
-            if moved[shape.body] > 0:
-                moved[shape.body] -= 1
-            else:
+            twins = moved.get(shape.body)
+            if not twins:
                 found.append((name, 0, "removed"))
+            elif reasons := narrowing(shape, twins.pop(0)):
+                found.append((name, 0, "moved, and " + "; ".join(reasons)))
             continue
         reasons = narrowing(shape, now)
         if reasons and not _waived_inline(head_text or "", now, base_text, shape):
@@ -472,9 +476,11 @@ def findings(base: str, head: str) -> list[tuple[str, str, int, str]]:
              if old and is_test_file(old)}
     existing = {(new, name) for _, old, new in files if old in bases and new in heads
                 for name in tests_in(bases[old]) or {}}
-    moved: Counter[str] = Counter(
-        shape.body for path, text in heads.items()
-        for name, shape in (tests_in(text) or {}).items() if (path, name) not in existing)
+    moved: dict[str, list[Shape]] = {}
+    for path, text in heads.items():
+        for name, shape in (tests_in(text) or {}).items():
+            if (path, name) not in existing:
+                moved.setdefault(shape.body, []).append(shape)
     found = []
     for shown, old, new in files:
         if old in bases:
