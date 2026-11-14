@@ -62,7 +62,7 @@ def test_compare_strict_refuses_a_model_mismatch(compare, capsys):
     old = _eval(judge=("openai", "gpt-4o-mini"))
     with refusal() as exc:
         compare(old, _eval(), "--strict")
-    assert exc.code == 1
+    assert exc.code == 4  # invalid: a model that differs or cannot be verified (§2.6)
     out, err = capsys.readouterr()
     assert "--strict" in err and "judge model: baseline openai/gpt-4o-mini" in err
     assert "answer model" not in err
@@ -220,7 +220,7 @@ def test_compare_strict_refuses_a_dated_judge_against_its_undated_alias(compare,
     """The alias does not say which snapshot answered, so --strict cannot verify that the judge did not change."""
     with refusal() as exc:
         compare(_eval(judge=("anthropic", base_judge)), _eval(judge=("anthropic", cur_judge)), "--strict")
-    assert exc.code == 1
+    assert exc.code == 4  # invalid: a model that differs or cannot be verified (§2.6)
     out, err = capsys.readouterr()
     assert "--strict cannot verify the judge model" in err
     assert "Avg delta" not in out
@@ -249,7 +249,7 @@ def test_compare_strict_refuses_a_role_it_cannot_verify(compare, capsys):
     del old["run_metadata"]
     with refusal() as exc:
         compare(old, _eval(), "--strict")
-    assert exc.code == 1
+    assert exc.code == 4  # invalid: a model that differs or cannot be verified (§2.6)
     assert "--strict cannot verify the answer model" in exc.err
 
 
@@ -258,7 +258,7 @@ def test_a_judge_name_with_no_id_is_not_compared_and_strict_refuses_it(compare, 
     run = _eval(judge=("anthropic", judge_model))
     with refusal() as exc:
         compare(run, run, "--strict")
-    assert exc.code == 1
+    assert exc.code == 4  # invalid: a model that differs or cannot be verified (§2.6)
     err = exc.err
     assert "judge model not recorded in baseline and current eval; not compared" in err
     assert "--strict cannot verify the judge model" in err and "judge model: baseline" not in err
@@ -279,7 +279,7 @@ def test_a_non_string_identity_is_not_recorded_so_the_gate_cannot_pass(compare, 
     data = _eval(**{role: (123, 456)})
     with refusal() as exc:
         compare(data, data, "--max-context-drop", "0")
-    assert exc.code == 1
+    assert exc.code == 4  # invalid: a model that differs or cannot be verified (§2.6)
     assert f"regression gate cannot verify the {role} model" in exc.err
 
 
@@ -310,7 +310,7 @@ def test_compare_strict_refuses_a_panel_whose_judges_changed(compare, capsys):
     with refusal() as exc:
         compare(_panel("anthropic/claude-sonnet-5-5", "anthropic/claude-sonnet-5-5"),
                 _panel("openai/gpt-4o-mini", "openai/gpt-4o-mini"), "--strict")
-    assert exc.code == 1
+    assert exc.code == 4  # invalid: a model that differs or cannot be verified (§2.6)
     err = exc.err
     assert "judge model: baseline panel/anthropic/claude-sonnet-5-5" in err
     assert "current panel/openai/gpt-4o-mini" in err
@@ -392,7 +392,7 @@ def test_regression_gate_allows_equality(compare, capsys, flag):
 
 
 @pytest.mark.parametrize("kind, code", [
-    ("empty", 2), ("unmatched", 2), ("unscored", 2), ("nan", 2), ("duplicate", 2), ("unknown", 1), ("mismatch", 1)])
+    ("empty", 2), ("unmatched", 2), ("unscored", 2), ("nan", 2), ("duplicate", 2), ("unknown", 4), ("mismatch", 4)])  # an unverifiable or differing model: invalid
 def test_regression_gate_refuses_incomplete_evidence(compare, capsys, kind, code):
     base, cur = _eval(), _eval()
     row = cur["evaluations"][0]
@@ -526,7 +526,7 @@ def test_gate_matches_questions_by_id_not_list_position(compare, capsys):
 def test_regression_gate_refuses_unknown_panel_members(compare, capsys, model):
     with refusal() as exc:
         compare(_panel(model), _panel(model), "--max-context-drop", "0")
-    assert exc.code == 1
+    assert exc.code == 4  # invalid: a model that differs or cannot be verified (§2.6)
     assert "cannot verify the judge model" in exc.err
 
 
@@ -559,12 +559,13 @@ def test_regression_gate_threshold_keeps_every_digit_of_an_equal_drop(compare, c
     assert "Regression gate: PASS" in capsys.readouterr().out
 
 
+@pytest.mark.parametrize("gate", ["--max-context-drop", "--max-lift-drop"])
 @pytest.mark.parametrize("judge, answer", [
     (("openai", "openai/unknown"), ("openai", "gpt-6.1-sol")),
     (("anthropic", "claude-sonnet-5-5"), ("openai", "openai/unknown")),
 ])
-def test_regression_gate_refuses_an_unknown_model_behind_a_route(compare, capsys, judge, answer):
+def test_regression_gate_refuses_an_unknown_model_behind_a_route(compare, capsys, judge, answer, gate):
     with refusal() as exc:
-        compare(_eval(answer=answer, judge=judge), _eval(answer=answer, judge=judge), "--max-context-drop", "0")
-    assert exc.code == 1
+        compare(_eval(answer=answer, judge=judge), _eval(answer=answer, judge=judge), gate, "0")
+    assert exc.code == 4  # invalid: a model that differs or cannot be verified (§2.6)
     assert "cannot verify" in exc.err

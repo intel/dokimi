@@ -455,4 +455,16 @@ def store_response(key: str, text: str, usage: UsageRecord) -> None:
         # half-written entry.
         tmp.replace(directory / f"{key}.json")
     except OSError as exc:
+        _failed_stores.add(directory)
         logger.warning("Could not write response cache entry: %s", exc)
+
+
+#: Cache directories a write failed in during this process (a full disk, a quota): a directory
+#: that passes ``os.access`` can still have kept nothing.
+_failed_stores: set[Path] = set()
+
+
+def response_store_failed(directory: Path) -> bool:
+    """Whether a :func:`store_response` write into ``directory`` failed in this process, so some
+    call it paid for may not be in the cache."""
+    return directory in _failed_stores

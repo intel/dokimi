@@ -1,8 +1,9 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""Run-wide pieces of `novelty analyze` and `novelty probe`: the spend cap, the second judge,
-and the provenance stamp on the written JSON."""
+"""Run-wide pieces of `novelty analyze` and `novelty probe`: the `--max-usd` flag and the clean
+stop at the cap (the cap object is `dokimi.novelty.cost.spend_cap`), the second judge, and the
+provenance stamp on the written JSON."""
 
 from __future__ import annotations
 
@@ -10,18 +11,6 @@ import argparse
 import functools
 import math
 import sys
-
-
-def spend_cap(args: argparse.Namespace):
-    """The invocation's one ``--max-usd`` cap, shared by every role client."""
-    from dokimi.novelty.client import SpendCap
-
-    limit = getattr(args, "max_usd", None)
-    if limit is None:
-        return None
-    if getattr(args, "_spend_cap", None) is None:
-        args._spend_cap = SpendCap(limit_usd=limit)
-    return args._spend_cap
 
 
 def stops_at_cap(command):
@@ -33,10 +22,18 @@ def stops_at_cap(command):
         try:
             command(args)
         except SpendCapReached as exc:
-            # A command that keeps its partial result catches the cap itself and never gets here.
+            # A command that keeps its partial result (atoms, probe, analyze) saves it itself.
             raise SystemExit(f"{exc}; nothing was written") from None
 
     return run
+
+
+def exit_if_analyze_partial(result, out) -> None:
+    """Save and exit when the cap stopped ``analyze`` (``result.partial``); a finished run returns."""
+    from dokimi.commands.novelty_budget import save_analyze_partial
+
+    if result.partial:
+        save_analyze_partial(result, out)
 
 
 def usd_amount(text: str) -> float:

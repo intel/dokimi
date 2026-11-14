@@ -1,0 +1,6 @@
+{
+  "schema_version": "pairwise.v1",
+  "summary": {"judge": "openai/m", "baseline_arm": "lib", "arms": {}},
+  "errors": [],
+  "verdicts": {}
+}

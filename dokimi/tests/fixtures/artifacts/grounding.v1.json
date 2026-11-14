@@ -1,0 +1,10 @@
+{
+  "schema_version": "grounding.v1",
+  "summary": {
+    "grounding_score": {"mean": 0.8, "lo": 0.7, "hi": 0.9},
+    "citation_rate": 1.0,
+    "threshold": 0.5,
+    "n_evaluated": 1
+  },
+  "per_question": [{"question_id": "q1", "grounding_score": 0.8, "grounded": true, "n_contexts": 1}]
+}
