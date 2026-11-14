@@ -54,6 +54,13 @@ CONTENTS = {
     "dokimi_config.v1": {"subjects": 2, "shared": 1},
     "task_runs.v1": {"tasks": 6, "harnesses": 2, "results": 24},
     "tool_preference.v1": {"items": 16, "results": 16},
+    "ragas.v1": {},
+    "grounding.v1": {"per_question": 1},
+    "checklist.v1": {"questions": 1},
+    "judge_wording.v1": {},
+    "cross_judge.v1": {"unscored": 0},
+    "judge_validity.v1": {},
+    "pairwise.v1": {"errors": 0},
     "personas.v1": {"personas": 2},
     "persona_analysis.v1": {"use_cases": 1, "api_patterns": 2, "topics": 1},
     "question_panel.v1": {"questions": 2},
@@ -141,6 +148,22 @@ def test_an_artifact_that_fails_its_schema_lists_the_errors_and_exits_0(monkeypa
         "  - total_questions: 'six' is not of type 'integer'",
     ]
     assert lines[5] == "subject:    onetbb"
+
+
+def test_a_finished_novelty_record_without_its_summaries_is_invalid_but_a_partial_one_is_not(
+        monkeypatch, capsys, root):
+    data = {"schema_version": "novelty.v1", **_fixture("novelty.v1")}  # the version leads the file
+    for name in ("paired", "k0", "spans"):
+        del data[name]
+    (root / "novelty.json").write_text(json.dumps(data, indent=2), encoding="utf-8")
+    partial = {**data, "status": "partial",
+               "partial": {"reason": "spend_cap", "stage": "measurement", "message": "stopped"}}
+    (root / "novelty.partial.json").write_text(json.dumps(partial, indent=2), encoding="utf-8")
+
+    finished = _show(monkeypatch, capsys, "novelty.json").out
+    assert "schema:     invalid, 3 errors" in finished
+    assert "  - <root>: 'paired' is a required property" in finished
+    assert "schema:     valid" in _show(monkeypatch, capsys, "novelty.partial.json").out
 
 
 def test_a_time_the_artifact_does_not_record_is_shown_as_the_files_mtime(monkeypatch, capsys, root):
