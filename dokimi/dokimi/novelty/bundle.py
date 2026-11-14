@@ -23,8 +23,8 @@ artifact was read. Readers do not interpret the record themselves:
 * :class:`Coverage` (``Coverage.from_record``) is the one place the coverage figures are
   computed, for a live bundle and for a stored record of any age alike. Both live in
   :mod:`dokimi.metrics.bundle_coverage`, below the gate, and are re-exported here;
-* :func:`check_answer_key` decides whether a saved answer key is still valid for the
-  artifact as it is now, and returns a verdict instead of exiting.
+* :func:`dokimi.novelty.answer_key_check.check_answer_key` decides whether a saved answer key
+  is still valid for the artifact as it is now, and returns a verdict instead of exiting.
 
 One caveat rides along with every bundle run, and the analyzer states it: injecting the
 whole bundle measures what the artifact *could* deliver if the agent read all of it. It is
@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import hashlib
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -60,6 +61,7 @@ from dokimi.metrics.bundle_coverage import (  # noqa: F401
     named_exclusions,
 )
 
+from .answer_key import ABSENT, AnswerKeyRecord, parse_answer_key, shown
 from .artifact import load_artifact_text
 from .spans import dangling_fence, protection_tags
 
@@ -413,188 +415,8 @@ def load_bundle(
                   resource_roles=tuple(selected_roles), ref=ref)
 
 
-#: Why a saved answer key was refused. ``unloadable``: the artifact cannot be read now;
-#: ``no_file_rows``: the record names no usable files, so its provenance cannot be checked;
-#: ``wrong_artifact``: the atoms were extracted from another artifact; ``files_changed``:
-#: a bundled file was removed, edited or added since extraction.
-ANSWER_KEY_PROBLEMS = ("unloadable", "no_file_rows", "wrong_artifact", "files_changed")
-
-
-@dataclass(frozen=True)
-class AnswerKeyVerdict:
-    """Whether a saved answer key may be probed against an artifact as it is now.
-
-    ``problem`` is ``None`` for a valid key; ``text`` and ``bundle`` are then the context to
-    inject (``bundle`` is ``None`` for a record that predates bundle provenance, which is
-    probed against the entry point alone). ``notes`` are the things the caller must say
-    even when the key is valid: a legacy assumption, an edited entry point.
-    """
-
-    problem: str | None = None
-    message: str = ""
-    text: str = ""
-    bundle: Bundle | None = None
-    notes: tuple[str, ...] = ()
-    #: The file sets that were compared (``files_changed`` explains itself with these).
-    recorded: tuple[str, ...] = ()
-    rebuilt: tuple[str, ...] = ()
-    edited: tuple[str, ...] = ()
-    added: tuple[str, ...] = ()
-    entry_point_changed: bool = False
-
-    @property
-    def ok(self) -> bool:
-        """True when the key is valid for the artifact as it is now."""
-        return self.problem is None
-
-
-def _replay_selection(record: dict) -> dict[str, Any]:
-    """The ``load_bundle`` arguments that reproduce a recorded selection."""
-    rows = record["files"]
-    # The roles the extraction asked for, not the roles of the files it happened to select:
-    # a role whose files were all over budget selects nothing, and a rebuild narrowed to the
-    # selected roles would call those files policy and lose the gap.
-    requested = record.get("resource_roles")
-    if requested is None:       # a record from before the roles were recorded
-        requested = sorted({row["role"] for row in rows[1:]}) or None
-    # Prefer the budgets the extraction actually used. Older records do not carry them, and
-    # for those the selection is reproduced from its result: capping at the largest
-    # selected file and at the selected total makes the same greedy pick.
-    budgets: dict[str, int] = {}
-    if record.get("max_file_words") and record.get("max_total_words"):
-        budgets = {"max_file_words": int(record["max_file_words"]),
-                   "max_total_words": int(record["max_total_words"])}
-    elif record.get("include_resources") and all("words" in r for r in rows[1:]):
-        selected = [int(row["words"]) for row in rows[1:]]
-        budgets = {"max_file_words": max(selected, default=0),
-                   "max_total_words": sum(selected)}
-    include = bool(record.get("include_resources"))
-    return {"include_resources": include,
-            "roles": tuple(requested) if requested is not None and include else None,
-            **budgets}
-
-
-def _changes_answer_key(row: dict, asked_roles: list | None) -> bool:
-    """Whether a file that appeared since extraction invalidates the answer key.
-
-    ``not_content`` never does -- a new image or symlink is not text any mode would read.
-    A ``decision`` row does only when the record does not say which roles were asked for:
-    then the rebuild was narrowed to the selected roles, and a file in a default role that
-    simply had no file at extraction time (a first ``scripts/run.sh``) would be read by a
-    re-extraction. Every other new row is text a re-extraction would measure.
-    """
-    cls = exclusion_class(row)
-    if cls == "not_content":
-        return False
-    if cls == "decision":
-        return asked_roles is None
-    return True
-
-
-def check_answer_key(ref: str, record: dict | None, *,
-                     source: str = "atoms.json") -> AnswerKeyVerdict:
-    """Is the answer key extracted under ``record`` still valid for ``ref`` as it is now?
-
-    The bundle mode is taken from the record, not from flags: if atoms came from a bundle
-    and the probe injected only ``SKILL.md``, every atom extracted from a reference file
-    would score ``still_missing`` because the context never contained it -- a measurement
-    error that looks like a result. So the selection is replayed and any difference in the
-    *bundled* files is refused rather than reconciled. The entry point alone may change:
-    re-measuring a shortened ``SKILL.md`` against the original atoms is the authoring
-    path's last step, so that is a note, not a refusal.
-
-    Args:
-        ref: The artifact reference to probe (``skill:<path>``).
-        record: The ``bundle`` block of the saved atoms (empty or ``None`` for a file
-            written before bundle provenance).
-        source: How to name the record in messages (the atoms file's path).
-
-    Returns:
-        A verdict; never raises for a stale or foreign key. ``problem`` is one of
-        :data:`ANSWER_KEY_PROBLEMS`.
-    """
-    record = record or {}
-    if not record:
-        try:
-            body = load_artifact_text(ref)[4]
-        except (OSError, ValueError, RecursionError) as exc:
-            return AnswerKeyVerdict(problem="unloadable", message=f"cannot load {ref}: {exc}")
-        return AnswerKeyVerdict(text=body, notes=(
-            f"WARNING: {source} predates bundle provenance; assuming the entry point only. "
-            "Re-run `skill novelty atoms` if the atoms came from bundled files.",))
-
-    rows = record.get("files") or []
-    if not rows or any("role" not in row or "path" not in row for row in rows):
-        return AnswerKeyVerdict(problem="no_file_rows", message=(
-            f"{source} records a bundle without usable file rows; re-run `skill novelty atoms` "
-            "rather than probing against an answer key whose provenance cannot be checked"))
-    try:
-        now = load_bundle(ref, **_replay_selection(record))
-    except (OSError, ValueError, RecursionError) as exc:
-        return AnswerKeyVerdict(problem="unloadable", message=f"cannot load {ref}: {exc}")
-
-    # An answer key is for one artifact. Without this, skill A's atoms were accepted
-    # against skill B whenever the relative paths lined up -- unconditionally so for
-    # entry-point-only recordings, where both sides are just ["SKILL.md"].
-    recorded_name = record.get("artifact_name")
-    if recorded_name and recorded_name != now.name:
-        return AnswerKeyVerdict(problem="wrong_artifact", message=(
-            f"these atoms were extracted from `{recorded_name}` and --artifact is "
-            f"`{now.name}`: an answer key belongs to one artifact. Extract atoms for this "
-            "one instead."))
-
-    recorded = [row["path"] for row in rows]
-    rebuilt = [item.path for item in now.files]
-    # Same path, different bytes: still a stale key, and a word count cannot see it (`64`
-    # to `128` keeps the count). The digest does; the word count is the fallback for a
-    # record written before digests. The entry point is exempt (see the docstring).
-    edited = [
-        row["path"]
-        for row, item in zip(rows[1:], now.files[1:], strict=False)
-        if (row.get("sha256") and item.sha256 and row["sha256"] != item.sha256)
-        or (not row.get("sha256") and "words" in row and row["words"] != item.words)
-    ]
-    # The rebuild is filtered to the roles the extraction measured, so a file added since
-    # in a role that had no file then would be filtered out of `rebuilt` and pass
-    # unnoticed. Compare every path the walk saw against every path the extraction saw.
-    added: list[str] = []
-    if record.get("include_resources") and "excluded" in record:
-        seen = set(recorded) | {row.get("path") for row in record.get("excluded") or []}
-        asked = record.get("resource_roles")
-        added = sorted(
-            {row["path"] for row in now.excluded
-             if row["path"] not in seen and _changes_answer_key(row, asked)}
-            | (set(rebuilt) - set(recorded)))
-    if rebuilt != recorded or edited or added:
-        return AnswerKeyVerdict(
-            problem="files_changed",
-            message=(
-                "the artifact's files changed since these atoms were extracted "
-                f"({source}: {recorded}; now: {rebuilt}; edited: {edited}; "
-                f"added: {added}). Re-run `skill novelty atoms`; probing a different file set "
-                "against this answer key would mis-score every moved atom."),
-            recorded=tuple(recorded), rebuilt=tuple(rebuilt), edited=tuple(edited),
-            added=tuple(added))
-
-    notes: list[str] = []
-    # Allowed to differ, not allowed to differ silently: atoms extracted from text that is
-    # gone will read as `still_missing`, a result about the edit that must be recognisable.
-    entry_recorded = rows[0].get("sha256")
-    entry_changed = bool(entry_recorded and entry_recorded != now.files[0].sha256)
-    if entry_changed:
-        notes.append(
-            f"NOTE: {now.files[0].path} has changed since these atoms were extracted. That "
-            "is the re-measure step, so the run proceeds; atoms whose text was removed will "
-            "score `still_missing` because of the edit, not because of the model.")
-    if record.get("include_resources"):
-        notes.append(f"Measuring the bundle recorded in {source}: {len(recorded)} files, "
-                     f"{record.get('resource_words_measured', 0)} bundled words")
-    return AnswerKeyVerdict(text=now.text, bundle=now, notes=tuple(notes),
-                            recorded=tuple(recorded), rebuilt=tuple(rebuilt),
-                            entry_point_changed=entry_changed)
-
-
-def entry_point_only(record: dict | None, spans: list, atoms: list) -> tuple[list, list, str | None]:
+def entry_point_only(record: Mapping[str, Any] | AnswerKeyRecord | None, spans: list,
+                     atoms: list) -> tuple[list, list, str | None]:
     """Restrict spans and atoms to the entry point when they came from a bundle.
 
     Shortening rewrites one file. A candidate built over bundle spans would propose
@@ -609,22 +431,24 @@ def entry_point_only(record: dict | None, spans: list, atoms: list) -> tuple[lis
     Raises:
         ValueError: A bundle record without the file rows or the entry point's range.
     """
-    record = record or {}
-    if not record.get("include_resources"):
+    key = parse_answer_key(record)
+    if not key.include_resources:
         return spans, atoms, None
-    if not record.get("files"):
+    if not key.files or not key.files[0].is_object:
         raise ValueError("the atoms record a bundle run without file rows; re-run "
                          "`skill novelty atoms`")
-    entry = record["files"][0]
-    if "end" not in entry:
-        raise ValueError(f"the atoms record no span range for {entry.get('path')}")
-    kept = [span for span in spans if span.start < entry["end"]]
+    entry = key.files[0]
+    if entry.end is ABSENT:
+        raise ValueError(f"the atoms record no span range for {shown(entry.path)}")
+    if entry.path is ABSENT:
+        raise ValueError("the atoms record a bundle whose entry point has no path")
+    kept = [span for span in spans if span.start < entry.end]
     kept_ids = {span.id for span in kept}
     kept_atoms = [atom for atom in atoms
                   if atom.span_ids and all(sid in kept_ids for sid in atom.span_ids)]
     note = (
-        f"NOTE these atoms were extracted from a {record.get('n_files')}-file bundle. "
-        f"Shortening rewrites one file, so only the {len(kept)} spans of {entry['path']} and "
+        f"NOTE these atoms were extracted from a {key.n_files}-file bundle. "
+        f"Shortening rewrites one file, so only the {len(kept)} spans of {shown(entry.path)} and "
         f"the {len(kept_atoms)} atoms they carry are scored ({len(spans) - len(kept)} bundle "
         "spans and their atoms dropped); knowledge scores here say nothing about the "
         "bundled files.")

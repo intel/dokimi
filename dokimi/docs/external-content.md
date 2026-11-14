@@ -245,7 +245,15 @@ directory name when the H1 has none. The summary line counts these apart from th
 The scan also checks the bundle and the description. A relative Markdown link
 to a file the skill does not have is a `warn` (`link-missing`), and says when the
 file exists from the catalog root instead. Example links such as `[Title](URL)`
-are common, so `--strict` does not fail on them. A link, or a `../` code span,
+are common, so `--strict` does not fail on them. A code span that names a file
+under a bundle folder (`scripts/`, `references/`, `assets/`, `templates/`,
+`examples/`, `resources/`), alone or inside a command such as
+`python scripts/run.py`, is a `warn` (`path-missing`) when the skill does not
+have that file. Folders, flat names, placeholders (`scripts/<name>.py`)
+and repo-root paths such as `src/app.py` are not checked, and
+neither are code fences. A file name with a space is read only when it is quoted or its space is escaped
+(`'scripts/my run.py'`, `scripts/my\ run.py`). Only `/` separators are read: a backslash path such as `scripts\run.py` is not checked. Paths joined by `,` or `;` with no space are read one by one when the next one is under a bundle folder (`scripts/a.py,scripts/b.py`); other commas, and an escaped `\,`, stay in the name. Some hits are files the skill tells the agent to
+create; `--ignore path-missing` leaves the code out. A link, or a `../` code span,
 that reaches a file outside the skill directory is a `warn`
 (`link-escapes-skill`, `path-escapes-skill`), since it breaks when the skill is
 installed alone. An `allowed-tools` that grants `Bash` for every command (`Bash`
@@ -253,7 +261,10 @@ with no pattern, or `Bash(*)`) is a `warn` (`allowed-tools-unrestricted-bash`);
 its message names a `pipe-to-shell` or `permission-bypass-flag` hit in the same
 skill, since those commands then run with no prompt, and that pair fails `--strict`. A description with no "when" clause (`use when ...`, `when deploying ...`) is a `warn`
 (`description-no-when`), and so is one that overlaps another skill's by at least
-half and shares three words (`description-near-duplicate`). Two skills in different paths with the same
+half and shares three words (`description-near-duplicate`). The `description-no-when` cue is read in English,
+Spanish, French, German, Portuguese, Russian, Chinese, Japanese and Korean, and a description in a script none
+of them covers (Arabic, Thai, Hebrew, …) is not checked: it gets a `note` (`description-when-not-checked`), so not checked does not read as a pass: its row says `note:` instead of `ok`, and the counts line `1 ok (1 not checked)`. A Latin-script language without a list of its own
+(Polish, Dutch, Turkish, Vietnamese) is checked against these cues. Two skills in different paths with the same
 directory name and description but different `SKILL.md` text are a `warn` on both
 (`mirror-drift`), naming the other copies. Skills with
 `disable-model-invocation: true` are exempt from the description checks.
@@ -334,6 +345,47 @@ names a planned, paid follow-up command (a model run over the candidates), which
 yet available; its flags may change before it lands. The thresholds are conservative and
 the section is a shortlist, not a judgement.
 
+### Network checks (`--online`, opt in)
+
+`catalog check` opens no connection by default. `--online` adds two checks that
+do, and only these two; each finding is a `warn`, so the exit code does not change:
+
+- `package-not-found`: a `pip install` (or `pip3`), `npm install` or `npx` name in
+  a skill that PyPI (`https://pypi.org/simple/<name>/`) or the npm registry answers
+  404 for. Flags, local paths, `git+`, URL and `file:` specs, and placeholders such as
+  `<package>` or `your-package` are not names.
+- `link-dead`: an `http(s)` URL in `SKILL.md` that answers 404 or 410, or whose host
+  does not resolve while another request in the run got an HTTP answer (with none, the
+  link is not checked: the resolver is not shown to work). A HEAD request is tried first and a GET only when HEAD is not 2xx or 3xx.
+  Placeholder hosts (`example.com`/`.org`/`.net`, `localhost`, `.test`, `.invalid`,
+  a host or a path segment starting `your-*`, as in `github.com/your-username/your-repo`,
+  a path segment `OWNER`, `REPO`, `USER` or `USERNAME`), hosts of the operator's network
+  (loopback, private, link-local, CGNAT, reserved and multicast addresses, a name with no
+  dot such as `my-api:8000`, `.local` and `.internal` names) and template URLs (`<id>`,
+  `{id}`, `${VAR}`) are not requested. The host is read as written, not resolved: a public
+  name that points at a private address is still requested. A URL in a code span or a
+  fenced block is an example, not a link, and is not requested either; a `#fragment` is not
+  part of the request, so anchors of one page are one request. At most 20 URLs per skill are
+  checked.
+
+A 403, 429 or 5xx, a timeout, a refused connection or any other network error is not a
+finding: the registry or site may refuse or be unreachable, not be gone. A target not checked
+(a network error, a DNS failure with no answer in the run, a redirect into a non-public host,
+or a URL past the 20-per-skill cap) gets no finding: it is counted in one summary line,
+`# online: N checked, M not checked (network error: a, ...)`, and under `online` in the JSON
+report. Each distinct
+package or URL is requested once per run, with at most 8 requests in flight and a 5-second
+timeout per request. `--online` does not combine with `--per-skill` (its workers would
+each hold their own cache, and `--resume` would keep rows no network check made), and
+it applies to skills only.
+The package scan reads one line at a time: a requirement in quotes or on a `\` continuation
+line is not checked, and a word after an install command on the same line is read as a package name unless it is
+a common English word that ends the list (such as `in`, `for` or `to`).
+
+```console
+$ python cli.py catalog check --root C:/Users/Public/content-repo --online
+```
+
 Restrict the scan with `--kind`:
 
 ```console
@@ -361,7 +413,7 @@ A large catalog is easier to scan one skill at a time:
 - `--ignore CODE` (repeatable) leaves the findings with that code out of the scan:
   they are not printed, and they do not set the state or the `--strict` exit. The
   codes are the `code` of each finding in the JSON output (`name-mismatch`,
-  `description-no-when`, ...); an unknown code is a usage error. `frontmatter-parse`
+  `description-no-when`, `description-when-not-checked`, ...); an unknown code is a usage error. `frontmatter-parse`
   and `not-a-skill-no-frontmatter` are refused (a skill that does not load always
   fails), and so is `unreadable` (a
   `SKILL.md` the OS will not read fails the scan too), and `--kind tasks`.

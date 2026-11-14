@@ -214,7 +214,7 @@ these, in order, before writing what it showed (the fields:
   `patch_files` was committed after its `public_at`) and by name (a guidance
   commit's subject names its PR), unknown and clean; under it the tasks
   flagged by name with their commits, the unknown ones with the reason, and
-  the clean ones, with the tasks it does not check, as `--task` options (`--json`: `leak`, every id; contract
+  the clean ones, with the tasks it does not check, as `--task` options (`--json`, under `data`: `leak`, every id; contract
   §9). Log by hand
   where that record falls short (`by name covers only the newest 200`, an
   unknown task, a `patch:` arm, or a commit under a name or link target no
@@ -266,8 +266,8 @@ these, in order, before writing what it showed (the fields:
   cell started with or read (above): a finding's `rule` is the agent's own
   label. A hit cited without attribution (a `guidance:none` one) needs none.
 - **Totals from command output.** Copy counts, costs and turns from
-  `repo report --json` (`total_cost_usd`, a row's `n`, `cost_usd`, `turns`),
-  `repo compare --json` (`n_tasks`, `delta`, `mde`) and `grade.json` `metrics`
+  `repo report --json` (under `data`: `total_cost_usd`, a row's `n`, `cost_usd`, `turns`),
+  `repo compare --json` (under `data`: `n_tasks`, `delta`, `mde`) and `grade.json` `metrics`
   (`n_threads`, `n_findings`, `n_severe`). A total no command prints, such as
   the gold threads (`n_threads`, once per task), is summed by a script over
   those files, not by hand. A range is the lowest and highest per-cell value
