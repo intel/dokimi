@@ -70,10 +70,11 @@ def median(votes):
     return r[len(r) // 2]
 
 
-def panel_get(panel, good):
+def panel_get(panel, good, also=()):
+    """The panel's median verdict, None unless every judge of it and of ``also`` graded the cell."""
     def get(k):
         vs = [V[k][j] for j in panel if j in V[k]]
-        return (median(vs) in good) if len(vs) == len(panel) else None
+        return (median(vs) in good) if len(vs) == len(panel) and all(a in V[k] for a in also) else None
     return get
 
 
@@ -122,11 +123,11 @@ for j in ALL:
 wcsv("judge_mean_kappa.csv", ["judge", "mean_kappa_vs_others"], tab)
 
 tab = []
-for name, panel in (("old", OLD_PANEL), ("new", NEW_PANEL)):
+for name, panel, other in (("old", OLD_PANEL, NEW_PANEL), ("new", NEW_PANEL, OLD_PANEL)):
     out["panels"][name] = {"judges": panel, "added": {}}
     for mode, good in (("lenient", LEN), ("strict", STR)):
         for m in MODELS:
-            h = headline(panel_get(panel, good), m, good)
+            h = headline(panel_get(panel, good, other), m, good)
             out["panels"][name]["added"][f"{mode}:{m}"] = h["added"]
             tab.append([name, "+".join(panel), mode, m, h["n"], rounded(h["added"])])
 wcsv("generation_panels.csv", ["panel", "judges", "mode", "answer_model", "n", "added"], tab)
