@@ -41,8 +41,9 @@ from dokimi.commands import (
 )
 from dokimi import __version__, cli_routes, llm_cli, process
 from dokimi.console import tolerate_console_encoding
-from dokimi.defaults import JUDGE_MODEL_FOR_PROVIDER, default_judge_model
+from dokimi.defaults import JUDGE_MODEL_FOR_PROVIDER
 from dokimi.exit_codes import EXIT_INFRA
+from dokimi.judge_rule import apply_default_judge, follow_answerer_cli, refuse_judge_model
 
 
 def _subparsers(parser: argparse.ArgumentParser) -> argparse._SubParsersAction | None:
@@ -224,7 +225,7 @@ def build_parser() -> argparse.ArgumentParser:
     catalog.register(sub, positive_int, eval_sub)  # catalog; eval triggers generate; catalog intents
     explore.register(sub, positive_int)         # explore (ExploreBench)
     skill.register(sub, positive_int)           # skill: novelty, shorten (#94 M2)
-    novelty.register(sub, positive_int)         # novelty (routing, view: not yet moved)
+    novelty.register(sub, positive_int)         # novelty (view: not yet moved)
     repo.register(sub, positive_int, eval_sub)  # repo; eval check
     tools.register(sub, positive_int)           # tools (tool-choice probes)
     memory.register(sub, positive_int)          # memory: lint (#728)
@@ -237,6 +238,12 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
+def _names_judge_provider(token: str) -> bool:
+    """True for ``--judge-provider`` (``=value`` too) or an argparse abbreviation of it (``--judge-p``)."""
+    flag = token.split("=", 1)[0]
+    return flag.startswith("--judge-p") and "--judge-provider".startswith(flag)
+
+
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     """Parse ``argv`` (default ``sys.argv[1:]``), then fill in defaults that hang on another flag.
 
@@ -245,7 +252,10 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     """
     parser = build_parser()
     raw = list(sys.argv[1:] if argv is None else argv)
-    moved = cli_routes.moved_argv(raw)
+    try:
+        moved = cli_routes.moved_argv(raw)
+    except cli_routes.RetiredFlagError as exc:
+        parser.error(str(exc))
     if moved is not None:  # a tombstone: say where the command went, do not run anything
         moved = cli_routes.moved_flags_argv(moved) or moved  # the moved flag too, in one step
         _moved_exit(parser, moved, cli_routes.moved_text(moved))
@@ -253,18 +263,27 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     if moved_flags is not None:  # a moved flag spelling: print the argv with the new one
         _moved_exit(parser, moved_flags, cli_routes.moved_text(moved_flags))
     args = parser.parse_args(raw)
-    if getattr(args, "judge_model", None) is JUDGE_MODEL_FOR_PROVIDER:
-        model = default_judge_model(args.judge_provider)
-        if model is None:
-            parser.error(f"--judge-provider {args.judge_provider} has no default judge model; "
-                         f"pass --judge-model")
-        args.judge_model = model
-    judge_provider, judge_model = getattr(args, "judge_provider", None), getattr(args, "judge_model", None)
-    if judge_provider in llm_cli.BACKENDS and judge_model is not None \
-            and not llm_cli.accepts_model(judge_provider, judge_model):
+    # argparse fills --judge-provider with its default (anthropic), so the rule needs to know whether one was named.
+    args.judge_provider_named = any(_names_judge_provider(t) for t in raw)
+    # A command that reads its answerer from a descriptor (subjects run) resolves the judge itself, once it is loaded.
+    if getattr(args, "judge_model", None) is JUDGE_MODEL_FOR_PROVIDER and not getattr(args, "defer_judge_default", False):
+        # With --matrix-cells / --matrix-cell every cell sets its own model, so the top-level one is no answerer.
+        matrix = getattr(args, "matrix_cells", None) or getattr(args, "matrix_cell", None)
+        try:
+            apply_default_judge(args, matrix=bool(matrix), named=args.judge_provider_named)
+        except ValueError as e:
+            parser.error(str(e))
+    # An explicit --judge-model on a CLI answerer judges on its CLI too, unless --judge-provider names one.
+    # A command that defers its judge (subjects run) follows its answerer once the descriptor is loaded.
+    if not getattr(args, "defer_judge_default", False):
+        follow_answerer_cli(args, matrix=bool(getattr(args, "matrix_cells", None) or getattr(args, "matrix_cell", None)),
+                            named=args.judge_provider_named)
+    cur_judge_provider, cur_judge_model = getattr(args, "judge_provider", None), getattr(args, "judge_model", None)
+    if cur_judge_provider in llm_cli.BACKENDS and cur_judge_model is not None \
+            and not llm_cli.accepts_model(cur_judge_provider, cur_judge_model):
         # Checked here, before any persona or answer is generated for the run.
-        parser.error(f"--judge-provider {judge_provider} takes a Claude model (sonnet, haiku, opus or a "
-                     f"claude-* id), not {judge_model!r}: pass --judge-model")
+        parser.error(refuse_judge_model(cur_judge_provider, cur_judge_model, named=args.judge_provider_named,
+                                        answerer_provider=getattr(args, "provider", None)))
     provider, model = getattr(args, "provider", None), getattr(args, "model", None)
     # With --matrix-cells every cell sets its own provider and model (checked when applied), so the
     # top-level model is not the one that runs.

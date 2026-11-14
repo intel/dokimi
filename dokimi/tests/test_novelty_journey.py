@@ -23,7 +23,7 @@ import pytest
 from dokimi.cli import build_parser
 from dokimi.novelty import client as client_mod
 from dokimi.utils import InputError
-from tests.cli_paths import novelty_argv
+from tests.cli_paths import artifact_flag, novelty_argv
 from tests.test_novelty_analyze import SKILL, _scripted
 
 
@@ -74,9 +74,9 @@ def test_the_authoring_path_runs_end_to_end(tmp_path, skill, stub_models, capsys
 
     # 1. Can it be selected at all? Free, no model.
     routing_out = tmp_path / "routing.json"
-    _run("novelty", "routing", "--artifact", f"skill:{skill}",
-         "--competitors", f"skill:{rival}", "--queries", str(queries),
-         "--out", str(routing_out))
+    _run("skill", "routing", f"skill:{skill}", "--competitors",
+         f"skill:{rival}", "--queries", str(queries), "--out",
+         str(routing_out))
     routing = json.loads(routing_out.read_text(encoding="utf-8"))
     assert routing["lexical"]["n_queries"] == 2
     assert routing["queries_self_derived"] is False
@@ -214,7 +214,7 @@ def test_a_judge_that_is_the_answering_model_is_refused_with_exit_2(command, tmp
     extra = ["--atoms", str(atoms_out), "--out", str(tmp_path / "p.json")] if command == "probe" else \
         ["--out-dir", str(tmp_path / "out")]
     with pytest.raises(InputError) as exc:
-        _run(*novelty_argv(command), "--artifact", f"skill:{skill}", "--model", "model-a",
+        _run(*novelty_argv(command), *artifact_flag(command, f"skill:{skill}"), "--model", "model-a",
              "--judge-model", "model-a", *extra)
     assert "is the answering model" in str(exc.value)
     assert prompts == [], "a model was called before the self-judge check refused"

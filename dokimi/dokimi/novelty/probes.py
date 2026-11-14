@@ -37,6 +37,7 @@ import re
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 
+from dokimi.utils import InputError
 from .atoms import Atom
 from .client import LLMClient, SpendCapReached
 
@@ -166,6 +167,8 @@ class Probe:
     # For a reversal probe the graded answer key is "refuse the premise", so the
     # judge is told to score agreement as wrong rather than matching `expected`.
     expect_refusal: bool = False
+    #: ``atom.meta["grading"]`` in the reference-check schema; roles: ``measure.resolve_verdict``.
+    grading: dict | None = None
 
     def as_dict(self) -> dict:
         """Serializable form."""
@@ -175,6 +178,7 @@ class Probe:
             "question": self.question,
             "expected": self.expected,
             "expect_refusal": self.expect_refusal,
+            **({"grading": self.grading} if self.grading else {}),
         }
 
 
@@ -404,7 +408,8 @@ def build_probe_set(
     built = into if into is not None else ProbeSet(probes=[])
     probes = built.probes
     probes.extend(
-        Probe(atom_id=a.id, kind="direct", question=a.question, expected=a.answer)
+        Probe(atom_id=a.id, kind="direct", question=a.question, expected=a.answer,
+              grading=atom_grading(a))
         for a in atoms
     )
     if client is None:
@@ -434,7 +439,8 @@ def build_probe_set(
                 )
                 if tally("paraphrase", reasons):
                     probes.append(Probe(atom_id=atom.id, kind="paraphrase",
-                                        question=question.strip(), expected=atom.answer))
+                                        question=question.strip(), expected=atom.answer,
+                                        grading=atom_grading(atom)))
     if reversals:
         for chunk, worded in _worded(client, _REVERSAL_PROMPT, atoms, batch, "statement"):
             for atom, question in zip(chunk, worded, strict=False):
@@ -448,6 +454,25 @@ def build_probe_set(
                         expect_refusal=True,
                     ))
     return built
+
+
+def atom_grading(atom: Atom) -> dict | None:
+    """The atom's ``meta["grading"]`` block, validated; ``None`` when it has none.
+
+    A reversal probe never gets it: its right answer is a refusal, which the checks of the
+    claim do not describe.
+
+    Raises:
+        InputError: The block does not validate (names the atom and the problems).
+    """
+    grading = (atom.meta or {}).get("grading")
+    if not grading:
+        return None
+    from dokimi.eval.reference_checks import validate_grading
+    problems = validate_grading(grading)
+    if problems:
+        raise InputError(f"atom {atom.id}: invalid grading: {'; '.join(problems)}")
+    return grading
 
 
 def _chunks(items: list, size: int) -> list[list]:

@@ -79,6 +79,7 @@ LAYERS: tuple[tuple[str, tuple[str, ...]], ...] = (
         "dokimi.intents", "dokimi.judged", "dokimi.llm", "dokimi.llm_cli", "dokimi.llm_json",
         "dokimi.llm_pricing", "dokimi.measure", "dokimi.process", "dokimi.process_io",
         "dokimi.records", "dokimi.registry", "dokimi.utils", "dokimi.write_probe",
+        "dokimi.judge_rule",
         # Token/cost record the LLM chokepoint fills; it lives under metrics/ but
         # depends on nothing and is read by every LLM caller.
         "dokimi.metrics.usage",
