@@ -15,7 +15,7 @@ import pytest
 from dokimi.metrics.usage import UsageRecord
 from dokimi.novelty.atoms import Atom, ExtractionReport, extract_atoms, verify_atoms
 from dokimi.novelty.batching import ask_in_batches
-from dokimi.novelty.classify import detect_conflicts, judge_value
+from dokimi.novelty.classify import ClassifyReport, detect_conflicts, judge_value
 from dokimi.novelty.client import LLMClient, SpendCapReached
 from dokimi.novelty.measure import ERRORED, run_measurement
 from dokimi.novelty.probes import Probe, ProbeSet, build_probe_set
@@ -146,8 +146,10 @@ def test_the_conflict_check_stops_at_a_run_wide_error():
 
 def test_the_conflict_check_leaves_one_batch_unchecked_on_a_rejected_request():
     transport = Calls('{"conflicts": []}', error=TOO_LONG)
-    detect_conflicts(_atoms(6), client=_client(transport), batch=2)
+    report = ClassifyReport()
+    detect_conflicts(_atoms(6), client=_client(transport), batch=2, report=report)
     assert transport.n == 3
+    assert report.unchecked == [a.id for a in _atoms(6)[2:4]]
 
 
 def test_wording_generation_stops_at_a_run_wide_error_and_keeps_the_probes_built():
@@ -160,9 +162,18 @@ def test_wording_generation_stops_at_a_run_wide_error_and_keeps_the_probes_built
 
 
 def test_wording_generation_counts_a_rejected_request_as_rejected_wordings():
-    transport = Calls('["Reworded?"]', error=TOO_LONG)
-    build_probe_set(_atoms(3), client=_client(transport), batch=1)
-    assert transport.n == 6  # three paraphrase and three reversal calls
+    def reply(prompt):
+        asked = re.search(r"1\. What is setting (\d+)\?", prompt)
+        return f'["Tell me the value of setting {asked[1]}?"]' if asked else "[]"
+
+    transport = Calls(reply, error=TOO_LONG)
+    built = build_probe_set(_atoms(3), client=_client(transport), batch=1, reversals=False)
+    assert transport.n == 3
+    row = built.fidelity["paraphrase"]
+    assert (row["generated"], row["kept"], row["rejected"]) == (3, 2, 1)
+    assert row["reasons"] == {"empty": 1}
+    assert [p.atom_id for p in built.probes if p.kind == "paraphrase"] == [
+        a.id for a in _atoms(3) if a.id != _atoms(3)[1].id]
 
 
 def test_the_retention_oracle_stops_at_a_run_wide_error():
