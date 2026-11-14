@@ -1,0 +1,17 @@
+{
+  "groups": {
+    "3c397e7b5b50": {"count": 3, "rationale": "pre-existing when the gate was introduced", "where": ["dokimi/repos/cli_traces.py", "dokimi/repos/events.py"]},
+    "4751a8be1f57": {"count": 2, "rationale": "pre-existing when the gate was introduced", "where": ["dokimi/eval/agent_runner.py"]},
+    "87fd5d156635": {"count": 2, "rationale": "pre-existing when the gate was introduced", "where": ["dokimi/personas/analyzer.py"]},
+    "925b1461ae22": {"count": 2, "rationale": "pre-existing when the gate was introduced", "where": ["dokimi/report/eval_report.py"]},
+    "96a248688260": {"count": 2, "rationale": "pre-existing when the gate was introduced", "where": ["dokimi/commands/baseline.py", "dokimi/eval/judge.py"]},
+    "9912f72bb7c0": {"count": 2, "rationale": "pre-existing when the gate was introduced", "where": ["dokimi/repos/reach.py", "dokimi/repos/skill_reach.py"]},
+    "a2801d27c7b0": {"count": 2, "rationale": "pre-existing when the gate was introduced", "where": ["dokimi/eval/ragas_eval.py"]},
+    "aa55a06bf99c": {"count": 2, "rationale": "pre-existing when the gate was introduced", "where": ["dokimi/report/eval_report.py"]},
+    "b120773b627e": {"count": 2, "rationale": "pre-existing when the gate was introduced", "where": ["dokimi/commands/repo_run.py"]},
+    "d3dc645dd2cc": {"count": 3, "rationale": "pre-existing when the gate was introduced", "where": ["scripts/check_changelog_fragment.py", "scripts/check_comment_blocks.py", "scripts/check_docs_review_triggers.py"]},
+    "e00d5aa50148": {"count": 2, "rationale": "pre-existing when the gate was introduced", "where": ["dokimi/repos/reach.py", "dokimi/repos/skill_reach.py"]},
+    "e1ae802e7aec": {"count": 2, "rationale": "pre-existing when the gate was introduced", "where": ["dokimi/eval_coverage.py", "dokimi/skill_coverage.py"]},
+    "fcc318c1e962": {"count": 2, "rationale": "pre-existing when the gate was introduced", "where": ["dokimi/commands/redteam.py", "dokimi/commands/skill_coverage.py"]}
+  }
+}

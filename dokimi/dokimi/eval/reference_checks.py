@@ -246,6 +246,10 @@ def chosen_letters(answer: str) -> Optional[frozenset[str]]:
 #: each try on deeply nested text parses to the decoder's depth limit.
 CONTAINS_JSON_MAX_STARTS = 1000
 
+#: ...and the tries that fail may scan at most this many characters in all (each from its start to
+#: where it failed): a text of many brackets and a long tail would otherwise cost starts x length.
+CONTAINS_JSON_MAX_SCAN = 1_000_000
+
 _FENCE = re.compile(r"^\s*```(?:json)?\s*\n(.*?)\n\s*```\s*$", re.S)
 
 
@@ -254,7 +258,9 @@ def parse_json(answer: str, *, contains: bool = False) -> tuple[bool, Any]:
 
     With ``contains`` the first JSON object or array anywhere in the text counts
     (promptfoo ``contains-json``). The scan gives up after :data:`CONTAINS_JSON_MAX_STARTS`
-    brackets, and then reads the text as not JSON.
+    brackets, or once the tries that failed have scanned :data:`CONTAINS_JSON_MAX_SCAN`
+    characters in all (reaching it spends it; one try may cross it), and then reads the text as not JSON. The first parse of the whole text is
+    not counted, only the tries that start at a bracket.
     """
     text = answer.strip()
     fenced = _FENCE.match(text)
@@ -267,15 +273,21 @@ def parse_json(answer: str, *, contains: bool = False) -> tuple[bool, Any]:
     if contains:
         decoder = json.JSONDecoder()
         tried = 0
+        scanned = 0
         for i, ch in enumerate(text):
             if ch in "{[":
-                if tried == CONTAINS_JSON_MAX_STARTS:
+                if tried == CONTAINS_JSON_MAX_STARTS or scanned >= CONTAINS_JSON_MAX_SCAN:
                     break
                 tried += 1
                 try:
                     return True, decoder.raw_decode(text, i)[0]
+                except json.JSONDecodeError as err:
+                    # An unterminated string reports its opening quote, but read to the end.
+                    end = len(text) if err.msg.startswith("Unterminated string") else err.pos
+                    scanned += max(end - i, 0)
                 except (ValueError, RecursionError):
-                    continue
+                    # No position (an overlong integer, the depth limit): charge the whole tail.
+                    scanned += len(text) - i
     return False, None
 
 

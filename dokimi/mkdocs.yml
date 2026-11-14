@@ -130,6 +130,7 @@ nav:
       - grading-tiers.md
   - Repository evaluation:
       - repo-evaluation-contract.md
+      - behavioural-security.md
       - repo-evaluation-mergeability.md
       - repo-evaluation-agent-modes.md
       - reach-matrix.md

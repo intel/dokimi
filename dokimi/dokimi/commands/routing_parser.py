@@ -60,8 +60,8 @@ def _add_routing_options(routing_p, positive_int, refused: bool = False) -> None
     """
     routing_p.add_argument("--competitors", nargs="+", default=None, type=_skill_ref,
                            help="Other artifacts the selector sees. One candidate is not "
-                                "routing: sibling confusion is the failure mode (every "
-                                "`dpnp-*` skill scored 0.0 lexically). A bare path is a skill "
+                                "routing: sibling confusion is the failure mode (check it "
+                                "with independently written queries). A bare path is a skill "
                                 "(its directory or SKILL.md); text:PATH is also accepted")
     routing_p.add_argument("--include-disabled", action="store_true", dest="include_disabled",
                            help="Keep skills with disable-model-invocation in the field. Off by "

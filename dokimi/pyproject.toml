@@ -142,8 +142,9 @@ extend_exclude = [
 optional_dependencies_dev_groups = ["dev"]
 
 [tool.deptry.per_rule_ignores]
-# scripts/audit_mocks.py, imported by its sibling audit_test_quality.py through a sys.path insert.
-DEP001 = ["audit_mocks"]
+# scripts/audit_mocks.py, imported by its sibling audit_test_quality.py, and scripts/check_growth.py,
+# imported by its sibling check_duplicates.py, each through a sys.path insert.
+DEP001 = ["audit_mocks", "check_growth"]
 # Declared only to cap the version ragas resolves (see the comment in the ragas extra).
 DEP002 = ["langchain-community"]
 # repos/graders/typecheck.py imports mypy inside the grading image, where it is installed

@@ -137,6 +137,68 @@ def no_candidate_line(candidates: list, scored: list, atoms: list) -> str:
     return f"No safe candidate (none kept every protected span{unsampled})."
 
 
+def _verdicts_hint(oracle, cache_dir, stop) -> str:
+    """What a rerun can reuse after the cap stopped ``shorten``: only what is true for this run.
+
+    A verdict is stored the moment it is adjudicated, so the stored ones are the oracle's
+    escalations less the failed ones and the last call. That call was refused by a spent cap, or
+    (``stop.reply`` set, an unpriced model) paid for and its verdict dropped unstored.
+    """
+    from dokimi.commands.novelty_budget import response_cache_active
+
+    stored = max(0, oracle.escalations - oracle.errors - 1)
+    dropped = stop.reply is not None
+    rerun = "no --max-usd" if stop.reason == "no_price" else "a higher --max-usd"
+    tail = "; the call with no price was paid for and its verdict was not stored" if dropped else ""
+    if cache_dir and stored:
+        return (f"the retention verdicts adjudicated before the stop ({stored}) are stored in "
+                f"{cache_dir}; rerun with {rerun} and the same --cache-dir to replay them at $0{tail}")
+    # A call can be paid for and give no usable verdict (an unparseable reply): the client's
+    # usage, not the verdict counts, says whether this run paid for any call.
+    paid = oracle.client is not None and any(not use.replayed for use in oracle.client.usage)
+    if cache_dir:
+        return (f"no retention verdict is stored in {cache_dir} from this run"
+                + (": the call with no price was paid for and its verdict was not stored" if dropped
+                   else ": no paid call gave a usable verdict" if paid
+                   else ": none had been adjudicated yet"))
+    if stored and response_cache_active():
+        return (f"the retention verdicts adjudicated in this run ({stored}) are in the response "
+                f"cache (DOKIMI_RESPONSE_CACHE): rerun with {rerun} to replay them at $0{tail}")
+    if stored:
+        return (f"the retention verdicts adjudicated in this run ({stored}) were lost; "
+                f"--cache-dir <dir> would keep them for a rerun{tail}")
+    if dropped:
+        return "the retention call with no price was paid for and its verdict was not stored"
+    if paid:
+        return "no paid retention call gave a usable verdict"
+    return "no retention call had been paid for yet"
+
+
+def score_candidates(args: argparse.Namespace, spans: list, atoms: list, scored: list):
+    """The shortening candidates scored by a retention oracle, and that oracle.
+
+    A stop at ``--max-usd`` exits with a message that says no candidate table and no ``--out``
+    file was written and what a rerun can reuse; a table scored on part of the verdicts is not made.
+    """
+    from pathlib import Path
+
+    from dokimi.novelty import cost
+    from dokimi.novelty.client import SpendCapReached
+    from dokimi.novelty.retention import RetentionOracle
+    from dokimi.novelty.shorten import build_candidates
+
+    client = cost.client(args.extract_model or args.model, args.provider, "oracle", args) \
+        if not args.lexical_only else None
+    oracle = RetentionOracle(client=client, cache_dir=Path(args.cache_dir) if args.cache_dir else None)
+    try:
+        candidates = build_candidates(spans, atoms, oracle=oracle, budgets=tuple(args.budgets),
+                                      seed=args.seed, scored_atoms=scored)
+    except SpendCapReached as exc:
+        raise SystemExit(f"{exc}; nothing was written (no candidate table and no --out file); "
+                         f"{_verdicts_hint(oracle, args.cache_dir, exc)}") from None
+    return candidates, oracle
+
+
 def warn_answer_key(saved: dict, answerer, judge) -> None:
     """Warn when the saved answer key was written by the model under measurement, or by the judge's model or family."""
     from dokimi.novelty.client import _REMEDY_PROBE, warn_extractor_judge
