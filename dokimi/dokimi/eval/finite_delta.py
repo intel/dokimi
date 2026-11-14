@@ -63,7 +63,6 @@ def check_sum_range(values: Sequence[float], error: type[Exception] = OverflowEr
 def checked_mean(values: Sequence[float], error: type[Exception] = OverflowError, where: str = "") -> float:
     """``sum(values) / len(values)`` after :func:`check_sum_range`."""
     check_sum_range(values, error, where)
-    try:
-        return sum(values) / len(values)
-    except OverflowError:  # an inf or NaN beside an integer too large for a float: the non-finite floats decide (summing finite ones first could overflow and cancel them)
+    if _has_non_finite_float(*values):  # they decide; finite values summed first could overflow and cancel a -inf
         return sum(v for v in values if isinstance(v, float) and not math.isfinite(v)) / len(values)
+    return sum(values) / len(values)

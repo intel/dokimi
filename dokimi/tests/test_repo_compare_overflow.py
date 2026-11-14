@@ -59,6 +59,12 @@ def test_checked_mean_keeps_a_negative_inf_when_finite_values_would_sum_past_the
     assert checked_mean([10**309, 1e308, 1e308, -math.inf], CompareError) == -math.inf
 
 
+@pytest.mark.parametrize("values, mean", [([1e308, 1e308, -math.inf], -math.inf), ([-1e308, -1e308, math.inf], math.inf),
+                                          ([-math.inf, 1e308, 1e308], -math.inf)])
+def test_checked_mean_keeps_an_inf_whatever_the_order_of_finite_floats_beside_it(values, mean):
+    assert checked_mean(values, CompareError) == mean
+
+
 @pytest.mark.parametrize("deltas", [[1.7e308] * 4, [1.7e308, -1.7e308, 1.7e308], [1.7e308, 1.7e308, -1.7e308]])
 def test_sign_flip_summary_refuses_finite_deltas_whose_sum_or_spread_leaves_the_range(deltas):
     with pytest.raises(CompareError, match="float range"):
