@@ -78,7 +78,14 @@ declares `guidance.imports` (`claude-code`; it is null for `codex` and `copilot`
 > from outside the tree, for a repository that has not added it yet. `scan` and `reach`
 > need only `guidance`; given neither a manifest in the tree nor `--manifest-file`, they
 > check the default globs `**/AGENTS.md`, `**/CLAUDE.md`, `.github/copilot-instructions.md`
-> and `.github/instructions/*.md`, and say so on stderr.
+> and `.github/instructions/*.md`, and say so on stderr. There `scan` also checks the
+> Markdown files Claude Code loads with them, which `repo budget` lists as `rule` and
+> `import` for the `claude-code` profile: `.claude/rules/**/*.md` and the files a CLAUDE.md
+> `@` import chain reaches. It also checks a committed `CLAUDE.local.md` that nothing imports (a gitignored one is not
+> in the tree), because Claude Code loads it with the project's guidance. Every rule file is checked, loaded or not:
+> a rule whose `paths` pattern is invalid is counted lazy by `repo budget`, and a stale path in it is still stale.
+> A rule the tree cannot list (a link to the rules directory, a root `.claude` link, a submodule at `.claude` or under
+> `.claude/rules`, a dangling link) makes the scan `incomplete`. They are named by path, so a tree without them gets no warning.
 >
 > Slice S5 adds the repository-mode runner: workspace preparation (§3), the
 > containers of §1.1, the `repo_grade.v1` schema (§4.2), the self-check (§4.3)

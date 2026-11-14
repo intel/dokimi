@@ -18,7 +18,8 @@ if TYPE_CHECKING:
 from dokimi import cli_flags, cli_output
 from dokimi.commands.repo_skill_reach import add_skill_reach_parser
 from dokimi.exit_codes import EXIT_USAGE
-from dokimi.commands.repo_scan import _print_scan_text, _scan_gate, _scan_reason, _typecheck_or_exit
+from dokimi.commands.repo_scan import (_loaded_with_default, _print_scan_text, _scan_gate, _scan_reason,
+                                         _typecheck_or_exit)
 from dokimi.utils import InputError
 
 
@@ -149,7 +150,8 @@ def cmd_repo_scan(args: argparse.Namespace) -> None:
     static = _read_static(args.static) if args.static else None
     check = _typecheck_or_exit(args)
     try:
-        payload = scan_repo(tree, manifest, static, typecheck=check)
+        loaded, not_counted = _loaded_with_default(tree, manifest)
+        payload = scan_repo(tree, manifest, static, typecheck=check, also=loaded, not_counted=not_counted)
     except TypecheckError as exc:
         print(f"✗ repo scan --typecheck: {exc}", file=sys.stderr)  # the error says whether the tool or the interpreter
         sys.exit(EXIT_USAGE)
