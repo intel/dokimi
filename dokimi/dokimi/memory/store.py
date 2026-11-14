@@ -30,7 +30,6 @@ _EMPTY_LINK = re.compile(r"\]\(\s*(?:<>)?\s*\)")  # [t]() is an inline link with
 _MD_ESCAPE = re.compile(r"\\([!-/:-@\[-`{-~])")
 _WIKILINK = re.compile(r"\[\[([^\]\n]+)\]\]")
 _CODE_SPAN = re.compile(r"`[^`\n]*`")
-_HTML_COMMENT = re.compile(r"<!--.*?-->", re.S)
 _FENCE = re.compile(r" {0,3}(`{3,}|~{3,})")
 
 
@@ -130,26 +129,42 @@ class MemoryStore:
 
 def prose_lines(text: str) -> list[str]:
     """The lines of ``text`` with fenced blocks, HTML comments and code spans blanked: no link lives there."""
-    lines = text.split("\n")
-    fenced = _fenced(lines)  # fences first: a comment opener inside a fence is not a comment
-    text = "\n".join("" if i in fenced else line for i, line in enumerate(lines))
-    text = _HTML_COMMENT.sub(lambda m: re.sub(r"[^\n]", " ", m.group(0)), text)
-    return [_CODE_SPAN.sub(lambda c: " " * len(c.group(0)), line) for line in text.split("\n")]
+    return [_CODE_SPAN.sub(lambda c: " " * len(c.group(0)), line) for line in _blank_blocks(text.split("\n"))]
 
 
-def _fenced(lines: list[str]) -> set[int]:
-    """The indexes of the lines that are a fence, or inside one."""
-    out: set[int] = set()
+def _blank_blocks(lines: list[str]) -> list[str]:
+    """The lines with fenced blocks and HTML comments blanked, in one scan: whichever opens first holds the rest."""
+    out: list[str] = []
     fence = ""
-    for i, line in enumerate(lines):
+    comment = False
+    for line in lines:
+        if comment:  # inside a comment: blank through its end; the text after it is prose again
+            end = line.find("-->")
+            if end < 0:
+                out.append("")
+                continue
+            line = " " * (end + 3) + line[end + 3:]
+            comment = False
         m = _FENCE.match(line)
         if fence:
-            out.add(i)
             if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence) and not line[m.end():].strip():
                 fence = ""
-        elif m and not (m.group(1)[0] == "`" and "`" in line[m.end():]):  # an info string holds no backtick
+            out.append("")
+            continue
+        if m and not (m.group(1)[0] == "`" and "`" in line[m.end():]):  # an info string holds no backtick
             fence = m.group(1)
-            out.add(i)
+            out.append("")
+            continue
+        start = line.find("<!--")
+        while start >= 0:
+            end = line.find("-->", start + len("<!--"))
+            if end < 0:
+                line = line[:start] + " " * (len(line) - start)
+                comment = True
+                break
+            line = line[:start] + " " * (end + 3 - start) + line[end + 3:]
+            start = line.find("<!--")
+        out.append(line)
     return out
 
 

@@ -346,3 +346,14 @@ def test_definitions_only_index_links_its_targets(mem):
 def test_comment_text_inside_a_fence_is_not_a_comment(mem):
     (mem / "a.md").write_text(_entry("a", body="```html\n<!-- start\n```\nShip it tomorrow.\nend -->\n"))
     assert [f.line for f in lint(read_claude_memory(mem)) if f.rule == "relative-date"] == [10]
+
+
+def test_a_fence_inside_a_comment_does_not_hide_the_rest_of_the_index(mem):
+    (mem / "MEMORY.md").write_text("<!-- old deploy notes\n```bash\nmake deploy\n```-->\n- [A](a.md) [G](gone.md)\n")
+    (mem / "a.md").write_text(_entry("a"))
+    assert [f.line for f in lint(read_claude_memory(mem)) if f.rule == "index-dead-link"] == [5]
+
+
+def test_a_fence_inside_a_comment_does_not_hide_the_rest_of_a_topic(mem):
+    (mem / "a.md").write_text(_entry("a", body="<!-- notes\n```bash\nx\n```-->\nShip it tomorrow.\n"))
+    assert [f.line for f in lint(read_claude_memory(mem)) if f.rule == "relative-date"] == [11]
