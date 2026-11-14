@@ -96,7 +96,7 @@ def test_report_hits_flag_prints_the_pairs_and_the_default_report_stays_the_tabl
     batch = _batch(tmp_path)
     text = _cli(capsys, str(batch), "--hits")
     assert text.startswith(f"{batch}: 3 credited hit(s)") and "finding 0 src/calc.py:6" in text
-    records = json.loads(_cli(capsys, str(batch), "--hits", "--json"))
+    records = json.loads(_cli(capsys, str(batch), "--hits", "--json"))["data"]
     assert [(h["cell"], h["thread"]) for h in records["hits"]][:2] == [
         ("pr3098-t2__guidance-none__m-1__r1", "t_op"), ("pr3098-t2__guidance-none__m-1__r2", "t_doc")]
     assert records["without_matches"] == 1
@@ -109,7 +109,7 @@ def test_a_match_key_named_like_the_cell_key_does_not_move_the_hit(tmp_path, cap
     grade = _graded(tmp_path, fence([_f(5)]))
     grade["details"]["matches"][0].update(task="other-task", arm="guidance:raw", model="m-9", rep=99, cell="elsewhere")
     _put(batch, "a", "guidance:none", 1, grade)
-    records = json.loads(_cli(capsys, str(batch), "--hits", "--json"))
+    records = json.loads(_cli(capsys, str(batch), "--hits", "--json"))["data"]
     assert [(h["task"], h["arm"], h["model"], h["rep"], h["cell"], h["thread"]) for h in records["hits"]] == [
         ("a", "guidance:none", "m-1", 1, "a__guidance-none__m-1__r1", "t_op")]
     assert _cli(capsys, str(batch), "--hits").splitlines()[1:3] == ["a", "  guidance:none  m-1  r1"]

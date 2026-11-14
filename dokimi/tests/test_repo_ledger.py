@@ -284,7 +284,7 @@ def test_compare_with_ledger_adds_the_rule_results_to_the_json(tmp_path, capsys)
     args = build_parser().parse_args(["repo", "compare", str(batch), "--baseline", BASE, "--ledger", str(path),
                                       "--json"])
     args.func(args)
-    data = json.loads(capsys.readouterr().out)
+    data = json.loads(capsys.readouterr().out)["data"]
     assert data["ledger"]["ledger"] == str(path)
     assert [(e["rule"], e["verdict"]) for e in data["ledger"]["rules"]] == [("R1", KEEP)]
 
@@ -559,7 +559,7 @@ def test_compare_with_ledger_and_model_judges_only_that_model(tmp_path, capsys):
     args = build_parser().parse_args(["repo", "compare", str(batch), "--baseline", BASE, "--ledger", str(path),
                                       "--model", "m-1", "--json"])
     args.func(args)
-    ledger = json.loads(capsys.readouterr().out)["ledger"]
+    ledger = json.loads(capsys.readouterr().out)["data"]["ledger"]
     assert {e["model"] for e in ledger["rules"]} == {"m-1"}
     assert ledger["family"] == 1  # the Holm family counts the one model that was asked for
 
@@ -670,4 +670,4 @@ def test_compare_json_is_printed_even_when_the_text_would_fail(tmp_path, capsys,
     monkeypatch.setattr(compare_module, "format_compare", broken)
     args = build_parser().parse_args(["repo", "compare", str(batch), "--baseline", BASE, "--json"])
     args.func(args)
-    assert "comparisons" in json.loads(capsys.readouterr().out)
+    assert "comparisons" in json.loads(capsys.readouterr().out)["data"]

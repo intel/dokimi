@@ -320,7 +320,7 @@ def test_cli_table_and_gate(tmp_path, capsys):
 
 def test_cli_json_and_bad_source(tmp_path, capsys):
     _tree(tmp_path, {"AGENTS.md": "a"})
-    data = json.loads(_run(["repo", "budget", str(tmp_path), "--json"], capsys).out)
+    data = json.loads(_run(["repo", "budget", str(tmp_path), "--json"], capsys).out)["data"]
     assert data["totals"]["start"] == 1
     with refusal() as exc:
         _run(["repo", "budget", str(tmp_path / "missing")], capsys)

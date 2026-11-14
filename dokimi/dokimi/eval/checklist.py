@@ -206,7 +206,7 @@ class ChecklistReport:
 
     def to_dict(self) -> Dict[str, Any]:
         return {
-            "schema_version": "checklist.v0",
+            "schema_version": "checklist.v1",
             "summary": self.summary(),
             "questions": [
                 {
