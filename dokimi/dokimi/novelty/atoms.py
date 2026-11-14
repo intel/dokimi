@@ -27,6 +27,7 @@ from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
+from dokimi.atomic_write import write_text_atomic
 from dokimi.utils import InputError, read_json_input
 
 from .batching import retry_wording
@@ -633,8 +634,7 @@ def save_atoms(
     if partial is not None:
         payload.update(status="partial", partial=partial)
     path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    write_text_atomic(path, json.dumps(payload, indent=2))
 
 
 def load_atoms(path) -> tuple[list[Atom], list[Span]]:

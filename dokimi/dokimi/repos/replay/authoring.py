@@ -22,6 +22,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from dokimi.atomic_write import write_text_atomic
 from ..graders.hidden_tests import HIDDEN_DIR
 from ..graders.typecheck import REFERENCE_DIR
 from ..manifest import RepoManifest
@@ -190,4 +191,4 @@ def _write(dest: Path, task: dict[str, Any], files: dict[str, tuple[str, bytes]]
         path.write_bytes(data)
         path.chmod(_MODES[mode])
     dest.mkdir(parents=True, exist_ok=True)
-    (dest / "task.json").write_text(json.dumps(task, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    write_text_atomic(dest / "task.json", json.dumps(task, indent=2, ensure_ascii=False) + "\n")
