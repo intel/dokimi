@@ -20,9 +20,9 @@ import yaml
 INDEX_NAME = "MEMORY.md"
 ARCHIVE_DIR = "archive"
 _FRONTMATTER = re.compile(r"\A---[ \t]*\r?\n(?:(.*?)\r?\n)??---[ \t]*(?:\r?\n|\Z)", re.S)
-_MD_LINK = re.compile(r"\]\(\s*(<[^>\n]+>|(?:[^()\s]|\([^()\s]*\))+)(?:\s+(?:\"[^\"]*\"|'[^']*'))?\s*\)")
+_MD_LINK = re.compile(r"\]\(\s*(<[^>\n]+>|(?:\\.|[^()\s\\]|\([^()\s]*\))+)(?:\s+(?:\"[^\"]*\"|'[^']*'))?\s*\)")
 _MD_REF_DEF = re.compile(r"^ {0,3}\[(?!\^)([^\]\n]+)\]:[ \t]*(<[^>\n]+>|\S+)")
-_MD_LABEL = re.compile(r"\[([^\[\]\n]+)\](?![:(])")
+_MD_LABEL = re.compile(r"\[([^\[\]\n]+)\](?!\()")
 _MD_ESCAPE = re.compile(r"\\([!-/:-@\[-`{-~])")
 _WIKILINK = re.compile(r"\[\[([^\]\n]+)\]\]")
 _CODE_SPAN = re.compile(r"`[^`\n]*`")
@@ -88,7 +88,10 @@ class MemoryStore:
         if self.index is None:
             return []
         lines = prose_lines(self.index.text)
-        used = {_label(m.group(1)) for line in lines for m in _MD_LABEL.finditer(line)}
+        used: set[str] = set()  # a label is used by any [label] but the one that opens a definition
+        for line in lines:
+            d = _MD_REF_DEF.match(line)
+            used.update(_label(m.group(1)) for m in _MD_LABEL.finditer(line, d.end() if d else 0))
         out = []
         for n, line in enumerate(lines, 1):
             found = [m.group(1) for m in _MD_LINK.finditer(line)]
@@ -121,7 +124,7 @@ def prose_lines(text: str) -> list[str]:
 
 def _label(text: str) -> str:
     """A reference label as Markdown matches it: whitespace folded, case ignored."""
-    return re.sub(r"\s+", " ", text).strip().lower()
+    return re.sub(r"\s+", " ", text).strip().casefold()
 
 
 def slug(name: str) -> str:

@@ -262,3 +262,22 @@ def test_nul_in_a_link_is_a_dead_link_not_a_crash(mem):
 def test_relative_date_in_fence_or_comment_is_not_flagged(mem):
     (mem / "a.md").write_text(_entry("a", body="```\nrun it tomorrow\n```\n<!--\nsee today\n-->\nDone."))
     assert [f for f in lint(read_claude_memory(mem)) if f.rule == "relative-date"] == []
+
+
+def test_shortcut_reference_followed_by_colon_is_a_use(mem):
+    (mem / "MEMORY.md").write_text("- [A]: the a file\n- [B](b.md)\n\n[A]: gone.md\n")
+    assert [(f.rule, f.line) for f in lint(read_claude_memory(mem)) if f.rule == "index-dead-link"] == [
+        ("index-dead-link", 4)]
+
+
+def test_unpaired_escaped_paren_is_read_as_a_target(mem):
+    (mem / "topic(v2.md").write_text(_entry("t"))
+    (mem / "MEMORY.md").write_text("- [A](a.md) [B](b.md) [T](topic\\(v2.md)\n")
+    assert _rules(mem) == []
+
+
+def test_reference_labels_fold_case_as_markdown_does(mem):
+    (mem / "MEMORY.md").write_text("- [A](a.md) [B](b.md) [X][STRASSE]\n\n[straße]: gone.md\n")
+    assert [(f.rule, f.line) for f in lint(read_claude_memory(mem)) if f.rule == "index-dead-link"] == [
+        ("index-dead-link", 3)]
+
