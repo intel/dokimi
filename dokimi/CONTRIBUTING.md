@@ -143,7 +143,7 @@ CI additionally holds a PR to:
 **pre-commit.** `.pre-commit-config.yaml` at the repo root runs the fast
 offline checks on the files a commit stages: `ruff check` (the version and
 config CI uses), zizmor on the workflows and actions, YAML/JSON/TOML syntax, conflict
-markers, files over 500 KB, and gitleaks on the staged changes (the
+markers, files over 1024 KB, and gitleaks on the staged changes (the
 `Scan commits` step in `ci.yml`'s `static` job scans a PR's commits the same way). From the repo root:
 
 ```bash
