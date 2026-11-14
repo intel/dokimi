@@ -201,21 +201,44 @@ class GitTree:
         self.git_dir = Path(git_dir)
         self.sha = sha
         self.label = label or f"{self.git_dir}@{sha[:12]}"
-        self._files: list[str] | None = None
+        self._files: list[str] = []
+        self._listed = False
         self._dirs: set[str] | None = None
-        self._symlinks: set[str] | None = None
+        self._symlinks: set[str] = set()
+        self._gitlinks: set[str] = set()
 
     def files(self) -> list[str]:
-        if self._files is None:
-            self._files = sorted(_git_entries(self.git_dir, "ls-tree", "-r", "-z", "--name-only", self.sha, warn=True))
+        self._list()
         return self._files
+
+    def _list(self) -> None:
+        """One ``ls-tree -r -z`` gives the files, the symlinks and the gitlinks."""
+        if self._listed:
+            return
+        files, links, gitlinks = [], set(), set()
+        for entry in _git_entries(self.git_dir, "ls-tree", "-r", "-z", self.sha, warn=True):
+            meta, _, path = entry.partition("\t")
+            if meta.startswith("160000 "):
+                gitlinks.add(path)  # a checkout holds a directory there, not a file
+                continue
+            files.append(path)
+            if meta.startswith("120000 "):
+                links.add(path)
+        self._files, self._symlinks, self._gitlinks = sorted(files), links, gitlinks
+        self._listed = True
+
+    def gitlinks(self) -> set[str]:
+        """The paths the snapshot holds as submodules (mode 160000): directories in a checkout."""
+        self._list()
+        return set(self._gitlinks)
 
     def _dir_set(self) -> set[str]:
         if self._dirs is None:
             dirs: set[str] = set()
-            for path in self.files():
+            self._list()
+            for path in [*self._files, *self._gitlinks]:
                 dirs.update(str(parent) for parent in PurePosixPath(path).parents)
-            self._dirs = dirs
+            self._dirs = dirs | self._gitlinks  # a submodule is an empty directory in a checkout
         return self._dirs
 
     def is_file(self, path: str) -> bool:
@@ -231,9 +254,7 @@ class GitTree:
             return False
 
     def _links(self) -> set[str]:
-        if self._symlinks is None:
-            self._symlinks = {entry.split("\t", 1)[1] for entry in _git_entries(self.git_dir, "ls-tree", "-r", "-z", self.sha)
-                              if entry.startswith("120000 ")}
+        self._list()
         return self._symlinks
 
     def read_text(self, path: str) -> str:
@@ -556,7 +577,8 @@ def _git_entries(git_dir: Path, *args: str, check: bool = True, warn: bool = Fal
             out.append(entry.decode("utf-8"))
         except UnicodeDecodeError:
             if warn:
-                print(f"warning: skipped a file name that is not UTF-8: {entry!r}", file=sys.stderr)
+                name = entry.partition(b"\t")[2] if args[0] == "ls-tree" and "--name-only" not in args else entry
+                print(f"warning: skipped a file name that is not UTF-8: {name!r}", file=sys.stderr)
     return [e for e in out if e]
 
 

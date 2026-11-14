@@ -21,9 +21,10 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..project_markers import MAKEFILE_NAMES, PYTHON_MANIFESTS
-from ..source import RepoTree, SourceError
+from ..source import GitTree, RepoTree, SourceError
 from . import branches, workflows
 from .gitignore import GitIgnore, Rule
+from .held import held_dirs
 from .markdown import PYTHON_LANGS, SHELL_LANGS, STARLARK_LANGS, Fence, split
 from .rule_links import loaded_text, rule_link_targets
 
@@ -133,7 +134,12 @@ class Scan:
     def __post_init__(self) -> None:
         self.files = self.tree.files()
         self.file_set = set(self.files)
-        self.dir_set = {"."} | {posixpath.dirname(f) or "." for f in self.files}
+        self._rule_targets = rule_link_targets(self.tree, self.files, self.guidance_globs)
+        self._texts: dict[str, str] = {}
+        self.unread: dict[str, str] = {}  # path -> why it was not read (binary, too big, dangling link)
+        # a gitlink is a submodule whether or not `.gitmodules` declares it: its content is not held
+        self.submodules = self._submodules() + (sorted(self.tree.gitlinks()) if isinstance(self.tree, GitTree) else [])
+        self.dir_set = {"."} | {posixpath.dirname(f) or "." for f in self.files} | held_dirs(self.tree, self.submodules)
         for d in list(self.dir_set):
             while d not in (".", ""):
                 d = posixpath.dirname(d) or "."
@@ -141,12 +147,8 @@ class Scan:
         self.by_name: dict[str, list[str]] = {}  # basename -> files and directories
         for x in sorted(self.file_set | (self.dir_set - {"."})):
             self.by_name.setdefault(posixpath.basename(x), []).append(x)
-        self._rule_targets = rule_link_targets(self.tree, self.files, self.guidance_globs)
-        self._texts: dict[str, str] = {}
-        self.unread: dict[str, str] = {}  # path -> why it was not read (binary, too big, dangling link)
         self._words: set[str] | None = None
         self._cache: dict[str, Any] = {}  # adapter facts
-        self.submodules = self._submodules()
         url = (self.repo_url or "").removesuffix(".git").rstrip("/")
         self._own_link = re.compile(re.escape(url) + r"/(blob|tree)/(.+)") if url else None
         self._cd: list[str] | None = None  # directories a shell fence has `cd`-ed to; [] when not in the tree
@@ -316,7 +318,7 @@ class Scan:
         target = posixpath.normpath(rel).strip("/")
         if "/" not in target:
             hits = self._named(target, rel.endswith("/"))
-            if hits:
+            if hits and not all(self.submodule_of([h]) for h in hits):
                 return "ok_basename", f"bare name; {len(hits)} match(es), e.g. {hits[0]}"
             return "unresolved", "tried " + ", ".join(cands)
         if target.startswith(".."):
