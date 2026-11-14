@@ -465,6 +465,23 @@ def _reward_file_verdict(text: str) -> float:
     return reward
 
 
+# What docker says when the file is not there (v20+, older CLIs, podman); a daemon error says none.
+_CP_NO_FILE_RE = re.compile(r"could not find the file|no such container:path|no such file", re.I)
+
+
+def _check_reward_copy(pulled: process.Completed) -> None:
+    """Raise unless ``docker cp`` of ``reward.txt`` worked or found no file there.
+
+    A copy that failed or hung says nothing about the verifier, so it is not "no reward file".
+    """
+    if pulled.timed_out:
+        raise RuntimeError("docker cp of /logs/verifier/reward.txt timed out; see run.log")
+    if pulled.returncode != 0 and not _CP_NO_FILE_RE.search(pulled.stderr or ""):
+        raise RuntimeError(
+            f"docker cp of /logs/verifier/reward.txt failed (exit {pulled.returncode}); see run.log"
+        )
+
+
 def _parse_reward_text(text: str, *, reward_file: bool = False) -> float | None:
     """A reward from a ``reward.txt`` (``reward_file``) or from command output.
 

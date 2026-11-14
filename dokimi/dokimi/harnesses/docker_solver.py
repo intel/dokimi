@@ -71,7 +71,7 @@ from .agent_sandbox import (
     solver_cli_flags,
 )
 from .claude_json import _last_json_object, _parse_claude_json  # noqa: F401
-from .command import _exit_code_verdict, _reward_file_verdict
+from .command import _check_reward_copy, _exit_code_verdict, _reward_file_verdict
 from .container_agent import (AGENT_BIN, DOCKER_STEP_TIMEOUT, FILES_DIR, TASK_CONTAINER_HARDENING,
                               ContainerSandbox, Docker)
 from .models import HarnessResult, OperationRecord
@@ -645,8 +645,6 @@ class DockerSolverHarness:
             ["cp", f"{container}:/logs/verifier/reward.txt", str(reward_file)],
             log, check=False,
         )
-        if pulled.timed_out:  # not "no reward file": the exit code would pass a failing verifier
-            raise subprocess.TimeoutExpired(pulled.argv, DOCKER_STEP_TIMEOUT)
         if pulled.returncode == 0 and reward_file.is_file():
             return _reward_file_verdict(reward_file.read_text(encoding="utf-8", errors="replace"))
         if proc.returncode != 0:  # no verdict at all if the container is gone, not a 0
@@ -655,6 +653,7 @@ class DockerSolverHarness:
                 raise RuntimeError(f"task container {container} state inspect timed out at verify time; see run.log")
             if (getattr(running, "stdout", "") or "").strip() != "true":
                 raise RuntimeError(f"task container {container} is not running at verify time; see run.log")
+        _check_reward_copy(pulled)  # a failed or hung copy errors the cell: it is not "no reward file"
         return _exit_code_verdict(proc.returncode)
 
     def _plan(self, task: TaskSpec, record: Optional[Path] = None) -> NetworkPlan:

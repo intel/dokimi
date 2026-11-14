@@ -78,3 +78,39 @@ def test_docker_verify_a_reward_file_with_no_number_is_an_error(tmp_path, text, 
     # A reward file with no reward is no verdict, whatever the exit code (as in a command harness).
     with pytest.raises(RuntimeError, match="reward.txt has no reward"):
         harness._verify(task, "c1", out, log=io.StringIO())
+
+
+_NO_FILE = "Error response from daemon: Could not find the file /logs/verifier/reward.txt in container c1"
+
+
+@pytest.mark.parametrize(("stderr", "exit_code", "outcome"), [
+    (_NO_FILE, 1, 0.0),  # docker's own "no such file": still a verifier that wrote none
+    (_NO_FILE, 0, "wrote no /logs/verifier/reward.txt"),
+    ("Error response from daemon: connection refused", 0, r"docker cp .* failed \(exit 1\)"),
+    ("Error response from daemon: connection refused", 1, r"docker cp .* failed \(exit 1\)"),
+])
+def test_docker_verify_a_failed_reward_copy_is_not_a_missing_reward_file(
+        tmp_path, stderr, exit_code, outcome):
+    import io
+
+    from docker_cli_fake import DockerCLI, reply
+    from dokimi.harnesses.docker_solver import DockerSolverHarness
+
+    out = tmp_path / "o"
+    out.mkdir()
+    task = load_task(_harbor(tmp_path))
+
+    def answer(call):
+        if "-lc" in call.argv:
+            return reply(returncode=exit_code)
+        if call.argv[1] == "cp" and call.argv[2].endswith(":/logs/verifier/reward.txt"):
+            return reply(stderr=stderr, returncode=1)
+        return None
+
+    harness = DockerSolverHarness(harness_id="docker-oracle", mode="oracle",
+                                  runner=DockerCLI(reward="1.0", answer=answer))
+    if isinstance(outcome, float):
+        assert harness._verify(task, "c1", out, log=io.StringIO()) == outcome
+    else:
+        with pytest.raises(RuntimeError, match=outcome):
+            harness._verify(task, "c1", out, log=io.StringIO())
