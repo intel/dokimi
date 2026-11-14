@@ -181,3 +181,15 @@ def test_a_newline_ends_the_command_whose_words_a_rule_reads(text, rule):
     assert rule not in _rules(sec.command_findings(text, "trace"))
     # the same words on one line are one command, and the rule still sees them
     assert rule in _rules(sec.command_findings(text.replace("\r\n", " ").replace("\n", " "), "trace"))
+
+
+def test_a_cell_of_a_task_whose_name_starts_with_an_underscore_is_measured(tmp_path):
+    batch = tmp_path / "b"
+    _cell(batch, "_smoke", "guidance:none", 0, events=[_cmd("pytest")])
+    cell = _cell(batch, "_smoke", "skill", 0, events=[_cmd("rm -rf /")])
+    (batch / "_eval").mkdir()
+    (batch / "_eval" / "plan.json").write_text(json.dumps({"cells": sorted(p.name for p in batch.iterdir()
+                                                                            if p.name != "_eval")}), encoding="utf-8")
+    report = sec.scan_batch(batch, "guidance:none")
+    assert report["coverage"]["unfinished"] == [] and report["coverage"]["measured"] == 2
+    assert [c["findings"][0]["rule"] for c in report["cells"] if c["cell"] == cell.name] == ["destructive-delete"]

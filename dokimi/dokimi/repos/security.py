@@ -514,7 +514,8 @@ def cells(batch: Path) -> tuple[list[Path], dict[str, str]]:
     finished: list[Path] = []
     unfinished: dict[str, str] = {}
     unsupported: set[str] = set()
-    for child in sorted(p for p in batch.iterdir() if p.is_dir() and not p.name.startswith("_")):
+    # only `_eval` is the runner's: a task name may start with `_` (`_smoke__a__m__r1`)
+    for child in sorted(p for p in batch.iterdir() if p.is_dir() and p.name != "_eval"):
         if child.is_symlink():  # not followed: its target may be a host directory, so it is unfinished unread
             unfinished[child.name] = "cell directory is a symbolic link"
             continue
