@@ -616,6 +616,9 @@ def test_main_dump_writes_the_rendered_layout(tmp_path):
 
 
 def test_a_dict_value_in_a_parameter_is_dumped_in_sorted_key_order():
-    node = {"params": [{"key": "--x", "default": {"b": 1, "a": {"d": 2, "c": 3}}}],
+    node = {"params": [{"key": "--x", "default": {"b": 1, "a": {"d": 2, "c": 3}}},
+                       {"key": "--y", "default": [{"b": 1, "a": 2}]}],
             "path": "x", "subcommands": {}}
-    assert '{"key": "--x", "default": {"a": {"c": 3, "d": 2}, "b": 1}}' in cs.render_json(node)
+    text = cs.render_json(node)
+    assert '{"key": "--x", "default": {"a": {"c": 3, "d": 2}, "b": 1}}' in text
+    assert '{"key": "--y", "default": [{"a": 2, "b": 1}]}' in text
