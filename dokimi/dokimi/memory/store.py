@@ -125,7 +125,9 @@ def _entry(root: Path, path: Path, archived: bool) -> MemoryEntry:
     rel = path.relative_to(root).as_posix()
     try:
         text = path.read_text(encoding="utf-8-sig", errors="replace")
-    except OSError as exc:  # one unreadable file is a finding, not the end of the run
+    except OSError as exc:  # one unreadable topic is a finding; an unreadable index is bad input (exit 2)
+        if path == root / INDEX_NAME:
+            raise MemoryStoreError(f"{path}: unreadable: {exc.strerror or exc}") from None
         return MemoryEntry(rel, "", "", None, f"unreadable: {exc.strerror or exc}", archived)
     m = _FRONTMATTER.match(text)
     if not m:

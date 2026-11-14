@@ -35,4 +35,4 @@ No model call. Each finding has a rule, a severity, a file and a line:
 | `index-stray-separator` | note | `:,`, `,,` or a trailing `,` in an index line |
 
 Exit 0 when there is no `fail` (no `warn` either with `--fail-on warn`), 1 otherwise, 2 when the path is
-not a memory directory.
+not a memory directory or its `MEMORY.md` cannot be read.

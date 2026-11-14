@@ -188,6 +188,19 @@ def test_unreadable_file_is_a_finding(mem):
         bad.chmod(0o644)
 
 
+def test_unreadable_index_is_an_input_error(mem):
+    import os
+    index = mem / "MEMORY.md"
+    index.chmod(0)
+    try:
+        if os.access(index, os.R_OK):
+            pytest.skip("running as root: every file is readable")
+        out = _cli(str(mem), "--json")
+        assert out.returncode == 2 and json.loads(out.stdout)["error"]["code"] == "input"
+    finally:
+        index.chmod(0o644)
+
+
 def test_json_status_is_failed_on_a_fail(mem):
     (mem / "MEMORY.md").write_text("- [Gone](gone.md)\n")
     doc = json.loads(_cli(str(mem), "--json").stdout)
