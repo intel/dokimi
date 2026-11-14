@@ -180,6 +180,21 @@ def test_a_failing_cfg_fails_the_run_whichever_cfg_comes_after_it(tmp_path):
     assert res.returncode == 1, res.stdout + res.stderr
 
 
+def test_two_cfgs_with_one_basename_are_refused_before_any_run(tmp_path):
+    # both would write out/<name>.log and share one -metadir: exit 2, name the cfg, run nothing
+    for sub in ("before", "after"):
+        (tmp_path / sub).mkdir()
+        shutil.copy(FIXED, tmp_path / sub / "fixed.cfg")
+    (tmp_path / "tla2tools.jar").write_text("", encoding="utf-8")
+    env = {**os.environ, "TLA2TOOLS_JAR": str(tmp_path / "tla2tools.jar"), "OUT": str(tmp_path / "out"),
+           "JAVA": str(_fake_java(tmp_path)), "FAKE_TLC_LOG": str(tmp_path / "tlc.log")}
+    cfgs = [str(tmp_path / "before" / "fixed.cfg"), str(tmp_path / "after" / "fixed.cfg")]
+    res = subprocess.run(["bash", str(RUN), *cfgs], env=env, capture_output=True, text=True, check=False)
+    assert res.returncode == 2, res.stdout + res.stderr
+    assert "fixed.cfg" in res.stderr
+    assert not (tmp_path / "tlc.log").exists()
+
+
 def test_a_cfg_without_an_expect_line_is_not_ok(tmp_path):
     # no EXPECT line gives no expected verdict: the cfg is not ok, even when TLC passes it
     java = tmp_path / "fake-java"

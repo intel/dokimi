@@ -21,6 +21,13 @@ fail=0
 [ $# -gt 0 ] || set -- "$here"/cfg/*.cfg
 cfgs=()
 for cfg in "$@"; do cfgs+=("$(abspath "$cfg")"); done
+# two cfgs with one basename would share a log and a metadir: refuse before any check runs
+seen=$'\n'
+for cfg in "${cfgs[@]}"; do
+    name=$(basename "$cfg" .cfg)
+    case $seen in *$'\n'"$name"$'\n'*) echo "run.sh: two cfgs are named $name.cfg; their log and states would collide" >&2; exit 2 ;; esac
+    seen="$seen$name"$'\n'
+done
 for cfg in "${cfgs[@]}"; do
     name=$(basename "$cfg" .cfg)
     expect=$(sed -n 's/^\\\* EXPECT: //p' "$cfg")
