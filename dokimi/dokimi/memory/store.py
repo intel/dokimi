@@ -22,6 +22,9 @@ ARCHIVE_DIR = "archive"
 _FRONTMATTER = re.compile(r"\A---[ \t]*\r?\n(?:(.*?)\r?\n)??---[ \t]*(?:\r?\n|\Z)", re.S)
 _MD_LINK = re.compile(r"\]\(\s*(<[^>\n]+>|[^)\s]+)(?:\s+(?:\"[^\"]*\"|'[^']*'))?\s*\)")
 _WIKILINK = re.compile(r"\[\[([^\]\n]+)\]\]")
+_CODE_SPAN = re.compile(r"`[^`\n]*`")
+_HTML_COMMENT = re.compile(r"<!--.*?-->", re.S)
+_FENCE = re.compile(r" {0,3}(`{3,}|~{3,})")
 
 
 class MemoryStoreError(ValueError):
@@ -82,12 +85,31 @@ class MemoryStore:
         if self.index is None:
             return []
         out = []
-        for n, line in enumerate(self.index.text.split("\n"), 1):
+        for n, line in enumerate(prose_lines(self.index.text), 1):
             for m in _MD_LINK.finditer(line):
                 target = unquote(m.group(1).strip("<>").split("#", 1)[0])
                 if target and "://" not in target and not target.startswith("mailto:"):
                     out.append((n, target))
         return out
+
+
+def prose_lines(text: str) -> list[str]:
+    """The lines of ``text`` with HTML comments, fenced blocks and code spans blanked: no link lives there."""
+    text = _HTML_COMMENT.sub(lambda m: re.sub(r"[^\n]", " ", m.group(0)), text)
+    out: list[str] = []
+    fence = ""
+    for line in text.split("\n"):
+        m = _FENCE.match(line)
+        if fence:
+            if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence) and not line[m.end():].strip():
+                fence = ""
+            out.append("")
+        elif m:
+            fence = m.group(1)
+            out.append("")
+        else:
+            out.append(_CODE_SPAN.sub(lambda c: " " * len(c.group(0)), line))
+    return out
 
 
 def slug(name: str) -> str:

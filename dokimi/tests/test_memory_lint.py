@@ -68,6 +68,13 @@ def test_bad_frontmatter_value_is_a_finding_and_the_run_goes_on(mem, value):
     assert ("frontmatter-invalid", "warn", "b.md") in rules and ("index-orphan", "warn", "c.md") in rules
 
 
+def test_links_in_code_and_comments_are_not_index_links(mem):
+    (mem / "MEMORY.md").write_text("- [A](a.md) [B](b.md), write `[x](span.md)`\n<!-- [old](c1.md)\n"
+                                   "[old](c2.md) -->\n```md\n[x](fenced.md)\n~~~\n```\n- [Gone](gone.md)\n")
+    dead = [(f.line, f.message) for f in lint(read_claude_memory(mem)) if f.rule == "index-dead-link"]
+    assert dead == [(8, "links gone.md, which is not a file")]
+
+
 def test_wikilink_folds_dash_and_underscore(mem):
     (mem / "a.md").write_text(_entry("a", body="[[B]] [[project-a]] [[nobody]]"))
     (mem / "project_a.md").write_text(_entry("pa"))
