@@ -79,7 +79,14 @@ declares `guidance.imports` (`claude-code`; it is null for `codex` and `copilot`
 > from outside the tree, for a repository that has not added it yet. `scan` and `reach`
 > need only `guidance`; given neither a manifest in the tree nor `--manifest-file`, they
 > check the default globs `**/AGENTS.md`, `**/CLAUDE.md`, `.github/copilot-instructions.md`
-> and `.github/instructions/*.md`, and say so on stderr.
+> and `.github/instructions/*.md`, and say so on stderr. There `scan` also checks the
+> Markdown files Claude Code loads with them, which `repo budget` lists as `rule` and
+> `import` for the `claude-code` profile: `.claude/rules/**/*.md` and the files a CLAUDE.md
+> `@` import chain reaches. It also checks a committed `CLAUDE.local.md` that nothing imports (a gitignored one is not
+> in the tree), because Claude Code loads it with the project's guidance. Every rule file is checked, loaded or not:
+> a rule whose `paths` pattern is invalid is counted lazy by `repo budget`, and a stale path in it is still stale.
+> A rule the tree cannot list (a link to the rules directory, a root `.claude` link, a submodule at `.claude` or under
+> `.claude/rules`, a dangling link) makes the scan `incomplete`. They are named by path, so a tree without them gets no warning.
 >
 > Slice S5 adds the repository-mode runner: workspace preparation (§3), the
 > containers of §1.1, the `repo_grade.v1` schema (§4.2), the self-check (§4.3)
@@ -2190,8 +2197,8 @@ standard-library one the repository's Python lacks (`import imp` on 3.13; the na
 those the pinned mypy's typeshed lists), and with mypy a submodule of a package the repository interpreter finds as a regular package (`json.nosuch`, `yaml.nosuch`; not a relative import, nor a namespace package such as `google`). A module the environment has without types
 (no `py.typed` or stubs) is `unresolved` too: mypy reads it as `Any`. A real error in the same fence still
 fails it. `pip install
-dokimi` does not install mypy: the tested pin is `requirements-test.txt`
-(`mypy==2.4.0`), and a missing mypy exits 2. basedpyright must be on `PATH` and
+dokimi` does not install mypy: the tested pin is the one in
+`requirements-test.txt`, and a missing mypy exits 2. basedpyright must be on `PATH` and
 is recorded with the version it reports, not pinned by dokimi. The report's
 `typecheck` block names the tool, its version, the interpreter (`null`: unknown) and the counts
 (`fences`, `checked`, `fail`, `unknown`, `syntax`); it is `null` without the

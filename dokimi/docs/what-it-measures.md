@@ -46,7 +46,7 @@ something the model knew) or **still missing** (stated but not picked up).
 `text:` takes any file, so the same analysis runs on a documentation page or
 a repository's `AGENTS.md`. The output is per (artifact, model) pair, with
 shortening candidates (`skill shorten`) and a check that the artifact can be
-selected among competitors at all (`novelty routing`). See
+selected among competitors at all (`skill routing`). See
 [`skill-novelty.md`](skill-novelty.md).
 
 ## 3. Repositories: scan the guidance, then measure agents working in them

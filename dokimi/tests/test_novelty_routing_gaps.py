@@ -63,24 +63,24 @@ def _no_client(monkeypatch):
 
 def test_a_field_emptied_by_name_conflicts_says_so_and_suggests_a_subdir(tmp_path):
     root = _ponytail(tmp_path / "ponytail")
-    args = _parse("novelty", "routing", "--catalog", str(root),
-                  "--artifact", f"skill:{root}/skills/review", "--queries-from-headings")
+    args = _parse("skill", "routing", f"skill:{root}/skills/review", "--against",
+                  str(root), "--queries-from-headings")
     with pytest.raises(InputError) as exc:
         args.func(args)
     message = str(exc.value)
     assert "different content" in message
     assert "`audit`" in message
-    assert f"--catalog {root}/skills" in message
-    assert f"--catalog {root}/.openclaw/skills" in message
+    assert f"--against {root}/skills" in message
+    assert f"--against {root}/.openclaw/skills" in message
     assert "--keep-copies-under" in message
 
 
 def test_keep_copies_under_keeps_the_copy_under_that_path_for_a_same_name_conflict(tmp_path, capsys):
     root = _ponytail(tmp_path / "ponytail")
     out = tmp_path / "routing.json"
-    args = _parse("novelty", "routing", "--catalog", str(root), "--keep-copies-under", "skills",
-                  "--artifact", f"skill:{root}/skills/review", "--queries-from-headings",
-                  "--out", str(out))
+    args = _parse("skill", "routing", f"skill:{root}/skills/review", "--against", str(root), "--keep-copies-under",
+                  "skills", "--queries-from-headings", "--out",
+                  str(out))
     args.func(args)
     payload = json.loads(out.read_text(encoding="utf-8"))
     assert payload["field"]["competitors"] == ["audit"]
@@ -92,9 +92,9 @@ def test_keep_copies_under_keeps_the_copy_under_that_path_for_a_same_name_confli
 def test_keep_copies_under_keeps_the_copy_under_the_other_directory_when_asked(tmp_path):
     root = _ponytail(tmp_path / "ponytail")
     out = tmp_path / "routing.json"
-    args = _parse("novelty", "routing", "--catalog", str(root), "--keep-copies-under", ".openclaw/skills",
-                  "--artifact", f"skill:{root}/skills/review", "--queries-from-headings",
-                  "--out", str(out))
+    args = _parse("skill", "routing", f"skill:{root}/skills/review", "--against", str(root), "--keep-copies-under",
+                  ".openclaw/skills", "--queries-from-headings", "--out",
+                  str(out))
     args.func(args)
     payload = json.loads(out.read_text(encoding="utf-8"))
     assert payload["field"]["competitors"] == ["audit"]
@@ -113,16 +113,16 @@ def test_keep_copies_under_puts_the_kept_copy_in_the_field_not_the_other(tmp_pat
 def test_keep_copies_under_that_matches_no_copy_leaves_the_name_a_conflict(tmp_path):
     root = _ponytail(tmp_path / "ponytail")
     (root / "docs").mkdir()
-    args = _parse("novelty", "routing", "--catalog", str(root), "--keep-copies-under", "docs",
-                  "--artifact", f"skill:{root}/skills/review", "--queries-from-headings")
+    args = _parse("skill", "routing", f"skill:{root}/skills/review", "--against", str(root), "--keep-copies-under",
+                  "docs", "--queries-from-headings")
     with pytest.raises(InputError, match="copies with different content"):
         args.func(args)
 
 
 @pytest.mark.parametrize("value, match", [
     ("", "is empty"),
-    ("nope", "is not a directory under --catalog"),
-    ("../outside", "leaves --catalog"),
+    ("nope", "is not a directory under the catalog root"),
+    ("../outside", "leaves the catalog root"),
     ("ABSOLUTE", "is an absolute path"),
 ])
 def test_keep_copies_under_must_name_a_directory_inside_the_catalog(tmp_path, value, match):
@@ -130,8 +130,8 @@ def test_keep_copies_under_must_name_a_directory_inside_the_catalog(tmp_path, va
     (tmp_path / "outside").mkdir()
     if value == "ABSOLUTE":
         value = str(root / "skills")
-    args = _parse("novelty", "routing", "--catalog", str(root), "--keep-copies-under", value,
-                  "--artifact", f"skill:{root}/skills/review", "--queries-from-headings")
+    args = _parse("skill", "routing", f"skill:{root}/skills/review", "--against", str(root), "--keep-copies-under",
+                  value, "--queries-from-headings")
     with pytest.raises(InputError, match=f"--keep-copies-under .*{match}"):
         args.func(args)
 
@@ -139,8 +139,8 @@ def test_keep_copies_under_must_name_a_directory_inside_the_catalog(tmp_path, va
 def test_keep_copies_under_a_symlink_loop_is_a_usage_error_not_a_traceback(tmp_path):
     root = _ponytail(tmp_path / "ponytail")
     (root / "loop").symlink_to("loop")
-    args = _parse("novelty", "routing", "--catalog", str(root), "--keep-copies-under", "loop",
-                  "--artifact", f"skill:{root}/skills/review", "--queries-from-headings")
+    args = _parse("skill", "routing", f"skill:{root}/skills/review", "--against", str(root), "--keep-copies-under",
+                  "loop", "--queries-from-headings")
     # Python 3.11 and 3.12 name the loop; 3.13 resolves it to a path that is not a directory.
     with pytest.raises(InputError, match="--keep-copies-under .*(symlink loop|not a directory)"):
         args.func(args)
@@ -148,24 +148,23 @@ def test_keep_copies_under_a_symlink_loop_is_a_usage_error_not_a_traceback(tmp_p
 
 def test_keep_copies_under_needs_a_catalog(tmp_path):
     _skill(tmp_path, "skills", "review", "review a change for correctness")
-    args = _parse("novelty", "routing", "--keep-copies-under", "skills",
-                  "--artifact", f"skill:{tmp_path}/skills/review", "--queries-from-headings")
-    with pytest.raises(InputError, match="--keep-copies-under needs --catalog"):
+    args = _parse("skill", "routing", f"skill:{tmp_path}/skills/review", "--keep-copies-under",
+                  "skills", "--queries-from-headings")
+    with pytest.raises(InputError, match="--keep-copies-under needs --against"):
         args.func(args)
 
 
 def test_the_catalog_subdir_the_error_names_routes_the_field(tmp_path, capsys):
     root = _ponytail(tmp_path / "ponytail")
     artifact = f"skill:{root}/skills/review"
-    args = _parse("novelty", "routing", "--catalog", str(root), "--artifact", artifact,
-                  "--queries-from-headings")
+    args = _parse("skill", "routing", artifact, "--against", str(root), "--queries-from-headings")
     with pytest.raises(InputError) as exc:
         args.func(args)
     suggested = f"{root}/skills"
-    assert f"--catalog {suggested}" in str(exc.value)
+    assert f"--against {suggested}" in str(exc.value)
     # the suggested command is the one that routes: the copies under that directory are the field
-    args = _parse("novelty", "routing", "--catalog", suggested, "--artifact", artifact,
-                  "--queries-from-headings", "--out", str(tmp_path / "routing.json"))
+    args = _parse("skill", "routing", artifact, "--against", suggested, "--queries-from-headings",
+                  "--out", str(tmp_path / "routing.json"))
     args.func(args)
     assert "1 competitors" in capsys.readouterr().err
 
@@ -178,15 +177,15 @@ def test_the_hint_for_a_copy_at_the_catalog_root_names_the_root_not_a_dot_path(t
         encoding="utf-8")
     _skill(root, "skills", "review", "review a change, under skills")
     _skill(root, "skills", "cache", "cache slow lookups")
-    args = _parse("novelty", "routing", "--catalog", str(root),
-                  "--artifact", f"skill:{root}/skills/cache", "--queries-from-headings")
+    args = _parse("skill", "routing", f"skill:{root}/skills/cache", "--against",
+                  str(root), "--queries-from-headings")
     with pytest.raises(InputError) as exc:
         args.func(args)
     message = str(exc.value)
-    assert f"--catalog {root}/." not in message
+    assert f"--against {root}/." not in message
     assert "the catalog root" in message
     assert "--keep-copies-under skills" in message
-    assert f"--catalog {root}/skills" in message
+    assert f"--against {root}/skills" in message
     # the warning that names the conflict says how to keep one copy
     assert "--keep-copies-under" in capsys.readouterr().err
 
@@ -199,8 +198,8 @@ def test_all_vs_all_does_not_name_a_skill_the_field_still_has_as_left_out(tmp_pa
     (off / "SKILL.md").write_text("---\nname: cache\ndescription: cache another way\n"
                                   "disable-model-invocation: true\n---\n\n# B\n", encoding="utf-8")
     queries = _queries(tmp_path, {"cache": ["cache my lookups"]})
-    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
-                  "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"))
+    args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries),
+                  "--out", str(tmp_path / "o.json"))
     with pytest.raises(InputError, match="at least two skills") as exc:
         args.func(args)
     # the disabled copy is left out, but the enabled one is still in the field: not "left out"
@@ -217,8 +216,8 @@ def test_all_vs_all_says_a_queried_skill_failed_to_load_and_why(tmp_path):
                                      encoding="utf-8")
     queries = _queries(tmp_path, {"cache": ["cache my lookups"], "queue": ["queue my jobs"],
                                   "broken": ["break my build"]})
-    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
-                  "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"))
+    args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries),
+                  "--out", str(tmp_path / "o.json"))
     with pytest.raises(InputError) as exc:
         args.func(args)
     message = str(exc.value)
@@ -236,8 +235,8 @@ def test_all_vs_all_drops_the_queries_of_a_spec_error_skill_and_runs_the_rest(tm
     queries = _queries(tmp_path, {"cache": ["cache my lookups"], "queue": ["queue my jobs"],
                                   "db_tools": ["tune my database", "index my tables"]})
     out = tmp_path / "o.json"
-    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
-                  "--queries-by-skill", str(queries), "--out", str(out))
+    args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries),
+                  "--out", str(out))
     args.func(args)
     err = capsys.readouterr().err
     assert "WARNING" in err and "`db_tools`" in err and "--include-invalid" in err
@@ -262,8 +261,8 @@ def test_all_vs_all_names_the_flag_that_keeps_each_dropped_skill(tmp_path, capsy
     _skill(root / "plugins", "x", "queue", "a different queue skill")
     queries = _queries(tmp_path, {"cache": ["cache my lookups"], "queue": ["queue my jobs"],
                                   "old": ["an old helper"]})
-    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
-                  "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"))
+    args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries),
+                  "--out", str(tmp_path / "o.json"))
     args.func(args)
     err = capsys.readouterr().err
     assert "`old`" in err and "--include-disabled" in err
@@ -276,8 +275,8 @@ def test_all_vs_all_refuses_only_when_no_query_remains(tmp_path):
     _skill(root, "skills", "queue", "queue background jobs")
     _misnamed(root, "skills", "db_tools")
     queries = _queries(tmp_path, {"db_tools": ["tune my database"]})
-    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
-                  "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"))
+    args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries),
+                  "--out", str(tmp_path / "o.json"))
     with pytest.raises(InputError, match="no skill in the field has queries.*--include-invalid"):
         args.func(args)
     assert not (tmp_path / "o.json").exists()
@@ -297,8 +296,8 @@ def test_all_vs_all_refuses_a_queried_name_whose_other_copy_failed_to_load(tmp_p
         "---\nname: review\ndescription: review a change\ndisable-model-invocation: true\n---\n# B\n",
         encoding="utf-8")
     queries = _queries(tmp_path, {"cache": ["cache my lookups"], "review": ["review my change"]})
-    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
-                  "--queries-by-skill", str(queries), "--estimate-only")
+    args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries),
+                  "--estimate-only")
     with pytest.raises(InputError, match="`review` is a catalog skill that failed to load"):
         args.func(args)
 
@@ -308,8 +307,8 @@ def test_all_vs_all_still_refuses_a_name_no_rule_left_out(tmp_path):
     _skill(root, "skills", "cache", "cache slow lookups")
     _skill(root, "skills", "queue", "queue background jobs")
     queries = _queries(tmp_path, {"cache": ["cache my lookups"], "cahce": ["typo"]})
-    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
-                  "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"))
+    args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries),
+                  "--out", str(tmp_path / "o.json"))
     with pytest.raises(InputError, match="not in the field: `cahce`"):
         args.func(args)
 
@@ -329,9 +328,8 @@ def test_all_vs_all_estimate_prices_each_call_and_sends_nothing(tmp_path, capsys
     queries = _queries(tmp_path, {"cache": ["cache my lookups", "the a of"],
                                   "queue": ["queue my jobs"], "db": ["index a table"]})
     out = tmp_path / "o.json"
-    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
-                  "--queries-by-skill", str(queries), "--model", "m", "--repeats", "2",
-                  "--estimate-only")
+    args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries),
+                  "--model", "m", "--reps", "2", "--estimate-only")
     args.func(args)
     estimate = json.loads(capsys.readouterr().out)
     assert set(estimate) == {"estimate_only", "artifact", "model", "provider", "n_candidates",
@@ -359,8 +357,8 @@ def test_all_vs_all_estimate_counts_one_call_per_query_of_each_skill_over_the_wh
     _skill(root, "skills", "cache", "cache slow lookups")
     _skill(root, "skills", "queue", "queue background jobs")
     queries = _queries(tmp_path, {"cache": ["cache my lookups"], "queue": ["queue my jobs"]})
-    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
-                  "--queries-by-skill", str(queries), "--model", "m", "--estimate-only")
+    args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries),
+                  "--model", "m", "--estimate-only")
     args.func(args)
     estimate = json.loads(capsys.readouterr().out)
     assert estimate["n_calls"] == 2 and len(seen) == 2
@@ -373,8 +371,8 @@ def test_all_vs_all_estimate_without_a_model_is_lexical_and_free(tmp_path, capsy
     _skill(root, "skills", "cache", "cache slow lookups")
     _skill(root, "skills", "queue", "queue background jobs")
     queries = _queries(tmp_path, {"cache": ["cache my lookups"]})
-    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
-                  "--queries-by-skill", str(queries), "--estimate-only")
+    args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries),
+                  "--estimate-only")
     args.func(args)
     estimate = json.loads(capsys.readouterr().out)
     assert (estimate["n_calls"], estimate["input_tokens"], estimate["expected_usd"]) == (0, 0, 0.0)
@@ -387,13 +385,13 @@ def test_all_vs_all_estimate_drops_left_out_queries_like_the_run(tmp_path, capsy
     _skill(root, "skills", "queue", "queue background jobs")
     _misnamed(root, "skills", "db_tools")
     queries = _queries(tmp_path, {"db_tools": ["tune my database"]})
-    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
-                  "--queries-by-skill", str(queries), "--estimate-only")
+    args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries),
+                  "--estimate-only")
     with pytest.raises(InputError, match="no skill in the field has queries"):
         args.func(args)
     queries = _queries(tmp_path, {"cache": ["cache my lookups"], "db_tools": ["x"]})
-    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
-                  "--queries-by-skill", str(queries), "--estimate-only")
+    args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries),
+                  "--estimate-only")
     args.func(args)
     assert json.loads(capsys.readouterr().out)["n_queries"] == 1
 
@@ -403,8 +401,8 @@ def test_a_skill_directory_directly_under_the_catalog_is_kept_by_its_own_name(tm
     _skill(root, ".", "review", "review a change, copied beside the skills")
     _skill(root, "skills", "review", "review a change, under skills")
     _skill(root, "skills", "cache", "cache slow lookups")
-    args = _parse("novelty", "routing", "--catalog", str(root),
-                  "--artifact", f"skill:{root}/skills/cache", "--queries-from-headings")
+    args = _parse("skill", "routing", f"skill:{root}/skills/cache", "--against",
+                  str(root), "--queries-from-headings")
     with pytest.raises(InputError) as exc:
         args.func(args)
     message = str(exc.value)
@@ -412,7 +410,7 @@ def test_a_skill_directory_directly_under_the_catalog_is_kept_by_its_own_name(tm
     # --catalog picks it. It is not a copy at the catalog root, so no dedupe advice.
     assert "--keep-copies-under review" in message
     assert "the catalog root" not in message and "dedupe" not in message
-    assert f"--catalog {root}/." not in message
+    assert f"--against {root}/." not in message
 
 
 def test_the_suggested_keep_for_a_skill_directory_beneath_the_catalog_routes_the_field(tmp_path):
@@ -421,9 +419,9 @@ def test_the_suggested_keep_for_a_skill_directory_beneath_the_catalog_routes_the
     _skill(root, "skills", "review", "review a change, under skills")
     _skill(root, "skills", "cache", "cache slow lookups")
     out = tmp_path / "routing.json"
-    args = _parse("novelty", "routing", "--catalog", str(root), "--keep-copies-under", "review",
-                  "--artifact", f"skill:{root}/skills/cache", "--queries-from-headings",
-                  "--out", str(out))
+    args = _parse("skill", "routing", f"skill:{root}/skills/cache", "--against", str(root), "--keep-copies-under",
+                  "review", "--queries-from-headings", "--out",
+                  str(out))
     args.func(args)
     payload = json.loads(out.read_text(encoding="utf-8"))
     assert payload["field"]["competitors"] == ["review"]
@@ -437,8 +435,9 @@ def test_all_vs_all_estimate_refuses_a_competitor_named_twice_as_the_run_does(tm
     _skill(root, "skills", "queue", "queue background jobs")
     queries = _queries(tmp_path, {"cache": ["cache my lookups"]})
     cache = f"skill:{root}/skills/cache"
-    base = ["novelty", "routing", "--all-vs-all", "--competitors", cache, cache,
-            "--queries-by-skill", str(queries)]
+    (tmp_path / "none").mkdir()
+    base = ["catalog", "routing", str(tmp_path / "none"), "--competitors", cache, cache, "--queries-by-skill",
+            str(queries)]
     # The estimate prices a run only when the run can start: both refuse the same field.
     estimate = _parse(*base, "--estimate-only")
     with pytest.raises(InputError, match="more than once"):
@@ -452,17 +451,17 @@ def test_all_vs_all_estimate_refuses_a_competitor_named_twice_as_the_run_does(tm
 # Gap 4: every missing required flag of --all-vs-all is named in one error.
 
 def test_all_vs_all_names_every_missing_required_flag_in_one_error(tmp_path):
-    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(tmp_path))
+    args = _parse("catalog", "routing", str(tmp_path))
     with pytest.raises(InputError) as exc:
         args.func(args)
     message = str(exc.value)
     assert "--queries-by-skill" in message and "--out" in message
-    assert message.count("--all-vs-all needs") == 1
+    assert message.count("catalog routing needs") == 1
 
 
 def _hint_message(root, artifact):
-    args = _parse("novelty", "routing", "--catalog", str(root),
-                  "--artifact", f"skill:{root}/{artifact}", "--queries-from-headings")
+    args = _parse("skill", "routing", f"skill:{root}/{artifact}", "--against",
+                  str(root), "--queries-from-headings")
     with pytest.raises(InputError) as exc:
         args.func(args)
     return str(exc.value)
@@ -476,10 +475,10 @@ def test_the_hint_for_nested_copies_suggests_only_the_directory_that_holds_one_c
     _skill(root, "other", "cache", "cache slow lookups")
     message = _hint_message(root, "other/cache")
     assert "--keep-copies-under skills/legacy" in message
-    assert f"--catalog {root}/skills/legacy" in message
+    assert f"--against {root}/skills/legacy" in message
     # skills holds both copies, so it keeps the conflict: not suggested
     assert "--keep-copies-under skills " not in message and "--keep-copies-under skills." not in message
-    assert f"--catalog {root}/skills " not in message and f"--catalog {root}/skills)" not in message
+    assert f"--against {root}/skills " not in message and f"--against {root}/skills)" not in message
 
 
 def test_the_hint_gives_the_ways_out_per_name_when_two_names_conflict(tmp_path):
@@ -520,8 +519,8 @@ def test_dropped_queries_counts_a_skill_dropped_for_two_reasons_once(tmp_path, c
     queries = _queries(tmp_path, {"cache": ["cache my lookups"], "queue": ["queue my jobs"],
                                   "Both": ["one", "two", "three"]})
     out = tmp_path / "o.json"
-    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
-                  "--queries-by-skill", str(queries), "--out", str(out))
+    args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries),
+                  "--out", str(out))
     args.func(args)
     records = json.loads(out.read_text(encoding="utf-8"))["field"]["dropped_queries"]
     assert [r["skill"] for r in records] == ["Both"]
@@ -538,8 +537,8 @@ def test_all_vs_all_refuses_a_queried_name_with_one_broken_and_one_loaded_copy(t
     (root / "q" / "review" / "SKILL.md").write_text("---\nname: review\n---\n# B\n",
                                                     encoding="utf-8")
     queries = _queries(tmp_path, {"cache": ["cache my lookups"], "review": ["review my change"]})
-    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
-                  "--queries-by-skill", str(queries), "--estimate-only")
+    args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries),
+                  "--estimate-only")
     with pytest.raises(InputError, match="copy that failed to load beside one that loaded.*`review`"):
         args.func(args)
 
@@ -555,8 +554,8 @@ def test_no_query_left_names_only_the_queried_skills_the_field_left_out(tmp_path
     (off / "SKILL.md").write_text("---\nname: off\ndescription: an off skill\n"
                                   "disable-model-invocation: true\n---\n\n# B\n", encoding="utf-8")
     queries = _queries(tmp_path, {"db_tools": ["tune my database"]})
-    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
-                  "--queries-by-skill", str(queries), "--estimate-only")
+    args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries),
+                  "--estimate-only")
     with pytest.raises(InputError, match="no skill in the field has queries") as exc:
         args.func(args)
     assert "`db_tools`" in str(exc.value) and "`off`" not in str(exc.value)
@@ -564,10 +563,10 @@ def test_no_query_left_names_only_the_queried_skills_the_field_left_out(tmp_path
 
 def test_a_missing_catalog_is_named_before_the_keep_copies_under_value(tmp_path):
     # Thread: PRRT_kwDOVBg7g860Libj
-    args = _parse("novelty", "routing", "--catalog", str(tmp_path / "typo"),
-                  "--keep-copies-under", "skills", "--all-vs-all",
-                  "--queries-by-skill", str(_queries(tmp_path, {"a": ["q"]})), "--estimate-only")
-    with pytest.raises(InputError, match="--catalog is not a directory"):
+    args = _parse("catalog", "routing", str(tmp_path / "typo"), "--keep-copies-under",
+                  "skills", "--queries-by-skill", str(_queries(tmp_path, {"a": ["q"]})),
+                  "--estimate-only")
+    with pytest.raises(InputError, match="ROOT is not a directory"):
         args.func(args)
 
 
@@ -583,9 +582,9 @@ def test_all_vs_all_routes_an_explicit_competitor_beside_a_broken_catalog_copy(t
     _broken(root, ".openclaw/skills", "review")
     _skill(tmp_path / "ext", "", "review", "review a change for bugs")
     queries = _queries(tmp_path, {"cache": ["cache my lookups"], "review": ["review my change"]})
-    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
-                  "--competitors", f"skill:{tmp_path}/ext/review/SKILL.md",
-                  "--queries-by-skill", str(queries), "--estimate-only")
+    args = _parse("catalog", "routing", str(root), "--competitors", f"skill:{tmp_path}/ext/review/SKILL.md",
+                  "--queries-by-skill", str(queries),
+                  "--estimate-only")
     args.func(args)
     estimate = json.loads(capsys.readouterr().out)
     assert estimate["n_candidates"] == 2 and estimate["n_queries"] == 2
@@ -593,8 +592,8 @@ def test_all_vs_all_routes_an_explicit_competitor_beside_a_broken_catalog_copy(t
 
 def _keep_run(root, tmp_path, *keep):
     queries = _queries(tmp_path, {"cache": ["cache my lookups"], "review": ["review my change"]})
-    return _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root), *keep,
-                  "--queries-by-skill", str(queries), "--estimate-only")
+    return _parse("catalog", "routing", str(root), *keep, "--queries-by-skill", str(queries),
+                  "--estimate-only")
 
 
 def test_keep_copies_under_leaves_out_a_broken_copy_outside_it(tmp_path, capsys):
