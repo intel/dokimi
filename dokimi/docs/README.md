@@ -333,6 +333,9 @@ code.
 - [run-consistency.md](run-consistency.md) — repeated runs of one task with
   `cli.py trace consistency`: result stability (pass^k), path stability
   (tool mix, order, actions, strategies), process-contract conformance.
+- [behavioural-security.md](behavioural-security.md) — unsafe agent behaviour in
+  a `repo run` batch with `cli.py repo security`: commands, secret reads, canary
+  leaks, each arm against the baseline. No LLM call.
 
 - [what-it-measures.md](what-it-measures.md) — the three things Dokimi measures:
   enabled vs disabled arms, novel vs known content, and repositories.

@@ -53,7 +53,7 @@ def _evals(with_score, without_score, n=3):
 
 
 def test_paired_test_refuses_deltas_beyond_the_float_range():
-    with pytest.raises(OverflowError, match="deltas too large"):
+    with pytest.raises(OverflowError, match="float range"):
         stats.paired_test([BIG] * 4, [-BIG] * 4)
 
 
@@ -61,6 +61,11 @@ def test_paired_test_of_a_delta_just_inside_the_range_still_runs():
     result = stats.paired_test([BIG] * 4, [BIG - 1e300] * 4)
     assert result["delta_mean"] == pytest.approx(1e300, rel=1e-9)
     assert stats._deltas([BIG], [-9e306]) == [BIG + 9e306]
+
+
+def test_paired_test_refuses_integers_whose_exact_difference_leaves_the_range():
+    with pytest.raises(OverflowError, match="float range"):
+        stats.paired_test([10 ** 308] * 4, [-(10 ** 308)] * 4)
 
 
 @pytest.mark.parametrize("bad", [math.nan, math.inf])

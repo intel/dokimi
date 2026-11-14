@@ -48,22 +48,27 @@ def exit_partial(summary: str, path: Path, note: str = "") -> NoReturn:
     raise SystemExit(f"{summary}; the partial result is in {path}{note}")
 
 
+def response_cache_active() -> bool:
+    """Whether the calls this run paid for are in the response cache (``DOKIMI_RESPONSE_CACHE``)."""
+    from dokimi.caching import response_cache_dir, response_store_failed
+
+    try:
+        cache = response_cache_dir()
+    except ValueError:  # the variable names a file: no call was cached
+        return False
+    # Every paid call has gone through the cache by now: a dir missing or read-only kept none,
+    # and one whose write failed (a full disk) may have lost some.
+    return cache is not None and os.access(cache, os.W_OK) and not response_store_failed(cache)
+
+
 def replay_hint(reason: str = "spend_cap") -> str:
     """How a rerun gets the calls this run paid for back at $0: the response cache, which must
     have been set on the run that paid (every novelty call goes through it). A higher
     ``--max-usd`` is advised only for a ``spend_cap`` stop: a call with no price is refused
     whatever the cap, so that stop is cured by a price or by dropping the cap."""
-    from dokimi.caching import RESPONSE_CACHE_ENV, response_cache_dir, response_store_failed
+    from dokimi.caching import RESPONSE_CACHE_ENV
 
-    try:
-        cache = response_cache_dir()
-    except ValueError:  # the variable names a file: no call was cached
-        cache = None
-    # Every paid call has gone through the cache by now: a dir missing or read-only kept none,
-    # and one whose write failed (a full disk) may have lost some.
-    active = (cache is not None and os.access(cache, os.W_OK)
-              and not response_store_failed(cache))
-    if active:
+    if response_cache_active():
         rerun = ("a higher --max-usd" if reason == "spend_cap"
                  else "the model priced, or without --max-usd,")
         return (f". Rerun with {rerun} and the same {RESPONSE_CACHE_ENV}: the calls "

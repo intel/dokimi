@@ -74,6 +74,13 @@ def test_snapshot_records_soft_key_not_hard(tmp_path):
     assert snap["gate"]["soft"]["passed"] is False
 
 
+def test_snapshot_records_disabled_gate_as_not_passed(tmp_path):
+    _, snap = _run(tmp_path, {}, False)
+    assert snap["gate"]["soft"] == {"enabled": False, "passed": None, "min_score": 0.0}
+    _, snap = _run(tmp_path, {"soft_gate": {"enabled": False, "min_score": 0.99}}, False)
+    assert snap["gate"]["soft"] == {"enabled": False, "passed": None, "min_score": 0.99}
+
+
 def test_runner_passes_soft_kind(tmp_path):
     sp = tmp_path / "s.yaml"
     sp.write_text(yaml.safe_dump(SPEC))

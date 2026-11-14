@@ -11,7 +11,7 @@ from typing import List, Dict, Any, Optional
 import httpx
 
 from . import MCPClient, MCPConnectionError
-from .utils import strip_html, score_chunk, split_paragraphs
+from .utils import read_cache_text, strip_html, score_chunk, split_paragraphs, write_cache_text
 
 logger = logging.getLogger(__name__)
 
@@ -138,10 +138,14 @@ class URLClient(MCPClient):
         """Fetch URL (with optional caching). Returns cleaned plain text."""
         # Try cache first
         if self.cache_dir:
-            cache_file = self.cache_dir / f"{self._cache_key()}.txt"
-            if cache_file.exists():
+            # The size limit is in the name: a page cut at one limit is not whole at another.
+            cache_file = self.cache_dir / f"{self._cache_key()}-{self.max_page_size_chars}.txt"
+            cached = read_cache_text(cache_file)
+            if cached is not None and cached.strip():
                 logger.info(f"URLClient: cache hit for {self.url}")
-                return cache_file.read_text(encoding="utf-8")
+                return cached
+            if cached is not None:
+                logger.warning(f"URLClient: ignoring empty cache entry {cache_file}; fetching again")
 
         logger.info(f"URLClient: fetching {self.url}")
         try:
@@ -165,9 +169,8 @@ class URLClient(MCPClient):
         if "html" in content_type or text.lstrip().startswith("<"):
             text = strip_html(text)
 
-        # Persist to cache
-        if self.cache_dir:
-            cache_file.write_text(text, encoding="utf-8")
+        # Persist to cache; a page with no text is not worth replaying
+        if self.cache_dir and text.strip() and write_cache_text(cache_file, text):
             logger.info(f"URLClient: cached {self.url} → {cache_file}")
 
         return text

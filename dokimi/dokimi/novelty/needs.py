@@ -190,10 +190,9 @@ def graph_from_reply(name: str, description: str, data: dict) -> NeedGraph:
     graph = NeedGraph(artifact_name=name, description=description)
     raw_nodes = data.get("nodes")
     nodes: list = raw_nodes if isinstance(raw_nodes, list) else []
-    # Every original id, rejected rows included, is reserved before any repair, so a repaired id
-    # never takes a later node's id or the id an edge to a rejected node names.
-    reserved = {str(row.get("id") or f"n{index}")
-                for index, row in enumerate(nodes, start=1) if isinstance(row, dict)}
+    # Every explicit id, rejected rows included, is reserved before any repair, so a repaired or
+    # default id never takes a later node's id or the id an edge to a rejected node names.
+    reserved = {str(row["id"]) for row in nodes if isinstance(row, dict) and row.get("id")}
     rows = [(index, row, text) for index, row in enumerate(nodes, start=1)
             if (text := _text(row)) is not None]
     taken: set[str] = set()
@@ -201,7 +200,8 @@ def graph_from_reply(name: str, description: str, data: dict) -> NeedGraph:
         node_type = _label(row.get("type", "intent"))
         path_class = _label(row.get("path_class", "core"))
         graph.nodes.append(NeedNode(
-            id=_unique_id(str(row.get("id") or f"n{index}"), index, taken, reserved),
+            id=_unique_id(str(row.get("id") or f"n{index}"), index, taken, reserved,
+                          explicit=bool(row.get("id"))),
             text=text,
             type=node_type if node_type in NODE_TYPES else "intent",
             path_class=path_class if path_class in PATH_CLASSES else "supporting",
@@ -222,13 +222,14 @@ def _label(value) -> str:
     return str(value).strip().lower().replace("-", "_").replace(" ", "_")
 
 
-def _unique_id(node_id: str, index: int, taken: set[str], reserved: set[str]) -> str:
+def _unique_id(node_id: str, index: int, taken: set[str], reserved: set[str], *,
+               explicit: bool) -> str:
     """The model's id, or a fresh ``n<index>[-k]`` when it repeats one: ``needs`` labels need one node per id.
 
-    A fresh id is never one of the ``reserved`` original ids of the graph, so an edge that names
-    that original id still lands on the node that owns it."""
+    A fresh or default (not ``explicit``) id is never one of the ``reserved`` explicit ids of the
+    graph, so an edge that names that explicit id still lands on the node that owns it."""
     candidate, k = node_id, 1
-    while candidate in taken or (candidate != node_id and candidate in reserved):
+    while candidate in taken or ((candidate != node_id or not explicit) and candidate in reserved):
         candidate, k = f"n{index}-{k}", k + 1
     taken.add(candidate)
     return candidate
