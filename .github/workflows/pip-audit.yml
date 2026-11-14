@@ -79,7 +79,7 @@ jobs:
         run: |
           title="pip-audit: new advisory against the dependency locks"
           body="The daily pip-audit run failed: $RUN_URL. Bump the pin in a lock PR, or document the advisory in dokimi/SECURITY.md, dokimi/osv-scanner.toml and .github/workflows/pip-audit.yml."
-          num=$(gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[0].number')
+          num=$(gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[0].number // empty')
           if [ -n "$num" ]; then
             gh issue comment "$num" --body "Still failing: $RUN_URL"
           else
