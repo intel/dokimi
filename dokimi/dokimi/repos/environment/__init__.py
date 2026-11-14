@@ -19,6 +19,7 @@ from typing import Any
 
 from dokimi.repos.code_index import CodeIndex
 from dokimi.repos.l0.core import Scan
+from dokimi.repos.project_markers import MAKEFILE_NAMES
 from dokimi.repos.source import RepoTree, SourceError
 
 from .checks import KINDS, detect_checks, package_json_unreadable
@@ -98,14 +99,13 @@ def _finding(rule: str, why: str, path: str | None = None, confidence: str = "hi
 
 
 _RUNNER_FILES = frozenset({"justfile", "Justfile", "Taskfile.yml", "Taskfile.yaml", "Taskfile.dist.yml", "meson.build"})
-_ROOT_MAKEFILES = ("GNUmakefile", "makefile", "Makefile")
 
 
 def _runner_file_unread(scan: Scan) -> bool:
     """Whether a test runner may be defined in a file the checks pass does not parse."""
     if any(posixpath.basename(f) in _RUNNER_FILES for f in scan.files):
         return True
-    return any(mk in scan.file_set and re.search(r"^-?include\s", scan.text(mk), re.M) for mk in _ROOT_MAKEFILES)
+    return any(mk in scan.file_set and re.search(r"^-?include\s", scan.text(mk), re.M) for mk in MAKEFILE_NAMES)
 
 
 def _read_sizes(tree: RepoTree, files: list[str], size_of: dict[str, int] | None) -> dict[str, int] | None:

@@ -5,53 +5,18 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Literal
 
+from dokimi.gate.verdict import Check, Verdict
 
 Severity = Literal["OK", "WARN", "CRITICAL"]
-
-
-@dataclass
-class RegressionResult:
-    """Single metric regression analysis."""
-
-    metric: str
-    delta: float
-    severity: Severity
-    threshold_warn: float
-    threshold_critical: float
-
-
-@dataclass
-class RegressionSummary:
-    """Overall regression analysis."""
-
-    score_regression: RegressionResult
-    metric_regressions: list[RegressionResult]
-
-    @property
-    def has_warnings(self) -> bool:
-        """Any WARN-level regressions."""
-        return any(
-            r.severity == "WARN"
-            for r in [self.score_regression] + self.metric_regressions
-        )
-
-    @property
-    def has_critical(self) -> bool:
-        """Any CRITICAL-level regressions."""
-        return any(
-            r.severity == "CRITICAL"
-            for r in [self.score_regression] + self.metric_regressions
-        )
 
 
 def _classify_regression(
     delta: float, warn_threshold: float, critical_threshold: float
 ) -> Severity:
     """Classify a negative delta by threshold.
-    
+
     Delta is expected to be negative for regressions.
     Thresholds are positive (how much drop is allowed).
     """
@@ -65,10 +30,31 @@ def _classify_regression(
     return "OK"
 
 
-def detect_regressions(diff: dict, spec: dict) -> RegressionSummary:
+def _regression_check(
+    name: str, delta: float, warn: float, critical: float, *, measured: bool = True
+) -> Check:
+    """One metric as a graded check: ``level`` is its OK/WARN/CRITICAL grade, ``threshold`` the
+    ``(warn, critical)`` drops it is graded against. Regressions report: a CRITICAL one is a fail-severity
+    check, which ``compare`` does not act on.
+    ``measured`` is False when the diff did not carry the metric."""
+    level = _classify_regression(delta, warn, critical)
+    return Check(
+        name=name,
+        passed=level == "OK",
+        value=delta,
+        threshold=(warn, critical),
+        message=f"{name} delta {delta:+.4f} graded {level}",
+        # CRITICAL is a fail-severity check, so the verdict's status and flags read it as FAIL
+        severity="fail" if level == "CRITICAL" else "warn",
+        level=level,
+        measured=measured,
+    )
+
+
+def detect_regressions(diff: dict, spec: dict) -> Verdict:
     """Analyze compare diff for regressions.
-    
-    Returns RegressionSummary with classified deltas.
+
+    Returns a Verdict whose first check is ``score``, followed by one check per metric present in the diff.
     """
     thresholds = spec.get("thresholds", {}).get("regressions", {})
     score_warn = float(thresholds.get("score_drop_warn", 0.03))
@@ -76,31 +62,12 @@ def detect_regressions(diff: dict, spec: dict) -> RegressionSummary:
     metric_warn = float(thresholds.get("metric_drop_warn", 0.05))
     metric_crit = float(thresholds.get("metric_drop_critical", 0.12))
 
-    score_delta = float(diff.get("score", 0.0))
-    score_result = RegressionResult(
-        metric="score",
-        delta=score_delta,
-        severity=_classify_regression(score_delta, score_warn, score_crit),
-        threshold_warn=score_warn,
-        threshold_critical=score_crit,
-    )
+    checks = [_regression_check("score", float(diff.get("score", 0.0)), score_warn, score_crit,
+                                measured="score" in diff)]
 
     metric_names = ["coverage", "freshness_lite", "readability", "example_pass_rate"]
-    metric_results = []
     for name in metric_names:
         if name in diff:
-            delta = float(diff[name])
-            metric_results.append(
-                RegressionResult(
-                    metric=name,
-                    delta=delta,
-                    severity=_classify_regression(delta, metric_warn, metric_crit),
-                    threshold_warn=metric_warn,
-                    threshold_critical=metric_crit,
-                )
-            )
+            checks.append(_regression_check(name, float(diff[name]), metric_warn, metric_crit))
 
-    return RegressionSummary(
-        score_regression=score_result,
-        metric_regressions=metric_results,
-    )
+    return Verdict(checks=checks)
