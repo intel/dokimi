@@ -47,6 +47,12 @@ def _relative_links(path: Path) -> list[str]:
     ]
 
 
+def test_sources_cover_nested_pages_and_both_readmes():
+    assert DOCS / "features" / "README.md" in SOURCES
+    assert PROJECT / "README.md" in SOURCES
+    assert PROJECT.parent / "README.md" in SOURCES
+
+
 def test_every_relative_doc_link_resolves():
     broken: list[str] = []
     for path in SOURCES:
