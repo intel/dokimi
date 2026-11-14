@@ -9,4 +9,4 @@ SPDX-License-Identifier: Apache-2.0
 
 ### Changed
 
-- **The need graph keeps one node per id and reads labels case-blind** — in `eval graph` and `skill novelty analyze` alike, a repeated node id from the model gets a fresh `n<index>-k` id, and `"Rare-Critical"` or `"Core"` count as `rare_critical` and `core` instead of falling back to `supporting` (#331). Novelty scores can change for the same model reply (a cached reply replays differently), so re-run earlier `skill novelty analyze` results before comparing them.
+- **The need graph keeps one node per id and reads labels case-blind** — in `eval graph` and `skill novelty analyze` alike, a repeated node id from the model gets a fresh `n<index>-k` id, a node with no id never takes another node's explicit id, and `"Rare-Critical"` or `"Core"` count as `rare_critical` and `core` instead of falling back to `supporting` (#331). Novelty scores can change for the same model reply (a cached reply replays differently), so re-run earlier `skill novelty analyze` results before comparing them.
