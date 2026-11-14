@@ -94,6 +94,8 @@ def _run_single_library(entry, output_dir: str, model: str, provider: str, judge
 def _key_error(provider: str) -> str | None:
     """Why *provider* has no key to send, or ``None``: the key is read as the run reads it."""
     var = credential_env_var(provider)
+    if var is None:  # off the table: litellm reads the vendor's own variable, unknown here
+        return None
     try:
         if resolve_api_key(provider):
             return None
@@ -526,6 +528,8 @@ def register(sub, positive_int) -> None:
     bench_pre_p.add_argument("--judge-model", default=JUDGE_MODEL_FOR_PROVIDER, dest="judge_model",
                              help=JUDGE_MODEL_HELP)
     bench_pre_p.add_argument("--judge-provider", default=DEFAULT_JUDGE_PROVIDER, dest="judge_provider", choices=JUDGE_PROVIDERS)
+    # Preflight makes no LLM call, but it plans the run that `benchmark run` makes, so it refuses the judge that run refuses.
+    bench_pre_p.set_defaults(judge=True)
     bench_pre_p.add_argument("--registry", default=None, help="Path to custom products.yaml")
     bench_pre_p.add_argument("--max-tokens", type=positive_int, default=DEFAULT_MAX_TOKENS_PER_QUESTION, dest="max_tokens")
     bench_pre_p.add_argument("--concurrency", type=positive_int, default=DEFAULT_CONCURRENCY, dest="concurrency")

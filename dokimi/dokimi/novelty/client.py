@@ -18,15 +18,18 @@ from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from typing import Any
 
-from dokimi.defaults import (
-    BEDROCK_MODEL_IDS,
-    DEFAULT_GENERATOR_MODEL,
-    DEFAULT_GENERATOR_PROVIDER,
-    DEFAULT_JUDGE_MODEL,
-    DEFAULT_JUDGE_PROVIDER,
-)
-from dokimi.metrics.usage import UsageRecord
 from dokimi.llm_cli import backend as cli_backend
+from dokimi.metrics.usage import UsageRecord
+from dokimi import judge_rule
+
+
+def default_judge(model: str | None, provider: str | None = None,
+                  answerer_provider: str | None = None) -> tuple[str, str]:
+    """The one default-judge rule (:func:`dokimi.judge_rule.default_judge`), under the ``model`` keyword it had here.
+
+    ``commands/novelty`` imports it from this module, and callers used ``default_judge(model=...)``.
+    """
+    return judge_rule.default_judge(model, provider, answerer_provider)
 
 # A transport takes (prompt, system) and returns (text, usage).
 Transport = Callable[[str, "str | None"], "tuple[str, UsageRecord | None]"]
@@ -382,45 +385,3 @@ def warn_extractor_judge(extractor_model: str, judge: LLMClient,
               f"{remedy} (docs/skill-novelty.md, Choosing the extractor and the judge)",
               file=sys.stderr)
     return relation
-
-
-def default_judge(model: str, provider: str | None = None,
-                  answerer_provider: str | None = None) -> tuple[str, str]:
-    """A (model, provider) judge that is not the answerer, when the caller did not name one.
-
-    The default judge, unless it is the model under measurement (by ``same_model``, so a
-    Bedrock ``us.anthropic.claude-...`` id counts too); then the default generator,
-    which is of the other family. With ``provider`` (an explicit ``--judge-provider``)
-    only a default that runs there is taken: its own provider, or Bedrock for a name in
-    ``BEDROCK_MODEL_IDS``. Pairing the provider with a model of another provider would
-    send e.g. ``bedrock/gpt-6.1-sol``, so with no such default this raises instead.
-    A CLI ``answerer_provider`` with no ``provider`` judges on the same CLI.
-
-    Raises:
-        ValueError: ``provider`` runs no default judge other than ``model``.
-    """
-    from dokimi.llm_cli import backend
-    from dokimi.utils import same_model
-
-    if provider is None and answerer_provider is not None and backend(answerer_provider) is not None:
-        provider = answerer_provider
-    # Hard-coded for claude-cli; a second CLI backend (codex-cli) needs its own alias list here.
-    if provider == "claude-cli":
-        # The CLI's aliases: the first one not of the answerer's family, so the judge is never the answerer.
-        # The model itself is compared, not a bare name: ``myorg/sonnet`` is not the CLI's sonnet.
-        for alias in ("opus", "sonnet", "haiku"):
-            if not same_model(alias, model):
-                return alias, provider
-        raise ValueError(f"judge provider {provider}: no judge of another family than {model}; "
-                         "pass --judge-model as well")
-    candidates = [(m, p) for m, p in ((DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER),
-                                      (DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER))
-                  if m != model and not same_model(model, m)]
-    if provider is None:
-        return candidates[0]
-    for m, p in candidates:
-        if p == provider or (provider == "amazon-bedrock" and m in BEDROCK_MODEL_IDS):
-            return m, provider
-    raise ValueError(
-        f"--judge-provider {provider}: no default judge runs there other than the model "
-        f"under measurement ({model}); pass --judge-model as well")
