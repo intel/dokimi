@@ -27,7 +27,9 @@ checks.
   for, or a test of new behaviour that cites no doc line: ask which line it
   traces to. Code built on a guess at an unclear requirement is a defect too;
   the question belongs in the PR's "Open questions". `python
-  dokimi/scripts/list_new_error_paths.py --base origin/main` lists the sites.
+  dokimi/scripts/list_new_error_paths.py --base origin/main` lists the sites of
+  a `raise`, a `sys.exit` or `SystemExit` call, or a literal `exit_code=N`;
+  refusals through `parser.error` or `return N` are not listed.
 
 ## Patterns that hide a defect
 
