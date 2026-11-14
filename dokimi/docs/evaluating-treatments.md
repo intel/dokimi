@@ -755,19 +755,22 @@ python cli.py eval headroom run1/arms.json run2/arms.json run3/arms.json \
   left out of this test and listed in the item's `unscored_arms`; the no-skill arm alone at zero
   is not a floor.
 - **provisional**: fewer than `--min-reps` runs scored the item with its no-skill arm (the
-  reps are those runs). Default 3. A file gives each item zero or one rep (zero when its
+  reps are those runs, less the cached repeats described below). Default 3. A file gives each item zero or one rep (zero when its
   no-skill arm was not scored in that file), so one file alone makes every item provisional at the
-  default of 3; the reps of several files add up.
+  default of 3; the reps of several files add up (a file whose no-skill answer is a cached copy of
+  another file's scored one adds none, see below).
 
 A run is one file. A file repeated on the command line, or holding the same JSON content as
 an earlier one (whitespace and key order do not count), is skipped with a note, so it does
 not add a rep. Numbers are compared as numbers: `95.0` and `95` are the same content. A question id repeated within one
 file is an error (exit 2): it would count as two runs.
 
-Cached replays are not detected. With `DOKIMI_RESPONSE_CACHE` set, a repeated `arms run` replays
-the same answers and judgments, but its file has a new `generated_at` and so counts as a fresh rep.
-Collect repeats with the cache off when the reps feed `eval headroom`. Recording replay provenance
-per answer, so headroom can exclude cached repeats, is tracked in #370.
+A cached replay is not a fresh rep. With `DOKIMI_RESPONSE_CACHE` set, a repeated `arms run` replays
+the same answers and judgments, and the file marks each answer the cache served with `replayed: true`.
+A replayed answer whose text a scored fresh answer of another input file has for the same item and arm
+is left out of the reps and the means. Replays of one text that no scored fresh answer has count as one
+rep at the mean of their scores, whatever the order of the files. The summary's `replayed_repeats` counts the scores of
+replays that added no rep (a replay with no score is not one), and a note under the table gives it. Files written before the flag carry none: collect their repeats with the cache off.
 
 The table always goes to stdout: the flagged and provisional items, with the no-skill arm
 in its own column, a note naming any arm no run scored, and the counts. The JSON goes to
@@ -787,6 +790,48 @@ baselines are not checked. A threshold out of range exits 2: `--ceiling` in [1e-
 no-skill arm, or when `--out` is one of the input files (or its `.rejected` sibling), or names a directory or a path ending in a separator. Scores are read as the 0-100
 aggregate divided by 100 and are not range-checked. Only arms runs are read. The flags are descriptive: they do not
 change any score or any gate.
+
+## Skill coverage: which checks name each requirement
+
+`eval skill-coverage` lists the checkable requirements a SKILL.md states (triggers, out of
+scope, must hold, success criteria, failure modes) and names, for each one, the eval checks
+that would fail if a run violated it. Requirements no check names are printed as **candidate
+checks** to write. The eval set is either an `evals.json`, a skill directory, or a tasks root;
+a check is an evals row (by id), a `test_*` function in a test file under a task's `tests/` (any
+subfolder), or a `test_*` method of a `Test*` class (named `Class::method`). A task check's text is the
+module-level code of the whole `tests/` folder (constants, helpers, imports, and `conftest.py`), then the
+class header (decorators, bases, keywords) and the rest of the class body for a method, then the test itself. So two tests with the same body but different constants,
+helpers or fixtures are two checks. They are named `test_x#1`, `test_x#2`, in path order. That context is in every check of the folder, read or not, so a
+helper one file defines can decide an assertion in another.
+
+```bash
+python cli.py eval skill-coverage skills/demo/SKILL.md evals/evals.json \
+    --model anthropic/claude-sonnet-5-5 --max-usd 2 --out skill_coverage.json
+```
+
+- Two model calls: one lists the requirements, one maps them to the checks. Both go through
+  the novelty client. `--max-usd` is checked before each call: once spend has reached the cap, the
+  next call is refused and the run exits 1 with nothing written. The call that crosses the cap is
+  already paid, so spend can exceed the cap by that one call. A call whose price is unknown also
+  stops the run (exit 1).
+- The map is LLM-estimated. On a prototype's labelled calibration set of 88 items (not shipped),
+  item precision was about .92 and recall 1.0, and link precision about .70, with the model and the
+  check text of that time. Neither figure was re-measured on the current check text, and the report
+  does not carry them: its label says only that the map is LLM-estimated. Nothing reads the output
+  as a score or a gate, and the command exits 0 whenever the map was made.
+- The checks go to the mapping call in one prompt, capped at **120,000 characters**. The cap is checked
+  before the first paid call: an eval set over it exits 2 with a message to map a smaller set. The
+  folder's module code is repeated in each of its checks, so a large `tests/` folder with many tests
+  reaches the cap sooner.
+- A check name the model invents is dropped and counted (`check_names_dropped`); requirements
+  past 80 are cut and counted (`requirements_dropped`). A listed row that is not a requirement (not an
+  object, an unknown section, or no text) is counted separately (`requirements_unusable`), not as a cut.
+- This is not `eval coverage`. That command checks the `needs` labels of a need graph against
+  the eval set's structure. This one maps requirements of the skill's text to checks, so the
+  two can disagree; neither reads the other's output.
+- `--out` writes a `skill_coverage.v1` artifact (`dokimi runs show` reads it). A bad reply from
+  the model, or a SKILL.md or evals set that cannot be read, exits 1 or 2 respectively. An `--out` that
+  would overwrite an input or cannot be written, and an empty eval set, exit 2 before any paid call.
 
 ## Leak gate and split lock: is the candidate skill carrying the answers?
 
@@ -847,7 +892,7 @@ python cli.py eval leak skills/candidate questions.json --split split.json \
   id on it blocks the run.
 
 The table goes to stdout. The `leak.v1` artifact goes to `--out` only. Exit 0 is a pass, 1 is
-blocked (a leak, a changed split, a test item given to the proposer) or inconclusive (an item
+blocked (a leak, a changed split, a test item given to the proposer), 3 is inconclusive (an item
 could not be checked, such as an answer shorter than 8 words after the allowlist, or no item
 could), and 2 is an input error (an unreadable skill or question set, a malformed split, lock
 or proposer list, or an unwritable `--out`). `--lock` needs `--split`; a proposer list needs

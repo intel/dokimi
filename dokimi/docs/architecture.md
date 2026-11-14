@@ -315,7 +315,7 @@ next release.
   Code loads on the first read in that subdirectory, is not counted; and imports past the profile's `guidance.import_max_depth`,
   four hops for Claude Code, which warn naming what was skipped). It is too high by whatever the
   harness cuts from the skill listing: the listing is charged in full, and the harness cuts it past
-  its listing budget. `--out` and `--json` write the inventory as a `repo_budget.v1` artifact.
+  its listing budget. `--out` writes the inventory as a `repo_budget.v1` artifact; `--json` prints `cli_output.v1` with the artifact under `data`.
 - `dokimi/repos/static.py` — the `repo_static.v1` schema: what the
   repository's own `static` entry point writes, so its checks can be merged
   into L0.

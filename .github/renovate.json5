@@ -96,6 +96,31 @@
       versioningTemplate: "regex:^(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)-(?<build>\\d+)$",
     },
     {
+      // The py-rattler and PyYAML conda-lock.yml installs to solve ci/conda-lock/.
+      customType: "regex",
+      managerFilePatterns: ["/^\\.github/workflows/conda-lock\\.yml$/"],
+      matchStrings: ["\"(?<depName>[A-Za-z0-9._-]+) ==(?<currentValue>\\d[^\" ]*)\""],
+      datasourceTemplate: "pypi",
+    },
+    {
+      // The Miniforge release intel-ci.yml's jobs install, all in one PR;
+      // tags carry a build number (26.7.2-0), as micromamba's do.
+      customType: "regex",
+      managerFilePatterns: ["/^\\.github/workflows/intel-ci\\.yml$/"],
+      matchStrings: ["miniforge-version: '?(?<currentValue>\\d+\\.\\d+\\.\\d+-\\d+)'?"],
+      depNameTemplate: "conda-forge/miniforge",
+      datasourceTemplate: "github-releases",
+      versioningTemplate: "regex:^(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)-(?<build>\\d+)$",
+    },
+    {
+      // The conda-build intel-ci.yml installs into the conda base, from conda-forge.
+      customType: "regex",
+      managerFilePatterns: ["/^\\.github/workflows/intel-ci\\.yml$/"],
+      matchStrings: ["\"conda-build ==(?<currentValue>\\d[^\" ]*)\""],
+      depNameTemplate: "conda-forge/conda-build",
+      datasourceTemplate: "conda",
+    },
+    {
       // The exact pins in ci/config.yml's test list ("mypy ==2.4.0") must equal
       // requirements-test.txt (tests/test_intel_ci.py), so they move in the same PR.
       customType: "regex",

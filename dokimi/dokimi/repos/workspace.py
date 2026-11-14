@@ -49,7 +49,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from dokimi import process
-from dokimi.process_io import path_text
+from dokimi.process_io import exact_path_text
 
 from .arms import ArmError, Skill, resolve_skills, tree_sha256
 from .bases import _patch_paths
@@ -635,10 +635,11 @@ def _guidance_at(git_dir: Path, manifest: RepoManifest,
     eval_dir = manifest.run_paths()[0]
     listing = _run_proc(["git", "-C", str(git_dir), "ls-tree", "-r", "-z", "--full-tree", sha], env=_git_env(SNAPSHOT_AUTHOR))
     entries = {}
-    for entry in filter(None, listing.nul_fields()):
-        info, _, path = entry.partition("\t")
-        mode, kind, oid = info.split()
-        if kind == "blob":
+    for entry in filter(None, listing.stdout_bytes.split(b"\0")):
+        info, _, raw_path = entry.partition(b"\t")
+        mode, kind, oid = info.decode("ascii").split()
+        # a name Windows cannot decode would take the key of the real file its replacement characters spell
+        if kind == "blob" and (path := exact_path_text(raw_path)) is not None:
             entries[path] = (mode, oid)
     found = sorted(p for p in entries if not _is_within(p, eval_dir)
                    and any(match_glob(g, p) for g in manifest.guidance_globs))
@@ -659,7 +660,9 @@ def _link_chain(git_dir: Path, entries: dict[str, tuple[str, str]], path: str, s
         if mode != "120000":
             break
         blob = _run_proc(["git", "-C", str(git_dir), "cat-file", "blob", oid], env=_git_env(SNAPSHOT_AUTHOR))
-        dest = path_text(blob.stdout_bytes)  # as the ls-tree entries: a byte that is not UTF-8 stays one
+        dest = exact_path_text(blob.stdout_bytes)  # as the ls-tree entries are keyed
+        if dest is None:  # no entry is keyed by a name Windows cannot decode, so the link reaches no file
+            raise PrepError(f"guidance {path} at {sha[:12]} links to a name that is not UTF-8")
         target = posixpath.normpath(posixpath.join(posixpath.dirname(target), dest))
         if dest.startswith("/") or target == ".." or target.startswith("../"):
             raise PrepError(f"guidance {path} at {sha[:12]} links out of the tree ({dest})")

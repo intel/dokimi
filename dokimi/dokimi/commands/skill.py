@@ -32,7 +32,7 @@ def cmd_skill_check(args: argparse.Namespace) -> None:
     cmd_catalog_scan(argparse.Namespace(
         root=args.root, kind="skills", strict=args.strict, format=args.format,
         tasks_subdir="evaluation/harbor/tasks", per_skill=False, skip_nested=False,
-        jsonl=None, jobs=None, resume=False, ignore=None, only=args.skill))
+        jsonl=None, jobs=None, resume=False, online=False, ignore=None, only=args.skill))
 
 
 def register_check(skill_sub) -> None:
@@ -45,7 +45,9 @@ def register_check(skill_sub) -> None:
                               "A skill that fails to load may be named differently")
     check_p.add_argument("--root", required=True, help="Local checkout the skill is under")
     check_p.add_argument("--strict", action="store_true",
-                         help="Exit 1 on a spec error of the skill as well as on one that does not load")
+                         help="Exit 1 on a spec error of the skill as well as on one that does not load, "
+                              "and on a skill that grants unrestricted Bash and has a pipe-to-shell or "
+                              "permission-bypass-flag finding")
     check_p.add_argument("--format", choices=["text", "json"], default="text",
                          help="text: one line for the skill; json: the catalog check's row for it")
     check_p.set_defaults(func=cmd_skill_check)

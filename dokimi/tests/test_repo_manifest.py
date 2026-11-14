@@ -437,7 +437,7 @@ def _run_cli(argv: list[str]) -> None:
 def test_repo_validate_cli(tmp_path, capsys):
     root = _repo(tmp_path)
     _run_cli(["repo", "validate", str(root), "--manifest", "dev/evals/repo-eval.yaml", "--json"])
-    out = json.loads(capsys.readouterr().out)
+    out = json.loads(capsys.readouterr().out)["data"]
     assert out["ok"] is True and out["tasks"]["count"] == 2
 
     _task(root, "bad", id="other")
@@ -469,7 +469,7 @@ def test_repo_validate_out_writes_the_report(tmp_path, capsys):
     assert "tasks:" in capsys.readouterr().out  # the summary still prints
 
     _run_cli([*argv, "--json"])
-    assert json.loads(capsys.readouterr().out) == written
+    assert json.loads(capsys.readouterr().out)["data"] == written
 
     with refusal() as exc:
         _run_cli([*argv[:-1], str(tmp_path / "no" / "dir" / "v.json")])
@@ -494,7 +494,7 @@ def test_repo_fetch_cli_json(tmp_path, capsys, monkeypatch):
     git_dir = tmp_path / "bare.git"
     monkeypatch.setattr("dokimi.repos.open_source", lambda source, cache: GitTree(git_dir, sha))
     _run_cli(["repo", "fetch", "https://example.invalid/r.git@main", "--json"])
-    assert json.loads(capsys.readouterr().out) == {"sha": sha, "git_dir": str(git_dir)}
+    assert json.loads(capsys.readouterr().out)["data"] == {"sha": sha, "git_dir": str(git_dir)}
     _run_cli(["repo", "fetch", "https://example.invalid/r.git@main"])
     assert capsys.readouterr().out == f"{sha}\t{git_dir}\n"
 
@@ -625,7 +625,7 @@ def test_scan_without_a_manifest_checks_the_default_guidance(tmp_path, capsys):
     args.func(args)
     captured = capsys.readouterr()
     assert "no .agent-eval/repo-eval.yaml" in captured.err
-    payload = json.loads(captured.out)
+    payload = json.loads(captured.out)["data"]
     assert payload["repo"]["id"] == "plain"
     assert set(payload["files"]) == {"AGENTS.md", "src/CLAUDE.md"}
     assert payload["counts"]["fail"] == 1      # src/missing.py
