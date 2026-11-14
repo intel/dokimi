@@ -46,8 +46,8 @@ def checked_delta(treatment: float, baseline: float, error: type[Exception] = Ov
     return delta
 
 
-def check_sum_range(values: Sequence[float], error: type[Exception] = OverflowError) -> None:
-    """Raise ``error`` when finite ``values`` have a sum of magnitudes beyond the float range.
+def check_sum_range(values: Sequence[float], error: type[Exception] = OverflowError, where: str = "") -> None:
+    """Raise ``error`` when finite ``values`` have a sum of magnitudes beyond the float range; ``where`` leads the message.
 
     Such values can sum to ``inf`` at one point and back to a finite total at another, so no order of
     addition is safe for the sign patterns of a sign-flip test: they are refused.
@@ -57,12 +57,12 @@ def check_sum_range(values: Sequence[float], error: type[Exception] = OverflowEr
     except OverflowError:  # an integer sum too large for a float: ``isfinite`` cannot read it
         refused = not _has_non_finite_float(*values)
     if refused:
-        raise error("the sum of the magnitudes of the values leaves the float range")
+        raise error(f"{where}{': ' if where else ''}the sum of the magnitudes of the values leaves the float range")
 
 
-def checked_mean(values: Sequence[float], error: type[Exception] = OverflowError) -> float:
+def checked_mean(values: Sequence[float], error: type[Exception] = OverflowError, where: str = "") -> float:
     """``sum(values) / len(values)`` after :func:`check_sum_range`."""
-    check_sum_range(values, error)
+    check_sum_range(values, error, where)
     try:
         return sum(values) / len(values)
     except OverflowError:  # an inf or NaN beside an integer too large for a float: the non-finite floats decide (summing finite ones first could overflow and cancel them)

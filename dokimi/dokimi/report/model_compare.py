@@ -264,7 +264,7 @@ def pool_replicate_scores(
         merged = dict(rows[0])
         for field in ("with_docs", "without_docs", "delta"):
             vals = [r[field] for r in rows if r.get(field) is not None]
-            merged[field] = (sum(vals) / len(vals)) if vals else None
+            merged[field] = finite_delta.checked_mean(vals, InputError, f"question '{qid}'") if vals else None
         merged["n_replicates"] = len(rows)
         pooled.append(merged)
     return pooled
