@@ -855,8 +855,8 @@ between repeats keeps its picks but is left out of `noise`. The lexical arm is c
 Treat a `partial` file as a prefix of the run, not a measurement of the whole field: the skills
 and queries reached first are over-represented. To finish, raise `--max-usd` and rerun with
 `DOKIMI_RESPONSE_CACHE` set (it must also have been set on the capped run), which replays the
-calls already paid for at no cost. `skill shorten` still writes nothing when the cap stops it;
-`atoms`, `probe` and `analyze` keep the calls they made as a partial result.
+calls already paid for at no cost. `skill shorten` still writes nothing when the cap stops it
+(it keeps its verdicts in `--cache-dir`, below); `atoms`, `probe` and `analyze` keep the calls they made as a partial result.
 
 Three properties worth knowing before quoting either:
 
@@ -1159,7 +1159,11 @@ with `status: "partial"` but no `partial` block is refused too, and so is saving
 chosen, as a finished record does, and every extracted atom for a stop in extraction (`atoms.sampling`
 is then `none`, and `run_config` holds the settings of the run but not its tier). A library caller of
 `dokimi.novelty.analyze()` checks `result.partial` before it saves `result.artifact`.
-`shorten` still loses its work at the cap (a follow-up). Before its first paid
+`shorten` writes no candidate table and
+no `--out` file at the cap (a table scored on part of the verdicts would read as a result), but each
+retention verdict is stored in `--cache-dir` the moment it is adjudicated: the exit message names how many verdicts are stored (or, without `--cache-dir`, were adjudicated) and,
+with `--cache-dir`, that a rerun with a higher `--max-usd` and the same `--cache-dir` replays them at $0; without it, that
+`--cache-dir <dir>` would have kept them, or, with `DOKIMI_RESPONSE_CACHE` set to a writable directory, that the paid calls are in the response cache and a rerun replays them at $0. After a `no_price` stop (a model with no known price) the call that came back was paid for but its verdict is not stored, and the message says so. Before its first paid
 call `analyze` prints the run's expected cost at list prices to stderr.
 
 The estimate payload has `expected_calls`, the point figure between
