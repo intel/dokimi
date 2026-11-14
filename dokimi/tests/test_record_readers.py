@@ -363,10 +363,11 @@ def test_report_top_deltas_leave_out_a_bool_aggregate():
     from dokimi.records import records
     from dokimi.report.generator import ReportGenerator
 
-    evals = records([_ev(0, 80, 60, 20), _ev(1, True, 60, 30)], source="e", kind="evaluations")
+    evals = records([_ev(0, 80, 60, 20), _ev(1, True, 60, 30), _ev(2, 50, 60, -10), _ev(3, True, 60, -30)],
+                    source="e", kind="evaluations")
     gen = ReportGenerator.__new__(ReportGenerator)
     assert [t["question_id"] for t in gen._top_deltas(evals, limit=10)] == [0]
-    assert [t["question_id"] for t in gen._bottom_deltas(evals, limit=10)] == [0]
+    assert [t["question_id"] for t in gen._bottom_deltas(evals, limit=10)] == [2]
 
 
 def test_a_binary_record_with_a_stray_null_scores_keeps_its_scores():
@@ -390,10 +391,22 @@ def test_report_top_and_bottom_deltas_are_ordered():
     from dokimi.records import records
     from dokimi.report.generator import ReportGenerator
 
-    evals = records([_ev(0, 70, 60, 10), _ev(1, 90, 60, 30), _ev(2, 80, 60, 20)], source="e", kind="evaluations")
+    evals = records([_ev(0, 70, 60, 10), _ev(1, 90, 60, 30), _ev(2, 80, 60, 20),
+                     _ev(3, 50, 60, -10), _ev(4, 30, 60, -30), _ev(5, 40, 60, -20)], source="e", kind="evaluations")
     gen = ReportGenerator.__new__(ReportGenerator)
     assert [t["question_id"] for t in gen._top_deltas(evals, limit=2)] == [1, 2]
-    assert [t["question_id"] for t in gen._bottom_deltas(evals, limit=2)] == [0, 2]
+    assert [t["question_id"] for t in gen._bottom_deltas(evals, limit=2)] == [4, 5]
+
+
+def test_report_top_deltas_hold_improvements_only_and_bottom_deltas_degradations_only():
+    """With fewer than ten of a sign the other sign must not fill the table; a zero delta is neither."""
+    from dokimi.records import records
+    from dokimi.report.generator import ReportGenerator
+
+    evals = records([_ev(0, 70, 60, 10), _ev(1, 60, 60, 0), _ev(2, 50, 60, -10)], source="e", kind="evaluations")
+    gen = ReportGenerator.__new__(ReportGenerator)
+    assert [t["question_id"] for t in gen._top_deltas(evals, limit=10)] == [0]
+    assert [t["question_id"] for t in gen._bottom_deltas(evals, limit=10)] == [2]
 
 
 def test_baseline_summary_leaves_out_a_question_with_an_unscored_baseline():

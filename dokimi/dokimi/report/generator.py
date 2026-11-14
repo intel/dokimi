@@ -16,6 +16,7 @@ from dokimi.eval.diagnoser import (
 )
 from dokimi.eval.stats import paired_summary
 from dokimi.records import BASELINE, CONTEXT, Record, records
+from dokimi.report import fmt
 
 #: The persisted condition key each report column reads.
 _MODES = {"with_docs": CONTEXT, "without_docs": BASELINE}
@@ -192,9 +193,9 @@ class ReportGenerator:
         ]
     
     def _top_deltas(self, evaluations: Sequence[Record], limit: int) -> List[Dict]:
-        """Get top N improvements (WITH - WITHOUT)."""
+        """Get top N improvements (WITH - WITHOUT), positive deltas only."""
         # Both arms scored: a delta next to an unscored arm has no row to show.
-        deltas = [(d, e) for e in evaluations if (d := e.delta) is not None
+        deltas = [(d, e) for e in evaluations if (d := e.delta) is not None and d > 0
                   and e.score(CONTEXT) is not None and e.score(BASELINE) is not None]
         deltas.sort(reverse=True, key=lambda x: x[0])
         return [
@@ -209,9 +210,9 @@ class ReportGenerator:
         ]
     
     def _bottom_deltas(self, evaluations: Sequence[Record], limit: int) -> List[Dict]:
-        """Get bottom N (worst degradations from docs)."""
+        """Get bottom N (worst degradations from docs), negative deltas only."""
         # Both arms scored: a delta next to an unscored arm has no row to show.
-        deltas = [(d, e) for e in evaluations if (d := e.delta) is not None
+        deltas = [(d, e) for e in evaluations if (d := e.delta) is not None and d < 0
                   and e.score(CONTEXT) is not None and e.score(BASELINE) is not None]
         deltas.sort(key=lambda x: x[0])
         return [
@@ -307,12 +308,12 @@ class ReportGenerator:
             "",
             "| Metric | Context Arm | Baseline | Delta |",
             "|--------|-----------|--------------|-------|",
-            f"| Average | {_shown(stats['with_docs']['avg'])} | {_shown(stats['without_docs']['avg'])} "
-            f"| **{_shown(stats['delta']['avg'], signed=True)}** |",
-            f"| Min | {_shown(stats['with_docs']['min'])} | {_shown(stats['without_docs']['min'])} "
-            f"| {_shown(stats['delta']['min'], signed=True)} |",
-            f"| Max | {_shown(stats['with_docs']['max'])} | {_shown(stats['without_docs']['max'])} "
-            f"| {_shown(stats['delta']['max'], signed=True)} |",
+            f"| Average | {fmt.fixed(stats['with_docs']['avg'])} | {fmt.fixed(stats['without_docs']['avg'])} "
+            f"| **{fmt.signed(stats['delta']['avg'])}** |",
+            f"| Min | {fmt.fixed(stats['with_docs']['min'])} | {fmt.fixed(stats['without_docs']['min'])} "
+            f"| {fmt.signed(stats['delta']['min'])} |",
+            f"| Max | {fmt.fixed(stats['with_docs']['max'])} | {fmt.fixed(stats['without_docs']['max'])} "
+            f"| {fmt.signed(stats['delta']['max'])} |",
             "",
         ]
         lines += _unpaired_note(stats)
@@ -348,7 +349,7 @@ class ReportGenerator:
         ])
         
         for item in top_with:
-            lines.append(f"| {item['question_id']} | {item['score']:.1f} | {item['question_text']}... |")
+            lines.append(f"| {item['question_id']} | {fmt.fixed(item['score'])} | {item['question_text']}... |")
         
         lines.extend([
             "",
@@ -361,7 +362,7 @@ class ReportGenerator:
         ])
         
         for item in bottom_with:
-            lines.append(f"| {item['question_id']} | {item['score']:.1f} | {item['question_text']}... |")
+            lines.append(f"| {item['question_id']} | {fmt.fixed(item['score'])} | {item['question_text']}... |")
         
         lines.extend([
             "",
@@ -375,8 +376,8 @@ class ReportGenerator:
         
         for item in top_deltas:
             lines.append(
-                f"| {item['question_id']} | **+{item['delta']:.1f}** | "
-                f"{item['with_score']:.1f} | {item['without_score']:.1f} | "
+                f"| {item['question_id']} | **{fmt.signed(item['delta'])}** | "
+                f"{fmt.fixed(item['with_score'])} | {fmt.fixed(item['without_score'])} | "
                 f"{item['question_text']}... |"
             )
         
@@ -392,8 +393,8 @@ class ReportGenerator:
         
         for item in bottom_deltas:
             lines.append(
-                f"| {item['question_id']} | **{item['delta']:.1f}** | "
-                f"{item['with_score']:.1f} | {item['without_score']:.1f} | "
+                f"| {item['question_id']} | **{fmt.signed(item['delta'])}** | "
+                f"{fmt.fixed(item['with_score'])} | {fmt.fixed(item['without_score'])} | "
                 f"{item['question_text']}... |"
             )
         
@@ -410,8 +411,8 @@ class ReportGenerator:
         for cluster in clusters:
             lines.append(
                 f"| {cluster['topic']} | {_count_cell(cluster)} | "
-                f"{_shown(cluster['with_avg'])} | {_shown(cluster['without_avg'])} | "
-                f"**{_shown(cluster['delta_avg'], signed=True)}** |"
+                f"{fmt.fixed(cluster['with_avg'])} | {fmt.fixed(cluster['without_avg'])} | "
+                f"**{fmt.signed(cluster['delta_avg'])}** |"
             )
             
         # ── Source Breakdown ─────────────────────────────────────────────
@@ -428,8 +429,8 @@ class ReportGenerator:
             for src in sources_summary:
                 lines.append(
                     f"| {src['source_type']} | {_count_cell(src)} | "
-                    f"{_shown(src['with_avg'])} | {_shown(src['without_avg'])} | "
-                    f"**{_shown(src['delta_avg'], signed=True)}** |"
+                    f"{fmt.fixed(src['with_avg'])} | {fmt.fixed(src['without_avg'])} | "
+                    f"**{fmt.signed(src['delta_avg'])}** |"
                 )
         
         # ── Failure Analysis section ─────────────────────────────────────
@@ -449,7 +450,7 @@ class ReportGenerator:
             total_q = failure_summary.get("total", 1)
             for label, display in DIAGNOSIS_LABELS.items():
                 count = counts.get(label, 0)
-                rate = f"{count / total_q:.0%}" if total_q else "n/a"  # the pipeline may judge 0 answers
+                rate = fmt.percent(count / total_q) if total_q else "n/a"  # the pipeline may judge 0 answers
                 desc = DIAGNOSIS_DESCRIPTIONS.get(label, "")
                 lines.append(f"| {display} | {count} | {rate} | {desc} |")
 
@@ -473,7 +474,7 @@ class ReportGenerator:
                         if k != "delta" and v is not None
                     )
                     lines.append(
-                        f"| {e['question_id']} | **{(e.get('delta') or 0):+.1f}** "
+                        f"| {e['question_id']} | **{fmt.signed(e.get('delta') or 0)}** "
                         f"| {display} | {ev_str} |"
                     )
 
@@ -496,7 +497,7 @@ class ReportGenerator:
             lines.append("### Topics Needing Doc Improvements:")
             lines.append("")
             for c in worst_clusters[:5]:
-                lines.append(f"- **{c['topic']}** (delta: {c['delta_avg']:+.1f})")
+                lines.append(f"- **{c['topic']}** (delta: {fmt.signed(c['delta_avg'])})")
         
         return "\n".join(lines)
 
@@ -506,13 +507,6 @@ def _stat_block(s: Any, mean: float, low: float, high: float) -> Dict[str, Optio
     if not s.paired:
         return {"avg": None, "min": None, "max": None}  # no complete pair: no value, not a zero
     return {"avg": round(mean, 1), "min": round(low, 1), "max": round(high, 1)}
-
-
-def _shown(value: Optional[float], signed: bool = False) -> str:
-    """A statistic for the page: an em dash where no complete pair gives it a value."""
-    if value is None:
-        return "—"
-    return f"{value:+.1f}" if signed else f"{value:.1f}"
 
 
 def _overall_advice(stats: Dict[str, Any]) -> List[str]:
