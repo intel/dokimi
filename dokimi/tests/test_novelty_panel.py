@@ -356,3 +356,39 @@ def test_analyze_refuses_a_panel_member_that_answers_before_any_paid_call(tmp_pa
     with pytest.raises(InputError, match=answer_model):
         args.func(args)
     assert calls == []
+
+
+@pytest.mark.parametrize("sub", ["probe", "analyze"])
+def test_the_answerer_reaches_the_panel_record_so_the_vendor_warning_shows(
+        sub, tmp_path, monkeypatch, capsys):
+    from dokimi.cli import build_parser
+    from dokimi.novelty import cost
+
+    monkeypatch.chdir(tmp_path)  # analyze also writes its report under ./results
+    skill = tmp_path / "s" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text("---\nname: s\ndescription: d\n---\n\n# H\n\nDo not enable the legacy driver.\n",
+                     encoding="utf-8")
+    rows = [{"statement": "The legacy driver must not be enabled.", "question": "Enable it?",
+             "answer": "No.", "kind": "contract", "tags": [], "span_ids": ["s0002"]}]
+
+    def grader(prompt, system=None):
+        if "Extract the checkable knowledge" in prompt:
+            return json.dumps(rows), None
+        return json.dumps({"verdict": CC}), None
+
+    def answer(prompt, system=None):
+        return "No.\nconfidence: 0.5", None
+
+    monkeypatch.setattr(cost, "client", lambda model, provider, role, args: LLMClient(
+        model=model, transport=answer if role == "answerer" else grader))
+    atoms, out = tmp_path / "atoms.json", tmp_path / "p.json"
+    run = [sub, "--out", str(out), "--no-paraphrase", "--no-reversal", "--model", "claude-sonnet-5",
+           "--judge", "anthropic/claude-opus-5", "--judge", "openai/gpt-6-luna"]
+    for argv in ([["atoms", "--out", str(atoms)], [*run, "--atoms", str(atoms)]] if sub == "probe"
+                 else [run]):
+        args = build_parser().parse_args(["skill", "novelty", argv[0], "--artifact", f"skill:{skill}",
+                                          *argv[1:]])
+        args.func(args)
+    assert json.loads(out.read_text())["judge_panel"]["same_vendor_as_answerer"] == ["claude-opus-5"]
+    assert "claude-opus-5" in capsys.readouterr().err
