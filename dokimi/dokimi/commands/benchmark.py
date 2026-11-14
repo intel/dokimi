@@ -202,9 +202,12 @@ def _check_questions_from(questions_from: str, key: str) -> tuple[Path, list, st
     except InputError as exc:
         return qf, [], str(exc)
     try:
-        return qf, load_questions_payload(qf), None
+        records = load_questions_payload(qf)
     except Exception as exc:
         return qf, [], f"questions source invalid: {qf} ({exc})"
+    if not records:
+        return qf, [], f"questions source is empty: {qf}"
+    return qf, records, None
 
 
 def _check_golden_set(questions_root: str, key: str, refuse: Callable[[str], None]) -> None:

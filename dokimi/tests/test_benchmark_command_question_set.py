@@ -522,3 +522,14 @@ def test_multi_run_forwards_questions_root_to_every_run(monkeypatch, tmp_path):
         str(questions_root),
         str(questions_root),
     ]
+
+
+def test_an_empty_questions_from_file_is_refused_as_an_input(tmp_path):
+    source = tmp_path / "demo.json"
+    source.write_text(json.dumps({"questions": []}), encoding="utf-8")
+
+    _, records, problem = benchmark._check_questions_from(str(source), "demo")
+
+    assert records == []
+    assert problem is not None
+    assert "empty" in problem
