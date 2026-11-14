@@ -10,7 +10,11 @@ skip or xfail, drops a ``match=`` from ``pytest.raises``, widens one to ``Except
 or ``BaseException``, raises a tolerance (``rel``, ``abs``, ``rtol``, ``atol``,
 ``rel_tol``, ``abs_tol``), or cuts ``parametrize`` cases (the product of stacked decorators). A skip or xfail
 mark counts wherever it sits: a decorator, ``pytest.param(marks=...)``, a class
-decorator or ``pytestmark``. A file the runner no longer collects counts as deleted. New tests are not read, and
+decorator or ``pytestmark``, and so does a ``pytest.skip``/``pytest.importorskip`` call
+in the test or at the top of its module. A file the
+runner no longer collects counts as deleted, and a ``conftest.py`` statement the PR adds
+or changes that names ``collect_ignore``, ``collect_ignore_glob`` or ``pytest_ignore_collect``
+is a finding of its own. New tests are not read, and
 a removed test whose body (signature and decorators included) reappears as a test that
 the PR adds to a test file was renamed or moved, not removed, once per added test. A speed bump, not a proof: ``assert x == y`` turned
 into ``assert x`` keeps the count.
@@ -47,7 +51,10 @@ REPO = Path(__file__).resolve().parents[2]
 WAIVER = re.compile(r"^\s*(?:#[ \t]*)?Test-narrowed:[ \t]*(\S.*)$", re.IGNORECASE | re.MULTILINE)
 TOLERANCES = {"rel", "abs", "rtol", "atol", "rel_tol", "abs_tol"}
 RAISES = {"raises", "warns", "assertRaises", "assertRaisesRegex", "assertWarns", "assertWarnsRegex"}
-SKIPS = {"skip", "skipif", "xfail", "skipTest", "skipIf", "skipUnless", "expectedFailure"}
+SKIPS = {"skip", "skipif", "xfail", "skipTest", "skipIf", "skipUnless", "expectedFailure", "importorskip"}
+# The skips that run where they are called, as opposed to marks a decorator applies.
+EFFECTS = {"skip", "xfail", "skipTest", "importorskip"}
+IGNORES = re.compile(r"collect_ignore(_glob)?|pytest_ignore_collect")
 BROAD = {"Exception", "BaseException"}
 # What a tolerance is when its keyword is left out of pytest.approx or math.isclose.
 DEFAULTS = {"rel": 1e-6, "abs": 1e-12, "rtol": 1e-5, "atol": 1e-8, "rel_tol": 1e-9, "abs_tol": 0.0}
@@ -70,6 +77,12 @@ def is_test_file(path: str) -> bool:
     name = parts[-1]
     return (name.endswith(".py") and (name.startswith("test_") or name.endswith("_test.py"))
             and "tests" in parts[:-1] and "fixtures" not in parts[:-1])
+
+
+def is_conftest(path: str) -> bool:
+    """Whether ``path`` is a ``conftest.py`` the runner reads, so it can stop collecting tests."""
+    parts = path.split("/")
+    return parts[-1] == "conftest.py" and "fixtures" not in parts[:-1]
 
 
 @dataclass
@@ -111,9 +124,21 @@ def _read_raises(call: ast.Call, shape: Shape) -> None:
 def _skip_weight(call: ast.Call) -> int:
     """0 for a skip condition that is the constant that never skips, else 1."""
     name = _name(call.func)
-    if name in {"skipif", "skipIf", "skipUnless"} and call.args and isinstance(call.args[0], ast.Constant):
-        return int(bool(call.args[0].value) == (name != "skipUnless"))
+    condition = call.args[0] if call.args else {k.arg: k.value for k in call.keywords}.get("condition")
+    if name in {"skipif", "skipIf", "skipUnless"} and isinstance(condition, ast.Constant):
+        return int(bool(condition.value) == (name != "skipUnless"))
     return 1
+
+
+def _is_mark(func: ast.expr) -> bool:
+    owner = func.value if isinstance(func, ast.Attribute) else None
+    return _name(owner) == "mark" if owner is not None else False
+
+
+def _effects(node: ast.AST) -> int:
+    """Skip, xfail and importorskip calls under ``node`` that skip where they run."""
+    return sum(1 for sub in ast.walk(node) if isinstance(sub, ast.Call)
+               and _name(sub.func) in EFFECTS and not _is_mark(sub.func))
 
 
 def _skips_in(node: ast.AST) -> int:
@@ -197,21 +222,37 @@ def _is_test_class(node: ast.AST) -> TypeGuard[ast.ClassDef]:
         node.name.startswith("Test") or any(_name(base).endswith("TestCase") for base in node.bases))
 
 
-def _pytestmark_skips(body: list[ast.stmt]) -> int:
-    return sum(_skips_in(stmt.value) for stmt in body if isinstance(stmt, ast.Assign)
-               and any(isinstance(t, ast.Name) and t.id == "pytestmark" for t in stmt.targets))
+def _targets(stmt: ast.stmt) -> list[ast.expr]:
+    if isinstance(stmt, ast.Assign):
+        return stmt.targets
+    return [stmt.target] if isinstance(stmt, (ast.AnnAssign, ast.AugAssign)) else []
+
+
+def _scope_skips(body: list[ast.stmt]) -> int:
+    """The skips each test of a module or class body inherits: the ``pytestmark`` marks and
+    the skip calls that run on import."""
+    total = 0
+    for stmt in body:
+        if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            continue
+        if any(isinstance(t, ast.Name) and t.id == "pytestmark" for t in _targets(stmt)):
+            total += _skips_in(stmt)
+        else:
+            total += _effects(stmt)
+    return total
 
 
 def _inline_constants(tree: ast.Module) -> ast.Module:
     """``tree`` with each read of a module-level constant replaced by a copy of its value.
 
-    A name assigned more than once, or read in its own value, is left alone, and so is a
-    name a function binds itself (parameter or local)."""
-    targets = [t.id for node in tree.body if isinstance(node, ast.Assign)
-               for t in node.targets if isinstance(t, ast.Name)]
+    A name assigned more than once, read in its own value or bound to a call that skips
+    (``pytest.importorskip``), is left alone, and so is a name a function binds itself
+    (parameter or local)."""
+    targets = [t.id for node in tree.body for t in _targets(node) if isinstance(t, ast.Name)]
     consts = {node.targets[0].id: node.value for node in tree.body
               if isinstance(node, ast.Assign) and len(node.targets) == 1
               and isinstance(node.targets[0], ast.Name) and targets.count(node.targets[0].id) == 1
+              and not _effects(node.value)
               and not any(isinstance(n, ast.Name) and n.id == node.targets[0].id
                           for n in ast.walk(node.value))}
 
@@ -245,8 +286,8 @@ def tests_in(text: str) -> dict[str, Shape] | None:
         tree = ast.parse(text)
     except SyntaxError:
         return None
-    module_skips = _pytestmark_skips(tree.body)
     tree = _inline_constants(tree)
+    module_skips = _scope_skips(tree.body)
     found: dict[str, Shape] = {}
     for node in tree.body:
         if _is_test(node):
@@ -254,7 +295,7 @@ def tests_in(text: str) -> dict[str, Shape] | None:
             found[node.name].skips += module_skips
         elif _is_test_class(node):
             class_skips = (module_skips + sum(_skips_in(d) for d in node.decorator_list)
-                           + _pytestmark_skips(node.body))
+                           + _scope_skips(node.body))
             for item in node.body:
                 if _is_test(item):
                     shape = found[f"{node.name}.{item.name}"] = shape_of(item)
@@ -331,8 +372,32 @@ def compare(base_text: str, head_text: str | None,
     return found
 
 
+def _ignore_statements(text: str) -> list[tuple[str, ast.stmt]]:
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return []
+    found = []
+    for stmt in tree.body:
+        if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            names = [stmt.name]
+        else:
+            names = [n.id for n in ast.walk(stmt) if isinstance(n, ast.Name)]
+        found += [(name, stmt) for name in dict.fromkeys(names) if IGNORES.fullmatch(name)]
+    return found
+
+
+def new_ignores(base_text: str, head_text: str) -> list[tuple[str, int, str]]:
+    """(name, head line, what) for each top-level ``collect_ignore``, ``collect_ignore_glob`` or
+    ``pytest_ignore_collect`` statement of a conftest that the PR adds or changes."""
+    old = {ast.dump(stmt) for _, stmt in _ignore_statements(base_text)}
+    return [(name, stmt.lineno, "may stop collecting tests") for name, stmt in _ignore_statements(head_text)
+            if ast.dump(stmt) not in old]
+
+
 def changed_tests(base: str, head: str) -> list[tuple[str, str | None, str | None]]:
-    """(path shown, path at base or None if added, path at head or None if deleted) per test file.
+    """(path shown, path at base or None if added, path at head or None if deleted) per test
+    file or ``conftest.py``.
 
     A file that became a symlink is deleted as far as the runner is concerned."""
     fields = _checked_git("diff", "-z", "-M", "--name-status", "--diff-filter=AMRDT",
@@ -348,7 +413,7 @@ def changed_tests(base: str, head: str) -> list[tuple[str, str | None, str | Non
             old = fields[i + 1]
             new = None if status[0] in "DT" else old
             i += 2
-        if is_test_file(old) or is_test_file(new or ""):
+        if any(wanted(path) for path in (old, new or "") for wanted in (is_test_file, is_conftest)):
             out.append((new or old, None if status == "A" else old, new))
     return out
 
@@ -367,7 +432,8 @@ def waivers(base: str, head: str) -> dict[str, str]:
 
 
 def findings(base: str, head: str) -> list[tuple[str, str, int, str]]:
-    """(path, test, line, what narrowed) of every test the PR narrows without an inline waiver."""
+    """(path, test, line, what narrowed) of every test the PR narrows without an inline waiver,
+    and of every collection ignore it adds to a ``conftest.py``."""
     merge_base = _checked_git("merge-base", base, head).strip()
     files = changed_tests(base, head)
     heads = {new: _checked_git("show", f"{head}:{new}") for _, _, new in files
@@ -377,13 +443,22 @@ def findings(base: str, head: str) -> list[tuple[str, str, int, str]]:
     existing = {(new, name) for _, old, new in files if old in bases and new in heads
                 for name in tests_in(bases[old]) or {}}
     moved: Counter[str] = Counter(
-        shape.body for new, text in heads.items()
-        for name, shape in (tests_in(text) or {}).items() if (new, name) not in existing)
+        shape.body for path, text in heads.items()
+        for name, shape in (tests_in(text) or {}).items() if (path, name) not in existing)
     found = []
     for shown, old, new in files:
-        if old not in bases:
-            continue
-        found += [(shown, *item) for item in compare(bases[old], heads.get(new or ""), moved)]
+        if old in bases:
+            found += [(shown, *item) for item in compare(bases[old], heads.get(new or ""), moved)]
+    return found + _conftest_findings(merge_base, head, files)
+
+
+def _conftest_findings(merge_base: str, head: str,
+                       files: list[tuple[str, str | None, str | None]]) -> list[tuple[str, str, int, str]]:
+    found = []
+    for shown, old, new in files:
+        if new and is_conftest(new):
+            base_text = _checked_git("show", f"{merge_base}:{old}") if old and is_conftest(old) else ""
+            found += [(shown, *item) for item in new_ignores(base_text, _checked_git("show", f"{head}:{new}"))]
     return found
 
 

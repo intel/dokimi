@@ -59,6 +59,7 @@ class TestGroup:
     ("class TestGroup", "@pytest.mark.skip(reason='later')\nclass TestGroup", "adds a skip or xfail"),
     ("[1, 2, 3])", "[1, pytest.param(2, marks=pytest.mark.skip), 3])", "adds a skip or xfail"),
     ("[1, 2, 3])", "[1, pytest.param(2, marks=pytest.mark.xfail), 3])", "adds a skip or xfail"),
+    ("def test_raises():\n", "def test_raises():\n    pytest.importorskip('no_such')\n", "adds a skip or xfail"),
 ])
 def test_each_planted_narrowing_is_named(old, new, what):
     found = ctn.compare(BASE, BASE.replace(old, new, 1))
@@ -82,6 +83,36 @@ def test_a_module_level_pytestmark_skip_names_every_test():
     assert [(name, why) for name, _, why in ctn.compare(BASE, head)] == [
         (name, "adds a skip or xfail")
         for name in ("test_values", "test_raises", "test_close", "TestGroup.test_member")]
+
+
+@pytest.mark.parametrize(("before", "after"), [
+    ("", "pytest.skip('later', allow_module_level=True)\n"),
+    ("", "pytest.importorskip('no_such')\n"),
+    ("", "pytestmark: list = [pytest.mark.skip]\n"),
+    ("pytestmark = []\n", "pytestmark = []\npytestmark += [pytest.mark.skip]\n"),
+    ("MARK = pytest.mark.skipif(False, reason='x')\npytestmark = MARK\n",
+     "MARK = pytest.mark.skipif(True, reason='x')\npytestmark = MARK\n"),
+])
+def test_a_skip_at_the_top_of_a_module_names_every_test(before, after):
+    base = BASE.replace("import pytest\n", "import pytest\n" + before, 1)
+    head = BASE.replace("import pytest\n", "import pytest\n" + after, 1)
+    assert [(name, why) for name, _, why in ctn.compare(base, head)] == [
+        (name, "adds a skip or xfail")
+        for name in ("test_values", "test_raises", "test_close", "TestGroup.test_member")]
+
+
+@pytest.mark.parametrize("added", [
+    "SLOW = pytest.mark.skipif(not RUN_SLOW, reason='slow')\n",
+    "LATER = pytest.mark.skip(reason='later')\n",
+])
+def test_a_new_mark_constant_skips_no_existing_test(added):
+    assert ctn.compare(BASE, BASE.replace("import pytest\n", "import pytest\n" + added, 1)) == []
+
+
+def test_a_module_imported_with_importorskip_adds_no_skip_where_it_is_used():
+    base = BASE.replace("import pytest\n", "import pytest\nnp = pytest.importorskip('numpy')\n", 1)
+    base = base.replace("    assert x < 10\n", "    assert x < 10\n    np.array([x])\n")
+    assert ctn.compare(base, base.replace("    np.array([x])\n", "    np.array([x])\n    np.zeros(x)\n")) == []
 
 
 @pytest.mark.parametrize("mark", ["skip", "xfail"])
@@ -135,9 +166,11 @@ def test_a_local_that_shadows_a_module_constant_is_not_read_as_it():
     assert ctn.compare(base, base.replace("TOL = 1e-9", "TOL = 1e-1")) == []
 
 
-def test_skipif_turned_on_is_a_skip():
-    base = BASE.replace("def test_close", "@pytest.mark.skipif(False, reason='x')\ndef test_close")
-    assert ctn.compare(base, base.replace("skipif(False", "skipif(True"))[0][2] == "adds a skip or xfail"
+@pytest.mark.parametrize("condition", ["", "condition="])
+def test_skipif_turned_on_is_a_skip(condition):
+    base = BASE.replace("def test_close", f"@pytest.mark.skipif({condition}False, reason='x')\ndef test_close")
+    head = base.replace(f"skipif({condition}False", f"skipif({condition}True")
+    assert ctn.compare(base, head)[0][2] == "adds a skip or xfail"
 
 
 def test_a_testcase_class_without_the_test_prefix_is_read():
@@ -212,6 +245,32 @@ def test_which_files_are_read(path, read):
     assert ctn.is_test_file(path) is read
 
 
+@pytest.mark.parametrize(("path", "read"), [
+    ("dokimi/tests/conftest.py", True),
+    ("dokimi/conftest.py", True),
+    ("dokimi/tests/fixtures/task_formats/x/conftest.py", False),
+])
+def test_which_conftests_are_read(path, read):
+    assert ctn.is_conftest(path) is read
+
+
+CONFTEST = "import pytest\n\ncollect_ignore_glob = ['fixtures/*']\n"
+
+
+@pytest.mark.parametrize(("added", "name"), [
+    ("collect_ignore = ['test_a.py']\n", "collect_ignore"),
+    ("if True:\n    collect_ignore_glob.append('test_*.py')\n", "collect_ignore_glob"),
+    ("def pytest_ignore_collect(collection_path):\n    return True\n", "pytest_ignore_collect"),
+])
+def test_a_conftest_collection_ignore_the_pr_adds_is_named(added, name):
+    assert ctn.new_ignores(CONFTEST, CONFTEST + added) == [(name, 4, "may stop collecting tests")]
+
+
+def test_a_conftest_change_that_ignores_nothing_new_passes():
+    head = "# reworded\n" + CONFTEST + "\n\ndef pytest_configure(config):\n    pass\n"
+    assert ctn.new_ignores(CONFTEST, head) == []
+
+
 OTHER = "def test_close():\n    assert round(0.1 + 0.2, 9) == 0.3\n"
 
 
@@ -280,6 +339,15 @@ def test_main_passes_a_test_moved_to_a_new_file(tmp_path, monkeypatch):
     _git(tmp_path, "commit", "-q", "-m", "move")
     monkeypatch.setattr(ctn, "REPO", tmp_path)
     assert ctn.findings("base", "HEAD") == []
+
+
+def test_main_names_a_collection_ignore_added_to_a_conftest(tmp_path, monkeypatch):
+    _repo(tmp_path)
+    (tmp_path / "tests" / "conftest.py").write_text("collect_ignore = ['test_b.py']\n", encoding="utf-8")
+    _git(tmp_path, "add", "-A")
+    _git(tmp_path, "commit", "-q", "-m", "ignore b")
+    monkeypatch.setattr(ctn, "REPO", tmp_path)
+    assert ctn.findings("base", "HEAD") == [("tests/conftest.py", "collect_ignore", 1, "may stop collecting tests")]
 
 
 def test_main_passes_a_rename_and_exits_2_for_a_bad_base(tmp_path, monkeypatch, capsys):

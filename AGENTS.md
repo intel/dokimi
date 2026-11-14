@@ -41,6 +41,8 @@ also holds a PR to:
   dropping a check, adding skip/xfail, dropping `match=` or widening
   `pytest.raises`, loosening a tolerance or cutting `parametrize` cases fails
   unless a commit message or a comment in the test says `Test-narrowed: <reason>`.
+  So does a skip at the top of a module, and a `collect_ignore*` or
+  `pytest_ignore_collect` a `conftest.py` gains (waived by a commit line).
 - Docs that name a command, flag, path or module must match the tree
   (`tests/test_docs_code_refs.py`): rename in code, rename in docs.
 - Tests run offline: a connection off loopback fails the test, so mock LLM and
