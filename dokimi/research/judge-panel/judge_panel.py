@@ -101,7 +101,13 @@ def do_sample(per_model: int):
                     }
                 )
         print(m, "eligible", tot, "picked", len(picked))
-    with (OUT / "sample.jsonl").open("w") as fh:
+    sp = OUT / "sample.jsonl"
+    if sp.exists():  # do_grade skips a graded key: purge the keys whose answer changed or left
+        new = {key(r): r["answer"] for r in out}
+        with sp.open() as fh:
+            old = [json.loads(line) for line in fh]
+        purge_grades({key(r) for r in old if key(r) not in new or new[key(r)] != r["answer"]})
+    with sp.open("w") as fh:
         for r in out:
             fh.write(json.dumps(r) + "\n")
     print("rows", len(out))

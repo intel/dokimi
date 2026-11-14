@@ -222,3 +222,33 @@ def test_grade_asks_only_for_rows_without_a_grade(tmp_path, monkeypatch):
     jp.do_grade(1, ["j1"])
 
     assert asked == [("j1", "grade|j1|p1|no_skill_repeat|m1")]
+
+
+def test_resample_drops_grades_of_answers_that_changed(tmp_path, monkeypatch):
+    # The study is re-run: p1's answer changes under the same key, so its grade must go.
+    study = tmp_path / "study" / "data"
+    study.mkdir(parents=True)
+    arms = ["no_skill", "root", "routed", "full", "placebo", "shuffled"]
+
+    def results(p1_answer):
+        return "".join(json.dumps({
+            "probe_id": p, "model": "claude-opus-5", "arm": a, "skill": "s", "adversarial": False,
+            "verdict": "correct_complete", "answer": p1_answer if p == "p1" else "same"}) + "\n"
+            for p in ("p1", "p2") for a in arms)
+
+    (study / "probe_results.jsonl").write_text(results("old"))
+    jp = _load(tmp_path, monkeypatch, [])
+    jp.do_sample(2)
+    grades = tmp_path / "out" / "grades.jsonl"
+    grades.write_text("".join(json.dumps({"key": f"{p}|no_skill|claude-opus-5", "judge": "j1",
+                                          "verdict": "correct_complete"}) + "\n" for p in ("p1", "p2")))
+    (study / "probe_results.jsonl").write_text(results("new"))
+
+    jp.do_sample(2)
+
+    left = [json.loads(line)["key"] for line in grades.read_text().splitlines()]
+    assert left == ["p2|no_skill|claude-opus-5"]
+    # A key that leaves the sample loses its grade too, or it would return with a new answer.
+    (study / "probe_results.jsonl").write_text(results("new").replace('"p2"', '"p3"'))
+    jp.do_sample(2)
+    assert grades.read_text() == ""
