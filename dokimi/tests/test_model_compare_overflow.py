@@ -55,6 +55,11 @@ def test_a_section_refuses_finite_deltas_whose_sum_leaves_the_range_naming_the_r
         generate_section_report([("r1", run)], ["r1"], "Regular")
 
 
+def test_a_section_names_the_run_and_the_question_of_a_difference_beyond_the_range():
+    with pytest.raises(InputError, match=r"^run 'r1', question 'Q1': the difference of"):
+        generate_section_report([("r1", _run(-1.7e308, 1.7e308))], ["r1"], "Regular")
+
+
 def test_extract_scores_keeps_a_finite_difference_near_the_range():
     (row,) = extract_scores(_run(1.0e308, 1.7e308))
     assert row["delta"] == 1.7e308 - 1.0e308

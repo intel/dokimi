@@ -556,7 +556,7 @@ def _pair(task: str, base: dict[str, Any], treat: dict[str, Any], measure: str) 
     bv, tv = base["values"].get(measure), treat["values"].get(measure)
     if bv is None or tv is None:
         return None
-    out = {"task": task, "baseline": bv, "treatment": tv, "delta": checked_delta(tv, bv, CompareError),
+    out = {"task": task, "baseline": bv, "treatment": tv, "delta": checked_delta(tv, bv, CompareError, f"task '{task}'"),
            "n_baseline": base["n"][measure], "n_treatment": treat["n"][measure]}
     if measure.startswith("first_useful"):  # a compared task has one kind: the row shows which
         out["useful_kind"] = base["useful_kind"]

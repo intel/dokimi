@@ -38,6 +38,27 @@ def test_pair_keeps_an_inf_value_meaning():
     assert out["delta"] == math.inf
 
 
+def test_pair_keeps_an_inf_baseline_meaning():
+    out = _pair("t", _side(math.inf), _side(0.0), "m")
+    assert out is not None
+    assert out["delta"] == -math.inf
+
+
+def test_pair_names_the_task_of_a_difference_beyond_the_range():
+    with pytest.raises(CompareError, match=r"^task 't': the difference of"):
+        _pair("t", _side(-1.7e308), _side(1.7e308), "m")
+
+
+def test_an_inf_beside_an_integer_beyond_the_float_range_keeps_its_meaning():
+    assert checked_delta(math.inf, 10**309, CompareError) == math.inf
+    assert checked_delta(10**309, math.inf, CompareError) == -math.inf
+    assert checked_mean([math.inf, 10**309], CompareError) == math.inf
+
+
+def test_checked_mean_keeps_a_negative_inf_when_finite_values_would_sum_past_the_range():
+    assert checked_mean([10**309, 1e308, 1e308, -math.inf], CompareError) == -math.inf
+
+
 @pytest.mark.parametrize("deltas", [[1.7e308] * 4, [1.7e308, -1.7e308, 1.7e308], [1.7e308, 1.7e308, -1.7e308]])
 def test_sign_flip_summary_refuses_finite_deltas_whose_sum_or_spread_leaves_the_range(deltas):
     with pytest.raises(CompareError, match="float range"):
@@ -61,6 +82,11 @@ def test_checked_delta_refuses_an_integer_beyond_the_float_range_with_the_reques
         checked_delta(10**309, 0.0, CompareError)
     with pytest.raises(CompareError, match="float range"):
         checked_delta(0.0, -(10**309), CompareError)
+
+
+def test_checked_delta_refuses_an_integer_past_the_digit_limit_with_the_requested_error():
+    with pytest.raises(CompareError, match="float range"):
+        checked_delta(10**5000, 0.0, CompareError)
 
 
 def test_checked_mean_and_sign_flip_summary_refuse_integers_whose_sum_leaves_the_float_range():
