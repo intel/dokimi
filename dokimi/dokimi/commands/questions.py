@@ -6,7 +6,9 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any, Dict
@@ -321,7 +323,9 @@ def cmd_questions_generate(args: argparse.Namespace) -> None:
         except ValueError as exc:
             raise InputError(str(exc)) from exc
 
-        extractor = RagasSeedExtractor(mcp_client=mcp_client, cache_dir=Path(".cache/topics"))
+        # Keyed on the source as in the pipeline: a registered product has one library id for every source.
+        source_key = hashlib.sha256(os.fsencode(doc_source)).hexdigest()[:16]
+        extractor = RagasSeedExtractor(mcp_client=mcp_client, cache_dir=Path(".cache/topics") / source_key)
         topics = extractor.extract_topics(
             library_id=library_id,
             library_name=args.product,

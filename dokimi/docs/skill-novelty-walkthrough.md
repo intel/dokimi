@@ -35,12 +35,12 @@ If the artifact is never picked, content work is unrecoverable spend. Write 5–
 **in the words a user would use**, in a file, without looking at the skill's own headings:
 
 ```bash
-python cli.py novelty routing --artifact skill:skills/my-skill \
-    --catalog skills/ \
+python cli.py skill routing skill:skills/my-skill \
+    --against skills/ \
     --queries queries.json
 ```
 
-The competitors are the skills a harness lists next to this one: `--catalog <dir>` takes
+The competitors are the skills a harness lists next to this one: `--against <dir>` takes
 every other skill the catalog lists (a `template/` copy and vendored or VCS directories
 such as `.git` are left out, and a byte-identical copy under another path counts once), and
 `--competitors` adds or names them one by one. With no real siblings at hand, skip this step and say so; a field of
@@ -78,9 +78,8 @@ follows the artifact's length and the models. Pass `--max-usd <n>` to every step
 model: the run stops once its calls across all roles have cost that much (calls already in
 flight can overshoot it), and a call with no known price stops it too,
 since the cap cannot see that spend. A step that stops at the cap writes nothing, except
-`atoms`, `probe` and `novelty routing`, which save the calls they made as a `partial` result (see
-the list below and
-[skill-novelty.md](skill-novelty.md)). One measured pair, a 19k-token skill: triage 103 calls,
+`atoms`, `probe`, `skill routing --model` and `catalog routing --model`, which save the calls they made as a `partial` result (see
+the list below and [skill-novelty.md](skill-novelty.md)). One measured pair, a 19k-token skill: triage 103 calls,
 about $1.80; `study` 1,901 calls, about $14.50.
 
 What a stopped run leaves behind depends on the step:
