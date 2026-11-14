@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence
 
 from dokimi.caching import is_empty_reply
-from dokimi.utils import question_id  # noqa: F401  (re-exported: callers import it from here)
+from dokimi.utils import question_id  # re-exported: callers import it from here
 from dokimi.artifacts import save_artifact
 from dokimi.llm import llm_call_with_usage
 from dokimi.defaults import DEFAULT_ANSWER_MODEL, DEFAULT_ANSWER_PROVIDER

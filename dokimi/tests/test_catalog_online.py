@@ -1,0 +1,965 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+"""``catalog check --online``: packages missing from PyPI or npm, and dead links. Mocked HTTP only."""
+
+from __future__ import annotations
+
+import json
+import socket
+import time
+
+import httpx
+import pytest
+
+from dokimi.cli import build_parser
+from dokimi.external import online_checks, read_skill_manifest, review_skills
+from dokimi.utils import InputError
+from tests.test_catalog_validate import _skill
+
+PYPI = "https://pypi.org/simple/{name}/"
+NPM = "https://registry.npmjs.org/{name}"
+
+
+class Web:
+    """A fake network. ``answers`` maps ``(method, url)`` or ``url`` to a status code or an exception."""
+
+    def __init__(self, answers=None, default=200):
+        self.answers = answers or {}
+        self.default = default
+        self.requests: list[tuple[str, str]] = []
+
+    def handle(self, request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        self.requests.append((request.method, url))
+        answer = self.answers.get((request.method, url), self.answers.get(url, self.default))
+        if isinstance(answer, Exception):
+            raise answer
+        return httpx.Response(answer)
+
+    def client(self) -> httpx.Client:
+        return httpx.Client(transport=httpx.MockTransport(self.handle), follow_redirects=True)
+
+    def hits(self, url: str) -> int:
+        return sum(1 for _, seen in self.requests if seen == url)
+
+
+@pytest.fixture(autouse=True)
+def _no_environment_proxy(monkeypatch):
+    """The fake network takes no proxy, so a proxy in the environment must not change a probe verdict."""
+    for name in ("HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy"):
+        monkeypatch.delenv(name, raising=False)
+
+
+def _dns_failure() -> httpx.ConnectError:
+    error = httpx.ConnectError("[Errno -2] Name or service not known")
+    error.__cause__ = socket.gaierror(socket.EAI_NONAME, "Name or service not known")
+    return error
+
+
+def _run(root, web: Web):
+    """Review every skill under ``root`` the way ``catalog check --online`` does, with ``web`` as the network.
+
+    Returns the reviews and the run's summary (the ``online`` key of the JSON report).
+    """
+    entries = read_skill_manifest(root)
+    reviews = review_skills(entries)
+    summary = online_checks.add_online_findings(
+        [(e.skill, r) for e, r in zip(entries, reviews, strict=True) if e.loaded and r is not None],
+        client=web.client(),
+    )
+    return reviews, summary
+
+
+def _reviews(root, web: Web):
+    return _run(root, web)[0]
+
+
+def _codes(review) -> list[str]:
+    return [f.code for f in review.findings]
+
+
+def _online_codes(review) -> list[str]:
+    # The static command check (#456) also reports an unpinned install on the same line.
+    return [c for c in _codes(review) if c != "install-unpinned"]
+
+
+def _one_skill(tmp_path, body: str):
+    _skill(tmp_path / "skills", "tool", name="tool", description="Use for tool work.", body=body)
+    return tmp_path
+
+
+# ---- which packages and links are checked -------------------------------------------------
+
+
+def test_pip_and_npm_install_lines_name_the_packages():
+    body = (
+        "```bash\npip install requests==2.31 numpy\n"
+        "npm install -g @anthropic-ai/server-postgres@1.0\nnpx -y create-thing --flag\n```\n"
+    )
+    assert online_checks.extract_packages(body) == [
+        ("pypi", "requests"), ("pypi", "numpy"),
+        ("npm", "@anthropic-ai/server-postgres"), ("npm", "create-thing"),
+    ]
+
+
+def test_options_with_values_and_non_registry_targets_are_not_packages():
+    body = (
+        "pip install -r requirements.txt\npip install -e .\npip install git+https://github.com/x/y\n"
+        "pip install ./local\nnpm install ./pkg.tgz\nnpm install github:user/repo\n"
+        "npm install --prefix build foo\n"
+    )
+    assert online_checks.extract_packages(body) == [("npm", "foo")]
+
+
+def test_prose_that_mentions_pip_is_not_an_install_command():
+    assert online_checks.extract_packages("Tell the user pip install is slow.\n") == []
+
+
+def test_placeholder_package_names_are_not_checked():
+    body = "pip install <package>\npip install your-package\nnpm install ${PKG}\n"
+    assert online_checks.extract_packages(body) == []
+
+
+def test_placeholder_and_template_urls_are_not_checked():
+    body = (
+        "See https://example.com/docs, http://localhost:8000/x, http://127.0.0.1/y,\n"
+        "https://your-org.example.org/z and https://api.x.com/<id> or https://h.io/{id}.\n"
+    )
+    assert online_checks.extract_urls(body) == []
+
+
+def test_real_link_in_markdown_keeps_its_path_and_drops_the_closing_paren():
+    body = "Read [the docs](https://docs.python.org/3/library/) first.\n"
+    assert online_checks.extract_urls(body) == ["https://docs.python.org/3/library/"]
+
+
+def test_your_placeholder_segments_are_skipped_but_a_word_containing_your_is_not():
+    body = (
+        "See https://github.com/your-username/your-repo, https://your-org.example-tool.dev/x\n"
+        "and https://github.com/acme/tool-your-docs.\n"
+    )
+    assert online_checks.extract_urls(body) == ["https://github.com/acme/tool-your-docs"]
+
+
+def test_malformed_bracketed_host_is_skipped_not_fatal():
+    body = "See http://[broken/x and [the guide](https://docs.example-tool.dev/ok).\n"
+    assert online_checks.extract_urls(body) == ["https://docs.example-tool.dev/ok"]
+
+
+def test_npx_package_equals_form_names_the_package():
+    assert online_checks.extract_packages("npx --package=@scope/cli mytool\n") == [("npm", "@scope/cli")]
+
+
+def test_pip_options_with_values_are_not_packages():
+    body = (
+        "pip install --python-version 3.11 --platform manylinux2014_x86_64 --upgrade-strategy eager "
+        "--retries 5 --use-feature 2020-resolver --keyring-provider import numpy\n"
+    )
+    assert online_checks.extract_packages(body) == [("pypi", "numpy")]
+
+
+def test_urls_are_capped_per_skill():
+    body = "\n".join(f"https://site{i}.dev/p" for i in range(25))
+    assert len(online_checks.extract_urls(body)) == online_checks.MAX_URLS_PER_SKILL == 20
+
+
+def test_backslash_continuation_is_a_documented_miss_and_names_nothing_wrong():
+    # The line-based rule does not join continuation lines: the package on the next line is missed.
+    body = "```bash\npip install \\\n  nosuch-pkg-xyz\n```\n"
+    assert online_checks.extract_packages(body) == []
+
+
+def test_quoted_requirement_with_a_semicolon_is_a_documented_miss():
+    # Quotes are not read: the quoted requirement is not a valid name, so nothing is checked.
+    body = "pip install \"requests; python_version < '3.11'\"\n"
+    assert online_checks.extract_packages(body) == []
+
+
+def test_shell_comments_are_removed_before_the_command_is_split():
+    body = (
+        "pip install requests # development-only\nnpm install lodash # development-only\n"
+        "pip install requests # note; pip install nosuch-pkg-xyz\n"
+    )
+    assert online_checks.extract_packages(body) == [("pypi", "requests"), ("npm", "lodash")]
+
+
+def test_a_hash_comment_with_no_space_after_it_hides_the_rest_of_the_line():
+    # The hash starts a word and an install is already on the line: shell reads the rest as a comment.
+    assert online_checks.extract_packages("pip install requests #note; pip install nosuch-pkg-xyz\n") == [
+        ("pypi", "requests")]
+    assert online_checks.extract_packages("pip install requests # `pip install nosuch-pkg-xyz`\n") == [
+        ("pypi", "requests")]
+
+
+def test_a_redirection_attached_to_the_package_word_keeps_the_package():
+    # The operator is glued to the name ("lodash>"): the name is the package, the word after the operator its target.
+    assert online_checks.extract_packages("npm install lodash> build-log\n") == [("npm", "lodash")]
+    assert online_checks.extract_packages("npx --package=lodash> build-log tool\n") == [("npm", "lodash")]
+    assert online_checks.extract_packages("pip install requests>build-log\n") == [("pypi", "requests")]
+
+
+def test_npx_with_a_package_option_that_is_not_a_registry_name_does_not_check_the_command():
+    # The option names a local, git or URL package: the word after it is the command that package supplies, not a
+    # registry package, so no fallback to the first word.
+    assert online_checks.extract_packages("npx --package=./local-cli mytool\n") == []
+    assert online_checks.extract_packages("npx -p github:acme/cli mytool\n") == []
+    assert online_checks.extract_packages("npx --package=https://x.dev/a.tgz mytool\n") == []
+
+
+def test_a_placeholder_inside_a_package_word_is_not_a_name_or_a_package_prefix():
+    # Self-review: "eslint-plugin-<plugin-name>" is a template, not a registry name; keeping its prefix would warn.
+    assert online_checks.extract_packages("npm install eslint-plugin-<plugin-name>\n") == []
+    assert online_checks.extract_packages("npx create-<name>-app\n") == []
+    assert online_checks.extract_packages("npm install my-lib-<version>.tgz\n") == []
+
+
+def test_a_hash_inside_a_code_span_is_not_a_comment_that_cuts_the_span():
+    # Self-review: the span is a command with a comment in it; the comment ends the command, the span is still read.
+    assert online_checks.extract_packages("Example: `pip install requests # pinned`\n") == [("pypi", "requests")]
+
+
+def test_redirection_operators_and_their_targets_are_not_packages():
+    body = (
+        "pip install requests > install.log\nnpm install lodash >> log.txt\n"
+        "pip install requests 2>&1 | tee out\npip install numpy 2>/dev/null\n"
+    )
+    assert online_checks.extract_packages(body) == [("pypi", "requests"), ("npm", "lodash"), ("pypi", "numpy")]
+
+
+def test_every_npx_package_option_is_checked_and_the_command_is_not_a_package():
+    assert online_checks.extract_packages("npx --package=@scope/cli --package=nosuch-pkg-xyz tool\n") == [
+        ("npm", "@scope/cli"), ("npm", "nosuch-pkg-xyz")]
+    assert online_checks.extract_packages("npx -p @scope/cli -p nosuch-pkg-xyz tool\n") == [
+        ("npm", "@scope/cli"), ("npm", "nosuch-pkg-xyz")]
+
+
+def test_trailing_sentence_punctuation_is_not_part_of_a_name_and_prose_npx_names_nothing():
+    assert online_checks.extract_packages("Run pip install requests.\nRun npm install lodash.\n") == [
+        ("pypi", "requests"), ("npm", "lodash")]
+    assert online_checks.extract_packages("Use npx to run things\n") == []
+
+
+def test_npm_and_pip_value_options_take_their_argument():
+    body = "npm install --omit dev lodash\npip install --python python3.11 foo\n"
+    assert online_checks.extract_packages(body) == [("npm", "lodash"), ("pypi", "foo")]
+
+
+def test_prose_with_an_apostrophe_still_splits_its_commands():
+    body = "Run pip install requests; it's quick and painless\n"
+    assert online_checks.extract_packages(body) == [("pypi", "requests")]
+
+
+def test_prose_after_an_install_is_read_as_names_known_limit():
+    # Known limit (warn-only): words after an install on the same line are names, and a conjunction does not end
+    # the list ("pip install foo and bar" reads both). "done" is a false name here.
+    body = "Don't worry; pip install requests and you're done\n"
+    assert online_checks.extract_packages(body) == [("pypi", "requests"), ("pypi", "done")]
+
+
+def test_prose_word_that_is_not_a_stop_word_is_read_as_a_name_known_limit():
+    # Known limit (warn-only): "quickly" is not on the stop list, so it is a false name here.
+    assert online_checks.extract_packages("pip install requests quickly\n") == [
+        ("pypi", "requests"), ("pypi", "quickly")]
+
+
+def test_prose_words_after_a_bare_install_are_not_package_names():
+    assert online_checks.extract_packages("Run npm install in the project directory.\n") == []
+    assert online_checks.extract_packages("pip install foo for development\n") == [("pypi", "foo")]
+    assert online_checks.extract_packages("run npm install locally to test\n") == []
+    assert online_checks.extract_packages("Run pip install requests. The tool needs it\n") == [("pypi", "requests")]
+
+
+def test_a_spaced_version_operator_takes_the_version_after_it():
+    assert online_checks.extract_packages("pip install foo == 1.0rc1\n") == [("pypi", "foo")]
+    assert online_checks.extract_packages("pip install foo >= 1.0 bar\n") == [("pypi", "foo"), ("pypi", "bar")]
+
+
+def test_uv_pip_value_options_and_npm_access_take_their_argument():
+    assert online_checks.extract_packages("uv pip install --prerelease allow foo\n") == [("pypi", "foo")]
+    assert online_checks.extract_packages("uv pip install --resolution lowest --link-mode copy foo\n") == [
+        ("pypi", "foo")]
+    assert online_checks.extract_packages("npm install --access public foo\n") == [("npm", "foo")]
+    assert online_checks.extract_packages("uv pip install -p python3.12 foo\n") == [("pypi", "foo")]
+    assert online_checks.extract_packages("uv pip install --torch-backend cu126 vllm\n") == [("pypi", "vllm")]
+
+
+def test_a_stop_word_that_is_an_option_value_is_the_value_not_prose():
+    assert online_checks.extract_packages("pip install --progress-bar on foo\n") == [("pypi", "foo")]
+    assert online_checks.extract_packages("npm install --omit in lodash\n") == [("npm", "lodash")]
+
+
+def test_a_prose_stop_word_with_a_full_stop_after_it_ends_the_list():
+    assert online_checks.extract_packages("pip install -e . locally.\n") == []
+    assert online_checks.extract_packages("npm install -g typescript globally.\n") == [("npm", "typescript")]
+    assert online_checks.extract_packages("pip install requests here.\n") == [("pypi", "requests")]
+
+
+def test_a_connective_after_a_package_list_ends_the_list():
+    assert online_checks.extract_packages("pip install foo if needed\n") == [("pypi", "foo")]
+    assert online_checks.extract_packages("pip install foo when ready\n") == [("pypi", "foo")]
+    assert online_checks.extract_packages("pip install foo before running\n") == [("pypi", "foo")]
+    assert online_checks.extract_packages("pip install foo if you want\n") == [("pypi", "foo")]
+    assert online_checks.extract_packages("pip install pyyaml, which is needed\n") == [("pypi", "pyyaml")]
+    assert online_checks.extract_packages("npm i express if needed\n") == [("npm", "express")]
+
+
+def test_a_version_glued_to_an_operator_is_not_a_name():
+    assert online_checks.extract_packages("pip install foo>= 1.0rc1\n") == [("pypi", "foo")]
+
+
+def test_destination_and_autolink_keep_their_trailing_punctuation_and_prose_urls_lose_it():
+    # A markdown destination or an autolink ends where its syntax ends: "!" and "." are part of the path there.
+    assert online_checks.extract_urls("[docs](https://docs.acme.dev/reference!)") == [
+        "https://docs.acme.dev/reference!"]
+    assert online_checks.extract_urls("<https://docs.acme.dev/a.>") == ["https://docs.acme.dev/a."]
+    assert online_checks.extract_urls("See https://docs.acme.dev/reference.") == ["https://docs.acme.dev/reference"]
+
+
+def test_markdown_destination_and_reference_definition_decode_backslash_escapes():
+    assert online_checks.extract_urls("[docs](https://docs.example-tool.dev/guide\\_notes)") == [
+        "https://docs.example-tool.dev/guide_notes"]
+    assert online_checks.extract_urls("[guide]: https://docs.example-tool.dev/guide\\_notes") == [
+        "https://docs.example-tool.dev/guide_notes"]
+
+
+def test_markdown_destination_and_reference_definition_decode_character_references():
+    assert online_checks.extract_urls("[docs](https://docs.acme.dev/a&amp;b)") == ["https://docs.acme.dev/a&b"]
+    assert online_checks.extract_urls("[docs]: https://docs.acme.dev/a&amp;b") == ["https://docs.acme.dev/a&b"]
+    assert online_checks.extract_urls("[docs](https://docs.acme.dev/x&#x2F;y&#47;z)") == [
+        "https://docs.acme.dev/x/y/z"]
+
+
+def test_character_reference_that_is_not_a_reference_or_is_escaped_stays_as_written():
+    assert online_checks.extract_urls("[docs](https://docs.acme.dev/a&notanentity;b)") == [
+        "https://docs.acme.dev/a&notanentity;b"]
+    assert online_checks.extract_urls("[docs](https://docs.acme.dev/a&amp)") == ["https://docs.acme.dev/a&amp"]
+    assert online_checks.extract_urls("[docs](https://docs.acme.dev/a\\&amp;b)") == [
+        "https://docs.acme.dev/a&amp;b"]
+
+
+def test_an_escaped_paren_bracket_or_pipe_stays_in_a_destination():
+    # CommonMark: "\)", "\]" and "\|" do not end a destination; the escape is decoded after the cut.
+    assert online_checks.extract_urls("[docs](https://docs.acme.dev/a\\)b)") == ["https://docs.acme.dev/a)b"]
+    assert online_checks.extract_urls("[docs](https://docs.acme.dev/a\\]b)") == ["https://docs.acme.dev/a]b"]
+    assert online_checks.extract_urls("| [x](https://acme.dev/a\\|b) | y |") == ["https://acme.dev/a|b"]
+    # An escaped "(" opens no paren, so the ")" after it closes the destination; "\\\\" is an escaped backslash.
+    assert online_checks.extract_urls("[x](https://x.dev/a\\(b)") == ["https://x.dev/a(b"]
+    assert online_checks.extract_urls("[x](https://x.dev/p\\\\)") == ["https://x.dev/p\\"]
+
+
+def test_a_backslash_in_an_autolink_is_not_decoded_and_a_hash_after_a_command_word_is_prose():
+    # Self-review: CommonMark has no escapes inside an autolink; and "npm (see #setup)" is prose, not an install.
+    assert online_checks.extract_urls("<https://x.dev/a\\_b>") == ["https://x.dev/a\\_b"]
+    assert online_checks.extract_packages("Works with npm (see #setup): `npm install nosuch-pkg-xyz`\n") == [
+        ("npm", "nosuch-pkg-xyz")]
+
+
+def test_a_footnote_label_is_prose_so_its_sentence_punctuation_goes():
+    # Self-review: "[^1]: " is a footnote, not a reference definition whose destination keeps its punctuation.
+    assert online_checks.extract_urls("[^1]: https://x.dev/paper.") == ["https://x.dev/paper"]
+
+
+def test_balanced_brackets_and_underscores_are_part_of_the_url():
+    assert online_checks.extract_urls("see https://x.dev/api?f[0]=1 now") == ["https://x.dev/api?f[0]=1"]
+    assert online_checks.extract_urls("[x](https://en.wikipedia.org/wiki/Foo_(bar))") == [
+        "https://en.wikipedia.org/wiki/Foo_(bar)"]
+    assert online_checks.extract_urls("[x](https://acme.dev/a\\-b\\~c\\&d)") == ["https://acme.dev/a-b~c&d"]
+    assert online_checks.extract_urls("see https://host.dev/docs/__main__") == ["https://host.dev/docs/__main__"]
+    assert online_checks.extract_urls("http://[2606:4700:4700::1111]/x") == ["http://[2606:4700:4700::1111]/x"]
+    assert online_checks.extract_urls("[see https://x.com/a] for more") == ["https://x.com/a"]
+
+
+def test_markdown_link_inside_emphasis_table_or_next_to_another_link_keeps_only_the_url():
+    assert online_checks.extract_urls("_[docs](https://x.com/a)_") == ["https://x.com/a"]
+    assert online_checks.extract_urls("|[docs](https://x.com/a)|desc|") == ["https://x.com/a"]
+    assert online_checks.extract_urls("[a](https://x.com/a)[b](https://y.com/b)") == [
+        "https://x.com/a", "https://y.com/b"]
+
+
+def test_process_substitution_is_a_documented_miss_not_a_wrong_name():
+    # The operators split the line, so the value option "-r" takes nothing and "foo" is not read.
+    assert online_checks.extract_packages("pip install -r <(echo x) foo\n") == []
+
+
+def test_quoted_parenthesis_does_not_hide_the_next_command():
+    # Pass-6 blocker 1: a quoted "(" is a line operator here, and the next command is still read.
+    assert online_checks.extract_packages('npm i foo; grep "(" x; npm i bar\n') == [("npm", "foo"), ("npm", "bar")]
+
+
+def test_issue_reference_before_a_command_is_not_a_comment():
+    # Pass-6 blocker 2: "#12" is not a comment (a comment is "#" followed by a space or the end of the line).
+    assert online_checks.extract_packages("See #12; pip install foo\n") == [("pypi", "foo")]
+
+
+def test_backslash_hard_break_in_prose_does_not_turn_prose_into_names():
+    # Pass-6 blocker 3: the continuation is not joined, so the prose line is not read as an install.
+    assert online_checks.extract_packages("pip install foo\\\nThen restart the server\n") == []
+
+
+def test_nested_parentheses_do_not_hide_the_next_command():
+    # Pass-6 blocker 4: each "(" and ")" is a line operator, so the nesting does not swallow the rest.
+    assert online_checks.extract_packages("pip install foo (see (docs)) and npm i bar\n") == [
+        ("pypi", "foo"), ("npm", "bar")]
+
+
+def test_npx_verbs_after_npx_in_prose_are_not_packages():
+    assert online_checks.extract_packages("npx can run any package\nnpx runs the binary\n") == []
+
+
+def test_numbers_are_not_package_names():
+    assert online_checks.extract_packages("pip install requests 2>&1\n") == [("pypi", "requests")]
+
+
+def test_ampersand_redirection_target_is_not_a_package():
+    assert online_checks.extract_packages("pip install requests &> log.txt\n") == [("pypi", "requests")]
+
+
+def test_words_after_a_redirection_target_are_still_packages():
+    # Red on the operator split: the redirect used to end the words, so "bar" was lost.
+    assert online_checks.extract_packages("pip install foo > install.log bar\n") == [("pypi", "foo"), ("pypi", "bar")]
+    assert online_checks.extract_packages("npm i foo 2>err.log bar\n") == [("npm", "foo"), ("npm", "bar")]
+    assert online_checks.extract_packages("pip install foo 2>&1 bar\n") == [("pypi", "foo"), ("pypi", "bar")]
+
+
+def test_every_redirection_form_drops_its_target_and_keeps_the_words_after_it():
+    # Red (self-review pass 8): ">&file" redirects to a file, so "log" is a target, not a package; here-strings and
+    # clobber ">|" are redirections too, and the words after their targets are packages.
+    assert online_checks.extract_packages("pip install foo >&log bar\n") == [("pypi", "foo"), ("pypi", "bar")]
+    assert online_checks.extract_packages("pip install foo >& log bar\n") == [("pypi", "foo"), ("pypi", "bar")]
+    assert online_checks.extract_packages("pip install foo <<< bar baz\n") == [("pypi", "foo"), ("pypi", "baz")]
+    assert online_checks.extract_packages("pip install foo >| out bar\n") == [("pypi", "foo"), ("pypi", "bar")]
+    assert online_checks.extract_packages("pip install foo 1>&2 bar\n") == [("pypi", "foo"), ("pypi", "bar")]
+
+
+def test_version_specs_stay_one_requirement_and_do_not_split_the_list():
+    assert online_checks.extract_packages("pip install numpy>=1.20 pandas\n") == [
+        ("pypi", "numpy"), ("pypi", "pandas")]
+    assert online_checks.extract_packages("pip install foo<2 bar\n") == [("pypi", "foo"), ("pypi", "bar")]
+    # The quoted requirement is a documented miss; the package after it is still read.
+    assert online_checks.extract_packages('pip install "numpy<2" scipy\n') == [("pypi", "scipy")]
+
+
+def test_then_ends_the_package_list_and_a_following_command_is_not_a_package():
+    assert online_checks.extract_packages("Run npm install then npm test\n") == []
+    assert online_checks.extract_packages("pip install foo then python app.py\n") == [("pypi", "foo")]
+
+
+def test_a_word_ending_in_a_colon_ends_the_package_list():
+    assert online_checks.extract_packages("pip install foo: it is fast\n") == [("pypi", "foo")]
+
+
+def test_a_conjunction_ends_one_command_and_the_next_command_is_read():
+    body = "Run pip install requests or npm i lodash\n"
+    assert online_checks.extract_packages(body) == [("pypi", "requests"), ("npm", "lodash")]
+
+
+def test_a_stray_backtick_does_not_hide_the_command():
+    assert online_checks.extract_packages("Run `pip install requests\n") == [("pypi", "requests")]
+
+
+def test_a_hash_inside_a_word_is_not_a_comment():
+    body = "| C# | npm install foo |\nSee [setup](https://ex.com/docs#setup) then pip install bar\n"
+    assert online_checks.extract_packages(body) == [("npm", "foo"), ("pypi", "bar")]
+
+
+def test_a_conjunction_inside_a_package_list_keeps_the_list():
+    assert online_checks.extract_packages("Run pip install numpy and pandas\n") == [
+        ("pypi", "numpy"), ("pypi", "pandas")]
+    assert online_checks.extract_packages("pip install -U pip and setuptools\n") == [
+        ("pypi", "pip"), ("pypi", "setuptools")]
+    assert online_checks.extract_packages("npm i lodash or underscore\n") == [
+        ("npm", "lodash"), ("npm", "underscore")]
+
+
+def test_a_hash_after_a_parenthesis_or_in_an_anchor_is_not_a_comment():
+    assert online_checks.extract_packages("pip install foo (#12) and npm i bar\n") == [
+        ("pypi", "foo"), ("npm", "bar")]
+    assert online_checks.extract_packages("See [x](#setup) then pip install bar\n") == [("pypi", "bar")]
+
+
+def test_list_markers_and_a_command_inside_a_code_span_are_read():
+    assert online_checks.extract_packages("- pip install foo\n1. npm i bar\n") == [
+        ("pypi", "foo"), ("npm", "bar")]
+    assert online_checks.extract_packages("Run pip install `requests`\n") == [("pypi", "requests")]
+
+
+def test_a_markdown_quote_in_front_of_a_command_is_read():
+    assert online_checks.extract_packages("> pip install foo\n") == [("pypi", "foo")]
+
+
+def test_npx_value_option_is_skipped_before_the_package():
+    assert online_checks.extract_packages("npx --cache /tmp/npm-cache foo\n") == [("npm", "foo")]
+
+
+def test_npx_prose_words_are_not_packages_and_npx_with_a_package_is():
+    body = "npx is great for one-off tools\nUse npx create-react-app my-app\n"
+    assert online_checks.extract_packages(body) == [("npm", "create-react-app")]
+
+
+def test_inline_code_spans_are_commands_of_their_own():
+    body = "Install with `pip install requests` and `npm i lodash`.\n"
+    assert online_checks.extract_packages(body) == [("pypi", "requests"), ("npm", "lodash")]
+
+
+def test_markdown_link_text_and_target_are_both_checked():
+    assert online_checks.extract_urls("[https://a.com/a](https://a.com/b)\n") == [
+        "https://a.com/a", "https://a.com/b"]
+
+
+def test_npx_run_as_an_instruction_is_checked():
+    body = "Run npx create-react-app app\n$ npx cowsay hi\n"
+    assert online_checks.extract_packages(body) == [("npm", "create-react-app"), ("npm", "cowsay")]
+
+
+def test_markdown_link_whose_text_is_the_url_is_one_url():
+    assert online_checks.extract_urls("[https://b.com/x](https://b.com/x)\n") == ["https://b.com/x"]
+
+
+# ---- what the registry and the web answer --------------------------------------------------
+
+
+def test_package_missing_on_pypi_is_a_warning(tmp_path):
+    root = _one_skill(tmp_path, "Run `pip install nosuch-pkg-xyz`.\n")
+    web = Web({PYPI.format(name="nosuch-pkg-xyz"): 404})
+
+    [review] = _reviews(root, web)
+    assert _online_codes(review) == ["package-not-found"]
+    assert review.state == "warn"
+    [missing] = [f for f in review.findings if f.code == "package-not-found"]
+    assert "nosuch-pkg-xyz" in missing.message
+
+
+def test_npm_scoped_package_missing_from_the_registry_is_a_warning(tmp_path):
+    root = _one_skill(tmp_path, "```\nnpm install -g @anthropic-ai/server-postgres\n```\n")
+    web = Web({NPM.format(name="@anthropic-ai%2Fserver-postgres"): 404})
+
+    [review] = _reviews(root, web)
+    assert _online_codes(review) == ["package-not-found"]
+
+
+def test_package_that_exists_is_not_a_finding(tmp_path):
+    root = _one_skill(tmp_path, "pip install requests\n")
+
+    [review] = _reviews(root, Web(default=200))
+    assert review.findings == []
+
+
+@pytest.mark.parametrize("status", [403, 410, 429, 503])
+def test_registry_refusals_are_not_findings(tmp_path, status):
+    root = _one_skill(tmp_path, "pip install requests\n")
+
+    [review] = _reviews(root, Web(default=status))
+    assert review.findings == []
+
+
+def test_network_error_on_a_package_is_not_a_finding(tmp_path):
+    root = _one_skill(tmp_path, "pip install requests\n")
+    web = Web({PYPI.format(name="requests"): httpx.ConnectTimeout("timed out")})
+
+    [review] = _reviews(root, web)
+    assert review.findings == []
+
+
+def test_dead_link_404_on_head_and_get_is_a_warning(tmp_path):
+    url = "https://docs.example-tool.dev/guide"
+    root = _one_skill(tmp_path, f"See [the guide]({url}).\n")
+    web = Web({url: 404})
+
+    [review] = _reviews(root, web)
+    assert _codes(review) == ["link-dead"]
+    assert url in review.findings[0].message
+    assert [m for m, _ in web.requests] == ["HEAD", "GET"]
+
+
+def test_410_gone_is_a_dead_link(tmp_path):
+    root = _one_skill(tmp_path, "See https://docs.example-tool.dev/old.\n")
+
+    [review] = _reviews(root, Web({"https://docs.example-tool.dev/old": 410}))
+    assert _codes(review) == ["link-dead"]
+
+
+def test_a_redirect_with_no_location_is_an_answer_not_a_crash(tmp_path):
+    url = "https://docs.example-tool.dev/bare-redirect"
+    root = _one_skill(tmp_path, f"See {url} and https://docs.example-tool.dev/ok\n")
+
+    [review] = _reviews(root, Web({url: 302}))
+    assert _codes(review) == []
+
+
+def test_anchors_of_one_page_are_one_request_and_one_finding(tmp_path):
+    body = " ".join(f"https://docs.example-tool.dev/guide#s{i}" for i in range(25))
+    root = _one_skill(tmp_path, body + "\n")
+    web = Web({"https://docs.example-tool.dev/guide": 404})
+
+    [review] = _reviews(root, web)
+    assert _codes(review) == ["link-dead"]
+    assert web.requests == [("HEAD", "https://docs.example-tool.dev/guide"), ("GET", "https://docs.example-tool.dev/guide")]
+
+
+def test_a_url_in_a_code_span_is_an_example_not_a_link(tmp_path):
+    root = _one_skill(tmp_path, "Set the base URL to `https://api.example-tool.dev/v1` first.\n")
+
+    [review] = _reviews(root, Web({"https://api.example-tool.dev/v1": 404}))
+    assert _codes(review) == []
+
+
+def test_head_refused_but_get_working_is_not_dead(tmp_path):
+    url = "https://docs.example-tool.dev/head-refused"
+    root = _one_skill(tmp_path, f"See {url}\n")
+    web = Web({("HEAD", url): 405, ("GET", url): 200})
+
+    [review] = _reviews(root, web)
+    assert review.findings == []
+
+
+class _UnreadBody(httpx.SyncByteStream):
+    """A redirect body that fails the test when anything reads it, as an endless stream would hold the probe."""
+
+    def __iter__(self):
+        raise AssertionError("the body of a redirect was read")
+        yield b""  # pragma: no cover
+
+
+def test_redirect_body_is_not_read_before_following_it():
+    start, final = "https://docs.example-tool.dev/start", "https://docs.example-tool.dev/final"
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        if str(request.url) == start:
+            return httpx.Response(302, headers={"Location": final}, stream=_UnreadBody())
+        return httpx.Response(200)
+
+    # follow_redirects=True on purpose: _final_status must override it per request, or httpx reads the body.
+    client = httpx.Client(transport=httpx.MockTransport(handle), follow_redirects=True)
+    assert online_checks._status(client, start) == 200
+
+
+def test_character_reference_in_a_link_is_probed_decoded_not_as_written(tmp_path):
+    web = Web({"https://docs.acme.dev/a&amp;b": 404, "https://docs.acme.dev/a&b": 200})
+    root = _one_skill(tmp_path, "See [docs](https://docs.acme.dev/a&amp;b).\n")
+
+    [review] = _reviews(root, web)
+    assert review.findings == []
+    assert web.hits("https://docs.acme.dev/a&amp;b") == 0
+    assert web.hits("https://docs.acme.dev/a&b") == 1
+
+
+def test_angle_bracket_destination_is_probed_decoded_like_a_plain_one(tmp_path):
+    web = Web({"https://docs.acme.dev/a&amp;b": 404, "https://docs.acme.dev/a&b": 200})
+    root = _one_skill(tmp_path, "See [docs](<https://docs.acme.dev/a&amp;b>).\n")
+
+    [review] = _reviews(root, web)
+    assert review.findings == []
+    assert web.hits("https://docs.acme.dev/a&amp;b") == 0
+    assert web.hits("https://docs.acme.dev/a&b") == 1
+
+
+def test_angle_bracket_destination_and_reference_definition_decode_character_references():
+    assert online_checks.extract_urls("[docs](<https://docs.acme.dev/a&amp;b>)") == ["https://docs.acme.dev/a&b"]
+    assert online_checks.extract_urls("[docs]: <https://docs.acme.dev/a&amp;b>") == ["https://docs.acme.dev/a&b"]
+    assert online_checks.extract_urls("<https://docs.acme.dev/a&amp;b>") == ["https://docs.acme.dev/a&amp;b"]
+
+
+@pytest.mark.parametrize("status", [403, 500, 503])
+def test_403_and_5xx_are_not_dead(tmp_path, status):
+    url = "https://docs.example-tool.dev/guarded"
+    root = _one_skill(tmp_path, f"See {url}\n")
+
+    [review] = _reviews(root, Web(default=status))
+    assert review.findings == []
+
+
+def test_dns_failure_is_a_dead_link(tmp_path):
+    url = "https://gone-host.example-tool.dev/"
+    root = _one_skill(tmp_path, f"See {url} and https://docs.example-tool.dev/ok\n")
+    web = Web({url: _dns_failure()})
+
+    [review] = _reviews(root, web)
+    assert _codes(review) == ["link-dead"]
+    assert "does not resolve" in review.findings[0].message
+
+
+def test_no_data_answer_from_the_resolver_is_a_dead_link(tmp_path):
+    url = "https://no-data.example-tool.dev/"
+    root = _one_skill(tmp_path, f"See {url} and https://docs.example-tool.dev/ok\n")
+    error = httpx.ConnectError("No address associated with hostname")
+    error.__cause__ = socket.gaierror(socket.EAI_NODATA, "No address associated with hostname")
+    web = Web({url: error})
+
+    [review] = _reviews(root, web)
+    assert _codes(review) == ["link-dead"]
+
+
+def test_temporary_resolver_failure_is_not_a_dead_link(tmp_path):
+    url = "https://real-site.example-tool.dev/"
+    root = _one_skill(tmp_path, f"See {url} and https://docs.example-tool.dev/ok\n")
+    error = httpx.ConnectError("Temporary failure in name resolution")
+    error.__cause__ = socket.gaierror(socket.EAI_AGAIN, "Temporary failure in name resolution")
+    web = Web({url: error})
+
+    [review] = _reviews(root, web)
+    assert _codes(review) == []
+
+
+def test_resolver_failure_of_the_proxy_is_not_a_dead_link(monkeypatch):
+    # With a proxy in the environment, the resolver fails on the proxy's host, not on the link's.
+    for name in ("HTTPS_PROXY", "https_proxy"):
+        monkeypatch.setenv(name, "http://missing-proxy.invalid:8080")
+    for name in ("NO_PROXY", "no_proxy"):
+        monkeypatch.setenv(name, "")
+
+    def no_such_host(*args, **kwargs):
+        raise socket.gaierror(socket.EAI_NONAME, "Name or service not known")
+
+    monkeypatch.setattr(socket, "getaddrinfo", no_such_host)
+    assert online_checks._link_outcome(online_checks.make_client(), "https://real-site.example-tool.dev/").status == "network"
+
+
+def test_resolver_failure_with_only_all_proxy_set_is_not_a_dead_link(monkeypatch):
+    monkeypatch.setenv("ALL_PROXY", "http://missing-proxy.invalid:8080")
+    for name in ("NO_PROXY", "no_proxy"):
+        monkeypatch.setenv(name, "")
+
+    def no_such_host(*args, **kwargs):
+        raise socket.gaierror(socket.EAI_NONAME, "Name or service not known")
+
+    monkeypatch.setattr(socket, "getaddrinfo", no_such_host)
+    assert online_checks._link_outcome(online_checks.make_client(), "https://real-site.example-tool.dev/").status == "network"
+
+
+def test_resolver_failure_of_the_proxy_after_a_redirect_is_not_a_dead_link(monkeypatch):
+    # The first host bypasses the proxy; the redirect target goes through it, and the proxy's host fails.
+    monkeypatch.setenv("HTTPS_PROXY", "http://missing-proxy.invalid:8080")
+    for name in ("NO_PROXY", "no_proxy"):
+        monkeypatch.setenv(name, "start.example-tool.dev")
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "start.example-tool.dev":
+            return httpx.Response(302, headers={"location": "https://docs.example-tool.dev/"})
+        error = httpx.ConnectError("[Errno -2] Name or service not known", request=request)
+        error.__cause__ = socket.gaierror(socket.EAI_NONAME, "Name or service not known")
+        raise error
+
+    client = httpx.Client(transport=httpx.MockTransport(handle))
+    assert online_checks._link_outcome(client, "https://start.example-tool.dev/").status == "network"
+
+
+def test_timeout_on_a_link_is_not_dead(tmp_path):
+    url = "https://slow.example-tool.dev/"
+    root = _one_skill(tmp_path, f"See {url}\n")
+
+    [review] = _reviews(root, Web({url: httpx.ReadTimeout("slow")}))
+    assert review.findings == []
+
+
+def test_each_package_and_url_is_requested_once_per_run(tmp_path):
+    url = "https://docs.example-tool.dev/shared"
+    for name in ("first", "second"):
+        _skill(tmp_path / "skills", name, name=name, description=f"Use for {name} work.",
+               body=f"pip install requests\nSee {url}\n")
+    web = Web()
+
+    reviews = _reviews(tmp_path, web)
+    assert len(reviews) == 2
+    assert web.hits(PYPI.format(name="requests")) == 1
+    assert web.hits(url) == 1  # one HEAD for the single probe (200), never one per skill
+
+
+def test_probes_use_a_five_second_timeout():
+    assert online_checks.make_client().timeout == httpx.Timeout(5.0)
+
+
+def test_placeholder_hosts_make_no_request(tmp_path):
+    root = _one_skill(tmp_path, "See https://example.com/a and http://localhost/b and https://api.x.com/<id>\n")
+    web = Web()
+
+    _reviews(root, web)
+    assert web.requests == []
+
+
+# ---- the flag ------------------------------------------------------------------------------
+
+
+def test_without_online_no_request_is_made(tmp_path, monkeypatch, capsys):
+    root = _one_skill(tmp_path, "pip install nosuch-pkg-xyz\nSee https://docs.example-tool.dev/dead\n")
+
+    def no_network():
+        raise AssertionError("catalog check without --online must not open a connection")
+
+    monkeypatch.setattr(online_checks, "make_client", no_network)
+    code, report = _scan_capture(root, capsys)
+    assert code == 0
+    assert [f["code"] for f in report["skills"][0]["findings"]] == []
+
+
+def test_online_reports_dead_links_and_packages_as_warnings(tmp_path, monkeypatch, capsys):
+    root = _one_skill(tmp_path, "pip install nosuch-pkg-xyz\nSee https://docs.example-tool.dev/dead\n")
+    web = Web({PYPI.format(name="nosuch-pkg-xyz"): 404, "https://docs.example-tool.dev/dead": 404})
+    monkeypatch.setattr(online_checks, "make_client", web.client)
+
+    code, report = _scan_capture(root, capsys, "--online")
+    assert code == 0  # warnings only: the exit code does not change
+    assert report["skills"][0]["state"] == "warn"
+    assert sorted(f["code"] for f in report["skills"][0]["findings"]) == ["link-dead", "package-not-found"]
+
+
+def test_online_with_per_skill_is_a_usage_error(tmp_path):
+    parser = build_parser()
+    args = parser.parse_args(["catalog", "check", "--root", str(tmp_path), "--kind", "skills",
+                              "--per-skill", "--online"])
+    with pytest.raises(InputError, match="--online"):
+        args.func(args)
+
+
+def test_online_with_kind_tasks_is_a_usage_error(tmp_path):
+    parser = build_parser()
+    args = parser.parse_args(["catalog", "check", "--root", str(tmp_path), "--kind", "tasks", "--online"])
+    with pytest.raises(InputError, match="--online"):
+        args.func(args)
+
+
+def test_online_still_probes_the_good_skills_when_one_skill_fails_to_load(tmp_path, monkeypatch, capsys):
+    _skill(tmp_path / "skills", "good", name="good", description="Use for good work.",
+           body="pip install nosuch-pkg-xyz\n")
+    broken = tmp_path / "skills" / "broken"
+    broken.mkdir(parents=True)
+    (broken / "SKILL.md").write_text("---\nname: [unclosed\n---\nbody\n", encoding="utf-8")
+    web = Web({PYPI.format(name="nosuch-pkg-xyz"): 404})
+    monkeypatch.setattr(online_checks, "make_client", web.client)
+
+    code, report = _scan_capture(tmp_path, capsys, "--online")
+    assert code == 1  # the skill that does not load fails the check, as it does without --online
+    good = next(row for row in report["skills"] if row["name"] == "good")
+    assert [f["code"] for f in good["findings"]] == ["package-not-found"]
+
+
+def test_a_long_line_with_hash_comments_and_no_install_is_read_in_linear_time():
+    # Quadratic on head: 8000 "#" on one line without an install command took 7.5 s.
+    started = time.perf_counter()
+    assert online_checks.extract_packages("`a` #x " * 8000) == []
+    assert time.perf_counter() - started < 2.0
+
+
+def test_a_python_m_pip_install_span_is_split_off_so_its_prose_is_not_read():
+    body = ("Run `python -m pip install requests` once and restart.\n"
+            "Use `python3 -m pip install requests` inside the venv.\n")
+    assert online_checks.extract_packages(body) == [("pypi", "requests")]
+
+
+def test_placeholder_names_with_underscores_or_upper_case_are_not_checked():
+    body = "pip install your_package\npip install YOUR_PACKAGE\npip install package-name\nnpm install my_package\n"
+    assert online_checks.extract_packages(body) == []
+
+
+def test_placeholder_owner_and_repo_in_a_url_are_not_checked():
+    body = "See https://github.com/YOUR_USERNAME/repo and https://github.com/OWNER/REPO.git.\n"
+    assert online_checks.extract_urls(body) == []
+
+
+def test_a_package_from_another_index_or_registry_is_not_looked_up_on_the_public_one():
+    body = ("pip install acme-tool --index-url https://pypi.acme.corp/simple\n"
+            "pip install acme-tool --extra-index-url=https://pypi.acme.corp/simple\n"
+            "pip install -i https://pypi.acme.corp/simple acme-tool\n"
+            "pip install --no-index --find-links ./wheels acme-tool\n"
+            "npm install --registry https://npm.acme.corp @acme/tool\n")
+    assert online_checks.extract_packages(body) == []
+
+
+def test_npx_with_a_registry_and_an_attached_pip_index_name_another_index_too():
+    assert online_checks.extract_packages("npx --registry https://npm.corp.example/ corp-tool") == []
+    assert online_checks.extract_packages("pip install -ihttps://corp/simple corp-pkg") == []
+    assert online_checks.extract_packages("uv pip install --index https://corp/simple corp-pkg\n") == []
+
+
+def test_a_url_in_a_code_fence_is_an_example_not_a_link_a_reader_follows():
+    body = ("See https://docs.acme.dev/guide.\n\n"
+            "```python\nclient = OpenAI(base_url=\"https://api.openai.com/v1\")\n```\n")
+    assert online_checks.extract_urls(body) == ["https://docs.acme.dev/guide"]
+
+
+def test_an_internal_or_single_label_host_is_not_requested():
+    body = ("http://169.254.169.254/latest/meta-data/ http://10.0.0.5/admin http://[fe80::1]/ "
+            "http://my-api:8000/v1 https://myapp.local/x https://db.corp.internal/y\n")
+    assert online_checks.extract_urls(body) == []
+
+
+def test_an_ipv4_shorthand_or_a_trailing_dot_host_is_internal_too():
+    # the resolver reads "127.1", "0177.0.0.1" and "0x7f.0.0.1" as IPv4 (inet_aton); "localhost." is "localhost"
+    body = ("http://127.1/admin http://0177.0.0.1/ http://0x7f.0.0.1/ http://10.1/ "
+            "http://169.254.43518/latest/meta-data/ http://localhost./ http://metadata.google.internal./v1/\n")
+    assert online_checks.extract_urls(body) == []
+    assert online_checks._internal_url("http://x.localhost/")
+
+
+def test_a_shared_address_range_host_is_internal_too():
+    # 100.64.0.0/10 (carrier-grade NAT, Tailscale) is not "private" to Python, and 100.100.100.200 is a metadata host
+    body = "http://100.100.100.200/latest/meta-data/ http://100.64.0.1/ http://[::ffff:100.64.0.1]/\n"
+    assert online_checks.extract_urls(body) == []
+    assert online_checks._internal_url("http://100.64.0.1/")
+    assert not online_checks._internal_url("http://93.184.216.34/")
+
+
+def test_an_ideographic_or_fullwidth_full_stop_in_a_host_is_a_dot_for_the_internal_rule():
+    # httpx maps U+3002 and U+FF0E to "." when it connects; urlsplit keeps them, so the rule must read httpx's host
+    body = ("http://10.0.0。1/admin http://127.0.0．1/ http://169.254.169．254/ "
+            "http://metadata.google.internal。/ http://printer.local。/\n")
+    assert online_checks.extract_urls(body) == []
+    assert online_checks._internal_url("http://10.0.0。1/")
+
+
+def test_a_redirect_into_a_private_address_is_not_requested():
+    requested: list[str] = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        requested.append(str(request.url))
+        if request.url.host == "evil.dev":
+            return httpx.Response(302, headers={"Location": "http://10.0.0.5/admin/delete?id=1"})
+        return httpx.Response(200)
+
+    client = httpx.Client(transport=httpx.MockTransport(handle), follow_redirects=False)
+    assert online_checks._link_outcome(client, "https://evil.dev/r").status == "internal"
+    assert requested == ["https://evil.dev/r"]  # the HEAD only: the hop into 10.0.0.5 is never sent
+
+
+def test_a_dns_failure_on_a_redirect_hop_names_the_hop_not_the_first_url():
+    def handle(request: httpx.Request) -> httpx.Response:
+        if request.url.host == "bit.ly":
+            return httpx.Response(302, headers={"Location": "https://old.dead-domain.dev/"})
+        error = httpx.ConnectError("[Errno -2] Name or service not known", request=request)
+        error.__cause__ = socket.gaierror(socket.EAI_NONAME, "Name or service not known")
+        raise error
+
+    client = httpx.Client(transport=httpx.MockTransport(handle), follow_redirects=False)
+    finding = online_checks._link_outcome(client, "https://bit.ly/abc").finding
+    assert finding is not None
+    assert finding.message == ("link https://bit.ly/abc redirects to https://old.dead-domain.dev/, "
+                               "which does not resolve (DNS failure)")
+
+
+def test_an_apostrophe_is_part_of_a_url_but_a_quote_or_sentence_mark_after_a_bare_url_is_not():
+    body = ("[law](https://en.wikipedia.org/wiki/Moore's_law) and <https://en.wikipedia.org/wiki/Moore's_law>\n"
+            "See https://en.wikipedia.org/wiki/Moore's_law. Also 'https://x.com/a' in quotes.\n")
+    assert online_checks.extract_urls(body) == ["https://en.wikipedia.org/wiki/Moore's_law", "https://x.com/a"]
+
+
+def test_curly_quotes_dashes_and_cjk_punctuation_end_a_bare_url():
+    body = "see “https://a.com/x” and https://b.com/y—and more and 「https://c.com/z」\n"
+    assert online_checks.extract_urls(body) == ["https://a.com/x", "https://b.com/y", "https://c.com/z"]
+
+
+def test_a_quote_after_a_bare_url_ends_it_so_a_list_or_a_template_is_read():
+    body = "urls = 'https://a.com/x','https://b.com/y' and Use {'url': 'https://pypi.org/simple'}\n"
+    assert online_checks.extract_urls(body) == ["https://a.com/x", "https://b.com/y", "https://pypi.org/simple"]
+
+
+def _scan_capture(root, capsys, *extra: str) -> tuple[int, dict]:
+    parser = build_parser()
+    args = parser.parse_args(["catalog", "check", "--root", str(root), "--kind", "skills",
+                              "--format", "json", *extra])
+    code = 0
+    try:
+        args.func(args)
+    except SystemExit as exc:
+        code = exc.code
+    return code, json.loads(capsys.readouterr().out)
+
