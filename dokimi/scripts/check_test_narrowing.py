@@ -11,7 +11,8 @@ or ``BaseException``, raises a tolerance (``rel``, ``abs``, ``rtol``, ``atol``,
 ``rel_tol``, ``abs_tol``), or cuts ``parametrize`` cases (the product of stacked decorators). A skip or xfail
 mark counts wherever it sits: a decorator, ``pytest.param(marks=...)``, a class
 decorator or ``pytestmark``, and so does a ``pytest.skip``/``pytest.importorskip`` call
-in the test or at the top of its module. A file the
+in the test or at the top of its module. Tolerances are compared per call; a new call
+with a tolerance is a new check only when the test's count of checks or cases grew. A file the
 runner no longer collects counts as deleted, and a ``conftest.py`` statement the PR adds
 or changes that names ``collect_ignore``, ``collect_ignore_glob`` or ``pytest_ignore_collect``
 is a finding of its own. New tests are not read, and
@@ -54,6 +55,7 @@ RAISES = {"raises", "warns", "assertRaises", "assertRaisesRegex", "assertWarns",
 SKIPS = {"skip", "skipif", "xfail", "skipTest", "skipIf", "skipUnless", "expectedFailure", "importorskip"}
 # The skips that run where they are called, as opposed to marks a decorator applies.
 EFFECTS = {"skip", "xfail", "skipTest", "importorskip"}
+TOLERANT = {"approx", "isclose", "allclose", "assert_allclose"}
 IGNORES = re.compile(r"collect_ignore(_glob)?|pytest_ignore_collect")
 BROAD = {"Exception", "BaseException"}
 # What a tolerance is when its keyword is left out of pytest.approx or math.isclose.
@@ -95,7 +97,7 @@ class Shape:
     skips: int = 0
     matches: int = 0
     broad: int = 0
-    tolerances: dict[str, float] = field(default_factory=dict)
+    tolerances: list[tuple[str, dict[str, float]]] = field(default_factory=list)
     cases: int | None = None
     cases_known: bool = True
     body: str = ""
@@ -154,16 +156,17 @@ def _skips_in(node: ast.AST) -> int:
 
 
 def _read_tolerances(call: ast.Call, shape: Shape) -> None:
-    for kw in call.keywords:
-        if kw.arg in TOLERANCES and isinstance(kw.value, ast.Constant):
-            value = kw.value.value
-            if value is None:
-                number = math.inf
-            elif isinstance(value, (int, float)):
-                number = float(value)
-            else:
-                continue
-            shape.tolerances[kw.arg] = max(shape.tolerances.get(kw.arg, 0.0), number)
+    """Record ``call`` with its tolerances when it is a comparison that takes them."""
+    named = [kw for kw in call.keywords if kw.arg in TOLERANCES]
+    if not named and _name(call.func) not in TOLERANT:
+        return
+    tolerances: dict[str, float] = {}
+    for kw in named:
+        value = kw.value.value if isinstance(kw.value, ast.Constant) else ""
+        if value is None or isinstance(value, (int, float)):
+            tolerances[str(kw.arg)] = math.inf if value is None else float(value)
+    others = [kw for kw in call.keywords if kw not in named]
+    shape.tolerances.append((ast.dump(ast.Call(call.func, call.args, others)), tolerances))
 
 
 def _read_call(call: ast.Call, shape: Shape) -> None:
@@ -308,6 +311,33 @@ def _loosened(base: dict[str, float], head: dict[str, float]) -> bool:
         value > base.get(kind, DEFAULTS[kind]) for kind, value in head.items())
 
 
+Calls = list[tuple[str, dict[str, float]]]
+
+
+def _paired(base: Calls, head: Calls) -> tuple[list[tuple[dict[str, float], dict[str, float]]], Calls]:
+    """Base and head tolerance calls paired one-to-one: the same call with the same tolerances
+    first, then the same call, then in order; and the head calls left over."""
+    left, right = list(base), list(head)
+    pairs: list[tuple[dict[str, float], dict[str, float]]] = []
+    for same in (lambda a, b: a == b, lambda a, b: a[0] == b[0], lambda a, b: True):
+        for call in list(left):
+            twin = next((other for other in right if same(call, other)), None)
+            if twin is not None:
+                left.remove(call)
+                right.remove(twin)
+                pairs.append((call[1], twin[1]))
+    return pairs, right
+
+
+def _tolerance_loosened(base: Shape, head: Shape) -> bool:
+    """A paired call loosens, or a call left over loosens on the defaults while the test has
+    no more checks or cases: then it rewrote a check rather than adding one."""
+    pairs, extra = _paired(base.tolerances, head.tolerances)
+    if head.checks <= base.checks and (head.cases or 1) <= (base.cases or 1):
+        pairs += [({}, tolerances) for _, tolerances in extra]
+    return any(_loosened(old, new) for old, new in pairs)
+
+
 def narrowing(base: Shape, head: Shape) -> list[str]:
     """How ``head`` checks less than ``base``; empty when it does not."""
     found = []
@@ -319,7 +349,7 @@ def narrowing(base: Shape, head: Shape) -> list[str]:
         found.append("drops a match= from pytest.raises")
     if head.broad > base.broad:
         found.append("widens pytest.raises to Exception/BaseException")
-    if _loosened(base.tolerances, head.tolerances):
+    if _tolerance_loosened(base, head):
         found.append("loosens a tolerance")
     if (base.cases is not None and base.cases_known and head.cases_known
             and (head.cases or 0) < base.cases):

@@ -148,6 +148,37 @@ def test_a_raised_tolerance_beside_an_unchanged_larger_one_is_named():
     assert "loosens a tolerance" in ctn.compare(base, base.replace("abs=1e-9", "abs=1e-4"))[0][2]
 
 
+TWO_CLOSE = ("import pytest\n\n\ndef test_close():\n    assert f() == pytest.approx(1, rel=1e-9)\n"
+             "    assert g() == pytest.approx(1, rel=1e-3)\n")
+
+
+def test_a_raised_tolerance_below_another_calls_is_named():
+    assert ctn.compare(TWO_CLOSE, TWO_CLOSE.replace("rel=1e-9", "rel=1e-6"))[0][2] == "loosens a tolerance"
+
+
+def test_reordered_tolerance_checks_are_not_loosened():
+    first, second = TWO_CLOSE.split("\n")[4:6]
+    assert ctn.compare(TWO_CLOSE, TWO_CLOSE.replace(f"{first}\n{second}", f"{second}\n{first}")) == []
+
+
+@pytest.mark.parametrize("where", ["after", "before"])
+def test_a_new_check_with_a_tolerance_is_not_a_loosened_one(where):
+    old = "    assert 0.1 + 0.2 == pytest.approx(0.3, rel=1e-9)\n"
+    new = "    assert 2.0 == pytest.approx(2.0, abs=1e-3)\n"
+    assert ctn.compare(BASE, BASE.replace(old, old + new if where == "after" else new + old)) == []
+
+
+def test_a_new_case_with_a_tolerance_is_not_a_loosened_one():
+    base = BASE.replace('"x", [1, 2, 3]', '"x", [1, 2]')
+    assert ctn.compare(base, base.replace('[1, 2])', '[1, 2, pytest.approx(3, abs=0.5)])')) == []
+
+
+def test_an_equality_rewritten_as_a_loose_approx_is_loosened():
+    base = "import pytest\n\n\ndef test_close():\n    assert f() == 0.3\n"
+    head = base.replace("== 0.3", "== pytest.approx(0.3, abs=1e-3)")
+    assert ctn.compare(base, head)[0][2] == "loosens a tolerance"
+
+
 def test_a_reassigned_constant_is_not_inlined_into_a_cycle():
     base = BASE.replace('[1, 2, 3])', 'CASES)').replace("import pytest\n", "import pytest\n\nCASES = [1, 2, 3]\n", 1)
     head = base.replace("@pytest.mark.parametrize", "CASES = CASES[:2]\n\n@pytest.mark.parametrize", 1)
