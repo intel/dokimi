@@ -339,7 +339,8 @@ python cli.py skill novelty probe --artifact skill:path/to/skill --atoms atoms.j
     - the judge range of the added share (`added_share_range`);
     - `judge_sensitive`, set when the lenient range exceeds 0.10 (the study's noise floor).
 
-    Each run keeps every judge's verdict in `judge_verdicts`.
+    Each run keeps every judge's verdict in `judge_verdicts`. `analyze` writes them beside
+    the record as `<record>.judge_verdicts.json`; the report names the panel instead of one judge.
 
 - Two judges of one vendor family print a warning. Same-family judges agree with each other
   more than with the rest, so the panel then has fewer independent votes than judges. Three

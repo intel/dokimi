@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, NoReturn
 from dokimi.commands.inputs import placebo_text_for_arms_or_exit
 from dokimi.commands.novelty_run import (add_judge2_args, add_panel_args, add_spend_cap,
                                          attach_panel, exit_if_analyze_partial,
-                                         judge2_client, panel_clients, stamp)
+                                         judge2_client, panel_clients, save_panel_verdicts, stamp)
 from dokimi.commands.novelty_routing_inputs import (
     checked_out_path,
     load_all_vs_all_field,
@@ -147,6 +147,7 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
     exit_if_analyze_partial(result, out_json)  # a run the cap stopped keeps what it paid for
     stamp(result.artifact, args, result.measure_result, answerer=answerer, judge=judge, judge2=judge2)
     save_artifact("novelty", result.artifact, out_json)
+    verdicts_path = save_panel_verdicts(result, out_json)
     out_md = out_json.with_suffix(".md")
     out_md.write_text(render_novelty_markdown(result.artifact), encoding="utf-8")
     title = f"{artifact_bundle.name or args.artifact} × {answerer.model}"
@@ -158,6 +159,8 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
     print(f"OK Saved novelty artifact: {out_json}")
     print(f"OK Saved novelty report:   {out_md}")
     print(f"OK Saved annotated view:   {view_path}")
+    if verdicts_path:
+        print(f"OK Saved judge verdicts:   {verdicts_path}")
     _print_headline(result.artifact)
 
 

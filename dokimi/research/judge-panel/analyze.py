@@ -62,16 +62,19 @@ rows = {}
 for f in ("sample.jsonl", "repeats.jsonl"):
     p = OUT / f
     if p.exists():
-        for l in p.open():
+        for l in p.read_text().splitlines():
             r = json.loads(l)
             rows[f"{r['probe_id']}|{r['arm']}|{r['model']}"] = r
+# The study is pinned to the judges of FAM: grades from the generation experiment's extra
+# judges stay out of its tables and of the consensus. gen.py sets PANEL_ONLY = False to load them.
+PANEL_ONLY = globals().get("PANEL_ONLY", True)
 V = defaultdict(dict)  # key -> judge -> verdict
 for k, r in rows.items():
     if r.get("verdict") in SCORE:
         V[k][ORIG] = r["verdict"]
-for l in (OUT / "grades.jsonl").open():
+for l in (OUT / "grades.jsonl").read_text().splitlines():
     g = json.loads(l)
-    if g.get("verdict") in SCORE and g["key"] in rows:
+    if g.get("verdict") in SCORE and g["key"] in rows and (g["judge"] in FAM or not PANEL_ONLY):
         V[g["key"]][g["judge"]] = g["verdict"]
 JUDGES = [ORIG] + sorted({j for d in V.values() for j in d} - {ORIG})
 NEW = [j for j in JUDGES if j != ORIG]
@@ -257,7 +260,7 @@ for j in JUDGES:
                 continue
             own = np.mean([V[k][j] in good for k in ks])
             oth = np.mean([np.mean([V[k][o] in good for o in V[k] if o != j]) for k in ks])
-            rel = "self" if j == m else ("family" if FAM[j] == AFAM[m] else "other")
+            rel = "self" if j == m else ("family" if FAM.get(j) == AFAM[m] else "other")
             sp.append([j, m, mode, rel, len(ks), round(own, 3), round(oth, 3), round(own - oth, 3)])
 wcsv(
     "self_preference.csv",

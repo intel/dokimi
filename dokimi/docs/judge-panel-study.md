@@ -19,7 +19,8 @@ seven more judges from seven model families. It asks four questions:
 
 Short answer: judge choice moves the lenient added share by up to 0.23 for one answer model.
 The original judge is the most lenient of the eight, so the published lenient added shares sit
-at the low end of the panel. The ranking of answer models does not change. Majority, median
+at the low end of the panel. The extremes of the answer-model ranking do not change: on the lenient placebo-gated added
+share, nemotron-12b is first and opus-5 last under every judge. The models in between swap. Majority, median
 and Dawid-Skene agree on 99.3% of rows. Three judges from three families get most
 of the stability of seven. A newer generation of the same judge (section 6) is about as
 different as another vendor: κ 0.61–0.72, and up to 0.15 on one added share.
@@ -114,11 +115,15 @@ What changes and what does not:
   answers are the most clear-cut: only 11% of the rows lack unanimity, against 20–35% for
   the other answer models.
 
-- **The ranking of answer models is stable.** Under every one of the eight judges, lenient
-  gated added puts nemotron-12b first and opus-5 last. On strict, six of eight put
+- **The extremes of the ranking are stable; the middle is not.** Under every one of the eight
+  judges, lenient gated added puts nemotron-12b first and opus-5 last. The models in between
+  swap: haiku-4.5 is below grok-4.6 under the original judge (0.10 against 0.34) and above it
+  under glm-5 (0.33 against 0.32), and GPT-5.6 and haiku-4.5 also exchange order across judges.
+  On strict, six of eight put
   nemotron-12b first and grok-4.6 second. gpt-6-luna swaps the two, and grok-4.6 ranks its
-  own answers first and haiku-4.5 second. All eight put opus-5 or GPT-5.6 last. Statements of the form "the skill adds more for a weaker model"
-  survive any choice of judge. A single number such as "13% added for opus" does not.
+  own answers first and haiku-4.5 second. All eight put opus-5 or GPT-5.6 last. A statement
+  about the extremes, such as "the skill adds most for nemotron-12b and least for opus-5",
+  survives any choice of judge; one about the order of the middle models does not. A single number such as "13% added for opus" does not.
 
 - **Degraded stays small under every judge**: 0.00–0.07 lenient and 0.00–0.07 strict, within
   the noise floor.
@@ -140,9 +145,13 @@ This is the added and degraded share between `no_skill` and a fresh repeat of th
 | 7-judge majority | .03 / .02 | .03 / .02 | .05 / .08 |
 
 The floor is 0.00–0.10 for every judge, in line with the paper's 0.05–0.10. The judges
-running at default temperature (gpt-6-luna, kimi-k3) are at the high end. The shift from the
-original judge to the panel is larger than the floor for opus-5, GPT-5.6, Haiku and Nemotron.
-For Grok it is not.
+running at default temperature (gpt-6-luna, kimi-k3) are at the high end. The floor was measured
+for haiku-4.5, grok-4.6 and nemotron-12b only; opus-5 and GPT-5.6 have no repeat draws, so
+their judge shift has no floor to be compared with. The shift from the original judge to the
+7-judge majority is clearly above the floor for haiku-4.5 (gated 0.10 to 0.32, majority floor
+0.03). For nemotron-12b it is not separated from the noise: the gated share moves by 0.07
+(0.37 to 0.43) against a majority floor of 0.08 and a per-judge floor of up to 0.10, and the
+ungated share by 0.05. For grok-4.6 it is not above the floor.
 
 ## 2. Agreement and self-preference
 

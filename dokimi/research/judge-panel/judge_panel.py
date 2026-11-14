@@ -12,6 +12,7 @@ Steps (each resumable; LLM calls cached in OUT/cache, never in the study cache):
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import random
@@ -56,6 +57,11 @@ JUDGES = [
 
 def key(r):
     return f"{r['probe_id']}|{r['arm']}|{r['model']}"
+
+
+def sha(r):
+    """Fingerprint of the answer a grade was made on."""
+    return hashlib.sha256((r["answer"] or "").encode()).hexdigest()[:16]
 
 
 def do_sample(per_model: int):
@@ -128,8 +134,15 @@ def do_repeat(workers: int):
             "grader2": None,
         }
 
-    res = llm.pmap(run, base, workers=workers, desc="repeats")
+    # Resuming keeps the repeat answers already drawn: grades are keyed by probe, arm, model and
+    # judge, so a fresh draw under an old key would inherit the old answer's verdicts.
+    kept = {}
+    if (OUT / "repeats.jsonl").exists():
+        kept = {key(r): r for r in map(json.loads, (OUT / "repeats.jsonl").open())}
+    todo = [r for r in base if key({**r, "arm": "no_skill_repeat"}) not in kept]
+    res = llm.pmap(run, todo, workers=workers, desc="repeats")
     ok = [x for x in res if isinstance(x, dict)]
+    ok = [kept[k] for k in kept if k in {key({**r, "arm": "no_skill_repeat"}) for r in base}] + ok
     print("repeat ok", len(ok), "failed", len(res) - len(ok))
     with (OUT / "repeats.jsonl").open("w") as fh:
         for r in ok:
@@ -150,8 +163,11 @@ def do_grade(workers: int, judges: list[str]):
         for l in gp.open():
             g = json.loads(l)
             if g.get("verdict"):
-                done.add((g["key"], g["judge"]))
-    jobs = [(r, j) for j in judges for r in rows if (key(r), j) not in done]
+                done.add((g["key"], g["judge"], g.get("answer_sha")))
+    # A grade counts only for the answer it graded: one made before answers were fingerprinted
+    # (no answer_sha) is kept, any other is redone when the row's answer has changed.
+    jobs = [(r, j) for j in judges for r in rows
+            if (key(r), j, sha(r)) not in done and (key(r), j, None) not in done]
     random.Random(1).shuffle(jobs)  # interleave judges so one slow route does not serialize
     print("grade jobs", len(jobs))
 
@@ -178,6 +194,7 @@ def do_grade(workers: int, judges: list[str]):
         rec = {
             "key": key(r),
             "judge": j,
+            "answer_sha": sha(r),
             "verdict": v,
             "reason": (g.get("reason") if isinstance(g, dict) else None),
         }

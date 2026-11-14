@@ -32,8 +32,7 @@ from .atoms import Atom
 from .client import LLMClient, SpendCapReached, parse_json_object, same_client
 from .controls import (REPEAT_ARM, clustered_ci, control_fields, reversal_by_arm,
                        reversal_paired)
-from .panel import RULES
-from .panel import aggregate as aggregate_votes
+from .panel import RULES, aggregate as aggregate_votes
 from .probes import Probe
 
 # Judge verdict scale. Deliberately finer than the collapses below so a rater
@@ -301,19 +300,14 @@ def check_arms(arms: tuple[str, ...], placebo_text: str | None) -> None:
 
 def check_judges(judge: LLMClient, panel, answerer: LLMClient, allow_self_judge: bool,
                  aggregate: str = "median") -> None:
-    """Refuse an unknown rule, a judge that is the answerer, or one model given twice, before any paid call.
-
-    A panel keys each judge's verdict by model name, and one model voting twice would
-    outweigh the others, so a model that is another judge's model (``same_client``) is refused.
-    """
+    """Refuse an unknown rule, a judge that is the answerer, or one model twice (it would vote twice)."""
     if aggregate not in RULES:
         raise InputError(f"unknown judge aggregation rule {aggregate!r}; known: {list(RULES)}")
     members = (judge, *panel)
     for i, member in enumerate(members):
         check_self_judge(member, answerer, allow_self_judge)
         if any(same_client(member, other) for other in members[:i]):
-            raise InputError(f"judge {member.model!r} is the same model as another judge; "
-                             "one model would vote twice")
+            raise InputError(f"judge {member.model!r} is the same model as another judge")
 
 
 def _unpriced_answer_run(probe: Probe, arm: str, exc: SpendCapReached,
@@ -372,9 +366,8 @@ def run_measurement(
             irrelevant context actively harms them.
         seed: Seed for the ``shuffled`` control, so the control is reproducible.
         framing: One of :data:`FRAMINGS`; how the context is introduced in the prompt.
-        panel: More judges besides ``judge``, each grading every answer and kept on the run.
-        aggregate: The rule (``median``, ``majority``, ``unanimous``) that turns the panel's
-            verdicts into one; see :func:`~dokimi.novelty.panel.aggregate`.
+        panel: More judges besides ``judge``, each grading every answer.
+        aggregate: The rule that makes one verdict of the panel's (:func:`~.panel.aggregate`).
     """
     judges = (judge, *panel)
     check_judges(judge, panel, answerer, allow_self_judge, aggregate)
@@ -444,7 +437,13 @@ def _grade_panel(probe: Probe, response: str, judges: tuple[LLMClient, ...],
     """One answer's verdict and, with a panel, each judge's verdict by model; a failed judge is no vote."""
     if len(judges) == 1:
         return _grade(probe, response, judges[0]), None
-    by_judge = {m.model: _grade(probe, response, m) for m in judges}
+    by_judge: dict[str, str] = {}
+    try:
+        for m in judges:
+            by_judge[m.model] = _grade(probe, response, m)
+    except SpendCapReached as exc:
+        exc.panel_votes = by_judge
+        raise
     votes = [v for v in by_judge.values() if v != ERRORED]
     return aggregate_votes(votes, aggregate) or ERRORED, by_judge
 
@@ -453,14 +452,15 @@ def _capped_grade_run(probe: Probe, arm: str, response: str, confidence: float |
                       exc: SpendCapReached, stops: list[SpendCapReached],
                       ungraded: list[ProbeRun]) -> ProbeRun:
     """The answer was paid for and the judge hit the cap: keep the verdict a refused judge reply
-    names, else keep the run ungraded (no datum). The checks grade the run either way, and the
+    names (not a truncated one, not one judge's of a panel), else keep the run ungraded. The checks grade the run either way, and the
     measurement stops here."""
     stops.append(exc)
-    named = _reply_verdict(exc.reply)
+    panel_votes = getattr(exc, "panel_votes", None)
+    named = None if exc.truncated or panel_votes is not None else _reply_verdict(exc.reply)
     run = ProbeRun(
         atom_id=probe.atom_id, probe_kind=probe.kind, arm=arm,
         question=probe.question, response=response, verdict=named or ERRORED,
-        confidence=confidence,
+        confidence=confidence, judge_verdicts=panel_votes or None,
     )
     if probe.grading:  # the veto runs on the answer whatever the refused judge reply said
         _apply_checks(run, probe, response, named or ERRORED)

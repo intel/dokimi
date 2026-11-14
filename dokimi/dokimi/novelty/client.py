@@ -71,6 +71,8 @@ class SpendCapReached(BaseException):
 
     reply: str | None = None
     truncated: bool = False
+    #: With a judge panel: the verdicts of the judges graded before this stop, by model.
+    panel_votes: dict[str, str] | None = None
 
     def __init__(self, message: str, *, reason: str = "spend_cap") -> None:
         super().__init__(message)
@@ -335,6 +337,7 @@ _VENDOR_MARKERS = (
     ("claude", "anthropic"), ("anthropic", "anthropic"), ("sonnet", "anthropic"),
     ("opus", "anthropic"), ("haiku", "anthropic"),
     ("gpt", "openai"), ("openai", "openai"), ("gemini", "google"), ("mistral", "mistral"),
+    ("grok", "xai"), ("xai", "xai"),
 )
 
 

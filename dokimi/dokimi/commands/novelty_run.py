@@ -11,6 +11,7 @@ import argparse
 import functools
 import math
 import sys
+from pathlib import Path
 
 
 def stops_at_cap(command):
@@ -124,29 +125,9 @@ def add_panel_args(parser: argparse.ArgumentParser) -> None:
                              "the study's headline by up to 0.20)")
 
 
-def judge_refs(args: argparse.Namespace) -> list[tuple[str, str]]:
-    """The ``--judge PROVIDER/MODEL`` list as (model, provider) pairs; empty without the flag."""
-    from dokimi.llm import ANSWER_PROVIDERS as PROVIDERS
-    from dokimi.utils import same_model
-
-    refs = getattr(args, "judges", None) or []
-    if refs and (getattr(args, "judge_model", None) or getattr(args, "judge_provider", None)):
-        raise ValueError("--judge replaces --judge-model and --judge-provider; pass one form")
-    out: list[tuple[str, str]] = []
-    for ref in refs:
-        provider, sep, model = ref.partition("/")
-        if not sep or not model or provider not in PROVIDERS:
-            raise ValueError(f"--judge {ref!r} is not PROVIDER/MODEL with PROVIDER one of "
-                             f"{', '.join(PROVIDERS)}")
-        if any(same_model(m, model) for m, _ in out):
-            # one model would vote twice, and the panel keys each judge's verdicts by model name
-            raise ValueError(f"--judge {ref!r}: model {model!r} is given twice")
-        out.append((model, provider))
-    return out
-
-
 def panel_clients(args: argparse.Namespace, make_client) -> tuple:
     """Clients for the judges after the first ``--judge`` (the first is the judge client)."""
+    from dokimi.novelty.cost import judge_refs
     from dokimi.utils import InputError
 
     try:
@@ -154,21 +135,6 @@ def panel_clients(args: argparse.Namespace, make_client) -> tuple:
     except ValueError as exc:
         raise InputError(str(exc)) from exc
     return tuple(make_client(model, provider, "judge", args) for model, provider in refs[1:])
-
-
-def add_panel_usd(args: argparse.Namespace, usd, by_role, n_tokens, tier, context_share, models):
-    """The USD estimate with each panel judge after the first grading every answer again."""
-    from dokimi.novelty.tiers import estimate_usd
-
-    for model, provider in judge_refs(args)[1:]:
-        if usd is None:
-            break
-        extra = estimate_usd({"judge": by_role.get("judge", 0)}, n_tokens,
-                             {"judge": (model, provider)}, tier, context_share)
-        if extra is None:
-            models[f"judge {model}"] = (model, provider)
-        usd = None if extra is None else round(usd + extra, 6)
-    return usd
 
 
 def attach_panel(payload: dict, result, aggregate: str) -> None:
@@ -181,3 +147,16 @@ def attach_panel(payload: dict, result, aggregate: str) -> None:
         payload["judge_panel"] = judge_panel
         for note in panel_warnings(judge_panel):
             print(f"WARNING: {note}", file=sys.stderr)
+
+
+def save_panel_verdicts(result, out: Path) -> Path | None:
+    """Write each judge's verdict on every answer beside ``out``, so a panel run can be audited or
+    re-aggregated without grading again; ``None`` for a single-judge run."""
+    import json
+
+    runs = [run.as_dict() for run in result.measure_result.runs if run.judge_verdicts]
+    if not runs:
+        return None
+    dest = out.with_name(f"{out.stem}.judge_verdicts.json")
+    dest.write_text(json.dumps(runs, indent=2), encoding="utf-8")
+    return dest

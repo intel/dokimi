@@ -13,7 +13,7 @@ from pathlib import Path
 HERE = Path(__file__).parent
 src = (HERE / "analyze.py").read_text().split("# ---------- 2. pairwise agreement")[0]
 src = src.replace('T = OUT / "tables"', 'T = OUT / "tables_gen"')
-g = {"__name__": "gen", "sys": sys}
+g = {"__name__": "gen", "sys": sys, "PANEL_ONLY": False}  # all judges, not the study's seven
 exec(compile(src, "analyze.py", "exec"), g)  # nosec B102 - runs this directory's own analyze.py
 V, rows, cells, headline, wcsv = g["V"], g["rows"], g["cells"], g["headline"], g["wcsv"]
 LEN, STR, SCORE, V6, MODELS, OUT = g["LEN"], g["STR"], g["SCORE"], g["V6"], g["MODELS"], g["OUT"]
@@ -33,17 +33,36 @@ ALL = sorted({j for d in V.values() for j in d})
 
 
 def kappa(a, b):
+    """Cohen's kappa of two judges on the answers both graded, and that count; kappa is None
+    when they share none or both put every shared answer in one class (chance agreement 1)."""
     keys = [k for k in V if a in V[k] and b in V[k]]
     n = len(keys)
+    if not n:
+        return None, 0
     po = sum(V[k][a] == V[k][b] for k in keys) / n
     pe = sum((sum(V[k][a] == l for k in keys) / n) * (sum(V[k][b] == l for k in keys) / n)
              for l in V6)
-    return (po - pe) / (1 - pe), n
+    return ((po - pe) / (1 - pe) if pe < 1 else None), n
 
 
-def lenient_rate(j):
-    vs = [d[j] for d in V.values() if j in d]
+def rounded(x, digits=3):
+    return None if x is None else round(x, digits)
+
+
+def lenient_rate(j, keys=None):
+    """Lenient and strict rate of judge ``j`` over its grades, or over ``keys`` only."""
+    vs = [d[j] for k, d in V.items() if j in d and (keys is None or k in keys)]
+    if not vs:
+        return None, None, 0
     return sum(v in LEN for v in vs) / len(vs), sum(v in STR for v in vs) / len(vs), len(vs)
+
+
+def rate_delta(old, new):
+    """Lenient-rate change from ``old`` to ``new`` on the answers both graded, so a judge that
+    also graded other rows (the repeats) is not compared on a different population."""
+    shared = {k for k, d in V.items() if old in d and new in d}
+    lo, ln = lenient_rate(old, shared)[0], lenient_rate(new, shared)[0]
+    return None if lo is None else ln - lo
 
 
 def median(votes):
@@ -66,16 +85,15 @@ out = {"judges": ALL, "per_judge": {}, "pairs": [], "panels": {}}
 tab = []
 for j in ALL:
     le, st, n = lenient_rate(j)
-    out["per_judge"][j] = {"lenient_rate": round(le, 4), "strict_rate": round(st, 4), "n": n}
-    tab.append([j, n, round(le, 4), round(st, 4)])
+    out["per_judge"][j] = {"lenient_rate": rounded(le, 4), "strict_rate": rounded(st, 4), "n": n}
+    tab.append([j, n, rounded(le, 4), rounded(st, 4)])
 wcsv("judge_leniency.csv", ["judge", "n", "lenient_rate", "strict_rate"], tab)
 
 tab, ktab = [], []
 for fam, old, new in PAIRS:
     k, n = kappa(old, new)
-    row = {"family": fam, "old": old, "new": new, "kappa_old_new": round(k, 3), "n": n,
-           "lenient_rate_delta": round(out["per_judge"][new]["lenient_rate"]
-                                       - out["per_judge"][old]["lenient_rate"], 4),
+    row = {"family": fam, "old": old, "new": new, "kappa_old_new": rounded(k), "n": n,
+           "lenient_rate_delta": rounded(rate_delta(old, new), 4),
            "added": {}}
     for mode, good in (("lenient", LEN), ("strict", STR)):
         for m in MODELS:
@@ -85,7 +103,7 @@ for fam, old, new in PAIRS:
             tab.append([fam, old, new, mode, m, round(ho["added"], 3), round(hn["added"], 3),
                         round(d, 3) if d is not None else ""])
     out["pairs"].append(row)
-    ktab.append([fam, old, new, n, round(k, 3), row["lenient_rate_delta"]])
+    ktab.append([fam, old, new, n, rounded(k), row["lenient_rate_delta"]])
 wcsv("generation_kappa.csv", ["family", "old_judge", "new_judge", "n", "kappa", "lenient_rate_delta"],
      ktab)
 wcsv("generation_added_share.csv", ["family", "old_judge", "new_judge", "mode", "answer_model",
@@ -94,9 +112,10 @@ wcsv("generation_added_share.csv", ["family", "old_judge", "new_judge", "mode", 
 # agreement with the rest of the panel: does a newer judge sit closer to the consensus?
 tab = []
 for j in ALL:
-    ks = [kappa(j, o)[0] for o in ALL if o != j]
-    out["per_judge"][j]["mean_kappa_vs_others"] = round(sum(ks) / len(ks), 3)
-    tab.append([j, round(sum(ks) / len(ks), 3)])
+    ks = [k for k in (kappa(j, o)[0] for o in ALL if o != j) if k is not None]
+    mean_k = rounded(sum(ks) / len(ks)) if ks else None  # None: no other judge shares an answer
+    out["per_judge"][j]["mean_kappa_vs_others"] = mean_k
+    tab.append([j, mean_k])
 wcsv("judge_mean_kappa.csv", ["judge", "mean_kappa_vs_others"], tab)
 
 tab = []
@@ -113,12 +132,12 @@ wcsv("generation_panels.csv", ["panel", "judges", "mode", "answer_model", "n", "
 print("judge leniency strict mean_kappa")
 for j in ALL:
     p = out["per_judge"][j]
-    print(f"  {j:24s} {p['lenient_rate']:.3f} {p['strict_rate']:.3f} {p['mean_kappa_vs_others']:.3f}")
+    print(f"  {j:24s} {p['lenient_rate']:.3f} {p['strict_rate']:.3f} {p['mean_kappa_vs_others'] or float('nan'):.3f}")
 print("pairs (kappa old-new, lenient-rate delta, lenient added old->new per answer model)")
 for r in out["pairs"]:
     adds = " ".join(f"{k.split(':')[1][:10]}={v[0]:.2f}->{v[1]:.2f}" for k, v in r["added"].items()
                     if k.startswith("lenient"))
-    print(f"  {r['old']}->{r['new']}: k={r['kappa_old_new']} dlen={r['lenient_rate_delta']:+.3f} {adds}")
+    print(f"  {r['old']}->{r['new']}: k={r['kappa_old_new']} dlen={r['lenient_rate_delta'] or float('nan'):+.3f} {adds}")
 print("panels median, lenient added")
 for name, p in out["panels"].items():
     print(" ", name, {k.split(':')[1]: round(v, 3) for k, v in p["added"].items() if k.startswith("lenient")})

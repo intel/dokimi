@@ -10,14 +10,22 @@ import json
 
 import pytest
 
-from dokimi.commands.novelty_run import judge_refs as _judge_refs
 from dokimi.novelty.atoms import Atom
 from dokimi.novelty.client import LLMClient
+from dokimi.novelty.cost import judge_refs as _judge_refs
 from dokimi.novelty.cost import role_models as _role_models
-from dokimi.novelty.measure import BASELINE_ARM, SelfJudgeError, run_measurement
+from dokimi.novelty.judge2 import check_judge2
+from dokimi.novelty.measure import (
+    BASELINE_ARM,
+    MeasureResult,
+    ProbeRun,
+    SelfJudgeError,
+    run_measurement,
+)
 from dokimi.novelty.panel import aggregate, panel_warnings, shared_vendors
 from dokimi.novelty.panel_record import panel_record
 from dokimi.novelty.probes import Probe
+from dokimi.utils import InputError
 
 CC, CMQ, PC = "correct_complete", "correct_missing_qualifier", "partially_correct"
 WO, WR, AB = "wrong_other", "wrong_reversed", "abstained"
@@ -138,3 +146,141 @@ def test_judge_flag_parses_provider_model_and_sets_the_extractor():
 def test_judge_flag_rejects_bad_refs(kw, match):
     with pytest.raises(ValueError, match=match):
         _judge_refs(_args(**kw))
+
+
+def test_two_judges_of_one_vendor_the_vendor_map_lacks_are_one_family():
+    grok = ["x-ai/grok-4.6", "x-ai/grok-4"]
+    assert shared_vendors(grok) == {"xai": grok}
+    assert shared_vendors(["acme/one", "acme/two"]) == {}  # two unrecognised judges share nothing
+
+
+def test_judge_flag_rejects_one_model_under_two_spellings():
+    args = _args(judges=["openai/gpt-4o", "openrouter/openai/gpt-4o", "anthropic/claude-sonnet-5"])
+    with pytest.raises(ValueError, match="twice"):
+        _judge_refs(args)
+
+
+def test_run_measurement_rejects_one_model_given_twice_before_any_call():
+    atoms, probes, answerer = _setup()
+    calls = []
+    a = _judge("gpt-4o", lambda p: calls.append(p) or CC)
+    b = _judge("openai/gpt-4o", lambda p: calls.append(p) or CC)
+    with pytest.raises(InputError, match="same model as another judge"):
+        run_measurement(atoms, probes, "t", answerer=answerer, judge=a, panel=(b,))
+    assert calls == []
+
+
+def test_judge2_is_checked_against_every_panel_judge():
+    _, _, answerer = _setup()
+    first, second = _judge("j-one", lambda p: CC), _judge("j-two", lambda p: CC)
+    with pytest.raises(InputError, match="panel judge"):
+        check_judge2(_judge("j-two", lambda p: CC), answerer, 0.5, False, first, (second,))
+    check_judge2(_judge("j-three", lambda p: CC), answerer, 0.5, False, first, (second,))
+
+
+def _run(atom: str, arm: str, verdicts: dict[str, str]) -> ProbeRun:
+    return ProbeRun(atom_id=atom, probe_kind="direct", arm=arm, question=f"Q{atom}?",
+                    response="r", verdict=next(iter(verdicts.values())), judge_verdicts=verdicts)
+
+
+def test_added_range_is_taken_on_the_pairs_every_judge_graded():
+    err = "error"
+    runs = [
+        _run("a", BASELINE_ARM, {"j1": WO, "j2": WO}), _run("a", "full", {"j1": CC, "j2": err}),
+        _run("b", BASELINE_ARM, {"j1": CC, "j2": CC}), _run("b", "full", {"j1": CC, "j2": CC}),
+    ]
+    rec = panel_record(MeasureResult(runs=runs, arms=(BASELINE_ARM, "full")), "median")
+    assert rec["per_judge_paired"]["j1"]["lenient"]["added"] == 0.5
+    assert rec["per_judge_paired"]["j2"]["lenient"]["added"] == 0.0  # its own sample lost pair a
+    assert rec["added_share_range"]["lenient"] == 0.0
+    assert rec["judge_sensitive"] is False
+
+
+def test_a_range_of_exactly_the_threshold_is_not_judge_sensitive():
+    runs = []
+    for i in range(10):  # j1 sees one probe gained, j2 none: a range of exactly 0.10
+        runs += [_run(str(i), BASELINE_ARM, {"j1": WO, "j2": WO}),
+                 _run(str(i), "full", {"j1": CC if i == 0 else WO, "j2": WO})]
+    rec = panel_record(MeasureResult(runs=runs, arms=(BASELINE_ARM, "full")), "median")
+    assert rec["added_share_range"]["lenient"] == 0.1
+    assert rec["judge_sensitive"] is False
+
+
+def test_estimate_counts_each_panel_judges_grading_calls():
+    from dokimi.novelty.cost import add_panel_calls
+
+    estimate = {"by_role": {"extractor": 3, "answerer": 8, "judge": 8}, "probe_calls": 32,
+                "total_calls": 40, "total_calls_if_every_pair_escalates": 44,
+                "expected_calls": 19}
+    add_panel_calls(_args(judges=["openai/a", "openai/b", "anthropic/c"]), estimate)
+    assert estimate["by_role"]["judge"] == 24
+    assert (estimate["probe_calls"], estimate["total_calls"], estimate["expected_calls"]) == (48, 56, 35)
+    assert estimate["total_calls_if_every_pair_escalates"] == 60
+    single = dict(estimate, by_role=dict(estimate["by_role"]))
+    add_panel_calls(_args(judges=["openai/a"]), single)
+    assert single == estimate
+
+
+def test_estimate_only_refuses_an_unusable_judge(tmp_path):
+    from dokimi.cli import build_parser
+
+    (tmp_path / "SKILL.md").write_text("---\nname: s\ndescription: d\n---\n\n# S\n\nText.\n",
+                                       encoding="utf-8")
+    args = build_parser().parse_args(["skill", "novelty", "analyze", "--artifact",
+                                      f"skill:{tmp_path}", "--estimate-only", "--judge", "nope/x"])
+    with pytest.raises(InputError, match="PROVIDER/MODEL"):
+        args.func(args)
+
+
+def test_the_report_names_the_panel_and_analyze_saves_each_verdict(tmp_path):
+    from dokimi.commands.novelty_run import save_panel_verdicts
+    from dokimi.novelty.report import _judged_by
+
+    runs = [_run("a", BASELINE_ARM, {"j1": WO, "j2": CC}), _run("a", "full", {"j1": CC, "j2": CC})]
+    result = type("R", (), {"measure_result": MeasureResult(runs=runs)})()
+    out = tmp_path / "novelty.json"
+    dest = save_panel_verdicts(result, out)
+    assert dest == tmp_path / "novelty.judge_verdicts.json"
+    assert json.loads(dest.read_text())[0]["judge_verdicts"] == {"j1": WO, "j2": CC}
+    assert "panel of 2 judges" in _judged_by({"judge_model": "j1", "judge_panel":
+                                              {"judges": ["j1", "j2"], "rule": "median"}})
+    assert _judged_by({"judge_model": "j1"}) == "**j1**"
+    single = type("R", (), {"measure_result": MeasureResult(
+        runs=[ProbeRun("a", "direct", "full", "q", "r", WO)])})()
+    assert save_panel_verdicts(single, out) is None
+
+
+def _capped_judge(model: str, verdict: str, *, priced: bool, truncated: bool = False):
+    from dokimi.metrics.usage import UsageRecord
+
+    def transport(prompt, system):
+        usage = UsageRecord(cost_usd=1.0 if priced else None, truncated=truncated)
+        return json.dumps({"verdict": verdict}), usage
+
+    from dokimi.novelty.client import SpendCap
+    return LLMClient(model=model, transport=transport, cap=SpendCap(limit_usd=100.0))
+
+
+def _one_probe():
+    atoms, probes, answerer = _setup()
+    return atoms[:1], probes[:1], answerer
+
+
+def test_an_unpriced_judge_stopping_a_panel_does_not_decide_the_verdict():
+    atoms, probes, answerer = _one_probe()
+    first = _capped_judge("j1", WO, priced=True)
+    second = _capped_judge("j2", CC, priced=False)
+    result = run_measurement(atoms, probes, "t", answerer=answerer, judge=first, panel=(second,),
+                             aggregate="median", concurrency=1)
+    stopped = [r for r in result.runs if r.judge_verdicts and "j2" not in r.judge_verdicts]
+    assert stopped and all(r.verdict == "error" for r in stopped)
+    assert result.ungraded == len(stopped)
+    assert result.paired("lenient")["added"] == 0.0
+
+
+def test_a_truncated_judge_reply_under_a_cap_is_a_failed_grade():
+    atoms, probes, answerer = _one_probe()
+    judge = _capped_judge("j", CC, priced=False, truncated=True)
+    result = run_measurement(atoms, probes, "t", answerer=answerer, judge=judge, concurrency=1)
+    assert all(r.verdict == "error" for r in result.runs)
+    assert result.ungraded == len(result.runs)
