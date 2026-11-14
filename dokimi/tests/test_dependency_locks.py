@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import shlex
 import sys
@@ -293,16 +294,28 @@ _UNQUOTED = {letter: operator for operator, letter in _QUOTED.items()}
 
 
 def _requirement_files(tokens: list[str]) -> list[str]:
-    """The files of pip's requirement options, as scripts/ci_local.py reads them: -r f, -rf, --requirement f|=f."""
+    """The files of pip's requirement options, as scripts/ci_local.py reads them (-r f, -rf, --requirement f|=f),
+    plus a clustered short flag (-qr f) and an abbreviated long one (--requirem f)."""
     files, args = [], iter(tokens)
     for token in args:
-        if token in ("-r", "--requirement"):
+        if token == "-r" or re.fullmatch(r"-[A-Za-z]*r", token) or (
+                token.startswith("--requirem") and "--requirement".startswith(token)):
             files.append(next(args, ""))
-        elif token.startswith("--requirement="):
+        elif token.partition("=")[0].startswith("--requirem") and "=" in token and "--requirement".startswith(
+                token.partition("=")[0]):
             files.append(token.partition("=")[2])
         elif token.startswith("-r") and not token.startswith("--"):
             files.append(token[2:])
     return [re.split(r"[/\\]", name)[-1] for name in files]
+
+
+def _exec_form(match: re.Match[str]) -> str:
+    """A Dockerfile ``RUN ["pip", "install", ...]`` line as the shell line it runs; other text is kept."""
+    try:
+        words = json.loads(match.group(1))
+    except ValueError:
+        return match.group(0)
+    return shlex.join(words) if isinstance(words, list) and all(isinstance(w, str) for w in words) else match.group(0)
 
 
 def _commands(script: str) -> list[list[str]]:
@@ -311,10 +324,13 @@ def _commands(script: str) -> list[list[str]]:
     dropped from the words, the word after a redirection (``>``, ``<``) left out; a quoted operator is a letter."""
     commands: list[list[str]] = []
     command: list[str] = []
-    script = script.replace('\\"', "\0")  # an escaped quote is a letter, not a quote
+    script = re.sub(r"^\s*RUN\s+(\[.*\])\s*$", _exec_form, script, flags=re.MULTILINE)
+    script = re.sub(r"""('[^']*')|\\(["'])""",  # an escaped quote is a letter, not a quote; '...\' is a whole word
+                    lambda m: m.group(1) or {'"': "\0", "'": "\ue007"}[m.group(2)], script)
     script = re.sub(r"""('[^']*'|"[^"]*")|(?<![^\s;&|()])#[^\n]*""",
                     lambda m: (m.group(1) or "").translate(_QUOTED), script)
-    script = re.sub(r"\\\r?\n", " ", script)  # after the comments: a comment's backslash continues nothing
+    # after the comments: a comment's backslash or backtick continues nothing
+    script = re.sub(r"\\\r?\n|(?<=\s)`\r?\n", " ", script)
     lexer = shlex.shlex(script, posix=True, punctuation_chars=";&|<>\n")
     lexer.whitespace, lexer.whitespace_split, lexer.escape, lexer.commenters = " \t\r", True, "", ""
     redirected = False
@@ -330,7 +346,7 @@ def _commands(script: str) -> list[list[str]]:
         elif redirected:
             redirected = False
         elif token.strip("()"):
-            command.append(token.strip("()").translate(_UNQUOTED).replace("\0", '"'))
+            command.append(token.strip("()").translate(_UNQUOTED).replace("\0", '"').replace("\ue007", "'"))
     return [*commands, command]
 
 
@@ -341,7 +357,7 @@ def _installs_of_the_main_lock(script: str) -> list[list[str]]:
         return []
     return [
         command for command in _commands(script)
-        if any(re.fullmatch(r"pip[\d.]*", word.lstrip("@+-").rsplit("/", 1)[-1]) and "install" in command[i + 1:]
+        if any(re.fullmatch(r"pip[\d.]*(\.exe)?", word.lstrip("@+-").rsplit("/", 1)[-1]) and "install" in command[i + 1:]
                for i, word in enumerate(command))
         and _MAIN_LOCK in _requirement_files(command)
     ]
@@ -371,6 +387,15 @@ def _install_scripts() -> dict[str, str]:
 @pytest.mark.parametrize(("script", "unguarded"), [
     ("pip install -r requirements.lock.txt", True),
     ("pip install -rrequirements.lock.txt", True),
+    ("pip install -qr requirements.lock.txt", True),
+    ("# setup `\npip install -r requirements.lock.txt", True),
+    ("pip install --no-deps -r requirements.lock.txt --log 'build\\'", False),
+    ("pip install --requirem requirements.lock.txt", True),
+    ("pip install --requirem=requirements.lock.txt", True),
+    ("pip.exe install --require-hashes -r requirements.lock.txt", True),
+    ('RUN ["pip", "install", "--require-hashes", "-r", "/opt/dokimi-req/requirements.lock.txt"]', True),
+    ("python -m pip install `\n  --require-hashes -r requirements.lock.txt", True),
+    ("echo don\\'t\npip install --require-hashes -r requirements.lock.txt", True),
     ("pip install --requirement requirements.lock.txt", True),
     ("pip install --requirement=dokimi/requirements.lock.txt", True),
     ('pip install --require-hashes -r "requirements.lock.txt"', True),
@@ -397,7 +422,8 @@ def _install_scripts() -> dict[str, str]:
     ('pip install --no-deps -r requirements.lock.txt --log "install\nlog.txt"', False),
     ('pip install --no-deps -r requirements.lock.txt --log "build\\"log.txt"', False),
     ("pip install --log '>' --no-deps -r requirements.lock.txt", False),
-], ids=["short", "joined", "long", "long-equals", "quoted", "single-quoted", "commented-flag", "spacing", "chained",
+], ids=["short", "joined", "clustered", "comment-backtick", "guarded-single-quoted-backslash", "abbreviated", "abbreviated-equals", "exe", "exec-form", "powershell-backtick",
+        "escaped-apostrophe", "long", "long-equals", "quoted", "single-quoted", "commented-flag", "spacing", "chained",
         "subshell", "continued", "global-option", "python-m-pip", "versioned", "recipe-prefix", "redirected",
         "backslash-path", "comment-line", "quoted-separator", "comment-backslash", "quoted-parentheses", "guarded", "guarded-quoted",
         "guarded-continued", "guarded-subshell", "guarded-multiline", "guarded-escaped-quote",
@@ -439,13 +465,24 @@ def test_yaml_and_yml_workflows_and_actions_are_scanned(tmp_path: Path, monkeypa
     assert f".github/workflows/{workflow} step 0" in scripts and f"actions/setup/{action} step 0" in scripts, scripts
 
 
+def _unguarded(found: dict[str, list[list[str]]]) -> list[tuple[str, str]]:
+    """The installs of the main lock, by script name, that lack ``--no-deps``."""
+    return [(name, shlex.join(install)) for name, installs in found.items() for install in installs
+            if "--no-deps" not in install]
+
+
+def test_an_install_without_no_deps_is_reported_and_one_with_it_is_not() -> None:
+    install = ["pip", "install", "-r", "requirements.lock.txt"]
+    assert _unguarded({"x": [install]}) == [("x", "pip install -r requirements.lock.txt")]
+    assert _unguarded({"x": [[*install, "--no-deps"]], "y": []}) == []
+
+
 def test_every_install_of_the_main_lock_passes_no_deps() -> None:
     """SECURITY.md: the main lock overrides litellm's filelock cap, so an install without --no-deps cannot resolve.
-    Not covered: a command built at run time (a variable holding the file name, eval) and Markdown examples."""
+    Not covered: a command built at run time (a variable holding the file name or the pip command, eval)
+    and Markdown examples."""
     found = {name: _installs_of_the_main_lock(script) for name, script in _install_scripts().items()}
     sources = {name.split(" step ")[0] for name, installs in found.items() if installs}
     assert {".github/workflows/reach-matrix.yml", "actions/setup/action.yml", ".agent-eval/Dockerfile",
             "dokimi/Makefile"} <= sources, sources
-    missing = [(name, shlex.join(install)) for name, installs in found.items() for install in installs
-               if "--no-deps" not in install]
-    assert missing == []
+    assert _unguarded(found) == []
