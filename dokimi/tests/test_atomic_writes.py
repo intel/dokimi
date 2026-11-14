@@ -147,6 +147,7 @@ def test_missing_parent_directories_are_created(tmp_path):
     assert (tmp_path / "c" / "d" / "y.bin").read_bytes() == b"B"
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX file modes")
 @pytest.mark.parametrize("publish", [
     lambda p: write_text_atomic(p, "NEW"),
     lambda p: write_bytes_atomic(p, b"NEW"),
@@ -160,6 +161,7 @@ def test_publish_keeps_the_mode_of_the_file_it_replaces(tmp_path, publish):
     assert stat.S_IMODE(path.stat().st_mode) == 0o600
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX file modes")
 def test_a_new_file_gets_the_umask_default(tmp_path):
     plain = tmp_path / "plain.json"
     plain.write_text("x", encoding="utf-8")

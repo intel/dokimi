@@ -34,14 +34,23 @@ def write_bytes_atomic(path: Path | str, data: bytes) -> None:
 def _publish(path: Path, open_tmp: Callable[[int], IO], data: str | bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f".{path.name[:32]}.{secrets.token_hex(8)}.tmp")
+    mode = _existing_mode(path)
     try:
-        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o666)
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o666 if mode is None else mode)
+        if mode is not None:
+            # os.open's mode is cut by the umask; the data is written only after the mode is restored.
+            os.chmod(tmp, mode)
         with open_tmp(fd) as handle:
             handle.write(data)
-        if path.exists():
-            os.chmod(tmp, stat.S_IMODE(path.stat().st_mode))
         os.replace(tmp, path)
     except BaseException:
         with contextlib.suppress(OSError):
             tmp.unlink()
         raise
+
+
+def _existing_mode(path: Path) -> int | None:
+    try:
+        return stat.S_IMODE(path.stat().st_mode)
+    except FileNotFoundError:
+        return None
