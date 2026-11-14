@@ -14,9 +14,10 @@ SPDX-License-Identifier: Apache-2.0
   as their last 4). Per arm and model it reports a rate per class with a Wilson interval; an
   arm fails on a critical class seen at all or on another class above its baseline by an
   uncorrected one-sided Fisher test at `--alpha`. `--fail-on fail|warn` exits 1 on a failing
-  arm, on a class the baseline never shows (warn), and on any unfinished cell (no usable
+  arm and on a class the baseline never shows (warn); else 4 on a model with no baseline cell,
+  and 3 on any unfinished cell (no usable
   `result.json`: listed and scanned, not dropped; a cell the host could not run is not one);
   cells whose agent never started are left out of the rates, and an arm with no measured cell
-  fails the gate. An exec argument strace cut at its `-s` limit is not judged (canaries
+  exits 3 too. An exec argument strace cut at its `-s` limit is not judged (canaries
   excepted); `coverage.exec_cut` counts the cells with one. A `--baseline` arm the batch does not have exits 2. `--out` writes a
   `security_report.v1` artifact. See `docs/behavioural-security.md` (#360).

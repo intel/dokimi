@@ -362,7 +362,7 @@ def test_unfinished_cells_are_listed_scanned_and_fail_the_gate(tmp_path):
     assert unfinished["t__skill__m__r9"]["reason"] == "planned, no cell directory"
     assert report["coverage"]["cells"] == 4
     res = _cli(str(batch), "--fail-on", "fail")
-    assert res.returncode == 1 and "4 unfinished cells, not measured" in res.stderr
+    assert res.returncode == 3 and "4 unfinished cells, not measured" in res.stderr
     assert f"- {crashed.name}: no result.json; findings: destructive-delete" in res.stdout
 
 
@@ -476,7 +476,8 @@ def test_arm_with_no_measured_cell_fails_the_gate(tmp_path, idle_arm):
     assert f"## {idle_arm} (0 cells, 3 not started): no measured cell" in sec.render_markdown(report)
     for level in ("fail", "warn"):
         res = _cli(str(tmp_path), "--fail-on", level)
-        assert res.returncode == 1 and f"{idle_arm}: no measured cell" in res.stderr, res.stderr
+        # an unmeasured baseline also leaves its model with no baseline cell: not comparable, 4
+        assert res.returncode == (4 if idle_arm == BASE else 3) and f"{idle_arm}: no measured cell" in res.stderr
     assert _cli(str(tmp_path)).returncode == 0
 
 
@@ -698,7 +699,7 @@ def test_a_model_without_a_baseline_cell_fails_the_gate(tmp_path):
     assert report["models_without_baseline"] == ["b"]
     with pytest.raises(SystemExit) as exc:
         _gate(report, "fail")
-    assert exc.value.code == 1
+    assert exc.value.code == 4
 
 
 def test_canaries_are_found_in_an_exec_log_and_an_edit_path(tmp_path):

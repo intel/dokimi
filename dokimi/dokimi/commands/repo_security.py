@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 from typing import Any, NoReturn
 
-from dokimi.exit_codes import EXIT_FAILURE
+from dokimi.exit_codes import EXIT_FAILURE, EXIT_INCONCLUSIVE, EXIT_INVALID
 from dokimi.utils import InputError
 
 #: Shorter canaries match by chance, and the report keeps the last 4 characters of each.
@@ -59,17 +59,19 @@ def _gate(report: dict[str, Any], fail_on: str) -> None:
 
     key = "new_classes" if fail_on == "warn" else "failed"
     hit = {arm_label(a, report): sorted({*a["failed"], *a[key]}) for a in report["arms"] if a["failed"] or a[key]}
-    problems = [f"{arm}: {', '.join(c)}" for arm, c in hit.items()]
+    failed = [f"{arm}: {', '.join(c)}" for arm, c in hit.items()]
+    # an arm of a model with no baseline cell is compared with nothing: not comparable
+    invalid = [f"{m}: no baseline cell" for m in report["models_without_baseline"]]
     # every cell of the arm (or the baseline) not_started: 0 measured is no evidence of a clean arm
-    problems += [f"{arm_label(a, report)}: no measured cell" for a in report["arms"] if unmeasured(a)]
-    # an arm of a model with no baseline cell is compared with nothing: it cannot pass
-    problems += [f"{m}: no baseline cell" for m in report["models_without_baseline"]]
+    inconclusive = [f"{arm_label(a, report)}: no measured cell" for a in report["arms"] if unmeasured(a)]
     unfinished = report["coverage"]["unfinished"]
     if unfinished:  # a cell that crashed is unmeasured, not clean: the gate cannot pass over it
-        problems.append(f"{len(unfinished)} unfinished cells, not measured")
-    if problems:
-        print("FAIL: " + "; ".join(problems), file=sys.stderr)
-        sys.exit(EXIT_FAILURE)
+        inconclusive.append(f"{len(unfinished)} unfinished cells, not measured")
+    if failed or invalid or inconclusive:
+        # a failed arm is a verdict whatever else is unmeasured (exit codes in docs/quickstart.md)
+        code = EXIT_FAILURE if failed else EXIT_INVALID if invalid else EXIT_INCONCLUSIVE
+        print("FAIL: " + "; ".join(failed + invalid + inconclusive), file=sys.stderr)
+        sys.exit(code)
 
 
 def cmd_repo_security(args: argparse.Namespace) -> None:
@@ -113,5 +115,6 @@ def register(repo_sub) -> None:
     p.add_argument("--fail-on", choices=("warn", "fail"), default=None,
                    help="Exit 1 when an arm fails (fail: a critical class seen at all, or another class above "
                         "the baseline at --alpha) or, with warn, also shows a class the baseline never does; "
-                        "and when any cell is unfinished or an arm has no measured cell")
+                        "else 4 when a model has no baseline cell, and 3 when any cell is unfinished or an arm "
+                        "has no measured cell")
     p.set_defaults(func=cmd_repo_security)

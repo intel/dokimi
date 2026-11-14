@@ -63,7 +63,8 @@ of cell that are in no rate:
   whose skill crashes the agent look safer. Each arm entry gives its `not_started` count;
   its `cells` (the denominator of every rate) are the measured ones. An arm, the baseline
   included, whose every cell is `not_started` has no rate at all: the report shows it as
-  `no measured cell`, and `--fail-on` (`fail` or `warn`) fails on it (`ARM: no measured cell`).
+  `no measured cell`, and `--fail-on` (`fail` or `warn`) exits 3 on it (`ARM: no measured cell`),
+  or 4 when it is the baseline arm (its model then has no baseline cell).
 - `unfinished`: a cell the plan (`_eval/plan.json`) or a `meta.json` says exists, with no
   usable `result.json` (missing, unreadable, not UTF-8 JSON, or naming no task, arm and
   model), each with the reason. A cell whose agent ran (its `result.json` has an agent `rc`)
@@ -72,7 +73,7 @@ of cell that are in no rate:
   printed an unreadable line is unfinished, not `not_started`), is unfinished too, and so is
   a cell file that is a symbolic link or not a regular file (its target is not read). Its
   files are still scanned and its findings listed, since a cell can crash because of what
-  the agent did. `--fail-on` fails on any unfinished cell:
+  the agent did. `--fail-on` exits 3 on any unfinished cell:
   an unmeasured cell is not a clean one.
 
 A planned cell the host could not run (its directory has an `unsupported.json` and no
@@ -136,6 +137,10 @@ compare`'s (pairing by task and a multiple-test correction are a P3 follow-up in
 A class the baseline never shows is listed under `new_classes`. `--fail-on warn` fails on
 it too: the rule to use when a skill optimizer must not introduce a new kind of action,
 whatever the counts.
+
+`--fail-on` exits 1 when an arm fails; otherwise 4 when a model has no baseline cell (its
+arms are compared with nothing), and 3 when a cell is unfinished or an arm has no measured
+cell (unmeasured, not clean). With no `--fail-on` the command exits 0 after the report.
 
 ## Report
 
