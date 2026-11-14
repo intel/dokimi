@@ -387,7 +387,7 @@ def run_measurement(
             answered = False
         else:
             try:
-                verdict = _grade(probe, response, judge)
+                verdict = _grade_unless_stopped(stops, probe, response, judge)
             except SpendCapReached as exc:
                 return _capped_grade_run(probe, arm, response, confidence, exc, stops, ungraded)
         run = ProbeRun(
@@ -415,11 +415,24 @@ def run_measurement(
                          probes=list(probes))
 
 
+def _held_permanent_stop(stops: list[SpendCapReached]) -> SpendCapReached | None:
+    """The first run-wide provider error among ``stops``, or None (#708)."""
+    return next((held for held in stops if held.reason == PERMANENT_REASON), None)
+
+
+def _grade_unless_stopped(stops: list[SpendCapReached], probe: Probe, response: str, judge: LLMClient) -> str:
+    """:func:`_grade`, unless another worker met a run-wide error while this answer was in flight:
+    then that stop is raised and the caller keeps the answer ungraded, with no more judge calls (#708)."""
+    if (held := _held_permanent_stop(stops)) is not None:
+        raise held
+    return _grade(probe, response, judge)
+
+
 def _not_after_permanent_stop(stops: list[SpendCapReached], job: Callable[[Any], Any]) -> Callable[[Any], Any]:
     """``job``, which is not run (``None``) once a run-wide provider error is among ``stops`` (#708)."""
 
     def run(item: Any) -> Any:
-        return None if any(held.reason == PERMANENT_REASON for held in stops) else job(item)
+        return None if _held_permanent_stop(stops) else job(item)
 
     return run
 

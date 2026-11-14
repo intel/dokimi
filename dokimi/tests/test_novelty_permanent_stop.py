@@ -228,6 +228,57 @@ def test_the_measurement_records_a_rejected_grade_request_and_goes_on():
     assert [run.verdict for run in result.runs].count(ERRORED) == 1
 
 
+def test_a_reply_that_quotes_a_credential_message_is_not_a_provider_error():
+    from dokimi.llm import extract_json_array
+
+    replies = iter(["Unable to locate credentials: see the AWS docs.", "[1]", "[2]"])
+    transport = Calls(lambda prompt: next(replies))
+    result = ask_in_batches(_client(transport), [0, 1], size=2, prompt=str, parse=extract_json_array)
+    assert result.stop is None and result.failed == [] and len(result.answered) == 2
+
+
+def test_a_grade_reply_that_quotes_a_credential_message_is_one_errored_grade():
+    answer = Calls(_ANSWER)
+    grade = Calls("Unable to locate credentials: see the AWS docs.")
+    result = _measure(answer, grade)
+    assert result.stop is None and result.not_run == 0 and len(result.runs) == 8
+    assert {run.verdict for run in result.runs} == {ERRORED}
+
+
+def test_a_worker_whose_answer_lands_after_a_run_wide_grade_error_does_not_grade(monkeypatch):
+    import threading
+
+    from dokimi.novelty import measure
+
+    stopped = threading.Event()
+    first = threading.Lock()
+
+    second_started = threading.Event()
+
+    def answer(prompt, system=None):
+        if first.acquire(blocking=False):  # the first worker answers once the second is in flight
+            assert second_started.wait(10)
+            return _ANSWER, UsageRecord(cost_usd=0.0)
+        second_started.set()  # the second worker answers only after the first one's stop is recorded
+        assert stopped.wait(10)
+        return _ANSWER, UsageRecord(cost_usd=0.0)
+
+    grade = Calls(_GRADE, error=AUTH, at=1)
+    capped = measure._capped_grade_run
+
+    def capped_then_signal(*args):
+        run = capped(*args)
+        stopped.set()
+        return run
+
+    monkeypatch.setattr(measure, "_capped_grade_run", capped_then_signal)
+    result = run_measurement([], _probes(4), "artifact text", answerer=_client(answer, "a"),
+                             judge=_client(grade, "j"), concurrency=2)
+    assert grade.n == 1  # the second worker's answer is kept, not graded
+    assert len(result.runs) == 2 and result.ungraded == 2 and result.not_run == 6
+    assert result.stop[0] == "permanent_error"
+
+
 def test_analyze_keeps_a_partial_record_when_the_answerer_has_no_credentials(tmp_path):
     from dokimi.novelty.analyze import AnalyzeConfig, analyze, load_artifact_text
     from tests.test_novelty_analyze import SKILL, _clients, _scripted
