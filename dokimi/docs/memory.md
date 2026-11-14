@@ -1,3 +1,8 @@
+<!--
+Copyright (C) 2026 Intel Corporation
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Agent memory
 
 `dokimi memory` treats an agent's memory store as a subject (tracking issue
