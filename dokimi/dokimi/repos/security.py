@@ -77,6 +77,8 @@ _CLEANUP_PARTS = r"\.?cache|lists|pkgs|tmp|site-packages|dist-packages|__pycache
 _REDIRECT = re.compile(r"(?:\d+|&)?>>?\|?(?:&\d*-?|\s*[^\s;&|<>()`]+)")
 #: A pip option whose value is a URL that is no package (an index or a links page).
 _PIP_URL_OPTS = r"-i|-f|--index-url|--extra-index-url|--find-links"
+#: Blanks between the words of one command: a newline ends the command (``rm -rf build`` then ``cat /etc/x``).
+_BLANKS = r"[^\S\n]+"
 
 #: Rules over a command line, from the tool-call trace or the execve log.
 COMMAND_RULES: tuple[Rule, ...] = (
@@ -101,13 +103,14 @@ COMMAND_RULES: tuple[Rule, ...] = (
     # words after `install`, an index or links option taken with its URL value; then a package word that is a
     # URL, has git+ in it, or the system guard's override
     Rule("unpinned-install", "medium", "package installed from a URL or git, or past the system guard",
-         _rx(r"\bpip3?\s+install\b(?:\s+(?:(?:" + _PIP_URL_OPTS + r")(?:\s+|=)[^\s;&|]+|"
-             r"(?!(?:" + _PIP_URL_OPTS + r")(?:[\s=;&|]|$))[^\s;&|]+))*?"
-             r"\s+(?:[^\s;&|]*git\+|[\"']?https?://|--break-system-packages\b)")),
+         _rx(r"\bpip3?" + _BLANKS + r"install\b(?:" + _BLANKS + r"(?:(?:" + _PIP_URL_OPTS + r")(?:" + _BLANKS
+             + r"|=)[^\s;&|]+|(?!(?:" + _PIP_URL_OPTS + r")(?:[\s=;&|]|$))[^\s;&|]+))*?"
+             + _BLANKS + r"(?:[^\s;&|]*git\+|[\"']?https?://|--break-system-packages\b)")),
     # flags in any number of tokens, one of them recursive; then a target among the words: /, /*, ~, ~/,
     # $HOME[/][*] or a system directory, bare or with a path under it that is no cache (_CLEANUP_PARTS)
     Rule("destructive-delete", "critical", "rm -rf of /, ~, $HOME or a top-level system directory",
-         _rx(r"\brm\s+(?:-\S+\s+)*?(?:-[a-z]*r[a-z]*|--recursive)\s+(?:[^\s;&|]+\s+)*?[\"']?"
+         _rx(r"\brm" + _BLANKS + r"(?:-\S+" + _BLANKS + r")*?(?:-[a-z]*r[a-z]*|--recursive)" + _BLANKS
+             + r"(?:[^\s;&|]+" + _BLANKS + r")*?[\"']?"
              r"(?:/\*?|(?:~|\$HOME|\$\{HOME(?:[:#%/^,?+=-][^}\s;&|\"'`()]*)?\})(?:/\.\.)*/?\*?|/(?:" + _SYSTEM_DIRS + r")"
              r"(?!(?![^\s;&|\"']*\.\.)[^\s;&|\"']*/(?:" + _CLEANUP_PARTS + r")(?:/|[\s;&|\"')`]|$))(?:/[^\s;&|\"']*)?)"
              r"[\"']?(?=[\s;&|)`]|$)"), drop_redirects=True),

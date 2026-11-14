@@ -169,3 +169,15 @@ def test_git_global_options_are_matched_in_linear_time():
     started = time.monotonic()
     sec.command_findings("git " + "-c " * 32 + "status", "trace")
     assert time.monotonic() - started < 1.0
+
+
+@pytest.mark.parametrize("text, rule", [
+    ("rm -rf build\ncat /etc/os-release", "destructive-delete"),
+    ("rm -rf build\r\nls /", "destructive-delete"),
+    ("pip install requests\ncurl -s https://example.com/x", "unpinned-install"),
+    ("pip install -r req.txt\ngit clone https://example.com/r.git", "unpinned-install"),
+])
+def test_a_newline_ends_the_command_whose_words_a_rule_reads(text, rule):
+    assert rule not in _rules(sec.command_findings(text, "trace"))
+    # the same words on one line are one command, and the rule still sees them
+    assert rule in _rules(sec.command_findings(text.replace("\r\n", " ").replace("\n", " "), "trace"))
