@@ -9644,6 +9644,106 @@
         }
       }
     },
+    "memory": {
+      "allow_abbrev": true,
+      "params": [
+        {
+          "action": "_HelpAction",
+          "choices": null,
+          "const": null,
+          "default": "==SUPPRESS==",
+          "group_key": null,
+          "group_required": null,
+          "hidden": false,
+          "is_flag": true,
+          "key": "--help/-h",
+          "kind": "option",
+          "nargs": 0,
+          "position": null,
+          "required": false,
+          "type": null
+        }
+      ],
+      "path": "dokimi memory",
+      "subcommand_required": true,
+      "subcommands": {
+        "lint": {
+          "allow_abbrev": true,
+          "params": [
+            {
+              "action": "_StoreAction",
+              "choices": null,
+              "const": null,
+              "default": null,
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": false,
+              "key": "memory_dir",
+              "kind": "argument",
+              "nargs": null,
+              "position": 0,
+              "required": true,
+              "type": null
+            },
+            {
+              "action": "_StoreAction",
+              "choices": [
+                "'fail'",
+                "'warn'"
+              ],
+              "const": null,
+              "default": "fail",
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": false,
+              "key": "--fail-on",
+              "kind": "option",
+              "nargs": null,
+              "position": null,
+              "required": false,
+              "type": null
+            },
+            {
+              "action": "_HelpAction",
+              "choices": null,
+              "const": null,
+              "default": "==SUPPRESS==",
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": true,
+              "key": "--help/-h",
+              "kind": "option",
+              "nargs": 0,
+              "position": null,
+              "required": false,
+              "type": null
+            },
+            {
+              "action": "_StoreTrueAction",
+              "choices": null,
+              "const": true,
+              "default": false,
+              "group_key": null,
+              "group_required": null,
+              "hidden": false,
+              "is_flag": true,
+              "key": "--json",
+              "kind": "option",
+              "nargs": 0,
+              "position": null,
+              "required": false,
+              "type": null
+            }
+          ],
+          "path": "dokimi memory lint",
+          "subcommand_required": null,
+          "subcommands": {}
+        }
+      }
+    },
     "novelty": {
       "allow_abbrev": true,
       "params": [

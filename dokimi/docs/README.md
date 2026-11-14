@@ -327,6 +327,9 @@ code.
 - [context-window.md](context-window.md) — read a run's context window from
   its Claude Code trace with `cli.py trace inspect`: start-up load, growth,
   compactions, tool-result weight. No LLM call.
+- [memory.md](memory.md) — check an agent's memory directory (Claude Code auto
+  memory) with `dokimi memory lint`: index links and load limit, frontmatter,
+  wikilinks, undated relative dates. No LLM call.
 - [session-prefilter.md](session-prefilter.md) — which AGENTS.md or CLAUDE.md rules
   the Claude Code session logs triggered, acted on and were corrected on, with
   `cli.py trace prefilter`: candidates for ablation, not verdicts. No LLM call.
