@@ -804,8 +804,9 @@ a `reason` replaces `picked` for a query with no content word). `picked` follows
 where a single-artifact run names the first card in the field. `rank` and `picked` hold for the row's `gold`
 only, so each row also keeps `scores` (card name to BM25 score, in the order of the field), which do not depend
 on the gold: `rescore_lexical_row(row, gold)` in `dokimi.novelty.all_vs_all` gives `rank` and `picked` for a
-corrected gold, ties included, and keeps a row with no content word unscored. A saved run can be rescored from them, for corrected gold labels, acceptable
-alternatives, a dev and test split, or a query-by-query comparison of two runs. The model arm's rows are `model.noise.per_query` (`query`, `gold`, `picks`, `n_correct`), also kept
+corrected gold, ties included, and keeps a row with no content word unscored. A saved run can be rescored from them for corrected gold labels (one gold per row), split by
+query set half, or compared query by query with another run; scoring a set of acceptable golds per query is not
+shipped (#710). The model arm's rows are `model.noise.per_query` (`query`, `gold`, `picks`, `n_correct`), also kept
 with one repeat. A run
 with any failed model call writes the result and exits non-zero. The saved file records the
 field rule under `field` (`include_disabled`, `include_invalid`, `keep_copies_under`, the `competitors` and what was
