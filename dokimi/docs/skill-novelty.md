@@ -799,7 +799,18 @@ the skills whose queries it took (`from`). Skills whose descriptions have the sa
 (`tied_groups`, named once on the console): a pick between them is in the confusion matrix but
 is no attractor, and a tied skill's own rate is lower by the picks inside its group. Every rate is over the queries that were scored:
 `n_scored` and `n_unscored` per skill say how many, a query with no content word or a failed
-model call is unscored, and a skill with none scored has an own rate of `null`, not 0.0. A run
+model call is unscored, and a skill with none scored has an own rate of `null`, not 0.0. The lexical arm
+also keeps `per_query`, one row per query whatever `--reps` is, in the shape of a single-artifact run's
+`per_query` plus the `gold` skill: `query`, `gold`, `rank` of the gold card and `picked` (`rank` is `null` and
+a `reason` replaces `picked` for a query with no content word). `picked` follows the confusion matrix, so it is
+`(none)` for a query that shares no word with any card and `(tie)` when two or more other cards tie at the top,
+where a single-artifact run names the first card in the field. `rank` and `picked` hold for the row's `gold`
+only, so each row also keeps `scores` (card name to BM25 score, in the order of the field), which do not depend
+on the gold: `rescore_lexical_row(row, gold)` in `dokimi.novelty.all_vs_all` gives `rank` and `picked` for a
+corrected gold, ties included, and keeps a row with no content word unscored. A saved run can be rescored from them for corrected gold labels (one gold per row), split by
+query set half, or compared query by query with another run; scoring a set of acceptable golds per query is not
+shipped (#710). The model arm's rows are `model.noise.per_query` (`query`, `gold`, `picks`, `n_correct`), also kept
+with one repeat. A run
 with any failed model call writes the result and exits non-zero. The saved file records the
 field rule under `field` (`include_disabled`, `include_invalid`, `keep_copies_under`, the `competitors` and what was
 `left_out`, which also names each skill left out for a conflicting name or a spec error, and `spec_warnings`, one
