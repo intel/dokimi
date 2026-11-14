@@ -336,3 +336,9 @@ def test_a_replacement_update_is_exempt_from_the_release_age_wait() -> None:
     assert len(exempt) == 1, exempt
     assert 'matchManagers: ["github-actions"]' in exempt[0]
     assert 'matchUpdateTypes: ["replacement"]' in exempt[0]
+
+
+def test_security_md_names_every_audited_lock() -> None:
+    """SECURITY.md says which locks pip-audit covers: every renovated lock is listed."""
+    text = (ROOT / "SECURITY.md").read_text(encoding="utf-8")
+    assert [lock for lock in RENOVATE_LOCKS if f"`{lock}`" not in text] == []
