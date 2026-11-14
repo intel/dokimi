@@ -315,3 +315,11 @@ def test_escaped_hash_is_part_of_the_name_not_an_anchor(mem):
 def test_label_inside_a_link_title_is_not_a_use(mem):
     (mem / "MEMORY.md").write_text('- [A](a.md "see [t]") [B](b.md)\n\n[t]: gone.md\n')
     assert [f for f in lint(read_claude_memory(mem)) if f.rule == "index-dead-link"] == []
+def test_fence_opener_with_a_backtick_in_its_info_is_a_code_span(mem):
+    (mem / "a.md").write_text(_entry("a", body="```make ci``` runs the gate.\nShip it tomorrow.\n"))
+    assert [f.line for f in lint(read_claude_memory(mem)) if f.rule == "relative-date"] == [8]
+
+
+def test_definition_title_may_hold_an_escaped_quote(mem):
+    (mem / "MEMORY.md").write_text("- [B](b.md) [T][t]\n\n[t]: gone.md \"a \\\" b\"\n")
+    assert [f.line for f in lint(read_claude_memory(mem)) if f.rule == "index-dead-link"] == [3]

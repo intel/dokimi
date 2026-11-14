@@ -22,7 +22,8 @@ ARCHIVE_DIR = "archive"
 _FRONTMATTER = re.compile(r"\A---[ \t]*\r?\n(?:(.*?)\r?\n)??---[ \t]*(?:\r?\n|\Z)", re.S)
 _MD_LINK = re.compile(r"\]\(\s*(<[^>\n]+>|(?:\\\S|[^()\s\\]|\([^()\s]*\))+)(?:\s+(?:\"[^\"]*\"|'[^']*'))?\s*\)")
 _MD_REF_DEF = re.compile(  # a definition is the whole line: destination, then an optional title and nothing else
-    r"^ {0,3}\[(?!\^)([^\]\n]+)\]:[ \t]*(<[^>\n]+>|\S+)(?:[ \t]+(?:\"[^\"]*\"|'[^']*'|\([^()]*\)))?\s*$")
+    r"^ {0,3}\[(?!\^)([^\]\n]+)\]:[ \t]*(<[^>\n]+>|\S+)"
+    r"(?:[ \t]+(?:\"(?:\\\S|[^\"\\])*\"|'(?:\\\S|[^'\\])*'|\((?:\\\S|[^()\\])*\)))?\s*$")
 _MD_LABEL = re.compile(r"\[([^\[\]\n]+)\]")
 _EMPTY_LINK = re.compile(r"\]\(\s*(?:<>)?\s*\)")  # [t]() is an inline link with an empty destination
 _MD_ESCAPE = re.compile(r"\\([!-/:-@\[-`{-~])")
@@ -125,7 +126,7 @@ def prose_lines(text: str) -> list[str]:
             if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence) and not line[m.end():].strip():
                 fence = ""
             out.append("")
-        elif m:
+        elif m and not (m.group(1)[0] == "`" and "`" in line[m.end():]):  # an info string holds no backtick
             fence = m.group(1)
             out.append("")
         else:
