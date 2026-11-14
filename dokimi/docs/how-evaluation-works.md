@@ -34,8 +34,8 @@ Two more tracks back this up:
 
 ## Asking a different question
 
-Everything above answers *does this artifact help?* — one number per artifact,
-with a p-value. Two tracks keep the same machinery and change the question.
+Everything on the documentation home answers *does this artifact help?* — one
+number per artifact, with a p-value. Two tracks keep the same machinery and change the question.
 
 ### Content novelty: which parts help?
 
