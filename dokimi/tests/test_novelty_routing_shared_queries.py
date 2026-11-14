@@ -10,7 +10,11 @@ import json
 from dokimi.cli import build_parser
 from dokimi.commands.novelty_routing_report import warn_shared_queries
 from dokimi.novelty.all_vs_all import all_vs_all
-from dokimi.novelty.query_overlap import SHARED_QUERY_WARN_SHARE, shared_queries_warning
+from dokimi.novelty.query_overlap import (
+    SHARED_QUERY_WARN_SHARE,
+    shared_queries_warning,
+    shared_query_counts,
+)
 from dokimi.novelty.routing import Candidate, headings_as_queries, lexical_routing
 
 TEMPLATE = "## Quick Start\n\n## Implementation Guide\n\n## Gotchas & Limitations\n"
@@ -29,6 +33,14 @@ def test_case_and_spacing_do_not_hide_a_shared_query():
     warning = shared_queries_warning({"a": ["Quick  Start"], "b": ["quick start"]})
     assert warning is not None
     assert "2 of 2" in warning
+
+
+def test_trailing_punctuation_does_not_hide_a_shared_query():
+    assert shared_query_counts({"a": ["Quick Start"], "b": ["Quick Start."]}) == (2, 2)
+
+
+def test_queries_the_scorer_tokenizes_differently_are_not_shared():
+    assert shared_query_counts({"a": ["Straße"], "b": ["STRASSE"]}) == (0, 2)
 
 
 def test_the_threshold_is_half_of_the_queries_listed_for_several_skills():
@@ -86,14 +98,14 @@ def _run_all_vs_all(tmp_path, *extra):
     queries = tmp_path / "q.json"
     queries.write_text(json.dumps({"a": ["quick start"], "b": ["quick start"]}), encoding="utf-8")
     args = build_parser().parse_args(
-        ["novelty", "routing", "--all-vs-all", "--catalog", str(root),
+        ["catalog", "routing", str(root),
          "--queries-by-skill", str(queries), "--out", str(tmp_path / "out.json"), *extra])
     args.func(args)
 
 
 def test_all_vs_all_result_records_the_shared_query_counts():
     cands = [Candidate("a", "alpha"), Candidate("b", "beta")]
-    queries = {"a": ["alpha one", "the", "own a"], "b": ["Alpha  one", "own b"]}
+    queries = {"a": ["alpha one", "the", "own first"], "b": ["Alpha  one", "own second"]}
     assert all_vs_all(cands, queries)["shared_queries"] == {"shared": 2, "total": 4}
 
 
