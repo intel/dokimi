@@ -29,6 +29,7 @@ from typing import Any
 from dokimi.context import shell
 from dokimi.context.session_log import Event, Session
 from dokimi.novelty.spans import segment
+from dokimi.repos.rule_frontmatter import blank_frontmatter
 
 CANDIDATE = "candidate_for_ablation"
 IN_USE = "in_use"
@@ -142,6 +143,8 @@ def _is_path(key: str) -> bool:
 def claims_from_guidance(text: str) -> list[Claim]:
     """The rules of one guidance file: each sentence, list item or table row with a keyword."""
     claims = []
+    # YAML frontmatter (a SKILL.md, a memory file) is metadata, not rules: blanked, offsets kept
+    text = blank_frontmatter(text)
     for span in segment(text):
         if span.kind not in _RULE_KINDS or (span.kind == "table_row" and _is_table_header(text, span.start)):
             continue
