@@ -259,7 +259,7 @@ def parse_json(answer: str, *, contains: bool = False) -> tuple[bool, Any]:
     With ``contains`` the first JSON object or array anywhere in the text counts
     (promptfoo ``contains-json``). The scan gives up after :data:`CONTAINS_JSON_MAX_STARTS`
     brackets, or once the tries that failed have scanned :data:`CONTAINS_JSON_MAX_SCAN`
-    characters in all, and then reads the text as not JSON. The first parse of the whole text is
+    characters in all (reaching it spends it; one try may cross it), and then reads the text as not JSON. The first parse of the whole text is
     not counted, only the tries that start at a bracket.
     """
     text = answer.strip()
@@ -276,7 +276,7 @@ def parse_json(answer: str, *, contains: bool = False) -> tuple[bool, Any]:
         scanned = 0
         for i, ch in enumerate(text):
             if ch in "{[":
-                if tried == CONTAINS_JSON_MAX_STARTS or scanned > CONTAINS_JSON_MAX_SCAN:
+                if tried == CONTAINS_JSON_MAX_STARTS or scanned >= CONTAINS_JSON_MAX_SCAN:
                     break
                 tried += 1
                 try:

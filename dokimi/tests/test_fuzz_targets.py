@@ -225,6 +225,18 @@ def test_parse_json_contains_charges_a_failed_try_from_its_start() -> None:
     assert parse_json(text, contains=True) == (True, {"a": 1})
 
 
+def test_parse_json_contains_stops_when_the_failed_tries_reach_the_budget_exactly() -> None:
+    from dokimi.eval.reference_checks import CONTAINS_JSON_MAX_SCAN, parse_json
+
+    # The first try fails at the "2", position CONTAINS_JSON_MAX_SCAN (a missing comma, reported at
+    # the same place on every Python), charging exactly the budget.
+    at_budget = "[1" + " " * (CONTAINS_JSON_MAX_SCAN - 2) + '2] {"a":1}'
+    assert parse_json(at_budget, contains=True) == (False, None)
+    # One character less leaves a character of budget: the object is found.
+    under = "[1" + " " * (CONTAINS_JSON_MAX_SCAN - 3) + '2] {"a":1}'
+    assert parse_json(under, contains=True) == (True, {"a": 1})
+
+
 def test_parse_json_contains_does_not_charge_the_first_whole_text_parse() -> None:
     from dokimi.eval.reference_checks import CONTAINS_JSON_MAX_SCAN, parse_json
 
