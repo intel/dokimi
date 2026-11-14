@@ -11,6 +11,7 @@ file in place fails the first check, because the new text is already there.
 import json
 import logging
 import os
+import stat
 import threading
 from pathlib import Path
 from types import SimpleNamespace
@@ -134,8 +135,51 @@ def test_task_files_from_replay_build_keep_the_old_file(tmp_path, monkeypatch, n
 
 def test_bytes_are_published_as_they_are(tmp_path):
     path = tmp_path / "change.patch"
-    write_bytes_atomic(path, b"a\r\nb\n")
-    assert path.read_bytes() == b"a\r\nb\n"
+    data = bytes(range(256))
+    write_bytes_atomic(path, data)
+    assert path.read_bytes() == data
+
+
+def test_missing_parent_directories_are_created(tmp_path):
+    write_text_atomic(tmp_path / "a" / "b" / "x.json", "T")
+    write_bytes_atomic(tmp_path / "c" / "d" / "y.bin", b"B")
+    assert (tmp_path / "a" / "b" / "x.json").read_text(encoding="utf-8") == "T"
+    assert (tmp_path / "c" / "d" / "y.bin").read_bytes() == b"B"
+
+
+@pytest.mark.parametrize("publish", [
+    lambda p: write_text_atomic(p, "NEW"),
+    lambda p: write_bytes_atomic(p, b"NEW"),
+])
+def test_publish_keeps_the_mode_of_the_file_it_replaces(tmp_path, publish):
+    path = tmp_path / "secret.json"
+    path.write_text("OLD", encoding="utf-8")
+    os.chmod(path, 0o600)
+    publish(path)
+    assert path.read_text(encoding="utf-8") == "NEW"
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+
+
+def test_a_new_file_gets_the_umask_default(tmp_path):
+    plain = tmp_path / "plain.json"
+    plain.write_text("x", encoding="utf-8")
+    path = tmp_path / "new.json"
+    write_text_atomic(path, "x")
+    assert stat.S_IMODE(path.stat().st_mode) == stat.S_IMODE(plain.stat().st_mode)
+
+
+def test_tmp_file_is_created_exclusively(tmp_path, monkeypatch):
+    # A predictable tmp name can be a link planted by someone else: the tmp file must be new.
+    flags = []
+    real_open = os.open
+
+    def spy(name, flag, mode=0o777, *args, **kwargs):
+        flags.append(flag)
+        return real_open(name, flag, mode, *args, **kwargs)
+
+    monkeypatch.setattr(os, "open", spy)
+    write_text_atomic(tmp_path / "x.json", "T")
+    assert any(flag & os.O_EXCL for flag in flags)
 
 
 def test_task_json_from_replay_authoring_keeps_the_old_file(tmp_path, failing_rename):
