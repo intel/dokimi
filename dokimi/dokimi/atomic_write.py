@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""Publish a small text file in one step: a reader or a crash never sees half of it."""
+"""Publish a small text file in one step: a reader never sees half of it (no fsync, so a power loss may)."""
 
 from __future__ import annotations
 
