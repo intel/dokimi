@@ -132,7 +132,7 @@ def test_index_size_counts_crlf_bytes_on_disk(mem):
 
 def test_bom_alias_archive_and_date_false_positives(mem):
     (mem / "a.md").write_text("﻿" + _entry("a", body="[[b|alias]] [[b#Why]]\nFixed 2026-11-13 (today).\n"
-                                                 "See `today()` and yesterday.md, yesterday's notes."))
+                                                 "See `today()` and yesterday.md."))
     (mem / "archive").mkdir()
     (mem / "archive" / "a.md").write_text(_entry("a", body="done today"))
     assert _rules(mem) == []
@@ -154,3 +154,9 @@ def test_json_status_is_failed_on_a_fail(mem):
     (mem / "MEMORY.md").write_text("- [Gone](gone.md)\n")
     doc = json.loads(_cli(str(mem), "--json").stdout)
     assert doc["status"] == "failed" and "1 fail" in doc["reason"]
+
+
+def test_empty_frontmatter_stops_at_its_own_closing_line(mem):
+    (mem / "a.md").write_text("---\n---\nSaw it today.\n\n---\nname: later\n---\n")
+    found = [(f.rule, f.line) for f in lint(read_claude_memory(mem)) if f.file == "a.md"]
+    assert ("relative-date", 3) in found and ("frontmatter-invalid", 1) not in found

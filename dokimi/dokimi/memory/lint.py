@@ -30,7 +30,7 @@ _RELATIVE = re.compile(
     r"|(?<!\w)(сегодня|вчера|завтра)(?!\w)", re.I)
 _DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
 _CODE = re.compile(r"`[^`\n]*`")
-_NOT_A_WORD_USE = re.compile(r"\.md|'s|\(")
+_NOT_A_WORD_USE = re.compile(r"\.md|\(")
 _STRAY_SEPARATOR = re.compile(r":\s*,|,\s*,|,\s*$")
 
 

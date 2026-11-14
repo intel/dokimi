@@ -19,7 +19,7 @@ import yaml
 
 INDEX_NAME = "MEMORY.md"
 ARCHIVE_DIR = "archive"
-_FRONTMATTER = re.compile(r"\A---[ \t]*\r?\n(?:(.*?)\r?\n)?---[ \t]*(?:\r?\n|\Z)", re.S)
+_FRONTMATTER = re.compile(r"\A---[ \t]*\r?\n(?:(.*?)\r?\n)??---[ \t]*(?:\r?\n|\Z)", re.S)
 _MD_LINK = re.compile(r"\]\(\s*(<[^>\n]+>|[^)\s]+)(?:\s+(?:\"[^\"]*\"|'[^']*'))?\s*\)")
 _WIKILINK = re.compile(r"\[\[([^\]\n]+)\]\]")
 
