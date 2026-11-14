@@ -12,14 +12,14 @@ SHARED_QUERY_WARN_SHARE = 0.5
 
 
 def _key(query: str) -> tuple[str, ...]:
-    return tuple(tokenize(query))
+    return tuple(sorted(tokenize(query)))
 
 
 def shared_query_counts(queries_by_skill: dict[str, list[str]]) -> tuple[int, int]:
     """``(shared, total)``: the queries listed for two or more skills, and all the queries.
 
     A query counts as shared when the lexical scorer reads it as the same content words (case,
-    spacing and punctuation aside) as a query of another skill. Queries with no content word are
+    spacing, punctuation and word order aside; a repeated word still counts) as a query of another skill. Queries with no content word are
     not scored by either arm and are in neither count.
     """
     scored = {name: [q for q in queries if tokenize(q)] for name, queries in queries_by_skill.items()}

@@ -39,6 +39,14 @@ def test_trailing_punctuation_does_not_hide_a_shared_query():
     assert shared_query_counts({"a": ["Quick Start"], "b": ["Quick Start."]}) == (2, 2)
 
 
+def test_word_order_does_not_hide_a_shared_query():
+    assert shared_query_counts({"a": ["quick start"], "b": ["start quick"]}) == (2, 2)
+
+
+def test_a_repeated_word_keeps_a_query_apart_from_the_single_word():
+    assert shared_query_counts({"a": ["start start"], "b": ["start"]}) == (0, 2)
+
+
 def test_queries_the_scorer_tokenizes_differently_are_not_shared():
     assert shared_query_counts({"a": ["Straße"], "b": ["STRASSE"]}) == (0, 2)
 
