@@ -23,6 +23,7 @@ URL = "https://example.com/spec.txt"
 PAGE = "\n\n".join(f"{i:03d} " + "x" * 96 for i in range(40))
 DOCS = "parallel_for splits a range into chunks. " * 5  # a Context7 answer over the stub limit
 LIB, QUERY = "uxlfoundation/oneTBB", "parallel_for"
+PAD = " It runs on every core of the machine." * 3  # docs with no topic in them, past the stub limit
 
 
 def _response(text: str, content_type: str = "text/plain") -> MagicMock:
@@ -114,7 +115,7 @@ def test_context7_bad_entry_is_a_miss_and_is_overwritten(tmp_path, caplog, store
 
 # ── RagasSeedExtractor ───────────────────────────────────────────────────────
 
-def _extractor(cache_dir, docs: str = "Use `tbb::parallel_for` and `task_arena`.") -> RagasSeedExtractor:
+def _extractor(cache_dir, docs: str = "Use `tbb::parallel_for` and `task_arena`." + PAD) -> RagasSeedExtractor:
     client = MagicMock()
     client.get_library_docs.return_value = [{"content": docs}]
     return RagasSeedExtractor(mcp_client=client, cache_dir=cache_dir)
@@ -145,6 +146,14 @@ def test_topics_fallback_is_returned_but_not_stored(tmp_path):
     first = extractor.extract_topics(LIB, "oneTBB")
     second = extractor.extract_topics(LIB, "oneTBB")
     assert first == second == RagasSeedExtractor._fallback_topics("oneTBB")
+    assert extractor.mcp_client.get_library_docs.call_count == 2
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_topics_from_a_stub_answer_are_returned_but_not_stored(tmp_path):
+    extractor = _extractor(tmp_path, docs="Library `oneTBB` has no documentation for this query.")
+    assert extractor.extract_topics(LIB, "oneTBB") == ["oneTBB"]
+    assert extractor.extract_topics(LIB, "oneTBB") == ["oneTBB"]
     assert extractor.mcp_client.get_library_docs.call_count == 2
     assert list(tmp_path.iterdir()) == []
 
@@ -224,7 +233,7 @@ def test_generate_does_not_replay_one_doc_source_topics_for_another(tmp_path, mo
     from dokimi.mcp import factory
     import dokimi.questions as questions_pkg
 
-    docs = {"context7": "Use `tbb::parallel_for` here.", "local:/docs": "Use `tbb::flow_graph` here."}
+    docs = {"context7": "Use `tbb::parallel_for` here." + PAD, "local:/docs": "Use `tbb::flow_graph` here." + PAD}
     seen = []
 
     class _Generator:

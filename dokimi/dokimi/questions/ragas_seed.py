@@ -9,6 +9,7 @@ import json
 from pathlib import Path
 from typing import List, Dict, Optional
 
+from dokimi.mcp.context7 import MIN_DOC_CHARS
 from dokimi.mcp.utils import read_cache_text, write_cache_text
 
 logger = logging.getLogger(__name__)
@@ -116,8 +117,10 @@ class RagasSeedExtractor:
         # 2. Extract topics via LLM (or simple heuristics if no LLM)
         topics = self._extract_via_llm(docs, library_name, max_topics)
 
-        # 3. Cache what extraction found; the generic fallback says it found nothing
-        if self.cache_dir and _storable(topics) and write_cache_text(cache_file, json.dumps(topics)):
+        # 3. Cache what extraction found; the generic fallback says it found nothing, and topics
+        #    taken from a stub answer (an error, "no documentation") would replay the stub
+        storable = _storable(topics) and len(docs.strip()) >= MIN_DOC_CHARS
+        if self.cache_dir and storable and write_cache_text(cache_file, json.dumps(topics)):
             logger.info("Cached %d topics to %s", len(topics), cache_file)
 
         return topics
