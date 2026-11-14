@@ -189,6 +189,8 @@ python cli.py skill shorten --artifact skill:skills/my-skill --atoms atoms.json 
 `--lexical-only` runs the retention oracle without an LLM adjudicator: cheap, reproducible,
 and blind to contradictions, so `knowledge` is a floor. Drop it (and pass `--model`) when
 you want the adjudicated figure, and expect up to one call per atom per candidate.
+Its ambiguous-band atoms are placeholders, not verdicts: they are not cached, so an
+adjudicated run after it asks them again.
 
 A candidate that drops a protected span is reported but never offered: it is not smaller,
 it is different. Shortening rewrites one file, so with a bundle-derived atom set it scores

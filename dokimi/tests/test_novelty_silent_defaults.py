@@ -28,7 +28,7 @@ from dokimi.novelty.classify import (
     judge_value,
 )
 from dokimi.novelty.client import LLMClient
-from dokimi.novelty.retention import ABSENT, RETAINED, RetentionOracle, _key
+from dokimi.novelty.retention import ABSENT, CONTRADICTED, RETAINED, RetentionOracle, _key
 
 
 def _atoms(n: int) -> list[Atom]:
@@ -360,6 +360,40 @@ def test_a_cache_entry_from_before_the_error_fix_is_not_replayed(tmp_path):
     assert (result.verdict, result.method) == (RETAINED, "llm")
 
 
+def test_a_lexical_only_run_does_not_store_a_placeholder_for_a_later_llm_run(tmp_path):
+    atom, text = _AMBIGUOUS
+    # --lexical-only has no adjudicator: its ambiguous-band answer is a placeholder,
+    # not a verdict, so it must not reach the disk cache under the same key.
+    lexical = RetentionOracle(client=None, cache_dir=tmp_path)
+    assert lexical.verdict(atom, text).verdict == ABSENT
+    assert lexical.stats()["decisions"] == 1
+    assert not list(tmp_path.iterdir())
+    calls: list[int] = []
+
+    def transport(prompt, system):
+        calls.append(1)
+        return '{"verdict": "retained"}', None
+
+    llm = RetentionOracle(client=LLMClient(model="x", transport=transport), cache_dir=tmp_path)
+    result = llm.verdict(atom, text)
+    assert (result.verdict, result.method) == (RETAINED, "llm")
+    assert len(calls) == 1
+
+
+def test_a_lexical_only_run_does_not_replay_a_verdict_an_llm_run_stored(tmp_path):
+    atom, text = _AMBIGUOUS
+    llm = RetentionOracle(
+        client=LLMClient(model="x", transport=lambda p, s: ('{"verdict": "contradicted"}', None)),
+        cache_dir=tmp_path,
+    )
+    assert llm.verdict(atom, text).verdict == CONTRADICTED
+    result = RetentionOracle(client=None, cache_dir=tmp_path).verdict(atom, text)
+    assert (result.verdict, result.method) == (ABSENT, "lexical")
+    unused = LLMClient(model="x", transport=lambda p, s: (_ for _ in ()).throw(AssertionError))
+    replay = RetentionOracle(client=unused, cache_dir=tmp_path).verdict(atom, text)
+    assert (replay.verdict, replay.method) == (CONTRADICTED, "cache")
+
+
 @pytest.mark.parametrize("stored", ['{"verdict": "maybe", "score": 0.5}', "{not json",
                                     '{"verdict": ["absent"]}'])
 def test_an_unusable_disk_cache_entry_is_asked_again(tmp_path, stored):
@@ -545,6 +579,24 @@ def test_a_verdict_cached_by_the_v3_cache_is_re_adjudicated(tmp_path, monkeypatc
         cache_dir=tmp_path,
     )
     assert oracle.verdict(atom, text).method == "llm"
+
+
+def test_a_placeholder_cached_by_the_v4_cache_is_re_adjudicated(tmp_path, monkeypatch):
+    from dokimi.novelty import retention
+
+    atom, text = _AMBIGUOUS
+    monkeypatch.setattr(retention, "_CACHE_VERSION", b"retention-cache-v4\0")
+    old_key = _key(atom, text)
+    monkeypatch.undo()
+    # A v4 `--lexical-only` placeholder: the v5 cache must not replay it as a verdict.
+    (tmp_path / f"{old_key}.json").write_text('{"verdict": "absent", "score": 0.5}',
+                                              encoding="utf-8")
+    oracle = RetentionOracle(
+        client=LLMClient(model="x", transport=lambda p, s: ('{"verdict": "retained"}', None)),
+        cache_dir=tmp_path,
+    )
+    result = oracle.verdict(atom, text)
+    assert (result.verdict, result.method) == (RETAINED, "llm")
 
 
 def test_a_cut_answer_logs_the_truncation_on_every_run(monkeypatch, tmp_path, caplog):
