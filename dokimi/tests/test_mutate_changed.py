@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import ast
 import importlib.util
+import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -121,3 +123,45 @@ def test_markdown_lists_survivors_and_uncovered() -> None:
     assert "1 killed" in text and "**1 survived**" in text
     assert "| `dokimi/dokimi/x.py:3` | flip-compare | `a == b` | `a != b` | 1 |" in text
     assert "`dokimi/dokimi/x.py`: 7" in text
+
+
+def _mutation_run(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, src: str, tests: str, *flags: str) -> tuple[int, dict]:
+    """Run the script on a repo whose head adds ``dokimi/zz.py`` and its tests; returns (exit code, JSON report)."""
+    if not (tmp_path / ".git").exists():
+        pkg = tmp_path / "dokimi" / "dokimi"
+        pkg.mkdir(parents=True)
+        (tmp_path / "dokimi" / "tests").mkdir()
+        (pkg / "__init__.py").write_text("", encoding="utf-8")
+        _git(tmp_path, "init", "-q")
+        _git(tmp_path, "config", "user.email", "t@example.com")
+        _git(tmp_path, "config", "user.name", "t")
+        _git(tmp_path, "add", ".")
+        _git(tmp_path, "commit", "-qm", "base")
+        (pkg / "zz.py").write_text(src, encoding="utf-8")
+        (tmp_path / "dokimi" / "tests" / "test_zz.py").write_text(tests, encoding="utf-8")
+        _git(tmp_path, "add", ".")
+        _git(tmp_path, "commit", "-qm", "head")
+    monkeypatch.setattr(mc, "REPO", tmp_path)
+    monkeypatch.setattr(mc, "PROJECT", tmp_path / "dokimi")
+    monkeypatch.delenv("PYTHONDONTWRITEBYTECODE", raising=False)
+    out = tmp_path / "report.json"
+    rc = mc.main(["--base", "HEAD~1", "--budget", "100", "--mutant-timeout", "30", "--json", str(out), *flags])
+    return rc, json.loads(out.read_text(encoding="utf-8"))
+
+
+def _statuses(report: dict) -> dict[tuple[int, str], str]:
+    return {(m["line"], m["replacement"]): m["status"] for m in report["mutants"]}
+
+
+def test_a_same_size_mutant_in_the_same_second_runs_its_own_source(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    real = mc._pytest
+
+    def same_second(cwd: Path, args: list[str], timeout: float, env: dict[str, str] | None = None) -> tuple[int, str]:
+        os.utime(cwd / "dokimi" / "zz.py", (1_700_000_000, 1_700_000_000))
+        return real(cwd, args, timeout, env)
+
+    monkeypatch.setattr(mc, "_pytest", same_second)
+    src = "def a(x):\n    return x == 1\n"
+    tests = "from dokimi.zz import a\n\n\ndef test_a():\n    assert a(1) is True\n    assert a(2) is False\n"
+    _, report = _mutation_run(tmp_path, monkeypatch, src, tests)
+    assert _statuses(report) == {(2, "x != 1"): "killed", (2, "2"): "killed", (2, "None"): "killed"}

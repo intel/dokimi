@@ -213,6 +213,13 @@ def candidate_tests(paths: list[str], tests_dir: Path) -> list[str]:
     return sorted(found, key=lambda t: not any(Path(t).stem.startswith(leaf) for leaf in leaves))
 
 
+def _write_source(target: Path, text: str) -> None:
+    # A same-size rewrite in the same second would otherwise run the cached bytecode of the previous text.
+    target.write_text(text, encoding="utf-8")
+    for pyc in (target.parent / "__pycache__").glob(f"{target.stem}.*.pyc"):
+        pyc.unlink()
+
+
 def copy_tree(dest: Path) -> None:
     files = subprocess.run(["git", "ls-files", "-z"], cwd=REPO, capture_output=True, check=True).stdout.decode("utf-8")
     for rel in filter(None, files.split("\0")):
@@ -328,12 +335,12 @@ def run(args: argparse.Namespace) -> int:
             m.tests = cover[m.path][m.line][: args.max_tests]
             target = work / m.path
             original = target.read_text(encoding="utf-8")
-            target.write_text(apply(original, m), encoding="utf-8")
+            _write_source(target, apply(original, m))
             start = time.monotonic()
             try:
                 rc, _ = _pytest(work / "dokimi", ["-x", "-p", "no:xdist", *m.tests], args.mutant_timeout)
             finally:
-                target.write_text(original, encoding="utf-8")
+                _write_source(target, original)
             m.seconds = round(time.monotonic() - start, 1)
             m.status = "survived" if rc == 0 else "timeout" if rc == -1 else "killed"
         report["mutants"] = [asdict(m) for m in chosen]
