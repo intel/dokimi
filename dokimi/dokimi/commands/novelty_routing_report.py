@@ -279,6 +279,7 @@ def drop_queries_left_out(queries_by_skill: dict[str, list[str]], field: list[Ca
     other name is more likely a misspelling. Refused too when no query is left to route. Returns the
     kept queries and one record per dropped skill, for the saved field record:
     ``{"skill", "reasons", "keep_flags", "queries"}``, so ``queries`` sums to the dropped count.
+    Warns on stderr of the kept queries several skills share, before any estimate or model call.
     """
     names = {c.name for c in field}
     # a copy that failed to load may differ from the one that loaded, so the name is not measured
@@ -309,6 +310,7 @@ def drop_queries_left_out(queries_by_skill: dict[str, list[str]], field: list[Ca
         why = ("" if not queries_by_skill else ": the queries name only skills the field leaves "
                f"out ({_left_out_list(_left_out_only(queried, field))})")
         raise InputError(f"no skill in the field has queries to route{why}")
+    warn_shared_queries(kept)
     return kept, records
 
 
@@ -659,6 +661,14 @@ def warn_blind_skills(result: dict, queries_by_skill: dict[str, list[str]]) -> N
     if blind:
         print(f"WARNING: the lexical arm cannot score any query of {', '.join(blind)} "
               "(no content word in them), so their lexical own_rate is None", file=sys.stderr)
+
+
+def warn_shared_queries(queries_by_skill: dict[str, list[str]]) -> None:
+    """Warn on stderr when half or more of the queries are listed for several skills."""
+    from dokimi.novelty.query_overlap import shared_queries_warning
+
+    if shared := shared_queries_warning(queries_by_skill):
+        print(f"WARNING: {shared}", file=sys.stderr)
 
 
 def field_record(args: argparse.Namespace, competitors: list[Candidate], left_out: list[str],

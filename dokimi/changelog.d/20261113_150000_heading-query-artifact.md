@@ -1,0 +1,3 @@
+### Fixed
+
+- **The dpnp 0.0 recall@1 is no longer presented as a finding** — the novelty docs, the `--competitors` help and the `note` of every lexical routing result said every `dpnp-*` skill scored 0.0 against its siblings. That figure came from queries drawn from the skills' section headings, which are one template across the family, so it measured the template, not the descriptions. They now say so and point to queries written independently of the skills. `catalog routing` warns on stderr when half or more of the queries in `--queries-by-skill` are listed for more than one skill, before the estimate and before any model call, since the same text is then the gold of several skills and the result reflects the queries, not the descriptions.

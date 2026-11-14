@@ -14,9 +14,9 @@ Two measurements, reported side by side and never merged into one score:
 * **Lexical** — BM25 over each candidate's `name + description`, which is the text a tool
   schema shows. Free, deterministic, and a floor: measured over the 33-skill study corpus
   it ranked the right skill first for only 0.225 of queries drawn from the skills' own
-  section headings, and every `dpnp-*` sibling scored 0.0. A description that cannot beat
-  BM25 among its siblings is not discriminating; one that can has not yet been shown to be
-  picked by a model.
+  section headings. Siblings from one template (`dpnp-*`) share heading queries, so for a
+  family that figure measures the template. A description that cannot beat BM25 among its
+  siblings on independent queries is not discriminating; one that can is not yet shown picked.
 * **Model** — ask a model to choose from the same cards. This is the number people mean by
   "routing", and it is an **upper bound on harness behaviour**: a harness that truncates or
   omits descriptions in its own skill listing selects on less than this measurement shows,
@@ -196,8 +196,8 @@ def lexical_routing(
         "per_query": per_query,
         "note": (
             "A floor, and free. Over the 33-skill study corpus BM25 put the right skill "
-            "first for 0.225 of queries drawn from the skills' own headings, and 0.0 for "
-            "every `dpnp-*` sibling: descriptions discriminate a domain, not a sibling."
+            "first for 0.225 of queries drawn from the skills' own headings. Template siblings "
+            "share heading queries: check sibling confusion with independently written ones."
         ),
     }
 

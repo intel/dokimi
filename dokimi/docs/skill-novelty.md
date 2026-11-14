@@ -804,7 +804,7 @@ with any failed model call writes the result and exits non-zero. The saved file 
 field rule under `field` (`include_disabled`, `include_invalid`, `keep_copies_under`, the `competitors` and what was
 `left_out`, which also names each skill left out for a conflicting name or a spec error, and `spec_warnings`, one
 `{skill, length, limit, message}` per kept skill whose description is over 1024 characters); a single-artifact run
-records it too. An all-vs-all run also lists in `field.dropped_queries` each skill whose queries it dropped, as
+records it too. An all-vs-all result also records `shared_queries` (`{shared, total}`: how many of the queries with a content word are listed for more than one skill), so a file saved from a run on shared queries says so. An all-vs-all run also lists in `field.dropped_queries` each skill whose queries it dropped, as
 `{skill, reasons, keep_flags, queries}`, one record per skill, with each reason `disabled`, `invalid` or `conflict`. A query for a catalog skill
 that failed to load refuses the run and names the load error. It refuses `--artifact`, `--queries` and `--queries-from-headings`: it takes `--queries-by-skill` only. `--estimate-only` prints the calls and the
 list-price cost of the whole run as JSON, in the shape of a single-artifact estimate, with no client built and
@@ -862,8 +862,9 @@ Three properties worth knowing before quoting either:
 
 - **Competitors are mandatory.** The existing `skill-agent:` arm offers one skill, which
   makes selection a binary did-it-load question. The real failure is picking the wrong
-  *sibling*: measured lexically over the 33-skill corpus, every `dpnp-*` skill scored
-  **0.0** recall@1 against its siblings.
+  *sibling*. Siblings built from one template have identical heading queries, so heading-query
+  recall@1 at the family level measures the template; check sibling confusion with queries
+  written independently of the skills.
 - **The queries must come from outside the artifact**, or it defines both the problem scope
   and its own relevance. `--queries-from-headings` exists for triage, warns, and stamps
   `queries_self_derived: true` into the result; corpus-wide those self-derived queries gave
