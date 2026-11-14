@@ -360,6 +360,27 @@ def test_a_comment_that_never_closes_hides_nothing(mem):
     assert [f.line for f in lint(read_claude_memory(mem)) if f.rule == "index-dead-link"] == [2]
 
 
+def test_labels_made_of_code_spans_are_told_apart(mem):
+    (mem / "MEMORY.md").write_text("- [A](a.md) see [`x`][] and [`y`][]\n\n[`x`]: a.md\n[`y`]: gone.md\n")
+    (mem / "a.md").write_text(_entry("a"))
+    assert [f.line for f in lint(read_claude_memory(mem)) if f.rule == "index-dead-link"] == [4]
+
+
+def test_an_inline_comment_ends_at_a_blank_line(mem):
+    (mem / "a.md").write_text(_entry("a", body="Use <!-- to open\n\nShip it tomorrow.\n\nflow: a --> b\n"))
+    assert [f.line for f in lint(read_claude_memory(mem)) if f.rule == "relative-date"] == [9]
+
+
+def test_an_inline_comment_ends_at_a_fence_it_does_not_hide_the_text_after_it(mem):
+    (mem / "a.md").write_text(_entry("a", body="note <!-- aside\n```mermaid\nA --> B\n```\nShip it tomorrow.\n"))
+    assert [f.line for f in lint(read_claude_memory(mem)) if f.rule == "relative-date"] == [11]
+
+
+def test_an_empty_comment_closes_on_its_own_line(mem):
+    (mem / "a.md").write_text(_entry("a", body="<!-->\nShip it tomorrow.\nflow: a --> b\n"))
+    assert [f.line for f in lint(read_claude_memory(mem)) if f.rule == "relative-date"] == [8]
+
+
 def test_a_fence_inside_a_comment_does_not_hide_the_rest_of_a_topic(mem):
     (mem / "a.md").write_text(_entry("a", body="<!-- notes\n```bash\nx\n```-->\nShip it tomorrow.\n"))
     assert [f.line for f in lint(read_claude_memory(mem)) if f.rule == "relative-date"] == [11]
