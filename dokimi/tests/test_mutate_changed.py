@@ -165,3 +165,15 @@ def test_a_same_size_mutant_in_the_same_second_runs_its_own_source(tmp_path: Pat
     tests = "from dokimi.zz import a\n\n\ndef test_a():\n    assert a(1) is True\n    assert a(2) is False\n"
     _, report = _mutation_run(tmp_path, monkeypatch, src, tests)
     assert _statuses(report) == {(2, "x != 1"): "killed", (2, "2"): "killed", (2, "None"): "killed"}
+
+
+def test_a_mutant_only_the_last_of_many_covering_tests_catches_is_killed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    src = "def a(x):\n    return x > 3\n"
+    tests = (
+        "import pytest\n\nfrom dokimi.zz import a\n\n\n"
+        "@pytest.mark.parametrize('n', range(30))\ndef test_a_weak(n):\n    assert a(10 + n)\n\n\n"
+        "def test_z_strict():\n    assert a(4) and not a(3)\n"
+    )
+    _, report = _mutation_run(tmp_path, monkeypatch, src, tests)
+    assert _statuses(report) == {(2, "x <= 3"): "killed", (2, "4"): "killed", (2, "None"): "killed"}
+    assert {len(m["tests"]) for m in report["mutants"]} == {31}

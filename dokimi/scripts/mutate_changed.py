@@ -332,13 +332,16 @@ def run(args: argparse.Namespace) -> int:
         for m in chosen:
             if time.monotonic() - t0 > args.budget:
                 break
-            m.tests = cover[m.path][m.line][: args.max_tests]
+            m.tests = cover[m.path][m.line]
+            # Every covering test, read by pytest from a file: a widely covered line can outgrow a command line.
+            tests_file = work / "mutant-tests.txt"
+            tests_file.write_text("\n".join(m.tests), encoding="utf-8")
             target = work / m.path
             original = target.read_text(encoding="utf-8")
             _write_source(target, apply(original, m))
             start = time.monotonic()
             try:
-                rc, _ = _pytest(work / "dokimi", ["-x", "-p", "no:xdist", *m.tests], args.mutant_timeout)
+                rc, _ = _pytest(work / "dokimi", ["-x", "-p", "no:xdist", f"@{tests_file}"], args.mutant_timeout)
             finally:
                 _write_source(target, original)
             m.seconds = round(time.monotonic() - start, 1)
@@ -402,7 +405,6 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--base", required=True, help="git ref the PR is diffed against (merge base of BASE...HEAD)")
     ap.add_argument("--max-mutants", type=int, default=40)
-    ap.add_argument("--max-tests", type=int, default=30, help="covering tests run per mutant, at most")
     ap.add_argument("--mutant-timeout", type=float, default=180.0, help="seconds per mutant; a timeout counts as killed")
     ap.add_argument("--budget", type=float, default=1200.0, help="seconds after which no new mutant starts")
     ap.add_argument("--json")
