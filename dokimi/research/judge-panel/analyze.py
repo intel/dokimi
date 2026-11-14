@@ -214,14 +214,14 @@ def rounded(x, nd=3):
 
 
 def kappa(a, b, labels):
-    """Cohen's kappa, or None when the judges share no row."""
+    """Cohen's kappa, or None when the judges share no row or chance agreement is 1."""
     n = len(a)
     if n == 0:
         return None
     po = sum(x == y for x, y in zip(a, b, strict=True)) / n
     ca, cb = Counter(a), Counter(b)
     pe = sum(ca[l] * cb[l] for l in labels) / n / n
-    return (po - pe) / (1 - pe) if pe < 1 else 1.0
+    return (po - pe) / (1 - pe) if pe < 1 else None
 
 
 kt = []

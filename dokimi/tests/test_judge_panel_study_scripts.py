@@ -82,6 +82,16 @@ def test_judges_with_disjoint_rows_give_an_empty_kappa_cell_not_a_crash(tmp_path
     subprocess.run([sys.executable, str(HERE / "analyze.py"), str(tmp_path)], check=True,
                    capture_output=True, timeout=300)  # nosec B603 - this directory's own script
     assert (tmp_path / "tables" / "pairwise_kappa.csv").exists()
+    # both judges grade every row the same way: chance agreement is 1, kappa is undefined
+    rows = [json.loads(line) for line in (tmp_path / "sample.jsonl").read_text(encoding="utf-8").splitlines()]
+    grades = [{"key": r["answer"], "judge": j, "verdict": CC} for r in rows
+              for j in ("claude-sonnet-5", "gpt-6-luna")]
+    (tmp_path / "grades.jsonl").write_text("\n".join(map(json.dumps, grades)), encoding="utf-8")
+    subprocess.run([sys.executable, str(HERE / "analyze.py"), str(tmp_path)], check=True,
+                   capture_output=True, timeout=300)  # nosec B603 - this directory's own script
+    cells = (tmp_path / "tables" / "pairwise_kappa.csv").read_text(encoding="utf-8").splitlines()
+    assert any(c.startswith("claude-sonnet-5,gpt-6-luna,") and c.split(",")[3:6] == ["", "", ""]
+               for c in cells)
 
 
 def test_the_generation_study_runs_when_a_judge_has_no_shared_rows(tmp_path):
