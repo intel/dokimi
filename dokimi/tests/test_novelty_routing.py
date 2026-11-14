@@ -10,6 +10,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from dokimi.novelty import cost as novelty_cost
 from dokimi.utils import InputError
 from dokimi.cli import build_parser
 from dokimi.novelty.client import LLMClient
@@ -218,8 +219,8 @@ def _skill(tmp_path, name, description, body="# B\n\n## A section here\n"):
 
 def test_routing_against_a_single_candidate_is_refused(tmp_path):
     # Selecting from one candidate measures tool use rather than this artifact winning.
-    args = _parse("novelty", "routing", "--artifact", _skill(tmp_path, "a", "d"),
-                  "--queries", "x")
+    args = _parse("skill", "routing", _skill(tmp_path, "a", "d"), "--queries",
+                  "x")
     with pytest.raises(InputError, match="needs competitors"):
         args.func(args)
 
@@ -235,12 +236,12 @@ def test_the_catalog_supplies_every_sibling_but_the_artifact(tmp_path, capsys):
     queries.write_text(json.dumps(["my binary is slow, where is the time going"]),
                        encoding="utf-8")
     out = tmp_path / "routing.json"
-    args = _parse("novelty", "routing", "--artifact", gold, "--catalog", str(catalog),
-                  "--competitors", extra, "--queries", str(queries), "--out", str(out))
+    args = _parse("skill", "routing", gold, "--against", str(catalog), "--competitors",
+                  extra, "--queries", str(queries), "--out", str(out))
     args.func(args)
     payload = json.loads(out.read_text(encoding="utf-8"))
     assert payload["n_candidates"] == 4                # perf + xpu, db from the catalog + gdb
-    assert "--catalog" in capsys.readouterr().err
+    assert "--against" in capsys.readouterr().err
 
 
 def test_a_competitor_that_is_also_in_the_catalog_is_counted_once(tmp_path):
@@ -255,8 +256,8 @@ def test_a_competitor_that_is_also_in_the_catalog_is_counted_once(tmp_path):
     queries.write_text(json.dumps(["my binary is slow, where is the time going"]),
                        encoding="utf-8")
     out = tmp_path / "routing.json"
-    args = _parse("novelty", "routing", "--artifact", gold, "--catalog", str(catalog),
-                  "--competitors", xpu, "--queries", str(queries), "--out", str(out))
+    args = _parse("skill", "routing", gold, "--against", str(catalog), "--competitors",
+                  xpu, "--queries", str(queries), "--out", str(out))
     args.func(args)
     assert json.loads(out.read_text(encoding="utf-8"))["n_candidates"] == 3  # perf, xpu once, db
 
@@ -266,34 +267,34 @@ def test_an_unreadable_queries_file_exits_with_a_message(tmp_path, content):
     queries = tmp_path / "q.txt"
     if content is not None:
         queries.write_bytes(content)
-    args = _parse("novelty", "routing", "--artifact", _skill(tmp_path, "a", "d"),
-                  "--competitors", _skill(tmp_path, "b", "e"), "--queries", str(queries))
+    args = _parse("skill", "routing", _skill(tmp_path, "a", "d"), "--competitors",
+                  _skill(tmp_path, "b", "e"), "--queries", str(queries))
     with pytest.raises(InputError) as exc:
         args.func(args)
     assert str(exc.value).startswith(f"cannot read --queries {queries}: ")
 
 
 def test_a_catalog_that_is_not_a_directory_is_refused(tmp_path):
-    args = _parse("novelty", "routing", "--artifact", _skill(tmp_path, "a", "d"),
-                  "--catalog", str(tmp_path / "nope"), "--queries-from-headings")
-    with pytest.raises(InputError, match="--catalog is not a directory"):
+    args = _parse("skill", "routing", _skill(tmp_path, "a", "d"), "--against",
+                  str(tmp_path / "nope"), "--queries-from-headings")
+    with pytest.raises(InputError, match="--against is not a directory"):
         args.func(args)
 
 
 def test_routing_without_a_query_source_is_refused(tmp_path):
-    args = _parse("novelty", "routing",
-                  "--artifact", _skill(tmp_path, "a", "profile a binary"),
-                  "--competitors", _skill(tmp_path, "b", "tune a database"))
+    args = _parse("skill", "routing",
+                  _skill(tmp_path, "a", "profile a binary"), "--competitors",
+                  _skill(tmp_path, "b", "tune a database"))
     with pytest.raises(InputError, match="--queries"):
         args.func(args)
 
 
 def test_self_derived_queries_are_stamped_on_the_result(tmp_path, capsys):
     out = tmp_path / "routing.json"
-    args = _parse("novelty", "routing",
-                  "--artifact", _skill(tmp_path, "a", "profile a binary"),
-                  "--competitors", _skill(tmp_path, "b", "tune a database"),
-                  "--queries-from-headings", "--out", str(out))
+    args = _parse("skill", "routing",
+                  _skill(tmp_path, "a", "profile a binary"), "--competitors",
+                  _skill(tmp_path, "b", "tune a database"), "--queries-from-headings",
+                  "--out", str(out))
     args.func(args)
     payload = json.loads(out.read_text(encoding="utf-8"))
     assert payload["status"] == "ok"
@@ -309,11 +310,11 @@ def test_external_queries_run_the_lexical_floor_without_a_model(tmp_path):
     queries.write_text(json.dumps(["where do my cycles go", "profile a binary"]),
                        encoding="utf-8")
     out = tmp_path / "routing.json"
-    args = _parse("novelty", "routing",
-                  "--artifact", _skill(tmp_path, "a", "profile a binary with perf"),
-                  "--competitors",
+    args = _parse("skill", "routing",
+                  _skill(tmp_path, "a", "profile a binary with perf"), "--competitors",
                   _skill(tmp_path, "b", "Where do my cycles go in a database query"),
-                  "--queries", str(queries), "--out", str(out))
+                  "--queries",
+                  str(queries), "--out", str(out))
     args.func(args)
     payload = json.loads(out.read_text(encoding="utf-8"))
     assert payload["queries_self_derived"] is False
@@ -327,10 +328,10 @@ def test_external_queries_run_the_lexical_floor_without_a_model(tmp_path):
 def test_queries_value_must_be_a_list_of_strings(tmp_path, content):
     queries = tmp_path / "q.json"
     queries.write_text(json.dumps(content), encoding="utf-8")
-    args = _parse("novelty", "routing",
-                  "--artifact", _skill(tmp_path, "a", "profile a binary"),
-                  "--competitors", _skill(tmp_path, "b", "tune a database"),
-                  "--queries", str(queries))
+    args = _parse("skill", "routing",
+                  _skill(tmp_path, "a", "profile a binary"), "--competitors",
+                  _skill(tmp_path, "b", "tune a database"), "--queries",
+                  str(queries))
     with pytest.raises(InputError, match="list of strings"):
         args.func(args)
 
@@ -339,9 +340,9 @@ def test_duplicate_competitors_are_refused_or_deduped(tmp_path):
     queries = tmp_path / "q.txt"
     queries.write_text("profile a binary\n", encoding="utf-8")
     competitor = _skill(tmp_path, "b", "tune a database")
-    args = _parse("novelty", "routing",
-                  "--artifact", _skill(tmp_path, "a", "profile a binary"),
-                  "--competitors", competitor, competitor, "--queries", str(queries))
+    args = _parse("skill", "routing",
+                  _skill(tmp_path, "a", "profile a binary"), "--competitors",
+                  competitor, competitor, "--queries", str(queries))
     with pytest.raises(InputError, match="more than once"):
         args.func(args)
 
@@ -384,18 +385,18 @@ def test_an_out_of_range_gold_is_refused_rather_than_indexed():
 
 def test_the_artifact_cannot_compete_with_itself(tmp_path):
     ref = _skill(tmp_path, "perf", "Profile a binary")
-    args = _parse("novelty", "routing", "--artifact", ref, "--competitors", ref,
-                  "--queries", "x")
+    args = _parse("skill", "routing", ref, "--competitors", ref, "--queries",
+                  "x")
     with pytest.raises(InputError, match="against itself"):
         args.func(args)
 
 
 def test_the_self_derived_stamp_travels_with_each_arm(tmp_path):
     out = tmp_path / "routing.json"
-    args = _parse("novelty", "routing",
-                  "--artifact", _skill(tmp_path, "a", "profile a binary"),
-                  "--competitors", _skill(tmp_path, "b", "tune a database"),
-                  "--queries-from-headings", "--out", str(out))
+    args = _parse("skill", "routing",
+                  _skill(tmp_path, "a", "profile a binary"), "--competitors",
+                  _skill(tmp_path, "b", "tune a database"), "--queries-from-headings",
+                  "--out", str(out))
     args.func(args)
     payload = json.loads(out.read_text(encoding="utf-8"))
     # A consumer that reads payload["lexical"] alone must still see the caveat.
@@ -444,10 +445,10 @@ def _run_queries(tmp_path, data: bytes):
     queries = tmp_path / "q.txt"
     queries.write_bytes(data)
     out = tmp_path / "routing.json"
-    args = _parse("novelty", "routing",
-                  "--artifact", _skill(tmp_path, "a", "profile a binary with perf"),
-                  "--competitors", _skill(tmp_path, "b", "tune a database"),
-                  "--queries", str(queries), "--out", str(out))
+    args = _parse("skill", "routing",
+                  _skill(tmp_path, "a", "profile a binary with perf"), "--competitors",
+                  _skill(tmp_path, "b", "tune a database"), "--queries",
+                  str(queries), "--out", str(out))
     args.func(args)
     return json.loads(out.read_text(encoding="utf-8"))["lexical"]
 
@@ -668,13 +669,12 @@ def test_with_the_response_cache_on_each_repeat_is_asked_again(monkeypatch, tmp_
 
 
 def test_a_repeat_run_through_the_cli_writes_the_noise_block(tmp_path, monkeypatch, capsys):
-    import dokimi.commands.novelty as novelty
 
     def answer(prompt: str) -> str:
         return _answer_as("perf")(prompt)
 
     monkeypatch.setattr(
-        novelty, "_client",
+        novelty_cost, "client",
         lambda model, provider, role, args: LLMClient(
             model=model, role=role, transport=lambda p, s: (answer(p), None)),
     )
@@ -684,9 +684,9 @@ def test_a_repeat_run_through_the_cli_writes_the_noise_block(tmp_path, monkeypat
     queries.write_text(json.dumps(["record a perf profile", "profile my binary"]),
                        encoding="utf-8")
     out = tmp_path / "routing.json"
-    args = _parse("novelty", "routing", "--artifact", artifact, "--competitors", competitor,
-                  "--queries", str(queries), "--model", "m", "--repeats", "2",
-                  "--out", str(out))
+    args = _parse("skill", "routing", artifact, "--competitors", competitor, "--queries",
+                  str(queries), "--model", "m", "--reps", "2", "--out",
+                  str(out))
     args.func(args)
     model = json.loads(out.read_text(encoding="utf-8"))["model"]
     assert model["repeats"] == 2
@@ -700,10 +700,10 @@ def test_repeats_without_a_model_are_refused_on_the_cli(tmp_path, repeats):
     queries = tmp_path / "q.json"
     queries.write_text(json.dumps(["profile a binary"]), encoding="utf-8")
     out = tmp_path / "routing.json"
-    args = _parse("novelty", "routing",
-                  "--artifact", _skill(tmp_path, "a", "profile a binary"),
-                  "--competitors", _skill(tmp_path, "b", "tune a database"),
-                  "--queries", str(queries), "--repeats", repeats, "--out", str(out))
+    args = _parse("skill", "routing",
+                  _skill(tmp_path, "a", "profile a binary"), "--competitors",
+                  _skill(tmp_path, "b", "tune a database"), "--queries",
+                  str(queries), "--reps", repeats, "--out", str(out))
     with pytest.raises(InputError, match="needs --model"):
         args.func(args)
     assert not out.exists()
@@ -711,10 +711,9 @@ def test_repeats_without_a_model_are_refused_on_the_cli(tmp_path, repeats):
 
 def test_a_declining_model_is_named_on_the_cli_with_where_its_replies_are(
         tmp_path, monkeypatch, capsys):
-    import dokimi.commands.novelty as novelty
 
     monkeypatch.setattr(
-        novelty, "_client",
+        novelty_cost, "client",
         lambda model, provider, role, args: LLMClient(
             model=model, role=role,
             transport=lambda p, s: ("I would rather not choose.", None)),
@@ -722,10 +721,10 @@ def test_a_declining_model_is_named_on_the_cli_with_where_its_replies_are(
     queries = tmp_path / "q.json"
     queries.write_text(json.dumps(["record a perf profile"]), encoding="utf-8")
     out = tmp_path / "routing.json"
-    args = _parse("novelty", "routing",
-                  "--artifact", _skill(tmp_path, "perf", "record and annotate a perf profile"),
-                  "--competitors", _skill(tmp_path, "tbb", "parallelize C++ loops"),
-                  "--queries", str(queries), "--model", "m", "--out", str(out))
+    args = _parse("skill", "routing",
+                  _skill(tmp_path, "perf", "record and annotate a perf profile"), "--competitors",
+                  _skill(tmp_path, "tbb", "parallelize C++ loops"), "--queries",
+                  str(queries), "--model", "m", "--out", str(out))
     args.func(args)
     model = json.loads(out.read_text(encoding="utf-8"))["model"]
     assert model["per_query"][0]["raw_reply"] == "I would rather not choose."
@@ -827,11 +826,11 @@ def test_a_single_usable_repeat_has_no_half_range():
 
 def test_headings_inside_code_only_refuse_the_run_and_say_why(tmp_path):
     out = tmp_path / "routing.json"
-    args = _parse("novelty", "routing",
-                  "--artifact", _skill(tmp_path, "a", "Tune.",
-                                       body="```\n## only in code\n```\n"),
-                  "--competitors", _skill(tmp_path, "b", "tune a database"),
-                  "--queries-from-headings", "--out", str(out))
+    args = _parse("skill", "routing",
+                  _skill(tmp_path, "a", "Tune.",
+                                       body="```\n## only in code\n```\n"), "--competitors",
+                  _skill(tmp_path, "b", "tune a database"), "--queries-from-headings",
+                  "--out", str(out))
     with pytest.raises(InputError, match="code fences.*--queries"):
         args.func(args)
     payload = json.loads(out.read_text(encoding="utf-8"))
@@ -844,10 +843,10 @@ def test_a_query_file_with_nothing_in_it_refuses_the_run(tmp_path):
     queries = tmp_path / "q.txt"
     queries.write_text("\n   \n", encoding="utf-8")
     out = tmp_path / "routing.json"
-    args = _parse("novelty", "routing",
-                  "--artifact", _skill(tmp_path, "a", "profile a binary"),
-                  "--competitors", _skill(tmp_path, "b", "tune a database"),
-                  "--queries", str(queries), "--out", str(out))
+    args = _parse("skill", "routing",
+                  _skill(tmp_path, "a", "profile a binary"), "--competitors",
+                  _skill(tmp_path, "b", "tune a database"), "--queries",
+                  str(queries), "--out", str(out))
     with pytest.raises(InputError, match="no non-blank query"):
         args.func(args)
     assert json.loads(out.read_text(encoding="utf-8"))["status"] == "no_queries"
@@ -856,22 +855,22 @@ def test_a_query_file_with_nothing_in_it_refuses_the_run(tmp_path):
 def test_queries_without_a_content_word_refuse_the_run(tmp_path):
     queries = tmp_path / "q.txt"
     queries.write_text("the of a\nhow do I\n", encoding="utf-8")
-    args = _parse("novelty", "routing",
-                  "--artifact", _skill(tmp_path, "a", "profile a binary"),
-                  "--competitors", _skill(tmp_path, "b", "tune a database"),
-                  "--queries", str(queries), "--out", str(tmp_path / "routing.json"))
+    args = _parse("skill", "routing",
+                  _skill(tmp_path, "a", "profile a binary"), "--competitors",
+                  _skill(tmp_path, "b", "tune a database"), "--queries",
+                  str(queries), "--out", str(tmp_path / "routing.json"))
     with pytest.raises(InputError, match="has a content word"):
         args.func(args)
 
 
 def test_every_rate_line_carries_its_query_count_and_triage_tag(tmp_path, capsys):
     out = tmp_path / "routing.json"
-    args = _parse("novelty", "routing",
-                  "--artifact", _skill(tmp_path, "a", "profile a binary",
+    args = _parse("skill", "routing",
+                  _skill(tmp_path, "a", "profile a binary",
                                        body="# B\n\n## Recording a profile\n\n"
-                                            "## Reading the report\n"),
-                  "--competitors", _skill(tmp_path, "b", "tune a database"),
-                  "--queries-from-headings", "--out", str(out))
+                                            "## Reading the report\n"), "--competitors",
+                  _skill(tmp_path, "b", "tune a database"), "--queries-from-headings",
+                  "--out", str(out))
     args.func(args)
     lines = capsys.readouterr().out.splitlines()
     lexical = next(line for line in lines if line.startswith("lexical"))
@@ -884,10 +883,10 @@ def test_fewer_than_five_scored_queries_are_warned_about_on_stdout(tmp_path, cap
         queries = tmp_path / f"q{count}.txt"
         queries.write_text("\n".join(f"profile a binary run {i}" for i in range(count)),
                            encoding="utf-8")
-        args = _parse("novelty", "routing",
-                      "--artifact", _skill(tmp_path, f"a{count}", "profile a binary"),
-                      "--competitors", _skill(tmp_path, f"b{count}", "tune a database"),
-                      "--queries", str(queries), "--out", str(tmp_path / f"r{count}.json"))
+        args = _parse("skill", "routing",
+                      _skill(tmp_path, f"a{count}", "profile a binary"), "--competitors",
+                      _skill(tmp_path, f"b{count}", "tune a database"), "--queries",
+                      str(queries), "--out", str(tmp_path / f"r{count}.json"))
         args.func(args)
         return capsys.readouterr().out
 
@@ -926,7 +925,6 @@ def test_a_fence_with_an_info_string_does_not_close_a_block():
 
 
 def _routing_with_model(tmp_path, monkeypatch, queries_text):
-    from dokimi.commands import novelty as novelty_cmd
 
     calls = []
 
@@ -934,15 +932,15 @@ def _routing_with_model(tmp_path, monkeypatch, queries_text):
         calls.append(prompt)
         return json.dumps({"pick": 1}), None
 
-    monkeypatch.setattr(novelty_cmd, "_client", lambda model, provider, role, args: LLMClient(
+    monkeypatch.setattr(novelty_cost, "client", lambda model, provider, role, args: LLMClient(
         model="fake", role=role, transport=transport))
     queries = tmp_path / "q.txt"
     queries.write_text(queries_text, encoding="utf-8")
     out = tmp_path / "routing.json"
-    args = _parse("novelty", "routing",
-                  "--artifact", _skill(tmp_path, "a", "profile a binary run"),
-                  "--competitors", _skill(tmp_path, "b", "tune a database"),
-                  "--queries", str(queries), "--model", "m", "--out", str(out))
+    args = _parse("skill", "routing",
+                  _skill(tmp_path, "a", "profile a binary run"), "--competitors",
+                  _skill(tmp_path, "b", "tune a database"), "--queries",
+                  str(queries), "--model", "m", "--out", str(out))
     return args, calls
 
 
@@ -968,15 +966,14 @@ def test_a_run_with_no_scorable_query_makes_no_model_call(tmp_path, monkeypatch)
 
 def test_the_model_row_carries_the_triage_tag_on_self_derived_queries(tmp_path, monkeypatch,
                                                                        capsys):
-    from dokimi.commands import novelty as novelty_cmd
 
-    monkeypatch.setattr(novelty_cmd, "_client", lambda model, provider, role, args: LLMClient(
+    monkeypatch.setattr(novelty_cost, "client", lambda model, provider, role, args: LLMClient(
         model="fake", role=role, transport=lambda prompt, system: (json.dumps({"pick": 1}), None)))
-    args = _parse("novelty", "routing",
-                  "--artifact", _skill(tmp_path, "a", "profile a binary"),
-                  "--competitors", _skill(tmp_path, "b", "tune a database"),
-                  "--queries-from-headings", "--model", "m",
-                  "--out", str(tmp_path / "routing.json"))
+    args = _parse("skill", "routing",
+                  _skill(tmp_path, "a", "profile a binary"), "--competitors",
+                  _skill(tmp_path, "b", "tune a database"), "--queries-from-headings",
+                  "--model", "m", "--out",
+                  str(tmp_path / "routing.json"))
     args.func(args)
     model = next(line for line in capsys.readouterr().out.splitlines()
                  if line.startswith("model"))

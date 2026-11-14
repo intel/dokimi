@@ -16,7 +16,7 @@ from dokimi.defaults import (
 
 
 def test_routing_provider_default_is_the_answer_provider():
-    a = build_parser().parse_args(["novelty", "routing", "--artifact", "skill:x", "--competitors", "skill:y"])
+    a = build_parser().parse_args(["skill", "routing", "skill:x", "--competitors", "skill:y"])
     assert a.provider == DEFAULT_ANSWER_PROVIDER
 
 

@@ -695,7 +695,7 @@ def _mcp_servers(tree: RepoTree) -> list[str]:
         return []
     try:
         servers = json.loads(tree.read_text(MCP_FILE)).get("mcpServers") or {}
-    except (OSError, UnicodeDecodeError, ValueError, AttributeError):
+    except (OSError, UnicodeDecodeError, ValueError, AttributeError, RecursionError):  # RecursionError: 10000 nested `[`
         return []
     return sorted(servers) if isinstance(servers, dict) else []
 

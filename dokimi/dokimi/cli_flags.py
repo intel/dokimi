@@ -148,6 +148,12 @@ CONCEPTS: tuple[Concept, ...] = (
         banned=("--repeats", "--work-repeats", "--multi-run", "--trials"),
     ),
     Concept(
+        name="against",
+        help="the root of the skills a skill is measured against",
+        canonical=(Flag("--against", "ROOT", "path"),),
+        banned=(),
+    ),
+    Concept(
         name="concurrency",
         help="how much runs at once",
         canonical=(
@@ -218,6 +224,12 @@ CONCEPTS: tuple[Concept, ...] = (
         help="network policy, per phase",
         canonical=(Flag("--network", "[PHASE=]MODE[:hosts]", "text"),),
         banned=("--agent-network", "--build-network"),
+    ),
+    Concept(
+        name="online",
+        help="network checks of a catalog's skills, opt in",
+        canonical=(Flag("--online", kind="flag", meaning="also check packages and links over the network"),),
+        banned=(),
     ),
     Concept(
         name="timeout",

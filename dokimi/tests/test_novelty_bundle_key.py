@@ -39,7 +39,7 @@ def _recorded(root, **kwargs):
 
 
 def _verdict(root, record):
-    from dokimi.novelty.bundle import check_answer_key
+    from dokimi.novelty.answer_key_check import check_answer_key
 
     return check_answer_key(f"skill:{root}", record, source="a.json")
 
@@ -66,7 +66,7 @@ def test_a_key_without_provenance_is_probed_against_the_entry_point_and_says_so(
 
 
 def test_a_key_for_an_artifact_that_cannot_be_loaded_is_refused(tmp_path):
-    from dokimi.novelty.bundle import check_answer_key
+    from dokimi.novelty.answer_key_check import check_answer_key
 
     for record in ({}, {"files": [{"path": "SKILL.md", "role": "entry_point"}]}):
         verdict = check_answer_key(f"skill:{tmp_path / 'missing'}", record)
@@ -75,7 +75,7 @@ def test_a_key_for_an_artifact_that_cannot_be_loaded_is_refused(tmp_path):
 
 
 def test_a_key_with_a_recorded_bundle_whose_skill_is_nested_too_deeply_is_refused(tmp_path):
-    from dokimi.novelty.bundle import check_answer_key
+    from dokimi.novelty.answer_key_check import check_answer_key
 
     root = tmp_path / "deep"
     root.mkdir()
@@ -90,7 +90,7 @@ def test_a_key_with_a_recorded_bundle_whose_skill_is_nested_too_deeply_is_refuse
 
 
 def test_a_key_for_an_entry_point_that_cannot_be_read_is_refused(tmp_path):
-    from dokimi.novelty.bundle import check_answer_key
+    from dokimi.novelty.answer_key_check import check_answer_key
 
     # An entry point that exists but is not readable (here: a directory) is an OSError
     # other than FileNotFoundError; it must come back as a verdict, not a traceback.

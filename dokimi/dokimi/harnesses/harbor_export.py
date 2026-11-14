@@ -99,7 +99,7 @@ def _content_key(path: Path, resolved: str = "") -> str:
     """Hash of the task's files and of *resolved*, what the export writes from runtime state."""
     digest = hashlib.sha256(EXPORT_VERSION.encode() + b"\0" + resolved.encode() + b"\0")
     for file in sorted(p for p in path.rglob("*") if p.is_file() and not p.is_symlink()):
-        digest.update(file.relative_to(path).as_posix().encode() + b"\0")
+        digest.update(os.fsencode(file.relative_to(path).as_posix()) + b"\0")
         digest.update(hashlib.sha256(file.read_bytes()).digest())
     return digest.hexdigest()[:16]
 
