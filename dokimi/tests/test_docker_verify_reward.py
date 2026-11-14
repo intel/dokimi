@@ -59,3 +59,22 @@ def test_docker_verify_nonzero_exit_without_a_reward_file_stays_a_fail(tmp_path)
     harness = DockerSolverHarness(harness_id="docker-oracle", mode="oracle",
                                   runner=DockerCLI(reward=None, answer=failing_verifier))
     assert harness._verify(task, "c1", out, log=io.StringIO()) == 0.0
+
+
+@pytest.mark.parametrize("exit_code", [0, 1])
+@pytest.mark.parametrize("text", ["PASS\n", ""])
+def test_docker_verify_a_reward_file_with_no_number_is_an_error(tmp_path, text, exit_code):
+    import io
+
+    from docker_cli_fake import DockerCLI, reply
+    from dokimi.harnesses.docker_solver import DockerSolverHarness
+
+    out = tmp_path / "o"
+    out.mkdir()
+    task = load_task(_harbor(tmp_path))
+    verifier = (lambda call: reply(returncode=exit_code) if "-lc" in call.argv else None)
+    harness = DockerSolverHarness(harness_id="docker-oracle", mode="oracle",
+                                  runner=DockerCLI(reward=text, answer=verifier))
+    # A reward file with no reward is no verdict, whatever the exit code (as in a command harness).
+    with pytest.raises(RuntimeError, match="reward.txt has no reward"):
+        harness._verify(task, "c1", out, log=io.StringIO())

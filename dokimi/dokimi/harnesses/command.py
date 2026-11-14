@@ -454,6 +454,17 @@ def _exit_code_verdict(returncode: int) -> float:
     return 0.0
 
 
+def _reward_file_verdict(text: str) -> float:
+    """The reward in a verifier's ``reward.txt``; one with no number in it is no verdict.
+
+    As in :func:`_exit_code_reward`, whatever the exit code: the cell is errored, not failed.
+    """
+    reward = _parse_reward_text(text, reward_file=True)
+    if reward is None:
+        raise RuntimeError("/logs/verifier/reward.txt has no reward in it; see run.log")
+    return reward
+
+
 def _parse_reward_text(text: str, *, reward_file: bool = False) -> float | None:
     """A reward from a ``reward.txt`` (``reward_file``) or from command output.
 
