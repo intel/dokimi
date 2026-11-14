@@ -337,11 +337,10 @@ def test_the_faithfulness_check_counts_the_spans_extraction_left_unread(monkeypa
 
 
 @pytest.mark.parametrize("not_run", [1, 3])
-def test_analyze_stops_rather_than_publish_a_measurement_the_cap_cut_short(tmp_path, monkeypatch,
-                                                                          not_run):
+def test_analyze_keeps_a_partial_record_rather_than_publish_a_measurement_the_cap_cut_short(
+        tmp_path, monkeypatch, not_run):
     from dokimi.novelty import measure
     from dokimi.novelty.analyze import AnalyzeConfig, analyze, load_artifact_text
-    from dokimi.novelty.client import SpendCapReached
 
     from tests.test_novelty_analyze import SKILL, _clients
 
@@ -362,10 +361,11 @@ def test_analyze_stops_rather_than_publish_a_measurement_the_cap_cut_short(tmp_p
 
     monkeypatch.setattr(measure, "run_measurement", cut_short)
     extractor, answerer, judge = _clients()
-    # The match is a prefix: the CLI adds the rest of the exit message.
-    with pytest.raises(SpendCapReached,
-                       match=f"{not_run} probe answers were not run or graded"):
-        analyze(body, config, extractor=extractor, answerer=answerer, judge=judge)
+    result = analyze(body, config, extractor=extractor, answerer=answerer, judge=judge)
+    assert result.partial["stage"] == "measurement"
+    assert f"{not_run} probe answers were not run or graded" in result.partial["cause"]
+    assert (result.partial["calls_done"], result.partial["calls_planned"]) == (1, 1 + not_run)
+    assert result.artifact["status"] == "partial" and "paired" not in result.artifact
 
 
 @pytest.mark.parametrize("reason", ["spend_cap", "no_price"])
@@ -374,7 +374,6 @@ def test_analyze_refuses_answers_the_judge_never_graded(tmp_path, monkeypatch, r
     # cut, so only the ungraded half of the gate decides. The stop must still name the count.
     from dokimi.novelty import measure
     from dokimi.novelty.analyze import AnalyzeConfig, analyze, load_artifact_text
-    from dokimi.novelty.client import SpendCapReached
 
     from tests.test_novelty_analyze import SKILL, _clients
 
@@ -396,8 +395,11 @@ def test_analyze_refuses_answers_the_judge_never_graded(tmp_path, monkeypatch, r
 
     monkeypatch.setattr(measure, "run_measurement", ungraded_only)
     extractor, answerer, judge = _clients()
-    with pytest.raises(SpendCapReached, match="2 probe answers (were )?not run or graded"):
-        analyze(body, config, extractor=extractor, answerer=answerer, judge=judge)
+    partial = analyze(body, config, extractor=extractor, answerer=answerer, judge=judge).partial
+    assert partial["reason"] == reason and "2 of them not graded" in partial["message"]
+    # A spend stop keeps the cap's own text as the cause; an unpriced one has it in the message.
+    assert re.search("2 probe answers (were )?not run or graded",
+                     partial["cause"] if reason == "spend_cap" else partial["message"])
 
 
 def test_save_probe_measure_keeps_an_ungraded_answer_in_the_partial_file(tmp_path):
@@ -424,6 +426,17 @@ def test_novelty_items_refuses_a_partial_probe_file_by_name(tmp_path):
     with pytest.raises(ProbeFileError, match="partial probe result") as refused:
         load_probe_cells([str(partial)])
     assert str(partial) in str(refused.value)
+
+
+def test_novelty_items_refuses_a_probe_file_marked_partial_by_status_alone(tmp_path):
+    from dokimi.novelty.items import ProbeFileError, load_probe_cells
+
+    run = {"atom_id": "a", "probe_kind": "direct", "arm": "model", "verdict": "yes"}
+    marked = tmp_path / "probes.json"
+    marked.write_text(json.dumps({"status": "partial", "runs": [run]}), encoding="utf-8")
+    with pytest.raises(ProbeFileError, match="partial probe result") as refused:
+        load_probe_cells([str(marked)])
+    assert str(marked) in str(refused.value)
 
 
 def test_an_earlier_file_that_is_not_json_is_kept_and_not_taken_for_a_partial_one(tmp_path):
@@ -514,7 +527,6 @@ def test_an_unpriced_reply_that_fails_part_way_keeps_no_atoms_and_its_batch_stay
 def test_analyze_names_a_missing_price_when_the_measurement_stops_on_one(tmp_path, monkeypatch):
     from dokimi.novelty import measure
     from dokimi.novelty.analyze import AnalyzeConfig, analyze, load_artifact_text
-    from dokimi.novelty.client import SpendCapReached
 
     from tests.test_novelty_analyze import SKILL, _clients
 
@@ -536,11 +548,10 @@ def test_analyze_names_a_missing_price_when_the_measurement_stops_on_one(tmp_pat
 
     monkeypatch.setattr(measure, "run_measurement", stopped_on_a_price)
     extractor, answerer, judge = _clients()
-    with pytest.raises(SpendCapReached) as refused:
-        analyze(body, config, extractor=extractor, answerer=answerer, judge=judge)
-    assert refused.value.reason == "no_price"
-    assert "Raise --max-usd" not in str(refused.value)
-    assert "no price is known for judge" in str(refused.value)
+    partial = analyze(body, config, extractor=extractor, answerer=answerer, judge=judge).partial
+    assert partial["reason"] == "no_price"
+    assert "Raise --max-usd" not in partial["message"] and "cause" not in partial
+    assert "no price is known for judge" in partial["message"]
 
 
 def test_an_unpriced_partial_atoms_file_is_refused_with_its_cause(tmp_path):

@@ -508,6 +508,6 @@ class CrossJudgeReport:
         return [m for m in self.measures if m.unscored]
 
     def to_dict(self) -> Dict[str, Any]:
-        return {"schema_version": "cross_judge.v0", "summary": self.summary(), "unscored": [
+        return {"schema_version": "cross_judge.v1", "summary": self.summary(), "unscored": [
             {"measure": m.name, "kind": m.kind, "asked": m.asked, "unscored": m.unscored,
              "first_error": m.first_error} for m in self.unscored()]}
