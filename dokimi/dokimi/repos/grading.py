@@ -261,27 +261,33 @@ def _linked_in_task(hidden: Path, rel: str) -> bool:
 def _set_git_config_aside(run_dir: Path) -> None:
     """Move the workspace's ``.git/config``, hooks and other config sources to ``agent-git/`` and
     write a plain config: a filter, diff driver, alias or include the agent set does not run in the
-    grader. The first move is kept, so a regrade does not overwrite the agent's original."""
+    grader. The first move is kept, so a regrade does not overwrite the agent's original: the moves go to
+    a directory renamed to ``agent-git/`` after the last one, and a grade after a crash in between finishes them."""
     dot_git = run_dir / "workspace" / ".git"
     aside = run_dir / AGENT_GIT
-    first = not aside.exists()
-    aside.mkdir(exist_ok=True)
-    if dot_git.is_symlink() or dot_git.is_file():  # the agent's own repository elsewhere: the grader gets none
-        shutil.move(str(dot_git), str(aside / "dot-git"))
-        return
+    if not aside.exists():
+        partial = run_dir / f".{AGENT_GIT}.partial"  # a leading dot: no image.env scratch entry can have the name
+        if partial.is_symlink() or not partial.is_dir():
+            _clear(partial)
+            partial.mkdir()
+        for name, path in _git_config_sources(dot_git):
+            path.rename(partial / name)  # atomic: workspace/ is in the run dir, on its file system
+        partial.rename(aside)
+    for _, path in _git_config_sources(dot_git):  # what a grader wrote since the first move
+        _clear(path)
+    if dot_git.is_dir() and not dot_git.is_symlink():
+        (dot_git / "config").write_text(_PLAIN_GIT_CONFIG, encoding="utf-8")
+
+
+def _git_config_sources(dot_git: Path) -> list[tuple[str, Path]]:
+    """The workspace's git config sources and their names in ``agent-git/``: a ``.git`` file or link (the
+    agent's own repository elsewhere: the grader gets none), else the config, hooks and pointers in ``.git/``."""
+    if dot_git.is_symlink() or dot_git.is_file():
+        return [("dot-git", dot_git)]
     if not dot_git.is_dir():
-        return
-    for name in ("config", "config.worktree", "commondir", "hooks"):
-        path = dot_git / name
-        if not (path.exists() or path.is_symlink()):
-            continue
-        if first:
-            shutil.move(str(path), str(aside / name))
-        elif path.is_dir() and not path.is_symlink():
-            shutil.rmtree(path)
-        else:
-            path.unlink()
-    (dot_git / "config").write_text(_PLAIN_GIT_CONFIG, encoding="utf-8")
+        return []
+    sources = [(name, dot_git / name) for name in ("config", "config.worktree", "commondir", "hooks")]
+    return [(name, path) for name, path in sources if path.exists() or path.is_symlink()]
 
 
 def check_grade(doc: Any) -> list[str]:
