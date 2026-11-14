@@ -20,7 +20,7 @@ import re
 import shlex
 
 from dokimi.eval.reference_checks import (LONG_FLAG, REGEX_TIMEOUT, grade_check, identifier_names,
-                                          scope_options, scope_pairs)
+                                          scope_options, scope_pairs, validate_grading)
 from dokimi.process import Env, run
 from dokimi.utils import InputError
 
@@ -162,6 +162,19 @@ def identifiers_check(tool: str, text: str, *, version: str | None = None) -> di
     }
 
 
+def _require_valid_gradings(atoms: list[dict]) -> None:
+    """Refuse a malformed ``meta["grading"]`` on any atom, as ``skill novelty probe`` does.
+
+    Raises:
+        InputError: A grading block does not validate (names the atom and the problems).
+    """
+    for atom in atoms:
+        grading = (atom.get("meta") or {}).get("grading")
+        problems = validate_grading(grading) if grading else []
+        if problems:
+            raise InputError(f"atom {atom.get('id')}: invalid grading: {'; '.join(problems)}")
+
+
 def add_checks(atoms: list[dict], checks: list[dict], tools: list[str]) -> int:
     """Attach each tool's check to the atoms that name the tool; how many atoms changed.
 
@@ -169,6 +182,7 @@ def add_checks(atoms: list[dict], checks: list[dict], tools: list[str]) -> int:
     tool's command line, and a check that never fires is noise in the report. A check for
     the same tool already on the atom is replaced, so re-running refreshes the snapshot.
     """
+    _require_valid_gradings(atoms)
     changed = 0
     for atom in atoms:
         text = " ".join(str(atom.get(k, "")) for k in ("statement", "question", "answer"))
@@ -213,6 +227,7 @@ def verify_keys(atoms: list[dict]) -> dict[str, int]:
     error: a claim names an option the help lacks, as a version-bound one rightly does. A negative
     claim ("there is no ``--device xpu``") is ``unverifiable``: the clause negates the mention.
     """
+    _require_valid_gradings(atoms)
     counts = {"verified": 0, "not_found": 0, "unverifiable": 0}
     for atom in atoms:
         checks = [c for c in ((atom.get("meta") or {}).get("grading") or {}).get("checks", [])

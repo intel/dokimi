@@ -671,3 +671,34 @@ def test_a_windows_tool_path_keeps_its_backslashes():
 def test_a_posix_tool_path_keeps_its_escaped_space():
     from dokimi.novelty.grounding import _argv
     assert _argv(r"/opt/my\ tools/perf report") == ["/opt/my tools/perf", "report"]
+
+
+@pytest.mark.parametrize("grading", [{"checks": None}, {"checks": ["x"]}, "x"])
+@pytest.mark.parametrize("answer", ["perf report --stdio", "Use the stdio view."])
+def test_novelty_ground_refuses_a_malformed_grading_as_probe_does(tmp_path, monkeypatch, grading,
+                                                                   answer):
+    import argparse
+
+    from dokimi.commands import novelty_ground
+    from dokimi.novelty import grounding
+    from dokimi.novelty.atoms import Atom, Span, save_atoms
+    atoms_path = tmp_path / "atoms.json"
+    span = Span(id="s1", kind="prose", text="shows samples", start=0, end=13)
+    save_atoms([Atom(statement="It shows samples", question="How?", answer=answer,
+                     span_ids=("s1",), meta={"grading": grading})], [span], atoms_path)
+    before = atoms_path.read_bytes()
+    monkeypatch.setattr(grounding, "help_text", lambda tool, **k: PERF_HELP)
+    args = argparse.Namespace(atoms=str(atoms_path), out=None, tool=["perf report"],
+                              tool_version=None)
+    with pytest.raises(InputError, match="invalid grading"):
+        novelty_ground.cmd_novelty_ground(args)
+    assert atoms_path.read_bytes() == before
+
+
+@pytest.mark.parametrize("step", ["add_checks", "verify_keys"])
+def test_each_grounding_step_refuses_a_malformed_grading(step):
+    atoms = [{"id": "a1", "statement": "x", "answer": "y", "meta": {"grading": {"checks": None}}}]
+    run = {"add_checks": lambda: add_checks(atoms, [_veto()], ["perf report"]),
+           "verify_keys": lambda: verify_keys(atoms)}[step]
+    with pytest.raises(InputError, match="atom a1: invalid grading: grading has no checks"):
+        run()
