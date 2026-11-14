@@ -185,6 +185,19 @@ def test_failed_cache_write_keeps_the_old_entry_and_leaves_no_tmp(tmp_path, capl
     assert str(entry) in caplog.text and "disk full" in caplog.text
 
 
+def test_cache_write_whose_tmp_cannot_be_removed_either_is_still_a_warning(tmp_path, caplog):
+    from dokimi.mcp.utils import write_cache_text
+
+    entry = tmp_path / "k.txt"
+    entry.write_text("old", encoding="utf-8")
+    with patch("pathlib.Path.write_text", side_effect=PermissionError("write refused")), \
+            patch("pathlib.Path.unlink", side_effect=PermissionError("unlink refused")), \
+            caplog.at_level(logging.WARNING):
+        assert write_cache_text(entry, "new") is False
+    assert entry.read_text(encoding="utf-8") == "old"
+    assert str(entry) in caplog.text and "write refused" in caplog.text
+
+
 def test_failed_cache_write_does_not_fail_the_fetch(tmp_path, caplog):
     with patch("httpx.get", return_value=_response(PAGE)), \
             patch("dokimi.mcp.utils.os.replace", side_effect=OSError("disk full")), \

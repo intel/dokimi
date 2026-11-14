@@ -3,6 +3,7 @@
 
 """Shared utilities for MCP doc-source clients."""
 
+import contextlib
 import logging
 import os
 import re
@@ -101,7 +102,8 @@ def write_cache_text(path: Path, text: str) -> bool:
         tmp.write_text(text, encoding="utf-8")
         os.replace(tmp, path)
     except OSError as exc:
-        tmp.unlink(missing_ok=True)
+        with contextlib.suppress(OSError):  # a directory refusing the write may refuse this too
+            tmp.unlink(missing_ok=True)
         logger.warning("Could not write cache entry %s: %s", path, exc)
         return False
     return True
