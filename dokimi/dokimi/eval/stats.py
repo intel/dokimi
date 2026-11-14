@@ -96,10 +96,8 @@ def _is_degenerate_at_scale(mean: float, sd: float, top: float) -> bool:
     """:func:`_is_degenerate` after dividing ``mean`` and ``sd`` by the power of two at or below ``top`` (exact).
 
     The floor of 1.0 then absorbs float noise relative to the data, not to 1: a sample of 1e-300 values that
-    differ is not constant (#640). ``top`` is 0 only for a sample of zeros, which is constant.
+    differ is not constant (#640).
     """
-    if top == 0:
-        return True
     scale = _pow2_scale([top])
     return _is_degenerate(mean / scale, sd / scale)
 
