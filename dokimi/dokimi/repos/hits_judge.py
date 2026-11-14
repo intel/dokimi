@@ -480,7 +480,7 @@ def _keep(path: Path, doc: Optional[dict[str, Any]], done: Judged) -> None:
 
 
 def judge_cells(batch_dir: Path, found: dict[str, Any], pairs: list[Pair], judge: tuple[str, str],
-                max_usd: Optional[float] = None) -> Judged:
+                max_usd: Optional[float] = None, done: Optional[Judged] = None) -> Judged:
     """Judge every pair, one call each through :func:`dokimi.judged.judged_reply`, and write each fully judged
     cell's ``hits_judged.json``. A cell the budget stopped gets no file (one left by an earlier run goes).
 
@@ -491,11 +491,12 @@ def judge_cells(batch_dir: Path, found: dict[str, Any], pairs: list[Pair], judge
 
     Raises :class:`HitsWriteError` at the first file it cannot write or remove, before any further call, and
     :class:`JudgeFailing` once :data:`FAILING` calls in a row failed with one error (the cell in progress gets
-    no file, and an earlier one goes)."""
+    no file, and an earlier one goes). ``done`` is the record to fill in: the caller passes one to read the meter
+    of a run that crashes after its calls."""
     by_cell: dict[str, list[Pair]] = defaultdict(list)
     for pair in pairs:
         by_cell[pair.cell].append(pair)
-    done = Judged(meter=Meter(max_usd))
+    done = Judged(meter=Meter(max_usd)) if done is None else done
     _remove_stale(batch_dir, found, done)
     ask = done.meter.asking(LLM(judge[1], judge[0]))
     for cell in found["cells"]:
@@ -533,7 +534,7 @@ def rows(docs: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def summary(found: dict[str, Any], pairs: list[Pair], judge: tuple[str, str], done: Judged,
             calibration: Optional[list[dict[str, Any]]]) -> dict[str, Any]:
-    """What ``repo hits judge`` prints (``--json``: this dict).
+    """What ``repo hits judge`` prints (``--json``: this dict, under ``data`` of the cli_output document).
 
     ``uncalibrated_rows``: the ``{"arm", "model"}`` of each row of ``rows`` with no pair labelled by both the
     person and the judge (every row without ``--labels``), whose ``recall_judged`` no calibration covers: a

@@ -982,5 +982,5 @@ An artifact of a registered run kind carries the run's envelope right after its
 - A file saved before the envelope has neither key and stays valid; so do the superseded
   versions (`questions.v1`, `subject_scorecard.v1`), which declare no envelope.
 - The `--json` output of `repo scan`, `repo inspect`, `repo budget` and `eval inspect` is the
-  document their `--out` writes, envelope and key order included.
-- The run's cost is not in the envelope yet.
+  `cli_output.v1` envelope with the document their `--out` writes under `data`.
+- Only `repo hits judge` fills the envelope's `cost`; the other leaves report zero.

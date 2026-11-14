@@ -6,4 +6,4 @@
 # weekly mutation workflow installs it, so CI, the release job, pip-audit's tools
 # step and the eval image do not carry its closure (libcst, textual, ...).
 # An exact pin: mutmut's config keys changed incompatibly between 2.x and 3.x.
-mutmut==3.8.0
+mutmut==3.8.1

@@ -21,6 +21,7 @@ import yaml
 
 from dokimi.repos.l0.adapters import _MAKE_RULE
 from dokimi.repos.l0.core import Scan
+from dokimi.repos.project_markers import MAKEFILE_NAMES, PROJECT_MARKERS, PYTHON_PROJECT_MARKERS
 
 from .files import is_generated
 
@@ -100,7 +101,7 @@ def _node(scan: Scan, root: str) -> list[Check]:
 
 
 def _make(scan: Scan, root: str) -> list[Check]:
-    mk = next((_at(root, m) for m in ("GNUmakefile", "makefile", "Makefile") if _at(root, m) in scan.file_set), None)
+    mk = next((_at(root, m) for m in MAKEFILE_NAMES if _at(root, m) in scan.file_set), None)
     if mk is None:
         return []
     targets = {t.lower() for m in _MAKE_RULE.finditer(scan.text(mk)) for t in m.group(1).split()
@@ -166,7 +167,7 @@ def _autotools(scan: Scan) -> list[Check]:
 
 
 def _python(scan: Scan, root: str) -> list[Check]:
-    if not any(_at(root, m) in scan.file_set for m in ("pyproject.toml", "setup.py", "setup.cfg", "Pipfile")):
+    if not any(_at(root, m) in scan.file_set for m in PYTHON_PROJECT_MARKERS):
         return []
     pyproject, setup_cfg = _at(root, "pyproject.toml"), _at(root, "setup.cfg")
     sections = {(s.strip(), m) for m in (pyproject, setup_cfg) for s in _INI_SECTION.findall(scan.text(m))}
@@ -253,11 +254,6 @@ ECOSYSTEMS = ("node", "make", "cmake", "bazel", "go", "rust", "python", "gradle"
               "pre-commit")
 
 
-# A directory holding one of these is a project of its own: its scripts and config apply there.
-PROJECT_MARKERS = frozenset({"package.json", "Makefile", "makefile", "GNUmakefile", "pyproject.toml", "setup.py",
-                             "setup.cfg", "Pipfile", "go.mod", "Cargo.toml"})
-
-
 def project_roots(scan: Scan) -> list[str]:
     """The root and every directory below it with a project manifest, outside generated and test trees."""
     roots = {"."}
@@ -272,7 +268,7 @@ def detect_checks(scan: Scan) -> list[Check]:
     found: list[Check] = []
     roots = project_roots(scan)
     # one request for every per-root manifest, not one per file, on a blob-less clone
-    scan.preload([_at(r, m) for r in roots for m in sorted(PROJECT_MARKERS | {"setup.cfg"})])
+    scan.preload([_at(r, m) for r in roots for m in sorted(PROJECT_MARKERS)])
     for root in roots:
         found += (_node(scan, root) + _make(scan, root)
                   + _toolchain(scan, root, "go", "go.mod", ("build", "test", "lint"))

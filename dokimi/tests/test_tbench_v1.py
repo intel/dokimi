@@ -10,6 +10,7 @@ import os
 import shlex
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -391,6 +392,28 @@ def test_harbor_view_ignores_an_export_planted_in_the_shared_temp_dir(tmp_path, 
     view = harbor_export.harbor_view(task)
     assert "timeout_sec = 60.0" in (view.path / "task.toml").read_text()
     assert (view.path.parents[1].stat().st_mode & 0o777) == 0o700
+
+
+def test_the_content_key_of_a_utf8_task_is_unchanged(tmp_path):
+    (tmp_path / "sub").mkdir()
+    (tmp_path / "ok.md").write_bytes(b"ok\n")  # bytes: text mode would write CRLF on Windows
+    (tmp_path / "sub" / "é.md").write_bytes(b"two\n")
+    assert harbor_export._content_key(tmp_path, "r") == "24f0603eabd3edd9"
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="a name that is not UTF-8 cannot be created on Windows")
+def test_the_content_key_hashes_the_bytes_of_a_file_name_that_is_not_utf8(tmp_path):
+    _write(tmp_path / "ok.md", "ok\n")
+    before = harbor_export._content_key(tmp_path)
+    try:
+        with open(os.fsencode(tmp_path) + b"/n\xff.md", "wb") as handle:
+            handle.write(b"x")
+    except OSError:
+        pytest.skip("the file system refuses a name that is not UTF-8")
+    after = harbor_export._content_key(tmp_path)
+    assert after != before and len(after) == 16
+    os.rename(os.fsencode(tmp_path) + b"/n\xff.md", os.fsencode(tmp_path) + b"/n\xfe.md")
+    assert harbor_export._content_key(tmp_path) != after
 
 
 def test_harbor_harness_runs_the_export_not_the_source(tmp_path, monkeypatch):

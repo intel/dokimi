@@ -513,7 +513,7 @@ def test_repo_validate_finds_a_hidden_file_the_task_lacks(toy, tmp_path, capsys)
                                       "--json"])
     with pytest.raises(SystemExit):
         args.func(args)
-    errors = json.loads(capsys.readouterr().out)["errors"]
+    errors = json.loads(capsys.readouterr().out)["data"]["errors"]
     assert errors == [".agent-eval/tasks/authoring_pr1/task.json: hidden file does not exist: hidden/tests/data/case.txt"]
 
 
@@ -530,7 +530,7 @@ def test_a_hidden_file_that_is_a_link_fails_validate_and_eval_check_grades_the_t
                                       "--json"])
     with pytest.raises(SystemExit):
         args.func(args)
-    errors = json.loads(capsys.readouterr().out)["errors"]
+    errors = json.loads(capsys.readouterr().out)["data"]["errors"]
     assert errors == [".agent-eval/tasks/authoring_pr1/task.json: hidden file is a symbolic link: hidden/tests/test_mul.py"]
     res = _check(root, tmp_path / "chk", monkeypatch, "authoring_pr1")
     assert res["verdict"] == "broken" and "hidden/tests/test_mul.py in the task is a symbolic link" in str(res["problems"])

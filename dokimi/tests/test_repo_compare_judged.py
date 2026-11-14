@@ -306,7 +306,7 @@ def test_cli_compares_judged_recall_as_json(tmp_path, capsys):
     args = build_parser().parse_args(["repo", "compare", str(b), "--baseline", NONE, "--metric", "recall",
                                       "--metric", "judge:recall_judged", "--json"])
     args.func(args)
-    out = json.loads(capsys.readouterr().out)
+    out = json.loads(capsys.readouterr().out)["data"]
     rows = {r["measure"]: r for r in out["comparisons"]}
     assert rows[JUDGED]["delta"]["mean"] == pytest.approx(0.5) and rows[JUDGED]["tasks"][0]["n_treatment"] == 1
     assert rows["metric:recall"]["tasks"][0]["n_treatment"] == 2

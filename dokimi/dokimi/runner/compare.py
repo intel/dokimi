@@ -88,14 +88,15 @@ def compare_snapshots(base_path: Path, cand_path: Path, spec: dict | None = None
         if not isinstance(spec, dict):
             raise CompareInputError("spec must be a dict (mapping)")
         regressions = detect_regressions(diff, spec)
+        score = regressions.require("score")
         result["regressions"] = {
             "score": {
-                "delta": regressions.score_regression.delta,
-                "severity": regressions.score_regression.severity,
+                "delta": score.value,
+                "severity": score.level,
             },
             "metrics": [
-                {"metric": r.metric, "delta": r.delta, "severity": r.severity}
-                for r in regressions.metric_regressions
+                {"metric": c.name, "delta": c.value, "severity": c.level}
+                for c in regressions.checks if c.name != "score"
             ],
             "has_warnings": regressions.has_warnings,
             "has_critical": regressions.has_critical,
