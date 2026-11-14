@@ -1,0 +1,19 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+"""trace prefilter: an opening YAML frontmatter block is metadata, not a claim (#728)."""
+
+from dokimi.context.prefilter import claims_from_guidance
+
+
+def test_frontmatter_is_not_a_claim():
+    text = ("---\nname: ci-first\ndescription: run `make ci-local` before push\nmetadata:\n  type: feedback\n---\n\n"
+            "Always run `make ci-local` before push.\n")
+    claims = claims_from_guidance(text)
+    assert [c.text for c in claims] == ["Always run `make ci-local` before push."]
+    assert claims[0].id == "s0001"
+
+
+def test_a_later_rule_line_is_not_frontmatter():
+    claims = claims_from_guidance("Rule one `ls`.\n\n---\nname: not frontmatter\n---\n")
+    assert claims[0].text == "Rule one `ls`." and len(claims) == 2

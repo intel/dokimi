@@ -71,6 +71,7 @@ _HERE_STRING = re.compile(r"(?m)(?P<quoted>\\[\s\S]|'[^']*'|\"(?:\\[\s\S]|[^\"\\
                           r"|(?P<comment>(?:^|(?<=[\s;&|()]))#.*$)"  # a comment's apostrophes open no quote
                           r"|<<<\s*(?:\\[\s\S]|'[^']*'|\"(?:\\[\s\S]|[^\"\\])*\"|[^\s;&|<>()'\"\\])+")
 _SEGMENT = re.compile(r"&&|\|\||(?<![<>])[|]|(?<![<>])&(?!>)|[;()\n]")  # ``>|``, ``>&``, ``<&``, ``&>`` are not splits
+_FRONTMATTER = re.compile(r"\A---[ \t]*\r?\n.*?\r?\n---[ \t]*(?=\r?\n|\Z)", re.S)
 _CUE = re.compile(r"\b(no|not|don't|do not|stop|instead|wrong|forgot|should have|revert|undo|why did you)\b", re.I)
 _STOP = frozenset("""
 able about above after again against all also always and any are because been before being below
@@ -142,6 +143,8 @@ def _is_path(key: str) -> bool:
 def claims_from_guidance(text: str) -> list[Claim]:
     """The rules of one guidance file: each sentence, list item or table row with a keyword."""
     claims = []
+    # YAML frontmatter (a SKILL.md, a memory file) is metadata, not rules: blanked, offsets kept
+    text = _FRONTMATTER.sub(lambda m: re.sub(r"[^\n]", " ", m.group(0)), text, count=1)
     for span in segment(text):
         if span.kind not in _RULE_KINDS or (span.kind == "table_row" and _is_table_header(text, span.start)):
             continue
