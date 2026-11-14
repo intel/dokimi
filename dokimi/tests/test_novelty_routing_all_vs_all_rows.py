@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import json
 
+import pytest
+
 from dokimi.cli import build_parser
 from dokimi.novelty.all_vs_all import all_vs_all, rescore_lexical_row
 from dokimi.novelty.client import LLMClient
@@ -78,6 +80,15 @@ def test_a_relabelled_row_rescores_like_a_fresh_run_under_the_new_gold_including
     saved = all_vs_all(two, {"alpha": ["format"]})["lexical"]["per_query"][0]
     assert saved["picked"] == "bravo"
     assert rescore_lexical_row(saved, "bravo")["picked"] == "alpha"
+
+
+def test_a_whole_saved_run_rescores_including_its_unscored_rows():
+    rows = all_vs_all(FIELD, QUERIES)["lexical"]["per_query"]
+    rescored = [rescore_lexical_row(row, "hub") for row in rows]
+    assert rescored[2] == {"rank": None, "reason": "no content words"}
+    assert rescored[1] == {"rank": 1, "picked": "hub"}
+    with pytest.raises(KeyError, match="nonexistent"):
+        rescore_lexical_row(rows[0], "nonexistent")
 
 
 def test_the_rows_are_there_without_repeats_and_with_a_model(tmp_path):

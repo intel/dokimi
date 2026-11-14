@@ -175,9 +175,14 @@ def rescore_lexical_row(row: dict, gold: str) -> dict:
 
     ``row`` is an item of ``lexical.per_query`` with its ``scores`` (card name to BM25 score, in
     the order of the field); the result is what a fresh run gives for that query under the
-    corrected gold label, ties included. ``KeyError`` when ``gold`` is not a card in the row.
+    corrected gold label, ties included. A row with no content word stays unscored under any
+    gold (``rank`` ``None`` and its ``reason``). ``KeyError`` when ``gold`` is not a card in the row.
     """
+    if "scores" not in row:
+        return {"rank": None, "reason": row["reason"]}
     names = list(row["scores"])
+    if gold not in names:
+        raise KeyError(gold)
     scores = list(row["scores"].values())
     index = names.index(gold)
     return {"rank": _gold_rank(scores, index), "picked": _lexical_pick(scores, index, names)}
