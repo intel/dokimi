@@ -64,6 +64,7 @@ import statistics
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
+from dokimi.eval.finite_delta import check_sum_range, checked_delta
 from dokimi.eval.sign_flip import ALPHA, EPS, METHOD, min_sign_flip_p, round_mean, sign_flip_row, within
 from dokimi.records import BASELINE, CONTEXT, RecordLike, records
 
@@ -400,10 +401,7 @@ def _deltas(treatment: Sequence[float], control: Sequence[float]) -> List[float]
 
     A NaN or inf in the input keeps its meaning in the delta: https://github.com/intel/dokimi/issues/599
     """
-    deltas = [t - c for t, c in zip(treatment, control, strict=True)]
-    if not all(math.isfinite(d) for d in deltas) and all(math.isfinite(x) for x in (*treatment, *control)):
-        raise OverflowError("deltas too large: a difference of the paired values leaves the float range")
-    return deltas
+    return [checked_delta(t, c) for t, c in zip(treatment, control, strict=True)]
 
 
 def paired_vectors(
@@ -593,9 +591,9 @@ def _describe_deltas(
     d_sd = _sample_sd(d)
     cohens_d = _cohens_d(d_mean, d_sd)
     if all(math.isfinite(x) for x in d):
-        if not (math.isfinite(d_sd) and math.isfinite(sum(abs(x) for x in d))):
-            # The sign-flip sums would overflow and read as a measured zero effect.
-            raise OverflowError("deltas too large: their spread or sum leaves the float range")
+        # The sign-flip sums would overflow and read as a measured zero effect.
+        # A finite sum of magnitudes bounds the spread (sd**2 <= sum(x**2) <= that sum squared), so it is finite too.
+        check_sum_range(d)
         row = sign_flip_row(d, seed=seed, exact=True)
         p, lo, hi, shown_lo, shown_hi = row["p"], row["lo"], row["hi"], row["ci_lo"], row["ci_hi"]
     else:  # a NaN delta is no evidence either way: no p, no verdict, open ends
