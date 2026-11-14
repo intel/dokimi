@@ -152,13 +152,15 @@ def test_missing_parent_directories_are_created(tmp_path):
     lambda p: write_text_atomic(p, "NEW"),
     lambda p: write_bytes_atomic(p, b"NEW"),
 ])
-def test_publish_keeps_the_mode_of_the_file_it_replaces(tmp_path, publish):
+# 0o620 loses its group write to the umask, so only the chmod keeps it; 0o600 is the secret case.
+@pytest.mark.parametrize("mode", [0o600, 0o620])
+def test_publish_keeps_the_mode_of_the_file_it_replaces(tmp_path, publish, mode):
     path = tmp_path / "secret.json"
     path.write_text("OLD", encoding="utf-8")
-    os.chmod(path, 0o600)
+    os.chmod(path, mode)
     publish(path)
     assert path.read_text(encoding="utf-8") == "NEW"
-    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    assert stat.S_IMODE(path.stat().st_mode) == mode
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX file modes")
