@@ -315,6 +315,22 @@ def test_a_marker_or_backtick_does_not_reach_across_a_blank_line():
     assert _block(no_frontmatter_message(paired, "t", at_root=True))["description"] == "Real."
 
 
+def test_the_comment_and_code_span_branches_are_pinned():
+    def description(lines):
+        return _block(no_frontmatter_message(lines, "t", at_root=True))["description"]
+
+    # An unclosed comment at a line start runs to the end of the file, over the heading and the text below it.
+    assert description(["# T", "", "<!-- todo", "# Real Title", "", "Text."]) == "What t does. Use when ..."
+    # A closed comment at a line start may hold a blank line.
+    assert description(["# T", "", "<!--", "TODO", "", "more", "-->", "Real."]) == "Real."
+    # A code span holding a marker keeps it, and the later closing marker is not paired with it.
+    assert description(["# T", "", "Write `<!--` then `-->` for a comment."]) == "Write `<!--` then `-->` for a comment."
+    # A code span holds 1024 characters; one more and the comment inside it is taken out.
+    kept = description(["# T", "", "`x <!-- c --> " + "a" * 1011 + "`"])
+    cut = description(["# T", "", "`x <!-- c --> " + "a" * 1012 + "`"])
+    assert kept.startswith("`x <!-- c --> ") and cut.startswith("`x  ")
+
+
 def test_a_long_run_of_backticks_is_searched_in_linear_time():
     # A run of backticks that is not a fence, in one paragraph: the search must not backtrack over it.
     import time
