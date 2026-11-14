@@ -4,7 +4,7 @@
 """``not-a-skill-no-frontmatter``: a SKILL.md that is plain Markdown.
 
 In the GitSkills corpus 165K of 1.88M distinct SKILL.md files have no frontmatter, 141K of them
-starting with a ``#`` heading (scratch S4 #9). They are not broken skills, so the finding says how
+starting with a ``#`` heading. They are not broken skills, so the finding says how
 to make one, and the scan summary counts them apart.
 """
 
