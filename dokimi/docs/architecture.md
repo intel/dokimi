@@ -443,6 +443,12 @@ against them (trigger, acted, corrected) and ranks candidates for ablation.
 Both are deterministic; `python cli.py trace prefilter`. Guide:
 [session-prefilter.md](session-prefilter.md).
 
+## Agent memory
+
+`dokimi/memory/store.py` reads a Claude Code auto-memory directory (`MEMORY.md`,
+topic files with YAML frontmatter, `archive/`); `dokimi/memory/lint.py` runs
+deterministic checks on it; `dokimi memory lint`. Guide: [memory.md](memory.md).
+
 ## Shared building blocks
 
 - `dokimi/process.py` — the one place in the package that spawns a process

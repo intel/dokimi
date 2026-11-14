@@ -1195,6 +1195,28 @@
         }
       }
     },
+    "memory": {
+      "allow_abbrev": true,
+      "params": [
+        {"key": "--help/-h", "action": "_HelpAction", "choices": null, "const": null, "default": "==SUPPRESS==", "group_key": null, "group_required": null, "hidden": false, "is_flag": true, "kind": "option", "nargs": 0, "position": null, "required": false, "type": null}
+      ],
+      "path": "dokimi memory",
+      "subcommand_required": true,
+      "subcommands": {
+        "lint": {
+          "allow_abbrev": true,
+          "params": [
+            {"key": "memory_dir", "action": "_StoreAction", "choices": null, "const": null, "default": null, "group_key": null, "group_required": null, "hidden": false, "is_flag": false, "kind": "argument", "nargs": null, "position": 0, "required": true, "type": null},
+            {"key": "--fail-on", "action": "_StoreAction", "choices": ["'fail'", "'warn'"], "const": null, "default": "fail", "group_key": null, "group_required": null, "hidden": false, "is_flag": false, "kind": "option", "nargs": null, "position": null, "required": false, "type": null},
+            {"key": "--help/-h", "action": "_HelpAction", "choices": null, "const": null, "default": "==SUPPRESS==", "group_key": null, "group_required": null, "hidden": false, "is_flag": true, "kind": "option", "nargs": 0, "position": null, "required": false, "type": null},
+            {"key": "--json", "action": "_StoreTrueAction", "choices": null, "const": true, "default": false, "group_key": null, "group_required": null, "hidden": false, "is_flag": true, "kind": "option", "nargs": 0, "position": null, "required": false, "type": null}
+          ],
+          "path": "dokimi memory lint",
+          "subcommand_required": null,
+          "subcommands": {}
+        }
+      }
+    },
     "novelty": {
       "allow_abbrev": true,
       "params": [
