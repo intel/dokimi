@@ -9,6 +9,7 @@ file in place fails the first check, because the new text is already there.
 """
 
 import json
+import logging
 import os
 import threading
 from pathlib import Path
@@ -37,10 +38,12 @@ def failing_rename(monkeypatch):
 
 
 def _assert_failed_write_keeps(path: Path, old, call, also: dict[Path, str] | None = None) -> None:
-    try:
+    with pytest.raises(OSError, match="injected rename failure"):
         call()
-    except OSError:
-        pass
+    _assert_kept(path, old, also)
+
+
+def _assert_kept(path: Path, old, also: dict[Path, str] | None = None) -> None:
     if old is None:
         assert not path.exists()
     else:
@@ -79,13 +82,17 @@ def test_atoms_file_keeps_the_old_file(tmp_path, failing_rename):
     _assert_failed_write_keeps(path, "OLD\n", lambda: save_atoms([], [], path))
 
 
-def test_response_cache_entry_leaves_no_tmp_file(tmp_path, monkeypatch, failing_rename):
+def test_response_cache_entry_leaves_no_tmp_file(tmp_path, monkeypatch, caplog, failing_rename):
     directory = tmp_path / "cache"
     directory.mkdir()
     monkeypatch.setenv(RESPONSE_CACHE_ENV, str(directory))
     path = directory / "key1.json"
     path.write_text("OLD\n", encoding="utf-8")
-    _assert_failed_write_keeps(path, "OLD\n", lambda: store_response("key1", "text", UsageRecord()))
+    with caplog.at_level(logging.WARNING, logger="dokimi.caching"):
+        store_response("key1", "text", UsageRecord())
+    assert [r.getMessage() for r in caplog.records if r.name == "dokimi.caching"] == [
+        "Could not write response cache entry: injected rename failure"]
+    _assert_kept(path, "OLD\n")
 
 
 def test_catalog_probe_report_keeps_the_old_file(tmp_path, failing_rename):
