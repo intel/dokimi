@@ -144,6 +144,8 @@ def _verdicts_hint(oracle, cache_dir, stop) -> str:
     escalations less the failed ones and the last call. That call was refused by a spent cap, or
     (``stop.reply`` set, an unpriced model) paid for and its verdict dropped unstored.
     """
+    from dokimi.commands.novelty_budget import response_cache_active
+
     stored = max(0, oracle.escalations - oracle.errors - 1)
     dropped = stop.reply is not None
     rerun = "no --max-usd" if stop.reason == "no_price" else "a higher --max-usd"
@@ -159,6 +161,9 @@ def _verdicts_hint(oracle, cache_dir, stop) -> str:
                 + (": the call with no price was paid for and its verdict was not stored" if dropped
                    else ": no paid call gave a usable verdict" if paid
                    else ": none had been adjudicated yet"))
+    if stored and response_cache_active():
+        return (f"the retention verdicts adjudicated in this run ({stored}) are in the response "
+                f"cache (DOKIMI_RESPONSE_CACHE): rerun with {rerun} to replay them at $0{tail}")
     if stored:
         return (f"the retention verdicts adjudicated in this run ({stored}) were lost; "
                 f"--cache-dir <dir> would keep them for a rerun{tail}")

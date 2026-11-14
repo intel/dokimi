@@ -162,6 +162,9 @@ def test_paid_unparseable_replies_then_an_unpriced_call_are_not_the_one_call(tmp
     assert len(prompts) == 2
     assert stop is not None and "the call with no price was paid for and its verdict was not stored" in stop
     assert "the one call" not in stop
+    assert "adjudicated before the stop" not in stop
+    assert f"no retention verdict is stored in {tmp_path / 'cache'} from this run: the call with no price " \
+           "was paid for and its verdict was not stored" in stop
 
 
 def test_an_unpriced_call_after_priced_ones_counts_only_the_stored_verdicts(tmp_path, monkeypatch):
@@ -174,6 +177,39 @@ def test_an_unpriced_call_after_priced_ones_counts_only_the_stored_verdicts(tmp_
     assert "rerun with no --max-usd and the same --cache-dir" in stop
     assert "the call with no price was paid for and its verdict was not stored" in stop
     assert len(list(cache.glob("*.json"))) == 2
+
+
+def test_an_unpriced_stop_after_lost_verdicts_names_the_unstored_call(tmp_path, monkeypatch):
+    _setup(tmp_path)
+    prompts, stop = _run(tmp_path, monkeypatch, "--max-usd", "5", prices=[0.01, 0.01, None])
+    assert len(prompts) == 3
+    assert stop is not None
+    assert "(2) were lost; --cache-dir <dir> would keep them for a rerun; the call with no price " \
+           "was paid for and its verdict was not stored" in stop
+
+
+def test_with_the_response_cache_set_the_verdicts_are_not_called_lost(tmp_path, monkeypatch):
+    _setup(tmp_path)
+    (tmp_path / "rc").mkdir()
+    monkeypatch.setenv("DOKIMI_RESPONSE_CACHE", str(tmp_path / "rc"))
+    prompts, stop = _run(tmp_path, monkeypatch, "--max-usd", "0.05")
+    assert len(prompts) == 1
+    assert stop is not None
+    assert "the retention verdicts adjudicated in this run (1) are in the response cache " \
+           "(DOKIMI_RESPONSE_CACHE): rerun with a higher --max-usd to replay them at $0" in stop
+    assert "lost" not in stop and "--cache-dir <dir>" not in stop
+
+
+def test_with_the_response_cache_set_an_unpriced_stop_says_to_rerun_without_the_cap(tmp_path, monkeypatch):
+    _setup(tmp_path)
+    (tmp_path / "rc").mkdir()
+    monkeypatch.setenv("DOKIMI_RESPONSE_CACHE", str(tmp_path / "rc"))
+    prompts, stop = _run(tmp_path, monkeypatch, "--max-usd", "5", prices=[0.01, 0.01, None])
+    assert len(prompts) == 3
+    assert stop is not None
+    assert "(2) are in the response cache (DOKIMI_RESPONSE_CACHE): rerun with no --max-usd to replay " \
+           "them at $0; the call with no price was paid for and its verdict was not stored" in stop
+    assert "lost" not in stop
 
 
 def test_a_rerun_with_a_higher_cap_and_the_same_cache_dir_replays_the_paid_verdicts(tmp_path, monkeypatch):

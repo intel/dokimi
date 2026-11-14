@@ -105,7 +105,10 @@ What a stopped run leaves behind depends on the step:
   Raise `--max-usd`, or measure less (a cheaper `--tier` or a lower `--max-atoms`).
 - `shorten` writes no candidate table and no `--out` file. Its retention verdicts are stored in
   `--cache-dir` as each is adjudicated, and the exit message says how many: rerun with a higher
-  `--max-usd` and the same `--cache-dir` to replay them at $0. Without `--cache-dir` they are lost.
+  `--max-usd` (with no `--max-usd` when the stop is a model with no known price) and the same
+  `--cache-dir` to replay them at $0. Without `--cache-dir` they are lost, unless
+  `DOKIMI_RESPONSE_CACHE` is set to a writable directory: then the message says the paid calls
+  are in the response cache and a rerun replays them at $0.
 
 ## 3. Triage: is there anything in here? (~100 calls)
 

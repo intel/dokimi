@@ -1161,9 +1161,9 @@ is then `none`, and `run_config` holds the settings of the run but not its tier)
 `dokimi.novelty.analyze()` checks `result.partial` before it saves `result.artifact`.
 `shorten` writes no candidate table and
 no `--out` file at the cap (a table scored on part of the verdicts would read as a result), but each
-retention verdict is stored in `--cache-dir` the moment it is adjudicated: the exit message names how many were paid for and,
+retention verdict is stored in `--cache-dir` the moment it is adjudicated: the exit message names how many verdicts are stored (or, without `--cache-dir`, were adjudicated) and,
 with `--cache-dir`, that a rerun with a higher `--max-usd` and the same `--cache-dir` replays them at $0; without it, that
-`--cache-dir <dir>` would have kept them. After a `no_price` stop (a model with no known price) the call that came back was paid for but its verdict is not stored, and the message says so. Before its first paid
+`--cache-dir <dir>` would have kept them, or, with `DOKIMI_RESPONSE_CACHE` set to a writable directory, that the paid calls are in the response cache and a rerun replays them at $0. After a `no_price` stop (a model with no known price) the call that came back was paid for but its verdict is not stored, and the message says so. Before its first paid
 call `analyze` prints the run's expected cost at list prices to stderr.
 
 The estimate payload has `expected_calls`, the point figure between
