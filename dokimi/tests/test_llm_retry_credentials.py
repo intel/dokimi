@@ -76,10 +76,21 @@ MISSING_CREDENTIALS = [
         "Google Cloud SDK not found. Install it with: pip install 'litellm[google]' or pip "
         "install google-cloud-aiplatform", "vertex_ai", "gemini-2.5-pro"),
 ]
+# botocore's own texts, which litellm's Bedrock mapping leaves as a bare APIConnectionError
+# (only "Unable to locate credentials" is mapped, to AuthenticationError, for Bedrock itself).
+MISSING_CREDENTIALS += [
+    litellm.APIConnectionError(text, "bedrock", "claude")
+    for text in ("Unable to locate credentials", "Unable to locate authorization token",
+                 "Partial credentials found in env, missing: aws_secret_access_key",
+                 "The config profile (prod) could not be found",
+                 "The SSO session associated with this profile has expired or is otherwise "
+                 "invalid. To refresh this SSO session run aws sso login with the "
+                 "corresponding profile.")]
 
 
 #: The caller each error comes back to: litellm's provider name -> (model, dokimi provider).
 ROUTES = {"openai": ("gpt-4o", "openai"), "azure": ("gpt-4o", "azure"),
+          "bedrock": ("claude", "bedrock"),
           "vertex_ai": ("gemini-2.5-pro", "google-vertex")}
 
 

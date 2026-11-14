@@ -109,6 +109,26 @@ def test_each_run_wide_error_stops_the_run(exc):
     assert result["partial"]["reason"] == "permanent_error"
 
 
+class APIConnectionError(Exception):
+    """Named as litellm's catch-all, which is_retryable reads by class name."""
+
+
+@pytest.mark.parametrize("text", ["Unable to locate credentials",
+                                  "The config profile (prod) could not be found"])
+def test_a_credentials_error_under_a_catch_all_class_stops_the_run_at_the_first_call(text):
+    stub = Stub(lambda n: (_ for _ in ()).throw(APIConnectionError(text)))
+    result = model_routing(FIELD, QUERIES, client=stub, repeats=3)
+    assert stub.calls == 1 and result["per_query"] == []
+    assert result["partial"]["reason"] == "permanent_error"
+    assert result["cap_stop"] == f"permanent error: {text}"
+
+
+def test_a_connection_reset_under_the_catch_all_class_is_still_a_row():
+    stub = Stub(lambda n: (_ for _ in ()).throw(APIConnectionError("connection reset")))
+    result = model_routing(FIELD, QUERIES, client=stub)
+    assert stub.calls == 3 and result["n_failed"] == 3 and "partial" not in result
+
+
 def test_all_vs_all_stops_at_a_run_wide_error_and_counts_the_calls_of_the_run():
     def behaviour(n):
         if n == 4:
