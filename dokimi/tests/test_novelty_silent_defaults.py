@@ -580,6 +580,24 @@ def test_a_verdict_cached_by_the_v3_cache_is_re_adjudicated(tmp_path, monkeypatc
     assert oracle.verdict(atom, text).method == "llm"
 
 
+def test_a_placeholder_cached_by_the_v4_cache_is_re_adjudicated(tmp_path, monkeypatch):
+    from dokimi.novelty import retention
+
+    atom, text = _AMBIGUOUS
+    monkeypatch.setattr(retention, "_CACHE_VERSION", b"retention-cache-v4\0")
+    old_key = _key(atom, text)
+    monkeypatch.undo()
+    # A v4 `--lexical-only` placeholder: the v5 cache must not replay it as a verdict.
+    (tmp_path / f"{old_key}.json").write_text('{"verdict": "absent", "score": 0.5}',
+                                              encoding="utf-8")
+    oracle = RetentionOracle(
+        client=LLMClient(model="x", transport=lambda p, s: ('{"verdict": "retained"}', None)),
+        cache_dir=tmp_path,
+    )
+    result = oracle.verdict(atom, text)
+    assert (result.verdict, result.method) == (RETAINED, "llm")
+
+
 def test_a_cut_answer_logs_the_truncation_on_every_run(monkeypatch, tmp_path, caplog):
     from dokimi import llm
 
