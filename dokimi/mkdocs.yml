@@ -126,6 +126,7 @@ nav:
       - skill-novelty.md
       - skill-novelty-walkthrough.md
       - skill-novelty-evidence.md
+      - grading-tiers.md
   - Repository evaluation:
       - repo-evaluation-contract.md
       - repo-evaluation-mergeability.md

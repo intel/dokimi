@@ -132,6 +132,21 @@ def register_skill(skill_sub, positive_int) -> None:
     probe_p.add_argument("--out", default=None)
     probe_p.set_defaults(func=stops_at_cap(cmd_novelty_probe))
 
+    ground_p = novelty_sub.add_parser(
+        "ground", help="Add identifier vetoes from a tool's own --help to an atoms file"
+    )
+    ground_p.add_argument("--atoms", required=True, help="atoms.json from `skill novelty atoms`")
+    ground_p.add_argument("--tool", action="append", required=True,
+                          help="Command whose --help lists the valid options, e.g. "
+                               "'perf report'. Repeatable; an atom gets the check of each "
+                               "tool it names")
+    ground_p.add_argument("--tool-version", default=None, dest="tool_version",
+                          help="Version recorded with the help snapshot")
+    ground_p.add_argument("--out", default=None, help="Default: rewrite --atoms in place")
+    from dokimi.commands.novelty_ground import cmd_novelty_ground
+
+    ground_p.set_defaults(func=cmd_novelty_ground)
+
     items_p = novelty_sub.add_parser(
         "items", help="Item analysis across saved probe runs: which atoms separate the models"
     )
