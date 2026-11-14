@@ -24,6 +24,7 @@ _MD_LINK = re.compile(r"\]\(\s*(<[^>\n]+>|(?:\\\S|[^()\s\\]|\([^()\s]*\))+)(?:\s
 _MD_REF_DEF = re.compile(  # a definition is the whole line: destination, then an optional title and nothing else
     r"^ {0,3}\[(?!\^)([^\]\n]+)\]:[ \t]*(<[^>\n]+>|\S+)(?:[ \t]+(?:\"[^\"]*\"|'[^']*'|\([^()]*\)))?\s*$")
 _MD_LABEL = re.compile(r"\[([^\[\]\n]+)\]")
+_EMPTY_LINK = re.compile(r"\]\(\s*(?:<>)?\s*\)")  # [t]() is an inline link with an empty destination
 _MD_ESCAPE = re.compile(r"\\([!-/:-@\[-`{-~])")
 _WIKILINK = re.compile(r"\[\[([^\]\n]+)\]\]")
 _CODE_SPAN = re.compile(r"`[^`\n]*`")
@@ -92,15 +93,22 @@ class MemoryStore:
         used: set[str] = set()  # a label is used by any [label] but the one that opens a definition
         for line in lines:
             d = _MD_REF_DEF.match(line)
+            spans = [m.span() for m in _MD_LINK.finditer(line)]  # a label inside a destination or title is no use
             for m in _MD_LABEL.finditer(line, d.end() if d else 0):
-                if not _inline_link_at(line, m.end()):  # [t](...) with no valid destination is still [t]
+                inside = any(start <= m.start() < end for start, end in spans)
+                if not inside and not _inline_link_at(line, m.end()):  # [t](...) with no valid destination is [t]
                     used.add(_label(m.group(1)))
         out = []
+        defined: set[str] = set()
         for n, line in enumerate(lines, 1):
             found = [m.group(1) for m in _MD_LINK.finditer(line)]
-            found += [m.group(2) for m in _MD_REF_DEF.finditer(line) if _label(m.group(1)) in used]
+            for m in _MD_REF_DEF.finditer(line):  # the first definition of a label is the one Markdown uses
+                label = _label(m.group(1))
+                if label not in defined and label in used:
+                    found.append(m.group(2))
+                defined.add(label)
             for raw in found:  # a definition nothing refers to renders no link, so it is not checked
-                target = unquote(_MD_ESCAPE.sub(r"\1", raw.strip("<>").split("#", 1)[0]))
+                target = unquote(_MD_ESCAPE.sub(r"\1", raw.strip("<>")).split("#", 1)[0])
                 if target and "://" not in target and not target.startswith("mailto:"):
                     out.append((n, target))
         return out
@@ -132,7 +140,7 @@ def _label(text: str) -> str:
 
 def _inline_link_at(line: str, end: int) -> bool:
     """Whether the ``[label]`` ending at ``end`` is followed by a valid inline destination ``(...)``."""
-    return line.startswith("(", end) and _MD_LINK.match(line, end - 1) is not None
+    return line.startswith("(", end) and (_MD_LINK.match(line, end - 1) or _EMPTY_LINK.match(line, end - 1)) is not None
 
 
 def slug(name: str) -> str:

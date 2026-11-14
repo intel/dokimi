@@ -297,3 +297,21 @@ def test_inline_link_with_invalid_destination_leaves_the_label_for_a_shortcut(me
 def test_backslash_space_is_not_a_link_destination(mem):
     (mem / "MEMORY.md").write_text("- [A](a.md) [B](b.md) [W](notes\\ x.md)\n")
     assert _rules(mem) == []
+def test_empty_inline_destination_leaves_the_label_as_a_use(mem):
+    (mem / "MEMORY.md").write_text("- [A](a.md) [B](b.md) [t]()\n\n[t]: gone.md\n")
+    assert [f for f in lint(read_claude_memory(mem)) if f.rule == "index-dead-link"] == []
+
+
+def test_first_definition_of_a_label_is_the_one_checked(mem):
+    (mem / "MEMORY.md").write_text("- [A][t] [B](b.md)\n\n[t]: a.md\n[t]: gone.md\n")
+    assert [f for f in lint(read_claude_memory(mem)) if f.rule == "index-dead-link"] == []
+
+
+def test_escaped_hash_is_part_of_the_name_not_an_anchor(mem):
+    (mem / "MEMORY.md").write_text("- [A](a.md) [B](b.md) [S](a.md\\#sec)\n")
+    assert [f for f in lint(read_claude_memory(mem)) if f.rule == "index-dead-link"] == []
+
+
+def test_label_inside_a_link_title_is_not_a_use(mem):
+    (mem / "MEMORY.md").write_text('- [A](a.md "see [t]") [B](b.md)\n\n[t]: gone.md\n')
+    assert [f for f in lint(read_claude_memory(mem)) if f.rule == "index-dead-link"] == []
