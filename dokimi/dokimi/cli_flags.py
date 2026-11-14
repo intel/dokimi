@@ -148,6 +148,12 @@ CONCEPTS: tuple[Concept, ...] = (
         banned=("--repeats", "--work-repeats", "--multi-run", "--trials"),
     ),
     Concept(
+        name="against",
+        help="the root of the skills a skill is measured against",
+        canonical=(Flag("--against", "ROOT", "path"),),
+        banned=(),
+    ),
+    Concept(
         name="concurrency",
         help="how much runs at once",
         canonical=(

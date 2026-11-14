@@ -628,7 +628,7 @@ def catalog_competitors(root: str, exclude: set[str],
             manifest every ``SKILL.md`` is read, and a broken one is skipped with a note).
     """
     if not Path(root).is_dir():
-        raise ValueError(f"--catalog is not a directory: {root}")
+        raise ValueError(f"the catalog is not a directory: {root}")
     if keep_copies_under is not None:
         check_keep_copies_under(root, keep_copies_under)
     eligible = _eligible_catalog_skills(root, exclude, notes, include_disabled, include_invalid,
@@ -777,13 +777,13 @@ def check_field(gold: Candidate, competitors: list[Candidate]) -> None:
     """
     if not competitors:
         raise RoutingInputError(
-            "routing needs competitors (--competitors, or --catalog for a skill's siblings): "
+            "routing needs competitors (--competitors, or --against for a skill's siblings): "
             "selecting from one candidate measures whether the model will use a tool at all, "
             "not whether this artifact wins"
         )
     if any(c.name == gold.name for c in competitors):
         raise RoutingInputError(
-            f"`{gold.name}` appears in --competitors as well as --artifact; selection "
+            f"`{gold.name}` appears in --competitors as well as the skill under test; selection "
             "against itself is not a measurement. Drop it from the competitor list."
         )
     names = [c.name for c in competitors]
