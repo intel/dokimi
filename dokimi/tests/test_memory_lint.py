@@ -59,6 +59,15 @@ def test_frontmatter_rules(mem):
             ("name-duplicate", "a.md"), ("name-duplicate", "e.md")} <= rules
 
 
+@pytest.mark.parametrize("value", ["modified: 2026-02-30", "x: !!float abc", "x: !!timestamp abc",
+                                   "x: " + "[" * 3000 + "]" * 3000])
+def test_bad_frontmatter_value_is_a_finding_and_the_run_goes_on(mem, value):
+    (mem / "b.md").write_text(f"---\nname: b\ndescription: d\ntype: project\n{value}\n---\n")
+    (mem / "c.md").write_text(_entry("c"))
+    rules = _rules(mem)
+    assert ("frontmatter-invalid", "warn", "b.md") in rules and ("index-orphan", "warn", "c.md") in rules
+
+
 def test_wikilink_folds_dash_and_underscore(mem):
     (mem / "a.md").write_text(_entry("a", body="[[B]] [[project-a]] [[nobody]]"))
     (mem / "project_a.md").write_text(_entry("pa"))

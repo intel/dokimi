@@ -110,7 +110,7 @@ def _entry(root: Path, path: Path, archived: bool) -> MemoryEntry:
     body = text[m.end():]
     try:
         data = yaml.safe_load(m.group(1) or "") or {}
-    except yaml.YAMLError as exc:
+    except Exception as exc:  # any constructor error (bad date, !!float abc, deep nesting) is this file's finding
         return MemoryEntry(rel, text, body, None, f"frontmatter is not YAML: {exc.__class__.__name__}", archived)
     if not isinstance(data, dict):
         return MemoryEntry(rel, text, body, None, "frontmatter is not a mapping", archived)
