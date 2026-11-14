@@ -515,3 +515,44 @@ def test_a_failed_scan_with_no_incomplete_reason_still_says_what_failed():
     # without --fail-on-fail, failed claims and an incomplete scan are not what failed the run
     assert _scan_reason({"incomplete": True, "incomplete_reasons": ["x"], "counts": {"fail": 2}}, ["bad"], False) == \
         "1 --static problem(s) not merged"
+
+
+def _leaf_with_json_and_jsonl() -> cli._LeafParser:
+    leaf = cli._LeafParser(prog="dokimi probe")
+    leaf.add_argument("source")
+    leaf.add_argument("--json", action="store_true")
+    leaf.add_argument("--jsonl")
+    leaf.set_defaults(emits_cli_output=True)
+    return leaf
+
+
+def test_a_prefix_that_is_ambiguous_at_a_leaf_is_not_a_json_request():
+    # no shipped leaf has --json next to another --js* option (catalog check's --jsonl has no --json): a probe leaf does
+    leaf = _leaf_with_json_and_jsonl()
+    assert cli._json_requested(leaf, ["--jso"]) is False
+    assert cli._json_requested(leaf, ["--json"]) is True
+    check = cli._leaf_at(cli.build_parser(), ["catalog", "check"])
+    assert check is not None and cli._json_requested(check, ["--jso"]) is False
+
+
+def test_an_ambiguous_json_prefix_at_a_leaf_prints_no_document(capsys):
+    cli_output.reset()
+    with pytest.raises(SystemExit) as exc:
+        _leaf_with_json_and_jsonl().parse_args(["--jso"])
+    assert exc.value.code == 2
+    out = capsys.readouterr()
+    assert out.out == "" and "ambiguous option: --jso" in out.err
+
+
+@pytest.mark.parametrize("argv, message", [
+    (["repo", "validate"], "the following arguments are required: source"),
+    (["repo", "validate", ".", "--cache-dir"], "argument --cache-dir: expected one argument"),
+])
+def test_a_leaf_usage_error_without_json_prints_its_message_on_stderr_only(monkeypatch, capsys, argv, message):
+    # leaf.error runs for these (unlike an unrecognized --bogus, which the root reports): the flag gates its document
+    cli_output.reset()
+    with pytest.raises(SystemExit) as exc:
+        _run_main(monkeypatch, argv)
+    assert exc.value.code == 2
+    out = capsys.readouterr()
+    assert out.out == "" and message in out.err

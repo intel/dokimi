@@ -236,6 +236,20 @@ def test_a_missing_escaped_comma_is_named_whole(tmp_path):
     assert finding.message.startswith("'assets/a,b.svg' (in ")
 
 
+def test_a_missing_escaped_semicolon_is_named_whole(tmp_path):
+    # outside quotes, an escaped ``;`` is no shell operator: the name is not cut at it
+    review, _ = _review(tmp_path, r"Copy it with `cp assets/a\;b.svg /tmp/out`." + "\n")
+    [finding] = _path_findings(review)
+    assert finding.message.startswith("'assets/a;b.svg' (in ")
+
+
+def test_a_missing_escaped_semicolon_inside_double_quotes_is_named_whole(tmp_path):
+    # inside double quotes the backslash before ``;`` is an escape too, so it is not left in the name
+    review, _ = _review(tmp_path, 'Copy it with `cp "assets/a\\;b.svg" /tmp/out`.\n')
+    [finding] = _path_findings(review)
+    assert finding.message.startswith("'assets/a;b.svg' (in ")
+
+
 def test_an_escaped_quote_does_not_end_a_quoted_name(tmp_path):
     review, _ = _review(
         tmp_path,

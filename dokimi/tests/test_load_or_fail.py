@@ -69,3 +69,26 @@ def test_a_path_with_a_nul_byte_is_an_input_error_naming_it():
     with pytest.raises(InputError) as exc:
         read_json_input("bad\x00name.json")
     assert str(exc.value).startswith("cannot read bad")
+
+
+@pytest.mark.parametrize("flag, message", [
+    ("--answers", '--answers "": no file given'),
+    (None, 'cannot read "": no file given'),
+])
+def test_an_empty_path_is_refused_quoted_not_read_as_the_current_directory(flag, message):
+    from dokimi.utils import read_json_input
+
+    with pytest.raises(InputError) as exc:
+        read_json_input("", flag=flag)
+    assert str(exc.value) == message
+
+
+def test_eval_score_reference_with_an_empty_answers_value_exits_2_naming_it(monkeypatch, capsys, tmp_path):
+    from dokimi import cli
+
+    monkeypatch.setattr("sys.argv", ["dokimi", "eval", "score", "reference", "--answers", "",
+                                     "--questions", "q.json", "-o", str(tmp_path / "out.json"), "--no-judge"])
+    with pytest.raises(SystemExit) as exc:
+        cli.main()
+    assert exc.value.code == 2
+    assert capsys.readouterr().err.strip() == 'Error: --answers "": no file given'

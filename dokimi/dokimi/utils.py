@@ -773,7 +773,11 @@ def read_json_input(path: str | os.PathLike[str], *, flag: str | None = None) ->
     Covers a missing or unreadable file, a device (:func:`refuse_device`), bytes that are not
     UTF-8, text that is not JSON and JSON nested too deeply to parse. With ``flag`` (the option
     the file was given to) the message is that option's own, ``<flag> <path>: <reason>``.
+    An empty path is refused first, quoted (``--answers "": no file given``): ``Path("")`` is the
+    current directory, which would read as ``Is a directory`` with nothing after the flag.
     """
+    if os.fspath(path) == "":
+        raise InputError(f'{flag} "": no file given' if flag else 'cannot read "": no file given')
     refuse_device(path, flag)
     try:
         return json.loads(Path(path).read_text(encoding="utf-8"))

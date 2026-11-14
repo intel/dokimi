@@ -672,3 +672,35 @@ def test_a_keep_copies_under_that_resolves_a_name_adds_no_kept_no_copy_note(tmp_
     assert any("kept catalog skill 'db' under a" in note for note in notes)
     assert not any("kept no copy" in note for note in notes)
     assert not any("kept catalog skill 'mirror'" in note for note in notes)
+
+
+def _review_nested_in_review(root):
+    """Two skills named review, one inside the other's directory: no directory holds just one of them."""
+    _skill(root, ".", "review", "review a change, the outer copy")
+    _skill(root, "review", "review", "review a change, the inner copy")
+    _skill(root, "skills", "cache", "cache slow lookups")
+
+
+def test_skill_routing_says_no_flag_picks_a_copy_when_no_directory_holds_one(tmp_path):
+    root = tmp_path / "catalog"
+    _review_nested_in_review(root)
+    args = _parse("skill", "routing", f"skill:{root}/skills/cache", "--against",
+                  str(root), "--queries-from-headings")
+    with pytest.raises(InputError) as exc:
+        args.func(args)
+    message = str(exc.value)
+    assert "`review`: no --against or --keep-copies-under picks one of its copies" in message
+    assert "dedupe or rename them" in message
+
+
+def test_catalog_routing_says_no_keep_flag_picks_a_copy_when_no_directory_holds_one(tmp_path):
+    root = tmp_path / "catalog"
+    _review_nested_in_review(root)
+    queries = _queries(tmp_path, {"cache": ["cache my lookups"]})
+    args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries),
+                  "--out", str(tmp_path / "o.json"))
+    with pytest.raises(InputError) as exc:
+        args.func(args)
+    message = str(exc.value)
+    assert "`review`: no --keep-copies-under picks one of its copies" in message
+    assert "--against" not in message
