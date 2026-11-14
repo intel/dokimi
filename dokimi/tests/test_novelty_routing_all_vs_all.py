@@ -144,8 +144,8 @@ def test_a_queries_file_nested_too_deeply_exits_with_a_message(tmp_path, monkeyp
     _recursion_on_load(monkeypatch)
     root = tmp_path / "catalog"
     _catalog_skill(root, "perf", "profile a slow binary with perf record and report")
-    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
-                  "--queries-by-skill", str(path), "--out", str(tmp_path / "o.json"))
+    args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(path),
+                  "--out", str(tmp_path / "o.json"))
     with pytest.raises(InputError, match="nested too deeply") as exc:
         args.func(args)
     assert "RecursionError" not in str(exc.value)
@@ -161,8 +161,8 @@ def test_all_vs_all_writes_the_matrix_and_prints_the_attractors(tmp_path, capsys
         "db": ["my database query is slow", "add an index to speed up a query"],
     })
     out = tmp_path / "all_vs_all.json"
-    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
-                  "--queries-by-skill", str(queries), "--out", str(out))
+    args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries),
+                  "--out", str(out))
     args.func(args)
     payload = json.loads(out.read_text(encoding="utf-8"))
     assert payload["mode"] == "all_vs_all" and payload["n_candidates"] == 3
@@ -198,10 +198,8 @@ def test_all_vs_all_with_model_names_its_model_calls_on_stderr(tmp_path, capsys,
         },
     )
     args = _parse(
-        "novelty",
+        "catalog",
         "routing",
-        "--all-vs-all",
-        "--catalog",
         str(root),
         "--queries-by-skill",
         str(queries),
@@ -223,10 +221,8 @@ def test_all_vs_all_without_model_says_nothing_about_model_calls(tmp_path, capsy
     _catalog_skill(root, "db", "tune a slow database query with an index")
     queries = _write_queries(tmp_path, {"perf": ["profile a slow program"]})
     args = _parse(
-        "novelty",
+        "catalog",
         "routing",
-        "--all-vs-all",
-        "--catalog",
         str(root),
         "--queries-by-skill",
         str(queries),
@@ -239,16 +235,14 @@ def test_all_vs_all_without_model_says_nothing_about_model_calls(tmp_path, capsy
 
 def test_all_vs_all_takes_no_artifact(tmp_path):
     queries = _write_queries(tmp_path, {"linux-perf": ["q"]})
-    args = _parse("novelty", "routing", "--all-vs-all", "--artifact", "skill:/x",
-                  "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"))
-    with pytest.raises(InputError, match="takes no --artifact"):
-        args.func(args)
+    with pytest.raises(SystemExit):  # argparse: catalog routing has no --artifact
+        _parse("catalog", "routing", str(tmp_path), "--queries-by-skill", str(queries), "--out",
+               str(tmp_path / "o.json"), "--artifact", "skill:/x")
 
 
 def test_a_single_routing_run_still_needs_an_artifact(tmp_path):
-    args = _parse("novelty", "routing", "--out", str(tmp_path / "o.json"))
-    with pytest.raises(InputError, match="--all-vs-all for the whole field"):
-        args.func(args)
+    with pytest.raises(SystemExit):  # argparse: skill routing requires SKILL
+        _parse("skill", "routing", "--out", str(tmp_path / "o.json"))
 
 
 def _two_identical_cards(order):
@@ -419,9 +413,8 @@ def test_all_vs_all_exits_nonzero_when_every_model_call_fails(tmp_path, capsys, 
     _catalog_skill(root, "db", "tune a slow database query with an index")
     queries = _write_queries(tmp_path, {"perf": ["profile a slow program"],
                                         "db": ["add an index"]})
-    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
-                  "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"),
-                  "--model", "m")
+    args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries),
+                  "--out", str(tmp_path / "o.json"), "--model", "m")
     with pytest.raises(SystemExit, match="2 of 2 model call.s. failed"):
         args.func(args)
     captured = capsys.readouterr()
@@ -447,9 +440,9 @@ def test_all_vs_all_stops_at_the_max_usd_cap_the_docs_point_to(tmp_path, monkeyp
     _catalog_skill(root, "db", "tune a slow database query with an index")
     queries = _write_queries(tmp_path, {"perf": ["profile a slow program", "find hot functions"],
                                         "db": ["add an index"]})
-    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
-                  "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"),
-                  "--model", "m", "--max-usd", "1")
+    args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries),
+                  "--out", str(tmp_path / "o.json"), "--model", "m",
+                  "--max-usd", "1")
     with pytest.raises(SystemExit, match=r"\$1\.20 of \$1\.00"):
         args.func(args)
     assert len(calls) == 2  # the third request was refused before it reached the provider
@@ -463,8 +456,8 @@ def test_an_unreadable_queries_file_is_a_message_not_a_traceback(tmp_path, make)
     queries = tmp_path / "q.json"
     if make == "not_utf8":
         queries.write_bytes(b"\xff\xfe\x00bad")
-    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
-                  "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"))
+    args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries),
+                  "--out", str(tmp_path / "o.json"))
     with pytest.raises(InputError, match="cannot read the queries"):
         args.func(args)
 
@@ -486,8 +479,8 @@ def test_queries_for_a_skill_the_field_left_out_are_dropped_with_a_warning_namin
     queries = _write_queries(tmp_path, {"cache": ["cache my lookups"], "queue": ["queue my jobs"],
                                         "db": ["tune my database"]})
     out = tmp_path / "o.json"
-    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
-                  "--queries-by-skill", str(queries), "--out", str(out))
+    args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries),
+                  "--out", str(out))
     args.func(args)
     err = capsys.readouterr().err
     assert "WARNING" in err and "`db`" in err and says in err
@@ -495,6 +488,26 @@ def test_queries_for_a_skill_the_field_left_out_are_dropped_with_a_warning_namin
         {"skill": "db", "reasons": [reason], "keep_flags": [keep_flag], "queries": 1}]
     assert set(json.loads(out.read_text(encoding="utf-8"))["result"]["lexical"]["confusion"]) == {
         "cache", "queue"}
+
+
+def test_a_name_conflict_hint_names_catalog_routing_on_each_holding_directory(tmp_path):
+    root = tmp_path / "catalog"
+    _cat(root, {"cache": "cache slow lookups"})
+    for holder, description in (("a", "tune a slow database query"), ("b", "migrate a schema")):
+        copy = root / "skills" / holder / "db"
+        copy.mkdir(parents=True)
+        (copy / "SKILL.md").write_text(
+            f"---\nname: db\ndescription: {description}\n---\n\n# B\n", encoding="utf-8")
+    queries = _write_queries(tmp_path, {"cache": ["cache my lookups"], "db": ["tune my database"]})
+    args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries),
+                  "--out", str(tmp_path / "o.json"))
+    with pytest.raises(InputError) as refusal:
+        args.func(args)
+    text = str(refusal.value)
+    normalized = text.replace("\\", "/")
+    assert f"catalog routing {root.as_posix()}/skills/a" in normalized
+    assert f"catalog routing {root.as_posix()}/skills/b" in normalized
+    assert "--against" not in text
 
 
 def _cat(root, names_descriptions):
@@ -519,8 +532,8 @@ def test_a_partial_model_failure_exits_non_zero_and_leaves_failed_queries_out(
     _cat(root, {"perf": "profile a slow binary with perf", "db": "tune a slow database query"})
     queries = _write_queries(tmp_path, {"db": ["add an index"], "perf": ["profile it", "perf it"]})
     out = tmp_path / "o.json"
-    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
-                  "--queries-by-skill", str(queries), "--out", str(out), "--model", "m")
+    args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries),
+                  "--out", str(out), "--model", "m")
     with pytest.raises(SystemExit, match="2 of 3 model call"):
         args.func(args)
     assert "OK Saved" not in capsys.readouterr().out
@@ -562,8 +575,8 @@ def test_the_saved_payload_records_the_field_rule(tmp_path):
         encoding="utf-8")
     queries = _write_queries(tmp_path, {"perf": ["profile a binary"]})
     out = tmp_path / "o.json"
-    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
-                  "--queries-by-skill", str(queries), "--out", str(out))
+    args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries),
+                  "--out", str(out))
     args.func(args)
     field = json.loads(out.read_text(encoding="utf-8"))["field"]
     assert field["include_disabled"] is False
@@ -586,8 +599,8 @@ def test_the_not_in_the_field_error_names_the_disable_flag_and_its_override():
 @pytest.mark.parametrize("flag", [["--queries", "q.txt"], ["--queries-from-headings"]])
 def test_all_vs_all_refuses_the_single_artifact_query_flags(tmp_path, flag):
     queries = _write_queries(tmp_path, {"perf": ["profile"]})
-    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(tmp_path),
-                  "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"), *flag)
+    args = _parse("catalog", "routing", str(tmp_path), "--queries-by-skill", str(queries),
+                  "--out", str(tmp_path / "o.json"), *flag)
     with pytest.raises(InputError, match="takes --queries-by-skill, not --queries"):
         args.func(args)
 
@@ -605,9 +618,8 @@ def test_all_vs_all_takes_repeats_and_prints_the_noise_and_the_cost(tmp_path, ca
     _cat(root, {"perf": "profile a slow binary", "db": "tune a slow database query"})
     queries = _write_queries(tmp_path, {"perf": ["profile my slow binary"]})
     out = tmp_path / "o.json"
-    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
-                  "--queries-by-skill", str(queries), "--out", str(out), "--model", "m",
-                  "--repeats", "3")
+    args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries),
+                  "--out", str(out), "--model", "m", "--reps", "3")
     args.func(args)
     assert len(calls) == 3
     payload = json.loads(out.read_text(encoding="utf-8"))
@@ -624,10 +636,9 @@ def test_all_vs_all_repeats_still_need_a_model(tmp_path):
     root = tmp_path / "catalog"
     _cat(root, {"perf": "profile a slow binary", "db": "tune a slow database query"})
     queries = _write_queries(tmp_path, {"perf": ["profile my slow binary"]})
-    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
-                  "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"),
-                  "--repeats", "3")
-    with pytest.raises(InputError, match="--repeats needs --model"):
+    args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries),
+                  "--out", str(tmp_path / "o.json"), "--reps", "3")
+    with pytest.raises(InputError, match="--reps needs --model"):
         args.func(args)
     assert not (tmp_path / "o.json").exists()
 
@@ -637,8 +648,8 @@ def test_all_vs_all_without_model_writes_no_cost_block(tmp_path):
     _cat(root, {"perf": "profile a slow binary", "db": "tune a slow database query"})
     queries = _write_queries(tmp_path, {"perf": ["profile my slow binary"]})
     out = tmp_path / "o.json"
-    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
-                  "--queries-by-skill", str(queries), "--out", str(out))
+    args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries),
+                  "--out", str(out))
     args.func(args)
     assert "cost" not in json.loads(out.read_text(encoding="utf-8"))
 
@@ -649,9 +660,9 @@ def test_a_single_artifact_routing_run_records_the_field_rule_too(tmp_path):
     queries = tmp_path / "q.txt"
     queries.write_text("profile a binary\n", encoding="utf-8")
     out = tmp_path / "r.json"
-    args = _parse("novelty", "routing", "--artifact", f"skill:{root / 'skills' / 'perf'}",
-                  "--catalog", str(root), "--include-disabled", "--queries", str(queries),
-                  "--out", str(out))
+    args = _parse("skill", "routing", f"skill:{root / 'skills' / 'perf'}", "--against",
+                  str(root), "--include-disabled", "--queries", str(queries), "--out",
+                  str(out))
     args.func(args)
     field = json.loads(out.read_text(encoding="utf-8"))["field"]
     assert field == {"include_disabled": True, "include_invalid": False,
@@ -668,8 +679,8 @@ def test_console_says_how_many_tied_and_unscored_queries_are_not_counted_as_pick
     _catalog_skill(root, "linalg", "fast transforms")
     _catalog_skill(root, "gold", "something unrelated entirely")
     queries = _write_queries(tmp_path, {"gold": ["fast transforms", "the of and"]})
-    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
-                  "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"))
+    args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries),
+                  "--out", str(tmp_path / "o.json"))
     args.func(args)
     stdout = capsys.readouterr().out
     assert "lexical: no skill was picked for another skill's query" in stdout
@@ -681,8 +692,8 @@ def test_console_warns_when_the_lexical_arm_cannot_score_any_query_of_a_skill(tm
     _catalog_skill(root, "fft", "fast transforms")
     _catalog_skill(root, "gold", "something unrelated entirely")
     queries = _write_queries(tmp_path, {"gold": ["the of and", "a an the"]})
-    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
-                  "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"))
+    args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries),
+                  "--out", str(tmp_path / "o.json"))
     args.func(args)
     err = capsys.readouterr().err
     assert "the lexical arm cannot score any query of gold" in err
@@ -703,8 +714,8 @@ def _run_console(tmp_path, capsys, skills, queries_by_skill):
     for name, description in skills.items():
         _catalog_skill(root, name, description)
     queries = _write_queries(tmp_path, queries_by_skill)
-    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
-                  "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"))
+    args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries),
+                  "--out", str(tmp_path / "o.json"))
     args.func(args)
     return capsys.readouterr().out
 
@@ -794,9 +805,8 @@ def test_the_failed_call_count_is_over_the_calls_sent_not_every_query(
     _catalog_skill(root, "perf", "profile a slow binary with perf")
     _catalog_skill(root, "db", "tune a slow database query")
     queries = _write_queries(tmp_path, {"db": ["add an index", "the of and"]})
-    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
-                  "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"),
-                  "--model", "m")
+    args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries),
+                  "--out", str(tmp_path / "o.json"), "--model", "m")
     with pytest.raises(SystemExit, match="^1 of 1 model call"):
         args.func(args)
     assert "makes 1 model calls" in capsys.readouterr().err
@@ -824,9 +834,8 @@ def test_the_seed_on_the_command_line_is_the_seed_the_saved_model_arm_records(
     _cat(root, {"perf": "profile a slow binary", "db": "tune a slow database query"})
     queries = _write_queries(tmp_path, {"perf": ["profile"], "db": ["database"]})
     out = tmp_path / "o.json"
-    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
-                  "--queries-by-skill", str(queries), "--out", str(out), "--model", "m",
-                  "--seed", "5")
+    args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries),
+                  "--out", str(out), "--model", "m", "--seed", "5")
     args.func(args)
     model = json.loads(out.read_text(encoding="utf-8"))["result"]["model"]
     assert (model["model"], model["seed"]) == ("m", 5)
@@ -847,9 +856,8 @@ def test_console_prints_the_top_five_attractors_of_each_arm_by_count(
     queries = _write_queries(tmp_path, {"gold": [word for count, word in
                                                  enumerate(words.values(), 1)
                                                  for _ in range(count)]})
-    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
-                  "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"),
-                  "--model", "m")
+    args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries),
+                  "--out", str(tmp_path / "o.json"), "--model", "m")
     args.func(args)
     lines = [line for line in capsys.readouterr().out.splitlines() if "sibling" in line]
     top_five = {"lexical": [("foxtrot", 6), ("echo", 5), ("delta", 4), ("charlie", 3),
@@ -885,9 +893,9 @@ def test_all_vs_all_announces_every_call_it_makes_with_repeats(tmp_path, capsys,
     root = tmp_path / "catalog"
     _cat(root, {"perf": "profile a slow binary", "db": "tune a slow database query"})
     queries = _write_queries(tmp_path, {"perf": ["profile my slow binary"]})
-    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
-                  "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"),
-                  "--model", "m", "--repeats", "3")
+    args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries),
+                  "--out", str(tmp_path / "o.json"), "--model", "m",
+                  "--reps", "3")
     args.func(args)
     assert "--model makes 3 model calls, one per query and repeat" in capsys.readouterr().err
 
@@ -898,9 +906,9 @@ def test_console_counts_unscored_model_calls_when_repeats_are_set(tmp_path, caps
     root = tmp_path / "catalog"
     _cat(root, {"perf": "profile a slow binary", "db": "tune a slow database query"})
     queries = _write_queries(tmp_path, {"perf": ["the a of"]})
-    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
-                  "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"),
-                  "--model", "m", "--repeats", "3")
+    args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries),
+                  "--out", str(tmp_path / "o.json"), "--model", "m",
+                  "--reps", "3")
     args.func(args)
     assert "model: 0 tied and 3 unscored calls are not counted as picks" in capsys.readouterr().out
 
@@ -924,9 +932,8 @@ def test_a_partial_failure_still_prints_the_cost_of_the_calls_that_ran(tmp_path,
     _catalog_skill(root, "db", "tune a slow database query with an index")
     queries = _write_queries(tmp_path, {"perf": ["profile a slow program"],
                                         "db": ["add an index"]})
-    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
-                  "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"),
-                  "--model", "m")
+    args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries),
+                  "--out", str(tmp_path / "o.json"), "--model", "m")
     with pytest.raises(SystemExit, match="1 of 2 model call.s. failed"):
         args.func(args)
     out = capsys.readouterr().out
@@ -948,9 +955,8 @@ def test_a_clean_all_vs_all_run_still_prints_its_cost_after_the_summary(tmp_path
     _catalog_skill(root, "db", "tune a slow database query with an index")
     queries = _write_queries(tmp_path, {"perf": ["profile a slow program"],
                                         "db": ["add an index"]})
-    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
-                  "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"),
-                  "--model", "m")
+    args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries),
+                  "--out", str(tmp_path / "o.json"), "--model", "m")
     args.func(args)
     lines = capsys.readouterr().out.splitlines()
     saved = next(i for i, line in enumerate(lines) if line.startswith("OK Saved"))
