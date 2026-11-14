@@ -8,6 +8,7 @@ fail: the old file must still be whole and no ``*.tmp`` may remain. A writer tha
 file in place fails the first check, because the new text is already there.
 """
 
+import json
 import os
 from pathlib import Path
 from types import SimpleNamespace
@@ -23,6 +24,7 @@ from dokimi.repos.batch_ledger import write_skill_pin
 from dokimi.repos.replay import authoring, build
 from dokimi.eval.leakgate import lock_split
 from dokimi.commands.repo_run import _pin_batch
+from dokimi.write_probe import can_write
 
 
 @pytest.fixture
@@ -112,3 +114,11 @@ def test_task_json_from_replay_authoring_keeps_the_old_file(tmp_path, failing_re
     path.write_text("OLD\n", encoding="utf-8")
     _assert_failed_write_keeps(path, "OLD\n",
                                lambda: authoring._write(tmp_path, {"id": "t1"}, {}))
+
+
+def test_catalog_probe_writes_a_long_out_name_its_preflight_accepts(tmp_path):
+    out = tmp_path / ("a" * 226 + ".json")
+    partial = out.with_name(out.name + ".partial")
+    assert can_write(tmp_path, child=partial.name)
+    write_probe(partial, {"partial": True, "answers": []})
+    assert json.loads(partial.read_text(encoding="utf-8")) == {"partial": True, "answers": []}
