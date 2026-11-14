@@ -5,9 +5,6 @@
 
 from __future__ import annotations
 
-import contextlib
-import sys
-
 
 def list_cost_usd(model: str, provider: str, prompt_tokens: int,
                   completion_tokens: int) -> float | None:
@@ -20,14 +17,11 @@ def list_cost_usd(model: str, provider: str, prompt_tokens: int,
     from dokimi.llm import _has_price_entry, cost_per_token, resolve_model
 
     litellm_model = resolve_model(model, provider)
-    # litellm prints a "Provider List" help banner to stdout before it raises for a model
-    # it cannot route. ``--estimate-only`` prints JSON on stdout, so keep that out of it.
-    with contextlib.redirect_stdout(sys.stderr):
-        try:
-            prompt, completion = cost_per_token(model=litellm_model, prompt_tokens=prompt_tokens,
-                                                completion_tokens=completion_tokens)
-        except Exception:
-            return None
-        if prompt + completion == 0.0 and not _has_price_entry(litellm_model, model):
-            return None
+    try:
+        prompt, completion = cost_per_token(model=litellm_model, prompt_tokens=prompt_tokens,
+                                            completion_tokens=completion_tokens)
+    except Exception:
+        return None
+    if prompt + completion == 0.0 and not _has_price_entry(litellm_model, model):
+        return None
     return float(prompt + completion)

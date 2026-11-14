@@ -123,3 +123,20 @@ def test_the_judge_writes_only_declared_keys(tmp_path):
     data = json.loads(out.read_text(encoding="utf-8"))
     assert {e["question_id"] for e in data["evaluations"] if e.get("error")} == {"q2"}
     artifact_fixture("eval", data)
+
+
+def test_the_ragas_fixture_has_the_writers_per_question_shape():
+    # ragas_per_question is keyed by question id, one score dict per question (RagasResult.to_dict).
+    from dokimi.eval.ragas_eval import RagasResult
+
+    committed = json.loads((FIXTURES / "ragas.v1.json").read_text(encoding="utf-8"))
+    written = RagasResult(
+        with_docs_scores={"q1": {"faithfulness": 0.9}},
+        without_docs_scores={"q1": {"faithfulness": 0.5}},
+        summary_with_docs={"faithfulness": 0.9},
+        summary_without_docs={"faithfulness": 0.5},
+        n_with=1,
+        n_without=1,
+    ).to_dict()
+    for key in ("ragas_summary", "ragas_n_evaluated", "ragas_per_question"):
+        assert committed[key] == written[key], key

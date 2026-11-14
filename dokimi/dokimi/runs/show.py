@@ -12,7 +12,7 @@ import stat
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from dokimi.artifacts import is_run_id, schema_errors, schema_version_for
+from dokimi.artifacts import is_run_id, schema_errors, schema_version_for, summary_errors
 from dokimi.runs.kinds import VERSION_KINDS, contents
 from dokimi.runs.scan import (
     Artifact,
@@ -144,7 +144,8 @@ def show(root: Path, address: str) -> Shown:
     except (OSError, ValueError, RecursionError) as exc:
         raise InputError(f"{plain(address)}: {read_error_reason(exc)}") from exc
     schema = schema_version_for(kind, data)
-    shown = Shown(artifact=artifact, schema=schema, errors=schema_errors(schema, data),
+    shown = Shown(artifact=artifact, schema=schema,
+                  errors=schema_errors(schema, data) + summary_errors(kind, data),
                   contents=contents(kind, data))
     _siblings(shown, path, os.path.realpath(root))
     return shown

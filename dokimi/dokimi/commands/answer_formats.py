@@ -14,7 +14,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
-from dokimi.utils import InputError
+from dokimi.utils import InputError, read_json_input
 
 
 def cmd_questions_import(args: argparse.Namespace) -> None:
@@ -44,8 +44,11 @@ def cmd_eval_reference(args: argparse.Namespace) -> None:
     from dokimi.eval.reference_run import artifact, score
     from dokimi.questions.artifact import load_questions
 
-    data = json.loads(Path(args.answers).read_text(encoding="utf-8"))
-    questions = load_questions(args.questions).artifact.get("questions") or []
+    data = read_json_input(args.answers, flag="--answers")
+    try:
+        questions = load_questions(args.questions, flag="--questions").artifact.get("questions") or []
+    except ValueError as e:  # ArtifactValidationError: names the record and the fix
+        raise InputError(str(e)) from e
     if not args.no_judge:
         from dokimi.utils import warn_recorded_self_judge
 

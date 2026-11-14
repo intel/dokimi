@@ -35,12 +35,12 @@ If the artifact is never picked, content work is unrecoverable spend. Write 5–
 **in the words a user would use**, in a file, without looking at the skill's own headings:
 
 ```bash
-python cli.py novelty routing --artifact skill:skills/my-skill \
-    --catalog skills/ \
+python cli.py skill routing skill:skills/my-skill \
+    --against skills/ \
     --queries queries.json
 ```
 
-The competitors are the skills a harness lists next to this one: `--catalog <dir>` takes
+The competitors are the skills a harness lists next to this one: `--against <dir>` takes
 every other skill the catalog lists (a `template/` copy and vendored or VCS directories
 such as `.git` are left out, and a byte-identical copy under another path counts once), and
 `--competitors` adds or names them one by one. With no real siblings at hand, skip this step and say so; a field of
@@ -77,9 +77,8 @@ follows the artifact's length and the models. Pass `--max-usd <n>` to every step
 model: the run stops once its calls across all roles have cost that much (calls already in
 flight can overshoot it), and a call with no known price stops it too,
 since the cap cannot see that spend. A step that stops at the cap writes nothing, except
-`atoms`, `probe` and `novelty routing`, which save the calls they made as a `partial` result (see
-the list below and
-[skill-novelty.md](skill-novelty.md)). One measured pair, a 19k-token skill: triage 103 calls,
+`atoms`, `probe`, `skill routing --model` and `catalog routing --model`, which save the calls they made as a `partial` result (see
+the list below and [skill-novelty.md](skill-novelty.md)). One measured pair, a 19k-token skill: triage 103 calls,
 about $1.80; `study` 1,901 calls, about $14.50.
 
 What a stopped run leaves behind depends on the step:
@@ -104,7 +103,12 @@ What a stopped run leaves behind depends on the step:
 - `analyze` keeps nothing. If the measurement is cut short, it stops before its classify and
   attribution stages, writes no artifact, and reports how many probe answers were not run.
   Raise `--max-usd`, or measure less (a cheaper `--tier` or a lower `--max-atoms`).
-- `shorten` also loses its work at the cap.
+- `shorten` writes no candidate table and no `--out` file. Its retention verdicts are stored in
+  `--cache-dir` as each is adjudicated, and the exit message says how many: rerun with a higher
+  `--max-usd` (with no `--max-usd` when the stop is a model with no known price) and the same
+  `--cache-dir` to replay them at $0. Without `--cache-dir` they are lost, unless
+  `DOKIMI_RESPONSE_CACHE` is set to a writable directory: then the message says the paid calls
+  are in the response cache and a rerun replays them at $0.
 
 ## 3. Triage: is there anything in here? (~100 calls)
 

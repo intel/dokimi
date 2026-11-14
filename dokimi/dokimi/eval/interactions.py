@@ -35,7 +35,6 @@ from dokimi.eval.stats import (
     _deltas,
     _describe_deltas,
     _finalize,
-    _refuse_overflow,
 )
 from dokimi.treatments.specs import split_combined_name
 
@@ -103,7 +102,8 @@ def _interaction_contrast(
         if not math.isfinite(contrast):
             # a step of the sum may overflow while the contrast fits: redo it on quarters (exact powers of two)
             contrast = 4 * (ab / 4 - a / 4 - b / 4 + base / 4)
-        _refuse_overflow([contrast], row, "a contrast of the four scores leaves the float range")
+        if not math.isfinite(contrast) and all(math.isfinite(x) for x in row):
+            raise OverflowError("deltas too large: a contrast of the four scores leaves the float range")
         contrasts.append(contrast)
     res = _describe_deltas(contrasts, confidence=confidence, seed=seed)
     delta_a = _arm_delta(diffs_a, confidence, seed)

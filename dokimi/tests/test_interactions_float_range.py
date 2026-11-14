@@ -45,7 +45,7 @@ def test_a_contrast_beyond_the_float_range_raises_instead_of_an_inf_delta():
 )
 def test_an_arm_delta_beyond_the_float_range_raises_while_the_contrast_is_finite(ab, a, b, base):
     evaluations = [_ev("q1", ab, a, b, base), _ev("q2", 0.0, 0.0, 0.0, 0.0)]
-    with pytest.raises(OverflowError, match="a difference of the paired values leaves the float range"):
+    with pytest.raises(OverflowError, match="the difference of .* and .* leaves the float range"):
         _test(evaluations)
 
 

@@ -320,8 +320,7 @@ def _unread_at_cap(stop: SpendCapReached, batch: list[Span], parse: Callable[[st
 
 def _stop_at_cap(spans: list[Span], batch: list[Span], pending: list, report: ExtractionReport,
                  stop: SpendCapReached) -> None:
-    """The cap ends extraction: ``batch`` and the batches queued behind it go unread, and the
-    atoms read so far stand (the caller saves them as a partial result)."""
+    """The cap ends extraction: ``batch`` and those queued go unread; the atoms read stand."""
     report.pre_cap = (len(report.unread_span_ids), report.unread_tokens)
     for rest in [batch, *(queued for queued, _is_half in pending)]:
         _mark_unread(rest, report)
@@ -331,7 +330,8 @@ def _stop_at_cap(spans: list[Span], batch: list[Span], pending: list, report: Ex
                if stop.reason == "spend_cap" else
                f"extraction stopped with {read} of {len(spans)} spans read: {stop}")
     report.partial = {"reason": stop.reason, "stage": "extraction", "spans_read": read,
-                      "spans_total": len(spans), "message": message}
+                      "spans_total": len(spans), "message": message,
+                      **({"cause": str(stop)} if stop.reason == "spend_cap" else {})}
 
 
 def _keep_atoms(rows: list, valid_ids: set[str], seen: set[str], atoms: list[Atom]) -> None:
@@ -779,13 +779,13 @@ def _check_bundle_shape(bundle) -> None:
 def load_atoms_record(path) -> tuple[list[Atom], list[Span], dict]:
     """The atoms, the spans and the parsed record of an atoms file: the one entry point to read it.
 
-    Raises :class:`~dokimi.utils.InputError` naming the file when it cannot be read, is not
-    JSON or UTF-8, or is not an atom set, including a ``bundle`` whose fields do not have the
-    types its readers use.
+    Raises :class:`~dokimi.utils.InputError` naming the file when it cannot be read, is not JSON,
+    UTF-8 or an atom set (a ``bundle`` with mistyped fields included), or is marked partial.
     """
     data = read_json_input(path)
-    if isinstance(data, dict) and "partial" in data:
-        partial = data["partial"] if isinstance(data["partial"], dict) else {}
+    if isinstance(data, dict) and ("partial" in data or data.get("status") == "partial"):
+        if not isinstance(partial := data.get("partial"), dict) or not partial:  # no run writes this
+            raise InputError(f"{path} is marked partial with no `partial` block: truncated or hand-edited")
         if partial.get("reason") == "no_price":  # a call with no price: a higher cap will not help
             raise InputError(f"{path} is a partial atoms file: {partial.get('message', '')}, so "
                              "it is not a finished atom set. Drop --max-usd to run unmetered")

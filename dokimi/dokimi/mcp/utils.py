@@ -3,9 +3,16 @@
 
 """Shared utilities for MCP doc-source clients."""
 
+import contextlib
+import logging
+import os
 import re
+import threading
 from html.parser import HTMLParser
-from typing import List
+from pathlib import Path
+from typing import List, Optional
+
+logger = logging.getLogger(__name__)
 
 
 class _TextExtractor(HTMLParser):
@@ -65,3 +72,38 @@ def split_paragraphs(text: str, min_len: int = 80) -> List[str]:
     """Split text on blank lines; discard very short chunks."""
     chunks = re.split(r"\n{2,}|\r\n{2,}", text)
     return [c.strip() for c in chunks if len(c.strip()) >= min_len]
+
+
+def read_cache_text(path: Path) -> Optional[str]:
+    """Text of the cache entry at *path*, or ``None`` for a miss.
+
+    An entry that cannot be read (not UTF-8, a directory, no permission) is a miss too, with a
+    warning that names it, so the caller fetches again and overwrites it.
+    """
+    try:
+        return path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return None
+    except (OSError, UnicodeDecodeError) as exc:
+        logger.warning("Ignoring unreadable cache entry %s (%s); fetching again", path, exc)
+        return None
+
+
+def write_cache_text(path: Path, text: str) -> bool:
+    """Store a cache entry; a reader never sees half of it. Returns whether it was stored.
+
+    A failed write is a warning, not an error: the caller already has what it fetched.
+
+    The tmp name is per process and thread, so concurrent writers of one entry do not share it.
+    """
+    # Move to dokimi.atomic_write once https://github.com/intel/dokimi/pull/697 is on main.
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+    try:
+        tmp.write_text(text, encoding="utf-8")
+        os.replace(tmp, path)
+    except OSError as exc:
+        with contextlib.suppress(OSError):  # a directory refusing the write may refuse this too
+            tmp.unlink(missing_ok=True)
+        logger.warning("Could not write cache entry %s: %s", path, exc)
+        return False
+    return True
