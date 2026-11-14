@@ -729,11 +729,14 @@ others are named on stderr.
 
 `--estimate-only` prints, as JSON, the calls, input and output tokens and the list-price `expected_usd` the
 `--model` arm would make, and makes no model call. Without `--model` the run is lexical and the bill
-is zero. Input is the selection prompt sized at chars / 4, so it is a projection, not a count.
-Output is `output_tokens_per_call` (65) times the calls: the average a measured routing run billed per
-selection call (360 calls drew 23.3k output tokens). The prompt asks for one `{"pick": N}` object, about
-10 tokens, which underestimated that run 6.5 times, so the estimate does not use it. Another model, or a
-reasoning model, can bill more or less.
+is zero. Input is the selection prompt sized at `chars_per_input_token` (2.6) characters per token, counted
+locally with no tokenizer, so it is a projection, not a count. Output is `output_tokens_per_call` (150) times
+the calls: one flat allowance, inside the 114 to 193 tokens a call that Sonnet 5.5 and Haiku 5.5 billed.
+The prompt asks for one `{"pick": N}` object, about 10 tokens, which underestimated a measured run 6.5
+times, so the estimate does not use it. Both allowances come from one measured catalog (35 skills, 90
+queries, Bedrock): with chars / 4 and 65 tokens the estimate was about 1.55x below the bills there. Another
+model, a catalog of other text, or a reasoning model can bill more or less, so read the figure as an
+estimate, not a bound. The command prints both allowances.
 
 Two numbers, reported side by side and never merged:
 
@@ -801,7 +804,7 @@ with any failed model call writes the result and exits non-zero. The saved file 
 field rule under `field` (`include_disabled`, `include_invalid`, `keep_copies_under`, the `competitors` and what was
 `left_out`, which also names each skill left out for a conflicting name or a spec error, and `spec_warnings`, one
 `{skill, length, limit, message}` per kept skill whose description is over 1024 characters); a single-artifact run
-records it too. An all-vs-all run also lists in `field.dropped_queries` each skill whose queries it dropped, as
+records it too. An all-vs-all result also records `shared_queries` (`{shared, total}`: how many of the queries with a content word are listed for more than one skill), so a file saved from a run on shared queries says so. An all-vs-all run also lists in `field.dropped_queries` each skill whose queries it dropped, as
 `{skill, reasons, keep_flags, queries}`, one record per skill, with each reason `disabled`, `invalid` or `conflict`. A query for a catalog skill
 that failed to load refuses the run and names the load error. It refuses `--artifact`, `--queries` and `--queries-from-headings`: it takes `--queries-by-skill` only. `--estimate-only` prints the calls and the
 list-price cost of the whole run as JSON, in the shape of a single-artifact estimate, with no client built and
@@ -824,11 +827,13 @@ so count the queries first, or pass `--max-usd` to stop the run at a spend limit
 A stored response in `DOKIMI_RESPONSE_CACHE` is replayed without a call, so a rerun can make
 fewer calls than the printed count.
 
+**A permanent provider error that every call would meet stops a routing run the way the cap does.** An authentication or permission error, an unknown model ID (`not found`), a parameter the provider does not take (every call sends the same ones) or missing credentials (with `claude-cli`: not logged in, a usage limit, no `claude` binary) would fail every later call alike, so the run stops at that call, keeps the rows made before it and writes the partial result below, with `"reason": "permanent_error"` and the error text as the message (`--max-usd` is not involved; the exit line gives `calls_done` of `calls_planned`). Any other failure is one failed row and the run goes on: a refusal, a request one query makes too long, an unparseable reply, an error the client does not recognise, a transient error that ran out of retries.
+
 **A routing run stopped by `--max-usd` keeps what it paid for.** `skill routing --model`, single
 artifact or `catalog routing`, writes the result of the calls made before the cap (or a call with no
 known price) stopped it, prints the summary and `cost` lines, and still exits non-zero with the
 cap message and the path of the file. The file carries
-`"partial": {"reason": "spend_cap", "calls_done": N, "calls_planned": M, "message": ...}` at the
+`"partial": {"reason": "spend_cap", "calls_done": N, "calls_planned": M, "message": ...}` (`"permanent_error"` for the stop above) at the
 top level (and under the model arm), and no `partial` key when the run finished. The record's
 `status` is then `"partial"` instead of `"ok"` (a single run; an all-vs-all file carries `status`
 only when partial), so a script that checks `status == "ok"` does not take a prefix of the run for
@@ -850,15 +855,16 @@ between repeats keeps its picks but is left out of `noise`. The lexical arm is c
 Treat a `partial` file as a prefix of the run, not a measurement of the whole field: the skills
 and queries reached first are over-represented. To finish, raise `--max-usd` and rerun with
 `DOKIMI_RESPONSE_CACHE` set (it must also have been set on the capped run), which replays the
-calls already paid for at no cost. `skill shorten` still writes nothing when the cap stops it;
-`atoms`, `probe` and `analyze` keep the calls they made as a partial result.
+calls already paid for at no cost. `skill shorten` still writes nothing when the cap stops it
+(it keeps its verdicts in `--cache-dir`, below); `atoms`, `probe` and `analyze` keep the calls they made as a partial result.
 
 Three properties worth knowing before quoting either:
 
 - **Competitors are mandatory.** The existing `skill-agent:` arm offers one skill, which
   makes selection a binary did-it-load question. The real failure is picking the wrong
-  *sibling*: measured lexically over the 33-skill corpus, every `dpnp-*` skill scored
-  **0.0** recall@1 against its siblings.
+  *sibling*. Siblings built from one template have identical heading queries, so heading-query
+  recall@1 at the family level measures the template; check sibling confusion with queries
+  written independently of the skills.
 - **The queries must come from outside the artifact**, or it defines both the problem scope
   and its own relevance. `--queries-from-headings` exists for triage, warns, and stamps
   `queries_self_derived: true` into the result; corpus-wide those self-derived queries gave
@@ -1154,7 +1160,11 @@ with `status: "partial"` but no `partial` block is refused too, and so is saving
 chosen, as a finished record does, and every extracted atom for a stop in extraction (`atoms.sampling`
 is then `none`, and `run_config` holds the settings of the run but not its tier). A library caller of
 `dokimi.novelty.analyze()` checks `result.partial` before it saves `result.artifact`.
-`shorten` still loses its work at the cap (a follow-up). Before its first paid
+`shorten` writes no candidate table and
+no `--out` file at the cap (a table scored on part of the verdicts would read as a result), but each
+retention verdict is stored in `--cache-dir` the moment it is adjudicated: the exit message names how many verdicts are stored (or, without `--cache-dir`, were adjudicated) and,
+with `--cache-dir`, that a rerun with a higher `--max-usd` and the same `--cache-dir` replays them at $0; without it, that
+`--cache-dir <dir>` would have kept them, or, with `DOKIMI_RESPONSE_CACHE` set to a writable directory, that the paid calls are in the response cache and a rerun replays them at $0. After a `no_price` stop (a model with no known price) the call that came back was paid for but its verdict is not stored, and the message says so. Before its first paid
 call `analyze` prints the run's expected cost at list prices to stderr.
 
 The estimate payload has `expected_calls`, the point figure between

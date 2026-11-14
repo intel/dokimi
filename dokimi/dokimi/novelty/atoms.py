@@ -779,13 +779,13 @@ def _check_bundle_shape(bundle) -> None:
 def load_atoms_record(path) -> tuple[list[Atom], list[Span], dict]:
     """The atoms, the spans and the parsed record of an atoms file: the one entry point to read it.
 
-    Raises :class:`~dokimi.utils.InputError` naming the file when it cannot be read, is not
-    JSON or UTF-8, or is not an atom set, including a ``bundle`` whose fields do not have the
-    types its readers use.
+    Raises :class:`~dokimi.utils.InputError` naming the file when it cannot be read, is not JSON,
+    UTF-8 or an atom set (a ``bundle`` with mistyped fields included), or is marked partial.
     """
     data = read_json_input(path)
-    if isinstance(data, dict) and "partial" in data:
-        partial = data["partial"] if isinstance(data["partial"], dict) else {}
+    if isinstance(data, dict) and ("partial" in data or data.get("status") == "partial"):
+        if not isinstance(partial := data.get("partial"), dict) or not partial:  # no run writes this
+            raise InputError(f"{path} is marked partial with no `partial` block: truncated or hand-edited")
         if partial.get("reason") == "no_price":  # a call with no price: a higher cap will not help
             raise InputError(f"{path} is a partial atoms file: {partial.get('message', '')}, so "
                              "it is not a finished atom set. Drop --max-usd to run unmetered")

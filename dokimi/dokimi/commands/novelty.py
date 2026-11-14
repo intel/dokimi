@@ -453,13 +453,13 @@ def _refuse_no_queries(args: argparse.Namespace, queries: list[str], self_derive
 
 def cmd_novelty_shorten(args: argparse.Namespace) -> None:
     """Score shortening candidates on the five axes and optionally write the best one."""
-    from dokimi.novelty import cost
-    from dokimi.commands.novelty_atoms_file import measured_atoms, no_candidate_line, warn_unread
+    from dokimi.commands.novelty_atoms_file import (
+        measured_atoms, no_candidate_line, score_candidates, warn_unread)
     from dokimi.novelty.artifact import load_artifact_ref
     from dokimi.novelty.atoms import load_atoms_record
     from dokimi.novelty.bundle import entry_point_only
-    from dokimi.novelty.retention import RetentionOracle, error_warning
-    from dokimi.novelty.shorten import build_candidates, pick_best
+    from dokimi.novelty.retention import error_warning
+    from dokimi.novelty.shorten import pick_best
 
     atoms, spans, saved = load_atoms_record(args.atoms)
     _kind, _name, _description, frontmatter, _body = load_artifact_ref(args.artifact)
@@ -471,13 +471,7 @@ def cmd_novelty_shorten(args: argparse.Namespace) -> None:
         print(note, file=sys.stderr)
     warn_unread(spans, "every candidate keeps them, since what they carry is unknown")
     scored = measured_atoms(args, atoms, saved, "shorten")
-    client = cost.client(args.extract_model or args.model, args.provider, "oracle", args) \
-        if not args.lexical_only else None
-    oracle = RetentionOracle(
-        client=client, cache_dir=Path(args.cache_dir) if args.cache_dir else None
-    )
-    candidates = build_candidates(spans, atoms, oracle=oracle, budgets=tuple(args.budgets),
-                                  seed=args.seed, scored_atoms=scored)
+    candidates, oracle = score_candidates(args, spans, atoms, scored)
     oracle_warning = error_warning(oracle)
     if oracle_warning:
         print(f"WARNING {oracle_warning}", file=sys.stderr)

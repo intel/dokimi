@@ -93,9 +93,10 @@ class TestContext7Client:
         """Test context retrieval with caching."""
         cache_dir = tmp_path / "cache"
         
-        # Mock HTTP response
+        # Mock HTTP response, long enough not to be an error stub
+        content = "Cached content about parallel_for. " * 4
         mock_response = Mock()
-        mock_response.text = "Cached content"
+        mock_response.text = content
         mock_get.return_value = mock_response
         
         client = Context7Client(cache_dir=cache_dir)
@@ -108,7 +109,7 @@ class TestContext7Client:
         # Second call - should use cache
         docs2 = client.get_library_docs("uxlfoundation/oneTBB", "test_query", max_tokens=500)
         assert docs2[0]["cached"]
-        assert docs2[0]["content"] == "Cached content"
+        assert docs2[0]["content"] == content
         assert mock_get.call_count == 1  # No additional HTTP call
     
     @patch('httpx.get')

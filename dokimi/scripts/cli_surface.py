@@ -263,6 +263,11 @@ def render(lines: list[str], *, markdown: bool) -> str:
     return f"CLI interface change detected:\n{body}\n"
 
 
+def _param_line(p: dict[str, Any]) -> str:
+    # sort_keys reaches nested dicts too: a dict default must not keep set or insertion order
+    return json.dumps({"key": p["key"], **json.loads(json.dumps(p, sort_keys=True))})
+
+
 def render_json(node: dict[str, Any], indent: str = "") -> str:
     """The dump as committed: the command tree indented, each parameter on one line.
 
@@ -276,7 +281,7 @@ def render_json(node: dict[str, Any], indent: str = "") -> str:
     for k in keys:
         v = node[k]
         if k == "params":
-            body = ",\n".join(inner + "  " + json.dumps({"key": p["key"], **dict(sorted(p.items()))}) for p in v)
+            body = ",\n".join(inner + "  " + _param_line(p) for p in v)
             text = f"[\n{body}\n{inner}]" if v else "[]"
         elif k == "subcommands":
             body = ",\n".join(f"{inner}  {json.dumps(name)}: {render_json(sub, inner + '  ')}"

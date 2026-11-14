@@ -82,6 +82,10 @@ jobs:
       - name: File length and complexity report
         if: ${{ !cancelled() }}
         run: python scripts/check_growth.py --report --markdown >> "$GITHUB_STEP_SUMMARY"
+      # No new copy-pasted block past scripts/duplicates_baseline.json; stdlib only.
+      - name: Duplicate code ratchet
+        if: ${{ !cancelled() }}
+        run: python scripts/check_duplicates.py
       - name: guidance self-scan (L0)
         if: ${{ !cancelled() }}
         run: python cli.py repo scan .. --manifest-file benchmarks/self-scan.repo-eval.yaml --fail-on-fail
