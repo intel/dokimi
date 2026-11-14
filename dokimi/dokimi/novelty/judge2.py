@@ -22,8 +22,8 @@ DEFAULT_FRAC = 0.15
 
 
 def check_judge2(judge2: LLMClient, answerer: LLMClient, frac: float, allow_self_judge: bool,
-                 judge: LLMClient | None = None) -> None:
-    """Refuse a second judge that is the answering model or the first judge, or a fraction outside (0, 1].
+                 judge: LLMClient | None = None, panel: tuple[LLMClient, ...] = ()) -> None:
+    """Refuse a second judge that is the answering model, the first judge or a panel judge, or a fraction outside (0, 1].
 
     The model test is the repo's model-identity rule (``same_client``, which reads
     ``same_model``): an alias, an equivalent API id and a Bedrock id of one model are one model.
@@ -43,11 +43,12 @@ def check_judge2(judge2: LLMClient, answerer: LLMClient, frac: float, allow_self
             f"--judge2 {judge2.model!r} is the answering model; grading a response with the "
             "model that produced it inflates the score. Pass another --judge2, or "
             "--allow-self-judge to do it deliberately.")
-    if judge is not None and same_client(judge2, judge):
-        raise InputError(
-            f"--judge2 {judge2.model!r} is the same model as the first judge {judge.model!r}; "
-            "its agreement with that judge is not an independent second opinion. Pass another "
-            "--judge2, or --allow-self-judge to do it deliberately.")
+    for role, member in (("first judge", judge), *(("panel judge", m) for m in panel)):
+        if member is not None and same_client(judge2, member):
+            raise InputError(
+                f"--judge2 {judge2.model!r} is the same model as the {role} {member.model!r}; "
+                "its agreement with that judge is not an independent second opinion. Pass another "
+                "--judge2, or --allow-self-judge to do it deliberately.")
 
 
 def cohen_kappa(a: list[bool], b: list[bool]) -> float | None:

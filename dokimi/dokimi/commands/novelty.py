@@ -18,8 +18,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING, NoReturn
 
 from dokimi.commands.inputs import placebo_text_for_arms_or_exit
-from dokimi.commands.novelty_run import (add_judge2_args, add_spend_cap, judge2_client,
-                                         exit_if_analyze_partial, stamp)
+from dokimi.commands.novelty_run import (add_judge2_args, add_panel_args, add_spend_cap,
+                                         attach_panel, exit_if_analyze_partial,
+                                         judge2_client, panel_clients, save_panel_verdicts, stamp)
 from dokimi.commands.novelty_routing_inputs import (
     checked_out_path,
     load_all_vs_all_field,
@@ -113,7 +114,8 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
 
     placebo_text = placebo_text_for_arms_or_exit(args.placebo_text, _arms(args.arms))
     extractor, answerer, judge = cost.clients(args)
-    judge2 = judge2_client(args, answerer, judge, cost.client)
+    panel = panel_clients(args, cost.client)
+    judge2 = judge2_client(args, answerer, judge, cost.client, panel)
     config = AnalyzeConfig(
         artifact_ref=args.artifact,
         artifact_kind=artifact_bundle.kind,
@@ -134,7 +136,8 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
     try:
         result = analyze(artifact_bundle.text, config,
                          extractor=extractor, answerer=answerer, judge=judge,
-                         artifact_bundle=artifact_bundle)
+                         artifact_bundle=artifact_bundle,
+                         panel=panel, aggregate=args.judge_aggregate)
     except SelfJudgeError as exc:  # the judge is the answering model: the flags contradict
         raise InputError(str(exc)) from exc
     except (ExtractionError, ValueError) as exc:  # a model failure under way
@@ -144,6 +147,7 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
     exit_if_analyze_partial(result, out_json)  # a run the cap stopped keeps what it paid for
     stamp(result.artifact, args, result.measure_result, answerer=answerer, judge=judge, judge2=judge2)
     save_artifact("novelty", result.artifact, out_json)
+    verdicts_path = save_panel_verdicts(result, out_json)
     out_md = out_json.with_suffix(".md")
     out_md.write_text(render_novelty_markdown(result.artifact), encoding="utf-8")
     title = f"{artifact_bundle.name or args.artifact} × {answerer.model}"
@@ -155,6 +159,8 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
     print(f"OK Saved novelty artifact: {out_json}")
     print(f"OK Saved novelty report:   {out_md}")
     print(f"OK Saved annotated view:   {view_path}")
+    if verdicts_path:
+        print(f"OK Saved judge verdicts:   {verdicts_path}")
     _print_headline(result.artifact)
 
 
@@ -216,10 +222,12 @@ def cmd_novelty_probe(args: argparse.Namespace) -> None:
     settings = _settings(args)
     placebo_text = placebo_text_for_arms_or_exit(args.placebo_text, _arms(args.arms))
     extractor, answerer, judge = cost.clients(args)
+    panel = panel_clients(args, cost.client)
     warn_answer_key(saved, answerer, judge)
     try:  # before the paraphrase calls below, which are paid
-        check_self_judge(judge, answerer, args.allow_self_judge)
-        judge2 = judge2_client(args, answerer, judge, cost.client)
+        for member in (judge, *panel):
+            check_self_judge(member, answerer, args.allow_self_judge)
+        judge2 = judge2_client(args, answerer, judge, cost.client, panel)
     except SelfJudgeError as exc:
         raise InputError(str(exc)) from exc
     paraphrases, reversals = settings.values["paraphrases"], settings.values["reversals"]
@@ -239,6 +247,7 @@ def cmd_novelty_probe(args: argparse.Namespace) -> None:
             arms=_arms(args.arms), concurrency=args.concurrency,
             allow_self_judge=args.allow_self_judge, seed=args.seed,
             placebo_text=placebo_text, framing=args.context_framing,
+            panel=panel, aggregate=args.judge_aggregate,
         )
     except ValueError as exc:  # a model failure under way
         raise SystemExit(str(exc)) from None
@@ -249,6 +258,7 @@ def cmd_novelty_probe(args: argparse.Namespace) -> None:
         probe_set=probe_set, measure_result=result,
         sampling=sampling_record(args, atoms, saved), framing=args.context_framing,
     )
+    attach_panel(payload, result, args.judge_aggregate)
     stamp(payload, args, result, answerer=answerer, judge=judge, judge2=judge2)
     out = Path(args.out) if args.out else _default_dir(args.artifact) / "probes.json"
     # A run the cap stopped keeps the answers it paid for, as a partial result (and exits).
@@ -640,6 +650,7 @@ def _add_model_args(parser: argparse.ArgumentParser, positive_int) -> None:
                         help="Provider for the judge. Without --judge-model, the default judge "
                              "that runs on this provider; if none does, the run exits asking "
                              "for --judge-model")
+    add_panel_args(parser)
     parser.add_argument("--extract-model", default=None, dest="extract_model",
                         help="Extractor/adjudicator model (defaults to --judge-model, so the "
                              "answering model never writes its own answer key)")

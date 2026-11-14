@@ -176,6 +176,7 @@ def run_estimate(args: argparse.Namespace, settings, text: str, estimate_usd) ->
     ``estimate_usd`` is the command's pricing (``dokimi.novelty.cost.estimate_usd``), looked up
     by the caller at call time, so a test that patches ``cost.estimate_usd`` takes effect.
     """
+    from dokimi.novelty import cost
     from dokimi.novelty.measure import parse_arms
     from dokimi.novelty.spans import segment
     from dokimi.utils import InputError
@@ -194,6 +195,7 @@ def run_estimate(args: argparse.Namespace, settings, text: str, estimate_usd) ->
         args, n_tokens, estimate["estimate"]["by_role"], settings.tier,
         context_share=(n_arms - 1 - ("no_artifact_repeat" in args.arms)) / n_arms,
     )
+    cost.add_panel_calls(args, estimate["estimate"])  # after the price, which counts each judge itself
     return estimate, n_tokens
 
 

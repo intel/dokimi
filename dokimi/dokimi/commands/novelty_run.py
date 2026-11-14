@@ -11,6 +11,7 @@ import argparse
 import functools
 import math
 import sys
+from pathlib import Path
 
 
 def stops_at_cap(command):
@@ -69,14 +70,14 @@ def add_judge2_args(parser: argparse.ArgumentParser, providers) -> None:
                         help="Provider for --judge2 (default: the judge's provider)")
 
 
-def judge2_client(args: argparse.Namespace, answerer, judge, make_client):
-    """The ``--judge2`` client, checked against the answerer before any paid call; ``None`` without it."""
+def judge2_client(args: argparse.Namespace, answerer, judge, make_client, panel=()):
+    """The ``--judge2`` client, checked against the answerer and every panel judge before any paid call; ``None`` without it."""
     from dokimi.novelty.judge2 import check_judge2
 
     if not getattr(args, "judge2", None):
         return None
     client = make_client(args.judge2, args.judge2_provider or judge.provider, "judge2", args)
-    check_judge2(client, answerer, args.judge2_frac, args.allow_self_judge, judge)
+    check_judge2(client, answerer, args.judge2_frac, args.allow_self_judge, judge, panel)
     return client
 
 
@@ -105,3 +106,57 @@ def stamp(payload: dict, args: argparse.Namespace, measure_result, *, answerer, 
             payload["judge2"] = {"model": judge2.model, "stopped": str(exc)}
             print(f"WARNING second judge stopped: {exc}", file=sys.stderr)
         payload["judge2"]["cost"] = judge2.cost_summary()
+
+
+def add_panel_args(parser: argparse.ArgumentParser) -> None:
+    """``--judge`` (repeated, it is a panel) and ``--judge-aggregate``."""
+    parser.add_argument("--judge", action="append", default=None, dest="judges",
+                        metavar="PROVIDER/MODEL",
+                        help="A judge, as PROVIDER/MODEL; repeated, it is a panel: every judge "
+                             "grades every answer and --judge-aggregate decides. Pick judges "
+                             "from different vendors (docs/judge-panel-study.md: three from "
+                             "three families cut the judge spread by a third). Replaces "
+                             "--judge-model/--judge-provider; the first judge is the default "
+                             "extractor")
+    parser.add_argument("--judge-aggregate", default="median", dest="judge_aggregate",
+                        choices=("median", "majority", "unanimous"),
+                        help="How a panel's verdicts become one: median of the verdict scale "
+                             "(default), lenient majority, or unanimous (conservative; moved "
+                             "the study's headline by up to 0.20)")
+
+
+def panel_clients(args: argparse.Namespace, make_client) -> tuple:
+    """Clients for the judges after the first ``--judge`` (the first is the judge client)."""
+    from dokimi.novelty.cost import judge_refs
+    from dokimi.utils import InputError
+
+    try:
+        refs = judge_refs(args)
+    except ValueError as exc:
+        raise InputError(str(exc)) from exc
+    return tuple(make_client(model, provider, "judge", args) for model, provider in refs[1:])
+
+
+def attach_panel(payload: dict, result, aggregate: str) -> None:
+    """Add the ``judge_panel`` block to a written record and print its warnings."""
+    from dokimi.novelty.panel_record import panel_record
+    from dokimi.novelty.panel import panel_warnings
+
+    judge_panel = panel_record(result, aggregate)
+    if judge_panel:
+        payload["judge_panel"] = judge_panel
+        for note in panel_warnings(judge_panel):
+            print(f"WARNING: {note}", file=sys.stderr)
+
+
+def save_panel_verdicts(result, out: Path) -> Path | None:
+    """Write each judge's verdict on every answer beside ``out``, so a panel run can be audited or
+    re-aggregated without grading again; ``None`` for a single-judge run."""
+    import json
+
+    runs = [run.as_dict() for run in result.measure_result.runs if run.judge_verdicts]
+    if not runs:
+        return None
+    dest = out.with_name(f"{out.stem}.judge_verdicts.json")
+    dest.write_text(json.dumps(runs, indent=2), encoding="utf-8")
+    return dest

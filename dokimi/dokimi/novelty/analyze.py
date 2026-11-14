@@ -24,9 +24,11 @@ from . import atoms as atoms_mod
 from . import attribute, bundle as bundle_mod
 from . import classify, items as items_mod
 from . import measure, needs, probes, provenance, report, retention, shorten, spans
+from . import panel as panel_mod
+from . import panel_record as panel_record_mod
 from .artifact import load_artifact_text  # noqa: F401  (public path: novelty.analyze)
 from .analyze_partial import Progress, stopped_record
-from .client import LLMClient, SpendCapReached, roll_up_cost, same_client, warn_extractor_judge
+from .client import LLMClient, SpendCapReached, roll_up_cost, warn_extractor_judge
 from .retention import RetentionOracle
 from .tiers import DEFAULT_SETTINGS, RunSettings
 
@@ -176,6 +178,8 @@ def analyze(
     ref_digest: str | None = None,
     artifact_bundle: "bundle_mod.Bundle | None" = None,
     tier: dict | None = None,
+    panel: tuple[LLMClient, ...] = (),
+    aggregate: str = "median",
 ) -> AnalyzeResult:
     """Run the full pipeline over one artifact's text.
 
@@ -203,19 +207,21 @@ def analyze(
             per-file provenance: every span, atom and outcome can then be traced to the
             file it came from, which is the cut an author needs to decide what belongs in
             the body. Without it the run is entry-point-only and says so.
+        panel: More judges besides ``judge`` (see :func:`measure.run_measurement`).
+        aggregate: The panel's rule for one verdict per answer.
     """
     progress = Progress()
     try:
         return _analyze(text, config, extractor=extractor, answerer=answerer, judge=judge,
                         ref_digest=ref_digest, artifact_bundle=artifact_bundle, tier=tier,
-                        progress=progress)
+                        progress=progress, panel=panel, aggregate=aggregate)
     except SpendCapReached as stop:
         if ref_digest is None and artifact_bundle is not None:
             ref_digest = artifact_bundle.measured_digest()
         record = stopped_record(
             progress, stop, artifact_kind=config.artifact_kind, artifact_ref=config.artifact_ref,
             ref_digest=ref_digest, model=answerer.model, provider=answerer.provider,
-            judge_model=judge.model, clients=[extractor, answerer, judge],
+            judge_model=judge.model, clients=[extractor, answerer, judge, *panel],
             provenance=provenance.provenance(
                 artifact_digest=ref_digest, answerer_model=answerer.model,
                 judge_model=judge.model, context_framing=config.context_framing),
@@ -237,10 +243,12 @@ def _analyze(
     artifact_bundle: "bundle_mod.Bundle | None",
     tier: dict | None,
     progress: Progress,
+    panel: tuple[LLMClient, ...],
+    aggregate: str,
 ) -> AnalyzeResult:
     """The pipeline of :func:`analyze`; ``progress`` records each stage as it starts and what it
     produced, so a spend stop anywhere can be saved."""
-    measure.check_self_judge(judge, answerer, config.allow_self_judge)
+    measure.check_judges(judge, panel, answerer, config.allow_self_judge, aggregate)
     relation = warn_extractor_judge(extractor.model, judge, extractor.provider)
     warnings: list[str] = progress.warnings
     span_list = progress.spans = spans.segment(text)
@@ -327,10 +335,13 @@ def _analyze(
         answerer=answerer, judge=judge, arms=config.arms,
         concurrency=config.concurrency, allow_self_judge=config.allow_self_judge,
         placebo_text=config.placebo_text, seed=config.seed, framing=config.context_framing,
+        panel=panel, aggregate=aggregate,
     )
     _refuse_cut_short(measure_result)
+    judge_panel = panel_record_mod.panel_record(measure_result, aggregate)
+    warnings.extend(panel_mod.panel_warnings(judge_panel))
     progress.stage = "classify"
-    if config.allow_self_judge and same_client(judge, answerer):
+    if config.allow_self_judge and panel_mod.same_as_answerer((judge, *panel), answerer):
         warnings.append(
             "judge and answerer are the same model (--allow-self-judge): scores are inflated"
         )
@@ -471,7 +482,7 @@ def _analyze(
         conflicts=conflicts,
         conflict_coverage=conflict_coverage,
         extraction=extraction.as_dict(),
-        cost=roll_up_cost([extractor, answerer, judge]),
+        cost=roll_up_cost([extractor, answerer, judge, *panel]),
         warnings=warnings,
     )
     payload["run_config"] = _run_config(config)
@@ -482,6 +493,7 @@ def _analyze(
         provenance.same_vendor_warning(payload["provenance"])])})
     payload["run_config"]["tier"] = settings.tier_record(sampled=capped)
     payload["run_config"]["extractor_judge"] = relation
+    payload.update(panel_mod.panel_block(judge_panel))
     return AnalyzeResult(
         artifact=payload,
         attributions=attributions,

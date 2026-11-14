@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="360" font-family="sans-serif" font-size="12">
+<rect width="760" height="360" fill="white"/>
+<text x="170" y="20" font-size="13" font-weight="bold">Placebo-gated added share (strict) by judge</text>
+<line x1="170.0" y1="40" x2="170.0" y2="270" stroke="#e5e5e5"/>
+<text x="170.0" y="285" text-anchor="middle" fill="#555">0.0</text>
+<line x1="263.33333333333337" y1="40" x2="263.33333333333337" y2="270" stroke="#e5e5e5"/>
+<text x="263.33333333333337" y="285" text-anchor="middle" fill="#555">0.1</text>
+<line x1="356.6666666666667" y1="40" x2="356.6666666666667" y2="270" stroke="#e5e5e5"/>
+<text x="356.6666666666667" y="285" text-anchor="middle" fill="#555">0.2</text>
+<line x1="450.0" y1="40" x2="450.0" y2="270" stroke="#e5e5e5"/>
+<text x="450.0" y="285" text-anchor="middle" fill="#555">0.3</text>
+<line x1="543.3333333333334" y1="40" x2="543.3333333333334" y2="270" stroke="#e5e5e5"/>
+<text x="543.3333333333334" y="285" text-anchor="middle" fill="#555">0.4</text>
+<line x1="636.6666666666667" y1="40" x2="636.6666666666667" y2="270" stroke="#e5e5e5"/>
+<text x="636.6666666666667" y="285" text-anchor="middle" fill="#555">0.5</text>
+<line x1="730.0" y1="40" x2="730.0" y2="270" stroke="#e5e5e5"/>
+<text x="730.0" y="285" text-anchor="middle" fill="#555">0.6</text>
+<text x="160" y="67.0" text-anchor="end">claude-opus-5</text>
+<line x1="380.93333333333334" y1="63.0" x2="440.66666666666663" y2="63.0" stroke="#bbb" stroke-width="6" stroke-linecap="round"/>
+<rect x="375.93333333333334" y="49.2" width="10" height="10" fill="#d1495b" stroke="black"/>
+<circle cx="425.73333333333335" cy="56.4" r="5" fill="#c47a2c" fill-opacity="0.85"/>
+<circle cx="380.93333333333334" cy="58.6" r="5" fill="#6c757d" fill-opacity="0.85"/>
+<circle cx="440.66666666666663" cy="60.8" r="5" fill="#7fb069" fill-opacity="0.85"/>
+<circle cx="410.80000000000007" cy="63.0" r="5" fill="#8e44ad" fill-opacity="0.85"/>
+<circle cx="410.80000000000007" cy="65.2" r="5" fill="#2a9d8f" fill-opacity="0.85"/>
+<circle cx="425.73333333333335" cy="67.4" r="5" fill="#3b6fb6" fill-opacity="0.85"/>
+<circle cx="440.66666666666663" cy="69.6" r="5" fill="#e9a03b" fill-opacity="0.85"/>
+<text x="160" y="113.0" text-anchor="end">gpt-5.6-luna</text>
+<line x1="351.06666666666666" y1="109.0" x2="516.2666666666667" y2="109.0" stroke="#bbb" stroke-width="6" stroke-linecap="round"/>
+<rect x="420.73333333333335" y="95.2" width="10" height="10" fill="#d1495b" stroke="black"/>
+<circle cx="410.80000000000007" cy="102.4" r="5" fill="#c47a2c" fill-opacity="0.85"/>
+<circle cx="425.73333333333335" cy="104.6" r="5" fill="#6c757d" fill-opacity="0.85"/>
+<circle cx="516.2666666666667" cy="106.8" r="5" fill="#7fb069" fill-opacity="0.85"/>
+<circle cx="351.06666666666666" cy="109.0" r="5" fill="#8e44ad" fill-opacity="0.85"/>
+<circle cx="440.66666666666663" cy="111.2" r="5" fill="#2a9d8f" fill-opacity="0.85"/>
+<circle cx="455.59999999999997" cy="113.4" r="5" fill="#3b6fb6" fill-opacity="0.85"/>
+<circle cx="455.59999999999997" cy="115.6" r="5" fill="#e9a03b" fill-opacity="0.85"/>
+<text x="160" y="159.0" text-anchor="end">claude-haiku-4-5</text>
+<line x1="387.4666666666667" y1="155.0" x2="559.2" y2="155.0" stroke="#bbb" stroke-width="6" stroke-linecap="round"/>
+<rect x="460.8666666666667" y="141.2" width="10" height="10" fill="#d1495b" stroke="black"/>
+<circle cx="480.80000000000007" cy="148.4" r="5" fill="#c47a2c" fill-opacity="0.85"/>
+<circle cx="496.6666666666667" cy="150.6" r="5" fill="#6c757d" fill-opacity="0.85"/>
+<circle cx="496.6666666666667" cy="152.8" r="5" fill="#7fb069" fill-opacity="0.85"/>
+<circle cx="387.4666666666667" cy="155.0" r="5" fill="#8e44ad" fill-opacity="0.85"/>
+<circle cx="543.3333333333334" cy="157.2" r="5" fill="#2a9d8f" fill-opacity="0.85"/>
+<circle cx="496.6666666666667" cy="159.4" r="5" fill="#3b6fb6" fill-opacity="0.85"/>
+<circle cx="559.2" cy="161.6" r="5" fill="#e9a03b" fill-opacity="0.85"/>
+<text x="160" y="205.0" text-anchor="end">grok-4.6</text>
+<line x1="440.66666666666663" y1="201.0" x2="591.8666666666667" y2="201.0" stroke="#bbb" stroke-width="6" stroke-linecap="round"/>
+<rect x="481.40000000000003" y="187.2" width="10" height="10" fill="#d1495b" stroke="black"/>
+<circle cx="591.8666666666667" cy="194.4" r="5" fill="#c47a2c" fill-opacity="0.85"/>
+<circle cx="561.0666666666666" cy="196.6" r="5" fill="#6c757d" fill-opacity="0.85"/>
+<circle cx="591.8666666666667" cy="198.8" r="5" fill="#7fb069" fill-opacity="0.85"/>
+<circle cx="440.66666666666663" cy="201.0" r="5" fill="#8e44ad" fill-opacity="0.85"/>
+<circle cx="561.0666666666666" cy="203.2" r="5" fill="#2a9d8f" fill-opacity="0.85"/>
+<circle cx="546.1333333333334" cy="205.4" r="5" fill="#3b6fb6" fill-opacity="0.85"/>
+<circle cx="576.0" cy="207.6" r="5" fill="#e9a03b" fill-opacity="0.85"/>
+<text x="160" y="251.0" text-anchor="end">nemotron-nano-12b</text>
+<line x1="434.1333333333333" y1="247.0" x2="652.5333333333333" y2="247.0" stroke="#bbb" stroke-width="6" stroke-linecap="round"/>
+<rect x="538.3333333333334" y="233.2" width="10" height="10" fill="#d1495b" stroke="black"/>
+<circle cx="620.8000000000001" cy="240.4" r="5" fill="#c47a2c" fill-opacity="0.85"/>
+<circle cx="605.8666666666668" cy="242.6" r="5" fill="#6c757d" fill-opacity="0.85"/>
+<circle cx="652.5333333333333" cy="244.8" r="5" fill="#7fb069" fill-opacity="0.85"/>
+<circle cx="434.1333333333333" cy="247.0" r="5" fill="#8e44ad" fill-opacity="0.85"/>
+<circle cx="527.4666666666667" cy="249.2" r="5" fill="#2a9d8f" fill-opacity="0.85"/>
+<circle cx="620.8000000000001" cy="251.4" r="5" fill="#3b6fb6" fill-opacity="0.85"/>
+<circle cx="652.5333333333333" cy="253.6" r="5" fill="#e9a03b" fill-opacity="0.85"/>
+<circle cx="20" cy="302" r="5" fill="#d1495b"/><text x="28" y="306">gpt-5.6-luna</text>
+<circle cx="112" cy="302" r="5" fill="#c47a2c"/><text x="120" y="306">claude-sonnet-5</text>
+<circle cx="204" cy="302" r="5" fill="#8e44ad"/><text x="212" y="306">gpt-6-luna</text>
+<circle cx="296" cy="302" r="5" fill="#2a9d8f"/><text x="304" y="306">grok-4.6</text>
+<circle cx="388" cy="302" r="5" fill="#3b6fb6"/><text x="396" y="306">kimi-k3</text>
+<circle cx="480" cy="302" r="5" fill="#6c757d"/><text x="488" y="306">deepseek-v3.2</text>
+<circle cx="572" cy="302" r="5" fill="#7fb069"/><text x="580" y="306">glm-5</text>
+<circle cx="664" cy="302" r="5" fill="#e9a03b"/><text x="672" y="306">qwen3-vl-235b</text>
+</svg>

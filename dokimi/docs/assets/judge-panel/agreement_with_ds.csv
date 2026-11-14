@@ -1,0 +1,16 @@
+rater,n,agree_with_ds_consensus
+judge:gpt-5.6-luna,2664,0.912
+judge:claude-sonnet-5,2932,0.959
+judge:deepseek-v3.2,2932,0.926
+judge:glm-5,2932,0.949
+judge:gpt-6-luna,2932,0.917
+judge:grok-4.6,2931,0.965
+judge:kimi-k3,2932,0.938
+judge:qwen3-vl-235b,2932,0.935
+rule:majority,2932,0.993
+rule:mean_score>=0.4,2932,0.907
+rule:median_score>=0.4,2932,0.993
+rule:unanimous,2932,0.894
+rule:any_correct,2932,0.889
+rule:dawid_skene,2932,1.0
+rule:majority_strict,2932,0.788

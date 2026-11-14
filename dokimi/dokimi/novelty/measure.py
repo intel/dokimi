@@ -32,6 +32,7 @@ from .atoms import Atom
 from .client import LLMClient, SpendCapReached, parse_json_object, same_client
 from .controls import (REPEAT_ARM, clustered_ci, control_fields, reversal_by_arm,
                        reversal_paired)
+from .panel import RULES, aggregate as aggregate_votes
 from .probes import Probe
 
 # Judge verdict scale. Deliberately finer than the collapses below so a rater
@@ -132,6 +133,7 @@ class ProbeRun:
     response: str
     verdict: str
     confidence: float | None = None  # recorded, never scored
+    judge_verdicts: dict[str, str] | None = None  # panel only: each judge's verdict by model
     #: Set only when the probe carries ``grading``: the judge's own verdict, which ``verdict``
     #: may overrule, where the verdict came from (``judge`` or ``check``) and the check results.
     judge_verdict: str | None = None
@@ -158,6 +160,7 @@ class ProbeRun:
             "response": self.response,
             "verdict": self.verdict,
             "confidence": self.confidence,
+            **({"judge_verdicts": self.judge_verdicts} if self.judge_verdicts else {}),
             **({"judge_verdict": self.judge_verdict, "verdict_source": self.verdict_source,
                 "checks": self.checks} if self.checks else {}),
         }
@@ -295,6 +298,18 @@ def check_arms(arms: tuple[str, ...], placebo_text: str | None) -> None:
         raise InputError("the placebo arm needs --placebo-text (domain-mismatched text)")
 
 
+def check_judges(judge: LLMClient, panel, answerer: LLMClient, allow_self_judge: bool,
+                 aggregate: str = "median") -> None:
+    """Refuse an unknown rule, a judge that is the answerer, or one model twice (it would vote twice)."""
+    if aggregate not in RULES:
+        raise InputError(f"unknown judge aggregation rule {aggregate!r}; known: {list(RULES)}")
+    members = (judge, *panel)
+    for i, member in enumerate(members):
+        check_self_judge(member, answerer, allow_self_judge)
+        if any(same_client(member, other) for other in members[:i]):
+            raise InputError(f"judge {member.model!r} is the same model as another judge")
+
+
 def _unpriced_answer_run(probe: Probe, arm: str, exc: SpendCapReached,
                          stops: list[SpendCapReached], ungraded: list[ProbeRun]) -> ProbeRun:
     """The paid answer of a call with no price, kept ungraded (no datum) as the stop's run; a reply
@@ -331,6 +346,8 @@ def run_measurement(
     placebo_text: str | None = None,
     seed: int = 0,
     framing: str = "reference",
+    panel: tuple[LLMClient, ...] = (),
+    aggregate: str = "median",
 ) -> MeasureResult:
     """Answer every probe in every arm and grade the answers.
 
@@ -349,8 +366,11 @@ def run_measurement(
             irrelevant context actively harms them.
         seed: Seed for the ``shuffled`` control, so the control is reproducible.
         framing: One of :data:`FRAMINGS`; how the context is introduced in the prompt.
+        panel: More judges besides ``judge``, each grading every answer.
+        aggregate: The rule that makes one verdict of the panel's (:func:`~.panel.aggregate`).
     """
-    check_self_judge(judge, answerer, allow_self_judge)
+    judges = (judge, *panel)
+    check_judges(judge, panel, answerer, allow_self_judge, aggregate)
     check_arms(arms, placebo_text)
     if framing not in FRAMINGS:
         raise InputError(f"unknown context framing {framing!r}; known: {list(FRAMINGS)}")
@@ -369,6 +389,7 @@ def run_measurement(
 
     def one(job: tuple[Probe, str]) -> ProbeRun:
         probe, arm = job
+        by_judge: dict[str, str] | None = None
         answered = True
         try:
             response, confidence = _answer(
@@ -383,13 +404,13 @@ def run_measurement(
             answered = False
         else:
             try:
-                verdict = _grade(probe, response, judge)
+                verdict, by_judge = _grade_panel(probe, response, judges, aggregate)
             except SpendCapReached as exc:
                 return _capped_grade_run(probe, arm, response, confidence, exc, stops, ungraded)
         run = ProbeRun(
             atom_id=probe.atom_id, probe_kind=probe.kind, arm=arm,
             question=probe.question, response=response, verdict=verdict,
-            confidence=confidence,
+            confidence=confidence, judge_verdicts=by_judge,
         )
         if probe.grading and answered:
             _apply_checks(run, probe, response, verdict)
@@ -411,18 +432,35 @@ def run_measurement(
                          probes=list(probes))
 
 
+def _grade_panel(probe: Probe, response: str, judges: tuple[LLMClient, ...],
+                 aggregate: str) -> tuple[str, dict[str, str] | None]:
+    """One answer's verdict and, with a panel, each judge's verdict by model; a failed judge is no vote."""
+    if len(judges) == 1:
+        return _grade(probe, response, judges[0]), None
+    by_judge: dict[str, str] = {}
+    try:
+        for m in judges:
+            by_judge[m.model] = _grade(probe, response, m)
+    except SpendCapReached as exc:
+        exc.panel_votes = by_judge
+        raise
+    votes = [v for v in by_judge.values() if v != ERRORED]
+    return aggregate_votes(votes, aggregate) or ERRORED, by_judge
+
+
 def _capped_grade_run(probe: Probe, arm: str, response: str, confidence: float | None,
                       exc: SpendCapReached, stops: list[SpendCapReached],
                       ungraded: list[ProbeRun]) -> ProbeRun:
     """The answer was paid for and the judge hit the cap: keep the verdict a refused judge reply
-    names, else keep the run ungraded (no datum). The checks grade the run either way, and the
+    names (not a truncated one, not one judge's of a panel), else keep the run ungraded. The checks grade the run either way, and the
     measurement stops here."""
     stops.append(exc)
-    named = _reply_verdict(exc.reply)
+    panel_votes = getattr(exc, "panel_votes", None)
+    named = None if exc.truncated or panel_votes is not None else _reply_verdict(exc.reply)
     run = ProbeRun(
         atom_id=probe.atom_id, probe_kind=probe.kind, arm=arm,
         question=probe.question, response=response, verdict=named or ERRORED,
-        confidence=confidence,
+        confidence=confidence, judge_verdicts=panel_votes or None,
     )
     if probe.grading:  # the veto runs on the answer whatever the refused judge reply said
         _apply_checks(run, probe, response, named or ERRORED)
@@ -760,4 +798,3 @@ def _pearson(xs: list[float], ys: list[float]) -> float | None:
     if den == 0:
         return None
     return round(sum(a * b for a, b in zip(dx, dy, strict=True)) / den, 4)
-

@@ -61,6 +61,9 @@ header:
     # written verbatim as the agent's answer (.agent-eval/run.py).
     - '.agent-eval/tasks/**/*.patch'
     - '.agent-eval/tasks/**/oracle_answer.md'
+    # Generated study tables and figures (the judge-panel study's CSV and SVG, written by
+    # research/judge-panel): a header would break the CSV readers and is lost on regeneration.
+    - 'dokimi/docs/assets/judge-panel/**'
     # Changelog fragments (<timestamp>_<user>_<branch>.md) and the template
     # `scriv create` copies into each: `scriv collect` moves their text into
     # CHANGELOG.md, which carries the header itself.
