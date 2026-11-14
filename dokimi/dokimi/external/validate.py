@@ -361,15 +361,28 @@ def _skill_digest(skill: Skill) -> str:
 
 
 def _has_late_frontmatter(lines: list[str]) -> bool:
-    """Whether a line that is exactly ``---`` is followed by a ``name:`` or ``description:`` line in the first 20 lines."""
-    return any(
-        lines[i].rstrip() == "---" and lines[i + 1].startswith(("name:", "description:"))
-        for i in range(min(len(lines) - 1, 20))
-    )
+    """Whether a line that is exactly ``---`` in the first 20 lines has a ``name:`` or ``description:`` line in its block (up to the next ``---``)."""
+    for i in range(min(len(lines) - 1, 20)):
+        if lines[i].rstrip() != "---":
+            continue
+        for line in lines[i + 1 :]:
+            if line.rstrip() == "---":
+                break
+            if line.startswith(("name:", "description:")):
+                return True
+    return False
 
 
 # A YAML key at the start of a line: ``title: x``, ``  name: x``, ``"name": x``, ``{name: x``, ``- name: x``.
-YAML_KEY_RE = re.compile(r"""\s*(?:-\s+)?[{\[]?\s*["']?[A-Za-z_][\w.-]*["']?\s*:""")
+YAML_KEY_RE = re.compile(r"""\s*(?:-\s+)?[{\[]?\s*["']?[\w][\w.-]*["']?\s*:""")
+
+
+FLOW_OPENER_RE = re.compile(r"[\[{](?![^\]\n]*\](?:\(|\[|:))")  # a flow collection, not a link ``[text](url)``, ``[text][ref]`` or ``[ref]: url``
+
+
+def _first_line(block: list[str]) -> str:
+    """The first line of ``block`` that is not blank, stripped."""
+    return next((line.strip() for line in block if line.strip()), "")
 
 
 def _opens_frontmatter(lines: list[str]) -> bool:
@@ -377,10 +390,10 @@ def _opens_frontmatter(lines: list[str]) -> bool:
     block: list[str] = []
     for line in lines[1:]:
         if line.rstrip() == "---":
-            return not any(line.strip() for line in block) or any(YAML_KEY_RE.match(line) for line in block)
+            return not any(line.strip() for line in block) or any(YAML_KEY_RE.match(line) for line in block) or bool(FLOW_OPENER_RE.match(_first_line(block)))
         block.append(line)
-    first = next((line for line in block if line.strip()), "")
-    return bool(YAML_KEY_RE.match(first))  # unclosed: a later ``Usage:`` line is prose, not a key
+    first = _first_line(block)
+    return bool(YAML_KEY_RE.match(first) or FLOW_OPENER_RE.match(first))  # unclosed: a later ``Usage:`` line is prose, not a key
 
 
 def _unloaded_review(entry: SkillCatalogEntry) -> Optional[SkillReview]:

@@ -241,8 +241,9 @@ directory; at the root, or when the directory name is not a valid name, it is
 the H1 in kebab-case (ASCII letters and digits, at most 64 characters), or the
 directory name when the H1 has none. The summary line counts these apart from the other errors
 (`3 error, of them 2 plain Markdown with no frontmatter`).
-A `---` block that comes after another line, after line 20, or that opens with a key other than `name` or
-`description` is plain Markdown too, so it gets this finding. A block of blank lines between two `---` lines counts as frontmatter.
+A `---` block with a `name:` or `description:` line in the first 20 lines, or that opens with a YAML key
+(any, `title:` included), keeps the loader's error and gets no hint. So does a block of blank lines between two `---` lines.
+A block that opens with a `[` or `{` that is not a Markdown link also keeps the loader's error. A `---` rule, or a block with no YAML key and no such opener, is plain Markdown and gets this finding.
 
 The scan also checks the bundle and the description. A relative Markdown link
 to a file the skill does not have is a `warn` (`link-missing`), and says when the

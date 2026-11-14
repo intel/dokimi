@@ -172,7 +172,10 @@ def test_a_fenced_frontmatter_example_in_plain_markdown_is_still_plain_markdown(
                                     "<!-- generated -->\n---\nname: deck\ndescription: Use when decks.\n---\n# Deck\n",
                                     "# T\n\n\n\n\n---\nname: a\ndescription: b\n---\n",
                                     "# T\n---\ndescription: b\n---\n",
-                                    "# T\n---  \nname: a\n---\n"])
+                                    "# T\n---  \nname: a\n---\n",
+                                    "# Deck\n\n---\n# Generated metadata\nname: deck\ndescription: Use when decks.\n---\n",
+                                    "# Deck\n---\ntitle: x\nname: deck\ndescription: Use when x.\n---\n",
+                                    "# T\n---\n\nname: a\n---\n"])
 def test_indented_or_late_frontmatter_is_a_broken_skill_not_plain_markdown(tmp_path, opener):
     # The loader's error stands for it, as for frontmatter after a blank line: no hint, and the scan fails.
     _plain(tmp_path, "broken", opener)
@@ -205,6 +208,7 @@ def test_a_rule_then_prose_is_plain_markdown(tmp_path, text):
         "---\n   \n---\n# Deck\n\nBuilds decks.\n",  # an empty block with a whitespace line in it
         "---\ntitle: x\ntags:\n  - a\n---\n# Deck\n",  # a list item among the keys: the block is still frontmatter
         "---\n\nname: deck\ndescription: Use when decks.\n# Deck\n",  # no closing ---, a blank first line
+        "---\n[unclosed\n# Deck\n\nBuilds decks.\n",  # no closing ---, a flow collection opens it
     ],
 )
 def test_a_frontmatter_block_without_name_or_description_is_a_broken_skill_not_plain_markdown(tmp_path, text):
@@ -214,7 +218,9 @@ def test_a_frontmatter_block_without_name_or_description_is_a_broken_skill_not_p
     assert "not-a-skill-no-frontmatter" not in codes
 
 
-@pytest.mark.parametrize("text", ['---\n"name": "deck"\n"description": [Use when decks\n---\n# Deck\n',
+@pytest.mark.parametrize("text", ["---\n123: [unclosed\n---\n# Body\n",
+                                   "---\n[unclosed\n---\n# Deck\n\nBuilds decks.\n",
+                                   '---\n"name": "deck"\n"description": [Use when decks\n---\n# Deck\n',
                                    "---\n{name: deck, description: [Use when\n---\n# Deck\n"])
 def test_broken_yaml_with_quoted_or_flow_keys_keeps_frontmatter_parse(tmp_path, text):
     _plain(tmp_path, "deck", text)
@@ -323,6 +329,8 @@ def test_the_comment_and_code_span_branches_are_pinned():
     assert description(["# T", "", "<!-- todo", "# Real Title", "", "Text."]) == "What t does. Use when ..."
     # A closed comment at a line start may hold a blank line.
     assert description(["# T", "", "<!--", "TODO", "", "more", "-->", "Real."]) == "Real."
+    # A one-line comment on its own line closes on its line.
+    assert description(["# T", "", "<!-- note -->", "", "Real."]) == "Real."
     # A code span holding a marker keeps it, and the later closing marker is not paired with it.
     assert description(["# T", "", "Write `<!--` then `-->` for a comment."]) == "Write `<!--` then `-->` for a comment."
     # A code span holds 1024 characters; one more and the comment inside it is taken out.
@@ -338,3 +346,10 @@ def test_a_long_run_of_backticks_is_searched_in_linear_time():
     start = time.monotonic()
     no_frontmatter_message(["# T", "", "x " + "`" * 10000 + " end"], "t", at_root=True)
     assert time.monotonic() - start < 1.0
+
+
+@pytest.mark.parametrize("first", ["[Docs](https://example.com)", "[Docs][docs]", "[docs]: https://example.com"])
+def test_a_markdown_link_after_a_rule_is_prose(tmp_path, first):
+    _plain(tmp_path, "deck", f"---\n{first}\n---\n# Deck\n\nBuilds decks.\n\n[docs]: https://example.com\n")
+    codes = [f.code for r in review_skills(read_skill_manifest(tmp_path)) if r for f in r.findings]
+    assert codes == ["not-a-skill-no-frontmatter"]
