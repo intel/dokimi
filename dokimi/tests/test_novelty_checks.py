@@ -702,3 +702,22 @@ def test_each_grounding_step_refuses_a_malformed_grading(step):
            "verify_keys": lambda: verify_keys(atoms)}[step]
     with pytest.raises(InputError, match="atom a1: invalid grading: grading has no checks"):
         run()
+
+
+@pytest.mark.parametrize("answer", [
+    "Do not use perf script but perf report --stdin.",
+    "Never guess flags while you run perf report --stdin.",
+])
+def test_a_negation_does_not_reach_the_command_after_a_but_or_a_while(answer):
+    # "but" and "while" end the clause: the "not"/"never" before them negates the other command, not this one
+    result = grade_check(_veto(), "q", answer, None)
+    assert result.passed is False and "--stdin" in result.detail
+
+
+@pytest.mark.parametrize("answer", [
+    "Do not use perf script or perf report --stdin.",
+    "Never guess flags when you run perf report --stdin.",
+])
+def test_a_negation_still_reaches_the_command_after_a_word_that_ends_no_clause(answer):
+    # the control of the test above: "or" and "when" are no clause end, so the same claim is negated
+    assert grade_check(_veto(), "q", answer, None).passed is True
