@@ -10,11 +10,13 @@ file in place fails the first check, because the new text is already there.
 
 import json
 import os
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
+from dokimi.atomic_write import write_text_atomic
 from dokimi.caching import RESPONSE_CACHE_ENV, store_response
 from dokimi.commands.catalog_probe import _write as write_probe
 from dokimi.metrics.usage import UsageRecord
@@ -122,3 +124,38 @@ def test_catalog_probe_writes_a_long_out_name_its_preflight_accepts(tmp_path):
     assert can_write(tmp_path, child=partial.name)
     write_probe(partial, {"partial": True, "answers": []})
     assert json.loads(partial.read_text(encoding="utf-8")) == {"partial": True, "answers": []}
+
+
+def test_concurrent_writers_of_one_path_each_publish_a_whole_file(tmp_path):
+    path = tmp_path / "k.json"
+    texts = [json.dumps({"text": chr(65 + i) * 300_000}) for i in range(4)]
+    errors, torn, stop = [], [], threading.Event()
+
+    def write(text):
+        for _ in range(15):
+            try:
+                write_text_atomic(path, text)
+            except OSError as exc:
+                errors.append(exc)
+
+    def read():
+        while not stop.is_set():
+            try:
+                seen = path.read_text(encoding="utf-8")
+            except FileNotFoundError:
+                continue
+            if seen not in texts:
+                torn.append(len(seen))
+
+    reader = threading.Thread(target=read)
+    reader.start()
+    writers = [threading.Thread(target=write, args=(text,)) for text in texts]
+    for w in writers:
+        w.start()
+    for w in writers:
+        w.join()
+    stop.set()
+    reader.join()
+    assert not errors and not torn
+    assert path.read_text(encoding="utf-8") in texts
+    assert not [p for p in tmp_path.iterdir() if p.name.endswith(".tmp")]
