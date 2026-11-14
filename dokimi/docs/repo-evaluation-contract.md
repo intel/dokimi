@@ -65,8 +65,8 @@ declares `guidance.imports` (`claude-code`; it is null for `codex` and `copilot`
 > python cli.py repo budget <source> [--harness claude-code] [--out FILE] [--json] [--fail-on-warning]
 > ```
 >
-> `--out` and `--json` carry the inventory as a `repo_budget.v1` artifact (`schemas/repo_budget.v1.json`),
-> stamped with its `schema_version`, so a CI gate on the JSON can tell a changed shape.
+> `--out` carries the inventory as a `repo_budget.v1` artifact (`schemas/repo_budget.v1.json`), stamped with its
+> `schema_version`; `--json` prints the same artifact under `data` of a `cli_output.v1` document.
 >
 > `repo inspect` (§8.1) needs no manifest: a static look at what the tree offers an agent.
 >
@@ -78,7 +78,14 @@ declares `guidance.imports` (`claude-code`; it is null for `codex` and `copilot`
 > from outside the tree, for a repository that has not added it yet. `scan` and `reach`
 > need only `guidance`; given neither a manifest in the tree nor `--manifest-file`, they
 > check the default globs `**/AGENTS.md`, `**/CLAUDE.md`, `.github/copilot-instructions.md`
-> and `.github/instructions/*.md`, and say so on stderr.
+> and `.github/instructions/*.md`, and say so on stderr. There `scan` also checks the
+> Markdown files Claude Code loads with them, which `repo budget` lists as `rule` and
+> `import` for the `claude-code` profile: `.claude/rules/**/*.md` and the files a CLAUDE.md
+> `@` import chain reaches. It also checks a committed `CLAUDE.local.md` that nothing imports (a gitignored one is not
+> in the tree), because Claude Code loads it with the project's guidance. Every rule file is checked, loaded or not:
+> a rule whose `paths` pattern is invalid is counted lazy by `repo budget`, and a stale path in it is still stale.
+> A rule the tree cannot list (a link to the rules directory, a root `.claude` link, a submodule at `.claude` or under
+> `.claude/rules`, a dangling link) makes the scan `incomplete`. They are named by path, so a tree without them gets no warning.
 >
 > Slice S5 adds the repository-mode runner: workspace preparation (§3), the
 > containers of §1.1, the `repo_grade.v1` schema (§4.2), the self-check (§4.3)
@@ -2189,8 +2196,8 @@ standard-library one the repository's Python lacks (`import imp` on 3.13; the na
 those the pinned mypy's typeshed lists), and with mypy a submodule of a package the repository interpreter finds as a regular package (`json.nosuch`, `yaml.nosuch`; not a relative import, nor a namespace package such as `google`). A module the environment has without types
 (no `py.typed` or stubs) is `unresolved` too: mypy reads it as `Any`. A real error in the same fence still
 fails it. `pip install
-dokimi` does not install mypy: the tested pin is `requirements-test.txt`
-(`mypy==2.4.0`), and a missing mypy exits 2. basedpyright must be on `PATH` and
+dokimi` does not install mypy: the tested pin is the one in
+`requirements-test.txt`, and a missing mypy exits 2. basedpyright must be on `PATH` and
 is recorded with the version it reports, not pinned by dokimi. The report's
 `typecheck` block names the tool, its version, the interpreter (`null`: unknown) and the counts
 (`fences`, `checked`, `fail`, `unknown`, `syntax`); it is `null` without the
@@ -2335,11 +2342,11 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   agent answers with no findings JSON that parsed (`grade.json`
   `parse_error`, §4.5) notes how many, `(scored 0)` on a score-only row and
   `(counted as failed)` on a gate row; a cell whose `result.json` says
-  `grader_failure` is counted under `grader_fail` instead. `--json` gives
-  `parse_errors` on every row. `repo report --hits` prints, instead of the table, each credited pair of
+  `grader_failure` is counted under `grader_fail` instead. `--json` gives,
+  under `data`, `parse_errors` on every row. `repo report --hits` prints, instead of the table, each credited pair of
   the `dokimi:review_replay` cells (`details.matches`, §4.5) by task, arm,
   model and rep: the thread and its comment, then the finding that hit it.
-  `--hits --json` gives `{batch, replay_cells, without_matches, grader_failures, cells, hits}`, one
+  `--hits --json` gives, under `data` of the `cli_output.v1` envelope, `{batch, replay_cells, without_matches, grader_failures, cells, hits}`, one
   record in `hits` per pair (`task`, `arm`, `model`, `rep`, `cell` and the
   match's fields; the first five come from the cell's `result.json`, and a
   match key of the same name does not replace them), and one in `cells` per
@@ -2368,9 +2375,9 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   removes the `hits_judged.json` an earlier run left in every other finished
   cell of the batch, one regraded since into a grader failure, a grade
   without `matches` that is not a parse error, or another grader, and a line names those cells
-  (`--json`: `stale_removed`). The command prints, per (arm, model), the cells written, their
+  (`--json`, under `data`: `stale_removed`). The command prints, per (arm, model), the cells written, their
   pairs and label counts, the mean `recall` of those cells and the mean
-  `recall_judged` of those whose `recall_judged` is not null (`--json`: the
+  `recall_judged` of those whose `recall_judged` is not null (`--json`, under `data`: the
   same as JSON); `repo compare --metric judge:recall_judged` compares it
   across arms (below). Before any call it refuses, with exit 2,
   a judge that runs the model of any answer of the batch (`meta.json` or
@@ -2403,7 +2410,7 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   in progress gets none (an earlier one is removed), and the command exits 1. A
   cell with an unjudged pair is written with `recall_judged` null and left out
   of the mean `recall_judged`; a line counts and names those cells
-  (`unjudged cells: N`; `--json`: `unjudged_cells`).
+  (`unjudged cells: N`; `--json`, under `data`: `unjudged_cells`).
   `--dry-run` counts the pairs and prints their cost at list price (one call
   each; prompt characters over 4, 100 reply tokens) and makes no call.
   A run that judges holds the batch's lock (`<batch>/_eval/lock`, which
@@ -2420,11 +2427,11 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   it parses (a redraw would be a further call), and pairs replayed from the
   response cache still finish; when
   pairs are left, the cells they are in get no file, the line naming those
-  cells says why (`--json`: `budget_stop`; drop `--max-usd` to run
+  cells says why (`--json`, under `data`: `budget_stop`; drop `--max-usd` to run
   unmetered), and the command exits 1. When none is left, the run ends as
   one with no cap does (exit 0, `budget_stop` null). Without
   `--max-usd` an unpriced call counts as 0, and the spend line says how many
-  calls had no price and that the spend is not known (`--json`:
+  calls had no price and that the spend is not known (`--json`, under `data`:
   `unpriced_calls`). A reply replayed from the response cache is free. A
   `hits_judged.json` that cannot be written, or an earlier one that cannot
   be removed (a read-only batch, a directory in its place), stops
@@ -2438,7 +2445,7 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   carries both the person's and the judge's label (a sheet left `null`,
   `[]`, labels only on pairs the judge left `unjudged`), a line says
   `recall_judged` is uncalibrated; when only some rows have such pairs, a
-  line names the others as `arm (model)`. `--json` lists the rows with no
+  line names the others as `arm (model)`. `--json` lists, under `data`, the rows with no
   such pair in `uncalibrated_rows`, sorted, each `{"arm", "model"}` (every
   row without `--labels`); `calibration` is `null` without `--labels`.
 - `repo hits sheet <batch> --out FILE` makes no call. It writes a JSON list of
@@ -2468,13 +2475,13 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   delta against the baseline with a 95% interval over tasks, the tasks up, down and tied, and a two-sided
   sign-flip permutation p (exact up to 16 changed tasks, Monte Carlo above with a fixed seed; at one cell per
   task and arm it equals McNemar's exact test). Every measure's interval inverts that test
-  (`dokimi/eval/sign_flip.py`, which the arms track shares; `delta.method` is `sign_flip_inversion` in `--json`): it is every
+  (`dokimi/eval/sign_flip.py`, which the arms track shares; `delta.method` is `sign_flip_inversion` under `data` in `--json`): it is every
   shift theta at which the test on the per-task deltas minus theta does not reject at the uncorrected two-sided
   5% level, each end found by bisection between the mean and a far bound. It excludes 0 exactly when p is below
   0.05: the row's own p places 0, and above 16 changed tasks the interval's Monte Carlo draws are those of p, drawn
   once from the seed and reused at every theta, so the ends do not move between runs. Under a shift every task
   counts, the tied ones included (their delta becomes -theta), and the smallest p over n tasks is `2 / 2^n`, so
-  both ends are bounded from 6 tasks on, whatever the ties, and open (`null` in `--json`, `-inf` / `+inf` in the
+  both ends are bounded from 6 tasks on, whatever the ties, and open (`null` under `data` in `--json`, `-inf` / `+inf` in the
   text) at 5 or fewer, one task included. The test stays exact, with no mid-p: p(theta) is a step function and the
   ends are its step points, so an end can be a delta itself, or 0. The text prints an end at 3 decimals, and a
   non-zero end that would print as `0.000` at 2 significant digits (`+0.0002`), so it keeps its side of 0.
@@ -2495,7 +2502,7 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   `(t(0.975, n-1) + t(0.80, n-1)) * sd / sqrt(n)` over the per-task deltas, of
   the mean delta a one-sample t test at the uncorrected two-sided 5% level
   detects with 80% power at that spread, the t quantiles at `n-1` degrees of
-  freedom (every row has `mde` in `--json`; `null` for one task or deltas with
+  freedom (every row has `mde` under `data` in `--json`; `null` for one task or deltas with
   no spread, and then no note). It is not the power of the sign-flip test nor
   of the Holm-corrected decision; a Holm-calibrated figure would depend on the
   other rows' observed p, which a figure for planning the next run's task count
@@ -2505,7 +2512,7 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   go instead (`with 3 changed tasks the sign-flip p cannot go below 0.25: no
   effect can reach p < 0.05 here`). Holm's correction can lift that floor: a
   gate or score row's `p_holm_floor` is its `p_holm` with its p put at that
-  floor and the other p of the family as observed (in every `--json` row;
+  floor and the other p of the family as observed (in every `--json` row under `data`;
   `null` on a descriptive row, one with every task tied or one under the
   floor rule), and where it is not below
   0.05, `mde` is `null` and the note names Holm instead (`with Holm over 2
@@ -2523,7 +2530,7 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   cell's task is the one its `meta.json` records, else, for a cell only
   `plan.json` names, the longest task id of the batch's finished cells that its
   name starts with followed by `__`; a cell of neither is missing only without
-  `--task`), the `--json` summary records the
+  `--task`), the `--json` summary, under `data`, records the
   selection as `task_filter` (`tasks`, and `of`, the number of tasks of the
   batches that have a finished cell, the ids `--task` can name, and
   `dropped_arms`: without `--arm`, the arms with no finished cell among the
@@ -2561,7 +2568,7 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   from an unjudged pair or a cell with no gold thread, a file that cannot be read, is not JSON or is not
   `repo_hits_judged.v1`) does not report it, as a cell lacking a `grade.json`
   metric does: it is left out of its task's mean and `n`, and a null is never
-  read as 0. `--json` gives `judged_cells` (`null` without a `judge:` metric):
+  read as 0. `--json` gives, under `data`, `judged_cells` (`null` without a `judge:` metric):
   `metrics`, the `judge:` names asked for, and `arms`, per compared arm its
   `cells` (of the compared models) and the counts `read`, `no_file`, `not_judged`
   (no file, and a cell `repo hits judge` never judges: a grader failure, a grade
@@ -2652,7 +2659,7 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   Cells of one task may differ (pooled batches): a flag any cell sets counts,
   and a cell with no `task.json` whose `arm_rev` no checked cell of the task
   has leaves the task unknown, as its history was not read.
-  The `--json` summary's `leak` holds one entry per checked arm (`[]` when
+  The `--json` summary's `leak`, under `data`, holds one entry per checked arm (`[]` when
   none is): `arm`, `kind` (`guidance:rev` or `patch`), `revisions` (each
   `rev` and `sha`), `checked`, `not_checked` (the arm's other tasks, whose
   `task.json` is not replay-style), `by_date` (task → the latest applicable
