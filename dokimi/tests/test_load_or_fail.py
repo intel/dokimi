@@ -92,3 +92,11 @@ def test_eval_score_reference_with_an_empty_answers_value_exits_2_naming_it(monk
         cli.main()
     assert exc.value.code == 2
     assert capsys.readouterr().err.strip() == 'Error: --answers "": no file given'
+
+
+def test_load_questions_refuses_an_empty_path_by_name_not_as_the_current_directory():
+    from dokimi.questions.artifact import load_questions
+
+    with pytest.raises(InputError) as exc:
+        load_questions("", flag="--questions")
+    assert str(exc.value) == '--questions "": no file given'
