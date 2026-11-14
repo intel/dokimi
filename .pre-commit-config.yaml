@@ -41,6 +41,8 @@ repos:
       - id: check-added-large-files
         # Every file, not only newly added ones (500 KB limit), so CI checks too.
         args: [--enforce-all]
+        # The CLI snapshot is generated and pinned by its own test; it grows with each leaf.
+        exclude: ^dokimi/docs/reference/cli-interface\.json$
 
   - repo: https://github.com/zizmorcore/zizmor-pre-commit
     rev: c92afdf2c6ca336aaa8f39e2bd8d48f62dbd8e1f  # frozen: v1.31.1

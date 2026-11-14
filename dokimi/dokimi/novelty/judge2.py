@@ -61,15 +61,21 @@ def cohen_kappa(a: list[bool], b: list[bool]) -> float | None:
     return None if chance >= 1 else round((observed - chance) / (1 - chance), 4)
 
 
+def first_verdict(run) -> str:
+    """The first judge's verdict. A check's veto may overrule it in ``run.verdict``, not here."""
+    return run.judge_verdict if run.judge_verdict is not None else run.verdict
+
+
 def regrade(result: MeasureResult, judge2: LLMClient, *, frac: float = DEFAULT_FRAC,
             seed: int = 0, concurrency: int = 5) -> dict:
     """Regrade ``frac`` of the graded runs (seeded) with ``judge2`` and compare the verdicts.
 
-    A run either judge failed to grade is left out of the agreement figures and counted.
+    A run either judge failed to grade is left out of the agreement figures and counted. The
+    comparison is with the first judge's verdict, so a veto that overruled it is not compared.
     """
     by_key = {(p.atom_id, p.kind, p.question): p for p in result.probes}
     graded = [r for r in result.runs
-              if not r.errored and (r.atom_id, r.probe_kind, r.question) in by_key]
+              if first_verdict(r) != ERRORED and (r.atom_id, r.probe_kind, r.question) in by_key]
     k = min(len(graded), max(1, round(frac * len(graded)))) if graded else 0
     picked = random.Random(f"novelty-judge2-{seed}").sample(graded, k)
 
@@ -78,7 +84,7 @@ def regrade(result: MeasureResult, judge2: LLMClient, *, frac: float = DEFAULT_F
 
     with ThreadPoolExecutor(max_workers=max(1, concurrency)) as pool:
         second = list(pool.map(one, picked))
-    pairs = [(r.verdict, v) for r, v in zip(picked, second, strict=True) if v != ERRORED]
+    pairs = [(first_verdict(r), v) for r, v in zip(picked, second, strict=True) if v != ERRORED]
     return {
         "model": judge2.model,
         "vendor": vendor_of(judge2.model),
