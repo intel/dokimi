@@ -1,0 +1,1783 @@
+{
+  "band_errors": {
+    "missing": "ValueError: critical_bands.fail_on entry missing 'condition' key",
+    "non_mapping": "ValueError: critical_bands.fail_on entries must be mappings/dicts",
+    "none_metric": "ValueError: critical_bands score_below: summary metric 'score' is None, not a number",
+    "unknown": "ValueError: Unknown critical_bands condition: nope (known: coverage_below, freshness_below, readability_below, score_below)"
+  },
+  "compare_regressions": {
+    "critical": {
+      "base": {
+        "coverage": 0.7,
+        "docs": 10,
+        "freshness_lite": 0.9,
+        "readability": 0.6,
+        "score": 0.8
+      },
+      "candidate": {
+        "coverage": 0.5,
+        "docs": 10,
+        "freshness_lite": 0.9,
+        "readability": 0.5,
+        "score": 0.7
+      },
+      "diff": {
+        "coverage": -0.2,
+        "docs": 0,
+        "freshness_lite": 0.0,
+        "readability": -0.1,
+        "score": -0.1
+      },
+      "regressions": {
+        "has_critical": true,
+        "has_warnings": true,
+        "metrics": [
+          {
+            "delta": -0.2,
+            "metric": "coverage",
+            "severity": "CRITICAL"
+          },
+          {
+            "delta": 0.0,
+            "metric": "freshness_lite",
+            "severity": "OK"
+          },
+          {
+            "delta": -0.1,
+            "metric": "readability",
+            "severity": "WARN"
+          }
+        ],
+        "score": {
+          "delta": -0.1,
+          "severity": "CRITICAL"
+        }
+      }
+    },
+    "custom_thresholds": {
+      "base": {
+        "coverage": 0.7,
+        "docs": 10,
+        "freshness_lite": 0.9,
+        "readability": 0.6,
+        "score": 0.8
+      },
+      "candidate": {
+        "coverage": 0.7,
+        "docs": 10,
+        "freshness_lite": 0.85,
+        "readability": 0.6,
+        "score": 0.78
+      },
+      "diff": {
+        "coverage": 0.0,
+        "docs": 0,
+        "freshness_lite": -0.05,
+        "readability": 0.0,
+        "score": -0.02
+      },
+      "regressions": {
+        "has_critical": true,
+        "has_warnings": true,
+        "metrics": [
+          {
+            "delta": 0.0,
+            "metric": "coverage",
+            "severity": "OK"
+          },
+          {
+            "delta": -0.05,
+            "metric": "freshness_lite",
+            "severity": "WARN"
+          },
+          {
+            "delta": 0.0,
+            "metric": "readability",
+            "severity": "OK"
+          }
+        ],
+        "score": {
+          "delta": -0.02,
+          "severity": "CRITICAL"
+        }
+      }
+    },
+    "improvement_only": {
+      "base": {
+        "coverage": 0.7,
+        "docs": 10,
+        "freshness_lite": 0.9,
+        "readability": 0.6,
+        "score": 0.8
+      },
+      "candidate": {
+        "coverage": 0.9,
+        "docs": 10,
+        "freshness_lite": 0.9,
+        "readability": 0.6,
+        "score": 0.95
+      },
+      "diff": {
+        "coverage": 0.2,
+        "docs": 0,
+        "freshness_lite": 0.0,
+        "readability": 0.0,
+        "score": 0.15
+      },
+      "regressions": {
+        "has_critical": false,
+        "has_warnings": false,
+        "metrics": [
+          {
+            "delta": 0.2,
+            "metric": "coverage",
+            "severity": "OK"
+          },
+          {
+            "delta": 0.0,
+            "metric": "freshness_lite",
+            "severity": "OK"
+          },
+          {
+            "delta": 0.0,
+            "metric": "readability",
+            "severity": "OK"
+          }
+        ],
+        "score": {
+          "delta": 0.15,
+          "severity": "OK"
+        }
+      }
+    },
+    "no_spec": {
+      "base": {
+        "coverage": 0.7,
+        "docs": 10,
+        "freshness_lite": 0.9,
+        "readability": 0.6,
+        "score": 0.9
+      },
+      "candidate": {
+        "coverage": 0.7,
+        "docs": 10,
+        "freshness_lite": 0.9,
+        "readability": 0.6,
+        "score": 0.7
+      },
+      "diff": {
+        "coverage": 0.0,
+        "docs": 0,
+        "freshness_lite": 0.0,
+        "readability": 0.0,
+        "score": -0.2
+      }
+    },
+    "ok": {
+      "base": {
+        "coverage": 0.7,
+        "docs": 10,
+        "freshness_lite": 0.9,
+        "readability": 0.6,
+        "score": 0.8
+      },
+      "candidate": {
+        "coverage": 0.7,
+        "docs": 10,
+        "freshness_lite": 0.9,
+        "readability": 0.6,
+        "score": 0.81
+      },
+      "diff": {
+        "coverage": 0.0,
+        "docs": 0,
+        "freshness_lite": 0.0,
+        "readability": 0.0,
+        "score": 0.01
+      },
+      "regressions": {
+        "has_critical": false,
+        "has_warnings": false,
+        "metrics": [
+          {
+            "delta": 0.0,
+            "metric": "coverage",
+            "severity": "OK"
+          },
+          {
+            "delta": 0.0,
+            "metric": "freshness_lite",
+            "severity": "OK"
+          },
+          {
+            "delta": 0.0,
+            "metric": "readability",
+            "severity": "OK"
+          }
+        ],
+        "score": {
+          "delta": 0.01,
+          "severity": "OK"
+        }
+      }
+    },
+    "pass_rate_warn": {
+      "base": {
+        "coverage": 0.7,
+        "docs": 10,
+        "example_pass_rate": 0.9,
+        "freshness_lite": 0.9,
+        "readability": 0.6,
+        "score": 0.8
+      },
+      "candidate": {
+        "coverage": 0.7,
+        "docs": 10,
+        "example_pass_rate": 0.8,
+        "freshness_lite": 0.9,
+        "readability": 0.6,
+        "score": 0.8
+      },
+      "diff": {
+        "coverage": 0.0,
+        "docs": 0,
+        "example_pass_rate": -0.1,
+        "freshness_lite": 0.0,
+        "readability": 0.0,
+        "score": 0.0
+      },
+      "regressions": {
+        "has_critical": false,
+        "has_warnings": true,
+        "metrics": [
+          {
+            "delta": 0.0,
+            "metric": "coverage",
+            "severity": "OK"
+          },
+          {
+            "delta": 0.0,
+            "metric": "freshness_lite",
+            "severity": "OK"
+          },
+          {
+            "delta": 0.0,
+            "metric": "readability",
+            "severity": "OK"
+          },
+          {
+            "delta": -0.1,
+            "metric": "example_pass_rate",
+            "severity": "WARN"
+          }
+        ],
+        "score": {
+          "delta": 0.0,
+          "severity": "OK"
+        }
+      }
+    },
+    "warn": {
+      "base": {
+        "coverage": 0.7,
+        "docs": 10,
+        "freshness_lite": 0.9,
+        "readability": 0.6,
+        "score": 0.8
+      },
+      "candidate": {
+        "coverage": 0.64,
+        "docs": 10,
+        "freshness_lite": 0.9,
+        "readability": 0.6,
+        "score": 0.75
+      },
+      "diff": {
+        "coverage": -0.06,
+        "docs": 0,
+        "freshness_lite": 0.0,
+        "readability": 0.0,
+        "score": -0.05
+      },
+      "regressions": {
+        "has_critical": false,
+        "has_warnings": true,
+        "metrics": [
+          {
+            "delta": -0.06,
+            "metric": "coverage",
+            "severity": "WARN"
+          },
+          {
+            "delta": 0.0,
+            "metric": "freshness_lite",
+            "severity": "OK"
+          },
+          {
+            "delta": 0.0,
+            "metric": "readability",
+            "severity": "OK"
+          }
+        ],
+        "score": {
+          "delta": -0.05,
+          "severity": "WARN"
+        }
+      }
+    }
+  },
+  "no_document": {
+    "hard_zero": {
+      "exit": 1,
+      "stderr": "\n❌ incomplete: no document was measured under <root> (0 docs)\n"
+    },
+    "none": {
+      "exit": 1,
+      "stderr": "\n❌ incomplete: no document was measured under <root> (0 docs)\n"
+    }
+  },
+  "novelty": {
+    "bundle_entry_point_only": {
+      "as_dict": {
+        "artifact_ref": "skill:skills/accel-tuning",
+        "blocking": false,
+        "checks": [
+          {
+            "measured": true,
+            "message": "lenient `added` 0.420 over 40 paired probes (floor 0.15); this is one (artifact, model) pair and is not comparable to another artifact's figure",
+            "name": "added_floor",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0.15,
+            "value": 0.42
+          },
+          {
+            "measured": true,
+            "message": "0 atoms classified harmful/conflicting; strict `degraded` 0.000. Correctness gates before volume: one study skill carried 33 conflicts and still routed at 0.810, so it loads and misinforms",
+            "name": "harmful_atoms",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0,
+            "value": 0
+          },
+          {
+            "measured": true,
+            "message": "0.120 of tokens carry no extracted atom (ceiling 0.25); an upper bound on waste, not a measurement of it",
+            "name": "dead_tokens",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0.25,
+            "value": 0.12
+          },
+          {
+            "measured": false,
+            "message": "this run does not record which files of the artifact it read, so whether it measured the whole artifact is unknown",
+            "name": "artifact_coverage",
+            "passed": true,
+            "severity": "info",
+            "threshold": 0.5,
+            "value": null
+          },
+          {
+            "measured": true,
+            "message": "2% of generated probe wordings were dropped as malformed (worst kind: paraphrase at 2%); those atoms were probed by fewer kinds than the run's budget implies. The check is mechanical, so this is a floor on corruption, not a wording-quality score",
+            "name": "probe_wording_fidelity",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0.2,
+            "value": 0.025
+          },
+          {
+            "measured": true,
+            "message": "worst arm `no_artifact`: 36 of 40 atoms asked by several probe kinds got the same verdict from all of them (floor 0.8); other arms: `full` 0.95. A disagreeing atom's outcome is wording-dependent: in the artifact arm that makes `added` a property of the phrasing, and in the baseline arm it makes `redundant` wording-matched recall rather than prior knowledge",
+            "name": "probe_kind_agreement",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0.8,
+            "value": 0.9
+          },
+          {
+            "measured": true,
+            "message": "0 of 1 offered candidates drop a protected span. The study's worst candidate kept 0.916 of knowledge at 0.158 protection, which is why protection is pinned rather than averaged in",
+            "name": "protection_invariant",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0,
+            "value": 0
+          },
+          {
+            "measured": true,
+            "message": "38 of 40 atoms were recovered from a span cited for them (2 unlocated). An unlocated atom is not wrong — in the study 46 of 49 were called supported — but no span may be coloured for it",
+            "name": "span_citations_confirmed",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0.8,
+            "value": 0.95
+          },
+          {
+            "measured": true,
+            "message": "0 of 1 candidates rank by value with value defined on under half their atoms, so the ranking is atom coverage per token; probe more atoms per artifact or read the `knowledge` column instead",
+            "name": "value_is_measured",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0.5,
+            "value": 0.9
+          },
+          {
+            "measured": true,
+            "message": "the shuffled control scored at least as high as the artifact as written. Expected, not a defect: retested behaviourally on the tasks whose graded requirements name an ordering, scrambling span order cost +0.022 (CI -0.027 to +0.072). Spend authoring effort on facts and exact values, not on transitions",
+            "name": "order_independence",
+            "passed": true,
+            "severity": "info",
+            "threshold": false,
+            "value": false
+          }
+        ],
+        "model": "m",
+        "not_measured": [
+          "artifact_coverage"
+        ],
+        "status": "PASS"
+      },
+      "block": "## Novelty gate\n\n_All novelty checks are soft: they report and never block._\n\n### `skill:skills/accel-tuning` on `m` — PASS (1 of 10 not measured)\n\n| Check | Status | Value | Threshold | Notes |\n| --- | --- | ---: | ---: | --- |\n| added_floor | ok | 0.42 | 0.15 | lenient `added` 0.420 over 40 paired probes (floor 0.15); this is one (artifact, model) pair and is not comparable to another artifact's figure |\n| harmful_atoms | ok | 0 | 0 | 0 atoms classified harmful/conflicting; strict `degraded` 0.000. Correctness gates before volume: one study skill carried 33 conflicts and still routed at 0.810, so it loads and misinforms |\n| dead_tokens | ok | 0.12 | 0.25 | 0.120 of tokens carry no extracted atom (ceiling 0.25); an upper bound on waste, not a measurement of it |\n| artifact_coverage | not measured | None | 0.5 | this run does not record which files of the artifact it read, so whether it measured the whole artifact is unknown |\n| probe_wording_fidelity | ok | 0.025 | 0.2 | 2% of generated probe wordings were dropped as malformed (worst kind: paraphrase at 2%); those atoms were probed by fewer kinds than the run's budget implies. The check is mechanical, so this is a floor on corruption, not a wording-quality score |\n| probe_kind_agreement | ok | 0.9 | 0.8 | worst arm `no_artifact`: 36 of 40 atoms asked by several probe kinds got the same verdict from all of them (floor 0.8); other arms: `full` 0.95. A disagreeing atom's outcome is wording-dependent: in the artifact arm that makes `added` a property of the phrasing, and in the baseline arm it makes `redundant` wording-matched recall rather than prior knowledge |\n| protection_invariant | ok | 0 | 0 | 0 of 1 offered candidates drop a protected span. The study's worst candidate kept 0.916 of knowledge at 0.158 protection, which is why protection is pinned rather than averaged in |\n| span_citations_confirmed | ok | 0.95 | 0.8 | 38 of 40 atoms were recovered from a span cited for them (2 unlocated). An unlocated atom is not wrong — in the study 46 of 49 were called supported — but no span may be coloured for it |\n| value_is_measured | ok | 0.9 | 0.5 | 0 of 1 candidates rank by value with value defined on under half their atoms, so the ranking is atom coverage per token; probe more atoms per artifact or read the `knowledge` column instead |\n| order_independence | ok | False | False | the shuffled control scored at least as high as the artifact as written. Expected, not a defect: retested behaviourally on the tasks whose graded requirements name an ordering, scrambling span order cost +0.022 (CI -0.027 to +0.072). Spend authoring effort on facts and exact values, not on transitions |\n"
+    },
+    "conflict_found": {
+      "as_dict": {
+        "artifact_ref": "skill:skills/accel-tuning",
+        "blocking": false,
+        "checks": [
+          {
+            "measured": true,
+            "message": "lenient `added` 0.420 over 40 paired probes (floor 0.15); this is one (artifact, model) pair and is not comparable to another artifact's figure",
+            "name": "added_floor",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0.15,
+            "value": 0.42
+          },
+          {
+            "measured": true,
+            "message": "1 atoms classified harmful/conflicting; strict `degraded` 0.000. Correctness gates before volume: one study skill carried 33 conflicts and still routed at 0.810, so it loads and misinforms",
+            "name": "harmful_atoms",
+            "passed": false,
+            "severity": "warn",
+            "threshold": 0,
+            "value": 1
+          },
+          {
+            "measured": true,
+            "message": "0.120 of tokens carry no extracted atom (ceiling 0.25); an upper bound on waste, not a measurement of it. 2 of those spans (18 tokens) only name a bundled file, which is a loading instruction rather than waste",
+            "name": "dead_tokens",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0.25,
+            "value": 0.12
+          },
+          {
+            "basis": "all_bundled_words",
+            "measured": true,
+            "message": "the bundle was measured (3 files, 900 of 900 bundled words, 0 files excluded): 0% of this artifact's words were not read (ceiling 50%); raise --max-file-words / --max-resource-words, or narrow --resource-roles, before reading these rates as a property of the artifact. A bundle run is an upper bound on what the artifact can deliver -- whether the agent loads a file is the agentic track's question",
+            "name": "artifact_coverage",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0.5,
+            "value": 0.0
+          },
+          {
+            "measured": true,
+            "message": "2% of generated probe wordings were dropped as malformed (worst kind: paraphrase at 2%); those atoms were probed by fewer kinds than the run's budget implies. The check is mechanical, so this is a floor on corruption, not a wording-quality score",
+            "name": "probe_wording_fidelity",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0.2,
+            "value": 0.025
+          },
+          {
+            "measured": true,
+            "message": "worst arm `no_artifact`: 36 of 40 atoms asked by several probe kinds got the same verdict from all of them (floor 0.8); other arms: `full` 0.95. A disagreeing atom's outcome is wording-dependent: in the artifact arm that makes `added` a property of the phrasing, and in the baseline arm it makes `redundant` wording-matched recall rather than prior knowledge",
+            "name": "probe_kind_agreement",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0.8,
+            "value": 0.9
+          },
+          {
+            "measured": true,
+            "message": "0 of 1 offered candidates drop a protected span. The study's worst candidate kept 0.916 of knowledge at 0.158 protection, which is why protection is pinned rather than averaged in",
+            "name": "protection_invariant",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0,
+            "value": 0
+          },
+          {
+            "measured": true,
+            "message": "38 of 40 atoms were recovered from a span cited for them (2 unlocated). An unlocated atom is not wrong — in the study 46 of 49 were called supported — but no span may be coloured for it",
+            "name": "span_citations_confirmed",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0.8,
+            "value": 0.95
+          },
+          {
+            "measured": true,
+            "message": "0 of 1 candidates rank by value with value defined on under half their atoms, so the ranking is atom coverage per token; probe more atoms per artifact or read the `knowledge` column instead",
+            "name": "value_is_measured",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0.5,
+            "value": 0.9
+          },
+          {
+            "measured": true,
+            "message": "the shuffled control scored at least as high as the artifact as written. Expected, not a defect: retested behaviourally on the tasks whose graded requirements name an ordering, scrambling span order cost +0.022 (CI -0.027 to +0.072). Spend authoring effort on facts and exact values, not on transitions",
+            "name": "order_independence",
+            "passed": true,
+            "severity": "info",
+            "threshold": false,
+            "value": false
+          }
+        ],
+        "model": "m",
+        "not_measured": [],
+        "status": "WARN"
+      },
+      "block": "## Novelty gate\n\n_All novelty checks are soft: they report and never block._\n\n### `skill:skills/accel-tuning` on `m` — WARN\n\n| Check | Status | Value | Threshold | Notes |\n| --- | --- | ---: | ---: | --- |\n| added_floor | ok | 0.42 | 0.15 | lenient `added` 0.420 over 40 paired probes (floor 0.15); this is one (artifact, model) pair and is not comparable to another artifact's figure |\n| harmful_atoms | warn | 1 | 0 | 1 atoms classified harmful/conflicting; strict `degraded` 0.000. Correctness gates before volume: one study skill carried 33 conflicts and still routed at 0.810, so it loads and misinforms |\n| dead_tokens | ok | 0.12 | 0.25 | 0.120 of tokens carry no extracted atom (ceiling 0.25); an upper bound on waste, not a measurement of it. 2 of those spans (18 tokens) only name a bundled file, which is a loading instruction rather than waste |\n| artifact_coverage | ok | 0.0 | 0.5 | the bundle was measured (3 files, 900 of 900 bundled words, 0 files excluded): 0% of this artifact's words were not read (ceiling 50%); raise --max-file-words / --max-resource-words, or narrow --resource-roles, before reading these rates as a property of the artifact. A bundle run is an upper bound on what the artifact can deliver -- whether the agent loads a file is the agentic track's question |\n| probe_wording_fidelity | ok | 0.025 | 0.2 | 2% of generated probe wordings were dropped as malformed (worst kind: paraphrase at 2%); those atoms were probed by fewer kinds than the run's budget implies. The check is mechanical, so this is a floor on corruption, not a wording-quality score |\n| probe_kind_agreement | ok | 0.9 | 0.8 | worst arm `no_artifact`: 36 of 40 atoms asked by several probe kinds got the same verdict from all of them (floor 0.8); other arms: `full` 0.95. A disagreeing atom's outcome is wording-dependent: in the artifact arm that makes `added` a property of the phrasing, and in the baseline arm it makes `redundant` wording-matched recall rather than prior knowledge |\n| protection_invariant | ok | 0 | 0 | 0 of 1 offered candidates drop a protected span. The study's worst candidate kept 0.916 of knowledge at 0.158 protection, which is why protection is pinned rather than averaged in |\n| span_citations_confirmed | ok | 0.95 | 0.8 | 38 of 40 atoms were recovered from a span cited for them (2 unlocated). An unlocated atom is not wrong — in the study 46 of 49 were called supported — but no span may be coloured for it |\n| value_is_measured | ok | 0.9 | 0.5 | 0 of 1 candidates rank by value with value defined on under half their atoms, so the ranking is atom coverage per token; probe more atoms per artifact or read the `knowledge` column instead |\n| order_independence | ok | False | False | the shuffled control scored at least as high as the artifact as written. Expected, not a defect: retested behaviourally on the tasks whose graded requirements name an ordering, scrambling span order cost +0.022 (CI -0.027 to +0.072). Spend authoring effort on facts and exact values, not on transitions |\n"
+    },
+    "conflict_partial_coverage": {
+      "as_dict": {
+        "artifact_ref": "skill:skills/accel-tuning",
+        "blocking": false,
+        "checks": [
+          {
+            "measured": true,
+            "message": "lenient `added` 0.420 over 40 paired probes (floor 0.15); this is one (artifact, model) pair and is not comparable to another artifact's figure",
+            "name": "added_floor",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0.15,
+            "value": 0.42
+          },
+          {
+            "measured": false,
+            "message": "not measured: the conflict check compared 5 of 50 atom pairs (floor 100% of pairs), so a count of 0 is not a cleared check; strict `degraded` 0.000",
+            "name": "harmful_atoms",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0,
+            "value": null
+          },
+          {
+            "measured": true,
+            "message": "0.120 of tokens carry no extracted atom (ceiling 0.25); an upper bound on waste, not a measurement of it. 2 of those spans (18 tokens) only name a bundled file, which is a loading instruction rather than waste",
+            "name": "dead_tokens",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0.25,
+            "value": 0.12
+          },
+          {
+            "basis": "all_bundled_words",
+            "measured": true,
+            "message": "the bundle was measured (3 files, 900 of 900 bundled words, 0 files excluded): 0% of this artifact's words were not read (ceiling 50%); raise --max-file-words / --max-resource-words, or narrow --resource-roles, before reading these rates as a property of the artifact. A bundle run is an upper bound on what the artifact can deliver -- whether the agent loads a file is the agentic track's question",
+            "name": "artifact_coverage",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0.5,
+            "value": 0.0
+          },
+          {
+            "measured": true,
+            "message": "2% of generated probe wordings were dropped as malformed (worst kind: paraphrase at 2%); those atoms were probed by fewer kinds than the run's budget implies. The check is mechanical, so this is a floor on corruption, not a wording-quality score",
+            "name": "probe_wording_fidelity",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0.2,
+            "value": 0.025
+          },
+          {
+            "measured": true,
+            "message": "worst arm `no_artifact`: 36 of 40 atoms asked by several probe kinds got the same verdict from all of them (floor 0.8); other arms: `full` 0.95. A disagreeing atom's outcome is wording-dependent: in the artifact arm that makes `added` a property of the phrasing, and in the baseline arm it makes `redundant` wording-matched recall rather than prior knowledge",
+            "name": "probe_kind_agreement",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0.8,
+            "value": 0.9
+          },
+          {
+            "measured": true,
+            "message": "0 of 1 offered candidates drop a protected span. The study's worst candidate kept 0.916 of knowledge at 0.158 protection, which is why protection is pinned rather than averaged in",
+            "name": "protection_invariant",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0,
+            "value": 0
+          },
+          {
+            "measured": true,
+            "message": "38 of 40 atoms were recovered from a span cited for them (2 unlocated). An unlocated atom is not wrong — in the study 46 of 49 were called supported — but no span may be coloured for it",
+            "name": "span_citations_confirmed",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0.8,
+            "value": 0.95
+          },
+          {
+            "measured": true,
+            "message": "0 of 1 candidates rank by value with value defined on under half their atoms, so the ranking is atom coverage per token; probe more atoms per artifact or read the `knowledge` column instead",
+            "name": "value_is_measured",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0.5,
+            "value": 0.9
+          },
+          {
+            "measured": true,
+            "message": "the shuffled control scored at least as high as the artifact as written. Expected, not a defect: retested behaviourally on the tasks whose graded requirements name an ordering, scrambling span order cost +0.022 (CI -0.027 to +0.072). Spend authoring effort on facts and exact values, not on transitions",
+            "name": "order_independence",
+            "passed": true,
+            "severity": "info",
+            "threshold": false,
+            "value": false
+          }
+        ],
+        "model": "m",
+        "not_measured": [
+          "harmful_atoms"
+        ],
+        "status": "PASS"
+      },
+      "block": "## Novelty gate\n\n_All novelty checks are soft: they report and never block._\n\n### `skill:skills/accel-tuning` on `m` — PASS (1 of 10 not measured)\n\n| Check | Status | Value | Threshold | Notes |\n| --- | --- | ---: | ---: | --- |\n| added_floor | ok | 0.42 | 0.15 | lenient `added` 0.420 over 40 paired probes (floor 0.15); this is one (artifact, model) pair and is not comparable to another artifact's figure |\n| harmful_atoms | not measured | None | 0 | not measured: the conflict check compared 5 of 50 atom pairs (floor 100% of pairs), so a count of 0 is not a cleared check; strict `degraded` 0.000 |\n| dead_tokens | ok | 0.12 | 0.25 | 0.120 of tokens carry no extracted atom (ceiling 0.25); an upper bound on waste, not a measurement of it. 2 of those spans (18 tokens) only name a bundled file, which is a loading instruction rather than waste |\n| artifact_coverage | ok | 0.0 | 0.5 | the bundle was measured (3 files, 900 of 900 bundled words, 0 files excluded): 0% of this artifact's words were not read (ceiling 50%); raise --max-file-words / --max-resource-words, or narrow --resource-roles, before reading these rates as a property of the artifact. A bundle run is an upper bound on what the artifact can deliver -- whether the agent loads a file is the agentic track's question |\n| probe_wording_fidelity | ok | 0.025 | 0.2 | 2% of generated probe wordings were dropped as malformed (worst kind: paraphrase at 2%); those atoms were probed by fewer kinds than the run's budget implies. The check is mechanical, so this is a floor on corruption, not a wording-quality score |\n| probe_kind_agreement | ok | 0.9 | 0.8 | worst arm `no_artifact`: 36 of 40 atoms asked by several probe kinds got the same verdict from all of them (floor 0.8); other arms: `full` 0.95. A disagreeing atom's outcome is wording-dependent: in the artifact arm that makes `added` a property of the phrasing, and in the baseline arm it makes `redundant` wording-matched recall rather than prior knowledge |\n| protection_invariant | ok | 0 | 0 | 0 of 1 offered candidates drop a protected span. The study's worst candidate kept 0.916 of knowledge at 0.158 protection, which is why protection is pinned rather than averaged in |\n| span_citations_confirmed | ok | 0.95 | 0.8 | 38 of 40 atoms were recovered from a span cited for them (2 unlocated). An unlocated atom is not wrong — in the study 46 of 49 were called supported — but no span may be coloured for it |\n| value_is_measured | ok | 0.9 | 0.5 | 0 of 1 candidates rank by value with value defined on under half their atoms, so the ranking is atom coverage per token; probe more atoms per artifact or read the `knowledge` column instead |\n| order_independence | ok | False | False | the shuffled control scored at least as high as the artifact as written. Expected, not a defect: retested behaviourally on the tasks whose graded requirements name an ordering, scrambling span order cost +0.022 (CI -0.027 to +0.072). Spend authoring effort on facts and exact values, not on transitions |\n"
+    },
+    "empty": {
+      "as_dict": {
+        "artifact_ref": "",
+        "blocking": false,
+        "checks": [
+          {
+            "measured": false,
+            "message": "no paired probes: `added` was not measured",
+            "name": "added_floor",
+            "passed": true,
+            "severity": "info",
+            "threshold": 0.15,
+            "value": null
+          },
+          {
+            "measured": false,
+            "message": "not measured: atoms were not classified, so harmful/conflicting content is unknown",
+            "name": "harmful_atoms",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0,
+            "value": null
+          },
+          {
+            "measured": false,
+            "message": "dead-token share was not computed",
+            "name": "dead_tokens",
+            "passed": true,
+            "severity": "info",
+            "threshold": 0.25,
+            "value": null
+          },
+          {
+            "measured": false,
+            "message": "this run does not record which files of the artifact it read, so whether it measured the whole artifact is unknown",
+            "name": "artifact_coverage",
+            "passed": true,
+            "severity": "info",
+            "threshold": 0.5,
+            "value": null
+          },
+          {
+            "measured": false,
+            "message": "no generated probe wordings were checked on this run (direct probes only, or a run that predates the check)",
+            "name": "probe_wording_fidelity",
+            "passed": true,
+            "severity": "info",
+            "threshold": 0.2,
+            "value": null
+          },
+          {
+            "measured": false,
+            "message": "no atom was asked by more than one probe kind, so whether its outcome survives a rewording is unmeasured",
+            "name": "probe_kind_agreement",
+            "passed": true,
+            "severity": "info",
+            "threshold": 0.8,
+            "value": null
+          },
+          {
+            "measured": false,
+            "message": "0 of 0 offered candidates drop a protected span. The study's worst candidate kept 0.916 of knowledge at 0.158 protection, which is why protection is pinned rather than averaged in",
+            "name": "protection_invariant",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0,
+            "value": 0
+          },
+          {
+            "measured": false,
+            "message": "span citations were not confirmed for this run, so the span views report the extractor's citation as given",
+            "name": "span_citations_confirmed",
+            "passed": true,
+            "severity": "info",
+            "threshold": 0.8,
+            "value": null
+          },
+          {
+            "measured": false,
+            "message": "no shortening candidates were ranked",
+            "name": "value_is_measured",
+            "passed": true,
+            "severity": "info",
+            "threshold": 0.5,
+            "value": null
+          },
+          {
+            "measured": false,
+            "message": "the shuffled control was not run",
+            "name": "order_independence",
+            "passed": true,
+            "severity": "info",
+            "threshold": false,
+            "value": null
+          }
+        ],
+        "model": "",
+        "not_measured": [
+          "added_floor",
+          "harmful_atoms",
+          "dead_tokens",
+          "artifact_coverage",
+          "probe_wording_fidelity",
+          "probe_kind_agreement",
+          "protection_invariant",
+          "span_citations_confirmed",
+          "value_is_measured",
+          "order_independence"
+        ],
+        "status": "NOT MEASURED"
+      },
+      "block": "## Novelty gate\n\n_All novelty checks are soft: they report and never block._\n\n### `unknown` on `unknown` — NOT MEASURED (10 of 10 not measured)\n\n| Check | Status | Value | Threshold | Notes |\n| --- | --- | ---: | ---: | --- |\n| added_floor | not measured | None | 0.15 | no paired probes: `added` was not measured |\n| harmful_atoms | not measured | None | 0 | not measured: atoms were not classified, so harmful/conflicting content is unknown |\n| dead_tokens | not measured | None | 0.25 | dead-token share was not computed |\n| artifact_coverage | not measured | None | 0.5 | this run does not record which files of the artifact it read, so whether it measured the whole artifact is unknown |\n| probe_wording_fidelity | not measured | None | 0.2 | no generated probe wordings were checked on this run (direct probes only, or a run that predates the check) |\n| probe_kind_agreement | not measured | None | 0.8 | no atom was asked by more than one probe kind, so whether its outcome survives a rewording is unmeasured |\n| protection_invariant | not measured | 0 | 0 | 0 of 0 offered candidates drop a protected span. The study's worst candidate kept 0.916 of knowledge at 0.158 protection, which is why protection is pinned rather than averaged in |\n| span_citations_confirmed | not measured | None | 0.8 | span citations were not confirmed for this run, so the span views report the extractor's citation as given |\n| value_is_measured | not measured | None | 0.5 | no shortening candidates were ranked |\n| order_independence | not measured | None | False | the shuffled control was not run |\n"
+    },
+    "healthy": {
+      "as_dict": {
+        "artifact_ref": "skill:skills/accel-tuning",
+        "blocking": false,
+        "checks": [
+          {
+            "measured": true,
+            "message": "lenient `added` 0.420 over 40 paired probes (floor 0.15); this is one (artifact, model) pair and is not comparable to another artifact's figure",
+            "name": "added_floor",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0.15,
+            "value": 0.42
+          },
+          {
+            "measured": true,
+            "message": "0 atoms classified harmful/conflicting; strict `degraded` 0.000. Correctness gates before volume: one study skill carried 33 conflicts and still routed at 0.810, so it loads and misinforms",
+            "name": "harmful_atoms",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0,
+            "value": 0
+          },
+          {
+            "measured": true,
+            "message": "0.120 of tokens carry no extracted atom (ceiling 0.25); an upper bound on waste, not a measurement of it. 2 of those spans (18 tokens) only name a bundled file, which is a loading instruction rather than waste",
+            "name": "dead_tokens",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0.25,
+            "value": 0.12
+          },
+          {
+            "basis": "all_bundled_words",
+            "measured": true,
+            "message": "the bundle was measured (3 files, 900 of 900 bundled words, 0 files excluded): 0% of this artifact's words were not read (ceiling 50%); raise --max-file-words / --max-resource-words, or narrow --resource-roles, before reading these rates as a property of the artifact. A bundle run is an upper bound on what the artifact can deliver -- whether the agent loads a file is the agentic track's question",
+            "name": "artifact_coverage",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0.5,
+            "value": 0.0
+          },
+          {
+            "measured": true,
+            "message": "2% of generated probe wordings were dropped as malformed (worst kind: paraphrase at 2%); those atoms were probed by fewer kinds than the run's budget implies. The check is mechanical, so this is a floor on corruption, not a wording-quality score",
+            "name": "probe_wording_fidelity",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0.2,
+            "value": 0.025
+          },
+          {
+            "measured": true,
+            "message": "worst arm `no_artifact`: 36 of 40 atoms asked by several probe kinds got the same verdict from all of them (floor 0.8); other arms: `full` 0.95. A disagreeing atom's outcome is wording-dependent: in the artifact arm that makes `added` a property of the phrasing, and in the baseline arm it makes `redundant` wording-matched recall rather than prior knowledge",
+            "name": "probe_kind_agreement",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0.8,
+            "value": 0.9
+          },
+          {
+            "measured": true,
+            "message": "0 of 1 offered candidates drop a protected span. The study's worst candidate kept 0.916 of knowledge at 0.158 protection, which is why protection is pinned rather than averaged in",
+            "name": "protection_invariant",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0,
+            "value": 0
+          },
+          {
+            "measured": true,
+            "message": "38 of 40 atoms were recovered from a span cited for them (2 unlocated). An unlocated atom is not wrong — in the study 46 of 49 were called supported — but no span may be coloured for it",
+            "name": "span_citations_confirmed",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0.8,
+            "value": 0.95
+          },
+          {
+            "measured": true,
+            "message": "0 of 1 candidates rank by value with value defined on under half their atoms, so the ranking is atom coverage per token; probe more atoms per artifact or read the `knowledge` column instead",
+            "name": "value_is_measured",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0.5,
+            "value": 0.9
+          },
+          {
+            "measured": true,
+            "message": "the shuffled control scored at least as high as the artifact as written. Expected, not a defect: retested behaviourally on the tasks whose graded requirements name an ordering, scrambling span order cost +0.022 (CI -0.027 to +0.072). Spend authoring effort on facts and exact values, not on transitions",
+            "name": "order_independence",
+            "passed": true,
+            "severity": "info",
+            "threshold": false,
+            "value": false
+          }
+        ],
+        "model": "m",
+        "not_measured": [],
+        "status": "PASS"
+      },
+      "block": "## Novelty gate\n\n_All novelty checks are soft: they report and never block._\n\n### `skill:skills/accel-tuning` on `m` — PASS\n\n| Check | Status | Value | Threshold | Notes |\n| --- | --- | ---: | ---: | --- |\n| added_floor | ok | 0.42 | 0.15 | lenient `added` 0.420 over 40 paired probes (floor 0.15); this is one (artifact, model) pair and is not comparable to another artifact's figure |\n| harmful_atoms | ok | 0 | 0 | 0 atoms classified harmful/conflicting; strict `degraded` 0.000. Correctness gates before volume: one study skill carried 33 conflicts and still routed at 0.810, so it loads and misinforms |\n| dead_tokens | ok | 0.12 | 0.25 | 0.120 of tokens carry no extracted atom (ceiling 0.25); an upper bound on waste, not a measurement of it. 2 of those spans (18 tokens) only name a bundled file, which is a loading instruction rather than waste |\n| artifact_coverage | ok | 0.0 | 0.5 | the bundle was measured (3 files, 900 of 900 bundled words, 0 files excluded): 0% of this artifact's words were not read (ceiling 50%); raise --max-file-words / --max-resource-words, or narrow --resource-roles, before reading these rates as a property of the artifact. A bundle run is an upper bound on what the artifact can deliver -- whether the agent loads a file is the agentic track's question |\n| probe_wording_fidelity | ok | 0.025 | 0.2 | 2% of generated probe wordings were dropped as malformed (worst kind: paraphrase at 2%); those atoms were probed by fewer kinds than the run's budget implies. The check is mechanical, so this is a floor on corruption, not a wording-quality score |\n| probe_kind_agreement | ok | 0.9 | 0.8 | worst arm `no_artifact`: 36 of 40 atoms asked by several probe kinds got the same verdict from all of them (floor 0.8); other arms: `full` 0.95. A disagreeing atom's outcome is wording-dependent: in the artifact arm that makes `added` a property of the phrasing, and in the baseline arm it makes `redundant` wording-matched recall rather than prior knowledge |\n| protection_invariant | ok | 0 | 0 | 0 of 1 offered candidates drop a protected span. The study's worst candidate kept 0.916 of knowledge at 0.158 protection, which is why protection is pinned rather than averaged in |\n| span_citations_confirmed | ok | 0.95 | 0.8 | 38 of 40 atoms were recovered from a span cited for them (2 unlocated). An unlocated atom is not wrong — in the study 46 of 49 were called supported — but no span may be coloured for it |\n| value_is_measured | ok | 0.9 | 0.5 | 0 of 1 candidates rank by value with value defined on under half their atoms, so the ranking is atom coverage per token; probe more atoms per artifact or read the `knowledge` column instead |\n| order_independence | ok | False | False | the shuffled control scored at least as high as the artifact as written. Expected, not a defect: retested behaviourally on the tasks whose graded requirements name an ordering, scrambling span order cost +0.022 (CI -0.027 to +0.072). Spend authoring effort on facts and exact values, not on transitions |\n"
+    },
+    "low_paired_added": {
+      "as_dict": {
+        "artifact_ref": "skill:skills/accel-tuning",
+        "blocking": false,
+        "checks": [
+          {
+            "measured": true,
+            "message": "lenient `added` 0.050 over 40 paired probes (floor 0.15); this is one (artifact, model) pair and is not comparable to another artifact's figure",
+            "name": "added_floor",
+            "passed": false,
+            "severity": "warn",
+            "threshold": 0.15,
+            "value": 0.05
+          },
+          {
+            "measured": true,
+            "message": "0 atoms classified harmful/conflicting. Correctness gates before volume: one study skill carried 33 conflicts and still routed at 0.810, so it loads and misinforms",
+            "name": "harmful_atoms",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0,
+            "value": 0
+          },
+          {
+            "measured": true,
+            "message": "0.120 of tokens carry no extracted atom (ceiling 0.25); an upper bound on waste, not a measurement of it. 2 of those spans (18 tokens) only name a bundled file, which is a loading instruction rather than waste",
+            "name": "dead_tokens",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0.25,
+            "value": 0.12
+          },
+          {
+            "basis": "all_bundled_words",
+            "measured": true,
+            "message": "the bundle was measured (3 files, 900 of 900 bundled words, 0 files excluded): 0% of this artifact's words were not read (ceiling 50%); raise --max-file-words / --max-resource-words, or narrow --resource-roles, before reading these rates as a property of the artifact. A bundle run is an upper bound on what the artifact can deliver -- whether the agent loads a file is the agentic track's question",
+            "name": "artifact_coverage",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0.5,
+            "value": 0.0
+          },
+          {
+            "measured": true,
+            "message": "2% of generated probe wordings were dropped as malformed (worst kind: paraphrase at 2%); those atoms were probed by fewer kinds than the run's budget implies. The check is mechanical, so this is a floor on corruption, not a wording-quality score",
+            "name": "probe_wording_fidelity",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0.2,
+            "value": 0.025
+          },
+          {
+            "measured": true,
+            "message": "worst arm `no_artifact`: 36 of 40 atoms asked by several probe kinds got the same verdict from all of them (floor 0.8); other arms: `full` 0.95. A disagreeing atom's outcome is wording-dependent: in the artifact arm that makes `added` a property of the phrasing, and in the baseline arm it makes `redundant` wording-matched recall rather than prior knowledge",
+            "name": "probe_kind_agreement",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0.8,
+            "value": 0.9
+          },
+          {
+            "measured": true,
+            "message": "0 of 1 offered candidates drop a protected span. The study's worst candidate kept 0.916 of knowledge at 0.158 protection, which is why protection is pinned rather than averaged in",
+            "name": "protection_invariant",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0,
+            "value": 0
+          },
+          {
+            "measured": true,
+            "message": "38 of 40 atoms were recovered from a span cited for them (2 unlocated). An unlocated atom is not wrong — in the study 46 of 49 were called supported — but no span may be coloured for it",
+            "name": "span_citations_confirmed",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0.8,
+            "value": 0.95
+          },
+          {
+            "measured": true,
+            "message": "0 of 1 candidates rank by value with value defined on under half their atoms, so the ranking is atom coverage per token; probe more atoms per artifact or read the `knowledge` column instead",
+            "name": "value_is_measured",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0.5,
+            "value": 0.9
+          },
+          {
+            "measured": true,
+            "message": "the shuffled control scored at least as high as the artifact as written. Expected, not a defect: retested behaviourally on the tasks whose graded requirements name an ordering, scrambling span order cost +0.022 (CI -0.027 to +0.072). Spend authoring effort on facts and exact values, not on transitions",
+            "name": "order_independence",
+            "passed": true,
+            "severity": "info",
+            "threshold": false,
+            "value": false
+          }
+        ],
+        "model": "m",
+        "not_measured": [],
+        "status": "WARN"
+      },
+      "block": "## Novelty gate\n\n_All novelty checks are soft: they report and never block._\n\n### `skill:skills/accel-tuning` on `m` — WARN\n\n| Check | Status | Value | Threshold | Notes |\n| --- | --- | ---: | ---: | --- |\n| added_floor | warn | 0.05 | 0.15 | lenient `added` 0.050 over 40 paired probes (floor 0.15); this is one (artifact, model) pair and is not comparable to another artifact's figure |\n| harmful_atoms | ok | 0 | 0 | 0 atoms classified harmful/conflicting. Correctness gates before volume: one study skill carried 33 conflicts and still routed at 0.810, so it loads and misinforms |\n| dead_tokens | ok | 0.12 | 0.25 | 0.120 of tokens carry no extracted atom (ceiling 0.25); an upper bound on waste, not a measurement of it. 2 of those spans (18 tokens) only name a bundled file, which is a loading instruction rather than waste |\n| artifact_coverage | ok | 0.0 | 0.5 | the bundle was measured (3 files, 900 of 900 bundled words, 0 files excluded): 0% of this artifact's words were not read (ceiling 50%); raise --max-file-words / --max-resource-words, or narrow --resource-roles, before reading these rates as a property of the artifact. A bundle run is an upper bound on what the artifact can deliver -- whether the agent loads a file is the agentic track's question |\n| probe_wording_fidelity | ok | 0.025 | 0.2 | 2% of generated probe wordings were dropped as malformed (worst kind: paraphrase at 2%); those atoms were probed by fewer kinds than the run's budget implies. The check is mechanical, so this is a floor on corruption, not a wording-quality score |\n| probe_kind_agreement | ok | 0.9 | 0.8 | worst arm `no_artifact`: 36 of 40 atoms asked by several probe kinds got the same verdict from all of them (floor 0.8); other arms: `full` 0.95. A disagreeing atom's outcome is wording-dependent: in the artifact arm that makes `added` a property of the phrasing, and in the baseline arm it makes `redundant` wording-matched recall rather than prior knowledge |\n| protection_invariant | ok | 0 | 0 | 0 of 1 offered candidates drop a protected span. The study's worst candidate kept 0.916 of knowledge at 0.158 protection, which is why protection is pinned rather than averaged in |\n| span_citations_confirmed | ok | 0.95 | 0.8 | 38 of 40 atoms were recovered from a span cited for them (2 unlocated). An unlocated atom is not wrong — in the study 46 of 49 were called supported — but no span may be coloured for it |\n| value_is_measured | ok | 0.9 | 0.5 | 0 of 1 candidates rank by value with value defined on under half their atoms, so the ranking is atom coverage per token; probe more atoms per artifact or read the `knowledge` column instead |\n| order_independence | ok | False | False | the shuffled control scored at least as high as the artifact as written. Expected, not a defect: retested behaviourally on the tasks whose graded requirements name an ordering, scrambling span order cost +0.022 (CI -0.027 to +0.072). Spend authoring effort on facts and exact values, not on transitions |\n"
+    },
+    "no_paired": {
+      "as_dict": {
+        "artifact_ref": "skill:skills/accel-tuning",
+        "blocking": false,
+        "checks": [
+          {
+            "measured": false,
+            "message": "no paired probes: `added` was not measured",
+            "name": "added_floor",
+            "passed": true,
+            "severity": "info",
+            "threshold": 0.15,
+            "value": null
+          },
+          {
+            "measured": true,
+            "message": "0 atoms classified harmful/conflicting. Correctness gates before volume: one study skill carried 33 conflicts and still routed at 0.810, so it loads and misinforms",
+            "name": "harmful_atoms",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0,
+            "value": 0
+          },
+          {
+            "measured": true,
+            "message": "0.120 of tokens carry no extracted atom (ceiling 0.25); an upper bound on waste, not a measurement of it. 2 of those spans (18 tokens) only name a bundled file, which is a loading instruction rather than waste",
+            "name": "dead_tokens",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0.25,
+            "value": 0.12
+          },
+          {
+            "basis": "all_bundled_words",
+            "measured": true,
+            "message": "the bundle was measured (3 files, 900 of 900 bundled words, 0 files excluded): 0% of this artifact's words were not read (ceiling 50%); raise --max-file-words / --max-resource-words, or narrow --resource-roles, before reading these rates as a property of the artifact. A bundle run is an upper bound on what the artifact can deliver -- whether the agent loads a file is the agentic track's question",
+            "name": "artifact_coverage",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0.5,
+            "value": 0.0
+          },
+          {
+            "measured": true,
+            "message": "2% of generated probe wordings were dropped as malformed (worst kind: paraphrase at 2%); those atoms were probed by fewer kinds than the run's budget implies. The check is mechanical, so this is a floor on corruption, not a wording-quality score",
+            "name": "probe_wording_fidelity",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0.2,
+            "value": 0.025
+          },
+          {
+            "measured": true,
+            "message": "worst arm `no_artifact`: 36 of 40 atoms asked by several probe kinds got the same verdict from all of them (floor 0.8); other arms: `full` 0.95. A disagreeing atom's outcome is wording-dependent: in the artifact arm that makes `added` a property of the phrasing, and in the baseline arm it makes `redundant` wording-matched recall rather than prior knowledge",
+            "name": "probe_kind_agreement",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0.8,
+            "value": 0.9
+          },
+          {
+            "measured": true,
+            "message": "0 of 1 offered candidates drop a protected span. The study's worst candidate kept 0.916 of knowledge at 0.158 protection, which is why protection is pinned rather than averaged in",
+            "name": "protection_invariant",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0,
+            "value": 0
+          },
+          {
+            "measured": true,
+            "message": "38 of 40 atoms were recovered from a span cited for them (2 unlocated). An unlocated atom is not wrong — in the study 46 of 49 were called supported — but no span may be coloured for it",
+            "name": "span_citations_confirmed",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0.8,
+            "value": 0.95
+          },
+          {
+            "measured": true,
+            "message": "0 of 1 candidates rank by value with value defined on under half their atoms, so the ranking is atom coverage per token; probe more atoms per artifact or read the `knowledge` column instead",
+            "name": "value_is_measured",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0.5,
+            "value": 0.9
+          },
+          {
+            "measured": true,
+            "message": "the shuffled control scored at least as high as the artifact as written. Expected, not a defect: retested behaviourally on the tasks whose graded requirements name an ordering, scrambling span order cost +0.022 (CI -0.027 to +0.072). Spend authoring effort on facts and exact values, not on transitions",
+            "name": "order_independence",
+            "passed": true,
+            "severity": "info",
+            "threshold": false,
+            "value": false
+          }
+        ],
+        "model": "m",
+        "not_measured": [
+          "added_floor"
+        ],
+        "status": "PASS"
+      },
+      "block": "## Novelty gate\n\n_All novelty checks are soft: they report and never block._\n\n### `skill:skills/accel-tuning` on `m` — PASS (1 of 10 not measured)\n\n| Check | Status | Value | Threshold | Notes |\n| --- | --- | ---: | ---: | --- |\n| added_floor | not measured | None | 0.15 | no paired probes: `added` was not measured |\n| harmful_atoms | ok | 0 | 0 | 0 atoms classified harmful/conflicting. Correctness gates before volume: one study skill carried 33 conflicts and still routed at 0.810, so it loads and misinforms |\n| dead_tokens | ok | 0.12 | 0.25 | 0.120 of tokens carry no extracted atom (ceiling 0.25); an upper bound on waste, not a measurement of it. 2 of those spans (18 tokens) only name a bundled file, which is a loading instruction rather than waste |\n| artifact_coverage | ok | 0.0 | 0.5 | the bundle was measured (3 files, 900 of 900 bundled words, 0 files excluded): 0% of this artifact's words were not read (ceiling 50%); raise --max-file-words / --max-resource-words, or narrow --resource-roles, before reading these rates as a property of the artifact. A bundle run is an upper bound on what the artifact can deliver -- whether the agent loads a file is the agentic track's question |\n| probe_wording_fidelity | ok | 0.025 | 0.2 | 2% of generated probe wordings were dropped as malformed (worst kind: paraphrase at 2%); those atoms were probed by fewer kinds than the run's budget implies. The check is mechanical, so this is a floor on corruption, not a wording-quality score |\n| probe_kind_agreement | ok | 0.9 | 0.8 | worst arm `no_artifact`: 36 of 40 atoms asked by several probe kinds got the same verdict from all of them (floor 0.8); other arms: `full` 0.95. A disagreeing atom's outcome is wording-dependent: in the artifact arm that makes `added` a property of the phrasing, and in the baseline arm it makes `redundant` wording-matched recall rather than prior knowledge |\n| protection_invariant | ok | 0 | 0 | 0 of 1 offered candidates drop a protected span. The study's worst candidate kept 0.916 of knowledge at 0.158 protection, which is why protection is pinned rather than averaged in |\n| span_citations_confirmed | ok | 0.95 | 0.8 | 38 of 40 atoms were recovered from a span cited for them (2 unlocated). An unlocated atom is not wrong — in the study 46 of 49 were called supported — but no span may be coloured for it |\n| value_is_measured | ok | 0.9 | 0.5 | 0 of 1 candidates rank by value with value defined on under half their atoms, so the ranking is atom coverage per token; probe more atoms per artifact or read the `knowledge` column instead |\n| order_independence | ok | False | False | the shuffled control scored at least as high as the artifact as written. Expected, not a defect: retested behaviourally on the tasks whose graded requirements name an ordering, scrambling span order cost +0.022 (CI -0.027 to +0.072). Spend authoring effort on facts and exact values, not on transitions |\n"
+    },
+    "stressed": {
+      "as_dict": {
+        "artifact_ref": "skill:skills/accel-tuning",
+        "blocking": false,
+        "checks": [
+          {
+            "measured": true,
+            "message": "lenient `added` 0.420 over 40 paired probes (floor 0.15); this is one (artifact, model) pair and is not comparable to another artifact's figure",
+            "name": "added_floor",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0.15,
+            "value": 0.42
+          },
+          {
+            "measured": true,
+            "message": "2 atoms classified harmful/conflicting; only the cap's sample of the atoms was compared, so this is a lower bound; strict `degraded` 0.000. Correctness gates before volume: one study skill carried 33 conflicts and still routed at 0.810, so it loads and misinforms",
+            "name": "harmful_atoms",
+            "passed": false,
+            "severity": "warn",
+            "threshold": 0,
+            "value": 2
+          },
+          {
+            "measured": false,
+            "message": "not checked: the atom set was capped (300 indexed), and a capped sample does not approximate this figure but inverts it — 0.064 read as 0.743 on the study's largest artifact",
+            "name": "dead_tokens",
+            "passed": true,
+            "severity": "info",
+            "threshold": 0.25,
+            "value": 0.4
+          },
+          {
+            "basis": "all_bundled_words",
+            "measured": true,
+            "message": "the bundle was measured (3 files, 900 of 900 bundled words, 0 files excluded): 0% of this artifact's words were not read (ceiling 50%); raise --max-file-words / --max-resource-words, or narrow --resource-roles, before reading these rates as a property of the artifact. A bundle run is an upper bound on what the artifact can deliver -- whether the agent loads a file is the agentic track's question",
+            "name": "artifact_coverage",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0.5,
+            "value": 0.0
+          },
+          {
+            "measured": true,
+            "message": "40% of generated probe wordings were dropped as malformed (worst kind: paraphrase at 40%); those atoms were probed by fewer kinds than the run's budget implies. The check is mechanical, so this is a floor on corruption, not a wording-quality score",
+            "name": "probe_wording_fidelity",
+            "passed": false,
+            "severity": "warn",
+            "threshold": 0.2,
+            "value": 0.4
+          },
+          {
+            "measured": true,
+            "message": "worst arm `full`: 20 of 40 atoms asked by several probe kinds got the same verdict from all of them (floor 0.8). A disagreeing atom's outcome is wording-dependent: in the artifact arm that makes `added` a property of the phrasing, and in the baseline arm it makes `redundant` wording-matched recall rather than prior knowledge",
+            "name": "probe_kind_agreement",
+            "passed": false,
+            "severity": "warn",
+            "threshold": 0.8,
+            "value": 0.5
+          },
+          {
+            "measured": true,
+            "message": "1 of 1 offered candidates drop a protected span. The study's worst candidate kept 0.916 of knowledge at 0.158 protection, which is why protection is pinned rather than averaged in",
+            "name": "protection_invariant",
+            "passed": false,
+            "severity": "warn",
+            "threshold": 0,
+            "value": 1
+          },
+          {
+            "measured": true,
+            "message": "20 of 40 atoms were recovered from a span cited for them (20 unlocated). An unlocated atom is not wrong — in the study 46 of 49 were called supported — but no span may be coloured for it",
+            "name": "span_citations_confirmed",
+            "passed": false,
+            "severity": "warn",
+            "threshold": 0.8,
+            "value": 0.5
+          },
+          {
+            "measured": true,
+            "message": "1 of 1 candidates rank by value with value defined on under half their atoms, so the ranking is atom coverage per token; probe more atoms per artifact or read the `knowledge` column instead",
+            "name": "value_is_measured",
+            "passed": false,
+            "severity": "warn",
+            "threshold": 0.5,
+            "value": 0.2
+          },
+          {
+            "measured": true,
+            "message": "the shuffled control scored at least as high as the artifact as written. Expected, not a defect: retested behaviourally on the tasks whose graded requirements name an ordering, scrambling span order cost +0.022 (CI -0.027 to +0.072). Spend authoring effort on facts and exact values, not on transitions",
+            "name": "order_independence",
+            "passed": false,
+            "severity": "info",
+            "threshold": false,
+            "value": true
+          }
+        ],
+        "model": "m",
+        "not_measured": [
+          "dead_tokens"
+        ],
+        "status": "WARN"
+      },
+      "block": "## Novelty gate\n\n_All novelty checks are soft: they report and never block._\n\n### `skill:skills/accel-tuning` on `m` — WARN (1 of 10 not measured)\n\n| Check | Status | Value | Threshold | Notes |\n| --- | --- | ---: | ---: | --- |\n| added_floor | ok | 0.42 | 0.15 | lenient `added` 0.420 over 40 paired probes (floor 0.15); this is one (artifact, model) pair and is not comparable to another artifact's figure |\n| harmful_atoms | warn | 2 | 0 | 2 atoms classified harmful/conflicting; only the cap's sample of the atoms was compared, so this is a lower bound; strict `degraded` 0.000. Correctness gates before volume: one study skill carried 33 conflicts and still routed at 0.810, so it loads and misinforms |\n| dead_tokens | not measured | 0.4 | 0.25 | not checked: the atom set was capped (300 indexed), and a capped sample does not approximate this figure but inverts it — 0.064 read as 0.743 on the study's largest artifact |\n| artifact_coverage | ok | 0.0 | 0.5 | the bundle was measured (3 files, 900 of 900 bundled words, 0 files excluded): 0% of this artifact's words were not read (ceiling 50%); raise --max-file-words / --max-resource-words, or narrow --resource-roles, before reading these rates as a property of the artifact. A bundle run is an upper bound on what the artifact can deliver -- whether the agent loads a file is the agentic track's question |\n| probe_wording_fidelity | warn | 0.4 | 0.2 | 40% of generated probe wordings were dropped as malformed (worst kind: paraphrase at 40%); those atoms were probed by fewer kinds than the run's budget implies. The check is mechanical, so this is a floor on corruption, not a wording-quality score |\n| probe_kind_agreement | warn | 0.5 | 0.8 | worst arm `full`: 20 of 40 atoms asked by several probe kinds got the same verdict from all of them (floor 0.8). A disagreeing atom's outcome is wording-dependent: in the artifact arm that makes `added` a property of the phrasing, and in the baseline arm it makes `redundant` wording-matched recall rather than prior knowledge |\n| protection_invariant | warn | 1 | 0 | 1 of 1 offered candidates drop a protected span. The study's worst candidate kept 0.916 of knowledge at 0.158 protection, which is why protection is pinned rather than averaged in |\n| span_citations_confirmed | warn | 0.5 | 0.8 | 20 of 40 atoms were recovered from a span cited for them (20 unlocated). An unlocated atom is not wrong — in the study 46 of 49 were called supported — but no span may be coloured for it |\n| value_is_measured | warn | 0.2 | 0.5 | 1 of 1 candidates rank by value with value defined on under half their atoms, so the ranking is atom coverage per token; probe more atoms per artifact or read the `knowledge` column instead |\n| order_independence | note | True | False | the shuffled control scored at least as high as the artifact as written. Expected, not a defect: retested behaviourally on the tasks whose graded requirements name an ordering, scrambling span order cost +0.022 (CI -0.027 to +0.072). Spend authoring effort on facts and exact values, not on transitions |\n"
+    },
+    "two_cells_block": "## Novelty gate\n\n_All novelty checks are soft: they report and never block._\n\n### `skill:skills/accel-tuning` on `m` — PASS\n\n| Check | Status | Value | Threshold | Notes |\n| --- | --- | ---: | ---: | --- |\n| added_floor | ok | 0.42 | 0.15 | lenient `added` 0.420 over 40 paired probes (floor 0.15); this is one (artifact, model) pair and is not comparable to another artifact's figure |\n| harmful_atoms | ok | 0 | 0 | 0 atoms classified harmful/conflicting; strict `degraded` 0.000. Correctness gates before volume: one study skill carried 33 conflicts and still routed at 0.810, so it loads and misinforms |\n| dead_tokens | ok | 0.12 | 0.25 | 0.120 of tokens carry no extracted atom (ceiling 0.25); an upper bound on waste, not a measurement of it. 2 of those spans (18 tokens) only name a bundled file, which is a loading instruction rather than waste |\n| artifact_coverage | ok | 0.0 | 0.5 | the bundle was measured (3 files, 900 of 900 bundled words, 0 files excluded): 0% of this artifact's words were not read (ceiling 50%); raise --max-file-words / --max-resource-words, or narrow --resource-roles, before reading these rates as a property of the artifact. A bundle run is an upper bound on what the artifact can deliver -- whether the agent loads a file is the agentic track's question |\n| probe_wording_fidelity | ok | 0.025 | 0.2 | 2% of generated probe wordings were dropped as malformed (worst kind: paraphrase at 2%); those atoms were probed by fewer kinds than the run's budget implies. The check is mechanical, so this is a floor on corruption, not a wording-quality score |\n| probe_kind_agreement | ok | 0.9 | 0.8 | worst arm `no_artifact`: 36 of 40 atoms asked by several probe kinds got the same verdict from all of them (floor 0.8); other arms: `full` 0.95. A disagreeing atom's outcome is wording-dependent: in the artifact arm that makes `added` a property of the phrasing, and in the baseline arm it makes `redundant` wording-matched recall rather than prior knowledge |\n| protection_invariant | ok | 0 | 0 | 0 of 1 offered candidates drop a protected span. The study's worst candidate kept 0.916 of knowledge at 0.158 protection, which is why protection is pinned rather than averaged in |\n| span_citations_confirmed | ok | 0.95 | 0.8 | 38 of 40 atoms were recovered from a span cited for them (2 unlocated). An unlocated atom is not wrong — in the study 46 of 49 were called supported — but no span may be coloured for it |\n| value_is_measured | ok | 0.9 | 0.5 | 0 of 1 candidates rank by value with value defined on under half their atoms, so the ranking is atom coverage per token; probe more atoms per artifact or read the `knowledge` column instead |\n| order_independence | ok | False | False | the shuffled control scored at least as high as the artifact as written. Expected, not a defect: retested behaviourally on the tasks whose graded requirements name an ordering, scrambling span order cost +0.022 (CI -0.027 to +0.072). Spend authoring effort on facts and exact values, not on transitions |\n\n### `skill:skills/accel-tuning` on `m` — WARN (1 of 10 not measured)\n\n| Check | Status | Value | Threshold | Notes |\n| --- | --- | ---: | ---: | --- |\n| added_floor | ok | 0.42 | 0.15 | lenient `added` 0.420 over 40 paired probes (floor 0.15); this is one (artifact, model) pair and is not comparable to another artifact's figure |\n| harmful_atoms | warn | 2 | 0 | 2 atoms classified harmful/conflicting; only the cap's sample of the atoms was compared, so this is a lower bound; strict `degraded` 0.000. Correctness gates before volume: one study skill carried 33 conflicts and still routed at 0.810, so it loads and misinforms |\n| dead_tokens | not measured | 0.4 | 0.25 | not checked: the atom set was capped (300 indexed), and a capped sample does not approximate this figure but inverts it — 0.064 read as 0.743 on the study's largest artifact |\n| artifact_coverage | ok | 0.0 | 0.5 | the bundle was measured (3 files, 900 of 900 bundled words, 0 files excluded): 0% of this artifact's words were not read (ceiling 50%); raise --max-file-words / --max-resource-words, or narrow --resource-roles, before reading these rates as a property of the artifact. A bundle run is an upper bound on what the artifact can deliver -- whether the agent loads a file is the agentic track's question |\n| probe_wording_fidelity | warn | 0.4 | 0.2 | 40% of generated probe wordings were dropped as malformed (worst kind: paraphrase at 40%); those atoms were probed by fewer kinds than the run's budget implies. The check is mechanical, so this is a floor on corruption, not a wording-quality score |\n| probe_kind_agreement | warn | 0.5 | 0.8 | worst arm `full`: 20 of 40 atoms asked by several probe kinds got the same verdict from all of them (floor 0.8). A disagreeing atom's outcome is wording-dependent: in the artifact arm that makes `added` a property of the phrasing, and in the baseline arm it makes `redundant` wording-matched recall rather than prior knowledge |\n| protection_invariant | warn | 1 | 0 | 1 of 1 offered candidates drop a protected span. The study's worst candidate kept 0.916 of knowledge at 0.158 protection, which is why protection is pinned rather than averaged in |\n| span_citations_confirmed | warn | 0.5 | 0.8 | 20 of 40 atoms were recovered from a span cited for them (20 unlocated). An unlocated atom is not wrong — in the study 46 of 49 were called supported — but no span may be coloured for it |\n| value_is_measured | warn | 0.2 | 0.5 | 1 of 1 candidates rank by value with value defined on under half their atoms, so the ranking is atom coverage per token; probe more atoms per artifact or read the `knowledge` column instead |\n| order_independence | note | True | False | the shuffled control scored at least as high as the artifact as written. Expected, not a defect: retested behaviourally on the tasks whose graded requirements name an ordering, scrambling span order cost +0.022 (CI -0.027 to +0.072). Spend authoring effort on facts and exact values, not on transitions |\n",
+    "unclassified": {
+      "as_dict": {
+        "artifact_ref": "skill:skills/accel-tuning",
+        "blocking": false,
+        "checks": [
+          {
+            "measured": true,
+            "message": "lenient `added` 0.420 over 40 paired probes (floor 0.15); this is one (artifact, model) pair and is not comparable to another artifact's figure",
+            "name": "added_floor",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0.15,
+            "value": 0.42
+          },
+          {
+            "measured": false,
+            "message": "not measured: atoms were not classified, so harmful/conflicting content is unknown; strict `degraded` 0.000",
+            "name": "harmful_atoms",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0,
+            "value": null
+          },
+          {
+            "measured": true,
+            "message": "0.120 of tokens carry no extracted atom (ceiling 0.25); an upper bound on waste, not a measurement of it. 2 of those spans (18 tokens) only name a bundled file, which is a loading instruction rather than waste",
+            "name": "dead_tokens",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0.25,
+            "value": 0.12
+          },
+          {
+            "basis": "all_bundled_words",
+            "measured": true,
+            "message": "the bundle was measured (3 files, 900 of 900 bundled words, 0 files excluded): 0% of this artifact's words were not read (ceiling 50%); raise --max-file-words / --max-resource-words, or narrow --resource-roles, before reading these rates as a property of the artifact. A bundle run is an upper bound on what the artifact can deliver -- whether the agent loads a file is the agentic track's question",
+            "name": "artifact_coverage",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0.5,
+            "value": 0.0
+          },
+          {
+            "measured": true,
+            "message": "2% of generated probe wordings were dropped as malformed (worst kind: paraphrase at 2%); those atoms were probed by fewer kinds than the run's budget implies. The check is mechanical, so this is a floor on corruption, not a wording-quality score",
+            "name": "probe_wording_fidelity",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0.2,
+            "value": 0.025
+          },
+          {
+            "measured": true,
+            "message": "worst arm `no_artifact`: 36 of 40 atoms asked by several probe kinds got the same verdict from all of them (floor 0.8); other arms: `full` 0.95. A disagreeing atom's outcome is wording-dependent: in the artifact arm that makes `added` a property of the phrasing, and in the baseline arm it makes `redundant` wording-matched recall rather than prior knowledge",
+            "name": "probe_kind_agreement",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0.8,
+            "value": 0.9
+          },
+          {
+            "measured": true,
+            "message": "0 of 1 offered candidates drop a protected span. The study's worst candidate kept 0.916 of knowledge at 0.158 protection, which is why protection is pinned rather than averaged in",
+            "name": "protection_invariant",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0,
+            "value": 0
+          },
+          {
+            "measured": true,
+            "message": "38 of 40 atoms were recovered from a span cited for them (2 unlocated). An unlocated atom is not wrong — in the study 46 of 49 were called supported — but no span may be coloured for it",
+            "name": "span_citations_confirmed",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0.8,
+            "value": 0.95
+          },
+          {
+            "measured": true,
+            "message": "0 of 1 candidates rank by value with value defined on under half their atoms, so the ranking is atom coverage per token; probe more atoms per artifact or read the `knowledge` column instead",
+            "name": "value_is_measured",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0.5,
+            "value": 0.9
+          },
+          {
+            "measured": true,
+            "message": "the shuffled control scored at least as high as the artifact as written. Expected, not a defect: retested behaviourally on the tasks whose graded requirements name an ordering, scrambling span order cost +0.022 (CI -0.027 to +0.072). Spend authoring effort on facts and exact values, not on transitions",
+            "name": "order_independence",
+            "passed": true,
+            "severity": "info",
+            "threshold": false,
+            "value": false
+          }
+        ],
+        "model": "m",
+        "not_measured": [
+          "harmful_atoms"
+        ],
+        "status": "PASS"
+      },
+      "block": "## Novelty gate\n\n_All novelty checks are soft: they report and never block._\n\n### `skill:skills/accel-tuning` on `m` — PASS (1 of 10 not measured)\n\n| Check | Status | Value | Threshold | Notes |\n| --- | --- | ---: | ---: | --- |\n| added_floor | ok | 0.42 | 0.15 | lenient `added` 0.420 over 40 paired probes (floor 0.15); this is one (artifact, model) pair and is not comparable to another artifact's figure |\n| harmful_atoms | not measured | None | 0 | not measured: atoms were not classified, so harmful/conflicting content is unknown; strict `degraded` 0.000 |\n| dead_tokens | ok | 0.12 | 0.25 | 0.120 of tokens carry no extracted atom (ceiling 0.25); an upper bound on waste, not a measurement of it. 2 of those spans (18 tokens) only name a bundled file, which is a loading instruction rather than waste |\n| artifact_coverage | ok | 0.0 | 0.5 | the bundle was measured (3 files, 900 of 900 bundled words, 0 files excluded): 0% of this artifact's words were not read (ceiling 50%); raise --max-file-words / --max-resource-words, or narrow --resource-roles, before reading these rates as a property of the artifact. A bundle run is an upper bound on what the artifact can deliver -- whether the agent loads a file is the agentic track's question |\n| probe_wording_fidelity | ok | 0.025 | 0.2 | 2% of generated probe wordings were dropped as malformed (worst kind: paraphrase at 2%); those atoms were probed by fewer kinds than the run's budget implies. The check is mechanical, so this is a floor on corruption, not a wording-quality score |\n| probe_kind_agreement | ok | 0.9 | 0.8 | worst arm `no_artifact`: 36 of 40 atoms asked by several probe kinds got the same verdict from all of them (floor 0.8); other arms: `full` 0.95. A disagreeing atom's outcome is wording-dependent: in the artifact arm that makes `added` a property of the phrasing, and in the baseline arm it makes `redundant` wording-matched recall rather than prior knowledge |\n| protection_invariant | ok | 0 | 0 | 0 of 1 offered candidates drop a protected span. The study's worst candidate kept 0.916 of knowledge at 0.158 protection, which is why protection is pinned rather than averaged in |\n| span_citations_confirmed | ok | 0.95 | 0.8 | 38 of 40 atoms were recovered from a span cited for them (2 unlocated). An unlocated atom is not wrong — in the study 46 of 49 were called supported — but no span may be coloured for it |\n| value_is_measured | ok | 0.9 | 0.5 | 0 of 1 candidates rank by value with value defined on under half their atoms, so the ranking is atom coverage per token; probe more atoms per artifact or read the `knowledge` column instead |\n| order_independence | ok | False | False | the shuffled control scored at least as high as the artifact as written. Expected, not a defect: retested behaviourally on the tasks whose graded requirements name an ordering, scrambling span order cost +0.022 (CI -0.027 to +0.072). Spend authoring effort on facts and exact values, not on transitions |\n"
+    },
+    "unread_spans": {
+      "as_dict": {
+        "artifact_ref": "skill:skills/accel-tuning",
+        "blocking": false,
+        "checks": [
+          {
+            "measured": true,
+            "message": "lenient `added` 0.420 over 40 paired probes (floor 0.15); this is one (artifact, model) pair and is not comparable to another artifact's figure",
+            "name": "added_floor",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0.15,
+            "value": 0.42
+          },
+          {
+            "measured": true,
+            "message": "0 atoms classified harmful/conflicting; strict `degraded` 0.000. Correctness gates before volume: one study skill carried 33 conflicts and still routed at 0.810, so it loads and misinforms",
+            "name": "harmful_atoms",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0,
+            "value": 0
+          },
+          {
+            "measured": false,
+            "message": "not checked: extraction read 44% of the artifact's tokens (5 spans, 500 of 900 tokens unread; floor 80%), so the 0.100 carrying no atom is a figure about the read remnant, not the artifact",
+            "name": "dead_tokens",
+            "passed": true,
+            "severity": "info",
+            "threshold": 0.25,
+            "value": 0.1
+          },
+          {
+            "basis": "all_bundled_words",
+            "measured": true,
+            "message": "the bundle was measured (3 files, 900 of 900 bundled words, 0 files excluded): 0% of this artifact's words were not read (ceiling 50%); raise --max-file-words / --max-resource-words, or narrow --resource-roles, before reading these rates as a property of the artifact. A bundle run is an upper bound on what the artifact can deliver -- whether the agent loads a file is the agentic track's question",
+            "name": "artifact_coverage",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0.5,
+            "value": 0.0
+          },
+          {
+            "measured": true,
+            "message": "2% of generated probe wordings were dropped as malformed (worst kind: paraphrase at 2%); those atoms were probed by fewer kinds than the run's budget implies. The check is mechanical, so this is a floor on corruption, not a wording-quality score",
+            "name": "probe_wording_fidelity",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0.2,
+            "value": 0.025
+          },
+          {
+            "measured": true,
+            "message": "worst arm `no_artifact`: 36 of 40 atoms asked by several probe kinds got the same verdict from all of them (floor 0.8); other arms: `full` 0.95. A disagreeing atom's outcome is wording-dependent: in the artifact arm that makes `added` a property of the phrasing, and in the baseline arm it makes `redundant` wording-matched recall rather than prior knowledge",
+            "name": "probe_kind_agreement",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0.8,
+            "value": 0.9
+          },
+          {
+            "measured": true,
+            "message": "0 of 1 offered candidates drop a protected span. The study's worst candidate kept 0.916 of knowledge at 0.158 protection, which is why protection is pinned rather than averaged in",
+            "name": "protection_invariant",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0,
+            "value": 0
+          },
+          {
+            "measured": true,
+            "message": "38 of 40 atoms were recovered from a span cited for them (2 unlocated). An unlocated atom is not wrong — in the study 46 of 49 were called supported — but no span may be coloured for it",
+            "name": "span_citations_confirmed",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0.8,
+            "value": 0.95
+          },
+          {
+            "measured": true,
+            "message": "0 of 1 candidates rank by value with value defined on under half their atoms, so the ranking is atom coverage per token; probe more atoms per artifact or read the `knowledge` column instead",
+            "name": "value_is_measured",
+            "passed": true,
+            "severity": "warn",
+            "threshold": 0.5,
+            "value": 0.9
+          },
+          {
+            "measured": true,
+            "message": "the shuffled control scored at least as high as the artifact as written. Expected, not a defect: retested behaviourally on the tasks whose graded requirements name an ordering, scrambling span order cost +0.022 (CI -0.027 to +0.072). Spend authoring effort on facts and exact values, not on transitions",
+            "name": "order_independence",
+            "passed": true,
+            "severity": "info",
+            "threshold": false,
+            "value": false
+          }
+        ],
+        "model": "m",
+        "not_measured": [
+          "dead_tokens"
+        ],
+        "status": "PASS"
+      },
+      "block": "## Novelty gate\n\n_All novelty checks are soft: they report and never block._\n\n### `skill:skills/accel-tuning` on `m` — PASS (1 of 10 not measured)\n\n| Check | Status | Value | Threshold | Notes |\n| --- | --- | ---: | ---: | --- |\n| added_floor | ok | 0.42 | 0.15 | lenient `added` 0.420 over 40 paired probes (floor 0.15); this is one (artifact, model) pair and is not comparable to another artifact's figure |\n| harmful_atoms | ok | 0 | 0 | 0 atoms classified harmful/conflicting; strict `degraded` 0.000. Correctness gates before volume: one study skill carried 33 conflicts and still routed at 0.810, so it loads and misinforms |\n| dead_tokens | not measured | 0.1 | 0.25 | not checked: extraction read 44% of the artifact's tokens (5 spans, 500 of 900 tokens unread; floor 80%), so the 0.100 carrying no atom is a figure about the read remnant, not the artifact |\n| artifact_coverage | ok | 0.0 | 0.5 | the bundle was measured (3 files, 900 of 900 bundled words, 0 files excluded): 0% of this artifact's words were not read (ceiling 50%); raise --max-file-words / --max-resource-words, or narrow --resource-roles, before reading these rates as a property of the artifact. A bundle run is an upper bound on what the artifact can deliver -- whether the agent loads a file is the agentic track's question |\n| probe_wording_fidelity | ok | 0.025 | 0.2 | 2% of generated probe wordings were dropped as malformed (worst kind: paraphrase at 2%); those atoms were probed by fewer kinds than the run's budget implies. The check is mechanical, so this is a floor on corruption, not a wording-quality score |\n| probe_kind_agreement | ok | 0.9 | 0.8 | worst arm `no_artifact`: 36 of 40 atoms asked by several probe kinds got the same verdict from all of them (floor 0.8); other arms: `full` 0.95. A disagreeing atom's outcome is wording-dependent: in the artifact arm that makes `added` a property of the phrasing, and in the baseline arm it makes `redundant` wording-matched recall rather than prior knowledge |\n| protection_invariant | ok | 0 | 0 | 0 of 1 offered candidates drop a protected span. The study's worst candidate kept 0.916 of knowledge at 0.158 protection, which is why protection is pinned rather than averaged in |\n| span_citations_confirmed | ok | 0.95 | 0.8 | 38 of 40 atoms were recovered from a span cited for them (2 unlocated). An unlocated atom is not wrong — in the study 46 of 49 were called supported — but no span may be coloured for it |\n| value_is_measured | ok | 0.9 | 0.5 | 0 of 1 candidates rank by value with value defined on under half their atoms, so the ranking is atom coverage per token; probe more atoms per artifact or read the `knowledge` column instead |\n| order_independence | ok | False | False | the shuffled control scored at least as high as the artifact as written. Expected, not a defect: retested behaviourally on the tasks whose graded requirements name an ordering, scrambling span order cost +0.022 (CI -0.027 to +0.072). Spend authoring effort on facts and exact values, not on transitions |\n"
+    }
+  },
+  "report_trust_json": {
+    "healthy": {
+      "checks": [
+        {
+          "measured": true,
+          "message": "20 questions evaluated (min 10)",
+          "name": "min_questions",
+          "passed": true,
+          "severity": "fail",
+          "threshold": 10,
+          "value": 20
+        },
+        {
+          "measured": true,
+          "message": "0/20 questions scored 0 or had no document in the context arm (0.0%)",
+          "name": "zero_score_fraction",
+          "passed": true,
+          "severity": "fail",
+          "threshold": 0.2,
+          "value": 0.0
+        },
+        {
+          "measured": true,
+          "message": "Context-arm avg = 70.0 (min 30.0)",
+          "name": "min_with_docs_avg",
+          "passed": true,
+          "severity": "warn",
+          "threshold": 30.0,
+          "value": 70.0
+        },
+        {
+          "measured": true,
+          "message": "Avg delta (context arm minus baseline) = +20.0 (min -5.0)",
+          "name": "min_delta",
+          "passed": true,
+          "severity": "warn",
+          "threshold": -5.0,
+          "value": 20.0
+        },
+        {
+          "measured": true,
+          "message": "Score CV = 0.00 std=0.0 (max CV 0.6)",
+          "name": "score_cv",
+          "passed": true,
+          "severity": "warn",
+          "threshold": 0.6,
+          "value": 0.0
+        },
+        {
+          "measured": true,
+          "message": "Mean inter-rater agreement = 0.80 (min 0.5)",
+          "name": "inter_rater_agreement",
+          "passed": true,
+          "severity": "warn",
+          "threshold": 0.5,
+          "value": 0.8
+        },
+        {
+          "measured": true,
+          "message": "Retrieval hit rate = 100.0% (20/20) (min 60%)",
+          "name": "retrieval_hit_rate",
+          "passed": true,
+          "severity": "warn",
+          "threshold": 0.6,
+          "value": 1.0
+        }
+      ],
+      "not_measured": [],
+      "trusted": true,
+      "verdict": "✅ PASS"
+    },
+    "no_retrieval_outcome": {
+      "checks": [
+        {
+          "measured": true,
+          "message": "20 questions evaluated (min 10)",
+          "name": "min_questions",
+          "passed": true,
+          "severity": "fail",
+          "threshold": 10,
+          "value": 20
+        },
+        {
+          "measured": true,
+          "message": "0/20 questions scored 0 or had no document in the context arm (0.0%)",
+          "name": "zero_score_fraction",
+          "passed": true,
+          "severity": "fail",
+          "threshold": 0.2,
+          "value": 0.0
+        },
+        {
+          "measured": true,
+          "message": "Context-arm avg = 70.0 (min 30.0)",
+          "name": "min_with_docs_avg",
+          "passed": true,
+          "severity": "warn",
+          "threshold": 30.0,
+          "value": 70.0
+        },
+        {
+          "measured": true,
+          "message": "Avg delta (context arm minus baseline) = +20.0 (min -5.0)",
+          "name": "min_delta",
+          "passed": true,
+          "severity": "warn",
+          "threshold": -5.0,
+          "value": 20.0
+        },
+        {
+          "measured": true,
+          "message": "Score CV = 0.00 std=0.0 (max CV 0.6)",
+          "name": "score_cv",
+          "passed": true,
+          "severity": "warn",
+          "threshold": 0.6,
+          "value": 0.0
+        },
+        {
+          "measured": false,
+          "message": "Not measured: the evaluations record no retrieval outcome (retrieval_hit)",
+          "name": "retrieval_hit_rate",
+          "passed": true,
+          "severity": "warn",
+          "threshold": 0.6,
+          "value": null
+        }
+      ],
+      "not_measured": [
+        "retrieval_hit_rate"
+      ],
+      "trusted": true,
+      "verdict": "✅ PASS"
+    },
+    "too_few": {
+      "checks": [
+        {
+          "measured": true,
+          "message": "5 questions evaluated (min 10)",
+          "name": "min_questions",
+          "passed": false,
+          "severity": "fail",
+          "threshold": 10,
+          "value": 5
+        },
+        {
+          "measured": true,
+          "message": "0/5 questions scored 0 or had no document in the context arm (0.0%)",
+          "name": "zero_score_fraction",
+          "passed": true,
+          "severity": "fail",
+          "threshold": 0.2,
+          "value": 0.0
+        },
+        {
+          "measured": true,
+          "message": "Context-arm avg = 70.0 (min 30.0)",
+          "name": "min_with_docs_avg",
+          "passed": true,
+          "severity": "warn",
+          "threshold": 30.0,
+          "value": 70.0
+        },
+        {
+          "measured": true,
+          "message": "Avg delta (context arm minus baseline) = +20.0 (min -5.0)",
+          "name": "min_delta",
+          "passed": true,
+          "severity": "warn",
+          "threshold": -5.0,
+          "value": 20.0
+        },
+        {
+          "measured": true,
+          "message": "Score CV = 0.00 std=0.0 (max CV 0.6)",
+          "name": "score_cv",
+          "passed": true,
+          "severity": "warn",
+          "threshold": 0.6,
+          "value": 0.0
+        },
+        {
+          "measured": true,
+          "message": "Retrieval hit rate = 100.0% (5/5) (min 60%)",
+          "name": "retrieval_hit_rate",
+          "passed": true,
+          "severity": "warn",
+          "threshold": 0.6,
+          "value": 1.0
+        }
+      ],
+      "not_measured": [],
+      "trusted": false,
+      "verdict": "❌ FAIL"
+    }
+  },
+  "strict_runs": {
+    "bands_coverage_ok": {
+      "exit": 0,
+      "gate": {
+        "soft": {
+          "enabled": false,
+          "min_score": 0.0,
+          "passed": true
+        }
+      },
+      "stderr": "",
+      "stdout": "{\n  \"docs\": 1,\n  \"score\": 0.8,\n  \"coverage\": 0.8,\n  \"freshness_lite\": 0.9,\n  \"readability\": 0.7\n}\n"
+    },
+    "bands_missing_condition": {
+      "exit": "InputError: <root>/spec.yaml: critical_bands.fail_on entry missing 'condition' key",
+      "gate": {
+        "soft": {
+          "enabled": false,
+          "min_score": 0.0,
+          "passed": true
+        }
+      },
+      "stderr": "",
+      "stdout": "{\n  \"docs\": 1,\n  \"score\": 0.8,\n  \"coverage\": 0.8,\n  \"freshness_lite\": 0.9,\n  \"readability\": 0.7\n}\n"
+    },
+    "bands_non_mapping_entry": {
+      "exit": "InputError: <root>/spec.yaml: critical_bands.fail_on entries must be mappings/dicts",
+      "gate": {
+        "soft": {
+          "enabled": false,
+          "min_score": 0.0,
+          "passed": true
+        }
+      },
+      "stderr": "",
+      "stdout": "{\n  \"docs\": 1,\n  \"score\": 0.8,\n  \"coverage\": 0.8,\n  \"freshness_lite\": 0.9,\n  \"readability\": 0.7\n}\n"
+    },
+    "bands_not_strict": {
+      "exit": 0,
+      "gate": {
+        "soft": {
+          "enabled": false,
+          "min_score": 0.0,
+          "passed": true
+        }
+      },
+      "stderr": "",
+      "stdout": "{\n  \"docs\": 1,\n  \"score\": 0.8,\n  \"coverage\": 0.8,\n  \"freshness_lite\": 0.9,\n  \"readability\": 0.7\n}\n"
+    },
+    "bands_readability_and_freshness_violated": {
+      "exit": 1,
+      "gate": {
+        "soft": {
+          "enabled": false,
+          "min_score": 0.0,
+          "passed": true
+        }
+      },
+      "stderr": "\n❌ CRITICAL BAND VIOLATIONS:\n  - readability_below: 0.7000 < 0.9000\n  - freshness_below: 0.9000 < 0.9500\n",
+      "stdout": "{\n  \"docs\": 1,\n  \"score\": 0.8,\n  \"coverage\": 0.8,\n  \"freshness_lite\": 0.9,\n  \"readability\": 0.7\n}\n"
+    },
+    "bands_score_below_violated": {
+      "exit": 1,
+      "gate": {
+        "soft": {
+          "enabled": false,
+          "min_score": 0.0,
+          "passed": true
+        }
+      },
+      "stderr": "\n❌ CRITICAL BAND VIOLATIONS:\n  - score_below: 0.8000 < 0.9500\n",
+      "stdout": "{\n  \"docs\": 1,\n  \"score\": 0.8,\n  \"coverage\": 0.8,\n  \"freshness_lite\": 0.9,\n  \"readability\": 0.7\n}\n"
+    },
+    "bands_unknown_condition": {
+      "exit": "InputError: <root>/spec.yaml: Unknown critical_bands condition: nope (known: coverage_below, freshness_below, readability_below, score_below)",
+      "gate": {
+        "soft": {
+          "enabled": false,
+          "min_score": 0.0,
+          "passed": true
+        }
+      },
+      "stderr": "",
+      "stdout": "{\n  \"docs\": 1,\n  \"score\": 0.8,\n  \"coverage\": 0.8,\n  \"freshness_lite\": 0.9,\n  \"readability\": 0.7\n}\n"
+    },
+    "hard_disabled_with_floor": {
+      "exit": 0,
+      "gate": {
+        "soft": {
+          "enabled": false,
+          "min_score": 0.0,
+          "passed": true
+        }
+      },
+      "stderr": "",
+      "stdout": "{\n  \"docs\": 1,\n  \"score\": 0.8,\n  \"coverage\": 0.8,\n  \"freshness_lite\": 0.9,\n  \"readability\": 0.7\n}\n"
+    },
+    "hard_fail_not_strict": {
+      "exit": 0,
+      "gate": {
+        "soft": {
+          "enabled": false,
+          "min_score": 0.0,
+          "passed": true
+        }
+      },
+      "stderr": "",
+      "stdout": "{\n  \"docs\": 1,\n  \"score\": 0.8,\n  \"coverage\": 0.8,\n  \"freshness_lite\": 0.9,\n  \"readability\": 0.7\n}\n"
+    },
+    "hard_only_fail_strict": {
+      "exit": 1,
+      "gate": {
+        "soft": {
+          "enabled": false,
+          "min_score": 0.0,
+          "passed": true
+        }
+      },
+      "stderr": "\n❌ HARD GATE FAILED: score 0.8000 < 0.9900\n",
+      "stdout": "{\n  \"docs\": 1,\n  \"score\": 0.8,\n  \"coverage\": 0.8,\n  \"freshness_lite\": 0.9,\n  \"readability\": 0.7\n}\n"
+    },
+    "hard_zero_floor": {
+      "exit": 0,
+      "gate": {
+        "soft": {
+          "enabled": false,
+          "min_score": 0.0,
+          "passed": true
+        }
+      },
+      "stderr": "",
+      "stdout": "{\n  \"docs\": 1,\n  \"score\": 0.8,\n  \"coverage\": 0.8,\n  \"freshness_lite\": 0.9,\n  \"readability\": 0.7\n}\n"
+    },
+    "no_future": {
+      "exit": 0,
+      "gate": {
+        "soft": {
+          "enabled": false,
+          "min_score": 0.0,
+          "passed": true
+        }
+      },
+      "stderr": "",
+      "stdout": "{\n  \"docs\": 1,\n  \"score\": 0.8,\n  \"coverage\": 0.8,\n  \"freshness_lite\": 0.9,\n  \"readability\": 0.7\n}\n"
+    },
+    "soft_fail_hard_pass": {
+      "exit": 0,
+      "gate": {
+        "soft": {
+          "enabled": true,
+          "min_score": 0.99,
+          "passed": false
+        }
+      },
+      "stderr": "",
+      "stdout": "{\n  \"docs\": 1,\n  \"score\": 0.8,\n  \"coverage\": 0.8,\n  \"freshness_lite\": 0.9,\n  \"readability\": 0.7\n}\n"
+    },
+    "soft_only_fail_strict": {
+      "exit": 1,
+      "gate": {
+        "soft": {
+          "enabled": true,
+          "min_score": 0.1,
+          "passed": true
+        }
+      },
+      "stderr": "\n❌ HARD GATE FAILED: score 0.8000 < 0.9900\n",
+      "stdout": "{\n  \"docs\": 1,\n  \"score\": 0.8,\n  \"coverage\": 0.8,\n  \"freshness_lite\": 0.9,\n  \"readability\": 0.7\n}\n"
+    },
+    "soft_pass_hard_pass": {
+      "exit": 0,
+      "gate": {
+        "soft": {
+          "enabled": true,
+          "min_score": 0.99,
+          "passed": false
+        }
+      },
+      "stderr": "",
+      "stdout": "{\n  \"docs\": 1,\n  \"score\": 0.8,\n  \"coverage\": 0.8,\n  \"freshness_lite\": 0.9,\n  \"readability\": 0.7\n}\n"
+    }
+  },
+  "trust_blocks": {
+    "empty": "## Can We Trust This Run?\n\n**Verdict: ❌ FAIL**\n\n| Check | Status | Value | Threshold | Notes |\n|-------|--------|-------|-----------|-------|\n| min_questions | ❌ | 0 | 10 | 0 questions evaluated (min 10) |\n\n**Blocking issues:**\n- ❌ **min_questions**: 0 questions evaluated (min 10)\n",
+    "healthy_multirun": "## Can We Trust This Run?\n\n**Verdict: ✅ PASS**\n\n| Check | Status | Value | Threshold | Notes |\n|-------|--------|-------|-----------|-------|\n| min_questions | ✅ | 20 | 10 | 20 questions evaluated (min 10) |\n| zero_score_fraction | ✅ | 0.0 | 0.2 | 0/20 questions scored 0 or had no document in the context arm (0.0%) |\n| min_with_docs_avg | ✅ | 70.0 | 30.0 | Context-arm avg = 70.0 (min 30.0) |\n| min_delta | ✅ | 20.0 | -5.0 | Avg delta (context arm minus baseline) = +20.0 (min -5.0) |\n| score_cv | ✅ | 0.0 | 0.6 | Score CV = 0.00 std=0.0 (max CV 0.6) |\n| inter_rater_agreement | ✅ | 0.8 | 0.5 | Mean inter-rater agreement = 0.80 (min 0.5) |\n| retrieval_hit_rate | ✅ | 1.0 | 0.6 | Retrieval hit rate = 100.0% (20/20) (min 60%) |\n| multirun_variance | ✅ | 0.76 | 5.0 | Multi-run context-arm std = 0.76 across 3 runs (max 5.0) |\n",
+    "misses_count_unusable": "## Can We Trust This Run?\n\n**Verdict: ❌ FAIL**\n\n| Check | Status | Value | Threshold | Notes |\n|-------|--------|-------|-----------|-------|\n| min_questions | ✅ | 12 | 10 | 12 questions evaluated (min 10) |\n| zero_score_fraction | ❌ | 0.5 | 0.2 | 6/12 questions scored 0 or had no document in the context arm (50.0%) |\n| min_with_docs_avg | ✅ | 35.0 | 30.0 | Context-arm avg = 35.0 (min 30.0) |\n| min_delta | ⚠️ | -10.0 | -5.0 | Avg delta (context arm minus baseline) = -10.0 (min -5.0) |\n| score_cv | ⚠️ | 1.044 | 0.6 | Score CV = 1.04 std=36.6 (max CV 0.6) |\n| retrieval_hit_rate | ⚠️ | 0.5 | 0.6 | Retrieval hit rate = 50.0% (6/12) (min 60%) |\n\n**Blocking issues:**\n- ❌ **zero_score_fraction**: 6/12 questions scored 0 or had no document in the context arm (50.0%)\n\n**Warnings:**\n- ⚠️ **min_delta**: Avg delta (context arm minus baseline) = -10.0 (min -5.0)\n- ⚠️ **score_cv**: Score CV = 1.04 std=36.6 (max CV 0.6)\n- ⚠️ **retrieval_hit_rate**: Retrieval hit rate = 50.0% (6/12) (min 60%)\n",
+    "multirun_variance_fail": "## Can We Trust This Run?\n\n**Verdict: ❌ FAIL**\n\n| Check | Status | Value | Threshold | Notes |\n|-------|--------|-------|-----------|-------|\n| min_questions | ✅ | 20 | 10 | 20 questions evaluated (min 10) |\n| zero_score_fraction | ✅ | 0.0 | 0.2 | 0/20 questions scored 0 or had no document in the context arm (0.0%) |\n| min_with_docs_avg | ✅ | 70.0 | 30.0 | Context-arm avg = 70.0 (min 30.0) |\n| min_delta | ✅ | 20.0 | -5.0 | Avg delta (context arm minus baseline) = +20.0 (min -5.0) |\n| score_cv | ✅ | 0.0 | 0.6 | Score CV = 0.00 std=0.0 (max CV 0.6) |\n| inter_rater_agreement | ✅ | 0.8 | 0.5 | Mean inter-rater agreement = 0.80 (min 0.5) |\n| retrieval_hit_rate | ✅ | 1.0 | 0.6 | Retrieval hit rate = 100.0% (20/20) (min 60%) |\n| multirun_variance | ❌ | 25.17 | 5.0 | Multi-run context-arm std = 25.17 across 3 runs (max 5.0) |\n\n**Blocking issues:**\n- ❌ **multirun_variance**: Multi-run context-arm std = 25.17 across 3 runs (max 5.0)\n",
+    "no_retrieval_outcome": "## Can We Trust This Run?\n\n**Verdict: ✅ PASS** (1 of 6 not measured)\n\n| Check | Status | Value | Threshold | Notes |\n|-------|--------|-------|-----------|-------|\n| min_questions | ✅ | 20 | 10 | 20 questions evaluated (min 10) |\n| zero_score_fraction | ✅ | 0.0 | 0.2 | 0/20 questions scored 0 or had no document in the context arm (0.0%) |\n| min_with_docs_avg | ✅ | 70.0 | 30.0 | Context-arm avg = 70.0 (min 30.0) |\n| min_delta | ✅ | 20.0 | -5.0 | Avg delta (context arm minus baseline) = +20.0 (min -5.0) |\n| score_cv | ✅ | 0.0 | 0.6 | Score CV = 0.00 std=0.0 (max CV 0.6) |\n| retrieval_hit_rate | ➖ | None | 0.6 | Not measured: the evaluations record no retrieval outcome (retrieval_hit) |\n",
+    "noisy_scores": "## Can We Trust This Run?\n\n**Verdict: ⚠️ WARN**\n\n| Check | Status | Value | Threshold | Notes |\n|-------|--------|-------|-----------|-------|\n| min_questions | ✅ | 12 | 10 | 12 questions evaluated (min 10) |\n| zero_score_fraction | ✅ | 0.0 | 0.2 | 0/12 questions scored 0 or had no document in the context arm (0.0%) |\n| min_with_docs_avg | ✅ | 50 | 30.0 | Context-arm avg = 50.0 (min 30.0) |\n| min_delta | ✅ | 0.0 | -5.0 | Avg delta (context arm minus baseline) = +0.0 (min -5.0) |\n| score_cv | ⚠️ | 0.702 | 0.6 | Score CV = 0.70 std=35.1 (max CV 0.6) |\n| retrieval_hit_rate | ✅ | 1.0 | 0.6 | Retrieval hit rate = 100.0% (12/12) (min 60%) |\n\n**Warnings:**\n- ⚠️ **score_cv**: Score CV = 0.70 std=35.1 (max CV 0.6)\n",
+    "partial_retrieval_coverage": "## Can We Trust This Run?\n\n**Verdict: ✅ PASS** (1 of 6 not measured)\n\n| Check | Status | Value | Threshold | Notes |\n|-------|--------|-------|-----------|-------|\n| min_questions | ✅ | 20 | 10 | 20 questions evaluated (min 10) |\n| zero_score_fraction | ✅ | 0.0 | 0.2 | 0/20 questions scored 0 or had no document in the context arm (0.0%) |\n| min_with_docs_avg | ✅ | 70.0 | 30.0 | Context-arm avg = 70.0 (min 30.0) |\n| min_delta | ✅ | 20.0 | -5.0 | Avg delta (context arm minus baseline) = +20.0 (min -5.0) |\n| score_cv | ✅ | 0.0 | 0.6 | Score CV = 0.00 std=0.0 (max CV 0.6) |\n| retrieval_hit_rate | ➖ | None | 0.6 | Not measured: only 5 of 20 evaluations record a retrieval outcome (retrieval_hit), under the 80% coverage floor; 5 of those 5 hit |\n",
+    "thresholds_override": "## Can We Trust This Run?\n\n**Verdict: ❌ FAIL**\n\n| Check | Status | Value | Threshold | Notes |\n|-------|--------|-------|-----------|-------|\n| min_questions | ❌ | 20 | 25 | 20 questions evaluated (min 25) |\n| zero_score_fraction | ✅ | 0.0 | 0.2 | 0/20 questions scored 0 or had no document in the context arm (0.0%) |\n| min_with_docs_avg | ✅ | 70.0 | 30.0 | Context-arm avg = 70.0 (min 30.0) |\n| min_delta | ✅ | 20.0 | -5.0 | Avg delta (context arm minus baseline) = +20.0 (min -5.0) |\n| score_cv | ✅ | 0.0 | 0.6 | Score CV = 0.00 std=0.0 (max CV 0.6) |\n| inter_rater_agreement | ✅ | 0.8 | 0.5 | Mean inter-rater agreement = 0.80 (min 0.5) |\n| retrieval_hit_rate | ✅ | 1.0 | 0.6 | Retrieval hit rate = 100.0% (20/20) (min 60%) |\n\n**Blocking issues:**\n- ❌ **min_questions**: 20 questions evaluated (min 25)\n",
+    "too_few": "## Can We Trust This Run?\n\n**Verdict: ❌ FAIL**\n\n| Check | Status | Value | Threshold | Notes |\n|-------|--------|-------|-----------|-------|\n| min_questions | ❌ | 5 | 10 | 5 questions evaluated (min 10) |\n| zero_score_fraction | ✅ | 0.0 | 0.2 | 0/5 questions scored 0 or had no document in the context arm (0.0%) |\n| min_with_docs_avg | ✅ | 70.0 | 30.0 | Context-arm avg = 70.0 (min 30.0) |\n| min_delta | ✅ | 20.0 | -5.0 | Avg delta (context arm minus baseline) = +20.0 (min -5.0) |\n| score_cv | ✅ | 0.0 | 0.6 | Score CV = 0.00 std=0.0 (max CV 0.6) |\n| retrieval_hit_rate | ✅ | 1.0 | 0.6 | Retrieval hit rate = 100.0% (5/5) (min 60%) |\n\n**Blocking issues:**\n- ❌ **min_questions**: 5 questions evaluated (min 10)\n",
+    "zeros": "## Can We Trust This Run?\n\n**Verdict: ❌ FAIL**\n\n| Check | Status | Value | Threshold | Notes |\n|-------|--------|-------|-----------|-------|\n| min_questions | ✅ | 12 | 10 | 12 questions evaluated (min 10) |\n| zero_score_fraction | ❌ | 1.0 | 0.2 | 12/12 questions scored 0 or had no document in the context arm (100.0%) |\n| min_with_docs_avg | ⚠️ | 0 | 30.0 | Context-arm avg = 0.0 (min 30.0) |\n| min_delta | ⚠️ | -50.0 | -5.0 | Avg delta (context arm minus baseline) = -50.0 (min -5.0) |\n| score_cv | ⚠️ | 1.0 | 0.6 | Score CV = 1.00 std=0.0 (max CV 0.6) |\n| retrieval_hit_rate | ✅ | 1.0 | 0.6 | Retrieval hit rate = 100.0% (12/12) (min 60%) |\n\n**Blocking issues:**\n- ❌ **zero_score_fraction**: 12/12 questions scored 0 or had no document in the context arm (100.0%)\n\n**Warnings:**\n- ⚠️ **min_with_docs_avg**: Context-arm avg = 0.0 (min 30.0)\n- ⚠️ **min_delta**: Avg delta (context arm minus baseline) = -50.0 (min -5.0)\n- ⚠️ **score_cv**: Score CV = 1.00 std=0.0 (max CV 0.6)\n"
+  }
+}

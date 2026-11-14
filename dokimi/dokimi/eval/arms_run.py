@@ -23,16 +23,39 @@ from dokimi.defaults import (
     DEFAULT_ANSWER_PROVIDER,
     DEFAULT_JUDGE_PROVIDER,
     JUDGE_MODEL_FOR_PROVIDER,
-    default_judge_model,
 )
 from dokimi.eval.arms_refusals import refuse_cli_arms, refuse_cli_cell, refuse_cli_cell_model
 from dokimi.eval.cells import HARNESS_ARMS_RUNNER, MatrixCellDescriptor
 from dokimi.eval.question_text import EmptyQuestionError
-from dokimi.utils import InputError, check_bedrock_model, question_id, warn_judge_independence
+from dokimi.judge_rule import JudgeIsAnswerer, default_judge
+from dokimi.llm_cli import backend as cli_backend
+from dokimi.utils import InputError, check_bedrock_model, question_id, same_model, warn_judge_independence
 
 if TYPE_CHECKING:
     from dokimi.eval import Judge, JudgePanel
     from dokimi.eval.arm_runner import ArmRunner
+
+
+class _DefaultJudgeProvider(str):
+    """The judge provider left out: equal to the default name, told apart from a named one by identity."""
+
+
+JUDGE_PROVIDER_DEFAULT = _DefaultJudgeProvider(DEFAULT_JUDGE_PROVIDER)
+
+
+class _FollowedJudgeProvider(str):
+    """The CLI answerer's provider copied into the judge: a matrix cell reverts it."""
+
+
+class _FollowedDefaultJudge(str):
+    """The left-out judge picked on the CLI answerer's CLI: a matrix cell takes the matrix default judge instead."""
+
+
+class DeferredJudge(str):
+    """The provider's default judge, left out, where it is the answerer: refused at run start, not at construction.
+
+    A str, so a :func:`dataclasses.replace` copy (a matrix cell) keeps the marker.
+    """
 
 
 @dataclass(frozen=True)
@@ -56,9 +79,9 @@ class ArmsRunConfig:
     baseline_arm: str = "baseline"
     stats_correction: str = "holm"
     judge: bool = False
-    #: Left out, the default judge that runs on ``judge_provider``, as for ``--judge-model``.
+    #: Left out, the default judge on ``judge_provider`` that is not the answerer's family (``model``), as for ``--judge-model``.
     judge_model: str = JUDGE_MODEL_FOR_PROVIDER
-    judge_provider: str = DEFAULT_JUDGE_PROVIDER
+    judge_provider: str = JUDGE_PROVIDER_DEFAULT
     judge_temperature: float | None = None
     judge_panel: str = ""
     top_k: int = 5
@@ -74,11 +97,37 @@ class ArmsRunConfig:
 
     def __post_init__(self) -> None:
         if self.judge_model is JUDGE_MODEL_FOR_PROVIDER:
-            model = default_judge_model(self.judge_provider)
-            if model is None:
-                raise ValueError(f"judge provider {self.judge_provider!r} has no default judge "
-                                 f"model; pass judge_model")
+            # The shared rule (judge_rule.default_judge): not the answerer's family, on the judge's provider.
+            # A CLI answerer with the provider left out judges on its CLI, as ``arms run --provider claude-cli`` does.
+            left_out = self.judge_provider is JUDGE_PROVIDER_DEFAULT
+            provider = None if (left_out and cli_backend(self.provider)) else self.judge_provider
+            try:
+                model, picked = default_judge(self.model, provider, self.provider)
+            except JudgeIsAnswerer:
+                # Construction does not refuse. The provider's default judge stays, and run start refuses it when it is
+                # still the answerer (refuse_deferred_self_judge). A run that does not judge keeps it, as before.
+                model, picked = DeferredJudge(default_judge(None, self.judge_provider)[0]), self.judge_provider
+            if provider is None:
+                model = _FollowedDefaultJudge(model)
+                object.__setattr__(self, "judge_provider", picked)
             object.__setattr__(self, "judge_model", model)
+        elif (self.judge and self.matrix_cell is None and self.judge_provider is JUDGE_PROVIDER_DEFAULT
+              and cli_backend(self.provider)):
+            # An explicit judge model with the provider left out judges on a CLI answerer's CLI, as the left-out one does.
+            # Not for a matrix cell: its replace() would follow the cell's CLI, not the matrix's.
+            object.__setattr__(self, "judge_provider", _FollowedJudgeProvider(self.provider))
+
+
+def refuse_deferred_self_judge(config: ArmsRunConfig) -> None:
+    """Refuse a judged run whose deferred default judge is the answerer (the one run-start check of the default rule).
+
+    An explicit judge model is never refused here: that is warn-only, as ``warn_self_judging`` says.
+    """
+    # A matrix cell is warned, not refused: one judge serves every cell, as on the CLI (the changelog says so).
+    if (config.judge and config.matrix_cell is None and isinstance(config.judge_model, DeferredJudge)
+            and same_model(config.judge_model, config.model)):
+        raise JudgeIsAnswerer(f"--judge-provider {config.judge_provider}: the default judge there is the model under "
+                              f"measurement ({config.model}); pass --judge-model as well")
 
 
 class LibraryIdError(ValueError):
@@ -101,8 +150,15 @@ class MatrixCellError(ValueError):
 
 def cell_config(config: ArmsRunConfig, cell: MatrixCellDescriptor) -> ArmsRunConfig:
     """*config* as matrix cell *cell* runs it: the cell's name, model, provider, harness, plugins."""
+    judge_model, judge_provider = config.judge_model, config.judge_provider
+    # The matrix judge follows no cell's CLI, so the base config's CLI follow reverts to the default.
+    if isinstance(judge_provider, _FollowedJudgeProvider):
+        judge_provider = JUDGE_PROVIDER_DEFAULT
+    if isinstance(judge_model, _FollowedDefaultJudge):  # left out: the default with no answerer, as the CLI matrix
+        judge_model, judge_provider = default_judge(None, JUDGE_PROVIDER_DEFAULT)[0], JUDGE_PROVIDER_DEFAULT
     return replace(config, matrix_cell=cell.name, model=cell.model, provider=cell.provider,
-                   harness=cell.harness, plugins=",".join(cell.plugin_specs))
+                   harness=cell.harness, plugins=",".join(cell.plugin_specs),
+                   judge_model=judge_model, judge_provider=judge_provider)
 
 
 def validate_supported_matrix_harnesses(cells) -> None:
@@ -394,6 +450,7 @@ def prepare_arms(config: ArmsRunConfig, specs: list[str], questions: list[dict])
     from dokimi.eval.session import check_session_questions
 
     _refuse_judged_session(config)
+    refuse_deferred_self_judge(config)  # reads only the config: before the probe and the library lookup
     if config.session_turns is not None:
         check_session_questions(questions, config.session_turns)
     treatments, library_id, plugin_set = _treatments(config, specs, questions)
