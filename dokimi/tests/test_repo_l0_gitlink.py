@@ -72,3 +72,39 @@ def test_a_declared_path_that_leaves_the_tree_does_not_abort_the_scan(tmp_path):
     payload = scan_repo(tree, _manifest())
     claims = {c["claim"]: c["status"] for c in payload["claims"] if c["claim"].startswith("third_party")}
     assert claims == {"third_party/": "unresolved"}
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
+def test_a_file_inside_an_undeclared_submodule_is_unresolved(tmp_path):
+    tree = _tree_with_lone_gitlink(tmp_path, "See `third_party/mod/docs.md`.\n", gitmodules=None)
+    payload = scan_repo(tree, _manifest())
+    claims = {c["claim"]: c["status"] for c in payload["claims"]}
+    assert claims == {"third_party/mod/docs.md": "unresolved"}  # the submodule's content is not held
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
+@pytest.mark.parametrize("gitmodules", [_GITMODULES, None], ids=["declared", "undeclared"])
+def test_a_bare_submodule_name_resolves_the_same_declared_or_not(tmp_path, gitmodules):
+    tree = _tree_with_lone_gitlink(tmp_path, "See `mod/`.\n", gitmodules=gitmodules)
+    payload = scan_repo(tree, _manifest())
+    claims = {c["claim"]: c["status"] for c in payload["claims"]}
+    assert claims == {"mod/": "ok_basename"}
+
+
+def test_a_symlink_loop_at_a_declared_path_does_not_abort_the_scan(tmp_path, monkeypatch):
+    from dokimi.repos.source import WorkTree
+
+    (tmp_path / "AGENTS.md").write_text("See `third_party/`.\n", encoding="utf-8")
+    (tmp_path / ".gitmodules").write_text(_GITMODULES, encoding="utf-8")
+    (tmp_path / "third_party").mkdir()
+    (tmp_path / "third_party" / "x.txt").write_text("x", encoding="utf-8")
+    real = WorkTree.is_dir
+
+    def is_dir(self, path):
+        if path == "third_party/mod":
+            raise RuntimeError("Symlink loop")  # what Path.resolve raises before Python 3.13
+        return real(self, path)
+
+    monkeypatch.setattr(WorkTree, "is_dir", is_dir)
+    payload = scan_repo(WorkTree(tmp_path), _manifest())
+    assert {c["claim"]: c["status"] for c in payload["claims"]} == {"third_party/": "ok"}
