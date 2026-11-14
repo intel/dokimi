@@ -12,9 +12,13 @@ from __future__ import annotations
 
 import importlib.util
 import re
+import shutil
+import subprocess
 import sys
 import textwrap
 from pathlib import Path
+
+import pytest
 
 PROJECT = Path(__file__).resolve().parents[1]
 _SCRIPT = PROJECT / "scripts" / "check_duplicates.py"
@@ -182,11 +186,13 @@ def test_a_recorded_group_at_its_count_passes():
 
 
 def test_update_lowers_and_drops_but_never_raises():
-    groups = {"aaa": ["x.py:1-9", "y.py:1-9"], "bbb": ["x.py:20-29", "y.py:20-29"], "new": ["p:1", "q:1"]}
+    groups = {"aaa": ["x.py:1-9", "y.py:1-9"], "bbb": ["x.py:20-29", "y.py:20-29"], "new": ["p:1", "q:1"],
+              "ddd": ["x.py:40-49", "y.py:40-49", "z.py:1-9"]}
     baseline = {"aaa": {"count": 3, "where": []}, "bbb": {"count": 2, "where": []},
-                "ccc": {"count": 2, "where": []}}
+                "ccc": {"count": 2, "where": []}, "ddd": {"count": 2, "where": []}}
     assert cd.tightened(groups, baseline) == {
-        "aaa": {"count": 2, "where": ["x.py", "y.py"]}, "bbb": {"count": 2, "where": ["x.py", "y.py"]}}
+        "aaa": {"count": 2, "where": ["x.py", "y.py"]}, "bbb": {"count": 2, "where": ["x.py", "y.py"]},
+        "ddd": {"count": 2, "where": ["x.py", "y.py", "z.py"]}}
 
 
 def test_seed_keeps_a_reviewed_rationale_and_marks_only_new_or_raised_groups(tmp_path, monkeypatch):
@@ -207,6 +213,36 @@ def test_seed_keeps_a_reviewed_rationale_and_marks_only_new_or_raised_groups(tmp
         "kept": {"count": 2, "rationale": "two CLIs, no shared module", "where": ["x.py", "y.py"]},
         "raised": {"count": 3, "rationale": cd.SEED_RATIONALE, "where": ["x.py", "y.py", "z.py"]},
         "new": {"count": 2, "rationale": cd.SEED_RATIONALE, "where": ["p.py", "q.py"]}}
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
+def test_the_gate_wants_a_rationale_for_an_entry_added_since_the_fork_point(tmp_path, monkeypatch):
+    # Property: main() applies the rationale rule against the baseline where the branch forked.
+    monkeypatch.setattr(cd, "PROJECT", tmp_path)
+    monkeypatch.setattr(cd, "BASELINE", tmp_path / "scripts" / "duplicates_baseline.json")
+    monkeypatch.setenv("DOKIMI_GROWTH_BASE", "main")
+    cd.BASELINE.parent.mkdir()
+    cd.BASELINE.write_text(cd.dump_baseline({}), encoding="utf-8")
+
+    def git(*args: str) -> None:
+        subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false",
+                        *args], cwd=tmp_path, check=True, capture_output=True)
+
+    git("init", "-q", "-b", "main")
+    git("add", "-A")
+    git("commit", "-q", "-m", "base")
+    git("checkout", "-q", "-b", "pr")
+    ((fp, where),) = _groups(tmp_path, a=_LOADER.format(name="a"), b=_LOADER.format(name="b")).items()
+    entry = {"count": 2, "rationale": cd.SEED_RATIONALE, "where": cd._files(where)}
+    git("checkout", "-q", "main")   # main records the same group after the fork
+    cd.BASELINE.write_text(cd.dump_baseline({fp: {**entry, "rationale": "explained on main"}}), encoding="utf-8")
+    git("commit", "-q", "-am", "main moves on")
+    git("checkout", "-q", "pr")
+    cd.BASELINE.write_text(cd.dump_baseline({fp: entry}), encoding="utf-8")
+    assert cd.main([]) == 1
+    cd.BASELINE.write_text(cd.dump_baseline({fp: {**entry, "rationale": "generated per provider"}}),
+                           encoding="utf-8")
+    assert cd.main([]) == 0
 
 
 def test_an_added_or_raised_entry_needs_a_new_rationale():
