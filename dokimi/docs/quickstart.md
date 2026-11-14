@@ -150,7 +150,7 @@ Multi-judge panel:
 dokimi eval score panel \
   --product oneTBB \
   --answers answers/oneTBB.json \
-  --output eval/oneTBB.panel.json
+  --output eval/panel/oneTBB.json
 ```
 
 ### Step 5 — Generate the analysis report
@@ -177,9 +177,10 @@ git-ignored.
 dokimi dashboard generate --results-dir .
 ```
 
-Aggregates per-library results from `<results-dir>/**/eval/*.json` into `DASHBOARD.md` /
-`dashboard.json` for cross-library comparison. `--results-dir` defaults to `results`;
-`.` reads the `eval/` directory step 4 wrote. Like `report generate`, it averages both
+Aggregates per-library results into `DASHBOARD.md` / `dashboard.json` for cross-library
+comparison. It reads every `eval/*.json`, `eval_*.json` and `evaluations/*.json` under
+`--results-dir` (default `results`), so `.` picks up step 4's `eval/oneTBB.json`; the panel
+file sits in `eval/panel/` so it does not show as a second oneTBB row. Like `report generate`, it averages both
 arms and the delta, per library and per question source, over the questions scored in
 both arms; a run that scored one arm only shows that arm's mean.
 
