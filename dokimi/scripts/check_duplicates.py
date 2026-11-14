@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
@@ -12,10 +11,15 @@ and are left out), two kinds of block are fingerprinted:
   block (a module, class, function, loop or branch body), the shortest such run
   from each starting statement that reaches ``MIN_NODES`` nodes.
 
+Field and list boundaries are part of the fingerprint, so ``if`` with two
+statements in its body differs from one with a statement in each branch.
+
 A fingerprint hashes the block's AST after renaming every name bound in it (an
-assignment target, a loop variable, an argument) by order of first use, so a
-copy with renamed locals still matches. Free names (builtins, imports, globals),
-attributes and literal values are kept: blanking literals too matched argparse
+assignment target, a loop variable, an exception alias, an argument of the
+function it is in) by order of first use, so a copy with renamed locals still
+matches. A comprehension or lambda variable is bound only inside it. Free names
+(builtins, imports, globals), attributes and literal values are kept, tagged
+apart from the renamed ones: blanking literals too matched argparse
 builders and runs of ``re.compile`` constants that share no code. A fingerprint
 seen at two or more places is a clone group; of overlapping matches (a sliding
 copy, a run repeated within itself) only the first is kept.
@@ -58,6 +62,10 @@ TOP_FILES = ("cli.py",)
 _BODIES = ("body", "orelse", "finalbody")
 _FUNCS = (ast.FunctionDef, ast.AsyncFunctionDef)
 _SKIP_FIELDS = {"ctx", "type_comment"}
+_COMPS = (ast.ListComp, ast.SetComp, ast.DictComp, ast.GeneratorExp)
+#: Fields holding a name the node binds, as a string rather than a Name node.
+_BINDERS = {ast.ExceptHandler: "name", ast.MatchAs: "name", ast.MatchStar: "name",
+            ast.MatchMapping: "rest"}
 
 
 @dataclass(frozen=True)
@@ -87,7 +95,8 @@ def python_files(project: Path) -> list[Path]:
 
 @dataclass
 class _Stmt:
-    """One statement serialised once; a name token is ("N", id)."""
+    """One statement serialised once; a name token is ("N", id) or, for a name local
+    to a comprehension or lambda, ("L", id, scope)."""
     tokens: list
     bound: set[str]
     nodes: int
@@ -110,6 +119,21 @@ def _leaf(node: ast.AST, out: _Stmt) -> bool:
     return False
 
 
+def _own_args(node: ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda) -> set[str]:
+    """Names of the node's own parameters (not those of a lambda in a default)."""
+    a = node.args
+    every = [*a.posonlyargs, *a.args, *a.kwonlyargs, *filter(None, (a.vararg, a.kwarg))]
+    return {x.arg for x in every}
+
+
+def _local_names(node: ast.AST) -> set[str]:
+    """Names a comprehension or lambda binds for itself (not walrus targets)."""
+    if isinstance(node, ast.Lambda):
+        return _own_args(node)
+    return {n.id for g in getattr(node, "generators", []) for n in ast.walk(g.target)
+            if isinstance(n, ast.Name)}
+
+
 def _serialise(node: ast.AST, out: _Stmt, cache: dict[int, _Stmt]) -> None:
     if isinstance(node, ast.stmt) and id(node) in cache:
         done = cache[id(node)]
@@ -117,18 +141,51 @@ def _serialise(node: ast.AST, out: _Stmt, cache: dict[int, _Stmt]) -> None:
         out.bound |= done.bound
         out.nodes += done.nodes
         return
+    if isinstance(node, (*_COMPS, ast.Lambda)):
+        # Serialised apart: a name it binds is its own, not bound in the enclosing block.
+        inner = _Stmt([], set(), 0)
+        _fields(node, inner, cache)
+        local = _local_names(node)
+        out.tokens += [("L", t[1], id(node)) if isinstance(t, tuple) and t[0] == "N"
+                       and t[1] in local else t for t in inner.tokens]
+        out.bound |= inner.bound - local
+        out.nodes += inner.nodes
+        return
+    _fields(node, out, cache)
+
+
+def _field(node: ast.AST, field: str, value: object, out: _Stmt, cache: dict[int, _Stmt]) -> None:
+    """Emit one field: a label, then its items, with list boundaries."""
+    if _BINDERS.get(type(node)) == field:
+        if isinstance(value, str) and value:
+            out.bound.add(value)
+            out.tokens.append(("N", value))
+        return
+    if isinstance(value, list):
+        if not value:
+            return
+        out.tokens.append(f"{field}[")
+    elif isinstance(value, ast.AST) or value:
+        out.tokens.append(f"{field}:")
+    else:
+        return
+    for item in value if isinstance(value, list) else [value]:
+        if isinstance(item, ast.AST):
+            _serialise(item, out, cache)
+        elif item:   # falsy scalars skipped: new fields (3.15's is_lazy) default to them
+            out.tokens.append(f"{field}={item}")
+    if isinstance(value, list):
+        out.tokens.append("]")
+
+
+def _fields(node: ast.AST, out: _Stmt, cache: dict[int, _Stmt]) -> None:
     out.nodes += 1
     if _leaf(node, out):
         return
     out.tokens.append(type(node).__name__)
     for field, value in ast.iter_fields(node):
-        if field in _SKIP_FIELDS or (isinstance(node, ast.arg) and field == "arg"):
-            continue
-        for item in value if isinstance(value, list) else [value]:
-            if isinstance(item, ast.AST):
-                _serialise(item, out, cache)
-            elif item:   # falsy scalars skipped: new fields (3.15's is_lazy) default to them
-                out.tokens.append(f"{field}={item}")
+        if field not in _SKIP_FIELDS and not (isinstance(node, ast.arg) and field == "arg"):
+            _field(node, field, value, out, cache)
     out.tokens.append(")")
 
 
@@ -141,18 +198,24 @@ def _stmt(node: ast.stmt, cache: dict[int, _Stmt]) -> _Stmt:
     return cache[id(node)]
 
 
-def fingerprint(stmts: list[_Stmt]) -> str:
-    """Names bound in the block are renamed by first use; free names (builtins,
-    imports, globals) are kept, so calls to different functions differ."""
-    bound = set().union(*(s.bound for s in stmts))
-    alias: dict[str, str] = {}
+def fingerprint(stmts: list[_Stmt], outer: frozenset[str] = frozenset()) -> str:
+    """Names bound in the block (or an argument of an enclosing function, ``outer``)
+    are renamed by first use; free names (builtins, imports, globals) are kept under
+    their own tag, so calls to different functions differ and a free ``v0`` is not
+    a renamed local."""
+    bound = set().union(outer, *(s.bound for s in stmts))
+    alias: dict[tuple, int] = {}
     parts = []
     for s in stmts:
         for t in s.tokens:
             if isinstance(t, tuple):
-                t = alias.setdefault(t[1], f"v{len(alias)}") if t[1] in bound else t[1]
+                key = t[1:] if t[0] == "L" else (t[1],)
+                if t[0] == "L" or t[1] in bound:
+                    t = "B" + str(alias.setdefault(key, len(alias)))
+                else:
+                    t = "F:" + t[1]
             parts.append(t)
-    return hashlib.sha1("\x00".join(parts).encode()).hexdigest()[:12]
+    return hashlib.sha1("\x00".join(parts).encode(), usedforsecurity=False).hexdigest()[:12]
 
 
 def _strip_docstring(stmts: list[ast.stmt]) -> list[ast.stmt]:
@@ -164,16 +227,19 @@ def _strip_docstring(stmts: list[ast.stmt]) -> list[ast.stmt]:
 
 
 def _windows(stmts: list[ast.stmt], cache: dict[int, _Stmt]) -> list[tuple[int, int]]:
-    """(i, j) of the shortest run stmts[i:j] from each i that reaches MIN_NODES."""
-    sizes = [_stmt(s, cache).nodes for s in stmts]
-    out, j, total = [], 0, 0
+    """(i, j) of the shortest run stmts[i:j] of two or more statements from each i
+    that reaches MIN_NODES."""
+    pre = [0]
+    for s in stmts:
+        pre.append(pre[-1] + _stmt(s, cache).nodes)
+    out, j = [], 0
     for i in range(len(stmts)):
-        while j < len(stmts) and total < MIN_NODES:
-            total += sizes[j]
+        j = max(j, i + 2)
+        while j <= len(stmts) and pre[j] - pre[i] < MIN_NODES:
             j += 1
-        if total >= MIN_NODES and j - i > 1:
-            out.append((i, j))
-        total -= sizes[i]
+        if j > len(stmts):
+            break
+        out.append((i, j))
     return out
 
 
@@ -187,14 +253,30 @@ def _hi(stmts: list[ast.stmt]) -> int:
     return max(s.end_lineno or s.lineno for s in stmts)
 
 
-def _candidate(parts: list[_Stmt], block: Block) -> tuple[int, list[_Stmt], Block]:
-    return hash(tuple(p.shape for p in parts)), parts, block
+def _candidate(parts: list[_Stmt], block: Block, outer: frozenset[str]) -> tuple[int, list[_Stmt], Block, frozenset[str]]:
+    return hash(tuple(p.shape for p in parts)), parts, block, outer
 
 
-def blocks(tree: ast.Module, rel: str) -> list[tuple[int, list[_Stmt], Block]]:
-    """Every (shape, statements, block) of one module; fingerprint() hashes the statements."""
-    out: list[tuple[int, list[_Stmt], Block]] = []
+def _enclosing_args(tree: ast.Module) -> dict[int, frozenset[str]]:
+    """id of each node -> names of the arguments of the functions around it (not its own)."""
+    found: dict[int, frozenset[str]] = {}
+    todo: list[tuple[ast.AST, frozenset[str]]] = [(tree, frozenset())]
+    while todo:
+        node, args = todo.pop()
+        found[id(node)] = args
+        inner = args
+        if isinstance(node, _FUNCS):
+            inner = args | _own_args(node)
+        todo += [(c, inner) for c in ast.iter_child_nodes(node)]
+    return found
+
+
+def blocks(tree: ast.Module, rel: str) -> list[tuple[int, list[_Stmt], Block, frozenset[str]]]:
+    """Every (shape, statements, block, outer names) of one module; fingerprint() hashes
+    the statements. A function's candidate leads with its arguments."""
+    out: list[tuple[int, list[_Stmt], Block, frozenset[str]]] = []
     cache: dict[int, _Stmt] = {}
+    outer = _enclosing_args(tree)
     nodes = list(ast.walk(tree))
     for node in reversed(nodes):   # breadth-first reversed: children are cached first
         if isinstance(node, ast.stmt):
@@ -204,15 +286,21 @@ def blocks(tree: ast.Module, rel: str) -> list[tuple[int, list[_Stmt], Block]]:
             body = _strip_docstring(node.body)
             parts = [_stmt(s, cache) for s in body]
             if sum(p.nodes for p in parts) >= MIN_NODES:
-                out.append(_candidate(parts, Block(rel, node.lineno, _hi(body), "function")))
+                head = _Stmt([], set(), 0)
+                _serialise(node.args, head, cache)
+                head.shape = hash(tuple("N" if isinstance(t, tuple) else t for t in head.tokens))
+                out.append(_candidate([head, *parts], Block(rel, node.lineno, _hi(body), "function"),
+                                      outer[id(node)]))
         if not isinstance(node, (ast.stmt, ast.Module, ast.ExceptHandler, ast.match_case)):
             continue
+        around = outer[id(node)] | (
+            _own_args(node) if isinstance(node, _FUNCS) else set())
         for body in _bodies(node):
             body = _strip_docstring(body)
             for i, j in _windows(body, cache):
                 parts = [_stmt(s, cache) for s in body[i:j]]
                 block = Block(rel, body[i].lineno, _hi(body[i:j]), "window")
-                out.append(_candidate(parts, block))
+                out.append(_candidate(parts, block, frozenset(around)))
     return out
 
 
@@ -231,15 +319,15 @@ def clone_groups(project: Path | None = None) -> dict[str, list[str]]:
     A sliding copy matches many overlapping windows; a window group whose every
     member overlaps a member of a group already kept adds nothing and is dropped."""
     project = project or PROJECT
-    by_shape: dict[int, list[tuple[list[_Stmt], Block]]] = defaultdict(list)
+    by_shape: dict[int, list[tuple[list[_Stmt], Block, frozenset[str]]]] = defaultdict(list)
     for path in python_files(project):
         rel = path.relative_to(project).as_posix()
-        for shape, parts, block in blocks(ast.parse(path.read_text(encoding="utf-8"), filename=rel), rel):
-            by_shape[shape].append((parts, block))
+        for shape, parts, block, args in blocks(ast.parse(path.read_text(encoding="utf-8"), filename=rel), rel):
+            by_shape[shape].append((parts, block, args))
     seen: dict[str, list[Block]] = defaultdict(list)
     for found in by_shape.values():
-        for parts, block in found if len(found) > 1 else ():
-            seen[fingerprint(parts)].append(block)
+        for parts, block, args in found if len(found) > 1 else ():
+            seen[fingerprint(parts, args)].append(block)
     groups = {fp: _distinct(bs) for fp, bs in seen.items()}
     order = sorted((fp for fp, bs in groups.items() if len(bs) > 1),
                    key=lambda fp: (groups[fp][0].kind != "function", groups[fp][0].rel,
@@ -300,10 +388,13 @@ def raised_without_rationale(baseline: dict[str, dict], base: dict[str, dict]) -
         old = base.get(fp, {})
         if old and entry["count"] <= old["count"]:
             continue
-        why = str(entry.get("rationale", "")).strip()
-        if why in ("", SEED_RATIONALE, str(old.get("rationale", "")).strip()):
+        raw = entry.get("rationale")
+        why = raw.strip() if isinstance(raw, str) else ""
+        before = old.get("rationale")
+        if (why in ("", SEED_RATIONALE) or why == (before.strip() if isinstance(before, str) else None)
+                or len(why) > RATIONALE_MAX):
             change = "added" if not old else f"raised from {old['count']} to {entry['count']}"
-            found.append(f"{fp}: {change} without a \"rationale\" (at most {RATIONALE_MAX} "
+            found.append(f"{fp}: {change} without a \"rationale\" (a string of at most {RATIONALE_MAX} "
                          "characters: why the copies cannot share one function)")
     return found
 

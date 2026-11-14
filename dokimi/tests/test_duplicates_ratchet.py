@@ -11,6 +11,8 @@ what is and is not a clone group, and what the ratchet lets through.
 from __future__ import annotations
 
 import importlib.util
+import re
+import sys
 import textwrap
 from pathlib import Path
 
@@ -19,6 +21,7 @@ _SCRIPT = PROJECT / "scripts" / "check_duplicates.py"
 _spec = importlib.util.spec_from_file_location("check_duplicates", _SCRIPT)
 assert _spec and _spec.loader
 cd = importlib.util.module_from_spec(_spec)
+sys.modules[_spec.name] = cd   # dataclasses resolves postponed annotations through it
 _spec.loader.exec_module(cd)
 
 
@@ -70,6 +73,70 @@ def test_a_copied_block_inside_different_functions_matches(tmp_path):
     b = "def second(path):\n    print(path)\n" + block + "\n"
     groups = _groups(tmp_path, a=a, b=b)
     assert len(groups) == 1 and len(next(iter(groups.values()))) == 2
+
+
+def test_renamed_exception_alias_still_matches(tmp_path):
+    renamed = re.sub(r"\bexc\b", "err", _LOADER.format(name="b"))
+    assert len(_groups(tmp_path, a=_LOADER.format(name="a"), b=renamed)) == 1
+
+
+def test_renamed_argument_still_matches(tmp_path):
+    renamed = _LOADER.format(name="b").replace("path", "source")
+    assert len(_groups(tmp_path, a=_LOADER.format(name="a"), b=renamed)) == 1
+
+
+def test_a_renamed_argument_matches_in_a_window_of_the_function(tmp_path):
+    block = _LOADER.format(name="x").split('count."""\n', 1)[1]
+    a = "def first(path):\n    print(1)\n" + block
+    b = "def second(source):\n    print(2)\n" + block.replace("path", "source")
+    groups = _groups(tmp_path, a=a, b=b)
+    assert len(groups) == 1 and all(w.split(":")[0] != "x" for w in next(iter(groups.values())))
+
+
+def test_statements_in_one_branch_differ_from_one_in_each(tmp_path):
+    first, second = (f"{n} = [{', '.join(str(i) for i in range(lo, lo + 20))}]" for n, lo in (("a", 0), ("b", 20)))
+    together = f"def f(flag):\n    if flag:\n        {first}\n        {second}\n"
+    split = f"def f(flag):\n    if flag:\n        {first}\n    else:\n        {second}\n"
+    assert not _groups(tmp_path, a=together, b=split)
+
+
+def test_try_bodies_split_differently_do_not_match(tmp_path):
+    first, second = (f"{n} = [{', '.join(str(i) for i in range(lo, lo + 20))}]" for n, lo in (("a", 0), ("b", 20)))
+    together = f"def f():\n    try:\n        {first}\n        {second}\n    except OSError:\n        pass\n"
+    split = f"def f():\n    try:\n        {first}\n    except OSError:\n        pass\n    else:\n        {second}\n"
+    assert not _groups(tmp_path, a=together, b=split)
+
+
+def test_a_free_name_is_not_a_renamed_local(tmp_path):
+    terms = " + ".join(["{x}"] * 25)
+    local_a = "def f():\n    a = 1\n    return a + " + terms.format(x="v0") + "\n"
+    local_b = "def f():\n    b = 1\n    return b + " + terms.format(x="b") + "\n"
+    assert not _groups(tmp_path, a=local_a, b=local_b)
+
+
+def test_a_comprehension_variable_is_not_bound_outside_it(tmp_path):
+    src = "{g} = 1\ndef f():\n    values = [{g} for {g} in range(20)]\n    return " + " + ".join(["{g}"] * 20) + "\n"
+    groups = _groups(tmp_path, a=src.format(g="x"), b=src.format(g="y"))
+    assert not any(w.startswith("dokimi/a.py:3-") for ws in groups.values() for w in ws)
+
+
+def test_a_comprehension_variable_still_renames_inside_it(tmp_path):
+    body = "\n".join(f"    total = total + data[{i}] * weights.get({i}, 1)" for i in range(12))
+    big = "def g{n}(data, weights):\n    total = 0\n" + body + "\n    return [{g} * 2 for {g} in data]\n"
+    groups = _groups(tmp_path, a=big.format(n=1, g="x"), b=big.format(n=2, g="y"))
+    assert len(groups) == 1
+
+
+def test_a_lambda_argument_in_a_default_does_not_bind_the_function_body(tmp_path):
+    src = "{g} = 1\ndef f{g}(cb=lambda {g}: {g}):\n    value = " + "+".join(["{g}"] * 25) + "\n    return value\n"
+    assert not _groups(tmp_path, a=src.format(g="x"), b=src.format(g="y"))
+
+
+def test_a_dense_first_statement_still_makes_a_two_statement_window(tmp_path):
+    dense = "    values = [" + ", ".join(str(i) for i in range(50)) + "]\n    return values\n"
+    groups = _groups(tmp_path, a="def f():\n    print('a')\n" + dense,
+                     b="def g():\n    print('b')\n" + dense)
+    assert len(groups) == 1
 
 
 def test_different_literals_or_callees_do_not_match(tmp_path):
@@ -131,3 +198,11 @@ def test_an_added_or_raised_entry_needs_a_new_rationale():
                 "explained": {"count": 2, "rationale": "generated per provider"}}
     found = cd.raised_without_rationale(baseline, base)
     assert [f.split(" without")[0] for f in found] == ["raised: raised from 2 to 3", "seeded: added"]
+
+
+def test_a_rationale_must_be_a_string_within_the_limit():
+    bad = [None, 5, True, ["why"], " ", "x" * (cd.RATIONALE_MAX + 1)]
+    baseline = {f"e{i}": {"count": 2, "rationale": value} for i, value in enumerate(bad)}
+    baseline["ok"] = {"count": 2, "rationale": "x" * cd.RATIONALE_MAX}
+    found = cd.raised_without_rationale(baseline, {})
+    assert [f.split(":")[0] for f in found] == sorted(f"e{i}" for i in range(len(bad)))
