@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CODES = {"BLE001", "S110", "S112"}
 # ruff's extend-exclude in pyproject.toml, plus the virtualenvs a checkout may hold.
 SKIP = ("benchmarks/", "data/", "tests/fixtures/task_formats/", ".venv/", "venv/", "build/")
-_NOQA = re.compile(r"#\s*noqa:\s*(?P<codes>[A-Z]+[0-9]+(?:\s*,\s*[A-Z]+[0-9]+)*)(?P<rest>.*)$", re.I)
+_NOQA = re.compile(r"#\s*noqa:\s*(?P<codes>[A-Z]+[0-9]+(?:[\s,]+[A-Z]+[0-9]+)*)(?P<rest>.*)$", re.I)
 _REASON = re.compile(r"^\s*(?:[-—:(]+\s*)?(?P<text>.*?)\)?\s*$")
 
 
@@ -33,7 +33,7 @@ def unexplained(source: str) -> list[int]:
         if tok.type != tokenize.COMMENT:
             continue
         m = _NOQA.search(tok.string)
-        if not m or not CODES & {c.strip() for c in m.group("codes").split(",")}:
+        if not m or not CODES & set(re.split(r"[\s,]+", m.group("codes"))):
             continue
         reason = _REASON.match(m.group("rest"))
         if not reason or len(reason.group("text").split()) < 2:
@@ -79,3 +79,8 @@ def test_other_codes_are_not_checked() -> None:
 
 def test_upper_case_and_doubled_dashes_are_still_checked() -> None:
     assert unexplained("try:\n    x()\nexcept Exception:  # NOQA: BLE001 -- ok\n    pass\n") == [3]
+
+
+def test_a_code_after_a_space_separated_one_is_still_checked() -> None:
+    assert unexplained("try:\n    x()\nexcept:  # noqa: E722 BLE001 S110\n    pass\n") == [3]
+    assert unexplained("try:\n    x()\nexcept:  # noqa: E722 BLE001 S110 - logged by the caller\n    pass\n") == []
