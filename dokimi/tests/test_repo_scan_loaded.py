@@ -22,7 +22,7 @@ def _write(root: Path, files: dict[str, str]) -> Path:
 def _scan(capsys, *argv: str) -> dict:
     args = build_parser().parse_args(["repo", "scan", *argv, "--json"])
     args.func(args)
-    return json.loads(capsys.readouterr().out)
+    return json.loads(capsys.readouterr().out)["data"]
 
 
 def _fails(payload: dict) -> set[tuple[str, str]]:
@@ -94,7 +94,7 @@ def test_an_unimported_claude_local_md_is_checked_and_the_note_does_not_call_it_
     args = build_parser().parse_args(["repo", "scan", str(root), "--json"])
     args.func(args)
     captured = capsys.readouterr()
-    assert _fails(json.loads(captured.out)) == {("CLAUDE.local.md", "src/gone_unimported.py")}
+    assert _fails(json.loads(captured.out)["data"]) == {("CLAUDE.local.md", "src/gone_unimported.py")}
     assert "@ imported" not in captured.err
     assert "CLAUDE.local.md" in captured.err
 
