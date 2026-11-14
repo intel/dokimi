@@ -294,11 +294,12 @@ def test_a_sub_cent_cost_reads_under_a_hundredth_of_a_cent_in_every_cost_cell():
 
 
 def test_a_delta_prints_its_own_sign_in_both_delta_tables():
-    """The improvements table lists the top 10 whatever their sign: a fixed ``+`` printed ``+-30.0``."""
+    """Each table holds one sign: improvements positive only, degradations negative only, no fixed ``+`` in front."""
     text = _generator_report()
     top = text[text.index("## Top 10: Biggest Improvements"):text.index("## Bottom 10: Biggest Degradations")]
     bottom = text[text.index("## Bottom 10: Biggest Degradations"):text.index("## Performance by Topic")]
-    assert "| q2 | **-30.0** |" in top and "| q3 | **+0.0** |" in bottom
+    assert "| q3 | **+0.0** |" in top and "| q2 | **-30.0** |" not in top
+    assert "| q2 | **-30.0** |" in bottom and "| q3 |" not in bottom
     assert "+-" not in text
 
 

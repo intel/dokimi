@@ -76,7 +76,7 @@ def verdict(significant: Any) -> str:
 
 
 def delta(value: Any, *, missing: str = DASH) -> str:
-    """A mean delta at one decimal, ``+`` when positive, by :func:`dokimi.eval.sign_flip.fmt_delta`."""
+    """A mean delta at one decimal, ``+`` when positive; a value that would read 0.0 keeps 2 significant digits."""
     return fmt_delta(value) if is_number(value) else missing
 
 
