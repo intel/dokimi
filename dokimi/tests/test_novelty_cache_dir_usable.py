@@ -85,6 +85,21 @@ def test_usable_cache_dir_refuses_a_path_below_a_directory_it_cannot_search(tmp_
         closed.chmod(0o700)
 
 
+def test_usable_cache_dir_names_the_flag_when_inspecting_the_path_raises(tmp_path, monkeypatch):
+    # Python < 3.14 raises PermissionError from is_dir() below a directory without search permission;
+    # simulate it so the refusal is checked on every version and as root.
+    def deny(self):
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr(type(tmp_path), "is_dir", deny)
+    raw = tmp_path / "cache"
+    with pytest.raises(InputError) as err:
+        usable_cache_dir(str(raw))
+    message = str(err.value)
+    assert f"--cache-dir {raw}: cannot inspect {tmp_path} (Permission denied)" in message
+    assert isinstance(err.value.__cause__, PermissionError)
+
+
 def _atoms(tmp_path):
     rows = [f"Configure module{i} with parameter{i} always." for i in range(5)]
     (tmp_path / "rows.md").write_text("# H\n\n" + "\n\n".join(rows) + "\n", encoding="utf-8")
