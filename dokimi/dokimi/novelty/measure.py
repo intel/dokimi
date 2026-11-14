@@ -132,6 +132,11 @@ class ProbeRun:
     response: str
     verdict: str
     confidence: float | None = None  # recorded, never scored
+    #: Set only when the probe carries ``grading``: the judge's own verdict, which ``verdict``
+    #: may overrule, where the verdict came from (``judge`` or ``check``) and the check results.
+    judge_verdict: str | None = None
+    verdict_source: str = "judge"
+    checks: list[dict] = field(default_factory=list)
 
     def correct(self, scoring: str) -> bool:
         """Whether this run counts as correct under ``lenient`` or ``strict``."""
@@ -153,6 +158,8 @@ class ProbeRun:
             "response": self.response,
             "verdict": self.verdict,
             "confidence": self.confidence,
+            **({"judge_verdict": self.judge_verdict, "verdict_source": self.verdict_source,
+                "checks": self.checks} if self.checks else {}),
         }
 
 
@@ -165,8 +172,8 @@ class MeasureResult:
     with_arm: str = "full"
     # (probe, arm) jobs the spend cap stopped before they were answered; 0 for a whole run.
     not_run: int = 0
-    # Answers the cap paid for but the judge call was refused: kept in ``runs`` as ``ERRORED``
-    # (no datum), and counted here so the run is not taken as finished.
+    # Answers the cap paid for but the judge call was refused: kept in ``runs`` (no datum),
+    # and counted here so the run is not taken as finished.
     ungraded: int = 0
     # (reason, message) of a call the cap refused; None when nothing was stopped.
     stop: tuple[str, str] | None = None
@@ -227,6 +234,31 @@ class MeasureResult:
         xs = [float(r.confidence) for r in rows]  # type: ignore[arg-type]
         ys = [1.0 if r.correct("lenient") else 0.0 for r in rows]
         return _pearson(xs, ys)
+
+    def checks_summary(self) -> dict | None:
+        """The judge against the program checks, on the runs whose probe had any.
+
+        ``vetoed`` counts answers a veto check failed; ``judge_passed_vetoed`` how many of
+        those the judge had called lenient-correct (the judge's miss on invented identifiers).
+        ``decided`` counts answers a ``sufficient`` check decided, and ``judge_agreed`` how
+        often the judge's lenient collapse matched it. ``None`` when no run was checked.
+        """
+        rows = [r for r in self.runs if r.checks and not r.errored]
+        if not rows:
+            return None
+        vetoed = [r for r in rows if any(c["role"] == "veto" and c["passed"] is False
+                                         for c in r.checks)]
+        decided = [r for r in rows if r.verdict_source == "check" and r not in vetoed]
+        return {
+            "checked_runs": len(rows),
+            "overruled": sum(1 for r in rows if r.verdict != r.judge_verdict),
+            "vetoed": len(vetoed),
+            "judge_passed_vetoed": sum(1 for r in vetoed if r.judge_verdict in LENIENT_CORRECT),
+            "decided": len(decided),
+            "judge_agreed": sum(1 for r in decided
+                                if (r.judge_verdict in LENIENT_CORRECT)
+                                == (r.verdict in LENIENT_CORRECT)),
+        }
 
 
 def parse_arms(spec: str) -> tuple[str, ...]:
@@ -337,6 +369,7 @@ def run_measurement(
 
     def one(job: tuple[Probe, str]) -> ProbeRun:
         probe, arm = job
+        answered = True
         try:
             response, confidence = _answer(
                 probe.question, contexts.get(arm), answerer,
@@ -347,27 +380,20 @@ def run_measurement(
         except Exception as exc:  # a provider failure is a missing datum, not a wrong answer
             response, confidence = f"<error: {exc}>", None
             verdict = ERRORED
+            answered = False
         else:
             try:
                 verdict = _grade(probe, response, judge)
             except SpendCapReached as exc:
-                # The answer was paid for: keep the verdict a refused judge reply names, else
-                # keep it ungraded (no datum). Either way the measurement stops here.
-                stops.append(exc)
-                named = _reply_verdict(exc.reply)
-                run = ProbeRun(
-                    atom_id=probe.atom_id, probe_kind=probe.kind, arm=arm,
-                    question=probe.question, response=response, verdict=named or ERRORED,
-                    confidence=confidence,
-                )
-                if named is None:
-                    ungraded.append(run)
-                return run
-        return ProbeRun(
+                return _capped_grade_run(probe, arm, response, confidence, exc, stops, ungraded)
+        run = ProbeRun(
             atom_id=probe.atom_id, probe_kind=probe.kind, arm=arm,
             question=probe.question, response=response, verdict=verdict,
             confidence=confidence,
         )
+        if probe.grading and answered:
+            _apply_checks(run, probe, response, verdict)
+        return run
 
     def guarded(job: tuple[Probe, str]) -> ProbeRun | None:
         try:
@@ -383,6 +409,72 @@ def run_measurement(
     return MeasureResult(runs=runs, arms=tuple(arms), with_arm="full",
                          not_run=len(jobs) - len(runs), ungraded=len(ungraded), stop=stop,
                          probes=list(probes))
+
+
+def _capped_grade_run(probe: Probe, arm: str, response: str, confidence: float | None,
+                      exc: SpendCapReached, stops: list[SpendCapReached],
+                      ungraded: list[ProbeRun]) -> ProbeRun:
+    """The answer was paid for and the judge hit the cap: keep the verdict a refused judge reply
+    names, else keep the run ungraded (no datum). The checks grade the run either way, and the
+    measurement stops here."""
+    stops.append(exc)
+    named = _reply_verdict(exc.reply)
+    run = ProbeRun(
+        atom_id=probe.atom_id, probe_kind=probe.kind, arm=arm,
+        question=probe.question, response=response, verdict=named or ERRORED,
+        confidence=confidence,
+    )
+    if probe.grading:  # the veto runs on the answer whatever the refused judge reply said
+        _apply_checks(run, probe, response, named or ERRORED)
+    if named is None:
+        ungraded.append(run)
+    return run
+
+
+def _apply_checks(run: ProbeRun, probe: Probe, response: str, verdict: str) -> None:
+    """Grade ``run`` by its program checks. They run on any answer, even when the judge failed:
+    a failed judge is kept as its own verdict, and resolve_verdict lets only a veto decide that run.
+    """
+    run.checks = run_checks(probe.grading or {}, probe.question, response)
+    run.judge_verdict = verdict
+    run.verdict, run.verdict_source = resolve_verdict(verdict, run.checks)
+
+
+def run_checks(grading: dict, question: str, response: str) -> list[dict]:
+    """The program checks of ``grading`` on one answer; ``judge`` checks are left out.
+
+    The novelty judge already grades every answer, so a second model call per check would
+    only add cost. Each result keeps the check's ``role`` and ``tier``.
+    """
+    from dokimi.eval.reference_checks import DETERMINISTIC, check_role, grade_check
+    out = []
+    for check in grading.get("checks", []):
+        if check.get("type") not in DETERMINISTIC:
+            continue
+        result = grade_check(check, question, response, None).as_dict()
+        result["role"] = check_role(check)
+        if check.get("tier"):
+            result["tier"] = check["tier"]
+        out.append(result)
+    return out
+
+
+def resolve_verdict(judge_verdict: str, checks: list[dict]) -> tuple[str, str]:
+    """The final verdict and its source, from the judge's verdict and the check results.
+
+    A failed ``veto`` makes the answer ``wrong_other`` whatever the judge said. Otherwise a
+    ``sufficient`` check that passed or failed decides (``correct_complete`` or
+    ``wrong_other``). Otherwise, ``evidence`` checks only, the judge's verdict stands. An
+    abstention is never overruled into a pass: the answer stated nothing to check. A judge
+    failure (``ERRORED``) is not decided by a ``sufficient`` check: the run stays a missing
+    datum, and only a failed veto makes it ``wrong_other``.
+    """
+    if any(c["role"] == "veto" and c["passed"] is False for c in checks):
+        return "wrong_other", "check"
+    decisive = [c["passed"] for c in checks if c["role"] == "sufficient" and c["passed"] is not None]
+    if decisive and judge_verdict not in ("abstained", ERRORED):
+        return ("correct_complete" if all(decisive) else "wrong_other"), "check"
+    return judge_verdict, "judge"
 
 
 # Named ``*_PROMPT`` so the run's ``prompts_sha256`` covers them.

@@ -49,10 +49,10 @@ def _single(tmp_path, queries, *extra):
     q = tmp_path / "q.json"
     q.write_text(json.dumps(queries), encoding="utf-8")
     out = tmp_path / "routing.json"
-    args = _parse("novelty", "routing",
-                  "--artifact", _skill(tmp_path, "a", "profile a binary with perf"),
-                  "--competitors", _skill(tmp_path, "b", "tune a database"),
-                  "--queries", str(q), "--model", "m", "--out", str(out), *extra)
+    args = _parse("skill", "routing",
+                  _skill(tmp_path, "a", "profile a binary with perf"), "--competitors",
+                  _skill(tmp_path, "b", "tune a database"), "--queries",
+                  str(q), "--model", "m", "--out", str(out), *extra)
     return args, out
 
 
@@ -88,7 +88,7 @@ def test_a_single_run_stopped_by_the_cap_writes_what_it_scored(tmp_path, monkeyp
 
 def test_a_stopped_repeat_run_keeps_the_noise_of_the_queries_it_finished(tmp_path, monkeypatch):
     _provider(monkeypatch, UsageRecord(cost_usd=0.4))
-    args, out = _single(tmp_path, QUERIES, "--repeats", "2", "--max-usd", "1")
+    args, out = _single(tmp_path, QUERIES, "--reps", "2", "--max-usd", "1")
     with pytest.raises(SystemExit, match="spend cap reached"):
         args.func(args)
     payload = json.loads(out.read_text(encoding="utf-8"))
@@ -136,9 +136,9 @@ def test_an_all_vs_all_run_stopped_by_the_cap_scores_the_queries_it_finished(
     calls = _provider(monkeypatch, UsageRecord(cost_usd=0.6))
     root, queries = _catalog(tmp_path)
     out = tmp_path / "o.json"
-    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
-                  "--queries-by-skill", str(queries), "--out", str(out),
-                  "--model", "m", "--max-usd", "1")
+    args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries),
+                  "--out", str(out), "--model", "m",
+                  "--max-usd", "1")
     with pytest.raises(SystemExit, match=r"\$1\.20 of \$1\.00") as stop:
         args.func(args)
     assert str(out) in str(stop.value)
@@ -169,9 +169,9 @@ def test_an_all_vs_all_run_stopped_early_leaves_the_skills_it_never_reached_unsc
     by_skill = {**json.loads(queries.read_text()), "net": ["trace a socket", "dump packets"]}
     queries.write_text(json.dumps(by_skill), encoding="utf-8")
     out = tmp_path / "o.json"
-    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
-                  "--queries-by-skill", str(queries), "--out", str(out),
-                  "--model", "m", "--max-usd", "0.5")
+    args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries),
+                  "--out", str(out), "--model", "m",
+                  "--max-usd", "0.5")
     # The first call is allowed (nothing spent), then 0.6 >= 0.5 refuses the rest.
     with pytest.raises(SystemExit, match="spend cap reached"):
         args.func(args)
@@ -194,9 +194,9 @@ def test_a_stopped_run_is_marked_partial_and_a_finished_one_is_not(tmp_path, mon
     sub.mkdir()
     root, queries = _catalog(sub)
     all_out = sub / "o.json"
-    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
-                  "--queries-by-skill", str(queries), "--out", str(all_out),
-                  "--model", "m", "--max-usd", "0.5")
+    args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries),
+                  "--out", str(all_out), "--model", "m",
+                  "--max-usd", "0.5")
     with pytest.raises(SystemExit):
         args.func(args)
     assert json.loads(all_out.read_text(encoding="utf-8"))["status"] == "partial"
@@ -276,7 +276,7 @@ def test_a_single_run_capped_before_any_query_finished_has_an_empty_noise_block(
     # noise is always an object (main's contract): with no query finished it names the repeats
     # asked for and measures nothing.
     _provider(monkeypatch, UsageRecord(cost_usd=0.6))
-    args, out = _single(tmp_path, QUERIES, "--repeats", "3", "--max-usd", "0.5")
+    args, out = _single(tmp_path, QUERIES, "--reps", "3", "--max-usd", "0.5")
     with pytest.raises(SystemExit):
         args.func(args)
     noise = json.loads(out.read_text(encoding="utf-8"))["model"]["noise"]
@@ -707,9 +707,9 @@ def test_an_all_vs_all_repeat_run_stopped_mid_query_pins_its_counts(tmp_path, mo
     by_skill = {**json.loads(queries.read_text()), "net": ["trace a socket", "dump packets"]}
     queries.write_text(json.dumps(by_skill), encoding="utf-8")
     out = tmp_path / "o.json"
-    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
-                  "--queries-by-skill", str(queries), "--out", str(out),
-                  "--model", "m", "--repeats", "2", "--max-usd", "1")
+    args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries),
+                  "--out", str(out), "--model", "m",
+                  "--reps", "2", "--max-usd", "1")
     with pytest.raises(SystemExit, match="spend cap reached"):
         args.func(args)
     payload = json.loads(out.read_text(encoding="utf-8"))
@@ -738,9 +738,9 @@ def test_an_all_vs_all_last_call_with_no_price_leaves_no_partial_marker(tmp_path
     root, queries = _catalog(tmp_path)
     queries.write_text(json.dumps({"db": ["add an index"]}), encoding="utf-8")
     out = tmp_path / "o.json"
-    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
-                  "--queries-by-skill", str(queries), "--out", str(out),
-                  "--model", "m", "--max-usd", "5")
+    args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries),
+                  "--out", str(out), "--model", "m",
+                  "--max-usd", "5")
     args.func(args)
     payload = json.loads(out.read_text(encoding="utf-8"))
     assert "partial" not in payload and payload.get("status") != "partial"
@@ -751,9 +751,9 @@ def test_an_unpriced_call_stops_the_later_repeats_and_skills_too(tmp_path, monke
     calls = _provider(monkeypatch, None)
     root, queries = _catalog(tmp_path)
     out = tmp_path / "o.json"
-    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
-                  "--queries-by-skill", str(queries), "--out", str(out),
-                  "--model", "m", "--repeats", "3", "--max-usd", "5")
+    args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries),
+                  "--out", str(out), "--model", "m",
+                  "--reps", "3", "--max-usd", "5")
     with pytest.raises(SystemExit, match="no price is known"):
         args.func(args)
     # The first unpriced reply stops the run: no repeat of that query and no later skill is asked.
@@ -784,9 +784,9 @@ def test_an_all_vs_all_unpriced_reply_cut_at_the_ceiling_is_no_pick(tmp_path, mo
     calls = _provider(monkeypatch, _cut_and_unpriced())
     root, queries = _catalog(tmp_path)
     out = tmp_path / "o.json"
-    args = _parse("novelty", "routing", "--all-vs-all", "--catalog", str(root),
-                  "--queries-by-skill", str(queries), "--out", str(out),
-                  "--model", "m", "--max-usd", "5")
+    args = _parse("catalog", "routing", str(root), "--queries-by-skill", str(queries),
+                  "--out", str(out), "--model", "m",
+                  "--max-usd", "5")
     with pytest.raises(SystemExit, match="no price is known"):
         args.func(args)
     assert len(calls) == 1
@@ -797,7 +797,7 @@ def test_an_all_vs_all_unpriced_reply_cut_at_the_ceiling_is_no_pick(tmp_path, mo
 
 def test_an_unpriced_call_stops_the_repeats_of_a_single_artifact_run(tmp_path, monkeypatch):
     calls = _provider(monkeypatch, None)
-    args, out = _single(tmp_path, QUERIES[:2], "--repeats", "3", "--max-usd", "5")
+    args, out = _single(tmp_path, QUERIES[:2], "--reps", "3", "--max-usd", "5")
     with pytest.raises(SystemExit, match="no price is known"):
         args.func(args)
     assert len(calls) == 1
