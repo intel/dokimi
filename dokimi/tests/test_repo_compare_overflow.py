@@ -73,7 +73,7 @@ def test_sign_flip_summary_refuses_finite_deltas_whose_sum_or_spread_leaves_the_
 
 @pytest.mark.filterwarnings("ignore:overflow encountered:RuntimeWarning")  # the mde of a spread this large
 def test_sign_flip_summary_shifts_deltas_near_the_range_on_a_scaled_copy():
-    row = sign_flip_summary([_task(1.0e307)] * 6 + [_task(-1.0e307)] * 6)
+    row = sign_flip_summary([_task(1.0e307), _task(-1.0e307)] * 6)  # cancels pairwise: sum() before 3.12 does not compensate
     assert row["delta"]["mean"] == 0.0
     assert math.isfinite(row["delta"]["lo"]) and math.isfinite(row["delta"]["hi"])
     assert row["delta"]["lo"] < 0 < row["delta"]["hi"]
