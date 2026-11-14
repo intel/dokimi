@@ -76,8 +76,9 @@ def test_snapshot_records_soft_key_not_hard(tmp_path):
 
 def test_snapshot_records_disabled_gate_as_not_passed(tmp_path):
     _, snap = _run(tmp_path, {}, False)
-    assert snap["gate"]["soft"]["enabled"] is False
-    assert snap["gate"]["soft"]["passed"] is None
+    assert snap["gate"]["soft"] == {"enabled": False, "passed": None, "min_score": 0.0}
+    _, snap = _run(tmp_path, {"soft_gate": {"enabled": False, "min_score": 0.99}}, False)
+    assert snap["gate"]["soft"] == {"enabled": False, "passed": None, "min_score": 0.99}
 
 
 def test_runner_passes_soft_kind(tmp_path):
