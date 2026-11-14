@@ -184,6 +184,22 @@ def test_tmp_file_is_created_exclusively(tmp_path, monkeypatch):
     assert any(flag & os.O_EXCL for flag in flags)
 
 
+def test_tmp_file_is_opened_binary_as_io_open_opens_it(tmp_path, monkeypatch):
+    # On Windows os.open gives a text-mode descriptor unless O_BINARY is set, and then \n is written twice as \r\n.
+    flags = []
+    real_open = os.open
+    binary = 0x8000
+
+    def spy(name, flag, mode=0o777, *args, **kwargs):
+        flags.append(flag)
+        return real_open(name, flag & ~binary, mode, *args, **kwargs)
+
+    monkeypatch.setattr(os, "O_BINARY", binary, raising=False)
+    monkeypatch.setattr(os, "open", spy)
+    write_text_atomic(tmp_path / "x.json", "T")
+    assert any(flag & binary for flag in flags)
+
+
 def test_task_json_from_replay_authoring_keeps_the_old_file(tmp_path, failing_rename):
     path = tmp_path / "task.json"
     path.write_text("OLD\n", encoding="utf-8")

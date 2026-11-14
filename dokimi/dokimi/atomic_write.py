@@ -36,7 +36,9 @@ def _publish(path: Path, open_tmp: Callable[[int], IO], data: str | bytes) -> No
     tmp = path.with_name(f".{path.name[:32]}.{secrets.token_hex(8)}.tmp")
     mode = _existing_mode(path)
     try:
-        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o666 if mode is None else mode)
+        # O_BINARY: without it Windows writes each \n as \r\n a second time, as tempfile avoids.
+        flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
+        fd = os.open(tmp, flags, 0o666 if mode is None else mode)
         if mode is not None:
             # os.open's mode is cut by the umask; the data is written only after the mode is restored.
             os.chmod(tmp, mode)
