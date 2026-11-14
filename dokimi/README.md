@@ -21,7 +21,11 @@ context layer and reports the delta together with its significance.
 Context layers it can measure: local Markdown/URL documentation, Context7 and
 real MCP servers, skills (`SKILL.md` and bundles), agent profiles (system
 prompts), plugins, and whole code repositories with their own tasks and graders
-(manifest validation and pinned sources today; the task-run contract is proposed).
+(validation, pinned sources, task runs, reports and comparisons are implemented;
+individual extensions remain proposed).
+
+Explore the [feature tree and 39 illustrated cards](https://github.com/intel/dokimi/blob/main/dokimi/docs/features/README.md)
+for the full capability map, including partial workflows and development directions.
 
 Evidence tracks:
 
@@ -49,7 +53,7 @@ the same material. Pick by what you are about to do with the answer:
 
 The first ships or cuts an artifact; the second edits one; the third measures a
 codebase instead of a document.
-[docs/README.md](https://github.com/intel/dokimi/blob/main/dokimi/docs/README.md) explains the three in full and
+[docs/what-it-measures.md](https://github.com/intel/dokimi/blob/main/dokimi/docs/what-it-measures.md) explains the three in full and
 [docs/architecture.md](https://github.com/intel/dokimi/blob/main/dokimi/docs/architecture.md) maps them to modules.
 
 The framework is content-agnostic: question sets, tasks, skills and products are
@@ -113,7 +117,7 @@ Run the test suite:
 python -m pytest -q
 ```
 
-For the LLM evaluation pipeline (answers, judging, dashboard), see [docs/quickstart.md](https://github.com/intel/dokimi/blob/main/dokimi/docs/quickstart.md). For benchmark invocation and comparison recipes, see [docs/benchmarking-and-comparison.md](https://github.com/intel/dokimi/blob/main/dokimi/docs/benchmarking-and-comparison.md). A high-level architecture map is in [docs/architecture.md](https://github.com/intel/dokimi/blob/main/dokimi/docs/architecture.md), and [docs/README.md](https://github.com/intel/dokimi/blob/main/dokimi/docs/README.md) is the documentation index.
+For the LLM evaluation pipeline (answers, judging, dashboard), see [docs/quickstart.md](https://github.com/intel/dokimi/blob/main/dokimi/docs/quickstart.md). For benchmark invocation and comparison recipes, see [docs/benchmarking-and-comparison.md](https://github.com/intel/dokimi/blob/main/dokimi/docs/benchmarking-and-comparison.md). A high-level architecture map is in [docs/architecture.md](https://github.com/intel/dokimi/blob/main/dokimi/docs/architecture.md), and [docs/documentation-index.md](https://github.com/intel/dokimi/blob/main/dokimi/docs/documentation-index.md) is the documentation index.
 
 ## Main CLI areas
 
@@ -279,8 +283,8 @@ data/                    Curated, version-controlled benchmark inputs (see data/
   skills/fastcontext/    The SKILL.md fixture the loader tests and examples use
   agent_profiles/        Agent persona (system) prompt fixtures
   explore_tasks/         Localization tasks with known-good references
-docs/                    Documentation (full index: docs/README.md)
-  README.md              Concept overview and documentation index
+docs/                    Documentation (full index: docs/documentation-index.md)
+  README.md              Start page: where to begin for each task
   quickstart.md          End-to-end LLM evaluation pipeline
   external-content.md    Pointing the framework at your own questions, tasks, skills
   evaluating-treatments.md

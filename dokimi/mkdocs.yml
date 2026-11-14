@@ -100,16 +100,29 @@ validation:
 
 nav:
   - Home: README.md
-  - User journeys:
-      - user-journeys/README.md
-      - user-journeys/journeys.md
-      - user-journeys/flow-map.md
-      - user-journeys/traceability.md
-  - Using Dokimi:
+  - Start here:
+      - start/README.md
+      - Skill authors and reviewers: start/skills.md
+      - Repository maintainers: start/repositories.md
+      - Evaluators and researchers: start/experiments.md
+      - Agents and CI: start/automation.md
+      - Read results: start/results.md
+      - Contributors: start/contributors.md
+  - Features:
+      - features/README.md
+      - "Does the context help?": features/experiments.md
+      - "Which parts of a skill matter?": features/skills.md
+      - "Will the agent use it?": features/discovery.md
+      - "Does repository guidance work?": features/repositories.md
+      - "Do the tests cover the work?": features/eval-design.md
+      - "Can the grades be trusted?": features/judging.md
+      - "What did the agent do?": features/traces.md
+      - "Will it keep working?": features/continuous-evaluation.md
+  - Practical guides:
       - what-it-measures.md
       - reviewing.md
       - external-content.md
-      - quickstart.md
+      - Q&A pipeline tutorial: quickstart.md
       - runs.md
       - user-flow.md
       - benchmarking-and-comparison.md
@@ -146,5 +159,16 @@ nav:
       - example-execution.md
       - ingestion-docling.md
       - research-register.md
+  - User journeys:
+      - user-journeys/README.md
+      - user-journeys/journeys.md
+      - user-journeys/flow-map.md
+      - user-journeys/traceability.md
+  - In development:
+      - development/README.md
+      - CLI and artifacts: development/interfaces.md
+      - Known limitations: development/limitations.md
+      - Open work index: development/work-index.md
+  - All guides: documentation-index.md
   - CLI reference: reference/cli/
   - API reference: reference/api/

@@ -97,7 +97,9 @@ Runtime plugins are a separate run dimension, not arms. They modify every arm
 inside the same `(model, harness, plugin_set)` cell, and the JSON/Markdown
 outputs stamp `harness`, `plugin_set`, `plugin_set_id`, and concrete plugin
 metadata. The initial supported plugin is `plugin:caveman[:lite|full|ultra]`,
-which adds a brevity system instruction before answer generation.
+which adds a brevity system instruction before answer generation. Enable a
+plugin for every arm of a run with `arms run --plugins plugin:<name>`
+(comma-separated for several).
 
 Plugin effects are computed from paired runs, not from one artifact in
 isolation. Run the same product, questions, arms, model, provider, and harness

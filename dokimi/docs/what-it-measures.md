@@ -5,6 +5,9 @@ SPDX-License-Identifier: Apache-2.0
 
 # What Dokimi measures
 
+For the full capability inventory, diagrams and availability boundaries, use the
+[feature tree](features/README.md). This page explains the measurement model.
+
 ## 1. Does it help? Enabled vs disabled arms
 
 An *arm* is one context condition. Every arm runs the same question or task
@@ -38,7 +41,7 @@ An arm delta says whether an artifact helps; it does not say which parts.
 `dokimi skill novelty analyze --artifact skill:<path>|text:<path>` splits the
 artifact into knowledge atoms and probes each one against the model with and
 without the artifact. Each atom comes out **added** (new to the model),
-**redundant** (the model already knew it), **degraded** (the artifact broke
+**redundant** (the model already knew it; not an automatic removal verdict), **degraded** (the artifact broke
 something the model knew) or **still missing** (stated but not picked up).
 `text:` takes any file, so the same analysis runs on a documentation page or
 a repository's `AGENTS.md`. The output is per (artifact, model) pair, with

@@ -3,33 +3,13 @@ Copyright (C) 2026 Intel Corporation
 SPDX-License-Identifier: Apache-2.0
 -->
 
-# LLM evaluation pipeline — quickstart
+# Q&A pipeline: from target to report
 
 End-to-end recipe for the canonical benchmark flow: target → preflight → fixed question/task set → `without_docs` vs `with_docs` answer generation → judge scoring → report.
 
 For the static documentation benchmark (`coverage`, `freshness`, `readability`,
 `example_pass_rate`), see the top-level [README](../README.md#static-benchmark-metrics).
 
-
-## Canonical flow
-
-Use this path first. Manual persona/question/answer/eval commands below are advanced debugging tools.
-
-```bash
-python cli.py benchmark preflight --target onetbb
-python cli.py benchmark run --target onetbb
-```
-
-Defaults: `results/<target>_final/`, `openai/gpt-6.1-sol` answer model, `anthropic/claude-sonnet-5-5` judge, semantic-only retrieval with `top_k=3`, and `without_docs` vs `with_docs` arms.
-
-For fair model/context comparisons, seed once and reuse questions:
-
-```bash
-python cli.py benchmark run --target onetbb --out-dir results/onetbb_seed
-python cli.py benchmark run --target onetbb --questions-from results/onetbb_seed --model gpt-6-astra
-```
-
-See [user-flow.md](user-flow.md) for target/generalization rules.
 
 ## Prerequisites
 
@@ -56,22 +36,47 @@ pip install -e ".[dev]"          # package + dev tooling
 pip install -r requirements.txt
 ```
 
-This installs the `dokimi` console entry point. The examples below use
-`python cli.py …`, which remains supported; `dokimi …` and
-`python -m dokimi …` are equivalent.
+The package install provides the `dokimi` console entry point used below.
+`python -m dokimi …` is equivalent. The dependencies-only route installs no `dokimi` command: run `python -m dokimi …` from the inner `dokimi/` package directory in its place. Source-install and requirements-file commands run from the inner `dokimi/` package directory; see [installation](start/README.md#install).
 
 The pipeline degrades gracefully if optional deps are missing — see
 [Troubleshooting](#troubleshooting).
 
+## Content setup
+
+`onetbb` ships in the package's product registry, and `benchmark run` discovers personas and generates its own questions, so the canonical flow below needs only the credentials above. For a fixed comparison, pass `--questions-root <dir>` with an `onetbb_golden.json` in it; that set then replaces the generated questions. [External content](external-content.md) covers your own targets and question sets. For a first skill or repository check, use [Start here](start/README.md).
+
+## Canonical flow
+
+Use this path after installation, credentials and content setup. Manual persona/question/answer/eval commands below are advanced debugging tools.
+
+```bash
+dokimi benchmark preflight --target onetbb
+dokimi benchmark run --target onetbb
+```
+
+Defaults: `results/<target>_final/`, `openai/gpt-6.1-sol` answer model, `anthropic/claude-sonnet-5-5` judge, semantic-only retrieval with `top_k=3`, and `without_docs` vs `with_docs` arms.
+
+For fair model/context comparisons, seed once and reuse questions:
+
+```bash
+dokimi benchmark run --target onetbb --out-dir results/onetbb_seed
+dokimi benchmark run --target onetbb --questions-from results/onetbb_seed --model gpt-6-astra
+```
+
+On the 0.2.0 release this flag is `--output-dir`; `--out-dir` needs a source checkout of main.
+
+See [user-flow.md](user-flow.md) for target/generalization rules.
+
 ## Pipeline
 
-All commands run from the repo root and use `python cli.py …`. Use
+Commands use the installed CLI. For source-relative paths, run from the inner `dokimi/` package directory, not the outer checkout root. Use
 `--help` on any subcommand for the full option list.
 
 ### Step 1 — Discover personas
 
 ```bash
-python cli.py eval personas discover \
+dokimi eval personas discover \
   --product oneTBB \
   --repo uxlfoundation/oneTBB \
   --count 5 \
@@ -86,13 +91,13 @@ Review and approve:
 
 ```bash
 $EDITOR personas/oneTBB.json
-python cli.py eval personas validate --file personas/oneTBB.json
+dokimi eval personas validate --file personas/oneTBB.json
 ```
 
 ### Step 2 — Generate questions
 
 ```bash
-python cli.py eval questions generate \
+dokimi eval questions generate \
   --product oneTBB \
   --personas personas/oneTBB.json \
   --count 2 \
@@ -108,7 +113,7 @@ LLM-validates them (threshold 60/100), and deduplicates via embeddings
 ### Step 3 — Generate context-arm and baseline answers
 
 ```bash
-python cli.py answers generate \
+dokimi answers generate \
   --product oneTBB \
   --questions questions/oneTBB.json \
   --output answers/oneTBB.json \
@@ -127,7 +132,7 @@ alternative sources — see [adding-doc-source.md](adding-doc-source.md).
 ### Step 4 — Score answers
 
 ```bash
-python cli.py eval score pointwise \
+dokimi eval score pointwise \
   --product oneTBB \
   --answers answers/oneTBB.json \
   --output eval/oneTBB.json \
@@ -142,16 +147,16 @@ computes an aggregate and the context-arm minus baseline delta.
 Multi-judge panel:
 
 ```bash
-python cli.py eval score panel \
+dokimi eval score panel \
   --product oneTBB \
   --answers answers/oneTBB.json \
-  --output eval/oneTBB.panel.json
+  --output eval/panel/oneTBB.json
 ```
 
 ### Step 5 — Generate the analysis report
 
 ```bash
-python cli.py report generate \
+dokimi report generate \
   --product oneTBB \
   --eval eval/oneTBB.json \
   --questions questions/oneTBB.json \
@@ -169,11 +174,13 @@ git-ignored.
 ### Step 6 — Dashboard (optional)
 
 ```bash
-python cli.py dashboard generate
+dokimi dashboard generate --results-dir .
 ```
 
-Aggregates per-library results from `eval/*.json` into `DASHBOARD.md` /
-`dashboard.json` for cross-library comparison. Like `report generate`, it averages both
+Aggregates per-library results into `DASHBOARD.md` / `dashboard.json` for cross-library
+comparison. It reads every `eval/*.json`, `eval_*.json` and `evaluations/*.json` under
+`--results-dir` (default `results`), so `.` picks up step 4's `eval/oneTBB.json`; the panel
+file sits in `eval/panel/` so it does not show as a second oneTBB row. Like `report generate`, it averages both
 arms and the delta, per library and per question source, over the questions scored in
 both arms; a run that scored one arm only shows that arm's mean.
 
@@ -183,18 +190,18 @@ both arms; a run that scored one arm only shows that arm's mean.
 PRODUCT=oneTBB
 REPO=uxlfoundation/oneTBB
 
-python cli.py eval personas discover --product $PRODUCT --repo $REPO --count 5 && \
-python cli.py eval personas validate --file personas/$PRODUCT.json && \
-python cli.py eval questions generate --product $PRODUCT --personas personas/$PRODUCT.json --validate && \
-python cli.py answers generate --product $PRODUCT --questions questions/$PRODUCT.json --model gpt-6.1-sol && \
-python cli.py eval score pointwise --product $PRODUCT --answers answers/$PRODUCT.json --judge-model claude-sonnet-5-5 --judge-provider anthropic && \
-python cli.py report generate --product $PRODUCT --eval eval/$PRODUCT.json --questions questions/$PRODUCT.json --output reports/$PRODUCT.md
+dokimi eval personas discover --product $PRODUCT --repo $REPO --count 5 && \
+dokimi eval personas validate --file personas/$PRODUCT.json && \
+dokimi eval questions generate --product $PRODUCT --personas personas/$PRODUCT.json --validate && \
+dokimi answers generate --product $PRODUCT --questions questions/$PRODUCT.json --model gpt-6.1-sol && \
+dokimi eval score pointwise --product $PRODUCT --answers answers/$PRODUCT.json --judge-model claude-sonnet-5-5 --judge-provider anthropic && \
+dokimi report generate --product $PRODUCT --eval eval/$PRODUCT.json --questions questions/$PRODUCT.json --output reports/$PRODUCT.md
 ```
 
 Advanced manual pipeline wrapper:
 
 ```bash
-python cli.py evaluate --product $PRODUCT --repo $REPO
+dokimi evaluate --product $PRODUCT --repo $REPO
 ```
 
 ## Output layout
@@ -218,7 +225,7 @@ at such a checkout.
 Everything the pipeline produces — answers,
 eval scores, benchmark snapshots, reports — stays under the git-ignored
 `answers/`, `eval/`, `baselines/`, `reports/` and `results/` directories. See
-[`data/README.md`](../data/README.md). `python cli.py runs list` lists the
+[`data/README.md`](../data/README.md). `dokimi runs list` lists the
 artifacts under `results/` ([runs.md](runs.md)).
 
 ## Cost estimate

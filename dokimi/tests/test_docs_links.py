@@ -20,9 +20,9 @@ DOCS = PROJECT / "docs"
 #: their URL on GitHub (`REPO_LINK`); a same-page `#anchor` works there as on GitHub.
 PYPI_README = PROJECT / tomllib.loads(
     (PROJECT / "pyproject.toml").read_text(encoding="utf-8"))["project"]["readme"]
-#: Link *sources*: the docs plus the project README, which is the entry point most readers
-#: arrive through and links into `docs/` ten times.
-SOURCES = sorted(DOCS.glob("*.md")) + sorted(DOCS.glob("user-journeys/*.md")) + [PROJECT / "README.md"]
+#: Link *sources*: every doc under docs/ plus the package README and the repository-root
+#: README, the two entry points most readers arrive through.
+SOURCES = sorted(DOCS.rglob("*.md")) + [PROJECT / "README.md", PROJECT.parent / "README.md"]
 LINK = re.compile(r"\[[^\]]+\]\(([^)\s]+)(?:\s+\"[^\"]*\")?\)")
 #: A reference-style definition, `[label]: target`, which an inline-only pattern never sees.
 REFERENCE = re.compile(r"^\s{0,3}\[[^\]]+\]:\s*<?([^\s>]+)>?", re.M)
@@ -55,7 +55,7 @@ def test_every_relative_doc_link_resolves():
             if not file_part:
                 continue
             if not (path.parent / file_part).resolve().exists():
-                broken.append(f"{path.name} -> {target}")
+                broken.append(f"{path.relative_to(PROJECT.parent)} -> {target}")
     assert broken == []
 
 
@@ -74,7 +74,7 @@ def test_every_link_to_a_repository_file_resolves():
     for path in SOURCES:
         for target, file, anchor in _repo_links(path):
             if not file.exists() or (anchor and file.is_file() and anchor not in _slugs(file)):
-                broken.append(f"{path.name} -> {target}")
+                broken.append(f"{path.relative_to(PROJECT.parent)} -> {target}")
     assert broken == []
 
 
@@ -132,7 +132,7 @@ def test_every_anchor_link_points_at_a_real_heading():
             if not target_path.exists():
                 continue                      # the missing-file test owns that failure
             if anchor not in _slugs(target_path):
-                broken.append(f"{path.name} -> {target}")
+                broken.append(f"{path.relative_to(PROJECT.parent)} -> {target}")
     assert broken == []
 
 
@@ -149,16 +149,28 @@ def test_slugs_keep_underscores_and_skip_code_fences(tmp_path):
     assert _slugs(doc) == {"reach-guidance_reachv1", "limits"}
 
 
-def test_the_index_links_every_doc_in_the_directory():
-    index = DOCS / "README.md"
-    linked = {
-        target.split("#", 1)[0] for target in _relative_links(index)
-    }
-    missing = sorted(
-        path.name for path in DOCS.glob("*.md")
-        if path.name not in {"README.md"} and path.name not in linked
+def _unindexed(docs: Path) -> list[str]:
+    """Pages under `docs` at any depth that `documentation-index.md` does not link."""
+    index = docs / "documentation-index.md"
+    linked = {(docs / t.split("#", 1)[0]).resolve() for t in _relative_links(index)}
+    skip = {(docs / "README.md").resolve(), index.resolve()}
+    return sorted(
+        path.relative_to(docs).as_posix() for path in docs.rglob("*.md")
+        if path.resolve() not in skip | linked
     )
-    assert missing == []
+
+
+def test_the_index_links_every_doc_in_the_directory():
+    assert _unindexed(DOCS) == []
+
+
+def test_an_unlinked_subfolder_page_is_reported(tmp_path):
+    (tmp_path / "features").mkdir()
+    for name in ("README.md", "a.md", "features/linked.md", "features/new.md"):
+        (tmp_path / name).write_text("# T\n", encoding="utf-8")
+    (tmp_path / "documentation-index.md").write_text(
+        "# I\n\n[a](a.md) and [l](features/linked.md#t)\n", encoding="utf-8")
+    assert _unindexed(tmp_path) == ["features/new.md"]
 
 
 def _broken_anchors(path: Path) -> list[str]:
