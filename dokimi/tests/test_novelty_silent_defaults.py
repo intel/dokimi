@@ -366,6 +366,7 @@ def test_a_lexical_only_run_does_not_store_a_placeholder_for_a_later_llm_run(tmp
     # not a verdict, so it must not reach the disk cache under the same key.
     lexical = RetentionOracle(client=None, cache_dir=tmp_path)
     assert lexical.verdict(atom, text).verdict == ABSENT
+    assert lexical.stats()["decisions"] == 1
     assert not list(tmp_path.iterdir())
     calls: list[int] = []
 
