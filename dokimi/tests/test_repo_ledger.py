@@ -13,7 +13,7 @@ import pytest
 
 from dokimi.cli import build_parser
 from dokimi.repos.compare import compare
-from dokimi.repos.ledger import KEEP, REVIEW, INSUFFICIENT, LedgerError, evaluate, format_ledger, load_ledger
+from dokimi.repos.ledger import KEEP, REVIEW, INSUFFICIENT, LedgerError, _holm, evaluate, format_ledger, load_ledger
 from tests.cli_refusal import refusal
 
 TODAY = date(2026, 10, 31)
@@ -284,7 +284,7 @@ def test_compare_with_ledger_adds_the_rule_results_to_the_json(tmp_path, capsys)
     args = build_parser().parse_args(["repo", "compare", str(batch), "--baseline", BASE, "--ledger", str(path),
                                       "--json"])
     args.func(args)
-    data = json.loads(capsys.readouterr().out)
+    data = json.loads(capsys.readouterr().out)["data"]
     assert data["ledger"]["ledger"] == str(path)
     assert [(e["rule"], e["verdict"]) for e in data["ledger"]["rules"]] == [("R1", KEEP)]
 
@@ -415,6 +415,39 @@ def test_a_mixed_rule_takes_no_slot_in_the_holm_family(tmp_path):
                          for e in mixed)
 
 
+def _entry(p: float, changed: int) -> dict:
+    return {"p": p, "changed": changed, "mixed": False, "unmeasured": 0}
+
+
+def test_holm_leaves_a_rule_that_cannot_reach_alpha_out_of_the_multiplier():
+    entries = [_entry(0.03, 8), _entry(0.25, 3)]
+    _holm(entries, 0.05)
+    assert entries[0]["p_holm"] == pytest.approx(0.03)  # #573's repro: https://github.com/intel/dokimi/issues/573
+    assert "p_holm" not in entries[1] and entries[1]["p"] == 0.25
+
+
+def test_a_rule_that_cannot_reach_alpha_keeps_its_p_and_the_others_their_verdict(tmp_path):
+    # A: six improved cases, p = 2/64 alone and in the family; B: three improved cases, floor 2/8 = 0.25
+    first, second = _ids("a", 6), _ids("b", 3)
+    batch = _gate_batch(tmp_path, {t: (False, True) for t in first + second})
+    result = evaluate(load_ledger(_ledger(tmp_path / "ledger.json", [_rule("A", first), _rule("B", second)])),
+                      [batch], BASE, today=TODAY)
+    a, b = result["rules"]
+    assert (a["verdict"], a["p_holm"]) == (KEEP, pytest.approx(2 / 2**6))
+    assert (b["verdict"], b["p_holm"], b["p"]) == (INSUFFICIENT, None, 0.25)
+    assert "p 0.2500" in b["reason"] and "link more cases" in b["reason"] and "Holm family" in b["reason"]
+    assert result["family"] == 1
+    assert "Holm over 1 result(s)" in format_ledger(result)
+
+
+def test_a_rule_whose_floor_is_exactly_alpha_is_out_of_the_family_and_one_below_is_in():
+    entries = [_entry(2 / 2**6, 6)]
+    _holm(entries, 2 / 2**6)
+    assert entries[0].get("p_holm") is None
+    _holm(entries, 0.0313)
+    assert entries[0]["p_holm"] == pytest.approx(2 / 2**6)
+
+
 @pytest.mark.parametrize("alpha", ["NaN", "Infinity", "-Infinity", "0", "1", "2", "-0.5"])
 def test_an_alpha_outside_the_open_interval_zero_one_is_refused(tmp_path, alpha):
     # json.loads accepts NaN and Infinity; NaN compares false with every p, so it would turn any rule insufficient
@@ -435,7 +468,8 @@ def test_a_p_on_the_alpha_boundary_is_not_rounded_across_it(tmp_path):
     above = evaluate(load_ledger(_ledger(tmp_path / "above.json", rules, alpha=0.0078126)), [batch], BASE, today=TODAY)
     assert _verdicts(below) == {("R1", "m-1"): INSUFFICIENT}
     assert _verdicts(above) == {("R1", "m-1"): KEEP}
-    assert below["rules"][0]["p_holm"] == pytest.approx(2 / 2**8, abs=1e-12)
+    assert below["rules"][0]["p_holm"] is None and below["family"] == 0  # alpha under the floor: out of the family
+    assert above["rules"][0]["p_holm"] == pytest.approx(2 / 2**8, abs=1e-12)
 
 
 @pytest.mark.parametrize(("arm_score", "verdict"), [(0.20001, KEEP), (0.19999, REVIEW)])
@@ -506,12 +540,12 @@ def test_a_rule_whose_arm_or_baseline_is_absent_names_each_model(tmp_path, absen
 
 
 def test_a_p_exactly_on_alpha_is_insufficient_evidence(tmp_path):
-    # eight improved gate cases: the exact sign-flip p is 2 / 2**8, which is exactly representable
+    # seven improved and one worse gate case: the exact sign-flip p is 18 / 2**8, exactly representable
     tasks = _ids("t", 8)
-    batch = _gate_batch(tmp_path, {t: (False, True) for t in tasks})
-    result = evaluate(load_ledger(_ledger(tmp_path / "ledger.json", [_rule("R1", tasks)], alpha=2 / 2**8)),
+    batch = _gate_batch(tmp_path, {t: (False, True) for t in tasks[:7]} | {tasks[7]: (True, False)})
+    result = evaluate(load_ledger(_ledger(tmp_path / "ledger.json", [_rule("R1", tasks)], alpha=18 / 2**8)),
                       [batch], BASE, today=TODAY)
-    assert result["rules"][0]["p_holm"] == 2 / 2**8
+    assert result["rules"][0]["p_holm"] == 18 / 2**8
     assert _verdicts(result) == {("R1", "m-1"): INSUFFICIENT}
 
 
@@ -525,7 +559,7 @@ def test_compare_with_ledger_and_model_judges_only_that_model(tmp_path, capsys):
     args = build_parser().parse_args(["repo", "compare", str(batch), "--baseline", BASE, "--ledger", str(path),
                                       "--model", "m-1", "--json"])
     args.func(args)
-    ledger = json.loads(capsys.readouterr().out)["ledger"]
+    ledger = json.loads(capsys.readouterr().out)["data"]["ledger"]
     assert {e["model"] for e in ledger["rules"]} == {"m-1"}
     assert ledger["family"] == 1  # the Holm family counts the one model that was asked for
 
@@ -636,4 +670,4 @@ def test_compare_json_is_printed_even_when_the_text_would_fail(tmp_path, capsys,
     monkeypatch.setattr(compare_module, "format_compare", broken)
     args = build_parser().parse_args(["repo", "compare", str(batch), "--baseline", BASE, "--json"])
     args.func(args)
-    assert "comparisons" in json.loads(capsys.readouterr().out)
+    assert "comparisons" in json.loads(capsys.readouterr().out)["data"]
