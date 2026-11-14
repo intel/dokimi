@@ -30,6 +30,10 @@ class NotFoundError(Exception):
     pass
 
 
+class UnsupportedParamsError(Exception):
+    pass
+
+
 class ContentPolicyViolationError(Exception):
     pass
 
@@ -91,7 +95,8 @@ def test_an_authentication_error_stops_at_the_first_call_and_keeps_the_rows_befo
 
 
 @pytest.mark.parametrize("exc", [PermissionDeniedError("denied"), NotFoundError("no such model"),
-                                 RuntimeError("Missing credentials for the provider")])
+                                 RuntimeError("Missing credentials for the provider"),
+                                 UnsupportedParamsError("bedrock does not support parameters: ['seed']")])
 def test_each_run_wide_error_stops_the_run(exc):
     def behaviour(n):
         if n == 2:

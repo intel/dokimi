@@ -345,8 +345,8 @@ def model_routing(
 
         When the client's ``--max-usd`` cap refuses a call, or a call comes back unpriced, the
         loop stops and the result holds the calls made so far, with ``cap_stop`` (the cap's
-        message). A run-wide provider error (authentication, permission, unknown model, no
-        credentials) stops it the same way, with the error in ``cap_stop`` and ``stop_reason``
+        message). A run-wide provider error (:func:`~dokimi.novelty.routing_stop.is_run_wide`)
+        stops it the same way, with the error in ``cap_stop`` and ``stop_reason``
         ``"permanent_error"`` (else ``"spend_cap"``); any other error is a row of its query. A
         ``partial`` block (:func:`partial_record`) is added only when planned calls
         were left unmade (``n_calls`` below queries x repeats). A query stopped between repeats

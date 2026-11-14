@@ -6,9 +6,10 @@ from __future__ import annotations
 from dokimi.llm import _NON_RETRYABLE_MESSAGES, is_retryable
 
 PERMANENT_STOP = "permanent error: "
-# Errors that fail every later call alike: no key, no permission, an unknown model. Any other
-# error (a context-length rejection, a refusal, an odd reply) may belong to one query (#709).
-_RUN_WIDE_ERRORS = frozenset({"authenticationerror", "permissiondeniederror", "notfounderror"})
+# Errors that fail every later call alike: no key, no permission, an unknown model, a parameter every
+# call sends. Any other error (a context-length rejection, a refusal, an odd reply) may be one query's.
+_RUN_WIDE_ERRORS = frozenset({"authenticationerror", "permissiondeniederror", "notfounderror",
+                              "unsupportedparamserror"})
 _NO_CREDENTIALS = (*_NON_RETRYABLE_MESSAGES, "unable to locate credentials")
 
 
