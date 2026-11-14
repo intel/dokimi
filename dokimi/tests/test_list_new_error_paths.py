@@ -96,6 +96,15 @@ def test_a_git_quoted_path_with_a_quote_and_a_backslash_is_decoded():
     assert lnep.added_sites(diff) == [('q"u\\x.py', 1, "raise", "raise Z")]
 
 
+@pytest.mark.parametrize(
+    ("esc", "char"),
+    [("\\a", "\a"), ("\\b", "\b"), ("\\n", "\n"), ("\\v", "\v"), ("\\f", "\f"), ("\\r", "\r")],
+)
+def test_a_git_quoted_control_character_escape_is_decoded(esc, char):
+    diff = f'--- "a/x{esc}y.py"\n+++ "b/x{esc}y.py"\n@@ -0,0 +1 @@\n+raise Z\n'
+    assert lnep.added_sites(diff) == [("x" + char + "y.py", 1, "raise", "raise Z")]
+
+
 def test_a_git_quoted_non_ascii_path_is_decoded():
     diff = '--- "a/caf\\303\\251.py"\n+++ "b/caf\\303\\251.py"\n@@ -0,0 +1 @@\n+raise Z\n'
     assert lnep.added_sites(diff) == [("caf\u00e9.py", 1, "raise", "raise Z")]
