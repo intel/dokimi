@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CODES = {"BLE001", "S110", "S112"}
 # ruff's extend-exclude in pyproject.toml, plus the virtualenvs a checkout may hold.
 SKIP = ("benchmarks/", "data/", "tests/fixtures/task_formats/", ".venv/", "venv/", "build/")
-_NOQA = re.compile(r"#\s*noqa:\s*(?P<codes>[A-Z]+[0-9]+(?:[\s,]+[A-Z]+[0-9]+)*)(?P<rest>.*)$", re.I)
+_NOQA = re.compile(r"#\s*(?:(?:ruff|flake8)\s*:\s*)?noqa:\s*(?P<codes>[A-Z]+[0-9]+(?:[\s,]+[A-Z]+[0-9]+)*)(?P<rest>.*)$", re.I)
 _REASON = re.compile(r"^\s*(?:[-—:(]+\s*)?(?P<text>.*?)\)?\s*$")
 
 
@@ -84,3 +84,10 @@ def test_upper_case_and_doubled_dashes_are_still_checked() -> None:
 def test_a_code_after_a_space_separated_one_is_still_checked() -> None:
     assert unexplained("try:\n    x()\nexcept:  # noqa: E722 BLE001 S110\n    pass\n") == [3]
     assert unexplained("try:\n    x()\nexcept:  # noqa: E722 BLE001 S110 - logged by the caller\n    pass\n") == []
+
+
+def test_a_file_level_noqa_needs_a_reason_too() -> None:
+    src = "try:\n    x()\nexcept Exception:\n    pass\n"
+    assert unexplained("# ruff: noqa: BLE001, S110\n" + src) == [1]
+    assert unexplained("# flake8: noqa: BLE001\n" + src) == [1]
+    assert unexplained("# ruff: noqa: BLE001 - every probe failure is logged upstream\n" + src) == []
