@@ -333,6 +333,9 @@ code.
 - [run-consistency.md](run-consistency.md) — repeated runs of one task with
   `cli.py trace consistency`: result stability (pass^k), path stability
   (tool mix, order, actions, strategies), process-contract conformance.
+- [behavioural-security.md](behavioural-security.md) — unsafe agent behaviour in
+  a `repo run` batch with `cli.py repo security`: commands, secret reads, canary
+  leaks, each arm against the baseline. No LLM call.
 
 - [what-it-measures.md](what-it-measures.md) — the three things Dokimi measures:
   enabled vs disabled arms, novel vs known content, and repositories.
@@ -353,6 +356,10 @@ code.
   the novelty numbers come from: method, K0 per model, the 2×2, need-graph
   statistics, content categories, shortening with measured behaviour, and the
   caveats each result carries.
+- [grading-tiers.md](grading-tiers.md) — design note (partly implemented):
+  grading probes with verifiable and grounded checks before the LLM judge, keeping the
+  judge's verdict beside them so its accuracy against ground truth can be measured, with
+  prototype numbers from stored probe results.
 
 ## Repository evaluation
 

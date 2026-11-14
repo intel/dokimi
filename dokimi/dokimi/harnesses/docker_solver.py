@@ -79,7 +79,7 @@ from .network_policy import (DEFAULTS, NetworkPlan, PhasePolicy, build_args, ent
                              resolve_recorded, skill_needs, start_args, redact as _redact)
 from .skill_treatment import Treatment, build_plugin, check_skill, skill_listing, treatment_notice
 from .solver_stream import record_solver, run_solver
-from .task_env import _exec_env, unresolved_env  # noqa: F401  (re-exported)
+from .task_env import _exec_env, unresolved_env  # re-exported
 from .tbench_v1 import reward as _pytest_reward
 from .tasks import (  # noqa: F401  (timeouts re-exported)
     _DEFAULT_BUILD_TIMEOUT,

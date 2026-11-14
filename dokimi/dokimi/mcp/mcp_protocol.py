@@ -33,7 +33,7 @@ _RESOLVE_TOOL_HINTS = ("resolve-library-id", "resolve_library_id", "resolve")
 def _require_mcp():
     """Import the optional ``mcp`` SDK or raise a helpful error."""
     try:
-        import mcp  # noqa: F401
+        import mcp
         return mcp
     except ImportError as exc:  # pragma: no cover - exercised via tests with monkeypatch
         raise MCPConnectionError(

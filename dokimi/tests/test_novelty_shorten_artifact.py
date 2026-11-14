@@ -11,7 +11,7 @@ from dokimi.cli import build_parser
 from dokimi.novelty.atoms import save_atoms
 from dokimi.novelty.spans import segment
 from dokimi.utils import InputError
-from tests.cli_paths import novelty_argv
+from tests.cli_paths import artifact_flag, novelty_argv
 
 
 def _shorten(tmp_path, artifact):
@@ -65,7 +65,7 @@ def _unreadable_artifact(tmp_path, kind):
 @pytest.mark.parametrize("command", ["analyze", "atoms", "routing"])
 def test_an_unreadable_artifact_exits_without_a_traceback(tmp_path, command, kind):
     artifact = _unreadable_artifact(tmp_path, kind)
-    argv = [*novelty_argv(command), "--artifact", artifact]
+    argv = [*novelty_argv(command), *artifact_flag(command, artifact)]
     if command == "routing":
         argv += ["--queries-from-headings"]
     args = build_parser().parse_args(argv)

@@ -1,0 +1,320 @@
+<!--
+Copyright (C) 2026 Intel Corporation
+SPDX-License-Identifier: Apache-2.0
+-->
+
+# Design note: a grading ladder beyond the LLM judge
+
+**Status:** partly implemented. Implemented: `grading` on atoms and probes, check roles
+(`veto`, `sufficient`, `evidence`), the `identifiers` check, `skill novelty ground` (a veto
+from a tool's own `--help`) and the judge-against-checks block of the probe record (see
+[What is implemented](#what-is-implemented)). Proposed only: the `exec` and `source` checks,
+derived answer slots and source drift. The prototype numbers come from
+scratch scripts run over stored probe results.
+
+Today a novelty probe is graded by one LLM judge, and the only check on that judge is
+agreement with a second judge. Two judges can agree and both be wrong. This note proposes
+grading each probe with the most objective grader available to it, in tiers:
+
+1. **Verifiable**: a program decides. A command is run, code is compiled, a test passes,
+   a document parses against a schema, a flag appears in the tool's own `--help`.
+2. **Grounded**: a name or value in the answer is looked up in a pinned external source
+   that is not the skill (official docs, man pages, Sphinx inventories, package metadata).
+3. **Judge**: the LLM judge, as it works now. Used only when neither tier above applies.
+
+Every run keeps the judge's verdict too, so wherever tier 1 or 2 decides, the judge's
+accuracy against ground truth comes out of the same run at no extra cost.
+
+## What exists today
+
+| Piece | Where | What it grades | Tier |
+|---|---|---|---|
+| Novelty probe grading | `dokimi/novelty/measure.py` `_grade` | One judge call per (probe, arm), six verdicts: `correct_complete`, `correct_missing_qualifier`, `partially_correct`, `wrong_other`, `wrong_reversed`, `abstained`. Collapsed to `lenient`/`strict` in `STRICT_CORRECT`/`LENIENT_CORRECT`. A false-premise probe (`expect_refusal`) gets its own prompt. | 3 only |
+| Probe | `dokimi/novelty/probes.py` `Probe` | `question` plus a free-text `expected`, and `grading` (`Probe.grading`) when the atom has checks. | — |
+| Reference checks | `dokimi/eval/reference_checks.py`, `eval/reference_run.py`, `commands/answer_formats.py` | Questions imported by `eval import` (Inspect, OpenAI evals, promptfoo, skill-creator) carry a `grading.checks` block: `match`, `exact`, `fuzzy`, `regex`, `choice`, `json` are deterministic; `judge` is one point asked of the checklist judge in both polarities; `unsupported` is listed and not counted. `eval score reference` scores answers against them. See [answer-formats.md](answer-formats.md). | 1 and 3, but only on the answer track |
+| Built-in repo graders | `dokimi/repos/graders/` (`typecheck`, `hidden_tests`, `graph_enum`, `review_*`) | A repo task's `task.json` names `grader: "dokimi:<name>"`, run inside the grading container. | 1, but only on the repo track |
+| Judge validity | `dokimi/eval/judge_validity.py`, `eval/degrade.py` | Pairs whose order is known by construction (an answer and a mechanically damaged copy). Reports pairwise accuracy next to a `len(answer)` baseline. | Measures the judge on synthetic damage, not on real answers |
+| Judge reliability | `dokimi/commands/judge_reliability.py`, `eval/cross_judge.py` | Wording sensitivity, inter-judge agreement. | Agreement, not accuracy |
+
+So the deterministic machinery already exists in two places (reference checks, repo graders),
+but the novelty flow, where the reviewer's concern applies, cannot use either. Without checks, a probe
+says how it should be graded only in its free-text `expected`.
+
+### What a source can and cannot replace
+
+A novelty probe asks whether the model knows what the skill says, so `expected` is the
+skill's claim, and that is the right answer key for this measurement. An external source does
+not replace it: an answer can agree with the docs and still miss the skill's point, and a
+skill may knowingly differ from the docs (a version, a workaround). A source is used for two
+other things:
+
+* **checking the answer for names that do not exist** (a veto): an option the tool's own
+  help does not list is wrong in any case, and the prototype found the judge passing such
+  answers;
+* **checking the answer key itself** (key verification, `meta.key_status`): whether the identifiers in
+  the skill's claim exist in the source at all.
+
+An earlier draft of this note proposed a "grounded judge" that would be given a retrieved
+passage instead of `expected`. That is dropped: it changes what the probe measures (agreement
+with the docs, not knowledge of the skill) and is still a model grading free text.
+
+## What is implemented
+
+| Piece | Where |
+|---|---|
+| `meta.grading` on an atom, validated and copied to the direct and paraphrase probes (`Probe.grading`) | `dokimi/novelty/probes.py` `atom_grading` |
+| Non-judge checks run on each answer, next to the judge | `dokimi/novelty/measure.py` `run_checks` |
+| Roles: a failed `veto` gives `wrong_other`; a `sufficient` check decides; `evidence` is recorded only; an abstention is never overruled into a pass | `measure.py` `resolve_verdict` |
+| `judge_verdict`, `verdict_source`, `checks` on each checked run; a record-level `checks` block (`checked_runs`, `overruled`, `vetoed`, `judge_passed_vetoed`, `decided`, `judge_agreed`) | `measure.py` `ProbeRun`, `MeasureResult.checks_summary`, `report.py` |
+| `identifiers` check: every identifier the answer names (long options by default, inside `within`) is in `known`; `--no-x` counts when `--x` is known and the check sets `negations: true` or the help lists `--[no-]x`. Two words and an option after a command read as another command, so `and add --x` after it is not checked. `role` and `tier` validated on every check | `dokimi/eval/reference_checks.py` |
+| `skill novelty ground --atoms A --tool "perf report" [--tool ...]`: runs the tool's `--help`, writes an `identifiers` veto with the help's sha256 into the atoms that name the tool | `dokimi/novelty/grounding.py`, `commands/novelty_ground.py` |
+| Key verification: the same command writes `meta.key_status` on each checked atom (`verified`, `not_found` with the `missing` names, `unverifiable` when the key names no option or one of its checks could not finish) and prints the counts. A `not_found` is a review flag, not an error | `grounding.py` `verify_keys` |
+
+A `--tool` check applies only where the tool's name is followed directly by an option, so a
+`perf` check does not judge `perf report --stdio`: give each subcommand as its own `--tool`.
+An answer that names no option of the tool passes the veto.
+
+```bash
+python cli.py skill novelty ground --atoms atoms.json --tool "perf report" --tool "perf record" --tool-version 6.17
+python cli.py skill novelty probe --artifact skill:linux-perf --atoms atoms.json --out probes.json
+```
+
+## Proposed design (the rest)
+
+Not implemented here, on purpose: `exec` runs model-written code and waits for a sandbox
+(open question 4); `answer_slot` grading agreed with the judges less than they agreed with
+each other (round 2), so it would only ever be `evidence`; a `source` check over a page
+snapshot has no producer until slots or an inventory router exist.
+
+### 1. A probe may carry `grading`, in the same vocabulary as reference checks
+
+`Probe` gains an optional `grading` block with the `grading.checks` schema that
+`reference_checks.validate_grading` already accepts, plus three new check kinds and two
+new fields per check. Reusing that schema means one validator, one scorer and one report
+shape for both tracks.
+
+```json
+{
+  "atom_id": "vllm-xpu-run:0004",
+  "kind": "direct",
+  "question": "How do I tell vLLM to run on an Intel GPU?",
+  "expected": "There is no --device xpu flag; the platform is detected.",
+  "grading": {
+    "checks": [
+      {"type": "cli_help", "tier": "verifiable", "tool": "vllm serve", "version": "0.11.0",
+       "token": "--device", "expect": "absent", "role": "veto"},
+      {"type": "judge", "tier": "judge", "reference": "no --device flag; auto-detected platform"}
+    ]
+  }
+}
+```
+
+New check kinds:
+
+| Type | Tier | Decides |
+|---|---|---|
+| `exec` | verifiable | Runs a command in the grading container (the `dokimi/repos/graders` mount) with the answer's code or command substituted in; passes on an exit code or an output predicate. Compiles a snippet, runs `--help`, runs a test. |
+| `cli_help` | verifiable | A token is (`expect: present`) or is not (`expect: absent`) an option or subcommand in the pinned tool's own `-h`/`--help`. Negations generated by the argument parser (`--no-x` for `--x`) count as present. The answer-side half (no unlisted option) is implemented as `identifiers`; the `expect: present`/`absent` form for checking a claim is not. |
+| `source` | grounded | A `snapshot` (URL, `retrieved_at`, `sha256`, the extracted passage or inventory) and a predicate over it: `contains`, `absent`, `equals` on an extracted value (a version, a default, a limit). |
+
+New fields on every check:
+
+* `tier`: `verifiable`, `grounded` or `judge`. Lets a report group results by how objective
+  they are, without inferring it from the type.
+* `role`: what the check may do to the final verdict.
+
+    * `veto`: failing makes the answer wrong, whatever the judge says. Passing decides nothing.
+    * `sufficient`: passing makes the answer correct and failing makes it wrong. Only for a
+      probe whose whole expected answer is one checkable value ("which flag", "which
+      version").
+    * `evidence`: recorded and reported, never changes the verdict. The default, and the
+      safe setting while a check kind is new.
+
+The prototype below explains why `veto` matters more than `sufficient`: naming the right
+identifier is necessary but rarely sufficient, while naming one that does not exist is
+wrong in every case seen.
+
+### 2. Where checks come from
+
+1. **Authored.** A skill's own evals, or a hand-written probe set, can write `grading`
+   directly. `eval import` already maps promptfoo/Inspect graders into this schema.
+2. **Derived at probe build.** `build_probes` already asks an author model for the
+   question and `expected`. It can also return an `answer_slot`: the identifier or value
+   the answer must state, which the question itself does not contain. A deterministic
+   router then picks a source by the slot's shape (see the prototype's routing table) and
+   writes a `cli_help` or `source` check with `role: evidence`. A slot the router cannot
+   place gets no check, and the probe stays on the judge.
+3. **Key verification at atom stage.** Before probing, the router checks each atom's
+   identifiers against the same sources and records `key_status`: `verified`,
+   `not_found` or `unverifiable`. This checks the answer key, not the answer. A
+   `not_found` atom is flagged for review and kept; in the prototype it was never a skill
+   error (see below).
+
+### 3. How a run resolves a verdict, and keeps the judge
+
+For each (probe, arm) answer:
+
+1. Run every non-judge check. They cost no model calls.
+2. Always run the judge, as today (`--judge-shadow`, on by default; off only to save
+   cost on a probe set whose checks are all `sufficient`).
+3. Final verdict: a failed `veto` gives `wrong_other`; otherwise a `sufficient` check
+   decides; otherwise the judge's verdict stands.
+4. Record all of it on `ProbeRun`:
+
+```json
+{"verdict": "wrong_other", "verdict_source": "check",
+ "judge_verdict": "correct_complete",
+ "checks": [{"type": "identifiers", "passed": false, "role": "veto", "tier": "verifiable",
+             "score": 0.0, "detail": "not in source: --stdin"}]}
+```
+
+Because `judge_verdict` is kept next to the tier-1/2 result, a new block in the novelty
+report (and a `judge_reliability` subcommand, `eval judge ground-truth`) gives, per tier
+and per check kind:
+
+* judge accuracy against ground truth (confusion of the judge's lenient/strict collapse
+  against the check outcome) on probes a `sufficient` check decides;
+* the judge's miss rate on vetoed answers: how often it called an answer with an invented
+  identifier correct;
+* coverage: the share of probes that reached tier 1, tier 2, or only the judge.
+
+This is the number the review asked for. It is not inter-judge agreement: on the subset a
+check decides, it is accuracy against something no model produced.
+
+### 4. Sources are pinned
+
+A tool's `--help` and an online page both change. Every `cli_help` check names a tool and
+version; every `source` check stores the snapshot it compared against. A probe re-graded
+later compares against the stored snapshot unless `--refresh-sources` is given, and a
+refreshed snapshot that changes a check's outcome is reported as a drift, not silently
+re-scored. Version-bound atoms (the `version-bound` and `temporal` tags already exist) need
+a version range on the check, or they should stay on the judge.
+
+## Prototype (tier 2, plus the `cli_help` part of tier 1)
+
+**Data:** the 13-skill study on the lab box (`skill-content-intel/data`): 4,770 atoms,
+776 probes, 19,524 stored probe results, each graded by two judges (`gpt-5.6-luna`, and
+`claude-sonnet-5` on 17,805 of them). No new answers and no model calls: every check below
+is a program. Sources: installed perf 6.17, gcc 13.3 and GNU as (executed), the gcc 13
+intrinsic headers, `cmake --help-variable`, the vLLM CLI docs pages, the Hugging Face env
+var page, and the Sphinx `objects.inv` of dpnp, oneTBB and vLLM.
+
+**Skills:** the seven whose claims name public tools: `linux-perf`,
+`performance-patterns`, `dpnp-quickstart`, `dpnp-troubleshooting`, `onetbb-quickstart`,
+`vllm-xpu-run`, `vllm-xpu-bench`.
+
+### Round 1: one source per skill, any identifier in the claim
+
+44 public atoms reached the probe results, 15 named an identifier, and only 6 of 32
+identifiers were found in the source. Answers were graded by whether they named the
+claim's identifiers. That agreed with judge 1 on 62% of 416 answers, against 82%
+judge-to-judge agreement. A sample of the disagreements showed the judge was right every
+time: the identifier (`perf stat`) was part of the question's setting, not what the answer
+had to state. Two lessons: route by the identifier's shape, not by skill
+(`performance-patterns` is about gcc and intrinsics, not perf); and grade the answer
+slot, not any identifier the claim mentions.
+
+### Round 2: routing by shape, key verification and slot grading
+
+**Key verification** over all 1,371 valid public atoms of the seven skills:
+
+| | Count |
+|---|---|
+| Atoms naming at least one backticked identifier | 535 (39%) |
+| Atoms with at least one identifier a source could check | 353 (26%) |
+| Atoms whose every checkable identifier was found | 224 (16%) |
+| Identifiers seen | 1,139, of which 510 had no route and 30 were skill-local paths |
+
+By source: perf `-h` 180 found / 12 not found; gcc execution (flags, `-march` values,
+builtins) 47 / 3; gcc headers (intrinsics) 50 / 0; vLLM CLI docs 17 / 6; Sphinx
+inventories 17 / 18; cmake and HF env pages 4 / 0. A route for instruction mnemonics
+through `as` was 92 / 153 and is not usable: its regex caught ordinary words.
+
+Every `not_found` outside the `as` route was reviewed by hand. **None was a skill error.**
+They were:
+
+* **Negative claims**, where absence confirms the claim: "There is no `--device xpu` flag
+  in vLLM", "`SYCL_DEVICE_FILTER` no longer has any effect". A check needs `expect: absent`.
+* **Version-bound claims**: `--speculative-method` / `--num-speculative-tokens` are absent
+  from the latest vLLM docs (only `--speculative-config`), and the claim itself calls the
+  JSON form "newer". This is right or wrong depending on the version pinned.
+* **Wrong tool**: `--no-show-raw-insn` is an `objdump` flag in a perf skill. Routing must
+  follow the command the flag is attached to.
+* **Router gaps**: nested subcommands (`perf c2c report --double-cl`), parser-generated
+  negations (`--no-enable-prefix-caching`), inventory entries whose display name differs
+  from the object name (`parallel_deterministic_reduce`), and identifiers routed to the
+  wrong inventory (`OSError`, `SyclDevice`).
+
+So a positive match is a reliable confirmation of the key, while a miss is a review flag
+with, on this sample, no confirmed errors behind it.
+
+**Slot grading:** 42 probes had an answer slot (an identifier in `expected` that a source
+verified and the question did not contain). Over their 968 answers, "the answer names the
+slot" agreed with judge 1 on 75.8% and judge 2 on 80.0%, against 87.6% between the
+judges. Six disagreements were read by hand and the judge was right in all six: a valid
+alternative (`TBB_DIR` where the slot was `CMAKE_PREFIX_PATH`), a right identifier inside a
+wrong recommendation (endorsing header-only TBB while naming `parallel_reduce`). A slot
+match is necessary but not sufficient, so as a positive grader it is worse than the judge.
+
+### Round 3: invented identifiers as a veto
+
+Every `perf <sub> [<subsub>] ... --flag` command line in the answers of the two perf
+skills was checked against that subcommand's own `-h` in perf 6.17. 137 answers contained
+such a line; 3 named a flag that does not exist, all from the `no_skill` arm:
+`perf report --stdin` (meant `--stdio`), `perf report --srcline` (`srcline` is a sort key,
+not an option) and one parsing artefact. **Judge 1 graded all three as correct, two of them
+`correct_complete`** (judge 2 did not grade those rows). Clean answers were graded
+lenient-correct at 91%.
+
+The sample is tiny, but it is the failure the judge is known to have
+([degrade.py](https://github.com/intel/dokimi/blob/main/dokimi/dokimi/eval/degrade.py)'s
+`wrong_tools`: fluent and wrong), seen in real answers, and caught without a model.
+
+**Known limit:** a standalone `--` makes the words after it operands, up to the end of the clause, so their
+flags are not checked; a comma ends them. Without a comma the scan cannot tell prose from an argument, so
+`perf report --stdio -- and add --bogus` passes the veto. Kept as is, not changed in this round.
+
+**Known limit:** a negation word earlier in the clause skips the command after it, so
+`No TUI needed: perf report --stdin` passes the veto. A `:` does not end the clause either, because
+`There is no such option: perf report --stdin` is a correct denial and must pass. `To print without the TUI use perf report --stdin` passes too: a known
+false pass, and a narrow rule for `without`, `no` and `if you can't` forms is tracked in #669.
+
+### What the prototype supports
+
+* Tier 1/2 checks are worth having as **vetoes** and as **key verification**, not as a
+  replacement for the judge's positive verdict on free-text answers.
+* Coverage is the limit: about a quarter of public atoms have a checkable identifier, and
+  only 42 of 776 probes had a clean answer slot. Most claims in these skills are
+  procedures and judgements ("profile before porting"), which no source states.
+* The router, not the sources, is where the errors were. It needs the command context of a
+  flag, the claim's polarity and a version.
+
+## Open questions
+
+1. **Relation-level claims.** Tokens prove a name exists, not that the claim about it
+   holds ("`parallel_reduce` is not deterministic in floating point"). Such a claim stays
+   with the judge; a source is not a better answer key for a skill's own claim (see
+   [What a source can and cannot replace](#what-a-source-can-and-cannot-replace)).
+2. **Who writes `answer_slot`.** The author model can propose it; whether its slots are
+   right needs its own check, like the screening pass the lab study ran on its probes (a second model reviewing each one).
+3. **Version pinning.** Which version is "the" source for a skill that supports several
+   (vLLM moved `--num-speculative-tokens` into `--speculative-config`)? Probably the
+   version the skill declares, and no check where it declares none.
+4. **Sandbox for `exec`.** Compiling an answer's snippet is cheap and objective
+   (`target_clones` with `x86-64-v3`, the `__builtin_popcountll` codegen claim), but runs
+   model-written code. The repo track's grading container is the obvious home.
+5. **Cost of the shadow judge.** Keeping the judge on every decided probe doubles nothing
+   (it already runs), but a set whose checks are all `sufficient` could skip it. Should
+   the default stay on until there is enough ground truth per check kind?
+6. **Does tier-2 coverage generalise?** These seven skills name public CLIs and APIs. A
+   skill about a process or a team's convention will have almost no tier-2 coverage; the
+   report must show coverage next to any judge-accuracy number so a small decided subset
+   is not read as the whole.
+
+## Reproducing
+
+The three scripts and their outputs are kept outside the repo, on the lab box
+(`/localdisk/napetrov/detpilot/tier2_proto.py`, `tier2_round2.py`, `tier2_round3.py` and
+the `tier2_*.json` they write). They read `skill-content-intel/data/{atoms,probes,probe_results}.jsonl`
+and need perf, gcc, binutils, cmake and outbound HTTPS. Round 3's perf check is now
+`skill novelty ground`; the router of round 2 and the `source` check are not in the repo.
