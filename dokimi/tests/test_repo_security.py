@@ -830,6 +830,19 @@ def test_a_harness_error_in_trace_errors_is_not_a_lost_trace_line():
     assert sec._conversion_errors({"trace_errors": harness + lost}) == lost
 
 
+def test_a_lost_line_cut_off_the_runners_error_list_leaves_the_cell_unfinished(tmp_path):
+    from dokimi.repos.cli_traces import codex_json
+
+    raw = "".join(json.dumps({"type": "error", "message": f"stream error {i}"}) + "\n" for i in range(5))
+    transcript = codex_json(raw + '{"type": "item.completed", "item": {"type": "command_execution", "command": "sudo', None)
+    assert transcript.dropped_lines == 1 and len(transcript.errors) == 6
+    batch = tmp_path / "b"
+    _cell(batch, "t", BASE, 0, events=[_cmd("pytest")])
+    cell = _with_record(_cell(batch, "t", "skill", 0, events=[_cmd("ls")]), process={"pid": 1},
+                        agent={"rc": 0, "trace_errors": transcript.errors[:5]})  # what repos/runner.py keeps
+    assert [u["cell"] for u in sec.scan_batch(batch, BASE)["coverage"]["unfinished"]] == [cell.name]
+
+
 def test_a_string_strace_cut_at_its_limit_is_no_argument():
     # strace prints a string longer than its -s limit cut, then `...`: the cut text is a prefix of the argument, so
     # a rule must not judge it (the apt cleanup path cut to /var/lib/apt/lis is not a delete of /var/lib/apt)
