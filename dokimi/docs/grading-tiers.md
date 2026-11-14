@@ -192,7 +192,7 @@ a version range on the check, or they should stay on the judge.
 
 ## Prototype (tier 2, plus the `cli_help` part of tier 1)
 
-**Data:** the 13-skill study on the lab box (`skill-content-intel/data`): 4,770 atoms,
+**Data:** the 13-skill study's stored data (not published): 4,770 atoms,
 776 probes, 19,524 stored probe results, each graded by two judges (`gpt-5.6-luna`, and
 `claude-sonnet-5` on 17,805 of them). No new answers and no model calls: every check below
 is a program. Sources: installed perf 6.17, gcc 13.3 and GNU as (executed), the gcc 13
@@ -313,8 +313,6 @@ false pass, and a narrow rule for `without`, `no` and `if you can't` forms is tr
 
 ## Reproducing
 
-The three scripts and their outputs are kept outside the repo, on the lab box
-(`/localdisk/napetrov/detpilot/tier2_proto.py`, `tier2_round2.py`, `tier2_round3.py` and
-the `tier2_*.json` they write). They read `skill-content-intel/data/{atoms,probes,probe_results}.jsonl`
-and need perf, gcc, binutils, cmake and outbound HTTPS. Round 3's perf check is now
+The three prototype scripts and their outputs are not in the repository. They read the
+study's atoms, probes and probe results and need perf, gcc, binutils, cmake and outbound HTTPS. Round 3's perf check is now
 `skill novelty ground`; the router of round 2 and the `source` check are not in the repo.
