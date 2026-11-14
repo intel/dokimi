@@ -136,6 +136,8 @@ extend_exclude = [
   "scripts/conda_forge_specs.py",
   # Run by fuzz.yml, which installs atheris from requirements-fuzz.lock.txt.
   "fuzz",
+  # Run by ci.yml's mutation-diff job; coverage comes with pytest-cov from requirements.lock.txt.
+  "scripts/mutate_changed.py",
 ]
 # Tools in the dev extra (pytest and plugins, ruff, mypy, scriv), never imported by
 # the package. A dev dep imported from the package is DEP004.

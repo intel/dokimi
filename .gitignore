@@ -9,6 +9,8 @@ coverage.json
 # Written by the CI steps (and `make ci-local`)
 /dokimi/diff-cover.json
 /dokimi/diff-cover.md
+/dokimi/mutation-diff.json
+/dokimi/mutation-diff.md
 /dokimi/compat.txt
 /dokimi/outcomes-result.json
 /dokimi/journeys-result.json
