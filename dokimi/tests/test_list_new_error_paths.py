@@ -6,6 +6,9 @@
 from __future__ import annotations
 
 import importlib.util
+import subprocess
+
+import pytest
 from pathlib import Path
 
 _SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "list_new_error_paths.py"
@@ -98,3 +101,30 @@ def test_main_passes_explicit_prefixes_and_no_fused_hunks(monkeypatch):
     monkeypatch.setattr(lnep.subprocess, "run", fake_run)
     assert lnep.main([]) == 0
     assert {"--src-prefix=a/", "--dst-prefix=b/", "--inter-hunk-context=0"} <= set(seen[0])
+
+
+def _external_diff(repo, monkeypatch):
+    monkeypatch.setenv("GIT_EXTERNAL_DIFF", "true")
+
+
+def _textconv(repo, monkeypatch):
+    (repo / ".git" / "info").mkdir(exist_ok=True)
+    (repo / ".git" / "info" / "attributes").write_text("*.py diff=up\n", encoding="utf-8")
+    subprocess.run(["git", "config", "diff.up.textconv", "tr a-z A-Z <"], cwd=repo, check=True)
+
+
+@pytest.mark.parametrize("configure", [_external_diff, _textconv])
+def test_main_lists_sites_whatever_the_user_diff_config(tmp_path, monkeypatch, capsys, configure):
+    def git(*args):
+        subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", *args],
+                       cwd=tmp_path, check=True, capture_output=True)
+
+    git("init", "-q")
+    git("commit", "-q", "--allow-empty", "-m", "base")
+    (tmp_path / "x.py").write_text("raise ValueError(1)\n", encoding="utf-8")
+    git("add", "x.py")
+    git("commit", "-q", "-m", "add")
+    monkeypatch.setattr(lnep, "REPO", tmp_path)
+    configure(tmp_path, monkeypatch)
+    assert lnep.main(["--base", "HEAD~1", "--head", "HEAD"]) == 0
+    assert "x.py:1: raise: raise ValueError(1)" in capsys.readouterr().out

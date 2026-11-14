@@ -69,6 +69,7 @@ def main(argv: list[str] | None = None) -> int:
     result = subprocess.run(
         ["git", "-c", "core.quotePath=false", "diff", "-U0", "--no-color",
          "--src-prefix=a/", "--dst-prefix=b/", "--inter-hunk-context=0",
+         "--no-ext-diff", "--no-textconv",
          f"{args.base}...{args.head}", "--", "*.py"],
         cwd=REPO, capture_output=True, text=True, encoding="utf-8", errors="replace", check=False)
     if result.returncode:
