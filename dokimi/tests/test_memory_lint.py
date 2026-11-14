@@ -75,6 +75,13 @@ def test_links_in_code_and_comments_are_not_index_links(mem):
     assert dead == [(8, "links gone.md, which is not a file")]
 
 
+def test_parenthesised_targets_and_reference_definitions_are_links(mem):
+    (mem / "topic(v2).md").write_text(_entry("t"))
+    (mem / "MEMORY.md").write_text("- [A](a.md) [T](topic(v2).md) [B][b] [G][g]\n\n[b]: b.md\n[g]: <gone.md>\n")
+    dead = [(f.rule, f.line) for f in lint(read_claude_memory(mem)) if f.severity != "note"]
+    assert dead == [("index-dead-link", 4)]
+
+
 def test_wikilink_folds_dash_and_underscore(mem):
     (mem / "a.md").write_text(_entry("a", body="[[B]] [[project-a]] [[nobody]]"))
     (mem / "project_a.md").write_text(_entry("pa"))
