@@ -111,6 +111,11 @@ def _span(node: ast.AST) -> tuple[tuple[int, int], tuple[int, int]]:
 
 def _edits(node: ast.AST, src: str) -> Iterator[tuple[str, ast.AST, str]]:
     """(operator name, node whose source span is replaced, replacement text)."""
+    yield from _logic_edits(node, src)
+    yield from _value_edits(node)
+
+
+def _logic_edits(node: ast.AST, src: str) -> Iterator[tuple[str, ast.AST, str]]:
     if isinstance(node, ast.Compare) and len(node.ops) == 1 and type(node.ops[0]) in _CMP_SWAP:
         new = ast.Compare(left=node.left, ops=[_CMP_SWAP[type(node.ops[0])]()], comparators=node.comparators)
         yield "flip-compare", node, ast.unparse(new)
@@ -121,7 +126,14 @@ def _edits(node: ast.AST, src: str) -> Iterator[tuple[str, ast.AST, str]]:
         seg = ast.get_source_segment(src, node.test)
         if seg is not None:
             yield "negate-condition", node.test, f"not ({seg})"
-    elif isinstance(node, ast.Return) and node.value is not None:
+    elif isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
+        seg = ast.get_source_segment(src, node.operand)
+        if seg is not None:
+            yield "drop-not", node, f"({seg})"
+
+
+def _value_edits(node: ast.AST) -> Iterator[tuple[str, ast.AST, str]]:
+    if isinstance(node, ast.Return) and node.value is not None:
         if not (isinstance(node.value, ast.Constant) and node.value.value is None):
             yield "return-none", node.value, "None"
     elif isinstance(node, ast.Constant) and isinstance(node.value, bool):
@@ -132,10 +144,6 @@ def _edits(node: ast.AST, src: str) -> Iterator[tuple[str, ast.AST, str]]:
         if not any(isinstance(s, ast.Constant) and isinstance(s.value, str) for s in (node.left, node.right)):
             new_bin = ast.BinOp(left=node.left, op=ast.Sub() if isinstance(node.op, ast.Add) else ast.Add(), right=node.right)
             yield "swap-addsub", node, ast.unparse(new_bin)
-    elif isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
-        seg = ast.get_source_segment(src, node.operand)
-        if seg is not None:
-            yield "drop-not", node, f"({seg})"
 
 
 def mutants_for(path: str, src: str, lines: set[int]) -> list[Mutant]:
