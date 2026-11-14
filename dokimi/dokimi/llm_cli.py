@@ -33,7 +33,7 @@ What differs from an API provider, and what a caller can rely on:
   subscription is charged; it is kept as :attr:`CliResult.list_cost_usd`.
 - **Errors.** A failed call raises :class:`CliCallError` with ``retryable`` set:
   rate limits, overload, 5xx and timeouts are retried; an unknown model, a missing
-  login or a missing binary are not.
+  login or a missing binary are not. Those, and a usage limit, also set ``run_wide``.
 
 :func:`detect` reports whether a backend's binary is installed and signed in
 without calling a model (``cli.py backends``).
@@ -94,11 +94,16 @@ DEFAULT_TIMEOUT_SEC = 600.0
 
 
 class CliCallError(RuntimeError):
-    """A CLI call that produced no reply; ``retryable`` is what :func:`dokimi.llm.is_retryable` reads."""
+    """A CLI call that produced no reply; ``retryable`` is what :func:`dokimi.llm.is_retryable` reads.
 
-    def __init__(self, message: str, *, retryable: bool):
+    ``run_wide`` marks a failure every later call would meet too (no login, a usage limit, an unknown
+    model, no binary), which :func:`dokimi.novelty.routing_stop.is_run_wide` reads.
+    """
+
+    def __init__(self, message: str, *, retryable: bool, run_wide: bool = False):
         super().__init__(message)
         self.retryable = retryable
+        self.run_wide = run_wide
 
 
 @dataclass(frozen=True)
@@ -176,14 +181,14 @@ def _claude_error(payload: Dict[str, Any], done: process.Completed) -> CliCallEr
     lowered = message.lower()
     if any(w in lowered for w in ("authentication", "not logged in", "/login")):
         return CliCallError(f"claude-cli: {message} (sign in: claude setup-token, or claude /login)",
-                            retryable=False)
+                            retryable=False, run_wide=True)
     if "usage limit" in lowered:  # a subscription cap: it resets in hours, a retry cannot help
-        return CliCallError(f"claude-cli: {message}", retryable=False)
+        return CliCallError(f"claude-cli: {message}", retryable=False, run_wide=True)
     if status is None:  # no structured status: the words, and a status the CLI printed as text
         retryable = _text_retryable(lowered)
     else:  # a structured status decides: a 400 that quotes "rate_limit" is still a 400
         retryable = status in _RETRYABLE_STATUS
-    return CliCallError(f"claude-cli: {message}", retryable=retryable)
+    return CliCallError(f"claude-cli: {message}", retryable=retryable, run_wide=status == 404)
 
 
 def _main_model(model_usage: Dict[str, Any], requested: str) -> Optional[str]:
@@ -217,9 +222,9 @@ def _claude_parse(done: process.Completed, model: str, provider: str) -> CliResu
         # No JSON, so no status field: the transient words and the status printed as text are checked.
         # A subscription cap is not transient, as on the JSON path, whatever status it prints.
         lowered = text.lower()
-        retryable = "usage limit" not in lowered and _text_retryable(lowered)
+        capped = "usage limit" in lowered
         raise CliCallError(f"claude-cli: exit {done.returncode}, no JSON reply: {text[:300]}",
-                           retryable=retryable)
+                           retryable=not capped and _text_retryable(lowered), run_wide=capped)
     if payload.get("is_error") or done.returncode != 0:
         raise _claude_error(payload, done)
     u = payload.get("usage") or {}
@@ -432,7 +437,7 @@ def call(provider: str, *, model: str, prompt: str, system: Optional[str] = None
                                            env=_call_env(cli, cwd), cwd=cwd, input=prompt, capture_limit=None)
         except FileNotFoundError as exc:
             raise CliCallError(f"{provider}: '{cli.binary}' is not installed or not on PATH ({exc})",
-                               retryable=False) from exc
+                               retryable=False, run_wide=True) from exc
     return cli.parse(done, model, provider)
 
 

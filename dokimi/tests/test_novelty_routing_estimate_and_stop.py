@@ -9,6 +9,7 @@ import json
 import pytest
 
 from dokimi.novelty.all_vs_all import all_vs_all
+from dokimi.process import reply
 from dokimi.novelty.routing import Candidate, model_routing
 from dokimi.novelty.routing_estimate import selection_estimate
 
@@ -164,3 +165,55 @@ def test_an_error_that_may_belong_to_one_query_is_a_row_and_a_later_query_is_ask
     result = model_routing(FIELD, QUERIES, client=stub)
     assert stub.calls == 3 and result["n_calls"] == 3 and result["n_failed"] == 1
     assert "cap_stop" not in result and "partial" not in result
+
+
+def _cli_reply(result: str, status) -> str:
+    return json.dumps({"type": "result", "is_error": True, "result": result,
+                       "api_error_status": status, "usage": {}, "modelUsage": {}})
+
+
+def _cli_error(monkeypatch, tmp_path, answer):
+    """The error a real ``claude -p`` failure raises, through llm_cli's own classification."""
+    from dokimi import llm_cli
+    from dokimi.process import FakeRunner
+
+    def run(call):
+        if answer is FileNotFoundError:
+            raise FileNotFoundError("claude")
+        return answer
+
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+    with pytest.raises(llm_cli.CliCallError) as info:
+        llm_cli.call("claude-cli", model="sonnet", prompt="p", runner=FakeRunner(run))
+    return info.value
+
+
+def _first_call_raises(exc):
+    stub = Stub(lambda n: (_ for _ in ()).throw(exc))
+    return stub, model_routing(FIELD, QUERIES, client=stub)
+
+
+@pytest.mark.parametrize("answer", [
+    reply(_cli_reply("Not logged in · Please run /login", None), returncode=1),
+    reply(_cli_reply("Authentication error · This may be a temporary network issue, "
+                     "please try again", None), returncode=1),
+    reply(_cli_reply("Claude AI usage limit reached|1761660000", 429), returncode=1),
+    reply("", stderr="Claude AI usage limit reached. Error 429", returncode=1),
+    reply(_cli_reply("There's an issue with the selected model (claude-nope-1). It may not "
+                     "exist or you may not have access to it.", 404), returncode=1),
+    FileNotFoundError,
+], ids=["not-logged-in", "auth", "usage-limit", "usage-limit-no-json", "unknown-model", "no-binary"])
+def test_a_claude_cli_failure_every_call_meets_stops_the_run(monkeypatch, tmp_path, answer):
+    stub, result = _first_call_raises(_cli_error(monkeypatch, tmp_path, answer))
+    assert stub.calls == 1 and result["per_query"] == []
+    assert result["partial"]["reason"] == "permanent_error"
+
+
+@pytest.mark.parametrize("answer", [
+    reply(_cli_reply("API Error: 400 Bad Request: invalid request", 400), returncode=1),
+    reply("segfault", stderr="boom", returncode=139),
+    reply("", timed_out=True),
+], ids=["bad-request", "no-json", "timeout"])
+def test_a_claude_cli_failure_of_one_call_is_a_row(monkeypatch, tmp_path, answer):
+    stub, result = _first_call_raises(_cli_error(monkeypatch, tmp_path, answer))
+    assert stub.calls == 3 and result["n_failed"] == 3 and "partial" not in result

@@ -16,5 +16,7 @@ def is_run_wide(exc: Exception) -> bool:
     """Whether *exc* is a permanent provider error that every later call would meet too."""
     if is_retryable(exc):
         return False
+    if isinstance(run_wide := getattr(exc, "run_wide", None), bool):  # set by an error that knows (CliCallError)
+        return run_wide
     return type(exc).__name__.lower() in _RUN_WIDE_ERRORS or any(
         marker in str(exc).lower() for marker in _NO_CREDENTIALS)
