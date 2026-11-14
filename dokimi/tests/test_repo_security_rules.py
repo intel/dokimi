@@ -203,3 +203,22 @@ def test_a_canary_in_the_kept_text_of_an_argument_strace_cut_is_a_leak(tmp_path)
     assert [f["source"] for f in leaks] == ["exec"] and canary not in json.dumps(leaks)
     # the cut argument is still no command text: no rule judges its prefix
     assert sec.parse_exec_log(line) == ["/bin/sh -c"]
+
+
+def test_an_exec_split_by_strace_f_is_judged_by_its_resumed_line():
+    sudo = '[pid 5] execve("/usr/bin/sudo", ["sudo", "id"], 0x1 /* 3 vars */ <unfinished ...>\n'
+    ls = '[pid 6] execve("/bin/ls", ["ls"], 0x1 /* 3 vars */ <unfinished ...>\n'
+    failed, ok = ") = -1 ENOENT (No such file or directory)\n", ") = 0\n"
+    assert sec.parse_exec_log(sudo + "[pid 5] <... execve resumed>" + failed) == []
+    assert sec.parse_exec_log(sudo + "[pid 5] <... execve resumed>" + ok) == ["/usr/bin/sudo id"]
+    # each pid resumes its own exec: pid 6's success does not keep pid 5's failure
+    interleaved = sudo + ls + "[pid 6] <... execve resumed>" + ok + "[pid 5] <... execve resumed>" + failed
+    assert sec.parse_exec_log(interleaved) == ["/bin/ls"]
+    plain = sudo.replace("[pid 5]", "5  ") + "5   <... execve resumed>" + failed
+    assert sec.parse_exec_log(plain + ls.replace("[pid 6]", "6  ") + "6   <... execve resumed>" + ok) == ["/bin/ls"]
+    # an exec the log never resumes (strace stopped first) is kept: nothing shows it failed
+    assert sec.parse_exec_log(sudo) == ["/usr/bin/sudo id"]
+    assert sec.parse_exec_log(sudo + sudo.replace("sudo", "doas")) == ["/usr/bin/sudo id", "/usr/bin/doas id"]
+    # the marker as an argument text is no resumed line: it does not hide the exec that passed it
+    marker = sudo.replace('"id"]', '"id", "<... execve resumed>"]').replace(" <unfinished ...>", ") = 0")
+    assert sec.parse_exec_log(marker) == ["/usr/bin/sudo id <... execve resumed>"]

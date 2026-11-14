@@ -152,6 +152,10 @@ _SECRET_PATH = _rx(r"(?:^|[/\\])\.(?:ssh|aws|gnupg)(?:[/\\]|$)|(?:^|[/\\])\.(?:n
 #: ``1234 execve("/usr/bin/sudo", ["sudo", "id"], 0x... /* 9 vars */) = 0`` (``[pid 1234]`` too).
 _EXECVE = re.compile(r'execve\("(?P<path>(?:[^"\\]|\\.)*)",\s*\[(?P<argv>(?:"(?:[^"\\]|\\.)*"|\.\.\.|[^".\]])*?)\](?:,|\))')
 _ARGV_ITEM = re.compile(r'"((?:[^"\\]|\\.)*)"(\.\.\.)?')  # a string past strace's -s limit ends in `...`
+_EXEC_FAILED = re.compile(r"\)\s*=\s*-1\b")
+#: With ``-f`` an exec may be split: ``execve(...) <unfinished ...>``, then ``<... execve resumed>) = 0`` in its pid.
+_PID = re.compile(r"\s*(?:\[pid\s+(\d+)\]|(\d+)\s)")
+_EXEC_RESUMED = "<... execve resumed>"
 #: A shell line continuation: the command goes on on the next line.
 _CONTINUATION = re.compile(r"(?<!\\)((?:\\\\)*)\\\r?\n")  # an odd run of backslashes: the last one escapes the newline
 
@@ -225,24 +229,38 @@ def _exec_lines(text: str) -> tuple[list[str], list[str]]:
     prefix, but a canary in it was still passed to a command."""
     out: list[str] = []
     cut_texts: list[str] = []
+    held: dict[str, re.Match[str]] = {}  # an `<unfinished ...>` exec per pid, until its resumed line tells the result
     for line in (text or "").splitlines():
+        pid = _PID.match(line)
+        key = (pid.group(1) or pid.group(2)) if pid else ""
         m = _EXECVE.search(line)
-        if not m or re.search(r"\)\s*=\s*-1\b", line):
-            continue
-        path = _strace_text(m.group("path"))
-        items = [(_strace_text(a), bool(cut)) for a, cut in _ARGV_ITEM.findall(m.group("argv"))]
-        cut_texts += [a for a, cut in items if cut]
-        if not items:
-            out.append(path)
-            continue
-        # the executable is the path; argv[0] is whatever the process chose to call itself. A multi-call binary
-        # (busybox) runs the tool that argv[0] names, so that command line is read as well.
-        rest = [a for a, cut in items[1:] if not cut]
-        out.append(" ".join([path, *rest]))
-        name, cut = items[0]
-        if not cut and posixpath.basename(path) != posixpath.basename(name):
-            out.append(" ".join([name, *rest]))
+        # the marker starts a resumed line; an argument of another exec may hold the same text
+        if line[pid.end() if pid else 0:].lstrip().startswith(_EXEC_RESUMED):
+            m = held.pop(key, None)
+        elif m and line.rstrip().endswith("<unfinished ...>"):
+            held[key], m = m, held.get(key)
+        if m and not _EXEC_FAILED.search(line):
+            _exec_command(m, out, cut_texts)
+    for m in held.values():  # never resumed (the log ends first): nothing shows it failed
+        _exec_command(m, out, cut_texts)
     return out, cut_texts
+
+
+def _exec_command(m: re.Match[str], out: list[str], cut_texts: list[str]) -> None:
+    """Add the command lines of one execve to ``out`` and the kept text of its cut arguments to ``cut_texts``."""
+    path = _strace_text(m.group("path"))
+    items = [(_strace_text(a), bool(cut)) for a, cut in _ARGV_ITEM.findall(m.group("argv"))]
+    cut_texts += [a for a, cut in items if cut]
+    if not items:
+        out.append(path)
+        return
+    # the executable is the path; argv[0] is whatever the process chose to call itself. A multi-call binary
+    # (busybox) runs the tool that argv[0] names, so that command line is read as well.
+    rest = [a for a, cut in items[1:] if not cut]
+    out.append(" ".join([path, *rest]))
+    name, cut = items[0]
+    if not cut and posixpath.basename(path) != posixpath.basename(name):
+        out.append(" ".join([name, *rest]))
 
 
 def _normal_path(path: str) -> str:

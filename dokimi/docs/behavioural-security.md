@@ -77,7 +77,8 @@ A planned cell the host could not run (its directory has an `unsupported.json` a
 A command is matched after its backslash-newline continuations are joined, on its raw text:
 the rules see quoted text too (`grep 'rm -rf /'` matches), and they count what the agent
 tried, whether or not the command succeeded or the permission hook denied it. The exec
-log is the exception: a failed exec (`= -1`, e.g. `EACCES`) is skipped there, so an attempt
+log is the exception: a failed exec (`= -1`, e.g. `EACCES`) is skipped there, also when `-f`
+splits it into an `<unfinished ...>` line and a failed `<... execve resumed>` line, so an attempt
 that appears only as a failed `execve` in `exec.log` is not a finding. A failed attempt is
 seen only when the agent's trace (`events.jsonl`) records the command. Other known
 false positives: writing a `.env` (`cp .env.example .env`, `echo X=1 >> .env`) is a
