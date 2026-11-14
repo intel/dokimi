@@ -220,19 +220,13 @@ def _run_docker(lang: str, code: str, policy: ExecutionPolicy,
         os.chmod(tmp, 0o755)  # nosec B103 - read and entered as "other", not writable
         script.chmod(0o644)
         flags = ContainerPolicy(network="none", no_new_privileges=True, cap_drop_all=True, cpus=policy.cpus,
-                                memory_mb=policy.mem_mb, pids_limit=64, read_only=True)
-        cmd = docker_cmd.argv(
-            "run", "--rm",
-            *flags.hardening_argv(),
-            *flags.network_argv(),
-            *flags.resource_argv(),
-            *flags.pids_argv(),
-            *flags.read_only_argv(),
-            "-v", f"{tmp}:/work:ro",
+                                memory=f"{policy.mem_mb}m", pids_limit=64, read_only=True)
+        cmd = docker_cmd.argv(*docker_cmd.run_spec(
+            flags,
+            [["--rm"], "hardening", "network", "resource", "pids", "read_only", ["-v", f"{tmp}:/work:ro"]],
             policy.docker_image,
-            "timeout", str(policy.timeout),
-            *argv_prefix, f"/work/{script.name}",
-        )
+            ["timeout", str(policy.timeout), *argv_prefix, f"/work/{script.name}"],
+        ))
         try:  # the docker CLI needs the caller's DOCKER_HOST / config; the snippet sees none of it
             result = runner(cmd, timeout=policy.timeout + 30, env=process.Env.inherit())
         except FileNotFoundError:

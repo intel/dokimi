@@ -7,13 +7,15 @@ Every ``docker`` command the package runs is an argv from :func:`argv` (or a
 :class:`dokimi.repos.container.DockerRunner` built from :data:`BINARY`), and every
 docker process is started through :mod:`dokimi.process`. This module owns what
 more than one call site shares: the binary, the step and build timeouts, the
-mount and ``-e`` spellings, the hardening of a task container, the build's
+mount and ``-e`` spellings, the ``docker run`` argv (:func:`run_spec`, whose
+flags :class:`dokimi.container_policy.ContainerPolicy` spells), the build's
 proxy build-args, and the exit code of a ``docker run`` that failed before the
 command started.
 
 It starts nothing itself. Policy stays with the caller: which network a phase
-gets (:mod:`dokimi.harnesses.network_policy`), what a failed step means, and the
-order of a call's flags, which each call site keeps as its argv has always had it.
+gets (:mod:`dokimi.harnesses.network_policy`), which capabilities a task
+container gets back, what a failed step means, and the order of a call's
+flags, which each call site keeps as its argv has always had it.
 """
 
 from __future__ import annotations
@@ -22,9 +24,9 @@ import os
 from collections.abc import Callable, Iterable, Mapping
 
 from dokimi import process
+from dokimi.container_policy import ContainerPolicy, Group
 
 BINARY = "docker"
-PIDS_LIMIT = 32768  # threads count too: a Bazel server and a -j build on a many-core host use thousands
 BUILD_TIMEOUT_S = 3 * 3600  # default: a wedged daemon or a hung RUN step fails the build instead of hanging the batch
 CALL_TIMEOUT_S = 60  # `docker kill`, `docker image inspect`
 STEP_TIMEOUT_S = 600.0  # a docker step without a budget of its own (cp, exec, inspect, ...)
@@ -33,14 +35,6 @@ INFRA_EXIT = 125  # `docker run` itself failed (daemon, mount, image); the comma
 # Predefined docker build args: passed by name when set, so a build behind a proxy works
 # and the values stay out of the image history.
 PROXY_BUILD_ARGS = ("http_proxy", "https_proxy", "no_proxy", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY")
-# A task container: the repo container's hardening, with the capabilities root needs for its own
-# steps back (CHOWN, FOWNER, DAC_OVERRIDE; SETUID/SETGID for task scripts that drop privileges).
-TASK_CONTAINER_HARDENING = (
-    "--init", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
-    "--pids-limit", str(PIDS_LIMIT),
-    "--cap-add", "CHOWN", "--cap-add", "DAC_OVERRIDE", "--cap-add", "FOWNER",
-    "--cap-add", "SETUID", "--cap-add", "SETGID",
-)
 
 #: The callable a harness passes as its docker step: ``docker(args, log, check=..., timeout=...)``.
 Docker = Callable[..., process.Completed]
@@ -49,6 +43,22 @@ Docker = Callable[..., process.Completed]
 def argv(*args: str) -> list[str]:
     """``docker *args`` as the argv to start: the one place the binary's name is written."""
     return [BINARY, *args]
+
+
+def run_spec(policy: ContainerPolicy, layout: Iterable[Group | list[str]], image: str,
+             command: Iterable[str] = ()) -> list[str]:
+    """``run`` with the flags of *layout* in its order, then *image* and *command*. No binary: pass
+    the result to :func:`argv`, or prefix the caller's own binary.
+
+    A layout item is either the name of a :class:`ContainerPolicy` group (``"init"``, ``"hardening"``,
+    ``"network"``, ...), or an argv list already spelled: :func:`mount_args`, :func:`env_args`, or
+    the caller's own flags (``["--rm"]``, ``["--entrypoint", ""]``). A bare string is always a group
+    name, so a flag is never written bare. Each caller lists its groups in the order its argv has
+    always had, which is part of what its characterization test pins."""
+    out = ["run"]
+    for item in layout:
+        out += policy.group(item) if isinstance(item, str) else list(item)
+    return [*out, image, *command]
 
 
 def mount_args(mounts: Iterable[tuple[str | os.PathLike[str], str, bool]]) -> list[str]:

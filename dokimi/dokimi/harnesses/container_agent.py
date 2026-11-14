@@ -49,7 +49,7 @@ from pathlib import Path
 from typing import Iterable, Optional
 
 from dokimi import docker_cmd, process
-from dokimi.docker_cmd import TASK_CONTAINER_HARDENING, Docker  # noqa: F401  (Docker is re-exported)
+from dokimi.docker_cmd import Docker  # noqa: F401  (Docker is re-exported)
 from dokimi.docker_cmd import STEP_TIMEOUT_S as DOCKER_STEP_TIMEOUT  # noqa: F401
 
 from . import egress_proxy
@@ -208,10 +208,10 @@ class ContainerSandbox:
         return f"http://egress:{PROXY_PORT}"
 
     def run_args(self) -> list[str]:
-        """``docker run`` arguments: the internal network, the label, a tmpfs HOME."""
+        """``docker run`` arguments the sandbox adds: the label and a tmpfs HOME. The internal network is
+        :attr:`network`, which the container's policy spells as ``--network``."""
         uid, gid = AGENT_UID.split(":")
-        return ["--network", self.network, "--label", self.label,
-                "--tmpfs", f"{AGENT_HOME}:rw,exec,size=1g,mode=0700,uid={uid},gid={gid}"]
+        return ["--label", self.label, "--tmpfs", f"{AGENT_HOME}:rw,exec,size=1g,mode=0700,uid={uid},gid={gid}"]
 
     def prepare(self, container: str, docker: Docker, log) -> None:
         """As root, before the agent starts: copy the CLI and files in, hand the work tree to the agent."""
