@@ -126,6 +126,7 @@ def _extractor(cache_dir, docs: str = "Use `tbb::parallel_for` and `task_arena`.
     '{"topics": ["parallel_for"]}',
     "[]",
     '["parallel_for", 3]',
+    '["parallel_for", " "]',
     json.dumps(RagasSeedExtractor._fallback_topics("oneTBB")),
 ])
 def test_topics_bad_entry_is_a_miss_and_is_overwritten(tmp_path, caplog, stored):
@@ -223,6 +224,35 @@ def test_failed_cache_write_does_not_fail_the_fetch(tmp_path, caplog):
         text = _url_text(URLClient(URL, cache_dir=tmp_path))
     assert len(text) == len(PAGE)
     assert list(tmp_path.iterdir()) == [] and "disk full" in caplog.text
+
+
+def test_failed_context7_cache_write_returns_the_answer_and_stores_nothing(tmp_path, caplog):
+    with patch("httpx.get", return_value=_response(DOCS)), \
+            patch("dokimi.mcp.utils.os.replace", side_effect=OSError("disk full")), \
+            caplog.at_level(logging.WARNING):
+        docs = Context7Client(cache_dir=tmp_path).get_library_docs(LIB, QUERY)
+    assert docs[0]["content"] == DOCS
+    assert list(tmp_path.iterdir()) == [] and "disk full" in caplog.text
+
+
+def test_failed_topics_cache_write_returns_the_topics_and_stores_nothing(tmp_path, caplog):
+    with patch("dokimi.mcp.utils.os.replace", side_effect=OSError("disk full")), \
+            caplog.at_level(logging.WARNING):
+        topics = _extractor(tmp_path).extract_topics(LIB, "oneTBB")
+    assert topics == ["tbb::parallel_for", "task_arena"]
+    assert list(tmp_path.iterdir()) == [] and "disk full" in caplog.text
+
+
+def test_url_entry_that_is_a_directory_is_a_miss_and_the_page_is_fetched(tmp_path, caplog):
+    with patch("httpx.get", return_value=_response(PAGE)):
+        _url_text(URLClient(URL, cache_dir=tmp_path))
+    entry = _only_entry(tmp_path)
+    entry.unlink()
+    entry.mkdir()
+    with patch("httpx.get", return_value=_response(PAGE)) as get, caplog.at_level(logging.WARNING):
+        text = _url_text(URLClient(URL, cache_dir=tmp_path))
+    assert get.call_count == 1 and len(text) == len(PAGE)
+    assert f"Ignoring unreadable cache entry {entry}" in caplog.text
 
 
 # ── eval questions generate ──────────────────────────────────────────────────
