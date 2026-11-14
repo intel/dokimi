@@ -257,6 +257,8 @@ def test_a_replacement_update_is_exempt_from_the_release_age_wait() -> None:
 
 
 _MAIN_LOCK = "requirements.lock.txt"
+_QUOTED = str.maketrans(";&|<>()", "\ue000\ue001\ue002\ue003\ue004\ue005\ue006")
+_UNQUOTED = {letter: operator for operator, letter in _QUOTED.items()}
 
 
 def _requirement_files(tokens: list[str]) -> list[str]:
@@ -275,11 +277,12 @@ def _requirement_files(tokens: list[str]) -> list[str]:
 def _commands(script: str) -> list[list[str]]:
     """The commands of a shell ``script`` as word lists: POSIX quoting (a quoted word may span lines), ``#``
     comments, a backslash continuation joined, ``;``/``&``/``|``/newline separating commands, ``(`` and ``)``
-    dropped from the words, and the word after a redirection (``>``, ``<``) left out."""
+    dropped from the words, the word after a redirection (``>``, ``<``) left out; a quoted operator is a letter."""
     commands: list[list[str]] = []
     command: list[str] = []
     script = re.sub(r"\\\r?\n", " ", script).replace('\\"', "\0")  # an escaped quote is a letter, not a quote
-    script = re.sub(r"""('[^']*'|"[^"]*")|(?<![^\s;&|()])#[^\n]*""", lambda m: m.group(1) or "", script)
+    script = re.sub(r"""('[^']*'|"[^"]*")|(?<![^\s;&|()])#[^\n]*""",
+                    lambda m: (m.group(1) or "").translate(_QUOTED), script)
     lexer = shlex.shlex(script, posix=True, punctuation_chars=";&|<>\n")
     lexer.whitespace, lexer.whitespace_split, lexer.escape, lexer.commenters = " \t\r", True, "", ""
     redirected = False
@@ -295,7 +298,7 @@ def _commands(script: str) -> list[list[str]]:
         elif redirected:
             redirected = False
         elif token.strip("()"):
-            command.append(token.strip("()").replace("\0", '"'))
+            command.append(token.strip("()").translate(_UNQUOTED).replace("\0", '"'))
     return [*commands, command]
 
 
@@ -352,16 +355,20 @@ def _install_scripts() -> dict[str, str]:
     ("pip install -r requirements.lock.txt > --no-deps", True),
     ("pip install -r dokimi\\requirements.lock.txt", True),
     ("pip install -r requirements.lock.txt # --no-deps\npip install --no-deps wheel", True),
+    ('pip install --log ";" -r requirements.lock.txt', True),
+    ('pip install -r requirements.lock.txt --log "(--no-deps)"', True),
     ("pip install --no-deps --require-hashes -r requirements.lock.txt -r requirements-ci.lock.txt", False),
     ('python -m pip install --no-deps --requirement="/opt/req/requirements.lock.txt"', False),
     ("uv pip install --python $(VPY) --no-deps \\\n    -r requirements.lock.txt", False),
     ("(pip install -r requirements.lock.txt --no-deps)", False),
     ('pip install --no-deps -r requirements.lock.txt --log "install\nlog.txt"', False),
     ('pip install --no-deps -r requirements.lock.txt --log "build\\"log.txt"', False),
+    ("pip install --log '>' --no-deps -r requirements.lock.txt", False),
 ], ids=["short", "joined", "long", "long-equals", "quoted", "single-quoted", "commented-flag", "spacing", "chained",
         "subshell", "continued", "global-option", "python-m-pip", "versioned", "recipe-prefix", "redirected",
-        "backslash-path", "comment-line", "guarded", "guarded-quoted", "guarded-continued", "guarded-subshell",
-        "guarded-multiline", "guarded-escaped-quote"])
+        "backslash-path", "comment-line", "quoted-separator", "quoted-parentheses", "guarded", "guarded-quoted",
+        "guarded-continued", "guarded-subshell", "guarded-multiline", "guarded-escaped-quote",
+        "guarded-quoted-redirection"])
 def test_an_install_of_the_main_lock_without_no_deps_is_found(script: str, unguarded: bool) -> None:
     installs = _installs_of_the_main_lock(script)
     assert len(installs) == 1, installs
