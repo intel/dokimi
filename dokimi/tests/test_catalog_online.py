@@ -363,14 +363,14 @@ def test_an_angle_destination_keeps_its_spaces_and_is_probed_with_the_path_encod
     assert online_checks.extract_urls("[a](<https://acme.dev/x >)") == ["https://acme.dev/x "]  # a trailing blank is part of it
     assert online_checks.extract_urls("[a](<https://acme.dev/x y)") == ["https://acme.dev/x"]  # no ">" closes it: read as a bare URL
     assert online_checks.extract_urls("<https://acme.dev/x y>") == ["https://acme.dev/x"]  # an autolink holds no space
-    assert [online_checks.extract_urls(f"[a](<https://acme.dev/x y\\{c}z>)") for c in "<>"] == [["https://acme.dev/x y<z"], ["https://acme.dev/x y>z"]]  # an escaped bracket neither ends nor stops it
+    assert [online_checks.extract_urls(f"[a](<https://acme.dev/x{b}\\{c}z>)") for b in ("", " y") for c in "<>"] == [["https://acme.dev/x<z"], ["https://acme.dev/x>z"], ["https://acme.dev/x y<z"], ["https://acme.dev/x y>z"]]  # an escaped bracket neither ends nor stops it, blank or not
+    assert online_checks.extract_urls("[a](<https://acme.dev/x<z>)") == []  # an unescaped "<" is a template
     web = Web({"https://acme.dev/x%20y": 404})
     root = _one_skill(tmp_path, "See [a](<https://acme.dev/x y>).\n")
 
     [review] = _reviews(root, web)
     assert _codes(review) == ["link-dead"]
     assert {seen for _, seen in web.requests} == {"https://acme.dev/x%20y"}
-
     trailing = Web({"https://acme.dev/x%20": 404})
     [review] = _reviews(_one_skill(tmp_path / "t", "See [a](<https://acme.dev/x >).\n"), trailing)
     assert _codes(review) == ["link-dead"]

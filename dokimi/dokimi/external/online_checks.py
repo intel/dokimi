@@ -491,8 +491,6 @@ def _distinct_urls(body: str) -> tuple[list[str], list[str]]:
     body = body.replace("](", "  ")  # a markdown link's text and its target are both URLs; the length is kept
     code = [m.span() for m in _URL_CODE_SPAN_RE.finditer(body)]  # a URL in a code span is an example, as in a fence
     for m in _URL_RE.finditer(body):
-        if _TEMPLATE_RE.search(m.group()) or body[m.end():m.end() + 1] in ("<", "{", "$"):
-            continue
         if any(start <= m.start() < end for start, end in code):
             continue
         destination = _starts_destination(body, m.start(), literal)
@@ -502,6 +500,8 @@ def _distinct_urls(body: str) -> tuple[list[str], list[str]]:
             close = _ANGLE_REST_RE.match(body, m.start())
             if close:
                 raw, angled = close.group(1), True
+        if _TEMPLATE_RE.search(raw) or (not angled and body[m.end():m.end() + 1] in ("<", "{", "$")):
+            continue
         line_start = body.rfind("\n", 0, m.start()) + 1
         url = _clean_url(raw, literal=destination or autolink, decode=destination, delimited=autolink or angled,
                          table_row=body[line_start:m.start()].lstrip().startswith("|"))
