@@ -11,6 +11,7 @@ Layout (https://code.claude.com/docs/en/memory): ``MEMORY.md`` is the index, eve
 from __future__ import annotations
 
 import re
+from urllib.parse import unquote
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -18,8 +19,8 @@ import yaml
 
 INDEX_NAME = "MEMORY.md"
 ARCHIVE_DIR = "archive"
-_FRONTMATTER = re.compile(r"\A---\r?\n(.*?)\r?\n---[ \t]*(?:\r?\n|\Z)", re.S)
-_MD_LINK = re.compile(r"\]\(([^)\s]+)\)")
+_FRONTMATTER = re.compile(r"\A---[ \t]*\r?\n(?:(.*?)\r?\n)?---[ \t]*(?:\r?\n|\Z)", re.S)
+_MD_LINK = re.compile(r"\]\(\s*(<[^>\n]+>|[^)\s]+)(?:\s+(?:\"[^\"]*\"|'[^']*'))?\s*\)")
 _WIKILINK = re.compile(r"\[\[([^\]\n]+)\]\]")
 
 
@@ -54,7 +55,8 @@ class MemoryEntry:
     @property
     def wikilinks(self) -> list[tuple[int, str]]:
         """``(line, target)`` of every ``[[target]]``, 1-based lines of the whole file."""
-        return [(n, m.group(1).strip()) for n, line in enumerate(self.text.splitlines(), 1)
+        return [(n, re.split(r"[|#]", m.group(1), maxsplit=1)[0].strip())
+                for n, line in enumerate(self.text.split("\n"), 1)
                 for m in _WIKILINK.finditer(line)]
 
 
@@ -80,9 +82,9 @@ class MemoryStore:
         if self.index is None:
             return []
         out = []
-        for n, line in enumerate(self.index.text.splitlines(), 1):
+        for n, line in enumerate(self.index.text.split("\n"), 1):
             for m in _MD_LINK.finditer(line):
-                target = m.group(1).split("#", 1)[0]
+                target = unquote(m.group(1).strip("<>").split("#", 1)[0])
                 if target and "://" not in target and not target.startswith("mailto:"):
                     out.append((n, target))
         return out
@@ -97,14 +99,17 @@ def slug(name: str) -> str:
 
 
 def _entry(root: Path, path: Path, archived: bool) -> MemoryEntry:
-    text = path.read_text(encoding="utf-8", errors="replace")
     rel = path.relative_to(root).as_posix()
+    try:
+        text = path.read_text(encoding="utf-8-sig", errors="replace")
+    except OSError as exc:  # one unreadable file is a finding, not the end of the run
+        return MemoryEntry(rel, "", "", None, f"unreadable: {exc.strerror or exc}", archived)
     m = _FRONTMATTER.match(text)
     if not m:
         return MemoryEntry(rel, text, text, None, archived=archived)
     body = text[m.end():]
     try:
-        data = yaml.safe_load(m.group(1))
+        data = yaml.safe_load(m.group(1) or "") or {}
     except yaml.YAMLError as exc:
         return MemoryEntry(rel, text, body, None, f"frontmatter is not YAML: {exc.__class__.__name__}", archived)
     if not isinstance(data, dict):

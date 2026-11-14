@@ -14,7 +14,7 @@ import re
 from collections import Counter
 from collections.abc import Callable, Iterable
 from dataclasses import asdict, dataclass
-from pathlib import PurePosixPath
+import posixpath
 
 from dokimi.memory.store import ARCHIVE_DIR, INDEX_NAME, MemoryEntry, MemoryStore, slug
 
@@ -28,8 +28,10 @@ SEVERITIES = ("fail", "warn", "note")
 _RELATIVE = re.compile(
     r"\b(today|yesterday|tomorrow|tonight|this (?:week|morning|afternoon)|next week|last week)\b"
     r"|(?<!\w)(сегодня|вчера|завтра)(?!\w)", re.I)
-_DATED = re.compile(r"\s*\(?(?:as of\s*)?[≤<]?\s*\d{4}-\d{2}-\d{2}")
-_STRAY_SEPARATOR = re.compile(r":\s*,|,\s*,|\(\s*\)|,\s*$")
+_DATE = re.compile(r"\d{4}-\d{2}-\d{2}")
+_CODE = re.compile(r"`[^`\n]*`")
+_NOT_A_WORD_USE = re.compile(r"\.md|'s|\(")
+_STRAY_SEPARATOR = re.compile(r":\s*,|,\s*,|,\s*$")
 
 
 @dataclass(frozen=True)
@@ -49,8 +51,9 @@ def _index_findings(store: MemoryStore, max_lines: int, max_bytes: int) -> Itera
         yield Finding("index-missing", "warn", INDEX_NAME, None,
                       f"no {INDEX_NAME}: nothing is loaded at session start")
         return
-    lines = index.text.splitlines()
-    size = len(index.text.encode("utf-8"))
+    lines = index.text.split("\n")
+    lines = lines[:-1] if lines and not lines[-1] else lines
+    size = _index_bytes(store)
     if len(lines) > max_lines or size > max_bytes:
         yield Finding("index-over-limit", "fail", INDEX_NAME, min(len(lines), max_lines + 1),
                       f"{len(lines)} lines / {size} bytes; only the first {max_lines} lines or "
@@ -62,17 +65,27 @@ def _index_findings(store: MemoryStore, max_lines: int, max_bytes: int) -> Itera
     for n, line in enumerate(lines, 1):
         if line.lstrip().startswith(("-", "*")) and _STRAY_SEPARATOR.search(line):
             yield Finding("index-stray-separator", "note", INDEX_NAME, n,
-                          "empty list slot (':,', ',,', '()' or a trailing ','), often left by removing a link")
+                          "empty list slot (':,', ',,' or a trailing ','), often left by removing a link")
+
+
+def _index_bytes(store: MemoryStore) -> int:
+    """The size on disk, CRLF and BOM counted: that is what the harness truncates."""
+    try:
+        return (store.root / INDEX_NAME).stat().st_size
+    except OSError:
+        return len(store.index.text.encode("utf-8")) if store.index else 0
 
 
 def _link_findings(store: MemoryStore) -> Iterable[Finding]:
     linked: set[str] = set()
     for n, target in store.index_links():
-        path = PurePosixPath(target.removeprefix("./"))
-        if (store.root / path).exists():
-            linked.add(path.as_posix())
+        path = posixpath.normpath(target)
+        if path.startswith(("../", "/")) or path == "..":
+            yield Finding("index-dead-link", "fail", INDEX_NAME, n, f"links {target}, outside the memory directory")
+        elif (store.root / path).is_file():
+            linked.add(path)
         else:
-            yield Finding("index-dead-link", "fail", INDEX_NAME, n, f"links {target}, which does not exist")
+            yield Finding("index-dead-link", "fail", INDEX_NAME, n, f"links {target}, which is not a file")
     if store.index is None:
         return
     for entry in store.entries:
@@ -102,8 +115,9 @@ def _frontmatter_findings(entry: MemoryEntry) -> Iterable[Finding]:
 
 def _entry_findings(store: MemoryStore) -> Iterable[Finding]:
     slugs = store.slugs()
-    names = Counter(entry.name for entry in store.entries if entry.name)
-    for entry in store.entries:
+    live = [entry for entry in store.entries if not entry.archived]  # archive/ is history: not checked
+    names = Counter(entry.name for entry in live if entry.name)
+    for entry in live:
         yield from _frontmatter_findings(entry)
         if entry.name and names[entry.name] > 1:
             yield Finding("name-duplicate", "warn", entry.path, 1,
@@ -117,9 +131,12 @@ def _entry_findings(store: MemoryStore) -> Iterable[Finding]:
 
 def _date_findings(entry: MemoryEntry) -> Iterable[Finding]:
     offset = entry.text.count("\n", 0, len(entry.text) - len(entry.body))
-    for n, line in enumerate(entry.body.splitlines(), offset + 1):
+    for n, line in enumerate(entry.body.split("\n"), offset + 1):
+        if _DATE.search(line):  # a dated line says when "today" was
+            continue
+        line = _CODE.sub(lambda c: " " * len(c.group(0)), line)
         for m in _RELATIVE.finditer(line):
-            if not _DATED.match(line, m.end()):
+            if not _NOT_A_WORD_USE.match(line, m.end()):
                 yield Finding("relative-date", "warn", entry.path, n,
                               f"'{m.group(0)}' without a date: it is wrong on the next read")
 
@@ -140,12 +157,13 @@ def report(store: MemoryStore, findings: list[Finding], *, max_lines: int = INDE
     by_sev = Counter(f.severity for f in findings)
     by_rule = Counter(f.rule for f in findings)
     index_text = store.index.text if store.index else ""
+    index_lines = index_text.split("\n")
     return {
         "root": str(store.root),
         "entries": sum(not e.archived for e in store.entries),
         "archived": sum(e.archived for e in store.entries),
         "archive_dir": ARCHIVE_DIR,
-        "index": {"lines": len(index_text.splitlines()), "bytes": len(index_text.encode("utf-8")),
+        "index": {"lines": len(index_lines) - (not index_lines[-1]), "bytes": _index_bytes(store),
                   "max_lines": max_lines, "max_bytes": max_bytes},
         "types": dict(Counter(e.type or "none" for e in store.entries if not e.archived)),
         "counts": {s: by_sev.get(s, 0) for s in SEVERITIES},

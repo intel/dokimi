@@ -24,7 +24,8 @@ def cmd_memory_lint(args: argparse.Namespace) -> None:
     doc = report(store, lint(store))
     bad = doc["counts"]["fail"] or (args.fail_on == "warn" and doc["counts"]["warn"])
     if args.json:
-        cli_output.emit_leaf("memory lint", doc, status="complete")
+        reason = f"{doc['counts']['fail']} fail, {doc['counts']['warn']} warn under --fail-on {args.fail_on}" if bad else None
+        cli_output.emit_leaf("memory lint", doc, status="failed" if bad else "complete", reason=reason)
     else:
         print(render_text(doc))
     if bad:

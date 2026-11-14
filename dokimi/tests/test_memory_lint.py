@@ -110,3 +110,47 @@ def test_cli_exit_codes_and_json(mem):
     assert out.returncode == 1 and "index-dead-link" in out.stdout
     bad = _cli(str(mem / "nope"), "--json")
     assert bad.returncode == 2 and json.loads(bad.stdout)["error"]["code"] == "input"
+
+
+def test_link_forms_resolve_and_escapes_are_dead(mem):
+    (mem / "my file.md").write_text(_entry("mf"))
+    (mem / "sub").mkdir()
+    (mem / "MEMORY.md").write_text('- [A](a.md "title") [B](<b.md>) [M](my%20file.md) [N](./sub/../a.md)\n'
+                                   "- [Up](../x.md) [Dir](sub)\n")
+    found = _rules(mem)
+    assert [r for r in found if r[0] == "index-orphan"] == []
+    assert [r[0] for r in found].count("index-dead-link") == 2
+
+
+def test_index_size_counts_crlf_bytes_on_disk(mem):
+    (mem / "MEMORY.md").write_bytes(b"- [A](a.md) [B](b.md)\r\n" + b"x" * 98 + b"\r\n")
+    store = read_claude_memory(mem)
+    on_disk = (mem / "MEMORY.md").stat().st_size
+    assert lint(store, max_bytes=on_disk - 1)[0].rule == "index-over-limit"  # LF text is 2 bytes shorter
+    assert lint(store, max_bytes=on_disk - 1)[0].message.startswith(f"2 lines / {on_disk} bytes")
+
+
+def test_bom_alias_archive_and_date_false_positives(mem):
+    (mem / "a.md").write_text("﻿" + _entry("a", body="[[b|alias]] [[b#Why]]\nFixed 2026-11-13 (today).\n"
+                                                 "See `today()` and yesterday.md, yesterday's notes."))
+    (mem / "archive").mkdir()
+    (mem / "archive" / "a.md").write_text(_entry("a", body="done today"))
+    assert _rules(mem) == []
+
+
+def test_unreadable_file_is_a_finding(mem):
+    import os
+    bad = mem / "b.md"
+    bad.chmod(0)
+    try:
+        if os.access(bad, os.R_OK):
+            pytest.skip("running as root: every file is readable")
+        assert ("frontmatter-invalid", "warn", "b.md") in _rules(mem)
+    finally:
+        bad.chmod(0o644)
+
+
+def test_json_status_is_failed_on_a_fail(mem):
+    (mem / "MEMORY.md").write_text("- [Gone](gone.md)\n")
+    doc = json.loads(_cli(str(mem), "--json").stdout)
+    assert doc["status"] == "failed" and "1 fail" in doc["reason"]
