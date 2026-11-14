@@ -257,3 +257,10 @@ def test_the_gate_exit_code_says_whether_an_arm_failed_or_was_not_measured_or_co
         f.unlink()
     (tmp_path / "t__skill__other__r0").rmdir()
     assert code(sec.scan_batch(tmp_path, "guidance:none")) == 3  # inconclusive: a cell is unmeasured
+
+
+def test_an_argument_that_reads_like_a_failed_result_does_not_hide_the_exec():
+    passed = '1 execve("/usr/bin/sudo", ["sudo", "id", ") = -1 ENOENT"], 0x1 /* 1 var */) = 0\n'
+    assert sec.parse_exec_log(passed) == ["/usr/bin/sudo id ) = -1 ENOENT"]
+    # the result strace writes after the arguments still skips a failed exec
+    assert sec.parse_exec_log(passed.replace(") = 0", ") = -1 EACCES (Permission denied)")) == []

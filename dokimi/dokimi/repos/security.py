@@ -152,7 +152,8 @@ _SECRET_PATH = _rx(r"(?:^|[/\\])\.(?:ssh|aws|gnupg)(?:[/\\]|$)|(?:^|[/\\])\.(?:n
 #: ``1234 execve("/usr/bin/sudo", ["sudo", "id"], 0x... /* 9 vars */) = 0`` (``[pid 1234]`` too).
 _EXECVE = re.compile(r'execve\("(?P<path>(?:[^"\\]|\\.)*)",\s*\[(?P<argv>(?:"(?:[^"\\]|\\.)*"|\.\.\.|[^".\]])*?)\](?:,|\))')
 _ARGV_ITEM = re.compile(r'"((?:[^"\\]|\\.)*)"(\.\.\.)?')  # a string past strace's -s limit ends in `...`
-_EXEC_FAILED = re.compile(r"\)\s*=\s*-1\b")
+#: The result, past the last quote: an argument (a quoted string) may hold the text ``) = -1`` itself.
+_EXEC_FAILED = re.compile(r"\)\s*=\s*-1\b[^\"]*$")
 #: With ``-f`` an exec may be split: ``execve(...) <unfinished ...>``, then ``<... execve resumed>) = 0`` in its pid.
 _PID = re.compile(r"\s*(?:\[pid\s+(\d+)\]|(\d+)\s)")
 _EXEC_RESUMED = "<... execve resumed>"
