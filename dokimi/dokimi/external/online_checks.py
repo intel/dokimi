@@ -99,6 +99,7 @@ _PLACEHOLDER_NAMES = {"package", "packages", "pkg", "name", "module", "mypackage
 _URL_RE = re.compile(r"https?://(?:[^\s\"`<>'“”‘’—，。、；：！？（）「」]|'(?=\w))+", re.IGNORECASE)  # an apostrophe in a word is in a URL ("Moore's_law")
 # Where a literal URL starts: after a markdown destination's ``](``, or a reference definition's ``[id]: ``.
 _LITERAL_START_RE = re.compile(r"\]\(|^[ \t]*\[(?!\^)[^\]\n]*\]:[ \t]*", re.MULTILINE)  # not a footnote "[^1]:"
+_ANGLE_REST_RE = re.compile(r"([^<>\n]*)>")  # a "<...>" link destination: the text up to its ">", blanks included
 _ESCAPE_RE = re.compile(r"\\([!-/:-@\[-`{-~])")  # a backslash escape of ASCII punctuation, as CommonMark reads it
 # An escape or a character reference of a destination, in one pass so that "\&amp;" is the text "&amp;".
 _DECODE_RE = re.compile(r"\\([!-/:-@\[-`{-~])|&(#[xX][0-9a-fA-F]{1,6}|#[0-9]{1,7}|[A-Za-z][A-Za-z0-9]{1,31});")
@@ -388,7 +389,8 @@ def _decode(match: re.Match[str]) -> str:
     return html.unescape(text) if text[1] == "#" or text[1:] in html5 else text
 
 
-def _clean_url(raw: str, literal: bool = False, decode: bool = False, delimited: bool = False) -> Optional[str]:
+def _clean_url(raw: str, literal: bool = False, decode: bool = False, delimited: bool = False,
+               table_row: bool = False) -> Optional[str]:
     """``raw`` without what a sentence, a table cell, emphasis or a markdown link puts after it: the URL ends before
     the first ``)`` or ``]`` that closes no ``(`` or ``[`` of the URL, and before a ``|``; then trailing punctuation
     and ``*`` emphasis go. A balanced bracket stays ("f[0]=1", "[2001:db8::1]"). None for an empty result.
@@ -398,7 +400,8 @@ def _clean_url(raw: str, literal: bool = False, decode: bool = False, delimited:
     decodes its backslash escapes (``guide\\_notes`` is ``guide_notes``) and its character references (``a&amp;b``
     is ``a&b``), and an escaped character never ends it
     (``a\\)b`` is ``a)b``). ``delimited`` is a destination or autolink in ``<...>``: it ends at ``>``, so an
-    unmatched ``)`` or ``]`` is part of it.
+    unmatched ``)`` or ``]`` and a ``|`` are part of it, unless ``table_row``: a GFM table splits its row at an
+    unescaped ``|`` before it reads the inline text, so the pipe ends the URL there.
     """
     parens = brackets = 0
     end = len(raw)
@@ -407,7 +410,8 @@ def _clean_url(raw: str, literal: bool = False, decode: bool = False, delimited:
             parens += 1
         elif ch == "[":
             brackets += 1
-        elif ch == "|" or (not delimited and ((ch == ")" and parens == 0) or (ch == "]" and brackets == 0))):
+        elif (ch == "|" and (table_row or not delimited)) or (
+                not delimited and ((ch == ")" and parens == 0) or (ch == "]" and brackets == 0))):
             end = i
             break
         elif ch == ")":
@@ -492,7 +496,14 @@ def _distinct_urls(body: str) -> tuple[list[str], list[str]]:
             continue
         destination = _starts_destination(body, m.start(), literal)
         autolink = m.start() > 0 and body[m.start() - 1] == "<" and body[m.end():m.end() + 1] == ">"
-        url = _clean_url(m.group(), literal=destination or autolink, decode=destination, delimited=autolink)
+        raw, angled = m.group(), False
+        if destination and body[m.start() - 1] == "<":  # a "<...>" destination may hold spaces; it ends at ">"
+            close = _ANGLE_REST_RE.match(body, m.start())
+            if close:
+                raw, angled = close.group(1).rstrip(), True
+        line_start = body.rfind("\n", 0, m.start()) + 1
+        url = _clean_url(raw, literal=destination or autolink, decode=destination, delimited=autolink or angled,
+                         table_row=body[line_start:m.start()].lstrip().startswith("|"))
         if url is not None:
             url = url.partition("#")[0]  # the fragment is never sent: anchors of one page are one request
         if url is not None and not _placeholder_url(url):
