@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""Queries, console lines and refusals of ``novelty routing``.
+"""Queries, console lines and refusals of ``skill routing`` and ``catalog routing``.
 
 Split from ``commands/novelty.py``, which keeps the command bodies, so that file stays under
 its growth cap. Nothing here builds a client; a model arm is always the caller's.
@@ -105,25 +105,26 @@ _LEFT_OUT = {
 }
 
 
-def conflict_hint(catalog: str, conflicts: dict[str, list[str]]) -> str:
+def conflict_hint(catalog: str, conflicts: dict[str, list[str]], all_vs_all: bool = False) -> str:
     """Where the copies of each conflicting name sit, and the ways out of each conflict.
 
     A skill directory under another directory of the catalog (``skills/review``) is a
-    ``--catalog`` to point at, and a ``--keep-copies-under`` to keep. A skill directory directly
+    ``--against`` to point at, and a ``--keep-copies-under`` to keep. A skill directory directly
     beneath the catalog (``review``) is only a ``--keep-copies-under``: its name is the directory
     to keep. A ``SKILL.md`` in the catalog root is neither: its copy routes only once it is
     deduped or renamed. A directory is suggested only when it holds exactly one of the name's
     copies, since one that holds two (``skills`` over ``skills/legacy/review``) keeps the
     conflict. The ways out are given per name: ``--keep-copies-under`` takes one directory.
     """
-    texts = [_conflict_hint_for(catalog, name, paths) for name, paths in sorted(conflicts.items())]
+    texts = [_conflict_hint_for(catalog, name, paths, all_vs_all)
+             for name, paths in sorted(conflicts.items())]
     if len(texts) > 1:
         texts.append("--keep-copies-under takes one directory, so one run resolves only the names "
                      "whose copies that directory splits.")
     return " ".join(texts)
 
 
-def _conflict_hint_for(catalog: str, name: str, paths: list[str]) -> str:
+def _conflict_hint_for(catalog: str, name: str, paths: list[str], all_vs_all: bool = False) -> str:
     """The ways out of one name's conflict: the directories that hold exactly one of its copies."""
     from dokimi.novelty.catalog_keep import under
 
@@ -143,15 +144,21 @@ def _conflict_hint_for(catalog: str, name: str, paths: list[str]) -> str:
     at_root = any(kind == "root" for kind, _ in places)
     kept = [d for d in holders + skills if keeps_one(d)]
     if not holders and not kept:
-        return (f"`{name}`: no --catalog or --keep-copies-under picks one of its copies (they sit "
+        picks_flag = "no --keep-copies-under" if all_vs_all else "no --against or --keep-copies-under"
+        return (f"`{name}`: {picks_flag} picks one of its copies (they sit "
                 "at the catalog root or one inside another's directory): dedupe or rename them.")
     keeps = " or ".join(f"--keep-copies-under {d}" for d in kept)
     where = [f"under {d}" for d in holders] + [f"in the skill directory {d}" for d in skills]
     if at_root:
         where.append("at the catalog root")
-    if holders:
-        picks = " or ".join(f"--catalog {os.path.join(catalog, d)}" for d in holders)
-        text = (f"`{name}`: copies sit {' and '.join(where)}: point --catalog at one of those "
+    if holders and all_vs_all:
+        picks = " or ".join(f"catalog routing {os.path.join(catalog, d)}" for d in holders)
+        text = (f"`{name}`: copies sit {' and '.join(where)}: run one of those directories as its "
+                f"own catalog ({picks})"
+                + (f", or keep only one directory's copies with {keeps}." if kept else "."))
+    elif holders:
+        picks = " or ".join(f"--against {os.path.join(catalog, d)}" for d in holders)
+        text = (f"`{name}`: copies sit {' and '.join(where)}: point --against at one of those "
                 f"directories ({picks})"
                 + (f", or keep only one directory's copies with {keeps}." if kept else "."))
     else:
@@ -168,7 +175,7 @@ def _copy_place(path: str, catalog: str) -> tuple[str, str]:
     ``skill``: a skill directory directly beneath the catalog, e.g. ``review/SKILL.md``; the
     directory is the skill's own, and ``--keep-copies-under`` keeps it. ``holder``: a skill
     directory under another directory, e.g. ``skills/review/SKILL.md``; the directory holds it,
-    and both ``--catalog`` and ``--keep-copies-under`` take it.
+    and both ``--against`` and ``--keep-copies-under`` take it.
     """
     rel = Path(os.path.relpath(os.path.abspath(path), os.path.abspath(catalog)))
     if len(rel.parts) <= 1:
@@ -183,17 +190,15 @@ def no_competitors_conflict(args: argparse.Namespace, conflicts: dict[str, list[
     names = ", ".join(f"`{n}`" for n in sorted(conflicts))
     return ("routing needs competitors, and the catalog left none in the field: " + names
             + " have copies with different content, so the field leaves them out. "
-            + conflict_hint(args.catalog, conflicts)
+            + conflict_hint(args.catalog, conflicts, bool(getattr(args, "all_vs_all", False)))
             + " Selecting from one candidate measures whether the model will use a tool at "
             "all, not whether this artifact wins")
 
 
 def check_all_vs_all_args(args: argparse.Namespace) -> None:
-    """Refuse the flag combinations ``--all-vs-all`` cannot run with, and name every missing flag."""
-    if args.artifact:
-        raise InputError("--all-vs-all takes no --artifact: every skill in the field is the gold in turn")
+    """Refuse the flag combinations ``catalog routing`` cannot run with, and name every missing flag."""
     if args.queries or args.queries_from_headings:
-        raise InputError("--all-vs-all takes --queries-by-skill, not --queries or --queries-from-headings")
+        raise InputError("catalog routing takes --queries-by-skill, not --queries or --queries-from-headings")
     # --out is not needed to estimate, which writes nothing, as a single-artifact estimate.
     missing = {}
     if not args.queries_by_skill:
@@ -202,12 +207,12 @@ def check_all_vs_all_args(args: argparse.Namespace) -> None:
     if not args.out and not args.estimate_only:
         missing["--out <file>"] = "where the result is written"
     if missing:
-        raise InputError(f"--all-vs-all needs {' and '.join(missing)}: "
+        raise InputError(f"catalog routing needs {' and '.join(missing)}: "
                          + "; ".join(f"{flag} is {what}" for flag, what in missing.items()))
     if args.out and not args.estimate_only:
         from dokimi.commands.novelty_routing_inputs import checked_out_path
 
-        checked_out_path(args.out, "--all-vs-all")
+        checked_out_path(args.out, "catalog routing")
 
 
 def check_all_vs_all_field(args: argparse.Namespace, field: list, dropped: dict[str, set[str]],
@@ -223,8 +228,8 @@ def check_all_vs_all_field(args: argparse.Namespace, field: list, dropped: dict[
     if len(field) >= 2:
         return
     left = _left_out_list(_left_out_only(dropped, field))
-    hint = f" {conflict_hint(args.catalog, conflicts)}" if conflicts else ""
-    raise InputError("all-vs-all needs at least two skills in the field"
+    hint = f" {conflict_hint(args.catalog, conflicts, bool(getattr(args, 'all_vs_all', False)))}" if conflicts else ""
+    raise InputError("catalog routing needs at least two skills in the field"
                      + (f": the field leaves out {left}" if left else "") + "." + hint)
 
 
@@ -336,7 +341,7 @@ def print_routing_estimate(args: argparse.Namespace, candidates: list, queries: 
     """
     from dokimi.novelty.routing import selection_estimate
 
-    # Without --model there is no selector, so no call is made, whatever --repeats says.
+    # Without --model there is no selector, so no call is made, whatever --reps says.
     estimate = selection_estimate(candidates, queries,
                                   repeats=args.repeats if args.model else 0)
     _print_estimate(args, candidates, queries, estimate)

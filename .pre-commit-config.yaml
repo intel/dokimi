@@ -39,9 +39,9 @@ repos:
         # so CI catches a conflict marker committed by mistake.
         args: [--assume-in-merge]
       - id: check-added-large-files
-        # Every file, not only newly added ones (500 KB limit), so CI checks too. The generated CLI snapshot is
-        # the one exception: it grows with every CLI command, and review reads its diff, not its size.
+        # Every file, not only newly added ones (500 KB limit), so CI checks too.
         args: [--enforce-all]
+        # The CLI snapshot is generated and pinned by its own test; it grows with each leaf.
         exclude: ^dokimi/docs/reference/cli-interface\.json$
 
   - repo: https://github.com/zizmorcore/zizmor-pre-commit

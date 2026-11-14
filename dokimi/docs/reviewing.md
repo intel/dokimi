@@ -42,16 +42,19 @@ litellm has no price for such a model, so cost is reported as unknown and
 `novelty --max-usd` stops the run after its first call.
 
 The judge must be a different model from the one under measurement, because a
-model that grades its own answers inflates the scores. `novelty` refuses a
-self-judge; `arms run` and `subjects run` warn on stderr and do not refuse, so name
+model that grades its own answers inflates the scores. `novelty`, `arms run` and
+`subjects run` refuse a judged run whose default judge is the model under measurement:
+the command exits 2 with `pass --judge-model as well`, so name
 `--judge --judge-model <other> --judge-provider <judge-provider>` yourself.
+For `arms run` and `subjects run`, an explicit `--judge-model` equal to the answerer only warns on stderr.
+`novelty` does not: it refuses that judge unless you also pass `--allow-self-judge`.
 
 ## A skill
 
 | Step | Command | Cost |
 |---|---|---|
 | 1. Does it load? | `dokimi catalog check --root <catalog> --kind skills [--strict]` | free |
-| 2. Is it ever picked? | `dokimi novelty routing --artifact skill:<dir> --catalog <catalog> --queries queries.json [--model …]` | free without `--model` |
+| 2. Is it ever picked? | `dokimi skill routing skill:<dir> --against <catalog> --queries queries.json [--model …]` | free without `--model` |
 | 3. What will step 4 cost? | `dokimi skill novelty analyze --artifact skill:<dir> --tier triage --include-resources --estimate-only` | free |
 | 4. What does it add? | the same command without `--estimate-only`, plus `--model`, `--provider`, `--judge-model` and `--max-usd` | ~100 calls |
 | 5a. Do answers improve? | `dokimi arms run --product <p> --questions <set.json> --arms baseline,skill:<dir> --model <model> --provider <provider> --judge --judge-model <judge-model> --judge-provider <judge-provider>` | one answer and one grade per question and arm |
@@ -59,7 +62,7 @@ self-judge; `arms run` and `subjects run` warn on stderr and do not refuse, so n
 
 - **Competitors** are the other skills an agent sees next to this one when it
   picks a skill to load. For a catalog skill they are its siblings in the
-  same catalog: `--catalog <dir>` takes every other skill the catalog lists: a root
+  same catalog: `--against <dir>` takes every other skill the catalog lists: a root
   `skills.yaml` decides what it lists; without one, every `SKILL.md` under it
   counts except a `template/` copy (vendored and VCS directories such as `.git`,
   `node_modules`, `site-packages` and virtualenvs are not walked). A
@@ -77,13 +80,14 @@ self-judge; `arms run` and `subjects run` warn on stderr and do not refuse, so n
   tiers cost 5–20 times more, so run them only when whoever asked agrees to
   the bill. Pass `--max-usd` to `novelty` steps: the run stops once it has
   spent that much (calls in flight can overshoot), writes no artifact when the
-  cap trips (except `novelty routing --model`, `atoms` and `probe`, which save
-  the calls they made as a `partial` result), and stops at the first call to a
-  model with no known price. Set the cap above the expected dollar spend: the
-  triage example below was about $1.80. `arms run` and `tasks run` have no cap,
-  so size them first: questions times arms, or tasks times harnesses. One
-  measured example: triage on a 19k-token skill with a mid-size model was 103
-  calls, about $1.80; `study` on the same skill was 1,900 calls, about $14.50.
+  cap trips (except `skill routing --model`, `catalog routing --model`, `atoms` and `probe`, which save the calls they made as
+  a `partial` result), and stops at the first call to a model with no known
+  price. Set
+  the cap above the expected dollar spend: the triage example below was about
+  $1.80. `arms run` and `tasks run` have no cap, so size them first: questions
+  times arms, or tasks times harnesses. One measured example: triage on a
+  19k-token skill with a mid-size model was 103 calls, about $1.80; `study` on
+  the same skill was 1,900 calls, about $14.50.
 - **At triage** with `--include-resources`, the 25-atom cap strides over the
   concatenated atom list of the files the budgets selected, in file order, so
   `references/` can be probed, but a file with few atoms may get no probe: with
@@ -112,7 +116,8 @@ The full path with reading notes: [skill-novelty-walkthrough.md](skill-novelty-w
 With no `repo-eval.yaml` in the repository, steps 1 and 2 check the default
 guidance globs (`<repo>/**/AGENTS.md`, `<repo>/**/CLAUDE.md`,
 `<repo>/.github/copilot-instructions.md`, `<repo>/.github/instructions/*.md`)
-and say so.
+and say so; step 1 also checks the `.claude/rules` files, `@` imports and `CLAUDE.local.md`
+that Claude Code loads with them.
 To choose the files for `scan`, write a guidance-only manifest outside the tree and pass
 it with `--manifest-file`:
 

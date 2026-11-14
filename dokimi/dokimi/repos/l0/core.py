@@ -25,6 +25,7 @@ from ..source import RepoTree, SourceError
 from . import branches, workflows
 from .gitignore import GitIgnore, Rule
 from .markdown import PYTHON_LANGS, SHELL_LANGS, STARLARK_LANGS, Fence, split
+from .rule_links import loaded_text, rule_link_targets
 
 # Files whose words are prose, not code: an identifier found only there is not in the code.
 # Build inputs that happen to end in .txt are code.
@@ -126,6 +127,7 @@ class Scan:
     adapters: frozenset[str]
     repo_url: str | None = None
     guidance: tuple[str, ...] = ()
+    guidance_globs: tuple[str, ...] = ()
     claims: list[Claim] = field(default_factory=list)
 
     def __post_init__(self) -> None:
@@ -139,6 +141,7 @@ class Scan:
         self.by_name: dict[str, list[str]] = {}  # basename -> files and directories
         for x in sorted(self.file_set | (self.dir_set - {"."})):
             self.by_name.setdefault(posixpath.basename(x), []).append(x)
+        self._rule_targets = rule_link_targets(self.tree, self.files, self.guidance_globs)
         self._texts: dict[str, str] = {}
         self.unread: dict[str, str] = {}  # path -> why it was not read (binary, too big, dangling link)
         self._words: set[str] | None = None
@@ -157,7 +160,8 @@ class Scan:
         missing = [p for p in paths if p not in self._texts and p not in self.unread and p in self.file_set]
         if missing:
             skip = {} if skipped is None else skipped
-            self._texts.update(self.tree.read_many(missing, skipped=skip))
+            self._texts.update({p: loaded_text(p, t, self._rule_targets)
+                                for p, t in self.tree.read_many(missing, skipped=skip).items()})
             self.unread.update(skip)
 
     def text(self, path: str) -> str:
