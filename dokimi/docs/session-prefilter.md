@@ -24,7 +24,7 @@ python cli.py trace prefilter AGENTS.md "$HOME/.claude/projects/<project>/*.json
 
 The guidance file is split into rules with the span segmentation the novelty
 layer uses (`dokimi/novelty/spans.py`): each sentence, list item or table row
-that has a keyword is a claim. Headings, a table's header row and code blocks are not claims. No
+that has a keyword is a claim. Headings, a table's header row, code blocks and an opening YAML frontmatter block (`---` ... `---` at the start of the file, as in a SKILL.md) are not claims. No
 model is called; every match is lexical.
 
 ## What is measured per rule
