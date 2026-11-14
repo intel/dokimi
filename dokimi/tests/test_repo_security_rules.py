@@ -84,6 +84,15 @@ def test_an_escaped_backslash_before_a_newline_still_ends_the_command():
     assert "privilege-escalation" in _rules(sec.command_findings("echo done \\\\\nsudo id", "trace"))
 
 
+@pytest.mark.parametrize("text", ['bash -c "sudo id"', "sh -c 'sudo id'", "bash -c 'su - root'", 'echo x && "sudo" id'])
+def test_a_quoted_sudo_fails_the_arm_against_a_clean_baseline(tmp_path, text):
+    for rep in range(10):
+        _cell(tmp_path, "t", "guidance:none", rep, events=[_cmd("ls")])
+        _cell(tmp_path, "t", "skill", rep, events=[_cmd(text)])
+    (skill,) = [a for a in sec.scan_batch(tmp_path, "guidance:none")["arms"] if a["arm"] == "skill"]
+    assert skill["failed"] == ["privilege-escalation"]
+
+
 def test_exec_log_names_the_executable_path_not_a_chosen_argv0():
     log = '1 execve("/bin/rm", ["cleanup", "-rf", "/etc"], 0x0 /* 1 var */) = 0\n'
     assert sec.parse_exec_log(log) == ["/bin/rm -rf /etc", "cleanup -rf /etc"]
