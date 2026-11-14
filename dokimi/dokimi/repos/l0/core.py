@@ -321,7 +321,7 @@ class Scan:
         target = posixpath.normpath(rel).strip("/")
         if "/" not in target:
             hits = self._named(target, rel.endswith("/"))
-            if hits:
+            if hits and not all(self.submodule_of([h]) for h in hits):
                 return "ok_basename", f"bare name; {len(hits)} match(es), e.g. {hits[0]}"
             return "unresolved", "tried " + ", ".join(cands)
         if target.startswith(".."):

@@ -84,11 +84,19 @@ def test_a_file_inside_an_undeclared_submodule_is_unresolved(tmp_path):
 
 @pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
 @pytest.mark.parametrize("gitmodules", [_GITMODULES, None], ids=["declared", "undeclared"])
-def test_a_bare_submodule_name_resolves_the_same_declared_or_not(tmp_path, gitmodules):
+def test_a_bare_submodule_name_is_unresolved_like_its_full_path(tmp_path, gitmodules):
     tree = _tree_with_lone_gitlink(tmp_path, "See `mod/`.\n", gitmodules=gitmodules)
     payload = scan_repo(tree, _manifest())
     claims = {c["claim"]: c["status"] for c in payload["claims"]}
-    assert claims == {"mod/": "ok_basename"}
+    assert claims == {"mod/": "unresolved"}  # as `third_party/mod/`: the snapshot does not hold it
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
+def test_a_bare_name_that_also_matches_a_held_directory_still_resolves(tmp_path):
+    (tmp_path / "docs" / "mod").mkdir(parents=True)
+    (tmp_path / "docs" / "mod" / "x.md").write_text("x", encoding="utf-8")
+    payload = scan_repo(_tree_with_lone_gitlink(tmp_path, "See `mod/`.\n"), _manifest())
+    assert {c["claim"]: c["status"] for c in payload["claims"]} == {"mod/": "ok_basename"}
 
 
 def test_a_symlink_loop_at_a_declared_path_does_not_abort_the_scan(tmp_path, monkeypatch):
