@@ -120,6 +120,33 @@ def test_ctrl_c_starts_no_queued_cell(setup, monkeypatch):
     assert summary["missing"] == [f"fix_add__guidance-raw__m-1__r{r}" for r in (3, 4, 5)]
 
 
+def test_an_interrupt_during_submission_starts_no_queued_cell(setup, monkeypatch):
+    # Ctrl-C lands in the main thread while pool.map is still submitting: the queued cells must not start.
+    started = []
+    calls = []
+    real = repo_runner.run_cell
+    real_submit = repo_runner.ThreadPoolExecutor.submit
+
+    def submit(self, fn, *a, **k):
+        calls.append(1)
+        if len(calls) == 4:
+            time.sleep(0.2)
+            raise KeyboardInterrupt
+        return real_submit(self, fn, *a, **k)
+
+    def run_cell(ctx, task, arm, rep, *args, **kwargs):
+        started.append(rep)
+        time.sleep(0.5)  # both workers busy, cell 3 queued
+        return real(ctx, task, arm, rep, *args, **kwargs)
+
+    monkeypatch.setattr(repo_runner, "run_cell", run_cell)
+    monkeypatch.setattr(repo_runner.ThreadPoolExecutor, "submit", submit)
+    with pytest.raises(KeyboardInterrupt):
+        _run(setup, "--task", "fix_add", "--reps", "5", "--jobs", "2")
+    time.sleep(1)
+    assert sorted(started) == [1, 2]
+
+
 def test_a_force_run_stopped_part_way_does_not_pool_two_executions(setup, monkeypatch, capsys):
     # cfg/code_main_force_crash.cfg: --force with another execution replaced r1, then stopped; r2 kept the old
     # execution and `repo report` pooled both in one row.

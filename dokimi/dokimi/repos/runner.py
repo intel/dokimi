@@ -41,7 +41,7 @@ import sys
 import threading
 import uuid
 from collections import Counter
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
@@ -430,12 +430,22 @@ def run_batch(ctx: EvalContext, tasks: list[Task], arms: list[str], options: lis
             state["spent"] += rec["agent"].get("charged_usd", rec["agent"]["cost_usd"]) or 0.0
         _log_cell(log, name, rec)
 
-    with ThreadPoolExecutor(max(1, jobs)) as pool:
-        list(pool.map(one, cells))
+    _map_cells(one, cells, jobs)
     return {"cells": len(cells), "ran": state["ran"], "skipped": state["skipped"],
             "errors": state["errors"], "budget_stopped": state["budget_stopped"],
             "unsupported": state["unsupported"], "unsupported_tasks": unsupported, "probe_failed": probe_failed,
             "spent_usd": round(state["spent"], 6)}
+
+
+def _map_cells(one: Callable[[Any], None], cells: list[Any], jobs: int) -> None:
+    with ThreadPoolExecutor(max(1, jobs)) as pool:
+        try:
+            list(pool.map(one, cells))
+        except KeyboardInterrupt:
+            # pool.map submits every cell before it returns the iterator that cancels the queue, so an
+            # interrupt during submission would otherwise let the queued cells start while the pool exits.
+            pool.shutdown(wait=False, cancel_futures=True)
+            raise
 
 
 def _refuse_shared_cells(cells: list[tuple[Task, str, AgentOptions, int]]) -> None:
