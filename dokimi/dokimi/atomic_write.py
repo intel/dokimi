@@ -8,6 +8,7 @@ from __future__ import annotations
 import contextlib
 import os
 import threading
+from collections.abc import Callable
 from pathlib import Path
 
 
@@ -19,11 +20,19 @@ def write_text_atomic(path: Path | str, text: str, *, encoding: str = "utf-8") -
     the last one wins. A failed write
     removes its tmp file and leaves the file at ``path`` as it was. Missing parent directories are created.
     """
-    path = Path(path)
+    _publish(Path(path), lambda tmp: tmp.write_text(text, encoding=encoding))
+
+
+def write_bytes_atomic(path: Path | str, data: bytes) -> None:
+    """:func:`write_text_atomic` for bytes, written as they are."""
+    _publish(Path(path), lambda tmp: tmp.write_bytes(data))
+
+
+def _publish(path: Path, write: Callable[[Path], object]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(f".{path.name[:32]}.{os.getpid()}.{threading.get_ident()}.tmp")
     try:
-        tmp.write_text(text, encoding=encoding)
+        write(tmp)
         os.replace(tmp, path)
     except BaseException:
         with contextlib.suppress(OSError):

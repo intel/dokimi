@@ -16,7 +16,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from dokimi.atomic_write import write_text_atomic
+from dokimi.atomic_write import write_bytes_atomic, write_text_atomic
 from dokimi.caching import RESPONSE_CACHE_ENV, store_response
 from dokimi.commands.catalog_probe import _write as write_probe
 from dokimi.metrics.usage import UsageRecord
@@ -36,7 +36,7 @@ def failing_rename(monkeypatch):
     monkeypatch.setattr(os, "replace", boom)
 
 
-def _assert_failed_write_keeps(path: Path, old, call) -> None:
+def _assert_failed_write_keeps(path: Path, old, call, also: dict[Path, str] | None = None) -> None:
     try:
         call()
     except OSError:
@@ -45,6 +45,8 @@ def _assert_failed_write_keeps(path: Path, old, call) -> None:
         assert not path.exists()
     else:
         assert path.read_text(encoding="utf-8") == old
+    for other, text in (also or {}).items():
+        assert other.read_text(encoding="utf-8") == text
     assert not [p for p in path.parent.iterdir() if p.name.endswith(".tmp")]
 
 
@@ -100,15 +102,26 @@ def test_task_json_from_graph_tasks_keeps_the_old_file(tmp_path, monkeypatch, fa
     dest.mkdir()
     path = dest / "task.json"
     path.write_text("OLD\n", encoding="utf-8")
+    (dest / "gold.json").write_text("OLD GOLD\n", encoding="utf-8")
     _assert_failed_write_keeps(path, "OLD\n",
-                               lambda: graph_tasks.write(plan, SimpleNamespace(out=tmp_path), {}))
+                               lambda: graph_tasks.write(plan, SimpleNamespace(out=tmp_path), {}),
+                               also={dest / "gold.json": "OLD GOLD\n"})
 
 
 def test_task_json_from_replay_build_keeps_the_old_file(tmp_path, failing_rename):
     path = tmp_path / "task.json"
     path.write_text("OLD\n", encoding="utf-8")
+    (tmp_path / build.GOLD).write_text("OLD GOLD\n", encoding="utf-8")
+    (tmp_path / build.PATCH).write_text("OLD PATCH\n", encoding="utf-8")
     _assert_failed_write_keeps(path, "OLD\n",
-                               lambda: build._write(tmp_path, {"id": "t1"}, [], b""))
+                               lambda: build._write(tmp_path, {"id": "t1"}, [], b"NEW PATCH\n"),
+                               also={tmp_path / build.GOLD: "OLD GOLD\n", tmp_path / build.PATCH: "OLD PATCH\n"})
+
+
+def test_bytes_are_published_as_they_are(tmp_path):
+    path = tmp_path / "change.patch"
+    write_bytes_atomic(path, b"a\r\nb\n")
+    assert path.read_bytes() == b"a\r\nb\n"
 
 
 def test_task_json_from_replay_authoring_keeps_the_old_file(tmp_path, failing_rename):

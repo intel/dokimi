@@ -152,7 +152,7 @@ def write(p: Plan, opts: Options, code_index: dict[str, str]) -> None:
         task, gold = _task(o.candidate, p.granularity, opts, code_index)
         dest = opts.out / o.task
         dest.mkdir(parents=True, exist_ok=True)
-        (dest / GOLD).write_text(json.dumps(gold, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        write_text_atomic(dest / GOLD, json.dumps(gold, indent=2, ensure_ascii=False) + "\n")
         write_text_atomic(dest / "task.json", json.dumps(task, indent=2, ensure_ascii=False) + "\n")
 
 
