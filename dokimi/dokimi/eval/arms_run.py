@@ -47,6 +47,10 @@ class _FollowedJudgeProvider(str):
     """The CLI answerer's provider copied into the judge: a matrix cell reverts it."""
 
 
+class _FollowedDefaultJudge(str):
+    """The left-out judge picked on the CLI answerer's CLI: a matrix cell takes the matrix default judge instead."""
+
+
 class DeferredJudge(str):
     """The provider's default judge, left out, where it is the answerer: refused at run start, not at construction.
 
@@ -103,9 +107,10 @@ class ArmsRunConfig:
                 # Construction does not refuse. The provider's default judge stays, and run start refuses it when it is
                 # still the answerer (refuse_deferred_self_judge). A run that does not judge keeps it, as before.
                 model, picked = DeferredJudge(default_judge(None, self.judge_provider)[0]), self.judge_provider
-            object.__setattr__(self, "judge_model", model)
             if provider is None:
+                model = _FollowedDefaultJudge(model)
                 object.__setattr__(self, "judge_provider", picked)
+            object.__setattr__(self, "judge_model", model)
         elif (self.judge and self.matrix_cell is None and self.judge_provider is JUDGE_PROVIDER_DEFAULT
               and cli_backend(self.provider)):
             # An explicit judge model with the provider left out judges on a CLI answerer's CLI, as the left-out one does.
@@ -145,13 +150,15 @@ class MatrixCellError(ValueError):
 
 def cell_config(config: ArmsRunConfig, cell: MatrixCellDescriptor) -> ArmsRunConfig:
     """*config* as matrix cell *cell* runs it: the cell's name, model, provider, harness, plugins."""
-    judge_provider = config.judge_provider
+    judge_model, judge_provider = config.judge_model, config.judge_provider
     # The matrix judge follows no cell's CLI, so the base config's CLI follow reverts to the default.
     if isinstance(judge_provider, _FollowedJudgeProvider):
         judge_provider = JUDGE_PROVIDER_DEFAULT
+    if isinstance(judge_model, _FollowedDefaultJudge):  # left out: the default with no answerer, as the CLI matrix
+        judge_model, judge_provider = default_judge(None, JUDGE_PROVIDER_DEFAULT)[0], JUDGE_PROVIDER_DEFAULT
     return replace(config, matrix_cell=cell.name, model=cell.model, provider=cell.provider,
                    harness=cell.harness, plugins=",".join(cell.plugin_specs),
-                   judge_provider=judge_provider)
+                   judge_model=judge_model, judge_provider=judge_provider)
 
 
 def validate_supported_matrix_harnesses(cells) -> None:

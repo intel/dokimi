@@ -159,6 +159,19 @@ def test_a_library_matrix_judge_is_not_moved_by_an_unused_claude_cli_top_level_p
     assert cell_config(config, api_cell).judge_provider == "anthropic"
 
 
+def test_a_library_matrix_judge_left_out_is_the_cli_matrix_judge_with_a_claude_cli_top_level_provider(tmp_path):
+    args = parse_args(["arms", "matrix-run", "--product", "p", "--questions", "q.jsonl", "--arms", "a.json",
+                       "--matrix-cells", str(tmp_path / "cells.json"), "--judge", "--provider", "claude-cli",
+                       "--model", "sonnet"])
+    assert (args.judge_provider, args.judge_model) == ("anthropic", "claude-sonnet-5-5")
+    config = ArmsRunConfig(product="demo", judge=True, model="sonnet", provider="claude-cli")
+    assert (config.judge_provider, config.judge_model) == ("claude-cli", "opus")  # a single run follows its CLI
+    for model, provider in (("gpt-6.1-sol", "openai"), ("haiku", "claude-cli")):
+        cell = SimpleNamespace(name=provider, model=model, provider=provider, harness="arms-runner", plugin_specs=())
+        copied = cell_config(config, cell)
+        assert (copied.judge_provider, copied.judge_model) == (args.judge_provider, args.judge_model)
+
+
 def test_a_claude_cli_answerer_judges_on_its_cli_when_no_judge_provider_is_named():
     # The CLI's argparse default (anthropic) must not stop the rule from taking the answerer's provider.
     args = parse_args([*COMMANDS["arms run"], "--provider", "claude-cli", "--model", "sonnet", "--judge"])
