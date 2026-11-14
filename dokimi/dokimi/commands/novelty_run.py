@@ -22,10 +22,18 @@ def stops_at_cap(command):
         try:
             command(args)
         except SpendCapReached as exc:
-            # A command that keeps its partial result catches the cap itself and never gets here.
+            # A command that keeps its partial result (atoms, probe, analyze) saves it itself.
             raise SystemExit(f"{exc}; nothing was written") from None
 
     return run
+
+
+def exit_if_analyze_partial(result, out) -> None:
+    """Save and exit when the cap stopped ``analyze`` (``result.partial``); a finished run returns."""
+    from dokimi.commands.novelty_budget import save_analyze_partial
+
+    if result.partial:
+        save_analyze_partial(result, out)
 
 
 def usd_amount(text: str) -> float:

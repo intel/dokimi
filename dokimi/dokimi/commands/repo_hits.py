@@ -10,6 +10,7 @@ import argparse
 import contextlib
 import json
 import sys
+import traceback
 from collections import Counter
 from collections.abc import Iterator
 from pathlib import Path
@@ -54,12 +55,27 @@ def _read(batch_dir: Path, args: argparse.Namespace) -> tuple[dict[str, Any], li
     return found, pairs, labels
 
 
-def _stopped(exc: Exception, done: Any, code: int, more: str = "") -> NoReturn:
-    """A ``✗`` line for a run :func:`.hits_judge.judge_cells` stopped: the calls made, their cost, what stays."""
+def _cost(meter: Any, max_usd: float | None) -> dict[str, Any]:
+    """The envelope's ``cost`` for a judge run: what the calls spent against ``--max-usd``, if one was given."""
+    spent = round(meter.spent_usd, 6)
+    return {"spent_usd": spent, "calls": meter.calls, "cap_usd": max_usd,
+            "remaining_usd": None if max_usd is None or meter.unpriced else round(max(max_usd - spent, 0.0), 6),
+            "priced": None if not meter.calls else not meter.unpriced}
+
+
+def _stopped(exc: Exception, done: Any, code: int, args: argparse.Namespace, more: str = "") -> NoReturn:
+    """A ``✗`` line for a run :func:`.hits_judge.judge_cells` stopped: the calls made, their cost, what stays.
+    With ``--json`` the failed document carries that cost too (the exit-code fallback would report $0)."""
     from dokimi.repos.hits_judge import HITS_JUDGED
 
     print(f"✗ {exc}; stopped there after {done.meter.calls} judge call(s), {done.meter.spend()}; "
           f"the {len(done.docs)} cell(s) written before keep their {HITS_JUDGED}{more}", file=sys.stderr)
+    if args.json:
+        from dokimi import cli_output
+
+        error = cli_output.error_object("input", str(exc)) if code == EXIT_USAGE else None
+        cli_output.emit(cli_output.envelope("repo hits judge", run_id=cli_output.current_run_id(), status="failed",
+                                            reason=str(exc), error=error, cost=_cost(done.meter, args.max_usd)))
     sys.exit(code)
 
 
@@ -89,26 +105,61 @@ def cmd_repo_hits_judge(args: argparse.Namespace) -> None:
     if args.dry_run:  # writes nothing: no lock
         found, pairs, _ = _read(batch_dir, args)
         planned = estimate(found, pairs, args.judge)
-        print(json.dumps(planned, indent=2) if args.json else format_estimate(planned))
+        if args.json:
+            from dokimi import cli_output
+
+            cli_output.emit_leaf("repo hits judge", planned)
+        else:
+            print(format_estimate(planned))
         return
     with _locked(batch_dir):  # before the pairs are read, so a `repo run` cannot change them mid-run
         _judge(batch_dir, args)
 
 
+def _failed_after_calls(exc: Exception, done: Any, args: argparse.Namespace, code: str, message: str) -> NoReturn:
+    """A failure after the judge's calls, with --json: the document carries the cost of those calls, so a $0
+    document does not say the run was free and safe to retry. The exit code is the one main gives ``code``
+    (input 2; infra 5, with the traceback on stderr as a crash has)."""
+    from dokimi import cli_output
+
+    if code == "infra":
+        traceback.print_exc()
+    cli_output.emit(cli_output.error_document("repo hits judge", code, message, run_id=cli_output.current_run_id(),
+                                              reason=message, cost=_cost(done.meter, args.max_usd)))
+    sys.exit(cli_output.EXIT_OF_ERROR[code])
+
+
 def _judge(batch_dir: Path, args: argparse.Namespace) -> None:
+    from dokimi import llm_cli
     from dokimi.repos.hits_calibration import calibrate
-    from dokimi.repos.hits_judge import HitsWriteError, JudgeFailing, format_summary, judge_cells, summary
+    from dokimi.repos.hits_judge import HitsWriteError, JudgeFailing, Judged, Meter, format_summary, judge_cells, summary
 
     found, pairs, labels = _read(batch_dir, args)
+    done = Judged(meter=Meter(args.max_usd))  # made here, so a crash after the calls still knows what they cost
     try:
-        done = judge_cells(batch_dir, found, pairs, args.judge, args.max_usd)
+        judge_cells(batch_dir, found, pairs, args.judge, args.max_usd, done=done)
+        calibration = calibrate(labels, done.labels(), pairs) if labels is not None else None
+        result = summary(found, pairs, args.judge, done, calibration)
     except HitsWriteError as exc:  # an output write, as `sheet`'s: exit 2
-        _stopped(exc, exc.done, EXIT_USAGE)
+        _stopped(exc, exc.done, EXIT_USAGE, args)
     except JudgeFailing as exc:  # the provider refuses every call (an auth error, a missing key): exit 1
-        _stopped(exc, exc.done, EXIT_FAILURE, ", and the cell in progress gets none")
-    calibration = calibrate(labels, done.labels(), pairs) if labels is not None else None
-    result = summary(found, pairs, args.judge, done, calibration)
-    print(json.dumps(result, indent=2) if args.json else format_summary(result))
+        _stopped(exc, exc.done, EXIT_FAILURE, args, ", and the cell in progress gets none")
+    except (InputError, llm_cli.SamplingError) as exc:  # bad input, not a bug: exit 2 as main reports it
+        if args.json:
+            _failed_after_calls(exc, done, args, "input", str(exc) or type(exc).__name__)
+        raise
+    except Exception as exc:
+        if not args.json:
+            raise
+        _failed_after_calls(exc, done, args, "infra", f"{type(exc).__name__}: {exc}")
+    if args.json:
+        from dokimi import cli_output
+
+        cli_output.emit_leaf("repo hits judge", result, status="budget_stopped" if done.stopped else "complete",
+                             reason=(done.meter.stop or "the judge stopped before every cell was judged") if done.stopped else None,
+                             cost=_cost(done.meter, args.max_usd))
+    else:
+        print(format_summary(result))
     if done.stopped:  # as repo run: a cap that left work undone is not a finished run
         sys.exit(EXIT_FAILURE)
 
@@ -163,8 +214,8 @@ def register(repo_sub, positive_int, usd: Callable[[str], float]) -> None:
                          "be enforced (drop --max-usd to run unmetered)")
     judge_p.add_argument("--dry-run", action="store_true", dest="dry_run",
                          help="Count the pairs and estimate the cost at list price; make no call")
-    judge_p.add_argument("--json", action="store_true", help="Print the summary as JSON")
-    judge_p.set_defaults(func=cmd_repo_hits_judge)
+    judge_p.add_argument("--json", action="store_true", help="Print cli_output.v1 on stdout (the summary under data)")
+    judge_p.set_defaults(func=cmd_repo_hits_judge, emits_cli_output=True, cli_kind="repo hits judge")
 
     sheet_p = hits_sub.add_parser(
         "sheet", help="Write a JSON list of credited pairs with their full texts and `label: null` for a person "

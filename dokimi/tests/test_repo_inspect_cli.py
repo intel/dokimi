@@ -35,7 +35,7 @@ def test_cli_json_prints_the_stamped_payload(tmp_path, capsys):
     _repo(tmp_path, {"AGENTS.md": "x"})
     args = build_parser().parse_args(["repo", "inspect", str(tmp_path), "--json"])
     args.func(args)
-    data = json.loads(capsys.readouterr().out)
+    data = json.loads(capsys.readouterr().out)["data"]
     assert data["schema_version"] == "repo_environment.v1"
     validate_artifact("repo_environment", data)
 

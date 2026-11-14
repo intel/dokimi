@@ -173,7 +173,7 @@ def run_benchmark(root: Path, spec_path: Path) -> dict:
             "soft": {
                 "enabled": gate_result.enabled,
                 "passed": gate_result.passed,
-                "min_score": gate_result.min_score,
+                "min_score": gate_result.require("score").threshold,
             }
         },
         "run_manifest": build_run_manifest(spec_path=spec_path, doc_paths=docs),
