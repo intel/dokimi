@@ -729,11 +729,14 @@ others are named on stderr.
 
 `--estimate-only` prints, as JSON, the calls, input and output tokens and the list-price `expected_usd` the
 `--model` arm would make, and makes no model call. Without `--model` the run is lexical and the bill
-is zero. Input is the selection prompt sized at chars / 4, so it is a projection, not a count.
-Output is `output_tokens_per_call` (65) times the calls: the average a measured routing run billed per
-selection call (360 calls drew 23.3k output tokens). The prompt asks for one `{"pick": N}` object, about
-10 tokens, which underestimated that run 6.5 times, so the estimate does not use it. Another model, or a
-reasoning model, can bill more or less.
+is zero. Input is the selection prompt sized at `chars_per_input_token` (2.6) characters per token, counted
+locally with no tokenizer, so it is a projection, not a count. Output is `output_tokens_per_call` (150) times
+the calls: one flat allowance, inside the 114 to 193 tokens a call that Sonnet 5.5 and Haiku 5.5 billed.
+The prompt asks for one `{"pick": N}` object, about 10 tokens, which underestimated a measured run 6.5
+times, so the estimate does not use it. Both allowances come from one measured catalog (35 skills, 90
+queries, Bedrock): with chars / 4 and 65 tokens the estimate was about 1.55x below the bills there. Another
+model, a catalog of other text, or a reasoning model can bill more or less, so read the figure as an
+estimate, not a bound. The command prints both allowances.
 
 Two numbers, reported side by side and never merged:
 
@@ -824,11 +827,13 @@ so count the queries first, or pass `--max-usd` to stop the run at a spend limit
 A stored response in `DOKIMI_RESPONSE_CACHE` is replayed without a call, so a rerun can make
 fewer calls than the printed count.
 
+**A permanent provider error that every call would meet stops a routing run the way the cap does.** An authentication or permission error, an unknown model ID (`not found`), a parameter the provider does not take (every call sends the same ones) or missing credentials (with `claude-cli`: not logged in, a usage limit, no `claude` binary) would fail every later call alike, so the run stops at that call, keeps the rows made before it and writes the partial result below, with `"reason": "permanent_error"` and the error text as the message (`--max-usd` is not involved; the exit line gives `calls_done` of `calls_planned`). Any other failure is one failed row and the run goes on: a refusal, a request one query makes too long, an unparseable reply, an error the client does not recognise, a transient error that ran out of retries.
+
 **A routing run stopped by `--max-usd` keeps what it paid for.** `skill routing --model`, single
 artifact or `catalog routing`, writes the result of the calls made before the cap (or a call with no
 known price) stopped it, prints the summary and `cost` lines, and still exits non-zero with the
 cap message and the path of the file. The file carries
-`"partial": {"reason": "spend_cap", "calls_done": N, "calls_planned": M, "message": ...}` at the
+`"partial": {"reason": "spend_cap", "calls_done": N, "calls_planned": M, "message": ...}` (`"permanent_error"` for the stop above) at the
 top level (and under the model arm), and no `partial` key when the run finished. The record's
 `status` is then `"partial"` instead of `"ok"` (a single run; an all-vs-all file carries `status`
 only when partial), so a script that checks `status == "ok"` does not take a prefix of the run for
