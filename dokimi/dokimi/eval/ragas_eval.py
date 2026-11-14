@@ -48,9 +48,9 @@ def _key(provider: str, api_key: Optional[str] = None) -> Optional[str]:
         ValueError: the ``file:`` key is unreadable or names an empty file. Given ``None``,
             langchain would read the variable itself and send the ``file:`` string.
     """
-    key = resolve_api_key(provider, api_key)
-    if key is None and (api_key or os.environ.get(credential_env_var(provider))):
-        source = "api_key" if api_key else credential_env_var(provider)
+    key, var = resolve_api_key(provider, api_key), credential_env_var(provider)
+    if key is None and (api_key or (var and os.environ.get(var))):
+        source = "api_key" if api_key else var
         raise ValueError(f"{source} for provider {provider} names an empty key file")
     return key
 

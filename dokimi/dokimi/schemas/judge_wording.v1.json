@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/intel/dokimi/schemas/judge_wording.v1.json",
+  "title": "Judge wording sensitivity report v1",
+  "description": "The `--output` of `eval judge wording`: how far a judge's verdicts move when its prompt is reworded, measured against the noise floor of re-draws on the same pairs. `judge_temperature` is added by the command.",
+  "type": "object",
+  "required": ["schema_version"],
+  "properties": {
+    "schema_version": {"const": "judge_wording.v1"},
+    "run_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}(?![\\s\\S])", "description": "The envelope: the id of the run that saved this file (dokimi.artifacts.run_id). Absent from files saved before the envelope."},
+    "dokimi_version": {"type": "string", "minLength": 1, "description": "The envelope: the dokimi version that saved this file. Absent from files saved before the envelope."},
+    "judge_temperature": {"type": ["number", "null"], "description": "The sampling temperature the judge ran at; added by the command."},
+    "summary": {"type": "object", "description": "The judge, the conditions, and the per-variant agreement and fragility."},
+    "reports": {"type": "object", "description": "One report per condition, keyed by the condition name."}
+  }
+}

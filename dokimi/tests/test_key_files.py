@@ -67,6 +67,42 @@ def test_preflight_names_the_variable_dokimi_llm_reads(provider, tmp_path, monke
     assert _credential_error(provider) is None
 
 
+def test_preflight_does_not_ask_an_off_table_provider_for_the_openai_key(monkeypatch):
+    # litellm reads azure's own key (AZURE_API_KEY); the preflight cannot know which variable.
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    assert _credential_error("azure") is None
+
+
+@pytest.mark.parametrize("provider", ["azure", "mistral"])
+def test_panel_judge_configs_do_not_send_the_openai_key_off_the_table(provider, tmp_path, monkeypatch):
+    import json
+
+    import litellm
+
+    sent = []
+    reply = ('{"reasoning":"r","correctness":80,"completeness":80,"specificity":80,'
+             '"code_quality":80,"actionability":80,"aggregate":80}')
+    message = types.SimpleNamespace(content=reply)
+
+    def completion(**kw):
+        sent.append(kw.get("api_key"))
+        return types.SimpleNamespace(choices=[types.SimpleNamespace(message=message)], usage=None)
+
+    monkeypatch.setattr(litellm, "completion", completion)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-openai-must-not-leave")
+    monkeypatch.delenv("AZURE_API_KEY", raising=False)
+    monkeypatch.delenv("MISTRAL_API_KEY", raising=False)
+    answers = tmp_path / "answers.json"
+    answers.write_text(json.dumps([{"question_id": "Q1", "question_text": "q", "question": "q",
+                                    "with_docs": {"answer": "w"}, "without_docs": {"answer": "wo"}}]))
+    args = cli.build_parser().parse_args(
+        ["eval", "score", "panel", "--product", "L", "--answers", str(answers), "--output",
+         str(tmp_path / "panel.json"), "--judge-configs", f"technical_expert:m:{provider}",
+         "--concurrency", "1"])
+    args.func(args)
+    assert sent and "sk-openai-must-not-leave" not in sent
+
+
 @pytest.fixture
 def ragas_stubs(monkeypatch):
     """Stub ragas and the LangChain classes, recording each chat model and embeddings built."""
