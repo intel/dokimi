@@ -19,6 +19,7 @@ Fixtures are hand-written from the upstream shapes the importers cite:
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from unittest import mock
 
@@ -570,6 +571,35 @@ def test_eval_reference_cli_without_judge_on_an_arms_run(tmp_path):
     data = json.loads(out.read_text())
     assert (data["judge_model"], data["judge_provider"]) == ("reference", "reference")
     assert data["evaluations"][0]["scores"]["baseline"]["passed"] is True
+
+
+@pytest.mark.parametrize("content", [b"", b"not json", bytes.fromhex("fffe007b"), None, "directory", "device"],
+                         ids=["empty", "not-json", "not-utf8", "missing", "directory", "device"])
+def test_eval_reference_cli_refuses_an_unparseable_answers_file(tmp_path, content):
+    from tests.cli_refusal import refusal
+
+    q = tmp_path / "q.json"
+    q.write_text(json.dumps({"questions": []}))
+    a = tmp_path / "a.json"
+    if content == "directory":
+        a.mkdir()
+    elif content == "device":
+        if sys.platform == "win32":
+            pytest.skip("/dev/null is a POSIX device")
+        a = Path("/dev/null")
+    elif content is not None:
+        a.write_bytes(content)
+    out = tmp_path / "e.json"
+    args = build_parser().parse_args(["eval", "score", "reference", "--answers", str(a), "--questions", str(q),
+                                      "-o", str(out), "--no-judge"])
+    with refusal() as outcome:
+        args.func(args)
+    assert outcome.code == 2
+    assert f"Error: --answers {a}:" in outcome.err
+    assert "Traceback" not in outcome.err
+    if content == "device":
+        assert "not a file" in outcome.err
+    assert not out.exists()
 
 
 def test_arms_run_sends_a_verbatim_question_unwrapped(monkeypatch, demo_skill):
