@@ -10,7 +10,11 @@ from pathlib import Path
 
 import pytest
 
+from dokimi.cli import build_parser
+from dokimi.commands import benchmark
 from dokimi.orchestrator.pipeline import EvaluationPipeline
+from dokimi.registry import ProductEntry
+from tests.cli_refusal import refusal
 
 
 def _write_json(path: Path, data: object) -> None:
@@ -51,3 +55,31 @@ def test_an_empty_question_set_fails_the_run_before_any_model_call(tmp_path, mon
         pipeline.run(concurrency=1)
 
     assert not pipeline.eval_path.exists()
+
+
+class _Registry:
+    def get(self, key: str) -> ProductEntry:
+        return ProductEntry(key=key, name="oneTBB", description="Threading Building Blocks", doc_sources=["local:docs"])
+
+
+def test_an_empty_cached_question_set_is_an_input_refusal_before_any_model_call(tmp_path, monkeypatch):
+    """`benchmark run` over an output directory whose cached set is empty exits 2, not 5, and discovers no personas."""
+    out = tmp_path / "out"
+    _write_json(out / "questions" / "onetbb.json", {"questions": []})
+    monkeypatch.setenv("OPENAI_API_KEY", "test")
+
+    def no_personas(self):
+        raise AssertionError("no personas should be discovered for an empty cached question set")
+
+    monkeypatch.setattr(EvaluationPipeline, "_discover_personas", no_personas)
+    monkeypatch.setattr(benchmark, "_load_registry", lambda args: _Registry())
+    args = build_parser().parse_args([
+        "benchmark", "run", "--library", "onetbb", "--out-dir", str(out), "--provider", "openai",
+        "--judge-provider", "openai", "--judge-model", "judge-x",
+    ])
+
+    with refusal() as outcome:
+        benchmark.cmd_benchmark_run(args)
+
+    assert outcome.code == 2
+    assert "Error: No questions to answer" in outcome.err

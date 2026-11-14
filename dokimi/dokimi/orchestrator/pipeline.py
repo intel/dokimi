@@ -559,11 +559,17 @@ class EvaluationPipeline:
         """
         self._custom_questions: Optional[List[Dict[str, Any]]] = None
         if self.external_questions_path is not None:
-            return load_questions_payload(self.external_questions_path, "--questions-from")
-        if (not self.force_regen) and self.questions_path.exists():
-            return load_questions_payload(self.questions_path)
-        self._custom_questions = self._load_custom_questions()
-        return None
+            path = self.external_questions_path
+            reused = load_questions_payload(path, "--questions-from")
+        elif (not self.force_regen) and self.questions_path.exists():
+            path = self.questions_path
+            reused = load_questions_payload(path)
+        else:
+            self._custom_questions = self._load_custom_questions()
+            return None
+        if not reused:  # an empty reused set is a bad input (exit 2), refused before persona discovery
+            raise InputError(f"No questions to answer: {path} has no questions")
+        return reused
 
     def _load_custom_questions(self) -> List[Dict[str, Any]]:
         """The --custom-questions (or auto-included golden) set, tagged ``source_type: manual``.
