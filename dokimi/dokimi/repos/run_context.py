@@ -132,10 +132,17 @@ class _Flags:
 
     def __init__(self, argv: Sequence[str]) -> None:
         words = list(argv[:argv.index("--")]) if "--" in argv else list(argv)
-        self._argv = [part for w in words for part in (w.split("=", 1) if w.startswith("--") and "=" in w else [w])]
+        self._argv: list[str] = []
+        self._attached: set[int] = set()  # indexes of the values written as `--name=value`
+        for w in words:
+            name, eq, attached = w.partition("=") if w.startswith("--") else (w, "", "")
+            self._argv.append(name)
+            if eq:
+                self._attached.add(len(self._argv))
+                self._argv.append(attached)
 
     def has(self, flag: str) -> bool:
-        return flag in self._argv
+        return any(w == flag and i not in self._attached for i, w in enumerate(self._argv))
 
     def values(self, flag: str) -> list[str] | None:
         """Every word the flag takes, empty words dropped; None when the flag is not on the line."""
@@ -143,9 +150,9 @@ class _Flags:
             return None
         found: list[str] = []
         for i, word in enumerate(self._argv):
-            if word == flag:
-                for item in self._argv[i + 1:]:
-                    if item.startswith("-"):
+            if word == flag and i not in self._attached:
+                for j, item in enumerate(self._argv[i + 1:], i + 1):
+                    if item.startswith("-") and j not in self._attached:
                         break
                     found.append(item)
         return [v for v in found if v]

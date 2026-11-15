@@ -135,6 +135,14 @@ def test_a_flag_given_as_name_equals_value_is_read_and_a_prompt_after_the_separa
     assert record["permission_mode"] == {"mode": None, "sandbox": "read-only", "approval": None}
 
 
+def test_a_copilot_prompt_naming_a_bypass_flag_is_a_value_and_not_a_permission():
+    argv = load_profile("copilot").argv(prompt="--dangerously-bypass-approvals-and-sandbox", model="gpt-x",
+                                        tools="read", bin_path="/eval/harness/copilot")
+    record = _build("codex", CODEX_LINES, argv)
+
+    assert record["permission_mode"] == {"mode": None, "sandbox": None, "approval": None}
+
+
 def test_a_config_key_that_only_starts_with_the_effort_key_is_not_the_effort():
     argv = ["codex", "exec", "-c", "model_reasoning_effort_summary=auto", "-c", "model_reasoning_effort=high"]
 
