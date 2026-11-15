@@ -131,7 +131,7 @@ class _Flags:
     variadic one (``--tools``, ``--disallowedTools``) takes all of its list; a flag given twice takes both."""
 
     def __init__(self, argv: Sequence[str]) -> None:
-        self._argv = list(argv)
+        self._argv = list(argv[:argv.index("--")]) if "--" in argv else list(argv)
 
     def has(self, flag: str) -> bool:
         return flag in self._argv
