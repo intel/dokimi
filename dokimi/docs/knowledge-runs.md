@@ -125,7 +125,7 @@ Route B's `--judge` needs no checks: the judge scores each answer on its own.
   `summary.per_arm` (judged arms) holds each condition's own average; `run_metadata.summary`
   (eval) and `reference_scoring.summary` (arms graded by reference) hold its pass rate.
 - `report eval` is for paired runs. On a knowledge run every question is unpaired, so its
-  summary says `No complete pairs` and gives no baseline column. Read the per-condition
+  summary says `No complete pairs` and withholds the baseline mean (it shows `—`). Read the per-condition
   averages above instead.
 - Keep the answerer fixed across the knowledge run and the with-docs run that follows:
   the same `--provider`, `--model`, questions file and judge. A knowledge run made with
