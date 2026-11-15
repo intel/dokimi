@@ -52,6 +52,7 @@ _SEARCHERS = frozenset({"grep", "egrep", "fgrep", "rg", "sed", "awk"})  # the fi
 _WRAPPERS = frozenset({"time", "nohup", "sudo", "command", "exec", "builtin", "nice"})  # each runs the command after it
 _KEYWORDS = frozenset({"if", "then", "else", "elif", "do", "while", "until", "!"})  # shell keywords before a command
 _OPTION_OPERANDS = frozenset({("nice", "-n"), ("sudo", "-u")})  # wrapper options that take a value word
+_VALUE_OPTIONS = frozenset({"-m", "-A", "-B", "-C"})  # a searcher's options whose next word is a value, not an operand
 _PYTHON = re.compile(r"python\d*(?:\.\d+)?|py|pypy\d*")
 _PIP = re.compile(r"pip\d*(?:\.\d+)?")
 _ASSIGN = re.compile(r"[A-Za-z_]\w*=")
@@ -193,9 +194,16 @@ def _stages(part: str) -> list[list[str]]:
     except ValueError:  # an unbalanced quote: the words as they are typed
         tokens = part.split()
     stages: list[list[str]] = [[]]
+    skip = False
     for token in tokens:
-        if token == "|":
+        if skip:  # the target of an output redirection is written, not read
+            skip = False
+        elif token == "|":
             stages.append([])
+        elif token.lstrip("&").startswith(">"):
+            skip = True
+            if stages[-1][-1:] and stages[-1][-1].isdigit():  # ``2>``: the file descriptor
+                stages[-1].pop()
         elif token not in _SEPARATORS and token not in _LEX_SKIP:
             stages[-1].append(token)
     return [stage for stage in stages if stage]
@@ -242,7 +250,7 @@ def _operands(program: str, args: tuple[str, ...]) -> tuple[str, ...]:
         return args
     if "-e" in args:
         return tuple(a for i, a in enumerate(args) if a != "-e" and args[i - 1:i] != ("-e",))
-    first = next((i for i, a in enumerate(args) if not a.startswith("-")), None)
+    first = next((i for i, a in enumerate(args) if not a.startswith("-") and (args[i - 1] if i else "") not in _VALUE_OPTIONS), None)
     return args if first is None else args[:first] + args[first + 1:]
 
 

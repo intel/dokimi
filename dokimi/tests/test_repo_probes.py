@@ -138,6 +138,12 @@ def test_a_search_expression_that_looks_like_a_path_is_no_probe(command):
     assert all(e["kind"] != "probe" for e in events)
 
 
+@pytest.mark.parametrize("command", ["grep -m 1 /proc/cpuinfo README", "cat > /proc/cpuinfo", "cat 2>> /proc/cpuinfo"])
+def test_an_option_value_or_a_redirection_target_is_no_file_the_command_reads(command):
+    events = _claude(_claude_call("a", command, "2026-01-01T00:00:05Z"), _claude_result("a"))
+    assert all(e["kind"] != "probe" for e in events)
+
+
 @pytest.mark.parametrize(("command", "pattern"), [
     ("sudo -E lscpu", "lscpu"),
     ("nice -n 5 nproc", "nproc"),
