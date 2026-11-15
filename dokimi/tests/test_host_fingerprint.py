@@ -152,21 +152,37 @@ def test_macos_without_a_number_from_sysctl_is_an_error_for_that_field_only():
     assert hf.collect(probe)["collectors"]["memory"] == {"error": "sysctl hw.memsize gave no number"}
 
 
-def test_windows_spawns_only_cross_platform_calls_and_reads_no_proc(monkeypatch):
-    monkeypatch.setattr(platform, "processor", lambda: "Intel64 Family 6 Model 140, GenuineIntel")
+def test_windows_spawns_only_cross_platform_calls_and_reads_no_proc():
     which = lambda name: rf"C:\tools\{name}.exe" if name in ("git", "nvidia-smi") else None  # noqa: E731
     calls = {"git --version": "git version 2.45.1.windows.1\n", "nvidia-smi --query-gpu=name,driver_version --format=csv,noheader":
              "NVIDIA RTX A4000, 551.23\n", "nvidia-smi": "CUDA Version: 12.4"}
     probe, runner = _probe(system="Windows", which=which, calls=calls, windows_memory=lambda: 16 * 2**30,
+                           windows_cpu=lambda: ("Intel(R) Core(TM) i7", "GenuineIntel"),
                            files=_files(**{"/proc__meminfo": "MemTotal: 1 kB\n"}))
     out = hf.collect(probe)["collectors"]
     assert out["memory"] == {"total_bytes": 16 * 2**30}
     assert out["cpu"]["vendor"] == "GenuineIntel" and out["cpu"]["flags"] is None
+    assert out["cpu"]["model"] == "Intel(R) Core(TM) i7"
     assert out["tools"]["git"] == "2.45.1" and out["tools"]["docker"] is None
     assert out["gpu"] == {"present": True, "count": 1, "name": "NVIDIA RTX A4000", "driver_version": "551.23",
                           "cuda_version": "12.4"}
     assert out["virt"] == {"container": False, "container_kind": None, "vm": None, "vm_vendor": None}
     assert {argv[0] for argv in runner.argvs()} <= {"git", "nvidia-smi"}  # never sysctl, lscpu, free, cat
+
+
+def test_windows_cpu_model_never_reads_the_processor_identifier_environment_value(monkeypatch):
+    monkeypatch.setenv("PROCESSOR_IDENTIFIER", "GenuineIntel workstation-jdoe")
+    monkeypatch.setattr(platform, "processor", lambda: os.environ["PROCESSOR_IDENTIFIER"])  # CPython's Windows source
+    probe, _ = _probe(system="Windows", windows_memory=lambda: 2**30, windows_cpu=lambda: (None, None))
+    out = hf.collect(probe)
+    assert "workstation-jdoe" not in json.dumps(out)
+    assert out["collectors"]["cpu"]["model"] is None
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="reads the registry on Windows only")
+def test_windows_cpu_is_read_from_the_registry():
+    model, vendor = hf.Probe(system="Windows").windows_cpu()
+    assert model and vendor
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="reads the kernel's memory status on Windows only")
@@ -242,12 +258,18 @@ def test_python_names_the_implementation_and_not_the_executable():
 # ------------------------------------------------------------------ privacy
 
 
-def test_privacy_real_host_and_user_names_and_addresses_never_appear():
-    text = json.dumps(hf.collect(hf.Probe()), sort_keys=True)
+def test_privacy_real_host_and_user_names_and_addresses_never_appear(monkeypatch):
+    monkeypatch.setattr(platform, "release", lambda: "5.15.167.4-microsoft-standard-WSL2")  # a WSL2 kernel release
+    facts = hf.collect(hf.Probe())
+    text = json.dumps(facts, sort_keys=True)
     for secret in {socket.gethostname(), getpass.getuser(), os.path.expanduser("~")}:
         if len(secret) >= 4:
             assert secret not in text, "a host or user name leaked into the fingerprint"
-    assert not re.search(r"\b\d{1,3}(?:\.\d{1,3}){3}\b", text), "an IPv4 address leaked into the fingerprint"
+    # Versions (a four-part kernel release such as 5.15.167.4, a tool version) are dotted quads, not addresses.
+    versions = {"os": ("release",), "python": ("version",), "tools": tuple(hf.TOOLS)}
+    unversioned = {name: {k: v for k, v in c.items() if k not in versions.get(name, ())}
+                   for name, c in facts["collectors"].items() if isinstance(c, dict)}
+    assert not re.search(r"\b\d{1,3}(?:\.\d{1,3}){3}\b", json.dumps(unversioned)), "an IPv4 address leaked"
     assert _paths_in(text) == [], "an absolute path leaked into the fingerprint"
 
 
@@ -275,6 +297,28 @@ def test_error_text_is_scrubbed_of_paths_and_truncated():
     assert len(hf.scrub("x" * 1000)) == 300
 
 
+@pytest.mark.parametrize("text, kept", [
+    ("missing '/home/Jane Doe/private'", "missing '<path>'"),
+    ("missing 'C:\\Users\\Jane Doe\\AppData\\x'", "missing '<path>'"),
+    ("cannot open \\\\server\\users\\jdoe\\file", "cannot open <path>"),
+    ("cannot open '\\\\server\\users\\Jane Doe\\file'", "cannot open '<path>'"),
+    ("no such file ~/secret/x", "no such file <path>"),
+    ("no such file '~/Jane Doe/x'", "no such file '<path>'"),
+])
+def test_scrub_redacts_quoted_unc_and_home_relative_paths_whole(text, kept):
+    assert hf.scrub(text) == kept
+
+
+def test_a_collector_error_naming_a_path_with_a_space_is_stored_without_it(monkeypatch):
+    def boom(probe):
+        raise OSError(2, "No such file", "/home/Jane Doe/private")
+
+    monkeypatch.setattr(hf, "COLLECTORS", {**hf.COLLECTORS, "tools": boom})
+    probe, _ = _probe()
+    error = hf.collect(probe)["collectors"]["tools"]["error"]
+    assert "Jane" not in error and "Doe" not in error and "<path>" in error
+
+
 # ------------------------------------------------------------------ the identity of a host
 
 
@@ -285,6 +329,14 @@ def test_the_fingerprint_id_is_stable_and_ignores_the_network_but_not_the_cpu():
     assert fingerprint_id(facts) == fingerprint_id(moved)
     assert fingerprint_id(facts) != fingerprint_id({**facts, "cpu_model": "Epyc"})
     assert len(fingerprint_id(facts)) == 12
+
+
+@pytest.mark.parametrize("name", ["os", "cpu", "memory", "gpu", "python", "tools", "virt"])
+def test_the_fingerprint_id_changes_with_every_identity_collector(name):
+    base = {n: {"k": "a"} for n in ["os", "cpu", "memory", "gpu", "python", "tools", "virt"]}
+    facts = {"cpus": 4, "collectors": base}
+    changed = {"cpus": 4, "collectors": {**base, name: {"k": "b"}}}
+    assert fingerprint_id(facts) != fingerprint_id(changed)
 
 
 def test_match_report_for_a_host_with_no_task_requirement_is_met_without_fields():

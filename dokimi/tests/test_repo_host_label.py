@@ -79,6 +79,23 @@ def test_a_met_requirement_and_a_probe_that_could_not_tell_are_recorded_as_such(
     assert match_summary(undecided) == "min_cpus unknown, cpu_flags.avx2 unknown"
 
 
+def test_a_vendor_miss_the_min_cpus_boundary_and_an_uppercase_flag_are_judged_exactly():
+    intel = host_facts(_probe_out(affinity=4, cpuinfo=INTEL_CPUINFO))
+    vendor = match_report(_task({"cpu_vendors": ["AuthenticAMD"]}), intel)
+    assert vendor["met"] is False and match_summary(vendor) == "cpu_vendors missing"
+    assert match_report(_task({"cpu_vendors": ["genuineintel"]}), intel)["met"] is True  # vendor compare ignores case
+    assert match_report(_task({"min_cpus": 4}), intel)["met"] is True  # exactly min_cpus is enough
+    assert match_report(_task({"min_cpus": 5}), intel)["met"] is False
+    assert match_report(_task({"cpu_flags": ["AVX2"]}), intel)["met"] is True  # docs write AVX2, cpuinfo avx2
+
+
+def test_one_unmet_and_one_undecided_field_is_a_miss():
+    facts = {"cpus": 2, "cpu_vendor": None, "cpu_flags": []}  # the vendor and flags are unknown, the CPU count is not
+    report = match_report(_task({"min_cpus": 4, "cpu_flags": ["avx2"]}), facts)
+    assert [f["met"] for f in report["fields"]] == [False, None]
+    assert report["met"] is False
+
+
 # ------------------------------------------------------------------ the four host scenarios
 
 

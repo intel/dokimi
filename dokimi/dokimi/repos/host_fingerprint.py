@@ -6,10 +6,10 @@
 Each collector returns a flat dict of JSON scalars. A collector that fails returns ``{"error": ...}``
 and the others still run, so one unreadable file never costs the probe. Nothing that identifies a
 person or a machine is read or recorded: no host name, user name, IP address, environment value or
-absolute path (an error message is scrubbed of paths before it is kept). The Windows CPU model is
-``platform.processor()``, which Windows fills from ``PROCESSOR_IDENTIFIER``. Spawns go through
-:mod:`dokimi.process`, and only where the platform has the tool: nothing is shelled to on Windows
-except the cross-platform ``--version`` calls and ``nvidia-smi`` when it is on the path.
+absolute path (an error message is scrubbed of paths before it is kept). The Windows CPU model and
+vendor come from the registry, not from ``platform.processor()`` (which reads ``PROCESSOR_IDENTIFIER``).
+Spawns go through :mod:`dokimi.process`, and only where the platform has the tool: nothing is shelled to
+on Windows except the cross-platform ``--version`` calls and ``nvidia-smi`` when it is on the path.
 """
 
 from __future__ import annotations
@@ -39,7 +39,8 @@ PROXY_VARS = ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy")
 # DMI strings of hypervisors, matched in lower case against the vendor and product name.
 VM_MARKERS = (("vmware", "vmware"), ("virtualbox", "virtualbox"), ("innotek", "virtualbox"), ("qemu", "qemu"),
               ("kvm", "kvm"), ("xen", "xen"), ("parallels", "parallels"), ("virtual machine", "hyper-v"))
-_PATH = re.compile(r"(?:/[\w.+@%-]+)+|[A-Za-z]:\\\S*")
+# A quoted path may hold spaces, so it runs to its closing quote; bare ones end at a space. ``~`` and UNC paths too.
+_PATH = re.compile(r"""(?<=['"])(?:/|~|[A-Za-z]:\\|\\\\)[^'"\n]*(?=['"])|~(?:/[\w.+@%-]+)+|\\\\[^\s'"]+|(?:/[\w.+@%-]+)+|[A-Za-z]:\\\S*""")
 
 
 def _read_text(path: str) -> str | None:
@@ -65,6 +66,20 @@ def _windows_total_memory() -> int:
     return int(status.total_phys)
 
 
+def _windows_cpu() -> tuple[str | None, str | None]:
+    """Model and vendor of a Windows host's first CPU, from the registry the kernel fills (no environment)."""
+    import winreg  # Windows only: the module does not exist elsewhere
+
+    try:
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,  # type: ignore[attr-defined]
+                            r"HARDWARE\DESCRIPTION\System\CentralProcessor\0") as key:
+            model = winreg.QueryValueEx(key, "ProcessorNameString")[0]  # type: ignore[attr-defined]
+            vendor = winreg.QueryValueEx(key, "VendorIdentifier")[0]  # type: ignore[attr-defined]
+    except OSError:
+        return None, None
+    return str(model).strip() or None, str(vendor).strip() or None
+
+
 @dataclass(frozen=True)
 class Probe:
     """What the collectors read and run. Tests pass fakes; the defaults read this machine."""
@@ -75,6 +90,7 @@ class Probe:
     run: Runner = process.run
     env: Mapping[str, str] = field(default_factory=lambda: dict(os.environ))  # read for booleans only
     windows_memory: Callable[[], int] = _windows_total_memory
+    windows_cpu: Callable[[], tuple[str | None, str | None]] = _windows_cpu
 
 
 def _spawn(probe: Probe, argv: list[str]) -> str | None:
@@ -120,9 +136,7 @@ def _cpu(probe: Probe) -> dict[str, Any]:
         features = _sysctl(probe, "machdep.cpu.features")
         out["flags"] = features.lower() if features else None
     elif probe.system == "Windows":
-        out["model"] = platform.processor() or None  # the kernel's string names the vendor, read from it
-        vendor = re.search(r"GenuineIntel|AuthenticAMD", out["model"] or "")
-        out["vendor"] = vendor.group(0) if vendor else None
+        out["model"], out["vendor"] = probe.windows_cpu()
     return out
 
 
