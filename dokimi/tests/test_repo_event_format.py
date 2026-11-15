@@ -46,6 +46,7 @@ def _claude_trace() -> str:
              stamp="2026-11-14T10:00:02Z"),
         result("e1", "ok", "2026-11-14T10:00:03Z"),
         result("w1", "denied", "2026-11-14T10:00:03Z"),
+        {"type": "system", "subtype": "compact_boundary", "timestamp": "2026-11-14T10:00:04Z"},
         {"type": "result", "result": "done", "num_turns": 2, "is_error": False, "subtype": "success",
          "usage": {"input_tokens": 3, "output_tokens": 5, "cache_read_input_tokens": 100}},
     )

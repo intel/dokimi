@@ -13,7 +13,8 @@ erase the prompt an earlier one recorded. The prompt the model saw on that call 
 so the first call's prompt is everything loaded before the agent did anything (system prompt,
 tool schemas, memory files, skill listing, the task), and the series after it is how the
 history grew. ``new_tokens`` (input + cache creation) is what the call added beyond the cached
-prefix.
+prefix. Each call also keeps its parts (``input_tokens``, ``cache_read_tokens``, ``cache_write_tokens``) and
+its message timestamp (``at``): the per-turn events of ``events.jsonl`` read them (:mod:`dokimi.repos.turn_events`).
 
 Calls a subagent made carry ``parent_tool_use_id``; they run in their own window, so the
 summary reads the main thread and counts subagent calls apart. A ``compact_boundary`` system
@@ -38,7 +39,8 @@ from dokimi.utils import InputError, refuse_device
 
 # Tools whose call can change what a later identical call returns; one ends every earlier repeat.
 MUTATING = frozenset({"Bash", "Edit", "MultiEdit", "NotebookEdit", "Write"})
-TOKEN_FIELDS = ("prompt_tokens", "new_tokens", "output_tokens")  # the counts of one call
+TOKEN_FIELDS = ("prompt_tokens", "new_tokens", "output_tokens", "input_tokens", "cache_read_tokens",
+                "cache_write_tokens")  # the counts of one call
 
 
 class TraceError(ValueError):
@@ -165,12 +167,13 @@ def _apply(out: ContextTrace, rec: dict[str, Any], by_message: dict[str, dict[st
             "pre_tokens": meta.get("pre_tokens", meta.get("preTokens")),
             "post_tokens": meta.get("post_tokens"),  # newer CLIs only
             "after_call": len(out.calls) - 1,
+            "at": rec.get("timestamp"),
         })
     elif kind == "assistant":
         message = rec.get("message") or {}
         usage = message.get("usage")
         if isinstance(usage, dict):
-            call = _call(usage, agent)
+            call = _call(usage, agent, rec.get("timestamp"))
             key = message.get("id")
             if key and key in by_message:
                 _merge(by_message[key], call)  # a later block of the same call: same prompt, fuller output
@@ -216,15 +219,19 @@ def _merge(call: dict[str, Any], later: dict[str, Any]) -> None:
         call[k] = max(call[k], later[k])
 
 
-def _call(usage: dict[str, Any], agent: Any) -> dict[str, Any]:
+def _call(usage: dict[str, Any], agent: Any, at: Any) -> dict[str, Any]:
     fresh = int(usage.get("input_tokens") or 0)
     created = int(usage.get("cache_creation_input_tokens") or 0)
     read = int(usage.get("cache_read_input_tokens") or 0)
     return {
         "agent": agent,
+        "at": at,  # the message's timestamp, as the trace has it; the first block's
         "prompt_tokens": fresh + created + read,
         "new_tokens": fresh + created,
         "output_tokens": int(usage.get("output_tokens") or 0),
+        "input_tokens": fresh,
+        "cache_read_tokens": read,
+        "cache_write_tokens": created,
     }
 
 

@@ -94,7 +94,7 @@ def test_tool_results_failures_and_repeats():
     assert s["repeated_tool_calls"] == 1
     assert s["tool_result_chars"] == 300 + 300 + len("File does not exist.") + 50 + 4
     assert s["largest_tool_results"][0] == {"tool": "Bash", "calls": 3, "chars": 650, "max_chars": 300}
-    assert trace.compactions == [{"trigger": "auto", "pre_tokens": 20815, "post_tokens": 9000, "after_call": 2}]
+    assert trace.compactions == [{"trigger": "auto", "pre_tokens": 20815, "post_tokens": 9000, "after_call": 2, "at": None}]
 
 
 def test_without_a_window_there_is_no_fill():
@@ -342,8 +342,8 @@ def test_camel_case_and_bare_compactions():
         {"type": "system", "subtype": "compact_boundary"},
     ))
     assert got.compactions == [
-        {"trigger": "manual", "pre_tokens": 7, "post_tokens": None, "after_call": 0},
-        {"trigger": None, "pre_tokens": None, "post_tokens": None, "after_call": 0},
+        {"trigger": "manual", "pre_tokens": 7, "post_tokens": None, "after_call": 0, "at": None},
+        {"trigger": None, "pre_tokens": None, "post_tokens": None, "after_call": 0, "at": None},
     ]
 
 

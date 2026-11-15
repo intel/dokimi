@@ -31,6 +31,7 @@ from .shell_split import split_script
 from .shell_words import (_DIRS, _KEYWORDS, _case_closes, _case_opens, _cd, _command_words, _is_activate, _is_cd, _loses,
                           _run_name, _runs_dir, _time_keyword, _unquoted)
 from .transcript import Transcript, _from_cwd, _parse_time, clip_output, relative_path
+from .turn_events import codex_turn
 
 _BASH_WRAP = re.compile(r"^(?:/\S*/)?(?:ba|z)?sh -lc (.+)$", re.S)
 _PRINTERS = {"cat", "head", "tail", "nl", "sed"}
@@ -530,17 +531,16 @@ def _codex_apply(out: Transcript, rec: dict[str, Any], messages: list[str], work
 
 
 def _codex_usage(out: Transcript, usage: dict[str, Any]) -> None:
+    turn = codex_turn(out.num_turns or 0, usage)  # its turn event, and the totals: both from one reading
     out.num_turns = (out.num_turns or 0) + 1
     out.result_seen = True  # a turn ended: the agent started, whatever else it printed
-    fresh, produced = int(usage.get("input_tokens") or 0), int(usage.get("output_tokens") or 0)
-    cached = max(int(usage.get("cached_input_tokens") or 0), 0)  # a negative count is malformed, not a credit
-    if fresh or produced:  # a missing or all-zero usage is not a measured zero: the counts stay None
-        # OpenAI counts the cached part inside input_tokens; Claude cells keep cache reads out of input_tokens.
-        # A malformed record with more cached than input never goes negative
-        out.input_tokens = (out.input_tokens or 0) + max(fresh - cached, 0)
-        out.output_tokens = (out.output_tokens or 0) + produced
-        if usage.get("cached_input_tokens") is not None:  # reported, so a zero is measured; absent, it stays None
-            out.cache_read_tokens = (out.cache_read_tokens or 0) + cached
+    out.events.append(turn)
+    if turn["input"] is not None:  # a missing or all-zero usage is not a measured zero: the counts stay None
+        # OpenAI counts the cached part inside input_tokens; Claude cells keep cache reads out of input_tokens
+        out.input_tokens = (out.input_tokens or 0) + turn["input"]
+        out.output_tokens = (out.output_tokens or 0) + turn["output"]
+        if turn["cache_read"] is not None:  # reported, so a zero is measured; absent, it stays None
+            out.cache_read_tokens = (out.cache_read_tokens or 0) + turn["cache_read"]
         out.usage_scope = "main"  # the turns are the parent's; Codex reports no subagent tokens here
 
 

@@ -10,7 +10,6 @@
     "t": {"type": ["number", "null"], "description": "Seconds since the first timestamped trace line; null when the harness has no timestamps."},
     "agent": {"type": "string", "description": "The id of the parent's Agent/Task call that started this event; absent on the parent's events."},
     "denied": {"type": "boolean", "description": "The call was refused and never ran."},
-    "output": {"type": "string", "description": "A command's output as the harness returned it, clipped to 8 KB."},
     "output_truncated": {"type": "boolean"}
   },
   "required": ["kind", "t"],
@@ -19,7 +18,11 @@
       "if": {"properties": {"kind": {"const": "command"}}, "required": ["kind"]},
       "then": {
         "required": ["text", "rc"],
-        "properties": {"text": {"type": "string"}, "rc": {"type": ["integer", "null"]}}
+        "properties": {
+          "text": {"type": "string"},
+          "rc": {"type": ["integer", "null"]},
+          "output": {"type": "string", "description": "The command's output as the harness returned it, clipped to 8 KB."}
+        }
       }
     },
     {
@@ -40,6 +43,27 @@
       "then": {
         "required": ["name"],
         "properties": {"name": {"type": "string"}, "skill": {"type": "string"}}
+      }
+    },
+    {
+      "if": {"properties": {"kind": {"const": "turn"}}, "required": ["kind"]},
+      "then": {
+        "required": ["turn", "input", "output", "cache_read", "cache_write", "prompt_tokens"],
+        "properties": {
+          "turn": {"type": "integer", "minimum": 0},
+          "input": {"type": ["integer", "null"]},
+          "output": {"type": ["integer", "null"]},
+          "cache_read": {"type": ["integer", "null"]},
+          "cache_write": {"type": ["integer", "null"]},
+          "prompt_tokens": {"type": ["integer", "null"]}
+        }
+      }
+    },
+    {
+      "if": {"properties": {"kind": {"const": "compaction"}}, "required": ["kind"]},
+      "then": {
+        "required": ["turn"],
+        "properties": {"turn": {"type": ["integer", "null"], "minimum": 0}}
       }
     }
   ]
