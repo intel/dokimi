@@ -131,9 +131,12 @@ def save_probe_run(payload: dict, out: Path, *, done: int, not_run: int,
                "message": message}
     # The jobs run arm by arm, so a cut leaves the arms uneven: the summaries over the answers
     # kept would read as results next to status "partial". The runs stay; the summaries go.
+    panel = payload.get("judge_panel")
     for block in PARTIAL_SUMMARIES:
         if block in payload:
             payload[block] = None
+    if panel:
+        payload["judge_panel"] = {k: panel[k] for k in ("judges", "rule") if k in panel}
     exit_partial(message, write_run(payload, out, partial))
 
 

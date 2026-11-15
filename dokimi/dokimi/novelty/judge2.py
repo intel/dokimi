@@ -63,7 +63,12 @@ def cohen_kappa(a: list[bool], b: list[bool]) -> float | None:
 
 
 def first_verdict(run) -> str:
-    """The first judge's verdict. A check's veto may overrule it in ``run.verdict``, not here."""
+    """The first judge's verdict. A check's veto may overrule it in ``run.verdict``, not here.
+
+    With a panel the first judge is the first entry of ``judge_verdicts``, not the aggregate.
+    """
+    if run.judge_verdicts:
+        return next(iter(run.judge_verdicts.values()))
     return run.judge_verdict if run.judge_verdict is not None else run.verdict
 
 

@@ -39,6 +39,7 @@ WO, WR, AB = "wrong_other", "wrong_reversed", "abstained"
     ([WR, WR, WO, CC, CC], "median", WR),      # the most common wrong verdict survives
     ([CC, PC, WO], "majority", PC),            # correct majority: lower median of the correct votes
     ([CC, WO, AB, AB], "majority", AB),
+    ([CC, WO], "majority", WO),                # an exact split is not more than half
     ([CC, CMQ, CC], "unanimous", CMQ),         # all correct: the lowest correct vote
     ([CC, CC, WR], "unanimous", WR),
     ([], "median", None),
@@ -467,6 +468,7 @@ def test_a_partial_probe_keeps_no_panel_numbers(tmp_path):
         "paired": {"lenient": {"added": 0.5, "n_paired": 2}},
         "judge_panel": {
             "judges": ["a", "b"],
+            "rule": "unanimous",
             "per_judge_paired": {"a": {"lenient": {"added": 0.5}}},
             "added_share_range": {"lenient": 0.0, "strict": None},
             "judge_sensitive": False,
@@ -479,6 +481,8 @@ def test_a_partial_probe_keeps_no_panel_numbers(tmp_path):
     saved = json.loads(partial.read_text(encoding="utf-8"))
     assert saved["paired"] is None
     panel = saved.get("judge_panel") or {}
+    assert panel.get("judges") == ["a", "b"]
+    assert panel.get("rule") == "unanimous"
     assert not {"per_judge_paired", "added_share_range", "judge_sensitive"} & set(panel)
 
 
