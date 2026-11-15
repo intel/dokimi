@@ -535,12 +535,13 @@ def test_a_link_to_the_skill_root_names_the_files_under_it(tmp_path):
     assert _unreferenced(review) == []
 
 
-def test_a_nested_back_link_to_the_skill_root_names_no_file(tmp_path):
-    # Only a root link in SKILL.md names every bundled file: a back link in a reference document names its target.
+@pytest.mark.parametrize("back", ["../", "${CLAUDE_SKILL_DIR}/"])
+def test_a_nested_back_link_to_the_skill_root_names_no_file(tmp_path, back):
+    # Only a root link in SKILL.md names every bundled file: a root link in a reference document names its target.
     review = _review_with_texts(
         tmp_path,
         "Read [guide](references/guide.md).\n",
-        {"references/guide.md": "Use [back](../).\n", "scripts/helper.py": "x\n"},
+        {"references/guide.md": f"Use [back]({back}).\n", "scripts/helper.py": "x\n"},
     )
     [message] = _unreferenced(review)
     assert message.startswith("1 of 2") and "scripts/helper.py" in message and "guide.md" not in message

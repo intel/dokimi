@@ -238,7 +238,7 @@ def _named_closure(
                 docs_read += 1
                 folder = PurePosixPath(rel).parent.as_posix().lower()  # the text is lowercased: its folder must be too
                 unseen += "\n" + _matchable(more.lower(), folder)
-                # A root link in a nested document (``../`` from references/) names its target, not every file.
+                # Only a root link in SKILL.md names every file: a root link in any other document names its target.
                 linked.update(t for t in (_target(folder, link) for link in doc_links(more) if link) if t != ".")
     return named_files, incomplete
 
