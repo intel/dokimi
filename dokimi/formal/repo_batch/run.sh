@@ -39,14 +39,14 @@ for cfg in "${cfgs[@]}"; do
     rc=$?
     set -e
     secs=$((SECONDS - start))
-    # TLC exits 0 on a pass, 12 on a violated invariant, 13 on a violated temporal property; any other status
-    # is a tool error whatever the log says
+    # TLC exits 0 on a pass, 12 on a violated invariant (safety), 13 on a violated temporal property (liveness);
+    # any other status, or a status that does not match the log's violation, is a tool error
     if [ "$rc" -eq 0 ] && grep -q '^Model checking completed. No error has been found.' "$log"; then
         got=pass
-    elif { [ "$rc" -eq 12 ] || [ "$rc" -eq 13 ]; } \
+    elif [ "$rc" -eq 12 ] \
             && name_v=$(sed -n 's/^Error: Invariant \([^ ]*\) is violated.*/\1/p' "$log" | tail -n 1) && [ -n "$name_v" ]; then
         got="violation $name_v"
-    elif { [ "$rc" -eq 12 ] || [ "$rc" -eq 13 ]; } \
+    elif [ "$rc" -eq 13 ] \
             && name_v=$(sed -n 's/^Error: Temporal property \([^ ]*\) was violated.*/\1/p' "$log" | tail -n 1) \
             && [ -n "$name_v" ]; then
         got="violation $name_v"

@@ -130,11 +130,13 @@ def test_a_bare_java_name_is_still_looked_up_on_path(tmp_path):
     ("Error: Temporal property InvocationEnds was violated.", 13, "no_fairness", "violation InvocationEnds", 0),
     ("Model checking completed. No error has been found.", 12, "fixed", "error rc=12", 1),
     ("Usage: java -cp tla2tools.jar tlc2.TLC", 0, "fixed", "error rc=0", 1),
-    ("Error: Invariant CancelContract is violated.", 13, "mut_no_cancel_guard", "violation CancelContract", 0),
+    ("Error: Invariant CancelContract is violated.", 13, "mut_no_cancel_guard", "error rc=13", 1),
+    ("Error: Temporal property InvocationEnds was violated.", 12, "no_fairness", "error rc=12", 1),
     ("Error: Invariant First is violated.\nError: Invariant Second is violated.", 12, "mut_no_cancel_guard",
      "violation Second", 1),  # the last violation named wins; this cfg expects CancelContract, so the run fails
 ], ids=["pass-then-failure", "invariant-then-failure", "temporal-then-failure", "invariant-12", "temporal-13",
-        "pass-line-with-status-12", "completion-line-missing-status-0", "invariant-13", "last-named-violation"])
+        "pass-line-with-status-12", "completion-line-missing-status-0", "invariant-13-is-error",
+        "temporal-12-is-error", "last-named-violation"])
 def test_a_verdict_in_the_log_counts_only_with_the_status_tlc_gives_it(tmp_path, out, rc, cfg, got, exit_code):
     java = tmp_path / "fake-java"
     java.write_text(FAKE_TLC_STATUS, encoding="utf-8")
