@@ -132,3 +132,23 @@ def test_topics_cache_key_of_a_library_id_with_a_non_utf8_byte_is_a_digest(tmp_p
 
 def test_topics_cache_key_of_a_library_id_with_a_high_surrogate_is_a_digest(tmp_path):
     assert _topics_hit(tmp_path, "local:" + HIGH, _sha(b"\0splocal:n\xed\xa0\x80:3:8000")) == ["parallel_for"]
+
+
+def _set_hash(*texts: str) -> str:
+    from dokimi.orchestrator.pipeline import compute_question_set_hash
+
+    return compute_question_set_hash([{"id": f"q{n}", "question": text} for n, text in enumerate(texts)])
+
+
+def test_question_set_hash_of_a_utf8_set_is_unchanged():
+    old = hashlib.sha256("q0:café?\nq1:b".encode("utf-8")).hexdigest()[:12]
+    assert _set_hash("café?", "b") == old
+
+
+def test_question_set_hash_of_a_question_with_a_high_surrogate_is_a_digest():
+    assert _set_hash(HIGH) == _sha(b"q0:n\xed\xa0\x80")[:12]
+
+
+def test_question_set_hash_of_a_question_with_a_low_surrogate_is_a_digest():
+    assert _set_hash(LOW) == _sha(b"q0:n\xed\xb3\xbf")[:12]
+    assert _set_hash(LOW) != _set_hash("n\udcfe")

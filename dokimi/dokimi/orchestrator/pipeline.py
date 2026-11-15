@@ -32,7 +32,7 @@ def compute_question_set_hash(questions: List[Dict[str, Any]]) -> str:
         f"{q.get('id', '')}:{q.get('question', q.get('question_text', q.get('text', '')))}"
         for q in questions
     )
-    raw = "\n".join(fingerprints).encode("utf-8")
+    raw = "\n".join(fingerprints).encode("utf-8", "surrogatepass")  # a `\ud800` JSON escape loads as a lone surrogate
     return hashlib.sha256(raw).hexdigest()[:12]
 
 
