@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 
 import pytest
@@ -77,28 +78,43 @@ def _listing(cache) -> str:
 
 @pytest.mark.skipif(not hasattr(os, "geteuid") or os.geteuid() == 0, reason="root writes anywhere")
 def test_a_read_only_cache_dir_replays_what_it_holds_and_decides_a_miss_without_storing(tmp_path):
+    from dokimi.novelty.client import LLMClient
     from dokimi.novelty.retention import RetentionOracle
+
+    calls: list[str] = []
+
+    def transport(prompt, system=None):
+        calls.append(prompt)
+        return json.dumps({"verdict": "retained"}), None
+
+    # Only an oracle with an adjudicator reads or writes the disk cache: a lexical-only one skips it.
+    def client():
+        return LLMClient(model="m", role="x", transport=transport)
 
     cache = tmp_path / "cache"
     # Explicit modes: a umask that strips the owner's write bit would otherwise make the first store fail.
     cache.mkdir(mode=0o700)
     cache.chmod(0o700)
-    hit = Atom(statement="Configure module0 with parameter0", question="q", answer="a", span_ids=())
-    miss = Atom(statement="Restart service9 after every deploy", question="q", answer="a", span_ids=())
-    text = "Configure module0 with parameter0 always."
-    stored = RetentionOracle(cache_dir=cache).verdict(hit, text)
+    # Both overlaps (0.8 and 0.5) lie in the ambiguous band, so the adjudicator decides them.
+    hit = Atom(statement="Thread count equals core count.", question="q", answer="a", span_ids=())
+    miss = Atom(statement="Thread count equals core count and queue depth equals worker count.",
+                question="q", answer="a", span_ids=())
+    text = "Set the thread count to the core count."
+    stored = RetentionOracle(client=client(), cache_dir=cache).verdict(hit, text)
+    assert stored.method == "llm" and len(calls) == 1
     held = list(cache.iterdir())
     assert len(held) == 1, _listing(cache)
     # The file's mode follows the umask; one that strips the owner's read bit would leave it unreadable.
     held[0].chmod(0o600)
     cache.chmod(0o500)
     try:
-        oracle = RetentionOracle(cache_dir=usable_cache_dir(str(cache)))
+        oracle = RetentionOracle(client=client(), cache_dir=usable_cache_dir(str(cache)))
         replayed = oracle.verdict(hit, text)
         assert replayed.method == "cache", f"{_listing(cache)}; _load -> {oracle._load(held[0].stem)}"
         assert replayed.retained == stored.retained
+        assert len(calls) == 1
         decided = oracle.verdict(miss, text)
-        assert decided.method == "lexical", _listing(cache)
+        assert decided.method == "llm" and len(calls) == 2, _listing(cache)
         assert len(list(cache.iterdir())) == 1, _listing(cache)
     finally:
         cache.chmod(0o700)
