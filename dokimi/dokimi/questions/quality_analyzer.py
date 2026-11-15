@@ -92,7 +92,7 @@ class QuestionQualityAnalyzer:
             raw = llm_call(prompt, model=self.model, provider=self.provider)
             from dokimi.llm import extract_json_object
             return _classification(question, extract_json_object(raw))
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - logged; a default classification
             logger.warning(f"Failed to classify question: {exc}")
             return QuestionClassification(
                 question=question,

@@ -244,7 +244,7 @@ def network_ok() -> bool:
     try:
         urllib.request.urlopen("https://pypi.org/simple/pip/", timeout=8)  # nosec B310
         return True
-    except Exception:
+    except Exception:  # noqa: BLE001 - a reachability probe answers False on any failure
         return False
 
 

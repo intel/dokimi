@@ -253,15 +253,15 @@ def needs_sandbox(plan: NetworkPlan, *, solve_in_container: bool) -> bool:
     return any(p.mode == "allowlist" for p in container_phases(plan, solve_in_container=solve_in_container))
 
 
-def start_args(plan: NetworkPlan, *, solve_in_container: bool) -> list[str]:
-    """``docker run`` network without a sidecar: bridge when a phase is public, else none.
+def start_network(plan: NetworkPlan, *, solve_in_container: bool) -> str:
+    """The network a task container starts on, without a sidecar: ``bridge`` when a phase is public, else ``none``.
 
     A phase that is ``none`` then leaves the bridge (:func:`enter_phase`) before
     anything but the container's ``sleep`` runs: no network at all, stricter than
     an internal network, which still reaches services on the Docker host's gateway.
     """
     public = any(p.mode == "public" for p in container_phases(plan, solve_in_container=solve_in_container))
-    return ["--network", "bridge" if public else "none"]
+    return "bridge" if public else "none"
 
 
 Docker = Callable[..., Any]

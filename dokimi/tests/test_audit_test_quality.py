@@ -30,16 +30,48 @@ _spec.loader.exec_module(atq)
 BASELINE: dict[str, frozenset[str]] = {}
 
 
-@pytest.fixture(scope="module")
-def findings() -> dict[str, set[str]]:
-    flagged, total = atq.audit_tree()
+#: The files the ratchet audits, one test case each: a case parses one file, not the whole tree
+#: against ``pytest-timeout`` (#726, #727).
+FILES = atq.collected_files()
+
+
+def _ratchet_errors(path: Path) -> list[str]:
+    """``atq.ratchet_errors`` for one file, against the ``BASELINE`` keys of that file."""
+    name = atq.relative_name(path)
+    flagged = [a for a in atq.audit_file(path) if a.flags]
+    held = {flag: frozenset(k for k in keys if k.startswith(f"{name}::")) for flag, keys in BASELINE.items()}
+    return atq.ratchet_errors(atq.gated_findings(flagged), held)
+
+
+def test_the_scan_finds_the_test_files():
     # A scan that finds nothing would pass every check below.
-    assert total > 0, f"no test functions found under {atq.TESTS}"
-    return atq.gated_findings(flagged)
+    assert atq.TESTS / Path(__file__).name in FILES
+    assert atq.audit_file(Path(__file__))
 
 
-def test_no_new_test_that_cannot_fail(findings):
-    new = [e for e in atq.ratchet_errors(findings, BASELINE) if ": new: " in e]
+def test_one_ratchet_case_audits_its_own_file_and_no_other(monkeypatch):
+    seen = []
+    monkeypatch.setattr(atq, "audit_source", lambda source, name: seen.append(name) or [])
+    assert _ratchet_errors(Path(__file__)) == []
+    assert seen == ["tests/test_audit_test_quality.py"]
+
+
+def test_a_baseline_key_is_held_against_its_own_file_only(monkeypatch):
+    here, other = Path(__file__), atq.TESTS / "test_load_or_fail.py"
+    key = "tests/test_audit_test_quality.py::test_gone"
+    monkeypatch.setitem(BASELINE, "no_assert", frozenset({key}))
+    assert _ratchet_errors(here) == [f"no_assert: fixed, remove from the baseline: {key}"]
+    assert _ratchet_errors(other) == []
+
+
+def test_the_baseline_names_only_files_that_are_audited():
+    audited = {atq.relative_name(p) for p in FILES}
+    assert {k.split("::")[0] for keys in BASELINE.values() for k in keys} <= audited
+
+
+@pytest.mark.parametrize("path", FILES, ids=atq.relative_name)
+def test_no_new_test_that_cannot_fail(path):
+    new = [e for e in _ratchet_errors(path) if ": new: " in e]
     assert not new, (
         "\n".join(new) + "\nMake each test check the behaviour it exists for (a value, a call "
         "argument, an output), delete it if another test covers that, or, when the shape is "
@@ -48,9 +80,10 @@ def test_no_new_test_that_cannot_fail(findings):
     )
 
 
-def test_a_fixed_finding_leaves_the_baseline_too(findings):
+@pytest.mark.parametrize("path", FILES, ids=atq.relative_name)
+def test_a_fixed_finding_leaves_the_baseline_too(path):
     # Otherwise the finding could come back without failing the test above.
-    stale = [e for e in atq.ratchet_errors(findings, BASELINE) if ": new: " not in e]
+    stale = [e for e in _ratchet_errors(path) if ": new: " not in e]
     assert not stale, "\n".join(stale) + "\ndelete these keys from BASELINE in this test"
 
 

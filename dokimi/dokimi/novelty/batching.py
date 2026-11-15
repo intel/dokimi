@@ -145,7 +145,7 @@ def ask_in_batches(
                 raise ValueError("the model returned an empty reply")
             replied = True
             result.answered.append((chunk, read(chunk, reply)))
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - re-asked in halves or recorded as the chunk's error
             if is_run_wide(exc):  # every later call meets it too: stop, the rest is unanswered
                 result.stop = permanent_stop(exc)
                 result.failed.extend(item for rest in [chunk, *pending] for item in rest)
