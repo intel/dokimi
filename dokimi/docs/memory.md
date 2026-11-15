@@ -22,7 +22,7 @@ No model call. Each finding has a rule, a severity, a file and a line:
 
 | rule | severity | what |
 |---|---|---|
-| `index-dead-link` | fail | the index links a file that does not exist, a directory, or a path outside the memory directory (code spans, fenced blocks and HTML comments hold no link; a reference definition that no link uses is not checked, but its file is not an orphan; a definition-shaped line directly under a prose line is still read as a definition, though Markdown would not render it as one) |
+| `index-dead-link` | fail | the index links a file that does not exist, a directory, or a path outside the memory directory (code spans, fenced and indented code blocks and HTML comments hold no link; an escaped `\[` opens none; `tel:` and other URI schemes are not files; a reference definition that no link uses is not checked, but its file is not an orphan; a definition-shaped line directly under a prose line is still read as a definition, though Markdown would not render it as one) |
 | `index-over-limit` | fail | the index is past the load limit (200 lines or 25KB, as Claude Code loads it) |
 | `index-near-limit` | warn | over 80% of the limit |
 | `index-missing` | warn | no `MEMORY.md` |

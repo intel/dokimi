@@ -57,6 +57,8 @@ def test_frontmatter_rules(mem):
     rules = {(r, f) for r, _, f in _rules(mem)}
     assert {("frontmatter-missing", "c.md"), ("frontmatter-invalid", "d.md"), ("type-unknown", "e.md"),
             ("name-duplicate", "a.md"), ("name-duplicate", "e.md")} <= rules
+    severities = {(r, sev) for r, sev, _ in _rules(mem)}
+    assert {("type-unknown", "warn"), ("name-duplicate", "warn")} <= severities
 
 
 @pytest.mark.parametrize("value", ["modified: 2026-02-30", "x: !!float abc", "x: !!timestamp abc",
@@ -103,14 +105,14 @@ def test_wikilink_folds_dash_and_underscore(mem):
     (mem / "a.md").write_text(_entry("a", body="[[B]] [[project-a]] [[nobody]]"))
     (mem / "project_a.md").write_text(_entry("pa"))
     (mem / "MEMORY.md").write_text("- [A](a.md) [B](b.md) [P](project_a.md)\n")
-    dangling = [f.message for f in lint(read_claude_memory(mem)) if f.rule == "wikilink-dangling"]
-    assert len(dangling) == 1 and "nobody" in dangling[0]
+    dangling = [(f.severity, f.message) for f in lint(read_claude_memory(mem)) if f.rule == "wikilink-dangling"]
+    assert len(dangling) == 1 and dangling[0][0] == "note" and "nobody" in dangling[0][1]
 
 
 def test_relative_date_flagged_unless_dated(mem):
     (mem / "a.md").write_text(_entry("a", body="Merged today.\nDone yesterday (as of ≤2026-11-01).\nСделано вчера."))
     found = [f for f in lint(read_claude_memory(mem)) if f.rule == "relative-date"]
-    assert [f.line for f in found] == [7, 9]
+    assert [(f.line, f.severity) for f in found] == [(7, "warn"), (9, "warn")]
 
 
 def test_index_limit_and_stray_separator(mem):
@@ -427,3 +429,115 @@ def test_outside_link_fails_urls_are_skipped_and_byte_limit_edge(mem):
 def test_comment_opener_in_a_fence_does_not_hide_the_prose_after_it(mem):
     (mem / "a.md").write_text(_entry("a", body="```html\n<!--\n```\nDo it tomorrow.\n<!-- end -->"))
     assert [f.line for f in lint(read_claude_memory(mem)) if f.rule == "relative-date"] == [10]
+
+
+def test_a_store_with_only_notes_passes_under_fail_on_warn(mem):
+    (mem / "a.md").write_text(_entry("a", body="See [[nowhere]]."))
+    assert [(r, sev) for r, sev, _ in _rules(mem)] == [("wikilink-dangling", "note")]
+    assert _cli(str(mem), "--fail-on", "warn").returncode == 0
+
+
+def _dead(mem, text):
+    (mem / "MEMORY.md").write_text("- [A](a.md) [B](b.md)\n" + text)
+    return [f.line for f in lint(read_claude_memory(mem)) if f.rule == "index-dead-link"]
+
+
+@pytest.mark.parametrize("target", ["tel:+123456789", "MAILTO:x@example.com", "HTTPS:example.com/x.md", "data:text/plain,x"])
+def test_uri_schemes_are_not_checked_whatever_their_case(mem, target):
+    assert _dead(mem, f"[C]({target})\n") == []
+
+
+def test_a_one_letter_scheme_is_a_drive_path(mem):
+    assert _dead(mem, "[C](C:/dir/x.md)\n") == [2]
+
+
+def test_character_references_in_a_destination_are_decoded(mem):
+    (mem / "a&b.md").write_text(_entry("ab"))
+    assert _rules_after(mem, "[T](a&amp;b.md)\n") == []
+    assert _rules_after(mem, "[T][t]\n\n[t]: a&amp;b.md\n") == []
+
+
+def _rules_after(mem, text):
+    (mem / "MEMORY.md").write_text("- [A](a.md) [B](b.md)\n" + text)
+    return [(f.rule, f.line) for f in lint(read_claude_memory(mem))]
+
+
+def test_explicit_reference_uses_only_its_label(mem):
+    assert _dead(mem, "[Display][a]\n\n[a]: a.md\n[Display]: missing.md\n") == []
+    assert _dead(mem, "[Display][]\n\n[Display]: missing.md\n") == [4]
+    assert _dead(mem, "[Display]\n\n[Display]: missing.md\n") == [4]
+
+
+def test_unterminated_definition_title_is_not_a_definition(mem):
+    assert _dead(mem, '[t]\n\n[t]: missing.md "unterminated\n') == []
+    assert _dead(mem, "[t]\n\n[t]: missing.md (unterminated\n") == []
+    assert _dead(mem, '[t]\n\n[t]: missing.md "closed on\nthe next line"\n') == [4]
+
+
+def test_link_destination_on_the_next_line_is_checked(mem):
+    assert _dead(mem, "[Missing](\nmissing.md)\n") == [2]
+    assert _dead(mem, "[Missing](missing.md\n)\n") == [2]
+    assert _dead(mem, "[Missing](\n\nmissing.md)\n") == []
+
+
+def test_indented_code_block_hides_its_link(mem):
+    assert _dead(mem, "# Notes\n\n    [Example](missing.md)\n") == []
+    assert _dead(mem, "# Notes\n\n\t[Example](missing.md)\n\n    [Again](missing.md)\n") == []
+    assert _dead(mem, "# Notes\ntext\n    [Example](missing.md)\n") == [4]  # a paragraph continues
+    assert _dead(mem, "\n- item\n\n    [Example](missing.md)\n") == [5]  # list item content
+    assert _dead(mem, "# Notes\n\n    [Example](missing.md)\n\ntext [Real](missing.md)\n") == [6]
+
+
+def test_an_escaped_opener_is_literal_text(mem):
+    assert _dead(mem, "\\[Example](missing.md)\n") == []
+    assert _dead(mem, "\\\\[Example](missing.md)\n") == [2]  # an escaped backslash leaves the bracket live
+    assert _dead(mem, "[Example\\](missing.md)\n") == []
+    assert _dead(mem, "[a [b]](missing.md)\n") == [2]
+
+
+def test_code_span_across_a_line_break_hides_its_link(mem):
+    assert _dead(mem, "Example: `start\n[Example](missing.md)\nend`\n") == []
+    assert _dead(mem, "``start\n[x](missing.md)\nend``\n") == []
+    assert _dead(mem, "`start\n[x](missing.md)\n\nend`\n") == [3]  # a blank line ends the paragraph
+    assert _dead(mem, "`start\n[x](missing.md)\n") == [3]
+    (mem / "a.md").write_text(_entry("a", body="Run `start\ntomorrow\nend` first."))
+    assert [f for f in lint(read_claude_memory(mem)) if f.rule == "relative-date"] == []
+
+
+def test_a_comment_opening_a_line_with_no_close_hides_the_rest(mem):
+    assert _dead(mem, "\n<!-- retired\n[Old](missing.md)\n") == []
+    assert _dead(mem, "\n<!--\n- [Old](missing.md)\n\n[Old](missing.md)\n") == []
+
+
+def test_an_inline_comment_ends_at_the_next_list_item(mem):
+    (mem / "MEMORY.md").write_text(
+        "- [A](a.md) <!-- see\n- [D](dead1.md)\n- [E](dead2.md)\n\ntext\n\n<!-- other -->\n")
+    assert [f.line for f in lint(read_claude_memory(mem)) if f.rule == "index-dead-link"] == [2, 3]
+    (mem / "MEMORY.md").write_text("- [A](a.md) <!-- see\ntext [D](dead1.md) -->\n")
+    assert [f.line for f in lint(read_claude_memory(mem)) if f.rule == "index-dead-link"] == []
+
+
+def test_an_undefined_second_label_leaves_the_definition_unused(mem):
+    assert _dead(mem, "[t][undefined]\n\n[t]: missing.md\n") == []  # a renderer prints it as text
+
+
+def test_inline_destination_on_the_next_line_is_not_a_label_use(mem):
+    assert _dead(mem, "[t](\na.md)\n\n[t]: missing.md\n") == []
+    assert _dead(mem, "[t]\n\n[t]: missing.md\n") == [4]
+
+
+def test_definition_title_may_run_over_many_lines(mem):
+    assert _dead(mem, '[t]\n\n[t]: missing.md "title\\ncontinues\\nhere"\n'.replace("\\n", "\n")) == [4]
+    assert _dead(mem, '[t]\n\n[t]: missing.md "title\n\nhere"\n') == []
+
+
+def test_an_entity_without_a_semicolon_is_literal(mem):
+    (mem / "notes&copy.md").write_text(_entry("n"))
+    assert _rules_after(mem, "[Notes](notes&copy.md)\n") == []
+    assert _dead(mem, "[N](notes&copy;.md)\n") == [2]  # with the semicolon it is a copyright sign
+
+
+def test_an_escaped_backtick_opens_no_code_span(mem):
+    assert _dead(mem, "Literal \\`start\n[Broken](missing.md)\nend`\n") == [3]
+    assert _dead(mem, "Literal \\`[Broken](missing.md)` text\n") == [2]
+    assert _dead(mem, "Literal \\\\`start\n[Broken](missing.md)\nend`\n") == []  # an escaped backslash leaves it live
