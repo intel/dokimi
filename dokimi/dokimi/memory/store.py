@@ -29,7 +29,7 @@ _LABEL_ACROSS_LINES = re.compile(r"\[([^\[\]]+)\]")  # used on two joined lines:
 _EMPTY_LINK = re.compile(r"\]\(\s*(?:<>)?\s*\)")  # [t]() is an inline link with an empty destination
 _MD_ESCAPE = re.compile(r"\\([!-/:-@\[-`{-~])")
 _WIKILINK = re.compile(r"\[\[([^\]\n]+)\]\]")
-_CODE_SPAN = re.compile(r"`[^`\n]*`")
+_CODE_SPAN = re.compile(r"(?<!`)(`+)(?!`)[^\n]*?(?<!`)\1(?!`)")  # a backtick run closed by one of the same length
 _FENCE = re.compile(r" {0,3}(`{3,}|~{3,})")
 
 
@@ -147,6 +147,7 @@ def _blank_blocks(lines: list[str]) -> list[str]:
             fence = opener
             out.append(" " * len(line))
             continue
+        line = _CODE_SPAN.sub(lambda c: " " * len(c.group(0)), line)  # a code span hides a comment opener too
         line, comment = _blank_comments(line, i < last_close)
         out.append(line)
     return out
