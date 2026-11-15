@@ -10,6 +10,10 @@ Graders and probes read only these events, never a harness-specific trace:
     {"t": 5.0,  "kind": "edit",    "path": "src/foo.cpp"}
     {"t": 20.2, "kind": "tool",    "name": "WebFetch", "denied": true}
     {"t": 2.0,  "kind": "tool",    "name": "Skill", "skill": "lint-fix"}
+    {"t": 4.0,  "kind": "probe",   "target": "cpu", "pattern": "nproc", "text": "nproc", "rc": 0}
+
+A ``probe`` event follows the ``command`` event of a command that asks the host for its facts, one per
+pattern it matches (:mod:`dokimi.repos.probes`, contract §4.1).
 
 ``t`` is seconds since the first timestamped trace line, or ``null`` when the
 format has no timestamps. Paths inside the workspace are made relative to it.
