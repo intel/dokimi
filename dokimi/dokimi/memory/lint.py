@@ -15,6 +15,7 @@ from collections import Counter
 from collections.abc import Callable, Iterable
 from dataclasses import asdict, dataclass
 import posixpath
+from pathlib import Path
 
 from dokimi.memory.store import ARCHIVE_DIR, INDEX_NAME, MemoryEntry, MemoryStore, prose_lines, slug
 
@@ -75,28 +76,30 @@ def _index_bytes(store: MemoryStore) -> int:
         return len(store.index.text.encode("utf-8")) if store.index else 0
 
 
+def _resolve_target(store: MemoryStore, target: str, root: Path) -> tuple[str, Path | None]:
+    """``("file", path)`` for a file inside the store, else ``("outside", None)`` or ``("missing", None)``.
+
+    Resolved, so a symlink or an absolute path is judged by where it lands; a NUL byte or a loop is missing.
+    """
+    try:
+        full = (store.root / target).resolve()
+        if not full.is_relative_to(root):
+            return "outside", None
+        return ("file", full) if full.is_file() else ("missing", None)
+    except (OSError, RuntimeError, ValueError):
+        return "missing", None
+
+
 def _link_findings(store: MemoryStore) -> Iterable[Finding]:
     linked: set[str] = set()
     root = store.root.resolve()
     for n, target, checked in store.index_targets():
-        try:  # resolved, so a symlink or an absolute path is judged by where it lands
-            full = (store.root / target).resolve()
-            inside = full.is_relative_to(root)
-            is_file = inside and full.is_file()
-        except (OSError, RuntimeError, ValueError):  # a NUL byte or a loop: not a file in the store
-            if checked:
-                yield Finding("index-dead-link", "fail", INDEX_NAME, n, f"links {target}, which is not a file")
-            continue
-        if not checked:  # an unused definition is not checked, but the index still names its file
-            if is_file:
-                linked.update({posixpath.normpath(target), full.relative_to(root).as_posix()})
-            continue
-        if not inside:
-            yield Finding("index-dead-link", "fail", INDEX_NAME, n, f"links {target}, outside the memory directory")
-        elif is_file:
+        status, full = _resolve_target(store, target, root)
+        if full is not None:  # an unused definition is not checked, but the index still names its file
             linked.update({posixpath.normpath(target), full.relative_to(root).as_posix()})
-        else:
-            yield Finding("index-dead-link", "fail", INDEX_NAME, n, f"links {target}, which is not a file")
+        elif checked:
+            why = "outside the memory directory" if status == "outside" else "which is not a file"
+            yield Finding("index-dead-link", "fail", INDEX_NAME, n, f"links {target}, {why}")
     if store.index is None:
         return
     for entry in store.entries:

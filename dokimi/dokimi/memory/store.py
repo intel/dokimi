@@ -95,30 +95,11 @@ class MemoryStore:
             return []
         lines = prose_lines(self.index.text)  # blanked to the same columns, so a label is read from the raw text
         source = self.index.text.split("\n")
-        used: set[str] = set()  # a label is used by any [label] but the one that opens a definition
-        for k, line in enumerate(lines):
-            d = _MD_REF_DEF.match(line)
-            spans = [m.span() for m in _MD_LINK.finditer(line)]  # a label inside a destination or title is no use
-            for m in _MD_LABEL.finditer(line, d.end() if d else 0):
-                inside = any(start <= m.start() < end for start, end in spans)
-                if not inside and not _inline_link_at(line, m.end()):  # [t](...) with no valid destination is [t]
-                    used.add(_label(source[k][m.start(1):m.end(1)]))
-        for k, (a, b) in enumerate(zip(lines, lines[1:], strict=False)):  # a label may wrap onto the next line
-            pair = f"{a}\n{b}"
-            source_pair = f"{source[k]}\n{source[k + 1]}"
-            for m in _LABEL_ACROSS_LINES.finditer(pair):
-                if "\n" in m.group(1) and not _inline_link_at(pair, m.end()):
-                    used.add(_label(source_pair[m.start(1):m.end(1)]))
+        used = _used_labels(lines, source)
         out: list[tuple[int, str, bool]] = []
         defined: set[str] = set()
         for n, line in enumerate(lines, 1):
-            found = [(m.group(1), True) for m in _MD_LINK.finditer(line)]
-            for m in _MD_REF_DEF.finditer(line):  # the first definition of a label is the one Markdown uses
-                label = _label(source[n - 1][m.start(1):m.end(1)])
-                if label not in defined:
-                    found.append((m.group(2), label in used))
-                defined.add(label)
-            for raw, checked in found:
+            for raw, checked in _line_targets(line, source[n - 1], used, defined):
                 target = unquote(_MD_ESCAPE.sub(r"\1", raw.strip("<>")).split("#", 1)[0])
                 if target and "://" not in target and not target.startswith("mailto:"):
                     out.append((n, target, checked))
@@ -147,8 +128,7 @@ def _blank_blocks(lines: list[str]) -> list[str]:
     for i, line in enumerate(lines):
         opener = _fence_opener(line)
         if fence:
-            m = _FENCE.match(line)
-            if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence) and not line[m.end():].strip():
+            if _closes_fence(line, fence):
                 fence = ""
             out.append(" " * len(line))
             continue
@@ -167,19 +147,63 @@ def _blank_blocks(lines: list[str]) -> list[str]:
             fence = opener
             out.append(" " * len(line))
             continue
-        start = line.find("<!--")
-        while start >= 0:
-            end = line.find("-->", start + 2)  # from the second dash: <!--> and <!---> are complete comments too
-            if end < 0:  # an opener with no close later in the text is plain text, as Markdown reads it
-                if i < last_close:
-                    kind = "block" if start <= 3 and not line[:start].strip() else "inline"
-                    line = line[:start] + " " * (len(line) - start)
-                    comment = kind
-                break
-            line = line[:start] + " " * (end + 3 - start) + line[end + 3:]
-            start = line.find("<!--")
+        line, comment = _blank_comments(line, i < last_close)
         out.append(line)
     return out
+
+
+def _closes_fence(line: str, fence: str) -> bool:
+    """Whether ``line`` closes the fence ``fence``: the same character, at least as long, nothing after it."""
+    m = _FENCE.match(line)
+    return bool(m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence) and not line[m.end():].strip())
+
+
+def _blank_comments(line: str, may_close: bool) -> tuple[str, str]:
+    """Blank the comments that ``line`` opens and closes; returns the line and the kind of a comment it leaves open.
+
+    An opener with no close later in the text (``may_close`` False) is plain text, as Markdown reads it.
+    """
+    start = line.find("<!--")
+    while start >= 0:
+        end = line.find("-->", start + 2)  # from the second dash: <!--> and <!---> are complete comments too
+        if end < 0:
+            if not may_close:
+                break
+            kind = "block" if start <= 3 and not line[:start].strip() else "inline"
+            return line[:start] + " " * (len(line) - start), kind
+        line = line[:start] + " " * (end + 3 - start) + line[end + 3:]
+        start = line.find("<!--")
+    return line, ""
+
+
+def _used_labels(lines: list[str], source: list[str]) -> set[str]:
+    """The labels some link uses: ``[label]``, ``[label][]``, ``[label]`` across a wrapped line. A label is read from ``source``."""
+    used: set[str] = set()  # the label that opens a definition is not a use of itself
+    for k, line in enumerate(lines):
+        d = _MD_REF_DEF.match(line)
+        spans = [m.span() for m in _MD_LINK.finditer(line)]  # a label inside a destination or title is no use
+        for m in _MD_LABEL.finditer(line, d.end() if d else 0):
+            inside = any(start <= m.start() < end for start, end in spans)
+            if not inside and not _inline_link_at(line, m.end()):  # [t](...) with no valid destination is [t]
+                used.add(_label(source[k][m.start(1):m.end(1)]))
+    for k, (a, b) in enumerate(zip(lines, lines[1:], strict=False)):  # a label may wrap onto the next line
+        pair = f"{a}\n{b}"
+        source_pair = f"{source[k]}\n{source[k + 1]}"
+        for m in _LABEL_ACROSS_LINES.finditer(pair):
+            if "\n" in m.group(1) and not _inline_link_at(pair, m.end()):
+                used.add(_label(source_pair[m.start(1):m.end(1)]))
+    return used
+
+
+def _line_targets(line: str, source_line: str, used: set[str], defined: set[str]) -> list[tuple[str, bool]]:
+    """The ``(destination, checked)`` of each link and of each first definition on ``line``."""
+    found = [(m.group(1), True) for m in _MD_LINK.finditer(line)]
+    for m in _MD_REF_DEF.finditer(line):  # the first definition of a label is the one Markdown uses
+        label = _label(source_line[m.start(1):m.end(1)])
+        if label not in defined:
+            found.append((m.group(2), label in used))
+        defined.add(label)
+    return found
 
 
 def _fence_opener(line: str) -> str:
