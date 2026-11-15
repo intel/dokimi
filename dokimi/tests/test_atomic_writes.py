@@ -215,6 +215,32 @@ def test_a_failed_chmod_closes_the_tmp_descriptor(tmp_path, monkeypatch):
     _assert_kept(path, "OLD")
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX file modes")
+@pytest.mark.parametrize("target", ["replace", "chmod"])
+def test_an_interrupt_leaves_no_tmp_file_and_no_open_descriptor(tmp_path, monkeypatch, target):
+    path = tmp_path / "x.json"
+    path.write_text("OLD", encoding="utf-8")
+    opened = []
+    real_open = os.open
+
+    def spy_open(name, flag, mode=0o777, *args, **kwargs):
+        opened.append(real_open(name, flag, mode, *args, **kwargs))
+        return opened[-1]
+
+    def interrupt(*args, **kwargs):
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(os, "open", spy_open)
+    monkeypatch.setattr(os, target, interrupt)
+    with pytest.raises(KeyboardInterrupt):
+        write_text_atomic(path, "NEW")
+    for fd in opened:
+        with pytest.raises(OSError):
+            os.fstat(fd)
+    assert opened
+    _assert_kept(path, "OLD")
+
+
 def test_tmp_file_is_opened_binary_as_io_open_opens_it(tmp_path, monkeypatch):
     # On Windows os.open gives a text-mode descriptor unless O_BINARY is set, and then \n is written twice as \r\n.
     flags = []
