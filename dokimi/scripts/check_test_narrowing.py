@@ -295,6 +295,8 @@ def _class_names(body: list[ast.stmt]) -> dict[str, ast.expr | None]:
     bound: dict[str, ast.expr | None] = {}
     count: dict[str, int] = {}
     for stmt in body:
+        if isinstance(stmt, ast.AnnAssign) and stmt.value is None:
+            continue  # a bare annotation binds no name
         if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             bound[stmt.name] = None
             count[stmt.name] = count.get(stmt.name, 0) + 1

@@ -619,3 +619,9 @@ def test_a_comment_at_the_test_body_indent_after_its_last_statement_still_waives
             "    def test_b(self):\n        assert 3\n")
     head = base.replace("        assert 2\n", "        # Test-narrowed: covered by the integration tests\n")
     assert ctn.compare(base, head) == []
+
+
+def test_a_bare_annotation_in_a_class_binds_no_name_so_the_module_constant_is_read():
+    base = CLASS_CASES.replace("    CASES = [1, 2]\n", "    CASES: list\n")
+    head = base.replace("CASES = [1, 2, 3]", "CASES = [1]")
+    assert [what for _, _, what in ctn.compare(base, head)] == ["cuts parametrize cases (3 -> 1)"]
