@@ -393,7 +393,9 @@ values are possible:
 A `—` is not a null result. A constant shift is not a `—`: eight pairs that all
 gain +20 have p = 2/2^8 = 0.0078 and the interval [+20, +20]. Cohen's d_z is
 descriptive (no verdict reads it) and renders `—` there, where it is *unbounded*
-rather than negligible; it is 0.0 when every delta is 0.
+rather than negligible; it is 0.0 when every delta is 0. "Constant" is judged at the
+deltas' own scale (spread under 1e-9 of the larger of the mean and the sd), so deltas
+of 1e-12 that differ get a d_z.
 
 The 95% CI inverts the same sign-flip test: it is every shift theta at which the
 test on the deltas minus theta does not reject at 5%, so it excludes zero exactly
