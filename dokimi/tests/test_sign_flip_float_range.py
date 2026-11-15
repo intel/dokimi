@@ -60,12 +60,13 @@ def test_the_ends_of_a_scaled_row_are_the_ends_of_the_row_scaled(base):
 
 
 @pytest.mark.parametrize("row", [[BIG, 1.0, 1.0, 1.0, 1.0, 1.0], [-BIG, -1.0, -1.0, -1.0, -1.0, -1.0]])
-def test_an_end_beyond_the_float_range_is_open(row):
+def test_an_end_at_the_float_maximum_is_the_maximum(row):
+    # the bisection overshoots the end by a few ulps at the maximum; multiplied back it is past the range (#770)
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         for rounded in (False, True):
             ends = sign_flip_interval(row, sign_flip_p(row), rounded=rounded)
-            assert (ends[1] if row[0] > 0 else ends[0]) is None
+            assert (ends[1] if row[0] > 0 else ends[0]) == math.copysign(BIG, row[0])
             assert all(end is None or math.isfinite(end) for end in ends)
 
 
@@ -81,7 +82,7 @@ def test_the_p_and_ends_of_a_row_near_the_maximum_are_those_of_the_row_scaled(ro
         try:
             want = None if small_row[end] is None else math.ldexp(small_row[end], 4)
         except OverflowError:
-            want = None  # the scaled end is past the float range: open
+            want = math.copysign(BIG, small_row[end])  # the scaled end is past the float range: the maximum
         assert (big_row[end] is None) == (want is None)
         if want is not None:
             assert big_row[end] == pytest.approx(want, rel=1e-12)

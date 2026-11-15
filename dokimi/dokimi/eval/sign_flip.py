@@ -166,8 +166,9 @@ def sign_flip_interval(deltas: list[float], p_zero: float | None, seed: int = 0,
 
     A largest ``|delta|`` above ``max float / (8 * n)`` would take the far bound, the shifted deltas or the pattern
     sums out of the float range: the search then runs on the deltas divided by a power of two (exact), with
-    :data:`EPS` and :data:`TOL` divided the same, and each end is multiplied back. An end the float range cannot hold
-    is open (``None``), never ``inf``."""
+    :data:`EPS` and :data:`TOL` divided the same, and each end is multiplied back. An end that comes
+    back past the float maximum is the maximum (``±max``), never ``inf``: from 6 deltas on a shift past it puts every
+    delta on one side, which the test rejects, so the search overshoots a true end at the maximum by a few ulps."""
     k = _scale_exponent(deltas)
     if k:
         scaled = [math.ldexp(x, -k) for x in deltas]
@@ -192,7 +193,9 @@ def _scaled_back(end: float | None, k: int) -> float | None:
     try:
         return math.ldexp(end, k)
     except OverflowError:
-        return None
+        # a shift past the maximum puts every delta on one side and is rejected, so no true end is past it: the
+        # bisection stops a few ulps beyond an end at the maximum, where the sums cannot resolve TOL
+        return math.copysign(sys.float_info.max, end)
 
 
 def _ends(deltas: list[float], p_zero: float | None, seed: int, eps: float, tol: float
