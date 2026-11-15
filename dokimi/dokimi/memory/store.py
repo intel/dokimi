@@ -23,9 +23,9 @@ INDEX_NAME = "MEMORY.md"
 ARCHIVE_DIR = "archive"
 _FRONTMATTER = re.compile(r"\A---[ \t]*\r?\n(?:(.*?)\r?\n)??---[ \t]*(?:\r?\n|\Z)", re.S)
 _WS = r"[ \t\r]*(?:\n[ \t\r]*)?"  # spaces, and at most one line break: a destination may start on the next line
-_MD_LINK = re.compile(r"\]\(" + _WS + r"(<[^>\n]+>|(?:\\\S|[^()\s\\]|\([^()\s]*\))+)(?:\s+(?:\"[^\"]*\"|'[^']*'))?" + _WS + r"\)")
+_MD_LINK = re.compile(r"\]\(" + _WS + r"(<[^>\n]+>|(?:\\\S|[^()\s\\]|\([^()\s]*\))+)(?:\s+(?:\"[^\"]*\"|'[^']*'|\([^()]*\)))?" + _WS + r"\)")
 _MD_REF_DEF = re.compile(  # a definition: label, destination, then nothing or a title (which may run on to the next line)
-    r"^ {0,3}\[(?!\^)([^\]\n]+)\]:[ \t]*(<[^>\n]+>|\S+)"
+    r"^ {0,3}\[(?!\^)([^\]\n]+)\]:" + _WS + r"(<[^>\n]+>|\S+)"
     r"(?:[ \t]+[\"'(](?:\\.|\\$|[^\\])*)?\s*$")
 _MD_LABEL = re.compile(r"\[([^\[\]\n]+)\]")
 _LABEL_ACROSS_LINES = re.compile(r"\[([^\[\]]+)\]")  # used on two joined lines: a label may wrap a line break
@@ -227,7 +227,7 @@ def _indented_code(lines: list[str], i: int, in_list: bool, code: bool) -> tuple
     if not line.strip():
         return in_list, code, False
     prev_blank = i == 0 or not lines[i - 1].strip()
-    if _LIST_ITEM.match(line):
+    if _LIST_ITEM.match(line) and (in_list or not line.startswith(("    ", "\t")) or not (prev_blank or code)):
         in_list = True
     elif line[0] not in " \t" and (prev_blank or _BLOCK_START.match(line)):
         in_list = False
@@ -303,7 +303,12 @@ def _used_labels(lines: list[str], source: list[str], defs: dict[int, re.Match])
     for k, line in enumerate(lines):
         d = defs.get(k)
         spans = [m.span() for m in _MD_LINK.finditer(line)]  # a label inside a destination or title is no use
-        labels = list(_MD_LABEL.finditer(line, d.end() if d else 0))
+        begin = d.end() if d else 0
+        if d and d.end() > len(line):  # the destination is on the next line: the label line holds no use
+            begin = len(line)
+        elif (above := defs.get(k - 1)) and above.end() > len(lines[k - 1]):
+            begin = above.end() - len(lines[k - 1]) - 1  # the rest of that definition's line is its title
+        labels = list(_MD_LABEL.finditer(line, begin))
         for j, m in enumerate(labels):
             inside = any(start <= m.start() < end for start, end in spans)
             text_of_explicit = j + 1 < len(labels) and labels[j + 1].start() == m.end()  # [text][label]: text is no use
@@ -324,13 +329,14 @@ def _definitions(lines: list[str]) -> dict[int, re.Match]:
     """The reference definitions by line index. A title that opens and never closes on its line or the next is no definition."""
     out: dict[int, re.Match] = {}
     for k, line in enumerate(lines):
-        m = _MD_REF_DEF.match(line)
+        m = _MD_REF_DEF.match(line) or (k + 1 < len(lines) and _MD_REF_DEF.match(line + "\n" + lines[k + 1]))
         if not m:
             continue
-        title = line[m.end(2):]
+        joined = m.end() > len(line)  # the destination, and so the title, is on line k + 1
+        title = (line + "\n" + lines[k + 1])[m.end(2):] if joined else line[m.end(2):]
         if title.strip() and not _TITLE_CLOSED.match(title):
             closer = {'"': '"', "'": "'", "(": ")"}[title.strip()[0]]
-            if not _title_closes_below(lines, k, closer):
+            if not _title_closes_below(lines, k + joined, closer):
                 continue
         out[k] = m
     return out

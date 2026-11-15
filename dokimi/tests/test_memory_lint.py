@@ -541,3 +541,26 @@ def test_an_escaped_backtick_opens_no_code_span(mem):
     assert _dead(mem, "Literal \\`start\n[Broken](missing.md)\nend`\n") == [3]
     assert _dead(mem, "Literal \\`[Broken](missing.md)` text\n") == [2]
     assert _dead(mem, "Literal \\\\`start\n[Broken](missing.md)\nend`\n") == []  # an escaped backslash leaves it live
+
+
+def test_link_title_in_parentheses_is_part_of_the_link(mem):
+    assert _dead(mem, "[Gone](missing.md (retired))\n") == [2]
+
+
+def test_definition_destination_may_be_on_the_next_line(mem):
+    assert _dead(mem, "[Gone][g]\n\n[g]:\n  missing.md\n") == [4]
+
+
+def test_four_space_indented_list_item_after_a_blank_line_is_code(mem):
+    (mem / "MEMORY.md").write_text("[A](a.md) [B](b.md)\n\n    - [Example](missing.md)\n")
+    assert [f.line for f in lint(read_claude_memory(mem)) if f.rule == "index-dead-link"] == []
+
+
+def test_definition_on_two_lines_with_an_unterminated_title_is_no_definition(mem):
+    (mem / "MEMORY.md").write_text('[A](a.md) [B](b.md) [g]\n\n[g]:\n  missing.md "unterminated\n')
+    assert [f.line for f in lint(read_claude_memory(mem)) if f.rule == "index-dead-link"] == []
+
+
+def test_label_in_the_title_of_a_two_line_definition_is_not_a_use(mem):
+    (mem / "MEMORY.md").write_text('[A](a.md) [B](b.md) [G][g]\n\n[g]:\n  a.md "see [t]"\n[t]: missing.md\n')
+    assert [f.line for f in lint(read_claude_memory(mem)) if f.rule == "index-dead-link"] == []
