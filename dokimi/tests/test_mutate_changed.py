@@ -584,3 +584,35 @@ def test_a_survivor_is_inconclusive_when_a_candidate_test_file_did_not_run(
                                **{gap: ("tests/test_zz_late.py",)})
     assert _statuses(report) == {(2, "x != 2"): "inconclusive", (2, "3"): "inconclusive", (2, "None"): "inconclusive"}
     assert rc == 0
+
+
+def test_the_covering_pass_asks_pytest_for_the_passed_ids(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    zz = tmp_path / "dokimi" / "dokimi" / "zz.py"
+    zz.parent.mkdir(parents=True)
+
+    class Data:
+        def __init__(self, basename: str) -> None:
+            pass
+
+        def read(self) -> None:
+            pass
+
+        def measured_files(self) -> list[str]:
+            return [str(zz)]
+
+        def contexts_by_lineno(self, f: str) -> dict[int, set[str]]:
+            return {1: {""}}  # FLAG = True, run at collection
+
+    asked: list[list[str]] = []
+
+    def pytest_run(cwd: Path, args: list[str], timeout: float, env: dict[str, str] | None = None) -> tuple[int, str]:
+        asked.append(args)
+        (cwd / ".coverage").write_text("", encoding="utf-8")
+        return 1, ("FAILED tests/test_zz.py::test_bad - assert False\nPASSED tests/test_zz.py::test_const\n"
+                   "=== 1 failed, 1 passed in 0.01s ===\n")
+
+    monkeypatch.setitem(sys.modules, "coverage", types.SimpleNamespace(CoverageData=Data))
+    monkeypatch.setattr(mc, "_pytest", pytest_run)
+    by_file, _, _ = mc.covering_tests(tmp_path, ["tests/test_zz.py"], ["dokimi/dokimi/zz.py"], 60)
+    assert "-rfEp" in asked[0]
+    assert by_file["dokimi/dokimi/zz.py"][1] == ["tests/test_zz.py::test_const"]
