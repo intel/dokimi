@@ -146,7 +146,9 @@ finds little:
   condition, drop a branch), confirm the test fails, then revert the break.
   CI's `Mutation of changed lines` job (`dokimi/scripts/mutate_changed.py`)
   does this for the package lines a PR changes, up to 40 mutants, and lists
-  each surviving mutant in its step summary. It warns, it does not fail: kill
+  each surviving mutant in its step summary. A survivor whose module has a
+  candidate test file that did not run is `inconclusive`, not a gap. It warns,
+  it does not fail: kill
   a survivor with an assertion, or say in the description why it is
   equivalent. Run it locally with
   `python scripts/mutate_changed.py --base origin/main` from `dokimi/`.

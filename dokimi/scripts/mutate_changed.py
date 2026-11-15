@@ -23,6 +23,9 @@ breaking. Steps:
    written). Exit 0 from pytest is a survivor, exit 1 (a test failed) a kill, and
    so is a collection error the mutant caused (``_mutant_status``); a timeout and
    any other exit code (no test ran, a usage error) get their own status, never a kill.
+   A survivor whose module has a candidate test file that did not run (out of time,
+   or failing to collect) is ``inconclusive``: that file may be the one that catches
+   the change, so it is not reported as a gap.
 
 A line no candidate test executes is reported as uncovered, not mutated: the
 changed-lines coverage gate in ``ci.yml`` owns that. The run stops starting
@@ -354,6 +357,11 @@ def covering_tests(
     return by_file, failing, []
 
 
+def _not_run(failing: list[str], skipped: list[str]) -> list[str]:
+    """Candidate test files that did not run: left for lack of time, or failing to collect (a bare file in ``failing``)."""
+    return skipped + [f for f in failing if "::" not in f]
+
+
 def run(args: argparse.Namespace) -> int:
     t0 = time.monotonic()
     report: dict = {"base": args.base, "max_mutants": args.max_mutants, "files": {}, "mutants": [], "uncovered_lines": {}}
@@ -377,12 +385,17 @@ def run(args: argparse.Namespace) -> int:
         work = Path(tmp)
         copy_tree(work)
         cover: dict[str, dict[int, list[str]]] = {}
+        failing: list[str] = []
+        skipped: list[str] = []
         if tests:
             cover, failing, skipped = covering_tests(
                 work, tests, sorted({m.path for m in all_mutants}), args.budget / 2
             )
             report["failing_unmutated"] = failing
             report["candidate_tests_not_run"] = skipped
+        gaps = _not_run(failing, skipped)
+        unrun = {p: [t for t in candidate_tests([p], PROJECT / "tests") if t in gaps]
+                 for p in {m.path for m in all_mutants}} if gaps else {}
         covered = [m for m in all_mutants if cover.get(m.path, {}).get(m.line)]
         for m in all_mutants:
             if not cover.get(m.path, {}).get(m.line):
@@ -406,6 +419,8 @@ def run(args: argparse.Namespace) -> int:
                 _write_source(target, original)
             m.seconds = round(time.monotonic() - start, 1)
             m.status = _mutant_status(rc, log)
+            if m.status == "survived" and unrun.get(m.path):
+                m.status = "inconclusive"
         report["mutants"] = [asdict(m) for m in chosen]
     report["uncovered_lines"] = {p: sorted(s) for p, s in report["uncovered_lines"].items()}
     survived = sum(m.status == "survived" for m in chosen)
@@ -414,14 +429,14 @@ def run(args: argparse.Namespace) -> int:
 
 def markdown(report: dict) -> str:
     ms = report["mutants"]
-    count = {s: sum(m["status"] == s for m in ms) for s in ("killed", "timeout", "error", "survived", "not run")}
+    count = {s: sum(m["status"] == s for m in ms) for s in ("killed", "timeout", "error", "survived", "inconclusive", "not run")}
     out = ["## Mutation of changed lines\n"]
     if note := report.get("note"):
         out.append(f"{note}.\n")
     out.append(
         f"{len(ms)} mutants of {report.get('mutants_covered', 0)} on covered changed lines (cap {report['max_mutants']}): "
         f"{count['killed']} killed, {count['timeout']} timed out, {count['error']} errors, "
-        f"**{count['survived']} survived**, {count['not run']} not run (time budget). {report['seconds']} s.\n"
+        f"**{count['survived']} survived**, {count['inconclusive']} inconclusive, {count['not run']} not run (time budget). {report['seconds']} s.\n"
     )
     survivors = [m for m in ms if m["status"] == "survived"]
     if survivors:
@@ -432,6 +447,9 @@ def markdown(report: dict) -> str:
             was, became = (s.replace("|", "\\|").replace("\n", " ")[:80] for s in (m["original"], m["replacement"]))
             out.append(f"| `{m['path']}:{m['line']}` | {m['op']} | `{was}` | `{became}` | {len(m['tests'])} |")
         out.append("")
+    if count["inconclusive"]:
+        out.append(f"{count['inconclusive']} inconclusive: the tests covering the line pass, but a candidate test file "
+                   "for its module did not run (listed below), so it may be the one that catches the change. Not a gap.\n")
     if report["uncovered_lines"]:
         lines = "; ".join(f"`{p}`: {', '.join(map(str, ls))}" for p, ls in report["uncovered_lines"].items())
         out.append(f"Changed lines no candidate test executes (not mutated): {lines}\n")
@@ -458,6 +476,8 @@ def _finish(report: dict, args: argparse.Namespace, t0: float, code: int) -> int
         if m["status"] == "survived":
             level = "error" if args.fail_on_survivor else "warning"
             print(f"::{level} file={m['path']},line={m['line']}::mutant survived: {m['op']} `{m['original']}` -> `{m['replacement']}`")
+        elif m["status"] == "inconclusive":
+            print(f"::warning file={m['path']},line={m['line']}::mutant inconclusive: a candidate test file for it did not run")
     return code
 
 

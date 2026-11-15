@@ -131,12 +131,15 @@ def test_markdown_lists_survivors_and_uncovered() -> None:
 
 
 def _mutation_run(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, src: str, tests: str, cover: dict[int, list[str]], *flags: str
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, src: str, tests: str, cover: dict[int, list[str]], *flags: str,
+    skipped: tuple[str, ...] = (), broken: tuple[str, ...] = (),
 ) -> tuple[int, dict]:
     """Run the script on a repo whose head adds ``dokimi/zz.py`` and its tests; returns (exit code, JSON report).
 
     ``cover`` (zz.py line -> covering test ids) stands in for the coverage pass: the suite's
     test environments have no coverage package, and covering_tests has its own test below.
+    ``skipped`` (left for lack of time) and ``broken`` (failing to collect) name candidate test
+    files that import zz and did not run; they are written into the repo as well.
     """
     if not (tmp_path / ".git").exists():
         pkg = tmp_path / "dokimi" / "dokimi"
@@ -150,6 +153,8 @@ def _mutation_run(
         _git(tmp_path, "commit", "-qm", "base")
         (pkg / "zz.py").write_text(src, encoding="utf-8")
         (tmp_path / "dokimi" / "tests" / "test_zz.py").write_text(tests, encoding="utf-8")
+        for name in (*skipped, *broken):
+            (tmp_path / "dokimi" / name).write_text("from dokimi.zz import b\n", encoding="utf-8")
         _git(tmp_path, "add", ".")
         _git(tmp_path, "commit", "-qm", "head")
     monkeypatch.setattr(mc, "REPO", tmp_path)
@@ -160,7 +165,7 @@ def _mutation_run(
 
     def covering(work: Path, files: list[str], paths: list[str], budget: float) -> tuple[dict, list[str], list[str]]:
         mc._pytest(work / "dokimi", files, budget)  # imports the unmutated zz.py first, as the coverage pass does
-        return {"dokimi/dokimi/zz.py": cover}, [], []
+        return {"dokimi/dokimi/zz.py": cover}, list(broken), list(skipped)
 
     monkeypatch.setattr(mc, "covering_tests", covering)
     out = tmp_path / "report.json"
@@ -566,3 +571,16 @@ def test_a_failure_message_that_completes_a_longer_passing_id_is_not_read_as_its
     log = f"PASSED {passing}\nFAILED {failing} - Failed: b]\n"
     bad, unmatched = mc._failed(log, {failing, passing})
     assert (bad, unmatched) == ({failing}, [])
+
+
+@pytest.mark.parametrize("gap", ["skipped", "broken"])
+def test_a_survivor_is_inconclusive_when_a_candidate_test_file_did_not_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, gap: str
+) -> None:
+    src = "def b(x):\n    return x == 2\n"
+    tests = "from dokimi.zz import b\n\n\ndef test_b_is_only_called():\n    b(2)\n"
+    cover = {2: ["tests/test_zz.py::test_b_is_only_called"]}
+    rc, report = _mutation_run(tmp_path, monkeypatch, src, tests, cover, "--fail-on-survivor",
+                               **{gap: ("tests/test_zz_late.py",)})
+    assert _statuses(report) == {(2, "x != 2"): "inconclusive", (2, "3"): "inconclusive", (2, "None"): "inconclusive"}
+    assert rc == 0
