@@ -30,8 +30,24 @@ LOW = "n\udcff"
 def test_key_bytes_keeps_utf8_and_escaped_bytes_and_tags_a_high_surrogate():
     assert key_bytes("café") == "café".encode("utf-8")
     assert key_bytes(LOW) == b"n\xff"
-    assert key_bytes(HIGH) == b"\0spn\xed\xa0\x80"
+    assert key_bytes(HIGH) == b"\0sn\xed\xa0\x80"
     assert key_bytes("\udced\udca0\udc80") != key_bytes("\ud800")  # the escaped bytes of U+D800 are another text
+
+
+def test_key_bytes_of_a_high_surrogate_and_of_the_text_that_looked_like_its_tag_differ():
+    assert key_bytes("\ud800") == b"\0s\xed\xa0\x80"
+    assert key_bytes("\0s\udced\udca0\udc80") == b"\0e\0s\xed\xa0\x80"
+    assert key_bytes("\0sp\udced\udca0\udc80") != key_bytes("\ud800")
+    assert key_bytes("\0e") == b"\0e\0e"
+
+
+def test_context7_cache_does_not_replay_a_high_surrogate_entry_for_the_text_that_looked_like_its_tag(tmp_path):
+    assert _context7_hit(tmp_path, "\ud800", "q", _sha(key_bytes("\ud800:q:8000")))["cached"] is True
+    from dokimi.mcp import MCPConnectionError
+    from dokimi.mcp.context7 import Context7Client
+
+    with pytest.raises(MCPConnectionError):  # not the stored entry: the NUL in the id makes the fetch itself fail
+        Context7Client(cache_dir=tmp_path).get_library_docs("\0sp\udced\udca0\udc80", "q")
 
 
 class _FixedClock:
@@ -67,7 +83,7 @@ def test_reach_default_salt_of_a_label_with_a_non_utf8_byte_is_a_digest(tmp_path
 
 
 def test_reach_default_salt_of_a_label_with_a_high_surrogate_is_a_digest(tmp_path, monkeypatch):
-    expected = hashlib.sha256(b"\0sp/srv/d\xed\xa0\x80\0" + STAMP).hexdigest()[:12]
+    expected = hashlib.sha256(b"\0s/srv/d\xed\xa0\x80\0" + STAMP).hexdigest()[:12]
     assert _default_salt(tmp_path, monkeypatch, "/srv/d\ud800") == expected
 
 
@@ -111,7 +127,7 @@ def test_context7_cache_key_of_a_library_id_with_a_non_utf8_byte_is_a_digest(tmp
 
 
 def test_context7_cache_key_of_a_query_with_a_high_surrogate_is_a_digest(tmp_path):
-    assert _context7_hit(tmp_path, "org/x", HIGH, _sha(b"\0sporg/x:n\xed\xa0\x80:8000"))["cached"] is True
+    assert _context7_hit(tmp_path, "org/x", HIGH, _sha(b"\0sorg/x:n\xed\xa0\x80:8000"))["cached"] is True
 
 
 def _topics_hit(tmp_path: Path, library_id: str, key: str) -> list[str]:
@@ -131,7 +147,7 @@ def test_topics_cache_key_of_a_library_id_with_a_non_utf8_byte_is_a_digest(tmp_p
 
 
 def test_topics_cache_key_of_a_library_id_with_a_high_surrogate_is_a_digest(tmp_path):
-    assert _topics_hit(tmp_path, "local:" + HIGH, _sha(b"\0splocal:n\xed\xa0\x80:3:8000")) == ["parallel_for"]
+    assert _topics_hit(tmp_path, "local:" + HIGH, _sha(b"\0slocal:n\xed\xa0\x80:3:8000")) == ["parallel_for"]
 
 
 def _set_hash(*texts: str) -> str:
@@ -211,7 +227,7 @@ def test_url_client_cache_key_of_a_source_with_a_non_utf8_byte_is_unchanged():
 def test_url_client_cache_key_of_a_source_with_a_high_surrogate_is_a_digest():
     from dokimi.mcp.url_client import URLClient
 
-    assert URLClient(HIGH)._cache_key() == _sha(b"\0spn\xed\xa0\x80")
+    assert URLClient(HIGH)._cache_key() == _sha(b"\0sn\xed\xa0\x80")
 
 
 def test_url_client_cache_key_of_a_high_surrogate_is_apart_from_the_escaped_bytes_it_encodes_as():
@@ -258,13 +274,13 @@ def test_topics_cache_directory_of_a_doc_source_with_a_non_utf8_byte_is_unchange
 
 
 def test_topics_cache_directory_of_a_doc_source_with_a_high_surrogate_is_a_digest(monkeypatch):
-    assert _topics_dir(monkeypatch, "local:/d\ud800") == Path(".cache/topics") / _sha(b"\0splocal:/d\xed\xa0\x80")[:16]
+    assert _topics_dir(monkeypatch, "local:/d\ud800") == Path(".cache/topics") / _sha(b"\0slocal:/d\xed\xa0\x80")[:16]
 
 
 @pytest.mark.parametrize("source, raw", [
     ("local:/docs/café", "local:/docs/café".encode()),
     ("local:/d\udcff", b"local:/d\xff"),
-    ("local:/d\ud800", b"\0splocal:/d\xed\xa0\x80"),
+    ("local:/d\ud800", b"\0slocal:/d\xed\xa0\x80"),
 ], ids=["utf8", "non-utf8-byte", "high-surrogate"])
 def test_questions_generate_topics_cache_directory_is_keyed_as_the_pipeline_keys_it(tmp_path, monkeypatch, source, raw):
     import argparse
@@ -298,20 +314,20 @@ def test_questions_generate_topics_cache_directory_is_keyed_as_the_pipeline_keys
 def test_clone_directory_of_a_url_with_a_high_surrogate_is_a_directory_name():
     from dokimi.repos.source import cache_path
 
-    assert cache_path("https://example.com/n\ud800", Path("/c")) == Path("/c/n_-" + _sha(b"\0sphttps://example.com/n\xed\xa0\x80")[:12] + ".git")
+    assert cache_path("https://example.com/n\ud800", Path("/c")) == Path("/c/n_-" + _sha(b"\0shttps://example.com/n\xed\xa0\x80")[:12] + ".git")
 
 
 def test_harness_directory_name_of_an_id_with_a_high_surrogate_and_a_reserved_character():
     from dokimi.harnesses.runner import _safe_id
 
-    assert _safe_id("n\ud800?") == "n\ud800_-" + _sha(b"\0spn\xed\xa0\x80?")[:8]
+    assert _safe_id("n\ud800?") == "n\ud800_-" + _sha(b"\0sn\xed\xa0\x80?")[:8]
 
 
 def test_graph_task_id_of_a_symbol_with_a_high_surrogate_is_an_id():
     from dokimi.repos.graph_tasks import Candidate, task_id
 
     candidate = Candidate("references", (HIGH,), "run", "run", (), (), (), 1)
-    assert task_id(candidate) == "graph_references_run_" + _sha(b"\0spn\xed\xa0\x80")[:8]
+    assert task_id(candidate) == "graph_references_run_" + _sha(b"\0sn\xed\xa0\x80")[:8]
 
 
 def test_question_set_hash_of_a_question_with_a_low_surrogate_is_a_digest():
