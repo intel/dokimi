@@ -132,6 +132,17 @@ def test_text_that_is_not_run_code_is_no_probe(command):
     assert all(e["kind"] != "probe" for e in events)
 
 
+@pytest.mark.xfail(strict=True, reason="quoted text is still searched for substitutions and pipes")
+@pytest.mark.parametrize("command", [
+    "echo '$(nproc)'",
+    "sysctl -a '|' grep machdep.cpu",
+    "python -c 'print(\"os.cpu_count()\")'",
+])
+def test_quoted_text_is_no_probe(command):
+    events = _claude(_claude_call("a", command, "2026-01-01T00:00:05Z"), _claude_result("a"))
+    assert all(e["kind"] != "probe" for e in events)
+
+
 def test_a_windows_powershell_probe_is_matched_case_blind_and_through_parentheses():
     events = _claude(
         _claude_call("a", "Get-CimInstance -ClassName Win32_Processor | Select-Object NumberOfCores",
