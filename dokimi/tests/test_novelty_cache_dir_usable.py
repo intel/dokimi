@@ -69,6 +69,12 @@ def test_usable_cache_dir_takes_a_read_only_directory_but_refuses_a_child_of_one
         locked.chmod(0o700)
 
 
+def _listing(cache) -> str:
+    """The directory's mode and its entries with their modes, for a failure message."""
+    entries = ", ".join(f"{p.name}={oct(p.stat().st_mode & 0o777)}" for p in sorted(cache.iterdir()))
+    return f"{cache} mode {oct(cache.stat().st_mode & 0o777)} holds [{entries}]"
+
+
 @pytest.mark.skipif(not hasattr(os, "geteuid") or os.geteuid() == 0, reason="root writes anywhere")
 def test_a_read_only_cache_dir_replays_what_it_holds_and_decides_a_miss_without_storing(tmp_path):
     from dokimi.novelty.retention import RetentionOracle
@@ -81,15 +87,19 @@ def test_a_read_only_cache_dir_replays_what_it_holds_and_decides_a_miss_without_
     miss = Atom(statement="Restart service9 after every deploy", question="q", answer="a", span_ids=())
     text = "Configure module0 with parameter0 always."
     stored = RetentionOracle(cache_dir=cache).verdict(hit, text)
-    assert len(list(cache.iterdir())) == 1
+    held = list(cache.iterdir())
+    assert len(held) == 1, _listing(cache)
+    # The file's mode follows the umask; one that strips the owner's read bit would leave it unreadable.
+    held[0].chmod(0o600)
     cache.chmod(0o500)
     try:
         oracle = RetentionOracle(cache_dir=usable_cache_dir(str(cache)))
-        assert oracle.verdict(hit, text).method == "cache"
-        assert oracle.verdict(hit, text).retained == stored.retained
+        replayed = oracle.verdict(hit, text)
+        assert replayed.method == "cache", f"{_listing(cache)}; _load -> {oracle._load(held[0].stem)}"
+        assert replayed.retained == stored.retained
         decided = oracle.verdict(miss, text)
-        assert decided.method == "lexical"
-        assert len(list(cache.iterdir())) == 1
+        assert decided.method == "lexical", _listing(cache)
+        assert len(list(cache.iterdir())) == 1, _listing(cache)
     finally:
         cache.chmod(0o700)
 
