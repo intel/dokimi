@@ -63,9 +63,9 @@ def check_task(ctx: EvalContext, task: Task, work_dir: Path, warm: bool = False,
                guidance_names: tuple[str, ...] = ANCESTOR_NAMES,
                host: dict[str, Any] | None = None) -> dict[str, Any]:
     """Null, oracle and isolation checks for one task; ``verdict`` is ok, broken, flaky or unsupported.
-    An unsupported result says why in ``unsupported_by``: ``egress``, ``host`` (a hardware miss, which
-    ``--allow-unsupported`` may pass) or ``host-probe`` (the probe could not run or gave no CPU count,
-    which it never passes).
+    An unsupported result says why in ``unsupported_by``: ``egress``, ``suite`` (the base's repository
+    of a suite is missing: not a failure), ``host`` (a hardware miss, which ``--allow-unsupported`` may
+    pass) or ``host-probe`` (the probe could not run or gave no CPU count, which it never passes).
 
     A task the host cannot show still has its workspace prepared and isolation probed, and its oracle run
     when only CPUs are short; only the null check, which depends on the hardware, is skipped. ``--warm``
@@ -79,6 +79,10 @@ def check_task(ctx: EvalContext, task: Task, work_dir: Path, warm: bool = False,
         net = "bridge" if warm else docker_network(network, task.egress)
     except ContainerError as exc:
         res.update(verdict="unsupported", unsupported_by="egress", problems=[str(exc)])
+        return res
+    gap = ctx.base_gaps().get(task.id)  # its base is in a suite repository that is missing
+    if gap:
+        res.update(verdict="unsupported", unsupported_by="suite", problems=[gap])
         return res
     # The probe sees what every container of this runner sees (affinity, cgroup quota), with or without
     # --warm's network: an unmet host requirement is unsupported either way, never a passing null run.
@@ -167,7 +171,7 @@ def _prepare(ctx: EvalContext, task: Task, rd: Path) -> None:
     if rd.exists():
         shutil.rmtree(rd)
     rd.mkdir(parents=True)
-    meta = prepare_workspace(ctx.git_dir, ctx.manifest, task, "guidance:raw", rd)
+    meta = prepare_workspace(ctx.git_dir_for(task.id), ctx.manifest, task, "guidance:raw", rd)
     meta.update(harness="none", harness_version=None, model="none", rep=0)
     for name, data in (("meta.json", meta), ("task.json", task.raw)):
         (rd / name).write_text(json.dumps(data, indent=1) + "\n", encoding="utf-8")

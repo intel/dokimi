@@ -218,9 +218,11 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
     if rd.exists():
         _rmtree(rd)
     rd.mkdir(parents=True)
-    meta = prepare_workspace(ctx.git_dir, ctx.manifest, task, arm, rd, opts.profile, ctx.content_dir)
+    meta = prepare_workspace(ctx.git_dir_for(task.id), ctx.manifest, task, arm, rd, opts.profile, ctx.content_dir)
     meta.update(harness=opts.profile.name, harness_version=opts.harness_version, model=opts.model, rep=rep,
                 batch=batch_dir.name, agent_network=network, egress_proxy=False, execution=execution, host=host)
+    if ctx.suite is not None and task.id in ctx.suite.meta:  # additive: only a suite task's base is elsewhere
+        meta["base_repo"] = ctx.suite.meta[task.id]
     present = _workspace_args(task, opts, rd, meta)
     _write_json(rd / "meta.json", meta)
     skills: dict[str, Any] | None = None
@@ -375,7 +377,8 @@ def run_batch(ctx: EvalContext, tasks: list[Task], arms: list[str], options: lis
     check_batch_executions(batch_dir, options, {cell_name(t.id, a, o.model, r) for t, a, o, r in cells} if force else None)
     host = probe_host(ctx, batch_dir / "_eval")
     _write_json(batch_dir / "_eval" / "host.json", host)
-    verdicts = {t.id: unmet(t, host) for t in tasks}
+    gaps = ctx.base_gaps()  # a task whose base repository is missing is unsupported, as a host miss is
+    verdicts = {t.id: (gaps[t.id], "suite") if t.id in gaps else unmet(t, host) for t in tasks}
     unsupported = {task_id: why for task_id, (why, _) in verdicts.items() if why}
     if force and unsupported:  # --force keeps their finished cells, so those must match this run too
         check_batch_executions(batch_dir, options, {cell_name(t.id, a, o.model, r) for t, a, o, r in cells

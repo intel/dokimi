@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/intel/dokimi/schemas/suite_manifest.v1.json",
+  "title": "Cross-repository suite manifest v1",
+  "description": "suite.yaml: tasks of the eval tree whose base is a commit of another repository (docs/repo-evaluation-contract.md §2.1). `repos` names the scaffold repositories, each referenced as <url>@<rev> (a local pinned path works too); `tasks` lists the tasks of the eval tree that take their base checkout from one of them. This is an input the benchmark repository owns, so it carries `schema`, not `schema_version`. Semantic rules (every task is a task of the tree, every repo name is declared, revisions are full commits unless the run allows floating ones) are checked in dokimi/repos/suite.py, which says them in friendlier words.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "id", "repos", "tasks"],
+  "properties": {
+    "schema": {"const": "suite_manifest.v1"},
+    "id": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$"},
+    "repos": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": {"pattern": "^[a-z0-9][a-z0-9._-]*$"},
+      "additionalProperties": {"type": "string", "minLength": 1}
+    },
+    "tasks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "repo"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^[^\\s,]+$"},
+          "repo": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]*$"}
+        }
+      }
+    }
+  }
+}

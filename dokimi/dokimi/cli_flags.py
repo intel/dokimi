@@ -226,6 +226,13 @@ CONCEPTS: tuple[Concept, ...] = (
         banned=("--agent-network", "--build-network"),
     ),
     Concept(
+        name="suite",
+        help="a suite manifest: tasks whose base is in another repository (contract §2.1)",
+        canonical=(Flag("--suite", "PATH", "text", meaning="the suite file, in the eval tree"),
+                   Flag("--allow-floating-suite-revs", kind="flag",
+                        meaning="resolve a branch or tag of a suite repository when the run starts")),
+    ),
+    Concept(
         name="online",
         help="network checks of a catalog's skills, opt in",
         canonical=(Flag("--online", kind="flag", meaning="also check packages and links over the network"),),

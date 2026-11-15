@@ -20,8 +20,8 @@ SPDX-License-Identifier: Apache-2.0
 > Implemented so far (slice S1): the `repo_manifest.v1` schema, validation of
 > the manifest and of every `task.json` against one repository snapshot
 > (with git history, every task base must resolve and the guidance globs are
-> evaluated at each base), the `repo_static.v1` schema (§4.4), and the `repo`
-> subject kind:
+> evaluated at each base), the `repo_static.v1` schema (§4.4), the suite
+> manifest for bases in other repositories (§2.1), and the `repo` subject kind:
 >
 > ```bash
 > python cli.py repo validate <dir | dir@rev | url@rev> --manifest <path> [--json] [--out FILE] [--fail-on-warning]
@@ -311,6 +311,47 @@ Rules:
   else. A command the agent runs can reach those hosts too, so give the
   harness short-lived credentials scoped to the model endpoint. Every
   connection through the proxy is logged with the run.
+
+### 2.1 Suite manifest (`suite_manifest.v1`)
+
+A task's `base` is normally a commit of the eval tree's source (§1.1). A task
+whose base is in another repository, such as a scaffold that a benchmark shares
+or a library at a fixed revision, is listed in a suite file kept in the eval
+tree:
+
+```yaml
+schema: suite_manifest.v1
+id: linreg-cpu-solver
+repos:
+  sklearn-scaffold: https://github.com/example/scikit-learn-scaffold@<40-hex sha>
+  numpy-scaffold: /path/to/numpy-scaffold@<40-hex sha>
+tasks:
+  - id: solver-pick-cholesky
+    repo: sklearn-scaffold
+```
+
+- `repo run --suite <path>` reads the file from the eval tree; the path is
+  relative to its root and may not leave it. Each listed task takes its base
+  checkout from the repository it names; its `task.json` keeps the rest of the
+  task. A task the suite does not list keeps its eval-tree base. Every listed
+  task must be a task of `tasks` (§2), or the run stops before any cell.
+- Each repository is `<url>@<rev>` or a local `<path>@<rev>`, as in §1.1. The
+  revision must be a full commit SHA. A branch, tag or other ref is refused
+  unless the run passes `--allow-floating-suite-revs`; it is then resolved once
+  when the run starts, and the batch pin (`_eval/batch.json`, key `suite`)
+  records the commits, so a resumed batch reuses them.
+- A repository that cannot be opened, or a base that is not a commit of it,
+  leaves that task's cells unsupported (§9): `unsupported.json` gives the reason,
+  and `repo report` counts the cells neither as failed nor as missing. A cell
+  that runs records `base_repo` (`{"repo", "source"}`) in `meta.json`.
+- `repo tasks check` reports these tasks as not checked when their repository is
+  missing and fails only on the other bad tasks.
+- Not covered yet: `repo validate` checks the bases of the eval tree only; a suite
+  task's `{source_dir}` is still the eval-tree source; and a `guidance:rev:<sha>`
+  arm is pinned against the eval-tree source.
+
+The schema is `dokimi/schemas/suite_manifest.v1.json`; an example is
+`data/suites/example-suite.yaml`.
 
 ## 3. `task.json`
 

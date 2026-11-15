@@ -14,7 +14,7 @@ import os
 import shutil
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from dokimi.repos.manifest import RepoManifest
@@ -40,12 +40,19 @@ def _refuse_typed(source, args: argparse.Namespace) -> None:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(1)
     if args.manifest and not args.manifest_file:
-        if os.path.splitdrive(args.manifest)[0]:  # `D:/x`, `D:x`, `//host/share/x`: no `/` check sees a drive
-            raise InputError(f"path escapes the repository: {args.manifest}")
-        try:  # as the host reads it: on Windows `..\x` is `../x`, also for a pinned tree, which is read with `/`
-            tree_path(os.path.normpath(args.manifest).replace(os.path.sep, "/"))
-        except SourceArgumentError as exc:
-            raise InputError(f"path escapes the repository: {args.manifest}") from exc
+        _refuse_escape(args.manifest)
+    if getattr(args, "suite", None):
+        _refuse_escape(args.suite)
+
+
+def _refuse_escape(path: str) -> None:
+    """Exit 2 for a path that leaves the tree, as the host reads it."""
+    if os.path.splitdrive(path)[0]:  # `D:/x`, `D:x`, `//host/share/x`: no `/` check sees a drive
+        raise InputError(f"path escapes the repository: {path}")
+    try:  # as the host reads it: on Windows `..\x` is `../x`, also for a pinned tree, which is read with `/`
+        tree_path(os.path.normpath(path).replace(os.path.sep, "/"))
+    except SourceArgumentError as exc:
+        raise InputError(f"path escapes the repository: {path}") from exc
 
 
 def _context(args: argparse.Namespace, out: Path, source, pin: bool = False):
@@ -79,6 +86,7 @@ def _context(args: argparse.Namespace, out: Path, source, pin: bool = False):
     # a pinned batch keeps its content until the pin is checked
     staged = export_eval_dir(tree, manifest, content.with_name("content.next") if pin else content)
     _require_grade(staged, manifest, args.task)  # before the pin and the image build
+    suite = _suite_bases(args, tree, staged, manifest, _cache_dir(args))  # its pins go in the batch pin
     runner = DockerRunner(args.docker)
     image, ctx_dir = args.image, None
     if not image:
@@ -92,7 +100,8 @@ def _context(args: argparse.Namespace, out: Path, source, pin: bool = False):
     elif not runner.image_exists(image):
         raise ValueError(f"--image {image} does not exist")
     if pin:
-        stamp = {"tree": tree.label, "eval_dir": tree_digest(staged), "image": image}
+        stamp: dict[str, Any] = {"tree": tree.label, "eval_dir": tree_digest(staged), "image": image}
+        stamp.update(_suite_pin(suite))
         if _uses_builtin_graders(staged, manifest):  # else no score depends on them: an upgrade keeps the batch
             stamp["graders"] = graders_digest()
         _pin_batch(out, stamp)
@@ -117,8 +126,28 @@ def _context(args: argparse.Namespace, out: Path, source, pin: bool = False):
     uses_source = any("{source_dir}" in v for v in manifest.entry_points.values())
     source_dir = Path(args.source_dir).resolve() if args.source_dir else (git_dir if uses_source else None)
     ctx = EvalContext(manifest=manifest, git_dir=git_dir, content_dir=content, image=image, runner=runner,
-                      caches=caches, source_dir=source_dir, entry_timeout_s=args.grade_timeout)
+                      caches=caches, source_dir=source_dir, entry_timeout_s=args.grade_timeout, suite=suite)
     return ctx, tree
+
+
+def _suite_bases(args: argparse.Namespace, tree, content: Path, manifest: RepoManifest, cache_dir: Path | None):
+    """The base checkouts of ``--suite`` (contract §2.1), or None: every base is then in the eval source."""
+    if not args.suite:
+        return None
+    from dokimi.repos.suite import SuiteError, load_suite, resolve_suite
+    from dokimi.repos.workspace import load_tasks
+
+    suite = load_suite(tree, args.suite, args.allow_floating_suite_revs)
+    found = {t.id: t for t in load_tasks(content, manifest)}
+    absent = sorted(set(suite.tasks) - set(found))
+    if absent:
+        raise SuiteError(suite.path, [f"task {t} is not under {manifest.tasks}" for t in absent])
+    return resolve_suite(suite, {t: str(found[t].raw.get("base", "")) for t in suite.tasks}, cache_dir)
+
+
+def _suite_pin(suite) -> dict[str, Any]:
+    """The commit each suite repository resolved to, for the batch pin: a resume must reuse them."""
+    return {} if suite is None else {"suite": suite.pins}
 
 
 def _require_grade(content: Path, manifest: RepoManifest, ids: list[str] | None) -> None:
@@ -216,11 +245,14 @@ def cmd_repo_tasks_check(args: argparse.Namespace) -> None:
         sys.exit(1)
     bad = [r for r in results if r["verdict"] != "ok"]
     print(f"{len(results) - len(bad)}/{len(results)} ok; wrote {out / 'check' / 'check.json'}")
+    unavailable = [r["task"] for r in bad if r.get("unsupported_by") == "suite"]
+    if unavailable:  # the base's repository of --suite is missing: not checked, and not a failure
+        print(f"{len(unavailable)} not checked, the repository of their base is missing: " + ", ".join(unavailable))
     allowed = [r for r in bad if args.allow_unsupported and r.get("unsupported_by") == "host"]
     if allowed:
         print(f"{len(allowed)} unsupported on this host, allowed by --allow-unsupported: "
               + ", ".join(r["task"] for r in allowed))
-    if len(bad) > len(allowed):
+    if len(bad) > len(allowed) + len(unavailable):
         sys.exit(1)
     if len(bad) == len(results):  # --allow-unsupported passed every task by: none was checked
         print(f"✗ incomplete: no task passed the self-check (0 ok, {len(allowed)} unsupported)", file=sys.stderr)
@@ -459,6 +491,12 @@ def _common(p: argparse.ArgumentParser, source_help: str, cache_help: str, posit
     p.add_argument("source", help=source_help)
     p.add_argument("--manifest", default=".agent-eval/repo-eval.yaml",
                    help="Manifest path relative to the repository root")
+    p.add_argument("--suite", default=None,
+                   help="Suite manifest (suite_manifest.v1) path relative to the repository root: tasks whose "
+                        "base is a commit of another repository, named as <url>@<sha> (contract §2.1)")
+    p.add_argument("--allow-floating-suite-revs", action="store_true", dest="allow_floating_suite_revs",
+                   help="Let --suite name a branch or tag: it is resolved once, when the run starts, and the "
+                        "batch pins the commit it resolved to")
     p.add_argument("--manifest-file", default=None, dest="manifest_file",
                    help="Read the manifest from this local file instead of from the tree")
     p.add_argument("--task", action="append", default=None, help="Only this task id; repeatable (default: all)")
