@@ -504,6 +504,8 @@ reads the upstream base (`base_sha`) and the workspace start commit
 
 ### 4.1 `events.jsonl`
 
+The line format, its version and the promise that comes with it: [events-format.md](events-format.md).
+
 ```json
 {"t": 12.4, "kind": "command", "text": "bazel test //cpp/...:x_host", "rc": 0}
 {"t": 3.1,  "kind": "read",    "path": "AGENTS.md"}
