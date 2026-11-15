@@ -389,8 +389,9 @@ def run_batch(ctx: EvalContext, tasks: list[Task], arms: list[str], options: lis
     lock = threading.Lock()
     # The cap counts what earlier invocations of this batch spent (under the batch lock the caller holds), and
     # what cells in flight may still spend: each reserves its harness budget until its charge is known.
-    state: dict[str, Any] = {"spent": _read_batch_spend(batch_dir), "reserved": 0.0, "ran": 0, "skipped": 0,
-                             "errors": [], "budget_stopped": 0, "unsupported": 0, "this_run": 0.0}
+    state: dict[str, Any] = {"spent": _read_batch_spend(batch_dir, max_batch_usd is not None), "reserved": 0.0,
+                             "ran": 0, "skipped": 0, "errors": [], "budget_stopped": 0, "unsupported": 0,
+                             "this_run": 0.0}
 
     def one(cell: tuple[Task, str, AgentOptions, int]) -> None:
         task, arm, opts, rep = cell
@@ -474,9 +475,10 @@ def _settle(state: dict[str, Any], lock: threading.Lock, batch_dir: Path, reserv
                 state["errors"].append({"cell": SPEND_FILE, "error": str(exc)})
 
 
-def _read_batch_spend(batch_dir: Path) -> float:
+def _read_batch_spend(batch_dir: Path, capped: bool = True) -> float:
     """What the batch's earlier invocations charged (``_eval/spend.json``); a file that cannot be read stops the
-    run, since the cap cannot be enforced without it."""
+    run, since the cap cannot be enforced without it. Without a cap (``capped`` False) nothing is enforced, so
+    a file that is unusable counts as 0 and the run's first charge replaces it."""
     path = batch_dir / "_eval" / SPEND_FILE
     if not os.path.lexists(path):
         return 0.0
@@ -485,9 +487,13 @@ def _read_batch_spend(batch_dir: Path) -> float:
         if isinstance(total, bool) or not isinstance(total, (int, float)):
             raise ValueError(f"spent_usd is {total!r}, not a number")
         spent = float(total)
-    except (OSError, ValueError, KeyError, TypeError, OverflowError) as exc:
+    except (OSError, ValueError, KeyError, TypeError, OverflowError, RecursionError) as exc:
+        if not capped:
+            return 0.0
         raise ValueError(f"cannot read the batch spend {path}: {exc}; remove it to start the cap again") from exc
     if not math.isfinite(spent) or spent < 0:  # NaN would never trip the cap
+        if not capped:
+            return 0.0
         raise ValueError(f"the batch spend {path} is {spent}, not a usable total; remove it to start the cap again")
     return spent
 

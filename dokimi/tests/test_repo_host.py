@@ -495,7 +495,8 @@ def test_a_settled_charge_is_saved_exactly_and_frees_its_reservation(tmp_path):
 
 
 @pytest.mark.parametrize("text", ['{"spent_usd": true}', '{"spent_usd": "0.5"}', '{"spent_usd": -1}',
-                                  '{"spent_usd": 1' + "0" * 400 + "}"])
+                                  '{"spent_usd": 1' + "0" * 400 + "}",
+                                  '{"spent_usd":' + "[" * 100000 + "0" + "]" * 100000 + "}"])
 def test_a_batch_spend_that_is_not_a_number_stops_the_run(tmp_path, text):
     from dokimi.repos.runner import _read_batch_spend
 
@@ -503,6 +504,18 @@ def test_a_batch_spend_that_is_not_a_number_stops_the_run(tmp_path, text):
     (tmp_path / "_eval" / "spend.json").write_text(text, encoding="utf-8")
     with pytest.raises(ValueError, match="remove it"):
         _read_batch_spend(tmp_path)
+
+
+@pytest.mark.parametrize("text", ["{broken", '{"spent_usd": NaN}', '{"spent_usd": -1}',
+                                  '{"spent_usd":' + "[" * 100000 + "0" + "]" * 100000 + "}"])
+def test_a_batch_spend_that_cannot_be_read_does_not_stop_a_run_without_a_cap(tmp_path, monkeypatch, text):
+    root = _repo(tmp_path)
+    out = tmp_path / "runs"
+    _run(root, out, HostRunner(_probe_out(affinity=8)), monkeypatch, "--task", "fix_add")
+    spend = out / "b1" / "_eval" / "spend.json"
+    spend.write_text(text, encoding="utf-8")
+    _run(root, out, HostRunner(_probe_out(affinity=8)), monkeypatch, "--task", "fix_add", "--force")
+    assert json.loads(spend.read_text(encoding="utf-8"))["spent_usd"] > 0  # the unusable file was replaced
 
 
 def test_a_batch_spend_that_is_not_a_usable_total_stops_the_run(tmp_path):
