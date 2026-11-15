@@ -844,7 +844,7 @@ fewer calls than the printed count.
 artifact or `catalog routing`, writes the result of the calls made before the cap (or a call with no
 known price) stopped it, prints the summary and `cost` lines, and still exits non-zero with the
 cap message and the path of the file. The file carries
-`"partial": {"reason": "spend_cap", "calls_done": N, "calls_planned": M, "message": ...}` (`"permanent_error"` for the stop above) at the
+`"partial": {"reason": "spend_cap", "calls_done": N, "calls_planned": M, "message": ...}` (`"permanent_error"` for the stop above, `"no_price"` for an unpriced call) at the
 top level (and under the model arm), and no `partial` key when the run finished. The record's
 `status` is then `"partial"` instead of `"ok"` (a single run; an all-vs-all file carries `status`
 only when partial), so a script that checks `status == "ok"` does not take a prefix of the run for

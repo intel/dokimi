@@ -242,3 +242,20 @@ def test_a_claude_cli_failure_every_call_meets_stops_the_run(monkeypatch, tmp_pa
 def test_a_claude_cli_failure_of_one_call_is_a_row(monkeypatch, tmp_path, answer):
     stub, result = _first_call_raises(_cli_error(monkeypatch, tmp_path, answer))
     assert stub.calls == 3 and result["n_failed"] == 3 and "partial" not in result
+
+
+def test_a_no_price_stop_is_recorded_as_no_price_not_as_a_spend_cap():
+    # A call the cap cannot meter stops the run with reason "no_price"; the record must keep that reason.
+    from dokimi.novelty.client import SpendCapReached
+
+    def behaviour(n):
+        if n == 2:
+            raise SpendCapReached("no price is known for judge, so --max-usd cannot be enforced",
+                                  reason="no_price")
+        return '{"pick": 1}'
+
+    stub = Stub(behaviour)
+    result = model_routing(FIELD, QUERIES, client=stub)
+    assert stub.calls == 2 and result["n_calls"] == 1
+    assert result["stop_reason"] == "no_price"
+    assert result["partial"]["reason"] == "no_price"

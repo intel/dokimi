@@ -268,7 +268,7 @@ def _pick_row(base: dict, reply: str, order: list[int], candidates: list[Candida
 
 
 def _ask_once(client, prompt: str, base: dict, order: list[int], candidates: list[Candidate],
-              gold: int) -> tuple[dict | None, str | None]:
+              gold: int) -> tuple[dict | None, tuple[str, str] | None]:
     """One call of the routing loop: its row, and the message when the cap or a permanent error stops the run.
 
     A call the cap refused has no row; one with no price was paid for, so its reply is scored (a cut one as a decline) and the caller stops.
@@ -278,7 +278,7 @@ def _ask_once(client, prompt: str, base: dict, order: list[int], candidates: lis
         reply = client.text(prompt, accept=partial(_is_pick_reply, n_cards=len(order)),
                             draw=base["repeat"])
     except (SpendCapReached, OutputTruncated) as exc:
-        stop = str(exc) if isinstance(exc, SpendCapReached) else None
+        stop = (exc.reason, str(exc)) if isinstance(exc, SpendCapReached) else None
         if exc.reply is None:
             return None, stop
         if isinstance(exc, OutputTruncated) or exc.truncated:  # cut at the ceiling: a decline, as unparseable is
@@ -287,13 +287,13 @@ def _ask_once(client, prompt: str, base: dict, order: list[int], candidates: lis
     except Exception as exc:  # noqa: BLE001 - one failed query must not lose the rest
         if is_run_wide(exc):
             # No credential, wrong model ID or missing permission fails every later call alike (#677).
-            return None, PERMANENT_STOP +(str(exc)[:200] or type(exc).__name__)
+            return None, ("permanent_error", PERMANENT_STOP + (str(exc)[:200] or type(exc).__name__))
         return {**base, "picked": None, "error": str(exc)[:200] or type(exc).__name__}, None
     return _pick_row(base, reply, order, candidates, gold), None
 
 
 def _ask_query(client, query: str, index_of_query: int, candidates: list[Candidate], gold: int,
-               seed: int, repeats: int) -> tuple[list[dict], str | None]:
+               seed: int, repeats: int) -> tuple[list[dict], tuple[str, str] | None]:
     """The repeats of one query: its rows, and the cap's message when the cap stops the run.
 
     The card order is seeded per query, and kept across its repeats (see :func:`model_routing`).
@@ -347,7 +347,8 @@ def model_routing(
         loop stops and the result holds the calls made so far, with ``cap_stop`` (the cap's
         message). A run-wide provider error (:func:`~dokimi.novelty.routing_stop.is_run_wide`)
         stops it the same way, with the error in ``cap_stop`` and ``stop_reason``
-        ``"permanent_error"`` (else ``"spend_cap"``); any other error is a row of its query. A
+        ``"permanent_error"``; a call with no price stops it with ``stop_reason`` ``"no_price"``,
+        and a refused call with ``"spend_cap"``; any other error is a row of its query. A
         ``partial`` block (:func:`partial_record`) is added only when planned calls
         were left unmade (``n_calls`` below queries x repeats). A query stopped between repeats
         keeps its rows but is left out of ``noise``. Without a cap that trips, there is no
@@ -359,7 +360,7 @@ def model_routing(
         raise ValueError(f"repeats must be at least 1, not {repeats}")
     picks: list[dict] = []
     groups: list[list[dict]] = []
-    capped: str | None = None
+    capped: tuple[str, str] | None = None
     for index_of_query, query in enumerate(queries):
         group, stopped = _ask_query(client, query, index_of_query, candidates, gold, seed, repeats)
         picks += group  # the calls already paid for stay in ``picks`` when the cap stops
@@ -401,11 +402,11 @@ def model_routing(
     if capped is not None:
         # The stop is kept apart from ``partial``: a stop on the run's last planned call leaves
         # nothing unmade, but a caller (all-vs-all) still must not ask a later skill unmetered.
-        result["cap_stop"] = capped
-        reason = "permanent_error" if capped.startswith(PERMANENT_STOP) else "spend_cap"
+        reason, message = capped  # the reason the stop carries: spend_cap, no_price or permanent_error
+        result["cap_stop"] = message
         result["stop_reason"] = reason
         if len(picks) < len(queries) * repeats:
-            result["partial"] = partial_record(capped, len(picks), len(queries) * repeats, reason)
+            result["partial"] = partial_record(message, len(picks), len(queries) * repeats, reason)
     return result
 
 
