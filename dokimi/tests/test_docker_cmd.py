@@ -109,6 +109,21 @@ def test_run_timeout_kills_the_named_container(tmp_path):
     assert ("docker", "kill", "dokimi-x") in fake.argvs()
 
 
+def test_run_interrupt_kills_the_named_container(tmp_path):
+    # Ctrl-C kills only the docker CLI's group; a container whose process ignores
+    # SIGTERM would keep running after dokimi exits unless it is killed by name.
+    def answer(call):
+        if call.argv[1] == "run":
+            raise KeyboardInterrupt
+        return reply()
+
+    fake = FakeRunner(answer)
+    spec = ContainerSpec(image="img", argv=["true"], name="dokimi-x", user="1000:1000")
+    with pytest.raises(KeyboardInterrupt):
+        DockerRunner(runner=fake).run(spec, stdout=tmp_path / "o", stderr=tmp_path / "e", timeout_s=5)
+    assert ("docker", "kill", "dokimi-x") in fake.argvs()
+
+
 def test_docker_runner_argv_refuses_a_comma_as_a_container_error():
     spec = ContainerSpec(image="img", argv=["true"], mounts=[Mount(Path("/x,y"), "/eval/run")])
     with pytest.raises(ContainerError, match="cannot contain ','"):

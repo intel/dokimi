@@ -151,11 +151,16 @@ class DockerRunner:
                     self.runner([self.docker, *docker_cmd.kill_args(spec.name)], timeout=docker_cmd.CALL_TIMEOUT_S,
                                 env=process.Env.inherit())
                 except OSError:
-                    pass  # still a timed-out run; the docker CLI is gone, the container may outlive it
+                    pass  # still a timed-out or interrupted run; the container may outlive it
 
         # -e NAME reads the forwarded values from the CLI's own environment: the caller's.
-        result = run_process(self.argv(spec), env=process.Env.inherit(), stdout=stdout, stderr=stderr,
-                             timeout_s=timeout_s, on_timeout=stop, runner=self.runner)
+        try:
+            result = run_process(self.argv(spec), env=process.Env.inherit(), stdout=stdout, stderr=stderr,
+                                 timeout_s=timeout_s, on_timeout=stop, runner=self.runner)
+        except BaseException:
+            # Ctrl-C reaches only the CLI's group: a container that ignores SIGTERM outlives it.
+            stop()
+            raise
         if docker_cmd.failed_to_start(result.returncode, result.timed_out):
             tail = stderr.read_text(encoding="utf-8", errors="replace").strip()[-500:]
             raise ContainerError(f"docker run failed: {tail}")
