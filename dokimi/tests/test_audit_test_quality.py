@@ -11,6 +11,7 @@ findings that may stay; it is empty and only shrinks.
 
 from __future__ import annotations
 
+import functools
 import importlib.util
 import json
 import textwrap
@@ -43,6 +44,11 @@ def _ratchet_errors(path: Path) -> list[str]:
     return atq.ratchet_errors(atq.gated_findings(flagged), held)
 
 
+#: One audit per file for the two ratchet cases. The tests that patch ``BASELINE`` or the auditor call
+#: ``_ratchet_errors`` itself, so they never read a result cached under another state.
+_cached_ratchet_errors = functools.cache(_ratchet_errors)
+
+
 def test_the_scan_finds_the_test_files():
     # A scan that finds nothing would pass every check below.
     assert atq.TESTS / Path(__file__).name in FILES
@@ -56,8 +62,9 @@ def test_one_ratchet_case_audits_its_own_file_and_no_other(monkeypatch):
     assert seen == ["tests/test_audit_test_quality.py"]
 
 
-def test_a_baseline_key_is_held_against_its_own_file_only(monkeypatch):
-    here, other = Path(__file__), atq.TESTS / "test_load_or_fail.py"
+def test_a_baseline_key_is_held_against_its_own_file_only(monkeypatch, tmp_path):
+    here, other = Path(__file__), tmp_path / "test_other.py"
+    other.write_text("def test_sum():\n    assert sum([1, 2]) == 3\n", encoding="utf-8")
     key = "tests/test_audit_test_quality.py::test_gone"
     monkeypatch.setitem(BASELINE, "no_assert", frozenset({key}))
     assert _ratchet_errors(here) == [f"no_assert: fixed, remove from the baseline: {key}"]
@@ -71,7 +78,7 @@ def test_the_baseline_names_only_files_that_are_audited():
 
 @pytest.mark.parametrize("path", FILES, ids=atq.relative_name)
 def test_no_new_test_that_cannot_fail(path):
-    new = [e for e in _ratchet_errors(path) if ": new: " in e]
+    new = [e for e in _cached_ratchet_errors(path) if ": new: " in e]
     assert not new, (
         "\n".join(new) + "\nMake each test check the behaviour it exists for (a value, a call "
         "argument, an output), delete it if another test covers that, or, when the shape is "
@@ -83,7 +90,7 @@ def test_no_new_test_that_cannot_fail(path):
 @pytest.mark.parametrize("path", FILES, ids=atq.relative_name)
 def test_a_fixed_finding_leaves_the_baseline_too(path):
     # Otherwise the finding could come back without failing the test above.
-    stale = [e for e in _ratchet_errors(path) if ": new: " not in e]
+    stale = [e for e in _cached_ratchet_errors(path) if ": new: " not in e]
     assert not stale, "\n".join(stale) + "\ndelete these keys from BASELINE in this test"
 
 
