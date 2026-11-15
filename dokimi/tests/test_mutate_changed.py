@@ -484,6 +484,8 @@ def test_a_passing_id_that_prefixes_a_failing_id_is_not_failed() -> None:
     assert (bad, unmatched) == ({failing}, [])
     bad, _ = mc._failed(f"FAILED {passing} - AssertionError\n", {passing, failing})
     assert bad == {passing}
+    bad, unmatched = mc._failed("FAILED tests/test_zz.py::test_f[a]b - msg\n", {passing})
+    assert (bad, unmatched) == (set(), ["tests/test_zz.py::test_f[a]b"])
 
 
 def test_changed_lines_diffs_against_the_merge_base_not_the_base_tip(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
