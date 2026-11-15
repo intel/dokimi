@@ -14,6 +14,7 @@ revision is fetched on demand. Both kinds are read through the same
 from __future__ import annotations
 
 import hashlib
+import logging
 import os
 import posixpath
 import re
@@ -34,8 +35,11 @@ from dokimi import process
 _REV_RE = re.compile(r"^[A-Za-z0-9._][A-Za-z0-9._/^~-]*$")  # "/" for origin/main, refs/heads/x
 _SHA_RE = re.compile(r"^[0-9a-f]{7,40}$")
 _REMOTE_PREFIXES = ("https://", "ssh://", "file://", "git@")
+log = logging.getLogger(__name__)
+
 _GIT_TIMEOUT_S = 1800
 _FETCH_TRIES = 3  # a fetch that lost a ref to another run's fetch into the cache is run again
+_REF_LOST = ("cannot lock ref", "incorrect old value provided", "reference already exists")  # git's texts for it
 _FETCH_ENV = process.Env.inherit({"GIT_TERMINAL_PROMPT": "0", "LC_ALL": "C"})  # untranslated: its error is matched
 READ_MANY_LIMIT = 2 * 1024 * 1024  # bytes; larger files are not text guidance or code to search
 
@@ -472,8 +476,6 @@ def clone_once(git_dir: Path, clone: Callable[[Path], object], timeout_s: float)
     """``git_dir``, made by ``clone(<tmp>)`` and a rename unless it has a ``HEAD``. Another process may clone the
     same URL meanwhile: each clones into its own directory, and the one whose rename fails uses the other's.
     ``timeout_s``: the clone's timeout; a partial directory older than that is no live clone's."""
-    if (git_dir / "HEAD").is_file():
-        return git_dir
     git_dir.parent.mkdir(parents=True, exist_ok=True)
     for old in git_dir.parent.glob(f"{git_dir.name}.*partial"):
         try:
@@ -481,6 +483,10 @@ def clone_once(git_dir: Path, clone: Callable[[Path], object], timeout_s: float)
                 _remove_tree(old)
         except FileNotFoundError:  # another process removed it first
             pass
+        except OSError as exc:  # locked or not ours: it is no reason to stop this clone
+            log.warning("cannot remove the stale partial clone %s: %s", old, exc)
+    if (git_dir / "HEAD").is_file():
+        return git_dir
     tmp = git_dir.with_name(f"{git_dir.name}.{os.getpid()}-{os.urandom(3).hex()}.partial")
     try:
         clone(tmp)
@@ -489,14 +495,22 @@ def clone_once(git_dir: Path, clone: Callable[[Path], object], timeout_s: float)
         except OSError:
             if not (git_dir / "HEAD").is_file():
                 raise
-    finally:
-        _remove_tree(tmp)
+    except BaseException:
+        try:
+            _remove_tree(tmp)
+        except OSError as exc:  # the clone's own error is the one to report
+            log.warning("cannot remove the partial clone %s: %s", tmp, exc)
+        raise
+    _remove_tree(tmp)
     return git_dir
 
 
 def _remove_tree(path: Path) -> None:
     """Delete ``path``, also when it holds read-only entries (Git's object files on Windows); raise when it is
     still there: a partial clone left in the cache would stay for good."""
+    if path.is_symlink():  # a link left at the name: its target is not ours to change
+        path.unlink()
+        return
     if not path.exists():
         return
     try:
@@ -542,7 +556,7 @@ def _fetch_refs(git_dir: Path) -> None:
                  "+refs/heads/*:refs/heads/*", "+refs/tags/*:refs/tags/*", env=_FETCH_ENV)
             return
         except SourceError as exc:
-            if "cannot lock ref" not in str(exc) or attempt == _FETCH_TRIES - 1:
+            if not any(text in str(exc) for text in _REF_LOST) or attempt == _FETCH_TRIES - 1:
                 raise
         time.sleep(0.5)
 

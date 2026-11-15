@@ -235,6 +235,8 @@ def test_a_partial_clone_that_cannot_be_removed_raises(tmp_path, monkeypatch):
     _publish_first_while_cloning(git_dir, monkeypatch)
 
     def refuse(path, *args, **kwargs):
+        if kwargs.get("ignore_errors"):  # a removal that swallows the error leaves the partial and raises nothing
+            return
         raise PermissionError(13, "denied", str(path))
 
     monkeypatch.setattr(source.shutil, "rmtree", refuse)
@@ -268,3 +270,82 @@ def test_a_branch_fetch_that_keeps_losing_its_ref_raises_after_the_last_try(tmp_
     with pytest.raises(SourceError, match="cannot lock ref"):
         ensure_rev(git_dir, "topic")
     assert len(fetches) == source._FETCH_TRIES
+
+
+def _aged(path: Path) -> None:
+    then = time.time() - source._GIT_TIMEOUT_S - 60
+    os.utime(path, (then, then))
+
+
+def test_an_expired_partial_is_removed_when_a_valid_clone_exists(tmp_path):
+    url, _ = _origin(tmp_path)
+    cache = tmp_path / "cache"
+    git_dir = ensure_clone(url, cache)
+    dead = cache / f"{git_dir.name}.1-aa.partial"
+    dead.mkdir()
+    _aged(dead)
+    assert ensure_clone(url, cache) == git_dir
+    assert not dead.exists()
+
+
+def test_a_stale_partial_that_cannot_be_removed_does_not_stop_the_clone(tmp_path, monkeypatch):
+    url, _ = _origin(tmp_path)
+    cache = tmp_path / "cache"
+    stuck = cache / f"{cache_path(url, cache).name}.1-aa.partial"
+    stuck.mkdir(parents=True)
+    _aged(stuck)
+    real = source._remove_tree
+
+    def locked(path):
+        if path == stuck:
+            raise PermissionError(13, "locked by another process", str(path))
+        real(path)
+
+    monkeypatch.setattr(source, "_remove_tree", locked)
+    git_dir = ensure_clone(url, cache)
+    assert (git_dir / "HEAD").is_file() and stuck.is_dir()
+
+
+def test_a_failed_clone_is_reported_when_its_partial_cannot_be_removed_either(tmp_path, monkeypatch):
+    url, cache = "file:///nonexistent/origin.git", tmp_path / "cache"
+
+    def clone(gd, *args, **kwargs):
+        Path(args[-1]).mkdir(parents=True)
+        raise SourceError("git clone failed: the real error")
+
+    def refuse(path, *args, **kwargs):
+        raise PermissionError(13, "denied", str(path))
+
+    monkeypatch.setattr(source, "_git", clone)
+    monkeypatch.setattr(source.shutil, "rmtree", refuse)
+    with pytest.raises(SourceError, match="the real error"):
+        ensure_clone(url, cache)
+
+
+def test_a_link_left_as_a_partial_is_removed_without_changing_its_target(tmp_path):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "f").write_text("x", encoding="utf-8")
+    (outside / "f").chmod(0o444)
+    link = tmp_path / "link.partial"
+    link.symlink_to(outside, target_is_directory=True)
+    source._remove_tree(link)
+    assert not link.is_symlink() and (outside / "f").stat().st_mode & 0o777 == 0o444
+
+
+@pytest.mark.parametrize("text", ["cannot lock ref 'refs/heads/b': is at x but expected y",
+                                  "error: fetching ref refs/heads/b failed: incorrect old value provided",
+                                  "error: fetching ref refs/heads/b failed: reference already exists"])
+def test_a_fetch_that_lost_a_ref_is_run_again_whatever_git_calls_it(tmp_path, monkeypatch, text):
+    fetches = []
+
+    def fail_once(gd, *args, **kwargs):
+        fetches.append(args)
+        if len(fetches) == 1:
+            raise SourceError(f"git fetch failed: {text}")
+        return ""
+
+    monkeypatch.setattr(source, "_git", fail_once)
+    monkeypatch.setattr(source.time, "sleep", lambda s: None)
+    source._fetch_refs(tmp_path)
+    assert len(fetches) == 2

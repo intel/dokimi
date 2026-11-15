@@ -91,3 +91,13 @@ def test_a_link_in_place_of_the_partial_archive_is_not_moved_into(tmp_path):
     _set_git_config_aside(run_dir)
     assert not list(outside.iterdir())
     assert not (run_dir / AGENT_GIT).is_symlink() and _archived(run_dir)["config"] == AGENT_CONFIG
+
+
+def test_a_directory_left_at_the_partial_name_does_not_stop_the_archive(tmp_path):
+    run_dir = tmp_path / "rd"
+    dot_git = _agent_git(run_dir)
+    (run_dir / f".{AGENT_GIT}.partial" / "hooks").mkdir(parents=True)
+    (run_dir / f".{AGENT_GIT}.partial" / "hooks" / "left").write_text("x", encoding="utf-8")
+    _set_git_config_aside(run_dir)
+    assert _archived(run_dir)["config"] == AGENT_CONFIG and _archived(run_dir)["hooks/pre-commit"]
+    assert "fsmonitor" not in (dot_git / "config").read_text(encoding="utf-8")
