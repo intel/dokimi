@@ -23,15 +23,16 @@ recorded with the batch and in each cell's ``meta.json``.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import math
-import re
 import uuid
 from pathlib import Path
 from typing import Any
 
 from .container import ContainerError, ContainerSpec
 from .grading import EvalContext
+from .host_fingerprint import IDENTITY_COLLECTORS, Probe, collect, cpuinfo_field, scrub
 from .host_spec import HOST_KEYS, KNOWN_VENDORS, HostRequirements, HostSpecError, parse_host  # noqa: F401
 from .useful_spec import parse_useful
 from .workspace import Task
@@ -171,23 +172,71 @@ def host_facts(raw: dict[str, Any]) -> dict[str, Any]:
     quota = cgroup_cpus(raw)
     counts = [n for n in (affinity, quota) if n]
     text = str(raw["cpuinfo"]) if isinstance(raw.get("cpuinfo"), str) else ""
-    flags = _field(text, "flags") or _field(text, "Features")  # x86 | arm64
+    flags = cpuinfo_field(text, "flags") or cpuinfo_field(text, "Features")  # x86 | arm64
     return {"cpus": min(counts) if counts else None, "affinity_cpus": affinity, "cgroup_cpus": quota,
-            "cpu_vendor": _field(text, "vendor_id"), "cpu_model": _field(text, "model name"),
+            "cpu_vendor": cpuinfo_field(text, "vendor_id"), "cpu_model": cpuinfo_field(text, "model name"),
             "cpu_flags": sorted(set(flags.split())) if flags else []}
 
 
-def _field(text: str, name: str) -> str | None:
-    match = re.search(rf"^{re.escape(name)}\s*:\s*(.*)$", text, re.M)
-    return match.group(1).strip() if match else None
+def probe_host(ctx: EvalContext, work_dir: Path, probe: Probe | None = None) -> dict[str, Any]:
+    """Facts of a container like the grading one, plus the host fingerprint (:mod:`.host_fingerprint`).
 
-
-def probe_host(ctx: EvalContext, work_dir: Path) -> dict[str, Any]:
-    """Facts of a container like the grading one, or ``{"error": ...}`` when the probe could not run.
-
-    The spec carries what decides the CPU view: the evaluation's image and runner (whose flags
-    every container shares); no mounts, no network.
+    The container's facts are the top-level keys, ``{"error": ...}`` in place of them when the probe
+    could not run. The spec carries what decides the CPU view: the evaluation's image and runner
+    (whose flags every container shares); no mounts, no network.
     """
+    return {**_container_facts(ctx, work_dir), **collect(probe)}
+
+
+def fingerprint_id(facts: dict[str, Any]) -> str:
+    """A short id of the host: the same machine gives the same id on every run (see ``IDENTITY_COLLECTORS``)."""
+    keys = ("cpus", "affinity_cpus", "cgroup_cpus", "cpu_vendor", "cpu_model", "cpu_flags")
+    identity = {**{k: facts.get(k) for k in keys},
+                **{name: (facts.get("collectors") or {}).get(name) for name in IDENTITY_COLLECTORS}}
+    return hashlib.sha256(json.dumps(identity, sort_keys=True).encode("utf-8")).hexdigest()[:12]
+
+
+def match_report(task: Task, facts: dict[str, Any] | None) -> dict[str, Any]:
+    """Per declared requirement, whether this host meets it, for a run that labels a miss instead of blocking it.
+
+    ``met`` is ``True`` or ``False`` per field, ``None`` when the probe could not tell (the rule of :func:`unmet`);
+    the report's ``met`` is ``False`` if any field is, else ``None`` if any is undecided, else ``True``.
+    """
+    facts = facts or {}
+    need = requirements(task)
+    fields = _match_fields(need, facts) if need is not None else []
+    verdicts = {f["met"] for f in fields}
+    met = False if False in verdicts else None if None in verdicts else True
+    return {"fingerprint": fingerprint_id(facts), "met": met, "fields": fields}
+
+
+def match_summary(match: dict[str, Any]) -> str:
+    """The fields a labelled run's host misses, or those it could not tell: ``cpu_flags.avx512f missing``."""
+    missed = [f"{f['field']} missing" for f in match["fields"] if f["met"] is False]
+    undecided = [f"{f['field']} unknown" for f in match["fields"] if f["met"] is None]
+    return ", ".join(missed + undecided) or "nothing unmet"
+
+
+def _match_fields(need: HostRequirements, facts: dict[str, Any]) -> list[dict[str, Any]]:
+    """One entry per declared requirement; undecided (``met`` None) where :func:`unmet` says the probe cannot tell."""
+    cpus, vendor = facts.get("cpus"), facts.get("cpu_vendor")
+    have = {f.lower() for f in facts.get("cpu_flags") or []}  # docs write AVX512F, cpuinfo avx512f
+    decided = cpus is not None and bool(vendor or have)  # no cpuinfo vendor or flags: a miss would be a guess
+    fields: list[dict[str, Any]] = []
+    if need.min_cpus > 1:
+        fields.append({"field": "min_cpus", "required": need.min_cpus, "actual": cpus,
+                       "met": cpus >= need.min_cpus if cpus is not None else None})
+    if need.cpu_vendors:
+        ok = (vendor or "").lower() in {v.lower() for v in need.cpu_vendors} if decided else None
+        fields.append({"field": "cpu_vendors", "required": list(need.cpu_vendors), "actual": vendor, "met": ok})
+    for flag in need.cpu_flags:
+        ok = flag.lower() in have if decided else None
+        fields.append({"field": f"cpu_flags.{flag}", "required": flag, "actual": ok, "met": ok})
+    return fields
+
+
+def _container_facts(ctx: EvalContext, work_dir: Path) -> dict[str, Any]:
+    """The probe container's facts, or ``{"error": ...}`` when it could not run."""
     work_dir.mkdir(parents=True, exist_ok=True)
     out, err = work_dir / "host-probe.out", work_dir / "host-probe.err"
     # HOME is the probe container's own /tmp, never a host path.
@@ -206,7 +255,7 @@ def probe_host(ctx: EvalContext, work_dir: Path) -> dict[str, Any]:
     if not isinstance(raw, dict):
         tail = (err.read_text(encoding="utf-8", errors="replace") if err.is_file() else "").strip()[-300:]
         how = "timed out" if result.timed_out else f"exited {result.returncode}"
-        return {"error": f"host probe {how} in {ctx.image} (python3 -c): {tail or text.strip()[-300:]}"}
+        return {"error": scrub(f"host probe {how} in {ctx.image} (python3 -c): {tail or text.strip()[-300:]}")}
     return host_facts(raw)
 
 

@@ -265,3 +265,4 @@
 --canaries-file  # repo security: the same canaries one per line (#360)
 --tool  # skill novelty ground (#472): the command whose --help is the source; no registry concept yet
 --tool-version  # skill novelty ground (#472): recorded with the help snapshot; no registry concept yet
+--label-host  # host label mode (contract §4.3) has no registry concept yet; F1b moves it with --allow-unsupported

@@ -361,7 +361,7 @@ def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock
         if skill_pin is not None:
             write_skill_pin(batch_dir, skill_pin)
         summary = run_batch(ctx, tasks, arms, options, args.reps, batch_dir, jobs=args.jobs, force=args.force,
-                            max_batch_usd=args.max_batch_usd, log=_progress)
+                            max_batch_usd=args.max_batch_usd, log=_progress, label_host=args.label_host)
     except _errors() as exc:
         print(f"✗ {exc}", file=sys.stderr)
         sys.exit(1)
@@ -552,6 +552,10 @@ def register(repo_sub, eval_sub, positive_int, source_help: str, cache_help: str
     run_p.add_argument("--max-batch-usd", type=_usd, default=None, dest="max_batch_usd",
                        help="Start no new cell once this invocation has spent this much")
     run_p.add_argument("--force", action="store_true", help="Rerun cells that already have result.json")
+    run_p.add_argument("--label-host", action="store_true", dest="label_host",
+                       help="Run a task whose task.json `host` requirements this host misses anyway, and record "
+                       "per field what was met and what was not (host_match in result.json) instead of marking "
+                       "the cells unsupported; results carry the host fingerprint, so `repo report` groups them by it")
     run_p.set_defaults(func=cmd_repo_run)
 
     report_p = repo_sub.add_parser("report", help="Per (task, arm, model) table over a batch directory")

@@ -74,7 +74,7 @@ from .uptake import arm_uptake
 from .useful import first_useful
 from .grading import EvalContext, failed_outcome, outcome, run_entry
 from .harness_profile import HarnessProfile
-from .host import probe_host, unmet, validate_tasks
+from .host import fingerprint_id, match_report, match_summary, probe_host, unmet, validate_tasks
 from .manifest import match_glob, scratch_name
 from .process_metrics import process_metrics
 from .workspace import OVERLAY_ARM, PrepError, Task, parse_arm, prepare_workspace
@@ -203,10 +203,12 @@ def _workspace_args(task: Task, opts: AgentOptions, rd: Path, meta: dict[str, An
 
 
 def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, opts: AgentOptions,
-             force: bool = False, host: dict[str, Any] | None = None) -> dict[str, Any]:
+             force: bool = False, host: dict[str, Any] | None = None,
+             match: dict[str, Any] | None = None) -> dict[str, Any]:
     """Prepare, run the agent, grade. Returns the cell's ``result.json`` (``skipped`` when it existed).
 
-    ``host`` (the probed facts of :func:`.host.probe_host`) is recorded in ``meta.json``."""
+    ``host`` (the probed facts of :func:`.host.probe_host`) is recorded in ``meta.json``; ``match`` (a
+    labelled run's :func:`.host.match_report`) too, and in ``result.json`` as ``host_match``."""
     rd = batch_dir / cell_name(task.id, arm, opts.model, rep)
     execution = execution_record(opts, arm)
     done = batch_ledger.reused_result(rd, execution, force)
@@ -221,6 +223,8 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
     meta = prepare_workspace(ctx.git_dir, ctx.manifest, task, arm, rd, opts.profile, ctx.content_dir)
     meta.update(harness=opts.profile.name, harness_version=opts.harness_version, model=opts.model, rep=rep,
                 batch=batch_dir.name, agent_network=network, egress_proxy=False, execution=execution, host=host)
+    if match is not None:
+        meta["host_match"] = match
     present = _workspace_args(task, opts, rd, meta)
     _write_json(rd / "meta.json", meta)
     skills: dict[str, Any] | None = None
@@ -298,7 +302,10 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
                               "harness": opts.profile.name, "harness_version": meta["harness_version"],
                               "base_date": meta["base_date"], "execution": execution, "score_task": bool(task.score),
                               "score_max": task.score["max"] if task.score else None, "agent": agent,
-                              "process": process, "first_useful": first_useful(task.useful, useful_events), "grade": grade}
+                              "process": process, "first_useful": first_useful(task.useful, useful_events), "grade": grade,
+                              "host_fingerprint": fingerprint_id(host) if host is not None else None}
+    if match is not None:
+        record["host_match"] = match
     _add_arm_use(record, meta, task, skills, uptake_of, events)
     try:
         _own_dir(rd)  # the grader had the run dir read-write, and may have taken write access away
@@ -361,21 +368,37 @@ def _clear_unsupported_markers(batch_dir: Path, cells: list, unsupported: dict) 
             (batch_dir / cell_name(t.id, a, o.model, r) / UNSUPPORTED_FILE).unlink(missing_ok=True)
 
 
+def _verdicts(tasks: list[Task], host: dict[str, Any], label_host: bool) -> tuple[dict, dict]:
+    """``(unmet verdicts, match reports)``: a block-mode batch has the verdicts, a labelled one the reports."""
+    if label_host:
+        return {}, {t.id: match_report(t, host) for t in tasks}
+    return {t.id: unmet(t, host) for t in tasks}, {}
+
+
+def _log_labelled(matches: dict[str, dict[str, Any]], log) -> None:
+    for task_id, match in matches.items():
+        if match["met"] is not True:
+            log(f"{task_id}: host {match['fingerprint']} is labelled, not blocked: {match_summary(match)}")
+
+
 def run_batch(ctx: EvalContext, tasks: list[Task], arms: list[str], options: list[AgentOptions], reps: int,
               batch_dir: Path, jobs: int = 1, force: bool = False, max_batch_usd: float | None = None,
-              log=print) -> dict[str, Any]:
+              log=print, label_host: bool = False) -> dict[str, Any]:
     """Every (task, arm, model, rep) cell; returns counts. Cells that crash are reported, not raised.
 
     The host is probed once, before any cell (``_eval/host.json``); a cell of a task whose ``host``
     requirements it does not meet is marked unsupported instead of run. One that already has a
     ``result.json`` (from a host that met them) keeps it, even with ``force``; one that cannot be read is
-    that cell's error."""
+    that cell's error.
+
+    ``label_host`` runs every cell whatever the host: a cell of a task whose requirements it misses runs and
+    records its :func:`.host.match_report` (``host_match`` in ``meta.json`` and ``result.json``) instead."""
     validate_tasks(tasks)
     cells = [(t, a, o, r) for t in tasks for a in arms for o in options for r in range(1, reps + 1)]
     check_batch_executions(batch_dir, options, {cell_name(t.id, a, o.model, r) for t, a, o, r in cells} if force else None)
     host = probe_host(ctx, batch_dir / "_eval")
     _write_json(batch_dir / "_eval" / "host.json", host)
-    verdicts = {t.id: unmet(t, host) for t in tasks}
+    verdicts, matches = _verdicts(tasks, host, label_host)
     unsupported = {task_id: why for task_id, (why, _) in verdicts.items() if why}
     if force and unsupported:  # --force keeps their finished cells, so those must match this run too
         check_batch_executions(batch_dir, options, {cell_name(t.id, a, o.model, r) for t, a, o, r in cells
@@ -384,6 +407,7 @@ def run_batch(ctx: EvalContext, tasks: list[Task], arms: list[str], options: lis
     probe_failed = _probe_failed(batch_dir, cells, verdicts)
     for task_id, why in unsupported.items():
         log(f"{task_id}: UNSUPPORTED, its cells are not run: {why}")
+    _log_labelled(matches, log)
     _clear_unsupported_markers(batch_dir, cells, unsupported)
     lock = threading.Lock()
     state: dict[str, Any] = {"spent": 0.0, "ran": 0, "skipped": 0, "errors": [], "budget_stopped": 0,
@@ -408,7 +432,7 @@ def run_batch(ctx: EvalContext, tasks: list[Task], arms: list[str], options: lis
                 state["budget_stopped"] += 1
                 return
         try:
-            rec = run_cell(ctx, task, arm, rep, batch_dir, opts, force=force, host=host)
+            rec = run_cell(ctx, task, arm, rep, batch_dir, opts, force=force, host=host, match=matches.get(task.id))
         except CellCrash as exc:
             with lock:
                 state["spent"] += exc.charged_usd

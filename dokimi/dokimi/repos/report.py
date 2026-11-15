@@ -210,18 +210,40 @@ def load_unsupported(batch_dir: Path) -> list[dict[str, Any]]:
     return out
 
 
+def _labelled_match(recs: list[dict[str, Any]]) -> dict[str, Any]:
+    """``{"host_match": ...}`` for a labelled row: which of the task's host requirements its host missed."""
+    labelled = [r["host_match"] for r in recs if isinstance(r.get("host_match"), dict)]
+    if not labelled:
+        return {}
+    return {"host_match": {"met": labelled[0]["met"],
+                           "unmet": [f["field"] for f in labelled[0]["fields"] if f["met"] is False]}}
+
+
+def _skill_counts(recs: list[dict[str, Any]]) -> dict[str, Any]:
+    used = [r["skills"] for r in recs if r.get("skills") and r["skills"].get("measured", True)]
+    if not used:  # cells whose trace was unreadable are not counted: no rate from a missing measurement
+        return {}
+    out: dict[str, Any] = {"skill_measured": len(used), "skill_invoked": sum(bool(u["skill_invoked"]) for u in used)}
+    expecting = [u for u in used if u.get("expected_skill")]  # a task naming no skill has nothing to select
+    if expecting:
+        out["skill_expected"] = len(expecting)
+        out["skill_selected_correct"] = sum(bool(u["skill_selected_correct"]) for u in expecting)
+    return out
+
+
 def summarize(batch_dir: Path) -> dict[str, Any]:
     cells, missing = load_cells(batch_dir)
-    groups: dict[tuple[str, str, str], list[dict[str, Any]]] = defaultdict(list)
+    # One row per (task, arm, model) and host fingerprint: cells run on different hosts never pool in a row.
+    groups: dict[tuple[str, str, str, str | None], list[dict[str, Any]]] = defaultdict(list)
     for rec in cells:
-        groups[(rec["task"], rec["arm"], rec["model"])].append(rec)
+        groups[(rec["task"], rec["arm"], rec["model"], rec.get("host_fingerprint"))].append(rec)
     missing_by: dict[tuple[str, str, str], int] = defaultdict(int)
     for name in missing:
         parts = name.split("__")
         if len(parts) == 4:
             missing_by[(parts[0], parts[1], parts[2])] += 1
     rows = []
-    for key in sorted(groups):
+    for key in sorted(groups, key=lambda k: (k[0], k[1], k[2], k[3] or "")):
         recs = groups[key]
         with reading_cells([str(batch_dir / r["cell"] / "result.json") for r in recs]):
             n = len(recs)
@@ -233,7 +255,7 @@ def summarize(batch_dir: Path) -> dict[str, Any]:
                                    "agent_errors": sum(bool(r["agent"]["is_error"]) for r in recs),
                                    "over_budget": sum(bool(r["agent"]["over_budget"]) for r in recs),
                                    "cost_unknown": sum(r["agent"]["cost_usd"] is None for r in recs),
-                                   "missing": missing_by.get((key[0], _cell_arm(key[1]), _cell_model(key[2])), 0),
+                                   "missing": missing_by.pop((key[0], _cell_arm(key[1]), _cell_model(key[2])), 0),
                                    "cost_usd": _mean([r["agent"]["cost_usd"] for r in recs]),
                                    "total_cost_usd": round(sum(r["agent"]["cost_usd"] or 0 for r in recs), 6),
                                    "turns": _mean([r["agent"]["num_turns"] for r in recs]),
@@ -241,6 +263,8 @@ def summarize(batch_dir: Path) -> dict[str, Any]:
                                    **{k: _mean([r["agent"].get(k) for r in recs]) for k in _TOKENS},
                                    "networks": sorted({str(r["agent"].get("network")) for r in recs}),
                                    "model_resolved": sorted({m for r in recs for m in resolved_models(r)})}
+            row["host_fingerprint"] = key[3]
+            row.update(_labelled_match(recs))
             uptake = uptake_counts(recs)
             if uptake is not None:
                 row["uptake"] = uptake
@@ -253,14 +277,7 @@ def summarize(batch_dir: Path) -> dict[str, Any]:
             else:
                 wins = sum(bool(r["grade"]["success"]) for r in recs)
                 row.update(kind="gate", successes=wins, success_rate=round(wins / n, 4), ci95=wilson(wins, n))
-            used = [r["skills"] for r in recs if r.get("skills") and r["skills"].get("measured", True)]
-            if used:  # cells whose trace was unreadable are not counted: no rate from a missing measurement
-                row["skill_measured"] = len(used)
-                row["skill_invoked"] = sum(bool(u["skill_invoked"]) for u in used)
-                expecting = [u for u in used if u.get("expected_skill")]  # a task naming no skill has nothing to select
-                if expecting:
-                    row["skill_expected"] = len(expecting)
-                    row["skill_selected_correct"] = sum(bool(u["skill_selected_correct"]) for u in expecting)
+            row.update(_skill_counts(recs))
             row["parse_errors"] = sum(r["grade"]["status"] != "grader_failure"  # counted in grader_failures
                                       and _metrics(batch_dir / r["cell"]).get("parse_error") is True for r in recs)
             rows.append(row)
@@ -319,6 +336,10 @@ def _row_notes(r: dict[str, Any]) -> list[str]:
     if "uptake" in r:
         notes.append(f"arm's additions used in {r['uptake']['used']}/{r['uptake']['cells']} cell(s)"
                      + unmeasured_note(r["uptake"]))
+    if "host_match" in r:
+        match = r["host_match"]
+        what = "met" if match["met"] is True else f"unmet: {', '.join(match['unmet']) or 'undecided'}"
+        notes.append(f"host {r['host_fingerprint']} (labelled, {what})")
     return notes
 
 
