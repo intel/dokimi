@@ -577,7 +577,7 @@ def test_a_failure_message_that_completes_a_longer_passing_id_is_not_read_as_its
 
 @pytest.mark.parametrize("gap", ["skipped", "broken"])
 def test_a_survivor_is_inconclusive_when_a_candidate_test_file_did_not_run(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, gap: str
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], gap: str
 ) -> None:
     src = "def b(x):\n    return x == 2\n"
     tests = "from dokimi.zz import b\n\n\ndef test_b_is_only_called():\n    b(2)\n"
@@ -586,6 +586,10 @@ def test_a_survivor_is_inconclusive_when_a_candidate_test_file_did_not_run(
                                **{gap: ("tests/test_zz_late.py",)})
     assert _statuses(report) == {(2, "x != 2"): "inconclusive", (2, "3"): "inconclusive", (2, "None"): "inconclusive"}
     assert rc == 0
+    out = capsys.readouterr().out
+    assert "3 inconclusive, 0 not run" in out
+    assert "3 inconclusive: the tests covering the line pass" in out
+    assert "::warning file=dokimi/dokimi/zz.py,line=2::mutant inconclusive" in out
 
 
 def test_the_covering_pass_asks_pytest_for_the_passed_ids(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
