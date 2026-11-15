@@ -335,3 +335,19 @@ def test_the_rerun_hint_of_a_provider_error_does_not_advise_a_higher_cap(monkeyp
     monkeypatch.setenv(RESPONSE_CACHE_ENV, str(tmp_path))
     hint = replay_hint("permanent_error")
     assert "Rerun with the error fixed, and the same" in hint and "--max-usd" not in hint
+
+
+def test_a_partial_probe_result_of_a_provider_error_is_refused_with_its_message(tmp_path):
+    from dokimi.novelty.items import ProbeFileError, load_probe_cells
+
+    def refused(reason, message):
+        path = tmp_path / f"{reason}.json"
+        path.write_text(json.dumps({"status": "partial", "runs": [],
+                                    "partial": {"reason": reason, "message": message}}), encoding="utf-8")
+        with pytest.raises(ProbeFileError, match="is a partial probe result") as caught:
+            load_probe_cells([str(path)])
+        return str(caught.value)
+
+    message = refused("permanent_error", "the probes stopped with 3 of 9 answers: permanent error: bad key")
+    assert "permanent error: bad key" in message and "--max-usd" not in message
+    assert "--max-usd stopped the measurement" in refused("spend_cap", "--max-usd stopped the probes")
