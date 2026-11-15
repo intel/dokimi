@@ -1100,7 +1100,12 @@ python cli.py tasks run --tasks <task-name> \
   partial credit such as `0.75`, is kept as the reward and counts as a fail. If
   no reward is found, the adapter's exit code is used as the fallback, except
   for a Harbor-backed cell, which is then errored (see the Harbor grading
-  table above).
+  table above), and a `docker-*` cell with a reward-file verifier (`task.toml`
+  or `task.md`), where exit 0 without `/logs/verifier/reward.txt` is errored
+  and a non-zero exit scores 0.0. A terminal-bench v1 verifier keeps its pytest
+  summary as the verdict. A `docker-*` reward file with no number between 0
+  and 1 in it (`PASS`, empty, `75`), or a `docker cp` of it that fails or
+  times out, errors the cell.
 - `results[].metrics`: for LLM harnesses (`docker-claude*`), the per-run
   `UsageRecord` fields — `cost_usd`, `prompt_tokens`, `completion_tokens`,
   `total_tokens`, `cache_read_tokens`, `cache_write_tokens`, `latency_sec`,
