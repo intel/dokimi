@@ -82,6 +82,12 @@ def test_skill_reach_token_of_a_json_escaped_high_surrogate_case_id():
     assert token("s", json.loads('"n\\ud800"'), "p") != token("s", json.loads('"n\\ud801"'), "p")
 
 
+def test_skill_reach_token_of_a_high_surrogate_differs_from_escaped_bytes_that_encode_alike():
+    from dokimi.repos.skill_reach import token
+
+    assert token("s", "\udced\udca0\udc80", "p") != token("s", "\ud800", "p")
+
+
 def test_skill_reach_token_of_a_utf8_case_id_is_unchanged():
     from dokimi.repos.skill_reach import token
 

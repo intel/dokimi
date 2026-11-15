@@ -237,7 +237,7 @@ def token(salt: str, case_id: str, position: str) -> str:
     try:
         raw = text.encode("utf-8", "surrogateescape")
     except UnicodeEncodeError:  # a JSON `\ud800` escape is a surrogate `surrogateescape` does not map
-        raw = text.encode("utf-8", "surrogatepass")
+        raw = b"\0sp" + text.encode("utf-8", "surrogatepass")  # tagged: apart from the bytes `surrogateescape` maps
     digest = hashlib.sha256(raw).hexdigest()
     return ("SK" if position == "description" else "SB") + digest[:6].upper()
 
