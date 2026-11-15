@@ -401,7 +401,7 @@ of their families in this note. Coverage: 2,932 rows × 7 judges, with 1 unparse
 gpt-6-sol and claude-opus-5-5 reject temperature 0 and run at their default.
 Script: `research/judge-panel/gen.py`. Tables: `docs/assets/judge-panel/generations/*.csv`.
 
-| Family: old → new | κ old vs new | Lenient rate, old → new | Lenient added share, old → new, by answer model (opus-5 / haiku-4.5 / gpt-5.6 / grok-4.6 / nemotron-nano) |
+| Family: old → new | κ old vs new | Lenient rate, old → new (not re-run) | Lenient added share, old → new, by answer model (opus-5 / haiku-4.5 / gpt-5.6 / grok-4.6 / nemotron-nano) |
 |---|---|---|---|
 | openai: gpt-5.6-luna → gpt-6-luna | 0.72 | 0.756 → 0.714 | 0.13→0.11 / 0.12→0.15 / 0.15→0.23 / 0.34→0.34 / 0.43→0.42 |
 | openai: gpt-5.6-luna → gpt-6-sol | 0.70 | 0.756 → 0.713 | 0.13→0.16 / 0.12→0.18 / 0.15→0.16 / 0.34→0.29 / 0.43→0.50 |
@@ -411,8 +411,12 @@ Script: `research/judge-panel/gen.py`. Tables: `docs/assets/judge-panel/generati
 | deepseek: r1 → v3.2 | 0.61 | 0.735 → 0.639 | 0.13→0.18 / 0.15→0.30 / 0.15→0.21 / 0.37→0.35 / 0.47→0.57 |
 
 The lenient rate is the share of a judge's verdicts that count as correct under lenient
-scoring, over all 2,932 rows (2,664 for gpt-5.6-luna, which has no grades on the repeats; its
-κ pairs use those 2,664 rows). κ per pair: `generation_kappa.csv`. One probe moves an added share by about 0.017.
+scoring, over all 2,932 rows (2,664 for gpt-5.6-luna, which has no grades on the repeats).
+**Not re-run:** the lenient and strict rates in this section (the table column, the deltas and
+the strict shares below) are per-judge rates over each judge's whole grade set, not over the
+shared keys used for κ. The OpenAI pairs compare 2,664 rows with 2,932. A re-run on matched keys
+is pending (#775), so `generation_kappa.csv` has no rate-delta column until then. κ per pair:
+`generation_kappa.csv`. One probe moves an added share by about 0.017.
 
 What a generation update does to judgment:
 
@@ -421,7 +425,7 @@ What a generation update does to judgment:
   (`judge_mean_kappa.csv`). Re-grading with a newer judge of the same family is a judge change,
   not a re-run.
 
-- **Leniency moves, with no common direction.**
+- **Leniency moves, with no common direction (not re-run, see above).**
 
     - Kimi and Anthropic got more lenient (+0.12, +0.07).
     - OpenAI and DeepSeek got stricter (−0.04, −0.10).
