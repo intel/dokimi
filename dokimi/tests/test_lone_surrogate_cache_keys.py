@@ -84,3 +84,51 @@ def test_reach_dry_run_over_a_checkout_whose_directory_name_is_not_utf8(tmp_path
                      profile=load_profile(_profile(tmp_path)), model="m", out_dir=tmp_path / "out",
                      work_dir=tmp_path / "work", dry_run=True)
     assert plan["runs"]
+
+
+def _sha(raw: bytes) -> str:
+    return hashlib.sha256(raw).hexdigest()
+
+
+DOCS = "Use `tbb::parallel_for` and `task_arena`. " * 5  # past the stub limit: a stored answer is replayed
+
+
+def _context7_hit(tmp_path: Path, library_id: str, query: str, key: str) -> dict:
+    """What `get_library_docs` returns when the entry filed under ``key`` is the only one: a hit on that name, or a fetch."""
+    from dokimi.mcp.context7 import Context7Client
+
+    (tmp_path / f"{key}.txt").write_text(DOCS, encoding="utf-8")
+    return Context7Client(cache_dir=tmp_path).get_library_docs(library_id, query)[0]
+
+
+def test_context7_cache_key_of_a_utf8_library_and_query_is_unchanged(tmp_path):
+    old = hashlib.sha256("uxlfoundation/oneTBB:café?:8000".encode()).hexdigest()  # the key before key_bytes
+    assert _context7_hit(tmp_path, "uxlfoundation/oneTBB", "café?", old)["cached"] is True
+
+
+def test_context7_cache_key_of_a_library_id_with_a_non_utf8_byte_is_a_digest(tmp_path):
+    assert _context7_hit(tmp_path, "org/n\udcff", "q", _sha(b"org/n\xff:q:8000"))["cached"] is True
+
+
+def test_context7_cache_key_of_a_query_with_a_high_surrogate_is_a_digest(tmp_path):
+    assert _context7_hit(tmp_path, "org/x", HIGH, _sha(b"\0sporg/x:n\xed\xa0\x80:8000"))["cached"] is True
+
+
+def _topics_hit(tmp_path: Path, library_id: str, key: str) -> list[str]:
+    from dokimi.questions.ragas_seed import RagasSeedExtractor
+
+    (tmp_path / f"topics_{key}.json").write_text('["parallel_for"]', encoding="utf-8")
+    return RagasSeedExtractor(cache_dir=tmp_path).extract_topics(library_id=library_id, library_name="n", max_topics=3)
+
+
+def test_topics_cache_key_of_a_utf8_library_id_is_unchanged(tmp_path):
+    old = hashlib.sha256("uxlfoundation/oneTBB:3:8000".encode()).hexdigest()
+    assert _topics_hit(tmp_path, "uxlfoundation/oneTBB", old) == ["parallel_for"]
+
+
+def test_topics_cache_key_of_a_library_id_with_a_non_utf8_byte_is_a_digest(tmp_path):
+    assert _topics_hit(tmp_path, "local:n\udcff", _sha(b"local:n\xff:3:8000")) == ["parallel_for"]
+
+
+def test_topics_cache_key_of_a_library_id_with_a_high_surrogate_is_a_digest(tmp_path):
+    assert _topics_hit(tmp_path, "local:" + HIGH, _sha(b"\0splocal:n\xed\xa0\x80:3:8000")) == ["parallel_for"]

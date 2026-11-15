@@ -10,6 +10,8 @@ from pathlib import Path
 import hashlib
 import logging
 
+from dokimi.utils import key_bytes
+
 from . import MCPClient, MCPConnectionError, MCPLibraryNotFoundError
 from .utils import read_cache_text, write_cache_text
 
@@ -134,7 +136,7 @@ class Context7Client(MCPClient):
         # Check cache first
         if self.cache_dir:
             cache_key = hashlib.sha256(
-                f"{library_id}:{query}:{max_tokens}".encode()
+                key_bytes(f"{library_id}:{query}:{max_tokens}")
             ).hexdigest()
             cache_file = self.cache_dir / f"{cache_key}.txt"
             content = _read_cached(cache_file)
