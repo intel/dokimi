@@ -218,13 +218,38 @@ def test_conda_lock_job_installs_its_tools_from_the_hashed_lock() -> None:
     assert (ROOT.parent / lock).is_file()
 
 
+CONDA_LOCK_INSTALL = re.compile(r"\bpip3?\s+install\b.*(?:rattler|requirements-conda-lock)")
+
+
+def _unhashed_conda_lock_installs(text: str) -> list[str]:
+    """Lines that `pip install` py-rattler or the conda-lock tool input (not only its lock) without --require-hashes."""
+    lines = text.replace("\\\n", " ").splitlines()
+    return [line.strip() for line in lines if CONDA_LOCK_INSTALL.search(line) and "--require-hashes" not in line]
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "pip install py-rattler",
+        "pip3 install py-rattler==0.9",
+        "pip install -r dokimi/requirements-conda-lock.txt",
+        "python -m pip3 install -r dokimi/requirements-conda-lock.txt",
+    ],
+)
+def test_unhashed_conda_lock_install_is_found(line: str) -> None:
+    assert _unhashed_conda_lock_installs(f"run: {line}\n") == [f"run: {line}"]
+
+
+def test_hashed_conda_lock_install_is_not_flagged() -> None:
+    hashed = "run: pip3 install --require-hashes --no-deps -r dokimi/requirements-conda-lock.lock.txt"
+    assert _unhashed_conda_lock_installs(hashed) == []
+
+
 def test_no_workflow_installs_py_rattler_without_hashes() -> None:
-    """A `pip install py-rattler` by name, in conda-lock.yml or a later workflow, must carry --require-hashes."""
-    installs = []
+    """A `pip install` of py-rattler or its input file, in conda-lock.yml or a later workflow, must carry --require-hashes."""
+    unhashed = []
     for path in sorted((ROOT.parent / ".github/workflows").glob("*.y*ml")):
-        text = path.read_text(encoding="utf-8").replace("\\\n", " ")
-        installs += [(path.name, line.strip()) for line in text.splitlines() if "pip install" in line and "rattler" in line]
-    unhashed = [i for i in installs if "--require-hashes" not in i[1]]
+        unhashed += [(path.name, line) for line in _unhashed_conda_lock_installs(path.read_text(encoding="utf-8"))]
     assert not unhashed, unhashed
 
 
