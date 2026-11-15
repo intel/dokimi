@@ -6,8 +6,8 @@
 The judge-panel study (docs/judge-panel-study.md) re-graded the skill-novelty sample with
 seven judges from seven families. The paired added share of one answer model moved by up to
 0.23 with the judge, while the order of the extreme models did not move. Majority, median
-and Dawid-Skene agreed on 99.3% of rows; unanimous and any-correct moved the headline by up
-to 0.20. Three judges from three families cut the spread across panels from SD 0.039 to
+and Dawid-Skene agreed on 99.3% of rows; any-correct moved the headline by up to 0.20, and
+unanimous raised the added share by up to 0.09 over majority. Three judges from three families cut the spread across panels from SD 0.039 to
 0.025. Hence the defaults here: the median rule, a warning when two judges share a vendor,
 and a per-judge 2×2 next to the panel's, so a judge-sensitive headline is visible.
 """

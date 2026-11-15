@@ -34,7 +34,7 @@ from .atoms import Atom
 from .client import LLMClient, SpendCapReached, parse_json_object, same_client
 from .controls import (REPEAT_ARM, clustered_ci, control_fields, reversal_by_arm,
                        reversal_paired)
-from .panel import RULES, aggregate as aggregate_votes
+from .panel_grade import check_judges, grade_panel
 from .probes import Probe
 from .routing_stop import PERMANENT_REASON, stop_if_run_wide
 
@@ -136,7 +136,7 @@ class ProbeRun:
     response: str
     verdict: str
     confidence: float | None = None  # recorded, never scored
-    judge_verdicts: dict[str, str] | None = None  # panel only: each judge's verdict by model
+    judge_verdicts: dict[str, str] | None = field(default=None, kw_only=True)  # panel only: each judge's verdict by model
     #: Set only when the probe carries ``grading``: the judge's own verdict, which ``verdict``
     #: may overrule, where the verdict came from (``judge`` or ``check``) and the check results.
     judge_verdict: str | None = None
@@ -301,18 +301,6 @@ def check_arms(arms: tuple[str, ...], placebo_text: str | None) -> None:
         raise InputError("the placebo arm needs --placebo-text (domain-mismatched text)")
 
 
-def check_judges(judge: LLMClient, panel, answerer: LLMClient, allow_self_judge: bool,
-                 aggregate: str = "median") -> None:
-    """Refuse an unknown rule, a judge that is the answerer, or one model twice (it would vote twice)."""
-    if aggregate not in RULES:
-        raise InputError(f"unknown judge aggregation rule {aggregate!r}; known: {list(RULES)}")
-    members = (judge, *panel)
-    for i, member in enumerate(members):
-        check_self_judge(member, answerer, allow_self_judge)
-        if any(same_client(member, other) for other in members[:i]):
-            raise InputError(f"judge {member.model!r} is the same model as another judge")
-
-
 def _unpriced_answer_run(probe: Probe, arm: str, exc: SpendCapReached,
                          stops: list[SpendCapReached], ungraded: list[ProbeRun]) -> ProbeRun:
     """The paid answer of a call with no price, kept ungraded (no datum) as the stop's run; a reply
@@ -373,7 +361,7 @@ def run_measurement(
         aggregate: The rule that makes one verdict of the panel's (:func:`~.panel.aggregate`).
     """
     judges = (judge, *panel)
-    check_judges(judge, panel, answerer, allow_self_judge, aggregate)
+    check_judges((judge, *panel), aggregate, lambda m: check_self_judge(m, answerer, allow_self_judge))
     check_arms(arms, placebo_text)
     if framing not in FRAMINGS:
         raise InputError(f"unknown context framing {framing!r}; known: {list(FRAMINGS)}")
@@ -408,7 +396,8 @@ def run_measurement(
             answered = False
         else:
             try:
-                verdict, by_judge = _grade_panel(stops, probe, response, judges, aggregate)
+                verdict, by_judge = grade_panel(
+                    lambda m: _grade_unless_stopped(stops, probe, response, m), judges, aggregate, ERRORED)
             except SpendCapReached as exc:
                 return _capped_grade_run(probe, arm, response, confidence, exc, stops, ungraded)
         run = ProbeRun(
@@ -456,22 +445,6 @@ def _not_after_permanent_stop(stops: list[SpendCapReached], job: Callable[[Any],
         return None if _held_permanent_stop(stops) else job(item)
 
     return run
-
-
-def _grade_panel(stops: list[SpendCapReached], probe: Probe, response: str,
-                 judges: tuple[LLMClient, ...], aggregate: str) -> tuple[str, dict[str, str] | None]:
-    """One answer's verdict and, with a panel, each judge's verdict by model; a failed judge is no vote."""
-    if len(judges) == 1:
-        return _grade_unless_stopped(stops, probe, response, judges[0]), None
-    by_judge: dict[str, str] = {}
-    try:
-        for m in judges:
-            by_judge[m.model] = _grade_unless_stopped(stops, probe, response, m)
-    except SpendCapReached as exc:
-        exc.panel_votes = by_judge
-        raise
-    votes = [v for v in by_judge.values() if v != ERRORED]
-    return aggregate_votes(votes, aggregate) or ERRORED, by_judge
 
 
 def _capped_grade_run(probe: Probe, arm: str, response: str, confidence: float | None,

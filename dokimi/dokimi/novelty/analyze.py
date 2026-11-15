@@ -25,6 +25,7 @@ from . import attribute, bundle as bundle_mod
 from . import classify, items as items_mod
 from . import measure, needs, probes, provenance, report, retention, shorten, spans
 from . import panel as panel_mod
+from . import panel_grade
 from . import panel_record as panel_record_mod
 from .artifact import load_artifact_text  # noqa: F401  (public path: novelty.analyze)
 from .analyze_partial import Progress, stopped_record
@@ -225,7 +226,9 @@ def analyze(
             provenance=provenance.provenance(
                 artifact_digest=ref_digest, answerer_model=answerer.model,
                 judge_model=judge.model, context_framing=config.context_framing),
-            bundle=artifact_bundle.summary() if artifact_bundle is not None else {})
+            bundle=artifact_bundle.summary() if artifact_bundle is not None else {},
+            judge_panel={"judges": [judge.model, *(m.model for m in panel)], "rule": aggregate}
+            if panel else None)
         return AnalyzeResult(
             artifact=record, atoms=progress.atoms, spans=progress.spans,
             measure_result=progress.measure_result, extracted_atoms=progress.extracted,
@@ -248,7 +251,9 @@ def _analyze(
 ) -> AnalyzeResult:
     """The pipeline of :func:`analyze`; ``progress`` records each stage as it starts and what it
     produced, so a spend stop anywhere can be saved."""
-    measure.check_judges(judge, panel, answerer, config.allow_self_judge, aggregate)
+    panel_grade.check_judges(
+        (judge, *panel), aggregate,
+        lambda member: measure.check_self_judge(member, answerer, config.allow_self_judge))
     relation = warn_extractor_judge(extractor.model, judge, extractor.provider)
     warnings: list[str] = progress.warnings
     span_list = progress.spans = spans.segment(text)

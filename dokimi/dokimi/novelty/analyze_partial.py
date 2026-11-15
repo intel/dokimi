@@ -75,7 +75,8 @@ def stop_block(progress: Progress, stop: SpendCapReached) -> dict:
 
 def stopped_record(progress: Progress, stop: SpendCapReached, *, artifact_kind: str,
                    artifact_ref: str, ref_digest: str | None, model: str, provider: str,
-                   judge_model: str, clients: list, provenance: dict, bundle: dict) -> dict:
+                   judge_model: str, clients: list, provenance: dict, bundle: dict,
+                   judge_panel: dict | None = None) -> dict:
     """The partial record: it validates as ``novelty.v1`` and says ``status: partial``."""
     result = progress.measure_result
     extraction = progress.extraction
@@ -89,6 +90,7 @@ def stopped_record(progress: Progress, stop: SpendCapReached, *, artifact_kind: 
         "model": model,
         "provider": provider,
         "judge_model": judge_model,
+        **({"judge_panel": judge_panel} if judge_panel else {}),
         "atoms": {
             # The probed sample once it is chosen, as a finished record counts; before, all extracted.
             "n": len(progress.extracted if progress.sampling == "none" else progress.atoms),

@@ -16,7 +16,7 @@ def _own_verdict(run: ProbeRun, model: str) -> str:
     """The verdict ``model`` gave ``run``, with the run's program checks applied as the headline
     applies them; a judge that cast no vote (a spend stop, a failed call) is a missing datum."""
     raw = (run.judge_verdicts or {}).get(model)
-    if raw is None:
+    if raw is None or raw == ERRORED:
         return ERRORED
     return resolve_verdict(raw, run.checks)[0] if run.checks else raw
 
@@ -44,10 +44,11 @@ def _added_range(per_judge_runs: dict[str, list[ProbeRun]], with_arm: str,
 
     A judge whose grade failed on one arm of a pair drops that pair from its own 2×2; the
     range is taken on the pairs graded by all, so a missing grade is not read as a judge
-    that disagrees. ``None`` when no pair is graded by every judge.
+    that disagrees. A judge that graded no pair is left out. ``None`` when fewer than two judges
+    graded a pair, or when no pair is graded by every one of them.
     """
     graded = [own for own in per_judge_runs.values() if _graded_pairs(own, with_arm)]
-    if not graded:
+    if len(graded) < 2:
         return None
     shared = set.intersection(*(_graded_pairs(own, with_arm) for own in graded))
     if not shared:

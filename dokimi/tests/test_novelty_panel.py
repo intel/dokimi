@@ -17,6 +17,7 @@ from dokimi.novelty.cost import role_models as _role_models
 from dokimi.novelty.judge2 import check_judge2
 from dokimi.novelty.measure import (
     BASELINE_ARM,
+    ERRORED,
     MeasureResult,
     ProbeRun,
     SelfJudgeError,
@@ -403,3 +404,99 @@ def test_the_answerer_reaches_the_panel_record_so_the_vendor_warning_shows(
         args.func(args)
     assert json.loads(out.read_text())["judge_panel"]["same_vendor_as_answerer"] == ["claude-opus-5"]
     assert "claude-opus-5" in capsys.readouterr().err
+
+
+def test_an_errored_vote_under_a_failed_veto_is_no_datum():
+    veto = [{"role": "veto", "passed": False}]
+    runs = [
+        _run("a", BASELINE_ARM, {"j1": WO, "j2": ERRORED}),
+        _run("a", "full", {"j1": CC, "j2": WO}),
+    ]
+    runs[0].checks = veto
+    rec = panel_record(MeasureResult(runs=runs, arms=(BASELINE_ARM, "full")), "median")
+    j2 = rec["per_judge_paired"]["j2"]["lenient"]
+    assert (j2["n_paired"], j2["n_unpaired_dropped"]) == (0, 1)
+
+
+def test_probe_run_keeps_its_positional_fields_after_confidence():
+    run = ProbeRun("a", "direct", "full", "q", "r", WO, 0.5, CC, "check",
+                   [{"role": "veto", "passed": False}])
+    assert (run.judge_verdict, run.verdict_source, run.judge_verdicts) == (CC, "check", None)
+    assert run.as_dict()["checks"] == [{"role": "veto", "passed": False}]
+
+
+def test_a_stopped_panel_analysis_keeps_its_judges_and_rule(tmp_path):
+    from dokimi.novelty.analyze import AnalyzeConfig, analyze, load_artifact_text
+    from dokimi.novelty.client import SpendCap
+    from tests.test_novelty_analyze_cap_partial import _after, _priced, _skill
+
+    path = _skill(tmp_path)
+    kind, name, description, frontmatter, body = load_artifact_text(f"skill:{path}")
+    config = AnalyzeConfig(artifact_ref=f"skill:{path}", artifact_kind=kind, name=name,
+                           description=description, frontmatter=frontmatter, concurrency=1)
+    cap = SpendCap(limit_usd=1.0)
+    transport = _priced(_after("Rewrite each statement below"))
+    extractor, answerer, judge, second = (
+        LLMClient(model=f"{role}-m", role="judge" if role == "second" else role,
+                  transport=transport, cap=cap)
+        for role in ("extractor", "answerer", "judge", "second"))
+    result = analyze(body, config, extractor=extractor, answerer=answerer, judge=judge,
+                     panel=(second,), aggregate="unanimous")
+    assert result.partial
+    assert result.artifact["judge_panel"] == {"judges": ["judge-m", "second-m"], "rule": "unanimous"}
+
+
+def test_a_judge_that_grades_nothing_does_not_hide_a_split_between_the_others():
+    runs = [
+        _run("p1", BASELINE_ARM, {"A": WO, "B": WO, "C": ERRORED}),
+        _run("p1", "full", {"A": CC, "B": WO, "C": ERRORED}),
+    ]
+    rec = panel_record(MeasureResult(runs=runs, arms=(BASELINE_ARM, "full")), "median")
+    assert rec["per_judge_paired"]["A"]["lenient"]["added"] == 1.0
+    assert rec["per_judge_paired"]["B"]["lenient"]["added"] == 0.0
+    assert rec["judge_sensitive"] is True
+
+
+def test_a_partial_probe_keeps_no_panel_numbers(tmp_path):
+    import re
+    from pathlib import Path
+
+    from dokimi.commands.novelty_budget import save_probe_run
+
+    payload = {
+        "paired": {"lenient": {"added": 0.5, "n_paired": 2}},
+        "judge_panel": {
+            "judges": ["a", "b"],
+            "per_judge_paired": {"a": {"lenient": {"added": 0.5}}},
+            "added_share_range": {"lenient": 0.0, "strict": None},
+            "judge_sensitive": False,
+        },
+    }
+    with pytest.raises(SystemExit) as stopped:
+        save_probe_run(payload, tmp_path / "probes.json", done=1, not_run=1,
+                       stop=("spend_cap", "cap reached"))
+    partial = Path(re.search(r"partial result is in (\S+)", str(stopped.value)).group(1))
+    saved = json.loads(partial.read_text(encoding="utf-8"))
+    assert saved["paired"] is None
+    panel = saved.get("judge_panel") or {}
+    assert not {"per_judge_paired", "added_share_range", "judge_sensitive"} & set(panel)
+
+
+def test_a_panel_artifact_keeps_its_panel_in_the_scorecard_cell():
+    from dokimi.subjects.novelty_track import novelty_cell
+
+    panel = {"judges": ["first", "second", "third"], "rule": "unanimous"}
+    artifact = {"model": "answerer", "judge_model": "first", "judge_panel": panel,
+                "paired": {"lenient": {"added": 0.3}}, "atoms": {}, "spans": {}, "k0": {},
+                "warnings": []}
+    assert novelty_cell(artifact).get("judge_panel") == panel
+
+
+def test_one_judge_grading_a_pair_gives_no_range():
+    runs = [
+        _run("a", BASELINE_ARM, {"j1": WO, "j2": ERRORED}),
+        _run("a", "full", {"j1": CC, "j2": ERRORED}),
+    ]
+    rec = panel_record(MeasureResult(runs=runs, arms=(BASELINE_ARM, "full")), "median")
+    assert rec["added_share_range"] == {"lenient": None, "strict": None}
+    assert rec["judge_sensitive"] is False

@@ -328,8 +328,9 @@ python cli.py skill novelty probe --artifact skill:path/to/skill --atoms atoms.j
     - `majority`: correct when more than half the judges say so.
     - `unanimous`: correct only when all of them say so.
 
-    In the study, median and majority matched Dawid-Skene on 99.3% of rows. Unanimous and
-    any-correct moved the headline by up to 0.20. A judge whose grade fails is left out of the
+    In the study, median and majority matched Dawid-Skene on 99.3% of rows. Any-correct
+    moved the headline by up to 0.20, and unanimous raised the added share by up to 0.09 over
+    majority. A judge whose grade fails is left out of the
     vote.
 
 - The record gets a `judge_panel` block with:
