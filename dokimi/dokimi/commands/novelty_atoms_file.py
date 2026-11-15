@@ -148,7 +148,8 @@ def _verdicts_hint(oracle, cache_dir, stop) -> str:
 
     stored = max(0, oracle.escalations - oracle.errors - 1)
     dropped = stop.reply is not None
-    rerun = "no --max-usd" if stop.reason == "no_price" else "a higher --max-usd"
+    rerun = ("no --max-usd" if stop.reason == "no_price" else
+             "the error fixed" if stop.reason == "permanent_error" else "a higher --max-usd")
     tail = "; the call with no price was paid for and its verdict was not stored" if dropped else ""
     if cache_dir and stored:
         return (f"the retention verdicts adjudicated before the stop ({stored}) are stored in "
