@@ -120,6 +120,13 @@ def test_a_codex_trace_fills_what_codex_exposes_and_sandboxes_in_place_of_tool_l
                                  "permission_denials": None, "safety_stops": None}
 
 
+def test_a_codex_approval_flag_is_recorded_as_the_approval_mode():
+    argv = ["codex", "exec", "--ask-for-approval", "never", "--", "prompt"]
+    record = _build("codex", CODEX_LINES, argv)
+
+    assert record["permission_mode"] == {"mode": None, "sandbox": None, "approval": "never"}
+
+
 def test_a_codex_run_bypassing_its_sandbox_and_set_to_a_reasoning_effort_says_so():
     argv = ["codex", "exec", "-c", "model_reasoning_effort=high", "--dangerously-bypass-approvals-and-sandbox",
             "--json", "--", "prompt"]
@@ -336,6 +343,34 @@ def test_a_nested_workspace_config_is_keyed_by_its_base_name_and_the_record_save
     run_context.save(tmp_path, _build("claude-code", _claude_trace(), [], config=digests), errors)
 
     assert list(digests) == ["agent.json"] and errors == []
+
+
+def test_a_file_reached_through_a_linked_directory_is_not_digested(tmp_path):
+    prof = load_profile("claude-code")
+    host = tmp_path / "host"
+    host.mkdir()
+    (host / "agent.json").write_text("host file")
+    (tmp_path / "config").mkdir()
+    (tmp_path / "workspace").mkdir()
+    (tmp_path / "workspace" / ".config").symlink_to(host)
+
+    assert run_context.config_digests(tmp_path, prof, [".config/agent.json"]) == {}
+
+
+def test_a_workspace_file_name_outside_the_key_alphabet_still_saves_the_record(tmp_path):
+    prof = dataclasses.replace(load_profile("claude-code"), config_files={"settings.json": "host configuration"})
+    (tmp_path / "config").mkdir()
+    (tmp_path / "workspace" / "config dir").mkdir(parents=True)
+    (tmp_path / "config" / "settings.json").write_bytes(b"1")
+    (tmp_path / "workspace" / "config dir" / "settings.json").write_bytes(b"2")
+    (tmp_path / "workspace" / "agent config.json").write_bytes(b"3")
+
+    digests = run_context.config_digests(tmp_path, prof, ["config dir/settings.json", "agent config.json"])
+    errors: list[str] = []
+    run_context.save(tmp_path, _build("claude-code", _claude_trace(), [], config=digests), errors)
+
+    assert sorted(digests) == ["agent_config.json", "settings.json", "workspace.config_dir.settings.json"]
+    assert errors == []
 
 
 def test_a_workspace_file_does_not_hide_the_config_digest_of_the_same_name(tmp_path):

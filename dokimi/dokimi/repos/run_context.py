@@ -13,6 +13,7 @@ digests of their bytes, taken before the agent starts. See docs/repo-evaluation-
 from __future__ import annotations
 
 import hashlib
+import re
 from collections.abc import Iterable, Sequence
 from pathlib import Path
 from typing import Any
@@ -24,19 +25,20 @@ from .transcript import Transcript
 
 RUN_CONTEXT_FILE = "run_context.json"
 _TURN_RECORDS = ("turn.completed", "turn.failed")  # Codex's closing record, the turn's own
+_KEY_CHARS = re.compile(r"[^A-Za-z0-9._-]")  # what the schema allows in a config_sha256 key
 _BYPASS_FLAG = "--dangerously-bypass-approvals-and-sandbox"
 
 
 def config_digests(run_dir: Path, profile: HarnessProfile, present: Iterable[str]) -> dict[str, str]:
     """SHA-256 of each config file the run is given: the profile's ``config_files`` in the run's config
-    directory, and the workspace files ``present`` names. Keys are file names: a nested workspace file is keyed
+    directory, and the workspace files ``present`` names. Keys are file names with any character the schema does not allow in a key made ``_``: a nested workspace file is keyed
     by its base name, or by ``workspace.`` and its dotted path (numbered when that is taken too) when that name is taken. A link is not read (the
     host never follows one) and a file that cannot be read is left out: the record is best-effort."""
     found: dict[str, Path] = {n: run_dir / "config" / n for n in profile.config_files}
     for name in sorted(present):
-        key = name.rsplit("/", 1)[-1]
+        key = _KEY_CHARS.sub("_", name.rsplit("/", 1)[-1])
         if key in found:
-            key = prefixed = "workspace." + name.replace("/", ".")
+            key = prefixed = _KEY_CHARS.sub("_", "workspace." + name.replace("/", "."))
             for n in range(2, len(found) + 3):  # the prefixed name may be a config file's own
                 if key not in found:
                     break
@@ -45,7 +47,8 @@ def config_digests(run_dir: Path, profile: HarnessProfile, present: Iterable[str
     out: dict[str, str] = {}
     for key, path in sorted(found.items()):
         try:
-            if path.is_file() and not path.is_symlink():
+            linked = any(p.is_symlink() for p in (path, *path.parents) if p.is_relative_to(run_dir))
+            if path.is_file() and not linked:
                 out[key] = hashlib.sha256(path.read_bytes()).hexdigest()
         except OSError:
             continue

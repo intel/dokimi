@@ -1289,9 +1289,10 @@ trace gives nulls. The schema is `dokimi/schemas/run_context.v1.json`.
 - `outcome.permission_denials` is the number of refused tool calls. `outcome.safety_stops` is the number of
   main-thread replies whose `stop_reason` was `refusal`; it is null when no reply carried a stop reason. A reply split over several records (one `message.id`) counts once, by its last `stop_reason`.
 - `config_sha256` holds the SHA-256 of each config file dokimi wrote for the run, and of each workspace file the
-  profile's `args_if_present` named, taken before the agent starts. Keys are file names, never paths: a nested
+  profile's `args_if_present` named, taken before the agent starts. Keys are file names, never paths, with any character
+  outside `A-Za-z0-9._-` written as `_`: a nested
   workspace file is keyed by its base name, or by `workspace.` and its dotted path when that name is already a key.
-  Contents are never recorded. A link is not read, and a file that cannot be read is left out.
+  Contents are never recorded. A link, or a file under a linked directory, is not read, and a file that cannot be read is left out.
 
 A record that cannot be written is a note in the cell's `trace_errors`, not a failed cell.
 
