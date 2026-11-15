@@ -400,6 +400,16 @@ def test_code_spans_and_comments_hide_links_by_the_backtick_run_length(mem):
     assert dead == [("index-dead-link", 3)]
 
 
+def test_a_backtick_inside_a_comment_does_not_pair_with_one_after_it(mem):
+    (mem / "MEMORY.md").write_text("- [A](a.md)\n<!-- a ` --> [X](missing.md) `\n- [Y](gone.md)\n<!-- z -->\n")
+    assert [f.line for f in lint(read_claude_memory(mem)) if f.rule == "index-dead-link"] == [2, 3]
+
+
+def test_a_comment_closes_at_its_first_arrow_even_inside_backticks(mem):
+    (mem / "MEMORY.md").write_text("- [A](a.md)\n<!-- a `-->` [X](missing.md) -->\n")
+    assert [f.line for f in lint(read_claude_memory(mem)) if f.rule == "index-dead-link"] == [2]
+
+
 def test_relative_date_skips_fences_and_comments(mem):
     (mem / "a.md").write_text(_entry("a", body="```\nrun it tomorrow\n```\n<!-- today -->\nDo it tomorrow."))
     assert [f.line for f in lint(read_claude_memory(mem)) if f.rule == "relative-date"] == [11]

@@ -112,7 +112,7 @@ class MemoryStore:
 
 def prose_lines(text: str) -> list[str]:
     """The lines of ``text`` with fenced blocks, HTML comments and code spans blanked: no link lives there."""
-    return [_CODE_SPAN.sub(lambda c: " " * len(c.group(0)), line) for line in _blank_blocks(text.split("\n"))]
+    return _blank_blocks(text.split("\n"))
 
 
 def _blank_blocks(lines: list[str]) -> list[str]:
@@ -147,8 +147,7 @@ def _blank_blocks(lines: list[str]) -> list[str]:
             fence = opener
             out.append(" " * len(line))
             continue
-        line = _CODE_SPAN.sub(lambda c: " " * len(c.group(0)), line)  # a code span hides a comment opener too
-        line, comment = _blank_comments(line, i < last_close)
+        line, comment = _blank_inline(line, i < last_close)
         out.append(line)
     return out
 
@@ -159,22 +158,31 @@ def _closes_fence(line: str, fence: str) -> bool:
     return bool(m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence) and not line[m.end():].strip())
 
 
-def _blank_comments(line: str, may_close: bool) -> tuple[str, str]:
-    """Blank the comments that ``line`` opens and closes; returns the line and the kind of a comment it leaves open.
+def _blank_inline(line: str, may_close: bool) -> tuple[str, str]:
+    """Blank the code spans and the comments of ``line``, left to right: whichever starts first holds the text after it.
 
-    An opener with no close later in the text (``may_close`` False) is plain text, as Markdown reads it.
+    Returns the line and the kind of a comment it leaves open. An opener with no close later in the text
+    (``may_close`` False) is plain text, as Markdown reads it, so the scan goes on past it.
     """
-    start = line.find("<!--")
-    while start >= 0:
+    pos = 0
+    while True:
+        code = _CODE_SPAN.search(line, pos)
+        start = line.find("<!--", pos)
+        if code is None and start < 0:
+            return line, ""
+        if code is not None and (start < 0 or code.start() < start):
+            line = line[:code.start()] + " " * (code.end() - code.start()) + line[code.end():]
+            pos = code.end()
+            continue
         end = line.find("-->", start + 2)  # from the second dash: <!--> and <!---> are complete comments too
-        if end < 0:
-            if not may_close:
-                break
+        if end >= 0:
+            line = line[:start] + " " * (end + 3 - start) + line[end + 3:]
+            pos = end + 3
+        elif not may_close:
+            pos = start + 4
+        else:
             kind = "block" if start <= 3 and not line[:start].strip() else "inline"
             return line[:start] + " " * (len(line) - start), kind
-        line = line[:start] + " " * (end + 3 - start) + line[end + 3:]
-        start = line.find("<!--")
-    return line, ""
 
 
 def _used_labels(lines: list[str], source: list[str]) -> set[str]:
