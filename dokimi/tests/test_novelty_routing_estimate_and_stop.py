@@ -109,6 +109,26 @@ def test_each_run_wide_error_stops_the_run(exc):
     assert result["partial"]["reason"] == "permanent_error"
 
 
+class APIConnectionError(Exception):
+    """Named as litellm's catch-all, which is_retryable reads by class name."""
+
+
+@pytest.mark.parametrize("text", ["Unable to locate credentials",
+                                  "The config profile (prod) could not be found"])
+def test_a_credentials_error_under_a_catch_all_class_stops_the_run_at_the_first_call(text):
+    stub = Stub(lambda n: (_ for _ in ()).throw(APIConnectionError(text)))
+    result = model_routing(FIELD, QUERIES, client=stub, repeats=3)
+    assert stub.calls == 1 and result["per_query"] == []
+    assert result["partial"]["reason"] == "permanent_error"
+    assert result["cap_stop"] == f"permanent error: {text}"
+
+
+def test_a_connection_reset_under_the_catch_all_class_is_still_a_row():
+    stub = Stub(lambda n: (_ for _ in ()).throw(APIConnectionError("connection reset")))
+    result = model_routing(FIELD, QUERIES, client=stub)
+    assert stub.calls == 3 and result["n_failed"] == 3 and "partial" not in result
+
+
 def test_all_vs_all_stops_at_a_run_wide_error_and_counts_the_calls_of_the_run():
     def behaviour(n):
         if n == 4:
@@ -222,3 +242,38 @@ def test_a_claude_cli_failure_every_call_meets_stops_the_run(monkeypatch, tmp_pa
 def test_a_claude_cli_failure_of_one_call_is_a_row(monkeypatch, tmp_path, answer):
     stub, result = _first_call_raises(_cli_error(monkeypatch, tmp_path, answer))
     assert stub.calls == 3 and result["n_failed"] == 3 and "partial" not in result
+
+
+def test_a_no_price_stop_is_recorded_as_no_price_not_as_a_spend_cap():
+    # A call the cap cannot meter stops the run with reason "no_price"; the record must keep that reason.
+    from dokimi.novelty.client import SpendCapReached
+
+    def behaviour(n):
+        if n == 2:
+            raise SpendCapReached("no price is known for judge, so --max-usd cannot be enforced",
+                                  reason="no_price")
+        return '{"pick": 1}'
+
+    stub = Stub(behaviour)
+    result = model_routing(FIELD, QUERIES, client=stub)
+    assert stub.calls == 2 and result["n_calls"] == 1
+    assert result["stop_reason"] == "no_price"
+    assert result["partial"]["reason"] == "no_price"
+
+
+def test_all_vs_all_records_a_no_price_stop_as_no_price():
+    from dokimi.novelty.client import SpendCapReached
+
+    def behaviour(n):
+        if n == 2:
+            raise SpendCapReached("no price is known for judge, so --max-usd cannot be enforced",
+                                  reason="no_price")
+        return '{"pick": 1}'
+
+    stub = Stub(behaviour)
+    queries = {"perf": ["profile my binary", "profile a slow binary"],
+               "db": ["tune the database", "index a table"]}
+    arm = all_vs_all(FIELD, queries, client=stub)["model"]
+    assert stub.calls == 2
+    assert arm["partial"]["calls_done"] == 1 and arm["partial"]["calls_planned"] == 4
+    assert arm["partial"]["reason"] == "no_price"

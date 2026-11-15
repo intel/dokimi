@@ -20,7 +20,8 @@ from typing import TYPE_CHECKING, NoReturn
 from dokimi.commands.inputs import placebo_text_for_arms_or_exit
 from dokimi.commands.novelty_run import (add_judge2_args, add_panel_args, add_spend_cap,
                                          attach_panel, exit_if_analyze_partial,
-                                         judge2_client, panel_clients, save_panel_verdicts, stamp)
+                                         judge2_client, panel_clients, save_panel_verdicts, stamp,
+                                         usable_cache_dir)
 from dokimi.commands.novelty_routing_inputs import (
     checked_out_path,
     load_all_vs_all_field,
@@ -110,6 +111,7 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
                 file=sys.stderr,
             )
         return
+    cache_dir = usable_cache_dir(args.cache_dir)
     print_run_estimate(args, settings, artifact_bundle.text, cost.estimate_usd)
 
     placebo_text = placebo_text_for_arms_or_exit(args.placebo_text, _arms(args.arms))
@@ -127,7 +129,7 @@ def cmd_novelty_analyze(args: argparse.Namespace) -> None:
         concurrency=args.concurrency,
         allow_self_judge=args.allow_self_judge,
         placebo_text=placebo_text, context_framing=args.context_framing,
-        cache_dir=Path(args.cache_dir) if args.cache_dir else None,
+        cache_dir=cache_dir,
         seed=args.seed,
         include_resources=args.include_resources,
         resource_roles=tuple(args.resource_roles) if args.resource_roles else None,

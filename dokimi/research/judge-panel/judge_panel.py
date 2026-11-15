@@ -5,14 +5,14 @@
 
 Steps (each resumable; LLM calls cached in OUT/cache, never in the study cache):
   sample  -> OUT/sample.jsonl   (all arms for sampled (probe, model) cells + orig luna verdict)
-  repeat  -> OUT/repeats.jsonl  (fresh no_skill answer, cache bypassed: the noise-floor arm)
+  repeat  -> OUT/repeats.jsonl  (fresh no_skill answer, cache bypassed: the noise-floor arm;
+             saved repeats are kept, only missing cells are called)
   grade   -> OUT/grades.jsonl   (one row per (row_key, judge))
 """
 
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import os
 import random
@@ -51,7 +51,7 @@ JUDGES = [
     "glm-5",
     "qwen3-vl-235b",
 ]
-# gen.py's re-grade used --judges gpt-6-sol,kimi-k2.5,claude-haiku-4-5,claude-opus-5-5,
+# gen.py judges, graded with: --judges gpt-6-sol,kimi-k2.5,claude-haiku-4-5,claude-opus-5-5,
 #   deepseek-r1,nemotron-super-3-120b,minimax-m2.5
 
 
@@ -59,13 +59,8 @@ def key(r):
     return f"{r['probe_id']}|{r['arm']}|{r['model']}"
 
 
-def sha(r):
-    """Fingerprint of the answer a grade was made on."""
-    return hashlib.sha256((r["answer"] or "").encode()).hexdigest()[:16]
-
-
 def do_sample(per_model: int):
-    rows = [json.loads(l) for l in (STUDY / "data/probe_results.jsonl").open()]
+    rows = [json.loads(l) for l in (STUDY / "data/probe_results.jsonl").read_text().splitlines()]
     cell = defaultdict(dict)
     for r in rows:
         if r.get("verdict") and r["verdict"] != "ungraded":
@@ -106,15 +101,60 @@ def do_sample(per_model: int):
                     }
                 )
         print(m, "eligible", tot, "picked", len(picked))
-    with (OUT / "sample.jsonl").open("w") as fh:
+    sp = OUT / "sample.jsonl"
+    if sp.exists():  # do_grade skips a graded key: purge the keys whose answer changed or left
+        new = {key(r): r["answer"] for r in out}
+        with sp.open() as fh:
+            old = [json.loads(line) for line in fh]
+        purge_grades({key(r) for r in old if key(r) not in new or new[key(r)] != r["answer"]})
+    rpath = OUT / "repeats.jsonl"
+    if rpath.exists():  # a repeat of a cell that left the sample has no baseline: drop it and its grades
+        cells = {(r["probe_id"], r["model"]) for r in out}
+        with rpath.open() as fh:
+            reps = [json.loads(line) for line in fh]
+        purge_grades({key(r) for r in reps if (r["probe_id"], r["model"]) not in cells})
+        tmp = rpath.with_suffix(".jsonl.tmp")
+        with tmp.open("w") as fh:
+            fh.writelines(json.dumps(r) + "\n" for r in reps if (r["probe_id"], r["model"]) in cells)
+        tmp.replace(rpath)
+    with sp.open("w") as fh:
         for r in out:
             fh.write(json.dumps(r) + "\n")
     print("rows", len(out))
 
 
+def purge_grades(keys: set[str]):
+    """Drop grades of answers that are no longer in the sample (keys are probe|arm|model)."""
+    gp = OUT / "grades.jsonl"
+    if not keys or not gp.exists():
+        return
+    with gp.open() as fh:
+        recs = [l for l in fh if json.loads(l)["key"] not in keys]
+    tmp = gp.with_suffix(".jsonl.tmp")
+    with tmp.open("w") as fh:
+        fh.writelines(recs)
+    tmp.replace(gp)
+
+
 def do_repeat(workers: int):
-    rows = [json.loads(l) for l in (OUT / "sample.jsonl").open()]
+    with (OUT / "sample.jsonl").open() as fh:
+        rows = [json.loads(l) for l in fh]
     base = [r for r in rows if r["arm"] == "no_skill"]
+    path = OUT / "repeats.jsonl"
+    # Keep saved repeats and call only the missing cells (new, or failed). A saved answer is never
+    # replaced here; its grades are keyed by probe|arm|model, not by the answer.
+    kept = []
+    if path.exists():
+        with path.open() as fh:
+            kept = [json.loads(l) for l in fh]
+    cells = {(r["probe_id"], r["model"]) for r in base}
+    # A saved repeat for a cell this sample no longer has is dropped, and so are its grades: a new
+    # answer for the same key must be graded again, not skipped by do_grade.
+    dropped = [r for r in kept if (r["probe_id"], r["model"]) not in cells]
+    purge_grades({key(r) for r in dropped})
+    kept = [r for r in kept if (r["probe_id"], r["model"]) in cells]
+    have = {(r["probe_id"], r["model"]) for r in kept}
+    todo = [r for r in base if (r["probe_id"], r["model"]) not in have]
 
     def run(r):
         rec = llm.chat(
@@ -134,40 +174,33 @@ def do_repeat(workers: int):
             "grader2": None,
         }
 
-    # Resuming keeps the repeat answers already drawn: grades are keyed by probe, arm, model and
-    # judge, so a fresh draw under an old key would inherit the old answer's verdicts.
-    kept = {}
-    if (OUT / "repeats.jsonl").exists():
-        kept = {key(r): r for r in map(json.loads, (OUT / "repeats.jsonl").open())}
-    todo = [r for r in base if key({**r, "arm": "no_skill_repeat"}) not in kept]
     res = llm.pmap(run, todo, workers=workers, desc="repeats")
     ok = [x for x in res if isinstance(x, dict)]
-    ok = [kept[k] for k in kept if k in {key({**r, "arm": "no_skill_repeat"}) for r in base}] + ok
-    print("repeat ok", len(ok), "failed", len(res) - sum(isinstance(x, dict) for x in res))
-    with (OUT / "repeats.jsonl").open("w") as fh:
-        for r in ok:
+    print("repeat ok", len(ok), "failed", len(res) - len(ok), "kept", len(kept))
+    # Write a temp file and rename it: a crash mid-write must not drop the saved repeats.
+    tmp = path.with_suffix(".jsonl.tmp")
+    with tmp.open("w") as fh:
+        for r in kept + ok:
             fh.write(json.dumps(r) + "\n")
+    tmp.replace(path)
 
 
 def do_grade(workers: int, judges: list[str]):
     probes = {}
-    for l in (STUDY / "data/probes.jsonl").open():
+    for l in (STUDY / "data/probes.jsonl").read_text().splitlines():
         p = json.loads(l)
         probes[p["probe_id"]] = p
-    rows = [json.loads(l) for l in (OUT / "sample.jsonl").open()]
+    rows = [json.loads(l) for l in (OUT / "sample.jsonl").read_text().splitlines()]
     if (OUT / "repeats.jsonl").exists():
-        rows += [json.loads(l) for l in (OUT / "repeats.jsonl").open()]
+        rows += [json.loads(l) for l in (OUT / "repeats.jsonl").read_text().splitlines()]
     done = set()
     gp = OUT / "grades.jsonl"
     if gp.exists():
-        for l in gp.open():
+        for l in gp.read_text().splitlines():
             g = json.loads(l)
             if g.get("verdict"):
-                done.add((g["key"], g["judge"], g.get("answer_sha")))
-    # A grade counts only for the answer it graded: one made before answers were fingerprinted
-    # (no answer_sha) is kept, any other is redone when the row's answer has changed.
-    jobs = [(r, j) for j in judges for r in rows
-            if (key(r), j, sha(r)) not in done and (key(r), j, None) not in done]
+                done.add((g["key"], g["judge"]))
+    jobs = [(r, j) for j in judges for r in rows if (key(r), j) not in done]
     random.Random(1).shuffle(jobs)  # interleave judges so one slow route does not serialize
     print("grade jobs", len(jobs))
 
@@ -194,7 +227,6 @@ def do_grade(workers: int, judges: list[str]):
         rec = {
             "key": key(r),
             "judge": j,
-            "answer_sha": sha(r),
             "verdict": v,
             "reason": (g.get("reason") if isinstance(g, dict) else None),
         }

@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from dokimi.repos.manifest import RepoManifest
 
+from dokimi.atomic_write import write_text_atomic
 from dokimi import cli_flags
 from dokimi import docker_cmd
 from dokimi.repos.harness_profile import DELEGATION_MODES
@@ -164,7 +165,7 @@ def _pin_batch(batch_dir: Path, pin: dict[str, str]) -> None:
             raise ValueError(f"batch {batch_dir.name} was run from {was}, not {now}; use another --batch")
         return
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(pin) + "\n", encoding="utf-8")
+    write_text_atomic(path, json.dumps(pin) + "\n")
 
 
 def _pair(text: str) -> tuple[str, str]:

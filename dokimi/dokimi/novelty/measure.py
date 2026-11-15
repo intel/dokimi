@@ -24,8 +24,10 @@ Three isolation rules are enforced in code rather than documented:
 from __future__ import annotations
 
 import random
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
+from typing import Any
 
 from dokimi.utils import InputError
 from .atoms import Atom
@@ -34,6 +36,7 @@ from .controls import (REPEAT_ARM, clustered_ci, control_fields, reversal_by_arm
                        reversal_paired)
 from .panel import RULES, aggregate as aggregate_votes
 from .probes import Probe
+from .routing_stop import PERMANENT_REASON, stop_if_run_wide
 
 # Judge verdict scale. Deliberately finer than the collapses below so a rater
 # disagreement is visible as a confusion rather than hidden inside a boolean.
@@ -398,13 +401,14 @@ def run_measurement(
             )
         except SpendCapReached as exc:  # a call with no price: its paid reply is kept, ungraded
             return _unpriced_answer_run(probe, arm, exc, stops, ungraded)
-        except Exception as exc:  # a provider failure is a missing datum, not a wrong answer
+        except Exception as exc:  # noqa: BLE001 - a provider failure is a missing datum, not a wrong answer
+            stop_if_run_wide(exc)  # but one every later call meets stops the measurement (#708)
             response, confidence = f"<error: {exc}>", None
             verdict = ERRORED
             answered = False
         else:
             try:
-                verdict, by_judge = _grade_panel(probe, response, judges, aggregate)
+                verdict, by_judge = _grade_panel(stops, probe, response, judges, aggregate)
             except SpendCapReached as exc:
                 return _capped_grade_run(probe, arm, response, confidence, exc, stops, ungraded)
         run = ProbeRun(
@@ -424,7 +428,7 @@ def run_measurement(
             return None
 
     with ThreadPoolExecutor(max_workers=max(1, concurrency)) as pool:
-        answered = list(pool.map(guarded, jobs))
+        answered = list(pool.map(_not_after_permanent_stop(stops, guarded), jobs))
     runs = [run for run in answered if run is not None]
     stop = (stops[0].reason, str(stops[0])) if stops else None
     return MeasureResult(runs=runs, arms=tuple(arms), with_arm="full",
@@ -432,15 +436,37 @@ def run_measurement(
                          probes=list(probes))
 
 
-def _grade_panel(probe: Probe, response: str, judges: tuple[LLMClient, ...],
-                 aggregate: str) -> tuple[str, dict[str, str] | None]:
+def _held_permanent_stop(stops: list[SpendCapReached]) -> SpendCapReached | None:
+    """The first run-wide provider error among ``stops``, or None (#708)."""
+    return next((held for held in stops if held.reason == PERMANENT_REASON), None)
+
+
+def _grade_unless_stopped(stops: list[SpendCapReached], probe: Probe, response: str, judge: LLMClient) -> str:
+    """:func:`_grade`, unless another worker met a run-wide error while this answer was in flight:
+    then that stop is raised and the caller keeps the answer ungraded, with no more judge calls (#708)."""
+    if (held := _held_permanent_stop(stops)) is not None:
+        raise held
+    return _grade(probe, response, judge)
+
+
+def _not_after_permanent_stop(stops: list[SpendCapReached], job: Callable[[Any], Any]) -> Callable[[Any], Any]:
+    """``job``, which is not run (``None``) once a run-wide provider error is among ``stops`` (#708)."""
+
+    def run(item: Any) -> Any:
+        return None if _held_permanent_stop(stops) else job(item)
+
+    return run
+
+
+def _grade_panel(stops: list[SpendCapReached], probe: Probe, response: str,
+                 judges: tuple[LLMClient, ...], aggregate: str) -> tuple[str, dict[str, str] | None]:
     """One answer's verdict and, with a panel, each judge's verdict by model; a failed judge is no vote."""
     if len(judges) == 1:
-        return _grade(probe, response, judges[0]), None
+        return _grade_unless_stopped(stops, probe, response, judges[0]), None
     by_judge: dict[str, str] = {}
     try:
         for m in judges:
-            by_judge[m.model] = _grade(probe, response, m)
+            by_judge[m.model] = _grade_unless_stopped(stops, probe, response, m)
     except SpendCapReached as exc:
         exc.panel_votes = by_judge
         raise
@@ -568,7 +594,8 @@ def _grade(probe: Probe, response: str, judge: LLMClient) -> str:
     )
     try:
         raw = judge.json_object(prompt, usable=_names_a_verdict).get("verdict")
-    except Exception:
+    except Exception:  # noqa: BLE001 - a failed judge call is the ERRORED verdict, not a wrong one
+        stop_if_run_wide()  # raises a permanent stop; any other failure is an ERRORED grade
         return ERRORED
     verdict = raw.strip() if isinstance(raw, str) else ""
     if not verdict:
@@ -586,7 +613,7 @@ def _reply_verdict(reply: str | None) -> str | None:
         return None
     try:
         value = parse_json_object(reply)
-    except Exception:
+    except ValueError:  # an unparseable reply names no verdict
         return None
     return value["verdict"] if _names_a_verdict(value) else None
 

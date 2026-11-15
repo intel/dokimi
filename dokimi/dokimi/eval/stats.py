@@ -92,6 +92,16 @@ def _is_degenerate(mean: float, sd: float) -> bool:
     return sd <= ZERO_VARIANCE_REL_TOL * max(1.0, abs(mean))
 
 
+def _is_degenerate_at_scale(mean: float, sd: float, top: float) -> bool:
+    """:func:`_is_degenerate` after dividing ``mean`` and ``sd`` by the power of two at or below ``top`` (exact).
+
+    The floor of 1.0 then absorbs float noise relative to the data, not to 1: a sample of 1e-300 values that
+    differ is not constant (#640).
+    """
+    scale = _pow2_scale([top])
+    return _is_degenerate(mean / scale, sd / scale)
+
+
 def _rnd(x: float, ndigits: Optional[int]) -> float:
     """``round(x, ndigits)``, or ``x`` itself when ``ndigits`` is None."""
     return x if ndigits is None else round(x, ndigits)
@@ -201,7 +211,7 @@ def mean_ci(values, confidence: float = 0.95, seed: int = 0, ndigits: Optional[i
 
     mu = _mean(vals)
     sd = _sample_sd(vals)
-    if _is_degenerate(mu, sd):
+    if _is_degenerate_at_scale(mu, sd, max(abs(v) for v in vals)):
         # Every value identical: the interval is the point itself, and a
         # bootstrap would report the same thing after 10k pointless resamples.
         return {"mean": _rnd(mu, ndigits), "lo": _rnd(mu, ndigits), "hi": _rnd(mu, ndigits),
@@ -547,7 +557,7 @@ def point_biserial(flags: Sequence[bool], totals: Sequence[float]) -> Dict[str, 
 
 def _cohens_d(d_mean: float, d_sd: float) -> Optional[float]:
     """Cohen's d_z of the deltas (sample SD), descriptive: no verdict reads it."""
-    if not _is_degenerate(d_mean, d_sd):
+    if not _is_degenerate_at_scale(d_mean, d_sd, max(abs(d_mean), d_sd)):
         return round(d_mean / d_sd, 3)
     # Every pair identical: the limit of 0/0 here is a genuine null, and "0.0 (negligible)" says more than
     # "unknown"; a constant non-zero shift has an unbounded d_z, which None renders as "unknown".

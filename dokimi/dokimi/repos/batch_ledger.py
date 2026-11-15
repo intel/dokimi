@@ -36,6 +36,7 @@ from collections.abc import Callable, Iterable
 from pathlib import Path
 from typing import Any
 
+from dokimi.atomic_write import write_text_atomic
 from .arms import resolve_skills, slug, tree_sha256
 from .bases import NOT_UTF8
 from .errors import PrepError
@@ -204,7 +205,7 @@ def pin_skills(batch_dir: Path, arms: list[str], content_dir: Path) -> dict[str,
 
 
 def write_skill_pin(batch_dir: Path, pin: dict[str, list[list[str]]]) -> None:
-    (batch_dir / "_eval" / SKILL_PINS).write_text(json.dumps(pin, sort_keys=True) + "\n", encoding="utf-8")
+    write_text_atomic(batch_dir / "_eval" / SKILL_PINS, json.dumps(pin, sort_keys=True) + "\n")
 
 
 def write_json(path: Path, data: Any) -> None:

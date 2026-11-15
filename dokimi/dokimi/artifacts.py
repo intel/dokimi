@@ -356,6 +356,7 @@ def load_artifact(kind: str, path: Path | str, *, validate: bool = True) -> dict
         raise InputError(f"{path} is a partial novelty artifact: the run was stopped before it "
                          "finished, so it is not a finished analysis. " + (
                              "Drop --max-usd to run unmetered" if reason == "no_price" else
+                             "Fix the provider error and rerun" if reason == "permanent_error" else
                              "Rerun with a higher --max-usd, or without the cap"))
     if validate:
         try:

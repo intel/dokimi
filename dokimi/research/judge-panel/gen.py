@@ -6,17 +6,18 @@
 Reuses analyze.py's loading and headline() (run with its tables dir redirected), writes
 OUT/tables_gen/*.csv and OUT/gen_summary.json.
 """
+import importlib.util
 import json
-import sys
+import os
 from pathlib import Path
 
 HERE = Path(__file__).parent
-src = (HERE / "analyze.py").read_text().split("# ---------- 2. pairwise agreement")[0]
-src = src.replace('T = OUT / "tables"', 'T = OUT / "tables_gen"')
-g = {"__name__": "gen", "sys": sys, "PANEL_ONLY": False}  # all judges, not the study's seven
-exec(compile(src, "analyze.py", "exec"), g)  # nosec B102 - runs this directory's own analyze.py
-V, rows, cells, headline, wcsv = g["V"], g["rows"], g["cells"], g["headline"], g["wcsv"]
-LEN, STR, SCORE, V6, MODELS, OUT = g["LEN"], g["STR"], g["SCORE"], g["V6"], g["MODELS"], g["OUT"]
+os.environ["JP_TABLES"] = "tables_gen"  # analyze.py's table dir (T) if run_study() is called: keep it out of tables/
+_spec = importlib.util.spec_from_file_location("analyze", HERE / "analyze.py")
+an = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(an)
+V, rows, cells, headline, wcsv = an.V_ALL, an.rows, an.cells, an.headline, an.wcsv  # all judges
+LEN, STR, SCORE, V6, MODELS, OUT = an.LEN, an.STR, an.SCORE, an.V6, an.MODELS, an.OUT
 
 PAIRS = [  # family, old -> new
     ("openai", "gpt-5.6-luna", "gpt-6-luna"),
@@ -30,39 +31,34 @@ PAIRS = [  # family, old -> new
 OLD_PANEL = ["gpt-5.6-luna", "kimi-k2.5", "claude-haiku-4-5"]
 NEW_PANEL = ["gpt-6-luna", "kimi-k3", "claude-opus-5-5"]
 ALL = sorted({j for d in V.values() for j in d})
+NEED = sorted({j for _, old, new in PAIRS for j in (old, new)} | set(OLD_PANEL) | set(NEW_PANEL))
+if missing := sorted(set(NEED) - set(ALL)):
+    raise SystemExit(f"gen.py needs grades from {', '.join(missing)}; grade those judges first")
 
 
 def kappa(a, b):
-    """Cohen's kappa of two judges on the answers both graded, and that count; kappa is None
-    when they share none or both put every shared answer in one class (chance agreement 1)."""
     keys = [k for k in V if a in V[k] and b in V[k]]
     n = len(keys)
-    if not n:
-        return None, 0
+    if n == 0:
+        raise SystemExit(f"no answer graded by both {a} and {b}")
     po = sum(V[k][a] == V[k][b] for k in keys) / n
     pe = sum((sum(V[k][a] == l for k in keys) / n) * (sum(V[k][b] == l for k in keys) / n)
              for l in V6)
-    return ((po - pe) / (1 - pe) if pe < 1 else None), n
-
-
-def rounded(x, digits=3):
-    return None if x is None else round(x, digits)
-
-
-def lenient_rate(j, keys=None):
-    """Lenient and strict rate of judge ``j`` over its grades, or over ``keys`` only."""
-    vs = [d[j] for k, d in V.items() if j in d and (keys is None or k in keys)]
-    if not vs:
-        return None, None, 0
-    return sum(v in LEN for v in vs) / len(vs), sum(v in STR for v in vs) / len(vs), len(vs)
+    if pe >= 1:  # both judges give one label to every shared answer: 0/0, no kappa to report
+        return None, n
+    return (po - pe) / (1 - pe), n
 
 
 def rate_delta(old, new):
-    """Lenient-rate change from ``old`` to ``new`` on the answers both graded, so a judge that
-    also graded other rows (the repeats) is not compared on a different population."""
-    shared = {k for k, d in V.items() if old in d and new in d}
-    lo, ln = lenient_rate(old, shared)[0], lenient_rate(new, shared)[0]
-    return None if lo is None else ln - lo
+    """Lenient-rate change from old to new on the answers both judges grade (the rows kappa uses)."""
+    keys = [k for k in V if old in V[k] and new in V[k]]
+    rate = {j: sum(V[k][j] in LEN for k in keys) / len(keys) for j in (old, new)}
+    return round(rate[new] - rate[old], 4)
+
+
+def lenient_rate(j):
+    vs = [d[j] for d in V.values() if j in d]
+    return sum(v in LEN for v in vs) / len(vs), sum(v in STR for v in vs) / len(vs), len(vs)
 
 
 def median(votes):
@@ -70,83 +66,92 @@ def median(votes):
     return r[len(r) // 2]
 
 
-def panel_get(panel, good, also=()):
-    """The panel's median verdict, None unless every judge of it and of ``also`` graded the cell."""
+def panel_get(panel, good):
     def get(k):
         vs = [V[k][j] for j in panel if j in V[k]]
-        return (median(vs) in good) if len(vs) == len(panel) and all(a in V[k] for a in also) else None
+        return (median(vs) in good) if len(vs) == len(panel) else None
     return get
 
 
-def jget(j, good, also=()):
-    """``j``'s correctness per grade, None where it has no grade or one of ``also`` has none: a
-    cell counts only when every judge in the comparison graded every arm, so both shares share one sample."""
-    return lambda k: (V[k][j] in good) if j in V[k] and all(a in V[k] for a in also) else None
+def jget(j, good):
+    return lambda k: (V[k][j] in good) if j in V[k] else None
 
+
+# A pair or panel judge with no complete no_skill/full/placebo triplet for an answer model has a None
+# headline. Name it here, before any output is written, instead of failing on the rounding below.
+for good in (LEN, STR):
+    gets = [(j, jget(j, good)) for j in NEED] + [(f"panel {'+'.join(p)}", panel_get(p, good))
+                                                 for p in (OLD_PANEL, NEW_PANEL)]
+    for name, get in gets:
+        for m in MODELS:
+            if headline(get, m, good)["added"] is None:
+                raise SystemExit(f"gen.py has no complete no_skill/full/placebo triplet for {m} under {name}; "
+                                 "grade it on every arm first")
 
 out = {"judges": ALL, "per_judge": {}, "pairs": [], "panels": {}}
 tab = []
 for j in ALL:
     le, st, n = lenient_rate(j)
-    out["per_judge"][j] = {"lenient_rate": rounded(le, 4), "strict_rate": rounded(st, 4), "n": n}
-    tab.append([j, n, rounded(le, 4), rounded(st, 4)])
+    out["per_judge"][j] = {"lenient_rate": round(le, 4), "strict_rate": round(st, 4), "n": n}
+    tab.append([j, n, round(le, 4), round(st, 4)])
 wcsv("judge_leniency.csv", ["judge", "n", "lenient_rate", "strict_rate"], tab)
 
 tab, ktab = [], []
 for fam, old, new in PAIRS:
     k, n = kappa(old, new)
-    row = {"family": fam, "old": old, "new": new, "kappa_old_new": rounded(k), "n": n,
-           "lenient_rate_delta": rounded(rate_delta(old, new), 4),
-           "added": {}}
+    row = {"family": fam, "old": old, "new": new,
+           "kappa_old_new": None if k is None else round(k, 3), "n": n,
+           "lenient_rate_delta": rate_delta(old, new), "added": {}}
     for mode, good in (("lenient", LEN), ("strict", STR)):
         for m in MODELS:
-            ho = headline(jget(old, good, (new,)), m, good)
-            hn = headline(jget(new, good, (old,)), m, good)
+            ho, hn = headline(jget(old, good), m, good), headline(jget(new, good), m, good)
             d = None if ho["added"] is None or hn["added"] is None else hn["added"] - ho["added"]
             row["added"][f"{mode}:{m}"] = [ho["added"], hn["added"]]
-            tab.append([fam, old, new, mode, m, rounded(ho["added"]), rounded(hn["added"]),
+            tab.append([fam, old, new, mode, m, round(ho["added"], 3), round(hn["added"], 3),
                         round(d, 3) if d is not None else ""])
     out["pairs"].append(row)
-    ktab.append([fam, old, new, n, rounded(k), row["lenient_rate_delta"]])
+    ktab.append([fam, old, new, n, "" if k is None else round(k, 3), row["lenient_rate_delta"]])
 wcsv("generation_kappa.csv", ["family", "old_judge", "new_judge", "n", "kappa", "lenient_rate_delta"],
      ktab)
 wcsv("generation_added_share.csv", ["family", "old_judge", "new_judge", "mode", "answer_model",
                                     "added_old", "added_new", "delta"], tab)
 
 # agreement with the rest of the panel: does a newer judge sit closer to the consensus?
+# Pairs with no answer graded by both have no kappa: left out; no partner gives None.
+def shared(a, b):
+    return any(a in V[k] and b in V[k] for k in V)
+
+
 tab = []
 for j in ALL:
-    ks = [k for k in (kappa(j, o)[0] for o in ALL if o != j) if k is not None]
-    mean_k = rounded(sum(ks) / len(ks)) if ks else None  # None: no other judge shares an answer
-    out["per_judge"][j]["mean_kappa_vs_others"] = mean_k
-    tab.append([j, mean_k])
+    ks = [k for k in (kappa(j, o)[0] for o in ALL if o != j and shared(j, o)) if k is not None]
+    mk = round(sum(ks) / len(ks), 3) if ks else None
+    out["per_judge"][j]["mean_kappa_vs_others"] = mk
+    tab.append([j, mk])
 wcsv("judge_mean_kappa.csv", ["judge", "mean_kappa_vs_others"], tab)
 
 tab = []
-for name, panel, other in (("old", OLD_PANEL, NEW_PANEL), ("new", NEW_PANEL, OLD_PANEL)):
+for name, panel in (("old", OLD_PANEL), ("new", NEW_PANEL)):
     out["panels"][name] = {"judges": panel, "added": {}}
     for mode, good in (("lenient", LEN), ("strict", STR)):
         for m in MODELS:
-            h = headline(panel_get(panel, good, other), m, good)
+            h = headline(panel_get(panel, good), m, good)
             out["panels"][name]["added"][f"{mode}:{m}"] = h["added"]
-            tab.append([name, "+".join(panel), mode, m, h["n"], rounded(h["added"])])
+            tab.append([name, "+".join(panel), mode, m, h["n"], round(h["added"], 3)])
 wcsv("generation_panels.csv", ["panel", "judges", "mode", "answer_model", "n", "added"], tab)
 (OUT / "gen_summary.json").write_text(json.dumps(out, indent=1))
 
 print("judge leniency strict mean_kappa")
 for j in ALL:
     p = out["per_judge"][j]
-    print(f"  {j:24s} {p['lenient_rate']:.3f} {p['strict_rate']:.3f} {p['mean_kappa_vs_others'] or float('nan'):.3f}")
+    mk = "n/a" if p["mean_kappa_vs_others"] is None else f"{p['mean_kappa_vs_others']:.3f}"
+    print(f"  {j:24s} {p['lenient_rate']:.3f} {p['strict_rate']:.3f} {mk}")
 print("pairs (kappa old-new, lenient-rate delta, lenient added old->new per answer model)")
-def shown(x):
-    return "nan" if x is None else f"{x:.2f}"
-
-
 for r in out["pairs"]:
-    adds = " ".join(f"{k.split(':')[1][:10]}={shown(v[0])}->{shown(v[1])}"
-                    for k, v in r["added"].items() if k.startswith("lenient"))
-    print(f"  {r['old']}->{r['new']}: k={r['kappa_old_new']} dlen={'n/a' if r['lenient_rate_delta'] is None else format(r['lenient_rate_delta'], '+.3f')} {adds}")
+    adds = " ".join(f"{k.split(':')[1][:10]}={v[0]:.2f}->{v[1]:.2f}" for k, v in r["added"].items()
+                    if k.startswith("lenient"))
+    print(f"  {r['old']}->{r['new']}: k={r['kappa_old_new']} dlen={r['lenient_rate_delta']:+.3f} {adds}")
 print("panels median, lenient added")
 for name, p in out["panels"].items():
-    print(" ", name, {k.split(':')[1]: rounded(v) for k, v in p["added"].items() if k.startswith("lenient")})
-    print(" ", name, "strict", {k.split(':')[1]: rounded(v) for k, v in p["added"].items() if k.startswith("strict")})
+    print(" ", name, {k.split(':')[1]: round(v, 3) for k, v in p["added"].items() if k.startswith("lenient")})
+    print(" ", name, "strict", {k.split(':')[1]: round(v, 3) for k, v in p["added"].items() if k.startswith("strict")})

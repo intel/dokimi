@@ -17,12 +17,13 @@ seven more judges from seven model families. It asks four questions:
    and how many judges are enough?
 4. What can a Dokimi user configure today, and what is missing?
 
-Short answer: judge choice moves the lenient added share by up to 0.23 for one answer model.
+Short answer: judge choice moves the lenient placebo-gated added share by up to 0.23 for one answer model,
+and the known share by up to 0.32 (haiku-4.5).
 The original judge is the most lenient of the eight, so the published lenient added shares sit
-at the low end of the panel. The extremes of the answer-model ranking do not change: on the lenient placebo-gated added
-share, nemotron-12b is first and opus-5 last under every judge. The models in between swap. Majority, median
-and Dawid-Skene agree on 99.3% of rows. Three judges from three families get most
-of the stability of seven. A newer generation of the same judge (section 6) is about as
+at the low end of the panel. Nemotron-12b is first and opus-5 last under every judge (placebo-gated, lenient); the middle
+ranks change. Majority, median
+and Dawid-Skene agree on 99.3% of rows. Three judges from three families agree with the
+full panel on 96.6% of rows (one judge: 94.1%); the second judge gives the largest single drop in the SD of the gated added share across judge subsets (0.039 to 0.026; the range only falls from 0.115 to 0.105). A newer generation of the same judge (section 6) is about as
 different as another vendor: κ 0.61–0.72, and up to 0.15 on one added share.
 
 ## Setup
@@ -31,7 +32,7 @@ different as another vendor: κ 0.61–0.72, and up to 0.15 on one added share.
 |---|---|
 | Answers | 2,664 existing answers: 444 (probe, answer model) cells × 6 arms (`no_skill`, `root`, `routed`, `full`, `placebo`, `shuffled`). Plus 268 fresh repeats of `no_skill` for the noise floor. |
 | Answer models | claude-opus-5, gpt-5.6-luna, grok-4.6 (88 cells each); claude-haiku-4-5, nemotron-nano-12b (90 each). |
-| Sampling | Per model, cells drawn from those with all six arms, stratified by skill × reversal (adversarial) probe, proportional to stratum size. Seed 20261108. |
+| Sampling | Per model, cells drawn from those with all six arms, stratified by skill × reversal (adversarial) probe. Each stratum gets a minimum of one cell, so the sample is proportional to stratum size only where that share is at least one cell. Each stratum's share is rounded to the nearest cell, so a model's total can land above or below the per-model target of 90: 88 cells for three models, 90 for two. Seed 20261108. |
 | Judges | gpt-5.6-luna (original grades, as recorded), claude-sonnet-5, gpt-6-luna, grok-4.6, kimi-k3, deepseek-v3.2, glm-5, qwen3-vl-235b. |
 | Prompt | The study's grading prompt unchanged: 6 verdicts, answer truncated to 6,000 characters, max 1,200 output tokens, JSON repair by claude-haiku-4-5. |
 | Temperature | 0, except gpt-6-luna and kimi-k3, which reject it and run at their default. |
@@ -105,28 +106,25 @@ What changes and what does not:
   GPT-5.6 and Haiku. The paper's lenient added shares are therefore conservative. The extreme
   case is Haiku: the original judge says 0.10, the 7-judge majority 0.32. That moves Haiku
   from "the skill adds little" to the same level as Grok.
-
-- **The strict scale moves less in relative terms.** Strict gated added varies by 0.06–0.23
-  per model. gpt-6-luna is the outlier: it gives the lowest strict rate of any judge (0.27,
+- **The strict scale is not more stable.** Strict gated added varies by 0.06–0.23 per model,
+  and for three of five models (gpt-5.6, grok, nemotron) its range is wider than the lenient one. gpt-6-luna is the outlier: it gives the lowest strict rate of any judge (0.27,
   against 0.35–0.53), because it marks dropped qualifiers more often. Its strict added share
   is the lowest for four of the five models.
-
-- **Grok-4.6 answers are judge-proof.** Gated added is 0.32–0.37 under every judge. Its
+- **On the lenient scale, grok-4.6 answers are judge-stable.** Lenient gated added is 0.32–0.37
+  under every judge; under strict it spans 0.29–0.45. Its
   answers are the most clear-cut: only 11% of the rows lack unanimity, against 20–35% for
   the other answer models.
-
-- **The extremes of the ranking are stable; the middle is not.** Under every one of the eight
-  judges, lenient gated added puts nemotron-12b first and opus-5 last. The models in between
-  swap: haiku-4.5 is below grok-4.6 under the original judge (0.10 against 0.34) and above it
-  under glm-5 (0.33 against 0.32), and GPT-5.6 and haiku-4.5 also exchange order across judges.
+- **Only the two ends of the ranking are stable.** Under every one of the eight judges, lenient
+  gated added puts nemotron-12b first and opus-5 last. The middle ranks change: the original
+  judge puts grok-4.6 (0.34) above haiku-4.5 (0.10), and glm-5 reverses them (grok-4.6 0.32, haiku-4.5 0.33).
   On strict, six of eight put
   nemotron-12b first and grok-4.6 second. gpt-6-luna swaps the two, and grok-4.6 ranks its
-  own answers first and haiku-4.5 second. All eight put opus-5 or GPT-5.6 last. A statement
-  about the extremes, such as "the skill adds most for nemotron-12b and least for opus-5",
-  survives any choice of judge; one about the order of the middle models does not. A single number such as "13% added for opus" does not.
-
-- **Degraded stays small under every judge**: 0.00–0.07 lenient and 0.00–0.07 strict, within
-  the noise floor.
+  own answers first and haiku-4.5 second. All eight put opus-5 or GPT-5.6 last. Statements of the form "the skill adds more for a weaker model"
+  survive any choice of judge. A single number such as "13% added for opus" does not.
+- **Degraded stays small under every judge**: 0.00–0.07 lenient and 0.00–0.07 strict. Repeat
+  estimates exist only for some answer models and judges (none for opus-5 or GPT-5.6 answers, or
+  the original judge), and three rows per scale have a degraded share above their repeat
+  estimate, so the range is not shown to be within noise.
 
 ### Noise floor per judge
 
@@ -145,13 +143,12 @@ This is the added and degraded share between `no_skill` and a fresh repeat of th
 | 7-judge majority | .03 / .02 | .03 / .02 | .05 / .08 |
 
 The floor is 0.00–0.10 for every judge, in line with the paper's 0.05–0.10. The judges
-running at default temperature (gpt-6-luna, kimi-k3) are at the high end. The floor was measured
-for haiku-4.5, grok-4.6 and nemotron-12b only; opus-5 and GPT-5.6 have no repeat draws, so
-their judge shift has no floor to be compared with. The shift from the original judge to the
-7-judge majority is clearly above the floor for haiku-4.5 (gated 0.10 to 0.32, majority floor
-0.03). For nemotron-12b it is not separated from the noise: the gated share moves by 0.07
-(0.37 to 0.43) against a majority floor of 0.08 and a per-judge floor of up to 0.10, and the
-ungated share by 0.05. For grok-4.6 it is not above the floor.
+running at default temperature (gpt-6-luna, kimi-k3) are at the high end. On the ungated added share, the shift from the original judge to the
+7-judge majority is 0.20 for Haiku against a floor of 0.03, so it is above the floor. For
+Nemotron it is 0.05 (0.433 to 0.483), equal to its floor of 0.05, so it is not above it. Grok
+does not move (0.00, floor 0.03). The placebo-gated shift for Nemotron is 0.07 (0.367 to 0.433),
+but no gated floor was measured, so that comparison is not made. Opus-5 and GPT-5.6 have no
+repeats, so no floor exists for them.
 
 ## 2. Agreement and self-preference
 
@@ -165,13 +162,11 @@ Cohen's kappa over all 28 judge pairs (full table: `pairwise_kappa.csv`):
 
 - The lenient range 0.70–0.88 matches the paper's two-judge kappa of 0.76–0.88. The 6-way
   scale is too fine to report as a single judge's call.
-
 - **The highest pair is within one family**: gpt-5.6-luna and gpt-6-luna, κ = 0.88. Next
   come sonnet-5/grok-4.6 (0.86), glm-5/grok-4.6 (0.85) and gpt-5.6-luna/kimi-k3 (0.85), the
   last a pair of lenient judges. Two OpenAI judges are
   not two independent opinions. A panel needs different families, not just different
   models.
-
 - Disagreement is not spread evenly across rows. A row lacks unanimity in 30% of `no_skill`
   rows (31% for the repeats), 21% of `placebo` rows and 17–19% of the with-skill arms. It
   also lacks unanimity in 27% of reversal-probe rows, and in 35% of nemotron's answers
@@ -231,14 +226,12 @@ Agreement of each rater with the 7-judge Dawid-Skene consensus, over all rows
   glm-5 (0.98) and grok-4.6 (0.96) rarely do. With seven judges that knowledge changes almost
   nothing. With two or three judges, one of them lenient, it could matter. That was not
   tested here.
-
 - **The rule is as large a knob as the judge.** Unanimous and any-correct are not
   conservative choices. They push one arm and pull the other, because the same rule applies
   to `no_skill` and to `full`. "Any correct" calls more no-skill answers known, so added
   falls: Haiku 0.12. "Unanimous" and the mean score do the reverse: Nemotron 0.52. The spread
   between rules for one model (Haiku 0.12–0.42) is larger than the spread between judges.
   The rule must be fixed before a run and reported with the result.
-
 - The mean score with the study's partial credit (0.4 for `partially_correct`) is not the
   same as a lenient majority. A row where three judges say partially correct and four say
   wrong has a mean of 0.17 but would need a 0.4 average, so the mean rule behaves almost like
@@ -257,11 +250,14 @@ of the lenient gated added share between subsets of that size (`panel_size.csv`)
 | 5 | 21 | 0.980 | 0.970 | 0.021 | 0.069 |
 | 6 | 7 | 0.982 | 0.973 | 0.011 | 0.029 |
 
-Two judges are barely better than one, because a tie counts as wrong, so two judges act as a
-unanimity rule. Three judges are the first real gain: the SD of the headline number falls from
-0.039 to 0.025, below the noise floor. Five judges add little more. Recommendation: **three
-judges from three families with majority vote** for routine runs, and **five** for a published
-number. Report the per-judge numbers alongside either.
+Two judges barely improve agreement with the full panel (0.941 to 0.943), because a tie counts as
+wrong, so two judges act as a unanimity rule. The SD gain comes at two judges: the SD of the gated added share across subsets
+falls from 0.039 to 0.026. A third judge changes it by 0.001. Three judges are recommended for
+their agreement with the full panel (0.943 to 0.966), which is measured against a consensus that
+includes the subset. Five judges agree more (0.980) but have the same SD as four; only six halve
+the value for five (0.021 to 0.011). Recommendation: **three judges from three families with majority vote** for
+routine runs, and **five** for a published number, for the agreement, not the spread. Report the
+per-judge numbers alongside either.
 
 ## 4. Judge panels in Dokimi today
 
@@ -273,17 +269,14 @@ What exists:
 - **One judge per run.** `arms run` / `arms matrix-run` take `--judge`, `--judge-model`,
   `--judge-provider` and `--judge-temperature`. The default is `claude-sonnet-5-5` from
   `dokimi/defaults.py`.
-
 - **Role panels.** `--judge-panel ROLES` (`eval/panel.py` `JudgePanel`) runs several role
   prompts (technical expert, developer advocate, doc reviewer) on **the same model**. Votes
   are combined by a role-weighted mean of the 0–100 dimension scores, with a quorum of a
   majority of the panelists. Disagreement is reported per answer as `std_aggregate`,
   `agreement_score = 1 − std/50` and `disagreement_flag` when std > `DISAGREEMENT_STD` (15, a
   constant). `gate/trust_gate.py` warns when the mean agreement is low.
-
 - **Mixed models, one per role.** `eval score panel --judge-configs role:model:provider,...`
   is the only place where one panel mixes models, and each model is tied to a role.
-
 - **Post-hoc judge robustness.** `eval judge agreement` (`commands/judge_reliability.py`,
   `eval/cross_judge.py`) re-scores an answers file with `--judges provider/model,...`. It
   computes each judge's per-arm delta as a separate measure with a sign test and Holm
@@ -291,7 +284,6 @@ What exists:
   EFFECT` or `NOT MEASURED`. Judges that fail `--validity` do not vote. `--strict` makes
   `JUDGE-DEPENDENT` an error. This is the right shape, per-judge numbers rather than an
   average that hides the spread, and it already guards against "(one judge)" results.
-
 - **Self-judging** is a warning on an exact model match (`utils.warn_judge_independence`).
   It never refuses, and a judge from the same family passes silently.
 
@@ -315,75 +307,8 @@ What is missing (each item was needed to produce this note):
 
 ## 5. Proposal
 
-All of the following reuse code that exists: the `--judges` spec parser of `eval judge
-agreement`, `JudgePanel` / `_aggregate`, `cross_judge.label`, and `same_evaluator`.
-
-**CLI** (proposed; `arms run` has none of these flags yet)
-
-```text
-arms run ... \
-  --judges anthropic/claude-sonnet-5-5,openai/gpt-6-luna,bedrock/kimi-k3 \
-  --aggregate majority            # majority | median | mean | unanimous | any | dawid-skene
-  --judge-family-policy refuse    # refuse | warn | allow  (judge vs answer model, and judge vs judge)
-  --judge-escalate contested      # grade with judges[0]; send rows near the threshold, and
-                                  # the baseline/placebo arms, to the rest of the panel
-```
-
-- `--judges` on `arms run` and `arms matrix-run` takes the same `provider/model` list as
-  `eval judge agreement`. `--judge-model` / `--judge-provider` stay as the one-judge form.
-  `--judge-panel ROLES` stays orthogonal: roles × judges, with roles averaged inside a judge
-  first.
-
-- `--aggregate` defaults to `majority` for verdict-style grading and to `median` for 0–100
-  scores. The latter is the robust form of today's mean, and matches majority in section 3.
-  `dawid-skene` needs ≥ 3 judges and ≥ 50 rows and falls back to `majority` with a warning
-  below that. The rule, and the judges' estimated sensitivity and specificity, go into the
-  run's provenance digest as `_aggregation_policy` does today.
-
-- `--judge-family-policy`: one `family` field per model in `defaults.py`, next to
-  `JUDGE_MODEL_FOR_PROVIDER`, covering the same table the novelty study keeps. `refuse` is
-  the default for `--judges`. It refuses a judge from the answer model's family, or two judges
-  from one family, unless `allow` is given, and records which policy was in force.
-
-- `--judge-escalate contested` is the cheap panel. Its cost and accuracy are not measured
-  yet. The case for it is that about 80% of rows are unanimous, and the contested ones
-  concentrate in two arms. This study's data can simulate it before it is built.
-
-**Config** (the `judge:` block in a product config, or a run YAML), so that a product fixes its
-panel once:
-
-```yaml
-judge:
-  judges:
-    - {provider: anthropic, model: claude-sonnet-5-5}
-    - {provider: openai,    model: gpt-6-luna, temperature: null}   # null = model default
-    - {provider: bedrock,   model: kimi-k3,    temperature: null}
-  aggregate: majority
-  min_quorum: 2              # rows with fewer valid votes are insufficient_evidence
-  family_policy: refuse
-  disagreement_threshold: 15  # today's DISAGREEMENT_STD, now configurable
-  escalate: contested
-```
-
-`temperature: null` is needed because gpt-6-luna and kimi-k3 reject `temperature=0`.
-
-**Report** (arms report and `eval judge agreement`):
-
-- A per-judge table of every headline number (arm means, deltas, added/known/degraded where
-  applicable), with the panel row under it. That is section 1 of this note, generated.
-
-- Pairwise Cohen's kappa and Krippendorff's α for the binary and full scales, plus a
-  same-family flag on pairs.
-
-- The share of rows that lack unanimity, per arm.
-
-- A **judge-sensitive** flag on each headline delta, raised inline (not only post hoc) when
-  either the sign differs between judges or the range across judges exceeds the noise floor.
-  It reuses the `JUDGE-DEPENDENT` label, and `--strict` makes it an error as it does today.
-
-**Order of work:** (1) `--judges` + `--aggregate` on `arms run`, with per-judge numbers in
-the report. (2) The family table and policy. (3) Kappa/α and disagreement by arm. (4)
-Escalation. Items 1–3 change no default output for a one-judge run.
+The proposal for `--judges` and `--aggregate` on `arms run` was removed from this page: AGENTS.md
+keeps design plans out of the tree, so the text is not kept here.
 
 ## 6. Old and new judge generations
 
@@ -401,22 +326,19 @@ of their families in this note. Coverage: 2,932 rows × 7 judges, with 1 unparse
 gpt-6-sol and claude-opus-5-5 reject temperature 0 and run at their default.
 Script: `research/judge-panel/gen.py`. Tables: `docs/assets/judge-panel/generations/*.csv`.
 
-| Family: old → new | κ old vs new | Lenient rate, old → new (not re-run) | Lenient added share, old → new, by answer model (opus-5 / haiku-4.5 / gpt-5.6 / grok-4.6 / nemotron-nano) |
+| Family: old → new | κ old vs new | Lenient rate, old → new | Lenient added share, old → new, by answer model (opus-5 / haiku-4.5 / gpt-5.6 / grok-4.6 / nemotron-nano) |
 |---|---|---|---|
-| openai: gpt-5.6-luna → gpt-6-luna | 0.72 | 0.756 → 0.714 | 0.13→0.11 / 0.12→0.15 / 0.15→0.23 / 0.34→0.34 / 0.43→0.42 |
-| openai: gpt-5.6-luna → gpt-6-sol | 0.70 | 0.756 → 0.713 | 0.13→0.16 / 0.12→0.18 / 0.15→0.16 / 0.34→0.29 / 0.43→0.50 |
+| openai: gpt-5.6-luna → gpt-6-luna | 0.72 | 0.756 → 0.714 (−0.025 on shared rows) | 0.13→0.11 / 0.12→0.15 / 0.15→0.23 / 0.34→0.34 / 0.43→0.42 |
+| openai: gpt-5.6-luna → gpt-6-sol | 0.70 | 0.756 → 0.713 (−0.027 on shared rows) | 0.13→0.16 / 0.12→0.18 / 0.15→0.16 / 0.34→0.29 / 0.43→0.50 |
 | moonshot: kimi-k2.5 → kimi-k3 | 0.65 | 0.599 → 0.716 | 0.26→0.23 / 0.32→0.23 / 0.31→0.23 / 0.37→0.35 / 0.52→0.45 |
 | anthropic: haiku-4.5 → sonnet-5 | 0.66 | 0.651 → 0.652 | 0.15→0.21 / 0.20→0.30 / 0.21→0.23 / 0.34→0.32 / 0.53→0.55 |
+| anthropic: haiku-4.5 → opus-5.5 | 0.63 | 0.651 → 0.718 | 0.15→0.18 / 0.20→0.20 / 0.21→0.23 / 0.34→0.35 / 0.53→0.58 |
 | anthropic: sonnet-5 → opus-5.5 | 0.71 | 0.652 → 0.718 | 0.21→0.18 / 0.30→0.20 / 0.23→0.23 / 0.32→0.35 / 0.55→0.58 |
 | deepseek: r1 → v3.2 | 0.61 | 0.735 → 0.639 | 0.13→0.18 / 0.15→0.30 / 0.15→0.21 / 0.37→0.35 / 0.47→0.57 |
 
 The lenient rate is the share of a judge's verdicts that count as correct under lenient
-scoring, over all 2,932 rows (2,664 for gpt-5.6-luna, which has no grades on the repeats).
-**Not re-run:** the lenient and strict rates in this section (the table column, the deltas and
-the strict shares below) are per-judge rates over each judge's whole grade set, not over the
-shared keys used for κ. The OpenAI pairs compare 2,664 rows with 2,932. A re-run on matched keys
-is pending (#775), so `generation_kappa.csv` has no rate-delta column until then. κ per pair:
-`generation_kappa.csv`. One probe moves an added share by about 0.017.
+scoring, over all 2,932 rows (2,664 for gpt-5.6-luna, which has no grades on the repeats; its
+κ pairs use those 2,664 rows). κ per pair and the lenient delta per pair: `generation_kappa.csv`. Each delta is over the answers both judges grade (the rows the κ uses): −0.025 and −0.027 for the two OpenAI pairs (n 2,664). An empty κ cell means chance agreement is 1 (both judges give one label on every answer), so κ is undefined there. One probe moves an added share by about 0.017.
 
 What a generation update does to judgment:
 
@@ -424,34 +346,24 @@ What a generation update does to judgment:
   family is 0.61–0.72. The mean κ of a judge against the other 14 is 0.51–0.64
   (`judge_mean_kappa.csv`). Re-grading with a newer judge of the same family is a judge change,
   not a re-run.
-
-- **Leniency moves, with no common direction (not re-run, see above).**
-
-    - Kimi and Anthropic got more lenient (+0.12, +0.07).
-    - OpenAI and DeepSeek got stricter (−0.04, −0.10).
-    - OpenAI's strict rate fell most: gpt-5.6-luna marks 36% of answers `correct_complete`,
-      gpt-6-luna 27%. Strict headlines graded by gpt-5.6-luna are therefore not comparable with
-      ones graded by gpt-6.
-
-- **One answer model's added share moves by up to 0.15 between generations.** Two cases:
-
-    - haiku-4.5 answers: deepseek-r1 0.15 vs v3.2 0.30.
-    - The same answers: sonnet-5 0.30 vs opus-5.5 0.20.
-
-    That is two-thirds of the cross-family range in section 1 (0.23), and above the 0.10 noise floor.
-
-- **Newer is not closer to the consensus.** gpt-6-luna has the lowest mean κ of the
+- **Leniency moves, with no common direction.** Kimi got more lenient (+0.12), and so did Anthropic's haiku-4.5 to opus-5.5 (+0.07; haiku to sonnet-5 is flat);
+  OpenAI and DeepSeek got stricter (−0.025 and −0.027 for OpenAI on shared rows, −0.10 for DeepSeek).
+  OpenAI's strict rate fell: gpt-5.6-luna marks 36% of answers `correct_complete` (2,664 rows),
+  gpt-6-luna 27% (2,932 rows). These two shares are over different row sets (the repeats are
+  graded by the new judges only), so compare the same-rows deltas above, not these shares.
+- **One answer model's added share moves by up to 0.15 between generations.** For haiku-4.5 answers, deepseek-r1 0.15 vs v3.2 0.30; for the same answers, sonnet-5 0.30 vs opus-5.5 0.20. The generation CSVs have no noise column, so the shift is not set against a noise floor: the study's floor covers only its own panel, and claude-haiku-4-5, gpt-6-sol, claude-opus-5-5, kimi-k2.5 and deepseek-r1 are outside it (their repeat grades are counted in the n of 2,932 in judge_leniency.csv but not tabulated).
+- **Newer judges are mixed on mean κ against the other judges.** Five of seven old-to-new pairs
+  raise it, and both OpenAI pairs lower it. gpt-6-luna has the lowest mean κ of the
   OpenAI, Anthropic, Kimi, DeepSeek, xAI, GLM and Qwen judges (0.54, against 0.58 for gpt-5.6-luna). kimi-k3 has the highest (0.64).
   Recency does not stand in for judge quality.
-
 - **A three-family panel absorbs most of the change.** The median panel
-    {gpt-5.6-luna, kimi-k2.5, haiku-4.5} vs {gpt-6-luna, kimi-k3, opus-5.5} (`generation_panels.csv`):
-
-    - Lenient added share moves by at most 0.067 (haiku-4.5 answers, 0.27 → 0.20), within the
-      noise floor. On opus-5 and grok-4.6 answers it does not move.
-    - Strict moves more, by up to 0.11 (gpt-5.6 answers, 0.40 → 0.29), which follows the
-      OpenAI strict shift above.
-    - In both panels, opus-5 answers gain least and nemotron-nano answers gain most.
+  {gpt-5.6-luna, kimi-k2.5, haiku-4.5} vs {gpt-6-luna, kimi-k3, opus-5.5} (`generation_panels.csv`).
+  Lenient added share moves by at most 0.067 (haiku-4.5 answers, 0.27 → 0.20). The old panel was
+  not repeated, so there is no noise floor to compare it with; on opus-5 and grok-4.6 answers it
+  does not move. Strict moves more, by up to 0.11
+  (gpt-5.6 answers, 0.40 → 0.29), which follows the OpenAI strict shift above. On the lenient
+  scale, opus-5 answers have the lowest added share and nemotron-nano answers the highest in both
+  panels; under strict, grok-4.6 passes nemotron-nano in the new panel.
 
 For Dokimi: record the judge's exact model id with every grade (it does), and treat a
 judge-generation upgrade like a judge change: re-grade the baseline with the new judge
@@ -462,16 +374,12 @@ prefer a panel, which turns a 0.15 single-judge shift into ≤0.07 lenient.
 
 - 60–62 paired probes per answer model: enough to compare judges on the same rows, not to
   re-estimate the paper's numbers. Use the paper's intervals for those.
-
 - The original judge and two answer models are no longer served, so the noise floor covers
   three answer models, and the original judge has no grades on the repeats.
-
 - Two judges ran at default temperature. Their noise-floor rows include their own sampling
   noise.
-
 - Dawid-Skene here is binary (lenient) and one-coin per class. A 6-class version would
   separate "lenient on qualifiers" from "lenient on wrong answers".
-
 - No deterministic ground truth covers these skills. The grounded-grader pilot covers other
   skills, so there is no "true" label here: agreement is with the panel consensus, not with
-  the truth. See `grading-tiers.md` when it lands.
+  the truth.
