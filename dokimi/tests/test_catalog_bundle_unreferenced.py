@@ -535,11 +535,22 @@ def test_a_link_to_the_skill_root_names_the_files_under_it(tmp_path):
     assert _unreferenced(review) == []
 
 
-def test_a_nested_link_to_the_skill_root_names_the_files_under_it(tmp_path):
+def test_a_nested_back_link_to_the_skill_root_names_no_file(tmp_path):
+    # Only a root link in SKILL.md names every bundled file: a back link in a reference document names its target.
     review = _review_with_texts(
         tmp_path,
         "Read [guide](references/guide.md).\n",
-        {"references/guide.md": "Use [root](../).\n", "scripts/helper.py": "x\n"},
+        {"references/guide.md": "Use [back](../).\n", "scripts/helper.py": "x\n"},
+    )
+    [message] = _unreferenced(review)
+    assert message.startswith("1 of 2") and "scripts/helper.py" in message and "guide.md" not in message
+
+
+def test_a_root_link_in_skill_md_names_every_file_even_when_a_document_links_back(tmp_path):
+    review = _review_with_texts(
+        tmp_path,
+        "Use [home](./) and read [guide](references/guide.md).\n",
+        {"references/guide.md": "Use [back](../).\n", "scripts/helper.py": "x\n"},
     )
     assert _unreferenced(review) == []
 
