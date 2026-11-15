@@ -197,6 +197,45 @@ def test_input_error_removes_old_success_receipts(tmp_path):
     assert "Input error" in (out / "report.md").read_text()
 
 
+def test_bug_after_a_success_removes_old_success_receipts(tmp_path, monkeypatch):
+    # Any failure after a valid output dir was chosen must not leave the earlier PASS standing.
+    root = _catalog(tmp_path)
+    out = tmp_path / "out"
+    assert _run(root, out).returncode == 0
+    assert "Static checks: **pass**" in (out / "report.md").read_text()
+
+    def broken(*args, **kwargs):
+        raise RuntimeError("injected evaluation failure")
+
+    monkeypatch.setattr("dokimi.external.catalog_eval.evaluate_catalog", broken)
+    done = _run(root, out)
+    assert done.returncode != 0
+    assert not (out / "catalog.json").exists()
+    assert not (out / "plan.json").exists()
+    assert not (out / "result.json").exists()
+    report = (out / "report.md").read_text()
+    assert "**pass**" not in report
+    assert "injected evaluation failure" in report
+
+
+def test_failed_error_receipt_is_named_when_a_bug_stops_the_run(tmp_path, monkeypatch):
+    root = _catalog(tmp_path)
+    out = tmp_path / "out"
+    assert _run(root, out).returncode == 0
+
+    def broken(*args, **kwargs):
+        raise RuntimeError("injected evaluation failure")
+
+    def unwritable(out_dir, kind, message):
+        raise OSError("injected receipt failure")
+
+    monkeypatch.setattr("dokimi.external.catalog_eval.evaluate_catalog", broken)
+    monkeypatch.setattr("dokimi.commands.catalog_eval._write_error", unwritable)
+    done = _run(root, out)
+    assert done.returncode != 0
+    assert "cannot invalidate earlier receipts: injected receipt failure" in done.stderr
+
+
 @pytest.mark.parametrize("output", [".", "skills", "skills/alpha", "evaluation/harbor"])
 def test_output_cannot_replace_catalog_inputs(tmp_path, output):
     root = _catalog(tmp_path)
