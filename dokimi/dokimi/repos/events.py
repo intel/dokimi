@@ -94,6 +94,7 @@ class _Stream:
     cwd: str  # where the Bash shell starts, relative to workdir
     by_id: dict[str, dict[str, Any]] = field(default_factory=dict)  # tool_use id -> its event
     bash: dict[int, _BashCall] = field(default_factory=dict)  # id() of a Bash call's command event -> the call
+    stop_at: dict[str, int] = field(default_factory=dict)  # message id -> its index in ``stop_reasons``
 
 
 def _claude_stream_json(raw: str, workdir: str | None, cwd: str = "") -> Transcript:
@@ -291,7 +292,13 @@ def _apply_assistant(out: Transcript, rec: dict[str, Any], t: float | None, stre
         out.answered_by.add(str(model))
     stop = (rec.get("message") or {}).get("stop_reason")
     if isinstance(stop, str) and rec.get("parent_tool_use_id") is None:
-        out.stop_reasons.append(stop)
+        mid = (rec.get("message") or {}).get("id")
+        if isinstance(mid, str) and mid in stream.stop_at:  # one reply split over records: the last one counts
+            out.stop_reasons[stream.stop_at[mid]] = stop
+        else:
+            if isinstance(mid, str) and mid:
+                stream.stop_at[mid] = len(out.stop_reasons)
+            out.stop_reasons.append(stop)
 
 
 def _apply_final(out: Transcript, rec: dict[str, Any], stream: _Stream) -> None:

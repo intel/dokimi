@@ -29,11 +29,27 @@ _BYPASS_FLAG = "--dangerously-bypass-approvals-and-sandbox"
 
 def config_digests(run_dir: Path, profile: HarnessProfile, present: Iterable[str]) -> dict[str, str]:
     """SHA-256 of each config file the run is given: the profile's ``config_files`` in the run's config
-    directory, and the workspace files ``present`` names. A link is not read (the host never follows one)."""
-    paths = {n: run_dir / "config" / n for n in profile.config_files}
-    paths.update({n: run_dir / "workspace" / n for n in present})
-    return {name: hashlib.sha256(path.read_bytes()).hexdigest()
-            for name, path in sorted(paths.items()) if path.is_file() and not path.is_symlink()}
+    directory, and the workspace files ``present`` names. Keys are file names: a nested workspace file is keyed
+    by its base name, or by ``workspace.`` and its dotted path (numbered when that is taken too) when that name is taken. A link is not read (the
+    host never follows one) and a file that cannot be read is left out: the record is best-effort."""
+    found: dict[str, Path] = {n: run_dir / "config" / n for n in profile.config_files}
+    for name in sorted(present):
+        key = name.rsplit("/", 1)[-1]
+        if key in found:
+            key = prefixed = "workspace." + name.replace("/", ".")
+            for n in range(2, len(found) + 3):  # the prefixed name may be a config file's own
+                if key not in found:
+                    break
+                key = f"{prefixed}.{n}"
+        found[key] = run_dir / "workspace" / name
+    out: dict[str, str] = {}
+    for key, path in sorted(found.items()):
+        try:
+            if path.is_file() and not path.is_symlink():
+                out[key] = hashlib.sha256(path.read_bytes()).hexdigest()
+        except OSError:
+            continue
+    return out
 
 
 def build(profile: HarnessProfile, *, model: str, harness_version: str | None, argv: Sequence[str],
@@ -80,13 +96,15 @@ def save(run_dir: Path, record: dict[str, Any], errors: list[str]) -> None:
     except OSError as exc:  # its message names the host path: keep the errno only
         errors.append(f"{RUN_CONTEXT_FILE} not written: {exc.strerror or type(exc).__name__}")
     except ArtifactValidationError as exc:
-        errors.append(f"{RUN_CONTEXT_FILE} not written: {str(exc).splitlines()[0][:200]}")
+        errors.append(f"{RUN_CONTEXT_FILE} not written: {' '.join(str(exc).split())[:200]}")
 
 
 def _permission(start: dict[str, Any], flags: _Flags) -> dict[str, str | None]:
     mode = _text(start.get("permissionMode")) or flags.value("--permission-mode")
     if mode is None and flags.has(_BYPASS_FLAG):
         mode = _BYPASS_FLAG.removeprefix("--")
+    if mode is None and flags.has("--allow-all-tools"):
+        mode = "allow-all-tools"
     return {"mode": mode, "sandbox": flags.value("--sandbox"),
             "approval": flags.value("-a") or flags.value("--ask-for-approval")}
 
@@ -95,6 +113,8 @@ def _tools(start: dict[str, Any], flags: _Flags) -> dict[str, list[str] | None]:
     allowed = _names(start.get("tools")) if "tools" in start else None
     if allowed is None:  # the init record does not list them: the list dokimi passed
         allowed = flags.values("--tools")
+    if allowed is None and (listed := flags.values("--available-tools")) is not None:  # Copilot's spelling
+        allowed = [] if listed == ["__none__"] else listed
     return {"allowed": allowed, "disallowed": flags.values("--disallowedTools")}
 
 
@@ -166,5 +186,5 @@ class _Flags:
         """The value of ``key`` in a ``-c key=value`` (or ``--config``) override."""
         for word in (self.values("-c") or []) + (self.values("--config") or []):
             if word.startswith(key + "="):
-                return word[len(key) + 1:]
+                return word[len(key) + 1:].strip("\"'")
         return None

@@ -75,7 +75,7 @@
     },
     "config_sha256": {
       "type": "object",
-      "description": "SHA-256 of each config file dokimi wrote for the run (its per-run config directory) or the workspace file the profile's `args_if_present` named, taken before the agent started. Keys are the file names as the profile declares them (for example `settings.json`, `.mcp.json`); empty when there were none.",
+      "description": "SHA-256 of each config file dokimi wrote for the run (its per-run config directory) or the workspace file the profile's `args_if_present` named, taken before the agent started. Keys are file names, never paths: as the profile declares them (for example `settings.json`, `.mcp.json`), a nested workspace file by its base name, or by `workspace.` and its dotted path when that name is already a key; empty when there were none.",
       "propertyNames": {"pattern": "^[A-Za-z0-9._-]+$"},
       "additionalProperties": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
     }

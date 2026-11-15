@@ -5,12 +5,14 @@
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import json
+from pathlib import Path
 
 import pytest
 
-from dokimi.artifacts import stamp, validate_artifact
+from dokimi.artifacts import ArtifactValidationError, stamp, validate_artifact
 from dokimi.cli import build_parser
 from dokimi.repos import run_context
 from dokimi.repos.container import WORKSPACE
@@ -140,7 +142,7 @@ def test_a_copilot_prompt_naming_a_bypass_flag_is_a_value_and_not_a_permission()
                                         tools="read", bin_path="/eval/harness/copilot")
     record = _build("codex", CODEX_LINES, argv)
 
-    assert record["permission_mode"] == {"mode": None, "sandbox": None, "approval": None}
+    assert record["permission_mode"] == {"mode": "allow-all-tools", "sandbox": None, "approval": None}
 
 
 def test_a_config_key_that_only_starts_with_the_effort_key_is_not_the_effort():
@@ -246,8 +248,7 @@ def test_a_record_that_cannot_be_saved_is_a_trace_error_not_a_raise(tmp_path):
     assert str(tmp_path) not in errors[0]
 
 
-@pytest.fixture
-def cell(tmp_path, monkeypatch):
+def _run_cell(tmp_path, monkeypatch, *extra: str):
     root, _ = make_repo(tmp_path)
     exe, profile = fake_harness(tmp_path)
     runner = FakeRunner()
@@ -257,11 +258,16 @@ def cell(tmp_path, monkeypatch):
     argv = ["repo", "run", f"{root}@HEAD", "--manifest", ".agent-eval/repo-eval.yaml", "--harness", str(profile),
             "--bin", str(exe), "--model", "m-1", "--batch", "b1", "--out", str(out),
             "--cache-root", str(out / "caches"), "--agent-network", "host", "--arm", "guidance:raw",
-            "--task", "fix_add"]
+            "--task", "fix_add", *extra]
     args = build_parser().parse_args(argv)
     args.func(args)
     (rd,) = (out / "b1").glob("*/result.json")
     return rd.parent, root
+
+
+@pytest.fixture
+def cell(tmp_path, monkeypatch):
+    return _run_cell(tmp_path, monkeypatch)
 
 
 def test_a_repo_run_cell_writes_run_context_beside_its_events(cell):
@@ -297,3 +303,116 @@ def test_a_run_context_file_replaced_by_a_link_is_flagged_as_a_host_file(tmp_pat
     for name in ("events.jsonl", run_context.RUN_CONTEXT_FILE):
         (tmp_path / name).symlink_to("/nonexistent/host-target")
     assert sorted(replaced_files(tmp_path)) == ["events.jsonl", run_context.RUN_CONTEXT_FILE]
+
+
+def test_a_repo_run_cell_passes_its_argv_and_config_digests_to_the_record(tmp_path, monkeypatch):
+    rd, _ = _run_cell(tmp_path, monkeypatch, "--tools", "read")
+    record = json.loads((rd / "run_context.json").read_text(encoding="utf-8"))
+
+    assert record["tools"]["allowed"] == ["Read"]
+    assert list(record["config_sha256"]) == ["settings.json"]
+
+
+def test_a_record_the_schema_rejects_is_a_trace_note_and_the_cell_still_finishes(tmp_path, monkeypatch):
+    def reject(*_a, **_k):
+        raise ArtifactValidationError("run_context artifact validation failed:\n  config_sha256: bad key")
+
+    monkeypatch.setattr("dokimi.repos.run_context.save_artifact", reject)
+    rd, _ = _run_cell(tmp_path, monkeypatch)
+    result = json.loads((rd / "result.json").read_text(encoding="utf-8"))
+
+    assert any(e.startswith("run_context.json not written") and "bad key" in e for e in result["agent"]["trace_errors"])
+
+
+def test_a_nested_workspace_config_is_keyed_by_its_base_name_and_the_record_saves(tmp_path):
+    prof = load_profile("claude-code")
+    run_dir = tmp_path / "run"
+    (run_dir / "config").mkdir(parents=True)
+    (run_dir / "workspace" / ".config").mkdir(parents=True)
+    (run_dir / "workspace" / ".config" / "agent.json").write_text("{}")
+
+    digests = run_context.config_digests(run_dir, prof, [".config/agent.json"])
+    errors: list[str] = []
+    run_context.save(tmp_path, _build("claude-code", _claude_trace(), [], config=digests), errors)
+
+    assert list(digests) == ["agent.json"] and errors == []
+
+
+def test_a_workspace_file_does_not_hide_the_config_digest_of_the_same_name(tmp_path):
+    prof = dataclasses.replace(load_profile("claude-code"), config_files={"settings.json": "host configuration"})
+    (tmp_path / "config").mkdir()
+    (tmp_path / "workspace").mkdir()
+    (tmp_path / "config" / "settings.json").write_bytes(b"config bytes")
+    (tmp_path / "workspace" / "settings.json").write_bytes(b"workspace bytes")
+
+    digests = run_context.config_digests(tmp_path, prof, frozenset({"settings.json"}))
+
+    assert digests == {"settings.json": hashlib.sha256(b"config bytes").hexdigest(),
+                       "workspace.settings.json": hashlib.sha256(b"workspace bytes").hexdigest()}
+
+
+def test_a_prefixed_workspace_key_does_not_overwrite_a_config_file_of_that_name(tmp_path):
+    prof = dataclasses.replace(load_profile("claude-code"),
+                               config_files={"settings.json": "a", "workspace.settings.json": "b"})
+    (tmp_path / "config").mkdir()
+    (tmp_path / "workspace").mkdir()
+    for name, data in (("config/settings.json", b"1"), ("config/workspace.settings.json", b"2"),
+                       ("workspace/settings.json", b"3")):
+        (tmp_path / name).write_bytes(data)
+
+    digests = run_context.config_digests(tmp_path, prof, ["settings.json"])
+
+    assert sorted(digests.values()) == sorted(hashlib.sha256(d).hexdigest() for d in (b"1", b"2", b"3"))
+    assert digests["workspace.settings.json"] == hashlib.sha256(b"2").hexdigest()
+
+
+def test_a_config_file_that_cannot_be_read_is_left_out_and_does_not_raise(tmp_path, monkeypatch):
+    prof = load_profile("claude-code")
+    (tmp_path / "workspace").mkdir()
+    (tmp_path / "workspace" / ".mcp.json").write_text("{}")
+    (tmp_path / "workspace" / "other.json").write_text("{}")
+    real = Path.read_bytes
+
+    def read(self):
+        if self.name == ".mcp.json":
+            raise PermissionError(13, "denied")
+        return real(self)
+
+    monkeypatch.setattr(Path, "read_bytes", read)
+
+    assert list(run_context.config_digests(tmp_path, prof, [".mcp.json", "other.json"])) == ["other.json"]
+
+
+@pytest.mark.parametrize("tools, allowed", [("read", ["view", "grep", "glob"]), ("none", [])])
+def test_a_copilot_tool_restriction_is_recorded_from_its_available_tools_flag(tools, allowed):
+    argv = load_profile("copilot").argv(prompt="x", model="gpt-x", tools=tools, bin_path="/eval/harness/copilot")
+
+    assert _build("copilot", "", argv)["tools"]["allowed"] == allowed
+
+
+def test_one_reply_split_over_records_is_one_safety_stop():
+    def part(stop):
+        return {"type": "assistant", "message": {"id": "msg_1", "model": "claude-sonnet-x", "stop_reason": stop,
+                                                 "content": []}}
+    other = {"type": "assistant", "message": {"id": "msg_2", "stop_reason": "refusal", "content": []}}
+
+    record = _build("claude-code", _lines(CLAUDE_INIT, part("refusal"), part("refusal"), other, CLAUDE_RESULT),
+                    _claude_argv())
+
+    assert record["outcome"]["safety_stops"] == 2
+
+
+def test_the_last_stop_reason_of_a_split_reply_is_the_one_counted():
+    def part(stop):
+        return {"type": "assistant", "message": {"id": "msg_1", "stop_reason": stop, "content": []}}
+
+    record = _build("claude-code", _lines(CLAUDE_INIT, part("refusal"), part("end_turn"), CLAUDE_RESULT),
+                    _claude_argv())
+
+    assert record["outcome"]["safety_stops"] == 0
+
+
+def test_a_quoted_codex_effort_override_is_recorded_without_its_quotes():
+    argv = ["codex", "exec", "-c", 'model_reasoning_effort="high"', "--json", "--", "task"]
+
+    assert _build("codex", CODEX_LINES, argv)["effort"] == "high"
