@@ -414,6 +414,37 @@ def test_a_capable_run_that_stops_early_leaves_the_unreached_cells_missing(tmp_p
     assert summary["unsupported"] == [] and summary["missing"] == ["fix_race__guidance-raw__m-1__r2"]
 
 
+def test_a_resumed_run_keeps_the_batch_spend_it_already_made_under_the_cap(tmp_path, monkeypatch, capsys):
+    root = _repo(tmp_path)
+    out = tmp_path / "runs"
+    with pytest.raises(SystemExit):  # every cell unsupported: no result
+        _run(root, out, HostRunner(_probe_out(affinity=2, cpuinfo=AMD_CPUINFO)), monkeypatch, "--task", "fix_race")
+    with pytest.raises(SystemExit):  # the cap stops it after one cell, which spends past the cap
+        _run(root, out, HostRunner(_probe_out(affinity=8)), monkeypatch, "--task", "fix_race",
+             "--max-batch-usd", "0.005")
+    capsys.readouterr()
+    try:  # the same cap on resume: the spend already made still counts
+        _run(root, out, HostRunner(_probe_out(affinity=8)), monkeypatch, "--task", "fix_race",
+             "--max-batch-usd", "0.005")
+    except SystemExit:
+        pass
+    assert "0 ran, 1 already done, 0 crashed, 1 not started" in capsys.readouterr().out
+
+
+def test_parallel_cells_reserve_their_budget_so_the_cap_is_not_passed_at_once(tmp_path, monkeypatch, capsys):
+    root = _repo(tmp_path)
+    out = tmp_path / "runs"
+    with pytest.raises(SystemExit):  # every cell unsupported: no result
+        _run(root, out, HostRunner(_probe_out(affinity=2, cpuinfo=AMD_CPUINFO)), monkeypatch, "--task", "fix_race")
+    capsys.readouterr()
+    try:  # two cells in flight, each holding its budget until it is charged: the second may not start
+        _run(root, out, HostRunner(_probe_out(affinity=8)), monkeypatch, "--task", "fix_race", "--jobs", "2",
+             "--max-batch-usd", "0.005")
+    except SystemExit:
+        pass
+    assert "1 ran, 0 already done, 0 crashed, 1 not started" in capsys.readouterr().out
+
+
 @pytest.mark.outcome("cjm-repo-host-unsupported")
 def test_run_refuses_a_bad_host_shape_before_any_agent(tmp_path, monkeypatch, capsys):
     root = _repo(tmp_path, host={"cpu_flags": "avx512f"})
