@@ -124,6 +124,14 @@ def test_run_interrupt_kills_the_named_container(tmp_path):
     assert ("docker", "kill", "dokimi-x") in fake.argvs()
 
 
+def test_run_that_never_started_kills_nothing():
+    fake = FakeRunner()
+    spec = ContainerSpec(image="img", argv=["true"], name="dokimi-x", network="bogus")
+    with pytest.raises(ContainerError, match="unknown network"):
+        DockerRunner(runner=fake).run(spec, stdout=Path("o"), stderr=Path("e"), timeout_s=5)
+    assert fake.argvs() == []
+
+
 def test_docker_runner_argv_refuses_a_comma_as_a_container_error():
     spec = ContainerSpec(image="img", argv=["true"], mounts=[Mount(Path("/x,y"), "/eval/run")])
     with pytest.raises(ContainerError, match="cannot contain ','"):
