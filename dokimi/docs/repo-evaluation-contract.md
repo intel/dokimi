@@ -550,6 +550,14 @@ reads the upstream base (`base_sha`) and the workspace start commit
   A manifest's `probes` (§2) replaces a target's defaults, and `repo run --probes FILE`
   (YAML or JSON, the same mapping) replaces them again; nothing else changes the events,
   and the `process_metrics` counters do not count probes.
+- A `choice` event follows the `command` or `edit` event of a call that installs, imports, uses or removes a
+  candidate the run names: `{"t": 5.0, "kind": "choice", "candidate": "sklearn", "act": "install", "path": null}`
+  (`repo run --candidates FILE`, YAML or JSON, `dokimi/repos/choices.py`). The file maps a candidate id to
+  `install` and `remove` (package names a package manager is given; a removal matches both lists), `import`
+  (modules an added `import` or `from` line names) and `use` (dotted names an added line mentions, textually: a comment counts too). Only added text
+  counts: the new side of an `Edit`, the content of a `Write`, never what the edit replaced. A harness whose edit
+  events carry no added text (Copilot's `apply_patch`, Codex's `file_change`) gives install and remove events only.
+  Choice events are written to `events.jsonl`; the counters and `first_useful` do not read them.
 
 `result.json` reports the agent's tokens (`input_tokens`, `output_tokens`,
 `cache_read_tokens`, `cache_write_tokens`) over the same scope as `cost_usd`.

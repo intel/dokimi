@@ -1,0 +1,13 @@
+<!--
+Copyright (C) 2026 Intel Corporation
+SPDX-License-Identifier: Apache-2.0
+-->
+
+### Added
+
+- **`repo run --candidates FILE`: a `choice` event for an install, import, use or removal of a candidate.** A file
+  maps each candidate id to package names (`install`, `remove`), modules an added `import` line names (`import`) and
+  dotted names an added line mentions (`use`). A `choice` event follows the `command` or `edit` event that does it, with
+  its `candidate`, `act` and, for an edit, its `path`. Only added text counts: an edit's new side, a write's content.
+  Copilot and Codex edits carry no added text, so they give install and remove events only. Existing event kinds are
+  unchanged.
