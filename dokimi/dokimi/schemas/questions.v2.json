@@ -236,6 +236,32 @@
         "source_text": {
           "description": "The question text before `eval triggers generate --rewrite` turned it into the user-voice `question`; absent when it was not rewritten.",
           "type": "string"
+        },
+        "version": {
+          "description": "The author's revision of this question: a non-empty string (e.g. `2.1`) or an integer. Absent means unknown; no generator writes it.",
+          "type": ["string", "integer"],
+          "pattern": "\\S"
+        },
+        "provenance": {
+          "description": "Where the question came from and how far it has been checked: `source` (hand-written, generated:<tool>@<version>, imported:<format>), `reviewed_by`, `status` (candidate, validated, frozen). Every key is optional; absent is unknown. Filled by the question generators (dokimi.provenance).",
+          "$ref": "#/$defs/provenance"
+        }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "type": "string",
+          "pattern": "^(hand-written|generated:[A-Za-z0-9_.-]+@[A-Za-z0-9_.+-]+|imported:[A-Za-z0-9_.-]+)(?![\\s\\S])"
+        },
+        "reviewed_by": {
+          "type": "string",
+          "pattern": "\\S"
+        },
+        "status": {
+          "enum": ["candidate", "validated", "frozen"]
         }
       }
     }

@@ -30,6 +30,7 @@ import yaml
 
 from dokimi.artifacts import schema_errors
 from dokimi.measure import SCORE_BOUND, as_float, is_finite
+from dokimi.provenance import ProvenanceError, parse_provenance, parse_version
 
 from .graders import DATA_FILES, NAMES as BUILTIN_NAMES, PREFIX as BUILTIN_PREFIX, TASK_PROBLEMS
 from .graders.hidden_tests import HIDDEN_DIR, hidden_files
@@ -579,6 +580,7 @@ def _check_task(tree: RepoTree, task_dir: str, report: RepoCheckReport) -> None:
     except HostSpecError as exc:
         problems.append(str(exc).split("task.json ", 1)[-1])
     problems += _useful_problems(raw)
+    problems += _provenance_problems(raw)
     report.errors.extend(f"{where}: {p}" for p in problems)
     if not problems:
         report.tasks.append(TaskSummary(
@@ -616,6 +618,19 @@ def _useful_problems(raw: dict[str, Any]) -> list[str]:
     try:
         parse_useful(raw.get("useful"))
     except UsefulSpecError as exc:
+        return [str(exc)]
+    return []
+
+
+def _provenance_problems(raw: dict[str, Any]) -> list[str]:
+    """The ``version`` and ``provenance`` keys' shape problems, if any; both are optional (dokimi.provenance)."""
+    for key in ("version", "provenance"):
+        if key in raw and raw[key] is None:
+            return [f"{key} is null: omit the key instead"]
+    try:
+        parse_version(raw.get("version"))
+        parse_provenance(raw.get("provenance"))
+    except ProvenanceError as exc:
         return [str(exc)]
     return []
 

@@ -112,6 +112,7 @@ Field by field, with the consumer that actually reads it:
 | `metadata.difficulty` | `eval tasks list`, the task-runs report | `easy` / `medium` / `hard`; drives the difficulty rollup in the Markdown report. Missing renders as `?`. |
 | `metadata.level` | [`difficulty-rubric.md`](./difficulty-rubric.md) | Workflow depth: `triage`, `diagnosis`, `end_to_end`. Optional but recommended for skill evaluation. |
 | `metadata.difficulty_explanation`, `category`, `author_*` | humans | Provenance and review context; carried through in the run artifact. |
+| `metadata.version`, `metadata.provenance` | `load_task` (a malformed value is a warning; the task still loads), the task-runs report | Optional. `version` is the task's revision; it is not the top-level `version`, which is the format version. `provenance` is `{source, reviewed_by, status}` as in the [repository contract](./repo-evaluation-contract.md#3-taskjson): `status` is `candidate`, `validated` or `frozen`. The task-runs report shows each task's status in a `Status` column; an absent one is `unknown`. |
 | `agent.timeout_sec` | `TaskSpec.timeout_sec`, the solver harnesses | Wall-clock budget for the agent's attempt. Typically 300. |
 | `verifier.timeout_sec` | Harbor, human reviewers | Verifier budget. Keep it small (≤ 60s where possible) so CI stays fast. |
 | `environment.build_timeout_sec` | `docker-*` harnesses | Image-build budget; used instead of the default when set (oneAPI/pip-heavy images need > 10 min). |
@@ -270,6 +271,8 @@ changed — and confirm the license allows redistribution. A task that is
 results are never reported as official upstream benchmark numbers. The content
 repository is the right place for that record, kept next to the tasks it
 describes; keep it current in the same change that adds the task.
+
+Record the status in the task too: `[metadata] provenance = { source = "hand-written", reviewed_by = "...", status = "candidate" }` (see §3). `candidate` is a task nobody has checked yet, `validated` one a reviewer has checked, `frozen` one that must not change. Bump `metadata.version` when you change a task that results were already reported on (a repo `dokimi:typecheck` task has no revision `version`: there it is the pinned mypy version, see the [repository contract](./repo-evaluation-contract.md#3-taskjson)). A task without these keys reads as `unknown`; that is not an error.
 
 ## 10 — CI
 

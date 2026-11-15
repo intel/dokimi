@@ -113,7 +113,7 @@ def test_rollups_keep_distinct_harnesses():
     # both harness ids appear as distinct columns; per-task row shows 0/1 and 1/1
     assert "`claude-code` pass" in md
     assert "`codex` pass" in md
-    assert "| t1 | easy | 0/1 |" in md  # claude-code column = 0/1, not merged with codex
+    assert "| t1 | easy | unknown | 0/1 |" in md  # claude-code column = 0/1, not merged with codex
 
 
 def test_per_task_cost_unknown_renders_dash():
@@ -135,7 +135,7 @@ def test_per_task_cost_unknown_renders_dash():
         }, "comparisons": {}},
     }
     md = render_task_runs_report(data)
-    assert "| t1 | easy | 1/1 | — |" in md
+    assert "| t1 | easy | unknown | 1/1 | — |" in md
     assert "$0.0000" not in md
 
 
@@ -165,7 +165,7 @@ def test_errored_cells_render_as_missing_data_not_failures():
     md = render_task_runs_report(data)
     assert "| `skill` | 100.00% (1/1) | 1 |" in md          # headline: scored cells, errored column
     assert "missing data, not a 0" in md
-    assert "| t2 | easy | 1/1 | — | — (+1 err) | — |" in md
+    assert "| t2 | easy | unknown | 1/1 | — | — (+1 err) | — |" in md
     assert "— (arms lost different cells)" in md         # unpaired deltas withheld
     assert "| `skill` | 1 | null | ERR |" in md
     assert "(harness error)" in md
@@ -198,7 +198,7 @@ def test_solver_error_cells_are_errored_in_the_report_like_in_the_summary():
     }
     md = render_task_runs_report(data)
     assert "| `base` | 100.00% (1/1) | 1 |" in md          # headline agrees: 1 errored
-    assert "| t1 | easy | — (+1 err) | — | 1/1 | — |" in md
+    assert "| t1 | easy | unknown | — (+1 err) | — | 1/1 | — |" in md
     assert "| `base` | 1 | 1 | ERR |" in md
 
 

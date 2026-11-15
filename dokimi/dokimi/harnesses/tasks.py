@@ -41,6 +41,8 @@ from typing import Any
 
 import yaml
 
+from dokimi.provenance import ProvenanceError, parse_provenance, parse_version
+
 from . import tbench_v1
 
 # Executable tasks live in a separate evaluation-content checkout, so there is
@@ -316,6 +318,15 @@ def _read_tables(path: Path, fmt: str) -> tuple[dict[str, Any], str]:
     return read_task_config(path), instruction_path.read_text(encoding="utf-8")
 
 
+def _check_provenance(spec: TaskSpec) -> None:
+    """Warn, never fail, on a malformed metadata ``version`` or ``provenance``: a repository may already use the key."""
+    try:
+        parse_version(spec.metadata.get("version"))
+        parse_provenance(spec.metadata.get("provenance"))
+    except ProvenanceError as exc:
+        _warn_once(f"task {spec.path}: metadata {exc}; its status reads as unknown")
+
+
 def load_task(path_or_name: str | Path, root: Path | None = None) -> TaskSpec:
     """Load one task by directory path, or by task name relative to *root*.
 
@@ -365,6 +376,7 @@ def load_task(path_or_name: str | Path, root: Path | None = None) -> TaskSpec:
         format=fmt,
         schema_version=str(version) if version is not None else None,
     )
+    _check_provenance(spec)
     drift = legacy_drift(spec)
     if drift:
         _warn_once(
