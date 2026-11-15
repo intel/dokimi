@@ -265,7 +265,9 @@ def _started_host(meta_path: Path) -> Any:
     host = meta.get("host")
     if host is not None and not (isinstance(host, dict) and isinstance(host.get("collectors") or {}, dict)):
         return _UNKNOWN  # a host that fingerprint_id cannot read names no row
-    return fingerprint_id(host) if host is not None else None
+    if host is None or not host.get("collectors"):
+        return None  # facts from before the collectors: the cell's result.json carries no fingerprint either
+    return fingerprint_id(host)
 
 
 def _row_missing(missing_by: dict[tuple[str, str, str, str | None], int], unplaced: dict[tuple[str, str, str], int],

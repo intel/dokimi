@@ -10,8 +10,8 @@ import json
 from dokimi.repos.host import fingerprint_id
 from dokimi.repos.report import format_report, summarize
 
-HOST_A = {"cpus": 4, "cpu_vendor": "GenuineIntel"}
-HOST_B = {"cpus": 8, "cpu_vendor": "AuthenticAMD"}
+HOST_A = {"cpus": 4, "cpu_vendor": "GenuineIntel", "collectors": {"os": {"system": "Linux"}}}
+HOST_B = {"cpus": 8, "cpu_vendor": "AuthenticAMD", "collectors": {"os": {"system": "Linux"}}}
 FP_A, FP_B = fingerprint_id(HOST_A), fingerprint_id(HOST_B)
 
 
@@ -88,3 +88,12 @@ def test_a_missing_cell_whose_meta_host_is_malformed_is_placed_on_no_host_row(tm
     summary = summarize(batch)
     assert [r["missing"] for r in summary["rows"]] == [2]  # unplaced, and the only row takes them
     assert len(summary["missing"]) == 2
+
+
+def test_a_missing_cell_with_container_only_host_facts_counts_on_the_unfingerprinted_row(tmp_path):
+    batch = tmp_path / "b1"
+    legacy = {"cpus": 4, "cpu_vendor": "GenuineIntel"}  # facts from before the collectors
+    _cell(batch, 1, host=legacy)  # its result.json has no host_fingerprint
+    _cell(batch, 2, host=legacy, result=False)
+    summary = summarize(batch)
+    assert [(r["host_fingerprint"], r["missing"]) for r in summary["rows"]] == [(None, 1)]

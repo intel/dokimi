@@ -39,8 +39,9 @@ PROXY_VARS = ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy")
 # DMI strings of hypervisors, matched in lower case against the vendor and product name.
 VM_MARKERS = (("vmware", "vmware"), ("virtualbox", "virtualbox"), ("innotek", "virtualbox"), ("qemu", "qemu"),
               ("kvm", "kvm"), ("xen", "xen"), ("parallels", "parallels"), ("virtual machine", "hyper-v"))
-# A quoted path may hold spaces, so it runs to its closing quote; bare ones end at a space. ``~`` and UNC paths too.
-_PATH = re.compile(r"""(?<=['"])(?:/|~|[A-Za-z]:\\|\\\\)[^'"\n]*(?=['"])|~(?:/[\w.+@%-]+)+|\\\\[^\s'"]+|(?:/[\w.+@%-]+)+|[A-Za-z]:\\\S*""")
+# A quoted path may hold spaces, so it runs to its own closing quote; a bare Windows or UNC path runs to the end of
+# the line. ``~`` paths too. A ``/`` path not preceded by a word character, ``.``, ``:`` or ``/`` is absolute (not an image name).
+_PATH = re.compile(r"""(?P<q>['"])(?:/|~|[A-Za-z]:\\|\\\\)(?:(?!(?P=q)).)*(?P=q)|~(?:/[\w.+@%-]+)+|\\\\[^\n]*|(?<![\w.:/-])(?:/[\w.+@%-]+)+|[A-Za-z]:\\[^\n]*""")
 
 
 def _read_text(path: str) -> str | None:
@@ -101,7 +102,7 @@ def _spawn(probe: Probe, argv: list[str]) -> str | None:
 
 def scrub(text: str) -> str:
     """``text`` with every absolute path replaced: an error message may name a file under the user's home."""
-    return _PATH.sub("<path>", text)[:300]
+    return _PATH.sub(lambda m: f"{m['q']}<path>{m['q']}" if m["q"] else "<path>", text)[:300]
 
 
 def cpuinfo_field(text: str, name: str) -> str | None:

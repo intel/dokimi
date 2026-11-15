@@ -304,6 +304,12 @@ def test_error_text_is_scrubbed_of_paths_and_truncated():
     ("cannot open '\\\\server\\users\\Jane Doe\\file'", "cannot open '<path>'"),
     ("no such file ~/secret/x", "no such file <path>"),
     ("no such file '~/Jane Doe/x'", "no such file '<path>'"),
+    ("missing \"/home/Jane O'Connor/private\"", "missing \"<path>\""),
+    ("missing C:\\Users\\Jane Doe\\AppData\\x", "missing <path>"),
+    ("missing C:\\Users\\O'Connor\\private.txt", "missing <path>"),
+    ("cannot open \\\\server\\users\\O'Connor\\file", "cannot open <path>"),
+    ("host probe exited 1 in ghcr.io/intel/dokimi-grader:1 (python3 -c): boom",
+     "host probe exited 1 in ghcr.io/intel/dokimi-grader:1 (python3 -c): boom"),
 ])
 def test_scrub_redacts_quoted_unc_and_home_relative_paths_whole(text, kept):
     assert hf.scrub(text) == kept
