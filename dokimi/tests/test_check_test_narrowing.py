@@ -586,3 +586,17 @@ def test_swapped_tolerances_of_calls_in_one_assert_without_a_comparison_are_name
     swapped = base.replace("rel_tol=1e-9", "rel_tol=TMP").replace("rel_tol=1e-3", "rel_tol=1e-9").replace(
         "rel_tol=TMP", "rel_tol=1e-3")
     assert [what for _, _, what in ctn.compare(base, swapped)] == ["loosens a tolerance"]
+
+
+CLASS_CASES = ("import pytest\n\nCASES = [1, 2, 3]\n\n\nclass TestGroup:\n    CASES = [1, 2]\n\n"
+               "    @pytest.mark.parametrize('x', CASES)\n    def test_values(self, x):\n        assert x > 0\n")
+
+
+def test_a_class_constant_that_shadows_a_module_one_is_read_as_its_own():
+    head = CLASS_CASES.replace("CASES = [1, 2]", "CASES = [1]")
+    assert [what for _, _, what in ctn.compare(CLASS_CASES, head)] == ["cuts parametrize cases (2 -> 1)"]
+
+
+def test_a_module_constant_that_a_class_shadows_does_not_move_the_class_test():
+    head = CLASS_CASES.replace("CASES = [1, 2, 3]", "CASES = [1]")
+    assert ctn.compare(CLASS_CASES, head) == []

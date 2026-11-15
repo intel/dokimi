@@ -287,6 +287,28 @@ def _scope_skips(body: list[ast.stmt]) -> int:
     return total
 
 
+def _class_names(body: list[ast.stmt]) -> dict[str, ast.expr | None]:
+    """The names a class body binds, each with its value when it is one plain constant assigned once
+    and not read in its own value, else None (a name a class body binds is never the module's)."""
+    bound: dict[str, ast.expr | None] = {}
+    count: dict[str, int] = {}
+    for stmt in body:
+        if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            bound[stmt.name] = None
+            count[stmt.name] = count.get(stmt.name, 0) + 1
+            continue
+        for target in _targets(stmt):
+            for sub in ast.walk(target):
+                if isinstance(sub, ast.Name):
+                    count[sub.id] = count.get(sub.id, 0) + 1
+                    bound[sub.id] = None
+        if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1 and isinstance(stmt.targets[0], ast.Name) \
+                and not _effects(stmt.value) \
+                and not any(isinstance(n, ast.Name) and n.id == stmt.targets[0].id for n in ast.walk(stmt.value)):
+            bound[stmt.targets[0].id] = stmt.value
+    return {name: value if count.get(name) == 1 else None for name, value in bound.items()}
+
+
 def _inline_constants(tree: ast.Module) -> ast.Module:
     """``tree`` with each read of a module-level constant replaced by a copy of its value.
 
@@ -303,14 +325,32 @@ def _inline_constants(tree: ast.Module) -> ast.Module:
 
     class Inline(ast.NodeTransformer):
         def __init__(self) -> None:
-            self.shadowed: set[str] = set()
+            self.shadowed: set[str] = set()  # names a function around the read binds
+            self.cls: dict[str, ast.expr | None] = {}  # names the class body around the read binds: value or None
 
         def visit_Name(self, node: ast.Name) -> ast.AST:
-            if isinstance(node.ctx, ast.Load) and node.id in consts and node.id not in self.shadowed:
-                value = copy.deepcopy(consts[node.id])
-                for sub in ast.walk(value):
-                    ast.copy_location(sub, node)
-                return value
+            if not isinstance(node.ctx, ast.Load):
+                return node
+            if node.id in self.cls:
+                value = self.cls[node.id]
+            elif node.id in consts and node.id not in self.shadowed:
+                value = consts[node.id]
+            else:
+                return node
+            if value is None:
+                return node
+            copied = copy.deepcopy(value)
+            for sub in ast.walk(copied):
+                ast.copy_location(sub, node)
+            return copied
+
+        def visit_ClassDef(self, node: ast.ClassDef) -> ast.AST:
+            # A class body's own names are read in the class body and in its method decorators, not in a method body.
+            node.decorator_list = [self.visit(d) for d in node.decorator_list]
+            node.bases = [self.visit(b) for b in node.bases]
+            outer, self.cls = self.cls, _class_names(node.body)
+            node.body = [self.visit(stmt) for stmt in node.body]
+            self.cls = outer
             return node
 
         def _function(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> ast.AST:
@@ -319,8 +359,9 @@ def _inline_constants(tree: ast.Module) -> ast.Module:
             local |= {n.id for n in ast.walk(node) if isinstance(n, ast.Name)
                       and isinstance(n.ctx, (ast.Store, ast.Del))}
             outer, self.shadowed = self.shadowed, self.shadowed | local
+            outer_cls, self.cls = self.cls, {}
             node.body = [self.visit(stmt) for stmt in node.body]
-            self.shadowed = outer
+            self.shadowed, self.cls = outer, outer_cls
             return node
 
         visit_FunctionDef = visit_AsyncFunctionDef = _function
