@@ -145,6 +145,37 @@ def test_a_pip_option_or_a_versioned_pip_still_names_the_install(command):
     assert _choices(_run(SKLEARN, _bash("a", command, "2026-01-01T00:00:05Z"))) == [("sklearn", "install", None)]
 
 
+def test_uvs_project_verbs_add_and_remove_name_the_package():
+    events = _run(SKLEARN, _bash("a", "uv add scikit-learn-intelex", "2026-01-01T00:00:05Z"),
+                  _bash("b", "uv remove scikit-learn-intelex", "2026-01-01T00:00:09Z"))
+    assert _choices(events) == [("sklearn", "install", None), ("sklearn", "remove", None)]
+
+
+def test_an_install_in_an_and_chain_names_the_install():
+    assert _choices(_run(SKLEARN, _bash("a", "cd /ws && pip install scikit-learn-intelex",
+                                        "2026-01-01T00:00:05Z"))) == [("sklearn", "install", None)]
+
+
+@pytest.mark.parametrize("command", [
+    # the exit code is the last part's: the install may have failed, or never run
+    "python -c 'import sklearnex' || pip install scikit-learn-intelex",
+    "pip install scikit-learn-intelex; echo done",
+    "pip install scikit-learn-intelex 2>&1 | tail -3",
+    "pip install scikit-learn-intelex &",
+    "pip install --dry-run scikit-learn-intelex",
+])
+def test_an_install_whose_exit_code_is_not_its_own_gives_no_choice(command):
+    assert _choices(_run(SKLEARN, _bash("a", command, "2026-01-01T00:00:05Z"))) == []
+
+
+def test_an_import_after_a_semicolon_on_the_same_line_is_an_import():
+    events = _run(SKLEARN, _edit("a", "app.py", "import os; from sklearnex import patch_sklearn\n",
+                                 "2026-01-01T00:00:05Z"))
+    assert ("sklearn", "import", "app.py") in _choices(events)
+    events = _run(SKLEARN, _edit("a", "app.py", "import os; import sklearnex\n", "2026-01-01T00:00:05Z"))
+    assert _choices(events) == [("sklearn", "import", "app.py")]
+
+
 @pytest.mark.parametrize(("raw", "message"), [
     ({"sk": {"fit": ["x"]}}, "unknown act 'fit'"),
     ({"sk": {"import": ["sklearn learn"]}}, "takes a dotted Python name"),

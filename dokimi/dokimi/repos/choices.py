@@ -103,9 +103,16 @@ def choice_timeline(events: Sequence[dict[str, Any]]) -> list[tuple[float | None
 
 
 def _command_choices(event: dict[str, Any], candidates: Mapping[str, Mapping[str, Sequence[str]]]) -> list[dict]:
+    """An install or removal counts only where the command's exit code is its own: every part joined to the next by
+    ``&&`` (rc 0 then means each ran), and not in a pipeline (the last stage's code). A ``;``, ``||`` or ``&`` part may
+    have failed or never run, so its install gives no choice."""
+    parts = split_script(str(event.get("text", "")))
+    if any(part.after not in ("", "&&") for part in parts):
+        return []
     found: dict[tuple[str, str], None] = {}
-    for part, *_ in split_script(str(event.get("text", ""))):
-        call = _package_call(_words(part))
+    for part, *_ in parts:
+        words = _words(part)
+        call = None if "|" in words else _package_call(words)
         if call is None:
             continue
         act, packages = call
@@ -140,10 +147,11 @@ def _choice(event: dict[str, Any], cid: str, act: str, path: str | None) -> dict
 
 
 def _imports(name: str, text: str) -> bool:
-    """``from name import ...``, or ``import name`` among the comma-separated modules of an ``import`` line."""
-    if re.search(rf"^\s*from\s+{re.escape(name)}(?!\w)", text, re.M):
+    """``from name import ...``, or ``import name`` among the comma-separated modules of an ``import`` line; a
+    statement may follow another on its line after a ``;``."""
+    if re.search(rf"(?:^|;)[ \t]*from\s+{re.escape(name)}(?!\w)", text, re.M):
         return True
-    for line in re.finditer(r"^\s*import\s+([^\n#]+)", text, re.M):
+    for line in re.finditer(r"(?:^|;)[ \t]*import\s+([^\n#;]+)", text, re.M):
         for part in line.group(1).split(","):
             module = re.split(r"\s+as\s+", part.strip())[0]
             if module == name or module.startswith(name + "."):
@@ -164,6 +172,8 @@ def _words(part: str) -> list[str]:
 
 def _package_call(words: list[str]) -> tuple[str, list[str]] | None:
     """The act and the package names of a package manager's install, add, uninstall or remove call."""
+    if "--dry-run" in words:  # a dry run installs nothing
+        return None
     rest = _manager_rest(words)
     while rest and rest[0].startswith("-"):  # ``pip --quiet install``: the options before the verb
         rest = rest[1:]
@@ -185,6 +195,8 @@ def _manager_rest(words: list[str]) -> list[str]:
         return words[3:]
     if head == "uv" and words[1:2] == ["pip"]:
         return words[2:]
+    if head == "uv" and words[1:2] in (["add"], ["remove"]):  # uv's project verbs: ``uv add`` installs a requirement
+        return words[1:]
     if _PIP.fullmatch(head) or head in ("conda", "mamba", "poetry"):
         return words[1:]
     return []

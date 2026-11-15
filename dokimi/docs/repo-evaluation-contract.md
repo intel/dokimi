@@ -557,6 +557,10 @@ reads the upstream base (`base_sha`) and the workspace start commit
   (modules an added `import` or `from` line names) and `use` (dotted names an added line mentions, textually: a comment counts too). Only added text
   counts: the new side of an `Edit`, the content of a `Write`, never what the edit replaced. A harness whose edit
   events carry no added text (Copilot's `apply_patch`, Codex's `file_change`) gives install and remove events only.
+  An install or removal gives a choice only when its command joins every part to the next with `&&` and has no pipe:
+  the harness reports one exit code per command, so a `;`, `||` or `|` part could have failed or never run. A
+  `--dry-run` installs nothing and gives none. An install in a `bash -c` wrapper, or whose first word carries a
+  parenthesis (`(pip install X)`), gives none.
   Choice events are written to `events.jsonl`; the counters and `first_useful` do not read them.
 
 `result.json` reports the agent's tokens (`input_tokens`, `output_tokens`,
