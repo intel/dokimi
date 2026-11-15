@@ -547,6 +547,17 @@ def test_a_nested_back_link_to_the_skill_root_names_no_file(tmp_path, back):
     assert message.startswith("1 of 2") and "scripts/helper.py" in message and "guide.md" not in message
 
 
+def test_a_root_level_document_linking_home_names_no_file(tmp_path):
+    # A document beside SKILL.md is not SKILL.md: its link to the root names its target, not every file.
+    review = _review_with_texts(
+        tmp_path,
+        "Read [guide](guide.md).\n",
+        {"guide.md": "Use [home](./).\n", "scripts/helper.py": "x\n"},
+    )
+    [message] = _unreferenced(review)
+    assert message.startswith("1 of 2") and "scripts/helper.py" in message
+
+
 def test_a_root_link_in_skill_md_names_every_file_even_when_a_document_links_back(tmp_path):
     review = _review_with_texts(
         tmp_path,
