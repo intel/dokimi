@@ -67,6 +67,6 @@ file may mix versions, since traces are re-derived and appended to.
 
 ## Null values
 
-`t` is `null` when the harness writes no timestamps (Codex, Copilot). `rc` is
+`t` is `null` when a record has no parseable timestamp (always for Codex). `rc` is
 `null` when no result came back, for example at the turn or budget limit: a
 grader must not count `null` as a failure.
