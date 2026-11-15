@@ -799,7 +799,18 @@ the skills whose queries it took (`from`). Skills whose descriptions have the sa
 (`tied_groups`, named once on the console): a pick between them is in the confusion matrix but
 is no attractor, and a tied skill's own rate is lower by the picks inside its group. Every rate is over the queries that were scored:
 `n_scored` and `n_unscored` per skill say how many, a query with no content word or a failed
-model call is unscored, and a skill with none scored has an own rate of `null`, not 0.0. A run
+model call is unscored, and a skill with none scored has an own rate of `null`, not 0.0. The lexical arm
+also keeps `per_query`, one row per query whatever `--reps` is, in the shape of a single-artifact run's
+`per_query` plus the `gold` skill: `query`, `gold`, `rank` of the gold card and `picked` (`rank` is `null` and
+a `reason` replaces `picked` for a query with no content word). `picked` follows the confusion matrix, so it is
+`(none)` for a query that shares no word with any card and `(tie)` when two or more other cards tie at the top,
+where a single-artifact run names the first card in the field. `rank` and `picked` hold for the row's `gold`
+only, so each row also keeps `scores` (card name to BM25 score, in the order of the field), which do not depend
+on the gold: `rescore_lexical_row(row, gold)` in `dokimi.novelty.all_vs_all` gives `rank` and `picked` for a
+corrected gold, ties included, and keeps a row with no content word unscored. A saved run can be rescored from them for corrected gold labels (one gold per row), split by
+query set half, or compared query by query with another run; scoring a set of acceptable golds per query is not
+shipped (#710). The model arm's rows are `model.noise.per_query` (`query`, `gold`, `picks`, `n_correct`), also kept
+with one repeat. A run
 with any failed model call writes the result and exits non-zero. The saved file records the
 field rule under `field` (`include_disabled`, `include_invalid`, `keep_copies_under`, the `competitors` and what was
 `left_out`, which also names each skill left out for a conflicting name or a spec error, and `spec_warnings`, one
@@ -827,7 +838,7 @@ so count the queries first, or pass `--max-usd` to stop the run at a spend limit
 A stored response in `DOKIMI_RESPONSE_CACHE` is replayed without a call, so a rerun can make
 fewer calls than the printed count.
 
-**A permanent provider error that every call would meet stops a routing run the way the cap does.** An authentication or permission error, an unknown model ID (`not found`), a parameter the provider does not take (every call sends the same ones) or missing credentials (with `claude-cli`: not logged in, a usage limit, no `claude` binary) would fail every later call alike, so the run stops at that call, keeps the rows made before it and writes the partial result below, with `"reason": "permanent_error"` and the error text as the message (`--max-usd` is not involved; the exit line gives `calls_done` of `calls_planned`). Any other failure is one failed row and the run goes on: a refusal, a request one query makes too long, an unparseable reply, an error the client does not recognise, a transient error that ran out of retries.
+**A permanent provider error that every call would meet stops a routing run the way the cap does.** An authentication or permission error, an unknown model ID (`not found`), a parameter the provider does not take (every call sends the same ones) or missing credentials (with `claude-cli`: not logged in, a usage limit, no `claude` binary; with AWS: "Unable to locate credentials", a missing config profile or an expired SSO session, whichever class litellm wraps it in) would fail every later call alike, so the run stops at that call, keeps the rows made before it and writes the partial result below, with `"reason": "permanent_error"` and the error text as the message (`--max-usd` is not involved; the exit line gives `calls_done` of `calls_planned`). Any other failure is one failed row and the run goes on: a refusal, a request one query makes too long, an unparseable reply, an error the client does not recognise, a transient error that ran out of retries.
 
 **A routing run stopped by `--max-usd` keeps what it paid for.** `skill routing --model`, single
 artifact or `catalog routing`, writes the result of the calls made before the cap (or a call with no
@@ -1319,11 +1330,11 @@ And the retention oracle runs retrieval → NLI locally, escalating to an LLM on
 ambiguous band, with a disk cache (`--cache-dir`) keyed on (atom, text). Full sweeps stay opt-in
 (`--all-atoms`).
 
-The cache key carries a version (`retention-cache-v4`). Entries written before failed
+The cache key carries a version (`retention-cache-v5`). Entries written before failed
 adjudications were kept out of the cache can hold a failure stored as `absent`, entries written
 before a hedged verdict (`retained?`) counted as no verdict can hold it stored as `retained`, and
 entries written before a reply cut at the output ceiling was an error can hold a verdict parsed
-from a truncated reply; all of them look like real ones, so none of them is read. The old files stay in `--cache-dir` and can be deleted. The
+from a truncated reply, and entries written by a `--lexical-only` run can hold its ambiguous-band placeholder stored as `absent`; all of them look like real ones, so none of them is read. The old files stay in `--cache-dir` and can be deleted. The
 first run after upgrading therefore pays one adjudication call per pair the old cache held, unless
 `DOKIMI_RESPONSE_CACHE` replays it, but the response-cache key carries `max_tokens`, and novelty
 calls now send 16384 where they sent none, so those entries miss too.
