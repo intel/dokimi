@@ -216,6 +216,7 @@ def test_bug_after_a_success_removes_old_success_receipts(tmp_path, monkeypatch)
     report = (out / "report.md").read_text()
     assert "**pass**" not in report
     assert "injected evaluation failure" in report
+    assert "Internal error: RuntimeError: injected evaluation failure" in report
 
 
 def test_failed_error_receipt_is_named_when_a_bug_stops_the_run(tmp_path, monkeypatch):
