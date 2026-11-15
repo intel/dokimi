@@ -14,6 +14,7 @@ import sys
 import pytest
 
 from dokimi.eval.interactions import interaction_significance, interaction_test
+from dokimi.records import Record, Score
 
 BIG = 1.7e308
 ARMS = ["baseline", "a", "b", "a+b"]
@@ -68,6 +69,19 @@ def test_a_contrast_equal_to_the_float_maximum_is_not_lost_to_the_rounding_of_a_
     res = _test(evaluations)
     assert res is not None
     assert res["interaction"] == sys.float_info.max / 2
+
+
+@pytest.mark.parametrize("row", [(math.inf, 0.0, math.inf, 0.0), (math.inf, math.inf, 0.0, 0.0), (math.nan, 0.0, math.inf, 0.0)])
+def test_a_record_with_a_non_finite_score_gives_a_nan_contrast_not_a_value_error(row):
+    # Record objects can carry inf and nan aggregates (JSON input cannot); opposite infinities made fsum raise ValueError
+    def scores(ab, a, b, base):
+        return {k: Score(aggregate=v) for k, v in {"a+b": ab, "a": a, "b": b, "baseline": base}.items()}
+
+    evaluations = [Record(question_id="q1", scores=scores(*row)), Record(question_id="q2", scores=scores(0.0, 0.0, 0.0, 0.0))]
+    res = _test(evaluations)
+    assert res is not None
+    assert math.isnan(res["interaction"])
+    assert res["p"] is None
 
 
 def test_a_near_range_contrast_that_stays_finite_returns_finite_numbers():
