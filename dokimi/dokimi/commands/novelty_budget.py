@@ -108,7 +108,7 @@ def write_run(payload: dict, out: Path, partial: dict | None = None) -> Path:
 #: shared cap refuses the second judge, so its block is a stop record or empty.
 PARTIAL_SUMMARIES = ("paired", "arms", "abstentions", "reversal_resisted",
                      "reversal_resisted_by_arm", "reversal_paired", "confidence_correlation",
-                     "judge2")
+                     "judge2", "judge_panel")
 
 
 def save_probe_run(payload: dict, out: Path, *, done: int, not_run: int,

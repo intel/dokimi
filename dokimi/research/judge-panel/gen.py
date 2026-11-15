@@ -145,7 +145,7 @@ def shown(x):
 for r in out["pairs"]:
     adds = " ".join(f"{k.split(':')[1][:10]}={shown(v[0])}->{shown(v[1])}"
                     for k, v in r["added"].items() if k.startswith("lenient"))
-    print(f"  {r['old']}->{r['new']}: k={r['kappa_old_new']} dlen={r['lenient_rate_delta'] or float('nan'):+.3f} {adds}")
+    print(f"  {r['old']}->{r['new']}: k={r['kappa_old_new']} dlen={'n/a' if r['lenient_rate_delta'] is None else format(r['lenient_rate_delta'], '+.3f')} {adds}")
 print("panels median, lenient added")
 for name, p in out["panels"].items():
     print(" ", name, {k.split(':')[1]: rounded(v) for k, v in p["added"].items() if k.startswith("lenient")})

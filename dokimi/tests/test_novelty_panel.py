@@ -114,6 +114,17 @@ def test_a_judge_that_fails_is_left_out_of_the_vote():
     assert base.judge_verdicts["broken"] == "error"
 
 
+def test_a_failed_vote_does_not_count_as_a_wrong_one():
+    atoms, probes, answerer = _setup()
+    broken = _judge("broken", lambda p: None)
+    result = run_measurement(atoms[:1], probes[:1], "t", answerer=answerer,
+                             judge=_judge("a", lambda p: CC),
+                             panel=(broken, _judge("b", lambda p: CC)),
+                             aggregate="unanimous", concurrency=1)
+    base = next(r for r in result.runs if r.arm == BASELINE_ARM)
+    assert base.verdict == CC
+
+
 def test_every_panel_judge_is_checked_against_the_answerer():
     atoms, probes, answerer = _setup()
     with pytest.raises(SelfJudgeError):

@@ -143,7 +143,7 @@ def do_repeat(workers: int):
     res = llm.pmap(run, todo, workers=workers, desc="repeats")
     ok = [x for x in res if isinstance(x, dict)]
     ok = [kept[k] for k in kept if k in {key({**r, "arm": "no_skill_repeat"}) for r in base}] + ok
-    print("repeat ok", len(ok), "failed", len(res) - len(ok))
+    print("repeat ok", len(ok), "failed", len(res) - sum(isinstance(x, dict) for x in res))
     with (OUT / "repeats.jsonl").open("w") as fh:
         for r in ok:
             fh.write(json.dumps(r) + "\n")

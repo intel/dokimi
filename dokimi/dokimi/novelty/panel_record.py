@@ -46,11 +46,14 @@ def _added_range(per_judge_runs: dict[str, list[ProbeRun]], with_arm: str,
     range is taken on the pairs graded by all, so a missing grade is not read as a judge
     that disagrees. ``None`` when no pair is graded by every judge.
     """
-    shared = set.intersection(*(_graded_pairs(own, with_arm) for own in per_judge_runs.values()))
+    graded = [own for own in per_judge_runs.values() if _graded_pairs(own, with_arm)]
+    if not graded:
+        return None
+    shared = set.intersection(*(_graded_pairs(own, with_arm) for own in graded))
     if not shared:
         return None
     shares = []
-    for own in per_judge_runs.values():
+    for own in graded:
         kept = [r for r in own
                 if r.probe_kind == "reversal" or (r.atom_id, r.probe_kind, r.question) in shared]
         shares.append(paired_outcomes(kept, with_arm=with_arm, scoring=scoring)["added"])
