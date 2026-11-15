@@ -6,7 +6,8 @@
 Each collector returns a flat dict of JSON scalars. A collector that fails returns ``{"error": ...}``
 and the others still run, so one unreadable file never costs the probe. Nothing that identifies a
 person or a machine is read or recorded: no host name, user name, IP address, environment value or
-absolute path (an error message is scrubbed of paths before it is kept). Spawns go through
+absolute path (an error message is scrubbed of paths before it is kept). The Windows CPU model is
+``platform.processor()``, which Windows fills from ``PROCESSOR_IDENTIFIER``. Spawns go through
 :mod:`dokimi.process`, and only where the platform has the tool: nothing is shelled to on Windows
 except the cross-platform ``--version`` calls and ``nvidia-smi`` when it is on the path.
 """

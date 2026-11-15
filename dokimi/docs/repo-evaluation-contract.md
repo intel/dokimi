@@ -702,7 +702,8 @@ Its collectors are `os`, `cpu`, `memory`, `gpu`, `python`, `tools`, `network` an
 flat dict of JSON scalars under `collectors` in the probe's facts, beside the container's own keys
 (`cpus`, `cpu_vendor`, ...), which are unchanged. A collector that fails reports `{"error": ...}`
 and the others still run. Linux reads `/proc`, `/sys` and `/etc/os-release`; macOS reads `sysctl`;
-Windows reads the kernel's memory status and spawns only `git --version`, `nvidia-smi` and the other
+Windows reads the kernel's memory status, takes the CPU model from `platform.processor()` (which
+Windows fills from `PROCESSOR_IDENTIFIER`) and spawns only `git --version`, `nvidia-smi` and the other
 tools' `--version` calls when they are on the path. `gpu` is NVIDIA only. `virt` reads a container
 from `/.dockerenv`, podman's `/run/.containerenv` or the cgroup, and a VM from DMI or the `hypervisor`
 CPU flag. Nothing identifying is recorded: no host or user name, IP address, environment value,
