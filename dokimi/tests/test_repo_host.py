@@ -459,6 +459,20 @@ def test_a_cell_reserves_the_budget_its_task_allows_not_the_run_budget(tmp_path,
     assert "1 ran, 0 already done, 0 crashed, 1 not started" in capsys.readouterr().out
 
 
+def test_a_finished_cell_reserves_nothing_so_it_cannot_stop_a_cell_that_runs(tmp_path):
+    from threading import Lock
+
+    from dokimi.repos.runner import _reserve
+
+    done, todo = tmp_path / "done", tmp_path / "todo"
+    done.mkdir()
+    (done / "result.json").write_text("{}", encoding="utf-8")
+    state = {"spent": 0.006, "reserved": 0.0, "budget_stopped": 0}  # the cap is spent
+    assert _reserve(state, Lock(), 0.005, done, 2.0, False) == 0.0  # a kept cell: no reservation, no stop
+    assert _reserve(state, Lock(), 0.005, todo, 2.0, False) is None  # a cell that may run: the cap is spent
+    assert state["reserved"] == 0.0 and state["budget_stopped"] == 1
+
+
 def test_a_batch_spend_that_is_not_a_usable_total_stops_the_run(tmp_path):
     from dokimi.repos.runner import _read_batch_spend
 
