@@ -126,7 +126,7 @@ class PersonaAnalyzer:
             
             return analysis
             
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - logged; falls back to the gh CLI
             logger.error(f"PyGithub analysis error: {e}, falling back to gh CLI")
             return self._analyze_with_gh_cli(repo_name)
     
@@ -165,7 +165,7 @@ class PersonaAnalyzer:
                 "topics": []
             }
             
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - logged; an empty analysis
             logger.error(f"gh CLI analysis failed: {e}")
             return self._empty_analysis()
     
@@ -217,7 +217,7 @@ class PersonaAnalyzer:
         try:
             readme = repo.get_readme()
             return readme.decoded_content.decode('utf-8')
-        except Exception:
+        except Exception:  # noqa: BLE001 - a repo without a readable README has no README text
             return ""
     
     def _extract_use_cases(self, repo) -> List[str]:
@@ -272,6 +272,7 @@ class PersonaAnalyzer:
                     issues = repo.get_issues(state='all', labels=[label])
                     issues_to_analyze.extend(list(issues[:limit // len(question_labels)]))
                 except Exception:
+                    logger.warning("Issues for label %r not fetched", label, exc_info=True)
                     continue
             
             # Extract patterns
@@ -302,7 +303,7 @@ class PersonaAnalyzer:
                 "sample_issues": sample_issues[:10]
             }
             
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - logged; an empty issue sample
             logger.error(f"Issue analysis error: {e}")
             return {"common_questions": [], "common_labels": [], "sample_issues": []}
     
