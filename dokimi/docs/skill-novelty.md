@@ -838,7 +838,7 @@ so count the queries first, or pass `--max-usd` to stop the run at a spend limit
 A stored response in `DOKIMI_RESPONSE_CACHE` is replayed without a call, so a rerun can make
 fewer calls than the printed count.
 
-**A permanent provider error that every call would meet stops a routing run the way the cap does.** An authentication or permission error, an unknown model ID (`not found`), a parameter the provider does not take (every call sends the same ones) or missing credentials (with `claude-cli`: not logged in, a usage limit, no `claude` binary) would fail every later call alike, so the run stops at that call, keeps the rows made before it and writes the partial result below, with `"reason": "permanent_error"` and the error text as the message (`--max-usd` is not involved; the exit line gives `calls_done` of `calls_planned`). Any other failure is one failed row and the run goes on: a refusal, a request one query makes too long, an unparseable reply, an error the client does not recognise, a transient error that ran out of retries.
+**A permanent provider error that every call would meet stops a routing run the way the cap does.** An authentication or permission error, an unknown model ID (`not found`), a parameter the provider does not take (every call sends the same ones) or missing credentials (with `claude-cli`: not logged in, a usage limit, no `claude` binary; with AWS: "Unable to locate credentials", a missing config profile or an expired SSO session, whichever class litellm wraps it in) would fail every later call alike, so the run stops at that call, keeps the rows made before it and writes the partial result below, with `"reason": "permanent_error"` and the error text as the message (`--max-usd` is not involved; the exit line gives `calls_done` of `calls_planned`). Any other failure is one failed row and the run goes on: a refusal, a request one query makes too long, an unparseable reply, an error the client does not recognise, a transient error that ran out of retries. `skill novelty atoms`, `probe` and `analyze` and `skill shorten` stop the same way at the first such error in an atom extraction call, the faithfulness check, a probe wording, an answer, a grade, a value or conflict batch or a retention adjudication, and keep what they paid for as they do at the cap, with `"reason": "permanent_error"`; a refusal, an unparseable reply or a request one item makes too long is still one failed item.
 
 **A routing run stopped by `--max-usd` keeps what it paid for.** `skill routing --model`, single
 artifact or `catalog routing`, writes the result of the calls made before the cap (or a call with no
@@ -1151,8 +1151,8 @@ the cap stops the run).
 A partial file is for inspection; rerun to get a finished one.
 `analyze` does the same beside its `novelty.json` (`<out stem>.partial.json`, never over a
 finished file; the `--out` file, `novelty.json` in `--out-dir` by default). Its partial file has
-`"status": "partial"` and a `partial` block: `reason` (`spend_cap`, or `no_price` for a call with
-no known price), `stage` (`extraction`, `verify`, `need_graph`, `probes`, `measurement`, `classify`
+`"status": "partial"` and a `partial` block: `reason` (`spend_cap`, `no_price` for a call with
+no known price, or `permanent_error`), `stage` (`extraction`, `verify`, `need_graph`, `probes`, `measurement`, `classify`
 or `attribution`: the stage that was running), `message`, `cause` (the cap's own text, with what was
 spent), and `spans_read` / `spans_total` for an extraction stop or `calls_done` / `calls_planned`
 (probe answers) once the measurement started. It keeps the `extracted_atoms` and `source_spans`
@@ -1330,11 +1330,11 @@ And the retention oracle runs retrieval → NLI locally, escalating to an LLM on
 ambiguous band, with a disk cache (`--cache-dir`) keyed on (atom, text). Full sweeps stay opt-in
 (`--all-atoms`).
 
-The cache key carries a version (`retention-cache-v4`). Entries written before failed
+The cache key carries a version (`retention-cache-v5`). Entries written before failed
 adjudications were kept out of the cache can hold a failure stored as `absent`, entries written
 before a hedged verdict (`retained?`) counted as no verdict can hold it stored as `retained`, and
 entries written before a reply cut at the output ceiling was an error can hold a verdict parsed
-from a truncated reply; all of them look like real ones, so none of them is read. The old files stay in `--cache-dir` and can be deleted. The
+from a truncated reply, and entries written by a `--lexical-only` run can hold its ambiguous-band placeholder stored as `absent`; all of them look like real ones, so none of them is read. The old files stay in `--cache-dir` and can be deleted. The
 first run after upgrading therefore pays one adjudication call per pair the old cache held, unless
 `DOKIMI_RESPONSE_CACHE` replays it, but the response-cache key carries `max_tokens`, and novelty
 calls now send 16384 where they sent none, so those entries miss too.

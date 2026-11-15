@@ -40,6 +40,7 @@ import functools
 import itertools
 import math
 import random
+import sys
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -70,12 +71,16 @@ def sign_flip_p(deltas: list[float], seed: int = 0, n_resamples: int = N_RESAMPL
     """Two-sided p of ``|sum(deltas)|`` when each delta's sign is a fair coin under the null.
 
     ``None`` when every delta is a tie: there is no evidence either way, and 1.0 would read as a measured null.
-    Rounded to 6 places as printed, unless ``exact``.
+    Rounded to 6 places as printed, unless ``exact``. Deltas whose largest magnitude is above ``max float / (8 * n)``
+    are divided by a power of two (exact) first, as in :func:`sign_flip_interval`, so no sum leaves the float range.
     """
     d = [x for x in deltas if abs(x) > EPS]
     if not d:
         return None
-    observed = abs(sum(d)) - EPS
+    eps, k = EPS, _scale_exponent(d)
+    if k:  # near the float maximum the sums go to inf/nan: the same p on the deltas divided by a power of two
+        d, eps = [math.ldexp(x, -k) for x in d], math.ldexp(EPS, -k)
+    observed = abs(sum(d)) - eps
     if len(d) <= EXACT_MAX:
         hits = sum(abs(sum(s * x for s, x in zip(signs, d, strict=True))) >= observed
                    for signs in itertools.product((1, -1), repeat=len(d)))
@@ -120,19 +125,21 @@ class ShiftTest:
     can round to one side of it in the product and to the other in ``sum()``, so ``p(0)`` can differ there: the
     row's own p, not ``p(0)``, places 0 (:func:`sign_flip_interval`)."""
 
-    def __init__(self, deltas: list[float], seed: int = 0, n_resamples: int = N_RESAMPLES) -> None:
+    def __init__(self, deltas: list[float], seed: int = 0, n_resamples: int = N_RESAMPLES, *,
+                 eps: float = EPS) -> None:
         import numpy as np
 
-        changed = [x for x in deltas if abs(x) > EPS]
-        self.d = np.array(changed + [x for x in deltas if abs(x) <= EPS], dtype=float)  # sign_flip_p's order first
-        self.changed, self.seed, self.n_resamples = len(changed), seed, n_resamples
+        changed = [x for x in deltas if abs(x) > eps]
+        self.d = np.array(changed + [x for x in deltas if abs(x) <= eps], dtype=float)  # sign_flip_p's order first
+        self.changed, self.seed, self.n_resamples, self.eps = len(changed), seed, n_resamples, eps
 
     def p(self, theta: float) -> float | None:
         """``None`` when every shifted delta ties, as :func:`sign_flip_p` has no p then."""
         import numpy as np
 
         x = self.d - theta
-        x[np.abs(x) <= EPS] = 0.0
+        eps = self.eps
+        x[np.abs(x) <= eps] = 0.0
         moved = x[x != 0.0]
         if not moved.size:
             return None
@@ -140,9 +147,9 @@ class ShiftTest:
         if moved.size <= EXACT_MAX:
             sums = np.abs(_patterns(moved.size) @ moved)  # rows 0 and -1: the observed signs and their mirror
             least = min(observed, float(sums[0]), float(sums[-1]))  # the product rounds them otherwise from 1e6 on
-            return int(np.count_nonzero(sums >= least - EPS)) / 2 ** moved.size
+            return int(np.count_nonzero(sums >= least - eps)) / 2 ** moved.size
         signs = _draws(self.seed, self.changed, self.d.size, self.n_resamples)
-        return (int(np.count_nonzero(np.abs(signs @ x) >= observed - EPS)) + 1) / (self.n_resamples + 1)
+        return (int(np.count_nonzero(np.abs(signs @ x) >= observed - eps)) + 1) / (self.n_resamples + 1)
 
 
 def sign_flip_interval(deltas: list[float], p_zero: float | None, seed: int = 0, *,
@@ -155,23 +162,59 @@ def sign_flip_interval(deltas: list[float], p_zero: float | None, seed: int = 0,
 
     Every delta tied gives ``(0.0, 0.0)`` from 6 deltas on, and ``p_zero`` is ``None``: no evidence against 0, but
     any shift off 0 moves all n deltas to one side, which the test rejects at ``2 / 2**n``, as eight +20 deltas give
-    ``(20.0, 20.0)``. At 5 or fewer the ends are open, as at every row of so few."""
-    test, mean = ShiftTest(deltas, seed), math.fsum(deltas) / len(deltas)
-    zero_inside, low, high = p_zero is None or p_zero >= ALPHA, min(*deltas, 0.0), max(*deltas, 0.0)
-    # far is 1 past the extreme, or twice it from 1 on: 1e16 + 1.0 rounds back onto 1e16, all tied
-    ends = (_end(test, mean, low - max(1.0, -low), zero_inside),
-            _end(test, mean, high + max(1.0, high), zero_inside))
+    ``(20.0, 20.0)``. At 5 or fewer the ends are open, as at every row of so few.
+
+    A largest ``|delta|`` above ``max float / (8 * n)`` would take the far bound, the shifted deltas or the pattern
+    sums out of the float range: the search then runs on the deltas divided by a power of two (exact), with
+    :data:`EPS` and :data:`TOL` divided the same, and each end is multiplied back. An end that comes
+    back past the float maximum is the maximum (``±max``), never ``inf``: from 6 deltas on a shift past it puts every
+    delta on one side, which the test rejects, so the search overshoots a true end at the maximum by a few ulps."""
+    k = _scale_exponent(deltas)
+    if k:
+        scaled = [math.ldexp(x, -k) for x in deltas]
+        ends = _ends(scaled, p_zero, seed, math.ldexp(EPS, -k), math.ldexp(TOL, -k))
+        ends = (_scaled_back(ends[0], k), _scaled_back(ends[1], k))
+    else:
+        ends = _ends(deltas, p_zero, seed, EPS, TOL)
     return (_rounded(ends[0]), _rounded(ends[1])) if rounded else ends
 
 
-def _end(test: ShiftTest, mean: float, far: float, zero_inside: bool) -> float | None:
+def _scale_exponent(deltas: list[float]) -> int:
+    """``k`` such that ``deltas / 2**k`` stays clear of the float maximum in the search; 0 when they already do."""
+    largest, limit = max(map(abs, deltas), default=0.0),sys.float_info.max / (8 * len(deltas))
+    if not math.isfinite(largest) or largest <= limit:
+        return 0
+    return math.frexp(largest)[1] - math.frexp(limit)[1] + 1
+
+
+def _scaled_back(end: float | None, k: int) -> float | None:
+    if end is None:
+        return None
+    try:
+        return math.ldexp(end, k)
+    except OverflowError:
+        # a shift past the maximum puts every delta on one side and is rejected, so no true end is past it: the
+        # bisection stops a few ulps beyond an end at the maximum, where the sums cannot resolve TOL
+        return math.copysign(sys.float_info.max, end)
+
+
+def _ends(deltas: list[float], p_zero: float | None, seed: int, eps: float, tol: float
+          ) -> tuple[float | None, float | None]:
+    test, mean = ShiftTest(deltas, seed, eps=eps), math.fsum(deltas) / len(deltas)
+    zero_inside, low, high = p_zero is None or p_zero >= ALPHA, min(*deltas, 0.0), max(*deltas, 0.0)
+    # far is 1 past the extreme, or twice it from 1 on: 1e16 + 1.0 rounds back onto 1e16, all tied
+    return (_end(test, mean, low - max(1.0, -low), zero_inside, tol),
+            _end(test, mean, high + max(1.0, high), zero_inside, tol))
+
+
+def _end(test: ShiftTest, mean: float, far: float, zero_inside: bool, tol: float = TOL) -> float | None:
     """The end between ``mean`` and ``far``: the last shift bisection finds not rejected; ``None`` if ``far`` is not."""
     inside, outside = mean, far
     if min(mean, far) < 0 < max(mean, far):  # 0 is on this side: the row's p places it
         inside, outside = (0.0, far) if zero_inside else (mean, 0.0)
     if outside == far and _accepts(test.p(far)):
         return None
-    while abs(outside - inside) > TOL:
+    while abs(outside - inside) > tol:
         mid = (inside + outside) / 2
         if mid in (inside, outside):  # no float left between them
             break

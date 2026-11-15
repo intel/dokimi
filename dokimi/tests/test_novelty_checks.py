@@ -17,7 +17,7 @@ from dokimi.novelty.atoms import Atom
 from dokimi.novelty.client import LLMClient, SpendCap
 from dokimi.novelty.grounding import (add_checks, help_identifiers, help_text, identifiers_check,
                                      verify_keys)
-from dokimi.novelty.measure import resolve_verdict, run_checks, run_measurement
+from dokimi.novelty.measure import MeasureResult, ProbeRun, resolve_verdict, run_checks, run_measurement
 from dokimi.novelty.probes import build_probes
 from dokimi.utils import InputError
 
@@ -702,3 +702,57 @@ def test_each_grounding_step_refuses_a_malformed_grading(step):
            "verify_keys": lambda: verify_keys(atoms)}[step]
     with pytest.raises(InputError, match="atom a1: invalid grading: grading has no checks"):
         run()
+
+
+@pytest.mark.parametrize("answer", [
+    "Do not use perf script but perf report --stdin.",
+    "Never guess flags while you run perf report --stdin.",
+])
+def test_a_negation_does_not_reach_the_command_after_a_but_or_a_while(answer):
+    # "but" and "while" end the clause: the "not"/"never" before them negates the other command, not this one
+    result = grade_check(_veto(), "q", answer, None)
+    assert result.passed is False and "--stdin" in result.detail
+
+
+@pytest.mark.parametrize("answer", [
+    "Do not use perf script or perf report --stdin.",
+    "Never guess flags when you run perf report --stdin.",
+])
+def test_a_negation_still_reaches_the_command_after_a_word_that_ends_no_clause(answer):
+    # the control of the test above: "or" and "when" are no clause end, so the same claim is negated
+    assert grade_check(_veto(), "q", answer, None).passed is True
+
+
+@pytest.mark.parametrize("negated, claimed", [
+    ("Avoid perf report --stdin.", "Try perf report --stdin."),
+    ("Avoiding perf report --stdin is wise.", "Using perf report --stdin is wise."),
+    ("Profile it without perf report --stdin.", "Profile it with perf report --stdin."),
+])
+def test_avoid_avoiding_and_without_negate_the_command_right_after_them(negated, claimed):
+    # the word alone makes the mention no claim: the same sentence with a neutral word is vetoed
+    assert grade_check(_veto(), "q", negated, None).passed is True
+    result = grade_check(_veto(), "q", claimed, None)
+    assert result.passed is False and "--stdin" in result.detail
+
+
+def _checked_run(question, verdict, judge, source, *checks):
+    return ProbeRun(atom_id="a1", probe_kind="direct", arm="full", question=question, response="r",
+                    verdict=verdict, judge_verdict=judge, verdict_source=source,
+                    checks=[{"role": role, "passed": passed} for role, passed in checks])
+
+
+def test_checks_summary_counts_every_field_over_rows_with_known_verdicts():
+    runs = [
+        _checked_run("vetoed", "wrong_other", "correct_complete", "check", ("veto", False)),
+        _checked_run("rescued", "correct_complete", "wrong_other", "check", ("sufficient", True)),
+        _checked_run("agreed", "correct_complete", "correct_complete", "check", ("sufficient", True)),
+        _checked_run("same side", "correct_complete", "partially_correct", "check", ("sufficient", True)),
+        _checked_run("left to judge", "partially_correct", "partially_correct", "judge", ("veto", True)),
+        _checked_run("no checks", "wrong_other", "wrong_other", "judge"),
+        _checked_run("errored", "error", "error", "judge", ("veto", True)),
+    ]
+    summary = MeasureResult(runs=runs).checks_summary()
+    # 5 checked runs; 3 verdicts differ from the judge's (vetoed, rescued, same side); 1 vetoed, and the judge
+    # had passed it; 3 decided by a sufficient check, of which 2 match the judge's lenient collapse.
+    assert summary == {"checked_runs": 5, "overruled": 3, "vetoed": 1, "judge_passed_vetoed": 1,
+                       "decided": 3, "judge_agreed": 2}

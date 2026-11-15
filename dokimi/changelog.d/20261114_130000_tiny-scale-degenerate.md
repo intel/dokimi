@@ -1,0 +1,3 @@
+### Fixed
+
+- **`mean_ci` and Cohen's d no longer read values that vary at a tiny scale as constant** — a sample such as `[1e-300, 2e-300, 3e-300]` or one whose values differ by less than 1e-9 in absolute terms got `method: degenerate` with `lo == hi == mean`, and deltas of that size got no `cohens_d`, because the check compared the sd with an absolute floor of 1.0. The check now divides by a power of two taken from the data scale first, so such a sample gets a Student-t interval and a d_z. A sample that is constant at its own scale (exact repeats, or float noise of 1e-9 relative) stays `degenerate`.

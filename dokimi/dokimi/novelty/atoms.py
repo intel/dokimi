@@ -29,7 +29,7 @@ from dataclasses import dataclass, field
 
 from dokimi.utils import InputError, read_json_input
 
-from .batching import retry_wording
+from .batching import or_stop, retry_wording
 from .client import LLMClient, OutputTruncated, SpendCapReached, accepting
 from .spans import Span
 
@@ -311,7 +311,7 @@ def _unread_at_cap(stop: SpendCapReached, batch: list[Span], parse: Callable[[st
     kept: list[Atom] = []
     try:  # all or nothing: a reply that fails part-way keeps no atoms, and its batch is unread
         _keep_atoms(parse(stop.reply), valid_ids, set(seen), kept)
-    except Exception:  # not usable, as after any failed call
+    except Exception:  # noqa: BLE001 - not usable, as after any failed call
         return batch
     atoms.extend(kept)
     seen.update(atom.id for atom in kept)
@@ -419,7 +419,7 @@ def extract_atoms(
         unparseable = False
         try:
             report.calls += 1
-            reply = client.text(prompt, system=_EXTRACT_SYSTEM, accept=usable)
+            reply = or_stop(client.text, prompt, system=_EXTRACT_SYSTEM, accept=usable)  # a run-wide error stops (#708)
             if not reply.strip():
                 # Its own cause, not a failed call: the fix is a higher output ceiling.
                 lost = ValueError(
@@ -435,7 +435,7 @@ def extract_atoms(
             _stop_at_cap(spans, _unread_at_cap(exc, batch, parse, valid_ids, seen, atoms),
                          pending, report, exc)
             break
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - re-asked in halves or recorded as the batch's error
             cut = isinstance(exc, OutputTruncated)
             if (unparseable or cut) and len(batch) > 1:
                 # Unparseable, most often truncated: re-ask the two halves, in place,
@@ -571,11 +571,11 @@ def verify_atoms(
             continue
         source = "\n".join(by_id[s].text for s in atom.span_ids if s in by_id)
         try:
-            verdict = str(client.json_object(
-                _VERIFY_PROMPT.format(statement=atom.statement, source=source),
+            verdict = str(or_stop(
+                client.json_object, _VERIFY_PROMPT.format(statement=atom.statement, source=source),
                 usable=_names_a_faithfulness_verdict,
             ).get("verdict", "")).strip()
-        except Exception:
+        except Exception:  # noqa: BLE001 - an unverified atom is counted as unchecked
             verdict = ""
         atom.faithfulness = verdict if verdict in tally and verdict != "unchecked" else "unchecked"
         tally[atom.faithfulness] += 1
@@ -786,9 +786,9 @@ def load_atoms_record(path) -> tuple[list[Atom], list[Span], dict]:
     if isinstance(data, dict) and ("partial" in data or data.get("status") == "partial"):
         if not isinstance(partial := data.get("partial"), dict) or not partial:  # no run writes this
             raise InputError(f"{path} is marked partial with no `partial` block: truncated or hand-edited")
-        if partial.get("reason") == "no_price":  # a call with no price: a higher cap will not help
-            raise InputError(f"{path} is a partial atoms file: {partial.get('message', '')}, so "
-                             "it is not a finished atom set. Drop --max-usd to run unmetered")
+        if (reason := partial.get("reason")) in ("no_price", "permanent_error"):  # a higher cap will not help
+            raise InputError(f"{path} is a partial atoms file: {partial.get('message', '')}, so it is not a finished atom set. "
+                             + ("Drop --max-usd to run unmetered" if reason == "no_price" else "Fix the error and rerun"))
         raise InputError(f"{path} is a partial atoms file: --max-usd stopped the run before it "
                          "finished, so it is not a finished atom set. Rerun with a higher "
                          "--max-usd, or without the cap")

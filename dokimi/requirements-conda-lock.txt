@@ -1,0 +1,7 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+# The two tools .github/workflows/conda-lock.yml installs to solve ci/conda-lock/; hash-locked in requirements-conda-lock.lock.txt.
+# That job holds a write token and the code it installs writes the lock a PR proposes, so nothing it installs is left unhashed.
+py-rattler==0.28.1
+pyyaml==6.0.3
