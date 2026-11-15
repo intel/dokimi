@@ -253,24 +253,17 @@ def test_credential_file_removal_timeout_aborts_cell(tmp_path):
     assert len(test_calls) == 0, "Verification should not run after credential removal timeout"
 
 
-def test_reward_file_copy_timeout_fails_task(tmp_path):
-    """Docker cp of reward.txt timeout fails the task (reward 0.0, rc 124).
-
-    If the copy of reward.txt from the container times out, the verifier's
-    decision is lost. The task must fail as reward 0.0 rather than proceeding
-    with an empty reward file or an incorrect assumption.
-    """
+@pytest.mark.parametrize("reward", [1.0, 0.0])
+def test_reward_file_copy_timeout_errors_the_cell(tmp_path, reward):
+    """A hung ``docker cp`` of reward.txt lost the verdict: the cell is errored, not passed or failed."""
     task = load_task(_fixture_task(tmp_path))
-
-    # Mock docker to timeout on cp of reward.txt from container
-    cli = _pipeline(reward=1.0, answer=lambda call: reply(timed_out=True) if (
+    cli = _pipeline(reward=reward, answer=lambda call: reply(timed_out=True) if (
         call.argv[1] == "cp" and "reward.txt" in " ".join(call.argv)) else None)
 
     result = create_harness("docker-claude", runner=cli).run(task, output_dir=tmp_path / "out")
 
-    # The timeout should result in returncode 124 and reward 0.0
-    assert result.returncode == 124, f"Should timeout when reward.txt copy times out; got {result.returncode}"
-    assert result.reward == 0.0, "Should get reward 0.0 when reward.txt copy times out"
+    assert (result.reward, result.passed) == (None, False)
+    assert "docker cp of /logs/verifier/reward.txt timed out" in result.metrics["error"]
 
 
 def test_plugin_removal_timeout_aborts_cell(tmp_path):
@@ -284,17 +277,6 @@ def test_plugin_removal_timeout_aborts_cell(tmp_path):
     assert result.returncode == 124
     assert result.reward == 0.0
     assert not [c for c in cli.calls if c.argv[1] == "exec" and "test.sh" in " ".join(c.argv)]
-
-
-def test_reward_copy_timeout_does_not_fall_back_to_the_exit_code(tmp_path):
-    """A verifier that exits 0 must not pass because the reward.txt copy timed out."""
-    task = load_task(_fixture_task(tmp_path))
-    cli = _pipeline(reward=0.0, answer=lambda call: reply(timed_out=True) if (
-        call.argv[1] == "cp" and "reward.txt" in " ".join(call.argv)) else None)
-
-    result = create_harness("docker-claude", runner=cli).run(task, output_dir=tmp_path / "out")
-
-    assert (result.returncode, result.reward, result.passed) == (124, 0.0, False)
 
 
 def test_no_egress_file_when_sidecar_log_unknown(tmp_path):

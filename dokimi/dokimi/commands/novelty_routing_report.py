@@ -531,7 +531,7 @@ def _is_partial_file(path: Path) -> bool:
         earlier = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return False
-    return isinstance(earlier, dict) and "partial" in earlier
+    return isinstance(earlier, dict) and ("partial" in earlier or earlier.get("status") == "partial")
 
 
 def _takes_partial(candidate: Path) -> bool:
