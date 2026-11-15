@@ -445,6 +445,29 @@ def test_parallel_cells_reserve_their_budget_so_the_cap_is_not_passed_at_once(tm
     assert "1 ran, 0 already done, 0 crashed, 1 not started" in capsys.readouterr().out
 
 
+def test_a_cell_reserves_the_budget_its_task_allows_not_the_run_budget(tmp_path, monkeypatch, capsys):
+    root, _ = make_repo(tmp_path, {"fix_race": dict(RACE, budget_usd=0.02)})  # task.json raises the cell's cap
+    out = tmp_path / "runs"
+    with pytest.raises(SystemExit):  # every cell unsupported: no result
+        _run(root, out, HostRunner(_probe_out(affinity=2, cpuinfo=AMD_CPUINFO)), monkeypatch, "--task", "fix_race")
+    capsys.readouterr()
+    try:  # --budget 0.001 is below the task's 0.02: the first cell's reservation is 0.02, so the second may not start
+        _run(root, out, HostRunner(_probe_out(affinity=8)), monkeypatch, "--task", "fix_race", "--jobs", "2",
+             "--budget", "0.001", "--max-batch-usd", "0.005")
+    except SystemExit:
+        pass
+    assert "1 ran, 0 already done, 0 crashed, 1 not started" in capsys.readouterr().out
+
+
+def test_a_batch_spend_that_is_not_a_usable_total_stops_the_run(tmp_path):
+    from dokimi.repos.runner import _read_batch_spend
+
+    (tmp_path / "_eval").mkdir()
+    (tmp_path / "_eval" / "spend.json").write_text('{"spent_usd": NaN}', encoding="utf-8")
+    with pytest.raises(ValueError, match="not a usable total"):  # NaN would never trip the cap
+        _read_batch_spend(tmp_path)
+
+
 @pytest.mark.outcome("cjm-repo-host-unsupported")
 def test_run_refuses_a_bad_host_shape_before_any_agent(tmp_path, monkeypatch, capsys):
     root = _repo(tmp_path, host={"cpu_flags": "avx512f"})

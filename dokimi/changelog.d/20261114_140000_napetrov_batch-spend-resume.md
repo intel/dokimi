@@ -9,6 +9,8 @@ SPDX-License-Identifier: Apache-2.0
   total is kept in `_eval/spend.json` under the batch lock, so a resumed run continues the cap instead of
   starting it at zero. A cell's charge is saved even when its `result.json` cannot be written.
 - **`repo run --jobs N`: the cap is not passed at once.** Each cell in flight reserves its harness budget
-  (`--budget`) against the cap until its charge is known, so cells started together cannot overshoot it.
-  The reservation is the cell's ceiling, so the cap can stop a batch earlier than the spend would.
-- A `_eval/spend.json` that cannot be read stops the run with its path; remove it to start the cap again.
+  (the task's `budget_usd`, else `--budget`) against the cap until its charge is known, so cells started
+  together cannot start past the cap. A cell can still spend up to its own harness cap.
+- A batch made before this change has no `_eval/spend.json`: its cap starts at zero on resume, as before.
+- A `_eval/spend.json` that cannot be read, or holds no usable total, stops the run with its path; remove it
+  to start the cap again.

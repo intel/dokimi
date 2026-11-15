@@ -406,7 +406,7 @@ def run_batch(ctx: EvalContext, tasks: list[Task], arms: list[str], options: lis
             with lock:
                 state[counted] += 1
             return
-        ceiling = float(opts.budget_usd or 0.0)  # the harness's own cap on this cell: what it may still spend
+        ceiling = task_caps(task, opts)["budget_usd"]  # the harness's cap on this cell (task.json's, else --budget)
         if not _reserve(state, lock, max_batch_usd, batch_dir / name, ceiling):
             return
         charged, rec = 0.0, None
@@ -472,9 +472,12 @@ def _read_batch_spend(batch_dir: Path) -> float:
     if not os.path.lexists(path):
         return 0.0
     try:
-        return float(json.loads(path.read_text(encoding="utf-8"))["spent_usd"])
+        spent = float(json.loads(path.read_text(encoding="utf-8"))["spent_usd"])
     except (OSError, ValueError, KeyError, TypeError) as exc:
         raise ValueError(f"cannot read the batch spend {path}: {exc}; remove it to start the cap again") from exc
+    if not math.isfinite(spent) or spent < 0:  # NaN would never trip the cap
+        raise ValueError(f"the batch spend {path} is {spent}, not a usable total; remove it to start the cap again")
+    return spent
 
 
 def _write_batch_spend(batch_dir: Path, spent: float) -> None:
