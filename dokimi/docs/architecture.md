@@ -321,6 +321,10 @@ next release.
   into L0.
 - `dokimi/repos/bases.py` — checks that need every task base: each
   `base` must resolve, and the guidance globs are evaluated at each base.
+- `dokimi/repos/run_context.py` — builds the `run_context.v1` record
+  (`run_context.json` beside `events.jsonl`) from the start-up and closing
+  records the converters keep on the transcript, the command line, and config
+  digests taken before the agent starts; see `docs/repo-evaluation-contract.md` §4.9.
 - `dokimi/repos/events.py` — converts a harness trace to the
   `events.jsonl` run trace; `dokimi/repos/cli_traces.py` holds the Codex and
   Copilot JSON converters and the parser of the files a shell command prints

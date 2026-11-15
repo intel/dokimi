@@ -270,6 +270,7 @@ def _apply(out: Transcript, rec: dict[str, Any], t: float | None, stream: _Strea
 
 
 def _apply_init(out: Transcript, rec: dict[str, Any]) -> None:
+    out.start_record = rec
     out.harness_version = rec.get("claude_code_version")
     out.init_model = str(rec["model"]) if rec.get("model") else None
     # Claude Code loads AGENTS.md through a built-in plugin (cc-plugin-agents-md) on some versions
@@ -288,9 +289,13 @@ def _apply_assistant(out: Transcript, rec: dict[str, Any], t: float | None, stre
     # A subagent's model is its definition's, not the run's; "<synthetic>" marks a reply Claude Code wrote itself.
     if model and model != "<synthetic>" and rec.get("parent_tool_use_id") is None:
         out.answered_by.add(str(model))
+    stop = (rec.get("message") or {}).get("stop_reason")
+    if isinstance(stop, str) and rec.get("parent_tool_use_id") is None:
+        out.stop_reasons.append(stop)
 
 
 def _apply_final(out: Transcript, rec: dict[str, Any], stream: _Stream) -> None:
+    out.final_record = rec
     out.answer = str(rec.get("result") or "").strip()
     out.cost_usd = rec.get("total_cost_usd")
     out.result_seen = True

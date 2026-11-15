@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/intel/dokimi/schemas/run_context.v1.json",
+  "title": "Run context v1",
+  "description": "What one repo-run cell's agent CLI exposed about the run it made, written beside events.jsonl as run_context.json (docs/repo-evaluation-contract.md §4.9). Every field is taken from what the CLI printed (its start-up record, its closing record, its command line as dokimi started it) and is null when the CLI did not expose it, so a sparse trace gives nulls, not guesses. Config files are recorded as SHA-256 digests of their bytes, keyed by their name inside the per-run config directory or the workspace: no contents and no absolute paths. Names of plugins, skills, MCP servers and agents are the names the CLI printed.",
+  "type": "object",
+  "required": ["schema_version", "harness", "harness_version", "model_requested", "model_served", "effort", "thinking", "credential_kind", "permission_mode", "tools", "extensions", "outcome", "config_sha256"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"const": "run_context.v1"},
+    "run_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}(?![\\s\\S])", "description": "The envelope: the id of the run that saved this file (dokimi.artifacts.run_id). Absent from files saved before the envelope."},
+    "dokimi_version": {"type": "string", "minLength": 1, "description": "The envelope: the dokimi version that saved this file. Absent from files saved before the envelope."},
+    "harness": {"type": ["string", "null"], "description": "The harness profile's name (`claude-code`, `codex`, `copilot`), which dokimi started; the CLI does not print it."},
+    "harness_version": {"type": ["string", "null"], "description": "The CLI's own version: `claude_code_version` of the init record, else the version dokimi probed with the profile's `version_cmd` (`codex --version`)."},
+    "model_requested": {"type": ["string", "null"], "description": "The `--model` value dokimi passed."},
+    "model_served": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["init", "usage"],
+      "description": "What answered. `init` is the model the init record (`system/init`) or the Copilot session start names; `usage` is the sorted keys of the closing record's `modelUsage`, which also lists helper models. Both null when the CLI printed neither.",
+      "properties": {
+        "init": {"type": ["string", "null"]},
+        "usage": {"type": ["array", "null"], "items": {"type": "string"}}
+      }
+    },
+    "effort": {"type": ["string", "null"], "description": "The effort the run ran at: the init record's `per_turn_effort_active` when printed, else the `--effort` flag, else Codex's `model_reasoning_effort` override (`-c`/`--config`) in the command line."},
+    "thinking": {"type": ["string", "null"], "description": "The value of a `--thinking` flag in the command line, else null."},
+    "credential_kind": {"type": ["string", "null"], "description": "The init record's `apiKeySource`, as the CLI names it (for example `none`, or the environment variable or login it read the key from). Null when the CLI prints none (Codex, Copilot)."},
+    "permission_mode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode", "sandbox", "approval"],
+      "description": "How the run was allowed to act. Claude Code: `mode` is the init record's `permissionMode` (else the `--permission-mode` flag). Codex: `sandbox` is the `--sandbox` value, `approval` the `--ask-for-approval` value, and `mode` names `--dangerously-bypass-approvals-and-sandbox` when that flag is given.",
+      "properties": {
+        "mode": {"type": ["string", "null"]},
+        "sandbox": {"type": ["string", "null"]},
+        "approval": {"type": ["string", "null"]}
+      }
+    },
+    "tools": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["allowed", "disallowed"],
+      "description": "Tool names. `allowed`: the init record's `tools` when printed, else the `--tools` flag's list (an empty list is no tool). `disallowed`: the `--disallowedTools` list. Null where the CLI has no such list (Codex runs under a sandbox instead).",
+      "properties": {
+        "allowed": {"type": ["array", "null"], "items": {"type": "string"}},
+        "disallowed": {"type": ["array", "null"], "items": {"type": "string"}}
+      }
+    },
+    "extensions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["plugins", "skills", "mcp_servers", "agents", "output_style"],
+      "description": "What the init record listed, by name only: plugins, skills, MCP server names, agent names, and the output style. Each null when the init record does not list it.",
+      "properties": {
+        "plugins": {"type": ["array", "null"], "items": {"type": "string"}},
+        "skills": {"type": ["array", "null"], "items": {"type": "string"}},
+        "mcp_servers": {"type": ["array", "null"], "items": {"type": "string"}},
+        "agents": {"type": ["array", "null"], "items": {"type": "string"}},
+        "output_style": {"type": ["string", "null"]}
+      }
+    },
+    "outcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["stop_reason", "terminal_reason", "num_turns", "permission_denials", "safety_stops"],
+      "description": "How the run ended. `stop_reason` and `terminal_reason` are the closing record's own fields (Codex: `terminal_reason` is the closing record's type, `turn.completed` or `turn.failed`). `num_turns` is the CLI's count. `permission_denials` is the number of refused tool calls. `safety_stops` is the number of main-thread replies whose `stop_reason` was `refusal`.",
+      "properties": {
+        "stop_reason": {"type": ["string", "null"]},
+        "terminal_reason": {"type": ["string", "null"]},
+        "num_turns": {"type": ["integer", "null"], "minimum": 0},
+        "permission_denials": {"type": ["integer", "null"], "minimum": 0},
+        "safety_stops": {"type": ["integer", "null"], "minimum": 0}
+      }
+    },
+    "config_sha256": {
+      "type": "object",
+      "description": "SHA-256 of each config file dokimi wrote for the run (its per-run config directory) or the workspace file the profile's `args_if_present` named, taken before the agent started. Keys are the file names as the profile declares them (for example `settings.json`, `.mcp.json`); empty when there were none.",
+      "propertyNames": {"pattern": "^[A-Za-z0-9._-]+$"},
+      "additionalProperties": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+    }
+  }
+}
