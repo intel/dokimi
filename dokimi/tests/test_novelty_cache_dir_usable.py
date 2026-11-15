@@ -74,10 +74,14 @@ def test_a_read_only_cache_dir_replays_what_it_holds_and_decides_a_miss_without_
     from dokimi.novelty.retention import RetentionOracle
 
     cache = tmp_path / "cache"
+    # Explicit modes: a umask that strips the owner's write bit would otherwise make the first store fail.
+    cache.mkdir(mode=0o700)
+    cache.chmod(0o700)
     hit = Atom(statement="Configure module0 with parameter0", question="q", answer="a", span_ids=())
     miss = Atom(statement="Restart service9 after every deploy", question="q", answer="a", span_ids=())
     text = "Configure module0 with parameter0 always."
     stored = RetentionOracle(cache_dir=cache).verdict(hit, text)
+    assert len(list(cache.iterdir())) == 1
     cache.chmod(0o500)
     try:
         oracle = RetentionOracle(cache_dir=usable_cache_dir(str(cache)))
@@ -88,6 +92,20 @@ def test_a_read_only_cache_dir_replays_what_it_holds_and_decides_a_miss_without_
         assert len(list(cache.iterdir())) == 1
     finally:
         cache.chmod(0o700)
+
+
+def test_a_cache_that_cannot_take_a_verdict_decides_it_and_keeps_it_in_memory(tmp_path):
+    from dokimi.novelty.retention import RetentionOracle
+
+    blocker = tmp_path / "file"
+    blocker.write_text("x", encoding="utf-8")
+    atom = Atom(statement="Configure module0 with parameter0", question="q", answer="a", span_ids=())
+    text = "Configure module0 with parameter0 always."
+    oracle = RetentionOracle(cache_dir=blocker / "cache")
+    first = oracle.verdict(atom, text)
+    assert first.method == "lexical" and first.retained
+    assert oracle.verdict(atom, text) is first
+    assert blocker.read_text(encoding="utf-8") == "x"
 
 
 @pytest.mark.skipif(not hasattr(os, "geteuid") or os.geteuid() == 0, reason="root writes anywhere")
@@ -106,7 +124,10 @@ def test_usable_cache_dir_refuses_a_writable_directory_without_search_permission
 @pytest.mark.skipif(not hasattr(os, "geteuid") or os.geteuid() == 0, reason="root searches anywhere")
 def test_usable_cache_dir_refuses_a_path_below_a_directory_it_cannot_search(tmp_path):
     closed = tmp_path / "closed"
-    (closed / "sub").mkdir(parents=True)
+    closed.mkdir(mode=0o700)
+    closed.chmod(0o700)
+    (closed / "sub").mkdir(mode=0o700)
+    (closed / "sub").chmod(0o700)
     closed.chmod(0o600)
     try:
         for raw in (closed / "sub" / "cache", closed / "sub"):
