@@ -160,7 +160,7 @@ def _listed(ids: Sequence[str], limit: int = 10) -> str:
 def item_digest(question: Mapping[str, Any]) -> str:
     """SHA-256 of the question's ``grading`` block, canonically dumped: the expected answers and checks."""
     body = json.dumps(question.get("grading"), ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
-    return hashlib.sha256(body.encode("utf-8")).hexdigest()
+    return hashlib.sha256(body.encode("utf-8", "surrogatepass")).hexdigest()
 
 
 def item_digests(questions: Sequence[Mapping[str, Any]]) -> dict[str, str]:
@@ -173,7 +173,7 @@ def assignment_digest(assignment: Mapping[str, str], contents: Mapping[str, str]
     however the split file lists them, have the same digest; a changed answer or check changes it too."""
     triples = [[i, assignment[i], contents[i]] for i in sorted(assignment)]
     body = json.dumps(triples, ensure_ascii=False, separators=(",", ":"))
-    return hashlib.sha256(body.encode("utf-8")).hexdigest()
+    return hashlib.sha256(body.encode("utf-8", "surrogatepass")).hexdigest()
 
 
 def _counts(assignment: Mapping[str, str]) -> dict[str, int]:

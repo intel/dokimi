@@ -375,7 +375,7 @@ def response_cache_key(
         "extra": extra or {},
     }
     blob = json.dumps(payload, sort_keys=True, ensure_ascii=False, default=str)
-    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+    return hashlib.sha256(blob.encode("utf-8", "surrogatepass")).hexdigest()
 
 
 def _usage_value_fits(name: str, value: object) -> bool:
