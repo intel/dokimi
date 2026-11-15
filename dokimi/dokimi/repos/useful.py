@@ -18,6 +18,7 @@ from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
+from .event_format import TOOL_KINDS
 from .manifest import match_glob
 from .process_counts import as_measure
 from .process_metrics import _workspace_path
@@ -67,7 +68,11 @@ def first_useful(
         return _record(None, "not_declared")
     if events is None:
         return _record(useful.kind, "unobserved")
-    for steps, event in enumerate(events, 1):
+    steps = 0
+    for event in events:
+        if event.get("kind") not in TOOL_KINDS:  # a turn or compaction is accounting, not a step
+            continue
+        steps += 1
         try:
             found = hits(useful, event)
         except TimeoutError:  # the pattern ran past its budget on this event: no verdict

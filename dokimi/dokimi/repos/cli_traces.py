@@ -535,12 +535,15 @@ def _codex_usage(out: Transcript, usage: dict[str, Any]) -> None:
     out.num_turns = (out.num_turns or 0) + 1
     out.result_seen = True  # a turn ended: the agent started, whatever else it printed
     out.events.append(turn)
-    if turn["input"] is not None:  # a missing or all-zero usage is not a measured zero: the counts stay None
-        # OpenAI counts the cached part inside input_tokens; Claude cells keep cache reads out of input_tokens
+    # A missing or all-zero usage is not a measured zero, and a count it leaves out stays None on its own.
+    # OpenAI counts the cached part inside input_tokens; Claude cells keep cache reads out of input_tokens
+    if turn["input"] is not None:
         out.input_tokens = (out.input_tokens or 0) + turn["input"]
+    if turn["output"] is not None:
         out.output_tokens = (out.output_tokens or 0) + turn["output"]
-        if turn["cache_read"] is not None:  # reported, so a zero is measured; absent, it stays None
-            out.cache_read_tokens = (out.cache_read_tokens or 0) + turn["cache_read"]
+    if turn["cache_read"] is not None:  # reported, so a zero is measured; absent, it stays None
+        out.cache_read_tokens = (out.cache_read_tokens or 0) + turn["cache_read"]
+    if turn["input"] is not None or turn["output"] is not None:
         out.usage_scope = "main"  # the turns are the parent's; Codex reports no subagent tokens here
 
 

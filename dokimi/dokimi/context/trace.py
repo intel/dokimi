@@ -41,6 +41,7 @@ from dokimi.utils import InputError, refuse_device
 MUTATING = frozenset({"Bash", "Edit", "MultiEdit", "NotebookEdit", "Write"})
 TOKEN_FIELDS = ("prompt_tokens", "new_tokens", "output_tokens", "input_tokens", "cache_read_tokens",
                 "cache_write_tokens")  # the counts of one call
+_USAGE_FIELDS = ("input_tokens", "output_tokens", "cache_read_input_tokens", "cache_creation_input_tokens")
 
 
 class TraceError(ValueError):
@@ -217,12 +218,14 @@ def _merge(call: dict[str, Any], later: dict[str, Any]) -> None:
     """Fold a later block into its call; the call keeps its thread and its largest counts."""
     for k in TOKEN_FIELDS:
         call[k] = max(call[k], later[k])
+    call["reported"] = sorted({*call["reported"], *later["reported"]})
 
 
 def _call(usage: dict[str, Any], agent: Any, at: Any) -> dict[str, Any]:
     fresh = int(usage.get("input_tokens") or 0)
     created = int(usage.get("cache_creation_input_tokens") or 0)
     read = int(usage.get("cache_read_input_tokens") or 0)
+    reported = [k for k in _USAGE_FIELDS if usage.get(k) is not None]  # a zero above may be an absent count
     return {
         "agent": agent,
         "at": at,  # the message's timestamp, as the trace has it; the first block's
@@ -232,6 +235,7 @@ def _call(usage: dict[str, Any], agent: Any, at: Any) -> dict[str, Any]:
         "input_tokens": fresh,
         "cache_read_tokens": read,
         "cache_write_tokens": created,
+        "reported": reported,  # which usage fields the record carried; the counts above fill absent ones with 0
     }
 
 

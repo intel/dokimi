@@ -29,14 +29,18 @@ def claude_events(trace: ContextTrace, start: datetime | None) -> list[dict[str,
     """The turn events of every model call (a subagent's carry ``agent``), then the compactions."""
     events: list[dict[str, Any]] = []
     for call in trace.calls:
+        seen = set(call["reported"])
+        prompt = seen & {"input_tokens", "cache_read_input_tokens", "cache_creation_input_tokens"}
         event: dict[str, Any] = {
             "kind": "turn", "t": _seconds(call["at"], start), "turn": call["i"],
-            "input": call["input_tokens"], "output": call["output_tokens"],
-            "cache_read": call["cache_read_tokens"], "cache_write": call["cache_write_tokens"],
-            "prompt_tokens": call["prompt_tokens"],
+            "input": call["input_tokens"] if "input_tokens" in seen else None,
+            "output": call["output_tokens"] if "output_tokens" in seen else None,
+            "cache_read": call["cache_read_tokens"] if "cache_read_input_tokens" in seen else None,
+            "cache_write": call["cache_write_tokens"] if "cache_creation_input_tokens" in seen else None,
+            "prompt_tokens": call["prompt_tokens"] if prompt else None,
         }
         if call["agent"]:
-            event["agent"] = call["agent"]
+            event["agent"] = str(call["agent"])
         events.append(event)
     for compaction in trace.compactions:
         after = compaction["after_call"]
@@ -53,14 +57,16 @@ def codex_turn(turn: int, usage: Mapping[str, Any]) -> dict[str, Any]:
     produced = int(usage.get("output_tokens") or 0)
     cached = max(int(usage.get("cached_input_tokens") or 0), 0)  # a negative count is malformed, not a credit
     measured = bool(fresh or produced)  # a missing or all-zero usage is not a measured zero
-    reported = usage.get("cached_input_tokens") is not None  # reported, so a zero is measured
+    has_input = measured and usage.get("input_tokens") is not None  # each count is null on its own when absent
+    has_output = measured and usage.get("output_tokens") is not None
+    has_cached = measured and usage.get("cached_input_tokens") is not None  # reported, so a zero is measured
     return {
         "kind": "turn", "t": None, "turn": turn,
-        "input": max(fresh - cached, 0) if measured else None,
-        "output": produced if measured else None,
-        "cache_read": cached if measured and reported else None,
+        "input": max(fresh - cached, 0) if has_input else None,
+        "output": produced if has_output else None,
+        "cache_read": cached if has_cached else None,
         "cache_write": None,  # Codex reports no cache writes
-        "prompt_tokens": fresh if measured else None,
+        "prompt_tokens": fresh if has_input else None,
     }
 
 

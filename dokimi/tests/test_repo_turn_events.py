@@ -146,3 +146,42 @@ def test_every_turn_and_compaction_line_validates_against_the_schema():
 def test_a_turn_without_its_counts_does_not_validate():
     turn = {"kind": "turn", "t": None, "turn": 0, "input": 1, "output": 1}  # no cache or prompt counts
     assert schema_errors("repo_event.v1", {**turn, "v": 1}) != []
+
+
+def test_a_claude_usage_missing_counts_are_null_not_zero():
+    raw = _lines(_call("a", {"input_tokens": 10, "output_tokens": 2}, "2026-11-14T10:00:00Z"),
+                 _call("b", {"input_tokens": 5}, "2026-11-14T10:00:01Z"),
+                 _call("b", {"output_tokens": 4}, "2026-11-14T10:00:02Z"))
+    assert _turns(convert("claude-stream-json", raw).events) == [
+        {"kind": "turn", "t": 0.0, "turn": 0, "input": 10, "output": 2, "cache_read": None, "cache_write": None,
+         "prompt_tokens": 10},
+        {"kind": "turn", "t": 1.0, "turn": 1, "input": 5, "output": 4, "cache_read": None, "cache_write": None,
+         "prompt_tokens": 5},
+    ]
+
+
+def test_a_codex_usage_with_one_side_reports_the_other_as_null():
+    raw = _lines({"type": "turn.completed", "usage": {"input_tokens": 6}},
+                 {"type": "turn.completed", "usage": {"output_tokens": 2}})
+    transcript = convert("codex-json", raw)
+    assert [[t[k] for k in ("input", "output", "prompt_tokens")] for t in _turns(transcript.events)] == [
+        [6, None, 6], [None, 2, None]]
+    assert transcript.input_tokens == 6 and transcript.output_tokens == 2
+
+
+def test_a_turn_of_a_non_string_parent_tool_use_id_validates_against_the_schema():
+    raw = _lines(_call("a", _usage(3, 1, 0, 0), "2026-11-14T10:00:00Z", parent=7))
+    turns = _turns(convert("claude-stream-json", raw).events)
+    assert len(turns) == 1 and turns[0]["agent"] == "7"
+    assert schema_errors("repo_event.v1", {**turns[0], "v": 1}) == []
+
+
+def test_a_turn_before_the_first_useful_command_is_not_a_step():
+    from dokimi.repos.useful import first_useful
+    from dokimi.repos.useful_spec import parse_useful
+    raw = _lines({"type": "turn.completed", "usage": {"input_tokens": 3, "output_tokens": 1}},
+                 {"type": "item.completed", "item": {"id": "c", "type": "command_execution", "command": "pytest -q",
+                                                     "aggregated_output": "", "exit_code": 0, "status": "completed"}})
+    events = convert("codex-json", raw).events
+    assert [e["kind"] for e in events][:2] == ["turn", "command"]
+    assert first_useful(parse_useful({"command": "pytest"}), events)["steps"] == 1

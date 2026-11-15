@@ -37,7 +37,9 @@ A `turn` is one model call, so a Claude run's trace has one per call. The sums
 of a complete Claude trace's `turn` events are the run's `result.json` token
 totals (`input_tokens`, `output_tokens`, `cache_read_tokens`,
 `cache_write_tokens`), over the same scope: with `usage_scope` `tree` the events
-of subagents are in the sum (they carry `agent`), with `main` they are not. Codex
+of subagents are in the sum (they carry `agent`), with `main` they are not. A
+model that the result's `modelUsage` lists but that made no assistant record has
+no `turn`; its tokens are in the totals only. Codex
 reports usage on each `turn.completed`, one `turn` event per turn, with `t`
 `null`; a count Codex did not report is `null`. Copilot's trace carries no
 usage, so it writes no `turn` events and its token counts stay `null`.
