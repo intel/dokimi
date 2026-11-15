@@ -128,9 +128,11 @@ Route B's `--judge` needs no checks: the judge scores each answer on its own.
   summary says `No complete pairs` and gives no baseline column. Read the per-condition
   averages above instead.
 - Keep the answerer fixed across the knowledge run and the with-docs run that follows:
-  the same `--provider`, `--model`, questions file and judge. Then the `baseline` arm of
-  the with-docs comparison reproduces the knowledge run's answers, and the two can be
-  compared cell for cell:
+  the same `--provider`, `--model`, questions file and judge. A knowledge run made with
+  `arms run --arms baseline` sends the same prompt as the `baseline` arm of the comparison,
+  so the two line up question by question. The answers are sampled again, so they will not
+  match word for word. A knowledge run made with `answers generate --doc-source none` uses a
+  different prompt; compare it with another `answers generate` run, not with an arm:
 
 ```bash
 python cli.py arms run --product demo --questions questions/demo.json \
