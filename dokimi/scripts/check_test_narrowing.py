@@ -95,6 +95,7 @@ class Shape:
 
     line: int
     end: int
+    indent: int = 0
     checks: int = 0
     skips: int = 0
     matches: int = 0
@@ -237,6 +238,7 @@ def shape_of(node: ast.FunctionDef | ast.AsyncFunctionDef) -> Shape:
     """The checks, skips, tolerances and parametrize cases of one test function."""
     first = min([node.lineno, *(d.lineno for d in node.decorator_list)])
     shape = Shape(line=first, end=node.end_lineno or node.lineno,
+                  indent=node.body[0].col_offset if node.body else 0,
                   body="|".join(ast.dump(n) for n in [node.args, *node.decorator_list, *node.body]))
     for decorator in node.decorator_list:
         parametrized, cases = _cases(decorator)
@@ -449,8 +451,9 @@ def _comments(text: str, shape: Shape) -> list[str]:
     """The Python comments of the test at ``shape``, the indented ones after its last statement too."""
     lines = text.split("\n")
     end = shape.end
-    # The AST ends a function at its last statement, so take the indented comments after it.
-    while end < len(lines) and lines[end][:1].isspace() and lines[end].lstrip().startswith("#"):
+    # The AST ends a function at its last statement, so take the comments after it that the body's indent holds.
+    while (end < len(lines) and lines[end].lstrip().startswith("#")
+           and len(lines[end]) - len(lines[end].lstrip()) >= shape.indent):
         end += 1
     try:
         return [tok.string for tok in tokenize.generate_tokens(io.StringIO(text).readline)

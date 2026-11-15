@@ -600,3 +600,17 @@ def test_a_class_constant_that_shadows_a_module_one_is_read_as_its_own():
 def test_a_module_constant_that_a_class_shadows_does_not_move_the_class_test():
     head = CLASS_CASES.replace("CASES = [1, 2, 3]", "CASES = [1]")
     assert ctn.compare(CLASS_CASES, head) == []
+
+
+def test_a_class_level_comment_after_a_test_does_not_waive_it():
+    base = ("import pytest\n\n\nclass TestGroup:\n    def test_a(self):\n        assert 1\n        assert 2\n"
+            "    def test_b(self):\n        assert 3\n")
+    head = base.replace("        assert 2\n", "").replace("    def test_b", "    # Test-narrowed: test_b cleanup\n    def test_b")
+    assert [what for _, _, what in ctn.compare(base, head)] == ["fewer checks (2 -> 1)"]
+
+
+def test_a_comment_at_the_test_body_indent_after_its_last_statement_still_waives():
+    base = ("import pytest\n\n\nclass TestGroup:\n    def test_a(self):\n        assert 1\n        assert 2\n"
+            "    def test_b(self):\n        assert 3\n")
+    head = base.replace("        assert 2\n", "        # Test-narrowed: covered by the integration tests\n")
+    assert ctn.compare(base, head) == []
