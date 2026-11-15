@@ -442,10 +442,11 @@ SPEND_FILE = "spend.json"
 def _reserve(state: dict[str, Any], lock: threading.Lock, max_batch_usd: float | None, cell_dir: Path,
              ceiling: float, force: bool) -> float | None:
     """Reserve a cell's harness budget against the batch cap, and return what it reserved. A finished cell that
-    is kept reserves nothing; None (counted as budget_stopped) once the cap is spent for a cell that may run."""
+    is kept reserves nothing; None (counted as budget_stopped) once the cap is spent for a cell that may run,
+    which includes a finished cell that --force reruns."""
     done = batch_ledger.is_done(cell_dir)
     with lock:
-        if max_batch_usd is not None and state["spent"] + state["reserved"] >= max_batch_usd and not done:
+        if max_batch_usd is not None and state["spent"] + state["reserved"] >= max_batch_usd and (force or not done):
             state["budget_stopped"] += 1
             return None
         reserved = ceiling if force or not done else 0.0
@@ -480,8 +481,11 @@ def _read_batch_spend(batch_dir: Path) -> float:
     if not os.path.lexists(path):
         return 0.0
     try:
-        spent = float(json.loads(path.read_text(encoding="utf-8"))["spent_usd"])
-    except (OSError, ValueError, KeyError, TypeError) as exc:
+        total = json.loads(path.read_text(encoding="utf-8"))["spent_usd"]
+        if isinstance(total, bool) or not isinstance(total, (int, float)):
+            raise ValueError(f"spent_usd is {total!r}, not a number")
+        spent = float(total)
+    except (OSError, ValueError, KeyError, TypeError, OverflowError) as exc:
         raise ValueError(f"cannot read the batch spend {path}: {exc}; remove it to start the cap again") from exc
     if not math.isfinite(spent) or spent < 0:  # NaN would never trip the cap
         raise ValueError(f"the batch spend {path} is {spent}, not a usable total; remove it to start the cap again")
@@ -489,7 +493,7 @@ def _read_batch_spend(batch_dir: Path) -> float:
 
 
 def _write_batch_spend(batch_dir: Path, spent: float) -> None:
-    batch_ledger.write_json(batch_dir / "_eval" / SPEND_FILE, {"spent_usd": round(spent, 6)})
+    batch_ledger.write_json(batch_dir / "_eval" / SPEND_FILE, {"spent_usd": spent})
 
 
 UNSUPPORTED_FILE = "unsupported.json"

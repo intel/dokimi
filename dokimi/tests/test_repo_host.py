@@ -471,6 +471,38 @@ def test_a_finished_cell_reserves_nothing_so_it_cannot_stop_a_cell_that_runs(tmp
     assert _reserve(state, Lock(), 0.005, done, 2.0, False) == 0.0  # a kept cell: no reservation, no stop
     assert _reserve(state, Lock(), 0.005, todo, 2.0, False) is None  # a cell that may run: the cap is spent
     assert state["reserved"] == 0.0 and state["budget_stopped"] == 1
+    assert _reserve(state, Lock(), 0.005, done, 2.0, True) is None  # --force reruns it: the spent cap stops it
+    assert state["reserved"] == 0.0 and state["budget_stopped"] == 2
+
+
+def test_a_settled_charge_is_saved_exactly_and_frees_its_reservation(tmp_path):
+    from threading import Lock
+
+    from dokimi.repos.runner import _read_batch_spend, _reserve, _settle
+
+    (tmp_path / "_eval").mkdir()
+    state = {"spent": 0.0, "reserved": 0.0, "budget_stopped": 0, "ran": 0, "skipped": 0, "errors": [],
+             "this_run": 0.0}
+    assert _reserve(state, Lock(), 1.0, tmp_path / "a", 0.6, False) == 0.6
+    _settle(state, Lock(), tmp_path, 0.6, 0.0100006, None)
+    assert state["reserved"] == 0.0 and state["spent"] == state["this_run"] == 0.0100006
+    assert _read_batch_spend(tmp_path) == 0.0100006  # not rounded: the next invocation's cap sees the real total
+    assert _reserve(state, Lock(), 0.0100008, tmp_path / "b", 0.6, False) == 0.6  # below the cap, the cell starts
+    resumed = {"spent": _read_batch_spend(tmp_path), "this_run": 0.0, "reserved": 0.0, "ran": 0, "skipped": 0,
+               "errors": []}
+    _settle(resumed, Lock(), tmp_path, 0.0, 0.5, None)  # a later invocation adds to the earlier total
+    assert _read_batch_spend(tmp_path) == 0.0100006 + 0.5 and resumed["this_run"] == 0.5
+
+
+@pytest.mark.parametrize("text", ['{"spent_usd": true}', '{"spent_usd": "0.5"}', '{"spent_usd": -1}',
+                                  '{"spent_usd": 1' + "0" * 400 + "}"])
+def test_a_batch_spend_that_is_not_a_number_stops_the_run(tmp_path, text):
+    from dokimi.repos.runner import _read_batch_spend
+
+    (tmp_path / "_eval").mkdir()
+    (tmp_path / "_eval" / "spend.json").write_text(text, encoding="utf-8")
+    with pytest.raises(ValueError, match="remove it"):
+        _read_batch_spend(tmp_path)
 
 
 def test_a_batch_spend_that_is_not_a_usable_total_stops_the_run(tmp_path):
