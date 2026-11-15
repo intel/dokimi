@@ -97,8 +97,8 @@ refused on it too, because the CLI runs one prompt with no tools. A knowledge ru
 neither, so that refusal does not affect this page.
 
 **Codex and Copilot are not answering routes.** Only `claude-cli` runs as a provider.
-`codex`, `claude-code`, `copilot`, `terminal-bench:*`, `benchflow*` and `docker-*` name task
-harnesses (`tasks run`, see [coding-harnesses.md](coding-harnesses.md)): they run an agent
+`codex`, `claude-code`, `copilot`, `terminal-bench:*`, `benchflow*` and `docker-*` name
+agent-CLI harnesses (`tasks run`, `repo run`; see [coding-harnesses.md](coding-harnesses.md)): they run an agent
 in a sandbox against executable tasks. `arms run --harness codex` is refused for that reason,
 because the label would stamp answers that the model behind `--provider` produced. Use
 `--provider claude-cli` for the Claude Code CLI, or leave `--harness` out.
