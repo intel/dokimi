@@ -128,6 +128,19 @@ def test_a_codex_run_bypassing_its_sandbox_and_set_to_a_reasoning_effort_says_so
                                          "approval": None}
 
 
+def test_a_flag_given_as_name_equals_value_is_read_and_a_prompt_after_the_separator_is_not():
+    argv = ["codex", "exec", "--sandbox=read-only", "--", "--dangerously-bypass-approvals-and-sandbox"]
+    record = _build("codex", CODEX_LINES, argv)
+
+    assert record["permission_mode"] == {"mode": None, "sandbox": "read-only", "approval": None}
+
+
+def test_a_config_key_that_only_starts_with_the_effort_key_is_not_the_effort():
+    argv = ["codex", "exec", "-c", "model_reasoning_effort_summary=auto", "-c", "model_reasoning_effort=high"]
+
+    assert _build("codex", CODEX_LINES, argv)["effort"] == "high"
+
+
 def test_a_codex_turn_that_failed_is_a_terminal_reason_of_its_own_record():
     failed = _lines({"type": "thread.started", "thread_id": "t"}, {"type": "turn.failed", "error": {"message": "x"}})
     record = _build("codex", failed, [], harness_version=None)
