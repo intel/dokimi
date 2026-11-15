@@ -15,7 +15,9 @@ from dokimi.cli import build_parser
 from dokimi.repos import run_context
 from dokimi.repos.container import WORKSPACE
 from dokimi.repos.events import convert
+from dokimi.repos.grading import replaced_files
 from dokimi.repos.harness_profile import load_profile
+from dokimi.repos.transcript import Transcript
 from repo_eval_fixture import FakeRunner, fake_harness, make_repo
 
 CLAUDE_INIT = {
@@ -250,3 +252,27 @@ def test_a_repo_run_cell_writes_run_context_beside_its_events(cell):
     assert record["harness_version"] == "1.2.3" and record["model_requested"] == "m-1"
     assert record["model_served"]["init"] == "m-1"
     assert str(root) not in (rd / "run_context.json").read_text(encoding="utf-8")
+
+
+def test_a_closing_record_without_terminal_reason_gives_none_not_its_subtype():
+    # the schema's description: terminal_reason is the closing record's own field; its subtype is another one
+    transcript = Transcript(final_record={"type": "result", "subtype": "error_max_turns"})
+    record = run_context.build(load_profile("claude-code"), model="m", harness_version=None, argv=[],
+                               transcript=transcript, config_sha256={})
+    assert record["outcome"]["terminal_reason"] is None
+
+
+def test_a_cli_version_that_is_not_a_string_falls_back_to_the_probed_one(tmp_path):
+    transcript = Transcript(start_record={"type": "system", "subtype": "init"}, harness_version=2)
+    record = run_context.build(load_profile("claude-code"), model="m", harness_version="2.1.400", argv=[],
+                               transcript=transcript, config_sha256={})
+    errors: list[str] = []
+    run_context.save(tmp_path, record, errors)
+    assert record["harness_version"] == "2.1.400" and errors == []
+    assert (tmp_path / run_context.RUN_CONTEXT_FILE).is_file()
+
+
+def test_a_run_context_file_replaced_by_a_link_is_flagged_as_a_host_file(tmp_path):
+    for name in ("events.jsonl", run_context.RUN_CONTEXT_FILE):
+        (tmp_path / name).symlink_to("/nonexistent/host-target")
+    assert sorted(replaced_files(tmp_path)) == ["events.jsonl", run_context.RUN_CONTEXT_FILE]

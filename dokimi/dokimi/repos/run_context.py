@@ -44,7 +44,7 @@ def build(profile: HarnessProfile, *, model: str, harness_version: str | None, a
     flags = _Flags(argv)
     return {
         "harness": profile.name,
-        "harness_version": transcript.harness_version or harness_version,
+        "harness_version": _text(transcript.harness_version) or harness_version,
         "model_requested": _text(model),
         "model_served": {"init": _text(start.get("model")) or _text(start.get("selectedModel")),
                          "usage": _keys(final.get("modelUsage"))},
@@ -99,10 +99,9 @@ def _tools(start: dict[str, Any], flags: _Flags) -> dict[str, list[str] | None]:
 
 
 def _terminal(final: dict[str, Any]) -> str | None:
-    """The closing record's ``terminal_reason``, else its ``subtype``, else (Codex) its own type."""
-    for key in ("terminal_reason", "subtype"):
-        if (text := _text(final.get(key))) is not None:
-            return text
+    """The closing record's ``terminal_reason``, else (Codex) its own type; no other field stands in for it."""
+    if (text := _text(final.get("terminal_reason"))) is not None:
+        return text
     return final.get("type") if final.get("type") in _TURN_RECORDS else None
 
 
