@@ -16,7 +16,7 @@ from dokimi.cli import build_parser
 from dokimi.repos.source import RepoSource, open_source
 from dokimi.repos.suite import SuiteError, load_suite, parse_suite, resolve_suite
 from dokimi.utils import InputError
-from repo_eval_fixture import FakeRunner, fake_harness, git, make_repo, write
+from repo_eval_fixture import PROFILE, FakeRunner, fake_harness, git, make_repo, write
 
 EXAMPLE = Path(__file__).resolve().parent.parent / "data" / "suites" / "example-suite.yaml"
 PINNED = "https://example.invalid/scaffold@" + "a" * 40
@@ -72,6 +72,7 @@ def test_a_task_must_name_a_declared_repo_and_appear_once():
     {"repos": {}},
     {"tasks": [{"id": "a,b", "repo": "sc"}]},
     {"tasks": [{"id": "t1"}]},
+    {"repos": {1: PINNED, "sc": PINNED}},
 ])
 def test_the_schema_refuses_a_malformed_suite(change):
     with pytest.raises(SuiteError):
@@ -83,6 +84,11 @@ def test_a_suite_file_missing_from_the_tree_is_refused(tmp_path):
     tree = open_source(RepoSource.parse(str(root)))
     with pytest.raises(SuiteError, match="suite manifest not found"):
         load_suite(tree, ".agent-eval/suite.yaml")
+
+
+def test_a_repo_name_that_is_not_a_string_is_a_suite_error_and_names_it():
+    with pytest.raises(SuiteError, match="the name 1 is not a string"):
+        parse_suite(_raw(repos={1: None, "sc": PINNED}))
 
 
 def _scaffold(tmp_path: Path, name: str = "scaffold") -> tuple[Path, str]:
@@ -114,6 +120,26 @@ def test_a_floating_branch_resolves_once_to_the_commit_it_names(tmp_path):
                         allow_floating=True)
     found = resolve_suite(suite, {"t1": sha}, tmp_path / "cache")
     assert found.pins == {"sc": sha} and found.gaps == {}
+
+
+def test_a_branch_named_like_a_hash_resolves_when_the_run_allows_floating_revs(tmp_path):
+    root, sha = _scaffold(tmp_path)
+    git(root, "branch", "b" * 64, sha)
+    suite = parse_suite(_raw(repos={"sc": f"{root}@{'b' * 64}"}, tasks=[{"id": "t1", "repo": "sc"}]),
+                        allow_floating=True)
+    assert resolve_suite(suite, {"t1": sha}, tmp_path / "cache").pins == {"sc": sha}
+
+
+def test_a_branch_named_like_a_hash_is_not_the_pinned_commit(tmp_path):
+    root, sha = _scaffold(tmp_path)
+    write(root, "src/more.py", "x = 1\n")
+    git(root, "add", "-A")
+    git(root, "commit", "-qm", "more")
+    fake = "b" * 64  # a SHA-1 repository: this is a branch, whatever its spelling
+    git(root, "branch", fake, sha)
+    suite = parse_suite(_raw(repos={"sc": f"{root}@{fake}"}))
+    with pytest.raises(SuiteError, match="resolves to .*not to that commit"):
+        resolve_suite(suite, {"t1": sha}, tmp_path / "cache")
 
 
 def test_the_suite_file_is_read_from_the_eval_tree(tmp_path):
@@ -335,3 +361,36 @@ def test_a_suite_gap_is_not_checked_even_when_the_task_also_needs_egress(tmp_pat
                           "--task", "net_add", tasks=net)
     assert code == 0
     assert report["tasks"][0]["unsupported_by"] == "suite"
+
+
+def test_a_skill_the_scaffold_base_ships_is_refused_before_any_cell(run, capsys):
+    scaffold, _ = _scaffold(run["tmp"])
+    write(scaffold, ".claude/skills/lint/SKILL.md", "---\nname: lint\ndescription: x\n---\nLint.\n")
+    git(scaffold, "add", "-A")
+    git(scaffold, "commit", "-qm", "ships lint")
+    sha = git(scaffold, "rev-parse", "HEAD")
+    write(run["root"], ".agent-eval/skills/lint/SKILL.md", "---\nname: lint\ndescription: x\n---\nLint.\n")
+    _commit_suite(run["root"], sha, _raw(repos={"sc": f"{scaffold}@{sha}"}, tasks=[{"id": "fix_add", "repo": "sc"}]))
+    with pytest.raises(SystemExit) as exc:
+        run["invoke"]("--suite", ".agent-eval/suite.yaml", "--task", "fix_add", "--task", "review_add",
+                      "--arm", "guidance:raw+skill:skills/lint")
+    assert exc.value.code == 1
+    assert "the base of task fix_add already has .claude/skills/lint" in capsys.readouterr().err
+    assert not list((run["out"] / "b1").glob("*__*/result.json"))
+
+
+def test_a_malformed_mcp_config_in_a_scaffold_base_is_refused_before_any_cell(run, capsys):
+    profile = run["tmp"] / "fake.yaml"  # a harness that passes the repository's .mcp.json to the agent
+    profile.write_text(yaml.safe_dump({**PROFILE, "args_if_present": {".mcp.json": ["--mcp-config", ".mcp.json"]}}),
+                       encoding="utf-8")
+    scaffold, _ = _scaffold(run["tmp"])
+    write(scaffold, ".mcp.json", "{")
+    git(scaffold, "add", "-A")
+    git(scaffold, "commit", "-qm", "bad mcp")
+    sha = git(scaffold, "rev-parse", "HEAD")
+    _commit_suite(run["root"], sha, _raw(repos={"sc": f"{scaffold}@{sha}"}, tasks=[{"id": "fix_add", "repo": "sc"}]))
+    with pytest.raises(SystemExit) as exc:
+        run["invoke"]("--suite", ".agent-eval/suite.yaml", "--task", "fix_add", "--arm", "guidance:none")
+    assert exc.value.code == 1
+    assert "not valid JSON" in capsys.readouterr().err
+    assert not list((run["out"] / "b1").glob("*__*/result.json"))

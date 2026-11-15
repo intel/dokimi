@@ -47,6 +47,7 @@ class SuiteManifest:
     id: str
     repos: dict[str, RepoSource]
     tasks: dict[str, str]
+    floating: bool = False  # the run allows a branch, tag or other ref as a pin
 
 
 @dataclass
@@ -69,6 +70,7 @@ class SuiteBases:
 def parse_suite(raw: Any, path: str = "<suite>", allow_floating: bool = False) -> SuiteManifest:
     """Validate an already-parsed suite mapping. A branch, tag or other ref is refused as a pin unless
     ``allow_floating``, in which case it is resolved when the run starts and the batch pins the result."""
+    _refuse_odd_names(raw, path)
     errors = schema_errors(SCHEMA_VERSION, raw)
     if errors:
         raise SuiteError(path, errors)
@@ -98,7 +100,15 @@ def parse_suite(raw: Any, path: str = "<suite>", allow_floating: bool = False) -
             tasks[task_id] = repo
     if problems:
         raise SuiteError(path, problems)
-    return SuiteManifest(path=path, id=raw["id"], repos=repos, tasks=tasks)
+    return SuiteManifest(path=path, id=raw["id"], repos=repos, tasks=tasks, floating=allow_floating)
+
+
+def _refuse_odd_names(raw: Any, path: str) -> None:
+    """A ``repos`` name that is not a string is a suite error; ``schema_errors`` cannot sort it among the others."""
+    repos = raw.get("repos") if isinstance(raw, dict) else None
+    odd = [k for k in repos if not isinstance(k, str)] if isinstance(repos, dict) else []
+    if odd:
+        raise SuiteError(path, [f"repos: the name {k!r} is not a string" for k in odd])
 
 
 def _parse_repo(spec: str) -> RepoSource:
@@ -153,6 +163,13 @@ def resolve_suite(suite: SuiteManifest, bases: Mapping[str, str], cache_dir: Pat
     each, all of them, so the pins do not depend on which tasks a run selects.
     """
     checkouts = {name: _checkout(source, cache_dir) for name, source in suite.repos.items()}
+    for name, found in checkouts.items():  # a name shaped like a hash (a branch) is not the commit the pin says
+        if suite.floating:  # the run asked for refs to be resolved: the commit it found is the pin
+            break
+        rev = suite.repos[name].rev
+        if not isinstance(found, str) and rev and _SHA_RE.match(rev) and found[1] != rev:
+            raise SuiteError(suite.path, [f"repos.{name}: {rev!r} resolves to {found[1]}, not to that commit; "
+                                          "pin the full commit SHA"])
     out = SuiteBases(pins={name: found[1] for name, found in checkouts.items() if not isinstance(found, str)},
                      plan={"path": suite.path, "repos": {name: str(source) for name, source in suite.repos.items()},
                            "tasks": dict(suite.tasks)})
