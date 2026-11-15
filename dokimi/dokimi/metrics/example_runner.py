@@ -237,7 +237,7 @@ def _run_docker(lang: str, code: str, policy: ExecutionPolicy,
             result = runner(cmd, timeout=policy.timeout + 30, env=process.Env.inherit())
         except FileNotFoundError:
             return False, "docker backend selected but docker is not installed"
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:  # noqa: BLE001 - reported as the run's execution error
             return False, f"Execution error: {type(exc).__name__}: {exc}"
 
     if result.timed_out:

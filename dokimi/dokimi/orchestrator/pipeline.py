@@ -390,6 +390,7 @@ class EvaluationPipeline:
                   f"({results['steps']['questions_merged']['generated']} generated, "
                   f"{results['steps']['questions_merged']['manual']} manual)")
 
+        self._require_questions(merged_questions)
         # Compute and record question_set_hash for reproducibility
         question_set_hash = compute_question_set_hash(merged_questions)
         results["question_set_hash"] = question_set_hash
@@ -541,6 +542,12 @@ class EvaluationPipeline:
         
         return questions
     
+    def _require_questions(self, questions: List[Dict[str, Any]]) -> None:
+        """An empty question set measures nothing: refuse it before any answer or judge call,
+        rather than end as a success with an empty evaluation."""
+        if not questions:
+            raise ValueError(f"No questions to answer: the question set for {self.product} is empty")
+
     def _read_question_inputs(self) -> Optional[List[Dict[str, Any]]]:
         """Read the question sets this run reuses; return the set that replaces generation.
 
@@ -552,11 +559,17 @@ class EvaluationPipeline:
         """
         self._custom_questions: Optional[List[Dict[str, Any]]] = None
         if self.external_questions_path is not None:
-            return load_questions_payload(self.external_questions_path, "--questions-from")
-        if (not self.force_regen) and self.questions_path.exists():
-            return load_questions_payload(self.questions_path)
-        self._custom_questions = self._load_custom_questions()
-        return None
+            path = self.external_questions_path
+            reused = load_questions_payload(path, "--questions-from")
+        elif (not self.force_regen) and self.questions_path.exists():
+            path = self.questions_path
+            reused = load_questions_payload(path)
+        else:
+            self._custom_questions = self._load_custom_questions()
+            return None
+        if not reused:  # an empty reused set is a bad input (exit 2), refused before persona discovery
+            raise InputError(f"No questions to answer: {path} has no questions")
+        return reused
 
     def _load_custom_questions(self) -> List[Dict[str, Any]]:
         """The --custom-questions (or auto-included golden) set, tagged ``source_type: manual``.
@@ -693,7 +706,7 @@ class EvaluationPipeline:
         
         return answers
     
-    def _evaluate_answers(self, answers: List[Dict[str, Any]] | Dict[str, Any],
+    def _evaluate_answers(self, answers: Optional[List[Dict[str, Any]] | Dict[str, Any]],
                           concurrency: int = 5,
                           question_set_hash: Optional[str] = None) -> List[Dict[str, Any]]:
         """Evaluate answers using LLM-as-judge."""
@@ -701,15 +714,15 @@ class EvaluationPipeline:
         
         from dokimi.records import load, read
 
-        # Use in-memory answers from the previous step (avoid stale disk read);
-        # fall back to the answers file when none were passed.
-        if answers:
+        # Use in-memory answers from the previous step; an empty list is this run's
+        # answers (none), so the answers file on disk is read only when none were passed.
+        if answers is not None:
             run = read(answers, source="answers", section="answers")
         else:
             run = load(self.answers_path, section="answers")
         answers_list = list(run.records)
         # Fresh in-memory answers are this process's method; an artifact says its own, unstamped is legacy.
-        if answers and isinstance(answers, list):
+        if isinstance(answers, list):
             answers_method_version = ANSWERING_METHOD_VERSION
         else:
             answers_method_version = answers_method_version_of(run.meta)

@@ -127,7 +127,7 @@ def ask_in_batches(
                 raise ValueError("the model returned an empty reply")
             replied = True
             result.answered.append((chunk, read(chunk, reply)))
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - re-asked in halves or recorded as the chunk's error
             half = len(chunk) // 2
             # A reply cut at the ceiling is re-asked smaller, like one that will not parse.
             if (replied or isinstance(exc, OutputTruncated)) and half >= max(min_size, 1):
