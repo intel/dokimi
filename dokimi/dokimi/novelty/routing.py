@@ -269,7 +269,7 @@ def _pick_row(base: dict, reply: str, order: list[int], candidates: list[Candida
 
 def _ask_once(client, prompt: str, base: dict, order: list[int], candidates: list[Candidate],
               gold: int) -> tuple[dict | None, tuple[str, str] | None]:
-    """One call of the routing loop: its row, and the message when the cap or a permanent error stops the run.
+    """One call of the routing loop: its row, and the `(reason, message)` of the stop when the cap, an unpriced call or a permanent error stops the run.
 
     A call the cap refused has no row; one with no price was paid for, so its reply is scored (a cut one as a decline) and the caller stops.
     A run-wide provider error (:func:`dokimi.novelty.routing_stop.is_run_wide`) has no row either and stops the run.
@@ -294,7 +294,7 @@ def _ask_once(client, prompt: str, base: dict, order: list[int], candidates: lis
 
 def _ask_query(client, query: str, index_of_query: int, candidates: list[Candidate], gold: int,
                seed: int, repeats: int) -> tuple[list[dict], tuple[str, str] | None]:
-    """The repeats of one query: its rows, and the cap's message when the cap stops the run.
+    """The repeats of one query: its rows, and the `(reason, message)` of the stop when the cap, an unpriced call or a permanent error stops the run.
 
     The card order is seeded per query, and kept across its repeats (see :func:`model_routing`).
     """
