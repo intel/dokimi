@@ -125,6 +125,14 @@ def digest_text(text: str) -> str:
     return "sha256:" + hashlib.sha256((text or "").encode("utf-8", errors="surrogatepass")).hexdigest()
 
 
+def key_bytes(text: str) -> bytes:
+    """The bytes a cache key or id hashes for ``text``: UTF-8 with ``surrogateescape``, so a non-UTF-8 byte is its own byte."""
+    try:
+        return text.encode("utf-8", "surrogateescape")
+    except UnicodeEncodeError:  # a JSON `\ud800` has no escape: tagged `surrogatepass`, apart from the bytes `surrogateescape` maps
+        return b"\0sp" + text.encode("utf-8", "surrogatepass")
+
+
 def _plain_path(text: str) -> str:
     r"""A Windows absolute path without its extended-length prefix. os.readlink gives an absolute link target as
     \\?\C:\... (or \\?\UNC\...), while the anchors are plain: the two read as different drives.

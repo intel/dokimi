@@ -56,7 +56,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from dokimi import process
-from dokimi.utils import retry_writable
+from dokimi.utils import key_bytes, retry_writable
 
 from .events import convert
 from .transcript import Transcript
@@ -524,7 +524,7 @@ def run_reach(
     probed, groups, unresolved = followable(tree, files)
     shadows = shadow_for(profile, tree, kinds)
     plan = scenarios(probed, kinds, only, shadows)
-    salt = salt or hashlib.sha256(f"{tree.label}\0{datetime.now(timezone.utc).isoformat()}".encode()).hexdigest()[:12]
+    salt = salt or hashlib.sha256(key_bytes(f"{tree.label}\0{datetime.now(timezone.utc).isoformat()}")).hexdigest()[:12]
     base = _make_base(work_dir)
     workspace = base / "ws"
     try:
