@@ -9,7 +9,8 @@ and reviews one skill per row. Every SKILL.md body the scan finds is loaded befo
 memory grows with the catalog; lazy per-skill loading is #434). Rows are written in
 catalog order within one run (``--resume`` appends the rest after the rows it kept), a run
 killed midway keeps the rows it wrote, and ``--resume`` reviews only the skills that have no
-row yet or whose directory changed since their row was written (its ``skill_sha256``).
+row yet, whose directory changed since their row was written (its ``skill_sha256``), or whose row
+another dokimi version wrote (``dokimi_version``).
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Callable, Iterable, Iterator, Optional
 
+from dokimi import __version__
 from dokimi.utils import InputError
 
 
@@ -46,6 +48,7 @@ def skill_row(skill, review, nested_in: Optional[str] = None, outputs: Iterable[
         "disable_model_invocation": bool(review and review.disable_model_invocation),
         "content_sha256": review.content_sha256 if review else None,
         "skill_sha256": skill_dir_digest(skill, outputs),
+        "dokimi_version": __version__,
         "duplicate_of": review.duplicate_of if review else None,
         "ignored": sorted(ignore),
         "findings": [{"level": f.level, "code": f.code, "message": f.message} for f in kept],
@@ -267,8 +270,9 @@ def _load_prior(path: Path, selected: dict[str, Optional[str]], ignore: frozense
     *selected* maps each skill's key to its ``skill_sha256`` now. The file is read line by line and only
     the kept rows are held. A rewrite is due when a line is half-written, when the last line has no
     newline (the next row would be glued onto it), or when a row is for a skill this run does not
-    select, whose directory changed, or was written under other ``--ignore`` codes (the file must
-    match the counts printed).
+    select, whose directory changed, was written under other ``--ignore`` codes (the file must
+    match the counts printed), or was written by another dokimi version (or before the version was
+    recorded): a finding a newer version adds is not in the old row.
     """
     rows: list[dict] = []
     dirty = False
@@ -282,7 +286,7 @@ def _load_prior(path: Path, selected: dict[str, Optional[str]], ignore: frozense
                     continue
                 key = _row_key(row)
                 if (key in selected and "skill_sha256" in row and row["skill_sha256"] == selected[key]
-                        and row.get("ignored", []) == sorted(ignore)):
+                        and row.get("ignored", []) == sorted(ignore) and row.get("dokimi_version") == __version__):
                     rows.append(row)
                 else:
                     dirty = True
