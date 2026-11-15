@@ -192,8 +192,13 @@ class RetentionOracle:
         path = self._path(key)
         if path is None:
             return
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps({"verdict": result.verdict, "score": result.score}), "utf-8")
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps({"verdict": result.verdict, "score": result.score}), "utf-8")
+        except OSError:
+            # A read-only cache still serves what it holds (`_load`); a verdict it cannot take
+            # stays in the memo for this run and is decided again on the next.
+            return
 
 
 def error_warning(oracle: RetentionOracle) -> str | None:

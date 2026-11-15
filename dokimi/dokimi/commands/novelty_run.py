@@ -33,9 +33,10 @@ def stops_at_cap(command):
 def usable_cache_dir(raw: str | None) -> Path | None:
     """``--cache-dir`` as a path the retention cache can store into, or ``None`` when unset.
 
-    A directory that does not exist yet is fine (created on the first store); one that exists
-    must be writable, and a missing one needs an existing, writable directory above it. Anything
-    else raises ``InputError`` before a paid call (#701).
+    A directory that does not exist yet is fine (created on the first store) when an existing,
+    writable directory is above it; one that exists must be a readable directory, writable or
+    not (the oracle skips a store it cannot make). Anything else raises ``InputError`` before a
+    paid call (#701).
     """
     from dokimi.utils import InputError
 
@@ -54,8 +55,11 @@ def usable_cache_dir(raw: str | None) -> Path | None:
     if not is_dir:
         where = "is not a directory" if probe == path else f"has {probe} above it, which is not a directory"
         raise InputError(f"--cache-dir {path} {where}; pass a directory the retention verdicts can be stored in")
-    if not os.access(probe, os.W_OK | os.X_OK):
-        raise InputError(f"--cache-dir {path}: {probe} is not writable; pass a directory the retention "
+    # An existing directory only has to be readable: a fully cached run replays from a read-only
+    # directory and writes nothing. A missing one is created on the first store, so it needs to be writable.
+    needed, word = (os.R_OK | os.X_OK, "readable") if probe == path else (os.W_OK | os.X_OK, "writable")
+    if not os.access(probe, needed):
+        raise InputError(f"--cache-dir {path}: {probe} is not {word}; pass a directory the retention "
                          "verdicts can be stored in")
     return path
 

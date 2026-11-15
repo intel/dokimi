@@ -56,17 +56,38 @@ def test_usable_cache_dir_refuses_a_dangling_symlink_and_a_child_of_one(tmp_path
 
 
 @pytest.mark.skipif(not hasattr(os, "geteuid") or os.geteuid() == 0, reason="root writes anywhere")
-def test_usable_cache_dir_refuses_an_unwritable_directory_and_a_child_of_one(tmp_path):
+def test_usable_cache_dir_takes_a_read_only_directory_but_refuses_a_child_of_one(tmp_path):
     locked = tmp_path / "locked"
     locked.mkdir()
     locked.chmod(0o500)
     try:
-        for raw in (locked, locked / "cache"):
-            with pytest.raises(InputError) as err:
-                usable_cache_dir(str(raw))
-            assert str(raw) in str(err.value) and "is not writable" in str(err.value)
+        assert usable_cache_dir(str(locked)) == locked
+        with pytest.raises(InputError) as err:
+            usable_cache_dir(str(locked / "cache"))
+        assert str(locked / "cache") in str(err.value) and "is not writable" in str(err.value)
     finally:
         locked.chmod(0o700)
+
+
+@pytest.mark.skipif(not hasattr(os, "geteuid") or os.geteuid() == 0, reason="root writes anywhere")
+def test_a_read_only_cache_dir_replays_what_it_holds_and_decides_a_miss_without_storing(tmp_path):
+    from dokimi.novelty.retention import RetentionOracle
+
+    cache = tmp_path / "cache"
+    hit = Atom(statement="Configure module0 with parameter0", question="q", answer="a", span_ids=())
+    miss = Atom(statement="Restart service9 after every deploy", question="q", answer="a", span_ids=())
+    text = "Configure module0 with parameter0 always."
+    stored = RetentionOracle(cache_dir=cache).verdict(hit, text)
+    cache.chmod(0o500)
+    try:
+        oracle = RetentionOracle(cache_dir=usable_cache_dir(str(cache)))
+        assert oracle.verdict(hit, text).method == "cache"
+        assert oracle.verdict(hit, text).retained == stored.retained
+        decided = oracle.verdict(miss, text)
+        assert decided.method == "lexical"
+        assert len(list(cache.iterdir())) == 1
+    finally:
+        cache.chmod(0o700)
 
 
 @pytest.mark.skipif(not hasattr(os, "geteuid") or os.geteuid() == 0, reason="root writes anywhere")
@@ -77,7 +98,7 @@ def test_usable_cache_dir_refuses_a_writable_directory_without_search_permission
     try:
         with pytest.raises(InputError) as err:
             usable_cache_dir(str(closed))
-        assert str(closed) in str(err.value) and "is not writable" in str(err.value)
+        assert str(closed) in str(err.value) and "is not readable" in str(err.value)
     finally:
         closed.chmod(0o700)
 
