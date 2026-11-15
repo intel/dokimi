@@ -1278,7 +1278,7 @@ trace gives nulls. The schema is `dokimi/schemas/run_context.v1.json`.
 
 - `harness` is the profile's name (`claude-code`, `codex`, `copilot`), which dokimi started; the CLI does not print it.
   `harness_version` is the CLI's own version (`claude_code_version`), else the version dokimi probed (`version_cmd`).
-- `model_requested` is the `--model` value. `model_served.init` is the model the start-up record names;
+- `model_requested` is the model the evaluator asked for (`repo run --model`), whether or not the profile passes it to the CLI. `model_served.init` is the model the start-up record names;
   `model_served.usage` lists the keys of the closing record's `modelUsage`, which include helper models.
   Codex prints no model, so both are null there.
 - `effort` is the start-up record's `per_turn_effort_active`, else `--effort`, else Codex's `-c model_reasoning_effort=`.

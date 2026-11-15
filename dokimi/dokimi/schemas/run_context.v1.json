@@ -12,7 +12,7 @@
     "dokimi_version": {"type": "string", "minLength": 1, "description": "The envelope: the dokimi version that saved this file. Absent from files saved before the envelope."},
     "harness": {"type": ["string", "null"], "description": "The harness profile's name (`claude-code`, `codex`, `copilot`), which dokimi started; the CLI does not print it."},
     "harness_version": {"type": ["string", "null"], "description": "The CLI's own version: `claude_code_version` of the init record, else the version dokimi probed with the profile's `version_cmd` (`codex --version`)."},
-    "model_requested": {"type": ["string", "null"], "description": "The `--model` value dokimi passed."},
+    "model_requested": {"type": ["string", "null"], "description": "The model the evaluator asked for (`repo run --model`), whether or not the profile passes it to the CLI."},
     "model_served": {
       "type": "object",
       "additionalProperties": false,
