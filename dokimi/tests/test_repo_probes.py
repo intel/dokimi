@@ -148,6 +148,12 @@ def test_a_wrappers_options_do_not_hide_the_program_it_runs(command, pattern):
     assert [e["pattern"] for e in events if e["kind"] == "probe"] == [pattern]
 
 
+@pytest.mark.parametrize("command", ["if true; then nproc; fi", "for x in 1; do nproc; done"])
+def test_a_command_in_the_body_of_a_conditional_or_loop_is_a_probe(command):
+    events = _claude(_claude_call("a", command, "2026-01-01T00:00:05Z"), _claude_result("a"))
+    assert [e["pattern"] for e in events if e["kind"] == "probe"] == ["nproc"]
+
+
 @pytest.mark.xfail(strict=True, reason="quoted text is still searched for substitutions and pipes")
 @pytest.mark.parametrize("command", [
     "echo '$(nproc)'",

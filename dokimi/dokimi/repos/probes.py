@@ -50,6 +50,7 @@ _READERS = frozenset({"cat", "head", "tail", "less", "more", "nl", "sed", "grep"
                       "strings", "wc", "rg"})
 _SEARCHERS = frozenset({"grep", "egrep", "fgrep", "rg", "sed", "awk"})  # the first operand is an expression, not a file
 _WRAPPERS = frozenset({"time", "nohup", "sudo", "command", "exec", "builtin", "nice"})  # each runs the command after it
+_KEYWORDS = frozenset({"if", "then", "else", "elif", "do", "while", "until", "!"})  # shell keywords before a command
 _OPTION_OPERANDS = frozenset({("nice", "-n"), ("sudo", "-u")})  # wrapper options that take a value word
 _PYTHON = re.compile(r"python\d*(?:\.\d+)?|py|pypy\d*")
 _PIP = re.compile(r"pip\d*(?:\.\d+)?")
@@ -204,7 +205,7 @@ def _views(words: list[str]) -> Iterator[Stage]:
     """The command a simple command runs: its own program, then the command each wrapper (``time``, ``sudo``...) runs."""
     i = 0
     while i < len(words):
-        while i < len(words) and _ASSIGN.match(words[i]):  # NAME=value words set variables for the command after them
+        while i < len(words) and (_ASSIGN.match(words[i]) or words[i] in _KEYWORDS):  # NAME=value, ``then``: the command is next
             i += 1
         if i >= len(words):
             return
