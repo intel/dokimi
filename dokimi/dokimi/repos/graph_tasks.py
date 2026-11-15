@@ -27,6 +27,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
+from dokimi.atomic_write import write_text_atomic
 from dokimi.repos.code_index import CodeIndex
 from dokimi.repos.code_index.symbols import descriptor_names, descriptors
 from dokimi.repos.environment.files import is_generated, is_test_file
@@ -151,8 +152,8 @@ def write(p: Plan, opts: Options, code_index: dict[str, str]) -> None:
         task, gold = _task(o.candidate, p.granularity, opts, code_index)
         dest = opts.out / o.task
         dest.mkdir(parents=True, exist_ok=True)
-        (dest / GOLD).write_text(json.dumps(gold, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-        (dest / "task.json").write_text(json.dumps(task, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        write_text_atomic(dest / GOLD, json.dumps(gold, indent=2, ensure_ascii=False) + "\n")
+        write_text_atomic(dest / "task.json", json.dumps(task, indent=2, ensure_ascii=False) + "\n")
 
 
 def task_id(c: Candidate) -> str:
