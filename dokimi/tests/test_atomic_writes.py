@@ -186,6 +186,35 @@ def test_tmp_file_is_created_exclusively(tmp_path, monkeypatch):
     assert any(flag & os.O_EXCL for flag in flags)
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX file modes")
+def test_a_failed_chmod_closes_the_tmp_descriptor(tmp_path, monkeypatch):
+    # The descriptor is opened before the mode is restored; a chmod that raises must not leak it.
+    path = tmp_path / "x.json"
+    path.write_text("OLD", encoding="utf-8")
+    opened, closed = [], []
+    real_open, real_close = os.open, os.close
+
+    def spy_open(name, flag, mode=0o777, *args, **kwargs):
+        fd = real_open(name, flag, mode, *args, **kwargs)
+        opened.append(fd)
+        return fd
+
+    def spy_close(fd):
+        closed.append(fd)
+        return real_close(fd)
+
+    def boom(*args, **kwargs):
+        raise OSError("injected chmod failure")
+
+    monkeypatch.setattr(os, "open", spy_open)
+    monkeypatch.setattr(os, "close", spy_close)
+    monkeypatch.setattr(os, "chmod", boom)
+    with pytest.raises(OSError, match="injected chmod failure"):
+        write_text_atomic(path, "NEW")
+    assert opened and set(opened) <= set(closed)
+    _assert_kept(path, "OLD")
+
+
 def test_tmp_file_is_opened_binary_as_io_open_opens_it(tmp_path, monkeypatch):
     # On Windows os.open gives a text-mode descriptor unless O_BINARY is set, and then \n is written twice as \r\n.
     flags = []

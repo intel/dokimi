@@ -41,7 +41,11 @@ def _publish(path: Path, open_tmp: Callable[[int], IO], data: str | bytes) -> No
         fd = os.open(tmp, flags, 0o666 if mode is None else mode)
         if mode is not None:
             # os.open's mode is cut by the umask; the data is written only after the mode is restored.
-            os.chmod(tmp, mode)
+            try:
+                os.chmod(tmp, mode)
+            except BaseException:
+                os.close(fd)
+                raise
         with open_tmp(fd) as handle:
             handle.write(data)
         os.replace(tmp, path)
