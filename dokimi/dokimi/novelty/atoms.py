@@ -117,7 +117,7 @@ class Atom:
 
     def __post_init__(self) -> None:
         if not self.id:
-            digest = hashlib.sha256(self.statement.strip().encode("utf-8")).hexdigest()[:10]
+            digest = hashlib.sha256(self.statement.strip().encode("utf-8", "surrogatepass")).hexdigest()[:10]
             self.id = f"a{digest}"
 
     @property

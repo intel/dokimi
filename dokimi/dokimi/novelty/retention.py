@@ -260,7 +260,7 @@ def _key(atom: Atom, text: str) -> str:
     # Bumped when what an entry means changes: every older entry is then not read.
     # The reason for each bump is in docs/skill-novelty.md, under the cache key.
     digest.update(_CACHE_VERSION)
-    digest.update(atom.statement.strip().encode("utf-8"))
+    digest.update(atom.statement.strip().encode("utf-8", "surrogatepass"))  # model output and files can hold a lone surrogate
     digest.update(b"\0")
-    digest.update(text.encode("utf-8"))
+    digest.update(text.encode("utf-8", "surrogatepass"))
     return digest.hexdigest()[:32]

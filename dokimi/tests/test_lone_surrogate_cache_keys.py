@@ -149,6 +149,53 @@ def test_question_set_hash_of_a_question_with_a_high_surrogate_is_a_digest():
     assert _set_hash(HIGH) == _sha(b"q0:n\xed\xa0\x80")[:12]
 
 
+def _atom_id(statement: str) -> str:
+    from dokimi.novelty.atoms import Atom
+
+    return Atom(statement=statement, question="q", answer="a").id
+
+
+def test_atom_id_of_a_utf8_statement_is_unchanged():
+    assert _atom_id("  Use café?  ") == "a" + hashlib.sha256("Use café?".encode("utf-8")).hexdigest()[:10]
+
+
+def test_atom_id_of_a_statement_with_a_high_surrogate_is_a_digest():
+    assert _atom_id(HIGH) == "a" + _sha(b"n\xed\xa0\x80")[:10]
+
+
+def test_atom_id_of_a_statement_with_a_low_surrogate_is_a_digest():
+    assert _atom_id(LOW) == "a" + _sha(b"n\xed\xb3\xbf")[:10]
+    assert _atom_id(LOW) != _atom_id("n\udcfe")
+
+
+def _retention_key(statement: str, text: str) -> str:
+    from dokimi.novelty.atoms import Atom
+    from dokimi.novelty.retention import _key
+
+    return _key(Atom(statement=statement, question="q", answer="a", id="a1"), text)
+
+
+def _old_retention_key(statement: bytes, text: bytes) -> str:
+    from dokimi.novelty.retention import _CACHE_VERSION
+
+    return _sha(_CACHE_VERSION + statement + b"\0" + text)[:32]
+
+
+def test_retention_key_of_a_utf8_statement_and_text_is_unchanged():
+    old = _old_retention_key("Use café?".encode("utf-8"), "tëxt".encode("utf-8"))
+    assert _retention_key(" Use café? ", "tëxt") == old
+
+
+def test_retention_key_of_a_statement_with_a_lone_surrogate_is_a_digest():
+    assert _retention_key(HIGH, "t") == _old_retention_key(b"n\xed\xa0\x80", b"t")
+    assert _retention_key(LOW, "t") == _old_retention_key(b"n\xed\xb3\xbf", b"t")
+
+
+def test_retention_key_of_a_text_with_a_lone_surrogate_is_a_digest():
+    assert _retention_key("s", HIGH) == _old_retention_key(b"s", b"n\xed\xa0\x80")
+    assert _retention_key("s", LOW) == _old_retention_key(b"s", b"n\xed\xb3\xbf")
+
+
 def test_question_set_hash_of_a_question_with_a_low_surrogate_is_a_digest():
     assert _set_hash(LOW) == _sha(b"q0:n\xed\xb3\xbf")[:12]
     assert _set_hash(LOW) != _set_hash("n\udcfe")
