@@ -137,6 +137,7 @@ Open questions (left as they are):
    and `Counted` are defined; the mutations show they are not vacuous.
 6. `run.sh` is not part of CI; the action → code table can drift from the code.
 
-## A formal-verification evaluator for agent tasks (proposal)
+## Related idea
 
-See [`EVALUATOR.md`](EVALUATOR.md).
+A model-checking grader for agent tasks, not implemented, is recorded as idea
+[I022](../../research/records/idea/I022.md).
