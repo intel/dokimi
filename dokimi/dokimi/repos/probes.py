@@ -21,6 +21,7 @@ an empty list turns the target off. See ``docs/repo-evaluation-contract.md`` §2
 
 from __future__ import annotations
 
+import ast
 import posixpath
 import re
 import shlex
@@ -31,7 +32,7 @@ from typing import Any
 
 import yaml
 
-from .shell_split import split_script
+from .shell_split import split_script, substitution_end
 
 TARGETS = ("cpu", "gpu", "os", "memory", "packages", "env", "network")
 
@@ -49,11 +50,22 @@ DEFAULT_PROBES: dict[str, tuple[str, ...]] = {
 _READERS = frozenset({"cat", "head", "tail", "less", "more", "nl", "sed", "grep", "egrep", "fgrep", "awk", "tac",
                       "strings", "wc", "rg"})
 _WRAPPERS = frozenset({"time", "nohup", "sudo", "command", "exec", "builtin", "nice"})  # each runs the command after it
+_WRAPPER_VALUES = {"sudo": frozenset({"-u", "-g", "-h", "-p", "-r", "-t", "-C", "-D", "-R", "-T", "-U"}),
+                   "nice": frozenset({"-n", "--adjustment"}), "exec": frozenset({"-a"}),
+                   "time": frozenset({"-f", "-o", "--format", "--output"})}  # options that take the next word
+_PATTERN_READERS = frozenset({"grep", "egrep", "fgrep", "rg", "sed", "awk"})  # the first operand is a pattern or script
+_READER_VALUES = {"head": {"-n", "-c"}, "tail": {"-n", "-c"}, "grep": {"-e", "-f", "-m", "-A", "-B", "-C"},
+                  "egrep": {"-e", "-f", "-m", "-A", "-B", "-C"}, "fgrep": {"-e", "-f", "-m", "-A", "-B", "-C"},
+                  "rg": {"-e", "-f", "-m", "-A", "-B", "-C", "-g", "-t", "-T"}, "sed": {"-e", "-f", "-l"},
+                  "awk": {"-F", "-v", "-f"}}  # options that take the next word
+_PATTERN_OPTIONS = frozenset({"-e", "--regexp"})  # the pattern or script comes from the option, not the first operand
 _PYTHON = re.compile(r"python\d*(?:\.\d+)?|py|pypy\d*")
 _PIP = re.compile(r"pip\d*(?:\.\d+)?")
 _ASSIGN = re.compile(r"[A-Za-z_]\w*=")
 _DOTTED = re.compile(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*")
-_SUBSTITUTION = re.compile(r"\$\(([^()]*)\)|`([^`]*)`")
+_HEREDOC = re.compile(r"<<-?[ \t]*(['\"]?)([A-Za-z_]\w*)\1")
+_SHELL_LINE = re.compile(r"\s*(?:(?:sudo|exec|command|time)\s+)*(?:bash|sh|zsh|dash)\b")  # a heredoc fed to a shell runs
+_PUNCT = frozenset("();<>&|")
 _SHELLS = frozenset({"bash", "sh", "zsh", "dash"})
 _SHELL_C = re.compile(r"-[a-z]*c[a-z]*")  # ``-c``, ``-lc``: the next word is a script
 _LEX_SKIP = frozenset({"(", ")", "{", "}"})  # grouping a PowerShell or shell expression puts around a command
@@ -65,13 +77,13 @@ Stage = tuple[str, tuple[str, ...]]  # a simple command's program (normalised) a
 @dataclass(frozen=True)
 class Probe:
     """One compiled pattern. ``kind``: ``command`` (``stages``, consecutive pipeline stages), ``path`` (``text``, the
-    file's path) or ``python`` (``call``, the regex the code of a ``-c`` one-liner must match)."""
+    file's path) or ``python`` (``call``, the dotted name a call in the code of a ``-c`` one-liner must have)."""
 
     target: str
     text: str
     kind: str
     stages: tuple[Stage, ...] = ()
-    call: re.Pattern[str] | None = None
+    call: str | None = None
 
 
 def validate_config(raw: Any, where: str) -> dict[str, tuple[str, ...]]:
@@ -136,7 +148,7 @@ def _compile(target: str, text: str) -> Probe:
         name = text[3:].strip()
         if not _DOTTED.fullmatch(name):
             raise ValueError(f"{text!r}: py: takes a dotted Python name such as os.cpu_count")
-        return Probe(target, text, "python", call=re.compile(r"(?<![\w.])" + re.escape(name) + r"\s*\("))
+        return Probe(target, text, "python", call=name)
     if text.startswith("/"):
         if any(c.isspace() for c in text):
             raise ValueError(f"{text!r}: a path pattern is one word with no spaces")
@@ -170,10 +182,10 @@ def _matching(command: str, probes: Sequence[Probe]) -> list[Probe]:
 
 def _pipelines(script: str) -> Iterator[list[list[str]]]:
     """Each pipeline of the script as its stages' words; the commands of its ``$( )`` and backtick substitutions too."""
-    for part, _after, _in_subshell, _outer in split_script(script):
-        for inner in _SUBSTITUTION.finditer(part):
-            yield from _pipelines(inner.group(1) if inner.group(1) is not None else inner.group(2))
-        stages = _stages(_SUBSTITUTION.sub(" ", part))  # the substitutions ran as their own commands, above
+    for part, _after, _in_subshell, _outer in split_script(_without_heredocs(script)):
+        stages, inner = command_stages(part)
+        for body in inner:
+            yield from _pipelines(body)
         if stages:
             yield stages
         for stage in stages:  # ``bash -lc 'nproc'``: the script a shell runs is a script of its own
@@ -181,35 +193,119 @@ def _pipelines(script: str) -> Iterator[list[list[str]]]:
                 yield from _pipelines(stage[2])
 
 
-def _stages(part: str) -> list[list[str]]:
-    """A part's simple commands, cut at its unquoted pipes, each as its words (quotes removed, grouping dropped)."""
-    try:
-        lexer = shlex.shlex(part, posix=True, punctuation_chars=True)
-        lexer.whitespace_split = True
-        tokens = list(lexer)
-    except ValueError:  # an unbalanced quote: the words as they are typed
-        tokens = part.split()
+def _without_heredocs(script: str) -> str:
+    """The script without the bodies of its heredocs, which are data (``cat <<EOF > run.sh``) unless a shell reads them."""
+    if "<<" not in script:
+        return script
+    lines, out, end = script.split("\n"), [], None
+    for line in lines:
+        if end is not None:
+            if line.strip() == end:
+                end = None
+            continue
+        out.append(line)
+        m = _HEREDOC.search(line)
+        if m and not _SHELL_LINE.match(line):
+            end = m.group(2)
+    return "\n".join(out)
+
+
+def command_stages(part: str) -> tuple[list[list[str]], list[str]]:
+    """A part's simple commands, cut at its unquoted pipes, each as its words (quotes removed, grouping dropped), and
+    the bodies of the ``$( )`` and backtick substitutions outside single quotes: they ran as commands of their own."""
     stages: list[list[str]] = [[]]
-    for token in tokens:
-        if token == "|":
-            stages.append([])
-        elif token not in _SEPARATORS and token not in _LEX_SKIP:
-            stages[-1].append(token)
-    return [stage for stage in stages if stage]
+    bodies: list[str] = []
+    word: list[str] = []
+    started = False  # a quoted empty string is a word
+    quote, i = "", 0
+    while i < len(part):
+        c = part[i]
+        if c == "'" and not quote:  # nothing inside single quotes is special
+            end = part.find("'", i + 1)
+            end = len(part) if end < 0 else end
+            word.append(part[i + 1:end])
+            started = True
+            i = end
+        elif c == "\\" and part[i + 1:i + 2] in ("$", "`", '"'):
+            word.append(part[i + 1])  # an escaped ``$(`` is text; any other backslash is a path separator
+            started = True
+            i += 1
+        elif c in "$`" and (sub := _substitution(part, i)):
+            bodies.append(sub[0])
+            i = sub[1]
+        elif c == quote:
+            quote = ""
+        elif c == '"' and not quote:
+            quote, started = c, True
+        elif quote or c not in " \t\n" + "".join(_PUNCT):
+            word.append(c)
+            started = True
+        else:
+            _end_word(stages, word, started)
+            started = False
+            i = _operator(part, i, stages)
+        i += 1
+    _end_word(stages, word, started)
+    return [stage for stage in stages if stage], bodies
+
+
+def _end_word(stages: list[list[str]], word: list[str], started: bool) -> None:
+    if started and "".join(word) not in _LEX_SKIP:
+        stages[-1].append("".join(word))
+    word.clear()
+
+
+def _substitution(part: str, i: int) -> tuple[str, int] | None:
+    """The body of the ``$( )`` or backtick substitution at ``i`` and the index of its last character; ``None``
+    where ``$`` or a backtick starts none."""
+    if part[i] == "$":
+        if part[i + 1:i + 2] != "(":
+            return None
+        end = substitution_end(part, i + 2)
+        return part[i + 2:end - 1], end - 1
+    end = part.find("`", i + 1)
+    end = len(part) if end < 0 else end
+    return part[i + 1:end], end
+
+
+def _operator(part: str, i: int, stages: list[list[str]]) -> int:
+    """Take the run of operator characters at ``i`` (a blank is none): a pipe starts a stage, a list separator or a
+    grouping parenthesis is dropped, a redirection stays a word; the index of the run's last character."""
+    run = part[i].strip()
+    if not run:
+        return i
+    while part[i + 1:i + 2] in _PUNCT:
+        i += 1
+        run += part[i]
+    if "|" in run:
+        stages.append([])
+    elif run and run not in _SEPARATORS and not set(run) <= set("()"):
+        stages[-1].append(run)
+    return i
 
 
 def _views(words: list[str]) -> Iterator[Stage]:
     """The command a simple command runs: its own program, then the command each wrapper (``time``, ``sudo``...) runs."""
+    for rest in command_words(words):
+        yield _head(rest[0], rest[1:])
+
+
+def command_words(words: list[str]) -> Iterator[list[str]]:
+    """The words of the command a simple command runs, from its program on, then those of the command each wrapper
+    (``time``, ``sudo -n``, ``nice -n 5``...) runs: its options are not the program."""
     i = 0
     while i < len(words):
         while i < len(words) and _ASSIGN.match(words[i]):  # NAME=value words set variables for the command after them
             i += 1
         if i >= len(words):
             return
-        yield _head(words[i], words[i + 1:])
-        if _program(words[i]) not in _WRAPPERS:
+        yield words[i:]
+        wrapper = _program(words[i])
+        if wrapper not in _WRAPPERS:
             return
         i += 1
+        while i < len(words) and words[i].startswith("-") and len(words[i]) > 1:
+            i += 2 if words[i] in _WRAPPER_VALUES.get(wrapper, ()) else 1
 
 
 def _head(word: str, args: list[str]) -> Stage:
@@ -224,16 +320,52 @@ def _hits(probe: Probe, pipeline: list[list[Stage]]) -> bool:
     if probe.kind == "command":
         return _in_order(probe.stages, pipeline)
     if probe.kind == "path":
-        return any(prog in _READERS and probe.text in args for views in pipeline for prog, args in views)
+        return any(prog in _READERS and probe.text in _operands(prog, args) for views in pipeline for prog, args in views)
     return any(_PYTHON.fullmatch(prog) and _calls(args, probe) for views in pipeline for prog, args in views)
 
 
+def _operands(program: str, args: tuple[str, ...]) -> list[str]:
+    """The files a reading command names: not its options, their values, or the pattern ``grep`` and ``sed`` search for."""
+    values = _READER_VALUES.get(program, ())
+    needs_pattern = program in _PATTERN_READERS
+    files: list[str] = []
+    i = 0
+    while i < len(args):
+        word = args[i]
+        if word in _PATTERN_OPTIONS and needs_pattern:
+            needs_pattern = False
+        if word.startswith("-") and len(word) > 1:
+            i += 2 if word in values else 1
+            continue
+        if needs_pattern:
+            needs_pattern = False
+        else:
+            files.append(word)
+        i += 1
+    return files
+
+
 def _calls(args: tuple[str, ...], probe: Probe) -> bool:
-    """Whether the code of a ``python -c`` one-liner calls the probe's name."""
+    """Whether the ``-c`` code of a Python command calls the probe's name, as code (not in a string or a comment)."""
     if "-c" not in args or probe.call is None:
         return False
-    code = args[args.index("-c") + 1:args.index("-c") + 2]
-    return bool(code) and probe.call.search(code[0]) is not None
+    at = args.index("-c")
+    if any(not w.startswith("-") for w in args[:at]):  # after a script name, ``-c`` is the script's own
+        return False
+    try:
+        tree = ast.parse(args[at + 1]) if at + 1 < len(args) else None
+    except (SyntaxError, ValueError):
+        return False
+    return tree is not None and any(_dotted(node.func) == probe.call for node in ast.walk(tree) if isinstance(node, ast.Call))
+
+
+def _dotted(node: ast.expr) -> str:
+    """``os.cpu_count`` for the expression ``os.cpu_count``; ``""`` for anything that is not a dotted name."""
+    parts: list[str] = []
+    while isinstance(node, ast.Attribute):
+        parts.append(node.attr)
+        node = node.value
+    return ".".join([node.id, *reversed(parts)]) if isinstance(node, ast.Name) else ""
 
 
 def _in_order(want: tuple[Stage, ...], pipeline: list[list[Stage]]) -> bool:

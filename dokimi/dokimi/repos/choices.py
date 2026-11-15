@@ -16,13 +16,13 @@ from __future__ import annotations
 
 import posixpath
 import re
-import shlex
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
 import yaml
 
+from .probes import command_stages, command_words
 from .shell_split import split_script
 
 ACTS = ("install", "import", "use", "remove")
@@ -33,12 +33,19 @@ _REMOVE_VERBS = frozenset({"uninstall", "remove"})
 _PYTHON = re.compile(r"python\d*(?:\.\d+)?")
 _PIP = re.compile(r"pip\d*(?:\.\d+)?")
 _REQUIREMENT_END = re.compile(r"[<>=!~\[;@]")  # where a requirement's name ends: a version, extras, a URL
+_INFO_FLAGS = frozenset({"-h", "--help", "-V", "--version"})  # the manager prints text and exits 0, changing nothing
+_VALUE_OPTIONS = frozenset({
+    "-r", "--requirement", "-c", "--constraint", "-e", "--editable", "-t", "--target", "-i", "--index-url",
+    "--extra-index-url", "-f", "--find-links", "--prefix", "--root", "--python", "--name", "-n", "-p", "--platform",
+    "--python-version", "--abi", "--implementation", "--src", "--cache-dir", "--log", "--proxy", "--retries",
+    "--timeout", "--cert", "--client-cert", "--trusted-host", "--config-settings", "-C", "--channel", "--group",
+    "--with"})  # options that take the next word, which is not a package
 
 
 def validate_candidates(raw: Any, where: str = "--candidates") -> dict[str, dict[str, tuple[str, ...]]]:
     """A ``{id: {act: [names]}}`` mapping as ``{id: {act: (names,)}}``; ``ValueError`` names what is wrong."""
     if raw is None:
-        return {}
+        raise ValueError(f"{where}: the file names no candidate")
     if not isinstance(raw, Mapping):
         raise ValueError(f"{where}: expected a mapping of candidate to acts, got {type(raw).__name__}")
     config: dict[str, dict[str, tuple[str, ...]]] = {}
@@ -111,8 +118,13 @@ def _command_choices(event: dict[str, Any], candidates: Mapping[str, Mapping[str
         return []
     found: dict[tuple[str, str], None] = {}
     for part, *_ in parts:
-        words = _words(part)
-        call = None if "|" in words else _package_call(words)
+        stages, _inner = command_stages(part)
+        if len(stages) > 1:  # a pipeline reports its last stage's exit code
+            continue
+        words = stages[0] if stages else []
+        if words[:1] in (["exit"], ["exec"]):  # exit or exec: no later part runs
+            break
+        call = next(filter(None, map(_package_call, command_words(words))), None)
         if call is None:
             continue
         act, packages = call
@@ -148,10 +160,11 @@ def _choice(event: dict[str, Any], cid: str, act: str, path: str | None) -> dict
 
 def _imports(name: str, text: str) -> bool:
     """``from name import ...``, or ``import name`` among the comma-separated modules of an ``import`` line; a
-    statement may follow another on its line after a ``;``."""
-    if re.search(rf"(?:^|;)[ \t]*from\s+{re.escape(name)}(?!\w)", text, re.M):
+    statement may follow another on its line after a ``;`` or a ``:``, a ``\\`` continues a line, a comment is no code."""
+    text = re.sub(r"\\\n[ \t]*", " ", re.sub(r"#[^\n]*", "", text))
+    if re.search(rf"(?:^|[;:])[ \t]*from\s+{re.escape(name)}(?!\w)", text, re.M):
         return True
-    for line in re.finditer(r"(?:^|;)[ \t]*import\s+([^\n#;]+)", text, re.M):
+    for line in re.finditer(r"(?:^|[;:])[ \t]*import\s+([^\n;]+)", text, re.M):
         for part in line.group(1).split(","):
             module = re.split(r"\s+as\s+", part.strip())[0]
             if module == name or module.startswith(name + "."):
@@ -163,34 +176,36 @@ def _calls(name: str, text: str) -> bool:
     return re.search(rf"(?<![\w.]){re.escape(name)}(?!\w)", text) is not None
 
 
-def _words(part: str) -> list[str]:
-    try:
-        return shlex.split(part)
-    except ValueError:  # an unbalanced quote: the words as they are typed
-        return part.split()
-
-
 def _package_call(words: list[str]) -> tuple[str, list[str]] | None:
     """The act and the package names of a package manager's install, add, uninstall or remove call."""
-    if "--dry-run" in words:  # a dry run installs nothing
+    if "--dry-run" in words or _INFO_FLAGS & set(words):  # a dry run installs nothing, nor does a help request
         return None
     rest = _manager_rest(words)
     while rest and rest[0].startswith("-"):  # ``pip --quiet install``: the options before the verb
-        rest = rest[1:]
+        rest = rest[2:] if rest[0] in _VALUE_OPTIONS else rest[1:]
     if not rest:
         return None
     verb = rest[0].casefold()
     act = "install" if verb in _INSTALL_VERBS else "remove" if verb in _REMOVE_VERBS else None
     if act is None:
         return None
-    return act, [_package(w) for w in rest[1:] if not w.startswith("-") and _package(w)]
+    names: list[str] = []
+    skip = False
+    for word in rest[1:]:
+        if skip:
+            skip = False
+        elif word.startswith("-"):
+            skip = word in _VALUE_OPTIONS
+        elif _package(word):
+            names.append(_package(word))
+    return act, names
 
 
 def _manager_rest(words: list[str]) -> list[str]:
     """The words after the package manager's program (``pip``, ``python -m pip``, ``uv pip``, ``conda``...)."""
     if not words:
         return []
-    head = posixpath.basename(words[0].replace("\\", "/")).casefold()
+    head = posixpath.basename(words[0].replace("\\", "/")).casefold().removesuffix(".exe")
     if _PYTHON.fullmatch(head) and words[1:3] == ["-m", "pip"]:
         return words[3:]
     if head == "uv" and words[1:2] == ["pip"]:

@@ -9,5 +9,5 @@ SPDX-License-Identifier: Apache-2.0
   maps each candidate id to package names (`install`, `remove`), modules an added `import` line names (`import`) and
   dotted names an added line mentions (`use`). A `choice` event follows the `command` or `edit` event that does it, with
   its `candidate`, `act` and, for an edit, its `path`. Only added text counts: an edit's new side, a write's content.
-  Copilot and Codex edits carry no added text, so they give install and remove events only. Existing event kinds are
+  Copilot's edit tools and Codex's `file_change` carry no added text, so they give install and remove events only. Existing event kinds are
   unchanged.

@@ -556,7 +556,9 @@ reads the upstream base (`base_sha`) and the workspace start commit
   `install` and `remove` (package names a package manager is given; a removal matches both lists), `import`
   (modules an added `import` or `from` line names) and `use` (dotted names an added line mentions, textually: a comment counts too). Only added text
   counts: the new side of an `Edit`, the content of a `Write`, never what the edit replaced. A harness whose edit
-  events carry no added text (Copilot's `apply_patch`, Codex's `file_change`) gives install and remove events only.
+  events carry no added text (Copilot's `edit`, `create`, `str_replace_editor`, `write` and `apply_patch`, Codex's
+  `file_change`) gives install and remove events only: no import or use choice there does not mean the agent did not
+  choose the candidate.
   An install or removal gives a choice only when its command joins every part to the next with `&&` and has no pipe:
   the harness reports one exit code per command, so a `;`, `||` or `|` part could have failed or never run. A
   `--dry-run` installs nothing and gives none. An install in a `bash -c` wrapper, or whose first word carries a

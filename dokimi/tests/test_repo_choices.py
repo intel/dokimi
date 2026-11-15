@@ -176,6 +176,72 @@ def test_an_import_after_a_semicolon_on_the_same_line_is_an_import():
     assert _choices(events) == [("sklearn", "import", "app.py")]
 
 
+def _bash_rc(command: str, **extra) -> list[dict]:
+    return [{"t": 1.0, "kind": "command", "text": command, **extra}]
+
+
+def test_a_denied_install_gives_no_choice():
+    events = with_choices(_bash_rc("pip install scikit-learn-intelex", rc=0, denied=True), SKLEARN, [])
+    assert _choices(events) == []
+    assert _choices(with_choices(_bash_rc("pip install scikit-learn-intelex", rc=0), SKLEARN, [])) == [
+        ("sklearn", "install", None)]
+
+
+@pytest.mark.parametrize("command", [
+    "pip install scikit-learn-intelex |cat",
+    "pip install scikit-learn-intelex|tail -3",
+    "pip install scikit-learn-intelex --help",
+    "pip install -h scikit-learn-intelex",
+    "pip --version install scikit-learn-intelex",
+    "pip uninstall scikit-learn-intelex --help",
+    "pip install --target scikit-learn-intelex numpy",
+    "pip install -r scikit-learn-intelex numpy",
+    "pip install -c scikit-learn-intelex numpy",
+    "pip install --index-url scikit-learn-intelex numpy",
+    "conda install --name scikit-learn-intelex numpy",
+    "exit 0 && pip install scikit-learn-intelex",
+])
+def test_a_command_that_installs_nothing_the_candidate_names_gives_no_choice(command):
+    assert _choices(with_choices(_bash_rc(command, rc=0), SKLEARN, [])) == []
+
+
+@pytest.mark.parametrize("command", [
+    "sudo pip install scikit-learn-intelex",
+    "time pip install scikit-learn-intelex",
+    "sudo -n pip install scikit-learn-intelex",
+    "nice -n 5 python -m pip install scikit-learn-intelex",
+    "pip.exe install scikit-learn-intelex",
+    "python.exe -m pip install scikit-learn-intelex",
+    "pip install --target lib scikit-learn-intelex",
+    "echo '|' && pip install scikit-learn-intelex",
+])
+def test_a_wrapped_or_option_laden_install_still_gives_its_choice(command):
+    assert _choices(with_choices(_bash_rc(command, rc=0), SKLEARN, [])) == [("sklearn", "install", None)]
+
+
+@pytest.mark.parametrize(("text", "found"), [
+    ("# example; import sklearnex\n", False),
+    ("# example; from sklearnex import patch_sklearn\n", False),
+    ("import os, \\\n    sklearnex\n", True),
+    ("if True: import sklearnex\n", True),
+    ("from sklearnex.svm import SVC\n", True),
+    ("from sklearnexx import y\n", False),
+    ("import sklearnex.patches\n", True),
+    ("import sklearnexx\n", False),
+])
+def test_an_import_is_read_from_code_not_from_a_comment(text, found):
+    event = {"t": 1.0, "kind": "edit", "path": "a.py", "rc": 0}
+    out = with_choices([event], SKLEARN, [(event, text)])
+    assert (("sklearn", "import", "a.py") in _choices(out)) is found
+
+
+def test_use_matches_a_dotted_name_only_at_a_name_boundary():
+    event = {"t": 1.0, "kind": "edit", "path": "a.py", "rc": 0}
+    for text, found in (("x = scipy.linalg.lstsq(a)\n", True), ("x = myscipy.linalg.lstsq(a)\n", False),
+                        ("x = a.scipy.linalg.lstsq(a)\n", False), ("x = scipy.linalg.lstsqx(a)\n", False)):
+        assert bool(_choices(with_choices([event], SCIPY, [(event, text)]))) is found, text
+
+
 @pytest.mark.parametrize(("raw", "message"), [
     ({"sk": {"fit": ["x"]}}, "unknown act 'fit'"),
     ({"sk": {"import": ["sklearn learn"]}}, "takes a dotted Python name"),

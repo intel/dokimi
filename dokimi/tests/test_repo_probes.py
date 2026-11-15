@@ -253,3 +253,68 @@ def test_a_manifest_probes_key_is_read_and_a_bad_one_is_a_manifest_error():
     assert parse_manifest({**base, "probes": {"memory": ["free"]}}).probes == {"memory": ("free",)}
     with pytest.raises(ManifestError, match="probes: 'disk' is not one of"):
         parse_manifest({**base, "probes": {"disk": ["df"]}})
+
+
+def _probes(command: str) -> list[str]:
+    events = _claude(_claude_call("a", command, "2026-01-01T00:00:05Z"), _claude_result("a"))
+    return [e["pattern"] for e in events if e["kind"] == "probe"]
+
+
+@pytest.mark.parametrize("command", [
+    "cat <<'EOF' > script.sh\nnproc\nEOF",
+    "cat <<-EOF > script.sh\n\tnproc\n\tEOF",
+    "echo '$(nproc)'",
+    "echo '`nproc`'",
+    "echo \\$(nproc)",
+    "echo '|' nproc",
+    "sysctl -a '|' grep machdep.cpu",
+    "grep -e /proc/cpuinfo README",
+    "grep /proc/cpuinfo README",
+    "rg -e /proc/cpuinfo README",
+    "sed -n /proc/cpuinfo README",
+    "python -c 'print(\"os.cpu_count()\")'",
+    "python -c '# os.cpu_count()\nprint(1)'",
+    "python -c 'x = os.cpu_count'",
+])
+def test_text_the_shell_does_not_run_gives_no_probe(command):
+    assert _probes(command) == []
+
+
+@pytest.mark.parametrize(("command", "found"), [
+    ("make -j$(nproc --ignore=$(printf 1))", ["nproc"]),
+    ('make -j"$(nproc)"', ["nproc"]),
+    ("make -j`nproc`", ["nproc"]),
+    ("bash <<EOF\nnproc\nEOF", ["nproc"]),
+    ("sudo -n nproc", ["nproc"]),
+    ("nice -n 5 nproc", ["nproc"]),
+    ("sudo -u root nproc", ["nproc"]),
+    ("time -p nproc", ["nproc"]),
+    ("sudo nohup nproc", ["nproc"]),
+    ("exec nproc", ["nproc"]),
+    ("command nproc", ["nproc"]),
+    ("C:\\Windows\\System32\\nproc.exe", ["nproc"]),
+    ("grep -n cores /proc/cpuinfo", ["/proc/cpuinfo"]),
+    ("head -n 3 /proc/cpuinfo", ["/proc/cpuinfo"]),
+    ("sed -n 1,3p /proc/cpuinfo", ["/proc/cpuinfo"]),
+    ("grep -e cores /proc/cpuinfo", ["/proc/cpuinfo"]),
+    ("wc -l /proc/cpuinfo", ["/proc/cpuinfo"]),
+    ("tac /proc/cpuinfo", ["/proc/cpuinfo"]),
+    ("less /proc/cpuinfo", ["/proc/cpuinfo"]),
+    ("python -c 'import os\nprint(os.cpu_count())'", ["py:os.cpu_count"]),
+    ("python -c 'print(f\"{os.cpu_count()}\")'", ["py:os.cpu_count"]),
+    ("python3.11 -c 'import os; os.cpu_count()'", ["py:os.cpu_count"]),
+    ("nvidia-smi | grep GPU", ["nvidia-smi"]),
+])
+def test_commands_the_shell_runs_give_their_probe(command, found):
+    assert _probes(command) == found
+
+
+def test_pattern_stages_must_be_consecutive():
+    assert _probes("sysctl -a | head | grep machdep.cpu") == []
+    assert _probes("sysctl -a | grep machdep.cpu") == ["sysctl -a | grep machdep.cpu"]
+
+
+def test_a_python_probe_needs_a_call_on_a_name_boundary():
+    assert _probes("python -c 'x = myos.cpu_count()'") == []
+    assert _probes("python -c 'x = a.os.cpu_count()'") == []
+    assert _probes("python -c 'os.cpu_count()'") == ["py:os.cpu_count"]
