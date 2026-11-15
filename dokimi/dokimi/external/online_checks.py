@@ -99,8 +99,10 @@ _PLACEHOLDER_NAMES = {"package", "packages", "pkg", "name", "module", "mypackage
 _URL_RE = re.compile(r"https?://(?:[^\s\"`<>'“”‘’—，。、；：！？（）「」]|'(?=\w))+", re.IGNORECASE)  # an apostrophe in a word is in a URL ("Moore's_law")
 # Where a literal URL starts: after a markdown destination's ``](``, or a reference definition's ``[id]: ``.
 _LITERAL_START_RE = re.compile(r"\]\(|^[ \t]*\[(?!\^)[^\]\n]*\]:[ \t]*", re.MULTILINE)  # not a footnote "[^1]:"
-# a "<...>" link destination: the text up to its unescaped ">", blanks and escaped "<" ">" included
-_ANGLE_REST_RE = re.compile(r"((?:\\[!-/:-@\[-`{-~]|[^<>\n\\]|\\(?![!-/:-@\[-`{-~]))*)>")
+# A "<...>" link destination: the text up to its unescaped ">", blanks and escaped "<" ">" included. The ">" counts
+# only when a link ends there: a ")", a title, or the end of a definition's line, not prose such as "is 3 > 2".
+_ANGLE_REST_RE = re.compile(
+    r"((?:\\[!-/:-@\[-`{-~]|[^<>\n\\]|\\(?![!-/:-@\[-`{-~]))*)>(?=\s*\)|\s+[\"'(]|[ \t]*(?:\n|\Z))")
 _ESCAPE_RE = re.compile(r"\\([!-/:-@\[-`{-~])")  # a backslash escape of ASCII punctuation, as CommonMark reads it
 # An escape or a character reference of a destination, in one pass so that "\&amp;" is the text "&amp;".
 _DECODE_RE = re.compile(r"\\([!-/:-@\[-`{-~])|&(#[xX][0-9a-fA-F]{1,6}|#[0-9]{1,7}|[A-Za-z][A-Za-z0-9]{1,31});")
@@ -500,7 +502,7 @@ def _distinct_urls(body: str) -> tuple[list[str], list[str]]:
             close = _ANGLE_REST_RE.match(body, m.start())
             if close:
                 raw, angled = close.group(1), True
-        if _TEMPLATE_RE.search(raw) or (not angled and body[m.end():m.end() + 1] in ("<", "{", "$")):
+        if _TEMPLATE_RE.search(raw.split(maxsplit=1)[0] if angled else raw) or (not angled and body[m.end():m.end() + 1] in ("<", "{", "$")):  # in "<...>", past a blank is text
             continue
         line_start = body.rfind("\n", 0, m.start()) + 1
         url = _clean_url(raw, literal=destination or autolink, decode=destination, delimited=autolink or angled,
