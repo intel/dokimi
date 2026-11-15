@@ -49,6 +49,7 @@ DEFAULT_PROBES: dict[str, tuple[str, ...]] = {
 _READERS = frozenset({"cat", "head", "tail", "less", "more", "nl", "sed", "grep", "egrep", "fgrep", "awk", "tac",
                       "strings", "wc", "rg"})
 _WRAPPERS = frozenset({"time", "nohup", "sudo", "command", "exec", "builtin", "nice"})  # each runs the command after it
+_OPTION_OPERANDS = frozenset({("nice", "-n"), ("sudo", "-u")})  # wrapper options that take a value word
 _PYTHON = re.compile(r"python\d*(?:\.\d+)?|py|pypy\d*")
 _PIP = re.compile(r"pip\d*(?:\.\d+)?")
 _ASSIGN = re.compile(r"[A-Za-z_]\w*=")
@@ -207,9 +208,14 @@ def _views(words: list[str]) -> Iterator[Stage]:
         if i >= len(words):
             return
         yield _head(words[i], words[i + 1:])
-        if _program(words[i]) not in _WRAPPERS:
+        wrapper = _program(words[i])
+        if wrapper not in _WRAPPERS:
             return
         i += 1
+        while i < len(words) and words[i].startswith("-"):  # ``sudo -E``, ``nice -n 5``: options, then the program
+            if wrapper == "command" and words[i] in ("-v", "-V"):
+                return  # ``command -v nproc`` looks the program up, it does not run it
+            i += 2 if (wrapper, words[i]) in _OPTION_OPERANDS else 1
 
 
 def _head(word: str, args: list[str]) -> Stage:

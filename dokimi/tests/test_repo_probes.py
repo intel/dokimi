@@ -132,6 +132,16 @@ def test_text_that_is_not_run_code_is_no_probe(command):
     assert all(e["kind"] != "probe" for e in events)
 
 
+@pytest.mark.parametrize(("command", "pattern"), [
+    ("sudo -E lscpu", "lscpu"),
+    ("nice -n 5 nproc", "nproc"),
+    ("sudo -u root nproc", "nproc"),
+])
+def test_a_wrappers_options_do_not_hide_the_program_it_runs(command, pattern):
+    events = _claude(_claude_call("a", command, "2026-01-01T00:00:05Z"), _claude_result("a"))
+    assert [e["pattern"] for e in events if e["kind"] == "probe"] == [pattern]
+
+
 @pytest.mark.xfail(strict=True, reason="quoted text is still searched for substitutions and pipes")
 @pytest.mark.parametrize("command", [
     "echo '$(nproc)'",
