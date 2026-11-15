@@ -196,6 +196,124 @@ def test_retention_key_of_a_text_with_a_lone_surrogate_is_a_digest():
     assert _retention_key("s", LOW) == _old_retention_key(b"s", b"n\xed\xb3\xbf")
 
 
+def test_url_client_cache_key_of_a_utf8_source_is_unchanged():
+    from dokimi.mcp.url_client import URLClient
+
+    assert URLClient("https://example.com/café")._cache_key() == hashlib.sha256("https://example.com/café".encode()).hexdigest()
+
+
+def test_url_client_cache_key_of_a_source_with_a_non_utf8_byte_is_unchanged():
+    from dokimi.mcp.url_client import URLClient
+
+    assert URLClient(LOW)._cache_key() == _sha(b"n\xff")  # the key #716 gave it, kept
+
+
+def test_url_client_cache_key_of_a_source_with_a_high_surrogate_is_a_digest():
+    from dokimi.mcp.url_client import URLClient
+
+    assert URLClient(HIGH)._cache_key() == _sha(b"\0spn\xed\xa0\x80")
+
+
+def test_url_client_cache_key_of_a_high_surrogate_is_apart_from_the_escaped_bytes_it_encodes_as():
+    from dokimi.mcp.url_client import URLClient
+
+    assert URLClient("\ud800")._cache_key() != URLClient("\udced\udca0\udc80")._cache_key()
+    assert URLClient("\ud800")._cache_key() != URLClient("\ud801")._cache_key()
+
+
+class _Stop(Exception):
+    pass
+
+
+def _topics_dir(monkeypatch, doc_source: str) -> Path:
+    """The cache directory the question step hands the topics extractor for ``doc_source``."""
+    import dokimi.questions as questions
+    from dokimi.orchestrator.pipeline import EvaluationPipeline
+
+    seen = {}
+
+    class _Extractor:
+        def __init__(self, cache_dir, **kwargs):
+            seen["dir"] = cache_dir
+
+        def extract_topics(self, **kwargs):
+            raise _Stop
+
+    monkeypatch.setattr("dokimi.orchestrator.pipeline.create_doc_source_client", lambda source: object())
+    monkeypatch.setattr(questions, "RagasSeedExtractor", _Extractor)
+    pipeline = EvaluationPipeline(product="P", description="d", output_dir=Path("run"), doc_source=doc_source,
+                                  context7_id="org/x")
+    with pytest.raises(_Stop):
+        pipeline._generate_questions({})
+    return seen["dir"]
+
+
+def test_topics_cache_directory_of_a_utf8_doc_source_is_unchanged(monkeypatch):
+    old = hashlib.sha256("local:/docs/café".encode()).hexdigest()[:16]
+    assert _topics_dir(monkeypatch, "local:/docs/café") == Path(".cache/topics") / old
+
+
+def test_topics_cache_directory_of_a_doc_source_with_a_non_utf8_byte_is_unchanged(monkeypatch):
+    assert _topics_dir(monkeypatch, "local:/d\udcff") == Path(".cache/topics") / _sha(b"local:/d\xff")[:16]
+
+
+def test_topics_cache_directory_of_a_doc_source_with_a_high_surrogate_is_a_digest(monkeypatch):
+    assert _topics_dir(monkeypatch, "local:/d\ud800") == Path(".cache/topics") / _sha(b"\0splocal:/d\xed\xa0\x80")[:16]
+
+
+@pytest.mark.parametrize("source, raw", [
+    ("local:/docs/café", "local:/docs/café".encode()),
+    ("local:/d\udcff", b"local:/d\xff"),
+    ("local:/d\ud800", b"\0splocal:/d\xed\xa0\x80"),
+], ids=["utf8", "non-utf8-byte", "high-surrogate"])
+def test_questions_generate_topics_cache_directory_is_keyed_as_the_pipeline_keys_it(tmp_path, monkeypatch, source, raw):
+    import argparse
+
+    import dokimi.questions as questions_pkg
+    from dokimi.commands import questions as cmd
+    from dokimi.mcp import factory
+
+    seen = {}
+
+    class _Extractor:
+        def __init__(self, cache_dir, **kwargs):
+            seen["dir"] = cache_dir
+
+        def extract_topics(self, **kwargs):
+            raise _Stop
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(factory, "create_doc_source_client", lambda source: object())
+    monkeypatch.setattr(factory, "resolve_library_id_for_product", lambda *a, **kw: "org/x")
+    monkeypatch.setattr(questions_pkg, "RagasSeedExtractor", _Extractor)
+    personas = tmp_path / "personas.json"
+    personas.write_text('{"personas": [{"id": "dev", "name": "dev", "skill_level": "expert"}]}', encoding="utf-8")
+    with pytest.raises(_Stop):
+        cmd.cmd_questions_generate(argparse.Namespace(
+            product="oneTBB", personas=str(personas), topics=None, doc_source=source, context7_id=None,
+            top_k=3, provider="openai", model="m", count=1, validate=False, output=None))
+    assert seen["dir"] == Path(".cache/topics") / _sha(raw)[:16]
+
+
+def test_clone_directory_of_a_url_with_a_high_surrogate_is_a_directory_name():
+    from dokimi.repos.source import cache_path
+
+    assert cache_path("https://example.com/n\ud800", Path("/c")) == Path("/c/n_-" + _sha(b"\0sphttps://example.com/n\xed\xa0\x80")[:12] + ".git")
+
+
+def test_harness_directory_name_of_an_id_with_a_high_surrogate_and_a_reserved_character():
+    from dokimi.harnesses.runner import _safe_id
+
+    assert _safe_id("n\ud800?") == "n\ud800_-" + _sha(b"\0spn\xed\xa0\x80?")[:8]
+
+
+def test_graph_task_id_of_a_symbol_with_a_high_surrogate_is_an_id():
+    from dokimi.repos.graph_tasks import Candidate, task_id
+
+    candidate = Candidate("references", (HIGH,), "run", "run", (), (), (), 1)
+    assert task_id(candidate) == "graph_references_run_" + _sha(b"\0spn\xed\xa0\x80")[:8]
+
+
 def test_question_set_hash_of_a_question_with_a_low_surrogate_is_a_digest():
     assert _set_hash(LOW) == _sha(b"q0:n\xed\xb3\xbf")[:12]
     assert _set_hash(LOW) != _set_hash("n\udcfe")

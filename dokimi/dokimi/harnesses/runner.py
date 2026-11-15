@@ -16,6 +16,7 @@ from typing import Any
 from dokimi import process
 from dokimi.eval import binary_stats
 from dokimi.eval.stats import adjust_pvalues
+from dokimi.utils import key_bytes
 
 from .docker_solver import DockerSolverHarness
 from .models import HarnessResult, OperationRecord, TaskRunResult
@@ -571,4 +572,4 @@ def _safe_id(value: str) -> str:
     name = value.replace("/", "_").replace(":", "_").replace(" ", "_")
     if not re.search(r'[\\<>"|?*]', name):
         return name
-    return re.sub(r'[\\<>"|?*]', "_", name) + "-" + hashlib.sha256(value.encode("utf-8", "surrogateescape")).hexdigest()[:8]
+    return re.sub(r'[\\<>"|?*]', "_", name) + "-" + hashlib.sha256(key_bytes(value)).hexdigest()[:8]
