@@ -588,6 +588,11 @@ def test_swapped_tolerances_of_calls_in_one_assert_without_a_comparison_are_name
     assert [what for _, _, what in ctn.compare(base, swapped)] == ["loosens a tolerance"]
 
 
+def test_an_abs_none_beside_a_rel_is_the_default_abs_not_an_infinite_one():
+    base = BASE.replace("rel=1e-9)", "rel=1e-9, abs=1e-3)")
+    assert ctn.compare(base, base.replace("abs=1e-3)", "abs=None)")) == []
+
+
 CLASS_CASES = ("import pytest\n\nCASES = [1, 2, 3]\n\n\nclass TestGroup:\n    CASES = [1, 2]\n\n"
                "    @pytest.mark.parametrize('x', CASES)\n    def test_values(self, x):\n        assert x > 0\n")
 
