@@ -339,13 +339,17 @@ tasks:
   revision must be a full commit SHA. A branch, tag or other ref is refused
   unless the run passes `--allow-floating-suite-revs`; it is then resolved once
   when the run starts, and the batch pin (`_eval/batch.json`, key `suite`)
-  records the commits, so a resumed batch reuses them.
+  records the commits, so a resumed batch reuses them. The pin also records the
+  suite file's path, the task-to-repository mapping and the repository locations (key `suite_plan`): a
+  resume with another suite file, or without `--suite`, is refused.
 - A repository that cannot be opened, or a base that is not a commit of it,
   leaves that task's cells unsupported (§9): `unsupported.json` gives the reason,
   and `repo report` counts the cells neither as failed nor as missing. A cell
-  that runs records `base_repo` (`{"repo", "source"}`) in `meta.json`.
+  that runs records `base_repo` (`{"repo", "source"}`) in `meta.json`. A base that
+  the cached clone of a remote lacks is fetched once before it counts as missing.
 - `repo tasks check` reports these tasks as not checked when their repository is
-  missing and fails only on the other bad tasks.
+  missing and fails only on the other bad tasks; when every selected task is
+  not checked it exits 0.
 - Not covered yet: `repo validate` checks the bases of the eval tree only; a suite
   task's `{source_dir}` is still the eval-tree source; and a `guidance:rev:<sha>`
   arm is pinned against the eval-tree source.

@@ -19,6 +19,7 @@ from typing import Any
 
 import yaml
 
+from dokimi import process
 from dokimi.artifacts import schema_errors
 
 from .errors import PrepError
@@ -26,7 +27,7 @@ from .source import RepoSource, RepoTree, SourceError, open_source, resolve_rev
 from .workspace import source_git_dir
 
 SCHEMA_VERSION = "suite_manifest.v1"
-_SHA_RE = re.compile(r"^[0-9a-f]{7,40}$")  # a commit: a branch, tag or other ref is not
+_SHA_RE = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")  # a full commit: a branch, tag, short SHA or other ref is not
 
 
 class SuiteError(ValueError):
@@ -54,13 +55,15 @@ class SuiteBases:
 
     ``git_dirs`` and ``meta`` (``{"repo", "source"}``, for meta.json) cover the tasks whose base
     resolved; ``gaps`` gives the reason for each task that did not; ``pins`` names the commit each
-    repository resolved to, which a pinned batch records.
+    repository resolved to and ``plan`` the suite file's path, the task-to-repository mapping and the repository
+    locations, which a pinned batch records.
     """
 
     git_dirs: dict[str, Path] = field(default_factory=dict)
     gaps: dict[str, str] = field(default_factory=dict)
     meta: dict[str, dict[str, str]] = field(default_factory=dict)
     pins: dict[str, str] = field(default_factory=dict)
+    plan: dict[str, Any] = field(default_factory=dict)
 
 
 def parse_suite(raw: Any, path: str = "<suite>", allow_floating: bool = False) -> SuiteManifest:
@@ -73,7 +76,7 @@ def parse_suite(raw: Any, path: str = "<suite>", allow_floating: bool = False) -
     repos: dict[str, RepoSource] = {}
     for name, spec in raw["repos"].items():
         try:
-            source = RepoSource.parse(spec)
+            source = _parse_repo(spec)
         except SourceError as exc:
             problems.append(f"repos.{name}: {exc}")
             continue
@@ -98,13 +101,25 @@ def parse_suite(raw: Any, path: str = "<suite>", allow_floating: bool = False) -
     return SuiteManifest(path=path, id=raw["id"], repos=repos, tasks=tasks)
 
 
+def _parse_repo(spec: str) -> RepoSource:
+    """``RepoSource.parse``, except that a pinned local path that is not a directory is kept: it is
+    unavailable, which leaves its tasks unsupported (``_checkout``), not a malformed suite."""
+    try:
+        return RepoSource.parse(spec)
+    except SourceError as exc:
+        head, sep, tail = spec.strip().rpartition("@")
+        if "local source is not a directory" not in str(exc) or not (sep and head and tail) or "://" in head:
+            raise
+        return RepoSource(location=head, rev=tail, remote=False)
+
+
 def load_suite(tree: RepoTree, path: str, allow_floating: bool = False) -> SuiteManifest:
     """Read and validate the suite manifest at ``path`` inside the eval tree."""
     if not tree.is_file(path):
         raise SuiteError(path, [f"suite manifest not found in {tree.label}"])
     try:
         raw = yaml.safe_load(tree.read_text(path))
-    except yaml.YAMLError as exc:
+    except (yaml.YAMLError, UnicodeDecodeError) as exc:
         raise SuiteError(path, [f"not valid YAML: {exc}"]) from exc
     return parse_suite(raw, path, allow_floating)
 
@@ -120,6 +135,17 @@ def _checkout(source: RepoSource, cache_dir: Path | None) -> tuple[Path, str] | 
     return (git_dir, sha) if isinstance(sha, str) else f"{source} did not resolve to a commit"
 
 
+def _resolve_base(source: RepoSource, git_dir: Path, base: str) -> str:
+    """``base`` in ``git_dir``. A remote's cached clone may predate it, so a miss fetches it once before it is a gap."""
+    try:
+        return resolve_rev(git_dir, base)
+    except SourceError:
+        if not source.remote or not _SHA_RE.match(base):
+            raise
+    process.git("-C", str(git_dir), "fetch", "origin", "--", base)  # a failure leaves the miss below
+    return resolve_rev(git_dir, base)
+
+
 def resolve_suite(suite: SuiteManifest, bases: Mapping[str, str], cache_dir: Path | None = None) -> SuiteBases:
     """Open every repository of the suite and find each task's base in the repository it names.
 
@@ -127,7 +153,9 @@ def resolve_suite(suite: SuiteManifest, bases: Mapping[str, str], cache_dir: Pat
     each, all of them, so the pins do not depend on which tasks a run selects.
     """
     checkouts = {name: _checkout(source, cache_dir) for name, source in suite.repos.items()}
-    out = SuiteBases(pins={name: found[1] for name, found in checkouts.items() if not isinstance(found, str)})
+    out = SuiteBases(pins={name: found[1] for name, found in checkouts.items() if not isinstance(found, str)},
+                     plan={"path": suite.path, "repos": {name: str(source) for name, source in suite.repos.items()},
+                           "tasks": dict(suite.tasks)})
     for task_id, repo in suite.tasks.items():
         found = checkouts[repo]
         if isinstance(found, str):
@@ -136,7 +164,7 @@ def resolve_suite(suite: SuiteManifest, bases: Mapping[str, str], cache_dir: Pat
         git_dir, sha = found
         base = bases.get(task_id, "")
         try:
-            resolve_rev(git_dir, base)
+            _resolve_base(suite.repos[repo], git_dir, base)
         except SourceError as exc:
             out.gaps[task_id] = (f"base {base!r} is not a commit of {repo} "
                                  f"({suite.repos[repo].location}@{sha[:12]}): {exc}")

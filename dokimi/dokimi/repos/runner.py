@@ -218,7 +218,8 @@ def run_cell(ctx: EvalContext, task: Task, arm: str, rep: int, batch_dir: Path, 
     if rd.exists():
         _rmtree(rd)
     rd.mkdir(parents=True)
-    meta = prepare_workspace(ctx.git_dir_for(task.id), ctx.manifest, task, arm, rd, opts.profile, ctx.content_dir)
+    meta = prepare_workspace(ctx.git_dir, ctx.manifest, task, arm, rd, opts.profile, ctx.content_dir,
+                             base_git_dir=ctx.git_dir_for(task.id))
     meta.update(harness=opts.profile.name, harness_version=opts.harness_version, model=opts.model, rep=rep,
                 batch=batch_dir.name, agent_network=network, egress_proxy=False, execution=execution, host=host)
     if ctx.suite is not None and task.id in ctx.suite.meta:  # additive: only a suite task's base is elsewhere

@@ -21,6 +21,7 @@ from __future__ import annotations
 import hashlib
 import os
 import re
+from collections.abc import Collection
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -191,7 +192,8 @@ def _base_skill_files(git_dir: Path, base: str) -> tuple[list[str], list[str]]:
 
 
 def check_arms(arms: list[Any], content_dir: Path, tasks: list[Any], git_dir: Path | None = None,
-               guidance_globs: tuple[str, ...] | list[str] = (), repo_id: str | None = None) -> None:
+               guidance_globs: tuple[str, ...] | list[str] = (), repo_id: str | None = None,
+               elsewhere: Collection[str] = ()) -> None:
     """Find the skills of every parsed arm before anything runs; a catalog must hold each task's
     ``expected_skill``. Two arms that would share a name or a result directory are refused, and so is a skill
     the base of a task (in ``git_dir``) already ships, which preparing the workspace would refuse cell by cell.
@@ -201,7 +203,8 @@ def check_arms(arms: list[Any], content_dir: Path, tasks: list[Any], git_dir: Pa
     arm writes its own skill, ``.claude/skills/<repo_id>-guidance``: a skill of the arm with that name, or a file the
     base tracks under it, is refused here (``repo_id`` given). The files of a ``patch:``
     arm's patch and of a task's ``setup_patches`` are not read: a skill directory they add is refused only in
-    preparation."""
+    preparation. The bases of the tasks in ``elsewhere`` (a suite's) are not in ``git_dir`` and are not read."""
+    own = [t for t in tasks if t.id not in elsewhere]  # the bases read from git_dir
     cells: dict[str, str] = {}  # cell-name slug of an arm -> the arm spec that owns it
     shipped: dict[str, tuple[list[str], list[str]]] = {}  # base -> (tracked files under .claude/skills, its links)
     for arm in arms:
@@ -212,12 +215,12 @@ def check_arms(arms: list[Any], content_dir: Path, tasks: list[Any], git_dir: Pa
         names = {s.name for s in skills}
         generated = None  # the skill preparation installs beside the catalog's; its usage is scored apart
         if repo_id is not None and arm.patch is None and arm.base == "guidance:as-skill":
-            _check_generated_skill(arm, skills, repo_id, tasks, git_dir, shipped)
+            _check_generated_skill(arm, skills, repo_id, own, git_dir, shipped)
             generated = guidance_skill_name(repo_id)
         drops = arm.patch is None and (arm.base in ("guidance:none", "guidance:as-skill") or arm.rev is not None)
         rev = (arm.rev_sha or arm.rev) if arm.patch is None else None
         if skills and git_dir is not None:
-            for task in tasks:
+            for task in own:
                 _check_shipped(arm, skills, task, git_dir, shipped, (drops, rev, guidance_globs))
         if any(kind == "skill-catalog" for kind, _ in arm.skills):
             _check_expected_skills(arm, tasks, names, generated)

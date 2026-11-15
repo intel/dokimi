@@ -96,6 +96,10 @@ class EvalContext:
         """The git dir a task's base is checked out from: its suite repository, else ``git_dir``."""
         return self.suite.git_dirs.get(task_id, self.git_dir) if self.suite else self.git_dir
 
+    def suite_tasks(self) -> set[str]:
+        """The tasks of the suite: their base is not in ``git_dir``, so nothing reads it there."""
+        return set(self.suite.git_dirs) | set(self.suite.gaps) if self.suite else set()
+
     def base_gaps(self) -> dict[str, str]:
         """Why each suite task has no base checkout; its cells are unsupported, not run."""
         return dict(self.suite.gaps) if self.suite else {}

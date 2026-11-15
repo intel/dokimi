@@ -75,14 +75,14 @@ def check_task(ctx: EvalContext, task: Task, work_dir: Path, warm: bool = False,
     ``host`` requirements probes for itself."""
     network = ctx.manifest.image.network if ctx.manifest.image else "none"
     res: dict[str, Any] = {"task": task.id, "family": task.family, "warm": warm, "problems": []}
+    gap = ctx.base_gaps().get(task.id)  # its base is in a suite repository that is missing: before anything else
+    if gap:
+        res.update(verdict="unsupported", unsupported_by="suite", problems=[gap])
+        return res
     try:
         net = "bridge" if warm else docker_network(network, task.egress)
     except ContainerError as exc:
         res.update(verdict="unsupported", unsupported_by="egress", problems=[str(exc)])
-        return res
-    gap = ctx.base_gaps().get(task.id)  # its base is in a suite repository that is missing
-    if gap:
-        res.update(verdict="unsupported", unsupported_by="suite", problems=[gap])
         return res
     # The probe sees what every container of this runner sees (affinity, cgroup quota), with or without
     # --warm's network: an unmet host requirement is unsupported either way, never a passing null run.
@@ -171,7 +171,7 @@ def _prepare(ctx: EvalContext, task: Task, rd: Path) -> None:
     if rd.exists():
         shutil.rmtree(rd)
     rd.mkdir(parents=True)
-    meta = prepare_workspace(ctx.git_dir_for(task.id), ctx.manifest, task, "guidance:raw", rd)
+    meta = prepare_workspace(ctx.git_dir, ctx.manifest, task, "guidance:raw", rd, base_git_dir=ctx.git_dir_for(task.id))
     meta.update(harness="none", harness_version=None, model="none", rep=0)
     for name, data in (("meta.json", meta), ("task.json", task.raw)):
         (rd / name).write_text(json.dumps(data, indent=1) + "\n", encoding="utf-8")

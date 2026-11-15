@@ -135,19 +135,20 @@ def _suite_bases(args: argparse.Namespace, tree, content: Path, manifest: RepoMa
     if not args.suite:
         return None
     from dokimi.repos.suite import SuiteError, load_suite, resolve_suite
-    from dokimi.repos.workspace import load_tasks
+    from dokimi.repos.workspace import PrepError, load_tasks
 
     suite = load_suite(tree, args.suite, args.allow_floating_suite_revs)
-    found = {t.id: t for t in load_tasks(content, manifest)}
-    absent = sorted(set(suite.tasks) - set(found))
-    if absent:
-        raise SuiteError(suite.path, [f"task {t} is not under {manifest.tasks}" for t in absent])
+    try:  # only the listed tasks are read: an unrelated malformed task.json is not this run's
+        found = {t.id: t for t in load_tasks(content, manifest, list(suite.tasks))}
+    except PrepError as exc:
+        raise SuiteError(suite.path, [str(exc)]) from exc
     return resolve_suite(suite, {t: str(found[t].raw.get("base", "")) for t in suite.tasks}, cache_dir)
 
 
 def _suite_pin(suite) -> dict[str, Any]:
-    """The commit each suite repository resolved to, for the batch pin: a resume must reuse them."""
-    return {} if suite is None else {"suite": suite.pins}
+    """The commit each suite repository resolved to and the task-to-repository mapping, for the batch pin:
+    a resume with another suite file, or with none, is refused (``_pin_batch``)."""
+    return {} if suite is None else {"suite": suite.pins, "suite_plan": suite.plan}
 
 
 def _require_grade(content: Path, manifest: RepoManifest, ids: list[str] | None) -> None:
@@ -177,6 +178,9 @@ def _uses_builtin_graders(content: Path, manifest: RepoManifest) -> bool:
     return any(isinstance(t.raw, dict) and builtin_name(t.raw.get("grader")) is not None for t in tasks)
 
 
+_SUITE_KEYS = ("suite", "suite_plan")
+
+
 def _pin_batch(batch_dir: Path, pin: dict[str, str]) -> None:
     path = batch_dir / "_eval" / "batch.json"
     if path.exists():
@@ -187,9 +191,10 @@ def _pin_batch(batch_dir: Path, pin: dict[str, str]) -> None:
         if not isinstance(old, dict):
             raise ValueError(f"batch {batch_dir.name} has an unreadable pin ({path}); use another --batch")
         changed = [k for k in pin if old.get(k) != pin[k]]
+        changed += [k for k in _SUITE_KEYS if k in old and k not in pin]  # a suite batch resumed without --suite
         if changed:
             was = ", ".join(f"{k} {old.get(k)}" for k in changed)
-            now = ", ".join(f"{k} {pin[k]}" for k in changed)
+            now = ", ".join(f"{k} {pin.get(k, 'none')}" for k in changed)
             raise ValueError(f"batch {batch_dir.name} was run from {was}, not {now}; use another --batch")
         return
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -234,7 +239,8 @@ def cmd_repo_tasks_check(args: argparse.Namespace) -> None:
         ctx, _ = _context(args, out, source)
         tasks = load_tasks(ctx.content_dir, ctx.manifest, args.task)
         arms = [a for spec in args.arm or () for a in spec.split(",") if a]
-        check_arms([parse_arm(a) for a in arms], ctx.content_dir, tasks, ctx.git_dir, ctx.manifest.guidance_globs, ctx.manifest.id)  # skill paths exist, catalogs hold each expected_skill
+        check_arms([parse_arm(a) for a in arms], ctx.content_dir, tasks, ctx.git_dir, ctx.manifest.guidance_globs,
+                   ctx.manifest.id, ctx.suite_tasks())  # skill paths exist, catalogs hold each expected_skill
         if arms:
             print(f"{len(arms)} arm(s) ok: {', '.join(arms)}", file=sys.stderr)
         print(f"{len(tasks)} task(s), image {ctx.image}{' (warm: with network)' if args.warm else ''}",
@@ -254,7 +260,7 @@ def cmd_repo_tasks_check(args: argparse.Namespace) -> None:
               + ", ".join(r["task"] for r in allowed))
     if len(bad) > len(allowed) + len(unavailable):
         sys.exit(1)
-    if len(bad) == len(results):  # --allow-unsupported passed every task by: none was checked
+    if allowed and len(allowed) == len(results) - len(unavailable):  # every task that could be checked was passed by
         print(f"✗ incomplete: no task passed the self-check (0 ok, {len(allowed)} unsupported)", file=sys.stderr)
         sys.exit(1)
 
@@ -370,8 +376,9 @@ def _run_locked(args: argparse.Namespace, arms: list[str], batch_dir: Path, lock
         lock.enter_context(batch_lock(batch_dir))  # before _context, which rewrites _eval/content
         ctx, _ = _context(args, batch_dir, source, pin=True)
         tasks = load_tasks(ctx.content_dir, ctx.manifest, args.task)
-        check_arms(arms, ctx.content_dir, tasks, ctx.git_dir, ctx.manifest.guidance_globs, ctx.manifest.id)  # skill paths exist, catalogs hold each expected_skill
-        check_mcp_configs(ctx.git_dir, tasks, profile, args.tools)  # a malformed .mcp.json fails here, not in every cell
+        check_arms(arms, ctx.content_dir, tasks, ctx.git_dir, ctx.manifest.guidance_globs, ctx.manifest.id,
+                   ctx.suite_tasks())  # skill paths exist, catalogs hold each expected_skill
+        check_mcp_configs(ctx.git_dir, [t for t in tasks if t.id not in ctx.suite_tasks()], profile, args.tools)  # a malformed .mcp.json fails here, not in every cell
         skill_pin = pin_skills(batch_dir, arms, ctx.content_dir)  # a resume may not swap an arm's skills
         validate_tasks(tasks)  # refuse malformed host requirements before containers start
         options = [AgentOptions(profile=profile, model=m, harness_bin=harness_bin, agent_network=args.agent_network,
