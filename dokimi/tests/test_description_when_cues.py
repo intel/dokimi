@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+import time
+
 import pytest
 
 from dokimi.external import read_skill_manifest, review_skills
@@ -93,6 +95,10 @@ HAS_WHEN = [
     pytest.param("Beim Erstellen eines Release: nutze diesen Skill.", id="de-beim-first-nutze"),
     pytest.param("Beim Erstellen eines Release benutze diesen Skill.", id="de-beim-first-benutze"),
     pytest.param("Verwende diesen Skill z. B. beim Erstellen eines Release.", id="de-beim-abbreviation"),
+    pytest.param("Beim Deployen mit z. B. GitHub Actions verwende diesen Skill.", id="de-beim-abbreviation-capitalised"),
+    pytest.param("Beim Aktualisieren auf Python 3.14 verwende diesen Skill.", id="de-beim-version-number"),
+    pytest.param("当事人使用时自动记录。", id="zh-dangshiren-shiyongshi"),
+    pytest.param("当事人确认超时后，请使用此技能。", id="zh-dangshiren-chaoshi-hou"),
     pytest.param("Nutze diesen Skill beim Deployen.", id="de-nutze-beim"),
     pytest.param("Benutze diesen Skill beim Deployen.", id="de-benutze-beim"),
     pytest.param("Sie können diesen Skill beim Deployen nutzen.", id="de-nutzen-beim"),
@@ -249,6 +255,9 @@ NO_WHEN = [
     pytest.param("Unterstützt Sie beim Erstellen von Berichten.", id="de-unterstuetzt-beim-not-when"),
     pytest.param("Nutze das Tool. Hilft beim Schreiben.", id="de-sentence-boundary"),
     pytest.param("Nutze das Tool. KI hilft beim Schreiben.", id="de-sentence-boundary-acronym"),
+    pytest.param("Nutze das Tool. „Hilft beim Schreiben“ beschreibt seine Funktion.", id="de-sentence-boundary-quote"),
+    pytest.param("整理当事人信息，统计查询超时记录。", id="zh-dangshiren-chaoshi-jilu-not-when"),
+    pytest.param("整理当事人信息，统计查询耗时和超时次数。", id="zh-dangshiren-two-durations-not-when"),
     pytest.param("整理当事人信息，统计查询用时。", id="zh-dangshiren-yongshi-not-when"),
     pytest.param("そいつを使って生成したログを解析するツール。", id="ja-soitsu-not-itsu"),
     pytest.param("あいつを使うツール。", id="ja-aitsu-not-itsu"),
@@ -263,6 +272,7 @@ NO_WHEN = [
     pytest.param("ついつい使いたくなるアイデアを思いつくツール。", id="ja-omoitsuku-tsukau-not-itsu"),
     pytest.param("こいつを使うツール。", id="ja-koitsu-tsukau-not-itsu"),
     pytest.param("いつも使えるPDF結合ツール。", id="ja-itsumo-tsukae-not-itsu"),
+    pytest.param("アイデアを思いつく使い方を提案する。", id="ja-omoitsuku-tsukai-not-itsu"),
 ]
 
 
@@ -286,6 +296,13 @@ def test_a_description_without_a_when_cue_is_flagged(description):
 )
 def test_a_script_no_cue_list_covers_is_not_checked(description):
     assert when_clause_found(description) is None
+
+
+def test_a_long_german_description_without_a_terminator_is_read_in_linear_time():
+    started = time.perf_counter()
+    for text in ("rufe beim " * 500, "beim nutze " * 500, "Hilft beim Bauen " * 300):
+        when_clause_found(text)
+    assert time.perf_counter() - started < 0.5
 
 
 def test_an_english_when_clause_still_passes_in_a_cjk_description():

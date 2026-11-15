@@ -11,15 +11,17 @@ from __future__ import annotations
 import re
 from typing import Optional
 
-# German `beim` is a cue only in a sentence with a use verb, in either order; a full stop that is
-# followed by a capitalised word or an acronym ends the sentence, so `z. B.` does not.
-_DE_S = r"(?:[^.;!?]|\.(?!\s*(?-i:[A-ZÄÖÜ][A-Za-zäöüß])))*?"
-_DE_USE = r"\b(?:verwende[nst]?|nutze[nst]?|benutze[nst]?|einsetzen|aufrufen)\b"
-_DE_BEIM = (
-    rf"{_DE_USE}{_DE_S}\bbeim\b|\bbeim\b{_DE_S}{_DE_USE}|"
-    rf"\bruf(?:e|en|t)?\b{_DE_S}\bbeim\b{_DE_S}\bauf\b|\bbeim\b{_DE_S}\bruf(?:e|en|t)?\b{_DE_S}\bauf\b|"
-    rf"\bsetz(?:e|en|t)?\b{_DE_S}\bbeim\b{_DE_S}\bein\b|\bbeim\b{_DE_S}\bsetz(?:e|en|t)?\b{_DE_S}\bein\b|"
-    rf"\bruf(?:e|en|t)?\b{_DE_S}\bauf\b{_DE_S}\bbeim\b|\bsetz(?:e|en|t)?\b{_DE_S}\bein\b{_DE_S}\bbeim\b"
+# German `beim` is a cue only in a sentence with a use verb; sentences end at `.;!?` (not `3.14`, not
+# `z. B.`), and plain searches per sentence keep a long description linear.
+_DE_ABBREVIATION_RE = re.compile(
+    r"\b(?:z\.\s?[bt]|d\.\s?h|u\.\s?[aä]|u\.\s?U|bzw|ca|usw|etc|vgl|evtl|ggf|ggfs|inkl|bspw)\.", re.I
+)
+_DE_SENTENCE_END_RE = re.compile(r"[;!?]+|\.+(?!\w)")
+_DE_BEIM_RE = re.compile(r"\bbeim\b", re.I)
+_DE_USE_RE = re.compile(r"\b(?:verwende[nst]?|nutze[nst]?|benutze[nst]?|einsetzen|aufrufen)\b", re.I)
+_DE_USE_PARTICLE_RES = (
+    (re.compile(r"\bruf(?:e|en|t)?\b", re.I), re.compile(r"\bauf\b", re.I)),
+    (re.compile(r"\bsetz(?:e|en|t)?\b", re.I), re.compile(r"\bein\b", re.I)),
 )
 
 # A "when" clause or use phrase per language: the model chooses a skill from its description alone.
@@ -30,11 +32,11 @@ WHEN_CUES = {
           r"whenever\b)",
     "es": r"(?<!vez en )\bcuando\b|\bcuándo\b|\bsiempre que\b|\bcada vez que\b|\ben caso de\b|\bal (?:usar|utilizar|invocar|ejecutar)\b",
     "fr": r"\bquand\b(?!\s+même)|\blorsqu\w*|\bdès que\b|\bchaque fois que\b|\ben cas de\b|\blors (?:de|d')",
-    "de": r"\bwenn\b|" + _DE_BEIM + r"|\bsobald\b|\bimmer dann\b",
+    "de": r"\bwenn\b|\bsobald\b|\bimmer dann\b",
     "pt": r"(?<!vez em )\bquando\b|\bsempre que\b|\bcada vez que\b|\bem caso de\b|\bao (?:usar|utilizar|invocar|executar)\b",
     "ru": r"\bкогда\b(?![-‑])|\bкогато\b|\bколи\b|\bвсякий раз\b|\bкаждый раз\b|"
           r"\bпри (?:работе|использовании|необходимости|запросе|наличии|вызове|запуске|получении)\b",
-    "zh": r"(?<!任)何时|(?<!任)何時|什么时候|什麼時候|的时候|的時候|(?<![相适適恰应應妥得充担擔])[当當](?![前然即作做成地天日晚年初今中])(?!事人[^。；！？;!?时時]*[耗超延用][时時][^。；！？;!?时時]*(?:[。；！？;!?]|$))[^。；！？;!?]{1,80}?(?<![实實同隨随及定按即暂暫不准準])(?<!(?<![水])平)(?<!(?<![没沒])有)(?<!(?<![合来來])[适適临臨])(?<!(?<![较較很过過太更最])小)[时時](?![间間区區])|(?<![实實同隨随及定按即暂暫不准準耗超延])(?<!(?<![水])平)(?<!(?<![没沒])有)(?<!(?<![合来來])[适適临臨])(?<!(?<![较較很过過太更最])小)[时時][，,]?(?:请|請)?(?:使用|调用|調用|触发|觸發|启用|啟用|激活|运行|運行|执行|執行)|[耗超延][时時](?:[，,]\s*(?:请|請)?|[请請])(?:使用|调用|調用|触发|觸發|启用|啟用|激活|运行|運行|执行|執行)|"
+    "zh": r"(?<!任)何时|(?<!任)何時|什么时候|什麼時候|的时候|的時候|(?<![相适適恰应應妥得充担擔])[当當](?![前然即作做成地天日晚年初今中])(?:(?!事人)[^。；！？;!?]{1,80}?(?<![实實同隨随及定按即暂暫不准準])(?<!(?<![水])平)(?<!(?<![没沒])有)(?<!(?<![合来來])[适適临臨])(?<!(?<![较較很过過太更最])小)[时時](?![间間区區])|事人[^。；！？;!?]{0,77}?(?<![实實同隨随及定按即暂暫不准準耗延])(?<!(?<![使应應])用)(?<!(?<![水])平)(?<!(?<![没沒])有)(?<!(?<![合来來])[适適临臨])(?<!(?<![较較很过過太更最])小)(?:(?<!超)[时時]|(?<=超)[时時](?=[后後，,。；！？;!?]|$))(?![间間区區]))|(?<![实實同隨随及定按即暂暫不准準耗超延])(?<!(?<![水])平)(?<!(?<![没沒])有)(?<!(?<![合来來])[适適临臨])(?<!(?<![较較很过過太更最])小)[时時][，,]?(?:请|請)?(?:使用|调用|調用|触发|觸發|启用|啟用|激活|运行|運行|执行|執行)|[耗超延][时時](?:[，,]\s*(?:请|請)?|[请請])(?:使用|调用|調用|触发|觸發|启用|啟用|激活|运行|運行|执行|執行)|"
           r"适用于[^。]{0,20}?(?:场景|场合|情况|(?<![实實同隨随及定按即暂暫不准準耗超延])(?<!(?<![水])平)(?<!(?<![没沒])有)(?<!(?<![合来來])[适適临臨])(?<!(?<![较較很过過太更最])小)时(?![间間段区區序代]))|適用於[^。]{0,20}?(?:場景|場合|情況|(?<![實実同隨随及定按即暫暂不準准耗超延])(?<!(?<![水])平)(?<!(?<![没沒])有)(?<!(?<![合来來])[适適临臨])(?<!(?<![较較很过過太更最])小)時(?![間间段區区序代]))|(?:适用|適用|使用)(?:场景|場景)[:：]|使用时机|使用時機|触发条件|觸發條件|用[户戶](?:[说說](?![明的])|提到(?!的)|要求(?!的)|[请請]求(?!的|数据|數據|时间|時間|参数|參數|内容|內容|日志|日誌|头|頭|量))",
     "ja": r"(?<!ひ)(?:とき(?!どき|おり|たま|には)|(?<=[^\s、。，,.!?はもがでにをとやか])ときには)|(?<![同当一平瞬即随適臨戦日])(?<!(?<![一-鿿])定)(?<!(?<![一-鿿])常)(?:時に(?!は)|(?<!ある)時は|(?<=[^\s、。，,.!?はもがでにをとやか])時には)|(?<!ほとんどの)(?<!多くの)(?<!大半の)場合(?!によ|分け|の数)|(?:場面|シーン)で(?:使う|起動|発動)|使(?:う|用)タイミング|トリガー[:：]|(?:など|」|』|）)で(?:起動|発動)|"
           r"(?<![実国交])際(?:に|は)|(?<![こそあど思追食つ])いつ(?!まで|も|でも|か|の間)(?=[^。！？!?]{0,20}?(?:使|呼び出|起動|発動|実行|参照|用))",
@@ -47,10 +49,21 @@ _COVERED_LETTER_RE = re.compile(r"[A-Za-zÀ-ɏḀ-ỿЀ-ӿ぀-ヿ㐀-䶿一-鿿�
 _LETTER_RE = re.compile(r"[^\W\d_]")
 
 
+def _de_beim_found(text: str) -> bool:
+    """Whether a sentence holds `beim` and a use verb (`ruf … auf` and `setz … ein` count, apart or not)."""
+    text = _DE_ABBREVIATION_RE.sub(lambda m: re.sub(r"[.\s]", "", m.group()), text)
+    for sentence in _DE_SENTENCE_END_RE.split(text):
+        if not _DE_BEIM_RE.search(sentence):
+            continue
+        if _DE_USE_RE.search(sentence) or any(v.search(sentence) and p.search(sentence) for v, p in _DE_USE_PARTICLE_RES):
+            return True
+    return False
+
+
 def when_clause_found(description: str) -> Optional[bool]:
     """Whether the description has a "when" cue; None when most of its letters are in a script no cue list covers."""
     text = " ".join(description.split())
-    if WHEN_RE.search(text):
+    if WHEN_RE.search(text) or _de_beim_found(text):
         return True
     letters = len(_LETTER_RE.findall(text))
     covered = len(_COVERED_LETTER_RE.findall(text))
