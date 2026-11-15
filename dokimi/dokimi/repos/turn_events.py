@@ -37,7 +37,8 @@ def claude_events(trace: ContextTrace, start: datetime | None) -> list[dict[str,
             "output": call["output_tokens"] if "output_tokens" in seen else None,
             "cache_read": call["cache_read_tokens"] if "cache_read_input_tokens" in seen else None,
             "cache_write": call["cache_write_tokens"] if "cache_creation_input_tokens" in seen else None,
-            "prompt_tokens": call["prompt_tokens"] if prompt else None,
+            "prompt_tokens": (call["input_tokens"] + call["cache_read_tokens"] + call["cache_write_tokens"]
+                              if prompt else None),
         }
         if call["agent"]:
             event["agent"] = str(call["agent"])

@@ -151,13 +151,25 @@ def test_a_turn_without_its_counts_does_not_validate():
 def test_a_claude_usage_missing_counts_are_null_not_zero():
     raw = _lines(_call("a", {"input_tokens": 10, "output_tokens": 2}, "2026-11-14T10:00:00Z"),
                  _call("b", {"input_tokens": 5}, "2026-11-14T10:00:01Z"),
-                 _call("b", {"output_tokens": 4}, "2026-11-14T10:00:02Z"))
+                 _call("b", {"output_tokens": 4}, "2026-11-14T10:00:02Z"),
+                 _call("c", {"input_tokens": 3}, "2026-11-14T10:00:03Z"))
     assert _turns(convert("claude-stream-json", raw).events) == [
         {"kind": "turn", "t": 0.0, "turn": 0, "input": 10, "output": 2, "cache_read": None, "cache_write": None,
          "prompt_tokens": 10},
         {"kind": "turn", "t": 1.0, "turn": 1, "input": 5, "output": 4, "cache_read": None, "cache_write": None,
          "prompt_tokens": 5},
+        {"kind": "turn", "t": 3.0, "turn": 2, "input": 3, "output": None, "cache_read": None, "cache_write": None,
+         "prompt_tokens": 3},
     ]
+
+
+def test_a_split_message_prompt_tokens_is_the_sum_of_its_parts():
+    raw = _lines(_call("a", {"input_tokens": 5, "output_tokens": 1, "cache_creation_input_tokens": 0},
+                       "2026-11-14T10:00:00Z"),
+                 _call("a", {"cache_read_input_tokens": 10}, "2026-11-14T10:00:01Z"))
+    turn = _turns(convert("claude-stream-json", raw).events)[0]
+    assert turn["input"] == 5 and turn["cache_read"] == 10 and turn["cache_write"] == 0
+    assert turn["prompt_tokens"] == 15
 
 
 def test_a_codex_usage_with_one_side_reports_the_other_as_null():
