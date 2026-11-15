@@ -48,6 +48,7 @@ DEFAULT_PROBES: dict[str, tuple[str, ...]] = {
 
 _READERS = frozenset({"cat", "head", "tail", "less", "more", "nl", "sed", "grep", "egrep", "fgrep", "awk", "tac",
                       "strings", "wc", "rg"})
+_SEARCHERS = frozenset({"grep", "egrep", "fgrep", "rg", "sed", "awk"})  # the first operand is an expression, not a file
 _WRAPPERS = frozenset({"time", "nohup", "sudo", "command", "exec", "builtin", "nice"})  # each runs the command after it
 _OPTION_OPERANDS = frozenset({("nice", "-n"), ("sudo", "-u")})  # wrapper options that take a value word
 _PYTHON = re.compile(r"python\d*(?:\.\d+)?|py|pypy\d*")
@@ -230,8 +231,18 @@ def _hits(probe: Probe, pipeline: list[list[Stage]]) -> bool:
     if probe.kind == "command":
         return _in_order(probe.stages, pipeline)
     if probe.kind == "path":
-        return any(prog in _READERS and probe.text in args for views in pipeline for prog, args in views)
+        return any(prog in _READERS and probe.text in _operands(prog, args) for views in pipeline for prog, args in views)
     return any(_PYTHON.fullmatch(prog) and _calls(args, probe) for views in pipeline for prog, args in views)
+
+
+def _operands(program: str, args: tuple[str, ...]) -> tuple[str, ...]:
+    """The words of a reader that can name a file: a searcher's search expression (its ``-e`` values, else its first operand) is not one."""
+    if program not in _SEARCHERS:
+        return args
+    if "-e" in args:
+        return tuple(a for i, a in enumerate(args) if a != "-e" and args[i - 1:i] != ("-e",))
+    first = next((i for i, a in enumerate(args) if not a.startswith("-")), None)
+    return args if first is None else args[:first] + args[first + 1:]
 
 
 def _calls(args: tuple[str, ...], probe: Probe) -> bool:
