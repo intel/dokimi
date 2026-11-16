@@ -197,14 +197,13 @@ class DockerRunner:
         return False
 
 
-_DAEMON_DIAGNOSTIC = re.compile(r"^(?:(?:error|docker):\s+)?(?:cannot connect to the docker daemon|error during connect|"
-                                r"permission denied while trying to connect to the docker daemon)")
+_DAEMON_DIAGNOSTIC = re.compile(r"^(?:(?:error|docker):\s+)?(?:got\s+)?(?:cannot connect to the docker daemon|"
+                                r"error during connect|permission denied while trying to connect to the docker daemon)")
 
 
 def _daemon_unreachable(stderr: str | None) -> bool:
     """True when the docker CLI says, in its last lines, that it could not reach the daemon (down, or no permission on
-    its socket). Only a line that opens with the CLI's own diagnostic counts: a RUN step prints its command text, and
-    BuildKit repeats that command in its final `failed to solve` line, so the words can sit in the last lines too."""
+    its socket). Only a line opening with the CLI's own diagnostic counts: BuildKit repeats a RUN command in its last line."""
     lines = [ln.strip().lower() for ln in (stderr or "").splitlines() if ln.strip()][-2:]
     return any(_DAEMON_DIAGNOSTIC.match(ln) for ln in lines)
 

@@ -59,6 +59,19 @@ def test_a_daemon_that_is_down_is_a_docker_error_before_any_build():
     assert [c.argv[1] for c in fake.calls] == ["image"]  # the build is never started
 
 
+def test_an_older_cli_got_permission_denied_on_the_socket_is_a_docker_error(tmp_path):
+    """Older docker CLIs open the socket error with `Got permission denied`: no permission on the socket is infra."""
+    from dokimi import process
+    from dokimi.repos.container import DockerError, DockerRunner
+
+    got = ("Got permission denied while trying to connect to the Docker daemon socket at unix:///var/run/docker.sock: "
+           "Post \"http://%2Fvar%2Frun%2Fdocker.sock/v1.24/build\": dial unix /var/run/docker.sock: permission denied\n")
+    (tmp_path / "Dockerfile").write_text("FROM scratch\n", encoding="utf-8")
+    fake = process.FakeRunner(lambda call: process.reply(stderr=got, returncode=1))
+    with pytest.raises(DockerError):
+        DockerRunner(runner=fake).build(tmp_path, tmp_path / "Dockerfile", "t")
+
+
 BUILDKIT_QUOTED_MESSAGE = (
     "#5 [3/4] RUN echo 'Cannot connect to the Docker daemon' && false\n"
     "#5 0.1 Cannot connect to the Docker daemon\n"
