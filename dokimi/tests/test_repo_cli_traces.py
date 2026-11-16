@@ -713,10 +713,14 @@ def test_copilot_json_to_events():
     assert t.reads() == {"AGENTS.md", "sub/AGENTS.md"}
 
 
-@pytest.mark.parametrize(("done", "rc"), [({"success": True}, 0), ({"success": False}, 1), ({}, None)],
-                         ids=["success", "failure", "unknown"])
-def test_copilot_command_exit_code_falls_back_to_success(done, rc):
-    """Without `shellExecution.exitCode` the rc comes from `success`; with neither it stays unknown."""
+@pytest.mark.parametrize(("done", "rc"), [({"shellExecution": {"exitCode": 0}}, 0),
+                                          ({"shellExecution": {"exitCode": 1}, "success": True}, 1),
+                                          ({"success": True}, None), ({"success": False}, None), ({}, None)],
+                         ids=["exit-0", "exit-code-wins-over-success", "success-without-code", "failure-without-code",
+                              "unknown"])
+def test_copilot_command_rc_is_its_exit_code_only(done, rc):
+    """A shell command's rc is `shellExecution.exitCode`, the code the command returned; a result with only `success`
+    gives no rc, so no choice rests on it (the same rule for every CLI)."""
     raw = _jsonl(
         {"type": "tool.execution_start",
          "data": {"toolCallId": "a", "toolName": "bash", "arguments": {"command": "make"}}},
