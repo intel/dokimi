@@ -698,7 +698,8 @@ apart, neither failed nor missing. If the probe itself fails, a task with
 `host` requirements is not run either, and `repo run` exits 1 when one of its
 cells is left unrun; a cell that already has a `result.json` keeps it. A harness that exits nonzero
 before its first trace line is not a verdict on the cell: the cell is a crash, the batch exits 5, and it writes
-no `result.json`, so the next run runs it again.
+no `result.json`, so the next run runs it again. A harness the cap killed before its first trace line is a fail
+cell, as before.
 
 Both commands exit 2, before any build, on a source that does not parse (a local path that is not a
 directory, an unpinned remote) and on a pinned local path inside a repository that is not its root; a

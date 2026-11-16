@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from dokimi.cli import build_parser
@@ -126,3 +128,25 @@ def test_a_harness_that_exits_nonzero_before_any_trace_is_a_crash_exit_5(setup, 
     out = capsys.readouterr().out
     assert "0 ran, 0 already done, 3 crashed" in out  # the three reps of the cell
     assert "the harness exited 1 before its first trace line" in out
+    setup["runner"].specs.clear()
+    with pytest.raises(SystemExit) as again:  # the next run executes the cells again: none is kept
+        _run(setup)
+    assert again.value.code == 5 and "0 ran, 0 already done, 3 crashed" in capsys.readouterr().out
+    assert len([s for s in setup["runner"].specs if "-p" in s.argv]) == 3
+
+
+def test_a_nonzero_timed_out_harness_with_no_trace_is_a_fail_cell_not_a_crash(setup, monkeypatch):
+    """The cap ran out before the agent wrote anything: a verdict on the cell (a fail), not a crash of the harness."""
+    from dokimi.repos.container import ContainerResult
+
+    fake = setup["runner"].run
+
+    def time_out(spec, **kwargs):
+        res = fake(spec, **kwargs)
+        return ContainerResult(returncode=res.returncode, timed_out=True, wall_s=res.wall_s) if "-p" in spec.argv else res
+
+    monkeypatch.setattr(setup["runner"], "run", time_out)
+    monkeypatch.setenv("FAKE_ACTION", "silent")
+    _run(setup)  # no SystemExit: the batch holds results
+    rec = json.loads(next((setup["out"] / "b1").glob("fix_add__*__r1/result.json")).read_text(encoding="utf-8"))
+    assert rec["agent"]["timed_out"] is True and rec["grade"]["success"] is False
