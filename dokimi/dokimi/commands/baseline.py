@@ -6,14 +6,16 @@
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from collections import Counter
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from dokimi.artifacts import save_artifact
+from dokimi.atomic_write import write_bytes_atomic
 from dokimi.utils import model_identity, same_model
 from dokimi.commands import baseline_regression
+from dokimi.commands._output import exit_on_rejected
 from dokimi.exit_codes import EXIT_INVALID
 from dokimi.utils import InputError, read_json_input
 
@@ -54,8 +56,9 @@ def _baseline_manifest() -> Dict[str, Any]:
 
 
 def _save_manifest(manifest: Dict[str, Any]) -> None:
-    BASELINES_DIR.mkdir(parents=True, exist_ok=True)
-    (BASELINES_DIR / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    """Save the index as a ``baseline_manifest``; exit 1 when its schema refuses it (kept at ``manifest.json.rejected``)."""
+    with exit_on_rejected("baseline_manifest"):
+        save_artifact("baseline_manifest", manifest, BASELINES_DIR / "manifest.json")
 
 
 def _compute_summary(eval_data: Dict[str, Any]) -> Dict[str, Any]:
@@ -211,7 +214,7 @@ def cmd_baseline_save(args: argparse.Namespace) -> None:
     dest = BASELINES_DIR / f"{name}.json"
     if dest.exists():
         raise InputError(f"Baseline already exists: {dest} (choose a different --name)")
-    dest.write_text(json.dumps(eval_data, indent=2), encoding="utf-8")
+    write_bytes_atomic(dest, eval_path.read_bytes())  # as it is: the eval's own run envelope, not this run's
 
     manifest["baselines"].append({
         "name": name,

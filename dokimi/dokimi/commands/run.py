@@ -12,6 +12,7 @@ import sys
 from pathlib import Path
 
 from dokimi import cli_flags
+from dokimi.commands._output import exit_on_rejected
 from dokimi.exit_codes import EXIT_USAGE
 from dokimi.metrics.example_runner import ExecutionRefused
 from dokimi.report.json_report import write_json
@@ -58,7 +59,8 @@ def cmd_run(args: argparse.Namespace) -> None:
     out_md = Path(args.out_md).resolve()
 
     result = _run_or_exit(root, spec_path)
-    _write_outputs(((save_snapshot, result, out_json), (write_run_report, result, out_md)))
+    with exit_on_rejected("docs_run"):
+        _write_outputs(((save_snapshot, result, out_json), (write_run_report, result, out_md)))
     print(json.dumps(result["summary"], indent=2))
 
     # Strict mode: check hard gate and critical bands

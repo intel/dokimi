@@ -76,6 +76,9 @@ EXPECTED: dict[str, tuple[dict, str | None, str | None, str | None]] = {
     "question_panel.v1": ({}, "demo", None, "2026-11-01T00:00:00+00:00"),
     "question_quality.v1": ({}, "demo", None, None),
     "report_qa.v1": ({}, None, None, "2026-11-01T00:00:00+00:00"),
+    "docs_run.v1": ({}, None, None, "2026-11-01T00:00:00+00:00"),
+    "dashboard.v1": ({}, "demo", "demo-judge", "2026-11-01T00:00:00+00:00"),
+    "baseline_manifest.v1": ({}, "demo", None, None),
 }
 
 
