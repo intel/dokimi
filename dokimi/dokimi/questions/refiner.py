@@ -30,7 +30,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from dokimi.llm import llm_call, extract_json_array
 from dokimi.defaults import DEFAULT_GENERATOR_MODEL, DEFAULT_GENERATOR_PROVIDER
-from dokimi.questions.normalizer import normalize_questions
+from dokimi.questions.normalizer import free_id, normalize_questions
 
 logger = logging.getLogger(__name__)
 
@@ -293,7 +293,7 @@ class GapFiller:
                 texts = extract_json_array(raw)
                 for text in texts[:count]:
                     new_questions.append({
-                        "id": _free_id(f"gap_{level}", taken),
+                        "id": free_id(f"gap_{level}", taken),
                         "question": text.strip(),
                         "difficulty": level,
                         "persona": "generated",
@@ -310,14 +310,6 @@ class GapFiller:
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
-
-def _free_id(prefix: str, taken: set) -> str:
-    """The first ``<prefix>_NNN`` not in ``taken``, added to it: a set filled twice keeps its ids unique (#687)."""
-    n = 0
-    while f"{prefix}_{n:03d}" in taken:
-        n += 1
-    taken.add(f"{prefix}_{n:03d}")
-    return f"{prefix}_{n:03d}"
 
 
 def _count_difficulty(questions: List[Dict[str, Any]]) -> Dict[str, int]:

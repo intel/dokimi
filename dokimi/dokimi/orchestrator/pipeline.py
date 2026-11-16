@@ -600,8 +600,7 @@ class EvaluationPipeline:
     def _merge_questions(self, generated_questions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """Merge generated + custom questions, deduplicate."""
         from dokimi.questions import QuestionValidator
-
-        all_questions = generated_questions.copy()
+        from dokimi.questions.normalizer import renumber_taken
 
         # Custom questions: read before the run's first model call by _read_question_inputs.
         custom_questions = getattr(self, "_custom_questions", None)
@@ -609,7 +608,7 @@ class EvaluationPipeline:
         if custom_questions is None:
             custom_questions = self._load_custom_questions()
 
-        all_questions.extend(custom_questions)
+        all_questions = [*renumber_taken(generated_questions, custom_questions), *custom_questions]
 
         # Deduplicate. Curated questions are never the ones dropped: a merge
         # keeps the longest text, which would otherwise let a generated

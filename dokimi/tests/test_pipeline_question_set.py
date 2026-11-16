@@ -1140,7 +1140,7 @@ def test_cached_run_tolerates_golden_read_errors(tmp_path, monkeypatch, caplog, 
 
 
 def test_a_regeneration_under_a_colliding_id_is_saved(tmp_path, monkeypatch):
-    """Generated ids restart at q_001; a new text under an old id is a different set, so it is saved."""
+    """Generated ids restart at q_001; the new record gets a free id, and the set is saved."""
     custom_file = tmp_path / "questions" / "oneTBB.json"
     _write_json(custom_file, [{"id": "q_001", "question": "Old generated one?",
                                "source_type": "generated"}])
@@ -1149,8 +1149,8 @@ def test_a_regeneration_under_a_colliding_id_is_saved(tmp_path, monkeypatch):
     _own_output_pipeline(tmp_path).run(concurrency=1)
 
     saved = json.loads(custom_file.read_text())
-    assert sorted(q["question"] for q in saved["questions"]) == [
-        "Brand new generated one?", "Old generated one?"]
+    assert sorted((q["question"], q["id"]) for q in saved["questions"]) == [
+        ("Brand new generated one?", "q_000"), ("Old generated one?", "q_001")]
 
 
 def test_a_merge_that_rewords_a_record_under_its_id_is_saved(tmp_path, monkeypatch):

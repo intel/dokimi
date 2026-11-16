@@ -143,6 +143,16 @@ def test_a_second_gap_fill_does_not_reuse_the_first_ones_ids(monkeypatch):
     assert [q["id"] for q in new] == ["gap_advanced_001", "gap_advanced_003"]
 
 
+def test_a_merge_renumbers_a_generated_id_a_kept_record_has():
+    from dokimi.questions.normalizer import renumber_taken
+
+    kept = [{"id": "q_001", "question": "Old?"}, {"id": "q_000", "question": "Golden?"}]
+    new = [{"id": "q_001", "question": "New?"}, {"id": "q_002", "question": "Other?"}]
+
+    assert [q["id"] for q in renumber_taken(new, kept)] == ["q_003", "q_002"]
+    assert new[0]["id"] == "q_001"
+
+
 def test_answers_generate_exits_2_on_shared_ids_before_any_answer(tmp_path, monkeypatch):
     path = tmp_path / "q.json"
     path.write_text(json.dumps([{"question_id": "a", "text": "x"}, {"question_id": "a", "text": "y"}]),
