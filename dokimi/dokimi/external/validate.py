@@ -423,7 +423,7 @@ def _unloaded_review(entry: SkillCatalogEntry) -> Optional[SkillReview]:
         return None  # an empty file is not prose: the loader's error stands
     lines = text.lstrip("\ufeff").splitlines()
     first = next((line.rstrip() for line in lines if line.strip()), "")
-    unquoted = ["" if QUOTE_MARK_RE.match(line) else line for line in lines]  # a quoted example is prose too
+    unquoted = ["> quoted" if QUOTE_MARK_RE.match(line) else line for line in lines]  # a quoted example is prose too: text, not a key
     if (first.strip() == "---" and lines[0].rstrip() != "---") or (first.strip() != "---" and _has_late_frontmatter(unquoted)):
         return None  # frontmatter after blank lines, an indent or another line: a broken skill, not prose; the loader's error stands
     if first.strip() != "---" or not _opens_frontmatter(unquoted):  # a rule or prose, not a broken block

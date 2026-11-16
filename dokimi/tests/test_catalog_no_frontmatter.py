@@ -186,7 +186,8 @@ def test_indented_or_late_frontmatter_is_a_broken_skill_not_plain_markdown(tmp_p
 
 @pytest.mark.parametrize("text", ["---\n\n# Deck Builder\n\nBuilds decks from text.\n",
                                    "---\n\n# Deck Builder\n\nBuilds decks from text.\n---\n",
-                                   "---\n\n# Deck Builder\n\nBuilds decks from text.\n\nUsage: run deck.\n"])
+                                   "---\n\n# Deck Builder\n\nBuilds decks from text.\n\nUsage: run deck.\n",
+                                   "---\n> Note: see below\n---\n\n# Deck Builder\n\nBuilds decks from text.\n"])
 def test_a_rule_then_prose_is_plain_markdown(tmp_path, text):
     # A first line of --- with no name: or description: after it is a rule, not a broken frontmatter.
     _plain(tmp_path, "deck", text)
