@@ -332,10 +332,28 @@ def test_clone_directory_of_a_url_with_a_high_surrogate_is_a_directory_name():
     assert cache_path("https://example.com/n\ud800", Path("/c")) == Path("/c/n_-" + _sha(b"\0sphttps://example.com/n\xed\xa0\x80")[:12] + ".git")
 
 
-def test_harness_directory_name_of_an_id_with_a_high_surrogate_and_a_reserved_character():
+def test_harness_directory_name_of_an_id_with_a_high_surrogate_and_a_reserved_character(tmp_path):
     from dokimi.harnesses.runner import _safe_id
 
-    assert _safe_id("n\ud800?") == "n\ud800_-" + _sha(b"\0spn\xed\xa0\x80?")[:8]
+    name = _safe_id("n\ud800?")
+    assert name == "n__-" + _sha(b"\0spn\xed\xa0\x80?")[:8]
+    (tmp_path / name).mkdir()
+
+
+def test_harness_directory_name_of_an_id_with_a_high_surrogate_is_a_directory_name(tmp_path):
+    from dokimi.harnesses.runner import _safe_id
+
+    name = _safe_id("n\ud800")
+    assert name == "n_-" + _sha(b"\0spn\xed\xa0\x80")[:8]
+    (tmp_path / name).mkdir()
+    assert _safe_id("n\ud801") != name
+
+
+def test_skill_reach_token_of_a_nul_led_salt_is_the_key_bytes_of_the_salt():
+    from dokimi.repos.skill_reach import token
+
+    assert token("\0x", "case", "body") == "SB8C5EEA"  # `main` gave SB04D1CE: key_bytes puts `\0e` before NUL-led text
+    assert token("s", "case", "body") != token("\0s", "case", "body")
 
 
 def test_graph_task_id_of_a_symbol_with_a_high_surrogate_is_an_id():
