@@ -64,6 +64,16 @@ def test_a_malformed_block_is_refused(block):
         provenance.parse_provenance(block)
 
 
+def test_a_block_with_a_non_string_key_is_refused_not_a_type_error():
+    with pytest.raises(provenance.ProvenanceError):
+        provenance.parse_provenance({1: "legacy", "extra": "value"})
+
+
+def test_status_of_an_invalid_block_reads_as_unknown_even_with_a_valid_status():
+    record = {"provenance": {"source": "made-by-hand", "status": "validated"}}
+    assert provenance.status_of(record) == provenance.UNKNOWN
+
+
 @pytest.mark.parametrize("value", ["2", "2.1", 3, 0])
 def test_a_version_is_a_non_empty_string_or_an_integer(value):
     assert provenance.parse_version(value) == value

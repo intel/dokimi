@@ -46,7 +46,7 @@ def parse_provenance(raw: Any) -> dict[str, Any] | None:
         return None
     if not isinstance(raw, dict):
         raise ProvenanceError(f"provenance must be an object with optional keys {', '.join(KEYS)}")
-    unknown = sorted(set(raw) - set(KEYS))
+    unknown = sorted(set(raw) - set(KEYS), key=str)
     if unknown:
         raise ProvenanceError(f"provenance: unknown key(s) {', '.join(map(str, unknown))} "
                               f"(known: {', '.join(KEYS)})")
@@ -67,9 +67,12 @@ def parse_provenance(raw: Any) -> dict[str, Any] | None:
 
 
 def status_of(record: Mapping[str, Any]) -> str:
-    """The record's ``provenance.status``, or :data:`UNKNOWN` when it has none or an invalid one."""
-    block = record.get("provenance")
-    status = block.get("status") if isinstance(block, Mapping) else None
+    """The record's ``provenance.status``, or :data:`UNKNOWN` when it has none, an invalid one or an invalid block."""
+    try:
+        block = parse_provenance(record.get("provenance"))
+    except ProvenanceError:
+        return UNKNOWN
+    status = block.get("status") if block else None
     return status if status in STATUSES else UNKNOWN
 
 
