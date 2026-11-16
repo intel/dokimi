@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import glob
 import importlib.util
 import json
 import os
@@ -498,3 +499,129 @@ def test_the_recipe_tests_run_its_imports_and_commands_in_the_env(tmp_path: Path
     assert paths == [expected] * 3
     assert leaked == [False] * 3
     assert len(set(cwds)) == 1 and Path(cwds[0]) != hooks.ROOT
+
+
+_RENOVATE_WORKFLOW = _REPO / ".github" / "workflows" / "conda-lock-renovate.yml"
+_PUSH_STEP = "Push the re-solved locks to the branch"
+
+
+def _renovate_workflow() -> dict:
+    return yaml.safe_load(_RENOVATE_WORKFLOW.read_text(encoding="utf-8"))
+
+
+def _push_step() -> dict:
+    return next(s for s in _renovate_workflow()["jobs"]["resolve"]["steps"] if s.get("name") == _PUSH_STEP)
+
+
+def _covered(path: str, patterns: list[str]) -> bool:
+    return any(path.startswith(p.removesuffix("**")) if p.endswith("/**") else path == p for p in patterns)
+
+
+def test_the_renovate_workflow_runs_on_a_push_to_renovate_branches_for_every_input_of_lock_py(
+        monkeypatch: pytest.MonkeyPatch) -> None:
+    """#682: a Renovate branch that changes a lock input is re-solved; a fork cannot push there, so no pull_request_target."""
+    workflow = _renovate_workflow()
+    triggers = workflow["on"] if "on" in workflow else workflow[True]  # YAML 1.1 reads a bare `on` as True
+    assert list(triggers) == ["push"]
+    assert triggers["push"]["branches"] == ["renovate/**"]
+    paths = triggers["push"]["paths"]
+    for pattern in paths:
+        assert glob.glob(pattern, root_dir=_REPO, recursive=True), f"{pattern} matches nothing"
+    lock = _script("lock", monkeypatch)
+    read: list[Path] = []
+    real = lock.hooks.read_yaml
+
+    def record(path: Path) -> object:
+        read.append(path)
+        return real(path)
+
+    monkeypatch.setattr(lock.hooks, "read_yaml", record)
+    lock.specs("3.12")
+    inputs = [Path(str(m.__file__)) for m in (lock, lock.hooks, lock.matrix)]
+    inputs += [*read, lock.recipe().parent / "conda_build_config.yaml"]
+    installed = next(s for s in workflow["jobs"]["resolve"]["steps"] if s.get("name") == "Install py-rattler")["run"]
+    requirements = re.search(r"-r (\S+)$", installed)
+    assert requirements
+    inputs.append(_REPO / requirements.group(1))
+    assert len(read) == 2
+    assert [p.as_posix() for p in inputs if not _covered(p.relative_to(_REPO).as_posix(), paths)] == []
+    assert _covered(".github/workflows/conda-lock-renovate.yml", paths)
+
+
+@pytest.mark.skipif(sys.platform == "win32" or shutil.which("git") is None, reason="runs the step's bash with git")
+@pytest.mark.parametrize("change", ["none", "modified", "new", "no token", "rejected"])
+def test_the_renovate_push_commits_only_the_locks_and_never_forces(change: str, tmp_path: Path) -> None:
+    """#682: a pin bump gets its re-solved locks pushed; current locks end the loop; no token fails (GITHUB_TOKEN starts no CI)."""
+    step = _push_step()
+    assert step["env"]["GH_TOKEN"] == "${{ secrets.CONDA_LOCK_TOKEN }}"
+    assert step["env"]["BRANCH"] == "${{ github.ref_name }}" and "${{" not in step["run"]
+    git_bin, branch = str(shutil.which("git")), "renovate/mypy-2.x"
+    base = {"HOME": str(tmp_path), "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull}
+    remote, work, bin_dir, log = tmp_path / "remote.git", tmp_path / "work", tmp_path / "bin", tmp_path / "calls.txt"
+    bin_dir.mkdir()
+    (bin_dir / "git").write_text(f'#!/bin/sh\necho "git $*" >> {log}\nexec {git_bin} "$@"\n', encoding="utf-8")
+    (bin_dir / "gh").write_text(f'#!/bin/sh\necho "gh $*" >> {log}\nexit 0\n', encoding="utf-8")
+    for tool in bin_dir.iterdir():
+        tool.chmod(0o755)
+
+    def git(*args: str, cwd: Path = work) -> str:
+        done = subprocess.run([git_bin, "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false", *args],
+                              cwd=cwd, env={**base, "PATH": "/usr/bin:/bin"}, capture_output=True, text=True, check=True)
+        return done.stdout
+
+    git("init", "-q", "--bare", str(remote), cwd=tmp_path)
+    git("init", "-q", "-b", branch, str(work), cwd=tmp_path)
+    git("remote", "add", "origin", str(remote))
+    (work / "ci" / "conda-lock").mkdir(parents=True)
+    (work / "ci" / "conda-lock" / "linux-64-py3.12.txt").write_text("a\n", encoding="utf-8")
+    (work / "ci" / "config.yml").write_text("x\n", encoding="utf-8")
+    git("add", "-A")
+    git("commit", "-q", "-m", "pin bump")
+    git("push", "-q", "origin", branch)
+    before = git("rev-parse", "HEAD").strip()
+    if change != "none":
+        (work / "ci" / "conda-lock" / ("linux-64-py3.12.txt" if change != "new" else "linux-64-py3.13.txt")).write_text(
+            "b\n", encoding="utf-8")
+        (work / "ci" / "config.yml").write_text("y\n", encoding="utf-8")  # not a lock: must stay out of the commit
+    if change == "rejected":
+        other = tmp_path / "other"
+        git("clone", "-q", "-b", branch, str(remote), str(other), cwd=tmp_path)
+        (other / "moved").write_text("m\n", encoding="utf-8")
+        git("add", "-A", cwd=other)
+        git("commit", "-q", "-m", "Renovate rebased", cwd=other)
+        git("push", "-q", "origin", f"HEAD:{branch}", cwd=other)
+    env = {**base, "PATH": f"{bin_dir}:/usr/bin:/bin", "GH_TOKEN": "" if change == "no token" else "token", "BRANCH": branch}
+    done = subprocess.run(["/bin/bash", "-e", "-c", step["run"]], cwd=work, env=env, capture_output=True, text=True,
+                          check=False)
+    calls = log.read_text(encoding="utf-8").splitlines() if log.exists() else []
+    pushed = git("rev-parse", branch, cwd=remote).strip()
+    if change in ("none", "no token"):
+        assert done.returncode == (0 if change == "none" else 1)
+        assert [c for c in calls if c.split()[1] in ("push", "commit", "add")] == [] and (calls == [] or change == "none")
+        assert ("The locks are current." in done.stdout) is (change == "none")
+        assert ("CONDA_LOCK_TOKEN is not set" in done.stdout) is (change == "no token")
+        assert pushed == before
+    elif change == "rejected":
+        assert done.returncode == 1 and "was rejected" in done.stdout and branch in done.stdout
+        assert len([c for c in calls if c.startswith("git push")]) == 1 and pushed != before
+        assert git("log", "-1", "--format=%s", branch, cwd=remote).strip() == "Renovate rebased"
+    else:
+        assert done.returncode == 0, done.stderr
+        pushes = [c for c in calls if c.startswith("git push")]
+        assert pushes == [f"git push origin HEAD:refs/heads/{branch}"] and "gh auth setup-git" in calls
+        assert git("rev-list", "--count", f"{before}..{pushed}", cwd=remote).strip() == "1"
+        assert git("diff", "--name-only", before, pushed, cwd=remote).splitlines() == [
+            "ci/conda-lock/" + ("linux-64-py3.12.txt" if change == "modified" else "linux-64-py3.13.txt")]
+        message = git("log", "-1", "--format=%an <%ae>%n%B", branch, cwd=remote)
+        assert message.startswith("github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>\n")
+        assert "ci(conda-lock): re-solve the Intel CI conda locks" in message and "\nSigned-off-by: " in message
+
+
+def test_renovate_ignores_the_author_the_lock_commit_is_made_as() -> None:
+    """#682: otherwise Renovate reads the pushed locks as a foreign edit and stops rebasing the branch."""
+    committer = re.search(r'git config user\.email "([^"]+)"', _push_step()["run"])
+    assert committer
+    email = committer.group(1)
+    config = (_REPO / ".github" / "renovate.json5").read_text(encoding="utf-8")
+    ignored = re.search(r"^\s*gitIgnoredAuthors:\s*\[(.*)\],$", config, re.M)
+    assert ignored and email in re.findall(r'"([^"]+)"', ignored.group(1))
