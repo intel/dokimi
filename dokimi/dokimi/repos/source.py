@@ -511,6 +511,12 @@ def ensure_rev(git_dir: Path, rev: str, refresh: bool = False) -> str:
     try:
         return resolve_rev(git_dir, rev)
     except SourceError as exc:
+        if refresh and len(base) in (40, 64) and re.fullmatch(r"[0-9a-f]+", base):  # a full commit on no branch
+            try:
+                _git(git_dir, "fetch", "--filter=blob:none", "origin", "--", base)
+                return resolve_rev(git_dir, rev)
+            except SourceError:
+                pass
         short = _SHA_RE.match(base) and len(base) < 40
         hint = "; a short SHA on no branch or tag cannot be fetched, give the full SHA" if short else ""
         raise SourceError(f"revision not found in origin: {rev}{hint}") from exc

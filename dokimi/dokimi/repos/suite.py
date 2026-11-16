@@ -28,6 +28,7 @@ from .workspace import source_git_dir
 
 SCHEMA_VERSION = "suite_manifest.v1"
 _SHA_RE = re.compile(r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")  # a full commit: a branch, tag, short SHA or other ref is not
+_ABBREV_RE = re.compile(r"^[0-9a-f]{7,39}$")  # a short commit SHA, as manifest._BASE_RE reads a task base
 
 
 class SuiteError(ValueError):
@@ -151,9 +152,13 @@ def _resolve_base(source: RepoSource, git_dir: Path, base: str) -> str:
         return resolve_rev(git_dir, base)
     except SourceError:
         commit = re.split(r"[\^~]", base, maxsplit=1)[0]  # a parent (``<sha>^``) is fetched by its commit
-        if not source.remote or not _SHA_RE.match(commit):
+        if not source.remote or not (_SHA_RE.match(commit) or _ABBREV_RE.match(commit)):
             raise
-    process.git("-C", str(git_dir), "fetch", "origin", "--", commit)  # a failure leaves the miss below
+    if _SHA_RE.match(commit):
+        process.git("-C", str(git_dir), "fetch", "origin", "--", commit)  # a failure leaves the miss below
+    else:  # git cannot fetch a short SHA: its refs are fetched, then the base is looked up again; a failure leaves the miss
+        process.git("-C", str(git_dir), "fetch", "--filter=blob:none", "origin",
+                    "+refs/heads/*:refs/heads/*", "+refs/tags/*:refs/tags/*")
     return resolve_rev(git_dir, base)
 
 
@@ -163,7 +168,7 @@ def resolve_suite(suite: SuiteManifest, bases: Mapping[str, str], cache_dir: Pat
     ``bases`` maps each suite task to the ``base`` of its task.json. Repositories are opened once
     each, all of them, so the pins do not depend on which tasks a run selects.
     """
-    checkouts = {name: _checkout(source, cache_dir, refresh=suite.floating and not _SHA_RE.match(source.rev or ""))
+    checkouts = {name: _checkout(source, cache_dir, refresh=suite.floating)  # a hash-shaped name may be a branch
                  for name, source in suite.repos.items()}
     for name, found in checkouts.items():  # a name shaped like a hash (a branch) is not the commit the pin says
         if suite.floating:  # the run asked for refs to be resolved: the commit it found is the pin

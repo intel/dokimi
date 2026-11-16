@@ -459,3 +459,53 @@ def test_a_parent_base_the_warm_cache_of_a_remote_lacks_is_fetched_not_a_gap(tmp
     child = git(root, "rev-parse", "HEAD")
     found = resolve_suite(suite, {"t1": f"{child}^"}, cache)
     assert found.gaps == {} and "t1" in found.git_dirs
+
+
+@pytest.mark.parametrize("suffix", ["", "^"])
+def test_an_abbreviated_base_the_warm_cache_lacks_is_fetched_not_a_gap(tmp_path, suffix):
+    root, sha = _scaffold(tmp_path)
+    suite = parse_suite(_raw(repos={"sc": f"file://{root}@{sha}"}))
+    cache = tmp_path / "cache"
+    assert resolve_suite(suite, {"t1": sha}, cache).gaps == {}  # warms the cache at the pin
+    git(root, "checkout", "-q", "-b", "other")
+    write(root, "src/more.py", "X = 1\n")
+    git(root, "add", "-A")
+    git(root, "commit", "-qm", "base on another branch")
+    short = git(root, "rev-parse", "--short=7", "HEAD")
+    found = resolve_suite(suite, {"t1": f"{short}{suffix}"}, cache)
+    assert found.gaps == {} and "t1" in found.git_dirs
+
+
+def test_a_floating_full_sha_pin_on_no_branch_is_fetched_by_name(tmp_path):
+    root, sha = _scaffold(tmp_path)
+    git(root, "checkout", "-q", "-b", "gone")
+    write(root, "src/more.py", "X = 1\n")
+    git(root, "add", "-A")
+    git(root, "commit", "-qm", "on a branch that is deleted")
+    pin = git(root, "rev-parse", "HEAD")
+    git(root, "checkout", "-q", "main")
+    git(root, "branch", "-D", "gone")  # the pinned commit is on no branch or tag any more
+    suite = parse_suite(_raw(repos={"sc": f"file://{root}@{pin}"}), allow_floating=True)
+    found = resolve_suite(suite, {"t1": pin}, tmp_path / "cache")
+    assert found.pins == {"sc": pin} and found.gaps == {}
+
+
+def test_a_moved_full_length_floating_branch_is_resolved_again_in_a_sha256_scaffold(tmp_path):
+    root = tmp_path / "sc256"
+    write(root, "src/calc.py", CALC)
+    git(root, "init", "-q", "-b", "main", "--object-format=sha256")
+    git(root, "add", "-A")
+    git(root, "commit", "-qm", "scaffold")
+    first = git(root, "rev-parse", "HEAD")
+    name = "a" * 40  # a branch in a SHA-256 repository: its spelling is not a commit
+    git(root, "branch", name, first)
+    suite = parse_suite(_raw(repos={"sc": f"file://{root}@{name}"}), allow_floating=True)
+    cache = tmp_path / "cache"
+    assert resolve_suite(suite, {"t1": first}, cache).pins == {"sc": first}  # warms the cache at the branch
+    write(root, "src/more.py", "X = 1\n")
+    git(root, "add", "-A")
+    git(root, "commit", "-qm", "moved")
+    moved = git(root, "rev-parse", "HEAD")
+    git(root, "branch", "-f", name, moved)
+    found = resolve_suite(suite, {"t1": moved}, cache)
+    assert found.pins == {"sc": moved} and found.gaps == {}
