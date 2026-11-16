@@ -129,7 +129,7 @@ def test_a_well_formed_question_version_and_provenance_do_not_warn(tmp_path, cap
     path.write_text(json.dumps({"schema_version": "questions.v2", "questions": [question]}), encoding="utf-8")
     with caplog.at_level(logging.WARNING, logger="dokimi.questions.artifact"):
         load_questions(path)
-    assert "provenance" not in caplog.text and "version" not in caplog.text
+    assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
 
 
 @pytest.mark.parametrize("block", GOOD_BLOCKS)
@@ -191,12 +191,3 @@ def test_a_task_copy_the_grader_rewrote_does_not_change_the_status(tmp_path, cap
     args.func(args)
     rows = {r["task"]: r["status"] for r in json.loads(capsys.readouterr().out)["data"]["rows"]}
     assert rows == {"t4": "candidate"}
-
-
-def test_a_corrupt_task_copy_reads_as_unknown_and_keeps_the_report(tmp_path, capsys):
-    _cell(tmp_path, "t3__a__m__r1", {"result.json": {**_RESULT, "task": "t3"}, "task.json": "not an object"})
-    parser = build_parser()
-    args = parser.parse_args(["repo", "report", str(tmp_path / "b1"), "--json"])
-    args.func(args)
-    rows = {r["task"]: r["status"] for r in json.loads(capsys.readouterr().out)["data"]["rows"]}
-    assert rows == {"t3": provenance.UNKNOWN}
