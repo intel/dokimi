@@ -56,14 +56,19 @@ def test_a_registry_with_both_keys_names_the_file_and_the_ignored_one(tmp_path, 
     assert f"Registry {path} has both 'products' and 'libraries': 'libraries' is ignored" in caplog.text
 
 
-def test_a_registry_whose_products_is_not_a_mapping_is_named_in_the_warning(tmp_path, caplog):
-    path = _registry(tmp_path, {"products": None})
+@pytest.mark.parametrize("data,warning", [
+    ({"products": None}, "'products' must be a mapping, got NoneType"),
+    ({"libraries": ["onetbb"]}, "'libraries' must be a mapping, got list"),
+    ({"products": None, "libraries": "onetbb"}, "'libraries' must be a mapping, got str"),
+], ids=["null-products", "list-libraries", "str-libraries-under-null-products"])
+def test_a_registry_key_that_is_not_a_mapping_is_named_with_the_file(tmp_path, caplog, data, warning):
+    path = _registry(tmp_path, data)
 
     with caplog.at_level(logging.WARNING, logger="dokimi.registry"):
         keys = ProductRegistry(path=path).keys()
 
     assert keys == []
-    assert f"Registry {path}: 'products' must be a mapping, got NoneType" in caplog.text
+    assert f"Registry {path}: {warning}" in caplog.text
 
 
 @pytest.mark.parametrize("records,ids", [
