@@ -224,9 +224,7 @@ per-task, per-arm results on real tasks with their missing cells listed.
 `guidance:none`, `guidance:raw`); harness and model; repetitions; grader;
 spend per run and per batch; environment (Docker image, network mode).
 
-**Today.** Steps 1–3 and 5–7 are available. Step 4, deriving candidate tasks
-from the repository's code, docs, issues and traces, is **proposed**; tasks
-derived from code are hypotheses about what users do, not confirmed intent.
+**Today.** Steps 1–3 and 5–7 are available. Step 4 is **partial**: candidate task generation from merged PR inputs, imported review-thread JSON and SCIP references/derives is available. General synthesis from arbitrary docs, issues and traces remains proposed. Generated tasks are hypotheses about what users do, not confirmed intent. See the [task creation cards](../features/eval-design.md).
 
 **Connections.** J4 for the guidance itself, J7 for the tasks, J12 to keep it
 working.
@@ -279,7 +277,7 @@ tasks represent the work (for effect).
 1. Correctness: `python cli.py repo scan`.
 2. Reach: `python cli.py repo reach` with a harness profile and model, after
    `--dry-run` to see the runs and budget it plans.
-3. Adherence: **proposed**. No command measures it yet.
+3. Adherence: **partial**. Trace consistency can check declared process contracts; universal instruction adherence remains proposed. See [trace cards](../features/traces.md).
 4. Effect: `python cli.py repo run` with `--arm guidance:none` and
    `--arm guidance:raw` on the same tasks, then `python cli.py repo compare`.
 
@@ -301,7 +299,7 @@ model, repetitions, grader, spend.
 
 **Today.** Correctness and reach are available and traced. Effect is partial:
 the arms and comparison exist, but no test or recorded run asserts an effect
-claim. Adherence is proposed.
+claim. Process-contract checking exists; universal adherence remains proposed.
 
 **Connections.** Part of J3; feeds J12 (guidance regressions) and J13 (does the
 guidance still help a newer model?).
@@ -459,10 +457,7 @@ and an explicit list of what the evals do not cover.
 the task's container, without a model. Judge validity runs the judge on
 perturbed answers; it has a model cost and a sequential stopping rule.
 
-**Today.** Steps 1–3 are available; the self-check is traced. Steps 4–6 are
-**proposed**: no command derives tasks, adds negative controls, or reports
-coverage gaps. A passing self-check shows the grader is sane on null and oracle,
-not that the tasks are relevant or the set covers the work.
+**Today.** Steps 1–3 are available; the self-check is traced. Steps 4–6 are partial: task generation from PR inputs, review replay and SCIP graphs exists, and need-space coverage reports gaps against a frozen graph with explicit labels. General task synthesis and an automatic end-to-end control/coverage workflow remain incomplete. A passing self-check shows behaviour on null and oracle, not that the tasks are relevant or the set covers the work. See [eval design cards](../features/eval-design.md).
 
 **Connections.** Supports J2, J3, J4, J6, J8, J9, J10, J12.
 

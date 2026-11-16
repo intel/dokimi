@@ -14,9 +14,10 @@ SPDX-License-Identifier: Apache-2.0
 
 # Repository evaluation contract
 
-> **Status: PROPOSED.** This is the interface proposed for evaluating a whole
-> code repository as a subject; the rationale behind it is recorded in the pull
-> requests that build it out.
+> **Status: implemented core with scoped extensions.** Validation, static scanning,
+> reach, task execution, reporting and arm comparison are available. Individual
+> sections describe their limits and proposed extensions. The rationale is recorded
+> in the pull requests that build it out. See the [feature cards](features/repositories.md).
 > Implemented so far (slice S1): the `repo_manifest.v1` schema, validation of
 > the manifest and of every `task.json` against one repository snapshot
 > (with git history, every task base must resolve and the guidance globs are
