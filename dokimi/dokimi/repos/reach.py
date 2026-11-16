@@ -198,7 +198,7 @@ def shadow_for(profile: HarnessProfile, tree: RepoTree, kinds: tuple[str, ...]) 
 
 
 def token(salt: str, path: str, position: str) -> str:
-    digest = hashlib.sha256(f"{salt}\0{path}\0{position}".encode()).hexdigest()
+    digest = hashlib.sha256(f"{salt}\0{path}\0{position}".encode("utf-8", "surrogateescape")).hexdigest()
     return "RC" + digest[:6].upper()
 
 

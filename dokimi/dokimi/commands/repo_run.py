@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from dokimi.repos.manifest import RepoManifest
 
+from dokimi.atomic_write import write_text_atomic
 from dokimi import cli_flags
 from dokimi import docker_cmd
 from dokimi.repos.harness_profile import DELEGATION_MODES
@@ -164,7 +165,7 @@ def _pin_batch(batch_dir: Path, pin: dict[str, str]) -> None:
             raise ValueError(f"batch {batch_dir.name} was run from {was}, not {now}; use another --batch")
         return
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(pin) + "\n", encoding="utf-8")
+    write_text_atomic(path, json.dumps(pin) + "\n")
 
 
 def _pair(text: str) -> tuple[str, str]:
@@ -550,7 +551,8 @@ def register(repo_sub, eval_sub, positive_int, source_help: str, cache_help: str
     run_p.add_argument("--budget", type=_usd, default=2.0,
                        help="USD cap per agent run unless task.json sets budget_usd (default 2.0)")
     run_p.add_argument("--max-batch-usd", type=_usd, default=None, dest="max_batch_usd",
-                       help="Start no new cell once this invocation has spent this much")
+                       help="Start no new cell once the batch has spent this much, earlier invocations included "
+                            "(and the budgets of the cells in flight)")
     run_p.add_argument("--force", action="store_true", help="Rerun cells that already have result.json")
     run_p.add_argument("--label-host", action="store_true", dest="label_host",
                        help="Run a task whose task.json `host` requirements this host misses anyway, and record "

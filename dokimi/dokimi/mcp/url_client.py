@@ -132,7 +132,7 @@ class URLClient(MCPClient):
     # ── Helpers ───────────────────────────────────────────────────────────
 
     def _cache_key(self) -> str:
-        return hashlib.sha256(self.url.encode()).hexdigest()
+        return hashlib.sha256(self.url.encode("utf-8", "surrogateescape")).hexdigest()
 
     def _fetch(self) -> str:
         """Fetch URL (with optional caching). Returns cleaned plain text."""
