@@ -344,7 +344,7 @@ The result is in `metrics.isolation_probe` and `isolation_probe.json`:
 - **Capabilities.** Every `docker-*` task container, `docker-oracle` included,
   starts with `--init`, `--cap-drop ALL`, `no-new-privileges` and `--pids-limit 32768`,
   and gets back only `CHOWN`, `DAC_OVERRIDE`, `FOWNER`, `SETUID` and `SETGID`
-  (`TASK_CONTAINER_HARDENING` in `docker_cmd.py`). Every other
+  (`TASK_CAP_ADD` and `task_container_policy` in `container_policy.py`). Every other
   capability Docker grants by default is dropped, so a step that needs one
   fails: signalling another user's process (`KILL`), a raw socket (`NET_RAW`),
   `mknod` (`MKNOD`), `chroot` (`SYS_CHROOT`). Without `FSETID`, `chmod g+s` on
@@ -1100,7 +1100,12 @@ python cli.py tasks run --tasks <task-name> \
   partial credit such as `0.75`, is kept as the reward and counts as a fail. If
   no reward is found, the adapter's exit code is used as the fallback, except
   for a Harbor-backed cell, which is then errored (see the Harbor grading
-  table above).
+  table above), and a `docker-*` cell with a reward-file verifier (`task.toml`
+  or `task.md`), where exit 0 without `/logs/verifier/reward.txt` is errored
+  and a non-zero exit scores 0.0. A terminal-bench v1 verifier keeps its pytest
+  summary as the verdict. A `docker-*` reward file with no number between 0
+  and 1 in it (`PASS`, empty, `75`), or a `docker cp` of it that fails or
+  times out, errors the cell.
 - `results[].metrics`: for LLM harnesses (`docker-claude*`), the per-run
   `UsageRecord` fields — `cost_usd`, `prompt_tokens`, `completion_tokens`,
   `total_tokens`, `cache_read_tokens`, `cache_write_tokens`, `latency_sec`,

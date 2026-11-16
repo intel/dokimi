@@ -58,6 +58,8 @@ correct-ish binary collapse **0.852**. The largest confusion was `partially_corr
 (247 cases). Consequently the 6-way scale is not used for any conclusion, every score appears under
 both a lenient and a strict collapse, and paired comparisons are preferred over levels.
 
+A judge-panel study (eight judges) shows the judge moves one model's lenient placebo-gated added share by up to 0.23, but nemotron-12b stays first and opus-5 last under all eight judges on the lenient scale ([judge panel](judge-panel-study.md)).
+
 Human review sheets were generated for a gold subset (40 atoms, 40 graded responses, plus the
 constructed equivalence pairs) but **have not yet been filled in**. Until they are, the absolute
 level of every score rests on an LLM judge.

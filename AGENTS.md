@@ -48,6 +48,10 @@ also holds a PR to:
   constraint or the reason, and end with an issue or PR URL when a reader needs
   the backstory. A block of three or more `#` lines fails once the PR adds or
   edits a line in it, so shorten an old block when you touch it.
+- No silent `except` (ruff BLE001, S110, S112): catch the exception you expect, or
+  log it with its traceback, or re-raise. A site that must catch everything says
+  what happens to the failure in `# noqa: BLE001 - <reason>`
+  (`tests/test_noqa_reasons.py` fails a bare code).
 - User outcomes (`tests/outcomes/*.json`, checked by `pytest --outcomes`): a
   test marked `@pytest.mark.outcome(...)` is evidence for a promise in the docs;
   weaken or drop it only together with the doc and the contract. The same
@@ -151,6 +155,14 @@ finds little:
 - Where it applies, run the changed command on a bad input: missing file,
   empty file, wrong shape, `None` where a value is expected, a Windows path.
   Say in the description what you could not run.
+- Trace new error paths and tests to the contract: a new `raise`, `sys.exit`
+  or refusal names, in its message, docstring or the PR, the doc, contract or
+  issue that asks for it; a test of new behaviour cites the doc line it checks.
+  `python scripts/list_new_error_paths.py --base origin/main` (from `dokimi/`) lists the sites
+  of a `raise`, a `sys.exit` or `SystemExit` call, or a literal `exit_code=N`;
+  refusals through `parser.error` or `return N` are not listed.
+- An unclear requirement goes in the PR description's "Open questions", not
+  into code that guesses: no error path or test the spec cannot be quoted for.
 - Check that the PR title, description, docstrings and changelog fragment say
   what the code does (exit codes especially).
 - Re-review your own fix commits during review with the same care.
