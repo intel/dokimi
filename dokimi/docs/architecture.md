@@ -390,15 +390,16 @@ next release.
   call. `eval tasks generate --from prs` (`authoring.py`, `authoring_prs.py`,
   `authoring_prompt.py`): one `dokimi:hidden_tests` task per merged pull
   request, its description as the prompt, its tests hidden until the grade and
-  the rest of its diff as the oracle (contract §4.8); `merged.py` holds what the
-  two kinds share.
+  the rest of its diff as the oracle (contract §4.8); `eval tasks generate
+  --from history` (`authoring_commits.py`) writes the same tasks from bug-fix
+  commits, with no pull request file; `merged.py` holds what the two kinds share.
 - `dokimi/repos/graph_tasks.py` — `eval tasks generate --from graph`:
   `dokimi:graph_enum` tasks (references to a function, direct subclasses of a
   class) with gold from a SCIP index of a pinned revision, read with
-  `dokimi/repos/code_index/`. `eval tasks generate --from graph|replay|prs` is the
+  `dokimi/repos/code_index/`. `eval tasks generate --from graph|replay|prs|history` is the
   command that writes into a repository's tasks directory.
 
-Entry points: `python cli.py repo {validate,scan,fetch,reach,budget,run,report}` (replay and authoring tasks: `eval tasks generate --from replay|prs`)
+Entry points: `python cli.py repo {validate,scan,fetch,reach,budget,run,report}` (replay and authoring tasks: `eval tasks generate --from replay|prs|history`)
 (`python cli.py repo --help` is the current list). The interface a repository
 codes against is [repo-evaluation-contract.md](repo-evaluation-contract.md).
 Its core is implemented, but the per-host egress proxy (§2) is not, so

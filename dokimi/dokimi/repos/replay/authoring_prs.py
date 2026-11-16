@@ -14,7 +14,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from ..manifest import RepoManifest
-from .authoring import Change, Options, Outcome, kept, write
+from .authoring import Change, Options, Outcome, kept, task_of_pr, write
 from .history import History
 from .merged import Skip, base_of, check_merged
 from .threads import PullRequest, ReplayError
@@ -34,6 +34,9 @@ def build_one(h: History, manifest: RepoManifest, pr: PullRequest, opts: Options
     existing = kept(opts, pr.number, task_id(pr))
     if existing is not None:
         return existing
+    other = task_of_pr(opts.out, pr.number)
+    if other is not None and other != task_id(pr):
+        return Outcome(pr.number, "kept", other, f"{other} is this pull request's task, from its commit")
     notes: list[str] = []
     try:
         outcome = write(h, manifest, change_of(h, pr, notes), opts)

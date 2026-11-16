@@ -37,6 +37,7 @@
 --checklist
 --claude  # catalog trigger-probe (#217) adds it: backend choice has no registry concept yet
 --command-template
+--commits  # eval tasks generate --from history (#41) adds it: how many first-parent commits to read; no registry concept yet
 --competitors
 --context
 --context7-id

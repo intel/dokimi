@@ -1348,6 +1348,53 @@ an integer), a source it cannot open, a manifest that is missing or malformed, t
 cannot write. Each prints `✗` and the reason; a `--manifest` path that leaves the source tree exits 2 instead, pinned or not. Grading a task needs the manifest's
 `entry_points.test` (§2).
 
+#### From commits: `eval tasks generate --from history`
+
+The same tasks, from the source's own history, need no pull request file:
+
+```bash
+python cli.py eval tasks generate ~/repo@main --from history --out-dir ~/repo/.agent-eval/tasks \
+    [--commits 300] [--subject REGEX] [--max-lines 400] [--prompt-file FILE] [--dry-run]
+```
+
+- The commits are the non-merge ones among the newest `--commits` (default 300) first-parent
+  commits of the pinned revision (a branch, tag or SHA, resolved once), and of those, the ones
+  whose subject `--subject` matches, case-insensitively. A merge, and so the commits of a branch
+  merged with `--no-ff`, gives no task; the output counts the merges left out. A revert (a
+  subject that starts with `revert` or `back out`), `fixup!`, `squash!` or `amend!` commit is never
+  one, whatever the pattern. The default pattern holds the words a fix's subject uses
+  (`fix`, `bug`, `regress`, `crash`, `wrong`, `incorrect`, `broken`, `no longer`, `never`,
+  `hang`, `leak`, `off-by`, `mismatch`, `silently`); `.` takes every commit.
+- Each commit is a change from its first parent to itself. A root commit is skipped. The task
+  is `<out>/authoring_<first 12 hex of the SHA>/`, written by the same writer, filter and
+  prompt rules as above. The commit's subject is the title and the rest of its message, less
+  the trailer lines that name people (`Signed-off-by:`, `Co-authored-by:`, `Reviewed-by:`, ...),
+  `Change-Id:` and `(cherry picked from commit ...)`, is the description. A subject that ends with `(#<n>)` (a squash merge) loses that suffix, and `n`
+  becomes `source_pr`, so a link to `/pull/<n>` is dropped. A commit with no such suffix
+  drops no pull request link. One change is one task: a commit whose `(#<n>)` already has a
+  task in `--out-dir` (`authoring_pr<n>` from `--from prs`) is `kept` as that task, and
+  `--from prs` keeps PR `n` as the `authoring_<sha12>` whose `source_pr` is `n`; `--force` rewrites
+  neither. Two commits with one `(#<n>)` give one task, the newest's, and `--dry-run` says so.
+- `task.json` has `source_commit` in place of `source_url`, `merge_commit` and `head_commit`.
+  `public_at` is the commit's author date (`%aI`), the earliest time git records for the change.
+  A pull request was public from when it was opened, which git does not know.
+- `--from history` reads `--commits`, `--subject`, `--max-lines`, `--manifest`, `--manifest-file`,
+  `--prompt-file` and `--dry-run`. Any other source flag given here (`--index`, `--prs`, `--threads`, ...),
+  even at its default value, is a usage error (2), `<flag> is for --from <sources>`, and so are
+  `--commits` and `--subject` with another source. So is a `--subject` that is empty or does not compile, an
+  unpinned source, and the source errors `--from prs` exits 2 on.
+- It prints how many of the non-merge commits it read the pattern matched, one line per commit
+  (`written`, `would write` with `--dry-run`, `kept` or `skipped` with the reason), and a
+  summary. It exits 1 when no commit gave a task (written, or kept from before), on a git
+  failure, and on the errors `--from prs` exits 1 on (a source it cannot open, a missing or
+  malformed manifest, a prompt file that is empty or cannot be read, a task it cannot write),
+  each with `✗` and the reason.
+
+On dokimi's own history (the newest 60 first-parent commits), 22 subjects match and 15 tasks are
+written. 7 are skipped: 6 over `--max-lines`, 1 with no test file. The two PRs that both sources
+cover (#393, #405) give the same hidden tests and `oracle_lines`; into one `--out-dir`, whichever
+runs second keeps the first one's task.
+
 ### 4.9 `run_context.v1` (written by `repo run` to `{run_dir}/run_context.json`)
 
 Beside `events.jsonl`, one record per cell: what the agent CLI printed about the run it made.

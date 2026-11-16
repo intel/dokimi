@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""eval check / eval tasks generate --from replay|prs / repo run / repo report / repo compare: the
+"""eval check / eval tasks generate --from replay|prs|history / repo run / repo report / repo compare: the
 repository-mode runner (contract §3, §4, §4.3, §4.5, §4.6, §4.8)."""
 
 from __future__ import annotations

@@ -4,7 +4,8 @@
 """The authoring-task writer (contract §4.8): one ``dokimi:hidden_tests`` task per :class:`Change`.
 
 A change is a ``base`` and a ``target`` revision with a title and a description, whatever its
-source: :mod:`.authoring_prs` makes one per merged pull request. The diff from ``base`` to
+source: :mod:`.authoring_prs` makes one per merged pull request, :mod:`.authoring_commits` one per
+bug-fix commit. The diff from ``base`` to
 ``target`` without the files :func:`.merged.left_out` names is split in two. Its test files
 (:func:`is_test_path`) that it adds or changes are the hidden files, copied into the workspace
 only when the task is graded; those that :func:`is_test_file` names are the hidden tests the
@@ -14,6 +15,7 @@ adds or changes as ``target`` has it, and ``reference_deleted`` the ones it dele
 
 from __future__ import annotations
 
+import json
 import posixpath
 import re
 import shutil
@@ -42,7 +44,7 @@ class Change:
     """What the writer needs of a change; ``fields`` are its source's own ``task.json`` keys."""
 
     id: str
-    number: int  # the pull request (or other) number a link to the change names
+    number: int | None  # the pull request a link to the change names; None for a commit no PR names
     title: str
     body: str
     base: str
@@ -62,9 +64,10 @@ class Options:
 
 @dataclass
 class Outcome:
-    """What became of one change: ``written``, ``kept`` (its task exists) or ``skipped``."""
+    """What became of one change: ``written`` (``would write`` on a dry run), ``kept`` (its task exists) or
+    ``skipped``."""
 
-    pr: int
+    pr: int | None  # the change's number (None for a commit no PR names)
     status: str
     task: str | None = None
     reason: str = ""
@@ -90,10 +93,25 @@ def family(title: str) -> str:
     return "fix" if _FIX.match(title) else "feature"
 
 
-def kept(opts: Options, number: int, task_id: str) -> Outcome | None:
+def kept(opts: Options, number: int | None, task_id: str) -> Outcome | None:
     """The outcome of a task directory that has a ``task.json`` and is not rewritten (no ``--force``), or ``None``."""
     if (opts.out / task_id / "task.json").exists() and not opts.force:
         return Outcome(number, "kept", task_id, "its task.json exists (--force rewrites it)")
+    return None
+
+
+def task_of_pr(out: Path, number: int) -> str | None:
+    """The task in ``out`` either source wrote for pull request ``number``: ``authoring_pr<n>`` (``--prs``), or an
+    ``authoring_<sha12>`` whose ``source_pr`` it is (``--from history``, a squash merge). One change is one task."""
+    if (out / f"authoring_pr{number}" / "task.json").exists():
+        return f"authoring_pr{number}"
+    for path in sorted(out.glob("authoring_*/task.json")):
+        try:
+            task = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if isinstance(task, dict) and task.get("source_pr") == number:
+            return path.parent.name
     return None
 
 
@@ -102,6 +120,13 @@ def write(h: History, manifest: RepoManifest, change: Change, opts: Options) -> 
     task, files = _make(h, manifest, change, opts)
     _write(opts.out / change.id, task, files)
     return Outcome(change.number, "written", change.id, n_hidden=len(task["hidden_tests"]),
+                   n_lines=task["oracle_lines"], dropped=task["prompt_dropped"])
+
+
+def would_write(h: History, manifest: RepoManifest, change: Change, opts: Options) -> Outcome:
+    """What :func:`write` would write, without writing it (``--dry-run``); :class:`.merged.Skip` as there."""
+    task, _ = _make(h, manifest, change, opts)
+    return Outcome(change.number, "would write", change.id, n_hidden=len(task["hidden_tests"]),
                    n_lines=task["oracle_lines"], dropped=task["prompt_dropped"])
 
 
