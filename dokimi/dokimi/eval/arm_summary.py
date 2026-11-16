@@ -13,11 +13,14 @@ tests keep working.
 
 from __future__ import annotations
 
+import logging
 import time
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 from dokimi.records import Answer, RecordLike
 from dokimi.records import records as as_records
+
+logger = logging.getLogger(__name__)
 
 #: Stamp on an agentic answer's ``tool_usage["counts"]``: its tool counts skip
 #: calls that failed (``error`` in the transcript). Unstamped answers counted
@@ -35,6 +38,19 @@ def _tool_counts_stamp(stamped: int, n: int) -> str | None:
     if stamped == 0:
         return None
     return TOOL_COUNTS if stamped == n else TOOL_COUNTS_MIXED
+
+
+def refusal_kept(summary: Dict[str, Any], key: str, compute: Callable[[], Any]) -> Any:
+    """``compute()``, or None with the refusal in ``summary[key]`` (the first one stays) when it raises OverflowError.
+
+    A score range the statistics refuse (#599, #638) must not drop the run's answers (#750).
+    """
+    try:
+        return compute()
+    except OverflowError as exc:
+        logger.warning("%s, the run is kept without it: %s", key, exc)
+        summary.setdefault(key, str(exc))
+        return None
 
 
 def summarize_agentic_usage(records: Iterable[RecordLike]) -> Dict[str, Any]:

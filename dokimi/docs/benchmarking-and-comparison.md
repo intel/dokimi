@@ -430,6 +430,11 @@ is what tells you whether combining two treatments beats the sum of their
 separate effects. Running the arms separately and subtracting run averages does
 not answer that question — the baselines drift between runs.
 
+Scores whose paired difference or interaction contrast leaves the float range are
+refused by the statistics. The run is still saved: `summary.significance_error` or
+`summary.interactions_error` holds the refusal, the section it names is absent, and
+the report prints it in place of the table.
+
 Everything above assumes the judge's continuous 0–100 score. The
 execution-verified task track (`cli.py tasks run`) has a binary outcome per task
 and uses McNemar's exact test instead — see

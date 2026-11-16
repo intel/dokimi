@@ -255,6 +255,14 @@
             }
           }
         },
+        "significance_error": {
+          "description": "Why per_arm.<arm>.significance is absent from every arm: the paired test refused the scores (a difference beyond the float range). Present only on such a refusal.",
+          "type": "string"
+        },
+        "interactions_error": {
+          "description": "Why interactions is absent: an interaction contrast was beyond the float range. Present only on such a refusal.",
+          "type": "string"
+        },
         "interactions": {
           "description": "One entry per detected 2x2 factorial cell, i.e. per combined arm whose two sub-treatments are also present as standalone arms. Absent when no such cell exists.",
           "type": "array",
