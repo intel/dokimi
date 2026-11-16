@@ -33,7 +33,9 @@ depend on the kind:
 | `turn` | `turn` (the model call's index in the trace, from 0; a subagent's calls count too); `input` (uncached input), `output`, `cache_read`, `cache_write`, `prompt_tokens` (the whole prompt: `input + cache_read + cache_write`); each `null` when the harness reported no such count |
 | `compaction` | `turn`: the index of the turn it came after, `null` before the first call |
 
-A `turn` is one model call, so a Claude run's trace has one per call. The sums
+A `turn` is one model call, so a Claude run's trace has one per call. A call
+whose assistant record has no `usage` object writes no `turn`; a `compaction`
+after it has `turn: null` unless an earlier call wrote one. The sums
 of a complete Claude trace's `turn` events are the run's `result.json` token
 totals (`input_tokens`, `output_tokens`, `cache_read_tokens`,
 `cache_write_tokens`), over the same scope: with `usage_scope` `tree` the events

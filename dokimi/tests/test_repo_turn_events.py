@@ -98,6 +98,17 @@ def test_a_compaction_follows_the_turn_it_came_after():
     assert [e for e in events if e["kind"] == "compaction"] == [{"kind": "compaction", "t": 3.0, "turn": 0}]
 
 
+def test_a_call_without_usage_writes_no_turn_and_a_compaction_after_it_has_none():
+    raw = _lines(
+        {"type": "assistant", "timestamp": "2026-11-14T10:00:00Z",
+         "message": {"id": "a1", "model": "m", "content": [], "usage": None}},
+        {"type": "system", "subtype": "compact_boundary", "timestamp": "2026-11-14T10:00:05Z"},
+    )
+    events = convert("claude-stream-json", raw).events
+    assert _turns(events) == []
+    assert [e for e in events if e["kind"] == "compaction"] == [{"kind": "compaction", "t": 5.0, "turn": None}]
+
+
 def test_a_compaction_before_any_call_has_no_turn():
     raw = _lines({"type": "system", "subtype": "compact_boundary", "timestamp": "2026-11-14T10:00:00Z"})
     assert [e for e in convert("claude-stream-json", raw).events if e["kind"] == "compaction"] == [
