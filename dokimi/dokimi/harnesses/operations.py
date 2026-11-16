@@ -70,7 +70,7 @@ def _parse_record(text: str, source: str) -> OperationRecord:
     """The operation in ``text``, a JSON object; anything else is a ``log_parse_error`` named ``source``."""
     try:
         data = json.loads(text)
-    except json.JSONDecodeError:
+    except (ValueError, RecursionError):  # not JSON, an int over 4300 digits, nesting too deep
         return OperationRecord(type="log_parse_error", name=source, status="error")
     if not isinstance(data, dict):  # the documented shape is an object (#687)
         return OperationRecord(type="log_parse_error", name=source, status="error",
@@ -103,7 +103,7 @@ def _op_from_dict(data: dict[str, Any]) -> OperationRecord:
     status = str(data.get("status") or "ok")
     try:
         elapsed = float(data.get("elapsed_sec") or data.get("duration_sec") or 0.0)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):  # OverflowError: an int too large for a float
         elapsed = 0.0
     metadata = {
         k: v

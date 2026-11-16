@@ -174,6 +174,19 @@ def test_a_marker_that_is_not_an_object_is_a_parse_error(payload, kind):
     assert ops[0].metadata == {"error": f"expected a JSON object, got {kind}"}
 
 
+@pytest.mark.parametrize("payload", ["[" * 100000, "1" * 5000], ids=["too-deep", "int-over-4300-digits"])
+def test_a_marker_json_cannot_hold_is_a_parse_error(payload):
+    ops = load_operations(None, f"DOKIMI_OP {payload}", "")
+
+    assert [(op.type, op.name, op.status) for op in ops] == [("log_parse_error", "marker", "error")]
+
+
+def test_an_elapsed_too_large_for_a_float_is_zero():
+    ops = load_operations(None, 'DOKIMI_OP {"type":"tool","name":"edit","elapsed_sec":1' + "0" * 400 + "}", "")
+
+    assert [(op.type, op.name, op.elapsed_sec) for op in ops] == [("tool", "edit", 0.0)]
+
+
 def test_an_operations_line_that_is_not_an_object_names_the_file(tmp_path):
     (tmp_path / "operations.jsonl").write_text('["edit"]\n{"type":"subagent","name":"reviewer"}\n',
                                                encoding="utf-8")

@@ -11,5 +11,6 @@
     loading no products. A file with both keys logs that `libraries` is ignored, and the warning
     for a `products` value that is not a mapping names the file.
   - A `DOKIMI_OP` marker or `operations.jsonl` line that is valid JSON but not an object (a list,
-    a number, `null`) is recorded as a `log_parse_error` operation, as unparsable JSON is,
-    instead of crashing the harness run with `AttributeError`.
+    a number, `null`), or that Python cannot read (nested too deep, an integer over 4300 digits),
+    is recorded as a `log_parse_error` operation, as unparsable JSON is, instead of crashing the
+    harness run; an `elapsed_sec` too large for a float reads as 0, as a non-number does.
