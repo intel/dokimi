@@ -19,6 +19,7 @@ import math
 import os
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
+from typing import Any
 
 from dokimi.artifacts import save_artifact
 # This module defines a local ``stats()`` helper, hence the ``eval_stats`` alias.
@@ -198,12 +199,19 @@ def _answers_by_id(answers_path: str) -> dict[str, Record]:
     except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         return {}
     items = data.get("answers") if isinstance(data, dict) else data
+    return answers_from_items(items, source=answers_path)
+
+
+def answers_from_items(items: Any, *, source: str) -> dict[str, Record]:
+    """Answers given in a list (an answers file's, or an arms artifact's own), by question key."""
+    import sys
+
     if not isinstance(items, list):
         return {}
     out: dict[str, Record] = {}
     for i, item in enumerate(items):
         try:
-            rec = record(item, source=f"{answers_path} answers", index=i, kind="answers")
+            rec = record(item, source=f"{source} answers", index=i, kind="answers")
         except RecordError as exc:
             print(f"⚠ {exc}; its answers are left out of the Q&A sidecar", file=sys.stderr)
             continue

@@ -19,6 +19,7 @@ from dokimi.records import Record, held_conditions, is_knowledge_run, is_single_
 from dokimi.report.eval_report import (
     DIFFICULTY_ORDER,
     _answers_by_id,
+    answers_from_items,
     _difficulty,
     detect_static_prefix,
     _load_eval,
@@ -117,12 +118,27 @@ def render(evals: Sequence[Record], meta: Dict[str, Any], library: str, generate
     return lines
 
 
+def _report_metadata(data: Dict[str, Any]) -> Dict[str, Any]:
+    """The run's metadata for the page: an eval file keeps the answer model in ``run_metadata``, an
+    arms artifact keeps it at its top level (``model``, ``provider``)."""
+    meta = dict(data.get("run_metadata") or {})
+    if data.get("model"):
+        meta.setdefault("answer_model", data["model"])
+    if data.get("provider"):
+        meta.setdefault("answer_provider", data["provider"])
+    return meta
+
+
 def _write_qa(eval_path: str, out_path: str, qa_json_out: Optional[str], evals: Sequence[Record],
-              meta: Dict[str, Any]) -> None:
+              meta: Dict[str, Any], data: Dict[str, Any]) -> None:
     cond = held_conditions(evals)[0]
     if qa_json_out is None:
         qa_json_out = os.path.splitext(out_path)[0] + ".qa.json"
-    answers_by_id = _answers_by_id(eval_path.replace("/eval/", "/answers/"))
+    # The artifact's own answers first (an arms artifact keeps them), then the sibling answers file.
+    if isinstance(data.get("answers"), list):
+        answers_by_id = answers_from_items(data["answers"], source=eval_path)
+    else:
+        answers_by_id = _answers_by_id(eval_path.replace("/eval/", "/answers/"))
 
     def _answer_text(a: Optional[Record]) -> Optional[str]:
         answer = a.answer(cond) if a is not None else None
@@ -160,7 +176,7 @@ def write_eval_report(eval_path: str, out_path: str, qa_json_out: Optional[str] 
     evals = records(data["evaluations"], source=eval_path, kind="evaluations")
     if not (is_single_condition(evals) and is_knowledge_run(evals, data)):
         return generate_report(eval_path, out_path, qa_json_out)
-    meta = data.get("run_metadata", {})
+    meta = _report_metadata(data)
     library = os.path.basename(eval_path).replace(".json", "")
     generated = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     text = "\n".join(render(evals, meta, library, generated))
@@ -169,7 +185,7 @@ def write_eval_report(eval_path: str, out_path: str, qa_json_out: Optional[str] 
         os.makedirs(directory, exist_ok=True)
     with open(out_path, "w", encoding="utf-8") as f:
         f.write(text)
-    _write_qa(eval_path, out_path, qa_json_out, evals, meta)
+    _write_qa(eval_path, out_path, qa_json_out, evals, meta, data)
     cond = held_conditions(evals)[0]
     scored = [s for s in (q.score(cond) for q in evals) if s is not None]
     print(f"✅ Report written to: {out_path}")
