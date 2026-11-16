@@ -3,9 +3,10 @@
 - **Three readers no longer misread a malformed input** (#687):
   - A question set whose records share an id (`id`, or `question_id` in a v1 set; `1` and
     `"1"` count as one) is refused, naming the ids, before any answer is paid for: commands
-    that take `--questions` exit 2, and so does `benchmark run` on such a cached
-    `questions/<product>.json` (or one the schema refuses), naming `--force-regen`, where it
-    ended in a traceback (exit 5). No command writes such a set any more: `questions refine`
+    that take `--questions` exit 2. So does `benchmark run` on such a cached
+    `questions/<product>.json`, one the schema refuses or one that is not JSON (a run cut short),
+    saying to fix or delete it (`--force-regen`), where it ended in a traceback (exit 5). No
+    command writes such a set any more: `questions refine`
     keeps it at `<name>.rejected` (exit 2 with `--fill-gaps`, before any model call; else 1). A
     pipeline run gives a generated question whose id the custom or earlier set already has a
     free `q_NNN` (generated ids restart at `q_001` on every `--force-regen`, and the merged set

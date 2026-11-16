@@ -153,12 +153,16 @@ def test_a_merge_renumbers_a_generated_id_a_kept_record_has():
     assert new[0]["id"] == "q_001"
 
 
-def test_benchmark_run_on_a_cache_with_shared_ids_exits_2_naming_force_regen(tmp_path, monkeypatch, capsys):
-    """A cache main's ``--force-regen`` wrote with two ``q_001``: an input error, not a traceback."""
+@pytest.mark.parametrize("text,reason", [
+    (json.dumps({"questions": [{"id": "q_001", "question": "A?"}, {"id": "q_001", "question": "B?"}]}),
+     "duplicate question ids in {cache}: 'q_001'"),
+    ('{"questions": [', "Expecting value"),
+], ids=["shared-ids", "truncated"])
+def test_benchmark_run_on_an_unusable_cache_exits_2_naming_force_regen(tmp_path, monkeypatch, capsys, text, reason):
+    """A cache main's ``--force-regen`` wrote with two ``q_001``, or one cut short: an input error, not a traceback."""
     cache = tmp_path / "questions" / "onetbb.json"
     cache.parent.mkdir()
-    cache.write_text(json.dumps({"questions": [{"id": "q_001", "question": "A?"},
-                                               {"id": "q_001", "question": "B?"}]}), encoding="utf-8")
+    cache.write_text(text, encoding="utf-8")
     monkeypatch.setattr("sys.argv", ["dokimi", "benchmark", "run", "--library", "onetbb",
                                      "--out-dir", str(tmp_path)])
 
@@ -167,7 +171,8 @@ def test_benchmark_run_on_a_cache_with_shared_ids_exits_2_naming_force_regen(tmp
 
     err = capsys.readouterr().err
     assert exc_info.value.code == 2 and "Traceback" not in err
-    assert f"Error: duplicate question ids in {cache}: 'q_001'" in err and "pass --force-regen" in err
+    assert f"Error: the cached question set of an earlier run, {cache}, cannot be used: " in err
+    assert reason.format(cache=cache) in err and "(benchmark run: --force-regen)" in err
 
 
 def test_answers_generate_exits_2_on_shared_ids_before_any_answer(tmp_path, monkeypatch):

@@ -11,7 +11,6 @@ from pathlib import Path
 
 from dokimi.defaults import (ANSWERING_METHOD_VERSION, DEFAULT_ANSWER_MODEL, DEFAULT_ANSWER_PROVIDER, DEFAULT_JUDGE_MODEL, DEFAULT_JUDGE_PROVIDER, DEFAULT_RETRIEVAL_TOP_K,
                              answers_method_version as answers_method_version_of)
-from dokimi.artifacts import ArtifactValidationError
 from dokimi.eval.stats import paired_summary
 from dokimi.mcp.factory import create_doc_source_client, resolve_library_id_for_product
 from dokimi.utils import InputError, read_json_input, refuse_device, same_evaluator
@@ -60,6 +59,14 @@ def load_questions_payload(path: Path, flag: Optional[str] = None) -> List[Dict[
     from dokimi.questions.artifact import load_questions
 
     return load_questions(path, flag=flag).questions
+
+
+def _read_input_set(path: Path, what: str, fix: str = "") -> List[Dict[str, Any]]:
+    """The records at ``path``, a set the run reads by itself; a set it cannot use is an ``InputError`` (exit 2)."""
+    try:
+        return load_questions_payload(path)
+    except (ValueError, RecursionError, OSError) as exc:  # refused by the schema, not JSON or UTF-8, unreadable
+        raise InputError(f"{what}, {path}, cannot be used: {exc}" + (f"\n({fix})" if fix else "")) from exc
 
 
 def _check_custom_questions(path: Path, parse: bool = True) -> None:
@@ -564,11 +571,8 @@ class EvaluationPipeline:
             reused = load_questions_payload(path, "--questions-from")
         elif (not self.force_regen) and self.questions_path.exists():
             path = self.questions_path
-            try:
-                reused = load_questions_payload(path)
-            except ArtifactValidationError as exc:  # an earlier run's cache: a bad input, exit 2
-                raise InputError(f"{exc}\n(the cached set of an earlier run: fix it, or pass --force-regen "
-                                 "to generate a new one)") from exc
+            reused = _read_input_set(path, "the cached question set of an earlier run",
+                                        "fix or delete it to generate a new set (benchmark run: --force-regen)")
         else:
             self._custom_questions = self._load_custom_questions()
             return None
