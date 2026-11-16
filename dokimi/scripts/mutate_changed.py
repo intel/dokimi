@@ -50,7 +50,9 @@ import subprocess
 import sys
 import tempfile
 import time
+import tokenize
 from collections.abc import Iterator
+from io import StringIO
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
@@ -180,23 +182,27 @@ def mutants_for(path: str, src: str, lines: set[int]) -> list[Mutant]:
     return out
 
 
+def _text_lines(src: str) -> set[int]:
+    """Lines strictly inside a multi-line string token: pure text, no code (a string's first and last lines may hold code)."""
+    kinds = {tokenize.STRING} | ({tokenize.FSTRING_MIDDLE} if hasattr(tokenize, "FSTRING_MIDDLE") else set())
+    out: set[int] = set()
+    for tok in tokenize.generate_tokens(StringIO(src).readline):
+        if tok.type in kinds and tok.end[0] > tok.start[0] + 1:
+            out.update(range(tok.start[0] + 1, tok.end[0]))
+    return out
+
+
 def continuation_lines(src: str, lines: set[int], mutated: set[int]) -> set[int]:
     """Changed lines inside a multi-line expression that no mutant starts on, as ``+ b)`` in ``x = (a`` / ``+ b)``.
 
-    Docstrings, comments, blank lines and string literals are not listed: they hold no code a test could run.
+    Docstrings, comments, blank lines and the text of multi-line strings are not listed: they hold no code a test could run.
     """
     tree = ast.parse(src)
-    skip = _docstring_lines(tree)
+    skip = _docstring_lines(tree) | _text_lines(src)
     spanned: set[int] = set()
     for node in ast.walk(tree):
-        if not isinstance(node, ast.expr):
-            continue
-        end = node.end_lineno or node.lineno
-        if isinstance(node, (ast.Constant, ast.JoinedStr)):
-            if end > node.lineno:
-                skip.update(range(node.lineno, end + 1))  # a multi-line string's lines are its text, not code
-        else:
-            spanned.update(range(node.lineno + 1, end + 1))
+        if isinstance(node, ast.expr):
+            spanned.update(range(node.lineno + 1, (node.end_lineno or node.lineno) + 1))
     text = re.split(r"(?<=\n)", src)
     return {n for n in lines if n in spanned and n not in mutated and n not in skip
             and text[n - 1].strip() and not text[n - 1].lstrip().startswith("#")}
