@@ -80,3 +80,44 @@ def test_an_arm_the_stop_never_reached_is_a_not_asked_cell_not_a_gap(monkeypatch
     assert len(calls) == 1
     assert set(records[0]["arms"]) == {"other", "baseline"}
     assert records[0]["arms"]["baseline"]["error"].startswith("not_asked")
+
+
+def _terminated_output() -> dict:
+    return {"terminated": {"reason": "usage limit", "questions_requested": 4, "questions_recorded": 1}}
+
+
+def test_arms_run_exits_1_and_names_the_stop_when_the_artifact_is_terminated(monkeypatch, tmp_path, capsys):
+    from dokimi.commands import arms as arms_cmd
+    from dokimi.eval import arms_run
+
+    monkeypatch.setattr(arms_cmd, "_parse_arm_specs", lambda s: [])
+    monkeypatch.setattr(arms_cmd, "_load_questions", lambda p: [])
+    monkeypatch.setattr(arms_cmd, "run_config_from_args", lambda a: SimpleNamespace(product="lib"))
+    monkeypatch.setattr(arms_cmd, "_with_named_cell", lambda cfg, cells, cell: cfg)
+    monkeypatch.setattr(arms_run, "prepare_arms", lambda cfg, specs, questions: object())
+    monkeypatch.setattr(arms_run, "run_prepared", lambda prepared, cfg, questions: _terminated_output())
+    monkeypatch.setattr(arms_cmd, "_save_arms_output", lambda output, out_json, out_md: None)
+    args = SimpleNamespace(arms="baseline", questions="q.json", matrix_cells=None, matrix_cell=None,
+                           product="lib", out_json=str(tmp_path / "a.json"), out_md=str(tmp_path / "a.md"),
+                           baseline_arm="baseline")
+
+    with pytest.raises(SystemExit) as exc:
+        arms_cmd.cmd_arms_run(args)
+    assert exc.value.code == 1
+    assert "stopped after 1 of 4 questions: usage limit" in capsys.readouterr().err
+
+
+def test_a_matrix_stops_at_the_terminated_cell_after_saving_it(monkeypatch):
+    from dokimi.eval import arms_run
+
+    monkeypatch.setattr(arms_run, "check_matrix", lambda config, cells, specs: None)
+    monkeypatch.setattr(arms_run, "cell_config", lambda config, cell: config)
+    monkeypatch.setattr(arms_run, "prepare_arms", lambda cfg, specs, questions: object())
+    ran, saved = [], []
+    monkeypatch.setattr(arms_run, "run_prepared", lambda prepared, cfg, questions: (ran.append(cfg), _terminated_output())[1])
+    cells = [SimpleNamespace(name="first"), SimpleNamespace(name="second")]
+
+    with pytest.raises(arms_run.MatrixCellError) as exc:
+        arms_run.run_matrix(SimpleNamespace(), cells, [], [], on_cell=lambda cell, out: saved.append(cell.name))
+    assert exc.value.cell == "first" and exc.value.usage is False
+    assert saved == ["first"] and len(ran) == 1  # the stopped cell is kept; the second cell is never run
