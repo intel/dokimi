@@ -498,14 +498,7 @@ def clone_once(git_dir: Path, clone: Callable[[Path], object], timeout_s: float)
     same URL meanwhile: each clones into its own directory, and the one whose rename fails uses the other's.
     ``timeout_s``: the clone's timeout; a partial directory older than that is no live clone's."""
     git_dir.parent.mkdir(parents=True, exist_ok=True)
-    for old in git_dir.parent.glob(f"{git_dir.name}.*partial"):
-        try:
-            if time.time() - old.stat().st_mtime > timeout_s:
-                _remove_tree(old)
-        except FileNotFoundError:  # another process removed it first
-            pass
-        except OSError as exc:  # locked or not ours: it is no reason to stop this clone
-            log.warning("cannot remove the stale partial clone %s: %s", old, exc)
+    _sweep_stale_partials(git_dir, timeout_s)
     if (git_dir / "HEAD").is_file():
         return git_dir
     tmp = git_dir.with_name(f"{git_dir.name}.{os.getpid()}-{os.urandom(3).hex()}.partial")
@@ -527,6 +520,18 @@ def clone_once(git_dir: Path, clone: Callable[[Path], object], timeout_s: float)
     except OSError as exc:  # a later clone's sweep removes it once it is stale
         log.warning("cannot remove the partial clone %s: %s", tmp, exc)
     return git_dir
+
+
+def _sweep_stale_partials(git_dir: Path, timeout_s: float) -> None:
+    """Remove the partial clones of ``git_dir`` older than ``timeout_s``: no live clone's; best effort."""
+    for old in git_dir.parent.glob(f"{git_dir.name}.*partial"):
+        try:
+            if time.time() - old.stat().st_mtime > timeout_s:
+                _remove_tree(old)
+        except FileNotFoundError:  # another process removed it first
+            pass
+        except OSError as exc:  # locked or not ours: it is no reason to stop this clone
+            log.warning("cannot remove the stale partial clone %s: %s", old, exc)
 
 
 def _remove_tree(path: Path) -> None:
