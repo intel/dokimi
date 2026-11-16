@@ -92,7 +92,7 @@ from dokimi.utils import describe_yaml_error, parse_frontmatter_strict
 
 from .bundle_paths import LOCATION_SUFFIX_RE, SKILL_DIR_VAR, path_missing
 from .catalog import SkillCatalogEntry, _within
-from .bundle_refs import unreferenced_message
+from .bundle_refs import unreferenced_check
 from .command_checks import command_findings
 from .allowed_tools import RISKY_COMMAND_CODES, tool_names, grants_unrestricted_bash, unrestricted_bash_message
 from .content_checks import content_findings
@@ -153,6 +153,7 @@ FINDING_CODES = (
     "allowed-tools-unknown",
     "allowed-tools-unrestricted-bash",
     "body-too-large",
+    "bundle-file-unchecked",
     "bundle-file-unreferenced",
     "description-near-duplicate",
     "description-no-when",
@@ -720,11 +721,13 @@ def review_skills(
                 Finding("warn", code, message)
                 for code, message in content_findings(skill, at_root=at_root and not standalone)
             ]
-            unreferenced = unreferenced_message(
+            unreferenced, unchecked = unreferenced_check(
                 skill.path, _link_files(skill.body), at_root=at_root and not standalone, doc_links=_link_files
             )
             if unreferenced is not None:
                 review.findings.append(Finding("warn", "bundle-file-unreferenced", unreferenced))
+            if unchecked is not None:
+                review.findings.append(Finding("note", "bundle-file-unchecked", unchecked))
             review.findings += [Finding(*item) for item in script_findings(
                 skill.path.parent, checkout=None if standalone else entry.source_root)]
             if not hidden:

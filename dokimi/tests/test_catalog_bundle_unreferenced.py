@@ -642,3 +642,56 @@ def test_a_windows_path_with_an_escapable_name_still_names_its_file(tmp_path):
     # Read both ways: the escape reading drops the separator, so the separator reading must stay.
     review = _review_with_texts(tmp_path, "Run `scripts\\~helper.py`.\n", {"scripts/~helper.py": "x\n"})
     assert _unreferenced(review) == []
+
+
+def test_a_search_that_stops_at_the_read_cap_says_so_in_a_note(tmp_path):
+    # 51 named documents: the search reads 50 and cannot see the 51st, so it gives no warning, and a note says why.
+    body = "".join(f"Read [d{i}](docs/d{i}.md).\n" for i in range(51))
+    review = _review(tmp_path, body, [f"docs/d{i}.md" for i in range(51)] + ["scripts/unused.py"])
+    assert _unreferenced(review) == []
+    [note] = [f for f in review.findings if f.code == "bundle-file-unchecked"]
+    assert note.level == "note" and "50 named documents" in note.message
+
+
+def test_a_named_document_that_cannot_be_read_says_so_in_a_note(tmp_path):
+    skill_dir = _skill(tmp_path / "skills", "kit", name="kit", description="Use when testing.",
+                       body="Read [guide](docs/guide.md).\n")
+    (skill_dir / "docs").mkdir()
+    (skill_dir / "docs" / "other.md").write_text("x\n", encoding="utf-8")
+    os.symlink("other.md", skill_dir / "docs" / "guide.md")  # a symlink: its names are not read
+    (skill_dir / "scripts").mkdir()
+    (skill_dir / "scripts" / "unused.py").write_text("x\n", encoding="utf-8")
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert _unreferenced(review) == []
+    [note] = [f for f in review.findings if f.code == "bundle-file-unchecked"]
+    assert note.level == "note" and "symlink" in note.message
+
+
+def test_an_unreadable_named_document_with_every_file_named_gives_no_note(tmp_path):
+    # Nothing unnamed, so no count could be given: the note would say a check was skipped that had nothing to find.
+    skill_dir = _skill(tmp_path / "skills", "kit", name="kit", description="Use when testing.",
+                       body="Read [guide](docs/guide.md) and run `scripts/run.py`.\n")
+    (skill_dir / "docs").mkdir()
+    (tmp_path / "shared.md").write_text("x\n", encoding="utf-8")  # outside the bundle: the link's target
+    os.symlink(tmp_path / "shared.md", skill_dir / "docs" / "guide.md")
+    (skill_dir / "scripts").mkdir()
+    (skill_dir / "scripts" / "run.py").write_text("x\n", encoding="utf-8")
+    [review] = review_skills(read_skill_manifest(tmp_path / "skills"))
+    assert _codes(review).count("bundle-file-unchecked") == 0 and "bundle-file-unreferenced" not in _codes(review)
+
+
+@pytest.mark.skipif(os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0), reason="needs POSIX permissions")
+def test_an_unlistable_hidden_folder_with_every_file_named_gives_no_note(tmp_path):
+    # The document walk reads hidden folders and the counted walk does not: an unlistable one names no counted file.
+    skill_dir = _skill(tmp_path / "skills", "kit", name="kit", description="Use when testing.",
+                       body="Run `scripts/run.py`.\n")
+    (skill_dir / "scripts").mkdir()
+    (skill_dir / "scripts" / "run.py").write_text("x\n", encoding="utf-8")
+    cache = skill_dir / ".cache"
+    cache.mkdir()
+    cache.chmod(0)
+    try:
+        [review] = review_skills(read_skill_manifest(tmp_path / "skills"))
+    finally:
+        cache.chmod(0o755)
+    assert "bundle-file-unchecked" not in _codes(review)

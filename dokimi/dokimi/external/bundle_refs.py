@@ -5,7 +5,7 @@
 
 An agent reads ``SKILL.md`` and opens the files it names; a bundled file it is not pointed at is
 found only by browsing the directory. One ``warn`` per skill in :mod:`dokimi.external.validate`,
-with the count and the first :data:`EXAMPLES_SHOWN` paths.
+with the count and the first :data:`EXAMPLES_SHOWN` paths; a ``note`` when the search cannot see every name.
 
 Only code and documents count (:data:`COUNTED_SUFFIXES`): data, images and fonts are read by the
 scripts, not by the agent. A file is named when ``SKILL.md`` holds its path relative to the skill,
@@ -43,6 +43,11 @@ EXAMPLES_SHOWN = 3
 DOC_SUFFIXES = frozenset({".md", ".mdx", ".txt"})
 DOC_MAX_BYTES = 256 * 1024
 DOCS_READ_MAX = 50
+# Why the search cannot see every name: the note says it, and no count is given.
+SEARCH_OVER_CAP = f"the bundle has over {WALK_MAX_FILES} files"
+SEARCH_READ_CAP = f"more than {DOCS_READ_MAX} named documents"
+SEARCH_UNLISTED = "a folder cannot be listed"
+SEARCH_UNREADABLE = f"a named document is over {DOC_MAX_BYTES // 1024} KiB, not UTF-8, a symlink or a FIFO"
 # Documents whose text names no file the agent needs for the task: a changelog or a notice that mentions a script does not.
 NON_REFERENCE_STEMS = frozenset({"changelog", "contributing", "notice"})
 # The destination of an inline folder link (``[x](scripts/)``): its folder is in ``links``, so the text is no mention.
@@ -242,17 +247,17 @@ def _named_closure(
     text: str,
     linked: set[str],
     doc_links: Callable[[str], Iterable[Optional[str]]],
-) -> tuple[set[str], bool]:
-    """The bundled files that ``SKILL.md`` or a document it names mentions, followed from there, and whether
-    the search was incomplete: the document walk was truncated, a named document was past the read cap, or a
-    named document could not be read (its names are unknown).
+) -> tuple[set[str], str]:
+    """The bundled files that ``SKILL.md`` or a document it names mentions, followed from there, and why the
+    search was incomplete ("" when it was not): the document walk was truncated, a named document was past the
+    read cap, or a named document could not be read (its names are unknown).
 
     ``text`` holds the names of ``SKILL.md``; ``linked`` the names of its links and of each document read. Each
     pass checks the candidates against the text not yet checked (``unseen``), and each document read adds to it.
     """
     named_files: set[str] = set()
     docs_read = 0
-    incomplete = len(docs) > WALK_MAX_FILES
+    incomplete = SEARCH_OVER_CAP if len(docs) > WALK_MAX_FILES else ""
     candidates = list(dict.fromkeys(files + docs))
     names = {rel.lower().rsplit("/", 1)[-1] for rel in candidates}
     unseen = text  # the text no candidate has been checked against yet: a candidate is only new against it
@@ -267,11 +272,12 @@ def _named_closure(
             if PurePosixPath(rel).stem.lower() in NON_REFERENCE_STEMS:
                 continue
             if docs_read >= DOCS_READ_MAX:
-                incomplete = incomplete or PurePosixPath(rel).suffix.lower() in DOC_SUFFIXES
+                if PurePosixPath(rel).suffix.lower() in DOC_SUFFIXES:
+                    incomplete = incomplete or SEARCH_READ_CAP
                 continue
             more = _read_doc(skill_dir / rel)
             if more is None:  # named, but its text cannot be read: what it names is unknown
-                incomplete = True
+                incomplete = incomplete or SEARCH_UNREADABLE
                 continue
             if more:
                 docs_read += 1
@@ -282,14 +288,15 @@ def _named_closure(
     return named_files, incomplete
 
 
-def unreferenced_message(
+def unreferenced_check(
     skill_path: Path,
     links: Iterable[Optional[str]],
     *,
     at_root: bool,
     doc_links: Callable[[str], Iterable[Optional[str]]],
-) -> Optional[str]:
-    """The ``bundle-file-unreferenced`` message for the skill whose ``SKILL.md`` is ``skill_path``, or None.
+) -> tuple[Optional[str], Optional[str]]:
+    """``(message, note)`` for the skill whose ``SKILL.md`` is ``skill_path``: the ``bundle-file-unreferenced``
+    message, or None; and the note that the check did not run, with its reason, or None.
 
     ``links``: the files its Markdown links name (None for a link that names no file). ``doc_links``
     gives the same for the Markdown of a document. A document ``SKILL.md`` names is read too, and so
@@ -297,28 +304,48 @@ def unreferenced_message(
     found by an agent that follows ``SKILL.md`` to ``forms.md``.
     """
     if at_root:
-        return None
+        return None, None
     try:
         text = _matchable(skill_path.read_text(encoding="utf-8").lower())
         failed: list[OSError] = []
+        failed_docs: list[OSError] = []
         files = _walk(skill_path.parent, counted=True, failed=failed)
-        docs = _walk(skill_path.parent, counted=False, failed=failed)
+        docs = _walk(skill_path.parent, counted=False, failed=failed_docs)
     except (OSError, UnicodeDecodeError):
-        return None
-    if failed:  # a folder that cannot be listed may hold the document that names a file
-        return None
+        return None, None
+    if failed:  # a counted folder that cannot be listed: the file list is not known
+        return None, _skipped(SEARCH_UNLISTED)
     if len(files) > WALK_MAX_FILES:  # a checkout, not a bundle: a partial list would be a wrong count
-        return None
+        return None, _skipped(SEARCH_OVER_CAP)
     linked = {_target(".", link) for link in links if link}
     named_files, incomplete = _named_closure(skill_path.parent, files, docs, text, linked, doc_links)
-    if incomplete:  # a name the search cannot see may be the one a script relies on: claim nothing
-        return None
+    if failed_docs:  # a folder that cannot be listed may hold the document that names a file
+        incomplete = incomplete or SEARCH_UNLISTED
     missing = [rel for rel in files if rel not in named_files]
-    if not missing:
-        return None
+    if not missing:  # nothing unnamed: no count and nothing skipped
+        return None, None
+    if incomplete:  # a name the search cannot see may be the one a script relies on: claim nothing
+        return None, _skipped(incomplete)
     shown = ", ".join(missing[:EXAMPLES_SHOWN]) + (", ..." if len(missing) > EXAMPLES_SHOWN else "")
-    return (
+    message = (
         f"{len(missing)} of {len(files)} bundled scripts and documents are never named in SKILL.md "
         f"or a document it names ({shown}); the agent finds them only by browsing. Name each one "
         "where it is used, or remove it"
     )
+    return message, None
+
+
+def _skipped(reason: str) -> str:
+    return (f"the bundled-file check did not count: {reason}; a name the search cannot see may be the one "
+            "a script relies on")
+
+
+def unreferenced_message(
+    skill_path: Path,
+    links: Iterable[Optional[str]],
+    *,
+    at_root: bool,
+    doc_links: Callable[[str], Iterable[Optional[str]]],
+) -> Optional[str]:
+    """The ``bundle-file-unreferenced`` message only; see :func:`unreferenced_check`."""
+    return unreferenced_check(skill_path, links, at_root=at_root, doc_links=doc_links)[0]
