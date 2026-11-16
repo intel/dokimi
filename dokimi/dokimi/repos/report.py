@@ -229,7 +229,8 @@ def load_unsupported(batch_dir: Path) -> list[dict[str, Any]]:
 
 def summarize(batch_dir: Path) -> dict[str, Any]:
     cells, missing = load_cells(batch_dir)
-    refuse_mixed_executions(cells, str(batch_dir))
+    # one directory is one batch: the rows below pool by task, arm and model, so the batch name cannot split them
+    refuse_mixed_executions([{**c, "batch": ""} for c in cells], str(batch_dir))
     groups: dict[tuple[str, str, str], list[dict[str, Any]]] = defaultdict(list)
     for rec in cells:
         groups[(rec["task"], rec["arm"], rec["model"])].append(rec)

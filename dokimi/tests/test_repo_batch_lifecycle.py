@@ -221,6 +221,15 @@ def test_the_mixed_execution_refusal_is_per_batch_arm_and_model():
         refuse_mixed_executions([_cell("a", "m", "e1"), _cell("a", "m", "e2")], "b1")
 
 
+def test_summarize_refuses_two_batch_names_pooled_in_one_row(tmp_path, monkeypatch):
+    # one batch directory is one batch: cells that record two batch names must not share a summary row
+    cells = [{"batch": "b1", "task": "t", "arm": "a", "model": "m", "execution": {"id": "e1"}, "score_task": True},
+             {"batch": "b0", "task": "t", "arm": "a", "model": "m", "execution": {"id": "e2"}, "score_task": True}]
+    monkeypatch.setattr("dokimi.repos.report.load_cells", lambda d: (cells, []))
+    with pytest.raises(CellFileError, match="ran with executions e1, e2"):
+        summarize(tmp_path)
+
+
 def test_compare_refuses_only_a_compared_row_of_two_executions(setup):
     _run(setup, "--task", "fix_add", "--arm", "guidance:none,guidance:bridge", "--reps", "2")
     b1 = setup["out"] / "b1"
