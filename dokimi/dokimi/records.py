@@ -433,6 +433,24 @@ def arm_names(rec: Record) -> tuple[str, ...]:
     return tuple(c for c in rec.conditions if c not in BINARY)
 
 
+def _holds(rec: Record, condition: str) -> bool:
+    return rec.answer(condition) is not None or rec.score(condition) is not None
+
+
+def knowledge_only(rec: Record) -> bool:
+    """A question answered in the baseline condition alone, by design: no context answer or score, no error.
+
+    A knowledge run (``--doc-source none``) writes ``with_docs: null`` on every question. A question that
+    errored has no baseline either, and is not one of these.
+    """
+    return rec.error is None and not _holds(rec, CONTEXT) and _holds(rec, BASELINE)
+
+
+def is_single_condition(recs: Sequence[Record]) -> bool:
+    """Whether a run answered one condition by design: no record holds a context answer or score, some hold a baseline one."""
+    return not any(_holds(r, CONTEXT) for r in recs) and any(_holds(r, BASELINE) for r in recs)
+
+
 def has_arms(recs: Iterable[Record]) -> bool:
     """Whether any record holds answers under ``arms`` (an arms run, not a binary file)."""
     return any(isinstance(r.raw.get("arms"), Mapping) for r in recs)

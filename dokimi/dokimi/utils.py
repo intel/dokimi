@@ -577,7 +577,7 @@ _REGION_PROFILES = ("us-gov.", "global.", "apac.", "us.", "eu.", "jp.", "au.", "
 _ROUTES = frozenset({
     "openai", "openai-codex", "anthropic", "google", "gemini", "google-vertex", "openrouter", "amazon-bedrock",
     "bedrock", "converse", "vertex_ai", "azure", "azure_ai", "models", "groq", "ollama", "mistral", "deepseek",
-    "together_ai", "fireworks_ai", "xai", "cohere", "huggingface", "claude-cli",
+    "together_ai", "fireworks_ai", "xai", "cohere", "huggingface", "claude-cli", "codex-cli", "copilot-cli",
 })
 
 

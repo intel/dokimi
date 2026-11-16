@@ -178,6 +178,7 @@ DIAG_MAP = {
     "low_relevance": "🟡 Low relevance",
     "below_rerank_threshold": "🟠 Below rerank threshold",
     "insufficient_data": "⚪ Insufficient data",
+    "single_condition": "⚪ One condition (no delta)",
 }
 
 DIFFICULTY_ORDER = ["easy", "beginner", "intermediate", "medium", "advanced", "hard"]

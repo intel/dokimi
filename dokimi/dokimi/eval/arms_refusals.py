@@ -65,7 +65,7 @@ def refuse_task_harness(config: ArmsRunConfig) -> None:
     if name in _TASK_HARNESS_NAMES or name.startswith(_TASK_HARNESS_PREFIXES):
         raise InputError(f"--harness {config.harness} names a task harness (an agent CLI that runs executable tasks), "
                          "but arms run answers through --provider. To answer through Claude Code's CLI use "
-                         "--provider claude-cli --model sonnet; otherwise drop --harness")
+                         "--provider claude-cli --model sonnet (or codex-cli, copilot-cli); otherwise drop --harness")
 
 
 def refuse_cli_cell_model(matrix_cell) -> None:
