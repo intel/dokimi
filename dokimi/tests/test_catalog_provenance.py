@@ -270,3 +270,54 @@ def test_a_manifest_mixing_naive_and_zoned_dates_still_gives_the_months(tmp_path
     row = _row(_run(root, "--upstream-manifest", str(manifest)), "skills/pdf")
     assert row["match"] == "exact"
     assert row["behind_months"] == round(90 / 30.44, 1)
+
+
+def test_an_exact_copy_matches_an_upstream_in_a_sha256_repository(tmp_path: Path) -> None:
+    repo = tmp_path / "acme-skills"
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "main", "--object-format=sha256")
+    _commit(repo, {"skills/pdf/SKILL.md": V1}, "2026-01-01T10:00:00+00:00", "pdf v1")
+    _commit(repo, {"skills/pdf/SKILL.md": V2}, "2026-03-01T10:00:00+00:00", "pdf v2")
+    root = _copy_root(tmp_path, {"skills/pdf/SKILL.md": V1})
+    row = _row(_run(root, "--upstream", str(repo)), "skills/pdf")
+    assert (row["match"], row["edited"], row["date"], row["behind_commits"]) == ("exact", False, "2026-01-01", 1)
+
+
+def test_a_version_merged_into_the_history_is_matched_and_counted(tmp_path: Path) -> None:
+    repo = tmp_path / "acme-skills"
+    repo.mkdir()
+    _git(repo, "init", "-q", "-b", "main")
+    branch_a = V1.replace("license: MIT", "license: Apache-2.0")  # on branch a, Feb 1
+    main_b = V1.replace("# PDF\n", "# PDF Tools\n")  # on main, Feb 5
+    merged = branch_a.replace("# PDF\n", "# PDF Tools\n")  # the merge, Feb 10
+    later = merged.replace("read extract text", "read extract text pages")  # main, Mar 1
+    _commit(repo, {"skills/pdf/SKILL.md": V1}, "2026-01-01T10:00:00+00:00", "pdf v1")
+    _git(repo, "checkout", "-q", "-b", "branch-a")
+    _commit(repo, {"skills/pdf/SKILL.md": branch_a}, "2026-02-01T10:00:00+00:00", "license")
+    _git(repo, "checkout", "-q", "main")
+    _commit(repo, {"skills/pdf/SKILL.md": main_b}, "2026-02-05T10:00:00+00:00", "title")
+    _git(repo, "merge", "-q", "--no-ff", "-m", "merge branch-a", "branch-a", date="2026-02-10T10:00:00+00:00")
+    _commit(repo, {"skills/pdf/SKILL.md": later}, "2026-03-01T10:00:00+00:00", "more")
+    merged_copy = _copy_root(tmp_path, {"skills/pdf/SKILL.md": merged})
+    row = _row(_run(merged_copy, "--upstream", str(repo)), "skills/pdf")
+    assert (row["match"], row["edited"], row["date"], row["behind_commits"]) == ("exact", False, "2026-02-10", 1)
+    branch_copy = _copy_root(tmp_path / "again", {"skills/pdf/SKILL.md": branch_a})
+    row = _row(_run(branch_copy, "--upstream", str(repo)), "skills/pdf")
+    assert (row["match"], row["date"], row["behind_commits"]) == ("exact", "2026-02-01", 3)
+
+
+def test_duplicate_manifest_bytes_match_the_newest_listed_version(tmp_path) -> None:
+    manifest = tmp_path / "dup.json"
+    manifest.write_text(json.dumps({
+        "schema": "dokimi.upstream.v1",
+        "name": "acme",
+        "head": {"commit": "abc123", "date": "2026-02-01T00:00:00+00:00"},
+        "skills": [
+            {"path": "skills/pdf/SKILL.md", "content": V1, "commit": "old", "date": "2025-01-01T00:00:00+00:00"},
+            {"path": "skills/pdf/SKILL.md", "content": V1, "commit": "new", "date": "2026-01-01T00:00:00+00:00"},
+        ],
+    }), encoding="utf-8")
+    root = _copy_root(tmp_path, {"skills/pdf/SKILL.md": V1})
+    row = _row(_run(root, "--upstream-manifest", str(manifest)), "skills/pdf")
+    assert (row["match"], row["date"], row["commit"]) == ("exact", "2026-01-01", "new")
+    assert row["behind_months"] == round(31 / 30.44, 1)

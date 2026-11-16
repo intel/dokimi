@@ -15,7 +15,7 @@ A loaded skill is matched in two steps, by its bytes first:
   similarity of at least :data:`SIMILAR_JACCARD` to the copy's text. The copy is edited.
 
 Otherwise the copy is ``unmatched``. Blob shas are git's own (``sha1("blob <size>\\0" + bytes)``), so a checkout, a
-manifest and the copy agree with ``git hash-object``.
+manifest and the copy agree with ``git hash-object``, in a sha-1 or a sha-256 repository.
 
 The history of a checkout is read in two git calls (``log --raw`` over every ``SKILL.md``, ``ls-tree`` at head) and one
 ``cat-file --batch``. ``behind`` counts the commits that touched the path after the version; the months are the head
@@ -49,6 +49,18 @@ _ZERO_SHA = "0" * 40
 def blob_sha(raw: bytes) -> str:
     """The git blob sha of ``raw``: what ``git hash-object`` prints for the same bytes."""
     return hashlib.sha1(b"blob %d\0" % len(raw) + raw, usedforsecurity=False).hexdigest()
+
+
+def blob_sha256(raw: bytes) -> str:
+    """The blob id of ``raw`` in a sha-256 repository (``git init --object-format=sha256``), as ``ls-tree`` prints it."""
+    return hashlib.sha256(b"blob %d\0" % len(raw) + raw).hexdigest()
+
+
+def _exact_rank(version: "Version") -> tuple:
+    """The order of versions with the same bytes: the head, then the fewest commits behind, then the newest commit
+    date (a manifest gives no commit count), then the earlier upstream on the command line."""
+    newest = (0, -version.date.timestamp()) if version.date is not None else (1, 0.0)
+    return (not version.head, version.behind if version.behind is not None else 1 << 30, newest, version.upstream.order)
 
 
 def _tokens(text: str) -> frozenset[str]:
@@ -146,9 +158,9 @@ class Index:
 
     def match(self, raw: bytes, name: Optional[str]) -> Optional[Match]:
         """The upstream version a copy with bytes ``raw`` and frontmatter ``name`` came from, or None."""
-        exact = self._by_blob.get(blob_sha(raw))
+        exact = [*self._by_blob.get(blob_sha(raw), []), *self._by_blob.get(blob_sha256(raw), [])]
         if exact:
-            best = min(exact, key=lambda v: (not v.head, v.behind if v.behind is not None else 1 << 30, v.upstream.order))
+            best = min(exact, key=_exact_rank)
             return Match("exact", best, edited=False, jaccard=None)
         key = _norm_name(name)
         candidates = self._by_name.get(key, []) if key else []
@@ -235,8 +247,10 @@ def _read_blobs(root: Path, shas: Sequence[str]) -> dict[str, bytes]:
 def _history(root: Path) -> tuple[list[tuple[str, str, list[tuple[str, str]]]], dict[str, list[str]]]:
     """``(commit, date, [(path, blob sha)])`` for each commit that changed a ``SKILL.md``, newest first, and the
     commits that touched each path (newest first). A deletion is a touch with no blob."""
+    # --diff-merges=first-parent: a merge commit prints no diff by default, so a SKILL.md version that a merge
+    # resolved (or changed) would never be seen and the commits it counts as behind would be short.
     log = _git(root, "-c", "core.quotepath=off", "log", "--raw", "--no-abbrev", "--no-renames", "--full-history",
-               "--format=C %H %cI", "HEAD", "--", _SKILL_PATHSPEC)
+               "--diff-merges=first-parent", "--format=C %H %cI", "HEAD", "--", _SKILL_PATHSPEC)
     if log.returncode:
         raise ValueError(f"{root}: cannot read history: {_git_error(log)}")
     commits: list[tuple[str, str, list[tuple[str, str]]]] = []
