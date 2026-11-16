@@ -47,10 +47,6 @@ def _baseline_save_missing(tmp_path):
     return ["baseline", "save", "--from-eval", _missing(tmp_path)]
 
 
-def _novelty_routing_flag_combination(tmp_path):
-    return ["novelty", "routing", "--all-vs-all", "--artifact", _missing(tmp_path)]
-
-
 def _headroom_unreadable_arms(tmp_path):
     return ["eval", "headroom", str(tmp_path / "missing.json")]
 
@@ -69,8 +65,6 @@ def _library_list_unknown_domain(tmp_path):
         pytest.param(_report_eval_missing, "missing.json", id="report_eval_missing"),
         pytest.param(_report_generate_missing_questions, "missing.json", id="report_generate_missing_questions"),
         pytest.param(_baseline_save_missing, "missing.json", id="baseline_save_missing"),
-        pytest.param(_novelty_routing_flag_combination, "--all-vs-all takes no --artifact",
-                     id="novelty_routing_flag_combination"),
         pytest.param(_library_list_unknown_domain, "Intent domain 'no-such-domain' not found",
                      id="library_list_unknown_domain"),
         pytest.param(_headroom_unreadable_arms, "cannot read",
@@ -104,7 +98,7 @@ def test_benchmark_preflight_missing_credential_exits_2(tmp_path, monkeypatch, c
     monkeypatch.setattr(
         "sys.argv",
         ["dokimi", "benchmark", "preflight", "--library", "onetbb", "--provider", "openai",
-         "--judge-provider", "openai", "--out-dir", str(tmp_path / "out")],
+         "--judge-provider", "openai", "--judge-model", "judge-x", "--out-dir", str(tmp_path / "out")],
     )
     with pytest.raises(SystemExit) as exc:
         cli.main()

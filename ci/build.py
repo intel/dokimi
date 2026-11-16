@@ -18,13 +18,14 @@ and the Python versions from that build system's own declaration:
 
 Usage:
   python ci/build.py --python 3.14 --output OUT [--system rattler-build]
-                     [--channel conda-forge]
+                     [--channel conda-forge] [--no-test]
 
 --python must be one of the declared versions; `python ci/matrix.py` lists them.
 
 Packages land directly in OUT, ready for actions/upload-artifact, which like
 ci/hooks.py takes every package there: give each build an empty OUT. A conda
-recipe's own tests run during the build. Needs only the Python standard library.
+recipe's own tests run during the build, unless --no-test leaves them to
+ci/hooks.py's locked environment. Needs only the Python standard library.
 rattler-build is used from PATH, or downloaded at a pinned version for Linux or
 Windows and checked against its published sha256; conda-build, or cibuildwheel
 for wheels, must already be installed for this interpreter, so run it with the
@@ -206,6 +207,7 @@ def commands(
     python: matrix.Python,
     channels: list[str],
     scratch: Path,
+    test: bool = True,
 ) -> list[list[str]]:
     """
     The commands that build one Python version's packages into scratch.
@@ -226,6 +228,7 @@ def commands(
                 "--output-dir",
                 str(scratch / "conda"),
                 *channel_args,
+                *([] if test else ["--test", "skip"]),
             ]
         ]
     if system == "conda-build":
@@ -245,6 +248,7 @@ def commands(
                 str(scratch / "conda"),
                 "--override-channels",
                 *channel_args,
+                *([] if test else ["--no-test"]),
             ]
         ]
     if "cibuildwheel" not in pyproject_tools(selector):
@@ -325,6 +329,11 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="conda channel to build against, repeatable; default conda-forge",
     )
+    parser.add_argument(
+        "--no-test",
+        action="store_true",
+        help="skip a conda recipe's tests; ci/hooks.py runs them in the lock",
+    )
     default_tools = (
         Path(os.environ.get("RUNNER_TEMP", tempfile.gettempdir()))
         / "ci-tools"
@@ -362,6 +371,7 @@ def main(argv: list[str] | None = None) -> int:
             python,
             args.channel or ["conda-forge"],
             Path(scratch),
+            test=not args.no_test,
         ):
             print(f"+ {shlex.join(command)}", flush=True)
             subprocess.run(command, check=True)

@@ -11,6 +11,7 @@ import pytest
 
 from dokimi import cli_routes
 from dokimi.cli import build_parser, parse_args
+from dokimi.cli_routes import AmbiguousRetiredFlag, moved_argv
 from dokimi.commands.catalog import cmd_catalog_list, cmd_catalog_show
 from dokimi.utils import InputError
 from tests.cli_refusal import refusal
@@ -348,3 +349,235 @@ def test_docs_check_and_compare_keep_the_old_flags():
     assert (check.spec, check.strict, check.out_json) == ("s.yaml", True, "baselines/current.json")
     compare = build_parser().parse_args(["docs", "compare", "--base", "a", "--candidate", "b"])
     assert (compare.base, compare.candidate, compare.spec) == ("a", "b", None)
+
+
+def test_skill_routing_takes_one_skill_and_an_against_root(tmp_path):
+    args = build_parser().parse_args(
+        ["skill", "routing", "skills/s", "--against", str(tmp_path), "--reps", "2"]
+    )
+    assert args.artifact == "skill:skills/s"  # a bare path is a skill: the field reads it as a ref
+    assert args.catalog == str(tmp_path) and args.repeats == 2
+    assert args.all_vs_all is False and callable(args.func)
+
+
+def test_skill_routing_keeps_a_text_ref_as_it_is():
+    args = build_parser().parse_args(["skill", "routing", "text:notes.md"])
+    assert args.artifact == "text:notes.md"
+
+
+def test_catalog_routing_takes_a_root_and_runs_all_vs_all(tmp_path):
+    args = build_parser().parse_args(
+        ["catalog", "routing", str(tmp_path), "--reps", "3", "--queries-by-skill", "q.json"]
+    )
+    assert args.catalog == str(tmp_path) and args.repeats == 3
+    assert args.all_vs_all is True and args.artifact is None and args.queries_by_skill == "q.json"
+    assert callable(args.func)
+
+
+def test_catalog_routing_refuses_an_artifact(capsys):
+    with pytest.raises(SystemExit) as exc:
+        build_parser().parse_args(["catalog", "routing", "skills/", "--artifact", "skill:x"])
+    assert exc.value.code == 2
+
+
+def test_novelty_routing_is_a_tombstone_for_one_skill():
+    assert moved_argv(
+        ["novelty", "routing", "--artifact", "skill:a", "--catalog", "skills/", "--repeats", "3", "--model", "m"]
+    ) == ["skill", "routing", "skill:a", "--against", "skills/", "--reps", "3", "--model", "m"]
+
+
+def test_novelty_routing_all_vs_all_is_a_tombstone_for_catalog_routing():
+    assert moved_argv(
+        ["novelty", "routing", "--all-vs-all", "--catalog", "skills/", "--queries-by-skill", "q.json",
+         "--repeats=2", "--out", "o.json"]
+    ) == ["catalog", "routing", "skills/", "--queries-by-skill", "q.json", "--reps=2", "--out", "o.json"]
+
+
+def test_novelty_routing_tombstone_keeps_the_last_of_a_repeated_option():
+    # argparse keeps the last value of a store option, so the printed command must name that one.
+    assert moved_argv(["novelty", "routing", "--artifact", "skill:a", "--artifact", "skill:b",
+                       "--catalog", "root1", "--catalog", "root2"]) == [
+        "skill", "routing", "skill:b", "--against", "root2"]
+    assert moved_argv(["novelty", "routing", "--all-vs-all", "--catalog", "root-a",
+                       "--catalog=root-b"]) == ["catalog", "routing", "root-b"]
+
+
+def test_novelty_routing_tombstone_keeps_a_bare_artifact_path_as_text():
+    # A bare --artifact path was read as text (load_artifact_text), so the new SKILL must say so.
+    assert moved_argv(["novelty", "routing", "--artifact", "AGENTS.md", "--competitors", "skill:r"]) == [
+        "skill", "routing", "text:AGENTS.md", "--competitors", "skill:r"]
+    assert moved_argv(["novelty", "routing", "--artifact", "text:n.md"]) == [
+        "skill", "routing", "text:n.md"]
+
+
+def test_novelty_routing_tombstone_reads_a_unique_flag_prefix_as_the_retired_flag():
+    # The retired parser allowed any unique prefix (allow_abbrev), so the printed command spells it out.
+    assert moved_argv(["novelty", "routing", "--artifact", "skill:a", "--cat", "skills/", "--rep", "3"]) == [
+        "skill", "routing", "skill:a", "--against", "skills/", "--reps", "3"]
+    assert moved_argv(["novelty", "routing", "--all", "--cat", "R", "--repeat=2"]) == [
+        "catalog", "routing", "R", "--reps=2"]
+
+
+def test_novelty_routing_tombstone_refuses_an_ambiguous_prefix(capsys):
+    # `--c` is a prefix of --catalog and --competitors: the retired parser refused it, and the new
+    # `skill routing` would read it as --competitors, so no command is printed.
+    with pytest.raises(AmbiguousRetiredFlag):
+        moved_argv(["novelty", "routing", "--artifact", "skill:a", "--c", "x"])
+    with pytest.raises(SystemExit) as exc:
+        parse_args(["novelty", "routing", "--artifact", "skill:a", "--a", "x"])
+    assert exc.value.code == 2
+    assert "ambiguous option: --a could match --all-vs-all, --artifact" in capsys.readouterr().err
+
+
+def test_novelty_routing_tombstone_keeps_a_value_flag_with_no_value_for_the_new_leaf_to_refuse():
+    # The retired parser refused a trailing --artifact or --catalog, and a flag as its value. The
+    # printed argv keeps the flag, so the new leaf refuses it too instead of dropping it.
+    for old, new in [
+        (["novelty", "routing", "--all-vs-all", "--catalog", "c", "--artifact"],
+         ["catalog", "routing", "c", "--artifact"]),
+        (["novelty", "routing", "--artifact", "skill:a", "--catalog", "c", "--catalog"],
+         ["skill", "routing", "skill:a", "--against", "c", "--catalog"]),
+        (["novelty", "routing", "--artifact", "--catalog", "c"],
+         ["skill", "routing", "--against", "c", "--artifact"]),
+        (["novelty", "routing", "--artifact", "-x"],
+         ["skill", "routing", "--artifact", "-x"]),
+    ]:
+        argv = moved_argv(old)
+        assert argv == new
+        with pytest.raises(SystemExit) as exc:
+            build_parser().parse_args(argv)
+        assert exc.value.code == 2
+
+
+def test_novelty_routing_tombstone_keeps_a_flag_the_new_leaf_refuses():
+    argv = moved_argv(["novelty", "routing", "--all-vs-all", "--artifact", "skill:x", "--catalog", "skills/"])
+    assert argv == ["catalog", "routing", "skills/", "--artifact", "skill:x"]
+
+
+def test_novelty_routing_tombstone_refuses_all_vs_all_without_a_catalog(capsys):
+    # The retired parser ran --all-vs-all on competitors alone; no catalog routing command can, and
+    # a printed `catalog routing --competitors` needs a ROOT, so the tombstone says there is none.
+    with pytest.raises(ValueError, match="no replacement"):
+        moved_argv(["novelty", "routing", "--all-vs-all", "--competitors", "skill:a", "skill:b"])
+    with pytest.raises(SystemExit) as exc:
+        parse_args(["novelty", "routing", "--all-vs-all", "--competitors", "skill:a", "--queries-by-skill", "q.json"])
+    assert exc.value.code == 2
+    assert "no replacement" in capsys.readouterr().err
+
+
+def test_novelty_routing_tombstone_refuses_a_stray_token_after_a_no_value_flag():
+    # The retired parser had no positionals and these flags take no value: `y` after them was an
+    # error. Left in the printed argv, `y` became the SKILL positional of `skill routing`.
+    for old in (["novelty", "routing", "--queries-from-headings", "y", "--competitors", "a"],
+                ["novelty", "routing", "--estimate-only", "y", "--artifact", "skill:a"],
+                ["novelty", "routing", "--include-invalid", "y", "--artifact", "skill:a"],
+                ["novelty", "routing", "--include-disabled", "y", "--artifact", "skill:a"]):
+        with pytest.raises(ValueError, match="unrecognized arguments: y$"):
+            moved_argv(old)
+
+
+def test_novelty_routing_tombstone_refuses_a_stray_token_after_a_kept_value_flag():
+    # --queries, --model and the other flags the new leaf keeps take one value: a second plain token
+    # after it was an error in the retired parser, and must not become the SKILL positional.
+    for old in (["novelty", "routing", "--queries", "q.txt", "y", "--competitors", "a"],
+                ["novelty", "routing", "--model", "m", "y", "--artifact", "skill:a"],
+                ["novelty", "routing", "--seed=1", "y", "--artifact", "skill:a"],
+                ["novelty", "routing", "--repeats", "2", "-", "--artifact", "skill:a"]):
+        with pytest.raises(ValueError, match="unrecognized arguments: (y|-)$"):
+            moved_argv(old)
+
+
+def test_novelty_routing_tombstone_refuses_a_positional_the_retired_parser_had_no_slot_for():
+    # The retired parser had no positionals: a stray token, one after `--`, or a value on --all-vs-all was an
+    # error. The tombstone must not print it into the new command, where it becomes the SKILL positional.
+    for old, pattern in [
+        (["novelty", "routing", "y", "--competitors", "a"], "unrecognized arguments: y$"),
+        (["novelty", "routing", "--competitors", "a", "--", "y"], "unrecognized arguments: y$"),
+        (["novelty", "routing", "--seed", "-5", "y", "--competitors", "a"], "unrecognized arguments: y$"),
+        (["novelty", "routing", "--all-vs-all=1", "--artifact", "skill:a", "--catalog", "R"],
+         "ignored explicit argument '1'"),
+    ]:
+        with pytest.raises(ValueError, match=pattern):
+            moved_argv(old)
+
+
+def test_novelty_routing_tombstone_reads_a_negative_number_as_a_value_the_way_argparse_does():
+    # Neither parser has an option that looks like a negative number, so argparse took -5 as a value or
+    # a positional: a stray after --estimate-only, and a competitor after --competitors.
+    with pytest.raises(ValueError, match="unrecognized arguments: -5$"):
+        moved_argv(["novelty", "routing", "--estimate-only", "-5", "--competitors", "a"])
+    assert "text:-5" in moved_argv(["novelty", "routing", "--competitors", "a", "-5"])
+
+
+def test_novelty_routing_tombstone_refuses_a_stray_token_after_a_value_flag():
+    # The retired parser had no positionals: `y` after the value of --artifact or --catalog was an
+    # error. Taking the flag out of the argv must not let `y` join --competitors.
+    for old, stray in [
+        (["novelty", "routing", "--competitors", "a", "b", "--artifact", "x", "y"], "y"),
+        (["novelty", "routing", "--competitors", "a", "--catalog", "R", "y"], "y"),
+        (["novelty", "routing", "--competitors", "a", "--catalog=R", "y"], "y"),
+        (["novelty", "routing", "--artifact", "s", "--competitors", "a", "--catalog=R", "y"], "y"),
+        (["novelty", "routing", "--catalog", "R", "--competitors", "a", "--all-vs-all", "y"], "y"),
+        (["novelty", "routing", "--artifact", "skill:a", "-"], "-"),
+        (["novelty", "routing", "--competitors=a", "b"], "b"),
+    ]:
+        with pytest.raises(ValueError, match=f"unrecognized arguments: {stray}$"):
+            moved_argv(old)
+    assert moved_argv(["novelty", "routing", "--artifact", "x", "--competitors", "a", "b"]) == [
+        "skill", "routing", "text:x", "--competitors", "text:a", "text:b"]
+
+
+def test_novelty_routing_tombstone_reads_a_bare_competitor_path_as_text():
+    # A bare --competitors path was text on the retired command; the new leaf reads a bare path as a
+    # skill, so the printed command says text: for it. skill: and text: pass through.
+    assert moved_argv(["novelty", "routing", "--artifact", "skill:a", "--competitors", "skills/b",
+                       "skill:c", "--queries", "q.txt"]) == [
+        "skill", "routing", "skill:a", "--competitors", "text:skills/b", "skill:c", "--queries", "q.txt"]
+    assert moved_argv(["novelty", "routing", "--artifact", "skill:a", "--competitors=skills/b"]) == [
+        "skill", "routing", "skill:a", "--competitors=text:skills/b"]
+
+
+def test_the_new_leaf_reads_a_bare_competitor_path_as_a_skill():
+    args = build_parser().parse_args(["skill", "routing", "skill:a", "--competitors", "skills/b"])
+    assert args.competitors == ["skill:skills/b"]
+
+
+def test_novelty_routing_prints_the_new_command_and_exits_2(capsys):
+    with pytest.raises(SystemExit) as exc:
+        parse_args(["novelty", "routing", "--artifact", "skill:a", "--catalog", "skills/"])
+    assert exc.value.code == 2
+    assert "moved: dokimi skill routing skill:a --against skills/" in capsys.readouterr().err
+
+
+def test_novelty_view_still_lives_under_novelty():
+    args = build_parser().parse_args(["novelty", "view", "--novelty", "n.json", "--atoms", "a.json"])
+    assert args.novelty_cmd == "view"
+
+
+def test_novelty_routing_tombstone_names_an_unknown_flag_and_its_value_in_the_refusal():
+    # `--reps` is not a retired flag, so the retired parser refused `--reps 3` as its two extras: the
+    # refusal names the flag and its value, not the value alone.
+    for old, pattern in [
+        (["novelty", "routing", "--artifact", "skill:a", "--reps", "3"], r"unrecognized arguments: --reps 3$"),
+        (["novelty", "routing", "--artifact", "skill:a", "--against", "R"], r"unrecognized arguments: --against R$"),
+    ]:
+        with pytest.raises(ValueError, match=pattern):
+            moved_argv(old)
+
+
+def test_novelty_routing_tombstone_refuses_an_empty_separate_value():
+    for old in (["novelty", "routing", "--artifact", "", "--competitors", "a"],
+                ["novelty", "routing", "--artifact", "skill:a", "--competitors", "", "skill:r"],
+                ["novelty", "routing", "--artifact", "skill:a", "--catalog", ""]):
+        with pytest.raises(ValueError, match="expected one argument"):
+            moved_argv(old)
+
+
+def test_novelty_routing_tombstone_refuses_an_empty_value_after_the_equals_sign():
+    # `--artifact=` with no value: the retired parser refused it at `if not args.artifact`. The tombstone
+    # must not print the empty value as the path `text:`, which the new command then fails on.
+    for old in (["novelty", "routing", "--artifact=", "--competitors", "a"],
+                ["novelty", "routing", "--artifact", "skill:a", "--competitors=", "b"],
+                ["novelty", "routing", "--catalog=", "--artifact", "skill:a"]):
+        with pytest.raises(ValueError, match="expected one argument"):
+            moved_argv(old)

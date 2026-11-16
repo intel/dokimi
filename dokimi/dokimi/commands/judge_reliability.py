@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional, Sequence
@@ -20,7 +19,7 @@ from dokimi.defaults import (
 from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.eval.judge_validity import DEFAULT_MIN_ACCURACY
 from dokimi.utils import InputError, read_json_input, warn_recorded_self_judge
-from dokimi.commands._output import write_text_or_exit
+from dokimi.commands._output import save_artifact_or_exit, write_text_or_exit
 from dokimi.exit_codes import EXIT_FAILURE
 
 if TYPE_CHECKING:
@@ -179,8 +178,8 @@ def cmd_eval_pairwise(args: argparse.Namespace) -> None:
         raise InputError(f"no question has both a `{baseline}` answer and another arm's")
     md = report.format_markdown()
     out = Path(args.output or Path(args.answers).with_name(Path(args.answers).stem + "_pairwise.json"))
-    write_text_or_exit(out, json.dumps({**report.to_dict(), "judge_temperature": getattr(args, "judge_temperature", None)},
-                                       indent=2), code=2)
+    save_artifact_or_exit("pairwise", {**report.to_dict(), "judge_temperature": getattr(args, "judge_temperature", None)},
+                          out, code=2)
     write_text_or_exit(out.with_suffix(".md"), md, code=2)
     if not report.verdicts:
         # Written first, so the reasons are not lost with the run.
@@ -218,7 +217,7 @@ def cmd_eval_checklist(args: argparse.Namespace) -> None:
         raise InputError("no question in the answers file has expected_topics in --questions")
     out = Path(args.output or Path(args.answers).with_name(Path(args.answers).stem + "_checklist.json"))
     # The JSON first: the paid calls are in it, and a rendering error must not lose them.
-    write_text_or_exit(out, json.dumps({**report.to_dict(), "judge_temperature": args.judge_temperature}, indent=2), code=2)
+    save_artifact_or_exit("checklist", {**report.to_dict(), "judge_temperature": args.judge_temperature}, out, code=2)
     md = report.format_markdown()
     write_text_or_exit(out.with_suffix(".md"), md, code=2)
     print()
@@ -266,8 +265,8 @@ def cmd_eval_judge_wording(args: argparse.Namespace) -> None:
     )
     if args.output:
         out = Path(args.output)
-        write_text_or_exit(out, json.dumps({**report.to_dict(), "judge_temperature": args.judge_temperature}, indent=2),
-                           code=2)
+        save_artifact_or_exit("judge_wording", {**report.to_dict(), "judge_temperature": args.judge_temperature}, out,
+                              code=2)
     print()
     print(report.format_summary())
     if args.output:
@@ -419,8 +418,8 @@ def cmd_eval_cross_judge(args: argparse.Namespace) -> None:
         raise InputError("nothing to compare — give --judges, --checklist, or an answers file with evaluations")
     md = report.format_markdown()
     out = Path(args.output or Path(args.answers).with_name(Path(args.answers).stem + "_crossjudge.json"))
-    write_text_or_exit(out, json.dumps({**report.to_dict(), "judge_temperature": args.judge_temperature}, indent=2),
-                       code=2)
+    save_artifact_or_exit("cross_judge", {**report.to_dict(), "judge_temperature": args.judge_temperature}, out,
+                          code=2)
     write_text_or_exit(out.with_suffix(".md"), md, code=2)
     print()
     print(md)

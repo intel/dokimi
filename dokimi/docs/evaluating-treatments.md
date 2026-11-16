@@ -97,7 +97,9 @@ Runtime plugins are a separate run dimension, not arms. They modify every arm
 inside the same `(model, harness, plugin_set)` cell, and the JSON/Markdown
 outputs stamp `harness`, `plugin_set`, `plugin_set_id`, and concrete plugin
 metadata. The initial supported plugin is `plugin:caveman[:lite|full|ultra]`,
-which adds a brevity system instruction before answer generation.
+which adds a brevity system instruction before answer generation. Enable a
+plugin for every arm of a run with `arms run --plugins plugin:<name>`
+(comma-separated for several).
 
 Plugin effects are computed from paired runs, not from one artifact in
 isolation. Run the same product, questions, arms, model, provider, and harness
@@ -495,11 +497,11 @@ question — whether the agent loads it at all, and loads it rather than a rival
 it needs its own query set: the questions a skill helps with are usually not the
 messages that make an agent reach for it.
 
-**Relation to `novelty routing`.** [`novelty routing`](skill-novelty.md#can-the-artifact-be-selected-at-all)
+**Relation to `skill routing`.** [`skill routing`](skill-novelty.md#can-the-artifact-be-selected-at-all)
 asks the same question for one artifact: can its card win against named competitors?
 The two differ in unit and in what the model sees:
 
-| | `novelty routing` | `skill-catalog:` arm |
+| | `skill routing` | `skill-catalog:` arm |
 |---|---|---|
 | Unit | one artifact vs `--competitors` | a whole catalog; every skill is a target |
 | Model sees | cards (name + description) in one pick prompt, order permuted per query | one `view_skill_*` tool per skill in the agent loop; it may load none |
@@ -652,7 +654,7 @@ The same rules hold for skills, MCP tools and plain function tools.
   an effect. A change smaller than the variation between repeats of one setting
   is not an effect.
 - **Treat a proxy as an upper bound on effect size.** A one-call proxy (the
-  `skill-catalog:` arm, `tools preference`, `novelty routing`) shows every
+  `skill-catalog:` arm, `tools preference`, `skill routing`) shows every
   description in full and gives the model no reason to explore first. In one
   measured case the effect kept its direction on Claude Code but was about half
   as large (−0.42 on the proxy, −0.20 on the harness;

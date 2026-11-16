@@ -388,7 +388,7 @@ def test_repo_validate_finds_a_builtin_task_without_its_data_file_or_a_wrong_nam
                                       "--cache-dir", str(tmp_path / "caches"), "--json"])
     with pytest.raises(SystemExit):
         args.func(args)
-    errors = json.loads(capsys.readouterr().out)["errors"]
+    errors = json.loads(capsys.readouterr().out)["data"]["errors"]
     assert any("manifest file does not exist: manifest.json" in e and "nodata" in e for e in errors), errors
     assert any("unknown built-in grader 'dokimi:review_seed'" in e for e in errors), errors
 
@@ -583,7 +583,7 @@ def test_a_replay_window_that_is_not_a_positive_number_is_an_authoring_error(tmp
                                       "--cache-dir", str(tmp_path / "caches"), "--json"])
     with pytest.raises(SystemExit):
         args.func(args)
-    errors = json.loads(capsys.readouterr().out)["errors"]
+    errors = json.loads(capsys.readouterr().out)["data"]["errors"]
     assert any("replay_mul" in e and "window must be a positive number" in e for e in errors), errors
 
 

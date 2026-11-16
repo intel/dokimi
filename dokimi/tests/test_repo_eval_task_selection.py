@@ -90,7 +90,7 @@ def _run_step(
     temp = tmp_path / "runner"
     temp.mkdir(exist_ok=True)
     (temp / "validate.json").write_text(
-        json.dumps({"manifest": {"id": "demo", "tasks": manifest_tasks, "eval_dir": EVAL_DIR}}),
+        json.dumps({"data": {"manifest": {"id": "demo", "tasks": manifest_tasks, "eval_dir": EVAL_DIR}}}),
         encoding="utf-8",
     )
     env = {

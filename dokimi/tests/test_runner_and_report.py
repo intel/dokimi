@@ -74,14 +74,12 @@ def test_compare_snapshots_includes_base_and_candidate(tmp_path):
 def test_compare_snapshots_with_spec_no_regressions(tmp_path):
     base = _write_snapshot(tmp_path / "base.json", _snapshot(score=0.7))
     cand = _write_snapshot(tmp_path / "cand.json", _snapshot(score=0.8))
+    from dokimi.gate.verdict import Check, Verdict
+
     spec = {"score": {"warn": -0.05, "critical": -0.1}}
     with patch("dokimi.runner.compare.detect_regressions") as mock_dr:
-        mock_dr.return_value = type("R", (), {
-            "score_regression": type("S", (), {"delta": 0.1, "severity": "OK"})(),
-            "metric_regressions": [],
-            "has_warnings": False,
-            "has_critical": False,
-        })()
+        mock_dr.return_value = Verdict(checks=[
+            Check(name="score", passed=True, value=0.1, threshold=(0.05, 0.1), severity="warn", level="OK")])
         result = compare_snapshots(base, cand, spec=spec)
     assert "regressions" in result
     assert result["regressions"]["has_critical"] is False

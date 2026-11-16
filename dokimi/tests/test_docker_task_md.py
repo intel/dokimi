@@ -103,8 +103,9 @@ def _hermetic(tmp_path, monkeypatch):
 
 
 def _capture(stdout="") -> DockerCLI:
-    """A docker CLI where every call exits 0 and prints ``stdout`` (no reward file)."""
-    return DockerCLI(answer=lambda call: reply(stdout))
+    """A docker CLI where every call exits 0 and prints ``stdout``. The verifier's
+    ``docker cp`` falls through to the fake's reward file (1.0), so a verify is a verdict."""
+    return DockerCLI(answer=lambda call: None if call.argv[1:2] == ("cp",) else reply(stdout))
 
 
 def _docker_via(cli: DockerCLI):
@@ -375,6 +376,8 @@ def _host_cli(image_workdir: str, answer=None) -> DockerCLI:
         got = answer(call) if answer else None
         if got is not None:
             return got
+        if call.argv[1:2] == ("cp",):  # the verifier's reward file comes from the fake's own cp
+            return None
         return reply(image_workdir) if call.argv[0] == "docker" else None
 
     return DockerCLI(answer=respond, solver='{"total_cost_usd": 0.42}')

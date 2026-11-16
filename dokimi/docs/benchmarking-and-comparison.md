@@ -89,8 +89,8 @@ Every command takes its models from `dokimi/defaults.py`, and every surface
 
 The judge is a different family from the answerer, so the judge-independence
 warning stays quiet on default flags; answering with `claude-sonnet-5-5` moves the
-novelty judge to `openai/gpt-6.1-sol` and makes `benchmark`, `eval score pointwise`,
-`eval score panel`, `evaluate`, `arms run` and `subjects run` warn. Escalation
+novelty judge to `openai/gpt-6.1-sol`, and a judging run that answers with it on the
+default judge's provider is refused (see below). Escalation
 judges (`--escalate-model`) have no default; `claude-opus-5-5` ($4 / $20) is the
 natural tie-break above the Sonnet judge. On `--provider amazon-bedrock` the bare
 names `claude-sonnet-5-5`, `claude-opus-5-5` and `claude-haiku-5-5` resolve to the
@@ -101,13 +101,16 @@ A variable naming another model is ignored for these names. The `novelty` judge 
 longer follows `--provider`: with no judge flags it runs on `anthropic`, so a
 Bedrock-only run passes `--judge-provider amazon-bedrock` (and `atoms`/`shorten`
 `--provider amazon-bedrock`). `--judge-provider` alone takes the default judge that
-runs there; when none does (measuring `claude-sonnet-5-5` on Bedrock) the run exits
-and asks for `--judge-model`. The other commands with a judge (`benchmark`, `eval`,
-`evaluate`, `arms` and `subjects`) do the same with `--judge-provider` alone:
-`claude-sonnet-5-5` on `anthropic` and `amazon-bedrock`, `gpt-6.1-sol` on `openai`
-(the default answer model, so the judge-independence warning fires where it is
-checked), and on any other provider they exit before the first call and ask for
-`--judge-model`.
+runs on that provider, the same on every surface: `claude-sonnet-5-5` on `anthropic`
+and `amazon-bedrock`, `opus` on `claude-cli` (`sonnet` when the answerer is `opus`),
+`gpt-6.1-sol` on `openai`. When that judge is the model under measurement (`gpt-6.1-sol`
+on `openai`, the default answer model) a judging run exits before its first answer
+and asks for `--judge-model`; so does `--model claude-sonnet-5-5` with the default
+`--judge-provider anthropic`. `eval score` and `eval judge` have no answerer and judge
+with `gpt-6.1-sol` on `openai`. On any other provider (`google`, `google-vertex`,
+`openrouter`) the run exits before the first call and asks for `--judge-model`. A
+matrix (`arms matrix-run --matrix-cells`) has one judge for all its cells; a cell
+whose model is that judge is warned about, not refused.
 
 **Defaults changed on 2026-10-13: results are not comparable with older baselines;
 re-baseline.** Before, `benchmark`/`answers`/`eval` answered with `gpt-5.5` and
@@ -390,7 +393,9 @@ values are possible:
 A `—` is not a null result. A constant shift is not a `—`: eight pairs that all
 gain +20 have p = 2/2^8 = 0.0078 and the interval [+20, +20]. Cohen's d_z is
 descriptive (no verdict reads it) and renders `—` there, where it is *unbounded*
-rather than negligible; it is 0.0 when every delta is 0.
+rather than negligible; it is 0.0 when every delta is 0. "Constant" is judged at the
+deltas' own scale (spread under 1e-9 of the larger of the mean and the sd), so deltas
+of 1e-12 that differ get a d_z.
 
 The 95% CI inverts the same sign-flip test: it is every shift theta at which the
 test on the deltas minus theta does not reject at 5%, so it excludes zero exactly
@@ -400,7 +405,8 @@ count again, so both ends are open (`null`, printed `-inf` / `+inf`) at 5 or
 fewer pairs and bounded from 6 on. Six or more pairs that all tie get the
 interval [0, 0] with no p and a `—`: nothing speaks against 0, and every other
 shift moves all the pairs to one side, which the test rejects, as it does every
-shift but +20 for eight +20 pairs. `ci_method` is `sign_flip_inversion`; an
+shift but +20 for eight +20 pairs. An end of deltas near
+1.8e308 that the search puts past the float maximum is the maximum, never `inf`. `ci_method` is `sign_flip_inversion`; an
 `arms.json` written before this method holds `student_t`, `percentile_bootstrap`
 or `degenerate` there, and `p_ttest` (with `p_wilcoxon`, `n_wilcoxon`) instead of
 `p`, and the report still renders it.
@@ -982,5 +988,5 @@ An artifact of a registered run kind carries the run's envelope right after its
 - A file saved before the envelope has neither key and stays valid; so do the superseded
   versions (`questions.v1`, `subject_scorecard.v1`), which declare no envelope.
 - The `--json` output of `repo scan`, `repo inspect`, `repo budget` and `eval inspect` is the
-  document their `--out` writes, envelope and key order included.
-- The run's cost is not in the envelope yet.
+  `cli_output.v1` envelope with the document their `--out` writes under `data`.
+- Only `repo hits judge` fills the envelope's `cost`; the other leaves report zero.

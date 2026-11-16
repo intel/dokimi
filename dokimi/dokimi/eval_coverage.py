@@ -69,7 +69,7 @@ def graph_digest(graph: dict) -> str:
                      "confirmed_by": n.get("confirmed_by", "hypothesis")}
                     for n in graph["nodes"]), key=lambda n: n["id"])
     blob = json.dumps(nodes, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+    return hashlib.sha256(blob.encode("utf-8", "surrogatepass")).hexdigest()
 
 
 _ABSENT = object()  # no ``needs`` key at all: not the same as ``"needs": null``, which is malformed

@@ -360,7 +360,7 @@ def score_measure(
             return (qid, arm), float(
                 scorer(library, question, answer, (ground_truth or {}).get(qid), context)
             ), None
-        except Exception as exc:  # an unscored answer drops out of the pairing, it does not kill the run
+        except Exception as exc:  # noqa: BLE001 - an unscored answer drops out of the pairing, it does not kill the run
             return (qid, arm), None, _reason(exc)
 
     if not stored_flags:
@@ -508,6 +508,6 @@ class CrossJudgeReport:
         return [m for m in self.measures if m.unscored]
 
     def to_dict(self) -> Dict[str, Any]:
-        return {"schema_version": "cross_judge.v0", "summary": self.summary(), "unscored": [
+        return {"schema_version": "cross_judge.v1", "summary": self.summary(), "unscored": [
             {"measure": m.name, "kind": m.kind, "asked": m.asked, "unscored": m.unscored,
              "first_error": m.first_error} for m in self.unscored()]}

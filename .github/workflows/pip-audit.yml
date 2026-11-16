@@ -54,7 +54,7 @@ jobs:
         run: |
           sed -e 's/ *\\$//' -e 's/ *;.*//' \
               requirements.lock.txt requirements-docs.lock.txt requirements-ci.lock.txt \
-              requirements-mutation.lock.txt requirements-fuzz.lock.txt | sort -u \
+              requirements-mutation.lock.txt requirements-fuzz.lock.txt requirements-conda-lock.lock.txt | sort -u \
             | awk -F'==' '/^[A-Za-z0-9]/ { print > (ENVIRON["RUNNER_TEMP"] "/pins" seen[$1]++ ".txt") }'
           for f in "$RUNNER_TEMP"/pins*.txt; do
             pip-audit -r "$f" --no-deps --disable-pip --progress-spinner off
@@ -79,7 +79,7 @@ jobs:
         run: |
           title="pip-audit: new advisory against the dependency locks"
           body="The daily pip-audit run failed: $RUN_URL. Bump the pin in a lock PR, or document the advisory in dokimi/SECURITY.md, dokimi/osv-scanner.toml and .github/workflows/pip-audit.yml."
-          num=$(gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[0].number')
+          num=$(gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[0].number // empty')
           if [ -n "$num" ]; then
             gh issue comment "$num" --body "Still failing: $RUN_URL"
           else

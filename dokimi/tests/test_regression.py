@@ -5,7 +5,21 @@
 
 import pytest
 
-from dokimi.gate.regression import RegressionResult, detect_regressions
+from dokimi.gate.regression import detect_regressions
+
+
+def _score(result):
+    return result.check("score")
+
+
+def _metrics(result):
+    """The tracked metric checks, every check after the leading ``score``."""
+    return [c for c in result.checks if c.name != "score"]
+
+
+def _row(check):
+    """(metric, delta, level, (warn, critical)) for one regression check."""
+    return (check.name, check.value, check.level, check.threshold)
 
 
 def test_regression_ok():
@@ -21,10 +35,10 @@ def test_regression_ok():
         }
     }
     diff = {"score": 0.01, "coverage": 0.02, "freshness_lite": 0.00, "readability": -0.01}
-    
+
     result = detect_regressions(diff, spec)
-    
-    assert result.score_regression.severity == "OK"
+
+    assert _score(result).level == "OK"
     assert not result.has_warnings
     assert not result.has_critical
 
@@ -42,11 +56,11 @@ def test_regression_warn():
         }
     }
     diff = {"score": -0.05, "coverage": -0.06, "freshness_lite": 0.00, "readability": 0.00}
-    
+
     result = detect_regressions(diff, spec)
-    
-    assert result.score_regression.severity == "WARN"
-    assert result.metric_regressions[0].severity == "WARN"  # coverage
+
+    assert _score(result).level == "WARN"
+    assert _metrics(result)[0].level == "WARN"  # coverage
     assert result.has_warnings
     assert not result.has_critical
 
@@ -64,11 +78,11 @@ def test_regression_critical():
         }
     }
     diff = {"score": -0.10, "coverage": -0.15, "freshness_lite": 0.00, "readability": 0.00}
-    
+
     result = detect_regressions(diff, spec)
-    
-    assert result.score_regression.severity == "CRITICAL"
-    assert result.metric_regressions[0].severity == "CRITICAL"
+
+    assert _score(result).level == "CRITICAL"
+    assert _metrics(result)[0].level == "CRITICAL"
     assert result.has_critical
 
 
@@ -85,10 +99,10 @@ def test_regression_exactly_at_threshold():
         }
     }
     diff = {"score": -0.03, "coverage": 0.00, "freshness_lite": 0.00, "readability": 0.00}
-    
+
     result = detect_regressions(diff, spec)
-    
-    assert result.score_regression.severity == "WARN"
+
+    assert _score(result).level == "WARN"
 
 
 def test_regression_improvement():
@@ -104,10 +118,10 @@ def test_regression_improvement():
         }
     }
     diff = {"score": 0.10, "coverage": 0.05, "freshness_lite": 0.00, "readability": 0.00}
-    
+
     result = detect_regressions(diff, spec)
-    
-    assert result.score_regression.severity == "OK"
+
+    assert _score(result).level == "OK"
     assert not result.has_warnings
 
 
@@ -116,10 +130,10 @@ def test_regression_missing_thresholds():
     spec = {}
     # -0.01 drop < 0.03 default warn threshold → OK
     diff = {"score": -0.01, "coverage": 0.00, "freshness_lite": 0.00, "readability": 0.00}
-    
+
     result = detect_regressions(diff, spec)
-    
-    assert result.score_regression.severity == "OK"  # -0.01 < 0.03 warn threshold
+
+    assert _score(result).level == "OK"  # -0.01 < 0.03 warn threshold
 
 
 # The cases above all pass thresholds equal to the defaults, so they cannot tell
@@ -142,16 +156,8 @@ def test_spec_thresholds_replace_the_defaults():
     and a -0.015 coverage drop is OK by default but WARN under a 0.01 one."""
     result = detect_regressions({"score": -0.05, "coverage": -0.015}, _CUSTOM)
 
-    assert result.score_regression == RegressionResult(
-        metric="score", delta=-0.05, severity="OK",
-        threshold_warn=0.10, threshold_critical=0.20,
-    )
-    assert result.metric_regressions == [
-        RegressionResult(
-            metric="coverage", delta=-0.015, severity="WARN",
-            threshold_warn=0.01, threshold_critical=0.02,
-        )
-    ]
+    assert _row(_score(result)) == ("score", -0.05, "OK", (0.10, 0.20))
+    assert [_row(c) for c in _metrics(result)] == [("coverage", -0.015, "WARN", (0.01, 0.02))]
 
 
 def test_spec_critical_thresholds_replace_the_defaults():
@@ -160,8 +166,8 @@ def test_spec_critical_thresholds_replace_the_defaults():
                                            "metric_drop_critical": 0.04}}}
     result = detect_regressions({"score": -0.05, "coverage": -0.05}, spec)
 
-    assert result.score_regression.severity == "CRITICAL"
-    assert result.metric_regressions[0].severity == "CRITICAL"
+    assert _score(result).level == "CRITICAL"
+    assert _metrics(result)[0].level == "CRITICAL"
 
 
 @pytest.mark.parametrize(
@@ -182,8 +188,8 @@ def test_spec_critical_thresholds_replace_the_defaults():
 def test_default_thresholds_apply_at_their_exact_values(key, delta, severity):
     result = detect_regressions({key: delta}, {})
 
-    found = result.score_regression if key == "score" else result.metric_regressions[0]
-    assert (found.metric, found.severity) == (key, severity)
+    found = _score(result) if key == "score" else _metrics(result)[0]
+    assert (found.name, found.level) == (key, severity)
 
 
 def test_a_score_drop_alone_sets_the_summary_flags():
@@ -203,7 +209,7 @@ def test_a_metric_regression_alone_sets_the_summary_flags():
 
 
 def test_a_critical_on_a_later_tracked_metric_sets_has_critical():
-    # Not the first metric in the list: has_critical must look at all of metric_regressions.
+    # Not the first metric in the list: has_critical must look at all of the metric checks.
     result = detect_regressions(
         {"score": 0.0, "example_pass_rate": -0.5, "coverage": 0.0, "freshness_lite": 0.0, "readability": 0.0}, {}
     )
@@ -214,7 +220,7 @@ def test_a_critical_on_a_later_tracked_metric_sets_has_critical():
 def test_every_tracked_metric_is_classified(name):
     result = detect_regressions({"score": 0.0, name: -0.5}, {})
 
-    assert [(r.metric, r.delta, r.severity) for r in result.metric_regressions] == [
+    assert [(c.name, c.value, c.level) for c in _metrics(result)] == [
         (name, -0.5, "CRITICAL")
     ]
     assert result.has_critical
@@ -223,14 +229,23 @@ def test_every_tracked_metric_is_classified(name):
 def test_an_untracked_metric_is_ignored():
     result = detect_regressions({"score": 0.0, "latency": -0.5}, {})
 
-    assert result.metric_regressions == []
+    assert _metrics(result) == []
     assert not result.has_warnings
 
 
 def test_a_diff_without_a_score_reads_as_no_change():
     result = detect_regressions({"coverage": 0.01}, {})
 
-    assert (result.score_regression.delta, result.score_regression.severity) == (0.0, "OK")
+    assert (_score(result).value, _score(result).level) == (0.0, "OK")
+
+
+def test_a_diff_without_a_score_is_not_measured():
+    """The score check was not in the artifact: it is listed as not measured, never read as a pass."""
+    result = detect_regressions({"coverage": 0.01}, {})
+
+    assert _score(result).measured is False
+    assert "score" in result.not_measured
+    assert detect_regressions({}, {}).status == "NOT MEASURED"
 
 
 def test_no_change_is_ok_even_with_zero_tolerance():
@@ -242,4 +257,4 @@ def test_no_change_is_ok_even_with_zero_tolerance():
     dropped = detect_regressions({"score": -0.001, "coverage": 0.0}, zero)
 
     assert not unchanged.has_warnings and not unchanged.has_critical
-    assert dropped.score_regression.severity == "CRITICAL"
+    assert _score(dropped).level == "CRITICAL"

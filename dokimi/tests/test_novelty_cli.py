@@ -26,7 +26,7 @@ from dokimi.defaults import (
     DEFAULT_JUDGE_PROVIDER,
 )
 from dokimi.utils import InputError
-from tests.cli_paths import novelty_argv
+from tests.cli_paths import artifact_flag, novelty_argv
 
 
 def _parse(*argv):
@@ -942,7 +942,7 @@ def test_a_command_given_a_frontmatter_nested_too_deeply_exits_with_a_message(tm
         "shorten": ["--atoms", str(atoms)],
         "routing": ["--competitors", _deep_skill(tmp_path, "other")],
     }.get(sub, [])
-    args = _parse(*novelty_argv(sub), "--artifact", _deep_skill(tmp_path), *extra)
+    args = _parse(*novelty_argv(sub), *artifact_flag(sub, _deep_skill(tmp_path)), *extra)
     with pytest.raises(InputError) as exc:
         args.func(args)
     assert "maximum recursion" in str(exc.value)
@@ -952,8 +952,10 @@ def test_a_command_given_a_frontmatter_nested_too_deeply_exits_with_a_message(tm
 def test_all_vs_all_names_a_competitor_nested_too_deeply_and_exits_with_a_message(tmp_path):
     queries = tmp_path / "q.json"
     queries.write_text('{"deep": ["a request"]}', encoding="utf-8")
-    args = _parse("novelty", "routing", "--all-vs-all", "--competitors", _deep_skill(tmp_path),
-                  "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"))
+    (tmp_path / "none").mkdir()
+    args = _parse("catalog", "routing", str(tmp_path / "none"), "--competitors", _deep_skill(tmp_path),
+                  "--queries-by-skill",
+                  str(queries), "--out", str(tmp_path / "o.json"))
     with pytest.raises(InputError, match="maximum recursion") as exc:
         args.func(args)
     assert "RecursionError" not in str(exc.value)
@@ -968,8 +970,10 @@ def test_all_vs_all_names_an_unreadable_competitor_and_exits_with_a_message(tmp_
     skill.chmod(0)
     queries = tmp_path / "q.json"
     queries.write_text('{"locked": ["a request"]}', encoding="utf-8")
-    args = _parse("novelty", "routing", "--all-vs-all", "--competitors", f"skill:{root}",
-                  "--queries-by-skill", str(queries), "--out", str(tmp_path / "o.json"))
+    (tmp_path / "none").mkdir()
+    args = _parse("catalog", "routing", str(tmp_path / "none"), "--competitors", f"skill:{root}",
+                  "--queries-by-skill",
+                  str(queries), "--out", str(tmp_path / "o.json"))
     try:
         with pytest.raises(InputError, match="cannot load the field"):
             args.func(args)

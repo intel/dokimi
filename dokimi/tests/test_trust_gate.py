@@ -108,12 +108,12 @@ class TestTrustVerdict:
 
     def test_status_pass(self):
         v = evaluate_trust(_evals(20, with_score=70, without_score=50))
-        assert v.status == "✅ PASS"
+        assert v.status == "PASS"
 
     def test_status_warn(self):
         v = evaluate_trust(_evals(15, with_score=20, without_score=15))
         # with_avg=20 below min 30 → warn; no fail severities
-        assert "WARN" in v.status or "FAIL" in v.status
+        assert v.status in ("WARN", "FAIL")
 
 
 class TestCustomThresholds:
@@ -297,7 +297,6 @@ class TestEveryCheckReportsItsNumbers:
             ("retrieval_hit_rate", True, 0.667, 0.60, "warn", True),
             ("multirun_variance", True, 3.54, 5.0, "fail", True),
         ]
-        assert round(v.multirun_std, 4) == 3.5355
         assert [c.name for c in v.failures] == ["min_questions", "zero_score_fraction"]
         assert [c.name for c in v.warnings] == ["score_cv", "inter_rater_agreement"]
 
@@ -416,7 +415,7 @@ def test_a_not_measured_retrieval_check_never_warns():
     assert (check.passed, check.measured, check.value) == (True, False, None)
     assert (check.threshold, check.severity) == (0.60, "warn")
     assert check not in v.warnings
-    assert v.status == "✅ PASS"
+    assert v.status == "PASS"
 
 
 def test_a_legacy_artifact_serializes_measured_false():

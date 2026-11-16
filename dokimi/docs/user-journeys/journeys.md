@@ -70,7 +70,7 @@ decline.
 handed to another journey with its own scope.
 
 **Today.** The pieces exist per subject type: `python cli.py repo scan` for a
-repository, `python cli.py novelty routing` and
+repository, `python cli.py skill routing` and
 `python cli.py skill novelty analyze --estimate-only` for a skill. A single entry
 that picks among them, and the costed plan, are **proposed**.
 
@@ -100,7 +100,7 @@ use; the budget.
 **Flow.**
 
 1. Check the skill can be selected at all: does the agent route to it for the
-   queries it is for (`python cli.py novelty routing`)?
+   queries it is for (`python cli.py skill routing`)?
 2. Estimate what the diagnosis costs before running it
    (`python cli.py skill novelty analyze --estimate-only`).
 3. Diagnose: which parts of the skill add knowledge the model lacks, which
@@ -224,9 +224,7 @@ per-task, per-arm results on real tasks with their missing cells listed.
 `guidance:none`, `guidance:raw`); harness and model; repetitions; grader;
 spend per run and per batch; environment (Docker image, network mode).
 
-**Today.** Steps 1–3 and 5–7 are available. Step 4, deriving candidate tasks
-from the repository's code, docs, issues and traces, is **proposed**; tasks
-derived from code are hypotheses about what users do, not confirmed intent.
+**Today.** Steps 1–3 and 5–7 are available. Step 4 is **partial**: candidate task generation from merged PR inputs, imported review-thread JSON and SCIP references/derives is available. General synthesis from arbitrary docs, issues and traces remains proposed. Generated tasks are hypotheses about what users do, not confirmed intent. See the [task creation cards](../features/eval-design.md).
 
 **Connections.** J4 for the guidance itself, J7 for the tasks, J12 to keep it
 working.
@@ -279,7 +277,7 @@ tasks represent the work (for effect).
 1. Correctness: `python cli.py repo scan`.
 2. Reach: `python cli.py repo reach` with a harness profile and model, after
    `--dry-run` to see the runs and budget it plans.
-3. Adherence: **proposed**. No command measures it yet.
+3. Adherence: **partial**. Trace consistency can check declared process contracts; universal instruction adherence remains proposed. See [trace cards](../features/traces.md).
 4. Effect: `python cli.py repo run` with `--arm guidance:none` and
    `--arm guidance:raw` on the same tasks, then `python cli.py repo compare`.
 
@@ -301,7 +299,7 @@ model, repetitions, grader, spend.
 
 **Today.** Correctness and reach are available and traced. Effect is partial:
 the arms and comparison exist, but no test or recorded run asserts an effect
-claim. Adherence is proposed.
+claim. Process-contract checking exists; universal adherence remains proposed.
 
 **Connections.** Part of J3; feeds J12 (guidance regressions) and J13 (does the
 guidance still help a newer model?).
@@ -459,10 +457,7 @@ and an explicit list of what the evals do not cover.
 the task's container, without a model. Judge validity runs the judge on
 perturbed answers; it has a model cost and a sequential stopping rule.
 
-**Today.** Steps 1–3 are available; the self-check is traced. Steps 4–6 are
-**proposed**: no command derives tasks, adds negative controls, or reports
-coverage gaps. A passing self-check shows the grader is sane on null and oracle,
-not that the tasks are relevant or the set covers the work.
+**Today.** Steps 1–3 are available; the self-check is traced. Steps 4–6 are partial: task generation from PR inputs, review replay and SCIP graphs exists, and need-space coverage reports gaps against a frozen graph with explicit labels. General task synthesis and an automatic end-to-end control/coverage workflow remain incomplete. A passing self-check shows behaviour on null and oracle, not that the tasks are relevant or the set covers the work. See [eval design cards](../features/eval-design.md).
 
 **Connections.** Supports J2, J3, J4, J6, J8, J9, J10, J12.
 
@@ -492,7 +487,7 @@ down in the PR.
 
 #### UC-J07-004 State coverage gaps
 
-- **AC-J07-007** An eval set's report lists the capabilities or areas it has no task for. *Partial: `eval coverage` lists the core and rare_critical nodes of a frozen need graph that no eval's `needs` names; building the graph, the user interview and drafting labels are #331.*
+- **AC-J07-007** An eval set's report lists the capabilities or areas it has no task for. *Partial: `eval coverage` lists the core and rare_critical nodes of a frozen need graph that no eval's `needs` names; `eval graph` builds that graph from the skill's name and description and refuses to overwrite it. The user interview and drafting labels are #331.*
 
 ---
 
@@ -791,7 +786,7 @@ the settings that produced it, the spend, and the stated limits.
 |---|---|---|
 | Content novelty of a skill | `python cli.py skill novelty analyze` | Estimate with `--estimate-only`; cap with `--max-usd`; output `novelty.json` |
 | Re-render saved novelty | `python cli.py novelty view` | No model calls |
-| Skill routing | `python cli.py novelty routing` | Free without `--model` |
+| Skill routing | `python cli.py skill routing` | Free without `--model` |
 | Guidance reach | `python cli.py repo reach` | Plan with `--dry-run`; cap with `--budget` |
 | Context window of a run | `python cli.py trace inspect` | Reads an existing trace |
 | Judge calibration | `python cli.py eval judge validate` | Sequential stopping with `--sequential` |
@@ -862,7 +857,7 @@ for; which other problems of the same kind it should help with; the budget.
    already knows is a reason to shorten, and a skill that adds nothing is a
    reason to stop.
 4. Check the skill is selected for the requests it is for
-   (`python cli.py novelty routing`).
+   (`python cli.py skill routing`).
 5. Run three arms on the same tasks, model and repetitions: no skill
    (`benchflow:<agent>`), the user's skill (`benchflow-skill:<agent>:<path>`),
    and a skill the named skill-creator generates

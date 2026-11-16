@@ -80,7 +80,7 @@ def test_report_exits_2_naming_a_corrupt_plan_file(tmp_path, capsys, content):
 def test_report_still_reads_an_empty_batch(tmp_path, capsys):
     batch = _batch(tmp_path, "b1", {"_eval/plan.json": json.dumps({"cells": []}).encode()})
     _run("report", str(batch), "--json")
-    assert json.loads(capsys.readouterr().out)["rows"] == []
+    assert json.loads(capsys.readouterr().out)["data"]["rows"] == []
 
 
 _NO_GRADE = [
@@ -177,7 +177,7 @@ def test_a_valid_skills_block_is_accepted_by_repo_report(tmp_path, capsys, skill
     rec = {**_GOOD, "skills": skills}
     batch = _batch(tmp_path, "b1", {"t__a__m__r1/result.json": json.dumps(rec).encode()})
     _run("report", str(batch), "--json")
-    row = json.loads(capsys.readouterr().out)["rows"][0]
+    row = json.loads(capsys.readouterr().out)["data"]["rows"][0]
     if skills and skills.get("measured", True):
         assert {k: row[k] for k in shown} == shown
         if "skill_expected" not in shown:
@@ -195,7 +195,7 @@ def test_a_cost_at_the_bound_is_accepted(tmp_path, capsys, cost):
     rec = {**_GOOD, "agent": {**_GOOD["agent"], "cost_usd": cost}}
     batch = _batch(tmp_path, "b1", {"t__a__m__r1/result.json": json.dumps(rec).encode()})
     _run("report", str(batch), "--json")
-    assert json.loads(capsys.readouterr().out)["rows"]
+    assert json.loads(capsys.readouterr().out)["data"]["rows"]
 
 
 def _three_task_batch(tmp_path, cost_a, cost_b):
@@ -229,7 +229,7 @@ def test_a_result_file_with_a_score_task_and_no_score_only_is_accepted(tmp_path,
            "agent": {**_GOOD["agent"], "cost_usd": None}}
     batch = _batch(tmp_path, "b1", {"t__a__m__r1/result.json": json.dumps(rec).encode()})
     _run("report", str(batch), "--json")
-    assert json.loads(capsys.readouterr().out)["rows"][0]["cost_unknown"] == 1
+    assert json.loads(capsys.readouterr().out)["data"]["rows"][0]["cost_unknown"] == 1
 
 
 def test_a_deeply_nested_result_file_exits_2_naming_the_file(tmp_path, capsys):
@@ -295,7 +295,7 @@ def test_a_score_task_result_file_with_a_null_grade_score_is_accepted(tmp_path, 
     rec = {**_GOOD, "score_task": True, "grade": {"status": "grader_failure", "score": None, "success": False}}
     batch = _batch(tmp_path, "b1", {"t__a__m__r1/result.json": json.dumps(rec).encode()})
     _run("report", str(batch), "--json")
-    assert json.loads(capsys.readouterr().out)["rows"]
+    assert json.loads(capsys.readouterr().out)["data"]["rows"]
 
 
 @pytest.mark.parametrize("value", ["false", 0, None, []])
@@ -379,7 +379,7 @@ def test_a_stored_unmeasurable_score_is_read_as_a_grader_failure(tmp_path, capsy
     batch = _batch(tmp_path, "b1", {"t__a__m__r1/result.json": text.encode(),
                                     "t__b__m__r1/result.json": json.dumps({**rec, "arm": "b"}).encode()})
     _run(cmd[0], str(batch), *cmd[1:], "--json")
-    out = json.loads(capsys.readouterr().out, parse_constant=_no_constant)
+    out = json.loads(capsys.readouterr().out, parse_constant=_no_constant)["data"]
     if cmd[0] == "report":
         row = next(r for r in out["rows"] if r["arm"] == "a")
         assert row["grader_failures"] == 1 and row["score"] == 0.0
@@ -409,7 +409,7 @@ def test_a_process_counter_beyond_the_bound_is_left_out(tmp_path, capsys, cmd, h
     files = _huge_in_t0(huge, lambda task, arm, value: {"result.json": {
         **_GOOD, "task": task, "arm": arm, "process": {"counters": {"x": value}}}})
     _run(cmd[0], str(_batch(tmp_path, "b1", files)), *cmd[1:], "--json")
-    out = json.loads(capsys.readouterr().out, parse_constant=_no_constant)
+    out = json.loads(capsys.readouterr().out, parse_constant=_no_constant)["data"]
     if cmd[0] == "report":
         rows = {r["task"]: r for r in out["rows"] if r["arm"] == "a"}
         assert "counter:x" not in rows["t0"].get("process", {}) and rows["t1"]["process"]["counter:x"] == 1.0
@@ -424,7 +424,7 @@ def test_a_grade_metric_beyond_the_bound_is_left_out(tmp_path, capsys, huge):
                                                          "grade.json": {"metrics": {"m1": value}}})
     files["t1__b__m__r1/grade.json"] = b"[" * 100000  # a grade.json too deep to read has no metrics
     _run("compare", str(_batch(tmp_path, "b1", files)), "--baseline", "a", "--metric", "m1", "--json")
-    out = json.loads(capsys.readouterr().out, parse_constant=_no_constant)
+    out = json.loads(capsys.readouterr().out, parse_constant=_no_constant)["data"]
     row = next(r for r in out["comparisons"] if r["measure"] == "metric:m1")
     assert [t["task"] for t in row["tasks"]] == ["t2"]
 

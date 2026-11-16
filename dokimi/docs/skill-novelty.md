@@ -300,7 +300,7 @@ only cells that name the same extractor.
 
 ## Using it as an authoring tool
 
-The commands in order, with the costs and the three free steps that come first, are in
+The commands in order, with the costs and the two free steps that come first, are in
 [skill-novelty-walkthrough.md](skill-novelty-walkthrough.md). This section is the reference
 for what each output means.
 
@@ -397,6 +397,9 @@ the highlight is load-bearing. Three measured constraints ship with it:
 ```bash
 python cli.py skill shorten --artifact skill:path/to/skill --atoms atoms.json --budgets 0.75 0.5
 ```
+
+`skill novelty analyze` scores the same candidates at its `--budgets` unless you pass `--no-shorten`
+(`--tier triage` skips them too).
 
 Never one "retention" number, because a single score hides the one failure that matters. A measured
 example from the study: a candidate at **21% of the original tokens** retained **0.916** of the
@@ -669,12 +672,16 @@ the absence of detectable corruption — not proof that the wordings are faithfu
 ## Can the artifact be selected at all
 
 ```bash
-python cli.py novelty routing --artifact skill:path/to/skill \
+python cli.py skill routing skill:path/to/skill \
     --competitors skill:sibling-a skill:sibling-b ... \
-    --queries queries.json [--model M [--repeats N]]
+    --queries queries.json [--model M [--reps N]]
 ```
 
-`--catalog <dir>` takes the competitors from a skill directory instead: every skill the catalog
+A bare path, as `SKILL` or as a `--competitors` value, is a skill: its directory or `SKILL.md`.
+As `SKILL`, a file that is not a `SKILL.md` is refused; as a competitor it is skipped with a
+warning. Pass `text:PATH` to use a file's text as a candidate.
+
+`--against <dir>` takes the competitors from a skill directory instead: every skill the catalog
 lists except the artifact itself. A `skills.yaml` at the root decides what the catalog lists;
 without one, every `SKILL.md` under it counts, except a `template/` copy and vendored or VCS
 directories such as `.git` and `node_modules`, which are not walked. A byte-identical copy under
@@ -700,18 +707,18 @@ The directory-name check applies to a `skill:` competitor under a `skills/` dire
 (`skills/<dir>/SKILL.md`, `plugins/x/skills/<dir>/SKILL.md`), as it does in a catalog. A `skill:`
 competitor anywhere else is read as a root skill, and its name is not checked against its
 directory: `tools/database/SKILL.md` named `db` is routed when passed explicitly, while a
-`--catalog` scan of its tree leaves it out with a name error. Keep the directory name and the
+`--against` scan of its tree leaves it out with a name error. Keep the directory name and the
 `name` field equal to get the same field from both.
 A name that conflicts with another catalog skill leaves the field, and the error names the directory of each
-copy and suggests `--catalog <dir>` for one of them, or `--keep-copies-under <dir>`. `--keep-copies-under <dir>`
-keeps only the copies under `<dir>`, a directory relative to `--catalog`, and only for a name whose copies differ
+copy and suggests `--against <dir>` for one of them, or `--keep-copies-under <dir>`. `--keep-copies-under <dir>`
+keeps only the copies under `<dir>`, a directory relative to `--against`, and only for a name whose copies differ
 and that have one content under `<dir>`; the others of that name are named on stderr and left out, and the rest of
-the field is unchanged (unlike `--catalog <dir>`, which leaves out every skill outside that directory). A copy of that name outside `<dir>` that fails to load is left out too, with a
+the field is unchanged (unlike `--against <dir>`, which leaves out every skill outside that directory). A copy of that name outside `<dir>` that fails to load is left out too, with a
 note, once a copy under `<dir>` is in the field. An absolute
-path, a path that leaves `--catalog` (`../`), a file, or an empty value is refused with exit 2. A skill directory
+path, a path that leaves `--against` (`../`), a file, or an empty value is refused with exit 2. A skill directory
 directly beneath the catalog (`review/SKILL.md`) is kept by its own name, `--keep-copies-under review`, since
-`--catalog` has no directory to point at for it. A `SKILL.md` in the catalog root itself cannot be picked by
-`--catalog` or `--keep-copies-under`: dedupe or rename it.
+`--against` has no directory to point at for it. A `SKILL.md` in the catalog root itself cannot be picked by
+`--against` or `--keep-copies-under`: dedupe or rename it.
 A `skill:` competitor that is not a `SKILL.md`, or a directory without one, is skipped with a
 warning. A shell glob must be expanded first, with the prefix on each path
 (`skill:dir/a/SKILL.md skill:dir/b/SKILL.md`): an unexpanded `skill:dir/*` is refused as a missing
@@ -725,11 +732,14 @@ others are named on stderr.
 
 `--estimate-only` prints, as JSON, the calls, input and output tokens and the list-price `expected_usd` the
 `--model` arm would make, and makes no model call. Without `--model` the run is lexical and the bill
-is zero. Input is the selection prompt sized at chars / 4, so it is a projection, not a count.
-Output is `output_tokens_per_call` (65) times the calls: the average a measured routing run billed per
-selection call (360 calls drew 23.3k output tokens). The prompt asks for one `{"pick": N}` object, about
-10 tokens, which underestimated that run 6.5 times, so the estimate does not use it. Another model, or a
-reasoning model, can bill more or less.
+is zero. Input is the selection prompt sized at `chars_per_input_token` (2.6) characters per token, counted
+locally with no tokenizer, so it is a projection, not a count. Output is `output_tokens_per_call` (150) times
+the calls: one flat allowance, inside the 114 to 193 tokens a call that Sonnet 5.5 and Haiku 5.5 billed.
+The prompt asks for one `{"pick": N}` object, about 10 tokens, which underestimated a measured run 6.5
+times, so the estimate does not use it. Both allowances come from one measured catalog (35 skills, 90
+queries, Bedrock): with chars / 4 and 65 tokens the estimate was about 1.55x below the bills there. Another
+model, a catalog of other text, or a reasoning model can bill more or less, so read the figure as an
+estimate, not a bound. The command prints both allowances.
 
 Two numbers, reported side by side and never merged:
 
@@ -741,7 +751,7 @@ Two numbers, reported side by side and never merged:
   with the candidate count. It *tends* to it: at five queries the realised rate is a fixed
   offset from `1/N`, so read small query sets as such. `--seed` fixes that card order and
   nothing else: the model's answers are still sampled and can differ between runs, so measure
-  that spread with `--repeats`. Each permutation and the position
+  that spread with `--reps`. Each permutation and the position
   the gold card was shown at are recorded per query. **An abstention counts against
   `selection_rate`** — not picking anything is the routing failure — with
   `selection_rate_among_answered` beside it; a failed call is excluded from both and
@@ -749,7 +759,7 @@ Two numbers, reported side by side and never merged:
   Each abstention or unparseable pick keeps the model's raw reply under
   `per_query[].raw_reply` (the first 2000 characters), so a decline can be read. A reply cut
   at the output ceiling is an abstention too, whether or not its price is known.
-  `--repeats N` asks each query N times with the same card order, so the spread between
+  `--reps N` asks each query N times with the same card order, so the spread between
   repeats is the model's own sampling noise. The result's `noise` block gives each query's
   agreement across its repeats (`per_query`), the selection rate of each repeat, and
   `half_range`, half the gap between the highest and lowest of those rates: a crude noise
@@ -758,9 +768,9 @@ Two numbers, reported side by side and never merged:
   fresh sample, so under `DOKIMI_RESPONSE_CACHE` a repeat is not a
   replay. Repeats need `--model`, and cost N times the calls. With repeats, `n_calls` is
   queries x repeats, `n_abstained` and `n_failed` count calls, and each `per_query` row
-  carries its `repeat` index. In an `--all-vs-all` run each `noise` row also names its `gold`
+  carries its `repeat` index. In a `catalog routing` run each `noise` row also names its `gold`
   skill, since two skills can list the same request. `noise` is always an object: `n_repeats` is the
-  repeat count, and with `--repeats 1` it is 1 with `mean_agreement`, `half_range`, `unstable_queries`
+  repeat count, and with `--reps 1` it is 1 with `mean_agreement`, `half_range`, `unstable_queries`
   and each row's `agreement` null (nothing to agree with), so a reader tests those fields, not `noise`, for null.
 
 A single-artifact `--model` run also writes a `cost` block (calls, input and output tokens, cache read and
@@ -770,14 +780,14 @@ the provider they may or may not be counted inside `input_tokens`. A run without
 no calls and has no `cost` block. `usd` is also `null` when a call returned no usage, and a
 call that raised is not counted. A call replayed from the response cache is counted in
 `replayed_calls` and left out of the token and `usd` totals, since this run did not pay for it;
-`llm_calls` still counts it. `--all-vs-all` writes the same `cost` block over its model arm.
+`llm_calls` still counts it. `catalog routing` writes the same `cost` block over its model arm.
 
 `recall_at_3` comes back `null` with three or fewer candidates, where every rank is `<= 3`
 and the figure would be a structural 1.0. The lexical arm also reports `n_queries_given`
 next to `n_queries_scored`, since a query with no content words is dropped rather than
 counted as a miss.
 
-**All skills against each other.** `novelty routing --all-vs-all --catalog <dir>
+**All skills against each other.** `catalog routing <dir>
 --queries-by-skill queries.json --out routing.json` (add `--model M` for the model arm) makes
 every skill that has queries the gold in turn, routed against the whole field. The file is a
 JSON object of skill name to the requests that should select it, each written without the
@@ -792,16 +802,27 @@ the skills whose queries it took (`from`). Skills whose descriptions have the sa
 (`tied_groups`, named once on the console): a pick between them is in the confusion matrix but
 is no attractor, and a tied skill's own rate is lower by the picks inside its group. Every rate is over the queries that were scored:
 `n_scored` and `n_unscored` per skill say how many, a query with no content word or a failed
-model call is unscored, and a skill with none scored has an own rate of `null`, not 0.0. A run
+model call is unscored, and a skill with none scored has an own rate of `null`, not 0.0. The lexical arm
+also keeps `per_query`, one row per query whatever `--reps` is, in the shape of a single-artifact run's
+`per_query` plus the `gold` skill: `query`, `gold`, `rank` of the gold card and `picked` (`rank` is `null` and
+a `reason` replaces `picked` for a query with no content word). `picked` follows the confusion matrix, so it is
+`(none)` for a query that shares no word with any card and `(tie)` when two or more other cards tie at the top,
+where a single-artifact run names the first card in the field. `rank` and `picked` hold for the row's `gold`
+only, so each row also keeps `scores` (card name to BM25 score, in the order of the field), which do not depend
+on the gold: `rescore_lexical_row(row, gold)` in `dokimi.novelty.all_vs_all` gives `rank` and `picked` for a
+corrected gold, ties included, and keeps a row with no content word unscored. A saved run can be rescored from them for corrected gold labels (one gold per row), split by
+query set half, or compared query by query with another run; scoring a set of acceptable golds per query is not
+shipped (#710). The model arm's rows are `model.noise.per_query` (`query`, `gold`, `picks`, `n_correct`), also kept
+with one repeat. A run
 with any failed model call writes the result and exits non-zero. The saved file records the
 field rule under `field` (`include_disabled`, `include_invalid`, `keep_copies_under`, the `competitors` and what was
 `left_out`, which also names each skill left out for a conflicting name or a spec error, and `spec_warnings`, one
 `{skill, length, limit, message}` per kept skill whose description is over 1024 characters); a single-artifact run
-records it too. An all-vs-all run also lists in `field.dropped_queries` each skill whose queries it dropped, as
+records it too. An all-vs-all result also records `shared_queries` (`{shared, total}`: how many of the queries with a content word are listed for more than one skill), so a file saved from a run on shared queries says so. An all-vs-all run also lists in `field.dropped_queries` each skill whose queries it dropped, as
 `{skill, reasons, keep_flags, queries}`, one record per skill, with each reason `disabled`, `invalid` or `conflict`. A query for a catalog skill
-that failed to load refuses the run and names the load error. It takes no `--artifact`, `--queries` or `--queries-from-headings`. `--estimate-only` prints the calls and the
+that failed to load refuses the run and names the load error. It refuses `--artifact`, `--queries` and `--queries-from-headings`: it takes `--queries-by-skill` only. `--estimate-only` prints the calls and the
 list-price cost of the whole run as JSON, in the shape of a single-artifact estimate, with no client built and
-no query sent; it needs no `--out`. `--repeats` needs `--model`
+no query sent; it needs no `--out`. `--reps` needs `--model`
 and asks each query that many times, as a single-artifact run does: the model arm then carries a
 `noise` block (agreement per query, the rate of each repeat, `half_range`), and its counts are
 calls, one per query per repeat. The model arm also records the selector `model`, so two runs with
@@ -813,18 +834,20 @@ it is more likely a typo. Missing `--queries-by-skill` and `--out` are reported 
 
 **Cost of `--model` in all-vs-all.** The model arm makes one selector call per query and repeat,
 across every skill in the field: the call count is the number of queries in `queries.json` that have a
-content word (one without is unscored in both arms and not sent) times `--repeats`, and a failed call still counts. Each call sends the whole field's cards, so a large field costs
+content word (one without is unscored in both arms and not sent) times `--reps`, and a failed call still counts. Each call sends the whole field's cards, so a large field costs
 more per call as well as in calls. Before the first call the run prints that count to stderr
 (`all-vs-all: --model makes N model calls, one per query and repeat, ...`). The run does not pause for it,
 so count the queries first, or pass `--max-usd` to stop the run at a spend limit. A lexical-only run (no `--model`) makes no model calls.
 A stored response in `DOKIMI_RESPONSE_CACHE` is replayed without a call, so a rerun can make
 fewer calls than the printed count.
 
-**A routing run stopped by `--max-usd` keeps what it paid for.** `novelty routing --model`, single
-artifact or `--all-vs-all`, writes the result of the calls made before the cap (or a call with no
+**A permanent provider error that every call would meet stops a routing run the way the cap does.** An authentication or permission error, an unknown model ID (`not found`), a parameter the provider does not take (every call sends the same ones) or missing credentials (with `claude-cli`: not logged in, a usage limit, no `claude` binary; with AWS: "Unable to locate credentials", a missing config profile or an expired SSO session, whichever class litellm wraps it in) would fail every later call alike, so the run stops at that call, keeps the rows made before it and writes the partial result below, with `"reason": "permanent_error"` and the error text as the message (`--max-usd` is not involved; the exit line gives `calls_done` of `calls_planned`). Any other failure is one failed row and the run goes on: a refusal, a request one query makes too long, an unparseable reply, an error the client does not recognise, a transient error that ran out of retries. `skill novelty atoms`, `probe` and `analyze` and `skill shorten` stop the same way at the first such error in an atom extraction call, the faithfulness check, a probe wording, an answer, a grade, a value or conflict batch or a retention adjudication, and keep what they paid for as they do at the cap, with `"reason": "permanent_error"`; a refusal, an unparseable reply or a request one item makes too long is still one failed item.
+
+**A routing run stopped by `--max-usd` keeps what it paid for.** `skill routing --model`, single
+artifact or `catalog routing`, writes the result of the calls made before the cap (or a call with no
 known price) stopped it, prints the summary and `cost` lines, and still exits non-zero with the
 cap message and the path of the file. The file carries
-`"partial": {"reason": "spend_cap", "calls_done": N, "calls_planned": M, "message": ...}` at the
+`"partial": {"reason": "spend_cap", "calls_done": N, "calls_planned": M, "message": ...}` (`"permanent_error"` for the stop above, `"no_price"` for an unpriced call) at the
 top level (and under the model arm), and no `partial` key when the run finished. The record's
 `status` is then `"partial"` instead of `"ok"` (a single run; an all-vs-all file carries `status`
 only when partial), so a script that checks `status == "ok"` does not take a prefix of the run for
@@ -846,15 +869,16 @@ between repeats keeps its picks but is left out of `noise`. The lexical arm is c
 Treat a `partial` file as a prefix of the run, not a measurement of the whole field: the skills
 and queries reached first are over-represented. To finish, raise `--max-usd` and rerun with
 `DOKIMI_RESPONSE_CACHE` set (it must also have been set on the capped run), which replays the
-calls already paid for at no cost. `skill shorten` still writes nothing when the cap stops it;
-`atoms`, `probe` and `analyze` keep the calls they made as a partial result.
+calls already paid for at no cost. `skill shorten` still writes nothing when the cap stops it
+(it keeps its verdicts in `--cache-dir`, below); `atoms`, `probe` and `analyze` keep the calls they made as a partial result.
 
 Three properties worth knowing before quoting either:
 
 - **Competitors are mandatory.** The existing `skill-agent:` arm offers one skill, which
   makes selection a binary did-it-load question. The real failure is picking the wrong
-  *sibling*: measured lexically over the 33-skill corpus, every `dpnp-*` skill scored
-  **0.0** recall@1 against its siblings.
+  *sibling*. Siblings built from one template have identical heading queries, so heading-query
+  recall@1 at the family level measures the template; check sibling confusion with queries
+  written independently of the skills.
 - **The queries must come from outside the artifact**, or it defines both the problem scope
   and its own relevance. `--queries-from-headings` exists for triage, warns, and stamps
   `queries_self_derived: true` into the result; corpus-wide those self-derived queries gave
@@ -905,6 +929,14 @@ python cli.py skill novelty probe --artifact skill:s --atoms atoms.json --model 
 python cli.py skill novelty probe --artifact skill:s --atoms atoms.json --model M3 --out m3.json
 python cli.py skill novelty items --probes m1.json m2.json m3.json
 ```
+
+**Program checks.** An atom may carry `meta.grading`, the `grading.checks` block of
+[reference checks](answer-formats.md); every probe built from it except the reversal gets it,
+and its non-judge checks run on each answer next to the judge. `skill novelty ground --atoms
+atoms.json --tool "perf report"` writes one such check: a veto that fails an answer naming a
+`perf report --flag` the tool's own `--help` does not list. The judge's verdict is kept on
+each checked run and the record's `checks` block counts how often the judge passed an answer
+a veto failed. Design and evidence: [grading-tiers.md](grading-tiers.md).
 
 Three **distinct models** is the minimum; below that — including three runs of one model,
 which are repeated measurements of one respondent — the command says the statistic is not
@@ -1122,8 +1154,8 @@ the cap stops the run).
 A partial file is for inspection; rerun to get a finished one.
 `analyze` does the same beside its `novelty.json` (`<out stem>.partial.json`, never over a
 finished file; the `--out` file, `novelty.json` in `--out-dir` by default). Its partial file has
-`"status": "partial"` and a `partial` block: `reason` (`spend_cap`, or `no_price` for a call with
-no known price), `stage` (`extraction`, `verify`, `need_graph`, `probes`, `measurement`, `classify`
+`"status": "partial"` and a `partial` block: `reason` (`spend_cap`, `no_price` for a call with
+no known price, or `permanent_error`), `stage` (`extraction`, `verify`, `need_graph`, `probes`, `measurement`, `classify`
 or `attribution`: the stage that was running), `message`, `cause` (the cap's own text, with what was
 spent), and `spans_read` / `spans_total` for an extraction stop or `calls_done` / `calls_planned`
 (probe answers) once the measurement started. It keeps the `extracted_atoms` and `source_spans`
@@ -1142,7 +1174,11 @@ with `status: "partial"` but no `partial` block is refused too, and so is saving
 chosen, as a finished record does, and every extracted atom for a stop in extraction (`atoms.sampling`
 is then `none`, and `run_config` holds the settings of the run but not its tier). A library caller of
 `dokimi.novelty.analyze()` checks `result.partial` before it saves `result.artifact`.
-`shorten` still loses its work at the cap (a follow-up). Before its first paid
+`shorten` writes no candidate table and
+no `--out` file at the cap (a table scored on part of the verdicts would read as a result), but each
+retention verdict is stored in `--cache-dir` the moment it is adjudicated: the exit message names how many verdicts are stored (or, without `--cache-dir`, were adjudicated) and,
+with `--cache-dir`, that a rerun with a higher `--max-usd` and the same `--cache-dir` replays them at $0; without it, that
+`--cache-dir <dir>` would have kept them, or, with `DOKIMI_RESPONSE_CACHE` set to a writable directory, that the paid calls are in the response cache and a rerun replays them at $0. After a `no_price` stop (a model with no known price) the call that came back was paid for but its verdict is not stored, and the message says so. Before its first paid
 call `analyze` prints the run's expected cost at list prices to stderr.
 
 The estimate payload has `expected_calls`, the point figure between
@@ -1297,11 +1333,11 @@ And the retention oracle runs retrieval → NLI locally, escalating to an LLM on
 ambiguous band, with a disk cache (`--cache-dir`) keyed on (atom, text). Full sweeps stay opt-in
 (`--all-atoms`).
 
-The cache key carries a version (`retention-cache-v4`). Entries written before failed
+The cache key carries a version (`retention-cache-v5`). Entries written before failed
 adjudications were kept out of the cache can hold a failure stored as `absent`, entries written
 before a hedged verdict (`retained?`) counted as no verdict can hold it stored as `retained`, and
 entries written before a reply cut at the output ceiling was an error can hold a verdict parsed
-from a truncated reply; all of them look like real ones, so none of them is read. The old files stay in `--cache-dir` and can be deleted. The
+from a truncated reply, and entries written by a `--lexical-only` run can hold its ambiguous-band placeholder stored as `absent`; all of them look like real ones, so none of them is read. The old files stay in `--cache-dir` and can be deleted. The
 first run after upgrading therefore pays one adjudication call per pair the old cache held, unless
 `DOKIMI_RESPONSE_CACHE` replays it, but the response-cache key carries `max_tokens`, and novelty
 calls now send 16384 where they sent none, so those entries miss too.

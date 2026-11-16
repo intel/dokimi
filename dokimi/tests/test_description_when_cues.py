@@ -1,0 +1,345 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+"""The ``description-no-when`` check reads the "when" cue of each language, not English only (A10)."""
+
+from __future__ import annotations
+
+import pytest
+
+from dokimi.external import read_skill_manifest, review_skills
+from dokimi.external.validate import when_clause_found
+
+# Real-looking descriptions: a native "when" clause, the way a skill author writes it in that language.
+HAS_WHEN = [
+    pytest.param("生成发布说明。当用户要求写 release notes 时使用。", id="zh-dang-shi"),
+    pytest.param("提交代码前执行检查。何时使用：准备 PR 时。", id="zh-heshi"),
+    pytest.param("提交代码前执行检查。使用场景：准备 PR 时。", id="zh-shiyong-changjing-colon"),
+    pytest.param("Използвай, когато има релийз.", id="bg-kogato"),
+    pytest.param("Verwende dies beim Erstellen eines Release.", id="de-beim"),
+    pytest.param("用户提到某公司财报分析。", id="zh-yonghu-tidao"),
+    pytest.param("审查 Python 代码的安全问题，适用于代码审查场景。", id="zh-shiyong-yu"),
+    pytest.param("帮助撰写技术文档，在需要编写 README 的时候调用。", id="zh-de-shihou"),
+    pytest.param("数据库迁移助手。用户说要迁移数据库时触发。", id="zh-shi-chufa"),
+    pytest.param("报告助手。用户说要生成报告就调用。", id="zh-yonghu-shuo-alone"),
+    pytest.param("解析报告。用户说要生成报告。", id="zh-yonghu-shuo-bare-cue"),
+    pytest.param("報告助手。用戶說要生成報告就調用。", id="zh-hant-yonghu-shuo"),
+    pytest.param("リリースノートを作成します。新しいタグを作る時に使用してください。", id="ja-toki-ni"),
+    pytest.param("CI の失敗を分析します。ビルドが落ちた場合に使う。", id="ja-baai"),
+    pytest.param("Dockerfile を最適化します。ビルドが遅いとき。", id="ja-toki"),
+    pytest.param("ビルド時は警告します。", id="ja-build-toki-wa"),
+    pytest.param("設定時に使用します。", id="ja-settei-ji-ni"),
+    pytest.param("異常時に通知するスキル。", id="ja-ijou-ji-ni"),
+    pytest.param("非常時に動くスキル。", id="ja-hijou-ji-ni"),
+    pytest.param("固定時に使う。", id="ja-kotei-ji-ni"),
+    pytest.param("一定時に実行するツールです。", id="ja-ittei-ji-ni"),
+    pytest.param("ある時に使う。Git 履歴を整理するツールです。", id="ja-aru-toki-ni"),
+    pytest.param("エラーが出た時は再実行してください。", id="ja-deta-toki-wa"),
+    pytest.param("코드 리뷰를 수행합니다. PR 리뷰를 요청받을 경우 사용하세요.", id="ko-gyeongu"),
+    pytest.param("배포 스크립트를 작성합니다. 릴리스가 필요할 때 사용합니다.", id="ko-ttae"),
+    pytest.param("배포를 수행합니다. 실패할 경우 롤백을 요청하세요.", id="ko-gyeongu-hal-gyeongu"),
+    pytest.param("GAS の一覧を取得する。「GAS 一覧」「スクリプト一覧」などで起動。", id="ja-de-kidou"),
+    pytest.param("Genera notas de versión. Úsalo cuando se publique una versión.", id="es-cuando"),
+    pytest.param("배포를 수행합니다. 트리거: 새 태그 생성.", id="ko-tritgeo-colon"),
+    pytest.param("새 태그가 트리거되면 배포합니다.", id="ko-tritgeo-doemyeon"),
+    pytest.param("배포를 수행합니다. 트리거 조건: 새 태그 생성.", id="ko-tritgeo-label"),
+    pytest.param("Génère des notes de version. À utiliser quand une release est prête.", id="fr-quand"),
+    pytest.param("Erstellt Release-Notizen. Verwende dies, wenn ein Release ansteht.", id="de-wenn"),
+    pytest.param("Gera notas de versão. Use quando uma versão for publicada.", id="pt-quando"),
+    pytest.param("Пишет отчёты о релизе. Используйте, когда нужно подготовить релиз.", id="ru-kogda"),
+    pytest.param("Пишет отчёты, коли выходит релиз.", id="ru-koli"),
+    pytest.param("Пишет отчёты всякий раз при публикации релиза.", id="ru-vsyakiy-raz"),
+    pytest.param("Пишет отчёты каждый раз после публикации.", id="ru-kazhdy-raz"),
+    pytest.param("Пишет отчёты при запуске сборки.", id="ru-pri-zapuske"),
+    pytest.param("Genera informes cuándo se publica una versión.", id="es-cuando-accent"),
+    pytest.param("Genera informes siempre que haya cambios.", id="es-siempre-que"),
+    pytest.param("Genera informes cada vez que se publica una versión.", id="es-cada-vez-que"),
+    pytest.param("Genera informes en caso de fallo del build.", id="es-en-caso-de"),
+    pytest.param("Genera informes al usar esta herramienta.", id="es-al-usar"),
+    pytest.param("Génère des notes lorsqu'une version est prête.", id="fr-lorsque"),
+    pytest.param("Utilisez ceci dès que le build échoue.", id="fr-des-que"),
+    pytest.param("Utilisez ceci chaque fois que le build échoue.", id="fr-chaque-fois-que"),
+    pytest.param("Utilisez ceci en cas de panne du build.", id="fr-en-cas-de"),
+    pytest.param("Utilisez ceci lors de la publication d'une version.", id="fr-lors-de"),
+    pytest.param("Verwende dies sobald ein Release ansteht.", id="de-sobald"),
+    pytest.param("Verwende dies immer dann bei jedem Release.", id="de-immer-dann"),
+    pytest.param("Gere relatórios sempre que houver uma versão.", id="pt-sempre-que"),
+    pytest.param("Gere relatórios cada vez que uma versão sair.", id="pt-cada-vez-que"),
+    pytest.param("Gere relatórios em caso de falha no build.", id="pt-em-caso-de"),
+    pytest.param("Use ao executar a publicação de uma versão.", id="pt-ao-executar"),
+    pytest.param("エラーが発生したときには、このスキルを使います。", id="ja-toki-ni-wa-after-verb"),
+    pytest.param("デプロイ時には、このスキルを使います。", id="ja-ji-ni-wa-after-noun"),
+    pytest.param("배포 시 사용하는 스킬입니다.", id="ko-noun-si-deploy"),
+    pytest.param("커밋 시 실행합니다.", id="ko-noun-si-commit"),
+    pytest.param("구매 시 영수증을 발행합니다.", id="ko-noun-si-purchase"),
+    pytest.param("판매 시 재고를 갱신합니다.", id="ko-noun-si-sale"),
+    pytest.param("需要生成报告时，请使用本技能。", id="zh-shi-comma-qing-shiyong"),
+    pytest.param("在用户提交代码时运行检查。", id="zh-shi-yunxing"),
+    pytest.param("当条件合适时调用此工具。", id="zh-dang-closing-heshi"),
+    pytest.param("当CPU使用率超过警戒水平时触发告警。", id="zh-dang-closing-shuiping"),
+    pytest.param("适用于负载超过水平时的告警。", id="zh-shiyong-shuiping"),
+    pytest.param("当文件较小时跳过压缩。", id="zh-dang-closing-jiaoxiao"),
+    pytest.param("适用于数据量较小时的工具。", id="zh-shiyong-jiaoxiao"),
+    pytest.param("適用於負載超過水平時的告警。", id="zh-trad-shiyong-shuiping"),
+    pytest.param("当仓库中没有时自动创建目录。", id="zh-dang-closing-meiyou"),
+    pytest.param("当新版本来临时自动升级。", id="zh-dang-closing-lailin"),
+    pytest.param("배포 스크립트입니다. 필요한 때 사용합니다.", id="ko-piryohan-ttae"),
+]
+
+# No "when" clause in the language's own words; also the wording a bare cue would wrongly accept.
+NO_WHEN = [
+    pytest.param("生成发布说明和变更日志，支持多种格式。", id="zh-plain"),
+    pytest.param("使用这个工具可以生成图表和报告。", id="zh-shiyong-alone"),
+    pytest.param("用于生成 API 文档的命令行工具。", id="zh-yongyu-alone"),
+    pytest.param("当前项目的依赖分析工具。", id="zh-dangqian-not-when"),
+    pytest.param("コードを整形するツールです。使用する言語は Python と Go です。", id="ja-plain"),
+    pytest.param("実際にデータを変換します。", id="ja-jissai-not-sai"),
+    pytest.param("任意のタイミングでの自動圧縮ではなく、手動で行う。", id="ja-taimingu-not-when"),
+    pytest.param("ときどきエラーを直す補助ツールです。", id="ja-tokidoki-not-toki"),
+    pytest.param("그때그때 빌드 결과를 정리합니다.", id="ko-geuttae-not-ttae"),
+    pytest.param("한때 사용되던 API를 최신 버전으로 마이그레이션하는 도구입니다.", id="ko-hanttae-not-ttae"),
+    pytest.param("当前项目支持按时间排序的依赖分析工具。", id="zh-dangqian-shijian-not-when"),
+    pytest.param("Formats output and falls back to plain text on error.", id="en-falls-not-german-falls"),
+    pytest.param("相当于一个代码格式化工具，支持实时预览。", id="zh-xiangdang-shishi-not-when"),
+    pytest.param("用户说明生成的报告格式，并输出 JSON。", id="zh-yonghu-shuoming-not-when"),
+    pytest.param("ビルドの場合によっては失敗するツールです。", id="ja-baai-niyotte-not-when"),
+    pytest.param("いつか使えるように整理したライブラリです。", id="ja-itsuka-not-when"),
+    pytest.param("모든 경우에 적용되는 린터입니다.", id="ko-modeun-gyeongu-not-when"),
+    pytest.param("보고서를 생성하는 도구입니다. 때로는 오류를 출력합니다.", id="ko-ttaeroneun-not-when"),
+    pytest.param("현대 시 작품을 번역합니다.", id="ko-si-poem-not-when"),
+    pytest.param("매 시 정각에 백업합니다.", id="ko-si-hour-not-when"),
+    pytest.param("国際化対応の文字列を抽出します。", id="ja-kokusai-not-sai"),
+    pytest.param("배포를 자동화하는 도구입니다. 파이프라인을 구성합니다.", id="ko-plain"),
+    pytest.param("오류가 많기 때문에 도구를 만들었습니다.", id="ko-ttaemun-not-ttae"),
+    pytest.param("많은 경우에 유용한 도구입니다.", id="ko-manheun-gyeongu-not-when"),
+    pytest.param("该工具用于恰当地处理数据，并在执行时输出日志。", id="zh-qiadang-cross-clause-not-when"),
+    pytest.param("适合各种场合的文档生成工具。", id="zh-changhe-not-when"),
+    pytest.param("提供实时调用接口的数据服务工具。", id="zh-shishi-diaoyong-not-when"),
+    pytest.param("该工具应当在部署时检查配置。", id="zh-yingdang-not-when"),
+    pytest.param("用户要求的格式可配置。", id="zh-yonghu-yaoqiu-de-not-when"),
+    pytest.param("支持同时使用多个模型的代码生成工具。", id="zh-tongshi-shiyong-not-when"),
+    pytest.param("同时调用多个 API 的封装库。", id="zh-tongshi-diaoyong-not-when"),
+    pytest.param("定时调用接口的监控工具。", id="zh-dingshi-diaoyong-not-when"),
+    pytest.param("支持多种使用场景的格式工具。", id="zh-shiyong-changjing-noun-not-when"),
+    pytest.param("요청 시스템을 구축합니다.", id="ko-yeongcheong-siseutem-not-when"),
+    pytest.param("ブラウザで起動するビューアです。", id="ja-browser-kidou-not-when"),
+    pytest.param("该工具在当天的备份后执行清理。", id="zh-dangtian-not-when"),
+    pytest.param("用户说的格式可配置。", id="zh-yonghu-shuo-de-not-when"),
+    pytest.param("解析用户请求数据并输出 JSON。", id="zh-yonghu-qingqiu-noun-not-when"),
+    pytest.param("该工具用于临时使用的文档生成。", id="zh-linshi-shiyong-not-when"),
+    pytest.param("有时调用此工具生成报告。", id="zh-youshi-diaoyong-not-when"),
+    pytest.param("トリガーを設定して通知するツールです。", id="ja-torigaa-noun-not-when"),
+    pytest.param("当今时代的数据分析工具。", id="zh-dangjin-not-when"),
+    pytest.param("分析当季数据，同时生成报告。", id="zh-dangji-tongshi-not-when"),
+    pytest.param("统计当月销售额，同时输出图表。", id="zh-dangyue-tongshi-not-when"),
+    pytest.param("分析当季数据同时生成报告。", id="zh-dangji-tongshi-no-comma-not-when"),
+    pytest.param("ファイルを瞬時に変換するスキル。", id="ja-shunji-ni-not-when"),
+    pytest.param("データを即時に集計します。", id="ja-sokuji-ni-not-when"),
+    pytest.param("ログを定時に整理します。", id="ja-teiji-ni-not-when"),
+    pytest.param("常時に監視します。", id="ja-jouji-ni-not-when"),
+    pytest.param("보고서를 만듭니다. 때때로 사용하세요.", id="ko-ttaettaero-not-when"),
+    pytest.param("Génère des notes de version quand même.", id="fr-quand-meme-not-when"),
+    pytest.param("用户提到的文件路径会被解析。", id="zh-yonghu-tidao-noun-not-when"),
+    pytest.param("适用于 Python 项目的格式化工具。", id="zh-shiyong-yu-scope-not-when"),
+    pytest.param("いつの間にか動く。", id="ja-itsunoma-not-when"),
+    pytest.param("适用于所有时间段的工具。", id="zh-shiyong-yu-shijianduan-not-when"),
+    pytest.param("用于处理用户请求时间序列数据的工具。", id="zh-yonghu-qingqiu-shijian-not-when"),
+    pytest.param("任何时候都可以用这个工具。", id="zh-renhe-shihou-not-when"),
+    pytest.param("适时使用本工具整理笔记。", id="zh-shi-shiyong-not-when"),
+    pytest.param("ほとんどの場合、このツールは正常に動作します。", id="ja-hotondo-no-baai-not-when"),
+    pytest.param("当作文档生成工具，支持按时输出。", id="zh-dangzuo-not-when"),
+    pytest.param("様々なシーンで使える整形ツールです。", id="ja-scene-usable-not-when"),
+    pytest.param("Genera informes de publicación a partir de registros.", id="es-plain"),
+    pytest.param("Génère des notes de version à partir de l'historique.", id="fr-plain"),
+    pytest.param("Erzeugt Release-Notizen aus dem Git-Verlauf.", id="de-plain"),
+    pytest.param("Gera notas de versão a partir do histórico.", id="pt-plain"),
+    pytest.param("Создаёт отчёты о релизах из логов.", id="ru-plain"),
+    pytest.param("Выпускает сборки, которые когда-нибудь понадобятся.", id="ru-kogda-nibud-not-when"),
+    pytest.param("いつまでも使えるツールです。", id="ja-itsumade-not-when"),
+    pytest.param("交際相手の情報を整理するツールです。", id="ja-kousai-not-sai"),
+    pytest.param("時には失敗するが、通常は動作します。", id="ja-tokini-wa-not-when"),
+    pytest.param("ある時は動かないツールです。", id="ja-aru-toki-wa-not-when"),
+    pytest.param("一時は失敗したが、今は動きます。", id="ja-ichiji-wa-not-when"),
+    pytest.param("平時は通常通りに動作するツールです。", id="ja-heiji-wa-not-when"),
+    pytest.param("一時に複数のファイルを処理します。", id="ja-ichiji-ni-not-when"),
+    pytest.param("平時に動くが、負荷は小さいツールです。", id="ja-heiji-ni-not-when"),
+    pytest.param("Genera informes de vez en cuando.", id="es-vez-en-cuando-not-when"),
+    pytest.param("Gera relatórios de vez em quando.", id="pt-vez-em-quando-not-when"),
+    pytest.param("充当代码格式化工具，并在执行时输出日志。", id="zh-chongdang-shi-not-when"),
+    pytest.param("条件式の場合分けを整理するツールです。", id="ja-baai-wake-not-when"),
+    pytest.param("ひときわ読みやすいドキュメントを作成するツールです。", id="ja-hitokiwa-not-when"),
+    pytest.param("PostgreSQL 트리거를 생성하고 관리하는 도구입니다.", id="ko-tritgeo-noun-not-when"),
+    pytest.param("每天准时运行备份任务。", id="zh-zhunshi-not-when"),
+    pytest.param("在项目当中定时清理缓存。", id="zh-dang-zhong-dingshi-not-when"),
+    pytest.param("このツールは時には失敗します。", id="ja-toki-ni-wa-adverb-after-wa"),
+    pytest.param("彼はときには休む。", id="ja-toki-ni-wa-adverb-after-ha"),
+    pytest.param("当用户提交代码后定时清理缓存。", id="zh-dang-closing-dingshi-not-when"),
+    pytest.param("彼もときには休む。", id="ja-toki-ni-wa-adverb-after-mo"),
+    pytest.param("彼がときには休む。", id="ja-toki-ni-wa-adverb-after-ga"),
+    pytest.param("이때 로그를 정리하는 도구입니다.", id="ko-ittae-this-time-not-when"),
+    pytest.param("서울 시 공공데이터를 수집하는 도구입니다.", id="ko-seoul-si-place-not-when"),
+    pytest.param("适用于实时数据处理的工具。", id="zh-shi-shi-realtime-not-when"),
+    pytest.param("適用於實時數據處理的工具。", id="zh-trad-shi-shi-realtime-not-when"),
+    pytest.param("場合の数を数えるツールです。", id="ja-baai-no-kazu-not-when"),
+    pytest.param("用户请求日志并生成报表的工具。", id="zh-qingqiu-rizhi-not-when"),
+    pytest.param("当用户提交代码后准时清理缓存。", id="zh-zhunshi-closing-not-when"),
+    pytest.param("每小时运行备份。", id="zh-xiaoshi-closing-not-when"),
+    pytest.param("이 때 로그를 정리하는 도구입니다.", id="ko-i-ttae-not-when"),
+    pytest.param("当用户提交代码后即时清理缓存。", id="zh-dang-closing-jishi-not-when"),
+    pytest.param("当用户提交代码后小时清理缓存。", id="zh-dang-closing-xiaoshi-hour-not-when"),
+    pytest.param("當用戶提交代碼後準時清理緩存。", id="zh-trad-dang-closing-zhunshi-not-when"),
+    pytest.param("用戶請求日誌並生成報表的工具。", id="zh-trad-yonghu-qingqiu-rizhi-not-when"),
+    pytest.param("解析用户请求头并输出结果。", id="zh-yonghu-qingqiu-tou-not-when"),
+    pytest.param("统计用户请求量的工具。", id="zh-yonghu-qingqiu-liang-not-when"),
+    pytest.param("适用于即时通讯的工具。", id="zh-shi-jishi-not-when"),
+    pytest.param("適用於即時通訊的工具。", id="zh-trad-shi-jishi-not-when"),
+    pytest.param("适用于定时任务的调度工具。", id="zh-shi-dingshi-not-when"),
+    pytest.param("适用于时序数据分析的工具。", id="zh-shi-shixu-not-when"),
+    pytest.param("适用于时代背景的分析工具。", id="zh-shi-daibei-not-when"),
+]
+
+
+@pytest.mark.parametrize("description", HAS_WHEN)
+def test_a_native_when_cue_is_accepted(description):
+    assert when_clause_found(description) is True
+
+
+@pytest.mark.parametrize("description", NO_WHEN)
+def test_a_description_without_a_when_cue_is_flagged(description):
+    assert when_clause_found(description) is False
+
+
+@pytest.mark.parametrize(
+    "description",
+    [
+        pytest.param("يساعد في كتابة ملاحظات الإصدار من السجل.", id="arabic"),
+        pytest.param("ช่วยเขียนบันทึกการเผยแพร่จากประวัติ", id="thai"),
+        pytest.param("מסייע בכתיבת הערות שחרור מתוך היסטוריית הקוד.", id="hebrew"),
+    ],
+)
+def test_a_script_no_cue_list_covers_is_not_checked(description):
+    assert when_clause_found(description) is None
+
+
+def test_an_english_when_clause_still_passes_in_a_cjk_description():
+    assert when_clause_found("发布说明生成器。Use when a release is cut.") is True
+
+
+def test_a_cjk_skill_without_a_cue_gets_the_warning_end_to_end(tmp_path):
+    skill_dir = tmp_path / "skills" / "release"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: release\ndescription: 生成发布说明和变更日志，支持多种格式。\n---\n# Body\n",
+        encoding="utf-8",
+    )
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert [f.code for f in review.findings] == ["description-no-when"]
+
+
+def test_a_cjk_skill_with_a_native_cue_gets_no_warning_end_to_end(tmp_path):
+    skill_dir = tmp_path / "skills" / "release"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: release\ndescription: 生成发布说明。当用户要求写发布说明时使用。\n---\n# Body\n",
+        encoding="utf-8",
+    )
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert "description-no-when" not in [f.code for f in review.findings]
+
+
+@pytest.mark.parametrize(
+    "description",
+    [
+        pytest.param("يساعد في كتابة ملاحظات الإصدار من السجل.", id="arabic"),
+        pytest.param("ช่วยเขียนบันทึกการเผยแพร่จากประวัติ", id="thai"),
+        pytest.param("מסייע בכתיבת הערות שחרור מתוך היסטוריית הקוד.", id="hebrew"),
+    ],
+)
+def test_a_script_no_cue_list_covers_gets_no_warning_end_to_end(tmp_path, description):
+    skill_dir = tmp_path / "skills" / "release"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        f"---\nname: release\ndescription: {description}\n---\n# Body\n",
+        encoding="utf-8",
+    )
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert "description-no-when" not in [f.code for f in review.findings]
+
+
+@pytest.mark.parametrize(
+    "description",
+    [
+        pytest.param("يساعد في كتابة ملاحظات الإصدار من السجل.", id="arabic"),
+        pytest.param("ช่วยเขียนบันทึกการเผยแพร่จากประวัติ", id="thai"),
+        pytest.param("מסייע בכתיבת הערות שחרור מתוך היסטוריית הקוד.", id="hebrew"),
+    ],
+)
+def test_a_script_no_cue_list_covers_is_reported_as_not_checked(tmp_path, description):
+    # "not checked" must not read as a pass: the review says so with a note, and no warning.
+    skill_dir = tmp_path / "skills" / "release"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        f"---\nname: release\ndescription: {description}\n---\n# Body\n",
+        encoding="utf-8",
+    )
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert [(f.level, f.code) for f in review.findings] == [("note", "description-when-not-checked")]
+
+
+def test_a_cue_found_description_gets_no_not_checked_note(tmp_path):
+    skill_dir = tmp_path / "skills" / "release"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: release\ndescription: 生成发布说明。当用户要求写发布说明时使用。\n---\n# Body\n",
+        encoding="utf-8",
+    )
+    [review] = review_skills(read_skill_manifest(tmp_path))
+    assert "description-when-not-checked" not in [f.code for f in review.findings]
+
+
+def test_an_english_when_clause_passes_in_a_script_no_cue_list_covers():
+    assert when_clause_found("Δημιουργεί αναφορές. Use when needed.") is True
+
+
+def test_a_lint_note_row_still_reads_ok(capsys):
+    # A lint note on a checked skill is no "not checked" note: the row still says ok.
+    from dokimi.commands.catalog_scan import print_skill_row
+
+    row = {
+        "name": "release", "manifest_status": None, "path": "skills/release/SKILL.md", "state": "ok",
+        "error": None, "disable_model_invocation": False, "nested_in": None,
+        "findings": [{"level": "note", "code": "script-lint", "message": "bundled-script lint: shellcheck 1"}],
+    }
+    print_skill_row(row)
+    assert capsys.readouterr().out.splitlines()[0].split("\t")[-1] == "ok"
+
+
+def test_a_note_only_row_does_not_read_ok(capsys):
+    # A skill the check did not read (a note, not a pass) must not print the state "ok".
+    from dokimi.commands.catalog_scan import print_skill_row
+
+    row = {
+        "name": "release", "manifest_status": None, "path": "skills/release/SKILL.md", "state": "ok",
+        "error": None, "disable_model_invocation": False, "nested_in": None,
+        "findings": [{"level": "note", "code": "description-when-not-checked", "message": "not checked"}],
+    }
+    print_skill_row(row)
+    first = capsys.readouterr().out.splitlines()[0]
+    assert first.split("\t")[-1] == "note: not checked"
+
+
+@pytest.mark.parametrize("per_skill", [False, True], ids=["catalog", "per-skill"])
+def test_the_counts_line_does_not_read_a_not_checked_skill_as_a_plain_ok(tmp_path, capsys, per_skill):
+    # The row says "note:", so the header must not count the same skill as a plain pass either.
+    from dokimi.cli import build_parser
+
+    skill_dir = tmp_path / "skills" / "release"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: release\ndescription: ช่วยเขียนบันทึกการเผยแพร่จากประวัติ\n---\n# Body\n", encoding="utf-8",
+    )
+    argv = ["catalog", "check", "--root", str(tmp_path), "--kind", "skills"] + (["--per-skill"] if per_skill else [])
+    args = build_parser().parse_args(argv)
+    args.func(args)
+    header = capsys.readouterr().out.splitlines()[0]
+    assert "; 1 ok (1 not checked), 0 warn, 0 error" in header

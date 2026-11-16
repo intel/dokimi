@@ -74,6 +74,16 @@ def test_deep_nesting_is_a_parse_error_not_a_crash() -> None:
         assert isinstance(got, kind)
 
 
+@pytest.mark.parametrize("text", ["[" * 100000, "```json\n" + "[" * 100000 + "\n```"])
+@pytest.mark.parametrize("extract_name", ["extract_json_object", "extract_json_array"])
+def test_a_bare_deep_reply_is_a_parse_error_not_a_crash(extract_name: str, text: str) -> None:
+    # No prose before the nesting, bare or fenced: the direct and fence parses are the ones that recurse.
+    from dokimi import llm_json
+
+    with pytest.raises(ValueError):
+        getattr(llm_json, extract_name)(text)
+
+
 def test_a_date_that_is_not_real_is_invalid_frontmatter() -> None:
     # PyYAML raises a plain ValueError for 2026-02-30: the lenient reader reads no metadata,
     # and the strict one raises the YAML error its docstring names.
@@ -163,6 +173,86 @@ def test_parse_json_contains_finds_a_value_after_a_start_too_deep_to_decode() ->
 
     # The first "[" runs into the decoder's depth limit; the object after it is still the first JSON found.
     assert parse_json('[ {"a": 1}, ' + "[1," * 10000, contains=True) == (True, {"a": 1})
+
+
+def test_parse_json_contains_bounds_the_characters_failed_tries_scan(monkeypatch: pytest.MonkeyPatch) -> None:
+    import json
+
+    from dokimi.eval import reference_checks
+    from dokimi.eval.reference_checks import CONTAINS_JSON_MAX_SCAN, parse_json
+
+    calls: list[int] = []
+    real = json.JSONDecoder.raw_decode
+
+    def spy(self: json.JSONDecoder, s: str, idx: int = 0) -> tuple[object, int]:
+        calls.append(idx)
+        return real(self, s, idx)
+
+    monkeypatch.setattr(reference_checks.json.JSONDecoder, "raw_decode", spy)
+    # 900 brackets, then a tail every try parses to its end before it fails.
+    assert parse_json("[" * 900 + "1," * 100000, contains=True) == (False, None)
+    # Each failed try scans the 200000-character tail: the budget allows 1 + CONTAINS_JSON_MAX_SCAN // 200000 + 1 of them.
+    assert len(calls) <= 1 + CONTAINS_JSON_MAX_SCAN // 200000 + 1
+    calls.clear()
+    # A value after a start that failed late, within the budget, is still found.
+    text = "[ " + "1," * 1000 + ' {"a": 1} ' + "[1,"
+    assert parse_json("[ " * 3 + '{"a": [1, 2]}' + " [1," * 100, contains=True) == (True, {"a": [1, 2]})
+    assert parse_json(text, contains=True) == (True, {"a": 1})
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "[" * 900 + "1" * 200000,  # int() refuses the digits: a ValueError without a position
+        "[" * 900 + '"' + "a" * 200000,  # an unterminated string reports its opening quote
+        "[" * 100 + '"' + "a" * 200000 + '",' + "[" * 10000,  # a long read, then the depth limit
+    ],
+    ids=["overlong-int", "unterminated-string", "depth-limit"],
+)
+def test_parse_json_contains_charges_failures_without_a_position(text: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    import json
+
+    from dokimi.eval import reference_checks
+    from dokimi.eval.reference_checks import CONTAINS_JSON_MAX_SCAN, parse_json
+
+    calls: list[int] = []
+    real = json.JSONDecoder.raw_decode
+
+    def spy(self: json.JSONDecoder, s: str, idx: int = 0) -> tuple[object, int]:
+        calls.append(idx)
+        return real(self, s, idx)
+
+    monkeypatch.setattr(reference_checks.json.JSONDecoder, "raw_decode", spy)
+    assert parse_json(text, contains=True) == (False, None)
+    assert len(calls) <= 1 + CONTAINS_JSON_MAX_SCAN // 200000 + 1
+
+
+def test_parse_json_contains_charges_a_failed_try_from_its_start() -> None:
+    from dokimi.eval.reference_checks import CONTAINS_JSON_MAX_SCAN, parse_json
+
+    # The failed "[1,]" sits past the budget's length but scans 4 characters.
+    text = "x" * (CONTAINS_JSON_MAX_SCAN + 500000) + '[1,] {"a": 1}'
+    assert parse_json(text, contains=True) == (True, {"a": 1})
+
+
+def test_parse_json_contains_stops_when_the_failed_tries_reach_the_budget_exactly() -> None:
+    from dokimi.eval.reference_checks import CONTAINS_JSON_MAX_SCAN, parse_json
+
+    # The first try fails at the "2", position CONTAINS_JSON_MAX_SCAN (a missing comma, reported at
+    # the same place on every Python), charging exactly the budget.
+    at_budget = "[1" + " " * (CONTAINS_JSON_MAX_SCAN - 2) + '2] {"a":1}'
+    assert parse_json(at_budget, contains=True) == (False, None)
+    # One character less leaves a character of budget: the object is found.
+    under = "[1" + " " * (CONTAINS_JSON_MAX_SCAN - 3) + '2] {"a":1}'
+    assert parse_json(under, contains=True) == (True, {"a": 1})
+
+
+def test_parse_json_contains_does_not_charge_the_first_whole_text_parse() -> None:
+    from dokimi.eval.reference_checks import CONTAINS_JSON_MAX_SCAN, parse_json
+
+    # json.loads fails after reading past the budget; the first bracket still parses.
+    text = '["' + "a" * (CONTAINS_JSON_MAX_SCAN + 1) + '"] trailing'
+    assert parse_json(text, contains=True) == (True, ["a" * (CONTAINS_JSON_MAX_SCAN + 1)])
 
 
 def test_names_pin_the_byte_to_target_order() -> None:

@@ -402,7 +402,7 @@ def test_cli_inspect_prints_a_table_line_per_item(tmp_path, capsys):
 def test_cli_inspect_json(tmp_path, capsys):
     _tb1(tmp_path)
     _run(["eval", "inspect", str(tmp_path), "--json"])
-    payload = json.loads(capsys.readouterr().out)
+    payload = json.loads(capsys.readouterr().out)["data"]
     assert [i["format"] for i in payload["items"]] == ["terminal-bench-v1"]
     assert payload["items"][0]["consumers"] == ["docker-*", "harbor", "benchflow"]
 
@@ -427,7 +427,7 @@ def test_cli_inspect_json_is_a_stamped_artifact_and_out_writes_the_same(tmp_path
     _tb1(tmp_path)
     out = tmp_path / "report.json"
     _run(["eval", "inspect", str(tmp_path), "--json", "--out", str(out)])
-    printed = json.loads(capsys.readouterr().out)
+    printed = json.loads(capsys.readouterr().out)["data"]
     assert printed["schema_version"] == "task_inspect.v1"
     validate_artifact("task_inspect", printed)
     assert json.loads(out.read_text()) == printed
@@ -602,7 +602,7 @@ def test_cli_inspect_out_writes_yaml_dates_sets_and_nan_as_plain_json(tmp_path, 
                                "tags: !!set {b: null, a: null}\ncategory: .nan\n")
     out = tmp_path / "report.json"
     _run(["eval", "inspect", str(tmp_path), "--json", "--out", str(out)])
-    printed = json.loads(capsys.readouterr().out)
+    printed = json.loads(capsys.readouterr().out)["data"]
 
     def refuse(name):
         raise ValueError(name)

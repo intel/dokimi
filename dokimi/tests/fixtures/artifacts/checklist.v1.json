@@ -1,0 +1,5 @@
+{
+  "schema_version": "checklist.v1",
+  "summary": {"judge": "openai/m", "baseline": "lib", "arms": {}},
+  "questions": [{"question_id": "q1", "question_text": "How do I loop?", "arms": {}}]
+}

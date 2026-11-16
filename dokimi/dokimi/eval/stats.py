@@ -64,6 +64,7 @@ import statistics
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
+from dokimi.eval.finite_delta import check_sum_range, checked_delta
 from dokimi.eval.sign_flip import ALPHA, EPS, METHOD, min_sign_flip_p, round_mean, sign_flip_row, within
 from dokimi.records import BASELINE, CONTEXT, RecordLike, records
 
@@ -89,6 +90,16 @@ ZERO_VARIANCE_REL_TOL = 1e-9
 def _is_degenerate(mean: float, sd: float) -> bool:
     """True when ``sd`` is zero or indistinguishable from it at this scale."""
     return sd <= ZERO_VARIANCE_REL_TOL * max(1.0, abs(mean))
+
+
+def _is_degenerate_at_scale(mean: float, sd: float, top: float) -> bool:
+    """:func:`_is_degenerate` after dividing ``mean`` and ``sd`` by the power of two at or below ``top`` (exact).
+
+    The floor of 1.0 then absorbs float noise relative to the data, not to 1: a sample of 1e-300 values that
+    differ is not constant (#640).
+    """
+    scale = _pow2_scale([top])
+    return _is_degenerate(mean / scale, sd / scale)
 
 
 def _rnd(x: float, ndigits: Optional[int]) -> float:
@@ -200,7 +211,7 @@ def mean_ci(values, confidence: float = 0.95, seed: int = 0, ndigits: Optional[i
 
     mu = _mean(vals)
     sd = _sample_sd(vals)
-    if _is_degenerate(mu, sd):
+    if _is_degenerate_at_scale(mu, sd, max(abs(v) for v in vals)):
         # Every value identical: the interval is the point itself, and a
         # bootstrap would report the same thing after 10k pointless resamples.
         return {"mean": _rnd(mu, ndigits), "lo": _rnd(mu, ndigits), "hi": _rnd(mu, ndigits),
@@ -400,10 +411,7 @@ def _deltas(treatment: Sequence[float], control: Sequence[float]) -> List[float]
 
     A NaN or inf in the input keeps its meaning in the delta: https://github.com/intel/dokimi/issues/599
     """
-    deltas = [t - c for t, c in zip(treatment, control, strict=True)]
-    if not all(math.isfinite(d) for d in deltas) and all(math.isfinite(x) for x in (*treatment, *control)):
-        raise OverflowError("deltas too large: a difference of the paired values leaves the float range")
-    return deltas
+    return [checked_delta(t, c) for t, c in zip(treatment, control, strict=True)]
 
 
 def paired_vectors(
@@ -549,7 +557,7 @@ def point_biserial(flags: Sequence[bool], totals: Sequence[float]) -> Dict[str, 
 
 def _cohens_d(d_mean: float, d_sd: float) -> Optional[float]:
     """Cohen's d_z of the deltas (sample SD), descriptive: no verdict reads it."""
-    if not _is_degenerate(d_mean, d_sd):
+    if not _is_degenerate_at_scale(d_mean, d_sd, max(abs(d_mean), d_sd)):
         return round(d_mean / d_sd, 3)
     # Every pair identical: the limit of 0/0 here is a genuine null, and "0.0 (negligible)" says more than
     # "unknown"; a constant non-zero shift has an unbounded d_z, which None renders as "unknown".
@@ -593,9 +601,9 @@ def _describe_deltas(
     d_sd = _sample_sd(d)
     cohens_d = _cohens_d(d_mean, d_sd)
     if all(math.isfinite(x) for x in d):
-        if not (math.isfinite(d_sd) and math.isfinite(sum(abs(x) for x in d))):
-            # The sign-flip sums would overflow and read as a measured zero effect.
-            raise OverflowError("deltas too large: their spread or sum leaves the float range")
+        # The sign-flip sums would overflow and read as a measured zero effect.
+        # A finite sum of magnitudes bounds the spread (sd**2 <= sum(x**2) <= that sum squared), so it is finite too.
+        check_sum_range(d)
         row = sign_flip_row(d, seed=seed, exact=True)
         p, lo, hi, shown_lo, shown_hi = row["p"], row["lo"], row["hi"], row["ci_lo"], row["ci_hi"]
     else:  # a NaN delta is no evidence either way: no p, no verdict, open ends

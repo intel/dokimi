@@ -75,7 +75,7 @@ def test_globs_and_bases_are_checked_at_every_task_base(tmp_path, capsys):
 
     argv = ["repo", "validate", f"{root}@HEAD", "--manifest", "dev/evals/repo-eval.yaml", "--json"]
     _run_cli(argv)
-    out = json.loads(capsys.readouterr().out)
+    out = json.loads(capsys.readouterr().out)["data"]
     assert out["ok"] is True, out["errors"]
     assert out["warnings"] == []  # .github/instructions/*.md still matches at a task base
     assert out["guidance_files"] == ["AGENTS.md"]
@@ -91,7 +91,7 @@ def test_globs_and_bases_are_checked_at_every_task_base(tmp_path, capsys):
     _commit_all(root, "unknown base")
     with pytest.raises(SystemExit):
         _run_cli(argv)
-    out = json.loads(capsys.readouterr().out)
+    out = json.loads(capsys.readouterr().out)["data"]
     assert any("fix_gone" in e and "does not resolve" in e for e in out["errors"]), out["errors"]
 
 
@@ -126,7 +126,7 @@ def test_bases_note_leaves_out_a_base_whose_overlay_the_globs_miss(tmp_path, cap
     _commit_all(root, "evals")
 
     _run_cli(["repo", "validate", f"{root}@HEAD", "--manifest", "dev/evals/repo-eval.yaml", "--json"])
-    out = json.loads(capsys.readouterr().out)
+    out = json.loads(capsys.readouterr().out)["data"]
     assert out["ok"] is True, out["errors"]
     assert out["guidance_by_base"] == {plain: 0, overlaid: 0}
     assert len(out["notes"]) == 1 and out["notes"][0].endswith("own files): fix_plain"), out["notes"]
@@ -191,7 +191,7 @@ def test_bases_note_keeps_a_task_whose_setup_patch_writes_no_guidance(tmp_path, 
     with monkeypatch.context() as m:  # a temp dir in a work tree's subdirectory: git there would skip every path
         m.setattr(tempfile, "tempdir", str(root / "src"))
         _run_cli(["repo", "validate", f"{root}@HEAD", "--manifest", "dev/evals/repo-eval.yaml", "--json"])
-    out = json.loads(capsys.readouterr().out)
+    out = json.loads(capsys.readouterr().out)["data"]
     assert out["ok"] is True, out["errors"]
     assert out["guidance_by_base"] == {bare: 0}
     assert len(out["notes"]) == 1 and out["notes"][0].endswith("own files): fix_code, fix_cr, fix_latin1"), out["notes"]
@@ -255,7 +255,7 @@ def test_work_tree_without_git_skips_the_base_check(tmp_path, capsys):
     _write(root, "dev/evals/repo-eval.yaml", yaml.safe_dump(MANIFEST))
     _task(root, "fix_one", "0" * 40)
     _run_cli(["repo", "validate", str(root), "--manifest", "dev/evals/repo-eval.yaml", "--json"])
-    out = json.loads(capsys.readouterr().out)
+    out = json.loads(capsys.readouterr().out)["data"]
     assert out["ok"] is True and out["guidance_by_base"] is None
     assert out["notes"] == ["task bases were not checked: the source has no git history"]
 
@@ -277,7 +277,7 @@ def test_shallow_clone_checks_the_bases_it_has_and_names_the_cause(tmp_path, cap
 
     with pytest.raises(SystemExit):
         _run_cli(["repo", "validate", str(shallow), "--manifest", "dev/evals/repo-eval.yaml", "--json"])
-    out = json.loads(capsys.readouterr().out)
+    out = json.loads(capsys.readouterr().out)["data"]
     assert out["guidance_by_base"] == {recent: 1}
     assert len(out["errors"]) == 1 and "fix_old" in out["errors"][0], out["errors"]
     assert "shallow" in out["errors"][0] and "fetch-depth: 0" in out["errors"][0]
@@ -334,7 +334,7 @@ def test_validate_warns_about_a_malformed_mcp_json_at_a_task_base_and_at_a_tree_
         if source == str(root):
             subprocess.run(["rm", "-rf", str(root / ".git")], check=True)
         _run_cli(["repo", "validate", source, "--manifest", "dev/evals/repo-eval.yaml", "--json"])  # succeeds
-        out = json.loads(capsys.readouterr().out)
+        out = json.loads(capsys.readouterr().out)["data"]
         assert out["ok"] is True, out["errors"]
         assert any(".mcp.json" in w and why in w for w in out["warnings"]), out["warnings"]
 
@@ -351,7 +351,7 @@ def test_validate_accepts_a_valid_or_absent_mcp_json(tmp_path, capsys):
         _task(root, "fix_one", base)
         _commit_all(root, "evals")
         _run_cli(["repo", "validate", f"{root}@HEAD", "--manifest", "dev/evals/repo-eval.yaml", "--json"])
-        assert json.loads(capsys.readouterr().out)["ok"] is True, name
+        assert json.loads(capsys.readouterr().out)["data"]["ok"] is True, name
 
 
 def _mcp_base(root: Path, content: bytes | None) -> str:

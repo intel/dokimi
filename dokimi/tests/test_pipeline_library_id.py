@@ -144,7 +144,8 @@ def test_two_local_doc_sets_of_one_product_get_their_own_topics(tmp_path, regist
     docs = {"docsA": "`parallel_for` `task_arena`", "docsB": "`flow_graph` `concurrent_queue`"}
     for name, words in docs.items():
         (tmp_path / name).mkdir()
-        (tmp_path / name / "api.md").write_text(f"My Lib API overview {words}\n", encoding="utf-8")
+        pad = " It runs on every core of the machine." * 3  # past the stub limit, so the topics are cached
+        (tmp_path / name / "api.md").write_text(f"My Lib API overview {words}{pad}\n", encoding="utf-8")
         pipeline = _pipeline(tmp_path, registry, doc_source=f"local:{tmp_path / name}")
         pipeline._generate_questions({"personas": []})
 

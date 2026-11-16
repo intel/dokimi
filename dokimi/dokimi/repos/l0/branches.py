@@ -108,7 +108,7 @@ def _load(scan: Scan, path: str) -> Any:
     text = scan.text(path)
     try:
         return yaml.load(text, Loader=_Loader)  # nosec B506 - a SafeLoader subclass
-    except Exception:  # PyYAML's constructors raise more than YAMLError: a bad date, tag value, depth
+    except Exception:  # noqa: BLE001 - PyYAML's constructors raise more than YAMLError: a bad date, tag value, depth
         return None
 
 

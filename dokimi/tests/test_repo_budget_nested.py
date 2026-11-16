@@ -42,7 +42,7 @@ def _budget(tree, names=NAMES):
 def _cli_when(tmp_path, capsys, harness):
     args = build_parser().parse_args(["repo", "budget", str(tmp_path), "--json", "--harness", harness])
     args.func(args)
-    return _when(json.loads(capsys.readouterr().out))
+    return _when(json.loads(capsys.readouterr().out)["data"])
 
 
 @pytest.mark.parametrize("harness", ["copilot", "copilot-review"])
@@ -60,7 +60,7 @@ def test_a_copilot_budget_reads_a_root_agents_md_beside_a_root_claude_md(tmp_pat
     _tree(tmp_path, {"AGENTS.md": "a", "sub/AGENTS.md": "b", root: "c"})
     args = build_parser().parse_args(["repo", "budget", str(tmp_path), "--json", "--harness", harness])
     args.func(args)
-    got = json.loads(capsys.readouterr().out)
+    got = json.loads(capsys.readouterr().out)["data"]
     assert _when(got) == {"AGENTS.md": "start", "sub/AGENTS.md": "lazy", root: "start"}
     assert got["totals"]["off"] == 0 and not any("turns AGENTS.md loading off" in w for w in got["warnings"])
 

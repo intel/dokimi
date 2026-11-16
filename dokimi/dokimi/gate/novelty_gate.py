@@ -18,9 +18,9 @@ Thresholds come from the study; each one names the observation it came from.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from typing import Any
 
+from dokimi.gate.verdict import Check, Verdict
 from dokimi.metrics.bundle_coverage import COVERAGE_BASES, Coverage
 
 # ── Thresholds (override per call) ────────────────────────────────────────────
@@ -64,94 +64,6 @@ DEFAULTS: dict[str, Any] = {
     # that hit it covered materially fewer atoms than `atoms.n` suggests.
     "max_probe_malformed_rate": 0.20,
 }
-
-# Every check ships at one of these severities. "fail" is unused on purpose (see module docstring).
-SEVERITIES = ("info", "warn", "fail")
-
-
-@dataclass
-class NoveltyCheck:
-    """One check against one novelty artifact."""
-
-    name: str
-    passed: bool
-    value: Any
-    threshold: Any
-    message: str
-    severity: str = "warn"
-    measured: bool = True
-    #: What ``value`` is a share of, for a check whose figure depends on it
-    #: (``artifact_coverage``: the record's ``coverage_basis``); ``None`` otherwise.
-    basis: str | None = None
-
-    def as_dict(self) -> dict:
-        """Serializable form (what the scorecard carries)."""
-        row = {
-            "name": self.name,
-            "measured": self.measured,
-            "passed": self.passed,
-            "value": self.value,
-            "threshold": self.threshold,
-            "message": self.message,
-            "severity": self.severity,
-        }
-        if self.basis is not None:
-            row["basis"] = self.basis
-        return row
-
-
-@dataclass
-class NoveltyVerdict:
-    """All checks for one ``(artifact, model)`` cell."""
-
-    artifact_ref: str = ""
-    model: str = ""
-    checks: list[NoveltyCheck] = field(default_factory=list)
-
-    @property
-    def blocking(self) -> bool:
-        """Always False today: no novelty check is hard. Kept so callers read the posture."""
-        return any(not c.passed for c in self.checks if c.severity == "fail")
-
-    @property
-    def warnings(self) -> list[NoveltyCheck]:
-        """Checks that did not pass at ``warn`` severity."""
-        return [c for c in self.checks if not c.passed and c.severity == "warn"]
-
-    @property
-    def notes(self) -> list[NoveltyCheck]:
-        """Checks that did not pass at ``info`` severity — observations, not problems."""
-        return [c for c in self.checks if not c.passed and c.severity == "info"]
-
-    @property
-    def status(self) -> str:
-        """``PASS`` / ``WARN`` / ``FAIL`` / ``NOT MEASURED``, without a build meaning attached.
-
-        ``NOT MEASURED`` when no check was measured: every check passes unmeasured, so
-        ``PASS`` would be read off a run that cleared nothing.
-        """
-        if self.blocking:
-            return "FAIL"
-        if self.warnings:
-            return "WARN"
-        return "PASS" if any(c.measured for c in self.checks) else "NOT MEASURED"
-
-    @property
-    def not_measured(self) -> list[str]:
-        """Checks whose input this run did not produce; they pass without having been run."""
-        return [c.name for c in self.checks if not c.measured]
-
-    def as_dict(self) -> dict:
-        """Serializable form."""
-        return {
-            "artifact_ref": self.artifact_ref,
-            "model": self.model,
-            "status": self.status,
-            "blocking": self.blocking,
-            "not_measured": self.not_measured,
-            "checks": [c.as_dict() for c in self.checks],
-        }
-
 
 def _pair_coverage(raw: Any) -> tuple[int, int] | None:
     """``(compared, total)`` from ``conflict_coverage``, or ``None`` when it is not readable.
@@ -231,14 +143,14 @@ def uncleared_conflicts(artifact: dict, thresholds: dict[str, Any] | None = None
     return _conflict_reading(artifact, {**DEFAULTS, **(thresholds or {})})[3]
 
 
-def evaluate_novelty(artifact: dict, thresholds: dict[str, Any] | None = None) -> NoveltyVerdict:
+def evaluate_novelty(artifact: dict, thresholds: dict[str, Any] | None = None) -> Verdict:
     """Run the soft checks over one ``novelty.v1`` artifact.
 
     A check whose input the artifact does not carry passes with ``measured=False``, never as a
     silent pass: a run that skipped a stage must not read as a run that cleared it.
     """
     cfg = {**DEFAULTS, **(thresholds or {})}
-    checks: list[NoveltyCheck] = []
+    checks: list[Check] = []
     paired = artifact.get("paired", {}) or {}
     spans = artifact.get("spans", {}) or {}
 
@@ -246,12 +158,12 @@ def evaluate_novelty(artifact: dict, thresholds: dict[str, Any] | None = None) -
     added = (paired.get("lenient") or {}).get("added")
     n_paired = (paired.get("lenient") or {}).get("n_paired", 0)
     if added is None or not n_paired:
-        checks.append(NoveltyCheck(
+        checks.append(Check(
             name="added_floor", passed=True, value=None, threshold=cfg["min_added_lenient"],
             severity="info", measured=False, message="no paired probes: `added` was not measured",
         ))
     else:
-        checks.append(NoveltyCheck(
+        checks.append(Check(
             name="added_floor",
             passed=added >= cfg["min_added_lenient"],
             value=round(added, 4), threshold=cfg["min_added_lenient"],
@@ -298,7 +210,7 @@ def evaluate_novelty(artifact: dict, thresholds: dict[str, Any] | None = None) -
             ". Correctness gates before volume: one study skill carried 33 conflicts and still "
             "routed at 0.810, so it loads and misinforms"
         )
-    checks.append(NoveltyCheck(
+    checks.append(Check(
         name="harmful_atoms",
         passed=not harmful,
         value=harmful if measured else None, threshold=0,
@@ -322,13 +234,13 @@ def evaluate_novelty(artifact: dict, thresholds: dict[str, Any] | None = None) -
         if unread_n else ""
     )
     if frac_dead is None:
-        checks.append(NoveltyCheck(
+        checks.append(Check(
             name="dead_tokens", passed=True, value=None,
             threshold=cfg["max_frac_carrying_nothing"], severity="info", measured=False,
             message="dead-token share was not computed",
         ))
     elif spans.get("capped_atom_set"):
-        checks.append(NoveltyCheck(
+        checks.append(Check(
             name="dead_tokens", passed=True, value=round(frac_dead, 4),
             threshold=cfg["max_frac_carrying_nothing"], severity="info", measured=False,
             message=(
@@ -338,7 +250,7 @@ def evaluate_novelty(artifact: dict, thresholds: dict[str, Any] | None = None) -
             ),
         ))
     elif unread_n and frac_read <= 0:
-        checks.append(NoveltyCheck(
+        checks.append(Check(
             name="dead_tokens", passed=True, value=None,
             threshold=cfg["max_frac_carrying_nothing"], severity="info", measured=False,
             message=(
@@ -347,7 +259,7 @@ def evaluate_novelty(artifact: dict, thresholds: dict[str, Any] | None = None) -
             ),
         ))
     elif unread_n and frac_read < cfg["min_frac_read"]:
-        checks.append(NoveltyCheck(
+        checks.append(Check(
             name="dead_tokens", passed=True, value=round(frac_dead, 4),
             threshold=cfg["max_frac_carrying_nothing"], severity="info", measured=False,
             message=(
@@ -358,7 +270,7 @@ def evaluate_novelty(artifact: dict, thresholds: dict[str, Any] | None = None) -
             ),
         ))
     else:
-        checks.append(NoveltyCheck(
+        checks.append(Check(
             name="dead_tokens",
             passed=frac_dead <= cfg["max_frac_carrying_nothing"],
             value=round(frac_dead, 4), threshold=cfg["max_frac_carrying_nothing"],
@@ -385,7 +297,7 @@ def evaluate_novelty(artifact: dict, thresholds: dict[str, Any] | None = None) -
     unmeasured = (coverage.unmeasured_share(coverage.basis)
                   if coverage is not None and known else None)
     if coverage is None:
-        checks.append(NoveltyCheck(
+        checks.append(Check(
             name="artifact_coverage", passed=True, value=None,
             threshold=cfg["max_unmeasured_outside_share"], severity="info", measured=False,
             message=(
@@ -394,7 +306,7 @@ def evaluate_novelty(artifact: dict, thresholds: dict[str, Any] | None = None) -
             ),
         ))
     elif not known:
-        checks.append(NoveltyCheck(
+        checks.append(Check(
             name="artifact_coverage", passed=True, value=None,
             threshold=cfg["max_unmeasured_outside_share"], severity="info", measured=False,
             basis=coverage.basis,
@@ -405,7 +317,7 @@ def evaluate_novelty(artifact: dict, thresholds: dict[str, Any] | None = None) -
             ),
         ))
     elif unmeasured is None:
-        checks.append(NoveltyCheck(
+        checks.append(Check(
             name="artifact_coverage", passed=True, value=None,
             threshold=cfg["max_unmeasured_outside_share"], severity="info", measured=False,
             message=(
@@ -445,7 +357,7 @@ def evaluate_novelty(artifact: dict, thresholds: dict[str, Any] | None = None) -
             else "re-run with --include-resources before reading these rates as a "
                  "property of the artifact"
         )
-        checks.append(NoveltyCheck(
+        checks.append(Check(
             name="artifact_coverage",
             passed=unmeasured <= cfg["max_unmeasured_outside_share"],
             value=round(unmeasured, 4), threshold=cfg["max_unmeasured_outside_share"],
@@ -466,7 +378,7 @@ def evaluate_novelty(artifact: dict, thresholds: dict[str, Any] | None = None) -
     # reversal probes off (triage) has an empty `by_kind`, and nothing was checked.
     if not probe_stats or malformed is None or (
             not probe_stats.get("by_kind") and not malformed):
-        checks.append(NoveltyCheck(
+        checks.append(Check(
             name="probe_wording_fidelity", passed=True, value=None,
             threshold=cfg["max_probe_malformed_rate"], severity="info", measured=False,
             message=(
@@ -483,7 +395,7 @@ def evaluate_novelty(artifact: dict, thresholds: dict[str, Any] | None = None) -
         # The aggregate counts too: a record whose per-kind rows are missing or
         # inconsistent used to pass on `0.0` while the message quoted 90%.
         judged = max(worst[1], malformed)
-        checks.append(NoveltyCheck(
+        checks.append(Check(
             name="probe_wording_fidelity",
             passed=judged <= cfg["max_probe_malformed_rate"],
             value=round(judged, 4), threshold=cfg["max_probe_malformed_rate"],
@@ -511,7 +423,7 @@ def evaluate_novelty(artifact: dict, thresholds: dict[str, Any] | None = None) -
         if arm not in measured_arms or rank(row) < rank(measured_arms[arm]):
             measured_arms[arm] = row
     if not measured_arms:
-        checks.append(NoveltyCheck(
+        checks.append(Check(
             name="probe_kind_agreement", passed=True, value=None,
             threshold=cfg["min_kind_agreement"], severity="info", measured=False,
             message=(
@@ -533,7 +445,7 @@ def evaluate_novelty(artifact: dict, thresholds: dict[str, Any] | None = None) -
             f"`{arm}` {row['agreement']:.2f}" for arm, row in sorted(measured_arms.items())
             if arm != worst_arm
         )
-        checks.append(NoveltyCheck(
+        checks.append(Check(
             name="probe_kind_agreement",
             passed=thin or value >= cfg["min_kind_agreement"],
             measured=not thin,
@@ -557,7 +469,7 @@ def evaluate_novelty(artifact: dict, thresholds: dict[str, Any] | None = None) -
     candidates = artifact.get("shortening") or []
     offered = [c for c in candidates if c.get("safe")]
     leaky = [c for c in offered if (c.get("protection") or 0) < 1.0]
-    checks.append(NoveltyCheck(
+    checks.append(Check(
         name="protection_invariant",
         passed=not leaky,
         value=len(leaky), threshold=0, measured=bool(candidates),
@@ -571,7 +483,7 @@ def evaluate_novelty(artifact: dict, thresholds: dict[str, Any] | None = None) -
     # ── 5. Are the span citations the views colour actually confirmed? ───────
     confirmation = (artifact.get("attribution") or {}).get("carrier_confirmation")
     if not confirmation:
-        checks.append(NoveltyCheck(
+        checks.append(Check(
             name="span_citations_confirmed", passed=True, value=None,
             threshold=cfg["min_frac_located"], severity="info", measured=False,
             message=(
@@ -581,7 +493,7 @@ def evaluate_novelty(artifact: dict, thresholds: dict[str, Any] | None = None) -
         ))
     else:
         located = confirmation.get("frac_located", 0.0)
-        checks.append(NoveltyCheck(
+        checks.append(Check(
             name="span_citations_confirmed",
             passed=located >= cfg["min_frac_located"],
             value=round(located, 4), threshold=cfg["min_frac_located"],
@@ -596,14 +508,14 @@ def evaluate_novelty(artifact: dict, thresholds: dict[str, Any] | None = None) -
     # ── 6. Is `value` a measured axis on this run, or coverage in disguise? ──
     proxies = [c for c in candidates if c.get("value_is_coverage_proxy")]
     if not candidates:
-        checks.append(NoveltyCheck(
+        checks.append(Check(
             name="value_is_measured", passed=True, value=None, threshold=cfg["min_value_coverage"],
             severity="info", measured=False, message="no shortening candidates were ranked",
         ))
     else:
         coverages = [c.get("value_coverage") for c in candidates if c.get("value_coverage") is not None]
         lowest = min(coverages) if coverages else None
-        checks.append(NoveltyCheck(
+        checks.append(Check(
             name="value_is_measured",
             passed=not proxies,
             value=None if lowest is None else round(lowest, 4),
@@ -618,12 +530,12 @@ def evaluate_novelty(artifact: dict, thresholds: dict[str, Any] | None = None) -
     # ── 7. Order independence — expected, and recorded rather than judged ───
     order_independent = (artifact.get("controls") or {}).get("order_independent")
     if order_independent is None:
-        checks.append(NoveltyCheck(
+        checks.append(Check(
             name="order_independence", passed=True, value=None, threshold=False,
             severity="info", measured=False, message="the shuffled control was not run",
         ))
     else:
-        checks.append(NoveltyCheck(
+        checks.append(Check(
             name="order_independence",
             passed=not order_independent,
             value=bool(order_independent), threshold=False, severity="info",
@@ -635,14 +547,14 @@ def evaluate_novelty(artifact: dict, thresholds: dict[str, Any] | None = None) -
             ),
         ))
 
-    return NoveltyVerdict(
+    return Verdict(
         artifact_ref=(artifact.get("artifact") or {}).get("ref", ""),
         model=artifact.get("model", ""),
         checks=checks,
     )
 
 
-def format_novelty_block(verdicts: list[NoveltyVerdict]) -> str:
+def format_novelty_block(verdicts: list[Verdict]) -> str:
     """Render the ``## Novelty gate`` markdown block for one or more cells."""
     lines = ["## Novelty gate", "", "_All novelty checks are soft: they report and never block._"]
     if not verdicts:

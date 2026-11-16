@@ -204,7 +204,7 @@ def test_json_rows_name_the_interval_method_and_open_ends_are_null(tmp_path, cap
         _cell(b, task, "guidance:raw", 1, turns=20)
     args = build_parser().parse_args(["repo", "compare", str(b), "--baseline", "guidance:none", "--json"])
     args.func(args)
-    rows = json.loads(capsys.readouterr().out)["comparisons"]
+    rows = json.loads(capsys.readouterr().out)["data"]["comparisons"]
     assert {r["measure"] for r in rows} == {"gate", "cost_usd", "turns"}
     assert all(r["delta"]["method"] == "sign_flip_inversion" and r["delta"]["lo"] is None
                and r["delta"]["hi"] is None for r in rows)  # three tasks: no shift is rejected
