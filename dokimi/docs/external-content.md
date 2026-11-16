@@ -476,6 +476,26 @@ an upstream version with the same frontmatter `name` and a word Jaccard similari
 touched the file after the matched version, and the months run from that version's commit date
 to the upstream head. `--format json` adds the upstreams, one row per skill and a `summary`.
 
+### Upstream findings in `catalog check` (`--upstream`, `--upstream-manifest`)
+
+Give `catalog check` the same upstreams as `catalog provenance` and each loaded skill that matches one gets
+up to three more findings. Nothing is fetched, and none of them is an error:
+
+- `upstream-stale` (note): the copy matches an upstream version that is not the upstream head. A note does not
+  change the state or the exit code. The message says how many commits and months behind the head it is, where the
+  history gives them.
+- `license-dropped-from-upstream` (warn): the copy is edited, its upstream version declares a `license`, and the copy
+  declares none. An edited copy that changes the license to another value is not reported. An unedited copy has the
+  upstream bytes, so it cannot drop one.
+- `risk-inherited-from-upstream` (warn): the copy keeps a risk its upstream version has too. The risks are the ones the
+  scan already reports: unrestricted Bash (`allowed-tools-unrestricted-bash`), `pipe-to-shell` and
+  `permission-bypass-flag`. The copy's side is its own findings, bundled files included. The upstream side is that
+  version's `SKILL.md` alone, since an upstream version is one file, not a folder.
+
+The warnings follow the usual rules: they do not fail `--strict`, and `--ignore` takes each code. The flags do not
+combine with `--per-skill` (the upstream index is built once, in one process) or with `--kind tasks`.
+
+
 ## 2. The awareness half: question sets
 
 A question set is `<questions-root>/<product_key>_golden.json`, in the format
