@@ -173,14 +173,24 @@ _RESULT = {"grade": {"status": "ok", "score_only": False, "success": True}, "arm
 
 
 def test_repo_report_shows_each_tasks_status_and_unknown_without_one(tmp_path, capsys):
-    _cell(tmp_path, "t1__a__m__r1", {"result.json": {**_RESULT, "task": "t1"},
-                                     "task.json": {"id": "t1", "provenance": {"status": "validated"}}})
+    _cell(tmp_path, "t1__a__m__r1", {"result.json": {**_RESULT, "task": "t1", "task_status": "validated"}})
     _cell(tmp_path, "t2__a__m__r1", {"result.json": {**_RESULT, "task": "t2"}})
     parser = build_parser()
     args = parser.parse_args(["repo", "report", str(tmp_path / "b1"), "--json"])
     args.func(args)
     rows = {r["task"]: r["status"] for r in json.loads(capsys.readouterr().out)["data"]["rows"]}
     assert rows == {"t1": "validated", "t2": provenance.UNKNOWN}
+
+
+def test_a_task_copy_the_grader_rewrote_does_not_change_the_status(tmp_path, capsys):
+    # the run dir is read-write for the grader, so its task.json copy is not evidence of the status
+    _cell(tmp_path, "t4__a__m__r1", {"result.json": {**_RESULT, "task": "t4", "task_status": "candidate"},
+                                     "task.json": {"id": "t4", "provenance": {"status": "frozen"}}})
+    parser = build_parser()
+    args = parser.parse_args(["repo", "report", str(tmp_path / "b1"), "--json"])
+    args.func(args)
+    rows = {r["task"]: r["status"] for r in json.loads(capsys.readouterr().out)["data"]["rows"]}
+    assert rows == {"t4": "candidate"}
 
 
 def test_a_corrupt_task_copy_reads_as_unknown_and_keeps_the_report(tmp_path, capsys):

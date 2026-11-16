@@ -60,7 +60,7 @@ from typing import Any
 import math
 
 from dokimi.measure import as_float, is_number
-from dokimi.provenance import UNKNOWN, status_of
+from dokimi.provenance import STATUSES, UNKNOWN
 from dokimi.utils import same_model
 
 from .grading import SCORE_BOUND, read_grade_json
@@ -202,16 +202,11 @@ def load_cells(batch_dir: Path) -> tuple[list[dict[str, Any]], list[str]]:
     return finished, sorted((planned | started) - done - unsupported)
 
 
-def _task_status(cell_dir: Path) -> str:
-    """The task's ``provenance.status`` from the cell's copy of its task.json; unknown without one or with an
-    unreadable one, so a label never fails the report."""
-    path = cell_dir / "task.json"
-    if not path.is_file():
-        return UNKNOWN
-    try:
-        return status_of(_read_object(path))
-    except CellFileError:
-        return UNKNOWN
+def _task_status(rec: dict[str, Any]) -> str:
+    """The task's ``provenance.status`` as the host wrote it into the cell's result.json when the cell ran; unknown
+    without one. Not read from the run dir's task.json: the grader had that dir read-write and could rewrite it."""
+    status = rec.get("task_status")
+    return status if status in STATUSES else UNKNOWN
 
 
 def refuse_mixed_executions(cells: list[dict[str, Any]], where: str) -> None:
@@ -260,7 +255,7 @@ def summarize(batch_dir: Path) -> dict[str, Any]:
             failures = sum(r["grade"]["status"] == "grader_failure" for r in recs)
             score_only = any(r["score_task"] for r in recs)
             row: dict[str, Any] = {"task": key[0], "arm": key[1], "model": key[2], "n": n,
-                                   "status": _task_status(batch_dir / recs[0]["cell"]),
+                                   "status": _task_status(recs[0]),
                                    "grader_failures": failures,
                                    "agent_timeouts": sum(bool(r["agent"]["timed_out"]) for r in recs),
                                    "agent_errors": sum(bool(r["agent"]["is_error"]) for r in recs),
