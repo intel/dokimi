@@ -294,6 +294,7 @@ def test_trace_inspect_json_is_partial_when_a_trace_does_not_read(tmp_path, caps
 
 
 def test_trace_consistency_is_an_input_error_when_no_trace_reads(tmp_path, capsys):
+    # Test-narrowed: renamed from ..._json_is_failed_when_no_trace_reads; no-trace reads exit 2 (input), not 1 (A2b)
     args = cli.parse_args(["trace", "consistency", "--arm", f"base={tmp_path}/missing.jsonl", "--json"])
     with pytest.raises(InputError, match="no trace could be read"):
         args.func(args)

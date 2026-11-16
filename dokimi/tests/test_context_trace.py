@@ -164,6 +164,7 @@ def test_cli_json_single_trace(tmp_path, capsys):
 
 @pytest.mark.outcome("cjm-context-trace")
 def test_cli_missing_trace_is_an_input_error(tmp_path, capsys):
+    # Test-narrowed: renamed from test_cli_missing_trace_exits_1; the exit it pins is 2 (input), not 1 (A2b)
     """Nothing read is a bad input (exit 2), not a partial result (exit 1)."""
     with pytest.raises(InputError, match="no trace could be read"):
         _run_cli(["trace", "inspect", str(tmp_path / "missing.jsonl")], capsys)
@@ -171,6 +172,7 @@ def test_cli_missing_trace_is_an_input_error(tmp_path, capsys):
 
 @pytest.mark.outcome("cjm-context-trace")
 def test_cli_json_with_no_trace_read_is_an_input_error_document(tmp_path, monkeypatch, capsys):
+    # Test-narrowed: renamed from ..._is_failed_with_no_data; --json prints the input error document (A2b)
     """Nothing read exits 2 with an `input` error document; a consumer that reads `error.code` sees a refusal."""
     from dokimi import cli
 

@@ -29,6 +29,7 @@ def _strict_exit(argv):
 
 
 def test_cross_judge_strict_is_inconclusive_when_no_arm_was_measured(tmp_path, monkeypatch, capsys):
+    # Test-narrowed: renamed from ..._fails_when_no_arm_was_measured; --strict exits 3 (inconclusive) (A2b)
     import json
 
     from dokimi.eval import judge as judge_mod
@@ -63,6 +64,7 @@ def test_cross_judge_strict_is_inconclusive_when_no_arm_was_measured(tmp_path, m
 
 
 def test_cross_judge_strict_exits_3_when_only_one_of_several_arms_was_measured(tmp_path, monkeypatch, capsys):
+    # Test-narrowed: renamed from ..._exits_1_...; NOT MEASURED exits 3 under --strict (A2b)
     import json
 
     from dokimi.eval import judge as judge_mod
@@ -162,6 +164,7 @@ def test_no_voter_left_by_the_validity_gate_is_not_measured():
 
 
 def test_cross_judge_strict_exits_3_when_require_validated_leaves_no_voter(tmp_path, capsys):
+    # Test-narrowed: renamed from ..._exits_1_...; no voter exits 3 under --strict (A2b)
     import json
 
     path = tmp_path / "run.json"
@@ -174,6 +177,7 @@ def test_cross_judge_strict_exits_3_when_require_validated_leaves_no_voter(tmp_p
 
 
 def test_cross_judge_judge_dependent_exits_4_only_with_strict(tmp_path, monkeypatch, capsys):
+    # Test-narrowed: renamed from ..._exits_1_only_with_strict; JUDGE-DEPENDENT exits 4 (A2b)
     import json
 
     from dokimi.eval import judge as judge_mod
@@ -197,6 +201,7 @@ def test_cross_judge_judge_dependent_exits_4_only_with_strict(tmp_path, monkeypa
 
 
 def test_cross_judge_strict_exits_4_when_one_of_several_arms_is_judge_dependent(tmp_path, monkeypatch, capsys):
+    # Test-narrowed: renamed from ..._exits_1_...; JUDGE-DEPENDENT arm exits 4 under --strict (A2b)
     import json
 
     from dokimi.eval import judge as judge_mod
