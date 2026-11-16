@@ -126,11 +126,11 @@ def digest_text(text: str) -> str:
 
 
 def key_bytes(text: str) -> bytes:
-    """Bytes a cache key hashes: UTF-8 with ``surrogateescape``; NUL-led text gets ``\\0e``, a high surrogate ``\\0s``."""
+    """Bytes a cache key hashes: UTF-8 with ``surrogateescape``; NUL-led text gets ``\\0e``, a high surrogate ``\\0sp``."""
     try:
         return b"\0e" * text.startswith("\0") + text.encode("utf-8", "surrogateescape")
     except UnicodeEncodeError:  # a JSON `\ud800` has no escape
-        return b"\0s" + text.encode("utf-8", "surrogatepass")
+        return b"\0sp" + text.encode("utf-8", "surrogatepass")
 
 
 def _plain_path(text: str) -> str:
