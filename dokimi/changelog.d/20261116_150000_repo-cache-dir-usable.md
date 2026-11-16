@@ -1,0 +1,3 @@
+### Fixed
+
+- **`repo` commands refuse a `--cache-dir` that is not a usable directory with exit 2 and a message naming the flag and the path** — a regular file, or a path below one, used to end in `✗ [Errno 17] File exists` and exit 1 (a failed run in `--json`) after the command had started; the value is now checked before any clone, as `skill shorten` and `skill novelty analyze` do. A bad `--cache-dir` next to a local-directory source is refused too, where it used to be ignored.
