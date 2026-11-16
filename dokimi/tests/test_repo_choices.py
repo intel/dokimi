@@ -88,6 +88,7 @@ def test_a_write_counts_its_whole_content():
     "pip install 'scikit-learn-intelex==2024.7'",
     "uv pip install scikit_learn_intelex",
     "python3 -m pip install --upgrade scikit-learn-intelex",
+    "pip install scikit-learn-intelex[extra]",
 ])
 def test_a_package_manager_install_names_the_package_whatever_the_spelling(command):
     assert _choices(_run(SKLEARN, _bash("a", command, "2026-01-01T00:00:05Z"))) == [("sklearn", "install", None)]
@@ -135,7 +136,6 @@ def test_a_failed_install_gives_no_choice():
     assert _choices(_run(SKLEARN, failed)) == []
 
 
-def test_a_module_in_a_multi_module_import_line_is_an_import():
 def test_a_call_with_no_result_gives_no_choice():
     unresolved = [_call("a", "Bash", {"command": "pip install scikit-learn-intelex"}, "2026-01-01T00:00:05Z"),
                   _call("e", "Edit", {"file_path": f"{WS}/x.py", "old_string": "", "new_string": "import sklearnex"},
@@ -148,6 +148,7 @@ def test_a_command_whose_exit_code_is_not_0_gives_no_choice(rc):
     assert _choices(with_choices(_bash_rc("pip install scikit-learn-intelex", rc=rc), SKLEARN, [])) == []
 
 
+def test_a_module_in_a_multi_module_import_line_is_an_import():
     events = _run(SKLEARN, _edit("a", "app.py", "import os, sklearnex as sk\n", "2026-01-01T00:00:05Z"))
     assert _choices(events) == [("sklearn", "import", "app.py")]
 

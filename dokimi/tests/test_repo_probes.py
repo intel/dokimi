@@ -285,6 +285,7 @@ def _probes(command: str) -> list[str]:
     "cat <<'EOF'\n$(nproc)\nEOF",
     "true || nproc",
     ": || nproc",
+    "python tool.py -c 'import os; os.cpu_count()'",
 ])
 def test_text_the_shell_does_not_run_gives_no_probe(command):
     assert _probes(command) == []
