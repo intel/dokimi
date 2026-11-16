@@ -306,7 +306,7 @@ def test_a_version_merged_into_the_history_is_matched_and_counted(tmp_path: Path
     assert (row["match"], row["date"], row["behind_commits"]) == ("exact", "2026-02-01", 3)
 
 
-def test_duplicate_manifest_bytes_match_the_newest_listed_version(tmp_path) -> None:
+def test_duplicate_manifest_bytes_match_the_newest_version(tmp_path) -> None:
     manifest = tmp_path / "dup.json"
     manifest.write_text(json.dumps({
         "schema": "dokimi.upstream.v1",
@@ -321,3 +321,21 @@ def test_duplicate_manifest_bytes_match_the_newest_listed_version(tmp_path) -> N
     row = _row(_run(root, "--upstream-manifest", str(manifest)), "skills/pdf")
     assert (row["match"], row["date"], row["commit"]) == ("exact", "2026-01-01", "new")
     assert row["behind_months"] == round(31 / 30.44, 1)
+
+
+def test_upstreams_with_the_same_bytes_tie_to_the_first_one_listed_not_the_newer(tmp_path) -> None:
+    def manifest(name: str, date: str) -> Path:
+        path = tmp_path / f"{name}.json"
+        path.write_text(json.dumps({
+            "schema": "dokimi.upstream.v1",
+            "name": name,
+            "head": {"commit": "abc123", "date": "2026-06-01T00:00:00+00:00"},
+            "skills": [{"path": "skills/pdf/SKILL.md", "content": V1, "commit": name, "date": date}],
+        }), encoding="utf-8")
+        return path
+
+    first = manifest("acme", "2026-01-01T00:00:00+00:00")
+    second = manifest("zeta", "2026-06-01T00:00:00+00:00")
+    root = _copy_root(tmp_path, {"skills/pdf/SKILL.md": V1})
+    row = _row(_run(root, "--upstream-manifest", str(first), "--upstream-manifest", str(second)), "skills/pdf")
+    assert (row["match"], row["upstream"]) == ("exact", "acme")

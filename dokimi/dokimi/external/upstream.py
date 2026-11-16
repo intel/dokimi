@@ -57,10 +57,10 @@ def blob_sha256(raw: bytes) -> str:
 
 
 def _exact_rank(version: "Version") -> tuple:
-    """The order of versions with the same bytes: the head, then the fewest commits behind, then the newest commit
-    date (a manifest gives no commit count), then the earlier upstream on the command line."""
+    """The order of versions with the same bytes: the head, then the fewest commits behind, then the earlier upstream
+    on the command line, then the newest commit date within that upstream (a manifest gives no commit count)."""
     newest = (0, -version.date.timestamp()) if version.date is not None else (1, 0.0)
-    return (not version.head, version.behind if version.behind is not None else 1 << 30, newest, version.upstream.order)
+    return (not version.head, version.behind if version.behind is not None else 1 << 30, version.upstream.order, newest)
 
 
 def _tokens(text: str) -> frozenset[str]:
