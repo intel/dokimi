@@ -29,7 +29,9 @@ from dokimi.eval.arm_summary import (
     cell_values, cost_summary, empty_reply_cell, summarize_agentic_usage, summarize_skill_selection, unjudged_cell,
 )
 from dokimi.eval.cells import Cell
-from dokimi.eval.question_text import ground_truth_from_topics, question_text_of, require_question_texts
+from dokimi.eval.question_text import question_text_of, require_question_texts
+from dokimi.eval.arm_record import question_record
+from dokimi.eval.arm_stop import RunStopped, stop_question
 from dokimi.records import Record, RecordLike, arm_names, records as as_records
 from dokimi.eval.judge_context import PROTOCOL as JUDGE_CONTEXT_PROTOCOL
 from dokimi.eval.judge_context import SOURCE_STORED
@@ -92,17 +94,6 @@ def _refuse_session_records(recs: Sequence[Record]) -> None:
             "Session records are measurement-only: the judge would score a session's last "
             "answer against its first question. Judge a single-turn run instead."
         )
-
-
-class RunStopped(Exception):
-    """A run-wide CLI failure: the run stops, and the question it stopped keeps its completed arms."""
-
-    run_wide = True
-
-    def __init__(self, cause: Exception, record: Dict[str, Any]) -> None:
-        super().__init__(str(cause))
-        self.cause = cause
-        self.record = record
 
 
 class ArmRunner:
@@ -291,40 +282,12 @@ class ArmRunner:
         except Exception as exc:
             if getattr(exc, "run_wide", False) is not True:
                 raise
-            # The arm that stopped is an error cell, so the record shows where the run stopped.
-            arms[current] = {"error": f"generation_failed: {exc}", "answer": None, "metadata": {}}
-            for name in self.arm_names:  # an arm the stop never reached says so, as every record has every arm
-                arms.setdefault(name, {"error": "not_asked: the run stopped before this arm", "answer": None,
-                                       "metadata": {}})
-            partial = self._question_record(library_name, q, qid, question_text, turns, arms)
+            stop_question(arms, self.arm_names, current, exc)  # the record shows where the run stopped
+            partial = question_record(library_name, q, qid, question_text, turns, arms,
+                                      grounded_from_topics=self.grounded_from_topics)
             raise RunStopped(exc, partial) from exc
-        return self._question_record(library_name, q, qid, question_text, turns, arms)
-
-    def _question_record(
-        self, library_name: str, q: Dict[str, Any], qid: str, question_text: str, turns: Any,
-        arms: Dict[str, Any],
-    ) -> Dict[str, Any]:
-        rec = {
-            "question_id": qid,
-            "question_text": question_text,
-            "library_name": library_name,
-            "category": q.get("category"),
-            "difficulty": q.get("difficulty"),
-            "persona": q.get("persona"),
-            "arms": arms,
-        }
-        if turns is not None:
-            rec["session_turns"] = len(turns)
-        # Selection label: present-and-None means "no skill should load", which is
-        # why presence is tested rather than truthiness.
-        if "expected_skill" in q:
-            rec["expected_skill"] = q["expected_skill"]
-        ground_truth = q.get("ground_truth_chunk")
-        if not ground_truth and self.grounded_from_topics:
-            ground_truth = ground_truth_from_topics(q)
-        if ground_truth:
-            rec["ground_truth_chunk"] = ground_truth
-        return rec
+        return question_record(library_name, q, qid, question_text, turns, arms,
+                               grounded_from_topics=self.grounded_from_topics)
 
     def _answer_one_arm(
         self,
