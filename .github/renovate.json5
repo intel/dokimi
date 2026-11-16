@@ -34,6 +34,9 @@
   // in its vulnerability PR; regenerate the lock by hand without the flag.
   minimumReleaseAge: "7 days",
   labels: ["dependencies"],
+  // conda-lock-renovate.yml pushes the re-solved locks to a Renovate branch as this bot; otherwise
+  // Renovate treats that commit as a foreign edit and stops rebasing the branch.
+  gitIgnoredAuthors: ["41898282+github-actions[bot]@users.noreply.github.com"],
   // Without this, the numpy/scipy rule below would drop their vulnerability
   // PRs too. enabled: true lets a security fix through a packageRules
   // enabled: false (as the security:only-security-updates preset does).
