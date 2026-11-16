@@ -49,7 +49,7 @@ Three notes keep a row from being misread; none changes the delta, its interval 
 whose interval includes 0 is inconclusive, not "no effect": the note gives ``mde``, a planning figure: an
 approximate, uncorrected t-based estimate of the mean delta a two-sided 5% one-sample t test detects with 80% power
 at the row's spread, ``(t_0.975 + t_0.80) * sd / sqrt(n)`` over the per-task deltas, t at ``n - 1`` degrees of
-freedom (in every row; ``None`` for one task or no spread), not the power of the sign-flip test nor of the
+freedom (in every row; ``None`` for one task, no spread, or a spread so large the figure leaves the float range), not the power of the sign-flip test nor of the
 Holm-corrected decision. The sign-flip p over k changed tasks cannot go below ``2 / 2**k``, so at 5 or fewer no
 effect of any size reaches p < 0.05: ``mde`` is ``None`` there too, and the note says how low p can go instead.
 ``mde`` is ``None`` too where a gate or score row's ``p_holm_floor`` (its ``p_holm`` with its p at that floor and the
@@ -105,6 +105,7 @@ deltas measure the patch's text (a guidance line, say), not the tool.
 from __future__ import annotations
 
 import json
+import math
 import statistics
 from collections import defaultdict
 from pathlib import Path
@@ -753,7 +754,10 @@ def _mean(values: list[Any]) -> float | None:
 
 
 def _round(value: float | None) -> float | None:
-    return None if value is None else round(value, 6)
+    if value is None:
+        return None
+    number = float(value)  # a numpy float64 would warn on overflow while rounding
+    return round(number, 6) if math.isfinite(number) else None
 
 
 def _num(value: float | None) -> str:

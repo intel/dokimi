@@ -6,11 +6,13 @@
 from __future__ import annotations
 
 import math
+import sys
 
 import pytest
 
 from dokimi.eval.finite_delta import checked_delta, checked_mean
-from dokimi.repos.compare import CompareError, _pair, sign_flip_summary
+from dokimi.repos.compare import CompareError, _pair, _round, sign_flip_summary
+from dokimi.repos.compare_reach import min_detectable
 
 
 def _side(value: float) -> dict:
@@ -71,12 +73,33 @@ def test_sign_flip_summary_refuses_finite_deltas_whose_sum_or_spread_leaves_the_
         sign_flip_summary([_task(d) for d in deltas])
 
 
-@pytest.mark.filterwarnings("ignore:overflow encountered:RuntimeWarning")  # the mde of a spread this large
 def test_sign_flip_summary_shifts_deltas_near_the_range_on_a_scaled_copy():
     row = sign_flip_summary([_task(1.0e307), _task(-1.0e307)] * 6)  # cancels pairwise: sum() before 3.12 does not compensate
     assert row["delta"]["mean"] == 0.0
     assert math.isfinite(row["delta"]["lo"]) and math.isfinite(row["delta"]["hi"])
     assert row["delta"]["lo"] < 0 < row["delta"]["hi"]
+
+
+@pytest.mark.filterwarnings("error")
+def test_mde_is_none_when_the_planning_figure_leaves_the_float_range():
+    row = sign_flip_summary([_task(d) for d in [sys.float_info.max, 1.0, 1.0, 1.0, 1.0, 1.0]])
+    assert row["mde"] is None
+
+
+@pytest.mark.filterwarnings("error")
+def test_mde_of_a_large_spread_is_rounded_without_overflowing():
+    row = sign_flip_summary([_task(1.0e307), _task(-1.0e307)] * 6)
+    assert math.isfinite(row["mde"]) and row["mde"] == pytest.approx(9.276e306, rel=1e-3)
+
+
+@pytest.mark.filterwarnings("error")
+def test_min_detectable_past_the_range_is_inf_without_a_warning():
+    assert min_detectable(sys.float_info.max, 3) == math.inf
+
+
+@pytest.mark.parametrize("value", [math.inf, -math.inf, math.nan])
+def test_round_gives_no_figure_for_a_non_finite_value(value):
+    assert _round(value) is None
 
 
 def test_checked_mean_is_the_plain_mean_where_it_is_finite():
