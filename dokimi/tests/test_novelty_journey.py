@@ -141,7 +141,7 @@ def test_the_authoring_path_runs_end_to_end(tmp_path, skill, stub_models, capsys
 
     # 8. Re-render the annotated view from what was saved.
     view_out = tmp_path / "view.html"
-    _run("novelty", "view", "--novelty", str(novelty_json), "--atoms", str(atoms_out),
+    _run("skill", "novelty", "view", "--novelty", str(novelty_json), "--atoms", str(atoms_out),
          "--out", str(view_out))
     assert view_out.exists() and view_out.stat().st_size > 0
 

@@ -529,7 +529,7 @@ def _is_partial_file(path: Path) -> bool:
     """Whether ``path`` holds a partial result; a file this cannot read is not one."""
     try:
         earlier = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+    except (OSError, ValueError, RecursionError):  # RecursionError: nesting too deep for json
         return False
     return isinstance(earlier, dict) and ("partial" in earlier or earlier.get("status") == "partial")
 
