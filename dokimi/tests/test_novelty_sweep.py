@@ -211,3 +211,23 @@ def test_make_row_refuses_an_unknown_status():
 def test_resumable_never_keeps_a_row_whose_directory_could_not_be_digested():
     prior = [dict(_ok("gone-quiet", 0.3), skill_sha256=None)]
     assert resumable(prior, {"gone-quiet": None}, SETTINGS, "1.0") == []
+
+
+def test_ranking_orders_by_new_share_per_1k_tokens():
+    rows = [_ok("a", 0.2, tokens=800), _ok("b", 0.6, tokens=3000), _ok("c", 0.5, tokens=500)]
+    ranked = summarize(rows, resamples=50)["ranking"]
+    assert [r["key"] for r in ranked] == ["c", "a", "b"]  # 1.0, 0.25, 0.2 per 1k tokens
+    assert ranked[0]["new_per_1k_tokens"] == pytest.approx(1.0)
+
+
+def test_ranking_leaves_out_rows_that_are_not_measured_or_have_no_size():
+    rows = [_ok("a", 0.2, tokens=800), _ok("sizeless", 0.9, tokens=None), _row("b", "partial"),
+            _row("c", "error")]
+    assert [r["key"] for r in summarize(rows, resamples=50)["ranking"]] == ["a"]
+
+
+def test_summary_lines_list_the_ranking_after_the_stratum_table():
+    lines = summary_lines(summarize([_ok("a", 0.2, tokens=800), _ok("b", 0.6, tokens=3000)], resamples=50))
+    head = next(i for i, line in enumerate(lines) if line.startswith("ranking by new share per 1k tokens"))
+    assert lines[head] == "ranking by new share per 1k tokens (top 2 of 2):"
+    assert lines[head + 1].lstrip().startswith("1. a:")

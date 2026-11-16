@@ -164,12 +164,33 @@ def group_stats(rows: list[dict], *, resamples: int = RESAMPLES) -> dict[str, An
     }
 
 
+#: How many skills the text summary lists in the ranking; the JSON summary has them all.
+RANK_LINES = 10
+
+
+def ranking(rows: list[dict]) -> list[dict]:
+    """The measured skills with a token count, most new content per 1k tokens first.
+
+    ``new_per_1k_tokens`` is the skill's new share divided by its size in thousands of tokens:
+    what a model learns from reading the skill, per token it must read. Ties keep the key order.
+    """
+    scored = [
+        {"key": r["key"], "name": r["name"], "new_lenient": r["new_lenient"], "tokens": r["tokens"],
+         "new_per_1k_tokens": round(r["new_lenient"] * 1000 / r["tokens"], 6)}
+        for r in rows
+        if r["status"] == "ok" and r["new_lenient"] is not None and r.get("tokens")
+    ]
+    scored.sort(key=lambda s: (-s["new_per_1k_tokens"], s["key"]))
+    return scored
+
+
 def summarize(rows: list[dict], strata: Optional[Mapping[str, str]] = None, *,
               resamples: int = RESAMPLES) -> dict[str, Any]:
     """Counts by status, the spend, and the measure with bootstrap CIs overall and per stratum.
 
     Only ``ok`` rows with a measure are summarised; ``partial`` and ``error`` rows are counted and
     their spend is in ``usd``. With *strata* the per-stratum table is given, else only ``overall``.
+    ``ranking`` lists every measured skill with a token count by new share per 1k tokens.
     """
     counts = {status: 0 for status in STATUSES}
     for row in rows:
@@ -180,6 +201,7 @@ def summarize(rows: list[dict], strata: Optional[Mapping[str, str]] = None, *,
         "usd": round(sum(r["usd"] for r in rows), 6),
         "overall": group_stats(measured, resamples=resamples) if measured else None,
         "strata": None,
+        "ranking": ranking(measured),
     }
     if strata is not None:
         groups: dict[str, list[dict]] = {}
@@ -214,4 +236,10 @@ def summary_lines(summary: dict[str, Any]) -> list[str]:
             lines.append(f"{name[:16]:<16} {block['n']:>4}  {_interval(block['new_lenient']):<22} "
                          f"{_interval(block['known_lenient']):<22} {_interval(block['new_strict']):<22} "
                          f"{block['usd']:>7.2f}")
+    ranked = summary.get("ranking") or []
+    if ranked:
+        lines.append(f"ranking by new share per 1k tokens (top {min(RANK_LINES, len(ranked))} of {len(ranked)}):")
+        for pos, item in enumerate(ranked[:RANK_LINES], 1):
+            lines.append(f"  {pos:>2}. {item['key']}: {item['new_per_1k_tokens']:.4f} "
+                         f"(new {item['new_lenient']:.2f}, {item['tokens']} tokens)")
     return lines

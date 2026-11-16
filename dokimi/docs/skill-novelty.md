@@ -1136,9 +1136,13 @@ each finishes, so a killed sweep keeps what it paid for. An `ok` skill also gets
   column (the skill's directory under ROOT, or its name) and a stratum column (`--stratum-column`,
   default `stratum`); a skill the CSV does not name is `(unassigned)`.
 - **Summary only.** `--summary-only --jsonl FILE` prints the summary of a finished or partial
-  sweep with no model call. `--summary-out FILE` also writes it as JSON.
+  sweep with no model call. `--summary-out FILE` also writes it as JSON. The summary leads with
+  the already-known share, then lists the skills by **new share per 1k tokens** (the new share
+  divided by the skill's size in thousands of tokens; the top ten in text, all in the JSON
+  `ranking`). It sums every row in the JSONL, so a file shared by two sweeps reports both.
 - **Identical copies.** Directories under ROOT whose `SKILL.md` files are byte-identical and name the
-  same skill (the frontmatter `name`, or the directory name when it has none) are one skill: the shallowest path is kept, the other copies get no row and no call (not an error).
+  same skill (the frontmatter `name`, or the directory name when it has none) are one skill: the
+  shallowest path is kept, the other copies get no row and no call (not an error).
 - **Interrupt.** Ctrl-C or SIGTERM stops the sweep without new calls: the skills not yet started
   are cancelled, the skills in flight finish and keep their rows, and the run exits nonzero (130
   for SIGINT, 143 for SIGTERM). A SIGTERM therefore waits for the calls in flight. The rows already
