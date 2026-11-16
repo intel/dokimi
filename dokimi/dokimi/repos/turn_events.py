@@ -57,7 +57,7 @@ def codex_turn(turn: int, usage: Mapping[str, Any]) -> dict[str, Any]:
     fresh = int(usage.get("input_tokens") or 0)
     produced = int(usage.get("output_tokens") or 0)
     cached = max(int(usage.get("cached_input_tokens") or 0), 0)  # a negative count is malformed, not a credit
-    measured = bool(fresh or produced)  # a missing or all-zero usage is not a measured zero
+    measured = bool(fresh or produced or cached)  # a missing or all-zero usage is not a measured zero
     has_input = measured and usage.get("input_tokens") is not None  # each count is null on its own when absent
     has_output = measured and usage.get("output_tokens") is not None
     has_cached = measured and usage.get("cached_input_tokens") is not None  # reported, so a zero is measured

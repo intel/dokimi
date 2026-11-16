@@ -115,6 +115,13 @@ def test_a_compaction_before_any_call_has_no_turn():
         {"kind": "compaction", "t": 0.0, "turn": None}]
 
 
+def test_a_codex_turn_with_only_cached_input_reports_that_count():
+    raw = _lines({"type": "turn.completed", "usage": {"cached_input_tokens": 5}})
+    assert _turns(convert("codex-json", raw).events) == [
+        {"kind": "turn", "t": None, "turn": 0, "input": None, "output": None, "cache_read": 5, "cache_write": None,
+         "prompt_tokens": None}]
+
+
 def test_codex_turns_come_from_turn_completed_and_a_missing_count_is_null():
     raw = _lines(
         {"type": "turn.completed", "usage": {"input_tokens": 10, "cached_input_tokens": 4, "output_tokens": 3}},
