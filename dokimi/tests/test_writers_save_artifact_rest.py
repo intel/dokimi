@@ -282,7 +282,6 @@ def test_an_entry_baseline_list_reads_does_not_block_a_later_save(tmp_path, monk
         ["old", "n1"]
 
 
-
 def test_a_dangling_link_at_the_baseline_path_is_written_through(tmp_path, monkeypatch, baselines):
     """As main wrote through it, and as save_artifact keeps a link (review of #829): the link stays and its target
     gets the copy; a refused manifest removes the target, not the link."""
