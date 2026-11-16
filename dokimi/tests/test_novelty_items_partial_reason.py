@@ -63,7 +63,7 @@ _FALLBACKS = {
 }
 
 
-@pytest.mark.parametrize("message", [None, 7, ["a"], {"a": 1}, "", "   ", "\n\t "])
+@pytest.mark.parametrize("message", [None, 7, ["a"], {"a": 1}, "", "   ", "\n\t ", "\u200b", " \u200b\ufeff "])
 @pytest.mark.parametrize("reason", ["no_price", "permanent_error", "other_reason"])
 def test_a_message_with_no_usable_text_is_replaced_by_the_fallback(tmp_path, reason, message):
     assert _FALLBACKS[reason] in _refusal(tmp_path, {"partial": {"reason": reason, "message": message}})
