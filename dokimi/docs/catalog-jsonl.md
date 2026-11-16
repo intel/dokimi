@@ -30,14 +30,14 @@ The text on stdout is only the counts. A run killed midway keeps the whole lines
 
 | Key | Type | Meaning |
 |---|---|---|
-| `name` | string | the skill's frontmatter name (as loaded) |
+| `name` | string | the manifest entry's `name` when it sets one, else the skill's frontmatter name as loaded; when the SKILL.md did not load, the directory name, or a placeholder (`?`, or `<entry N>` for a non-mapping manifest item) |
 | `manifest_status` | string or null | the status a `skills.yaml` entry gives the skill; null without a manifest |
-| `path` | string or null | the path of the skill's SKILL.md as scanned |
+| `path` | string or null | the skill's directory as scanned; when a manifest `catalog_path` names a SKILL.md file, that file |
 | `relpath` | string or null | the skill's directory relative to the scanned root, with `/` separators |
 | `nested_in` | string or null | the relpath of the skill whose directory holds this one; null when it is not nested |
 | `state` | `ok`, `warn` or `error` | `error` for a load error or an error finding, `warn` for a warning only, else `ok`; `ignored` codes are left out |
 | `error` | string or null | the load error, when the skill did not load |
-| `disable_model_invocation` | boolean | the skill sets `disable-model-invocation: true`, so the description checks skip it |
+| `disable_model_invocation` | boolean | the skill sets `disable-model-invocation: true`, so the description-quality checks skip it; the frontmatter length limit still applies |
 | `content_sha256` | string or null | digest of the SKILL.md text; null when there is no review |
 | `skill_sha256` | string or null | digest of every file in the skill's directory (the scan's own output files excluded); used by `--resume` |
 | `dokimi_version` | string | the dokimi version that wrote the row; `--resume` redoes rows from another version |

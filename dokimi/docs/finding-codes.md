@@ -9,8 +9,10 @@ Every finding that `dokimi catalog check` reports has one code. The codes are th
 keys of `--ignore CODE`, of `findings[].code` in `--format json` and of the JSONL rows
 written by `--per-skill --jsonl` ([row schema](catalog-jsonl.md)). External studies can
 count on them: the list is `FINDING_CODES` in `dokimi/external/validate.py`, and a test
-(`tests/test_catalog_ignore.py`, `tests/test_catalog_output_docs.py`) fails when a code the
-review emits is missing from this page, or when this page lists a code the list lacks.
+(`tests/test_catalog_ignore.py`, `tests/test_catalog_output_docs.py`) fails when a code in a `Finding(...)` call,
+or a kebab-case literal or script-check tuple in the content and command checks, is missing from this page, or when
+this page lists a code the list lacks. The test does not read other modules, or codes built from variables: those
+must be listed by hand.
 
 Stability: a code keeps its meaning. New checks add new codes; a code is not renamed,
 split or reused for a different problem. A check that changes its level says so in the
@@ -46,7 +48,7 @@ They are `frontmatter-parse`, `not-a-skill-no-frontmatter` and `unreadable`.
 | `hidden-unicode` | warn | a bidi control, Unicode tag or stray zero-width character in SKILL.md or a bundled text file | yes |
 | `install-unpinned` | warn | a bundled script installs a package without a pinned version | yes |
 | `legacy-model-id` | warn | a model ID its vendor has retired or deprecated | yes |
-| `link-dead` | warn | `--online`: a URL in SKILL.md does not answer | yes |
+| `link-dead` | warn | `--online`: a URL in SKILL.md answers 404 or 410; a host that does not resolve counts too, once any other probe of the run got an answer (a PyPI or npm lookup counts unless it is a 404) | yes |
 | `link-escapes-skill` | warn | a relative link points to a file outside the skill directory | yes |
 | `link-missing` | warn | a relative Markdown link names no file | yes |
 | `mirror-drift` | warn | a copy of the same directory name in another path has different SKILL.md text | yes |

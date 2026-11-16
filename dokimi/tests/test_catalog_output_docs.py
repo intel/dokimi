@@ -52,7 +52,8 @@ def test_every_skill_row_key_and_finding_code_is_documented(tmp_path, capsys):
     rows = [json.loads(line) for line in jsonl.read_text(encoding="utf-8").splitlines()]
 
     documented_keys = set(_table_keys((DOCS / "catalog-jsonl.md").read_text(encoding="utf-8"), "Skill row"))
-    assert {key for row in rows for key in row} == documented_keys
+    for row in rows:  # each row, not the union of the keys: a row missing a documented key must fail
+        assert set(row) == documented_keys
     assert {"link-missing", "name-mismatch"} <= {f["code"] for row in rows for f in row["findings"]}
 
     documented_codes = set(_table_keys((DOCS / "finding-codes.md").read_text(encoding="utf-8"), "Codes"))
@@ -73,4 +74,4 @@ def test_whole_catalog_json_keys_are_documented(tmp_path, capsys):
     top = doc.split("## `--format json`", 1)[1].split("## `--per-skill", 1)[0]
     documented_top = set(re.findall(r"^\| `([a-z0-9_]+)` \|", top, re.MULTILINE))
     assert set(report) <= documented_top | {"online"}
-    assert {"root", "skills", "tasks", "granularity"} <= documented_top
+    assert {"root", "skills", "tasks", "granularity"} <= set(report)
