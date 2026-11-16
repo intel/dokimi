@@ -62,10 +62,11 @@ IGNORES = re.compile(r"collect_ignore(_glob)?|pytest_ignore_collect")
 BROAD = {"Exception", "BaseException"}
 # What a tolerance is when its keyword is left out of pytest.approx or math.isclose.
 DEFAULTS = {"rel": 1e-6, "abs": 1e-12, "rtol": 1e-5, "atol": 1e-8, "rel_tol": 1e-9, "abs_tol": 0.0}
-# What each comparison API does with a tolerance keyword it is not given. numpy.testing.assert_allclose
-# is not numpy.allclose, and an approx with no keywords still has pytest's default tolerances.
+# What each API does with a tolerance keyword it is not given. isclose has math's defaults, and any
+# non-zero default loosens an exact ==: numpy's are not read, and numpy.testing.assert_allclose is not numpy.allclose.
 API_DEFAULTS = {
     "approx": {"rel": 1e-6, "abs": 1e-12},
+    "isclose": {"rel_tol": 1e-9, "abs_tol": 0.0},
     "allclose": {"rtol": 1e-5, "atol": 1e-8},
     "assert_allclose": {"rtol": 1e-7, "atol": 0.0},
 }
@@ -114,6 +115,7 @@ class Shape:
     tolerances: list[tuple[str, dict[str, float]]] = field(default_factory=list)
     cases: int | None = None
     cases_known: bool = True
+    starred: tuple[str, ...] = () # dumps of the starred elements whose count is unknown; counts compare only if equal
     body: str = ""
     source: str = ""
 
@@ -260,13 +262,34 @@ def _read_call(call: ast.Call, shape: Shape, context: str | None = None) -> None
     _read_tolerances(call, shape, context)
 
 
-def _cases(decorator: ast.expr) -> tuple[bool, int | None]:
-    """(is a parametrize, its case count or None when the values are not a literal list)."""
+def _cases(decorator: ast.expr) -> tuple[bool, int | None, tuple[str, ...]]:
+    """(is a parametrize, its case count or None when the values are not a literal, the dumps of the
+    starred elements whose count is unknown). A starred literal list counts its elements."""
     if not (isinstance(decorator, ast.Call) and _name(decorator.func) == "parametrize"):
-        return False, None
+        return False, None, ()
     values = decorator.args[1] if len(decorator.args) > 1 else {
         k.arg: k.value for k in decorator.keywords}.get("argvalues")
-    return True, _count(values)
+    if not isinstance(values, (ast.List, ast.Tuple)):
+        return True, _count(values), ()
+    count, unknown = 0, []
+    for elt in values.elts:
+        inner = elt.value if isinstance(elt, ast.Starred) else None
+        if inner is None:
+            count += 1
+        elif isinstance(inner, (ast.List, ast.Tuple)) and not any(isinstance(e, ast.Starred) for e in inner.elts):
+            count += len(inner.elts)
+        else:
+            unknown.append(ast.dump(inner))
+    return True, count, tuple(sorted(unknown))
+
+
+def _multiply(shape: Shape, cases: int, starred: tuple[str, ...]) -> None:
+    """Multiply the test's parametrize count by one decorator's. A count with unknown starred parts is
+    compared only when it is the test's only count: a product with it is not known."""
+    if (starred or shape.starred) and shape.cases is not None:
+        shape.cases_known = False
+    shape.starred = tuple(sorted(shape.starred + starred))
+    shape.cases = cases if shape.cases is None else shape.cases * cases
 
 
 def _count(values: ast.expr | None) -> int | None:
@@ -291,11 +314,11 @@ def shape_of(node: ast.FunctionDef | ast.AsyncFunctionDef) -> Shape:
                   indent=node.body[0].col_offset if node.body else 0,
                   body="|".join(ast.dump(n) for n in [node.args, *node.decorator_list, *node.body]))
     for decorator in node.decorator_list:
-        parametrized, cases = _cases(decorator)
+        parametrized, cases, starred = _cases(decorator)
         if parametrized and cases is None:
             shape.cases_known = False
         elif cases is not None:
-            shape.cases = cases if shape.cases is None else shape.cases * cases
+            _multiply(shape, cases, starred)
         shape.skips += _skips_in(decorator)
         for sub in ast.walk(decorator):
             if isinstance(sub, ast.Call):
@@ -365,13 +388,13 @@ def _scope_marks(body: list[ast.stmt]) -> list[ast.expr]:
 def _inherit_cases(shape: Shape, marks: list[ast.expr]) -> None:
     """Multiply the test's parametrize cases by those of the marks its class or module applies to it."""
     for mark in marks:
-        parametrized, cases = _cases(mark)
+        parametrized, cases, starred = _cases(mark)
         if not parametrized:
             continue
         if cases is None:
             shape.cases_known = False
         else:
-            shape.cases = cases if shape.cases is None else shape.cases * cases
+            _multiply(shape, cases, starred)
 
 
 def _scope_skips(body: list[ast.stmt]) -> int:
@@ -586,7 +609,10 @@ def narrowing(base: Shape, head: Shape) -> list[str]:
     if _tolerance_loosened(base, head):
         found.append("loosens a tolerance")
     cases = 1 if head.cases is None else head.cases
-    if base.cases is not None and base.cases_known and head.cases_known and cases < base.cases:
+    # An unknown starred part adds zero or more cases: the base count is a floor, and an exact head count
+    # below it is a cut. Two unknown parts compare only when equal.
+    same = base.starred == head.starred or not head.starred
+    if base.cases is not None and base.cases_known and head.cases_known and same and cases < base.cases:
         found.append(f"cuts parametrize cases ({base.cases} -> {cases})")
     return found
 

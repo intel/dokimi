@@ -707,6 +707,36 @@ def test_a_tolerance_that_is_not_a_real_number_is_read_without_an_error(toleranc
     assert [what for _, _, what in found] == ["loosens a tolerance"]
 
 
+def test_a_growing_starred_literal_list_is_not_a_cut():
+    base = "import pytest\n\n\n@pytest.mark.parametrize('x', [1, 2, 3])\ndef test_a(x):\n    assert x\n"
+    head = base.replace("[1, 2, 3]", "[*[1, 2, 3], 4]")
+    assert ctn.compare(base, head) == []
+
+
+def test_a_cut_next_to_an_unknown_starred_element_is_still_a_cut():
+    base = "import pytest\nfrom fixtures import COMMON\n\n\n@pytest.mark.parametrize('x', [*COMMON, 1, 2])\ndef test_a(x):\n    assert x\n"
+    head = base.replace("[*COMMON, 1, 2]", "[*COMMON, 1]")
+    assert [what for _, _, what in ctn.compare(base, head)] == ["cuts parametrize cases (2 -> 1)"]
+
+
+def test_dropping_an_unknown_starred_element_with_literal_cases_is_a_cut():
+    base = "import pytest\nfrom fixtures import A\n\n\n@pytest.mark.parametrize('x', [*A, 1, 2])\ndef test_a(x):\n    assert x\n"
+    head = base.replace("[*A, 1, 2]", "[1]")
+    assert [what for _, _, what in ctn.compare(base, head)] == ["cuts parametrize cases (2 -> 1)"]
+
+
+def test_a_changed_unknown_starred_element_is_not_compared():
+    base = "import pytest\nfrom fixtures import A, B\n\n\n@pytest.mark.parametrize('x', [*A, 1, 2])\ndef test_a(x):\n    assert x\n"
+    head = base.replace("[*A, 1, 2]", "[*B, 1]")
+    assert ctn.compare(base, head) == []
+
+
+def test_an_isclose_with_no_keywords_replacing_an_exact_comparison_is_a_loosening():
+    base = "def test_a(value):\n    assert value() == 1.0\n"
+    head = "import math\n\n\ndef test_a(value):\n    assert math.isclose(value(), 1.0)\n"
+    assert [what for _, _, what in ctn.compare(base, head)] == ["loosens a tolerance"]
+
+
 def test_a_range_too_long_to_count_is_read_without_an_error():
     base = "import pytest\n\n\n@pytest.mark.parametrize('x', range(10 ** 19))\ndef test_a(x):\n    assert x\n"
     assert ctn.compare(base, base.replace("10 ** 19", "1e400")) == []
