@@ -510,7 +510,7 @@ def _renovate_workflow() -> dict:
 
 
 def _push_step() -> dict:
-    return next(s for s in _renovate_workflow()["jobs"]["resolve"]["steps"] if s.get("name") == _PUSH_STEP)
+    return next(s for s in _renovate_workflow()["jobs"]["push"]["steps"] if s.get("name") == _PUSH_STEP)
 
 
 def test_the_renovate_workflow_runs_on_every_push_to_renovate_branches() -> None:
@@ -524,10 +524,37 @@ def test_the_renovate_workflow_runs_on_every_push_to_renovate_branches() -> None
     assert triggers["push"] == {"branches": ["renovate/**"]}
 
 
+def _stage_locks(change: str, work: Path, artifact: Path, git, branch: str) -> None:
+    """The branch holds linux-64-py3.12.txt; the artifact holds what the solve job made of it, as `change` says."""
+    artifact.mkdir()
+    (artifact / "linux-64-py3.12.txt").write_text("a\n", encoding="utf-8")
+    if change in ("modified", "no token", "rejected"):
+        (artifact / "linux-64-py3.12.txt").write_text("b\n", encoding="utf-8")
+    elif change == "new":
+        (artifact / "linux-64-py3.13.txt").write_text("b\n", encoding="utf-8")
+    elif change == "removed":  # the branch also has py3.11, which the solve dropped
+        (artifact / "linux-64-py3.12.txt").unlink()
+        (artifact / "linux-64-py3.11.txt").write_text("a\n", encoding="utf-8")
+        (work / "ci" / "conda-lock" / "linux-64-py3.11.txt").write_text("a\n", encoding="utf-8")
+        git("add", "-A")
+        git("commit", "-q", "-m", "an older Python")
+        git("push", "-q", "origin", branch)
+    elif change == "stray":  # a symlink, a file of another name, a file in a subdirectory: none is a lock to take
+        (artifact / "linux-64-py3.13.txt").symlink_to(work / "ci" / "config.yml")
+        (artifact / "notes.txt").write_text("x\n", encoding="utf-8")
+        (artifact / "sub").mkdir()
+        (artifact / "sub" / "linux-64-py3.14.txt").write_text("x\n", encoding="utf-8")
+    if change not in ("none", "removed"):
+        (work / "ci" / "config.yml").write_text("y\n", encoding="utf-8")  # not a lock: must stay out of the commit
+
+
 @pytest.mark.skipif(sys.platform == "win32" or shutil.which("git") is None, reason="runs the step's bash with git")
-@pytest.mark.parametrize("change", ["none", "modified", "new", "no token", "rejected"])
+@pytest.mark.parametrize("change", ["none", "modified", "new", "removed", "stray", "no token", "rejected"])
 def test_the_renovate_push_commits_only_the_locks_and_never_forces(change: str, tmp_path: Path) -> None:
-    """#682: a pin bump gets its re-solved locks pushed; current locks end the loop; no token fails (GITHUB_TOKEN starts no CI)."""
+    """#682: the locks the solve job handed over are pushed; current locks end the loop; no token fails (GITHUB_TOKEN starts no CI).
+
+    The artifact is the branch's code's output: only regular files named like a lock are taken from it.
+    """
     step = _push_step()
     assert step["env"]["GH_TOKEN"] == "${{ secrets.CONDA_LOCK_TOKEN }}"
     assert step["env"]["BRANCH"] == "${{ github.ref_name }}" and "${{" not in step["run"]
@@ -554,11 +581,9 @@ def test_the_renovate_push_commits_only_the_locks_and_never_forces(change: str, 
     git("add", "-A")
     git("commit", "-q", "-m", "pin bump")
     git("push", "-q", "origin", branch)
+    artifact = tmp_path / "locks"  # what the download step leaves: the solve job's output
+    _stage_locks(change, work, artifact, git, branch)
     before = git("rev-parse", "HEAD").strip()
-    if change != "none":
-        (work / "ci" / "conda-lock" / ("linux-64-py3.12.txt" if change != "new" else "linux-64-py3.13.txt")).write_text(
-            "b\n", encoding="utf-8")
-        (work / "ci" / "config.yml").write_text("y\n", encoding="utf-8")  # not a lock: must stay out of the commit
     if change == "rejected":
         other = tmp_path / "other"
         git("clone", "-q", "-b", branch, str(remote), str(other), cwd=tmp_path)
@@ -566,15 +591,18 @@ def test_the_renovate_push_commits_only_the_locks_and_never_forces(change: str, 
         git("add", "-A", cwd=other)
         git("commit", "-q", "-m", "Renovate rebased", cwd=other)
         git("push", "-q", "origin", f"HEAD:{branch}", cwd=other)
-    env = {**base, "PATH": f"{bin_dir}:/usr/bin:/bin", "GH_TOKEN": "" if change == "no token" else "token", "BRANCH": branch}
+    env = {**base, "PATH": f"{bin_dir}:/usr/bin:/bin", "GH_TOKEN": "" if change == "no token" else "token", "BRANCH": branch,
+           "LOCKS": str(artifact)}
     done = subprocess.run(["/bin/bash", "-e", "-c", step["run"]], cwd=work, env=env, capture_output=True, text=True,
                           check=False)
     calls = log.read_text(encoding="utf-8").splitlines() if log.exists() else []
     pushed = git("rev-parse", branch, cwd=remote).strip()
-    if change in ("none", "no token"):
-        assert done.returncode == (0 if change == "none" else 1)
-        assert [c for c in calls if c.split()[1] in ("push", "commit", "add")] == [] and (calls == [] or change == "none")
-        assert ("The locks are current." in done.stdout) is (change == "none")
+    if change in ("none", "stray", "no token"):
+        assert done.returncode == (1 if change == "no token" else 0)
+        assert [c for c in calls if c.split()[1] in ("push", "commit", "add")] == [] and (calls == [] or change != "no token")
+        assert ("The locks are current." in done.stdout) is (change != "no token")
+        assert sorted(p.name for p in (work / "ci" / "conda-lock").iterdir()) == ["linux-64-py3.12.txt"]
+        assert (work / "ci" / "conda-lock" / "linux-64-py3.12.txt").read_text(encoding="utf-8") == "a\n"
         assert ("CONDA_LOCK_TOKEN is not set" in done.stdout) is (change == "no token")
         assert pushed == before
     elif change == "rejected":
@@ -587,7 +615,8 @@ def test_the_renovate_push_commits_only_the_locks_and_never_forces(change: str, 
         assert pushes == [f"git push origin HEAD:refs/heads/{branch}"] and "gh auth setup-git" in calls
         assert git("rev-list", "--count", f"{before}..{pushed}", cwd=remote).strip() == "1"
         assert git("diff", "--name-only", before, pushed, cwd=remote).splitlines() == [
-            "ci/conda-lock/" + ("linux-64-py3.12.txt" if change == "modified" else "linux-64-py3.13.txt")]
+            "ci/conda-lock/" + ("linux-64-py3.13.txt" if change == "new" else "linux-64-py3.12.txt")]
+        assert git("diff", "--name-status", before, pushed, cwd=remote)[0] == {"modified": "M", "new": "A", "removed": "D"}[change]
         message = git("log", "-1", "--format=%an <%ae>%n%B", branch, cwd=remote)
         assert message.startswith("github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>\n")
         assert "ci(conda-lock): re-solve the Intel CI conda locks" in message and "\nSigned-off-by: " in message
@@ -643,3 +672,50 @@ def test_the_resolve_job_skips_only_its_own_lock_commit() -> None:
     assert _job_runs(condition, "intel/dokimi", bot, "something else") is True
     assert _job_runs(condition, "intel/dokimi", "renovate@example.com", message) is True
     assert _job_runs(condition, "someone/fork", "renovate@example.com", "bump mypy") is False
+
+
+def test_the_renovate_workflow_keeps_the_token_away_from_the_branch_code() -> None:
+    """#682: the job that runs the branch's code (pip install, lock.py) has no secret and a read-only token; the job with CONDA_LOCK_TOKEN runs none of it."""
+    workflow = _renovate_workflow()
+    jobs = workflow["jobs"]
+    assert list(jobs) == ["resolve", "push"]
+    assert workflow["permissions"] == {"contents": "read"}
+    assert [job["permissions"] for job in jobs.values()] == [{"contents": "read"}] * 2
+    resolve, push = jobs["resolve"], jobs["push"]
+    assert "secrets." not in json.dumps(resolve) and "CONDA_LOCK_TOKEN" not in json.dumps(resolve)
+    assert "CONDA_LOCK_TOKEN" in json.dumps(push)
+    assert "python ci/lock.py --if-stale" in [s.get("run") for s in resolve["steps"]]
+    assert any(str(s.get("uses", "")).startswith("actions/upload-artifact@") for s in resolve["steps"])
+    assert any(str(s.get("uses", "")).startswith("actions/download-artifact@") for s in push["steps"])
+    for job in (resolve, push):  # the locks are pushed onto the commit they were solved for
+        checkout = next(s for s in job["steps"] if str(s.get("uses", "")).startswith("actions/checkout@"))
+        assert checkout["with"]["ref"] == "${{ github.sha }}" and checkout["with"]["persist-credentials"] is False
+    runs = " ".join(s.get("run", "") for s in push["steps"])
+    assert not re.search(r"\bpython\b|\bpip\b|lock\.py", runs)
+    assert push["needs"] == "resolve" and push["if"] == "needs.resolve.outputs.changed == 'true'"
+
+
+@pytest.mark.parametrize(("flag", "header", "solved"), [
+    (True, "current", False), (True, "stale", True), (True, "missing", True),
+    (False, "current", True),
+])
+def test_if_stale_keeps_a_lock_solved_from_todays_specs(flag: bool, header: str, solved: bool, tmp_path: Path,
+                                                        monkeypatch: pytest.MonkeyPatch) -> None:
+    """#682: builds that aged in since the lock was solved must not change a lock whose inputs did not."""
+    lock = _generator(tmp_path, monkeypatch, ["3.12"])
+    calls: list[list[str]] = []
+
+    def solve(wanted: list[str], min_age_days: int) -> list:
+        calls.append(wanted)
+        return []
+
+    monkeypatch.setattr(lock, "solve", solve)
+    path = tmp_path / "ci" / "conda-lock" / "linux-64-py3.12.txt"
+    path.parent.mkdir(parents=True)
+    if header != "missing":
+        wanted = ["python 3.12.*"] if header == "current" else ["python 3.12.*", "mypy ==2.4.0"]
+        path.write_text(f"{lock.SPECS_PREFIX}{json.dumps(wanted)}\nold\n", encoding="utf-8")
+    assert lock.main(["--if-stale"] if flag else []) == 0
+    assert bool(calls) is solved
+    assert path.read_text(encoding="utf-8").endswith("old\n") is (not solved)
+    assert path.is_file()

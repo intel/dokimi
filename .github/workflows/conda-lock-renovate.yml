@@ -1,8 +1,8 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-# Re-solves ci/conda-lock/ (ci/lock.py) on a Renovate branch that changes an input, such as a ci/config.yml pin; see ci/README.md.
-# A push, never pull_request_target: the job runs the branch's own code with a write token, and a fork cannot push to renovate/**.
+# Re-solves ci/conda-lock/ (ci/lock.py) on a Renovate branch whose lock inputs changed, such as a ci/config.yml pin; see ci/README.md.
+# A push, never pull_request_target: a fork cannot push to renovate/**. The job that runs the branch's code has no secret.
 name: Conda lock re-solve on Renovate branches
 
 on:
@@ -10,7 +10,7 @@ on:
     branches:
       - 'renovate/**'
     # No `paths` filter: a Renovate rebuild onto a newer main that changes an unrelated file (the old and new tips differ only there)
-    # drops the lock commit, or loses the push of a run in flight, and must still start a solve. A current lock ends the run at the push step.
+    # drops the lock commit, or loses the push of a run in flight, and must still start a solve. A branch whose locks match their specs ends the run at the solve.
 
 permissions:
   contents: read
@@ -30,11 +30,13 @@ jobs:
     runs-on: ${{ vars.GH_CI_RUNNER || 'intel-ubuntu-latest' }}
     timeout-minutes: 20
     permissions:
-      contents: write
+      contents: read
+    outputs:
+      changed: ${{ steps.changed.outputs.changed }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
-          ref: ${{ github.ref }}
+          ref: ${{ github.sha }}
           fetch-depth: 1
           persist-credentials: false
 
@@ -43,24 +45,69 @@ jobs:
           python-version: "3.14"
 
       # Hash-locked, so nothing this job runs is unhashed; Renovate re-compiles the lock (.github/renovate.json5).
+      # The branch may bump this lock: what it installs runs here, where there is no secret and the token reads only.
       - name: Install py-rattler
         run: python -m pip install --no-input --no-deps --require-hashes -r dokimi/requirements-conda-lock.lock.txt
 
+      # --if-stale: a lock whose specs header matches today's specs is kept, so builds that aged in since main's locks
+      # do not put a lock commit on a branch that changes no lock input (conda-lock.yml's weekly PR is where they show up).
       - name: Solve the locks
-        run: python ci/lock.py
+        run: python ci/lock.py --if-stale
+
+      - name: Find the changed locks
+        id: changed
+        run: |
+          if [ -n "$(git status --porcelain -- ci/conda-lock)" ]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Hand the locks to the push job
+        if: steps.changed.outputs.changed == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
+        with:
+          name: conda-locks
+          path: ci/conda-lock/linux-64-py*.txt
+          if-no-files-found: error
+          retention-days: 1
+
+  push:
+    name: Push the re-solved locks to the branch
+    needs: resolve
+    if: needs.resolve.outputs.changed == 'true'
+    runs-on: ${{ vars.GH_CI_RUNNER || 'intel-ubuntu-latest' }}
+    timeout-minutes: 5
+    # The push goes through CONDA_LOCK_TOKEN (gh auth setup-git); GITHUB_TOKEN only reads here.
+    permissions:
+      contents: read
+    steps:
+      # The commit the locks were solved for: if the branch moved since, the push is not a fast-forward and is rejected.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333  # v8.0.2
+        with:
+          name: conda-locks
+          path: ${{ runner.temp }}/locks
 
       # A push made with GITHUB_TOKEN starts no workflows, so CONDA_LOCK_TOKEN (an app or fine-grained token) is required.
-      # The lock commit starts this workflow again (every push does); the job's `if` skips it.
+      # The lock commit starts this workflow again; the resolve job's `if` skips it. Only regular files named like a lock are taken from the artifact.
       - name: Push the re-solved locks to the branch
         env:
           GH_TOKEN: ${{ secrets.CONDA_LOCK_TOKEN }}
           GH_REPO: ${{ github.repository }}
           BRANCH: ${{ github.ref_name }}
+          LOCKS: ${{ runner.temp }}/locks
         run: |
           if [ -z "$GH_TOKEN" ]; then
             echo "::error::CONDA_LOCK_TOKEN is not set: locks pushed with GITHUB_TOKEN would get no Intel CI run."
             exit 1
           fi
+          mkdir -p ci/conda-lock
+          rm -f ci/conda-lock/linux-64-py*.txt
+          find "$LOCKS" -maxdepth 1 -type f -name 'linux-64-py*.txt' -exec cp {} ci/conda-lock/ \;
           if [ -z "$(git status --porcelain -- ci/conda-lock)" ]; then
             echo "The locks are current."
             exit 0
