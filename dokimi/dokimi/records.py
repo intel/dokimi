@@ -446,9 +446,23 @@ def knowledge_only(rec: Record) -> bool:
     return rec.error is None and not _holds(rec, CONTEXT) and _holds(rec, BASELINE)
 
 
+def held_conditions(recs: Iterable[Record]) -> list[str]:
+    """The condition names the records hold an answer or a score in, in first-seen order (binary or arms)."""
+    held: dict[str, None] = {}
+    for r in recs:
+        for name in (*arm_names(r), CONTEXT, BASELINE):
+            if _holds(r, name):
+                held.setdefault(name, None)
+    return list(held)
+
+
 def is_single_condition(recs: Sequence[Record]) -> bool:
-    """Whether a run answered one condition by design: no record holds a context answer or score, some hold a baseline one."""
-    return not any(_holds(r, CONTEXT) for r in recs) and any(_holds(r, BASELINE) for r in recs)
+    """Whether a run answered one condition by design: the records hold exactly one, and it is not the context one.
+
+    That one is ``without_docs`` in a binary run, and the arm's name in an ``arms.v1`` run with one arm.
+    """
+    held = held_conditions(recs)
+    return len(held) == 1 and held[0] != CONTEXT
 
 
 def has_arms(recs: Iterable[Record]) -> bool:

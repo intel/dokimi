@@ -15,7 +15,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Sequence
 
-from dokimi.records import BASELINE, Record, is_single_condition, records
+from dokimi.records import Record, held_conditions, is_single_condition, records
 from dokimi.report.eval_report import (
     DIFFICULTY_ORDER,
     _answers_by_id,
@@ -40,38 +40,39 @@ def _cell(value: Optional[float]) -> str:
     return "—" if value is None else f"{value:.1f}"
 
 
-def _condition_row(label: str, qs: Sequence[Record]) -> str:
+def _condition_row(label: str, qs: Sequence[Record], cond: str) -> str:
     """One row of the condition table: questions, scored ones, mean, lowest and highest score."""
-    scores = [s for s in (q.score(BASELINE) for q in qs) if s is not None]
+    scores = [s for s in (q.score(cond) for q in qs) if s is not None]
     low, high = (min(scores), max(scores)) if scores else (None, None)
     return (f"| {label} | {len(qs)} | {len(scores)} | {_cell(_mean(scores))} | "
             f"{_cell(low)} | {_cell(high)} |")
 
 
-def _unscored_note(qs: Sequence[Record]) -> List[str]:
-    missing = sum(1 for q in qs if q.score(BASELINE) is None)
+def _unscored_note(qs: Sequence[Record], cond: str) -> List[str]:
+    missing = sum(1 for q in qs if q.score(cond) is None)
     if not missing:
         return []
     return [f"_{missing} question(s) have no score: the answer is missing, errored, or was not graded._", ""]
 
 
-def _difficulty_rows(qs: Sequence[Record]) -> List[str]:
+def _difficulty_rows(qs: Sequence[Record], cond: str) -> List[str]:
     groups: Dict[Any, List[Record]] = defaultdict(list)
     for q in qs:
         groups[_difficulty(q, "unknown")].append(q)
     order = [d for d in DIFFICULTY_ORDER if d in groups] + [d for d in groups if d not in DIFFICULTY_ORDER]
-    return [_condition_row(str(d), groups[d]) for d in order]
+    return [_condition_row(str(d), groups[d], cond) for d in order]
 
 
-def _question_row(q: Record) -> str:
-    return (f"| {q.question_id} | {_difficulty(q, '—')} | {_cell(q.score(BASELINE))} | "
+def _question_row(q: Record, cond: str) -> str:
+    return (f"| {q.question_id} | {_difficulty(q, '—')} | {_cell(q.score(cond))} | "
             f"{fmt_question(q.question_text)} |")
 
 
 def render(evals: Sequence[Record], meta: Dict[str, Any], library: str, generated: str) -> List[str]:
     """The markdown lines of the one-condition report for *evals* (the records of a single-condition run)."""
-    scored = [q for q in evals if q.score(BASELINE) is not None]
-    weakest = sorted(scored, key=lambda q: q.score(BASELINE) or 0.0)[:WEAK_SPOTS]
+    cond = held_conditions(evals)[0]  # the one condition the run answered
+    scored = [q for q in evals if q.score(cond) is not None]
+    weakest = sorted(scored, key=lambda q: q.score(cond) or 0.0)[:WEAK_SPOTS]
     lines: List[str] = [
         f"# {library} Knowledge Report",
         f"_Generated: {generated}_",
@@ -81,30 +82,30 @@ def render(evals: Sequence[Record], meta: Dict[str, Any], library: str, generate
         "|---|---|",
         f'| Answer model | {meta.get("answer_model", "—")} ({meta.get("answer_provider", "—")}) |',
         f"| Questions | {len(evals)} ({len(scored)} scored) |",
-        "| Conditions | one: `without_docs` (no documentation, skill or persona) |",
+        f"| Conditions | one: `{cond}` |",
         "",
         "## Summary",
         "| Condition | Questions | Scored | Mean | Lowest | Highest |",
         "|---|---:|---:|---:|---:|---:|",
-        _condition_row("`without_docs` (knowledge)", evals),
+        _condition_row(f"`{cond}` (knowledge)", evals, cond),
         "",
     ]
-    lines += _unscored_note(evals)
+    lines += _unscored_note(evals, cond)
     lines += [
         "## By difficulty",
         "| Difficulty | Questions | Scored | Mean | Lowest | Highest |",
         "|---|---:|---:|---:|---:|---:|",
-        *_difficulty_rows(evals),
+        *_difficulty_rows(evals, cond),
         "",
         f"## Lowest-scoring questions (up to {WEAK_SPOTS})",
         "| QID | Difficulty | Score | Question |",
         "|---|---|---:|---|",
-        *[_question_row(q) for q in weakest],
+        *[_question_row(q, cond) for q in weakest],
         "",
         "## Questions",
         "| QID | Difficulty | Score | Question |",
         "|---|---|---:|---|",
-        *[_question_row(q) for q in evals],
+        *[_question_row(q, cond) for q in evals],
         "",
         "## Notes",
         "",
@@ -118,12 +119,13 @@ def render(evals: Sequence[Record], meta: Dict[str, Any], library: str, generate
 
 def _write_qa(eval_path: str, out_path: str, qa_json_out: Optional[str], evals: Sequence[Record],
               meta: Dict[str, Any]) -> None:
+    cond = held_conditions(evals)[0]
     if qa_json_out is None:
         qa_json_out = os.path.splitext(out_path)[0] + ".qa.json"
     answers_by_id = _answers_by_id(eval_path.replace("/eval/", "/answers/"))
 
     def _answer_text(a: Optional[Record]) -> Optional[str]:
-        answer = a.answer(BASELINE) if a is not None else None
+        answer = a.answer(cond) if a is not None else None
         return answer.text if answer is not None else None
 
     static_prefix = detect_static_prefix(evals)
@@ -134,7 +136,7 @@ def _write_qa(eval_path: str, out_path: str, qa_json_out: Optional[str], evals: 
             "difficulty": e.difficulty,
             "source": "static" if static_prefix and e.key.startswith(static_prefix) else "dynamic",
             "with_docs_score": None,
-            "without_docs_score": e.score(BASELINE),
+            "without_docs_score": e.score(cond),
             "delta": None,
             "with_docs_answer": None,
             "without_docs_answer": _answer_text(answers_by_id.get(e.key)),
@@ -168,9 +170,10 @@ def write_eval_report(eval_path: str, out_path: str, qa_json_out: Optional[str] 
     with open(out_path, "w", encoding="utf-8") as f:
         f.write(text)
     _write_qa(eval_path, out_path, qa_json_out, evals, meta)
-    scored = [s for s in (q.score(BASELINE) for q in evals) if s is not None]
+    cond = held_conditions(evals)[0]
+    scored = [s for s in (q.score(cond) for q in evals) if s is not None]
     print(f"✅ Report written to: {out_path}")
-    print(f"   Questions: {len(evals)} ({len(scored)} scored), one condition: without_docs, "
+    print(f"   Questions: {len(evals)} ({len(scored)} scored), one condition: {cond}, "
           f"mean {_cell(_mean(scored))}")
     return out_path
 
