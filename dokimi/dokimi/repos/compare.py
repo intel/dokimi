@@ -592,6 +592,7 @@ def sign_flip_summary(pairs: list[dict[str, Any]], measure: str = "gate", seed: 
     deltas = [p["delta"] for p in pairs]
     magnitudes = pair_magnitudes([p["treatment"] for p in pairs], [p["baseline"] for p in pairs])
     widths = tie_widths(magnitudes, len(deltas))  # a tie is within float noise of the pair's own values
+    changed = [m for m, d, w in zip(magnitudes, deltas, widths, strict=True) if abs(d) > w]  # the spread is read at their scale
     mean = checked_mean(deltas, CompareError)
     try:
         row = sign_flip_row(deltas, seed=seed, exact=exact, magnitudes=magnitudes)
@@ -609,7 +610,7 @@ def sign_flip_summary(pairs: list[dict[str, Any]], measure: str = "gate", seed: 
         "p": p,
         "p_holm": None,
         "p_holm_floor": None,
-        "mde": _round(min_detectable(sd, len(deltas))) if sd > EPS * tie_scale(magnitudes) and reachable else None,
+        "mde": _round(min_detectable(sd, len(deltas))) if sd > EPS * tie_scale(changed) and reachable else None,
         "interval_p_disagree": p is not None and includes_zero(lo, hi) == (p < ALPHA),
         "up": sum(d > w for d, w in zip(deltas, widths, strict=True)),
         "down": sum(d < -w for d, w in zip(deltas, widths, strict=True)),

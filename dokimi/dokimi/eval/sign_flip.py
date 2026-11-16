@@ -10,7 +10,8 @@ over the deltas not within their tie width of 0 (:data:`EPS`, or :func:`tie_widt
 ``p(theta)`` is the two-sided sign-flip p of the shifted deltas ``d - theta`` over every delta, as
 :func:`sign_flip_p` computes it on them: a shifted delta within the tie width of its pair (:func:`tie_widths`, kept
 from the original deltas) of 0 is a tie, so a delta tied at 0 counts again once ``theta`` moves off 0. Exact, a sign
-pattern counts when its sum falls short of the observed one by at most the largest tie width among the deltas summed (:data:`EPS` at most),
+pattern counts when its sum falls short of the observed one by at most the rounding error of adding the deltas summed (:func:`_sum_slack`; :data:`EPS` at most, and no more than the
+largest tie width among them),
 the observed sum taken as the least of its exactly rounded sum and the product's sums for
 the observed signs and their mirror: from deltas of about 1e6 on the two round apart by more than :data:`EPS`, and the
 observed pattern would not count itself. The observed sum and the mean the bisection starts from are
@@ -41,6 +42,7 @@ import functools
 import itertools
 import math
 import random
+import statistics
 import sys
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
@@ -93,6 +95,13 @@ def tie_widths(magnitudes: Sequence[float] | None, n: int, k: int = 0) -> list[f
     return [EPS * math.ldexp(min(1.0, m) if math.isfinite(m) and m > 0.0 else unit, -k) for m in magnitudes]
 
 
+def _sum_slack(summed: Sequence[float], cap: float) -> float:
+    """How far two sign patterns' sums may differ and still be the same sum: the rounding error of adding the deltas
+    in two orders (``n * 2**-52`` times their absolute sum), never more than ``cap``. A tie width, which is the noise
+    of one pair's subtraction, is no slack on a sum: it would swallow a changed delta of the size of that width."""
+    return min(cap, len(summed) * 2.0 ** -52 * math.fsum(abs(x) for x in summed))
+
+
 def min_sign_flip_p(changed: int) -> float:
     """The smallest p :func:`sign_flip_p` can give over ``changed`` non-zero deltas, every sign the same: only that
     pattern and its mirror reach the observed ``|sum|``, ``2 / 2**changed`` exact, ``1 / (N + 1)`` Monte Carlo."""
@@ -119,9 +128,9 @@ def sign_flip_p(deltas: list[float], seed: int = 0, n_resamples: int = N_RESAMPL
     # the slack on a sum follows the pairs the sum is of, not a tied pair's larger values
     unit = tie_scale(None if magnitudes is None else [magnitudes[i] for i in active])
     k = _scale_exponent(d, unit)
-    eps = EPS * math.ldexp(unit, -k)
     if k:  # near the float maximum the sums go to inf/nan: the same p on the deltas divided by a power of two
         d = [math.ldexp(x, -k) for x in d]
+    eps = _sum_slack(d, EPS * math.ldexp(unit, -k))
     observed = abs(sum(d)) - eps
     if len(d) <= EXACT_MAX:
         hits = sum(abs(sum(s * x for s, x in zip(signs, d, strict=True))) >= observed
@@ -188,7 +197,7 @@ class ShiftTest:
         moved = x[x != 0.0]
         if not moved.size:
             return None
-        eps = float(self.widths[~tied].max())  # slack on a sum: the widest tie width among the deltas summed
+        eps = _sum_slack(moved.tolist(), float(self.widths[~tied].max()))
         observed = abs(math.fsum(moved.tolist()))  # exactly rounded: sum() rounds differently before 3.12
         if moved.size <= EXACT_MAX:
             sums = np.abs(_patterns(moved.size) @ moved)  # rows 0 and -1: the observed signs and their mirror
@@ -263,15 +272,25 @@ def _scaled_back(end: float | None, k: int) -> float | None:
 
 def _ends(deltas: list[float], p_zero: float | None, seed: int, eps: float | Sequence[float], tol: float,
           unit: float = 1.0) -> tuple[float | None, float | None]:
-    test, mean = ShiftTest(deltas, seed, eps=eps), math.fsum(deltas) / len(deltas)
-    if test.changed and not _accepts(test.p(mean)):
-        # tied deltas pull the mean off the shift the test accepts: start from the mean of the changed ones
-        mean = math.fsum(test.d[:test.changed].tolist()) / test.changed
+    test = ShiftTest(deltas, seed, eps=eps)
+    mean = _start(test, math.fsum(deltas) / len(deltas))
     zero_inside, low, high = p_zero is None or p_zero >= ALPHA, min(*deltas, 0.0), max(*deltas, 0.0)
     # far is one unit (1, or the scale of tiny values) past the extreme, or twice it from one unit on:
     # 1e16 + 1.0 rounds back onto 1e16, all tied
     return (_end(test, mean, low - max(unit, -low), zero_inside, tol),
             _end(test, mean, high + max(unit, high), zero_inside, tol))
+
+
+def _start(test: ShiftTest, mean: float) -> float:
+    """The shift the bisection starts from: ``mean`` if the test accepts it, else the first accepted of the mean of the
+    changed deltas and of up to :data:`EXACT_MAX` of the deltas, nearest the median first (shifted by a delta, that
+    delta and the ones within their width of it tie). ``mean`` again if none is, as there is no accepted shift to find."""
+    if not test.changed or _accepts(test.p(mean)):
+        return mean
+    changed = test.d[:test.changed].tolist()
+    median = statistics.median(test.d.tolist())
+    nearest = sorted(set(test.d.tolist()), key=lambda x: abs(x - median))[:EXACT_MAX]
+    return next((c for c in [math.fsum(changed) / len(changed), *nearest] if _accepts(test.p(c))), mean)
 
 
 def _end(test: ShiftTest, mean: float, far: float, zero_inside: bool, tol: float = TOL) -> float | None:

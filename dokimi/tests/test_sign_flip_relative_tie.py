@@ -158,6 +158,36 @@ def test_an_unchanged_pair_of_large_values_does_not_pull_the_interval_off_the_sh
     assert sign_flip_interval(deltas, p, rounded=False, magnitudes=mags) == alone
 
 
+def test_a_changed_pair_the_size_of_its_tie_width_does_not_make_every_sign_pattern_count():
+    # the ninth delta, 1.1e-9, is a change just past its width of 1e-9: the slack on a sum is rounding, not that width
+    treatment, baseline = [1e-12] * 8 + [1.0 + 1.1e-9], [0.0] * 8 + [1.0]
+    deltas, mags = [t - b for t, b in zip(treatment, baseline, strict=True)], pair_magnitudes(treatment, baseline)
+    assert sign_flip_p(deltas, magnitudes=mags, exact=True) == 2 / 2 ** 9  # the ordinary enumeration of 9 deltas
+    assert ShiftTest(deltas, eps=tie_widths(mags, 9)).p(0.0) == 2 / 2 ** 9
+    result = stats.paired_test(treatment, baseline, rounded=False)
+    assert (result["p"], result["n_changed"], result["significant"]) == (2 / 2 ** 9, 9, True)
+
+
+def test_the_ends_of_the_interval_are_shifts_the_test_accepts_when_the_mean_is_not_one():
+    # every delta is a change, the mean 1.09e-12 ties the ninth delta (width 1.7e-12) and leaves 8 on one side: rejected
+    treatment, baseline = [1e-12] * 8 + [0.0017 + 1.8e-12], [0.0] * 8 + [0.0017]
+    deltas, mags = [t - b for t, b in zip(treatment, baseline, strict=True)], pair_magnitudes(treatment, baseline)
+    test = ShiftTest(deltas, eps=tie_widths(mags, 9))
+    assert test.changed == 9 and test.p(sum(deltas) / 9) < ALPHA
+    lo, hi = sign_flip_interval(deltas, sign_flip_p(deltas, magnitudes=mags), rounded=False, magnitudes=mags)
+    assert lo is not None and hi is not None
+    assert test.p(lo) is None and test.p(hi) is None  # all tied: accepted, where the mean was not
+    exact = stats.paired_test(treatment, baseline, rounded=False)["exact"]
+    assert (exact["ci_lo"], exact["ci_hi"]) == (lo, hi)
+
+
+def test_the_mde_of_changed_pairs_does_not_depend_on_an_unchanged_pair_of_large_values():
+    alone = sign_flip_summary(_pairs([g * 1e-12 for g in GAINS], [0.0] * 8), exact=True)
+    appended = sign_flip_summary(_pairs([g * 1e-12 for g in GAINS] + [1.0], [0.0] * 8 + [1.0]), exact=True)
+    assert alone["mde"] is not None and appended["mde"] is not None
+    assert (appended["up"], appended["tied"]) == (8, 1)
+
+
 def test_a_pair_of_zeros_takes_the_width_of_the_largest_value_among_the_pairs():
     assert tie_widths([0.0, 1.0], 2) == [EPS, EPS]
     assert tie_widths([0.0, 2e-12], 2) == [EPS * 2e-12, EPS * 2e-12]
