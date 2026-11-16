@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from collections import Counter
 from pathlib import Path
@@ -17,7 +18,7 @@ from dokimi.utils import model_identity, same_model
 from dokimi.commands import baseline_regression
 from dokimi.commands._output import exit_on_rejected
 from dokimi.exit_codes import EXIT_INVALID
-from dokimi.utils import InputError, read_json_input
+from dokimi.utils import InputError, read_json_input, refuse_device
 
 BASELINES_DIR = Path("baselines/eval")
 
@@ -36,6 +37,26 @@ def _read_json_object(path: Path) -> Dict[str, Any]:
     if not isinstance(data, dict):
         raise InputError(f"{path}: expected a JSON object, got {_json_type(data)}")
     return data
+
+
+def _read_eval(path: Path) -> Tuple[bytes, Dict[str, Any]]:
+    """The eval file's bytes, read once, and the JSON object they hold, so the summary describes the copy;
+    refused as :func:`read_json_input` and :func:`_read_json_object` refuse it, naming the file."""
+    refuse_device(path)
+    try:
+        raw = path.read_bytes()
+        data = json.loads(raw.decode("utf-8"))
+    except OSError as exc:
+        raise InputError(f"cannot read {path}: {exc.strerror or exc}") from exc
+    except UnicodeDecodeError as exc:
+        raise InputError(f"{path} is not UTF-8 text: {exc}") from exc
+    except (json.JSONDecodeError, RecursionError) as exc:
+        raise InputError(f"{path} is not valid JSON: {exc}") from exc
+    except ValueError as exc:  # e.g. "embedded null byte" in the path
+        raise InputError(f"cannot read {path}: {exc}") from exc
+    if not isinstance(data, dict):
+        raise InputError(f"{path}: expected a JSON object, got {_json_type(data)}")
+    return raw, data
 
 
 def _baseline_manifest() -> Dict[str, Any]:
@@ -198,7 +219,7 @@ def cmd_baseline_save(args: argparse.Namespace) -> None:
 
     eval_path = Path(args.from_eval)
     manifest = _baseline_manifest()  # first: a corrupt manifest fails fast and leaves no orphan file
-    eval_data = _read_json_object(eval_path)
+    raw, eval_data = _read_eval(eval_path)
     product = args.product or eval_data.get("product", "unknown")
     timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
     name = args.name or f"{product}-{timestamp}"
@@ -214,7 +235,7 @@ def cmd_baseline_save(args: argparse.Namespace) -> None:
     dest = BASELINES_DIR / f"{name}.json"
     if dest.exists():
         raise InputError(f"Baseline already exists: {dest} (choose a different --name)")
-    write_bytes_atomic(dest, eval_path.read_bytes())  # as it is: the eval's own run envelope, not this run's
+    write_bytes_atomic(dest, raw)  # as it is: the eval's own run envelope, not this run's
 
     manifest["baselines"].append({
         "name": name,
@@ -223,7 +244,11 @@ def cmd_baseline_save(args: argparse.Namespace) -> None:
         "path": str(dest),
         "summary": summary,
     })
-    _save_manifest(manifest)
+    try:
+        _save_manifest(manifest)
+    except BaseException:
+        dest.unlink(missing_ok=True)  # a copy no manifest lists would block a retry under the same name
+        raise
 
     print(f"✅ Saved baseline '{name}' → {dest}")
     if summary:

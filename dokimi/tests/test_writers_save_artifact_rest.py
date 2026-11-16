@@ -237,7 +237,8 @@ def test_baseline_list_and_compare_read_a_manifest_from_before_the_schema(tmp_pa
 
 
 def test_a_manifest_the_schema_refuses_is_kept_as_rejected_and_exits_1(tmp_path, monkeypatch, capsys, baselines):
-    """A summary that is not an object (a writer bug) is refused; the manifest on disk is untouched."""
+    """A summary that is not an object (a writer bug) is refused; the manifest on disk is untouched, and the copy
+    is removed, so a retry under the same name saves."""
     source = _eval(tmp_path, monkeypatch)
     assert _cli(monkeypatch, "baseline", "save", "--from-eval", str(source), "--name", "b1") == 0
     before = (baselines / "manifest.json").read_bytes()
@@ -248,3 +249,22 @@ def test_a_manifest_the_schema_refuses_is_kept_as_rejected_and_exits_1(tmp_path,
     kept = json.loads((baselines / "manifest.json.rejected").read_text(encoding="utf-8"))
     assert kept["baselines"][-1]["summary"] == []
     assert capsys.readouterr().err.startswith("Error: baseline_manifest artifact rejected: ")
+    assert not (baselines / "b2.json").exists()
+    monkeypatch.undo()
+    monkeypatch.setattr(baseline_mod, "BASELINES_DIR", baselines)
+    assert _cli(monkeypatch, "baseline", "save", "--from-eval", str(source), "--name", "b2") == 0
+    assert [b["name"] for b in load_artifact("baseline_manifest", baselines / "manifest.json")["baselines"]] == \
+        ["b1", "b2"]
+
+
+@pytest.mark.parametrize("entry", ['"saved_at": 123', '"summary": {"n": 0, "avg_delta": null}', '"product": ["a"]'],
+                         ids=["saved_at", "summary", "product"])
+def test_an_entry_baseline_list_reads_does_not_block_a_later_save(tmp_path, monkeypatch, capsys, baselines, entry):
+    """The schema holds an entry to what the readers require, so a legacy entry they read is kept, as main kept it."""
+    baselines.mkdir(parents=True)
+    (baselines / "manifest.json").write_text('{"baselines": [{"name": "old", "path": "old.json", %s}]}' % entry,
+                                             encoding="utf-8")
+    assert _cli(monkeypatch, "baseline", "list") == 0
+    assert _cli(monkeypatch, "baseline", "save", "--from-eval", str(_eval(tmp_path, monkeypatch)), "--name", "n1") == 0
+    assert [b["name"] for b in load_artifact("baseline_manifest", baselines / "manifest.json")["baselines"]] == \
+        ["old", "n1"]
