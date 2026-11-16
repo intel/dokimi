@@ -44,7 +44,7 @@ def _saved(runner, output, tmp_path):
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def test_overflowing_paired_difference_keeps_the_run(monkeypatch, tmp_path):
+def test_overflowing_paired_difference_keeps_the_run(monkeypatch, tmp_path, caplog):
     evaluations = [
         _ev("q1", {"baseline": -BIG, "a": BIG}),
         _ev("q2", {"baseline": 0.0, "a": 0.0}),
@@ -53,6 +53,7 @@ def test_overflowing_paired_difference_keeps_the_run(monkeypatch, tmp_path):
 
     assert output["answers"] == records
     assert output["evaluations"] == evaluations
+    assert "significance_error, the run is kept without it" in caplog.text
     summary = output["summary"]
     assert "float range" in summary["significance_error"]
     assert "significance" not in summary["per_arm"]["a"]
@@ -131,7 +132,7 @@ def test_saved_average_of_three_maximum_scores_is_the_maximum(monkeypatch, tmp_p
     assert per_arm["a"]["avg_aggregate"] == sys.float_info.max
 
 
-def test_delta_whose_sum_leaves_the_range_is_refused_not_infinite(monkeypatch, tmp_path):
+def test_delta_whose_sum_leaves_the_range_is_averaged_exactly(monkeypatch, tmp_path):
     evaluations = [
         _ev("q1", {"baseline": 0.0, "a": 1.0e308}),
         _ev("q2", {"baseline": 0.0, "a": 1.0e308}),
@@ -141,8 +142,24 @@ def test_delta_whose_sum_leaves_the_range_is_refused_not_infinite(monkeypatch, t
     runner.save(output, path)
 
     arm = _strict_json(path)["summary"]["per_arm"]["a"]
-    assert arm["delta_vs_baseline"] is None
-    assert "float range" in arm["delta_error"]
+    assert arm["delta_vs_baseline"] == 1.0e308
+    assert "delta_error" not in arm
+
+
+def test_cancelling_deltas_average_to_zero_like_the_scores(monkeypatch, tmp_path):
+    evaluations = [
+        _ev("q1", {"baseline": 0.0, "a": 1.0e308}),
+        _ev("q2", {"baseline": 1.0e308, "a": 0.0}),
+        _ev("q3", {"baseline": 0.0, "a": 0.0}),
+    ]
+    questions = [{"id": f"q{i}", "question": f"question {i}"} for i in range(1, 4)]
+    runner, _, output = _run(monkeypatch, ["baseline", "a"], evaluations, questions)
+    path = tmp_path / "arms.json"
+    runner.save(output, path)
+
+    arm = _strict_json(path)["summary"]["per_arm"]["a"]
+    assert arm["delta_vs_baseline"] == 0.0
+    assert "delta_error" not in arm
 
 
 def test_refused_delta_of_a_thin_arm_keeps_another_arms_significance(monkeypatch, tmp_path):
@@ -162,6 +179,30 @@ def test_refused_delta_of_a_thin_arm_keeps_another_arms_significance(monkeypatch
     table = text.split("## Paired significance vs baseline")[1]
     assert "| `b` |" in table
     assert f"`a` not computed: {summary['per_arm']['a']['delta_error']}" in table
+
+
+def test_console_summary_prints_an_arms_delta_refusal(monkeypatch, tmp_path, capsys):
+    import dokimi.eval.arms_run as arms_run
+    from dokimi.cli import build_parser
+    from dokimi.commands import arms as arms_cmd
+
+    summary = {"per_arm": {
+        "baseline": {"avg_aggregate": 10.0, "n": 2, "errors": 0, "delta_vs_baseline": None},
+        "a": {"avg_aggregate": 20.0, "n": 2, "errors": 0, "delta_vs_baseline": None, "delta_error": "too large"},
+        "b": {"avg_aggregate": 30.0, "n": 2, "errors": 0, "delta_vs_baseline": 20.0},
+    }}
+    monkeypatch.setattr(arms_cmd, "_load_questions", lambda path: QUESTIONS)
+    monkeypatch.setattr(arms_run, "prepare_arms", lambda *a, **k: None)
+    monkeypatch.setattr(arms_run, "run_prepared", lambda *a, **k: {"summary": summary})
+    monkeypatch.setattr(arms_cmd, "_save_arms_output", lambda *a, **k: None)
+    args = build_parser().parse_args([
+        "arms", "run", "--product", "p", "--questions", "q.json", "--arms", "baseline,a,b",
+    ])
+    args.func(args)
+
+    lines = capsys.readouterr().out.splitlines()
+    assert any(line.split()[:2] == ["a", "20.0"] and "(delta not computed: too large)" in line for line in lines)
+    assert any("(delta +20.0)" in line for line in lines)
 
 
 def test_no_refusal_key_without_overflow(monkeypatch):

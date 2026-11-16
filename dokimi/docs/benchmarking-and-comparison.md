@@ -437,8 +437,11 @@ the report prints it in place of the table. An arm whose own paired differences 
 the range has a null `delta_vs_baseline` and says why in `per_arm.<arm>.delta_error`,
 which the report prints as an arm-labelled note under the significance table (or its
 heading, when no arm has a row); the significance of the other arms stays when the
-family test itself succeeds. A mean of finite scores whose sum would pass the float
-range is computed exactly (`statistics.mean`).
+family test itself succeeds. A mean of finite scores or of finite paired differences
+whose sum would pass the float range is computed exactly (`statistics.mean`), so the
+per-arm `avg_aggregate` and `delta_vs_baseline` are refused only when a single
+difference leaves the range. The console summary of `arms run` prints
+`(delta not computed: <the refusal>)` for such an arm.
 
 Everything above assumes the judge's continuous 0–100 score. The
 execution-verified task track (`cli.py tasks run`) has a binary outcome per task
