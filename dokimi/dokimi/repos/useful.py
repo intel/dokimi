@@ -20,6 +20,7 @@ from typing import Any
 
 from .manifest import match_glob
 from .process_counts import as_measure
+from .event_format import KNOWN_KINDS
 from .process_metrics import _workspace_path
 from .useful_spec import Useful
 
@@ -67,7 +68,8 @@ def first_useful(
         return _record(None, "not_declared")
     if events is None:
         return _record(useful.kind, "unobserved")
-    for steps, event in enumerate(events, 1):
+    known = (e for e in events if e.get("kind") in KNOWN_KINDS)  # steps count known kinds, as tool_calls does
+    for steps, event in enumerate(known, 1):
         try:
             found = hits(useful, event)
         except TimeoutError:  # the pattern ran past its budget on this event: no verdict

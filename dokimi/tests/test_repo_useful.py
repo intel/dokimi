@@ -13,6 +13,7 @@ import pytest
 from dokimi.repos.events import _apply_result, _Stream, convert
 from dokimi.repos.host import validate_tasks
 from dokimi.repos.transcript import Transcript
+from dokimi.repos.process_metrics import process_metrics
 from dokimi.repos.report import format_report, summarize
 from dokimi.repos.useful import (
     first_useful,
@@ -87,6 +88,13 @@ def test_validate_tasks_refuses_a_malformed_definition_before_a_run():
 
 
 # -- the first hit -----------------------------------------------------------------------------------------------
+
+
+def test_an_unknown_kind_is_not_a_step_and_steps_agree_with_tool_calls():
+    events = [_command("ls", 0, t=1.0), {"t": 1.5, "kind": "probe", "name": "p", "v": 1},
+              _command("pytest tests/test_x.py", 0, t=2.0)]
+    assert first_useful(parse_useful({"command": TEST_CMD}), events)["steps"] == 2
+    assert process_metrics(events, lambda _: False)["tool_calls"] == 2
 
 
 def test_a_passing_matching_command_is_the_first_useful_result_counted_in_steps_and_seconds():
