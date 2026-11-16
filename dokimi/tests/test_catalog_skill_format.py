@@ -213,3 +213,10 @@ def test_a_relative_skills_root_reads_the_same_host_as_an_absolute_one(tmp_path,
     monkeypatch.chdir(tmp_path / ".opencode")
     assert skill_format(Path("skills/quantum/SKILL.md"), Path("skills")) == FORMAT_OPENCODE
     assert skill_format(Path("skills/quantum/SKILL.md"), Path("skills").absolute()) == FORMAT_OPENCODE
+
+
+def test_a_hidden_scan_root_that_is_no_host_keeps_the_spec(tmp_path):
+    # Only the OpenCode host directory names its own format as the root; any other hidden root with a skills/ child is no host.
+    root = tmp_path / ".dotfiles"
+    path = _write(root, "skills/plain/SKILL.md", "---\nname: plain\ndescription: x\n---\n")
+    assert skill_format(path, root) == FORMAT_AGENT_SKILL

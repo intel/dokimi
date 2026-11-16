@@ -79,9 +79,9 @@ def skill_format(skill_md: Path, root: Optional[Path] = None) -> str:
     if root is not None and Path(root).name in SKILL_DIR_NAMES:
         # A scan of a skills directory itself (.opencode/skills): the host directory above it is the format's marker.
         root = Path(root).parent.parent
-    elif root is not None and Path(root).name.startswith(".") and \
+    elif root is not None and Path(root).name == OPENCODE_DIR and \
             next(iter(_parts(skill_md, root)), "") in SKILL_DIR_NAMES:
-        # A scan of a host directory itself (.opencode): the host is the root's own name, read from its parent.
+        # A scan of the OpenCode host directory itself (.opencode): the host is the root's own name, read from its parent.
         root = Path(root).parent
     dirs = _parts(skill_md, root)
     for i, part in enumerate(dirs):
