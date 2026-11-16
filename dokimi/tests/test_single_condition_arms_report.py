@@ -44,3 +44,12 @@ def test_a_two_arm_arms_run_is_not_one_condition():
         item["scores"]["skill"] = {"aggregate": 70.0}
     recs = records(doc["evaluations"], kind="evaluations")
     assert not is_single_condition(recs)
+
+
+def test_a_two_arm_run_whose_second_arm_failed_everywhere_is_not_one_condition():
+    doc = _arms_eval({"q1": 80.0, "q2": 40.0})
+    for item in doc["evaluations"]:
+        item.pop("arms")  # a judged file keeps the scores, not the answers
+        item["scores"]["skill"] = {"error": "judge failed: boom"}
+    recs = records(doc["evaluations"], kind="evaluations")
+    assert not is_single_condition(recs)

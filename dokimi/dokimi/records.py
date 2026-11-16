@@ -450,8 +450,9 @@ def held_conditions(recs: Iterable[Record]) -> list[str]:
     """The condition names the records hold an answer or a score in, in first-seen order (binary or arms)."""
     held: dict[str, None] = {}
     for r in recs:
-        for name in (*arm_names(r), CONTEXT, BASELINE):
-            if _holds(r, name):
+        listed = arm_names(r)  # an arms record lists every arm it ran, one that failed everywhere too
+        for name in (*listed, CONTEXT, BASELINE):
+            if name in listed or _holds(r, name):
                 held.setdefault(name, None)
     return list(held)
 
