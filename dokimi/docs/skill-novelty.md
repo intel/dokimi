@@ -300,7 +300,7 @@ only cells that name the same extractor.
 
 ## Using it as an authoring tool
 
-The commands in order, with the costs and the three free steps that come first, are in
+The commands in order, with the costs and the two free steps that come first, are in
 [skill-novelty-walkthrough.md](skill-novelty-walkthrough.md). This section is the reference
 for what each output means.
 
@@ -397,6 +397,9 @@ the highlight is load-bearing. Three measured constraints ship with it:
 ```bash
 python cli.py skill shorten --artifact skill:path/to/skill --atoms atoms.json --budgets 0.75 0.5
 ```
+
+`skill novelty analyze` scores the same candidates at its `--budgets` unless you pass `--no-shorten`
+(`--tier triage` skips them too).
 
 Never one "retention" number, because a single score hides the one failure that matters. A measured
 example from the study: a candidate at **21% of the original tokens** retained **0.916** of the

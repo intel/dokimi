@@ -399,8 +399,8 @@ next release.
 
 Entry points: `python cli.py repo {validate,scan,fetch,reach,budget,run,report}` (replay and authoring tasks: `eval tasks generate --from replay|prs`)
 (`python cli.py repo --help` is the current list). The interface a repository
-codes against is [repo-evaluation-contract.md](repo-evaluation-contract.md),
-still marked PROPOSED: the per-host egress proxy (§2) is not implemented, so
+codes against is [repo-evaluation-contract.md](repo-evaluation-contract.md).
+Its core is implemented, but the per-host egress proxy (§2) is not, so
 `repo run` needs `--agent-network` for an agent that must reach its model.
 
 ## Exploration quality
