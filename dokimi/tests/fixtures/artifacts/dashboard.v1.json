@@ -21,7 +21,8 @@
           "question_source": "persona",
           "grounded": false,
           "with_docs_dimensions": {
-            "correctness": 80
+            "correctness": 80,
+            "grounded": true
           },
           "without_docs_dimensions": {
             "correctness": 60

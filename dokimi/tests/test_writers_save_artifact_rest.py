@@ -21,7 +21,7 @@ SPEC = ("weights:\n  coverage: 0.4\n  freshness_lite: 0.3\n  readability: 0.3\n"
         "metrics:\n  freshness_lite:\n    max_age_days: 365\n  readability:\n    grade_max: 12\n")
 EVAL = {"library_name": "lib", "evaluated_at": "2026-11-01T00:00:00Z", "judge_model": "judge-m",
         "evaluations": [{"question_id": "q1", "question_text": "How do I run a loop?",
-                         "with_docs": {"aggregate": 80.0, "correctness": 80},
+                         "with_docs": {"aggregate": 80.0, "correctness": 80, "grounded": True},
                          "without_docs": {"aggregate": 60.0, "correctness": 60}, "delta": 20.0}]}
 
 
@@ -131,7 +131,8 @@ def test_the_dashboard_json_is_a_dashboard_artifact(tmp_path, monkeypatch, capsy
     data = _saved(out_dir / "dashboard.json", "dashboard")
     (product,) = data["products"]
     assert (product["product"], product["judge_model"], product["avg_delta"]) == ("lib", "judge-m", 20.0)
-    assert product["questions"][0]["with_docs_dimensions"] == {"correctness": 80}
+    # the judge marks a grounded question with `grounded: true` beside the scores (eval/judge.py)
+    assert product["questions"][0]["with_docs_dimensions"] == {"correctness": 80, "grounded": True}
     # the hand-written eval opens with no schema_version, so only the dashboard is listed
     assert _listed(monkeypatch, capsys, tmp_path / "results") == {
         "dashboard/dashboard.json": ("dashboard", RUN)}
