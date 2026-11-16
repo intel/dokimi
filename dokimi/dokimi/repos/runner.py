@@ -115,8 +115,9 @@ def execution_record(opts: AgentOptions, arm: str | None = None) -> dict[str, st
     companions = {n: harness_sha256(beside / n) if (beside / n).is_file() else None
                   for n in opts.profile.bin_companions}
     overlay = opts.profile.overlay if arm is not None and parse_arm(arm).base == OVERLAY_ARM else None
+    inputs = {"candidates": opts.candidates, "probes": opts.probes}
     return batch_ledger.execution_record(opts.profile, opts.tools, opts.delegation, harness_sha256(opts.harness_bin),
-                                         opts.harness_version, companions, overlay)
+                                         opts.harness_version, companions, overlay, inputs)
 
 
 def check_batch_executions(batch_dir: Path, options: list[AgentOptions], replacing: set[str] | None = None) -> None:
