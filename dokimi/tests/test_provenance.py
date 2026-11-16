@@ -4,13 +4,15 @@
 """The optional ``version`` and ``provenance`` of tasks and question-set items (dokimi.provenance).
 
 Absent is unknown, never an error. A malformed value is refused where the artifact is checked (task.json in
-the repo check, questions.v2 by its schema) and warned about in a terminal-bench task.toml, which may already
-carry the key. The repo report shows the status of each task (docs/repo-evaluation-contract.md §3).
+the repo check) and warned about where it is read (a terminal-bench task.toml, which may already carry the key,
+and a questions.v2 item, whose schema accepts any value so that old files keep loading). The repo report shows
+the status of each task as the cell's result.json recorded it (docs/repo-evaluation-contract.md §3).
 """
 
 from __future__ import annotations
 
 import json
+import logging
 
 import pytest
 
@@ -19,6 +21,7 @@ from dokimi._version import __version__
 from dokimi.artifacts import schema_errors
 from dokimi.cli import build_parser
 from dokimi.harnesses.tasks import load_task
+from dokimi.questions.artifact import load_questions
 from dokimi.repos.manifest import _provenance_problems
 
 GOOD_BLOCKS = [
@@ -98,19 +101,35 @@ def test_questions_schema_accepts_what_the_parser_accepts(block):
 
 
 @pytest.mark.parametrize("block", BAD_BLOCKS)
-def test_questions_schema_refuses_what_the_parser_refuses(block):
+def test_questions_schema_accepts_a_malformed_provenance_the_parser_warns_about(block):
     item = {"id": "q1", "question": "How?", "provenance": block}
-    assert schema_errors("questions.v2", {"questions": [item]})
+    assert schema_errors("questions.v2", {"questions": [item]}) == []
 
 
-@pytest.mark.parametrize("value", ["2", 3])
-def test_questions_schema_accepts_a_version(value):
+@pytest.mark.parametrize("value", ["2", 3, "  ", True, 1.5, None])
+def test_questions_schema_accepts_any_version_so_old_files_still_load(value):
     assert schema_errors("questions.v2", {"questions": [{"id": "q1", "question": "How?", "version": value}]}) == []
 
 
-@pytest.mark.parametrize("value", ["  ", True, None])
-def test_questions_schema_refuses_a_malformed_version(value):
-    assert schema_errors("questions.v2", {"questions": [{"id": "q1", "question": "How?", "version": value}]})
+@pytest.mark.parametrize(("version", "block"), [(1.5, "hand-written"), ("2", {"status": "done"}), (True, None)])
+def test_a_malformed_question_version_or_provenance_warns_and_the_set_still_loads(tmp_path, caplog, version, block):
+    path = tmp_path / "questions.json"
+    question = {"id": "q1", "question": "How?", "version": version, "provenance": block}
+    path.write_text(json.dumps({"schema_version": "questions.v2", "questions": [question]}), encoding="utf-8")
+    with caplog.at_level(logging.WARNING, logger="dokimi.questions.artifact"):
+        loaded = load_questions(path)
+    assert loaded.artifact["questions"][0]["version"] == version
+    assert loaded.artifact["questions"][0]["provenance"] == block
+    assert "q1" in caplog.text
+
+
+def test_a_well_formed_question_version_and_provenance_do_not_warn(tmp_path, caplog):
+    path = tmp_path / "questions.json"
+    question = {"id": "q1", "question": "How?", "version": "2.1", "provenance": {"source": "hand-written"}}
+    path.write_text(json.dumps({"schema_version": "questions.v2", "questions": [question]}), encoding="utf-8")
+    with caplog.at_level(logging.WARNING, logger="dokimi.questions.artifact"):
+        load_questions(path)
+    assert "provenance" not in caplog.text and "version" not in caplog.text
 
 
 @pytest.mark.parametrize("block", GOOD_BLOCKS)

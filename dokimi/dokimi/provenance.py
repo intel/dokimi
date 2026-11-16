@@ -7,7 +7,7 @@
 ``source`` is ``hand-written``, ``generated:<tool>@<dokimi version>`` or ``imported:<format>``;
 ``reviewed_by`` names the reviewer; ``status`` is ``candidate``, ``validated`` or ``frozen``.
 Every key is optional and an absent one is *unknown*, never an error. ``questions.v2`` declares
-the same shape in ``$defs.provenance``; ``tests/test_provenance.py`` keeps the two in agreement.
+the same shape, but accepts any value: a malformed one is a warning where it is read, not a refusal.
 """
 
 from __future__ import annotations
