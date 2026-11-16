@@ -1,3 +1,8 @@
+<!--
+Copyright (C) 2026 Intel Corporation
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Catalog check output: JSON and JSONL
 
 `dokimi catalog check` writes its skill rows in two forms. The codes in them are listed in

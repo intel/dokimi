@@ -1,3 +1,8 @@
+<!--
+Copyright (C) 2026 Intel Corporation
+SPDX-License-Identifier: Apache-2.0
+-->
+
 # Finding codes
 
 Every finding that `dokimi catalog check` reports has one code. The codes are the
