@@ -55,6 +55,28 @@ def refusal_kept(holder: Dict[str, Any], key: str, compute: Callable[[], Any]) -
         return None
 
 
+def question_deltas(scores: Mapping[str, Any], baseline_arm: str) -> Tuple[Dict[str, float], Dict[str, str]]:
+    """Each scored arm's rounded aggregate minus the baseline's, and the arms whose difference leaves the float range.
+
+    Infinity is not JSON: such a delta is refused by name, not stored (#750).
+    """
+    deltas: Dict[str, float] = {}
+    errors: Dict[str, str] = {}
+    base = scores.get(baseline_arm)
+    base_agg = base.get("aggregate") if isinstance(base, dict) else None
+    if base_agg is None:
+        return deltas, errors
+    for arm_name, s in scores.items():
+        if arm_name == baseline_arm or not isinstance(s, dict) or s.get("aggregate") is None:
+            continue
+        delta = round(s["aggregate"] - base_agg, 1)
+        if math.isfinite(delta):
+            deltas[arm_name] = delta
+        else:
+            errors[arm_name] = "the difference of the scores leaves the float range"
+    return deltas, errors
+
+
 def mean_in_range(values: Sequence[float]) -> float:
     """``sum(values) / len(values)``, averaging exactly (``statistics.mean``) when the sum of finite values leaves the float range."""
     mean = sum(values) / len(values)

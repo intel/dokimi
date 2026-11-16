@@ -27,8 +27,8 @@ from dokimi.defaults import DEFAULT_ANSWER_MODEL, DEFAULT_ANSWER_PROVIDER
 from dokimi.eval import stats as arm_stats
 from dokimi.eval.interactions import interaction_significance
 from dokimi.eval.arm_summary import (
-    cell_values, cost_summary, empty_reply_cell, mean_in_range, refusal_kept, summarize_agentic_usage,
-    summarize_skill_selection, unjudged_cell,
+    cell_values, cost_summary, empty_reply_cell, mean_in_range, question_deltas, refusal_kept,
+    summarize_agentic_usage, summarize_skill_selection, unjudged_cell,
 )
 from dokimi.eval.cells import Cell
 from dokimi.eval.question_text import question_text_of, require_question_texts
@@ -648,15 +648,8 @@ class ArmRunner:
                         score["judge_context_sha256"] = digest
                 scores[arm_name] = score
 
-            deltas = {}
-            base = scores.get(baseline_arm)
-            base_agg = base.get("aggregate") if isinstance(base, dict) else None
-            if base_agg is not None:
-                for arm_name, s in scores.items():
-                    if arm_name != baseline_arm and isinstance(s, dict) and s.get("aggregate") is not None:
-                        deltas[arm_name] = round(s["aggregate"] - base_agg, 1)
-
-            return {
+            deltas, delta_errors = question_deltas(scores, baseline_arm)
+            row: Dict[str, Any] = {
                 "question_id": rec.question_id,
                 "question_text": rec.question_text,
                 "category": rec.category,
@@ -664,6 +657,9 @@ class ArmRunner:
                 "scores": scores,
                 "deltas_vs_baseline": deltas,
             }
+            if delta_errors:
+                row["delta_errors"] = delta_errors
+            return row
 
         recs = as_records(records, source="answers", kind="answers")
         # Before any judge call: refuse, do not grade against "".

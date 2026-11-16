@@ -205,6 +205,37 @@ def test_console_summary_prints_an_arms_delta_refusal(monkeypatch, tmp_path, cap
     assert any("(delta +20.0)" in line for line in lines)
 
 
+class _ScriptedJudge(_Judge):
+    """Scores the first answer of a question -BIG (the baseline) and the second BIG on the first question."""
+
+    def __init__(self):
+        self.calls = {}
+
+    def score_answer(self, library_name, question, answer, context, ground_truth):
+        n = self.calls[question] = self.calls.get(question, 0) + 1
+        if question != QUESTIONS[0]["question"]:
+            return {"aggregate": 0.0}
+        return {"aggregate": -BIG if n == 1 else BIG}
+
+
+def test_judged_overflowing_delta_is_refused_in_the_saved_artifact(monkeypatch, tmp_path):
+    monkeypatch.setattr(arm_runner_mod, "llm_call_with_usage", _fake_call)
+    runner = ArmRunner([BaselineTreatment("baseline"), BaselineTreatment("a")])
+    records = runner.run("oneTBB", QUESTIONS, concurrency=1)
+    judge = _ScriptedJudge()
+    evaluations = runner.judge(judge, "oneTBB", records, concurrency=1)
+    output = runner.build_output("oneTBB", records, evaluations, judge=judge)
+    path = tmp_path / "arms.json"
+    runner.save(output, path)
+
+    first, second = _strict_json(path)["evaluations"]
+    assert first["scores"]["a"]["aggregate"] == BIG
+    assert first["deltas_vs_baseline"] == {}
+    assert "float range" in first["delta_errors"]["a"]
+    assert second["deltas_vs_baseline"] == {"a": 0.0}
+    assert "delta_errors" not in second
+
+
 def test_no_refusal_key_without_overflow(monkeypatch):
     evaluations = [
         _ev("q1", {"baseline": 50.0, "a": 60.0}),
