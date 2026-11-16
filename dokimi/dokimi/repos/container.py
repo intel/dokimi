@@ -198,6 +198,7 @@ class DockerRunner:
 
 
 _DAEMON_DIAGNOSTIC = re.compile(r"^(?:(?:error|docker):\s+)?(?:got\s+)?(?:cannot connect to the docker daemon|"
+                                r"failed to connect to the docker api|"
                                 r"error during connect|permission denied while trying to connect to the docker daemon)")
 
 

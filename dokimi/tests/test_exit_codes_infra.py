@@ -72,6 +72,27 @@ def test_an_older_cli_got_permission_denied_on_the_socket_is_a_docker_error(tmp_
         DockerRunner(runner=fake).build(tmp_path, tmp_path / "Dockerfile", "t")
 
 
+NEWER_CLI_DAEMON_DOWN = (
+    "failed to connect to the docker API at unix:///var/run/docker.sock. Check if the path is correct and if the "
+    "daemon is running: dial unix /var/run/docker.sock: connect: no such file or directory\n"
+)
+
+
+def test_a_newer_cli_daemon_diagnostic_is_a_docker_error_on_inspect_and_on_build(tmp_path):
+    """Docker CLIs since 2025 say `failed to connect to the docker API`: that is the daemon down (exit 5), not a
+    missing image and not a failed build (exit 1)."""
+    from dokimi import process
+    from dokimi.repos.container import DockerError, DockerRunner
+
+    (tmp_path / "Dockerfile").write_text("FROM scratch\n", encoding="utf-8")
+    inspect = process.FakeRunner(lambda call: process.reply(stderr=NEWER_CLI_DAEMON_DOWN, returncode=1))
+    with pytest.raises(DockerError, match="failed to connect to the docker API"):
+        DockerRunner(runner=inspect).image_exists("img:t")
+    build = process.FakeRunner(lambda call: process.reply(stderr=NEWER_CLI_DAEMON_DOWN, returncode=1))
+    with pytest.raises(DockerError):
+        DockerRunner(runner=build).build(tmp_path, tmp_path / "Dockerfile", "t")
+
+
 BUILDKIT_QUOTED_MESSAGE = (
     "#5 [3/4] RUN echo 'Cannot connect to the Docker daemon' && false\n"
     "#5 0.1 Cannot connect to the Docker daemon\n"
