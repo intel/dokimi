@@ -484,17 +484,20 @@ def _stop_on_interrupt(pool: ThreadPoolExecutor) -> None:
     between two kills is caught by the next one. The halt stays until then, so a cell that asks for a container gets
     an error. Waiting is on the pool, not on the futures: a cell submitted just before the interrupt has no future yet.
     A further Ctrl-C does not stop the kills."""
-    pool.shutdown(wait=False, cancel_futures=True)
     idle = threading.Event()
 
     def drain() -> None:
         pool.shutdown(wait=True)
         idle.set()
 
-    threading.Thread(target=drain, daemon=True).start()
+    started = False
     try:
         while not idle.is_set():
             try:
+                if not started:  # the cancel and the drain are retried too: a Ctrl-C can land on either
+                    pool.shutdown(wait=False, cancel_futures=True)
+                    threading.Thread(target=drain, daemon=True).start()
+                    started = True
                 halt_and_kill_started()
                 idle.wait(KILL_RETRY_S)
             except KeyboardInterrupt:

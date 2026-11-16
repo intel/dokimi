@@ -107,3 +107,38 @@ def test_an_interrupt_after_an_agent_ran_still_charges_what_it_spent(tmp_path, m
     spend = json.loads(next(runs.rglob("spend.json")).read_text(encoding="utf-8"))
     assert ran and spend["spent_usd"] == pytest.approx(0.5 * len(ran))
     assert not list(runs.rglob("result.json"))
+
+
+def test_a_ctrl_c_as_the_kills_start_still_kills_and_waits_for_the_workers(monkeypatch):
+    from dokimi.repos import container as container_mod
+    from dokimi.repos import runner as runner_mod
+
+    started, killed = threading.Event(), threading.Event()
+    kills, shutdowns = [], []
+
+    class InterruptedShutdown(runner_mod.ThreadPoolExecutor):
+        def submit(self, fn, /, *args, **kwargs):
+            super().submit(fn, *args, **kwargs)
+            started.wait(5)  # the first Ctrl-C lands once the cell has started its container
+            raise KeyboardInterrupt
+
+        def shutdown(self, wait=True, *, cancel_futures=False):
+            if not wait and not shutdowns:
+                shutdowns.append(1)
+                raise KeyboardInterrupt  # the second Ctrl-C, before the kills have started
+            return super().shutdown(wait=wait, cancel_futures=cancel_futures)
+
+    def one(cell):
+        container_mod._track("dokimi-x", lambda: (kills.append(1), killed.set()))
+        started.set()
+        killed.wait(5)
+        container_mod._untrack("dokimi-x")
+
+    monkeypatch.setattr(runner_mod, "ThreadPoolExecutor", InterruptedShutdown)
+    try:
+        with pytest.raises(KeyboardInterrupt):
+            runner_mod._run_cells([1], one, 1)
+        assert kills, "the running container was not killed"
+        assert container_mod._halted is False
+    finally:
+        container_mod.clear_halt()
