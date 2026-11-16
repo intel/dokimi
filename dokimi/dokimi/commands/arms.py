@@ -95,6 +95,11 @@ def cmd_arms_run(args: argparse.Namespace) -> None:
             delta_s = "" if (delta is None or arm == args.baseline_arm) else f" (delta {delta:+.1f})"
             err_s = f" ({stats['errors']} errors)" if stats.get("errors") else ""
             print(f"  {arm:<24} {avg_s}{delta_s}{err_s}")
+    term = output.get("terminated")
+    if term:
+        print(f"Error running arms: stopped after {term['questions_recorded']} of "
+              f"{term['questions_requested']} questions: {term['reason']}", file=sys.stderr)
+        sys.exit(EXIT_FAILURE)
 
 
 def cmd_arms_matrix_run(args: argparse.Namespace) -> None:

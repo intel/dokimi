@@ -152,6 +152,7 @@ class Answerer:
         completed = [0]
 
         stop = threading.Event()  # set by a failed save or a run-wide error: queued questions are skipped
+        self.stop_error = None
 
         def _process(idx: int, q: Dict) -> None:
             if stop.is_set():
@@ -171,6 +172,7 @@ class Answerer:
                 failure = e
                 if getattr(e, "run_wide", False) is True:  # a CLI usage limit or login: queued questions are not paid for
                     stop.set()
+                    self.stop_error = e  # the command exits nonzero after it saves what was answered
                 pair = {
                     "question_id": q_id,
                     "question_text": q.get("question") or q.get("text", ""),

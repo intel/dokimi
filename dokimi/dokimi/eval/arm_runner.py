@@ -94,6 +94,17 @@ def _refuse_session_records(recs: Sequence[Record]) -> None:
         )
 
 
+class RunStopped(Exception):
+    """A run-wide CLI failure: the run stops, and the question it stopped keeps its completed arms."""
+
+    run_wide = True
+
+    def __init__(self, cause: Exception, record: Dict[str, Any]) -> None:
+        super().__init__(str(cause))
+        self.cause = cause
+        self.record = record
+
+
 class ArmRunner:
     """Generate answers for each treatment arm and (optionally) judge them."""
 
@@ -155,6 +166,8 @@ class ArmRunner:
         # judging without going through the persisted record. See
         # :mod:`dokimi.eval.judge_context`.
         self.judge_context = JudgeContextStore()
+        self.stop_error: Optional[Exception] = None  # a run-wide failure that ended the run
+        self.questions_requested = 0
         self.plugin_set = plugin_set or {
             "plugin_set": "none",
             "plugin_set_id": "sha256:e3b0c44298fc1c149afbf4c8996fb924",
@@ -204,6 +217,8 @@ class ArmRunner:
     ) -> List[Dict[str, Any]]:
         """Answer every question under every arm. Returns one record per question."""
         n = len(questions)
+        self.questions_requested = n
+        self.stop_error = None
         if self.session_turns is not None:
             # Before any answer is paid for: a question short of follow-ups fails the run.
             check_session_questions(questions, self.session_turns)
@@ -217,11 +232,13 @@ class ArmRunner:
                 return
             try:
                 rec = self._answer_question(library_name, library_id, q)
-            except Exception as exc:
-                if getattr(exc, "run_wide", False) is not True:
-                    raise
+            except RunStopped as exc:
+                # Keep the question's completed arms (and their spend); the run is marked terminated.
                 stop.set()  # a CLI usage limit or login: the questions not yet started are not asked
-                print(f"Stopped: {exc}", flush=True)
+                with lock:
+                    results[idx] = exc.record
+                    self.stop_error = exc.cause
+                print(f"Stopped: {exc.cause}", flush=True)
                 return
             with lock:
                 results[idx] = rec
@@ -252,22 +269,38 @@ class ArmRunner:
             turns = session_turns_of(q, question_text, self.session_turns, label=qid)
 
         arms: Dict[str, Any] = {}
-        for treatment in self.treatments:
-            if turns is None:
-                arms[treatment.name] = self._answer_one_arm(
-                    treatment, question_text, library_name, library_id, qid,
-                    verbatim=q.get("prompt_style") == "verbatim",
+        current = ""
+        try:
+            for treatment in self.treatments:
+                current = treatment.name
+                if turns is None:
+                    arms[treatment.name] = self._answer_one_arm(
+                        treatment, question_text, library_name, library_id, qid,
+                        verbatim=q.get("prompt_style") == "verbatim",
+                    )
+                    continue
+                arms[treatment.name] = self._answer_session_arm(
+                    treatment, turns, library_name, library_id, qid
                 )
-                continue
-            arms[treatment.name] = self._answer_session_arm(
-                treatment, turns, library_name, library_id, qid
-            )
-            if self.turn_reminder is not None:
-                arms[treatment.name + REMINDER_ARM_SUFFIX] = self._answer_session_arm(
-                    treatment, turns, library_name, library_id, qid,
-                    reminder=self.turn_reminder,
-                )
+                if self.turn_reminder is not None:
+                    current = treatment.name + REMINDER_ARM_SUFFIX
+                    arms[current] = self._answer_session_arm(
+                        treatment, turns, library_name, library_id, qid,
+                        reminder=self.turn_reminder,
+                    )
+        except Exception as exc:
+            if getattr(exc, "run_wide", False) is not True:
+                raise
+            # The arm that stopped is an error cell, so the record shows where the run stopped.
+            arms[current] = {"error": f"generation_failed: {exc}", "answer": None, "metadata": {}}
+            partial = self._question_record(library_name, q, qid, question_text, turns, arms)
+            raise RunStopped(exc, partial) from exc
+        return self._question_record(library_name, q, qid, question_text, turns, arms)
 
+    def _question_record(
+        self, library_name: str, q: Dict[str, Any], qid: str, question_text: str, turns: Any,
+        arms: Dict[str, Any],
+    ) -> Dict[str, Any]:
         rec = {
             "question_id": qid,
             "question_text": question_text,

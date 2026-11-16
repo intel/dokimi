@@ -6,12 +6,14 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 
 from dokimi.llm import CALLER_CHOICES
 from dokimi.commands.evaluate import _require_ragas, _run_ragas_eval
 from dokimi.eval.arms_refusals import refuse_knowledge_provider
 from dokimi.records import KNOWLEDGE_INTENT, PAIRED_INTENT
+from dokimi.exit_codes import EXIT_FAILURE
 from dokimi.defaults import (
     DEFAULT_ANSWER_MODEL,
     DEFAULT_ANSWER_PROVIDER,
@@ -138,6 +140,10 @@ def cmd_answers_generate(args: argparse.Namespace) -> None:
     except OSError as exc:
         raise InputError(f"cannot write {output_path}: {exc.strerror or exc}") from exc
     print(f"\n✅ Saved answers to {output_path}")
+    if getattr(answerer, "stop_error", None) is not None:  # the file is complete for what was asked, not for the run
+        print(f"Error generating answers: stopped after {len(answers)} of {len(questions)} questions: "
+              f"{answerer.stop_error}", file=sys.stderr)
+        sys.exit(EXIT_FAILURE)
 
     # Optional RAGAS meta-evaluation (--ragas flag)
     if getattr(args, "ragas", False):
