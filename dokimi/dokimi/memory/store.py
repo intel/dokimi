@@ -109,8 +109,10 @@ class MemoryStore:
         found: list[tuple[int, str, bool]] = []
         text = "\n".join(lines)
         starts = [m.start() for m in re.finditer("\n", text)]  # a link may run over a line break: find its line by offset
+        begin = [0, *(s + 1 for s in starts)]
+        titles = [(begin[k] + d.end(2), begin[k] + d.end()) for k, d in defs.items()]  # a definition's title holds no link
         for m in _MD_LINK.finditer(text):
-            if _has_opener(text, m.start()):
+            if _has_opener(text, m.start()) and not any(lo <= m.start() < hi for lo, hi in titles):
                 found.append((bisect_right(starts, m.start()) + 1, m.group(1), True))
         defined: set[str] = set()
         for k, m in sorted(defs.items()):  # the first definition of a label is the one Markdown uses
@@ -283,7 +285,8 @@ def _blank_inline(line: str, closes_ahead: bool, pos: int = 0) -> tuple[str, str
         if code is None and start < 0:
             return line, "", _unpaired_run(line)
         if code is not None and (start < 0 or code.start() < start):
-            line = line[:code.start()] + " " * (code.end() - code.start()) + line[code.end():]
+            if not re.search(r"\]\([ \t]*<[^>]*$", line[:code.start()]):  # backticks in an angle destination are literal
+                line = line[:code.start()] + " " * (code.end() - code.start()) + line[code.end():]
             pos = code.end()
             continue
         end = line.find("-->", start + 2)  # from the second dash: <!--> and <!---> are complete comments too

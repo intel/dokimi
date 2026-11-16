@@ -564,3 +564,14 @@ def test_definition_on_two_lines_with_an_unterminated_title_is_no_definition(mem
 def test_label_in_the_title_of_a_two_line_definition_is_not_a_use(mem):
     (mem / "MEMORY.md").write_text('[A](a.md) [B](b.md) [G][g]\n\n[g]:\n  a.md "see [t]"\n[t]: missing.md\n')
     assert [f.line for f in lint(read_claude_memory(mem)) if f.rule == "index-dead-link"] == []
+
+
+def test_link_in_a_definition_title_is_text(mem):
+    (mem / "MEMORY.md").write_text('[A][a]\n\n[a]: a.md "[Example](missing.md)"\n')
+    assert [f.line for f in lint(read_claude_memory(mem)) if f.rule == "index-dead-link"] == []
+
+
+def test_backticks_in_an_angle_destination_are_literal(mem):
+    (mem / "topic`v2`.md").write_text(_entry("t"))
+    (mem / "MEMORY.md").write_text("- [A](a.md) [B](b.md) [Topic](<topic`v2`.md>)\n")
+    assert _rules(mem) == []
