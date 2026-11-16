@@ -78,3 +78,38 @@ def test_an_unreadable_kept_result_of_a_task_this_host_cannot_run_is_that_cells_
     assert f"{fix_add}, 2 crashed, 0 not started (batch budget), 0 unsupported" in logged
     assert [listed.read_bytes(), cut.read_bytes()] == before  # neither rerun nor marked unsupported
     assert not list((out / "b1").glob("*/unsupported.json"))
+
+
+def test_a_cell_whose_result_cannot_be_written_exits_5_and_the_other_cells_still_run(setup, monkeypatch, capsys):
+    """A CellCrash is infra (exit 5): flipping its `infra` flag must fail this test, not pass unnoticed."""
+    from dokimi.repos import runner
+
+    write_json = runner._write_json
+
+    def refuse_r1(path, data):
+        if path.name == "result.json" and path.parent.name.endswith("__r1"):
+            raise OSError("disk full")
+        write_json(path, data)
+
+    monkeypatch.setattr(runner, "_write_json", refuse_r1)
+    with pytest.raises(SystemExit) as exit_:
+        _run(setup)
+    assert exit_.value.code == 5
+    out = capsys.readouterr().out
+    assert "✗ fix_add__guidance-raw__m-1__r1: cannot write result.json: disk full" in out
+    assert "2 ran" in out
+
+
+def test_a_batch_spend_file_that_cannot_be_written_exits_5(setup, monkeypatch, capsys):
+    """The spend file is the batch cap's record: a write failure is infra (exit 5), not a cell's input error."""
+    from dokimi.repos import runner
+
+    def refuse(batch_dir, spent):
+        raise OSError("disk full")
+
+    monkeypatch.setattr(runner, "_write_batch_spend", refuse)
+    with pytest.raises(SystemExit) as exit_:
+        _run(setup)
+    assert exit_.value.code == 5
+    captured = capsys.readouterr()
+    assert "3 ran, 0 already done, 3 crashed" in captured.out  # one spend error per charged cell
