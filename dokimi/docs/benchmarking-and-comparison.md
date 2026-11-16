@@ -433,7 +433,10 @@ not answer that question — the baselines drift between runs.
 Scores whose paired difference or interaction contrast leaves the float range are
 refused by the statistics. The run is still saved: `summary.significance_error` or
 `summary.interactions_error` holds the refusal, the section it names is absent, and
-the report prints it in place of the table.
+the report prints it in place of the table. An arm whose own paired differences leave
+the range has a null `delta_vs_baseline` and says why in `per_arm.<arm>.delta_error`;
+the significance of the other arms stays when the family test itself succeeds. A mean
+of finite scores that would pass the float range is computed by dividing first.
 
 Everything above assumes the judge's continuous 0–100 score. The
 execution-verified task track (`cli.py tasks run`) has a binary outcome per task

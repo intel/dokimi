@@ -441,6 +441,7 @@ def paired_delta(evaluations: Iterable[Any], baseline_arm: str, arm_name: str) -
     """
     arm_vals, base_vals = paired_vectors(evaluations, arm_name, baseline_arm)
     diffs = _deltas(arm_vals, base_vals)
+    check_sum_range(diffs)
     return round(sum(diffs) / len(diffs), 1) if diffs else None
 
 

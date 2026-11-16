@@ -125,6 +125,10 @@
                   "null"
                 ]
               },
+              "delta_error": {
+                "description": "Why delta_vs_baseline is null for this arm: its paired differences leave the float range. Present only on such a refusal.",
+                "type": "string"
+              },
               "significance": {
                 "description": "Paired test of this arm against the shared baseline arm. Absent on the baseline arm itself, and on arms with too few complete pairs to describe.",
                 "type": "object",
@@ -256,7 +260,7 @@
           }
         },
         "significance_error": {
-          "description": "Why per_arm.<arm>.significance is absent from every arm: the paired test refused the scores (a difference beyond the float range). Present only on such a refusal.",
+          "description": "Why per_arm.<arm>.significance is absent from every arm: the paired tests of the arm family refused the scores (a difference or a sum of differences beyond the float range). Present only on such a refusal; an arm with too few pairs for the family leaves the others' significance in place.",
           "type": "string"
         },
         "interactions_error": {

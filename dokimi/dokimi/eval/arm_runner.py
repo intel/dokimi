@@ -27,8 +27,8 @@ from dokimi.defaults import DEFAULT_ANSWER_MODEL, DEFAULT_ANSWER_PROVIDER
 from dokimi.eval import stats as arm_stats
 from dokimi.eval.interactions import interaction_significance
 from dokimi.eval.arm_summary import (
-    cell_values, cost_summary, empty_reply_cell, refusal_kept, summarize_agentic_usage, summarize_skill_selection,
-    unjudged_cell,
+    cell_values, cost_summary, empty_reply_cell, mean_in_range, refusal_kept, summarize_agentic_usage,
+    summarize_skill_selection, unjudged_cell,
 )
 from dokimi.eval.cells import Cell
 from dokimi.eval.question_text import question_text_of, require_question_texts
@@ -764,13 +764,13 @@ class ArmRunner:
 
         summary: Dict[str, Any] = {"per_arm": {}}
         for arm_name, vals in per_arm.items():
-            avg = round(sum(vals) / len(vals), 1) if vals else None
+            avg = round(mean_in_range(vals), 1) if vals else None
             summary["per_arm"][arm_name] = {"avg_aggregate": avg, "n": len(vals), "errors": errors.get(arm_name, 0)}
         # Paired over the questions both arms scored. Null for the baseline, an arm with no such
-        # question, and a refused score range (#750).
+        # question, and an arm whose score range is refused, which says why in its own delta_error (#750).
         for arm_name, stats in summary["per_arm"].items():
             stats["delta_vs_baseline"] = None if arm_name == baseline_arm else refusal_kept(
-                summary, "significance_error", partial(arm_stats.paired_delta, evaluations, baseline_arm, arm_name)
+                stats, "delta_error", partial(arm_stats.paired_delta, evaluations, baseline_arm, arm_name)
             )
 
         # Paired statistics. Every arm is tested against the *same* baseline
