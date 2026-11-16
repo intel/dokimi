@@ -13,7 +13,7 @@ mark counts wherever it sits: a decorator, ``pytest.param(marks=...)``, a class
 decorator or ``pytestmark``, and so does a ``pytest.skip``/``pytest.importorskip`` call
 in the test or at the top of its module. Tolerances are compared per call; a new call
 with a tolerance is a new check only when the test's count of checks or cases grew. A file the
-runner no longer collects counts as deleted, and a ``conftest.py`` statement the PR adds
+runner no longer collects (or a test under ``__test__ = False``) counts as deleted, and a ``conftest.py`` statement the PR adds
 or changes that names ``collect_ignore``, ``collect_ignore_glob`` or ``pytest_ignore_collect``
 is a finding of its own. New tests are not read, and
 a removed test whose body (signature and decorators included) reappears as a test that
@@ -40,10 +40,12 @@ import ast
 import copy
 import io
 import math
+import operator
 import re
 import subprocess
 import sys
 import tokenize
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TypeGuard
@@ -60,8 +62,16 @@ IGNORES = re.compile(r"collect_ignore(_glob)?|pytest_ignore_collect")
 BROAD = {"Exception", "BaseException"}
 # What a tolerance is when its keyword is left out of pytest.approx or math.isclose.
 DEFAULTS = {"rel": 1e-6, "abs": 1e-12, "rtol": 1e-5, "atol": 1e-8, "rel_tol": 1e-9, "abs_tol": 0.0}
-# Defaults that differ from DEFAULTS: numpy.testing.assert_allclose is not numpy.allclose.
-API_DEFAULTS = {"assert_allclose": {"rtol": 1e-7, "atol": 0.0}}
+# What each comparison API does with a tolerance keyword it is not given. numpy.testing.assert_allclose
+# is not numpy.allclose, and an approx with no keywords still has pytest's default tolerances.
+API_DEFAULTS = {
+    "approx": {"rel": 1e-6, "abs": 1e-12},
+    "isclose": {"rel_tol": 1e-9, "abs_tol": 0.0},
+    "allclose": {"rtol": 1e-5, "atol": 1e-8},
+    "assert_allclose": {"rtol": 1e-7, "atol": 0.0},
+}
+_ARITHMETIC = {ast.Add: operator.add, ast.Sub: operator.sub, ast.Mult: operator.mul,
+               ast.Div: operator.truediv, ast.Pow: operator.pow}
 
 
 def _git(*args: str) -> subprocess.CompletedProcess[str]:
@@ -99,7 +109,7 @@ class Shape:
     checks: int = 0
     skips: int = 0
     matches: int = 0
-    broad: int = 0
+    raised: list[tuple[str, bool]] = field(default_factory=list)  # (exception dump, broad?) per raises
     tolerances: list[tuple[str, dict[str, float]]] = field(default_factory=list)
     cases: int | None = None
     cases_known: bool = True
@@ -123,8 +133,8 @@ def _read_raises(call: ast.Call, shape: Shape) -> None:
     unset = isinstance(pattern, ast.Constant) and pattern.value is None
     if (pattern is not None and not unset) or _name(call.func).endswith("Regex"):
         shape.matches += 1
-    if call.args and _exc_names(call.args[0]) & BROAD:
-        shape.broad += 1
+    if call.args:
+        shape.raised.append((ast.dump(call.args[0]), bool(_exc_names(call.args[0]) & BROAD)))
 
 
 def _skip_weight(call: ast.Call) -> int:
@@ -140,6 +150,24 @@ def _skip_weight(call: ast.Call) -> int:
 def _is_mark(func: ast.expr) -> bool:
     owner = func.value if isinstance(func, ast.Attribute) else None
     return _name(owner) == "mark" if owner is not None else False
+
+
+def _number(node: ast.expr) -> float | None:
+    """The value of a number written as a constant or as constant arithmetic (``10 ** -3``), else None."""
+    if isinstance(node, ast.Constant):
+        return float(node.value) if isinstance(node.value, (int, float)) else None
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.USub, ast.UAdd)):
+        value = _number(node.operand)
+        return None if value is None else (-value if isinstance(node.op, ast.USub) else value)
+    if isinstance(node, ast.BinOp) and type(node.op) in _ARITHMETIC:
+        left, right = _number(node.left), _number(node.right)
+        if left is None or right is None or (isinstance(node.op, ast.Pow) and abs(right) > 1000):
+            return None
+        try:
+            return float(_ARITHMETIC[type(node.op)](left, right))
+        except (ArithmeticError, ValueError, OverflowError):
+            return None
+    return None
 
 
 def _effects(node: ast.AST) -> int:
@@ -191,16 +219,19 @@ def _read_tolerances(call: ast.Call, shape: Shape, context: str | None = None) -
     api = _name(call.func)
     if not named and api not in TOLERANT:
         return
-    given = {kw.arg for kw in named if isinstance(kw.value, ast.Constant) and kw.value.value is not None}
+    unset = {kw.arg for kw in named if isinstance(kw.value, ast.Constant) and kw.value.value is None}
+    given = {kw.arg for kw in named} - unset
     tolerances: dict[str, float] = {}
     for kw in named:
-        value = kw.value.value if isinstance(kw.value, ast.Constant) else ""
-        if value is None and api == "approx":
+        if kw.arg in unset:
             # pytest.approx: rel=None is unset; with abs given the tolerance is abs alone, so rel is 0.
-            if kw.arg == "rel" and "abs" in given:
+            if api == "approx" and kw.arg == "rel" and "abs" in given:
                 tolerances["rel"] = 0.0
-        elif value is None or isinstance(value, (int, float)):
-            tolerances[str(kw.arg)] = math.inf if value is None else float(value)
+            elif api != "approx":
+                tolerances[str(kw.arg)] = math.inf
+            continue
+        number = _number(kw.value)  # a tolerance that cannot be read counts as unbounded, not as dropped
+        tolerances[str(kw.arg)] = math.inf if number is None else number
     if api == "approx" and "abs" in given and not any(kw.arg == "rel" for kw in named):
         tolerances["rel"] = 0.0  # pytest.approx with abs alone: the relative part is unset, so it is 0
     for kind, default in API_DEFAULTS.get(api, {}).items():
@@ -229,9 +260,22 @@ def _cases(decorator: ast.expr) -> tuple[bool, int | None]:
         return False, None
     values = decorator.args[1] if len(decorator.args) > 1 else {
         k.arg: k.value for k in decorator.keywords}.get("argvalues")
+    return True, _count(values)
+
+
+def _count(values: ast.expr | None) -> int | None:
+    """The cases of a literal list or tuple, or of ``range`` with literal integer arguments, else None."""
     if isinstance(values, (ast.List, ast.Tuple)):
-        return True, len(values.elts)
-    return True, None
+        return len(values.elts)
+    if isinstance(values, ast.Call) and _name(values.func) == "range" and not values.keywords \
+            and 0 < len(values.args) <= 3:
+        numbers = [_number(arg) for arg in values.args]
+        if all(n is not None and n == int(n) for n in numbers):
+            try:
+                return len(range(*(int(n) for n in numbers if n is not None)))
+            except ValueError:
+                return None
+    return None
 
 
 def shape_of(node: ast.FunctionDef | ast.AsyncFunctionDef) -> Shape:
@@ -275,6 +319,55 @@ def _targets(stmt: ast.stmt) -> list[ast.expr]:
     return [stmt.target] if isinstance(stmt, (ast.AnnAssign, ast.AugAssign)) else []
 
 
+def _pytestmark_change(stmt: ast.stmt) -> bool:
+    """Whether ``stmt`` sets or extends a ``pytestmark``: an assignment, or ``pytestmark.append/extend/insert``."""
+    if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call) and isinstance(stmt.value.func, ast.Attribute):
+        owner = stmt.value.func.value
+        return (isinstance(owner, ast.Name) and owner.id == "pytestmark"
+                and stmt.value.func.attr in {"append", "extend", "insert"})
+    return any(isinstance(t, ast.Name) and t.id == "pytestmark" for t in _targets(stmt))
+
+
+def _elements(node: ast.expr) -> list[ast.expr]:
+    return list(node.elts) if isinstance(node, (ast.List, ast.Tuple)) else [node]
+
+
+def _scope_marks(body: list[ast.stmt]) -> list[ast.expr]:
+    """The marks a module or class body's ``pytestmark`` holds at the end of the body, read in order."""
+    marks: list[ast.expr] = []
+    for stmt in body:
+        if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) or not _pytestmark_change(stmt):
+            continue
+        if isinstance(stmt, ast.Expr):
+            call = stmt.value
+            assert isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute)
+            if call.func.attr == "insert" and len(call.args) == 2:
+                marks.append(call.args[1])
+            elif call.func.attr == "extend" and call.args:
+                marks += _elements(call.args[0])
+            elif call.func.attr == "append" and call.args:
+                marks.append(call.args[0])
+        elif isinstance(stmt, ast.AugAssign):
+            marks += _elements(stmt.value)
+        elif isinstance(stmt, ast.Assign):
+            marks = _elements(stmt.value)
+        elif isinstance(stmt, ast.AnnAssign) and stmt.value is not None:
+            marks = _elements(stmt.value)
+    return marks
+
+
+def _inherit_cases(shape: Shape, marks: list[ast.expr]) -> None:
+    """Multiply the test's parametrize cases by those of the marks its class or module applies to it."""
+    for mark in marks:
+        parametrized, cases = _cases(mark)
+        if not parametrized:
+            continue
+        if cases is None:
+            shape.cases_known = False
+        else:
+            shape.cases = cases if shape.cases is None else shape.cases * cases
+
+
 def _scope_skips(body: list[ast.stmt]) -> int:
     """The skips each test of a module or class body inherits: the ``pytestmark`` marks and
     the skip calls that run on import."""
@@ -282,11 +375,25 @@ def _scope_skips(body: list[ast.stmt]) -> int:
     for stmt in body:
         if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
             continue
-        if any(isinstance(t, ast.Name) and t.id == "pytestmark" for t in _targets(stmt)):
+        if _pytestmark_change(stmt):
             total += _skips_in(stmt)
         else:
             total += _effects(stmt)
     return total
+
+
+def _collection_off(stmt: ast.stmt) -> str | None:
+    """"" when ``stmt`` is ``__test__ = False`` (its body is not collected), the name when it is
+    ``name.__test__ = False`` (that def or class is not), else None."""
+    if not (isinstance(stmt, ast.Assign) and len(stmt.targets) == 1
+            and isinstance(stmt.value, ast.Constant) and stmt.value.value is False):
+        return None
+    target = stmt.targets[0]
+    if isinstance(target, ast.Name) and target.id == "__test__":
+        return ""
+    if isinstance(target, ast.Attribute) and target.attr == "__test__" and isinstance(target.value, ast.Name):
+        return target.value.id
+    return None
 
 
 def _class_names(body: list[ast.stmt]) -> dict[str, ast.expr | None]:
@@ -320,10 +427,12 @@ def _inline_constants(tree: ast.Module) -> ast.Module:
     (``pytest.importorskip``), is left alone, and so is a name a function binds itself
     (parameter or local). The copy takes the line of the read it replaces."""
     targets = [t.id for node in tree.body for t in _targets(node) if isinstance(t, ast.Name)]
+    # A name that is the owner of an attribute (``pytestmark.append``) is a container that may change: not a constant.
+    owners = {n.value.id for n in ast.walk(tree) if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name)}
     consts = {node.targets[0].id: node.value for node in tree.body
               if isinstance(node, ast.Assign) and len(node.targets) == 1
               and isinstance(node.targets[0], ast.Name) and targets.count(node.targets[0].id) == 1
-              and not _effects(node.value)
+              and node.targets[0].id not in owners and not _effects(node.value)
               and not any(isinstance(n, ast.Name) and n.id == node.targets[0].id
                           for n in ast.walk(node.value))}
 
@@ -349,11 +458,15 @@ def _inline_constants(tree: ast.Module) -> ast.Module:
             return copied
 
         def visit_ClassDef(self, node: ast.ClassDef) -> ast.AST:
-            # A class body's own names are read in the class body and in its method decorators, not in a method body.
+            # A class body's names are read in the class body and in its method decorators, not in a method body,
+            # and a read sees only the names the body bound before it: a decorator above a later assignment
+            # still reads the module's constant.
             node.decorator_list = [self.visit(d) for d in node.decorator_list]
             node.bases = [self.visit(b) for b in node.bases]
-            outer, self.cls = self.cls, _class_names(node.body)
-            node.body = [self.visit(stmt) for stmt in node.body]
+            outer = self.cls
+            for i, stmt in enumerate(node.body):
+                self.cls = _class_names(node.body[:i])
+                node.body[i] = self.visit(stmt)
             self.cls = outer
             return node
 
@@ -373,6 +486,25 @@ def _inline_constants(tree: ast.Module) -> ast.Module:
     return Inline().visit(tree)
 
 
+def _collect(body: list[ast.stmt], prefix: str, skips: int, marks: list[ast.expr],
+             found: dict[str, Shape]) -> None:
+    """Add the tests of a module or class body to ``found`` under their dotted names. Each inherits the
+    skips and the parametrize marks of its scopes (``skips`` and ``marks`` are those above the body)."""
+    off = {_collection_off(stmt) for stmt in body} - {None}
+    if "" in off:
+        return  # __test__ = False: pytest collects none of this body
+    skips += _scope_skips(body)
+    marks = marks + _scope_marks(body)
+    for node in body:
+        if _is_test(node) and node.name not in off:
+            shape = found[prefix + node.name] = shape_of(node)
+            shape.skips += skips
+            _inherit_cases(shape, marks)
+        elif _is_test_class(node) and node.name not in off:
+            _collect(node.body, f"{prefix}{node.name}.", skips + sum(_skips_in(d) for d in node.decorator_list),
+                     marks + node.decorator_list, found)
+
+
 def tests_in(text: str) -> dict[str, Shape] | None:
     """``Class.test`` or ``test`` name to shape of each test in ``text``; None if it does not parse."""
     try:
@@ -380,19 +512,8 @@ def tests_in(text: str) -> dict[str, Shape] | None:
     except SyntaxError:
         return None
     tree = _inline_constants(tree)
-    module_skips = _scope_skips(tree.body)
     found: dict[str, Shape] = {}
-    for node in tree.body:
-        if _is_test(node):
-            found[node.name] = shape_of(node)
-            found[node.name].skips += module_skips
-        elif _is_test_class(node):
-            class_skips = (module_skips + sum(_skips_in(d) for d in node.decorator_list)
-                           + _scope_skips(node.body))
-            for item in node.body:
-                if _is_test(item):
-                    shape = found[f"{node.name}.{item.name}"] = shape_of(item)
-                    shape.skips += class_skips
+    _collect(tree.body, "", 0, [], found)
     for shape in found.values():
         shape.source = text
     return found
@@ -422,12 +543,20 @@ def _paired(base: Calls, head: Calls) -> tuple[list[tuple[dict[str, float], dict
 
 
 def _tolerance_loosened(base: Shape, head: Shape) -> bool:
-    """A paired call loosens, or a call left over loosens on the defaults while the test has
-    no more checks or cases: then it rewrote a check rather than adding one."""
+    """A paired call loosens, or a call left over is a tolerance on a comparison that had none (exact)
+    while the test has no more checks or cases: then it rewrote a check rather than adding one."""
     pairs, extra = _paired(base.tolerances, head.tolerances)
     if head.checks <= base.checks and (head.cases or 1) <= (base.cases or 1):
-        pairs += [({}, tolerances) for _, tolerances in extra]
+        pairs += [({kind: 0.0 for kind in tolerances}, tolerances) for _, tolerances in extra]
     return any(_loosened(old, new) for old, new in pairs)
+
+
+def _widened(base: Shape, head: Shape) -> int:
+    """How many narrow ``pytest.raises`` checks of ``base`` a broad one of ``head`` replaces: a broad check
+    that no base check of its exception covers is paired with a narrow base check that has gone."""
+    gone = Counter(exc for exc, broad in base.raised if not broad) - Counter(exc for exc, _ in head.raised)
+    added = Counter(exc for exc, broad in head.raised if broad) - Counter(exc for exc, _ in base.raised)
+    return min(sum(gone.values()), sum(added.values()))
 
 
 def narrowing(base: Shape, head: Shape) -> list[str]:
@@ -439,7 +568,7 @@ def narrowing(base: Shape, head: Shape) -> list[str]:
         found.append("adds a skip or xfail")
     if head.matches < base.matches:
         found.append("drops a match= from pytest.raises")
-    if head.broad > base.broad:
+    if _widened(base, head):
         found.append("widens pytest.raises to Exception/BaseException")
     if _tolerance_loosened(base, head):
         found.append("loosens a tolerance")

@@ -89,6 +89,8 @@ def test_a_module_level_pytestmark_skip_names_every_test():
     ("", "pytest.importorskip('no_such')\n"),
     ("", "pytestmark: list = [pytest.mark.skip]\n"),
     ("pytestmark = []\n", "pytestmark = []\npytestmark += [pytest.mark.skip]\n"),
+    ("pytestmark = []\n", "pytestmark = []\npytestmark.append(pytest.mark.skip)\n"),
+    ("pytestmark = []\n", "pytestmark = []\npytestmark.extend([pytest.mark.skip])\n"),
     ("MARK = pytest.mark.skipif(False, reason='x')\npytestmark = MARK\n",
      "MARK = pytest.mark.skipif(True, reason='x')\npytestmark = MARK\n"),
 ])
@@ -625,3 +627,67 @@ def test_a_bare_annotation_in_a_class_binds_no_name_so_the_module_constant_is_re
     base = CLASS_CASES.replace("    CASES = [1, 2]\n", "    CASES: list\n")
     head = base.replace("CASES = [1, 2, 3]", "CASES = [1]")
     assert [what for _, _, what in ctn.compare(base, head)] == ["cuts parametrize cases (3 -> 1)"]
+
+
+@pytest.mark.parametrize(("head", "gone"), [
+    ("__test__ = False\n" + BASE, ["test_values", "test_raises", "test_close", "TestGroup.test_member"]),
+    (BASE.replace("class TestGroup:\n", "class TestGroup:\n    __test__ = False\n"), ["TestGroup.test_member"]),
+    (BASE + "\ntest_close.__test__ = False\n", ["test_close"]),
+])
+def test_a_test_disabled_from_collection_counts_as_removed(head, gone):
+    found = ctn.compare(BASE, head)
+    assert [(name, what) for name, _, what in found] == [(name, "removed") for name in gone]
+
+
+CLASS_MARK = ("import pytest\n\n\n@pytest.mark.parametrize('x', [1, 2, 3])\nclass TestGroup:\n"
+              "    def test_values(self, x):\n        assert x > 0\n")
+MODULE_MARK = ("import pytest\n\npytestmark = pytest.mark.parametrize('x', [1, 2, 3])\n\n\n"
+               "def test_values(x):\n    assert x > 0\n")
+
+
+@pytest.mark.parametrize("base", [CLASS_MARK, MODULE_MARK])
+def test_a_parametrize_cut_on_a_class_or_module_is_named(base):
+    head = base.replace("[1, 2, 3]", "[1]")
+    assert [what for _, _, what in ctn.compare(base, head)] == ["cuts parametrize cases (3 -> 1)"]
+
+
+def test_an_added_broad_raises_beside_the_unchanged_one_is_not_a_widening():
+    base = "import pytest\n\n\ndef test_a():\n    with pytest.raises(ValueError):\n        f()\n"
+    head = base + "    with pytest.raises(Exception):\n        g()\n"
+    assert ctn.compare(base, head) == []
+
+
+def test_a_tolerance_written_as_arithmetic_is_read_not_dropped():
+    base = "import pytest\n\n\ndef test_a():\n    assert f() == pytest.approx(1, rel=1e-3)\n"
+    assert ctn.compare(base, base.replace("rel=1e-3", "rel=10 ** -3")) == []
+    assert [what for _, _, what in ctn.compare(base, base.replace("rel=1e-3", "rel=10 ** -1"))] == [
+        "loosens a tolerance"]
+    assert [what for _, _, what in ctn.compare(base, base.replace("rel=1e-3", "rel=tolerance"))] == [
+        "loosens a tolerance"]
+
+
+def test_a_parametrize_range_is_counted_as_its_cases():
+    base = "import pytest\n\n\n@pytest.mark.parametrize('x', range(3))\ndef test_a(x):\n    assert x > 0\n"
+    assert [what for _, _, what in ctn.compare(base, base.replace("range(3)", "range(1)"))] == [
+        "cuts parametrize cases (3 -> 1)"]
+
+
+def test_an_exact_comparison_turned_into_a_default_approx_is_a_loosening():
+    base = "import pytest\n\n\ndef test_value():\n    assert value() == 1.0\n"
+    head = base.replace("== 1.0", "== pytest.approx(1.0)")
+    assert [what for _, _, what in ctn.compare(base, head)] == ["loosens a tolerance"]
+
+
+def test_a_class_constant_after_a_method_does_not_reach_its_decorator():
+    base = ("import pytest\n\nCASES = [1, 2, 3]\n\n\nclass TestGroup:\n    @pytest.mark.parametrize('x', CASES)\n"
+            "    def test_values(self, x):\n        assert x > 0\n\n    CASES = [1, 2]\n")
+    assert ctn.compare(base, base.replace("CASES = [1, 2]\n", "CASES = [1]\n")) == []
+
+
+NESTED = ("import pytest\n\n\nclass TestOuter:\n    class TestInner:\n        def test_value(self):\n"
+          "            assert value() == 1\n")
+
+
+def test_a_test_in_a_nested_test_class_is_read_by_its_dotted_name():
+    found = ctn.compare(NESTED, NESTED.replace("assert value() == 1", "pass"))
+    assert [(name, what) for name, _, what in found] == [("TestOuter.TestInner.test_value", "fewer checks (1 -> 0)")]
