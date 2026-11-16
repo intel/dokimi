@@ -30,6 +30,8 @@ PROTOCOL_VERSION = "1"
 #: A value that names a moving target rather than one snapshot. Matched as a whole trailing token,
 #: so ``claude-sonnet-5-5`` is resolved and ``claude-sonnet-latest`` / ``gpt:default`` are not.
 _ALIAS = re.compile(r"(?:^|[-_.:@/])(?:latest|default|auto|stable|current)$", re.IGNORECASE)
+#: The 1M-context suffix a CLI takes after an alias (``opus[1m]``); it does not make the name a snapshot.
+_CONTEXT_SUFFIX = re.compile(r"\[1m\]$", re.IGNORECASE)
 #: Bare family names a harness resolves to whatever it ships today (dokimi's own claude-cli judges
 #: default to ``opus``/``sonnet``); a dated or versioned id is a snapshot.
 _FLOATING = re.compile(r"^(?:claude|opus|sonnet|haiku|gpt-4o(?:-mini)?|gpt-4|gpt-5|o1|o3|o4-mini)$",
@@ -62,7 +64,7 @@ def protocol_digest(resolved: Mapping[str, Any]) -> str:
 def is_alias(value: Any) -> bool:
     """A moving target: an alias suffix, a bare family name, or either anywhere inside a nested value."""
     if isinstance(value, str):
-        text = value.strip()
+        text = _CONTEXT_SUFFIX.sub("", value.strip())
         return bool(_ALIAS.search(text) or _FLOATING.match(text.rsplit("/", 1)[-1]))
     if isinstance(value, Mapping):
         return any(is_alias(v) for v in value.values())
@@ -137,8 +139,13 @@ def comparability(result: Mapping[str, Any]) -> list[str]:
         reasons.append("judged result without judge_model")
     protocol = result.get("protocol")
     if isinstance(protocol, Mapping) and isinstance(protocol.get("resolved"), Mapping):
-        if protocol_digest(protocol["resolved"]) != protocol.get("digest"):
-            reasons.append("protocol.digest does not match protocol.resolved")
+        try:
+            digest = protocol_digest(protocol["resolved"])
+        except (TypeError, ValueError):  # NaN, infinity or a non-JSON value: no digest to check
+            reasons.append("protocol.resolved is not JSON, so its digest cannot be checked")
+        else:
+            if digest != protocol.get("digest"):
+                reasons.append("protocol.digest does not match protocol.resolved")
         reasons += _disagreements(result, protocol["resolved"])
     return reasons
 
@@ -226,10 +233,12 @@ def _protocol_reasons(mine: Mapping[str, Any], theirs: Mapping[str, Any]) -> lis
 
 
 def _unresolved(protocol: Mapping[str, Any]) -> set[str]:
-    """The inputs the protocol lists as unresolved, and for ``dokimi.awareness`` 1 the ones it omits."""
+    """The inputs the protocol lists as unresolved, the ones it omits (``dokimi.awareness`` 1), and
+    any resolved value that is null or an alias: a digest over them identifies no fixed measurement."""
     listed = set(protocol.get("unresolved") or [])
     if (protocol.get("id"), protocol.get("version")) == (PROTOCOL_ID, PROTOCOL_VERSION):
         listed |= set(REQUIRED_INPUTS) - set(_resolved(protocol))
+    listed |= {key for key, value in _resolved(protocol).items() if value is None or is_alias(value)}
     return listed
 
 

@@ -314,7 +314,7 @@ def test_the_scorecard_cells_carry_the_baseline_arm_of_the_rollup(tmp_path: Path
     assert scorecard["cells"][0]["baseline_arm"] == "none"
 
 
-def test_a_scorecard_keeps_the_test_it_recorded_and_an_unrecorded_one_is_unresolved():
+def test_a_scorecard_keeps_the_test_it_recorded_and_an_unrecorded_one_is_unresolved(tmp_path: Path):
     from dokimi.subjects.evidence import build_skill_evidence
 
     scorecard = _scorecard()
@@ -324,8 +324,11 @@ def test_a_scorecard_keeps_the_test_it_recorded_and_an_unrecorded_one_is_unresol
     assert skill["verdict_rule"]["test"] == skill["protocol"]["resolved"]["test"] == "student_t"
 
     del significance["ci_method"]
-    [skill] = [r for r in build_skill_evidence(scorecard)["results"] if r["arm"] == "skill:s"]
-    assert skill["verdict_rule"]["test"] is None and "test" in skill["protocol"]["unresolved"]
+    artifact = build_skill_evidence(scorecard)
+    [skill] = [r for r in artifact["results"] if r["arm"] == "skill:s"]
+    assert "test" not in skill["verdict_rule"] and "test" in skill["protocol"]["unresolved"]
+    # The historical scorecard exports: the schema has no null test, so the artifact must validate.
+    save_artifact("skill_evidence", artifact, tmp_path / "skill_evidence.json")
 
 
 def test_a_cell_of_a_two_question_set_suite_is_resolved_only_by_its_own_digest():

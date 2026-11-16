@@ -121,8 +121,9 @@ def _result(cell: dict[str, Any], arm: str, row: dict[str, Any],
     test = sig.get("ci_method")
     # The rule the verdict below applies, so a consumer can recompute it from delta and p_value.
     # p_value is p_adjusted rounded to P_DECIMALS; within that rounding of alpha it cannot be recomputed.
-    rule = {"basis": "p_adjusted", "alpha": ALPHA, "test": test, "correction": correction,
-            "p_decimals": P_DECIMALS}
+    rule = {"basis": "p_adjusted", "alpha": ALPHA, "correction": correction, "p_decimals": P_DECIMALS}
+    if test is not None:  # the schema has no null test: an unrecorded one is left out, not written as null
+        rule["test"] = test
     # Only resolved values enter the digest; what the scorecard does not record stays unresolved.
     protocol = build_protocol({
         "eval_set_digest": _eval_set_digest(cell, suite),

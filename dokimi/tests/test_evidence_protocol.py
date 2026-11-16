@@ -310,10 +310,13 @@ def test_a_judged_cell_carries_its_judge_fields_into_the_scorecard(tmp_path: Pat
         key: value for key, value in judged.items() if key.startswith("judge_")}
 
 
-def test_each_cell_of_a_two_question_set_suite_carries_the_digest_of_its_own_set(tmp_path: Path):
+def test_each_cell_of_a_two_question_set_suite_carries_the_digest_of_its_own_set(
+        tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     from dokimi.subjects import build_subject_scorecard, load_subject
     from dokimi.subjects.scorecard import _digest_values
 
+    # Question files are read from the working directory, so the digests hash their contents.
+    monkeypatch.chdir(tmp_path)
     (tmp_path / "subject.toml").write_text(
         '[subject]\nid = "s"\nkind = "doc-source"\nref = "local:docs"\n\n'
         '[suite]\nproducts = ["p", "q"]\nquestions = ["a.json", "b.json"]\n', encoding="utf-8")
@@ -322,12 +325,20 @@ def test_each_cell_of_a_two_question_set_suite_carries_the_digest_of_its_own_set
     runs = [{"product": product, "questions": name, "matrix_rollup": "m.json",
              "rollup": {"cells": [{"matrix_cell": product}]}}
             for product, name in (("p", "a.json"), ("q", "b.json"))]
-    scorecard = build_subject_scorecard(load_subject(tmp_path / "subject.toml"), out_dir=tmp_path,
-                                        awareness_runs=runs)
+    def build() -> dict:
+        return build_subject_scorecard(load_subject(tmp_path / "subject.toml"), out_dir=tmp_path,
+                                       awareness_runs=runs)
+
+    scorecard = build()
     first, second = scorecard["cells"]
     assert first["questions_digest"] == _digest_values(("a.json",))
     assert second["questions_digest"] == _digest_values(("b.json",))
     assert scorecard["suite"]["question_set_hash"] not in (first["questions_digest"], second["questions_digest"])
+    # Changing one file's contents changes only its own cell's digest.
+    (tmp_path / "a.json").write_text('["changed"]', encoding="utf-8")
+    changed = build()["cells"]
+    assert changed[0]["questions_digest"] != first["questions_digest"]
+    assert changed[1]["questions_digest"] == second["questions_digest"]
 
 
 def test_a_non_finite_p_or_delta_gives_no_direction():
@@ -338,3 +349,29 @@ def test_a_non_finite_p_or_delta_gives_no_direction():
         bad = _with(base, **changes)
         assert recompute_verdict(bad) == "inconclusive", changes
         comparability(bad)  # must not raise
+
+
+def test_a_context_suffixed_alias_is_an_alias_not_a_snapshot():
+    for alias in ("opus[1m]", "sonnet[1m]"):
+        protocol = build_protocol({"judge_model": alias})
+        assert protocol["unresolved"] == ["judge_model"] and protocol["aliases"] == {"judge_model": alias}
+    snapshot = build_protocol({"judge_model": "claude-sonnet-5-5-20261101[1m]"})
+    assert snapshot["resolved"] == {"judge_model": "claude-sonnet-5-5-20261101[1m]"}
+
+
+def test_a_resolved_null_or_alias_is_unresolved_even_with_a_matching_digest():
+    result = _fixture("verdict_with_rule.json")
+    result["protocol"]["resolved"]["repeats"] = None
+    result["protocol"]["digest"] = protocol_digest(result["protocol"]["resolved"])
+    assert "protocol inputs not resolved: repeats" in compare(result, result)
+    result = _fixture("verdict_with_rule.json")
+    result["protocol"]["resolved"]["judge_sampling"] = {"temperature": 0.0, "top_p": "default"}
+    result["protocol"]["digest"] = protocol_digest(result["protocol"]["resolved"])
+    assert any("judge_sampling" in reason for reason in compare(result, result))
+
+
+def test_a_non_json_resolved_value_is_a_reason_not_an_exception():
+    result = _fixture("verdict_with_rule.json")
+    result["protocol"]["resolved"]["judge_sampling"] = {"temperature": float("nan")}
+    reasons = compare(result, _fixture("verdict_with_rule.json"))
+    assert any("is not JSON" in reason for reason in reasons)
