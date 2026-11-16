@@ -31,7 +31,7 @@ flowchart LR
     decide -->|none or worse| reject[Reject with numbers: a valid outcome]
     decide -->|unclear| J11[J11 explain, next experiment]
     J2 -. proposed: join novelty to task effect .-> remeasure
-    J4 -. proposed: adherence .-> change
+    J4 -. proposed: adherence beyond declared process contracts .-> change
 ```
 
 ## Eval authoring

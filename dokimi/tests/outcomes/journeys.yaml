@@ -389,7 +389,7 @@ criteria:
           - "skill novelty atoms --extract-model --out"
           - "skill novelty probe --atoms --model --judge-model"
           - "skill shorten --atoms"
-          - "novelty view --novelty"
+          - "skill novelty view --novelty"
         stubs: [every model client (scripted transport)]
     scope: the CLI path and its intermediate artifacts on scripted models; novelty figures here are not measurements
   AC-J14-004:
@@ -437,7 +437,7 @@ criteria:
   AC-J14-007:
     delivery: partial
     enforce: false
-    surfaces: ["novelty view --novelty", "repo report --json"]
+    surfaces: ["skill novelty view --novelty", "repo report --json"]
     gaps: ["no common re-render for benchmark or arms runs"]
   AC-J02-001:
     delivery: available
