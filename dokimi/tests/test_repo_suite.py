@@ -394,3 +394,24 @@ def test_a_malformed_mcp_config_in_a_scaffold_base_is_refused_before_any_cell(ru
     assert exc.value.code == 1
     assert "not valid JSON" in capsys.readouterr().err
     assert not list((run["out"] / "b1").glob("*__*/result.json"))
+
+
+def test_an_empty_suite_path_is_refused_by_repo_run_and_not_read_as_no_suite(run, capsys):
+    _commit_suite(run["root"], None, _raw(repos={"sc": f"file://{run['tmp']}/missing@{'c' * 40}"},
+                                          tasks=[{"id": "fix_add", "repo": "sc"}]))
+    with pytest.raises(SystemExit) as exc:
+        run["invoke"]("--suite", "", "--task", "review_add", "--arm", "guidance:none")
+    assert exc.value.code == 1
+    assert not (run["out"] / "b1" / "review_add__guidance-none__m-1__r1/result.json").exists()
+
+
+def test_an_empty_suite_path_is_refused_by_self_check_too(tmp_path, monkeypatch, capsys):
+    root, _ = make_repo(tmp_path)
+    monkeypatch.setattr("dokimi.repos.container.DockerRunner", lambda *a, **k: FakeRunner())
+    out = tmp_path / "check-out"
+    args = build_parser().parse_args(["eval", "check", f"{root}@HEAD", "--out", str(out), "--cache-root",
+                                      str(out / "caches"), "--suite", "", "--task", "review_add"])
+    with pytest.raises(SystemExit) as exc:
+        args.func(args)
+    assert exc.value.code == 1
+    assert not (out / "check/check.json").exists()

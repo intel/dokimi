@@ -42,7 +42,7 @@ def _refuse_typed(source, args: argparse.Namespace) -> None:
         sys.exit(1)
     if args.manifest and not args.manifest_file:
         _refuse_escape(args.manifest)
-    if getattr(args, "suite", None):
+    if getattr(args, "suite", None) is not None:  # an empty path is given, not omitted: refused below, not skipped
         _refuse_escape(args.suite)
 
 
@@ -133,7 +133,7 @@ def _context(args: argparse.Namespace, out: Path, source, pin: bool = False):
 
 def _suite_bases(args: argparse.Namespace, tree, content: Path, manifest: RepoManifest, cache_dir: Path | None):
     """The base checkouts of ``--suite`` (contract §2.1), or None: every base is then in the eval source."""
-    if not args.suite:
+    if args.suite is None:
         return None
     from dokimi.repos.suite import SuiteError, load_suite, resolve_suite
     from dokimi.repos.workspace import PrepError, load_tasks
