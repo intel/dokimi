@@ -5,9 +5,9 @@
 
 The first event of the run that hits the task's definition (:mod:`.useful_spec`): a ``command`` event whose text
 matches and whose ``rc`` is 0, or an ``edit`` event whose path matches a glob. A refused event (``denied``) never
-hits, nor does an edit whose tool result is not a success (``rc`` 0 is the only success). ``steps`` counts every event
-up to and including the hit, as ``process.tool_calls`` does. ``issued_s`` is the hit's ``t``: the time the call was
-issued, since its result is not timed, so a test run's pass is not timed.
+hits, nor does an edit whose tool result is not a success (``rc`` 0 is the only success). ``steps`` counts the events
+of a known kind up to and including the hit, as ``process.tool_calls`` does. ``issued_s`` is the hit's ``t``: the time
+the call was issued, since its result is not timed, so a test run's pass is not timed.
 """
 
 from __future__ import annotations
