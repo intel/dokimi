@@ -391,10 +391,7 @@ def _not_run(failing: list[str], skipped: list[str]) -> list[str]:
     return skipped + [f for f in failing if "::" not in f]
 
 
-def run(args: argparse.Namespace) -> int:
-    t0 = time.monotonic()
-    report: dict = {"base": args.base, "max_mutants": args.max_mutants, "files": {}, "mutants": [], "uncovered_lines": {}}
-    changed = changed_lines(args.base)
+def _collect(changed: dict[str, set[int]], report: dict) -> list[Mutant]:
     all_mutants: list[Mutant] = []
     for path, lines in sorted(changed.items()):
         src = (REPO / path).read_text(encoding="utf-8")
@@ -407,6 +404,13 @@ def run(args: argparse.Namespace) -> int:
         conts = continuation_lines(src, lines, {m.line for m in ms})
         if conts:
             report["uncovered_lines"].setdefault(path, set()).update(conts)
+    return all_mutants
+
+
+def run(args: argparse.Namespace) -> int:
+    t0 = time.monotonic()
+    report: dict = {"base": args.base, "max_mutants": args.max_mutants, "files": {}, "mutants": [], "uncovered_lines": {}}
+    all_mutants = _collect(changed_lines(args.base), report)
     if not all_mutants:
         report["note"] = "no mutable changed lines in the dokimi package"
         return _finish(report, args, t0, 0)
