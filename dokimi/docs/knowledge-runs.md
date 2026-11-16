@@ -174,8 +174,8 @@ Route B's `--judge` needs no checks: the judge scores each answer on its own.
   `without_docs (knowledge)` (questions, scored, mean, lowest, highest), or for the arm's
   name on a one-arm `arms.v1` file (route B), the same row by
   difficulty, the lowest-scoring questions, and every question with its score. A paired run
-  keeps the paired report. Each question's diagnosis is `⚪ One condition (no delta)`, not
-  insufficient data, and `eval score pointwise` gives the per-condition score the same way.
+  keeps the paired report. On a binary knowledge run each question's diagnosis is
+  `⚪ One condition (no delta)`, not insufficient data, and `eval score pointwise` gives the per-condition score the same way.
 - Keep the answerer fixed across the knowledge run and the with-docs run that follows:
   the same `--provider`, `--model`, questions file and judge. A knowledge run made with
   `arms run --arms baseline` sends the same prompt as the `baseline` arm of the comparison,
