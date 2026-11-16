@@ -198,9 +198,9 @@ def test_copilot_windows_limit_counts_the_terminating_nul(monkeypatch):
     monkeypatch.setattr(llm_cli, "_is_windows", lambda: False)
     base = len(llm_cli.subprocess.list2cmdline(llm_cli._copilot_argv("gpt-5", "", "x")).encode("utf-16-le")) // 2 - 1
     monkeypatch.setattr(llm_cli, "_is_windows", lambda: True)
-    room = llm_cli.WINDOWS_CMDLINE_LIMIT - 1 - base  # 32,766 units with the NUL: fits
+    room = llm_cli.WINDOWS_CMDLINE_LIMIT - 1 - base  # exactly LIMIT units with the NUL: fits
     assert llm_cli._copilot_argv("gpt-5", "", "x" * room)
-    with pytest.raises(llm_cli.CliCallError, match="Windows"):  # 32,767 units plus the NUL: does not spawn
+    with pytest.raises(llm_cli.CliCallError, match="Windows"):  # one unit more: does not spawn
         llm_cli._copilot_argv("gpt-5", "", "x" * (room + 1))
 
 
