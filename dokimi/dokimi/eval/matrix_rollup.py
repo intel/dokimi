@@ -31,6 +31,9 @@ def build_matrix_rollup(
             "plugin_set": data.get("plugin_set", "none"),
             "plugin_set_id": data.get("plugin_set_id"),
             "baseline_arm": data.get("baseline_arm"),
+            "judge_model": data.get("judge_model"),
+            "judge_provider": data.get("judge_provider"),
+            "judge_context": data.get("judge_context"),
             "summary": data.get("summary", {}),
             "cost_summary": data.get("cost_summary", {}),
         }

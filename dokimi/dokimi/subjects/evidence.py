@@ -18,6 +18,8 @@ from pathlib import PurePath
 from typing import Any
 
 from dokimi import __version__
+from dokimi.eval.sign_flip import ALPHA, METHOD
+from dokimi.subjects.evidence_check import build_protocol, comparability
 
 #: The arm metric the awareness summary carries per arm (``summary.per_arm[arm]``).
 METRIC = "avg_aggregate"
@@ -39,7 +41,7 @@ def build_skill_evidence(scorecard: dict[str, Any], *, source: str | None = None
         if baseline is None:
             warnings.append(f"matrix cell {cell.get('matrix_cell')!r}: no single baseline arm, skipped")
             continue
-        results.extend(_result(cell, arm, row) for arm, row in per_arm.items() if arm != baseline)
+        results.extend(_result(cell, arm, row, suite) for arm, row in per_arm.items() if arm != baseline)
     if subject.get("distribution_digest") is None:
         warnings.append("subject has no distribution_digest (not a SKILL.md, a skill with resources, "
                         "or a non-local ref): a client cannot match this document by digest")
@@ -84,12 +86,37 @@ def _baseline_arm(cell: dict[str, Any], per_arm: dict[str, Any]) -> str | None:
     return candidates[0] if len(candidates) == 1 else None
 
 
-def _result(cell: dict[str, Any], arm: str, row: dict[str, Any]) -> dict[str, Any]:
+#: What ``METRIC`` is: a 0-100 judge score per answer.
+METRIC_SPEC = {"id": METRIC, "unit": "score_points", "range": [0, 100],
+               "higher_is_better": True, "judged": True}
+
+
+def _result(cell: dict[str, Any], arm: str, row: dict[str, Any],
+            suite: dict[str, Any] | None = None) -> dict[str, Any]:
     # Every statistic is the paired test's, so n, delta, CI and p describe the same questions.
     # The per-arm means are left out: their difference is not the delta once pairs drop out.
     sig = row.get("significance") or {}
     delta = sig.get("delta_mean") if sig else None
-    return {
+    correction = sig.get("correction")
+    judge = cell.get("judge_snapshot") or cell.get("judge_model")
+    # The rule the verdict below applies, so a consumer can recompute it from delta and p_value.
+    rule = {"basis": "p_adjusted", "alpha": ALPHA, "test": METHOD, "correction": correction}
+    # Only resolved values enter the digest; what the scorecard does not record stays unresolved.
+    protocol = build_protocol({
+        "eval_set_digest": (suite or {}).get("question_set_hash"),
+        "metric": METRIC,
+        "judge_model": judge,
+        "judge_provider": cell.get("judge_provider"),
+        "judge_context": cell.get("judge_context"),
+        "judge_sampling": cell.get("judge_sampling"),
+        "judge_prompt_sha256": cell.get("judge_prompt_sha256"),
+        "repeats": cell.get("repeats"),
+        "test": METHOD,
+        "correction": correction,
+        "alpha": ALPHA,
+        "ci_confidence": sig.get("ci_confidence"),
+    })
+    result = {
         "product": cell.get("product"),
         "matrix_cell": cell.get("matrix_cell"),
         "model": cell.get("model"),
@@ -97,9 +124,11 @@ def _result(cell: dict[str, Any], arm: str, row: dict[str, Any]) -> dict[str, An
         "harness": cell.get("harness"),
         # Absent until a run records the effort it applied; null means "not recorded", not "default".
         "effort": cell.get("effort"),
-        "judge_model": cell.get("judge_model"),
+        "judge_model": judge,
+        "judge_provider": cell.get("judge_provider"),
         "arm": arm,
         "metric": METRIC,
+        "metric_spec": dict(METRIC_SPEC),
         "n": sig.get("n"),
         "delta": delta,
         "ci": None if sig.get("ci_lo") is None else {
@@ -108,8 +137,14 @@ def _result(cell: dict[str, Any], arm: str, row: dict[str, Any]) -> dict[str, An
         },
         "p_value": sig.get("p_adjusted"),
         "p_correction": sig.get("correction"),
+        "verdict_rule": rule,
         "verdict": _verdict(delta, sig),
+        "protocol": protocol,
     }
+    reasons = comparability(result)
+    result["comparable"] = not reasons
+    result["non_comparable"] = reasons
+    return result
 
 
 def _verdict(delta: float | None, sig: dict[str, Any]) -> str:

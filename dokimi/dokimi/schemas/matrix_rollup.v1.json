@@ -90,6 +90,24 @@
               "string",
               "null"
             ]
+          },
+          "judge_model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "judge_provider": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "judge_context": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "additionalProperties": true
