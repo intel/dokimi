@@ -308,6 +308,7 @@ def test_error_text_is_scrubbed_of_paths_and_truncated():
     ("missing C:\\Users\\Jane Doe\\AppData\\x", "missing <path>"),
     ("missing C:\\Users\\O'Connor\\private.txt", "missing <path>"),
     ("cannot open \\\\server\\users\\O'Connor\\file", "cannot open <path>"),
+    ("cannot open path:/home/jdoe/private", "cannot open path:<path>"),
     ("host probe exited 1 in ghcr.io/intel/dokimi-grader:1 (python3 -c): boom",
      "host probe exited 1 in ghcr.io/intel/dokimi-grader:1 (python3 -c): boom"),
 ])

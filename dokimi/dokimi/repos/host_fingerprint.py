@@ -41,7 +41,7 @@ VM_MARKERS = (("vmware", "vmware"), ("virtualbox", "virtualbox"), ("innotek", "v
               ("kvm", "kvm"), ("xen", "xen"), ("parallels", "parallels"), ("virtual machine", "hyper-v"))
 # A quoted path may hold spaces, so it runs to its own closing quote; a bare Windows or UNC path runs to the end of
 # the line. ``~`` paths too. A ``/`` path not preceded by a word character, ``.``, ``:`` or ``/`` is absolute (not an image name).
-_PATH = re.compile(r"""(?P<q>['"])(?:/|~|[A-Za-z]:\\|\\\\)(?:(?!(?P=q)).)*(?P=q)|~(?:/[\w.+@%-]+)+|\\\\[^\n]*|(?<![\w.:/-])(?:/[\w.+@%-]+)+|[A-Za-z]:\\[^\n]*""")
+_PATH = re.compile(r"""(?P<q>['"])(?:/|~|[A-Za-z]:\\|\\\\)(?:(?!(?P=q)).)*(?P=q)|~(?:/[\w.+@%-]+)+|\\\\[^\n]*|(?<![\w./-])(?:/[\w.+@%-]+)+|[A-Za-z]:\\[^\n]*""")
 
 
 def _read_text(path: str) -> str | None:
