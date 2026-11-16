@@ -293,6 +293,9 @@ class ArmRunner:
                 raise
             # The arm that stopped is an error cell, so the record shows where the run stopped.
             arms[current] = {"error": f"generation_failed: {exc}", "answer": None, "metadata": {}}
+            for name in self.arm_names:  # an arm the stop never reached says so, as every record has every arm
+                arms.setdefault(name, {"error": "not_asked: the run stopped before this arm", "answer": None,
+                                       "metadata": {}})
             partial = self._question_record(library_name, q, qid, question_text, turns, arms)
             raise RunStopped(exc, partial) from exc
         return self._question_record(library_name, q, qid, question_text, turns, arms)

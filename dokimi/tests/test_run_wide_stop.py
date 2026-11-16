@@ -3,7 +3,6 @@ was answered is kept (including the completed arms of the question that stopped)
 
 from __future__ import annotations
 
-import argparse
 import json
 
 from types import SimpleNamespace
@@ -70,3 +69,14 @@ def test_arms_run_artifact_records_the_stop_and_keeps_the_completed_arms_of_that
     assert arms["baseline"].get("error") is None and arms["baseline"]["answer"]  # the paid-for arm survives
     assert arms["other"]["error"].startswith("generation_failed")
     assert runner.stop_error is not None and runner.questions_requested == 1
+
+
+def test_an_arm_the_stop_never_reached_is_a_not_asked_cell_not_a_gap(monkeypatch):
+    # The usage limit hits the first arm, so the second (the baseline here) never runs: its cell says so.
+    calls = _usage_stop(monkeypatch, arm_runner_module, stop_on_call=1)
+    runner = ArmRunner([BaselineTreatment(name="other"), BaselineTreatment()], model="gpt-4o-mini",
+                       provider="openai")
+    records = runner.run("lib", QUESTIONS[:1], concurrency=1)
+    assert len(calls) == 1
+    assert set(records[0]["arms"]) == {"other", "baseline"}
+    assert records[0]["arms"]["baseline"]["error"].startswith("not_asked")
