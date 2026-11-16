@@ -53,7 +53,15 @@ _SEARCHERS = frozenset({"grep", "egrep", "fgrep", "rg", "sed", "awk"})  # the fi
 _WRAPPERS = frozenset({"time", "nohup", "sudo", "command", "exec", "builtin", "nice"})  # each runs the command after it
 _KEYWORDS = frozenset({"if", "then", "else", "elif", "do", "while", "until", "!"})  # shell keywords before a command
 _OPTION_OPERANDS = frozenset({("nice", "-n"), ("sudo", "-u")})  # wrapper options that take a value word
-_VALUE_OPTIONS = frozenset({"-m", "-A", "-B", "-C"})  # a searcher's options whose next word is a value, not an operand
+_GREP_VALUES = frozenset({"-m", "-A", "-B", "-C", "-d", "-D", "--max-count", "--after-context", "--before-context",
+                          "--context", "--label", "--binary-files", "--directories", "--devices"})
+_RG_VALUES = frozenset({"-g", "--glob", "--iglob", "-t", "--type", "-T", "--type-not", "--type-add", "-m", "--max-count",
+                        "-A", "-B", "-C", "--after-context", "--before-context", "--context", "-M", "--max-columns", "-j",
+                        "--threads", "-E", "--encoding", "-r", "--replace", "-d", "--max-depth", "--sort", "--sortr"})
+_SEARCH_VALUES = {"grep": _GREP_VALUES, "egrep": _GREP_VALUES, "fgrep": _GREP_VALUES, "rg": _RG_VALUES,
+                  "awk": frozenset({"-F", "-v"})}  # a searcher's options whose next word is a value, not an operand
+_PATTERN_FILE = frozenset({"-f", "--file"})  # a searcher's option whose value is a file it reads, and no expression
+_EXPRESSION = frozenset({"-e", "--regexp", "--expression"})  # a searcher's option whose value is the search expression
 _PYTHON = re.compile(r"python\d*(?:\.\d+)?|py|pypy\d*")
 _PIP = re.compile(r"pip\d*(?:\.\d+)?")
 _ASSIGN = re.compile(r"[A-Za-z_]\w*=")
@@ -393,13 +401,37 @@ def _hits(probe: Probe, pipeline: list[list[Stage]]) -> bool:
 
 
 def _operands(program: str, args: tuple[str, ...]) -> tuple[str, ...]:
-    """The words of a reader that can name a file: a searcher's search expression (its ``-e`` values, else its first operand) is not one."""
+    """The words of a reader that can name a file. A searcher's search expression is not one: it is its ``-e`` value, or
+    else its first operand, and a pattern file (``-f``) is a file it reads. A searcher's option whose next word is a
+    value (``rg -g '*.c'``, ``grep -m 1``) takes that word, which is neither."""
     if program not in _SEARCHERS:
         return args
-    if "-e" in args:
-        return tuple(a for i, a in enumerate(args) if a != "-e" and args[i - 1:i] != ("-e",))
-    first = next((i for i, a in enumerate(args) if not a.startswith("-") and (args[i - 1] if i else "") not in _VALUE_OPTIONS), None)
-    return args if first is None else args[:first] + args[first + 1:]
+    values = _SEARCH_VALUES.get(program, frozenset())
+    operands: list[str] = []
+    given = False  # an expression or a pattern file is named, so the first operand is no expression
+    i = 0
+    while i < len(args):
+        word = args[i]
+        name, eq, value = word.partition("=")  # ``--file=F``; a plain operand is kept as it is
+        if word == "--":
+            operands.extend(args[i + 1:])
+            break
+        if name in _EXPRESSION or name in _PATTERN_FILE:
+            given = True
+            if name in _PATTERN_FILE:
+                if eq:
+                    operands.append(value)
+                elif i + 1 < len(args):
+                    operands.append(args[i + 1])
+            i += 1 if eq else 2
+        elif name in values:
+            i += 1 if eq else 2
+        elif word.startswith("-") and len(word) > 1:
+            i += 1
+        else:
+            operands.append(word)
+            i += 1
+    return tuple(operands) if given else tuple(operands[1:])
 
 
 def _calls(args: tuple[str, ...], probe: Probe) -> bool:

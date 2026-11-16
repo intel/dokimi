@@ -343,3 +343,14 @@ def test_a_backslash_newline_continues_the_command_it_is_in(command, pattern):
 def test_a_quoted_parenthesis_inside_a_double_quoted_substitution_does_not_end_it():
     events = _claude(_claude_call("a", 'echo "$(printf \')\'; nproc)"', "2026-01-01T00:00:05Z"), _claude_result("a"))
     assert any(e["kind"] == "probe" and e["pattern"] == "nproc" for e in events)
+
+
+def test_a_search_option_value_is_no_operand_so_the_file_after_it_is_read():
+    events = _claude(_claude_call("a", "grep -f /proc/cpuinfo README", "2026-01-01T00:00:05Z"), _claude_result("a"))
+    assert any(e["kind"] == "probe" and e["pattern"] == "/proc/cpuinfo" for e in events)
+
+
+@pytest.mark.parametrize("command", ["rg -g '*.c' /proc/cpuinfo src", "rg -t c /proc/cpuinfo src"])
+def test_a_glob_or_type_value_of_a_search_is_no_expression_or_file(command):
+    events = _claude(_claude_call("a", command, "2026-01-01T00:00:05Z"), _claude_result("a"))
+    assert all(e["kind"] != "probe" for e in events)
