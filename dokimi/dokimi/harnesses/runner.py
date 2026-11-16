@@ -381,9 +381,9 @@ _BENCHFLOW_PREFIXES = ("benchflow", "benchflow-skill", "benchflow-selfgen")
 
 
 def _is_control_harness(harness: str) -> bool:
-    """``docker-oracle``, the ``docker-probe*`` family and BenchFlow's ``oracle``
+    """``docker-oracle``, ``docker-null``, the ``docker-probe*`` family and BenchFlow's ``oracle``
     agent (``benchflow[-skill|-selfgen]:oracle[:...]``): checks of the setup, not arms."""
-    if harness == "docker-oracle" or harness.split(":", 1)[0].startswith("docker-probe"):
+    if harness in ("docker-oracle", "docker-null") or harness.split(":", 1)[0].startswith("docker-probe"):
         return True
     prefix, _, rest = harness.partition(":")
     return prefix in _BENCHFLOW_PREFIXES and rest.split(":", 1)[0] == "oracle"

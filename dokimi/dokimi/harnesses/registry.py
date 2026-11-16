@@ -30,6 +30,7 @@ def known_harnesses() -> dict[str, str]:
         "claude-code": "Claude Code via Harbor agent 'claude-code'",
         "terminal-bench:<agent>": "Arbitrary Harbor/terminal-bench agent id",
         "docker-oracle": "Local Docker: apply the task's own solve.sh (no LLM)",
+        "docker-null": "Local Docker: no solve, the tests must fail on the untouched start (no LLM)",
         "docker-claude": "Local Docker: `claude -p` inside the task container, egress to the LLM only",
         "docker-claude-skill:<skill>": "docker-claude with a skill dir exposed (with-skill arm)",
         "docker-claude-skill-discover:<skill>": (
@@ -68,6 +69,10 @@ def create_harness(harness: str, *, command_template: str | None = None,
     return adapter if runner is process.run else replace(adapter, runner=runner)
 
 
+# The docker-* ids that solve (or skip solving) with no LLM: their mode is the id's suffix.
+_DOCKER_SOLVE_MODES = {"docker-oracle": "oracle", "docker-null": "null"}
+
+
 def _create(harness: str, command_template: str | None):
     if command_template:
         return CommandHarness(harness_id=harness, command_template=command_template, kind="command")
@@ -75,8 +80,8 @@ def _create(harness: str, command_template: str | None):
         return _harbor("codex", "codex")
     if harness == "claude-code":
         return _harbor("claude-code", "claude-code")
-    if harness == "docker-oracle":
-        return DockerSolverHarness(harness_id=harness, mode="oracle")
+    if harness in _DOCKER_SOLVE_MODES:
+        return DockerSolverHarness(harness_id=harness, mode=_DOCKER_SOLVE_MODES[harness])
     for prefix, location in (("docker-claude-host", "host"), ("docker-claude", "container")):
         if harness == prefix:
             return DockerSolverHarness(harness_id=harness, mode="claude", agent_location=location)

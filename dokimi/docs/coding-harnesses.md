@@ -255,6 +255,12 @@ latency, turns):
 
 - `docker-oracle` — apply the task's own `solution/solve.sh` (no LLM). Free; use
   it to validate that a task image + verifier work end to end.
+- `docker-null` — no solve: the verifier runs on the untouched start, and its
+  tests must fail there (the null check, intel/dokimi#808). It gives a verdict
+  only with `docker-oracle` in the same `tasks run`; that run exits 1 unless
+  every task's oracle passes and its null cell is `null_fail`. A pytest setup or
+  collection error is `fixture_error`, not a pass. The cell's `null_check`
+  metric holds the status.
 - `docker-claude` — solve with `claude -p --output-format stream-json`
   **inside the task container**, with egress to the LLM endpoint only (see
   [What the agent can reach](#what-the-agent-can-reach)). The final result
