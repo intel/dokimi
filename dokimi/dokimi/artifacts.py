@@ -76,6 +76,7 @@ SCHEMA_VERSIONS: dict[str, str] = {
     "plan": "plan.v1",
     "result": "result.v1",
     "repo_budget": "repo_budget.v1",
+    "run_context": "run_context.v1",
     "effective_instructions": "effective_instructions.v1",
     "task_inspect": "task_inspect.v1",
     "headroom": "headroom.v1",

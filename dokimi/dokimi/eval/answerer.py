@@ -208,7 +208,8 @@ class Answerer:
         errors = sum(1 for a in answers if a.get("error"))
 
         print("\n✓ Generated answers:", flush=True)
-        print(f"  Context arm:  {ok_with}/{n}", flush=True)
+        if self.mcp_client is not None:  # a knowledge run (--doc-source none) has no context arm to count
+            print(f"  Context arm:  {ok_with}/{n}", flush=True)
         print(f"  Baseline:     {ok_without}/{n}", flush=True)
         if errors:
             print(f"  Errors:       {errors}", flush=True)
