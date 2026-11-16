@@ -228,6 +228,32 @@ def _mask(part: str) -> str:
     return "".join(out)
 
 
+def _close_of(part: str, j: int) -> int:
+    """The index of the ``)`` that closes a ``$(`` whose code starts at ``j``: parentheses count, and a quote inside the
+    code is read as the shell reads it, so a ``)`` in quotes does not close it; a nested ``$( )`` is skipped whole."""
+    quote, depth = "", 0
+    while j < len(part):
+        c = part[j]
+        if quote == "'":
+            quote = "" if c == "'" else quote
+        elif c == "\\":
+            j += 1
+        elif c == "'" and not quote:
+            quote = "'"
+        elif c == '"':
+            quote = "" if quote == '"' else '"'
+        elif quote != "'" and part.startswith("$(", j):
+            j = _close_of(part, j + 2)
+        elif not quote and c == "(":
+            depth += 1
+        elif not quote and c == ")":
+            if depth == 0:
+                return j
+            depth -= 1
+        j += 1
+    return len(part)
+
+
 def _substitutions(part: str) -> tuple[list[str], str]:
     """The code of each ``$( )`` (balanced parentheses) and backtick substitution of a masked part, and the part without
     them: a substitution runs as its own command, so it is no word of this one."""
@@ -236,15 +262,10 @@ def _substitutions(part: str) -> tuple[list[str], str]:
     i = 0
     while i < len(part):
         if part.startswith("$(", i):
-            depth, j = 0, i + 1
-            while j < len(part):
-                depth += (part[j] == "(") - (part[j] == ")")
-                if depth == 0:
-                    break
-                j += 1
-            codes.append(part[i + 2:j])
+            end = _close_of(part, i + 2)
+            codes.append(part[i + 2:end])
             rest.append(" ")
-            i = j + 1
+            i = end + 1
         elif part[i] == "`":
             j = part.find("`", i + 1)
             j = len(part) if j < 0 else j

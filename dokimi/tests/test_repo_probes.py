@@ -338,3 +338,8 @@ def test_a_manifest_probes_key_is_read_and_a_bad_one_is_a_manifest_error():
 def test_a_backslash_newline_continues_the_command_it_is_in(command, pattern):
     events = _claude(_claude_call("a", command, "2026-01-01T00:00:05Z"), _claude_result("a"))
     assert any(e["kind"] == "probe" and e["pattern"] == pattern for e in events)
+
+
+def test_a_quoted_parenthesis_inside_a_double_quoted_substitution_does_not_end_it():
+    events = _claude(_claude_call("a", 'echo "$(printf \')\'; nproc)"', "2026-01-01T00:00:05Z"), _claude_result("a"))
+    assert any(e["kind"] == "probe" and e["pattern"] == "nproc" for e in events)
