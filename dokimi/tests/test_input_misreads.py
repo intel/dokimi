@@ -156,8 +156,9 @@ def test_a_merge_renumbers_a_generated_id_a_kept_record_has():
 @pytest.mark.parametrize("text,reason", [
     (json.dumps({"questions": [{"id": "q_001", "question": "A?"}, {"id": "q_001", "question": "B?"}]}),
      "duplicate question ids in {cache}: 'q_001'"),
+    (json.dumps({"questions": [{"id": "q_001", "question": ""}]}), "{cache} is not a usable question set"),
     ('{"questions": [', "Expecting value"),
-], ids=["shared-ids", "truncated"])
+], ids=["shared-ids", "schema", "truncated"])
 def test_benchmark_run_on_an_unusable_cache_exits_2_naming_force_regen(tmp_path, monkeypatch, capsys, text, reason):
     """A cache main's ``--force-regen`` wrote with two ``q_001``, or one cut short: an input error, not a traceback."""
     cache = tmp_path / "questions" / "onetbb.json"
@@ -170,9 +171,11 @@ def test_benchmark_run_on_an_unusable_cache_exits_2_naming_force_regen(tmp_path,
         cli.main()
 
     err = capsys.readouterr().err
+    named = "" if "{cache}" in reason else f" {cache}"
     assert exc_info.value.code == 2 and "Traceback" not in err
-    assert f"Error: the cached question set of an earlier run, {cache}, cannot be used: " in err
-    assert reason.format(cache=cache) in err and "(benchmark run: --force-regen)" in err
+    assert f"Error: the cached question set of an earlier run{named} cannot be used: " in err
+    assert reason.format(cache=cache) in err
+    assert "(fix or delete it to generate a new set; benchmark run: --force-regen)" in err
 
 
 def test_benchmark_run_on_a_golden_set_with_shared_ids_exits_2(tmp_path, monkeypatch, capsys):
@@ -190,7 +193,7 @@ def test_benchmark_run_on_a_golden_set_with_shared_ids_exits_2(tmp_path, monkeyp
 
     err = capsys.readouterr().err
     assert exc_info.value.code == 2 and "Traceback" not in err
-    assert f"Error: the golden set, {golden}, cannot be used: duplicate question ids in {golden}: 'q_001'" in err
+    assert f"Error: the golden set cannot be used: duplicate question ids in {golden}: 'q_001'" in err
 
 
 def test_answers_generate_exits_2_on_shared_ids_before_any_answer(tmp_path, monkeypatch):

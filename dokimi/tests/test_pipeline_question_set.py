@@ -1068,7 +1068,7 @@ def test_cached_run_tolerates_unreadable_golden_file(tmp_path, monkeypatch, capl
 
 def test_pinned_run_without_cache_still_raises_on_corrupt_golden(tmp_path, monkeypatch):
     _stub_expensive_steps(monkeypatch)
-    with pytest.raises(ValueError, match=r"the golden set, .*, cannot be used: Expecting value"):  # InputError, exit 2
+    with pytest.raises(ValueError, match=r"the golden set .*demo_golden.json cannot be used: Expecting value"):  # InputError, exit 2
         _golden_run(tmp_path, '{"questions": [', None, raw=True)
 
 

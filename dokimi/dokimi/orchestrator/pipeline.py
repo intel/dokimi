@@ -66,7 +66,8 @@ def _read_input_set(path: Path, what: str, fix: str = "") -> List[Dict[str, Any]
     try:
         return load_questions_payload(path)
     except (ValueError, RecursionError, OSError) as exc:  # refused by the schema, not JSON or UTF-8, unreadable
-        raise InputError(f"{what}, {path}, cannot be used: {exc}" + (f"\n({fix})" if fix else "")) from exc
+        named = "" if str(path) in str(exc) else f" {path}"  # a schema refusal already names the file
+        raise InputError(f"{what}{named} cannot be used: {exc}" + (f"\n({fix})" if fix else "")) from exc
 
 
 def _check_custom_questions(path: Path, parse: bool = True) -> None:
@@ -572,7 +573,7 @@ class EvaluationPipeline:
         elif (not self.force_regen) and self.questions_path.exists():
             path = self.questions_path
             reused = _read_input_set(path, "the cached question set of an earlier run",
-                                        "fix or delete it to generate a new set (benchmark run: --force-regen)")
+                                        "fix or delete it to generate a new set; benchmark run: --force-regen")
         else:
             self._custom_questions = self._load_custom_questions()
             return None
