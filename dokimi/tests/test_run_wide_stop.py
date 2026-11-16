@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
 """A run-wide CLI failure ends the run visibly: the artifact says so, the command exits 1, and what
 was answered is kept (including the completed arms of the question that stopped)."""
 

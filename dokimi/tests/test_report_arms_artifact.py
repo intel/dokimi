@@ -1,3 +1,6 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
 """``report eval`` on an arms artifact: the page and the Q&A export read the artifact's own answer model,
 provider and answers, not a sibling file that an arms run never writes."""
 
