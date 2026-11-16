@@ -142,6 +142,9 @@ def test_claude_cli_answers_a_one_arm_knowledge_run(cli_runner):
     assert cli_runner.calls, "the answer must go through the claude CLI"
     argv = cli_runner.calls[0].argv
     assert argv[argv.index("--model") + 1] == "sonnet"
+    answers = json.dumps(out["answers"])
+    assert "Use parallel_for from the oneTBB headers." in answers
+    assert "generation_failed" not in answers
 
 
 def test_claude_cli_refuses_a_temperature_before_any_call(cli_runner):
@@ -154,8 +157,8 @@ def test_claude_cli_refuses_a_temperature_before_any_call(cli_runner):
 # --- task-harness labels are refused: the answers come from --provider ----------------------------
 
 
-@pytest.mark.parametrize("harness", ["codex", "claude-code", "copilot", "terminal-bench:codex",
-                                     "docker-codex", "benchflow-codex"])
+@pytest.mark.parametrize("harness", ["codex", "codex-review", "claude-code", "copilot", "copilot-review",
+                                     "terminal-bench:codex", "command:echo hi", "docker-codex", "benchflow-codex"])
 def test_a_task_harness_label_is_refused_before_any_answer(harness, fake_llm):
     config = ArmsRunConfig(product="oneTBB", model="claude-haiku-5-5", provider="amazon-bedrock", harness=harness)
     with pytest.raises(InputError, match="names a task harness"):
@@ -163,9 +166,13 @@ def test_a_task_harness_label_is_refused_before_any_answer(harness, fake_llm):
     assert fake_llm.requests == []
 
 
+@pytest.mark.parametrize("harness", ["arms-runner", "single-shot", "agent", "openclaw-agent", "my-custom"])
+def test_the_arms_harness_labels_are_accepted(harness):
+    assert refuse_task_harness(ArmsRunConfig(product="oneTBB", harness=harness)) is None
+
+
 def test_the_default_harness_is_accepted():
     assert refuse_task_harness(ArmsRunConfig(product="oneTBB")) is None
-    assert refuse_task_harness(ArmsRunConfig(product="oneTBB", harness="arms-runner")) is None
 
 
 def test_the_harness_refusal_reaches_the_cli_with_exit_2(tmp_path, fake_llm):

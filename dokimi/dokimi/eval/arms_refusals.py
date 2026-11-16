@@ -52,8 +52,8 @@ def refuse_cli_arms(config: ArmsRunConfig, treatments: list) -> None:
                          "does not have: use an API provider for a session")
 
 
-#: Harness labels of the task runners (``tasks run``): each runs an agent CLI in a sandbox to do a task.
-_TASK_HARNESS_NAMES = frozenset({"codex", "codex-review", "claude-code", "copilot", "copilot-review", "terminal-bench"})
+#: Harness labels of the agent CLIs (``tasks run``, ``repo run``): each one runs an agent CLI to do a task.
+_TASK_HARNESS_NAMES = frozenset({"command", "codex", "codex-review", "claude-code", "copilot", "copilot-review", "terminal-bench"})
 _TASK_HARNESS_PREFIXES = ("docker-", "benchflow")
 
 

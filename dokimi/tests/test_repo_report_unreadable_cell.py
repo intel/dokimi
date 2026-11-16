@@ -436,3 +436,17 @@ def test_compare_with_a_baseline_no_cell_matches_exits_2_naming_it(tmp_path, cap
         _run("compare", str(batch), "--baseline", "nosucharm")
     assert exc.code == 2
     assert "no finished cell matches the baseline 'nosucharm'" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("batch_value", [None, [], 3], ids=["null", "list", "number"])
+@pytest.mark.parametrize("argv", [("report",), ("compare", "--baseline", "a")], ids=["report", "compare"])
+def test_a_result_file_with_a_batch_that_is_not_a_string_exits_2(tmp_path, capsys, argv, batch_value):
+    files = {"t__a__m__r1/result.json": json.dumps({**_GOOD, "batch": batch_value}).encode(),
+             "t__a__m__r2/result.json": json.dumps({**_GOOD, "batch": "b1"}).encode()}
+    batch = _batch(tmp_path, "b1", files)
+    with refusal() as exc:
+        _run(argv[0], str(batch), *argv[1:])
+    assert exc.code == 2
+    err = capsys.readouterr().err
+    assert f"{batch / 't__a__m__r1' / 'result.json'} has no usable `batch`" in err
+    assert "Traceback" not in err
