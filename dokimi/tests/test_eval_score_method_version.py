@@ -91,7 +91,7 @@ def test_pipeline_judges_an_unstamped_answers_file_as_legacy_version_1(monkeypat
     answers_file = tmp_path / "answers.json"
     answers_file.write_text(json.dumps({"answers": ANSWERS}), encoding="utf-8")
 
-    assert _pipeline_judge_version(monkeypatch, tmp_path, [], answers_file) == 1
+    assert _pipeline_judge_version(monkeypatch, tmp_path, None, answers_file) == 1
 
 
 def test_pipeline_judges_fresh_in_memory_answers_as_the_current_version(monkeypatch, tmp_path):
@@ -121,4 +121,30 @@ def test_pipeline_refuses_an_answers_file_with_a_malformed_stamp(monkeypatch, tm
     answers_file.write_text(json.dumps({"method_version": "2", "answers": ANSWERS}), encoding="utf-8")
 
     with pytest.raises(ValueError, match="method_version must be a positive integer"):
-        _pipeline_judge_version(monkeypatch, tmp_path, [], answers_file)
+        _pipeline_judge_version(monkeypatch, tmp_path, None, answers_file)
+
+
+def test_an_empty_in_memory_answer_list_does_not_judge_a_stale_answers_file(monkeypatch, tmp_path):
+    """The step passed its answers (none this run): the answers file on disk is a previous run's."""
+    from dokimi.defaults import ANSWERING_METHOD_VERSION
+    from dokimi.eval.judge import Judge
+    from dokimi.orchestrator.pipeline import EvaluationPipeline
+
+    answers_file = tmp_path / "answers.json"
+    answers_file.write_text(json.dumps({"answers": ANSWERS}), encoding="utf-8")
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key-not-used")
+    judged: list = []
+
+    def evaluate(self, product, records, concurrency=5):
+        judged.append((self.answers_method_version, list(records)))
+        return []
+
+    monkeypatch.setattr(Judge, "evaluate_answers", evaluate)
+    monkeypatch.setattr(Judge, "save_evaluations", lambda self, evaluations, path: None)
+    p = EvaluationPipeline.__new__(EvaluationPipeline)
+    p.product, p.model, p.provider = "L", "gpt-x", "openai"
+    p.judge_model, p.judge_provider, p.judge_temperature, p.judge_placeholder = "gpt-x", "openai", None, False
+    p.answers_path, p.eval_path = answers_file, tmp_path / "eval.json"
+    p._evaluate_answers([], concurrency=1)
+
+    assert judged == [(ANSWERING_METHOD_VERSION, [])]

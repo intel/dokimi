@@ -296,7 +296,7 @@ def run_arm_pairwise(
         arm, qid, question, answer, base = job
         try:
             return arm, qid, judge.compare(library, question, answer, base)
-        except Exception as exc:  # one failed question must not lose the run
+        except Exception as exc:  # noqa: BLE001 - one failed question must not lose the run
             return arm, qid, exc
 
     report = ArmPairwiseReport(judge=label, baseline_arm=baseline_arm)

@@ -526,9 +526,9 @@
     "partial": {
       "type": "object",
       "required": ["reason", "stage", "message"],
-      "description": "Why and where the run stopped. reason: spend_cap or no_price. stage: extraction, verify, need_graph, probes, measurement, classify or attribution. extraction adds spans_read and spans_total, measurement calls_done and calls_planned (probe answers paid for, the ungraded ones included; the message says how many), spend_cap a cause (what was spent). A partial record holds no paired, arms or view summaries: the cut leaves the arms uneven.",
+      "description": "Why and where the run stopped. reason: spend_cap, no_price or permanent_error (a provider error every later call would meet). stage: extraction, verify, need_graph, probes, measurement, classify or attribution. extraction adds spans_read and spans_total, measurement calls_done and calls_planned (probe answers paid for, the ungraded ones included; the message says how many), spend_cap a cause (what was spent). A partial record holds no paired, arms or view summaries: the cut leaves the arms uneven.",
       "properties": {
-        "reason": {"enum": ["spend_cap", "no_price"]},
+        "reason": {"enum": ["spend_cap", "no_price", "permanent_error"]},
         "stage": {"enum": ["extraction", "verify", "need_graph", "probes", "measurement", "classify", "attribution"]},
         "message": {"type": "string"},
         "cause": {"type": "string"},

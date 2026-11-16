@@ -205,7 +205,7 @@ class QuestionPanelReviewer:
                 flags=flags,
                 primary_score=primary,
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - logged; the vote carries the error
             logger.warning(f"Reviewer '{reviewer}' failed on '{question[:50]}': {exc}")
             return ReviewerVote(reviewer=reviewer, scores={}, reasoning="",
                                 flags=[], error=str(exc))

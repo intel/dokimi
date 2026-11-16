@@ -331,7 +331,7 @@ def run_probe(items: Sequence[dict], call: Caller, reps: int = 1, concurrency: i
                 res.update(choice=classify(item, out.get("called") or []),
                            text_preview=(out.get("text") or "")[:200],
                            truncated=bool(out.get("truncated")))
-            except Exception as exc:  # recorded, not raised
+            except Exception as exc:  # noqa: BLE001 - recorded, not raised
                 res["error"] = f"{type(exc).__name__}: {exc}"[:300]
                 if hasattr(exc, "usage"):
                     billed, usage = True, exc.usage
