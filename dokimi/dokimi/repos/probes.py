@@ -192,7 +192,8 @@ def _pipelines(script: str) -> Iterator[list[list[str]]]:
     """Each pipeline of the script as its stages' words; the commands of its ``$( )`` and backtick substitutions too."""
     status: bool | None = None  # the exit status of the last part that ran; None when it is not known
     before = ""  # the operator before this part
-    for part, after, _in_subshell, _outer in split_script(_without_heredocs(script)):
+    for part, after, in_subshell, _outer in split_script(_without_heredocs(script)):
+        conditional = before in ("||", "&&")  # the part runs only if the one before it did, or did not, succeed
         skipped, before = (before == "||" and status is True) or (before == "&&" and status is False), after
         if skipped:  # a part after ``||`` that succeeded, or after ``&&`` that failed, never runs
             continue
@@ -206,8 +207,8 @@ def _pipelines(script: str) -> Iterator[list[list[str]]]:
             for rest in command_words(stage):
                 if len(rest) > 2 and _program(rest[0]) in _SHELLS and _SHELL_C.fullmatch(rest[1]):
                     yield from _pipelines(rest[2])
-        if any(_ends_shell(stage) for stage in stages):  # what follows an ``exit`` or a replacing ``exec`` never runs
-            return
+        if not conditional and not in_subshell and any(_ends_shell(stage) for stage in stages):
+            return  # what follows an ``exit`` or a replacing ``exec`` that surely runs never runs
 
 
 def _ends_shell(stage: list[str]) -> bool:

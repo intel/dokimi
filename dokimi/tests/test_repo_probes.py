@@ -387,7 +387,7 @@ def test_a_command_that_runs_nothing_probed_gives_no_probe(text, event):
 
 
 @pytest.mark.parametrize("text", ["exec -l && nproc", "env FOO=1 nproc", "echo \"<<EOF\"\nnproc\nEOF",
-                                  "cat <<EOF\n$(nproc)\nEOF"])
+                                  "cat <<EOF\n$(nproc)\nEOF", "cd repo || exit 1; nproc", "(exit 0); nproc"])
 def test_a_command_that_runs_the_probe_gives_the_probe(text):
     assert ("cpu", "nproc") in _probed(text)
 
