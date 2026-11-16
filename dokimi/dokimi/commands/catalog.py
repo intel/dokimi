@@ -458,6 +458,10 @@ def register(sub, positive_int, eval_sub) -> None:
 
     add_catalog_routing(catalog_sub, positive_int)  # catalog routing: all-vs-all (#94 M3)
 
+    from dokimi.commands import catalog_novelty
+
+    catalog_novelty.register(catalog_sub, positive_int)  # catalog novelty: the corpus sweep
+
     kinds = ["product", "subject"]
     list_p = catalog_sub.add_parser(
         "list", help="List products (--kind product) or subject descriptors (--kind subject)"

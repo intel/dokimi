@@ -1110,6 +1110,40 @@ A cell with no check measured at all is `NOT MEASURED`, not `PASS`.
 Failing `warn`-severity checks and the artifact's own `warnings` also surface in the
 scorecard's top-level `warnings`.
 
+## Corpus sweep: `catalog novelty`
+
+`catalog novelty ROOT --out-dir DIR --max-usd USD` runs `skill novelty analyze` on every
+`SKILL.md` under ROOT and writes one row per skill to `--jsonl` (default `DIR/sweep.jsonl`) as
+each finishes, so a killed sweep keeps what it paid for. An `ok` skill also gets
+`DIR/<skill>/novelty.json` and `novelty.md`. The calls are paid: `--max-usd` is required.
+
+- **Budget.** `--max-usd` is the whole-run budget, shared by the skills analysed at once
+  (`--jobs`, threads). `--max-usd-per-skill` caps one skill inside it; a skill that hits either
+  cap is a `partial` row with no novelty file, and the sweep goes on. Once the whole-run budget
+  is spent, no further skill starts: it is not in the JSONL, and the run says how many were not run.
+- **Resume.** `--resume` keeps the `ok` rows whose skill directory digest, measurement settings
+  and dokimi version are unchanged, rewrites the JSONL with them and with the rows of skills this
+  run does not select (a narrower `--limit`), and runs the other skills. Set
+  `DOKIMI_RESPONSE_CACHE` so the calls already paid replay at $0. Without `--resume`, an existing
+  `--jsonl` is refused rather than overwritten.
+- **Settings.** The sweep takes the measurement flags it needs (`--model`, `--judge-model`,
+  `--tier`, `--max-atoms`, `--budgets`, `--arms`, `--include-resources`, ...); the rest keep their
+  `skill novelty analyze` defaults. `--judge2` is not part of the sweep: run it on one skill.
+- **Summary.** The first line of the summary is the share the model already knew without the
+  skill, `k0.lenient`, and the share it did not know (`1 - known`): the new-to-the-model share.
+  Each interval is a 95% percentile bootstrap over the skills (2000 resamples,
+  `--bootstrap-resamples`). `--strata CSV` adds one line per stratum: the CSV has a `skill`
+  column (the skill's directory under ROOT, or its name) and a stratum column (`--stratum-column`,
+  default `stratum`); a skill the CSV does not name is `(unassigned)`.
+- **Summary only.** `--summary-only --jsonl FILE` prints the summary of a finished or partial
+  sweep with no model call. `--summary-out FILE` also writes it as JSON.
+
+```bash
+dokimi catalog novelty skills/ --out-dir out/sweep --max-usd 20 --max-usd-per-skill 1 \
+  --jobs 4 --model <answerer> --judge-model <judge> --strata strata.csv
+dokimi catalog novelty skills/ --out-dir out/sweep --summary-only
+```
+
 ## Cost, and how it is kept down
 
 The measurement is LLM-call bound, and the probe term is predictable: **every probe costs an

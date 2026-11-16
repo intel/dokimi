@@ -1,0 +1,170 @@
+# Copyright (C) 2026 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
+"""`catalog novelty ROOT`: the paid sweep, run end to end on a fake LLM, offline."""
+
+from __future__ import annotations
+
+import json
+
+import pytest
+
+from dokimi.cli import build_parser
+from dokimi.metrics.usage import UsageRecord
+from dokimi.novelty import cost as novelty_cost
+from dokimi.utils import InputError
+from tests.test_novelty_analyze import SKILL, _scripted
+
+COST = 0.01  # every fake call is priced at this, so a budget is a number of calls
+
+
+@pytest.fixture(autouse=True)
+def _offline(monkeypatch):
+    monkeypatch.delenv("DOKIMI_RESPONSE_CACHE", raising=False)
+    base = _scripted("informed")
+
+    def transport(prompt, system):
+        text, _ = base(prompt, system)
+        return text, UsageRecord(cost_usd=COST)
+
+    real_client = novelty_cost.client
+
+    def fake_client(*args, **kwargs):
+        client = real_client(*args, **kwargs)
+        client.transport = transport
+        return client
+
+    monkeypatch.setattr(novelty_cost, "client", fake_client)
+
+
+def _root(tmp_path, names=("accel-tuning", "other-skill")):
+    root = tmp_path / "catalog"
+    for name in names:
+        (root / name).mkdir(parents=True)
+        (root / name / "SKILL.md").write_text(SKILL.replace("accel-tuning", name), encoding="utf-8")
+    return root
+
+
+def _sweep(root, out, *extra):
+    argv = ["catalog", "novelty", str(root), "--out-dir", str(out),
+            "--model", "answerer-m", "--judge-model", "judge-m", *extra]
+    args = build_parser().parse_args(argv)
+    args.func(args)
+
+
+def _rows(path):
+    return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+def test_each_skill_gets_one_measured_row_and_a_novelty_file(tmp_path, capsys):
+    root, out = _root(tmp_path), tmp_path / "out"
+    _sweep(root, out, "--max-usd", "5")
+    rows = _rows(out / "sweep.jsonl")
+    assert sorted(r["key"] for r in rows) == ["accel-tuning", "other-skill"]
+    assert all(r["status"] == "ok" and r["new_lenient"] is not None for r in rows)
+    assert all(r["usd"] == pytest.approx(r["llm_calls"] * COST) for r in rows)
+    assert len(list(out.glob("*/novelty.json"))) == 2
+    assert "# novelty sweep: 2 measured, 0 partial, 0 error" in capsys.readouterr().out
+
+
+def test_the_summary_leads_with_the_already_known_share(tmp_path, capsys):
+    _sweep(_root(tmp_path), tmp_path / "out", "--max-usd", "5")
+    out = capsys.readouterr().out
+    assert "already known by the model:" in out
+    assert "new to it:" in out
+
+
+def test_a_per_skill_cap_leaves_a_partial_row_and_the_sweep_goes_on(tmp_path):
+    out = tmp_path / "out"
+    _sweep(_root(tmp_path), out, "--max-usd", "5", "--max-usd-per-skill", "0.02")
+    rows = _rows(out / "sweep.jsonl")
+    assert [r["status"] for r in rows] == ["partial", "partial"]
+    assert {r["reason"] for r in rows} == {"spend_cap"}
+    assert not list(out.glob("*/novelty.json"))
+
+
+def test_the_run_budget_stops_the_skills_it_cannot_pay_for(tmp_path, capsys):
+    out = tmp_path / "out"
+    _sweep(_root(tmp_path), out, "--max-usd", "0.05", "--jobs", "1")
+    rows = _rows(out / "sweep.jsonl")
+    assert len(rows) == 1  # the second skill was never started
+    assert rows[0]["status"] == "partial"
+    assert "1 skill(s) not run: the budget was spent" in capsys.readouterr().err
+
+
+def test_resume_keeps_the_measured_rows_and_runs_only_the_rest(tmp_path, capsys):
+    root, out = _root(tmp_path), tmp_path / "out"
+    _sweep(root, out, "--max-usd", "5", "--limit", "1")
+    first = _rows(out / "sweep.jsonl")
+    assert len(first) == 1
+    _sweep(root, out, "--max-usd", "5", "--resume")
+    rows = _rows(out / "sweep.jsonl")
+    assert sorted(r["key"] for r in rows) == ["accel-tuning", "other-skill"]
+    assert rows[0] == first[0]
+    assert "1 measured and kept, 1 to run" in capsys.readouterr().err
+
+
+def test_resume_runs_again_a_skill_whose_directory_changed(tmp_path):
+    root, out = _root(tmp_path), tmp_path / "out"
+    _sweep(root, out, "--max-usd", "5", "--limit", "1")
+    before = _rows(out / "sweep.jsonl")[0]["skill_sha256"]
+    (root / "accel-tuning" / "SKILL.md").write_text(SKILL + "\nMore text.\n", encoding="utf-8")
+    _sweep(root, out, "--max-usd", "5", "--resume")
+    rows = _rows(out / "sweep.jsonl")
+    assert sorted(r["key"] for r in rows) == ["accel-tuning", "other-skill"]  # the stale row is gone
+    changed = [r for r in rows if r["key"] == "accel-tuning"]
+    assert changed[0]["skill_sha256"] != before and changed[0]["status"] == "ok"
+
+
+def test_an_existing_jsonl_is_not_overwritten_without_resume(tmp_path):
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / "sweep.jsonl").write_text("", encoding="utf-8")
+    with pytest.raises(InputError, match="pass --resume"):
+        _sweep(_root(tmp_path), out, "--max-usd", "5")
+
+
+def test_a_paid_sweep_needs_a_whole_run_budget(tmp_path):
+    with pytest.raises(InputError, match="pass --max-usd"):
+        _sweep(_root(tmp_path), tmp_path / "out")
+
+
+def test_summary_only_reads_the_jsonl_and_makes_no_call(tmp_path, monkeypatch, capsys):
+    out, root = tmp_path / "out", _root(tmp_path)
+    _sweep(root, out, "--max-usd", "5")
+    capsys.readouterr()
+
+    def no_client(*args, **kwargs):
+        raise AssertionError("summary-only must not build a client")
+
+    monkeypatch.setattr(novelty_cost, "client", no_client)
+    _sweep(root, out, "--summary-only")
+    assert "# novelty sweep: 2 measured" in capsys.readouterr().out
+
+
+def test_strata_add_a_line_per_stratum(tmp_path, capsys):
+    out = tmp_path / "out"
+    strata = tmp_path / "strata.csv"
+    strata.write_text("skill,stratum\naccel-tuning,ops\nother-skill,dev\n", encoding="utf-8")
+    _sweep(_root(tmp_path), out, "--max-usd", "5", "--strata", str(strata))
+    text = capsys.readouterr().out
+    assert "stratum" in text and "\nops " in text and "\ndev " in text
+
+
+def test_an_unloadable_skill_is_an_error_row_and_costs_nothing(tmp_path):
+    root, out = _root(tmp_path), tmp_path / "out"
+    (root / "broken").mkdir()
+    (root / "broken" / "SKILL.md").write_text("no frontmatter here\n", encoding="utf-8")
+    _sweep(root, out, "--max-usd", "5")
+    broken = [r for r in _rows(out / "sweep.jsonl") if r["key"] == "broken"]
+    assert broken and broken[0]["status"] == "error"
+    assert broken[0]["usd"] == 0
+
+
+def test_a_narrower_resume_keeps_the_paid_rows_of_the_skills_it_does_not_select(tmp_path):
+    root, out = _root(tmp_path), tmp_path / "out"
+    _sweep(root, out, "--max-usd", "5")
+    before = {r["key"]: r for r in _rows(out / "sweep.jsonl")}
+    _sweep(root, out, "--max-usd", "5", "--resume", "--limit", "1")
+    after = {r["key"]: r for r in _rows(out / "sweep.jsonl")}
+    assert after == before  # other-skill is outside this run's --limit: its paid row stays
