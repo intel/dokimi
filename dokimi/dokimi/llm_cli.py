@@ -394,7 +394,7 @@ def _copilot_argv(model: str, system_file: str, text: str) -> list:
             "--disable-builtin-mcps", "--no-remote", "--no-auto-update", "--no-ask-user", "--disallow-temp-dir",
             "--no-color", "--available-tools", "__none__"]
     if _is_windows():
-        units = len(subprocess.list2cmdline(argv).encode("utf-16-le")) // 2
+        units = len(subprocess.list2cmdline(argv).encode("utf-16-le")) // 2 + 1  # the terminating NUL counts
         if units > WINDOWS_CMDLINE_LIMIT:
             raise CliCallError(f"copilot-cli: the command line is {units} characters, over Windows' "
                                f"{WINDOWS_CMDLINE_LIMIT}; shorten the prompt or use a stdin-capable provider",

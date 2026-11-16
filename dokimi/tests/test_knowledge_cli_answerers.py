@@ -194,6 +194,16 @@ def test_copilot_prompt_is_checked_against_the_windows_command_line_limit(monkey
     assert llm_cli._copilot_argv("gpt-5", "", "x" * 40_000)  # no command-line cap on POSIX
 
 
+def test_copilot_windows_limit_counts_the_terminating_nul(monkeypatch):
+    monkeypatch.setattr(llm_cli, "_is_windows", lambda: False)
+    base = len(llm_cli.subprocess.list2cmdline(llm_cli._copilot_argv("gpt-5", "", "x")).encode("utf-16-le")) // 2 - 1
+    monkeypatch.setattr(llm_cli, "_is_windows", lambda: True)
+    room = llm_cli.WINDOWS_CMDLINE_LIMIT - 1 - base  # 32,766 units with the NUL: fits
+    assert llm_cli._copilot_argv("gpt-5", "", "x" * room)
+    with pytest.raises(llm_cli.CliCallError, match="Windows"):  # 32,767 units plus the NUL: does not spawn
+        llm_cli._copilot_argv("gpt-5", "", "x" * (room + 1))
+
+
 def test_copilot_runs_with_no_tools_no_custom_instructions_and_the_prompt_in_argv(run, monkeypatch):
     monkeypatch.setenv("GH_TOKEN", "ghp_should_not_leak")
     monkeypatch.setenv("COPILOT_PROVIDER_BASE_URL", "https://byok.example")
