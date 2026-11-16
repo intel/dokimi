@@ -181,7 +181,7 @@ def _blank_blocks(lines: list[str]) -> list[str]:
         if hidden and not pos:
             out.append(" " * len(line))
             continue
-        line, comment, run = _blank_inline(line, close_ahead[i], pos)
+        line, comment, run = _blank_inline(line, close_ahead[i], pos, _paragraph_above(lines, i))
         line, span = _open_span(lines, i, line, run)
         out.append(line)
     return out
@@ -217,17 +217,31 @@ def _title_spans(lines: list[str], begin: list[int], defs: dict[int, re.Match]) 
     return out
 
 
-def _angle_link_at(line: str, pos: int) -> re.Match | None:
-    """The ``](<...>)`` link on ``line`` whose destination holds ``pos``: a backtick there is text, and opens no span."""
-    i = line.rfind("](", 0, pos)
-    m = _ANGLE_LINK.match(line, i) if i >= 0 and _has_opener(line, i) else None
-    return m if m and m.end() > pos else None
+def _angle_link_end(line: str, pos: int, before: str = "") -> int | None:
+    """End, on ``line``, of the ``](<...>)`` link whose destination holds ``pos``: a backtick there is text, and opens no span.
+
+    Its ``]`` must close an opener in the paragraph, which may begin on the lines above (``before``).
+    """
+    head = before + "\n" if before else ""
+    text = head + line
+    p = len(head) + pos
+    i = text.rfind("](", 0, p)
+    m = _ANGLE_LINK.match(text, i) if i >= 0 and _has_opener(text, i) else None
+    return m.end() - len(head) if m and m.end() > p else None
 
 
-def _unpaired_run(line: str) -> re.Match | None:
+def _paragraph_above(lines: list[str], i: int) -> str:
+    """The raw lines above ``i`` in its paragraph, joined: the context an opener may come from."""
+    k = i
+    while k > 0 and lines[k - 1].strip():
+        k -= 1
+    return "\n".join(lines[k:i])
+
+
+def _unpaired_run(line: str, before: str = "") -> re.Match | None:
     """The first backtick run left on ``line`` whose first backtick is not escaped and not in a ``<...>`` destination."""
     return next((m for m in _BACKTICK_RUN.finditer(line)
-                 if not _escaped(line, m.start()) and _angle_link_at(line, m.start()) is None), None)
+                 if not _escaped(line, m.start()) and _angle_link_end(line, m.start(), before) is None), None)
 
 
 def _open_span(lines: list[str], i: int, line: str, run: re.Match | None) -> tuple[str, str]:
@@ -292,7 +306,7 @@ def _closes_fence(line: str, fence: str) -> bool:
     return bool(m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence) and not line[m.end():].strip())
 
 
-def _blank_inline(line: str, closes_ahead: bool, pos: int = 0) -> tuple[str, str, re.Match | None]:
+def _blank_inline(line: str, closes_ahead: bool, pos: int = 0, before: str = "") -> tuple[str, str, re.Match | None]:
     """Blank the code spans and the comments of ``line``, left to right: whichever starts first holds the text after it.
 
     Returns the line, the kind of a comment it leaves open, and a backtick run left unpaired on the line (its
@@ -303,10 +317,10 @@ def _blank_inline(line: str, closes_ahead: bool, pos: int = 0) -> tuple[str, str
         code = _code_span(line, pos)
         start = line.find("<!--", pos)
         if code is None and start < 0:
-            return line, "", _unpaired_run(line)
+            return line, "", _unpaired_run(line, before)
         if code is not None and (start < 0 or code.start() < start):
-            if (link := _angle_link_at(line, code.start())) is not None:  # a backtick in the destination is text
-                pos = link.end()
+            if (link := _angle_link_end(line, code.start(), before)) is not None:  # a backtick in the destination is text
+                pos = link
                 continue
             line = line[:code.start()] + " " * (code.end() - code.start()) + line[code.end():]
             pos = code.end()

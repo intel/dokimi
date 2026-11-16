@@ -607,3 +607,9 @@ def test_link_in_a_title_on_the_next_line_is_text(mem):
 def test_backticks_after_an_angle_without_an_opener_are_code(mem):
     (mem / "a.md").write_text(_entry("a", body="x](<q `tomorrow` r>) z"))
     assert [f.rule for f in lint(read_claude_memory(mem)) if f.rule == "relative-date"] == []
+
+
+def test_backticks_in_an_angle_destination_stay_literal_when_the_opener_is_above(mem):
+    (mem / "MEMORY.md").write_text("- [a\n  b](<topic`v2`.md>)\n")
+    (mem / "topic`v2`.md").write_text(_entry("topic"))
+    assert [f.rule for f in lint(read_claude_memory(mem)) if f.rule == "index-dead-link"] == []
