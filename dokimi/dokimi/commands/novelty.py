@@ -555,22 +555,6 @@ def _bundle_from_args(args: argparse.Namespace):
     return artifact_bundle
 
 
-def register(sub, positive_int) -> None:
-    """Add the `novelty` group: `view`. `routing` moved to `skill routing` and `catalog routing` (#94 M3)."""
-    novelty_p = sub.add_parser(
-        "novelty",
-        help="Measure what an artifact's content adds to a model",
-    )
-    novelty_sub = novelty_p.add_subparsers(dest="novelty_cmd", required=True)
-
-    view_p = novelty_sub.add_parser("view", help="Re-render the annotated artifact view")
-    view_p.add_argument("--novelty", required=True, help="novelty.json from `skill novelty analyze`")
-    view_p.add_argument("--atoms", required=True, help="atoms.json from `skill novelty atoms`")
-    view_p.add_argument("--format", default="html", choices=["html", "md"])
-    view_p.add_argument("--out", default=None)
-    view_p.set_defaults(func=cmd_novelty_view)
-
-
 def _add_bundle_args(parser: argparse.ArgumentParser, positive_int) -> None:
     """Flags that decide *which files of the artifact* are measured.
 

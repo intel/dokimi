@@ -195,10 +195,7 @@ whose absolute calibration is poor.
    annotated HTML view of the artifact; `dokimi/gate/novelty_gate.py`
    turns the numbers into soft gates (the novelty track's use of `gate/`).
 
-Entry points: `python cli.py skill novelty {analyze,atoms,probe,items}`, `python cli.py skill shorten`,
-`python cli.py novelty view`, and
-`python cli.py subjects run` to attach the result to the subject scorecard it
-builds for that run.
+Entry points: `python cli.py skill novelty {analyze,atoms,probe,items,view}`, `python cli.py skill shorten`, and `python cli.py subjects run` to attach the result to the subject scorecard it builds for that run.
 
 Novelty is a property of the (artifact, model) pair, not of the file — the same
 skill is worth very different amounts to a frontier and to a small model, so the

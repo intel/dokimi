@@ -1195,29 +1195,6 @@
         }
       }
     },
-    "novelty": {
-      "allow_abbrev": true,
-      "params": [
-        {"key": "--help/-h", "action": "_HelpAction", "choices": null, "const": null, "default": "==SUPPRESS==", "group_key": null, "group_required": null, "hidden": false, "is_flag": true, "kind": "option", "nargs": 0, "position": null, "required": false, "type": null}
-      ],
-      "path": "dokimi novelty",
-      "subcommand_required": true,
-      "subcommands": {
-        "view": {
-          "allow_abbrev": true,
-          "params": [
-            {"key": "--atoms", "action": "_StoreAction", "choices": null, "const": null, "default": null, "group_key": null, "group_required": null, "hidden": false, "is_flag": false, "kind": "option", "nargs": null, "position": null, "required": true, "type": null},
-            {"key": "--format", "action": "_StoreAction", "choices": ["'html'", "'md'"], "const": null, "default": "html", "group_key": null, "group_required": null, "hidden": false, "is_flag": false, "kind": "option", "nargs": null, "position": null, "required": false, "type": null},
-            {"key": "--help/-h", "action": "_HelpAction", "choices": null, "const": null, "default": "==SUPPRESS==", "group_key": null, "group_required": null, "hidden": false, "is_flag": true, "kind": "option", "nargs": 0, "position": null, "required": false, "type": null},
-            {"key": "--novelty", "action": "_StoreAction", "choices": null, "const": null, "default": null, "group_key": null, "group_required": null, "hidden": false, "is_flag": false, "kind": "option", "nargs": null, "position": null, "required": true, "type": null},
-            {"key": "--out", "action": "_StoreAction", "choices": null, "const": null, "default": null, "group_key": null, "group_required": null, "hidden": false, "is_flag": false, "kind": "option", "nargs": null, "position": null, "required": false, "type": null}
-          ],
-          "path": "dokimi novelty view",
-          "subcommand_required": null,
-          "subcommands": {}
-        }
-      }
-    },
     "repo": {
       "allow_abbrev": true,
       "params": [
@@ -1725,6 +1702,19 @@
                 {"key": "--seed", "action": "_StoreAction", "choices": null, "const": null, "default": 0, "group_key": null, "group_required": null, "hidden": false, "is_flag": false, "kind": "option", "nargs": null, "position": null, "required": false, "type": "int"}
               ],
               "path": "dokimi skill novelty probe",
+              "subcommand_required": null,
+              "subcommands": {}
+            },
+            "view": {
+              "allow_abbrev": true,
+              "params": [
+                {"key": "--atoms", "action": "_StoreAction", "choices": null, "const": null, "default": null, "group_key": null, "group_required": null, "hidden": false, "is_flag": false, "kind": "option", "nargs": null, "position": null, "required": true, "type": null},
+                {"key": "--format", "action": "_StoreAction", "choices": ["'html'", "'md'"], "const": null, "default": "html", "group_key": null, "group_required": null, "hidden": false, "is_flag": false, "kind": "option", "nargs": null, "position": null, "required": false, "type": null},
+                {"key": "--help/-h", "action": "_HelpAction", "choices": null, "const": null, "default": "==SUPPRESS==", "group_key": null, "group_required": null, "hidden": false, "is_flag": true, "kind": "option", "nargs": 0, "position": null, "required": false, "type": null},
+                {"key": "--novelty", "action": "_StoreAction", "choices": null, "const": null, "default": null, "group_key": null, "group_required": null, "hidden": false, "is_flag": false, "kind": "option", "nargs": null, "position": null, "required": true, "type": null},
+                {"key": "--out", "action": "_StoreAction", "choices": null, "const": null, "default": null, "group_key": null, "group_required": null, "hidden": false, "is_flag": false, "kind": "option", "nargs": null, "position": null, "required": false, "type": null}
+              ],
+              "path": "dokimi skill novelty view",
               "subcommand_required": null,
               "subcommands": {}
             }
