@@ -178,15 +178,13 @@ class MeasureResult:
     with_arm: str = "full"
     # (probe, arm) jobs the spend cap stopped before they were answered; 0 for a whole run.
     not_run: int = 0
-    # Answers the cap paid for but the judge call was refused: kept in ``runs`` (no datum),
-    # and counted here so the run is not taken as finished.
+    # Answers the cap paid for but the judge refused: kept in ``runs`` (no datum), counted here.
     ungraded: int = 0
     # (reason, message) of a call the cap refused; None when nothing was stopped.
     stop: tuple[str, str] | None = None
     # The probes answered, kept so a second judge can regrade a subset (``judge2``).
     probes: list[Probe] = field(default_factory=list)
-    # The configured judge models, judge first: a panel stopped before every judge voted still names all of them.
-    judges: tuple[str, ...] = ()
+    judges: tuple[str, ...] = ()  # configured judges, judge first (a stopped panel may not vote all)
 
     def paired(self, scoring: str) -> dict:
         """The 2×2 for one scoring (see :func:`paired_outcomes`)."""
