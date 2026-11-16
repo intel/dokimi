@@ -4,6 +4,7 @@
 """A score range the statistics refuse (#599, #638) must not lose the arms run (#750)."""
 
 import json
+import sys
 
 import dokimi.eval.arm_runner as arm_runner_mod
 from dokimi.eval.arm_runner import ArmRunner
@@ -117,6 +118,19 @@ def test_saved_averages_of_extreme_scores_are_finite_json(monkeypatch, tmp_path)
     assert per_arm["a"]["avg_aggregate"] == BIG
 
 
+def test_saved_average_of_three_maximum_scores_is_the_maximum(monkeypatch, tmp_path):
+    top = sys.float_info.max
+    evaluations = [_ev(f"q{i}", {"baseline": top, "a": top}) for i in range(1, 4)]
+    questions = [{"id": f"q{i}", "question": f"question {i}"} for i in range(1, 4)]
+    runner, _, output = _run(monkeypatch, ["baseline", "a"], evaluations, questions)
+    path = tmp_path / "arms.json"
+    runner.save(output, path)
+
+    per_arm = _strict_json(path)["summary"]["per_arm"]
+    assert per_arm["baseline"]["avg_aggregate"] == sys.float_info.max
+    assert per_arm["a"]["avg_aggregate"] == sys.float_info.max
+
+
 def test_delta_whose_sum_leaves_the_range_is_refused_not_infinite(monkeypatch, tmp_path):
     evaluations = [
         _ev("q1", {"baseline": 0.0, "a": 1.0e308}),
@@ -144,8 +158,10 @@ def test_refused_delta_of_a_thin_arm_keeps_another_arms_significance(monkeypatch
     assert "significance_error" not in summary
     assert summary["per_arm"]["b"]["significance"]["n"] == 8
     text = render_arms_report(_saved(runner, output, tmp_path))
-    assert "Not computed" not in text
-    assert "`b`" in text.split("## Paired significance vs baseline")[1]
+    assert "Not computed:" not in text
+    table = text.split("## Paired significance vs baseline")[1]
+    assert "| `b` |" in table
+    assert f"`a` not computed: {summary['per_arm']['a']['delta_error']}" in table
 
 
 def test_no_refusal_key_without_overflow(monkeypatch):

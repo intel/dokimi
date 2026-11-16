@@ -89,11 +89,14 @@ def _significance_lines(
     summary: Dict[str, Any], arms: List[str], baseline: str
 ) -> List[str]:
     """Paired significance table: every arm vs the one shared baseline."""
+    refused = [
+        f"_`{arm}` not computed: {error}_"
+        for arm in arms
+        if arm != baseline and (error := summary.get("per_arm", {}).get(arm, {}).get("delta_error"))
+    ]
+    notes = [line for note in refused for line in (note, "")]
     if error := summary.get("significance_error"):
-        return [
-            "## Paired significance vs baseline", "",
-            f"_Not computed: {error}_", "",
-        ]
+        return ["## Paired significance vs baseline", "", f"_Not computed: {error}_", "", *notes]
     rows = [
         (arm, summary["per_arm"][arm]["significance"])
         for arm in arms
@@ -101,7 +104,7 @@ def _significance_lines(
         and isinstance(summary.get("per_arm", {}).get(arm, {}).get("significance"), dict)
     ]
     if not rows:
-        return []
+        return ["## Paired significance vs baseline", "", *notes] if refused else []
 
     correction = next(
         (sig.get("correction") for _, sig in rows if sig.get("correction")), "holm"
@@ -131,7 +134,7 @@ def _significance_lines(
         )
     lines += _ttest_note([sig for _, sig in rows])
     lines.append("")
-    return lines
+    return lines + notes
 
 
 def _interaction_lines(summary: Dict[str, Any]) -> List[str]:

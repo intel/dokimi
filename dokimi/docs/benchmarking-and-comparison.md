@@ -434,9 +434,11 @@ Scores whose paired difference or interaction contrast leaves the float range ar
 refused by the statistics. The run is still saved: `summary.significance_error` or
 `summary.interactions_error` holds the refusal, the section it names is absent, and
 the report prints it in place of the table. An arm whose own paired differences leave
-the range has a null `delta_vs_baseline` and says why in `per_arm.<arm>.delta_error`;
-the significance of the other arms stays when the family test itself succeeds. A mean
-of finite scores that would pass the float range is computed by dividing first.
+the range has a null `delta_vs_baseline` and says why in `per_arm.<arm>.delta_error`,
+which the report prints as an arm-labelled note under the significance table (or its
+heading, when no arm has a row); the significance of the other arms stays when the
+family test itself succeeds. A mean of finite scores whose sum would pass the float
+range is computed exactly (`statistics.mean`).
 
 Everything above assumes the judge's continuous 0–100 score. The
 execution-verified task track (`cli.py tasks run`) has a binary outcome per task

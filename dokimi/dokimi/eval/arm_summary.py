@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import math
+import statistics
 import time
 from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
@@ -55,11 +56,11 @@ def refusal_kept(holder: Dict[str, Any], key: str, compute: Callable[[], Any]) -
 
 
 def mean_in_range(values: Sequence[float]) -> float:
-    """``sum(values) / len(values)``, dividing first when the sum of finite values leaves the float range."""
+    """``sum(values) / len(values)``, averaging exactly (``statistics.mean``) when the sum of finite values leaves the float range."""
     mean = sum(values) / len(values)
     if math.isfinite(mean) or not all(math.isfinite(v) for v in values):
         return mean
-    return sum(v / len(values) for v in values)
+    return statistics.mean(values)
 
 
 def summarize_agentic_usage(records: Iterable[RecordLike]) -> Dict[str, Any]:
