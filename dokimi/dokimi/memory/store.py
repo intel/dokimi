@@ -231,9 +231,9 @@ def _angle_link_end(line: str, pos: int, before: str = "") -> int | None:
 
 
 def _paragraph_above(lines: list[str], out: list[str], i: int) -> str:
-    """The blanked lines above ``i`` in its paragraph, joined. A raw blank line ends it; a line blanked to spaces does not."""
+    """The blanked lines above ``i`` in its paragraph, joined. A raw blank line or fence ends it; a line blanked to spaces does not."""
     k = i
-    while k > 0 and lines[k - 1].strip():
+    while k > 0 and lines[k - 1].strip() and not _FENCE.match(lines[k - 1]):  # a fence ends a paragraph too
         k -= 1
     return "\n".join(out[k:i])
 
