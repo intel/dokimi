@@ -21,13 +21,14 @@ from typing import Callable, Iterator
 
 import yaml
 
+from ..project_markers import MAKEFILE_NAMES
 from .core import Scan, ancestors, dynamic
 from .markdown import Fence
 
 ADAPTERS = ("bazel", "make", "cmake", "pytest", "pre-commit")
 _DETECT = {
     "bazel": ("MODULE.bazel", "WORKSPACE", "WORKSPACE.bazel", ".bazelrc"),
-    "make": ("Makefile", "makefile", "GNUmakefile"),
+    "make": MAKEFILE_NAMES,
     "cmake": ("CMakeLists.txt",),
     "pytest": ("pytest.ini", "conftest.py", "tox.ini"),
     "pre-commit": (".pre-commit-config.yaml",),
@@ -530,7 +531,7 @@ def _call_body(code: str, open_paren: int) -> str:
 # ---------------------------------------------------------------- make
 def _make_facts(scan: Scan) -> dict:
     def make() -> dict:
-        files = [f for f in scan.files if posixpath.basename(f) in ("Makefile", "makefile", "GNUmakefile")
+        files = [f for f in scan.files if posixpath.basename(f) in MAKEFILE_NAMES
                  or f.endswith(".mk")]
         scan.preload(files)
         targets: set[str] = set()

@@ -28,6 +28,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from dokimi.atomic_write import write_bytes_atomic, write_text_atomic
 from ..manifest import RepoManifest
 from .history import History, addressed, carry
 from .merged import Skip, base_of, check_merged, left_out, need_utf8_paths
@@ -244,6 +245,6 @@ def _mbox(pr: PullRequest, rev: str, diff: bytes) -> bytes:
 
 def _write(dest: Path, task: dict[str, Any], gold: list[dict[str, Any]], patch: bytes) -> None:
     dest.mkdir(parents=True, exist_ok=True)
-    (dest / PATCH).write_bytes(patch)
-    (dest / GOLD).write_text(json.dumps(gold, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    (dest / "task.json").write_text(json.dumps(task, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    write_bytes_atomic(dest / PATCH, patch)
+    write_text_atomic(dest / GOLD, json.dumps(gold, indent=2, ensure_ascii=False) + "\n")
+    write_text_atomic(dest / "task.json", json.dumps(task, indent=2, ensure_ascii=False) + "\n")

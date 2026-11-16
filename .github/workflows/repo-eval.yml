@@ -170,8 +170,9 @@ jobs:
           import json, os
           path = os.path.join(os.environ["RUNNER_TEMP"], "validate.json")
           try:
-              d = json.load(open(path, encoding="utf-8"))
-          except (OSError, ValueError):
+              d = json.load(open(path, encoding="utf-8"))["data"]  # cli_output.v1: the report under data
+              d["tasks"]  # a run that failed has data null
+          except (OSError, ValueError, KeyError, TypeError):
               print("### repo validate", "", "The manifest could not be read; see the job log.", sep="\n")
               raise SystemExit
           tasks = d["tasks"]
@@ -201,7 +202,7 @@ jobs:
           from pathlib import Path
 
           env = os.environ
-          d = json.load(open(os.path.join(env["RUNNER_TEMP"], "validate.json"), encoding="utf-8"))
+          d = json.load(open(os.path.join(env["RUNNER_TEMP"], "validate.json"), encoding="utf-8"))["data"]
           m = d["manifest"]
 
           def ids(text):

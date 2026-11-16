@@ -88,6 +88,10 @@ def test_running_zombie_and_reaped_child_are_told_apart():
     try:
         assert pid_alive(child.pid)
         assert f"pid {child.pid} state " in describe(child.pid)
+        # Wait for the child to exec before reading cmdline (#690).
+        deadline = time.monotonic() + 30
+        while "time.sleep(60)" not in describe(child.pid) and time.monotonic() < deadline:
+            time.sleep(0.01)
         assert "time.sleep(60)" in describe(child.pid)
         child.kill()
         deadline = time.monotonic() + 30

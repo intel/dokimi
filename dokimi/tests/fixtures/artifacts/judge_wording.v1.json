@@ -1,0 +1,5 @@
+{
+  "schema_version": "judge_wording.v1",
+  "summary": {"judge": "openai/m", "conditions": [], "per_variant": {}},
+  "reports": {}
+}

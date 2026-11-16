@@ -676,7 +676,7 @@ def test_cli_prints_the_table_and_json(tmp_path, capsys):
     assert "gate changed: fix_a +1.00" in out
     args = build_parser().parse_args(["repo", "compare", str(b), "--baseline", "guidance:none", "--json"])
     args.func(args)
-    summary = json.loads(capsys.readouterr().out)
+    summary = json.loads(capsys.readouterr().out)["data"]
     assert summary["treatments"] == ["guidance:bridge", "guidance:raw"]
 
 
@@ -688,7 +688,7 @@ def test_cli_passes_model_and_metric_and_refuses_a_missing_dir(tmp_path, capsys)
     args = build_parser().parse_args(["repo", "compare", str(b), "--baseline", "guidance:none", "--model", "m-2",
                                       "--metric", "n_build_fail", "--json"])
     args.func(args)
-    rows = json.loads(capsys.readouterr().out)["comparisons"]
+    rows = json.loads(capsys.readouterr().out)["data"]["comparisons"]
     assert {r["model"] for r in rows} == {"m-2"}
     assert [r["delta"]["mean"] for r in rows if r["measure"] == "metric:n_build_fail"] == [-2.0]
     args = build_parser().parse_args(["repo", "compare", str(tmp_path / "nope"), "--baseline", "guidance:none"])

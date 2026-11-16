@@ -6,14 +6,19 @@ Runs ci/test.py against one built artifact.
 
 For the GitHub Actions test job.
 
-Each Python version's artifact is installed into a fresh conda environment from
-a local channel plus conda-forge, pinned to its exact build, with the test
-requirements ci/config.yml lists, and the test runs with that environment's
-Python from an empty working directory, on Linux or Windows. A wheel's
-environment has only Python from conda-forge: the wheel and the test
-requirements install with pip, as in the wheel's users' environments. A tag
-resolves them from PyPI; any other event installs dokimi/requirements.lock.txt
-first, so a new upstream release cannot fail a pull request. The test gets the
+Each Python version's conda artifact is installed into a fresh conda
+environment. A tag or the weekly schedule resolves it from a local channel plus
+conda-forge, pinned to its exact build, with the test requirements ci/config.yml
+lists. Any other event creates the environment from that version's lock in
+ci/conda-lock/ (written by ci/lock.py), installs the artifact into it without
+dependencies, checks that the lock satisfies the artifact's own dependencies and
+runs the recipe's tests, so a new conda-forge build cannot change a pull request's
+test environment (the build itself still resolves the latest conda-forge builds).
+A wheel's environment has only Python from conda-forge: the wheel and the test
+requirements install with pip, as in the wheel's users' environments. A tag or
+the schedule resolves them from PyPI; any other event installs
+dokimi/requirements.lock.txt first. The test then runs with that environment's
+Python from an empty working directory, on Linux or Windows, and gets the
 variables ci/test.py reads, and nothing else from the runner.
 
 Usage, from any Python 3.10 or newer; it runs itself again with the conda base
@@ -62,6 +67,23 @@ else:
     PLATFORM, HOST_SUBDIR = "linux", "linux-64"
 CONDA_SUFFIXES = (".conda", ".tar.bz2")
 LOCK = ROOT / "dokimi" / "requirements.lock.txt"
+CONDA_LOCKS = ROOT / "ci" / "conda-lock"
+# The events that test the latest releases; the others install from the locks
+FLOATING = ("tag", "schedule")
+# Run by unmet_depends with an environment and a JSON list of specs; prints the unmet ones
+UNMET = """
+import json, sys
+from conda.core.prefix_data import PrefixData
+from conda.models.match_spec import MatchSpec
+installed = {r.name: r for r in PrefixData(sys.argv[1]).iter_records()}
+unmet = []
+for depend in json.loads(sys.argv[2]):
+    spec = MatchSpec(depend)
+    found = installed.get(spec.name)
+    if found is None or not spec.match(found):
+        unmet.append([depend, f"{found.version} {found.build}" if found else "none"])
+print(json.dumps(unmet))
+"""
 # All the test sees of the runner's environment, so no tokens reach it
 KEEP = (
     "PATH",
@@ -184,19 +206,28 @@ def test_python(version: str) -> str:
     return f'3.{minor}.* *_cp3{minor}{"t" if threaded else ""}'
 
 
+def read_yaml(path: Path) -> object:
+    """A YAML file, read with PyYAML, else ruamel.yaml."""
+    text = path.read_text(encoding="utf-8")
+    if PYYAML is not None:
+        return PYYAML.safe_load(text)
+    if RUAMEL_YAML is not None:
+        return RUAMEL_YAML(typ="safe", pure=True).load(text)
+    raise HookError(f"reading {path.name} needs PyYAML or ruamel.yaml")
+
+
+def lock_path(version: str, subdir: str | None = None) -> Path:
+    """The conda lock ci/lock.py writes for one Python version, for the machine's platform unless subdir is given."""
+    return CONDA_LOCKS / f"{subdir or HOST_SUBDIR}-py{version}.txt"
+
+
 def test_requirements() -> tuple[list[str], list[str], list[str] | None]:
     """
     The conda-forge and pip packages ci/config.yml installs next to the
     artifact, and a wheel's PyPI requirements, None when it gives none.
     """
-    text = (ROOT / "ci" / "config.yml").read_text(encoding="utf-8")
-    if PYYAML is not None:
-        config = PYYAML.safe_load(text)
-    elif RUAMEL_YAML is not None:
-        config = RUAMEL_YAML(typ="safe", pure=True).load(text)
-    else:
-        raise HookError("reading ci/config.yml needs PyYAML or ruamel.yaml")
-    test = (config or {}).get("test") or {}
+    config = read_yaml(ROOT / "ci" / "config.yml")
+    test = (config if isinstance(config, dict) else {}).get("test") or {}
     lists = []
     for key in ("requires", "pip_requires", "wheel_requires"):
         values = test.get(key)
@@ -305,17 +336,9 @@ def install(args: argparse.Namespace) -> Path:
     python = f"python {test_python(args.python)}"
     if args.kind == "wheel":
         conda_create(env_dir, python, "pip")
-        wheel_specs = requires if wheel_requires is None else wheel_requires
-        if args.event == "tag":
-            run([*pip, *map(str, packages), *wheel_specs])
-        else:
-            # Only a tag tests the latest PyPI releases, as ci.yml keeps
-            # its latest-deps run off pull requests
-            run([*pip, "--no-deps", "--require-hashes", "-r", str(LOCK)])
-            run([*pip, "--no-deps", *map(str, packages)])
-            if wheel_specs:
-                run([*pip, *wheel_specs])
-    else:
+        install_wheel(pip, packages, requires if wheel_requires is None else wheel_requires,
+                      args.event in FLOATING)
+    elif args.event in FLOATING:
         channel = args.work / "channel"
         stage_channel(packages, channel)
         conda_create(
@@ -325,9 +348,74 @@ def install(args: argparse.Namespace) -> Path:
             *map(exact_spec, packages),
             channels=(channel.as_uri(),),
         )
+    else:
+        install_locked(env_dir, packages, args.python)
     if pip_requires:
         run([*pip, *pip_requires])
     return env_dir
+
+
+def install_wheel(pip: list[str], packages: list[Path], specs: list[str], latest: bool) -> None:
+    """Installs the wheel and the test requirements, on top of the lock unless latest."""
+    if latest:
+        run([*pip, *map(str, packages), *specs])
+        return
+    # Only a tag or the schedule tests the latest PyPI releases, as ci.yml keeps its latest-deps run off PRs
+    run([*pip, "--no-deps", "--require-hashes", "-r", str(LOCK)])
+    run([*pip, "--no-deps", *map(str, packages)])
+    if specs:
+        run([*pip, *specs])
+
+
+def install_locked(env_dir: Path, packages: list[Path], version: str) -> None:
+    """Creates the environment from the version's lock, adds the packages and runs the recipe's tests."""
+    # The locks are linux-64 solves: their explicit lists install nowhere else
+    if HOST_SUBDIR != "linux-64":
+        raise HookError(f"the conda locks are linux-64 only; {HOST_SUBDIR} cannot install them")
+    lock = lock_path(version, "linux-64")
+    if not lock.is_file():
+        raise HookError(f"{lock.relative_to(ROOT)} is missing: run python ci/lock.py")
+    conda("create", "-y", "-q", "-p", str(env_dir), "--file", str(lock))
+    conda("install", "-y", "-q", "-p", str(env_dir), "--no-deps", *map(str, packages))
+    unmet = unmet_depends(env_dir, packages)
+    if unmet:
+        raise HookError(
+            f"{lock.relative_to(ROOT)} does not satisfy " + "; ".join(unmet)
+            + ": run python ci/lock.py"
+        )
+    run_recipe_tests(env_dir)
+
+
+def unmet_depends(env_dir: Path, packages: list[Path]) -> list[str]:
+    """Each dependency of the packages that the environment's conda records do not match."""
+    unmet = []
+    for package in packages:
+        _, record = package_record(package)
+        # A virtual package (__glibc, __unix) has no record in the prefix; the lock was solved with them provided
+        depends = [depend for depend in record.get("depends") or [] if not depend.startswith("__")]
+        # Isolated: conda loads conda-pypi, which would import ci/build.py, next to this file, as pypa's build
+        found = subprocess.run(
+            [sys.executable, "-I", "-c", UNMET, str(env_dir), json.dumps(depends)],
+            capture_output=True, text=True, check=True, cwd=env_dir,
+        ).stdout
+        unmet += [f"{package.name} needs {depend}, has {have}" for depend, have in json.loads(found)]
+    return unmet
+
+
+def run_recipe_tests(env_dir: Path) -> None:
+    """The recipe's test imports and commands, which the build skips on a locked event."""
+    system, selector = matrix.detect(ROOT, "")
+    if system != "conda-build":  # a rattler-build recipe.yaml keeps its tests elsewhere, and its build skips them too
+        raise HookError(f"the recipe tests of a {system} recipe are not run: only conda-build is supported")
+    meta = read_yaml(selector)
+    test = (meta if isinstance(meta, dict) else {}).get("test") or {}
+    env = {key: value for key, value in os.environ.items() if key in KEEP}  # no runner tokens, as test_env
+    env["PATH"] = os.pathsep.join([*map(str, env_path(env_dir)), env.get("PATH", "")])
+    with tempfile.TemporaryDirectory() as cwd:  # an empty working directory, not the checkout
+        for module in test.get("imports") or []:
+            run([str(env_python(env_dir)), "-c", f"import {module}"], env=env, cwd=cwd)
+        for command in test.get("commands") or []:
+            run(shlex.split(command), env=env, cwd=cwd)
 
 
 def conda_create(
@@ -420,7 +508,7 @@ def main(argv: list[str] | None = None) -> int:
         "--work", required=True, type=Path, help="an empty scratch directory"
     )
     parser.add_argument(
-        "--event", default="push", choices=("pr", "tag", "push")
+        "--event", default="push", choices=("pr", "tag", "push", "schedule")
     )
     parser.add_argument("--commit", default="")
     parser.add_argument(

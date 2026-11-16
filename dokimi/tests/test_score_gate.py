@@ -21,8 +21,8 @@ def test_score_above_threshold_passes(kind):
     assert result.enabled is True
     assert result.passed is True
     assert result.status == "PASS"
-    assert result.min_score == 0.80
-    assert result.actual_score == 0.85
+    assert result.check("score").threshold == 0.80
+    assert result.check("score").value == 0.85
 
 
 @pytest.mark.parametrize("kind", KINDS)
@@ -72,7 +72,7 @@ def test_enabled_gate_without_min_score_lets_any_score_pass(kind):
 
     result = check_gate({"score": 0.25}, spec, kind)
 
-    assert (result.min_score, result.passed) == (0.0, True)
+    assert (result.check("score").threshold, result.passed) == (0.0, True)
 
 
 @pytest.mark.parametrize("kind", KINDS)
@@ -80,4 +80,4 @@ def test_a_summary_without_a_score_fails_an_enabled_gate(kind):
     """A missing score reads as 0.0, never as a pass: a broken run must not clear the gate."""
     result = check_gate({}, _spec(kind, min_score=0.5), kind)
 
-    assert (result.actual_score, result.passed, result.status) == (0.0, False, "FAIL")
+    assert (result.check("score").value, result.passed, result.status) == (0.0, False, "FAIL")

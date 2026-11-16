@@ -34,6 +34,9 @@ also holds a PR to:
 - No growth: a file over 800 lines (tests 1000) or a function over complexity 10
   fails unless `scripts/growth_baseline.json` holds it, and then it may only
   shrink. Split instead; after shrinking, `python scripts/check_growth.py --update`.
+- No new clones: a block of 40+ AST nodes copied elsewhere in `dokimi/`, `scripts/`
+  or `cli.py` (locals renamed or not) fails `scripts/check_duplicates.py` unless
+  `scripts/duplicates_baseline.json` holds it. Extract the shared code instead.
 - Tests that check behaviour: `tests/test_audit_test_quality.py` fails a test that only
   checks types, echoes its input, only checks a mock was called, asserts nothing or
   repeats another (`python scripts/audit_test_quality.py` lists them).
@@ -45,6 +48,10 @@ also holds a PR to:
   constraint or the reason, and end with an issue or PR URL when a reader needs
   the backstory. A block of three or more `#` lines fails once the PR adds or
   edits a line in it, so shorten an old block when you touch it.
+- No silent `except` (ruff BLE001, S110, S112): catch the exception you expect, or
+  log it with its traceback, or re-raise. A site that must catch everything says
+  what happens to the failure in `# noqa: BLE001 - <reason>`
+  (`tests/test_noqa_reasons.py` fails a bare code).
 - User outcomes (`tests/outcomes/*.json`, checked by `pytest --outcomes`): a
   test marked `@pytest.mark.outcome(...)` is evidence for a promise in the docs;
   weaken or drop it only together with the doc and the contract. The same
@@ -65,8 +72,10 @@ also holds a PR to:
 - Executable tasks (Docker + oracle solution + pytest verifier) or harnesses:
   `dokimi/docs/contributing-terminal-bench-task.md`. Tasks live in a
   content repository; the framework reads a checkout via `--tasks-root`.
-- Anything else: the index, `dokimi/docs/README.md`. A new doc page also goes
-  in the `nav:` of `dokimi/mkdocs.yml`, the published site.
+- Anything else: the index, `dokimi/docs/documentation-index.md`. A new page
+  at any depth under `dokimi/docs/` goes in that index
+  (`dokimi/tests/test_docs_links.py` checks it) and in the `nav:` of
+  `dokimi/mkdocs.yml`, the published site.
 
 Registries, bundled in the package (`dokimi/dokimi/`) so they ship in the wheel:
 
@@ -146,6 +155,14 @@ finds little:
 - Where it applies, run the changed command on a bad input: missing file,
   empty file, wrong shape, `None` where a value is expected, a Windows path.
   Say in the description what you could not run.
+- Trace new error paths and tests to the contract: a new `raise`, `sys.exit`
+  or refusal names, in its message, docstring or the PR, the doc, contract or
+  issue that asks for it; a test of new behaviour cites the doc line it checks.
+  `python scripts/list_new_error_paths.py --base origin/main` (from `dokimi/`) lists the sites
+  of a `raise`, a `sys.exit` or `SystemExit` call, or a literal `exit_code=N`;
+  refusals through `parser.error` or `return N` are not listed.
+- An unclear requirement goes in the PR description's "Open questions", not
+  into code that guesses: no error path or test the spec cannot be quoted for.
 - Check that the PR title, description, docstrings and changelog fragment say
   what the code does (exit codes especially).
 - Re-review your own fix commits during review with the same care.

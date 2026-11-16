@@ -22,6 +22,7 @@ exactly what a value-ranking shortener discards.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -71,6 +72,20 @@ Return ONLY JSON:
 {{"nodes": [{{"id": "n1", "text": "...", "type": "intent", "path_class": "core"}}],
   "edges": [{{"from": "n1", "to": "n2", "kind": "requires"}}]}}
 """
+
+def _prompt_version(system: str, prompt: str) -> str:
+    return "sha256:" + hashlib.sha256((system + "\0" + prompt).encode("utf-8")).hexdigest()
+
+
+def prompt_version() -> str:
+    """The hash of the prompt the model sees: the template with the node types and path classes filled in."""
+    filled = _GRAPH_PROMPT.format(name="{name}", description="{description}",
+                                  types=", ".join(NODE_TYPES), classes=", ".join(PATH_CLASSES))
+    return _prompt_version(_GRAPH_SYSTEM, filled)
+
+
+# Recorded in a saved graph's provenance: a graph built under another prompt is another graph.
+PROMPT_VERSION = prompt_version()
 
 
 @dataclass
@@ -147,11 +162,11 @@ class NeedGraph:
         )
 
 
-def build_need_graph(name: str, description: str, *, client: LLMClient) -> NeedGraph:
+def build_need_graph(name: str, description: str, *, client: LLMClient, strict: bool = False) -> NeedGraph:
     """Build a need graph from an artifact's name and description **only**.
 
     The signature is the guarantee: there is no parameter through which the body could
-    reach the graph author.
+    reach the graph author. A failed call builds an empty graph, or raises when ``strict``.
     """
     graph = NeedGraph(artifact_name=name, description=description)
     try:
@@ -164,33 +179,72 @@ def build_need_graph(name: str, description: str, *, client: LLMClient) -> NeedG
             usable=_has_a_node,
         )
     except Exception:
+        if strict:
+            raise
         return graph
-    for index, row in enumerate(data.get("nodes", []) or [], start=1):
-        if not isinstance(row, dict) or not str(row.get("text", "")).strip():
-            continue
-        node_type = str(row.get("type", "intent"))
-        path_class = str(row.get("path_class", "core"))
+    return graph_from_reply(name, description, data)
+
+
+def graph_from_reply(name: str, description: str, data: dict) -> NeedGraph:
+    """The graph a model reply (its parsed JSON object) holds: the usable nodes and the edges between them."""
+    graph = NeedGraph(artifact_name=name, description=description)
+    raw_nodes = data.get("nodes")
+    nodes: list = raw_nodes if isinstance(raw_nodes, list) else []
+    # Every explicit id, rejected rows included, is reserved before any repair, so a repaired or
+    # default id never takes a later node's id or the id an edge to a rejected node names.
+    reserved = {str(row["id"]) for row in nodes if isinstance(row, dict) and row.get("id")}
+    rows = [(index, row, text) for index, row in enumerate(nodes, start=1)
+            if (text := _text(row)) is not None]
+    taken: set[str] = set()
+    for index, row, text in rows:
+        node_type = _label(row.get("type", "intent"))
+        path_class = _label(row.get("path_class", "core"))
         graph.nodes.append(NeedNode(
-            id=str(row.get("id") or f"n{index}"),
-            text=str(row["text"]).strip(),
+            id=_unique_id(str(row.get("id") or f"n{index}"), index, taken, reserved,
+                          explicit=bool(row.get("id"))),
+            text=text,
             type=node_type if node_type in NODE_TYPES else "intent",
             path_class=path_class if path_class in PATH_CLASSES else "supporting",
         ))
     known = {node.id for node in graph.nodes}
+    raw_edges = data.get("edges")
+    edges: list = raw_edges if isinstance(raw_edges, list) else []
     graph.edges = [
         {"from": str(e.get("from")), "to": str(e.get("to")), "kind": str(e.get("kind", "requires"))}
-        for e in data.get("edges", []) or []
+        for e in edges
         if isinstance(e, dict) and str(e.get("from")) in known and str(e.get("to")) in known
     ]
     return graph
 
 
+def _label(value) -> str:
+    """``"Rare-Critical"`` as ``rare_critical``: a model's casing must not cost a node its weight."""
+    return str(value).strip().lower().replace("-", "_").replace(" ", "_")
+
+
+def _unique_id(node_id: str, index: int, taken: set[str], reserved: set[str], *,
+               explicit: bool) -> str:
+    """The model's id, or a fresh ``n<index>[-k]`` when it repeats one: ``needs`` labels need one node per id.
+
+    A fresh or default (not ``explicit``) id is never one of the ``reserved`` explicit ids of the
+    graph, so an edge that names that explicit id still lands on the node that owns it."""
+    candidate, k = node_id, 1
+    while candidate in taken or ((candidate != node_id or not explicit) and candidate in reserved):
+        candidate, k = f"n{index}-{k}", k + 1
+    taken.add(candidate)
+    return candidate
+
+
+def _text(row) -> str | None:
+    """A node's text when it is a non-empty string. A null is no node: ``str(None)`` freezes as ``None``."""
+    value = row.get("text") if isinstance(row, dict) else None
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
 def _has_a_node(reply: dict) -> bool:
     """Cache only a graph with a node in it: an object with none builds an empty graph."""
     nodes = reply.get("nodes")
-    return isinstance(nodes, list) and any(
-        isinstance(row, dict) and str(row.get("text", "")).strip() for row in nodes
-    )
+    return isinstance(nodes, list) and any(_text(row) is not None for row in nodes)
 
 
 def match_atoms(atoms: list[Atom], graph: NeedGraph) -> dict[str, dict]:

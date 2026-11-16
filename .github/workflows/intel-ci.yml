@@ -9,6 +9,10 @@ on:
     branches: [main]
     tags: ['*']
   pull_request:
+  # The latest conda-forge and PyPI releases, which PRs and main pushes get from the locks instead.
+  # A failure opens an issue (the report job) rather than failing anyone's PR.
+  schedule:
+    - cron: '23 6 * * 1'
 
 permissions:
   contents: read
@@ -67,10 +71,17 @@ jobs:
       - name: Install conda-build
         run: conda install -y -q -n base --override-channels -c conda-forge "conda-build ==26.9.1"
 
-      - name: Build and run the recipe tests
+      # A PR or a main push runs the recipe tests in the test job's locked environment instead.
+      - name: Build, with the recipe tests on a tag or the schedule
         env:
           PYTHON_VERSION: ${{ matrix.python }}
-        run: python ci/build.py --python "$PYTHON_VERSION" --output "$RUNNER_TEMP/output"
+          LATEST: ${{ startsWith(github.ref, 'refs/tags/') || github.event_name == 'schedule' }}
+        run: |
+          if [ "$LATEST" = true ]; then
+            python ci/build.py --python "$PYTHON_VERSION" --output "$RUNNER_TEMP/output"
+          else
+            python ci/build.py --python "$PYTHON_VERSION" --output "$RUNNER_TEMP/output" --no-test
+          fi
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
@@ -110,7 +121,7 @@ jobs:
       - name: Install the package and run ci/test.py
         env:
           PYTHON_VERSION: ${{ matrix.python }}
-          EVENT: ${{ startsWith(github.ref, 'refs/tags/') && 'tag' || github.event_name == 'pull_request' && 'pr' || 'push' }}
+          EVENT: ${{ startsWith(github.ref, 'refs/tags/') && 'tag' || github.event_name == 'schedule' && 'schedule' || github.event_name == 'pull_request' && 'pr' || 'push' }}
           COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
         run: >-
           python ci/hooks.py --python "$PYTHON_VERSION" --artifacts "$RUNNER_TEMP/artifacts"
@@ -179,8 +190,33 @@ jobs:
       - name: Install the wheel and run ci/test.py
         env:
           PYTHON_VERSION: ${{ matrix.python }}
-          EVENT: ${{ startsWith(github.ref, 'refs/tags/') && 'tag' || github.event_name == 'pull_request' && 'pr' || 'push' }}
+          EVENT: ${{ startsWith(github.ref, 'refs/tags/') && 'tag' || github.event_name == 'schedule' && 'schedule' || github.event_name == 'pull_request' && 'pr' || 'push' }}
           COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
         run: >-
           python ci/hooks.py --kind wheel --python "$PYTHON_VERSION" --artifacts "$RUNNER_TEMP/artifacts"
           --work "$RUNNER_TEMP/hooks" --event "$EVENT" --commit "$COMMIT"
+
+  # A scheduled run that fails opens one issue (or comments on the open one), as pip-audit.yml's report does.
+  report:
+    name: Report a failed scheduled run
+    needs: [build, test, build-wheel, test-wheel]
+    if: ${{ failure() && github.event_name == 'schedule' }}
+    runs-on: ${{ vars.GH_CI_RUNNER || (github.repository_owner == 'intel' && 'intel-ubuntu-latest' || 'ubuntu-latest') }}
+    timeout-minutes: 10
+    permissions:
+      issues: write
+    steps:
+      - name: Open or update the issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title="Intel CI: the latest conda-forge or PyPI releases fail the weekly run"
+          body="The scheduled Intel CI run failed: $RUN_URL. It resolves the latest releases; PRs and main pushes install ci/conda-lock/ and dokimi/requirements.lock.txt, so they are not affected. Merge a lock refresh (conda-lock.yml) only once this is understood."
+          num=$(gh issue list --state open --search "\"$title\" in:title" --json number --jq '.[0].number // empty')
+          if [ -n "$num" ]; then
+            gh issue comment "$num" --body "Still failing: $RUN_URL"
+          else
+            gh issue create --title "$title" --body "$body" --label dependencies
+          fi

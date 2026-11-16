@@ -91,7 +91,7 @@ def test_cli_task_is_repeatable_and_lands_in_the_json(tmp_path, capsys):
     args = build_parser().parse_args(["repo", "compare", str(b), "--baseline", "guidance:none",
                                       "--task", "t3", "--task", "t4", "--json"])
     args.func(args)
-    out = json.loads(capsys.readouterr().out)
+    out = json.loads(capsys.readouterr().out)["data"]
     assert out["task_filter"] == {"tasks": ["t3", "t4"], "of": 4, "dropped_arms": []}
     assert [t["task"] for t in _row(out, "gate")["tasks"]] == ["t3"]
     assert [u["task"] for u in out["unpaired"]] == ["t4"] and len(out["missing"]) == 1

@@ -38,7 +38,7 @@ def _populated_tree(root):
 def _budget_json(root, capsys, *extra):
     args = build_parser().parse_args(["repo", "budget", str(root), "--json", *extra])
     args.func(args)
-    return json.loads(capsys.readouterr().out)
+    return json.loads(capsys.readouterr().out)["data"]
 
 
 @pytest.mark.outcome("cjm-repo-budget")

@@ -6,7 +6,8 @@ awareness/work task count.
 
 `python cli.py eval coverage <evals> --graph need_graph.json` adds the part
 a script can check. It needs a need graph (what users of the subject need,
-built from its name and description only) and a `needs` list on each eval
+built from its name and description only; `python cli.py eval graph <skill>
+--out need_graph.json` builds one and never overwrites it) and a `needs` list on each eval
 that names the graph nodes it grades. From those two files alone it lists the
 core and rare_critical nodes that no eval names, and the relevance of each
 eval: `orphan` for `needs: []`, `unlabelled` for no `needs`. Paste its

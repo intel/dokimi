@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/intel/dokimi/schemas/grounding.v1.json",
+  "title": "Grounding report v1",
+  "description": "The `--output` of `eval score grounding`: reference-free grounding and citation metrics of the context-arm answers (no model call). Only `with_docs` answers that have retrieved context are scored.",
+  "type": "object",
+  "required": ["schema_version"],
+  "properties": {
+    "schema_version": {"const": "grounding.v1"},
+    "run_id": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}(?![\\s\\S])", "description": "The envelope: the id of the run that saved this file (dokimi.artifacts.run_id). Absent from files saved before the envelope."},
+    "dokimi_version": {"type": "string", "minLength": 1, "description": "The envelope: the dokimi version that saved this file. Absent from files saved before the envelope."},
+    "summary": {
+      "type": "object",
+      "description": "`grounding_score` (mean with a bootstrap CI, or null), `citation_rate`, `threshold` and `n_evaluated`."
+    },
+    "per_question": {
+      "type": "array",
+      "description": "One entry per scored answer: `question_id`, `grounding_score`, `grounded`, `n_contexts`.",
+      "items": {"type": "object"}
+    }
+  }
+}
