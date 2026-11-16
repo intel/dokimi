@@ -203,6 +203,9 @@ def _mask(part: str) -> str:
     while i < len(part):
         c = part[i]
         nxt = part[i + 1] if i + 1 < len(part) else ""
+        if quote != "'" and c == "\\" and nxt == "\n":  # a line continuation: the shell reads the pair as nothing
+            i += 2
+            continue
         if quote != "'" and c == "\\" and nxt:
             if (quote == '"' and nxt in '"\\') or (not quote and nxt in "\"'\\ \t"):
                 out.append(c + nxt)  # an escape shlex reads itself

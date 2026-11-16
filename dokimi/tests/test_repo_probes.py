@@ -329,3 +329,12 @@ def test_a_manifest_probes_key_is_read_and_a_bad_one_is_a_manifest_error():
     assert parse_manifest({**base, "probes": {"memory": ["free"]}}).probes == {"memory": ("free",)}
     with pytest.raises(ManifestError, match="probes: 'disk' is not one of"):
         parse_manifest({**base, "probes": {"disk": ["df"]}})
+
+
+@pytest.mark.parametrize(("command", "pattern"), [
+    ("python \\\n-c 'import os; print(os.cpu_count())'", "py:os.cpu_count"),
+    ("npro\\\nc", "nproc"),
+])
+def test_a_backslash_newline_continues_the_command_it_is_in(command, pattern):
+    events = _claude(_claude_call("a", command, "2026-01-01T00:00:05Z"), _claude_result("a"))
+    assert any(e["kind"] == "probe" and e["pattern"] == pattern for e in events)
