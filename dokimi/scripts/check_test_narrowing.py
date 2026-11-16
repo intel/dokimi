@@ -20,6 +20,8 @@ a removed test whose body (signature and decorators included) reappears as a tes
 the PR adds to a test file was renamed or moved, not removed, once per added test; the
 test it became is then compared with it. A speed bump, not a proof: ``assert x == y`` turned
 into ``assert x`` keeps the count.
+Known limit: a starred element of unknown length (``[*A]``) may be empty, so a change
+that empties it to ``[]`` is not reported.
 
 A narrowing passes when the PR says why: a ``Test-narrowed: <reason>`` line in a
 commit message of ``base..head`` waives the findings in the files that commit
