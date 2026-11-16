@@ -65,14 +65,14 @@ from dataclasses import dataclass
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from dokimi.eval.finite_delta import check_sum_range, checked_delta
-from dokimi.eval.sign_flip import (  # noqa: F401  (EPS stays importable from here)
+from dokimi.eval.sign_flip import (
     ALPHA,
-    EPS,
     METHOD,
     min_sign_flip_p,
+    pair_magnitudes,
     round_mean,
     sign_flip_row,
-    tie_tolerance,
+    tie_widths,
     within,
 )
 from dokimi.records import BASELINE, CONTEXT, RecordLike, records
@@ -574,13 +574,15 @@ def _cohens_d(d_mean: float, d_sd: float) -> Optional[float]:
 
 
 def _describe_deltas(
-    deltas: Sequence[float], *, confidence: float, seed: int
+    deltas: Sequence[float], *, confidence: float, seed: int, magnitudes: Optional[Sequence[float]] = None
 ) -> Dict[str, Any]:
     """Effect size, the sign-flip p, and the interval that inverts it, for a delta vector.
 
-    ``p`` is the two-sided sign-flip p over the deltas not within ``tie_tolerance`` of 0
+    ``p`` is the two-sided sign-flip p over the deltas not within ``EPS`` of 0
     (:func:`dokimi.eval.sign_flip.sign_flip_p`, exact up to 16 of them, Monte
-    Carlo from ``seed`` above), left unrounded for the caller to correct and
+    Carlo from ``seed`` above), or not within ``EPS`` times the larger value of
+    their pair when ``magnitudes`` (:func:`dokimi.eval.sign_flip.pair_magnitudes`)
+    are given and below 1, left unrounded for the caller to correct and
     then :func:`_finalize`. Correcting an already-rounded p multiplies its
     quantization error by the family size: a true p of 0.016666 in a family of
     three gives an exact Holm p of 0.049998 (significant), but
@@ -613,12 +615,11 @@ def _describe_deltas(
         # The sign-flip sums would overflow and read as a measured zero effect.
         # A finite sum of magnitudes bounds the spread (sd**2 <= sum(x**2) <= that sum squared), so it is finite too.
         check_sum_range(d)
-        row = sign_flip_row(d, seed=seed, exact=True)
+        row = sign_flip_row(d, seed=seed, exact=True, magnitudes=magnitudes)
         p, lo, hi, shown_lo, shown_hi = row["p"], row["lo"], row["hi"], row["ci_lo"], row["ci_hi"]
     else:  # a NaN delta is no evidence either way: no p, no verdict, open ends
         p, lo, hi, shown_lo, shown_hi = None, None, None, None, None
-    tol = tie_tolerance(d)
-    n_changed = sum(1 for x in d if abs(x) > tol)
+    n_changed = sum(1 for x, w in zip(d, tie_widths(magnitudes, len(d)), strict=True) if abs(x) > w)
 
     return {
         "n": len(d),
@@ -670,7 +671,7 @@ def paired_test(
     if len(treatment) != len(control) or len(treatment) < 2:
         return None
     deltas = _deltas(treatment, control)
-    result = _describe_deltas(deltas, confidence=confidence, seed=seed)
+    result = _describe_deltas(deltas, confidence=confidence, seed=seed, magnitudes=pair_magnitudes(treatment, control))
     return _finalize(result) if rounded else result
 
 
@@ -712,6 +713,7 @@ def arm_significance(
                 _deltas(treat, base),
                 confidence=confidence,
                 seed=seed,
+                magnitudes=pair_magnitudes(treat, base),
             )
 
     ordered = [a for a in targets if a in out]

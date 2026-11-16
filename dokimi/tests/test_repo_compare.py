@@ -103,10 +103,7 @@ def test_rates_of_three_reps_give_the_exact_p_end_to_end(tmp_path):
 
 
 def test_sign_flip_has_no_p_when_every_task_tied():
-    assert sign_flip_p([0.0, 0.0, 0.0]) is None
-    # the 1e-12 is the vector's own scale, not float noise on a score: a change, with a p over that one delta
-    assert sign_flip_p([0.0, 0.0, 1e-12]) == 1.0
-    assert sign_flip_p([1.0] * 6 + [1e-12]) == 0.03125  # beside deltas of 1.0 it is the noise it was: 6 changed
+    assert sign_flip_p([0.0, 0.0, 1e-12]) is None
 
 
 def test_sign_flip_monte_carlo_counts_the_observed_pattern_and_follows_its_seed():

@@ -369,9 +369,10 @@ Each row's `p` is one two-sided sign-flip test on the per-question deltas: under
 the null each delta's sign is a fair coin, and p is the share of sign patterns
 whose |sum| reaches the observed one (exact up to 16 changed pairs, Monte Carlo
 with a fixed seed above). A delta within 1e-9 of 0 is a tie and carries no sign,
-unless the largest delta is itself below 1e-9: a tie is then within 1e-9 times that
-largest delta, so deltas that vary at the 1e-12 scale (largest 5e-12) tie only
-within 5e-21 and get a p. So over k changed pairs (`n_changed`) p cannot go below 2/2^k: at 5 or fewer no
+unless the values of its pair are below 1: float noise in a delta scales with the
+values subtracted, so a pair whose larger value is m below 1 ties within 1e-9 times m
+(a score of 0.3 against 0.1 + 0.2 is a tie; 1e-12 against 0 is a change, as 1e-3 against 0
+is). Each pair keeps its own width whatever the other deltas are. So over k changed pairs (`n_changed`) p cannot go below 2/2^k: at 5 or fewer no
 data whatsoever reaches 0.05. The test runs from 2 pairs and its p is printed.
 An arm under that floor can never be significant, so it stays out of the
 multiplier, as a `repo compare` row does: it counts in `family_size` but not in

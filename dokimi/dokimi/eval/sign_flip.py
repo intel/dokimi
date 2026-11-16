@@ -4,13 +4,14 @@
 """The paired sign-flip test and the 95% interval that inverts it, shared by ``repo compare`` and the arms track.
 
 :func:`sign_flip_p` is the two-sided p of ``|sum(deltas)|`` when each delta's sign is a fair coin under the null,
-over the deltas not within :func:`tie_tolerance` of 0 (:data:`EPS`, or less for a vector below it): exact up to :data:`EXACT_MAX` of them, Monte Carlo above.
+over the deltas not within their tie width of 0 (:data:`EPS`, or :func:`tie_widths` of the pairs' values): exact up to :data:`EXACT_MAX` of them, Monte Carlo above.
 :func:`min_sign_flip_p` is the floor it cannot go below over k changed deltas, ``2 / 2**k`` exact.
 
 ``p(theta)`` is the two-sided sign-flip p of the shifted deltas ``d - theta`` over every delta, as
-:func:`sign_flip_p` computes it on them: a shifted delta within :data:`EPS` of 0 is a tie, so a delta tied
-at 0 counts again once ``theta`` moves off 0. Exact, a sign pattern counts when its sum falls short of the observed
-one by at most :data:`EPS`, the observed sum taken as the least of its exactly rounded sum and the product's sums for
+:func:`sign_flip_p` computes it on them: a shifted delta within the tie width of its pair (:func:`tie_widths`, kept
+from the original deltas) of 0 is a tie, so a delta tied at 0 counts again once ``theta`` moves off 0. Exact, a sign
+pattern counts when its sum falls short of the observed one by at most the largest tie width (:data:`EPS` at most),
+the observed sum taken as the least of its exactly rounded sum and the product's sums for
 the observed signs and their mirror: from deltas of about 1e6 on the two round apart by more than :data:`EPS`, and the
 observed pattern would not count itself. The observed sum and the mean the bisection starts from are
 :func:`math.fsum`'s, not ``sum``'s, which is compensated from Python 3.12 on and adds left to right before: so the
@@ -53,32 +54,43 @@ ALPHA = 0.05
 EXACT_MAX = 16
 #: Resamples of the Monte Carlo sign-flip test above :data:`EXACT_MAX`.
 N_RESAMPLES = 20_000
-#: Deltas closer to zero than this are ties: the cap of :func:`tie_tolerance`, which a vector whose largest
-#: ``|delta|`` is below it scales down.
+#: Deltas closer to zero than this are ties; for a pair whose values are below 1, ``EPS`` times the larger of them
+#: (:func:`tie_widths`).
 EPS = 1e-9
 #: How close a bisected end comes to the step of ``p(theta)`` it stands for: far below the 3 printed decimals.
 TOL = 1e-7
 #: The interval's method name: ``delta.method`` of a ``repo compare`` row, ``ci_method`` of an arms result.
 METHOD = "sign_flip_inversion"
+#: A vector whose values are all below this is searched on a copy multiplied by a power of two (exact), so the
+#: tie widths, the bisection step and the sums stay clear of the subnormal range.
+_TINY = 2.0 ** -664
 
 
-def tie_scale(deltas: Sequence[float]) -> float:
-    """The scale a vector of deltas is judged at: 1.0 unless its largest finite ``|delta|`` is below :data:`EPS`
-    (and not 0), where it is that largest ``|delta|``. A vector of scores keeps the absolute :data:`EPS`."""
-    largest = max((abs(x) for x in deltas if math.isfinite(x)), default=0.0)
-    return largest if 0.0 < largest < EPS else 1.0
+def pair_magnitudes(treatment: Sequence[float], baseline: Sequence[float]) -> list[float]:
+    """The larger of each pair's two values in magnitude: the scale of the float noise in that pair's delta."""
+    return [max(abs(t), abs(b)) for t, b in zip(treatment, baseline, strict=True)]
 
 
-def tie_tolerance(deltas: Sequence[float]) -> float:
-    """The width of a tie for this vector: a delta is a tie when ``abs(x) <= tie_tolerance(deltas)``.
+def tie_scale(magnitudes: Sequence[float] | None) -> float:
+    """The scale the vector's values are read at: the largest finite magnitude, capped at 1. 1.0 where there is none
+    to read (no magnitudes given, or all of them 0 or not finite)."""
+    largest = max((m for m in magnitudes or () if math.isfinite(m)), default=0.0)
+    return min(1.0, largest) if largest > 0.0 else 1.0
 
-    :data:`EPS` (1e-9, the float noise on a score near 1) for a vector whose largest finite ``|delta|`` is
-    :data:`EPS` or more, so every result at score scale is the same as with the absolute rule; ``EPS`` times that
-    largest ``|delta|`` below it, so a vector that varies at 1e-300 ties only its own float noise. The scale is the
-    vector's, not a pair's. An all-zero vector (or none finite) keeps :data:`EPS`: every delta of it is a tie.
-    The interval shifts the deltas by theta and takes the tolerance of the original vector, not of the shifted one.
+
+def tie_widths(magnitudes: Sequence[float] | None, n: int, k: int = 0) -> list[float]:
+    """The width of a tie for each of ``n`` deltas: a delta is a tie when ``abs(delta) <= width``, then 0.
+
+    Float noise in ``t - b`` scales with the values subtracted, not with the delta, so a pair with the larger value
+    ``m`` (``magnitudes``) ties within ``EPS * min(1, m)``: ``EPS`` for values of 1 or more, as a score near 1 has it,
+    and less below that. Each pair keeps its own width whatever the other deltas are. A pair whose values are 0 (or
+    not finite) takes the width of :func:`tie_scale`. Without ``magnitudes`` every width is the absolute ``EPS``.
+    ``k`` multiplies the widths by ``2**-k``, as the search on scaled deltas needs.
     """
-    return EPS * tie_scale(deltas)
+    unit = tie_scale(magnitudes)
+    if magnitudes is None:
+        return [EPS * math.ldexp(1.0, -k)] * n
+    return [EPS * math.ldexp(min(1.0, m) if math.isfinite(m) and m > 0.0 else unit, -k) for m in magnitudes]
 
 
 def min_sign_flip_p(changed: int) -> float:
@@ -88,20 +100,25 @@ def min_sign_flip_p(changed: int) -> float:
 
 
 def sign_flip_p(deltas: list[float], seed: int = 0, n_resamples: int = N_RESAMPLES, *,
-                exact: bool = False) -> float | None:
+                exact: bool = False, magnitudes: Sequence[float] | None = None) -> float | None:
     """Two-sided p of ``|sum(deltas)|`` when each delta's sign is a fair coin under the null.
 
     ``None`` when every delta is a tie: there is no evidence either way, and 1.0 would read as a measured null.
     Rounded to 6 places as printed, unless ``exact``. Deltas whose largest magnitude is above ``max float / (8 * n)``
-    are divided by a power of two (exact) first, as in :func:`sign_flip_interval`, so no sum leaves the float range.
+    (or whose values are all below 2**-664) are scaled by a power of two (exact) first, as in
+    :func:`sign_flip_interval`, so no sum leaves the float range.
+
+    ``magnitudes`` holds the larger value of each pair (:func:`pair_magnitudes`), which sets each tie width
+    (:func:`tie_widths`); without it a tie is within :data:`EPS` of 0.
     """
-    eps = tie_tolerance(deltas)
-    d = [x for x in deltas if abs(x) > eps]
+    d = [x for x, w in zip(deltas, tie_widths(magnitudes, len(deltas)), strict=True) if abs(x) > w]
     if not d:
         return None
-    k = _scale_exponent(d)
+    unit = tie_scale(magnitudes)
+    k = _scale_exponent(d, unit)
+    eps = EPS * math.ldexp(unit, -k)
     if k:  # near the float maximum the sums go to inf/nan: the same p on the deltas divided by a power of two
-        d, eps = [math.ldexp(x, -k) for x in d], math.ldexp(eps, -k)
+        d = [math.ldexp(x, -k) for x in d]
     observed = abs(sum(d)) - eps
     if len(d) <= EXACT_MAX:
         hits = sum(abs(sum(s * x for s, x in zip(signs, d, strict=True))) >= observed
@@ -148,14 +165,15 @@ class ShiftTest:
     row's own p, not ``p(0)``, places 0 (:func:`sign_flip_interval`)."""
 
     def __init__(self, deltas: list[float], seed: int = 0, n_resamples: int = N_RESAMPLES, *,
-                 eps: float | None = None) -> None:
+                 eps: float | Sequence[float] = EPS) -> None:
         import numpy as np
 
-        if eps is None:
-            eps = tie_tolerance(deltas)
-        changed = [x for x in deltas if abs(x) > eps]
-        self.d = np.array(changed + [x for x in deltas if abs(x) <= eps], dtype=float)  # sign_flip_p's order first
-        self.changed, self.seed, self.n_resamples, self.eps = len(changed), seed, n_resamples, eps
+        widths = list(eps) if isinstance(eps, Sequence) else [eps] * len(deltas)  # a tie width per delta
+        order = sorted(range(len(deltas)), key=lambda i: abs(deltas[i]) <= widths[i])  # changed first, stably
+        self.changed = len([x for x, w in zip(deltas, widths, strict=True) if abs(x) > w])  # sign_flip_p's order first
+        self.d = np.array([deltas[i] for i in order], dtype=float)
+        self.widths = np.array([widths[i] for i in order], dtype=float)
+        self.seed, self.n_resamples, self.eps = seed, n_resamples, max(widths, default=EPS)  # eps: slack on a sum
 
     def p(self, theta: float) -> float | None:
         """``None`` when every shifted delta ties, as :func:`sign_flip_p` has no p then."""
@@ -163,7 +181,7 @@ class ShiftTest:
 
         x = self.d - theta
         eps = self.eps
-        x[np.abs(x) <= eps] = 0.0
+        x[np.abs(x) <= self.widths] = 0.0
         moved = x[x != 0.0]
         if not moved.size:
             return None
@@ -177,7 +195,8 @@ class ShiftTest:
 
 
 def sign_flip_interval(deltas: list[float], p_zero: float | None, seed: int = 0, *,
-                       rounded: bool = True) -> tuple[float | None, float | None]:
+                       rounded: bool = True, magnitudes: Sequence[float] | None = None
+                       ) -> tuple[float | None, float | None]:
     """``(lo, hi)`` of one row (module docstring), ``None`` for an open end; rounded to 4 places unless not
     ``rounded``, even for an exact p: an end is only known within :data:`TOL`, so its further digits are noise.
 
@@ -192,20 +211,35 @@ def sign_flip_interval(deltas: list[float], p_zero: float | None, seed: int = 0,
     sums out of the float range: the search then runs on the deltas divided by a power of two (exact), with
     :data:`EPS` and :data:`TOL` divided the same, and each end is multiplied back. An end that comes
     back past the float maximum is the maximum (``±max``), never ``inf``: from 6 deltas on a shift past it puts every
-    delta on one side, which the test rejects, so the search overshoots a true end at the maximum by a few ulps."""
-    k, unit = _scale_exponent(deltas), tie_scale(deltas)  # the tie width and the search step are the vector's
+    delta on one side, which the test rejects, so the search overshoots a true end at the maximum by a few ulps.
+
+    ``magnitudes`` (:func:`pair_magnitudes`) set the tie widths (:func:`tie_widths`) and the bisection step, which
+    scales with the largest of them below 1. Values all below 2**-664 are searched multiplied by a power of two, as
+    huge ones are divided, so their widths and the step do not underflow; an end that comes back below the smallest
+    float is that float, on its side of 0, never 0, since the end is off 0 whenever the row's p is below
+    :data:`ALPHA`."""
+    unit = tie_scale(magnitudes)
+    k = _scale_exponent(deltas, unit)
+    scaled_unit = math.ldexp(unit, -k)
+    widths = tie_widths(magnitudes, len(deltas), k)
+    far_unit = 1.0 if k > 0 else scaled_unit  # the far bound is 1 past the extreme, or the scale of tiny values
     if k:
         scaled = [math.ldexp(x, -k) for x in deltas]
-        ends = _ends(scaled, p_zero, seed, math.ldexp(EPS * unit, -k), math.ldexp(TOL * unit, -k), unit)
+        ends = _ends(scaled, p_zero, seed, widths, TOL * scaled_unit, far_unit)
         ends = (_scaled_back(ends[0], k), _scaled_back(ends[1], k))
     else:
-        ends = _ends(deltas, p_zero, seed, EPS * unit, TOL * unit, unit)
+        ends = _ends(deltas, p_zero, seed, widths, TOL * scaled_unit, far_unit)
     return (_rounded(ends[0]), _rounded(ends[1])) if rounded else ends
 
 
-def _scale_exponent(deltas: list[float]) -> int:
-    """``k`` such that ``deltas / 2**k`` stays clear of the float maximum in the search; 0 when they already do."""
-    largest, limit = max(map(abs, deltas), default=0.0),sys.float_info.max / (8 * len(deltas))
+def _scale_exponent(deltas: list[float], unit: float = 1.0) -> int:
+    """``k`` such that ``deltas / 2**k`` stays clear of the float limits in the search; 0 when they already do.
+
+    A ``unit`` (the scale of the values, :func:`tie_scale`) below :data:`_TINY` makes ``k`` negative, bringing it
+    into ``[0.5, 1)``."""
+    if 0.0 < unit < _TINY:
+        return math.frexp(unit)[1]
+    largest, limit = max(map(abs, deltas), default=0.0), sys.float_info.max / (8 * len(deltas))
     if not math.isfinite(largest) or largest <= limit:
         return 0
     return math.frexp(largest)[1] - math.frexp(limit)[1] + 1
@@ -215,18 +249,19 @@ def _scaled_back(end: float | None, k: int) -> float | None:
     if end is None:
         return None
     try:
-        return math.ldexp(end, k)
+        out = math.ldexp(end, k)
+        return math.copysign(5e-324, end) if out == 0.0 and end != 0.0 else out  # the smallest float, not 0
     except OverflowError:
         # a shift past the maximum puts every delta on one side and is rejected, so no true end is past it: the
         # bisection stops a few ulps beyond an end at the maximum, where the sums cannot resolve TOL
         return math.copysign(sys.float_info.max, end)
 
 
-def _ends(deltas: list[float], p_zero: float | None, seed: int, eps: float, tol: float, unit: float = 1.0
-          ) -> tuple[float | None, float | None]:
+def _ends(deltas: list[float], p_zero: float | None, seed: int, eps: float | Sequence[float], tol: float,
+          unit: float = 1.0) -> tuple[float | None, float | None]:
     test, mean = ShiftTest(deltas, seed, eps=eps), math.fsum(deltas) / len(deltas)
     zero_inside, low, high = p_zero is None or p_zero >= ALPHA, min(*deltas, 0.0), max(*deltas, 0.0)
-    # far is one unit (1, or the scale of a vector below EPS) past the extreme, or twice it from one unit on:
+    # far is one unit (1, or the scale of tiny values) past the extreme, or twice it from one unit on:
     # 1e16 + 1.0 rounds back onto 1e16, all tied
     return (_end(test, mean, low - max(unit, -low), zero_inside, tol),
             _end(test, mean, high + max(unit, high), zero_inside, tol))
@@ -259,19 +294,21 @@ def _rounded(end: float | None) -> float | None:
     return math.copysign(1e-4, end) if out == 0 and end != 0 else out + 0.0  # + 0.0: no -0.0
 
 
-def sign_flip_row(deltas: list[float], seed: int = 0, *, exact: bool) -> dict:
+def sign_flip_row(deltas: list[float], seed: int = 0, *, exact: bool,
+                  magnitudes: Sequence[float] | None = None) -> dict:
     """The test of one row, as both row builders print it: :func:`eval.stats._describe_deltas` (arms) and
     :func:`repos.compare.sign_flip_summary` (repo compare). They shape their own keys around this.
 
     ``p`` is :func:`sign_flip_p` (rounded to 6 places unless ``exact``, as ``repo compare`` prints it). ``lo``/``hi``
     are the unrounded ends of the interval that inverts it, and ``ci_lo``/``ci_hi`` the same ends as printed
-    (:func:`sign_flip_interval`, rounded). ``n_changed`` counts the deltas not within :func:`tie_tolerance` of 0.
+    (:func:`sign_flip_interval`, rounded). ``n_changed`` counts the deltas not within their :func:`tie_widths` of 0.
+    ``magnitudes`` is :func:`pair_magnitudes` of the pairs the deltas come from; without it a tie is within
+    :data:`EPS` of 0.
     """
-    p = sign_flip_p(deltas, seed=seed, exact=exact)
-    lo, hi = sign_flip_interval(deltas, p, seed=seed, rounded=False)
-    tol = tie_tolerance(deltas)
+    p = sign_flip_p(deltas, seed=seed, exact=exact, magnitudes=magnitudes)
+    lo, hi = sign_flip_interval(deltas, p, seed=seed, rounded=False, magnitudes=magnitudes)
     return {"p": p, "lo": lo, "hi": hi, "ci_lo": _rounded(lo), "ci_hi": _rounded(hi),
-            "n_changed": sum(abs(d) > tol for d in deltas)}
+            "n_changed": sum(abs(d) > w for d, w in zip(deltas, tie_widths(magnitudes, len(deltas)), strict=True))}
 
 
 def round_mean(mean: float) -> float:
