@@ -152,3 +152,18 @@ def test_check_matrix_names_the_first_cell_with_an_unsupported_harness():
 
     with pytest.raises(ValueError, match="^matrix cell 'odd': matrix cells only support"):
         check_matrix(ArmsRunConfig(product="demo"), cells)
+
+
+def test_an_unresolved_doc_library_id_is_logged_and_the_name_is_used(monkeypatch, caplog):
+    from dokimi.eval import arms_run
+    from dokimi.mcp import factory
+    from dokimi.treatments.arms import DocTreatment
+
+    def down(*args, **kwargs):
+        raise RuntimeError("server down")
+
+    monkeypatch.setattr(factory, "resolve_library_id_for_product", down)
+    with caplog.at_level("WARNING", logger="dokimi.eval.arms_run"):
+        lib_id = arms_run.resolve_doc_library_id([DocTreatment(object(), name="docs", top_k=3)], "react")
+    assert lib_id == "react"
+    assert [r.exc_info is not None for r in caplog.records if "not resolved" in r.getMessage()] == [True]

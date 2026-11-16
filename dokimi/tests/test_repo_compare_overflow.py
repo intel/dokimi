@@ -71,9 +71,12 @@ def test_sign_flip_summary_refuses_finite_deltas_whose_sum_or_spread_leaves_the_
         sign_flip_summary([_task(d) for d in deltas])
 
 
-def test_sign_flip_summary_refuses_deltas_the_test_cannot_shift_within_the_range():
-    with pytest.raises(CompareError, match="too large to test"):
-        sign_flip_summary([_task(1.0e307)] * 6 + [_task(-1.0e307)] * 6)
+@pytest.mark.filterwarnings("ignore:overflow encountered:RuntimeWarning")  # the mde of a spread this large
+def test_sign_flip_summary_shifts_deltas_near_the_range_on_a_scaled_copy():
+    row = sign_flip_summary([_task(1.0e307), _task(-1.0e307)] * 6)  # cancels pairwise: sum() before 3.12 does not compensate
+    assert row["delta"]["mean"] == 0.0
+    assert math.isfinite(row["delta"]["lo"]) and math.isfinite(row["delta"]["hi"])
+    assert row["delta"]["lo"] < 0 < row["delta"]["hi"]
 
 
 def test_checked_mean_is_the_plain_mean_where_it_is_finite():

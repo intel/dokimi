@@ -106,7 +106,7 @@ def load_expectations(path: Path) -> dict[str, Any]:
 def expectations_digest(expect: Mapping[str, Any]) -> str:
     """The sha256 of the expectations as canonical JSON: matrices built from different documented states differ in it."""
     text = json.dumps(expect, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+    return hashlib.sha256(text.encode("utf-8", "surrogatepass")).hexdigest()
 
 
 def fixtures_digest(fixtures: Path) -> str:

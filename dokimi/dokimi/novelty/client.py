@@ -297,7 +297,7 @@ def accepting(parse: Callable[[str], Any]) -> Accept:
     def accept(reply: str) -> bool:
         try:
             parse(reply)
-        except Exception:
+        except Exception:  # noqa: BLE001 - an accept predicate: any parse failure rejects the reply
             return False
         return True
 

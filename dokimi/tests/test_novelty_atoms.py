@@ -114,17 +114,20 @@ def test_a_partial_transport_failure_names_the_lost_spans():
 
 
 def test_a_recovered_parse_error_does_not_hide_the_failure_that_lost_spans():
-    """Batch 1 is lost to a bad key; batch 2 is truncated and fully recovered."""
+    """Batch 1 is lost to a request the model rejects; batch 2 is truncated and fully recovered.
+
+    A bad key is not this case: it stops the run (test_novelty_permanent_stop.py).
+    """
     spans = segment(DOC)
     first_batch = {s.id for s in spans[:5]}
 
-    class AuthenticationError(Exception):
+    class BadRequestError(Exception):
         pass
 
     def transport(prompt, system):
         ids = re.findall(r"^\[(s\d+)\]", prompt, flags=re.M)
         if first_batch & set(ids):
-            raise AuthenticationError("invalid api key")
+            raise BadRequestError("invalid request")
         reply = json.dumps(_rows(prompt))
         return (reply[:-3] if len(ids) > 2 else reply), None
 
@@ -133,9 +136,9 @@ def test_a_recovered_parse_error_does_not_hide_the_failure_that_lost_spans():
     atoms = extract_atoms(spans, client=client, batch_spans=5, report=report)
     assert len(atoms) == 5 and report.retried_batches > 0
     lost = report.warnings(len(spans))[0]
-    assert "AuthenticationError: invalid api key" in lost
+    assert "BadRequestError: invalid request" in lost
     assert "did not parse" not in lost and "JSONDecodeError" not in lost
-    assert report.last_error == "AuthenticationError: invalid api key"
+    assert report.last_error == "BadRequestError: invalid request"
 
 
 def test_recovered_replies_that_assert_nothing_are_not_an_extraction_failure():

@@ -31,6 +31,7 @@ recorded in ``meta.json`` and flagged by the report.
 from __future__ import annotations
 
 import contextlib
+import json
 import math
 import os
 import re
@@ -393,8 +394,11 @@ def run_batch(ctx: EvalContext, tasks: list[Task], arms: list[str], options: lis
         log(f"{task_id}: UNSUPPORTED, its cells are not run: {why}")
     _clear_unsupported_markers(batch_dir, cells, unsupported)
     lock = threading.Lock()
-    state: dict[str, Any] = {"spent": 0.0, "ran": 0, "skipped": 0, "errors": [], "budget_stopped": 0,
-                             "unsupported": 0}
+    # The cap counts what earlier invocations of this batch spent (under the batch lock the caller holds), and
+    # what cells in flight may still spend: each reserves its harness budget until its charge is known.
+    state: dict[str, Any] = {"spent": _read_batch_spend(batch_dir, max_batch_usd is not None), "reserved": 0.0,
+                             "ran": 0, "skipped": 0, "errors": [], "budget_stopped": 0, "unsupported": 0,
+                             "this_run": 0.0}
 
     def one(cell: tuple[Task, str, AgentOptions, int]) -> None:
         task, arm, opts, rep = cell
@@ -410,37 +414,99 @@ def run_batch(ctx: EvalContext, tasks: list[Task], arms: list[str], options: lis
             with lock:
                 state[counted] += 1
             return
-        with lock:
-            if max_batch_usd is not None and state["spent"] >= max_batch_usd and not batch_ledger.is_done(batch_dir / name):
-                state["budget_stopped"] += 1
-                return
+        # the harness's cap on this cell (task.json's, else --budget)
+        reserved = _reserve(state, lock, max_batch_usd, batch_dir / name,
+                            task_caps(task, opts)["budget_usd"], force)
+        if reserved is None:
+            return
+        charged, rec = 0.0, None
         try:
             rec = run_cell(ctx, task, arm, rep, batch_dir, opts, force=force, host=host)
         except CellCrash as exc:
+            charged = exc.charged_usd
             with lock:
-                state["spent"] += exc.charged_usd
                 state["errors"].append({"cell": name, "error": str(exc)})
             log(f"✗ {name}: {exc}")
-            return
         except (PrepError, ContainerError, OSError, subprocess.SubprocessError) as exc:
             with lock:
                 state["errors"].append({"cell": name, "error": str(exc)})
             log(f"✗ {name}: {exc}")
-            return
-        with lock:
-            if rec.get("skipped"):
-                state["skipped"] += 1
-                return
-            state["ran"] += 1
-            state["spent"] += rec["agent"].get("charged_usd", rec["agent"]["cost_usd"]) or 0.0
-        _log_cell(log, name, rec)
+        finally:  # the charge is counted and saved even when the cell's result.json was not written (CellCrash)
+            _settle(state, lock, batch_dir, reserved, charged, rec)
+        if rec is not None and not rec.get("skipped"):
+            _log_cell(log, name, rec)
 
     with ThreadPoolExecutor(max(1, jobs)) as pool:
         list(pool.map(one, cells))
     return {"cells": len(cells), "ran": state["ran"], "skipped": state["skipped"],
             "errors": state["errors"], "budget_stopped": state["budget_stopped"],
             "unsupported": state["unsupported"], "unsupported_tasks": unsupported, "probe_failed": probe_failed,
-            "spent_usd": round(state["spent"], 6)}
+            "spent_usd": round(state["this_run"], 6), "batch_spent_usd": round(state["spent"], 6)}
+
+
+SPEND_FILE = "spend.json"
+
+
+def _reserve(state: dict[str, Any], lock: threading.Lock, max_batch_usd: float | None, cell_dir: Path,
+             ceiling: float, force: bool) -> float | None:
+    """Reserve a cell's harness budget against the batch cap, and return what it reserved. A finished cell that
+    is kept reserves nothing; None (counted as budget_stopped) once the cap is spent for a cell that may run,
+    which includes a finished cell that --force reruns."""
+    done = batch_ledger.is_done(cell_dir)
+    with lock:
+        if max_batch_usd is not None and state["spent"] + state["reserved"] >= max_batch_usd and (force or not done):
+            state["budget_stopped"] += 1
+            return None
+        reserved = ceiling if force or not done else 0.0
+        state["reserved"] += reserved
+        return reserved
+
+
+def _settle(state: dict[str, Any], lock: threading.Lock, batch_dir: Path, reserved: float, charged: float,
+            rec: dict[str, Any] | None) -> None:
+    """Release the cell's reservation and count what it charged, and whether it ran or was skipped. A spend file
+    that cannot be written is recorded as an error: this run's count stays right, a resume would miss the charge."""
+    with lock:
+        state["reserved"] -= reserved
+        if rec is not None and not rec.get("skipped"):
+            charged = rec["agent"].get("charged_usd", rec["agent"]["cost_usd"]) or 0.0
+            state["ran"] += 1
+        elif rec is not None:
+            state["skipped"] += 1
+        if charged:
+            state["spent"] += charged
+            state["this_run"] += charged
+            try:
+                _write_batch_spend(batch_dir, state["spent"])
+            except OSError as exc:
+                state["errors"].append({"cell": SPEND_FILE, "error": str(exc)})
+
+
+def _read_batch_spend(batch_dir: Path, capped: bool = True) -> float:
+    """What the batch's earlier invocations charged (``_eval/spend.json``); a file that cannot be read stops the
+    run, since the cap cannot be enforced without it. Without a cap (``capped`` False) nothing is enforced, so
+    a file that is unusable counts as 0 and the run's first charge replaces it."""
+    path = batch_dir / "_eval" / SPEND_FILE
+    if not os.path.lexists(path):
+        return 0.0
+    try:
+        total = json.loads(path.read_text(encoding="utf-8"))["spent_usd"]
+        if isinstance(total, bool) or not isinstance(total, (int, float)):
+            raise ValueError(f"spent_usd is {total!r}, not a number")
+        spent = float(total)
+    except (OSError, ValueError, KeyError, TypeError, OverflowError, RecursionError) as exc:
+        if not capped:
+            return 0.0
+        raise ValueError(f"cannot read the batch spend {path}: {exc}; remove it to start the cap again") from exc
+    if not math.isfinite(spent) or spent < 0:  # NaN would never trip the cap
+        if not capped:
+            return 0.0
+        raise ValueError(f"the batch spend {path} is {spent}, not a usable total; remove it to start the cap again")
+    return spent
+
+
+def _write_batch_spend(batch_dir: Path, spent: float) -> None:
+    batch_ledger.write_json(batch_dir / "_eval" / SPEND_FILE, {"spent_usd": spent})
 
 
 UNSUPPORTED_FILE = "unsupported.json"
