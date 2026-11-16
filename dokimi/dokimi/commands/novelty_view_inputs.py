@@ -1,7 +1,7 @@
 # Copyright (C) 2026 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 
-"""`novelty view`: read the saved novelty artifact and atoms file (bad input raises, exit 2 by the CLI)."""
+"""`skill novelty view`: read the saved novelty artifact and atoms file (bad input raises, exit 2 by the CLI)."""
 
 from __future__ import annotations
 

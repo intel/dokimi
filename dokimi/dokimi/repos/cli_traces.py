@@ -512,6 +512,7 @@ def _codex_apply(out: Transcript, rec: dict[str, Any], messages: list[str], work
     if event_reads is None:
         event_reads = {}
     kind = rec.get("type")
+    _codex_keep_record(out, kind, rec)
     if kind == "turn.completed":
         _codex_usage(out, rec.get("usage") or {})
     elif kind == "turn.failed" or (kind == "error" and not str(rec.get("message", "")).startswith("Reconnecting")):
@@ -527,6 +528,14 @@ def _codex_apply(out: Transcript, rec: dict[str, Any], messages: list[str], work
             _codex_command_started(out, item, workdir, by_id, cwd, event_reads)
     elif kind == "item.completed":
         _codex_item_completed(out, rec.get("item") or {}, messages, workdir, by_id, cwd, event_reads)
+
+
+def _codex_keep_record(out: Transcript, kind: Any, rec: dict[str, Any]) -> None:
+    """The start-up and closing records as printed; run_context reads them, events do not change."""
+    if kind == "thread.started":
+        out.start_record = rec
+    elif kind in ("turn.completed", "turn.failed"):
+        out.final_record = rec  # the last turn's, as the turn's own record
 
 
 def _codex_usage(out: Transcript, usage: dict[str, Any]) -> None:
@@ -686,7 +695,9 @@ class _CopilotRun:
 
     def apply(self, out: Transcript, rec: dict[str, Any], t: float | None, workdir: str | None, cwd: str) -> None:
         kind, data = rec.get("type"), rec.get("data") or {}
-        if kind == "assistant.turn_start":
+        if kind == "session.start":
+            out.start_record = rec
+        elif kind == "assistant.turn_start":
             self.turns += 1
         elif kind == "assistant.message":
             self.message(data)
@@ -699,6 +710,7 @@ class _CopilotRun:
             _copilot_result(out, self.by_id.get(str(data.get("toolCallId")), ([], 0)), data)
         elif kind == "result":
             self.result = True
+            out.final_record = rec
             out.is_error = rec.get("exitCode") not in (0, None)
 
 
