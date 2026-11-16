@@ -343,3 +343,17 @@ def test_a_python_probe_needs_a_call_on_a_name_boundary():
     assert _probes("python -c 'x = myos.cpu_count()'") == []
     assert _probes("python -c 'x = a.os.cpu_count()'") == []
     assert _probes("python -c 'os.cpu_count()'") == ["py:os.cpu_count"]
+
+
+@pytest.mark.parametrize("command, patterns", [
+    ("true || false || nproc", []),  # ``||`` after a success skips the rest of the chain
+    ("true || false && nproc", ["nproc"]),  # ``&&`` after a skipped part runs its own command
+    ("false || nproc", ["nproc"]),
+    ("true || cat <<EOF\n$(nproc)\nEOF", []),  # an unquoted heredoc's substitution runs with its command
+    ("cat <<EOF\n$(nproc)\nEOF", ["nproc"]),
+    ("echo \\\\| nproc", ["nproc"]),  # ``\\`` is a backslash: the pipe after it is real
+    ("echo \\| nproc", []),
+    ("cat >$(printf /tmp/probe.log) /etc/os-release", ["/etc/os-release"]),  # the file is the operand, not the target
+])
+def test_the_shell_structure_decides_which_probe_runs(command, patterns):
+    assert _probes(command) == patterns

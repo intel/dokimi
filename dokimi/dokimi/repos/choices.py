@@ -33,6 +33,7 @@ _REMOVE_VERBS = frozenset({"uninstall", "remove"})
 _PYTHON = re.compile(r"python\d*(?:\.\d+)?")
 _PIP = re.compile(r"pip\d*(?:\.\d+)?")
 _REQUIREMENT_END = re.compile(r"[<>=!~\[;@]")  # where a requirement's name ends: a version, extras, a URL
+_UV_VALUE_OPTIONS = frozenset({"--directory", "--project", "--config-file", "--cache-dir", "--python", "-p", "--color"})
 _INFO_FLAGS = frozenset({"-h", "--help", "-V", "--version"})  # the manager prints text and exits 0, changing nothing
 _VALUE_OPTIONS = frozenset({
     "-r", "--requirement", "-c", "--constraint", "-e", "--editable", "-t", "--target", "-i", "--index-url",
@@ -123,7 +124,7 @@ def _command_choices(event: dict[str, Any], candidates: Mapping[str, Mapping[str
         stages, _inner = command_stages(part)
         if len(stages) > 1:  # a pipeline reports its last stage's exit code
             continue
-        words = stages[0] if stages else []
+        words = split_redirects(stages[0] if stages else [])[0]  # ``exec >log`` has no program, ``> scipy`` no operand
         views = list(command_words(words))
         if any(view[:1] == ["exit"] for view in views):  # no later part runs
             break
@@ -133,7 +134,7 @@ def _command_choices(event: dict[str, Any], candidates: Mapping[str, Mapping[str
             for cid, acts in candidates.items():
                 if _wanted(acts, act) & set(packages):
                     found[(cid, act)] = None
-        if any(view[:1] == ["exec"] for view in views):  # the shell is replaced by the call above: no later part runs
+        if any(view[:1] == ["exec"] and len(view) > 1 for view in views):  # exec with a program replaces the shell
             break
     return [_choice(event, cid, act, None) for cid, act in found]
 
@@ -237,8 +238,8 @@ def _manager_rest(words: list[str]) -> list[str]:
         return words[3:]
     if head == "uv":
         rest = words[1:]
-        while rest and rest[0].startswith("-"):  # ``uv --quiet add``
-            rest = rest[1:]
+        while rest and rest[0].startswith("-"):  # ``uv --quiet add``, ``uv --directory /tmp/p add``
+            rest = rest[2:] if rest[0] in _UV_VALUE_OPTIONS else rest[1:]
         if rest[:1] == ["pip"]:
             return rest[1:]
         return rest if rest[:1] in (["add"], ["remove"]) else []  # uv's project verbs: ``uv add`` installs a requirement

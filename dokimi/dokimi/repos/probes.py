@@ -187,11 +187,13 @@ def _matching(command: str, probes: Sequence[Probe]) -> list[Probe]:
 
 def _pipelines(script: str) -> Iterator[list[list[str]]]:
     """Each pipeline of the script as its stages' words; the commands of its ``$( )`` and backtick substitutions too."""
-    never = False  # the part after ``true ||`` never runs; one after any other command may
+    ok = False  # the list so far succeeded (its last part ran ``true``): a part after ``||`` never runs
+    before = ""  # the operator before this part
     for part, after, _in_subshell, _outer in split_script(_without_heredocs(script)):
-        skipped, never = never, after == "||" and part.strip() in ("true", ":")
+        skipped, before = before == "||" and ok, after
         if skipped:
             continue
+        ok = part.strip() in ("true", ":")
         stages, inner = command_stages(part)
         for body in inner:
             yield from _pipelines(body)
@@ -212,10 +214,12 @@ def _without_heredocs(script: str) -> str:
     end: str | None = None
     body: list[str] = []
     expands = False
+    head = 0  # the line that opens the heredoc
     for line in script.split("\n"):
         if end is not None:
             if line.strip() == end:
-                out.extend(_expansions("\n".join(body)) if expands else [])
+                if expands:
+                    out[head] += "".join(f" {text}" for text in _expansions("\n".join(body)))
                 end, body = None, []
             else:
                 body.append(line)
@@ -223,7 +227,7 @@ def _without_heredocs(script: str) -> str:
         out.append(line)
         m = _HEREDOC.search(line)
         if m and not _SHELL_LINE.match(line):
-            end, expands = m.group(2), not m.group(1)
+            end, expands, head = m.group(2), not m.group(1), len(out) - 1
     return "\n".join(out)
 
 
@@ -258,12 +262,18 @@ def command_stages(part: str) -> tuple[list[list[str]], list[str]]:
             word.append(part[i + 1:end])
             started, bare = True, False
             i = end
+        elif c == "\\" and not quote and part[i + 1:i + 2] == "\\":  # ``\\|`` is a backslash, then a pipe
+            word.append("\\\\")
+            started, bare = True, False
+            i += 1
         elif c == "\\" and (part[i + 1:i + 2] in ("$", "`", '"') or (not quote and part[i + 1:i + 2] in tuple("|;&<>()"))):
             word.append(part[i + 1])  # an escaped ``$(`` or ``|`` is text; any other backslash is a path separator
             started, bare = True, False
             i += 1
         elif c in "$`" and (sub := _substitution(part, i)):
             bodies.append(sub[0])
+            word.append("\1")  # the word's text is the substitution's output: a placeholder keeps its place
+            started, bare = True, False
             i = sub[1]
         elif c == quote:
             quote = ""

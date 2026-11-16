@@ -273,3 +273,25 @@ def test_a_bad_candidate_config_is_refused_with_what_is_wrong(raw, message):
 def test_an_exec_of_a_removal_gives_its_choice():
     assert _choices(with_choices(_bash_rc("exec pip uninstall -y scikit-learn-intelex", rc=0), SKLEARN, [])) == [
         ("sklearn", "remove", None)]
+
+
+INSTALL_SCIPY = {"scipy": {"install": ["scipy"]}}
+
+
+@pytest.mark.parametrize("command", [
+    "exec >install.log && pip install scipy",  # a commandless exec only redirects: the shell goes on
+    "exec && pip install scipy",
+    "uv --directory /tmp/project add scipy",  # uv's global options take a value: it is not the project's verb
+    "uv --project=/tmp/project --quiet add scipy",
+    "pip install >$(printf /tmp/install.log) scipy",  # a substitution is the redirection's target, not the package
+])
+def test_a_command_the_shell_runs_before_or_around_its_redirects_gives_its_install(command):
+    assert _choices(_run(INSTALL_SCIPY, _bash("a", command, "2026-01-01T00:00:05Z"))) == [("scipy", "install", None)]
+
+
+@pytest.mark.parametrize("command", [
+    "pip install scipy 2>logs\\\\|cat",  # ``\\`` is a backslash: the pipe after it runs cat, whose code is the result
+    "exec true && pip install scipy",  # exec with a program replaces the shell: nothing after it runs
+])
+def test_a_pipeline_or_an_exec_with_a_program_gives_no_install(command):
+    assert _choices(_run(INSTALL_SCIPY, _bash("a", command, "2026-01-01T00:00:05Z"))) == []
