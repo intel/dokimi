@@ -211,9 +211,13 @@ def _title_spans(lines: list[str], begin: list[int], defs: dict[int, re.Match]) 
     out = []
     for k, d in defs.items():
         joined = d.end() > len(lines[k])  # the destination, and so the title, is on line k + 1
-        rest = ("\n".join(lines[k:k + 2]) if joined else lines[k])[d.end(2):]
-        if _TITLE_CLOSED.match(rest):
-            out.append((begin[k] + d.end(2), begin[k] + d.end()))
+        for end in range(k + 1 + joined, len(lines) + 1):  # a title may run over later lines, up to a blank line
+            head = "\n".join(lines[k:end])
+            if _TITLE_CLOSED.match(head[d.end(2):]):
+                out.append((begin[k] + d.end(2), begin[k] + len(head)))
+                break
+            if end == len(lines) or not lines[end].strip():
+                break
     return out
 
 
@@ -352,14 +356,15 @@ def _used_labels(lines: list[str], source: list[str], defs: dict[int, re.Match])
             inside = any(start <= m.start() < end for start, end in spans)
             text_of_explicit = j + 1 < len(labels) and labels[j + 1].start() == m.end()  # [text][label]: text is no use
             two = line + "\n" + lines[k + 1] if k + 1 < len(lines) else line  # a destination may start on the next line
-            if not inside and not text_of_explicit and not _inline_link_at(two, m.end()):  # [t](...) with no valid destination is [t]
+            escaped = _escaped(line, m.start())  # \[label] opens no reference
+            if not inside and not escaped and not text_of_explicit and not _inline_link_at(two, m.end()):  # [t](...) with no valid destination is [t]
                 used.add(_label(source[k][m.start(1):m.end(1)]))
     for k, (a, b) in enumerate(zip(lines, lines[1:], strict=False)):  # a label may wrap onto the next line
         pair = f"{a}\n{b}"
         source_pair = f"{source[k]}\n{source[k + 1]}"
         for m in _LABEL_ACROSS_LINES.finditer(pair):
             explicit = pair.startswith("[", m.end()) and not pair.startswith("[]", m.end())
-            if "\n" in m.group(1) and not explicit and not _inline_link_at(pair, m.end()):
+            if "\n" in m.group(1) and not explicit and not _escaped(pair, m.start()) and not _inline_link_at(pair, m.end()):
                 used.add(_label(source_pair[m.start(1):m.end(1)]))
     return used
 

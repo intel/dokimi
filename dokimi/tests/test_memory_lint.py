@@ -634,3 +634,18 @@ def test_a_line_blanked_to_spaces_does_not_end_the_angle_paragraph(mem):
 def test_a_fence_ends_the_paragraph_of_an_angle_opener(mem):
     (mem / "a.md").write_text(_entry("a", body="[\n```\nc\n```\nx](<q `tomorrow` r>) z"))
     assert [f.rule for f in lint(read_claude_memory(mem)) if f.rule == "relative-date"] == []
+
+
+def test_a_title_closing_on_a_later_line_is_text_not_a_link(mem):
+    (mem / "MEMORY.md").write_text('[A][a]\n\n[a]: a.md "first\n[Example](missing.md)\nlast"\n')
+    assert [f.line for f in lint(read_claude_memory(mem)) if f.rule == "index-dead-link"] == []
+
+
+def test_an_escaped_bracket_is_no_use_of_its_label(mem):
+    (mem / "MEMORY.md").write_text("- [A](a.md)\n\\[old]\n\n[old]: missing.md\n")
+    assert [f.line for f in lint(read_claude_memory(mem)) if f.rule == "index-dead-link"] == []
+
+
+def test_an_escaped_bracket_wrapped_onto_two_lines_is_no_use(mem):
+    (mem / "MEMORY.md").write_text("- [A](a.md)\n\\[old\nlabel]\n\n[old label]: missing.md\n")
+    assert [f.line for f in lint(read_claude_memory(mem)) if f.rule == "index-dead-link"] == []
