@@ -2326,7 +2326,8 @@ python cli.py repo compare repo-runs/authoring --baseline guidance:none --metric
   CLI gets SIGTERM, which it passes to the container, and 10 s to stop it;
   then the CLI's process group is killed, the container is killed by name,
   and the cell is still graded. `--max-batch-usd` starts no new cell
-  once that much has been spent.
+  once the batch has spent that much, earlier invocations included (kept in
+  `_eval/spend.json`), counting the budget of each cell in flight.
 - Every container runs with `--security-opt no-new-privileges`, `--cap-drop
   ALL` and a `--pids-limit`, as the caller's uid and gid.
 - `--agent-network` is required while the egress proxy is missing: it gives the
