@@ -184,11 +184,12 @@ def _mention_of(check: dict) -> str:
 
 
 def _source_of(check: dict) -> tuple[str, str]:
-    """The source a check replaces on re-run: ``("symbols", "")`` for a symbol check, else
-    ``("tool", <its name>)``. The tuple keeps a tool named ``symbols`` apart from the symbol check."""
+    """The source a check replaces on re-run: ``("symbols", <its prefixes>)`` for a symbol check,
+    else ``("tool", <its name>)``. The tuple keeps a tool named ``symbols`` apart from the symbol
+    check, and a run with other prefixes from the one before it."""
     source = check.get("source") or {}
     if source.get("kind") == "symbols":
-        return ("symbols", "")
+        return ("symbols", " ".join(source.get("prefixes") or []))
     return ("tool", str(source.get("tool")))
 
 

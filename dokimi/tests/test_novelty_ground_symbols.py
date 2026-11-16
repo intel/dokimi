@@ -126,6 +126,14 @@ def test_a_tool_named_symbols_keeps_its_check_when_the_symbol_check_is_replaced(
         "symbols", "tool:symbols"]
 
 
+def test_symbol_checks_with_other_prefixes_both_survive_a_rerun(tmp_path):
+    atoms = [{"statement": "Call cblas_ddot and LAPACKE_dgesv", "question": "q", "answer": "a"}]
+    add_checks(atoms, [_check(tmp_path, ("cblas_",))])
+    add_checks(atoms, [_check(tmp_path, ("LAPACKE_",))])
+    kept = sorted(tuple(c["source"]["prefixes"]) for c in atoms[0]["meta"]["grading"]["checks"])
+    assert kept == [("LAPACKE_",), ("cblas_",)]
+
+
 def test_each_input_is_pinned_by_the_sha256_of_its_bytes(tmp_path):
     check = _check(tmp_path)
     inputs = check["source"]["inputs"]
