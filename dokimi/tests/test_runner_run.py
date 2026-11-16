@@ -108,7 +108,8 @@ def test_save_snapshot(tmp_path):
     out = tmp_path / "out" / "snap.json"
     save_snapshot(run_benchmark(tmp_path, _spec(tmp_path)), out)
     saved = json.loads(out.read_text())
-    assert (saved["schema_version"], saved["summary"]["docs"]) == ("docs_run.v1", 1)
+    assert saved["schema_version"] == "docs_run.v1"
+    assert saved["summary"]["docs"] == 1
 
 
 def _spec(tmp_path):
