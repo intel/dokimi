@@ -75,7 +75,8 @@ def checked_mean(values: Sequence[float], error: type[Exception] = OverflowError
     The result does not depend on the Python version: ``sum`` of floats compensates from 3.12 on and
     adds left to right before, so deltas that cancel left a rounding residue there. Integers only are
     summed exactly as integers, and integers mixed with floats as exact fractions, since ``math.fsum``
-    would first round each integer to a float.
+    would first round each integer to a float. ``values`` are floats or integers; another number type
+    (``numpy.float32``) is outside the ``Sequence[float]`` contract and raises ``TypeError``.
     """
     check_sum_range(values, error, where)
     if _has_non_finite_float(*values):  # they decide; finite values summed first could overflow and cancel a -inf

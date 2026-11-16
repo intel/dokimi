@@ -115,11 +115,18 @@ def test_checked_mean_keeps_integer_contributions_beside_floats():
     assert checked_mean([2**60 + 1, -(2**60), 0.5]) == 0.5
 
 
-@pytest.mark.parametrize("extra", [[], [0.0]])
-def test_checked_mean_takes_integers_whose_exact_total_fits_the_float_range(extra):
+def test_checked_mean_refuses_a_mixed_total_that_only_the_exact_sum_sees_beyond_the_range():
+    values = [float.fromhex("0x1.fffffffffffffp+1023"), 2**969, 2.0**969]  # a left-to-right sum rounds back to the maximum
+    with pytest.raises(CompareError, match=r"task 't': the sum of the magnitudes .* float range"):
+        checked_mean(values, CompareError, "task 't'")
+
+
+@pytest.mark.parametrize("order", ["float first", "float between"])
+def test_checked_mean_takes_integers_whose_exact_total_fits_the_float_range(order):
     top = int(float.fromhex("0x1.fffffffffffffp+1023"))
-    values = [top - 2**970 + 1, 2**970 - 1, *extra]  # fsum would round each integer first and overflow
-    assert checked_mean(values, CompareError) == top / len(values)
+    low, high = top - 2**970 + 1, 2**970 - 1
+    values = [0.0, low, high] if order == "float first" else [low, 0.0, high]  # a float among the integers: sum() rounded the partial total and overflowed
+    assert checked_mean(values, CompareError) == top / 3
 
 
 def test_sign_flip_summary_mean_is_the_exact_mean():
