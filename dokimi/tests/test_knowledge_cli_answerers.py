@@ -178,6 +178,22 @@ def test_codex_model_names_are_the_cli_catalogues_to_pass_on():
 # ── copilot-cli ──────────────────────────────────────────────────────────────
 
 
+def test_copilot_usage_limit_is_run_wide(run):
+    run.answers.append(reply("", stderr="Error: usage limit exceeded for this subscription", returncode=1))
+    with pytest.raises(llm_cli.CliCallError, match="usage limit") as info:
+        llm_cli.call("copilot-cli", model="gpt-5", prompt="q")
+    assert info.value.run_wide is True and info.value.retryable is False
+
+
+def test_copilot_prompt_is_checked_against_the_windows_command_line_limit(monkeypatch):
+    monkeypatch.setattr(llm_cli, "_is_windows", lambda: True)
+    with pytest.raises(llm_cli.CliCallError, match="Windows"):
+        llm_cli._copilot_argv("gpt-5", "", "x" * 40_000)
+    assert llm_cli._copilot_argv("gpt-5", "", "x" * 20_000)  # under the limit on Windows
+    monkeypatch.setattr(llm_cli, "_is_windows", lambda: False)
+    assert llm_cli._copilot_argv("gpt-5", "", "x" * 40_000)  # no command-line cap on POSIX
+
+
 def test_copilot_runs_with_no_tools_no_custom_instructions_and_the_prompt_in_argv(run, monkeypatch):
     monkeypatch.setenv("GH_TOKEN", "ghp_should_not_leak")
     monkeypatch.setenv("COPILOT_PROVIDER_BASE_URL", "https://byok.example")
@@ -191,7 +207,8 @@ def test_copilot_runs_with_no_tools_no_custom_instructions_and_the_prompt_in_arg
     for flag in ("--no-custom-instructions", "--disable-builtin-mcps", "--no-remote", "--no-auto-update",
                  "--disallow-temp-dir", "-s"):
         assert flag in argv
-    assert argv[argv.index("--available-tools") + 1] == ""
+    assert argv[argv.index("--available-tools") + 1] == "__none__"
+    assert "" not in argv  # an empty allow-list would leave every tool on
     assert argv[argv.index("--model") + 1] == "gpt-5"
     env = _env_of(call)
     assert "GH_TOKEN" not in env and "COPILOT_PROVIDER_BASE_URL" not in env

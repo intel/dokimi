@@ -45,6 +45,8 @@ import functools
 import json
 import os
 import re
+import subprocess
+import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -371,6 +373,11 @@ CODEX_CLI = CliBackend(
 
 #: Copilot takes its prompt as the ``-p`` argument, which one Linux argument caps at 128 KiB; a margin is kept.
 COPILOT_ARG_LIMIT = 100_000
+WINDOWS_CMDLINE_LIMIT = 32_767  # CreateProcessW's cap on the whole command line, in UTF-16 units
+
+
+def _is_windows() -> bool:
+    return sys.platform == "win32"
 
 
 def _copilot_argv(model: str, system_file: str, text: str) -> list:
@@ -381,10 +388,18 @@ def _copilot_argv(model: str, system_file: str, text: str) -> list:
     if len(text.encode("utf-8")) > COPILOT_ARG_LIMIT:
         raise CliCallError(f"copilot-cli: the prompt is over {COPILOT_ARG_LIMIT} bytes, the most one argument "
                            "carries", retryable=False)
-    # --allow-all-tools is what non-interactive mode requires; with --available-tools "" no tool is offered.
-    return ["copilot", "-p", text, "-s", "--model", model, "--allow-all-tools", "--no-custom-instructions",
+    # --allow-all-tools is what non-interactive mode requires; "__none__" is the measured no-tool allow-list
+    # (an empty list leaves every tool on, see repos/profiles/copilot.yaml).
+    argv = ["copilot", "-p", text, "-s", "--model", model, "--allow-all-tools", "--no-custom-instructions",
             "--disable-builtin-mcps", "--no-remote", "--no-auto-update", "--no-ask-user", "--disallow-temp-dir",
-            "--no-color", "--available-tools", ""]
+            "--no-color", "--available-tools", "__none__"]
+    if _is_windows():
+        units = len(subprocess.list2cmdline(argv).encode("utf-16-le")) // 2
+        if units > WINDOWS_CMDLINE_LIMIT:
+            raise CliCallError(f"copilot-cli: the command line is {units} characters, over Windows' "
+                               f"{WINDOWS_CMDLINE_LIMIT}; shorten the prompt or use a stdin-capable provider",
+                               retryable=False, run_wide=False)
+    return argv
 
 
 def _copilot_parse(done: process.Completed, model: str, provider: str) -> CliResult:
@@ -394,7 +409,8 @@ def _copilot_parse(done: process.Completed, model: str, provider: str) -> CliRes
     if done.returncode != 0 or not text:
         message = (done.stderr.strip() or text or f"exit {done.returncode}")[:500]
         lowered = message.lower()
-        run_wide = any(w in lowered for w in ("not logged in", "login", "authenticat", "unknown model"))
+        run_wide = any(w in lowered for w in ("not logged in", "login", "authenticat", "unknown model",
+                                              "usage limit"))
         raise CliCallError(f"copilot-cli: {message}", retryable=not run_wide and _text_retryable(lowered),
                            run_wide=run_wide)
     # ``-s`` prints the reply alone; the token counts are not on that output, so the record carries none.
