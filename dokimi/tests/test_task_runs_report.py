@@ -492,3 +492,13 @@ def test_discovery_gap_no_scored_cells_differs_from_different_attempted():
     md_err = render_task_runs_report(data_err)
     assert "— (no scored cells)" in md_err
     assert "— (arms ran or lost different cells)" not in md_err
+
+
+def test_a_flag_in_a_discovery_rate_cell_prints_a_dash_not_100_percent():
+    """bool is an int: a rate stored as ``true`` must not read as 100% in the discovery table."""
+    data = _gap_data((0, 1), (), ())
+    entry = data["summary"]["discovery_gaps"]["docker-claude-skill-discover:s"]
+    entry.update(with_skill_pass_rate=True, discover_pass_rate=False,
+                 with_skill_invocation_rate=True, discover_invocation_rate=0.5)
+    table = render_task_runs_report(data).split("## Skill discovery")[1]
+    assert "| `docker-claude-skill-discover:s` | — | — | +100.00 pp | — | 50% |" in table
