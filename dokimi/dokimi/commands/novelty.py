@@ -199,6 +199,7 @@ def cmd_novelty_probe(args: argparse.Namespace) -> None:
     from dokimi.novelty import cost
     from dokimi.commands.novelty_atoms_file import (measured_atoms, sampling_record,
                                                     warn_answer_key, warn_unread)
+    from dokimi.novelty.answer_key import parse_answer_key
     from dokimi.novelty.atoms import load_atoms_record
     from dokimi.novelty.answer_key_check import check_answer_key
     from dokimi.novelty.measure import SelfJudgeError, check_self_judge, run_measurement
@@ -207,9 +208,10 @@ def cmd_novelty_probe(args: argparse.Namespace) -> None:
     from dokimi.commands.novelty_budget import save_probe_measure
 
     atoms, saved_spans, saved = load_atoms_record(args.atoms)
+    key = parse_answer_key(saved.get("bundle"))  # parsed once at load; the check takes the record
     atoms = measured_atoms(args, atoms, saved, "probe")
     warn_unread(saved_spans, "the atoms probed here leave out whatever those spans assert")
-    verdict = check_answer_key(args.artifact, saved.get("bundle"), source=args.atoms)
+    verdict = check_answer_key(args.artifact, key, source=args.atoms)
     if not verdict.ok:
         raise InputError(verdict.message)
     for note in verdict.notes:
@@ -457,15 +459,17 @@ def cmd_novelty_shorten(args: argparse.Namespace) -> None:
     from dokimi.commands.novelty_atoms_file import (
         measured_atoms, no_candidate_line, score_candidates, warn_unread)
     from dokimi.novelty.artifact import load_artifact_ref
+    from dokimi.novelty.answer_key import parse_answer_key
     from dokimi.novelty.atoms import load_atoms_record
     from dokimi.novelty.bundle import entry_point_only
     from dokimi.novelty.retention import error_warning
     from dokimi.novelty.shorten import pick_best
 
     atoms, spans, saved = load_atoms_record(args.atoms)
+    key = parse_answer_key(saved.get("bundle"))  # parsed once at load; the scorer takes the record
     _kind, _name, _description, frontmatter, _body = load_artifact_ref(args.artifact)
     try:
-        spans, atoms, note = entry_point_only(saved.get("bundle"), spans, atoms)
+        spans, atoms, note = entry_point_only(key, spans, atoms)
     except ValueError as exc:
         raise InputError(f"{args.atoms}: {exc}") from exc
     if note:
