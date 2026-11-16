@@ -18,6 +18,7 @@ import dokimi
 from dokimi import docker_cmd
 from dokimi.process import FakeRunner, reply
 from dokimi.process import run as run_real
+from dokimi.repos import container as container_mod
 from dokimi.repos.container import ContainerError, ContainerSpec, DockerRunner, Mount
 
 
@@ -169,6 +170,49 @@ def test_interrupt_while_stdout_waits_for_a_reader_kills_nothing(tmp_path):
         DockerRunner(docker="/nonexistent/docker", runner=recording).run(spec, stdout=fifo, stderr=tmp_path / "e",
                                                                         timeout_s=5)
     assert not any(argv[1:2] == ["kill"] for argv in calls), calls
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="needs a FIFO")
+def test_a_fifo_reader_gets_no_eof_before_docker_starts(tmp_path):
+    # The writer opened before the run must stay open: closing it would send the reader EOF before docker starts.
+    fifo = tmp_path / "o"
+    os.mkfifo(fifo)
+    reader_done, eof_before_start = threading.Event(), []
+
+    def read():
+        with open(fifo, "rb") as stream:
+            stream.read()
+        reader_done.set()
+
+    def answer(call):
+        if call.argv[1] == "run":
+            eof_before_start.append(reader_done.wait(0.5))
+        return reply()
+
+    reader = threading.Thread(target=read)
+    reader.start()
+    spec = ContainerSpec(image="img", argv=["true"], name="dokimi-x", user="1000:1000")
+    DockerRunner(runner=FakeRunner(answer)).run(spec, stdout=fifo, stderr=tmp_path / "e", timeout_s=5)
+    reader.join(5)
+    assert eof_before_start == [False]
+    assert reader_done.is_set()
+
+
+def test_a_container_a_halt_killed_is_no_result(tmp_path):
+    # The batch's cleanup kills a grading container and it returns rc 137: that exit is no result to record.
+    def answer(call):
+        if call.argv[1] == "run":
+            container_mod.halt_and_kill_started()
+            return reply(returncode=137)
+        return reply()
+
+    spec = ContainerSpec(image="img", argv=["true"], name="dokimi-x", user="1000:1000")
+    try:
+        with pytest.raises(container_mod.BatchInterrupted):
+            DockerRunner(runner=FakeRunner(answer)).run(spec, stdout=tmp_path / "o", stderr=tmp_path / "e",
+                                                        timeout_s=5)
+    finally:
+        container_mod.clear_halt()
 
 
 def test_run_with_a_missing_mount_kills_nothing(tmp_path):

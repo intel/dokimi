@@ -65,20 +65,30 @@ NETWORKS = ("none", "bridge", "host")
 _live_lock = threading.Lock()
 _live: dict[str, Callable[[], None]] = {}
 _halted = False
+_halts = 0  # counts the halts: a run that returns across one was killed by it, or came too late to be a result
 
 
 class BatchInterrupted(BaseException):
     """A cell of a batch that Ctrl-C interrupted: it is dropped with nothing recorded, so a resume runs it again.
 
-    A BaseException, so that a cell's own ``except Exception`` cannot grade it as a failed run."""
+    A BaseException, so that a cell's own ``except Exception`` cannot grade it as a failed run. ``charged_usd`` is
+    what the cell's agent charged before the interrupt (set by the caller that knows it; zero when none ran)."""
+
+    charged_usd = 0.0
 
 
-def _track(name: str | None, stop: Callable[[], None]) -> None:
+def _track(name: str | None, stop: Callable[[], None]) -> int:
     with _live_lock:
         if _halted:
             raise BatchInterrupted("the batch was interrupted: no container is started after Ctrl-C")
         if name:
             _live[name] = stop
+        return _halts
+
+
+def _halted_since(mark: int) -> bool:
+    with _live_lock:
+        return _halts != mark
 
 
 def _untrack(name: str | None) -> None:
@@ -91,9 +101,10 @@ def halt_and_kill_started() -> None:
 
     A container started after the halt is refused; one registered before it is killed. Killing again is harmless,
     so a caller may repeat this while the cells that started containers are still running."""
-    global _halted
+    global _halted, _halts
     with _live_lock:
         _halted = True
+        _halts += 1
         stops = list(_live.values())
     for stop in stops:
         with contextlib.suppress(Exception):  # a kill that fails leaves the next call to retry it
@@ -162,6 +173,33 @@ def host_user() -> str | None:
     return None
 
 
+def _run_tracked(name: str | None, stop: Callable[[], None], argv: list[str], *, stdout: Path, stderr: Path,
+                 timeout_s: float, runner: process.Runner) -> ContainerResult:
+    """Run docker with its output held open and its name tracked for a halt. A halt that lands while it runs makes
+    its exit no result: it raises BatchInterrupted."""
+    with contextlib.ExitStack() as held:
+        # A FIFO with no reader blocks in these opens, before the name is tracked: a Ctrl-C there kills nothing.
+        # The writers stay open to the end: closing one before docker opens it would send its reader EOF.
+        for out in (stdout, stderr):
+            held.enter_context(open(out, "ab"))
+        try:
+            mark = _track(name, stop)  # before docker starts: a batch that is interrupted starts nothing more
+            result = run_process(argv, env=process.Env.inherit(), stdout=stdout, stderr=stderr,
+                                 timeout_s=timeout_s, on_timeout=stop, runner=runner)
+        except KeyboardInterrupt:
+            # Ctrl-C reaches only the CLI's group: a container that ignores SIGTERM outlives it.
+            try:
+                stop()
+            except BaseException:  # noqa: BLE001, S110 - a second Ctrl-C must not hide the first
+                pass
+            raise
+        finally:
+            _untrack(name)
+    if _halted_since(mark):  # a halt killed this container, or came while it ran: its exit is no result
+        raise BatchInterrupted("the batch was interrupted while this container ran")
+    return result
+
+
 class DockerRunner:
     """Run containers with the docker CLI."""
 
@@ -203,23 +241,8 @@ class DockerRunner:
                     pass  # still a timed-out or interrupted run; the container may outlive it
 
         # -e NAME reads the forwarded values from the CLI's own environment: the caller's.
-        argv = self.argv(spec)
-        for out in (stdout, stderr):  # a FIFO with no reader blocks here: a Ctrl-C now starts and kills nothing
-            with open(out, "ab"):
-                pass
-        try:
-            _track(spec.name, stop)  # before docker starts: a batch that is interrupted starts nothing more
-            result = run_process(argv, env=process.Env.inherit(), stdout=stdout, stderr=stderr,
-                                 timeout_s=timeout_s, on_timeout=stop, runner=self.runner)
-        except KeyboardInterrupt:
-            # Ctrl-C reaches only the CLI's group: a container that ignores SIGTERM outlives it.
-            try:
-                stop()
-            except BaseException:  # noqa: BLE001, S110 - a second Ctrl-C must not hide the first
-                pass
-            raise
-        finally:
-            _untrack(spec.name)
+        result = _run_tracked(spec.name, stop, self.argv(spec), stdout=stdout, stderr=stderr, timeout_s=timeout_s,
+                              runner=self.runner)
         if docker_cmd.failed_to_start(result.returncode, result.timed_out):
             tail = stderr.read_text(encoding="utf-8", errors="replace").strip()[-500:]
             raise ContainerError(f"docker run failed: {tail}")

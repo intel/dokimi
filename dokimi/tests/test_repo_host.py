@@ -772,6 +772,7 @@ def test_run_batch_refuses_a_bad_host_value_before_probing_or_running(tmp_path):
     assert runner.specs == [] and runner.probes == []
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="os.kill(SIGINT) on Windows terminates the process, not Ctrl-C")
 def test_ctrl_c_in_a_threaded_batch_kills_each_container_a_worker_started(tmp_path, monkeypatch):
     """Ctrl-C reaches the main thread only: a cell running in a worker thread must not leave its container."""
     started: list[str] = []
