@@ -65,7 +65,7 @@ _PLACEHOLDER_RE = re.compile(r"\{([^{}]*)\}")
 # mounted ones (workspace, home, config) are not scratch and stay allowed: nothing new is mounted.
 RESERVED_RUN_ENTRIES = frozenset({
     "grade-home", "agent-git",
-    "meta.json", "task.json", "answer.txt", "events.jsonl", "result.json", "grade.json",
+    "meta.json", "task.json", "answer.txt", "events.jsonl", "run_context.json", "result.json", "grade.json",
     "agent.stdout", "agent.stderr", "grade.log", "grade.err", "oracle.log", "oracle.err",
     "isolation.log", "isolation.err", "test.log", "test.err", "hidden-tests.xml", "hidden-tests.json",
 })

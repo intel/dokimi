@@ -26,6 +26,7 @@ MOVES = [
     (("novelty", "atoms"), ("skill", "novelty", "atoms")),
     (("novelty", "probe"), ("skill", "novelty", "probe")),
     (("novelty", "items"), ("skill", "novelty", "items")),
+    (("novelty", "view"), ("skill", "novelty", "view")),
     (("novelty", "shorten"), ("skill", "shorten")),
     (("catalog", "scan"), ("catalog", "check")),
     (("library", "intents"), ("catalog", "intents")),
@@ -94,7 +95,6 @@ def test_new_path_shows_help(old, new, capsys):
 
 STAYING = [
     ("skill", "routing"),
-    ("novelty", "view"),
     ("tools", "preference"),
     ("data", "schema", "show"),
 ]
