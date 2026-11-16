@@ -55,13 +55,19 @@ Code that spawns takes a ``runner`` argument defaulting to :func:`run`.
 
 from __future__ import annotations
 
-from .process_io import PipeReader, PipeReaderOwner, path_text
+from .process_io import (
+    PipeReader,
+    PipeReaderOwner,
+    TRUNCATION_MARKER as TRUNCATION_MARKER,
+    _join,
+    _read_spool,
+    path_text,
+)
 
 import dataclasses
 import os
 import selectors
 import signal
-from stat import S_ISFIFO
 import subprocess
 import sys
 import threading
@@ -75,7 +81,6 @@ from typing import cast, IO, Protocol
 TIMEOUT_RC = 124
 DRAIN_GRACE_SEC = 2.0
 CAPTURE_LIMIT = 1 << 20
-TRUNCATION_MARKER = "\n[... {dropped} bytes not kept: output over the capture limit ...]\n"
 _POLL_SEC = 0.1
 _CHUNK = 1 << 16
 _POSIX = sys.platform != "win32"
@@ -375,13 +380,6 @@ class _Capture:
             return _join(bytes(self.head), bytes(self.tail), self.total)
 
 
-def _join(head: bytes, tail: bytes, total: int) -> tuple[bytes, bool]:
-    dropped = total - len(head) - len(tail)
-    if dropped <= 0:
-        return head + tail, False
-    return head + TRUNCATION_MARKER.format(dropped=dropped).encode("utf-8") + tail, True
-
-
 class _Spool:
     """``with _Spool(path) as f``: ``path`` opened for the child to write (``None`` passes through)."""
 
@@ -394,21 +392,6 @@ class _Spool:
     def __exit__(self, *exc: object) -> None:
         if self.file:  # the child holds its own copy of the descriptor
             self.file.close()
-
-
-def _read_spool(path: str | os.PathLike[str], limit: int | None) -> tuple[bytes, bool]:
-    """A spooled stream's bounded head and tail, read back without loading the whole file. A FIFO is not read back:
-    its reader is at the other end, and a read here waits for every writer to close, the caller's included."""
-    if S_ISFIFO(os.stat(path).st_mode):
-        return b"", False
-    with open(path, "rb") as fh:
-        size = os.fstat(fh.fileno()).st_size
-        if limit is None or size <= limit:
-            return fh.read(), False
-        head = fh.read(limit // 2)
-        tail_len = limit - limit // 2
-        fh.seek(size - tail_len)
-        return _join(head, fh.read(tail_len), size)
 
 
 def _feed(sink, data: bytes) -> None:

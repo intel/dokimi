@@ -5,6 +5,7 @@
 
 import os
 import sys
+from stat import S_ISFIFO
 import threading
 from collections.abc import Callable
 from contextlib import suppress
@@ -91,3 +92,28 @@ class PipeReader:
 
 class PipeReaderOwner(Protocol):
     _dokimi_pipe_readers: dict[IO[bytes], PipeReader]
+
+
+TRUNCATION_MARKER = "\n[... {dropped} bytes not kept: output over the capture limit ...]\n"
+
+
+def _join(head: bytes, tail: bytes, total: int) -> tuple[bytes, bool]:
+    dropped = total - len(head) - len(tail)
+    if dropped <= 0:
+        return head + tail, False
+    return head + TRUNCATION_MARKER.format(dropped=dropped).encode("utf-8") + tail, True
+
+
+def _read_spool(path: str | os.PathLike[str], limit: int | None) -> tuple[bytes, bool]:
+    """A spooled stream's bounded head and tail, read back without loading the whole file. A FIFO is not read back:
+    its reader is at the other end, and a read here waits for every writer to close, the caller's included."""
+    if S_ISFIFO(os.stat(path).st_mode):
+        return b"", False
+    with open(path, "rb") as fh:
+        size = os.fstat(fh.fileno()).st_size
+        if limit is None or size <= limit:
+            return fh.read(), False
+        head = fh.read(limit // 2)
+        tail_len = limit - limit // 2
+        fh.seek(size - tail_len)
+        return _join(head, fh.read(tail_len), size)
