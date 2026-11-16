@@ -57,6 +57,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 
 from dokimi.eval.binary_stats import exact_binomial_two_sided
+from dokimi.eval.comparison_verdict import ComparisonVerdict, decide
 from dokimi.eval.judge_context import SOURCE_STORED, JudgeContextStore
 from dokimi.eval.question_text import require_question_text
 from dokimi.records import Answer, Record, RecordError, RecordLike, Run, arm_answers, arm_scores
@@ -67,6 +68,18 @@ from dokimi.eval.stats import adjust_pvalues, mean_ci
 logger = logging.getLogger(__name__)
 
 ALPHA = 0.05
+
+#: The arrow of a verdict that reads as a direction: ``+`` for an improvement, ``−`` for a regression.
+_DIRECTION = {ComparisonVerdict.IMPROVED: 1, ComparisonVerdict.REGRESSED: -1}
+
+
+def _sign(mean: Optional[float]) -> int:
+    """+1 or -1 for the direction of a mean delta; 0 for none (missing, a tie, or NaN).
+
+    Read through the seam with the test passed, so only the sign of the mean decides.
+    """
+    return _DIRECTION.get(decide(mean, significant=True), 0)
+
 
 #: Scores (library, question, answer, ground_truth, context) -> aggregate.
 Scorer = Callable[[str, str, str, Optional[str], str], float]
@@ -116,7 +129,7 @@ class Measure:
             "wins": wins, "losses": losses, "ties": len(pairs) - wins - losses, "p_sign": p,
             # Raw; label() replaces it with the Holm-adjusted call over the voting measures.
             "significant": p is not None and p < ALPHA,
-            "sign": 0 if not pairs or delta["mean"] in (None, 0) else (1 if delta["mean"] > 0 else -1),
+            "sign": _sign(delta["mean"]),
         }
 
 
@@ -158,7 +171,8 @@ def label(rows: Sequence[Dict[str, Any]], *, require_validated: bool = False) ->
     rows = [r for r in rows if r["votes"]]
     if not any(r.get("n", 1) for r in rows):  # no voter compared a single question
         return "NOT MEASURED"
-    sig = {r["sign"] for r in rows if r["significant"] and r["sign"]}
+    # A row speaks only when its Holm-adjusted difference is significant (decide), and then for its direction.
+    sig = {_DIRECTION[v] for r in rows if (v := decide(r["sign"], significant=r["significant"])) in _DIRECTION}
     if not sig:
         return "NO DETECTABLE EFFECT"
     if len(sig) == 2:
