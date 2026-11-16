@@ -38,8 +38,10 @@ def cmd_context_trace(args: argparse.Namespace) -> None:
             row["compaction_events"] = trace.compactions
         rows.append(row)
 
+    if not rows:  # nothing read is a bad input (exit 2), not a partial result
+        raise InputError("no trace could be read (see stderr)")
     if args.json:  # always a list, one entry per trace that read
-        status = "failed" if not rows else "partial" if failed or skipped else "complete"  # nothing read: failed
+        status = "partial" if failed or skipped else "complete"
         reason = ("one or more traces could not be read (see stderr)" if failed
                   else "lines of a trace were skipped (see stderr)" if skipped else None)
         cli_output.emit_leaf("trace inspect", rows, status=status, reason=reason)
@@ -107,7 +109,9 @@ def _refuse(message: str) -> NoReturn:
 
 
 def _read_arms(arms: dict[str, list[str]], shell: str) -> tuple[dict[str, list], bool]:
-    """The runs of each arm, and whether some trace could not be read (reported on stderr)."""
+    """The runs of each arm, and whether some trace could not be read (reported on stderr).
+
+    Nothing read at all is a bad input (exit 2), not a partial result."""
     from dokimi.context import TraceError
     from dokimi.context.consistency import read_run
 
@@ -121,6 +125,8 @@ def _read_arms(arms: dict[str, list[str]], shell: str) -> tuple[dict[str, list],
             except TraceError as exc:
                 print(f"✗ {exc}", file=sys.stderr)
                 failed = True
+    if not any(loaded.values()):
+        raise InputError("no trace could be read (see stderr)")
     return loaded, failed
 
 
@@ -156,7 +162,7 @@ def cmd_context_consistency(args: argparse.Namespace) -> None:
         report[label]["shell"] = args.shell  # the grain the step counts were taken at
 
     if args.json:
-        status = "failed" if not any(loaded.values()) else "partial" if failed else "complete"
+        status = "partial" if failed else "complete"
         cli_output.emit_leaf("trace consistency", report, status=status,
                              reason="one or more traces could not be read (see stderr)" if failed else None)
     else:

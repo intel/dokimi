@@ -63,6 +63,11 @@ class ContainerError(RuntimeError):
     """The container runtime failed, as opposed to the command inside it."""
 
 
+class DockerError(ContainerError):
+    """The docker CLI or daemon could not run, answer or start a container (infra, exit 5). A build of the
+    manifest's image that fails is a :class:`ContainerError`, not this (config, exit 1)."""
+
+
 class EgressNotImplemented(ContainerError):
     """A run needs per-host egress (contract §2), which needs the proxy the framework does not have yet."""
 
@@ -143,8 +148,8 @@ class DockerRunner:
 
     def run(self, spec: ContainerSpec, *, stdout: Path, stderr: Path, timeout_s: float) -> ContainerResult:
         for m in spec.mounts:
-            if not m.host.exists():
-                raise ContainerError(f"mount source does not exist: {m.host}")
+            if not m.host.exists():  # the container cannot start without it (a scratch dir that vanished): infra
+                raise DockerError(f"mount source does not exist: {m.host}")
 
         def stop() -> None:
             if spec.name:
@@ -159,7 +164,7 @@ class DockerRunner:
                              timeout_s=timeout_s, on_timeout=stop, runner=self.runner)
         if docker_cmd.failed_to_start(result.returncode, result.timed_out):
             tail = stderr.read_text(encoding="utf-8", errors="replace").strip()[-500:]
-            raise ContainerError(f"docker run failed: {tail}")
+            raise DockerError(f"docker run failed: {tail}")
         return result
 
     def build(self, context: Path, dockerfile: Path, tag: str, network: str | None = None,
@@ -168,19 +173,34 @@ class DockerRunner:
         try:
             proc = self.runner(argv, timeout=timeout_s, env=process.Env.inherit())
         except OSError as exc:
-            raise ContainerError(f"docker build {tag}: cannot run {self.docker!r}: {exc}") from exc
+            raise DockerError(f"docker build {tag}: cannot run {self.docker!r}: {exc}") from exc
         if proc.timed_out:
             raise ContainerError(f"docker build {tag} timed out after {timeout_s:g}s (--build-timeout):\n"
                                  f"{(proc.stderr or proc.stdout)[-3000:]}")
         if proc.returncode:
-            raise ContainerError(f"docker build {tag} failed:\n{(proc.stderr or proc.stdout)[-3000:]}")
+            kind = DockerError if _daemon_unreachable(proc.stderr) else ContainerError
+            raise kind(f"docker build {tag} failed:\n{(proc.stderr or proc.stdout)[-3000:]}")
 
     def image_exists(self, tag: str) -> bool:
-        proc = self.runner([self.docker, *docker_cmd.inspect_image_args(tag)], timeout=docker_cmd.CALL_TIMEOUT_S,
-                           env=process.Env.inherit(), capture_stdout=False)
+        try:
+            proc = self.runner([self.docker, *docker_cmd.inspect_image_args(tag)], timeout=docker_cmd.CALL_TIMEOUT_S,
+                               env=process.Env.inherit(), capture_stdout=False)
+        except OSError as exc:
+            raise DockerError(f"docker image inspect {tag}: cannot run {self.docker!r}: {exc}") from exc
         if proc.timed_out:  # a daemon that does not answer would only hang the build next
-            raise ContainerError(f"docker image inspect {tag}: no answer in {docker_cmd.CALL_TIMEOUT_S}s")
-        return proc.returncode == 0
+            raise DockerError(f"docker image inspect {tag}: no answer in {docker_cmd.CALL_TIMEOUT_S}s")
+        if proc.returncode == 0:
+            return True
+        if _daemon_unreachable(proc.stderr):  # not "no such image": the daemon itself did not answer
+            raise DockerError(f"docker image inspect {tag}: {(proc.stderr or '').strip()[-500:]}")
+        return False
+
+
+def _daemon_unreachable(stderr: str | None) -> bool:
+    """True when the docker CLI says, in its last lines, that it could not reach the daemon (down, or no permission on
+    its socket). The last lines only: a RUN step of a build may print the same words in the middle of its output."""
+    lines = [ln for ln in (stderr or "").lower().splitlines() if ln.strip()][-2:]
+    return any("connect to the docker daemon" in ln or "error during connect" in ln for ln in lines)
 
 
 def run_process(argv: list[str], *, env: process.Env | dict[str, str], stdout: Path, stderr: Path,

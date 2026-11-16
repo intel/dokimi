@@ -54,6 +54,7 @@ from .container import (
     WORKSPACE,
     ContainerError,
     ContainerSpec,
+    DockerError,
     EgressNotImplemented,
     Mount,
     docker_network,
@@ -326,6 +327,12 @@ def _process_or_null(ctx: EvalContext, events: list[dict[str, Any]], errors: lis
         return None
 
 
+def _is_infra(exc: BaseException) -> bool:
+    """A failure of the machinery (docker, a file that cannot be written or read, a subprocess), not of a cell's
+    input: a refused input (PrepError, an unreadable kept result, an egress the run cannot have) stays exit 1."""
+    return isinstance(exc, (DockerError, OSError, subprocess.SubprocessError))
+
+
 class CellCrash(Exception):
     """A cell whose agent ran but whose ``result.json`` could not be written: its cost still counts."""
 
@@ -401,7 +408,7 @@ def run_batch(ctx: EvalContext, tasks: list[Task], arms: list[str], options: lis
                 counted = _unsupported_cell(batch_dir / name, cell, unsupported[task.id], verdicts[task.id][1], host)
             except (UnreadableResult, OSError) as exc:
                 with lock:
-                    state["errors"].append({"cell": name, "error": str(exc)})
+                    state["errors"].append({"cell": name, "error": str(exc), "infra": _is_infra(exc)})
                 log(f"✗ {name}: {exc}")
                 return
             with lock:
@@ -418,11 +425,11 @@ def run_batch(ctx: EvalContext, tasks: list[Task], arms: list[str], options: lis
         except CellCrash as exc:
             charged = exc.charged_usd
             with lock:
-                state["errors"].append({"cell": name, "error": str(exc)})
+                state["errors"].append({"cell": name, "error": str(exc), "infra": True})
             log(f"✗ {name}: {exc}")
         except (PrepError, ContainerError, OSError, subprocess.SubprocessError) as exc:
             with lock:
-                state["errors"].append({"cell": name, "error": str(exc)})
+                state["errors"].append({"cell": name, "error": str(exc), "infra": _is_infra(exc)})
             log(f"✗ {name}: {exc}")
         finally:  # the charge is counted and saved even when the cell's result.json was not written (CellCrash)
             _settle(state, lock, batch_dir, reserved, charged, rec)
@@ -472,7 +479,7 @@ def _settle(state: dict[str, Any], lock: threading.Lock, batch_dir: Path, reserv
             try:
                 _write_batch_spend(batch_dir, state["spent"])
             except OSError as exc:
-                state["errors"].append({"cell": SPEND_FILE, "error": str(exc)})
+                state["errors"].append({"cell": SPEND_FILE, "error": str(exc), "infra": True})
 
 
 def _read_batch_spend(batch_dir: Path, capped: bool = True) -> float:

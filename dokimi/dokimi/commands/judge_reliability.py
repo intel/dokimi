@@ -20,7 +20,7 @@ from dokimi.eval.judge import JUDGE_PROVIDERS
 from dokimi.eval.judge_validity import DEFAULT_MIN_ACCURACY
 from dokimi.utils import InputError, read_json_input, warn_recorded_self_judge
 from dokimi.commands._output import save_artifact_or_exit, write_text_or_exit
-from dokimi.exit_codes import EXIT_FAILURE
+from dokimi.exit_codes import EXIT_FAILURE, EXIT_INCONCLUSIVE, EXIT_INVALID
 
 if TYPE_CHECKING:
     from dokimi.eval.cross_judge import Measure
@@ -445,15 +445,18 @@ def _scored_nothing_exit(unscored: Sequence[Measure]) -> None:
 
 
 def _strict_cross_judge_exit(arms: dict[str, dict[str, Any]], baseline_arm: str) -> None:
-    """Exit 1 when no arm was compared, an arm is NOT MEASURED, or an arm is JUDGE-DEPENDENT."""
+    """Exit 4 (invalid) when an arm is JUDGE-DEPENDENT, else 3 (inconclusive) when no arm was compared or an arm is
+    NOT MEASURED (issue #94 §2.6). The invalid verdict is checked first, as ``baseline compare`` does."""
+    dependent = sorted(a for a, r in arms.items() if r["label"] == "JUDGE-DEPENDENT")
+    if dependent:
+        print(f"✗ judge-dependent against `{baseline_arm}`: {', '.join(dependent)}", file=sys.stderr)
+        sys.exit(EXIT_INVALID)
     unmeasured = sorted(a for a, r in arms.items() if r["label"] == "NOT MEASURED")
     if not arms or unmeasured:
         why = f"{len(unmeasured)} of {len(arms)} arm(s) NOT MEASURED: {', '.join(unmeasured)}" if arms else \
             "no arm has a scored question to compare"
         print(f"✗ incomplete against `{baseline_arm}`: {why}", file=sys.stderr)
-        sys.exit(1)
-    if any(a["label"] == "JUDGE-DEPENDENT" for a in arms.values()):
-        sys.exit(1)
+        sys.exit(EXIT_INCONCLUSIVE)
 
 
 def register(score_sub, judge_sub, positive_int) -> None:
@@ -530,7 +533,7 @@ def register(score_sub, judge_sub, positive_int) -> None:
                     help="Judge sampling temperature, recorded as judge_temperature in the output")
     cj.add_argument("--concurrency", type=positive_int, default=DEFAULT_CONCURRENCY)
     cj.add_argument("--strict", action="store_true",
-                    help="Exit 1 when any arm is JUDGE-DEPENDENT or NOT MEASURED, or no arm was compared")
+                    help="Exit 4 when an arm is JUDGE-DEPENDENT; exit 3 when an arm is NOT MEASURED or no arm was compared")
     cj.add_argument("--output", default=None,
                     help="Output JSON (default: <answers>_crossjudge.json); Markdown written next to it")
     cj.set_defaults(func=cmd_eval_cross_judge)
