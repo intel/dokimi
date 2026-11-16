@@ -77,11 +77,13 @@ An answer that names no option of the tool passes the veto.
 A C API has no `--help`, so its check reads names instead. `--prefix` (a C identifier ending in
 `_`, repeatable) says which names are checked: an answer's `cblas_dgemmx` is vetoed when no
 `--header` declares it and no `--library` exports it, and an ordinary word is never read. A
-header's names are every prefixed identifier of its code (comments and strings aside), so a
-name a macro expands to counts too; a header's `#include` of another header is not followed, so
-pass each header. The sources together are refused when no file in them has a prefixed name, so a wrong
-file set cannot veto every name. One file with no prefixed name adds nothing and is not
-reported, so a wrong `--library` next to correct headers is not caught. Key verification works the same way: a key naming `LAPACKE_dgesvv`
+header's names are every prefixed identifier its code spells (comments and strings aside), so
+a macro's replacement list counts too. A name the preprocessor builds (`cblas_##n`) does not, so
+a valid function can be vetoed: supply a `--library` that exports it. A header's `#include` of
+another header is not followed, so pass each header. The sources together are refused when no
+file in them has a prefixed name, so a wrong file set cannot veto every name. A file with no
+prefixed name is recorded with its sha256 and adds no name and no warning, so a wrong `--library`
+next to correct headers is not caught. Key verification works the same way: a key naming `LAPACKE_dgesvv`
 is `not_found`.
 
 ```bash
