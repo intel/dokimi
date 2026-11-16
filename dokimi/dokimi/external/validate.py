@@ -361,11 +361,13 @@ def _skill_digest(skill: Skill) -> str:
 
 
 def _has_late_frontmatter(lines: list[str]) -> bool:
-    """Whether a line that is exactly ``---`` in the first 20 lines has a ``name:`` or ``description:`` line in its block (up to the next ``---``)."""
+    """Whether a ``---`` line outside a code fence, in the first 20 physical lines, has a ``name:`` or ``description:`` line in its block (up to the next ``---``, outside a fence)."""
     for i in range(min(len(lines) - 1, 20)):
-        if lines[i].rstrip() != "---":
+        # A fence's state depends only on the lines above it, so the prefix tells whether line i is outside one.
+        above = outside_fences("\n".join(lines[: i + 1]))
+        if lines[i].rstrip() != "---" or not above or above[-1].rstrip() != "---":
             continue
-        for line in lines[i + 1 :]:
+        for line in outside_fences("\n".join(lines[i + 1 :])):
             if line.rstrip() == "---":
                 break
             if line.startswith(("name:", "description:")):
@@ -386,9 +388,12 @@ def _first_line(block: list[str]) -> str:
 
 
 def _opens_frontmatter(lines: list[str]) -> bool:
-    """Whether the lines open with a ``---`` block that is empty or holds a YAML key (``title:``, ``name:``) before its closing ``---``."""
+    """Whether the lines open with a ``---`` block that is empty or holds a YAML key (``title:``, ``name:``) before its closing ``---``.
+
+    A code fence in the block is prose, not YAML: its lines are left out, so a ``---`` rule followed by an example fence stays a rule.
+    """
     block: list[str] = []
-    for line in lines[1:]:
+    for line in outside_fences("\n".join(lines))[1:]:
         if line.rstrip() == "---":
             return not any(line.strip() for line in block) or any(YAML_KEY_RE.match(line) for line in block) or bool(FLOW_OPENER_RE.match(_first_line(block)))
         block.append(line)
@@ -418,10 +423,10 @@ def _unloaded_review(entry: SkillCatalogEntry) -> Optional[SkillReview]:
         return None  # an empty file is not prose: the loader's error stands
     lines = text.lstrip("\ufeff").splitlines()
     first = next((line.rstrip() for line in lines if line.strip()), "")
-    unquoted = "\n".join("" if QUOTE_MARK_RE.match(line) else line for line in lines)  # a quoted example is prose too
-    if (first.strip() == "---" and lines[0].rstrip() != "---") or (first.strip() != "---" and _has_late_frontmatter(outside_fences(unquoted))):
+    unquoted = ["" if QUOTE_MARK_RE.match(line) else line for line in lines]  # a quoted example is prose too
+    if (first.strip() == "---" and lines[0].rstrip() != "---") or (first.strip() != "---" and _has_late_frontmatter(unquoted)):
         return None  # frontmatter after blank lines, an indent or another line: a broken skill, not prose; the loader's error stands
-    if first.strip() != "---" or not _opens_frontmatter(lines):  # a rule or prose, not a broken block
+    if first.strip() != "---" or not _opens_frontmatter(unquoted):  # a rule or prose, not a broken block
         at_root = candidate.parent.resolve() == entry.source_root.resolve()  # as _frontmatter_findings reads it
         hint = no_frontmatter_message(lines, _dir_name_of(candidate.parent), at_root=at_root)
         return SkillReview(findings=[Finding("error", NO_FRONTMATTER, hint)])

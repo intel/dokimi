@@ -260,6 +260,32 @@ def test_a_name_from_the_directory_is_at_most_64_characters():
     assert _block(no_frontmatter_message(["Builds."], "d" * 70, at_root=False))["name"] == "d" * 64
 
 
+def test_a_fenced_block_counts_toward_the_late_frontmatter_window_as_prose(tmp_path):
+    # A 20-line fence pushes the --- on physical line 26 out of the first 20 lines: it is prose, not late frontmatter.
+    text = "# Tool\n\n```text\n" + "example\n" * 20 + "```\n\n---\nname: late\ndescription: y\n---\n# Late\n"
+    _plain(tmp_path, "tool", text)
+    codes = [f.code for r in review_skills(read_skill_manifest(tmp_path)) if r for f in r.findings]
+    assert codes == ["not-a-skill-no-frontmatter"]
+
+
+@pytest.mark.parametrize("text", [
+    # A rule, then a yaml example fence, then a later rule: the fence's keys are prose, not the block's.
+    "---\n\n# Tool\n\nExplains metadata.\n\n```yaml\nname: x\ndescription: y\n```\n\n---\n\nBody.\n",
+    "---\n\n# Tool\n\nExplains metadata.\n\n```yaml\n---\nname: x\ndescription: y\n---\n```\n\n---\n\nBody.\n",
+])
+def test_a_yaml_example_fence_in_a_rule_then_prose_is_plain_markdown(tmp_path, text):
+    _plain(tmp_path, "tool", text)
+    codes = [f.code for r in review_skills(read_skill_manifest(tmp_path)) if r for f in r.findings]
+    assert codes == ["not-a-skill-no-frontmatter"]
+
+
+@pytest.mark.parametrize("at_root", [True, False])
+def test_a_name_with_no_ascii_letters_or_digits_falls_back_to_my_skill(at_root):
+    # The H1 and the directory name both have no ASCII letters or digits: the docs name the fallback.
+    finding = no_frontmatter_message(["Builds decks."], "\u90e8\u7f72", at_root=at_root)
+    assert _block(finding)["name"] == "my-skill"
+
+
 def test_a_root_skill_gets_the_h1_name_not_the_directory_name(tmp_path):
     real = tmp_path / "real"
     real.mkdir()

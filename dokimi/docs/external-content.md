@@ -239,7 +239,7 @@ file's H1 (the first paragraph when there is no H1). The name is the
 directory's below the scanned root, where the loader checks it against the
 directory; at the root, or when the directory name is not a valid name, it is
 the H1 in kebab-case (ASCII letters and digits, at most 64 characters), or the
-directory name when the H1 has none. The summary line counts these apart from the other errors
+directory name when the H1 has none, or `my-skill` when neither has one. The summary line counts these apart from the other errors
 (`3 error, of them 2 plain Markdown with no frontmatter`).
 A `---` block with a `name:` or `description:` line in the first 20 lines, or that opens with a YAML key
 (any, `title:` included), keeps the loader's error and gets no hint. So does a block of blank lines between two `---` lines.
