@@ -524,7 +524,9 @@ reads the upstream base (`base_sha`) and the workspace start commit
   (Claude Code), `rc` is `0` or `1`; a Claude Code `Skill` tool event carries it
   too (`1`: the skill was not loaded). A Copilot shell command takes its `rc` from
   `shellExecution.exitCode` only, so a result that carries only `success` gives `null`
-  (no choice rests on it). It is `null` when no result came back,
+  (no choice rests on it). The counters read this `rc` too: for a Copilot shell
+  command that carries only `success`, `failed_commands` and `first_useful` now see `null`
+  where they saw `0` or `1` before, so such a command is neither a failed nor a useful one. It is `null` when no result came back,
   for example when the run stopped at its turn or budget limit; a grader
   must not count `null` as a failure.
 - `agent` is present on an event a subagent made: the id of the parent's
