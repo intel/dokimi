@@ -300,7 +300,7 @@ only cells that name the same extractor.
 
 ## Using it as an authoring tool
 
-The commands in order, with the costs and the three free steps that come first, are in
+The commands in order, with the costs and the two free steps that come first, are in
 [skill-novelty-walkthrough.md](skill-novelty-walkthrough.md). This section is the reference
 for what each output means.
 
@@ -397,6 +397,9 @@ the highlight is load-bearing. Three measured constraints ship with it:
 ```bash
 python cli.py skill shorten --artifact skill:path/to/skill --atoms atoms.json --budgets 0.75 0.5
 ```
+
+`skill novelty analyze` scores the same candidates at its `--budgets` unless you pass `--no-shorten`
+(`--tier triage` skips them too).
 
 Never one "retention" number, because a single score hides the one failure that matters. A measured
 example from the study: a candidate at **21% of the original tokens** retained **0.916** of the
@@ -1163,7 +1166,7 @@ the `runs` (probe answers and judgments) so far; it has no `paired`, `arms`, `k0
 how to get the paid calls back: with `DOKIMI_RESPONSE_CACHE` set to a writable directory on the capped run, a rerun with a
 higher `--max-usd` and the same cache replays them at $0 (a reply that was cut off or unusable is
 asked again; after a `no_price` stop the message says to price the model or drop `--max-usd`
-instead, since a higher cap does not help); without it, or when it could not be written, the message says the calls were not cached. `novelty view`, `subjects`
+instead, since a higher cap does not help); without it, or when it could not be written, the message says the calls were not cached. `skill novelty view`, `subjects`
 (`--novelty-artifact`) and every other reader of a `novelty.json` refuse a partial file by name,
 and `runs list` does not list it (it opens with `status`, not `schema_version`). A record
 with `status: "partial"` but no `partial` block is refused too, and so is saving one with
@@ -1272,13 +1275,13 @@ one. Those outside the sample were never checked for faithfulness, so when any o
 `unchecked`, `--all-atoms` prints a `WARNING` with how many, and that `skill novelty atoms --all-atoms`
 (a new, uncapped extraction) verifies every atom it extracts. On a bundle, `skill shorten` keeps only the entry point's atoms; when none of the sample is
 among them it would score nothing, so it exits 2 and asks for `--all-atoms`.
-`novelty view` colours spans from every atom. An `atoms.json` with no `sampled_atom_ids`,
+`skill novelty view` colours spans from every atom. An `atoms.json` with no `sampled_atom_ids`,
 written before the record existed, held only the atoms its run probed, and is read as all of them
 sampled; one whose `sampled_atom_ids` names an atom the file does not hold, or names one twice,
 is refused (exit 2).
 When such an older file's record shows a cap that bound (`extraction.sampled` set, or `cap` set
 with any `extraction.reached` object, which a document-order cap wrote only when it bound),
-`skill novelty probe`, `skill shorten` and `novelty view` print a `WARNING` on stderr: the file holds
+`skill novelty probe`, `skill shorten` and `skill novelty view` print a `WARNING` on stderr: the file holds
 only the atoms its run probed, so spans whose atoms fell outside them read as carrying nothing and
 a shortening can cut them; re-run `skill novelty atoms` to index every atom. A document-order cap whose
 `reached` is the input's last span (`spans` equal to `of`) may still have cut atoms from that last

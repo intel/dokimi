@@ -232,6 +232,19 @@ order) is the original, the copy the `skill-catalog:` arm offers; each other cop
 names it. Warnings never change the exit code. `disable-model-invocation: true` is printed as a
 `note`, because the model is never offered that skill.
 
+A `SKILL.md` with no frontmatter (plain Markdown, often a README under the
+wrong name) does not load. Its finding, `not-a-skill-no-frontmatter`, holds a
+frontmatter block to start from. The description is the paragraph after the
+file's H1 (the first paragraph when there is no H1). The name is the
+directory's below the scanned root, where the loader checks it against the
+directory; at the root, or when the directory name is not a valid name, it is
+the H1 in kebab-case (ASCII letters and digits, at most 64 characters), or the
+directory name when the H1 has none, or `my-skill` when neither has one. The summary line counts these apart from the other errors
+(`3 error, of them 2 plain Markdown with no frontmatter`).
+A `---` block with a `name:` or `description:` line in the first 20 lines, or that opens with a YAML key
+(any, `title:` included), keeps the loader's error and gets no hint. So does a block of blank lines between two `---` lines.
+A block that opens with a `[` or `{` that is not a Markdown link also keeps the loader's error. A `---` rule, or a block with no YAML key and no such opener, is plain Markdown and gets this finding.
+
 The scan also checks the bundle and the description. A relative Markdown link
 to a file the skill does not have is a `warn` (`link-missing`), and says when the
 file exists from the catalog root instead. Example links such as `[Title](URL)`
@@ -411,17 +424,19 @@ A large catalog is easier to scan one skill at a time:
   they are not printed, and they do not set the state or the `--strict` exit. The
   codes are the `code` of each finding in the JSON output (`name-mismatch`,
   `description-no-when`, `description-when-not-checked`, ...); an unknown code is a usage error. `frontmatter-parse`
-  is refused (a skill that does not load always fails), and so is `unreadable` (a
+  and `not-a-skill-no-frontmatter` are refused (a skill that does not load always
+  fails), and so is `unreadable` (a
   `SKILL.md` the OS will not read fails the scan too), and `--kind tasks`.
 - `--jsonl PATH` writes one JSON row per skill as it is reviewed and prints only
   the counts. `--jobs N` reviews N skills in parallel. `--resume` keeps the rows
   already in PATH and reviews only the skills without one (a half-written last
   line from a killed run is dropped). Each row carries `skill_sha256`, the
   digest of every file in the skill's directory, and `ignored`, the sorted
-  `--ignore` codes in effect (`[]` when none). `--resume` keeps a row only
-  while that is unchanged and the `--ignore` codes are the same: a skill whose
-  `SKILL.md` or bundled file changed, a row written under other codes, or a row
-  without `skill_sha256` is reviewed again. Without `--resume`, PATH is replaced.
+  `--ignore` codes in effect (`[]` when none), and `dokimi_version`, the version
+  that wrote it. `--resume` keeps a row only while that is unchanged and the
+  `--ignore` codes are the same: a skill whose `SKILL.md` or bundled file changed,
+  a row written under other codes or by another dokimi version, or a row without
+  `skill_sha256` is reviewed again. Without `--resume`, PATH is replaced.
   Every `SKILL.md` is loaded before the first row, so memory still grows with
   the catalog. A `--jobs` worker that dies ends the scan with exit 1.
 

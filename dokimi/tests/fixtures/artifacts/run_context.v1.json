@@ -1,0 +1,17 @@
+{
+  "schema_version": "run_context.v1",
+  "harness": "claude-code",
+  "harness_version": "2.1.400",
+  "model_requested": "claude-sonnet-x",
+  "model_served": {"init": "claude-sonnet-x", "usage": ["claude-haiku-x", "claude-sonnet-x"]},
+  "effort": "high",
+  "thinking": null,
+  "credential_kind": "ANTHROPIC_API_KEY",
+  "permission_mode": {"mode": "bypassPermissions", "sandbox": null, "approval": null},
+  "tools": {"allowed": ["Read", "Bash", "Edit"], "disallowed": ["WebFetch", "WebSearch"]},
+  "extensions": {"plugins": ["cc-plugin-agents-md"], "skills": ["lint-fix"], "mcp_servers": ["docs"],
+                 "agents": ["general-purpose"], "output_style": "default"},
+  "outcome": {"stop_reason": "end_turn", "terminal_reason": "completed", "num_turns": 3,
+              "permission_denials": 1, "safety_stops": 0},
+  "config_sha256": {"settings.json": "0000000000000000000000000000000000000000000000000000000000000000"}
+}
