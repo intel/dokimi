@@ -39,9 +39,9 @@ PROXY_VARS = ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy")
 # DMI strings of hypervisors, matched in lower case against the vendor and product name.
 VM_MARKERS = (("vmware", "vmware"), ("virtualbox", "virtualbox"), ("innotek", "virtualbox"), ("qemu", "qemu"),
               ("kvm", "kvm"), ("xen", "xen"), ("parallels", "parallels"), ("virtual machine", "hyper-v"))
-# A quoted path may hold spaces, so it runs to its own closing quote; a bare path (POSIX, ``~``, Windows or UNC)
-# runs to the end of the line. A ``/`` path not preceded by a word character, ``.``, ``-`` or ``/`` is absolute (not an image name).
-_PATH = re.compile(r"""(?P<q>['"])(?:/|~|[A-Za-z]:\\|\\\\)(?:(?!(?P=q)).)*(?P=q)|~/[^\n]*|\\\\[^\n]*|(?<![\w./-])/(?!/)[^\n]*|[A-Za-z]:\\[^\n]*""")
+# A quoted path runs to its closing quote; a bare path (POSIX, ``~``, Windows, UNC, ``file:``) runs to the end of the line.
+# A ``/`` path not preceded by a word character, ``.``, ``-`` or ``/`` is absolute (not an image name); ``//`` is UNC, not ``https://``.
+_PATH = re.compile(r"""(?P<q>['"])(?:/|~|[A-Za-z]:\\|\\\\|(?i:file):)(?:(?!(?P=q)).)*(?P=q)|(?<!\w)(?P<f>(?i:file):(?://)?)/[^\n]*|~/[^\n]*|\\\\[^\n]*|(?<![\w:./-])//[^/\s]+/[^\n]*|(?<![\w./-])/(?!/)[^\n]*|[A-Za-z]:\\[^\n]*""")
 
 
 def _read_text(path: str) -> str | None:
@@ -102,7 +102,14 @@ def _spawn(probe: Probe, argv: list[str]) -> str | None:
 
 def scrub(text: str) -> str:
     """``text`` with every absolute path replaced: an error message may name a file under the user's home."""
-    return _PATH.sub(lambda m: f"{m['q']}<path>{m['q']}" if m["q"] else "<path>", text)[:300]
+    return _PATH.sub(_redact, text)[:300]
+
+
+def _redact(match: re.Match[str]) -> str:
+    """A quoted path keeps its quotes, a ``file:`` URL keeps its scheme, any other path is ``<path>``."""
+    if match["q"]:
+        return f"{match['q']}<path>{match['q']}"
+    return f"{match['f']}<path>" if match["f"] else "<path>"
 
 
 def cpuinfo_field(text: str, name: str) -> str | None:
