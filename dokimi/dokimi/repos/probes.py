@@ -327,8 +327,8 @@ def _stages(part: str) -> list[list[str]]:
             _close(stages[-1], reads)
             reads = []
             stages.append([])
-        elif token.lstrip("&").startswith(">") or token == "<":
-            target = token.lstrip("&")[:1]
+        elif token.lstrip("&").startswith(">") or token in ("<", "<<<"):
+            target = token.lstrip("&")[:3]  # ``<<<`` is a string, not a file: only a lone ``<`` reads its target
         elif token not in _SEPARATORS and token not in _LEX_SKIP:
             stages[-1].append(_restore(token))
     _close(stages[-1], reads)
@@ -339,8 +339,13 @@ def _views(words: list[str]) -> Iterator[Stage]:
     """The command a simple command runs: its own program, then the command each wrapper (``time``, ``sudo``...) runs."""
     i = 0
     while i < len(words):
-        while i < len(words) and (_ASSIGN.match(words[i]) or words[i] in _KEYWORDS):  # NAME=value, ``then``: the command is next
-            i += 1
+        while i < len(words):
+            if _ASSIGN.match(words[i]) or words[i] in _KEYWORDS:  # NAME=value, ``then``: the command is next
+                i += 1
+            elif words[i].startswith("$") and words[i + 1:i + 2] == ["="]:  # PowerShell ``$x = ``: the same
+                i += 2
+            else:
+                break
         if i >= len(words):
             return
         yield _head(words[i], words[i + 1:])
@@ -386,6 +391,8 @@ def _python_run(args: tuple[str, ...]) -> tuple[str, tuple[str, ...]] | None:
             return word, args[i + 1:]
         if word.startswith("-c"):  # ``-cimport os``: the code is in the same word
             return "-c", (word[2:],) + args[i + 1:]
+        if re.fullmatch(r"-[BdEhiIOPqRsSuvx]+[cm]", word):  # ``-Ic code``, ``-Im pip``: flags, then the code or module
+            return "-" + word[-1], args[i + 1:]
         if word == "--" or not word.startswith("-"):
             return None
         i += 2 if word in _PY_VALUE_OPTIONS else 1

@@ -354,3 +354,23 @@ def test_a_search_option_value_is_no_operand_so_the_file_after_it_is_read():
 def test_a_glob_or_type_value_of_a_search_is_no_expression_or_file(command):
     events = _claude(_claude_call("a", command, "2026-01-01T00:00:05Z"), _claude_result("a"))
     assert all(e["kind"] != "probe" for e in events)
+
+
+def test_a_powershell_assignment_is_skipped_so_the_command_after_it_is_the_probe():
+    command = "$cpu = Get-CimInstance Win32_Processor; $cpu.NumberOfCores"
+    events = _claude(_claude_call("a", command, "2026-01-01T00:00:05Z", name="PowerShell"), _claude_result("a", "8"))
+    assert [e["target"] for e in events if e["kind"] == "probe"] == ["cpu"]
+
+
+@pytest.mark.parametrize(("command", "target"), [
+    ("python -Ic 'import os; print(os.cpu_count())'", "cpu"),
+    ("python -Im pip list", "packages"),
+])
+def test_python_flags_with_c_or_m_in_one_word_are_read_as_the_code_or_the_module(command, target):
+    events = _claude(_claude_call("a", command, "2026-01-01T00:00:05Z"), _claude_result("a"))
+    assert [e["target"] for e in events if e["kind"] == "probe"] == [target]
+
+
+def test_a_here_string_is_no_file_the_command_reads():
+    events = _claude(_claude_call("a", "cat <<< /proc/cpuinfo", "2026-01-01T00:00:05Z"), _claude_result("a"))
+    assert all(e["kind"] != "probe" for e in events)
