@@ -182,7 +182,7 @@ def mutants_for(path: str, src: str, lines: set[int]) -> list[Mutant]:
 
 def apply(src: str, m: Mutant) -> str:
     """``src`` with the mutant's span replaced; columns are UTF-8 byte offsets."""
-    lines = src.splitlines(keepends=True)
+    lines = re.split(r"(?<=\n)", src)  # splitlines also breaks on U+2028 and \x0c, which ast line numbers do not count
     (sl, sc), (el, ec) = m.start, m.end
     head = lines[sl - 1].encode("utf-8")[:sc].decode("utf-8")
     tail = lines[el - 1].encode("utf-8")[ec:].decode("utf-8")

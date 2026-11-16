@@ -622,3 +622,9 @@ def test_the_covering_pass_asks_pytest_for_the_passed_ids(tmp_path: Path, monkey
     by_file, _, _ = mc.covering_tests(tmp_path, ["tests/test_zz.py"], ["dokimi/dokimi/zz.py"], 60)
     assert "-rfEp" in asked[0]
     assert by_file["dokimi/dokimi/zz.py"][1] == ["tests/test_zz.py::test_const"]
+
+
+def test_apply_splices_a_mutant_on_its_own_line_past_a_unicode_line_separator() -> None:
+    src = 'S = " "\ndef f(x):\n    return x == 1\n'
+    (m,) = [m for m in mc.mutants_for("x.py", src, {3}) if m.op == "flip-compare"]
+    assert mc.apply(src, m) == 'S = " "\ndef f(x):\n    return x != 1\n'
