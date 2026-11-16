@@ -70,7 +70,8 @@ def _scan_skills(args: argparse.Namespace, root: Path, report: dict, as_json: bo
         report["skills"].append(row)
         # A load error, or a SKILL.md the OS will not read, always fails; a spec error, or unrestricted Bash with a risky command, only with --strict.
         unreadable = review is not None and any(f.code == "unreadable" for f in review.findings)
-        load_failed = not skill.loaded and not not_a_failed_load([f["code"] for f in row["findings"]])  # skill_format
+        load_failed = not skill.loaded and not not_a_failed_load(  # skill_format; the codes before --ignore
+            [f.code for f in review.findings] if review is not None else [])
         if load_failed or unreadable or (args.strict and (row["state"] == "error" or unrestricted_and_risky(row))):
             failed = True
     if not as_json:

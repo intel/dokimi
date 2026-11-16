@@ -718,8 +718,10 @@ def review_skills(
             at_root = skill.path.parent.resolve() == entry.source_root.resolve()
             fmt = skill_format(skill.path, entry.source_root)
             findings, hidden = _frontmatter_findings(skill, at_root=at_root, fmt=fmt)
-            if fmt == FORMAT_UNSUPPORTED:  # no spec to hold the frontmatter and description to: one note
-                findings = format_findings(fmt)
+            if fmt == FORMAT_UNSUPPORTED:  # no spec to hold the frontmatter and description to: one note, and the safety finding stays
+                findings = format_findings(fmt) + [
+                    f for f in findings if f.code == "allowed-tools-unrestricted-bash"
+                ]
             review = SkillReview(findings=findings, disable_model_invocation=hidden)
             review.findings += _bundle_findings(skill, entry.source_root)
             review.findings += _body_findings(skill)

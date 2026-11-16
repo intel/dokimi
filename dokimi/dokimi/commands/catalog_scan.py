@@ -39,7 +39,7 @@ def skill_row(skill, review, nested_in: Optional[str] = None, outputs: Iterable[
 
     kept = name_risky_commands([f for f in review.findings if f.code not in ignore]) if review else []
     # An unloaded SKILL.md that is plain Markdown under OpenCode or an unsupported host is a warning or a note here, not a failed load (skill_format).
-    exempt = not skill.loaded and not_a_failed_load([f.code for f in kept])
+    exempt = not skill.loaded and not_a_failed_load([f.code for f in review.findings] if review else [])  # before --ignore
     state = "error" if not skill.loaded and not exempt else state_of(kept)
     return {
         "name": skill.name,
